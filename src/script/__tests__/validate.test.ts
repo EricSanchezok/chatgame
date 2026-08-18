@@ -133,6 +133,7 @@ death_policy:
 meta_progression:
   keep: [flags]
   reset: [stats]
+  unlocks: []
 memory:
   tier_retention_days: { major: 0, minor: 90, trivial: 30 }
 context_compaction:
@@ -492,5 +493,229 @@ templates:
       "background: &anchor 测试世界背景\nduplicate: *anchor",
     );
     expectIssuesContaining(files, ["aliases/anchors are forbidden"]);
+  });
+
+  // --- Newly covered edges from review: events effects full kinds ---
+  it("rejects event effect → missing item", () => {
+    const files = validBase();
+    files["events/e1.yaml"] = `
+id: e1
+name: 测试事件
+type: crisis
+tags: [danger]
+trigger: director
+effects:
+  - { kind: item, direction: add, target: player, item: ghost }
+weight: 1
+cooldown: 1
+repeatable: false
+`;
+    expectIssuesContaining(files, ['item "ghost" not found']);
+  });
+
+  it("rejects event effect → missing faction", () => {
+    const files = validBase();
+    files["events/e1.yaml"] = `
+id: e1
+name: 测试事件
+type: crisis
+tags: [danger]
+trigger: director
+effects:
+  - { kind: reputation, direction: add, target: player, faction: ghost, value: 5 }
+weight: 1
+cooldown: 1
+repeatable: false
+`;
+    expectIssuesContaining(files, ['faction "ghost" not found']);
+  });
+
+  it("rejects event effect → missing location (teleport)", () => {
+    const files = validBase();
+    files["events/e1.yaml"] = `
+id: e1
+name: 测试事件
+type: crisis
+tags: [danger]
+trigger: director
+effects:
+  - { kind: teleport, direction: set, target: player, location: ghost }
+weight: 1
+cooldown: 1
+repeatable: false
+`;
+    expectIssuesContaining(files, ['location "ghost" not found']);
+  });
+
+  it("rejects event effect → missing status", () => {
+    const files = validBase();
+    files["events/e1.yaml"] = `
+id: e1
+name: 测试事件
+type: crisis
+tags: [danger]
+trigger: director
+effects:
+  - { kind: status, direction: add, target: player, status: ghost }
+weight: 1
+cooldown: 1
+repeatable: false
+`;
+    expectIssuesContaining(files, ['status "ghost" not declared in mechanics.yaml']);
+  });
+
+  it("rejects event effect → missing npc target", () => {
+    const files = validBase();
+    files["events/e1.yaml"] = `
+id: e1
+name: 测试事件
+type: crisis
+tags: [danger]
+trigger: director
+effects:
+  - { kind: relation, direction: add, target: ghost, npc: npc1, value: 5 }
+weight: 1
+cooldown: 1
+repeatable: false
+`;
+    expectIssuesContaining(files, ['target npc "ghost" not found']);
+  });
+
+  // --- Newly covered edges: tasks rewards full kinds ---
+  it("rejects task reward → missing npc", () => {
+    const files = validBase();
+    files["tasks/t1.yaml"] = `
+id: t1
+name: 测试任务
+objective:
+  type: gather
+  target: { pool: [item1] }
+  quantity: 1
+giver: { pool: [npc1] }
+rewards:
+  - { kind: relation, direction: add, target: player, npc: ghost, value: 5 }
+repeatable: false
+narrative:
+  offer: 给你
+  complete: 完成
+  fail: 失败
+`;
+    expectIssuesContaining(files, ['npc "ghost" not found']);
+  });
+
+  it("rejects task reward → missing location", () => {
+    const files = validBase();
+    files["tasks/t1.yaml"] = `
+id: t1
+name: 测试任务
+objective:
+  type: gather
+  target: { pool: [item1] }
+  quantity: 1
+giver: { pool: [npc1] }
+rewards:
+  - { kind: teleport, direction: set, target: player, location: ghost }
+repeatable: false
+narrative:
+  offer: 给你
+  complete: 完成
+  fail: 失败
+`;
+    expectIssuesContaining(files, ['location "ghost" not found']);
+  });
+
+  it("rejects task reward → missing status", () => {
+    const files = validBase();
+    files["tasks/t1.yaml"] = `
+id: t1
+name: 测试任务
+objective:
+  type: gather
+  target: { pool: [item1] }
+  quantity: 1
+giver: { pool: [npc1] }
+rewards:
+  - { kind: status, direction: add, target: player, status: ghost }
+repeatable: false
+narrative:
+  offer: 给你
+  complete: 完成
+  fail: 失败
+`;
+    expectIssuesContaining(files, ['status "ghost" not declared in mechanics.yaml']);
+  });
+
+  it("rejects task reward → missing event", () => {
+    const files = validBase();
+    files["tasks/t1.yaml"] = `
+id: t1
+name: 测试任务
+objective:
+  type: gather
+  target: { pool: [item1] }
+  quantity: 1
+giver: { pool: [npc1] }
+rewards:
+  - { kind: event, direction: set, target: player, event: ghost }
+repeatable: false
+narrative:
+  offer: 给你
+  complete: 完成
+  fail: 失败
+`;
+    expectIssuesContaining(files, ['event "ghost" not found']);
+  });
+
+  // --- Newly covered: run unlocks[].grant → origins ---
+  it("rejects run unlock grant → missing origin", () => {
+    const files = validBase();
+    files["run.yaml"] = files["run.yaml"].replace(
+      "unlocks: []",
+      "unlocks:\n  - { flag: returned, grant: [ghost] }",
+    );
+    expectIssuesContaining(files, ['origin "ghost" not found in origins/']);
+  });
+
+  // --- Newly covered: illegal op in condition algebra ---
+  it("rejects illegal condition op (bogus)", () => {
+    const files = validBase();
+    files["plot.yaml"] = files["plot.yaml"].replace(
+      "op: gte",
+      "op: bogus",
+    );
+    writeScript(files);
+    const result = validateScriptDir(dir);
+    expect(result.ok).toBe(false);
+    const issue = result.issues.find((i) =>
+      i.path.includes("trigger.condition"),
+    );
+    expect(issue).toBeDefined();
+    expect(issue!.file).toBe("plot.yaml");
+  });
+
+  // --- Newly covered: type mismatch (string in numeric field) ---
+  it("rejects type mismatch (string dc in action resolve)", () => {
+    const files = validBase();
+    files["actions.yaml"] = files["actions.yaml"].replace(
+      "dc: 12",
+      'dc: "high"',
+    );
+    expectIssuesContaining(files, ["expected number, received string"]);
+  });
+
+  // --- Newly covered: line number attribution (lineForPath end-to-end) ---
+  it("reports the correct line number for a schema violation", () => {
+    const files = validBase();
+    // script.yaml template starts with a newline; `tone: [悬疑]` is on line 7
+    files["script.yaml"] = files["script.yaml"].replace(
+      "tone: [悬疑]",
+      "tone: []",
+    );
+    writeScript(files);
+    const result = validateScriptDir(dir);
+    expect(result.ok).toBe(false);
+    const issue = result.issues.find((i) => i.path === "tone");
+    expect(issue).toBeDefined();
+    expect(issue!.line).toBe(7);
   });
 });

@@ -236,6 +236,7 @@ interface EntityPools {
   loreIds: Set<string>;
   exampleNpcIds: Set<string>;
   eventTextIds: Set<string>;
+  originIds: Set<string>;
   statNames: Set<string>;
   skillNames: Set<string>;
   needNames: Set<string>;
@@ -276,6 +277,7 @@ function checkReferences(
     loreIds: new Set(),
     exampleNpcIds: new Set(),
     eventTextIds: new Set(),
+    originIds: new Set(),
     statNames: new Set(),
     skillNames: new Set(),
     needNames: new Set(),
@@ -297,6 +299,7 @@ function checkReferences(
   for (const s of mechanics?.needs ?? []) pools.needNames.add(s.name);
   for (const s of mechanics?.status_effects ?? []) pools.statusEffectIds.add(s.id);
   for (const s of time?.schedules ?? []) pools.scheduleIds.add(s.id);
+  for (const m of arrays.origins) pools.originIds.add(m.data.id);
   for (const m of arrays.npcs) {
     pools.npcIds.add(m.data.id);
     for (const secret of m.data.secrets) pools.secretIds.add(secret.id);
@@ -348,7 +351,7 @@ function checkReferences(
     }
   }
 
-  // --- run → locations / gauge cross-check ---
+  // --- run → locations / gauge / unlocks cross-check ---
   if (run) {
     if (run.death_policy.mode === "soft_failure" && run.death_policy.soft_failure) {
       const loc = run.death_policy.soft_failure.consequence.location;
@@ -360,6 +363,13 @@ function checkReferences(
         add("run.yaml", undefined, "death_policy.soft_failure.gauge_ref", `gauge_ref "${gaugeRef}" requires mechanics.yaml combat.threat_gauge`);
       } else if (gaugeRef && gaugeRef !== "threat_gauge") {
         add("run.yaml", undefined, "death_policy.soft_failure.gauge_ref", `gauge_ref "${gaugeRef}" does not match the declared threat_gauge`);
+      }
+    }
+    for (const u of run.meta_progression.unlocks) {
+      for (const id of u.grant) {
+        if (!pools.originIds.has(id)) {
+          add("run.yaml", undefined, `meta_progression.unlocks[${u.flag}].grant`, `origin "${id}" not found in origins/`);
+        }
       }
     }
   }
@@ -476,6 +486,15 @@ function checkReferences(
     for (const id of refs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `location "${id}" not found`);
     const erefs = collectEffectRefs(e.effects);
     for (const id of erefs.stat) if (!pools.statNames.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `stat "${id}" not declared`);
+    for (const id of erefs.skill) if (!pools.skillNames.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `skill "${id}" not declared in mechanics.yaml`);
+    for (const id of erefs.need) if (!pools.needNames.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `need "${id}" not declared in mechanics.yaml`);
+    for (const id of erefs.item) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `item "${id}" not found`);
+    for (const id of erefs.faction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `faction "${id}" not found`);
+    for (const id of erefs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `npc "${id}" not found`);
+    for (const id of erefs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `location "${id}" not found`);
+    for (const id of erefs.status) if (!pools.statusEffectIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `status "${id}" not declared in mechanics.yaml`);
+    for (const id of erefs.targetNpc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `target npc "${id}" not found`);
+    for (const id of erefs.targetFaction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `target faction "${id}" not found`);
     for (const id of erefs.event) if (!pools.eventIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `event "${id}" not found`);
     for (const id of erefs.secret) if (!pools.secretIds.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `secret "${id}" not found`);
   }
@@ -514,6 +533,16 @@ function checkReferences(
     const erefs = collectEffectRefs(t.rewards);
     for (const id of erefs.item) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `item "${id}" not found`);
     for (const id of erefs.stat) if (!pools.statNames.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `stat "${id}" not declared`);
+    for (const id of erefs.skill) if (!pools.skillNames.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `skill "${id}" not declared in mechanics.yaml`);
+    for (const id of erefs.need) if (!pools.needNames.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `need "${id}" not declared in mechanics.yaml`);
+    for (const id of erefs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `npc "${id}" not found`);
+    for (const id of erefs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `location "${id}" not found`);
+    for (const id of erefs.faction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `faction "${id}" not found`);
+    for (const id of erefs.status) if (!pools.statusEffectIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `status "${id}" not declared in mechanics.yaml`);
+    for (const id of erefs.event) if (!pools.eventIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `event "${id}" not found`);
+    for (const id of erefs.secret) if (!pools.secretIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `secret "${id}" not found`);
+    for (const id of erefs.targetNpc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `target npc "${id}" not found`);
+    for (const id of erefs.targetFaction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `target faction "${id}" not found`);
   }
 
   // --- origins → npcs/locations/items + stats/skills + denied actions ---

@@ -820,25 +820,28 @@ leaf  := { source, key?, target?, op, value? }
 
 ## 附录 E. 引用完整性矩阵
 
-语义校验层必须逐边检查（每条边 ≥1 测试）：
+语义校验层逐边检查（每条边 ≥1 测试，`src/script/validate.ts` 为实现；本表与实现逐行对齐）：
 
-| 源 | 引用目标 |
-|---|---|
-| actions | stats, skills, needs |
-| plot | secrets, npcs, events, locations |
-| events | locations, npcs, factions, items, tasks |
-| tasks | items, npcs, locations, factions |
-| origins | npcs, locations, items, flags, stats, skills |
-| npcs | base_class, stats, skills, needs, relations→npcs/factions, schedule→time.yaml, home→locations, items→items, secrets→plot |
-| factions | npcs, factions |
-| locations | connections→locations, npcs, items, events |
-| items | effects→stats, status_effects |
-| narrative/event_texts | event ids |
-| narrative/examples | npc ids |
-| worldgen | 引用池 |
-| director | events |
-| run.yaml | origins, locations, status |
+| 源 | 引用目标 | 校验状态 |
+|---|---|---|
+| actions | stats, skills, needs, items（resolve/costs/conditions/effects） | ✅ 已实现 |
+| plot | secrets, npcs, events, locations（related + trigger conditions） | ✅ 已实现 |
+| events | locations, npcs, events（participants/exclusivity/narrative.template + conditions/effects 全 kind） | ✅ 已实现 |
+| tasks | items, npcs, locations（objective/giver）+ rewards 全 kind | ✅ 已实现 |
+| origins | npcs, locations, items, stats, skills, actions（starting_relations/starting_location/items/exclusive_leads/denied_actions/stats/skills） | ✅ 已实现 |
+| origins | flags（starting_knowledge） | ⚠️ v1.0 不校验：flag 无声明池，见下方说明 |
+| npcs | stats, skills, needs, schedule→time.yaml, home→locations, items, relations→npcs, secrets→plot（reveal.logic） | ✅ 已实现 |
+| factions | npcs（members）, factions（relations）, items（reputation thresholds effects） | ✅ 已实现 |
+| locations | connections→locations, npcs, items, events（ambient_events + entry/exit conditions） | ✅ 已实现 |
+| items | stats, status_effects（effects_on_use + requirements） | ✅ 已实现 |
+| narrative/event_texts | event ids | ✅ 已实现 |
+| narrative/examples | npc ids | ✅ 已实现 |
+| worldgen | 引用池（npc/faction/item/event ids） | ✅ 已实现 |
+| director | events | ⚠️ v1.0 不校验：director.yaml 无 event 引用字段（tension 变量 source 已校验为 gauge） |
+| run.yaml | locations, gauge（soft_failure）、origins（unlocks[].grant） | ✅ 已实现 |
+| facts（条件代数 source: fact） | fact 键 | ⚠️ v1.0 不校验：fact 无声明池（引擎运行态事件日志持有），剧本内保持一致即可 |
 
+**无声明池说明**：`flags`/`facts` 是运行态概念——flag 由出身/事件/承诺在运行时设置，fact 由事件日志产生，剧本没有集中的声明处，因此 v1.0 校验器不检查其存在性；剧本作者需自行保持一致。若未来引入 flags.yaml 声明池，再补对应校验（加法演进）。
 ---
 
 ## 附录 F. 版本与扩展性契约

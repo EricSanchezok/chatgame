@@ -20,6 +20,7 @@ chatgame 需要一套"剧本 = 一个世界"的格式契约：换剧本即换游
 - **纯配置**：机制算法在引擎，剧本只配置参数；新机制 = 引擎版本 + schema_version 提升。
 - **版本契约**：`schema_version` 严格相等（1.0）；2.0 前只允许加法演进；ID 发布后不得更改（存档迁移前提）；运行态隔离（剧本无状态）。
 - **校验三层**：YAML 安全解析（禁 alias、200KB 上限）→ zod strict 逐模块 → 语义校验（引用完整性矩阵全部边 + id 唯一性 + 命名规则 + 版本匹配），错误定位到文件+字段+行。
+- **校验完备性**（审查补全）：引用矩阵全部边实现并逐边测试——actions 全 kind、plot related/trigger、events effects 全 kind（item/faction/npc/location/status/target）、tasks rewards 全 kind（npc/location/faction/status/event/secret/target）、origins（relations/items/exclusive_leads/denied_actions/stats/skills）、npcs（stats/skills/needs/schedule/home/items/relations/secrets）、factions（members/relations/reputation effects）、locations（connections/npcs/items/events/conditions）、items（effects/requirements）、worldgen 池、run（soft_failure location/gauge + unlocks[].grant→origins）、narrative 引用；破坏样本含非法 op 与类型错配；行号断言验证 lineForPath 端到端。规格附录 E 与实现逐行对齐，并显式注明 v1.0 不校验的边（director→events 无字段、origins→flags 与 facts 无声明池）。
 - **交付物**：规格文档 `docs/game-design/script-format.md`（18 模块 + 附录 A-G）、`src/script/schemas/`（zod 全套）、`src/script/validate.ts` + `scripts/validate-script.ts`（CLI）、双 fixture `scripts/emberfall/` 与 `scripts/starlight/`、vitest 测试（每 schema 正反例 + 语义校验每边 + 破坏样本集）。
 
 ## Alternatives considered
