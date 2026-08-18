@@ -1,6 +1,7 @@
 // Semantic validation for script directories:
 // module zod validation + cross-file reference integrity (appendix E of the spec),
-// id uniqueness, schema_version strict match, and ID naming rules.
+// condition op×source compatibility (appendix C), id uniqueness,
+// schema_version strict match, and ID naming rules.
 // Every issue carries file / field path / line number.
 import path from "node:path";
 import { z } from "zod";
@@ -202,6 +203,82 @@ export function collectEffectRefs(effects: Effect[] | undefined): CollectedEffec
   return refs;
 }
 
+/** Condition ops allowed per source class (appendix C op×source matrix). */
+const CONDITION_OPS_BY_SOURCE: Record<string, readonly string[]> = {
+  stat: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  skill: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  need: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  relationship: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  reputation: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  time: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  inventory: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  currency: ["gte", "lte", "gt", "lt", "eq", "neq"],
+  flag: ["has", "not_has"],
+  fact: ["has", "not_has"],
+  location: ["eq", "neq", "in", "not_in"],
+};
+
+interface ConditionRefs {
+  stat: Set<string>;
+  skill: Set<string>;
+  need: Set<string>;
+  npc: Set<string>;
+  faction: Set<string>;
+  location: Set<string>;
+  item: Set<string>;
+  flag: Set<string>;
+  fact: Set<string>;
+}
+
+function newConditionRefs(): ConditionRefs {
+  return {
+    stat: new Set(),
+    skill: new Set(),
+    need: new Set(),
+    npc: new Set(),
+    faction: new Set(),
+    location: new Set(),
+    item: new Set(),
+    flag: new Set(),
+    fact: new Set(),
+  };
+}
+
+/**
+ * Appendix C op×source walk: every leaf must use an op allowed for its source;
+ * `in`/`not_in` values must be arrays, `eq`/`neq` values must not be arrays.
+ */
+function checkConditionSemantics(
+  file: string,
+  basePath: string,
+  condition: Condition | undefined,
+  add: (file: string, line: number | undefined, path: string, message: string) => void,
+): void {
+  if (!condition) return;
+  if ("all" in condition) {
+    condition.all.forEach((c, i) => checkConditionSemantics(file, `${basePath}.all[${i}]`, c, add));
+    return;
+  }
+  if ("any" in condition) {
+    condition.any.forEach((c, i) => checkConditionSemantics(file, `${basePath}.any[${i}]`, c, add));
+    return;
+  }
+  if ("not" in condition) {
+    checkConditionSemantics(file, `${basePath}.not`, condition.not, add);
+    return;
+  }
+  const { source, op, value } = condition;
+  const allowed = CONDITION_OPS_BY_SOURCE[source];
+  if (allowed && !allowed.includes(op)) {
+    add(file, undefined, `${basePath}.op`, `op "${op}" not allowed for source "${source}" (allowed: ${allowed.join("/")})`);
+  }
+  if ((op === "in" || op === "not_in") && !Array.isArray(value)) {
+    add(file, undefined, `${basePath}.value`, `op "${op}" requires an array value`);
+  }
+  if ((op === "eq" || op === "neq") && Array.isArray(value)) {
+    add(file, undefined, `${basePath}.value`, `op "${op}" does not accept an array value`);
+  }
+}
 /** Structural schema validation of one loaded file; pushes zod issues into `issues`. */
 function validateModule<T>(
   file: LoadedYamlFile,
@@ -292,6 +369,8 @@ function checkReferences(
   const director = modules["director"]?.data as z.infer<typeof directorSchema> | undefined;
   const actions = modules["actions"]?.data as z.infer<typeof actionsSchema> | undefined;
   const plot = modules["plot"]?.data as z.infer<typeof plotSchema> | undefined;
+  const openingModule = modules["opening"];
+  const opening = openingModule?.data as z.infer<typeof openingSchema> | undefined;
 
   // --- Build pools ---
   for (const s of mechanics?.stats ?? []) pools.statNames.add(s.name);
@@ -333,6 +412,22 @@ function checkReferences(
       add("(global)", undefined, id, `duplicate id "${id}" across files (first declared in ${seen.get(id)})`);
     } else {
       seen.set(id, "declared");
+    }
+  }
+
+  // --- time → events (festivals) / locations (schedule entries) ---
+  if (time) {
+    for (const f of time.festivals ?? []) {
+      if (f.event && !pools.eventIds.has(f.event)) {
+        add("time.yaml", undefined, `festivals[${f.id}].event`, `event "${f.event}" not found`);
+      }
+    }
+    for (const s of time.schedules ?? []) {
+      for (const [i, entry] of s.entries.entries()) {
+        if (entry.location && !pools.locationIds.has(entry.location)) {
+          add("time.yaml", undefined, `schedules[${s.id}].entries[${i}].location`, `location "${entry.location}" not found`);
+        }
+      }
     }
   }
 
@@ -457,6 +552,7 @@ function checkReferences(
       for (const id of refs.stat) if (!pools.statNames.has(id)) add("actions.yaml", undefined, `${base}.conditions`, `stat "${id}" not declared`);
       for (const id of refs.skill) if (!pools.skillNames.has(id)) add("actions.yaml", undefined, `${base}.conditions`, `skill "${id}" not declared`);
       for (const id of refs.need) if (!pools.needNames.has(id)) add("actions.yaml", undefined, `${base}.conditions`, `need "${id}" not declared`);
+      checkConditionSemantics("actions.yaml", `${base}.conditions`, a.conditions, add);
       const erefs = collectEffectRefs(a.effects);
       for (const id of erefs.stat) if (!pools.statNames.has(id)) add("actions.yaml", undefined, `${base}.effects`, `stat "${id}" not declared`);
       for (const id of erefs.item) if (!pools.itemIds.has(id)) add("actions.yaml", undefined, `${base}.effects`, `item "${id}" not found`);
@@ -480,6 +576,15 @@ function checkReferences(
       for (const id of refs.npc) if (!pools.npcIds.has(id)) add("plot.yaml", undefined, `${base}.trigger`, `npc "${id}" not found`);
       for (const id of refs.faction) if (!pools.factionIds.has(id)) add("plot.yaml", undefined, `${base}.trigger`, `faction "${id}" not found`);
       for (const id of refs.location) if (!pools.locationIds.has(id)) add("plot.yaml", undefined, `${base}.trigger`, `location "${id}" not found`);
+      checkConditionSemantics("plot.yaml", `${base}.trigger.condition`, c.trigger.condition, add);
+      checkConditionSemantics("plot.yaml", `${base}.deadline.condition`, c.deadline?.condition, add);
+    }
+  }
+
+  // --- narrative opening → hook condition semantics ---
+  if (opening && openingModule) {
+    for (const [i, h] of opening.hooks.entries()) {
+      checkConditionSemantics(openingModule.file.relPath, `hooks[${i}].condition`, h.condition, add);
     }
   }
 
@@ -497,6 +602,7 @@ function checkReferences(
     collectConditionRefs(e.conditions, refs);
     for (const id of refs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `npc "${id}" not found`);
     for (const id of refs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `location "${id}" not found`);
+    checkConditionSemantics(m.file.relPath, `${base}.conditions`, e.conditions, add);
     const erefs = collectEffectRefs(e.effects);
     for (const id of erefs.stat) if (!pools.statNames.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `stat "${id}" not declared`);
     for (const id of erefs.skill) if (!pools.skillNames.has(id)) add(m.file.relPath, undefined, `${base}.effects`, `skill "${id}" not declared in mechanics.yaml`);
@@ -556,6 +662,18 @@ function checkReferences(
     for (const id of erefs.secret) if (!pools.secretIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `secret "${id}" not found`);
     for (const id of erefs.targetNpc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `target npc "${id}" not found`);
     for (const id of erefs.targetFaction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.rewards`, `target faction "${id}" not found`);
+    const condRefs = newConditionRefs();
+    collectConditionRefs(t.conditions, condRefs);
+    collectConditionRefs(t.giver.condition, condRefs);
+    for (const id of condRefs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `npc "${id}" not found`);
+    for (const id of condRefs.faction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `faction "${id}" not found`);
+    for (const id of condRefs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `location "${id}" not found`);
+    for (const id of condRefs.stat) if (!pools.statNames.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `stat "${id}" not declared`);
+    for (const id of condRefs.skill) if (!pools.skillNames.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `skill "${id}" not declared`);
+    for (const id of condRefs.need) if (!pools.needNames.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `need "${id}" not declared`);
+    for (const id of condRefs.item) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.conditions`, `item "${id}" not found`);
+    checkConditionSemantics(m.file.relPath, `${base}.conditions`, t.conditions, add);
+    checkConditionSemantics(m.file.relPath, `${base}.giver.condition`, t.giver.condition, add);
   }
 
   // --- origins → npcs/locations/items + stats/skills + denied actions ---
@@ -577,6 +695,7 @@ function checkReferences(
   }
 
   // --- npcs → stats/skills/needs/schedule/home/items/relations + secrets reveal ---
+  const secretOwner = new Map<string, string>();
   for (const m of arrays.npcs) {
     const n = m.data;
     const base = `npcs[${n.id}]`;
@@ -588,9 +707,15 @@ function checkReferences(
     for (const id of n.items) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.items`, `item "${id}" not found`);
     for (const r of n.relations) if (!pools.npcIds.has(r.target)) add(m.file.relPath, undefined, `${base}.relations`, `relation target "${r.target}" not found`);
     for (const s of n.secrets) {
-      const refs = { stat: new Set<string>(), skill: new Set<string>(), need: new Set<string>(), npc: new Set<string>(), faction: new Set<string>(), location: new Set<string>(), item: new Set<string>(), flag: new Set<string>(), fact: new Set<string>() };
+      if (secretOwner.has(s.id)) {
+        add(m.file.relPath, undefined, `${base}.secrets[${s.id}].id`, `duplicate secret id "${s.id}" across npcs (first declared by ${secretOwner.get(s.id)})`);
+      } else {
+        secretOwner.set(s.id, n.id);
+      }
+      const refs = newConditionRefs();
       collectConditionRefs(s.reveal.logic, refs);
       for (const id of refs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.secrets[${s.id}].reveal`, `npc "${id}" not found`);
+      checkConditionSemantics(m.file.relPath, `${base}.secrets[${s.id}].reveal.logic`, s.reveal.logic, add);
     }
     if (n.llm.dialogue_examples && !pools.exampleNpcIds.has(n.llm.dialogue_examples)) {
       add(m.file.relPath, undefined, `${base}.llm.dialogue_examples`, `dialogue examples "${n.llm.dialogue_examples}" not found in narrative/examples/`);
@@ -605,7 +730,18 @@ function checkReferences(
     for (const r of f.relations) if (!pools.factionIds.has(r.target)) add(m.file.relPath, undefined, `${base}.relations`, `faction "${r.target}" not found`);
     for (const t of f.reputation?.thresholds ?? []) {
       const erefs = collectEffectRefs(t.effects);
+      for (const id of erefs.stat) if (!pools.statNames.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `stat "${id}" not declared`);
+      for (const id of erefs.skill) if (!pools.skillNames.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `skill "${id}" not declared in mechanics.yaml`);
+      for (const id of erefs.need) if (!pools.needNames.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `need "${id}" not declared in mechanics.yaml`);
       for (const id of erefs.item) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `item "${id}" not found`);
+      for (const id of erefs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `npc "${id}" not found`);
+      for (const id of erefs.faction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `faction "${id}" not found`);
+      for (const id of erefs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `location "${id}" not found`);
+      for (const id of erefs.status) if (!pools.statusEffectIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `status "${id}" not declared in mechanics.yaml`);
+      for (const id of erefs.event) if (!pools.eventIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `event "${id}" not found`);
+      for (const id of erefs.secret) if (!pools.secretIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `secret "${id}" not found`);
+      for (const id of erefs.targetNpc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `target npc "${id}" not found`);
+      for (const id of erefs.targetFaction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.reputation.thresholds`, `target faction "${id}" not found`);
     }
   }
 
@@ -614,6 +750,18 @@ function checkReferences(
     const l = m.data;
     const base = `locations[${l.id}]`;
     for (const c of l.connections) if (!pools.locationIds.has(c.to)) add(m.file.relPath, undefined, `${base}.connections`, `connection "${c.to}" not found`);
+    for (const [i, c] of l.connections.entries()) {
+      const cRefs = newConditionRefs();
+      collectConditionRefs(c.condition, cRefs);
+      for (const id of cRefs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.connections[${i}].condition`, `location "${id}" not found`);
+      for (const id of cRefs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.connections[${i}].condition`, `npc "${id}" not found`);
+      for (const id of cRefs.faction) if (!pools.factionIds.has(id)) add(m.file.relPath, undefined, `${base}.connections[${i}].condition`, `faction "${id}" not found`);
+      for (const id of cRefs.stat) if (!pools.statNames.has(id)) add(m.file.relPath, undefined, `${base}.connections[${i}].condition`, `stat "${id}" not declared`);
+      for (const id of cRefs.skill) if (!pools.skillNames.has(id)) add(m.file.relPath, undefined, `${base}.connections[${i}].condition`, `skill "${id}" not declared`);
+      for (const id of cRefs.need) if (!pools.needNames.has(id)) add(m.file.relPath, undefined, `${base}.connections[${i}].condition`, `need "${id}" not declared`);
+      for (const id of cRefs.item) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.connections[${i}].condition`, `item "${id}" not found`);
+      checkConditionSemantics(m.file.relPath, `${base}.connections[${i}].condition`, c.condition, add);
+    }
     for (const id of l.npcs_present) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.npcs_present`, `npc "${id}" not found`);
     for (const id of l.items) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.items`, `item "${id}" not found`);
     for (const id of l.ambient_events) if (!pools.eventIds.has(id)) add(m.file.relPath, undefined, `${base}.ambient_events`, `event "${id}" not found`);
@@ -623,6 +771,7 @@ function checkReferences(
       collectConditionRefs(cond, refs);
       for (const id of refs.location) if (!pools.locationIds.has(id)) add(m.file.relPath, undefined, `${base}.${label}`, `location "${id}" not found`);
       for (const id of refs.npc) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.${label}`, `npc "${id}" not found`);
+      checkConditionSemantics(m.file.relPath, `${base}.${label}`, cond, add);
     }
   }
 
@@ -636,6 +785,7 @@ function checkReferences(
     const refs = { stat: new Set<string>(), skill: new Set<string>(), need: new Set<string>(), npc: new Set<string>(), faction: new Set<string>(), location: new Set<string>(), item: new Set<string>(), flag: new Set<string>(), fact: new Set<string>() };
     collectConditionRefs(it.requirements, refs);
     for (const id of refs.stat) if (!pools.statNames.has(id)) add(m.file.relPath, undefined, `${base}.requirements`, `stat "${id}" not declared`);
+    checkConditionSemantics(m.file.relPath, `${base}.requirements`, it.requirements, add);
   }
 
   // --- narrative: event_texts → events; examples → npcs ---
@@ -772,7 +922,8 @@ export function validateScriptDir(scriptDir: string): ValidationResult {
       issues.push({ file: `narrative/${req.name}.yaml`, path: "(root)", message: `required narrative file narrative/${req.name}.yaml is missing` });
       continue;
     }
-    validateModule(found, req.schema, issues);
+    const data = validateModule(found, req.schema, issues);
+    if (data !== undefined) modules[req.name] = { file: found, data };
   }
   // Optional narrative subdirectories
   const loreFiles = loadYamlFilesFromDir(path.join(narrativeBase, "lore"), "narrative/lore");

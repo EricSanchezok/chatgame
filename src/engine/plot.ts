@@ -11,6 +11,7 @@ type CommitmentDef = Plot["commitments"][number];
 import { evalCondition, type ConditionContext } from "./condition";
 import { applyEffects } from "./effect";
 import { absoluteDay } from "./time";
+import { playEvent } from "./events";
 
 export interface CommitmentCheckResult {
   state: WorldState;
@@ -18,6 +19,8 @@ export interface CommitmentCheckResult {
   fired: string[];
   /** Commitments whose deadline was missed this turn. */
   missed: string[];
+  /** Narrative texts of related events played by fired commitments. */
+  eventTexts: string[];
   /** New event-log entries. */
   logEntries: EventLogEntry[];
 }
@@ -41,17 +44,24 @@ export function commitmentTriggerFires(
   return false;
 }
 
-/** Checks whether a commitment's deadline has passed (time-based only). */
+/** Checks whether a commitment's deadline has passed (time or condition). */
 export function deadlinePassed(
   commitment: CommitmentDef,
   state: WorldState,
   definition: WorldDefinition,
 ): boolean {
   const deadline = commitment.deadline;
-  if (!deadline?.time) return false;
-  const targetDay = deadline.time.day;
-  const today = absoluteDay(definition, state.clock);
-  return today > targetDay;
+  if (!deadline) return false;
+  if (deadline.time) {
+    const targetDay = deadline.time.day;
+    const today = absoluteDay(definition, state.clock);
+    if (today > targetDay) return true;
+  }
+  if (deadline.condition) {
+    const ctx: ConditionContext = { definition, state };
+    if (evalCondition(deadline.condition, ctx)) return true;
+  }
+  return false;
 }
 
 /**
@@ -66,6 +76,7 @@ export function checkCommitments(
   let current = state;
   const fired: string[] = [];
   const missed: string[] = [];
+  const eventTexts: string[] = [];
   const logEntries: EventLogEntry[] = [];
   const day = absoluteDay(definition, state.clock);
 
@@ -85,19 +96,39 @@ export function checkCommitments(
         ),
       };
       fired.push(commitment.id);
-      logEntries.push({
+      const firedLog: EventLogEntry = {
         id: `log-${current.eventLog.length + 1}`,
         day,
         hour: current.clock.hour,
         type: "commitment",
         actor: "system",
         summary: `commitment "${commitment.id}" fired`,
-      });
-      // Related events become active (available to the director/narrative).
+      };
+      current = { ...current, eventLog: [...current.eventLog, firedLog] };
+      logEntries.push(firedLog);
+      // Related events play immediately (with the events layer's depth guard).
       for (const eventId of commitment.related?.events ?? []) {
-        if (!current.activeEventIds.includes(eventId)) {
-          current = { ...current, activeEventIds: [...current.activeEventIds, eventId] };
+        const out = playEvent(current, definition, eventId);
+        current = out.state;
+        if (out.played) {
+          logEntries.push(...out.logEntries);
+          if (out.text) eventTexts.push(out.text);
         }
+      }
+      // Related secrets reveal to the player (become world facts).
+      for (const secretId of commitment.related?.secrets ?? []) {
+        const out = applyEffects(current, [{ kind: "secret", target: "player", secret: secretId }], { definition, day });
+        current = out.state;
+        const secretLog: EventLogEntry = {
+          id: `log-${current.eventLog.length + 1}`,
+          day,
+          hour: current.clock.hour,
+          type: "commitment",
+          actor: "system",
+          summary: `commitment "${commitment.id}" revealed secret "${secretId}"`,
+        };
+        current = { ...current, eventLog: [...current.eventLog, secretLog] };
+        logEntries.push(secretLog);
       }
       continue;
     }
@@ -117,20 +148,22 @@ export function checkCommitments(
         if (onMiss) {
           const out = applyEffects(current, onMiss.effects, { definition, day });
           current = out.state;
-          logEntries.push({
+          const missLog: EventLogEntry = {
             id: `log-${current.eventLog.length + 1}`,
             day,
             hour: current.clock.hour,
             type: "commitment",
             actor: "system",
             summary: `commitment "${commitment.id}" deadline missed: ${onMiss.escalation_text}`,
-          });
+          };
+          current = { ...current, eventLog: [...current.eventLog, missLog] };
+          logEntries.push(missLog);
         }
       }
     }
   }
 
-  return { state: current, fired, missed, logEntries };
+  return { state: current, fired, missed, eventTexts, logEntries };
 }
 
 /**

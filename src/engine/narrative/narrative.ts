@@ -8,6 +8,20 @@ import type { LLMProvider } from "./provider";
 import { buildSystemPrompt, buildTurnPrompt } from "./prompt";
 import { formatClock } from "../time";
 
+/** Allowed mechanics tag kinds (I3: LLM may only suggest engine-owned effects). */
+export const mechanicsTagKindSchema = z.enum([
+  "stat",
+  "skill",
+  "need",
+  "item",
+  "currency",
+  "relation",
+  "reputation",
+  "flag",
+  "teleport",
+  "status",
+]);
+
 /** Dual-channel narrative output schema. */
 export const narrativeOutputSchema = z.object({
   /** Prose narration (decorative — never a state source). */
@@ -15,22 +29,7 @@ export const narrativeOutputSchema = z.object({
   /** Machine-readable mechanics tags (validated + applied by the engine). */
   mechanics_tags: z.array(
     z.object({
-      kind: z.enum([
-        "stat",
-        "skill",
-        "need",
-        "item",
-        "currency",
-        "relation",
-        "reputation",
-        "flag",
-        "teleport",
-        "status",
-        "memory",
-        "secret",
-        "event",
-        "narrative",
-      ]),
+      kind: mechanicsTagKindSchema,
       target: z.string(),
       key: z.string().optional(),
       value: z.number().optional(),

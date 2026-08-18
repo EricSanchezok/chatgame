@@ -4,7 +4,7 @@
 import type { MemoryEntry, WorldState, NpcState, PlayerState } from "./types";
 import type { WorldDefinition } from "./types";
 
-/** Creates a memory entry with a stable id. */
+/** Creates a memory entry with a deterministic id (agile: no Math.random). */
 export function createMemoryEntry(
   text: string,
   importance: MemoryEntry["importance"],
@@ -13,7 +13,7 @@ export function createMemoryEntry(
   idPrefix = "mem",
 ): MemoryEntry {
   return {
-    id: `${idPrefix}-${day}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `${idPrefix}-${day}-${tags.length}`,
     text,
     importance,
     tags,

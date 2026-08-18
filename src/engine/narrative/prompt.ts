@@ -44,6 +44,7 @@ export function buildSystemPrompt(def: WorldDefinition): string {
   }
 
   parts.push("\n## 文风");
+  if (style.voice) parts.push(`- 叙述声音：${style.voice}`);
   parts.push(`- 视角：${style.perspective}；时态：${style.tense}；描写密度：${style.density}`);
   parts.push(`- 句式：${style.sentence_style.join("、") || "自然流畅"}`);
   if (style.forbidden_words.length > 0) {
@@ -90,6 +91,49 @@ export function buildTurnPrompt(input: PromptInput): string {
       const memoryText = summarizeForInjection(npcState, 8);
       if (memoryText) {
         parts.push(`\n该角色的记忆：\n${memoryText}`);
+      }
+    }
+  }
+
+  // Lorebook injection: on_keyword (player input), on_location (player's
+  // current location), on_npc (NPC present at the player's location).
+  const playerLoc = state.player.locationId;
+  const presentNpcs = [...definition.npcs.values()].filter(
+    (n) => state.npcs[n.id]?.currentLocationId === playerLoc,
+  );
+  const injectableLore = definition.narrative.lore.filter((l) => {
+    if (l.inject_when === "always") return false; // already in the system prompt
+    if (l.inject_when === "on_keyword") {
+      return l.keywords.some((k) => playerInput.includes(k));
+    }
+    if (l.inject_when === "on_location") {
+      return l.locations?.includes(playerLoc) ?? false;
+    }
+    if (l.inject_when === "on_npc") {
+      return l.npcs?.some((id) => presentNpcs.some((n) => n.id === id)) ?? false;
+    }
+    return false;
+  });
+  if (injectableLore.length > 0) {
+    parts.push("\n## 相关设定");
+    for (const l of injectableLore) {
+      parts.push(`- ${l.content}`);
+    }
+  }
+
+  // Few-shot dialogue examples: match the NPC's dialogue_examples reference
+  // or the generic example set.
+  if (npcId) {
+    const npcDef = definition.npcs.get(npcId);
+    const exampleId = npcDef?.llm.dialogue_examples;
+    const example =
+      definition.narrative.examples.find((e) => e.npc_id === npcId) ??
+      (exampleId ? definition.narrative.examples.find((e) => e.npc_id === exampleId) : undefined) ??
+      definition.narrative.examples.find((e) => e.npc_id === "generic");
+    if (example) {
+      parts.push("\n## 对话示例");
+      for (const ex of example.exchanges) {
+        parts.push(`玩家：${ex.player}\n${npcDef?.name ?? "对方"}：${ex.npc}`);
       }
     }
   }

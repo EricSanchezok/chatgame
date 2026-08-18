@@ -28,20 +28,21 @@ export type IntentTier =
   | { tier: "fallback_talk"; intent: ParsedIntent }
   | { tier: "reject"; reason: string };
 
-/** Deterministic vocabulary-only fallback (used when LLM unavailable). */
-function vocabularyFallback(
+/** Deterministic vocabulary-only fallback: returns ALL candidate actions. */
+function vocabularyCandidates(
   def: WorldDefinition,
   input: string,
-): ParsedIntent | undefined {
+): ParsedIntent[] {
   const lower = input.toLowerCase();
+  const candidates: ParsedIntent[] = [];
   for (const action of def.actions.actions) {
     if (!action.enabled) continue;
     // Match the action id or its display name as a substring.
     if (lower.includes(action.id) || (action.display_name && input.includes(action.display_name))) {
-      return { actionId: action.id, target: extractTarget(def, input) };
+      candidates.push({ actionId: action.id, target: extractTarget(def, input) });
     }
   }
-  return undefined;
+  return candidates;
 }
 
 /** Best-effort target extraction: find a known npc/item/location name in the text. */
@@ -113,10 +114,18 @@ export async function parseIntent(
     // LLM unavailable -> fall through to deterministic fallback.
   }
 
-  // Tier 3: deterministic vocabulary fallback.
-  const fallback = vocabularyFallback(def, input);
-  if (fallback) {
-    return { tier: "direct", intent: fallback };
+  // Tier 3: deterministic vocabulary fallback with ambiguity tiers.
+  const candidates = vocabularyCandidates(def, input);
+  if (candidates.length === 0) {
+    return { tier: "fallback_talk", intent: { actionId: "talk" } };
   }
-  return { tier: "fallback_talk", intent: { actionId: "talk" } };
+  if (candidates.length === 1) {
+    return { tier: "direct", intent: candidates[0] };
+  }
+  // Multiple candidate actions -> ask for clarification (Bartle tolerance:
+  // ambiguity degrades to a question, not a random guess).
+  return {
+    tier: "clarify",
+    question: `你指的是哪个行动？${candidates.map((c) => c.actionId).join("、")}`,
+  };
 }

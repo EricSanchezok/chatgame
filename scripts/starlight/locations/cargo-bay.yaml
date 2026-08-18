@@ -7,5 +7,5 @@ connections:
   - { to: reactor-level, distance: 2, travel_time: 8 }
 ambient_events: [black-market-deal]
 npcs_present: [night-cat]
-items: [scrap-metal, fuel-cell]
+items: [scrap-metal, fuel-cell, eva-suit]
 danger_level: 4

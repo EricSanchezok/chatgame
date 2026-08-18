@@ -4,7 +4,6 @@
 // the deterministic classification layer (descriptors are the explanation
 // layer, managed by descriptors.ts).
 import type { WorldState, RelationState, NpcState, PlayerState } from "./types";
-import type { WorldDefinition } from "./types";
 import { valueToStance } from "./definition";
 
 export const PLAYER_REF = "player";
@@ -127,22 +126,6 @@ export function npcRelationValue(state: WorldState, npcId: string): number {
   return npc ? findRelation(npc.relations, PLAYER_REF)?.value ?? 0 : 0;
 }
 
-/**
- * Builds the full NPC->NPC relation adjacency from the definition base.
- * Used at worldgen time to seed the runtime matrix.
- */
-export function seedNpcRelations(definition: WorldDefinition): Record<string, RelationState[]> {
-  const seeded: Record<string, RelationState[]> = {};
-  for (const npc of definition.npcs.values()) {
-    seeded[npc.id] = (npc.relations ?? []).map((r) => ({
-      npcId: r.target,
-      value: r.value,
-      stance: r.stance ?? valueToStance(r.value),
-      type: r.type,
-    }));
-  }
-  return seeded;
-}
 
 /** Whether two NPCs are in the same location (used by legality checks). */
 export function sameLocation(state: WorldState, aId: string, bId: string): boolean {

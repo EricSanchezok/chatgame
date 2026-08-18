@@ -30,7 +30,7 @@ async function main(): Promise<void> {
               return { actionId: "attack", target: "elara" };
             }
             if (prompt.includes("去酒馆") || prompt.includes("酒馆")) {
-              return { actionId: "move", target: "tavern" };
+              return { actionId: "travel", target: "tavern" };
             }
             if (prompt.includes("休息")) return { actionId: "rest" };
             return { actionId: "talk" };

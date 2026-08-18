@@ -1,8 +1,8 @@
 // Engine facade: the single public entry point for the runtime.
-//   createSession() -> load script + generate world
+//   createSession() -> load script + generate world (+ opening event)
 //   playerTurn(input) -> full PDVA turn loop (intent -> legality ->
-//     resolution -> commitment/director -> narrative -> consistency ->
-//     descriptor refresh)
+//     resolution -> world step -> commitment/director -> tasks -> death ->
+//     narrative -> consistency -> descriptor refresh)
 //   advance(hours) -> deterministic offline world progression
 //   save() / loadSave() -> JSON snapshots
 import type { WorldDefinition, WorldState, SessionOptions, TurnResult } from "./types";
@@ -10,15 +10,18 @@ import type { DescriptorPath } from "./descriptors";
 import { loadScript } from "./loader";
 import { generateWorld } from "./worldgen";
 import { resolveAction } from "./actions";
-import { checkCommitments } from "./plot";
 import { selectDirectorEvent, directorShouldSelect } from "./director";
 import { applyDeathPolicy } from "./run";
 import { applyEffects } from "./effect";
-import { refreshAllStale, setUserDescriptor } from "./descriptors";
-import { writeSave, readSave, listSaves } from "./save";
-import { applyNeedDecay } from "./mechanics/needs";
-import { tickStatuses } from "./mechanics/status";
-import { advanceClock, absoluteDay } from "./time";
+import { refreshAllStale, setUserDescriptor, llmDescriptorGenerator } from "./descriptors";
+import { writeSave, readSave, listSaves, normalizeWorldState } from "./save";
+import { stepWorld } from "./worldstep";
+import { playEvent, eventTextFor } from "./events";
+import { checkTasks } from "./tasks";
+import { checkCommitments } from "./plot";
+import { applyUnlocks, metaProgressionSnapshot } from "./run";
+import { absoluteDay } from "./time";
+import { evalCondition } from "./condition";
 import { createProvider, type LLMProvider } from "./narrative/provider";
 import { parseIntent } from "./narrative/intent";
 import { generateNarrative, fallbackNarrative, type NarrativeOutput } from "./narrative/narrative";
@@ -39,6 +42,8 @@ function pureNarrative(text: string): TurnResult {
     logEntries: [],
     descriptorUpdates: [],
     fellBackToTalk: false,
+    worldEvents: [],
+    taskCompletions: [],
   };
 }
 
@@ -64,7 +69,8 @@ export class Engine {
 
   /**
    * Creates a session: loads the script, generates the world (or loads a
-   * save), and wires the LLM provider.
+   * save), normalizes the state, plays the opening event, and wires the
+   * LLM provider.
    */
   static create(options: EngineOptions): Engine {
     const definition = loadScript(options.scriptDir);
@@ -72,17 +78,33 @@ export class Engine {
     let state: WorldState;
     if (options.loadSaveFile) {
       const save = readSave(options.loadSaveFile, definition.script.id);
-      state = save.worldState;
+      state = normalizeWorldState(definition, save.worldState);
     } else {
       const generated = generateWorld(definition, options.originId, {
         seed: options.seed,
       });
-      state = generated.state;
+      state = normalizeWorldState(definition, generated.state);
       if (options.playerName) {
         state = { ...state, player: { ...state.player, name: options.playerName } };
       }
     }
-    return new Engine(definition, state, provider);
+    const engine = new Engine(definition, state, provider);
+    // Play the worldgen starting event once at session creation.
+    if (!options.loadSaveFile && state.eventLog.length === 0) {
+      const startingEventId = engine.startingEventId();
+      if (startingEventId) {
+        const out = playEvent(engine.state, definition, startingEventId);
+        engine.state = out.state;
+      }
+    }
+    return engine;
+  }
+
+  /** The worldgen starting event id (undefined when not randomized). */
+  private startingEventId(): string | undefined {
+    return this.definition.worldgen.randomize.find((r) => r.target === "starting_event")
+      ? this.state.playedEventIds[this.state.playedEventIds.length - 1]
+      : undefined;
   }
 
   /**
@@ -109,7 +131,7 @@ export class Engine {
         break;
     }
 
-    // 2. Resolve the action (legality + resolution + costs/effects/time).
+    // 2. Resolve the action (legality + resolution + costs/effects).
     const intent = parsed.tier === "direct" || parsed.tier === "fallback_talk" ? parsed.intent : { actionId: "talk" };
     const resolution = resolveAction({
       definition: this.definition,
@@ -134,21 +156,53 @@ export class Engine {
       return pureNarrative(this.narrativizeRejection(resolution.rejectReason ?? "", resolution.rejectMessage ?? ""));
     }
 
-    // 3. Commitment check + director event selection.
-    const commitmentResult = checkCommitments(state, this.definition);
-    state = commitmentResult.state;
+    // 3. World step: advance the clock by the action's time cost and run
+    //    the unified progression pipeline (needs/status/schedules/events/
+    //    commitments/tension) for that span.
+    const step = stepWorld(state, this.definition, resolution.effectiveTimeCost);
+    state = step.state;
+
+    // 3b. Turn-level commitment check: condition triggers fire as soon as
+    //     their condition holds mid-day (the day-boundary check inside
+    //     stepWorld stays idempotent via the `triggered` flag).
+    const commitmentOut = checkCommitments(state, this.definition);
+    state = commitmentOut.state;
+    const commitmentTexts = commitmentOut.eventTexts;
+
+    // 4. Director event selection (pacing-gated) — play immediately.
+    const directorEventTexts: string[] = [];
     if (directorShouldSelect(state, this.definition)) {
       const directorResult = selectDirectorEvent(state, this.definition);
       state = directorResult.state;
+      if (directorResult.selectedEventId) {
+        const played = playEvent(state, this.definition, directorResult.selectedEventId);
+        state = played.state;
+        if (played.played && played.text) directorEventTexts.push(played.text);
+      }
     }
 
-    // 4. Death policy check (soft_failure gauge etc.).
+    // 5. Task checks (auto-activate + progress + completions/failures).
+    const taskOut = checkTasks(state, this.definition);
+    state = taskOut.state;
+    const taskCompletions = taskOut.completions.map((c) => ({
+      taskId: c.taskId,
+      status: c.status,
+      narrative: c.narrative,
+    }));
+
+    // 6. Death policy check (soft_failure gauge etc.).
     const deathResult = applyDeathPolicy(state, this.definition);
     if (deathResult.firedMode) {
       state = deathResult.state;
     }
 
-    // 5. Narrative generation (dual-channel) with consistency retry.
+    // 7. Narrative generation (dual-channel) with consistency retry.
+    const worldEvents = [
+      ...step.worldEvents,
+      ...commitmentTexts,
+      ...directorEventTexts,
+    ];
+
     const narrativeCtx = {
       provider: this.provider,
       definition: this.definition,
@@ -171,8 +225,12 @@ export class Engine {
     } else {
       narrativeText = fallbackNarrative(this.definition, state, resolution.resolution).narrative;
     }
+    // Append world event texts to the narrative (engine-owned facts).
+    if (worldEvents.length > 0) {
+      narrativeText = `${narrativeText}\n\n${worldEvents.join("\n")}`;
+    }
 
-    // 6. Apply validated mechanics tags (PermOK already checked).
+    // 8. Apply validated mechanics tags (PermOK already checked).
     if (mechanicsTags.length > 0) {
       const effects = tagsToEffects(mechanicsTags);
       const day = absoluteDay(this.definition, state.clock);
@@ -180,16 +238,18 @@ export class Engine {
       state = out.state;
     }
 
-    // 7. Descriptor refresh (lazy, stale only).
+    // 9. Descriptor refresh (lazy, stale only; LLM generator with
+    //    deterministic template fallback on failure).
     const { state: refreshed, updates } = await refreshAllStale(state, {
       definition: this.definition,
+      generator: llmDescriptorGenerator(this.provider),
+      recentEvents: step.worldEvents,
     });
     state = refreshed;
-
     this.state = state;
 
-    // 8. Assemble the turn result.
-    const newLogs = state.eventLog.slice(-(resolution.logEntries.length + commitmentResult.logEntries.length + 1));
+    // 10. Assemble the turn result.
+    const newLogs = state.eventLog.slice(-(resolution.logEntries.length + step.logEntries.length + taskOut.logEntries.length + 1));
     return {
       narrative: narrativeText,
       resolution: resolution.resolution,
@@ -197,26 +257,23 @@ export class Engine {
       descriptorUpdates: updates,
       fellBackToTalk: parsed.tier === "fallback_talk" || (resolution.rejected && resolution.rejectReason === "unknown_action"),
       deathFired: deathResult.firedMode,
+      worldEvents,
+      taskCompletions,
     };
   }
 
   /**
-   * Deterministic offline advancement: applies needs decay + status ticks
-   * + clock advance for `hours` (respects advance_scope via definition).
+   * Deterministic offline advancement: runs the unified world step for
+   * `hours` (respects time.world_advances and advance_scope).
    */
   advance(hours: number): WorldState {
     if (hours <= 0) return this.state;
-    let state = this.state;
-    state = { ...state, clock: advanceClock(state.clock, this.definition, hours) };
-    // Needs decay (schedules/needs in advance_scope).
-    const scope = this.definition.time.advance_scope;
-    if (scope.includes("needs")) {
-      state = applyNeedDecay(state, this.definition, hours);
-    }
-    // Status effect ticks.
-    state = tickStatuses(state, this.definition);
-    this.state = state;
-    return state;
+    if (!this.definition.time.world_advances) return this.state;
+    const step = stepWorld(this.state, this.definition, hours, {
+      scope: this.definition.time.advance_scope,
+    });
+    this.state = step.state;
+    return this.state;
   }
 
   /** Saves the current world state to disk; returns the file path. */
@@ -229,10 +286,10 @@ export class Engine {
     return listSaves(this.definition.script.id);
   }
 
-  /** Reloads state from a save file. */
+  /** Reloads state from a save file (normalized against the definition). */
   load(filePath: string): WorldState {
     const save = readSave(filePath, this.definition.script.id);
-    this.state = save.worldState;
+    this.state = normalizeWorldState(this.definition, save.worldState);
     return this.state;
   }
 
@@ -246,7 +303,37 @@ export class Engine {
   /** Returns the opening narrative for a fresh world. */
   openingNarrative(): string {
     const opening = this.definition.narrative.opening;
-    return `${opening.scene}\n${opening.first_lines.join("\n")}`;
+    // Pick the first hook whose condition holds (world-consistent opening).
+    let hookText = "";
+    for (const hook of opening.hooks ?? []) {
+      if (!hook.condition) {
+        hookText = hook.text;
+        break;
+      }
+      if (evalCondition(hook.condition, { definition: this.definition, state: this.state })) {
+        hookText = hook.text;
+        break;
+      }
+    }
+    let text = `${opening.scene}\n${opening.first_lines.join("\n")}`;
+    if (hookText) text = `${text}\n${hookText}`;
+    // Append the starting event's text when one played at creation.
+    const startingEvent = this.startingEventId();
+    if (startingEvent) {
+      const eventText = eventTextFor(this.definition, startingEvent);
+      if (eventText) text = `${text}\n\n${eventText}`;
+    }
+    return text;
+  }
+
+  /** Origins unlocked by meta-progression flags (for the meta layer). */
+  unlockedOrigins(): string[] {
+    return applyUnlocks(this.state, this.definition);
+  }
+
+  /** Per-run persisted meta snapshot (flags/lore/relations). */
+  metaSnapshot(): { flags: string[]; lore: string[]; relations: WorldState["player"]["relations"] } {
+    return metaProgressionSnapshot(this.state, this.definition);
   }
 
   /** Narrativizes a machine rejection reason into world-consistent text. */
@@ -258,6 +345,8 @@ export class Engine {
         return message || "现在的状况不允许这么做。";
       case "unaffordable":
         return "你付不起这个代价。";
+      case "denied_action":
+        return "你的出身让你做不出这种事。";
       case "unknown_action":
         return "这个世界没有这样的行动。";
       default:

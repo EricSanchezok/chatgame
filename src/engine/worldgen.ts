@@ -5,6 +5,7 @@ import type { WorldDefinition, WorldState, NpcState, GameClock, RelationState, R
 import { createRng, nextFloat, pickOne, weightedPick } from "./rng";
 import { createClock } from "./time";
 import { valueToStance } from "./definition";
+import { createMemoryEntry } from "./memory";
 
 export interface WorldgenOptions {
   /** Fixed seed (defaults to a time-based seed). */
@@ -19,6 +20,8 @@ export interface WorldgenResult {
   state: WorldState;
   /** Human-readable summary of what was randomized (auditable). */
   summary: string[];
+  /** Event id selected for the opening (worldgen.target starting_event). */
+  startingEvent?: string;
 }
 
 /** Builds the initial NPC runtime state from its script definition. */
@@ -45,14 +48,32 @@ function buildNpcState(def: WorldDefinition, npcId: string): NpcState {
   const factionRep = [...def.factions.values()]
     .filter((f) => f.members.includes(npcId))
     .map((f) => ({ factionId: f.id, value: 0 }));
+  // Trait effects apply to initial stats/skills (definition order).
+  let statsOut = stats;
+  const skillsOut = skills;
+  for (const trait of npc.traits ?? []) {
+    for (const effect of trait.effects ?? []) {
+      if (effect.kind === "stat" && effect.target === "player") {
+        const name = effect.stat;
+        const base = statsOut[name] ?? 0;
+        const delta = effect.direction === "set" ? effect.value : base + (effect.direction === "remove" ? -effect.value : effect.value);
+        const statDef = def.mechanics.stats.find((s) => s.name === name);
+        statsOut = { ...statsOut, [name]: statDef ? Math.min(statDef.max, Math.max(statDef.min, delta)) : delta };
+      }
+    }
+  }
+  // Initial memories (npc.memory.initial) seeded with deterministic ids.
+  const memories = (npc.memory?.initial ?? []).map((m, idx) =>
+    createMemoryEntry(m.text, m.importance, 0, m.tags, `mem-${npc.id}-${idx}`),
+  );
   return {
     id: npc.id,
-    stats,
-    skills,
+    stats: statsOut,
+    skills: skillsOut,
     needs,
-    inventory: { stacks: [], currency: 0 },
+    inventory: { stacks: (npc.items ?? []).map((itemId) => ({ itemId, quantity: 1 })), currency: 0 },
     relations,
-    memories: [],
+    memories,
     knowledgeFlags: [...(npc.knowledge_flags ?? [])],
     revealedSecrets: [],
     currentLocationId: npc.home ?? def.locations.keys().next().value ?? "",
@@ -86,6 +107,8 @@ function buildPlayerState(
     stance: r.stance ?? valueToStance(r.value),
     type: "acquaintance",
   }));
+  // Exclusive leads become player flags (authors consume via conditions).
+  const exclusiveFlags = (origin.exclusive_leads ?? []).map((lead) => `exclusive-lead:${lead}`);
   return {
     originId,
     name: playerName,
@@ -97,7 +120,7 @@ function buildPlayerState(
       currency: origin.starting_currency ?? def.mechanics.currency.initial,
     },
     locationId: origin.starting_location,
-    flags: [...(origin.starting_knowledge ?? [])],
+    flags: [...(origin.starting_knowledge ?? []), ...exclusiveFlags],
     threatGauge: 0,
     statuses: [],
     memories: [],
@@ -149,7 +172,7 @@ export function generateWorld(
   }
   summary.push(`season=${seasonName}, weather=${weather}`);
 
-  // NPC stats jitter
+  // NPC stats jitter + trait effects.
   const jitterEntry = worldgen.randomize.find((r) => r.target === "npc_stats");
   const npcs: Record<string, NpcState> = {};
   for (const npcDef of def.npcs.values()) {
@@ -167,41 +190,81 @@ export function generateWorld(
     npcs[npc.id] = npc;
   }
 
-  // Secret holder randomization (worldgen.target secret_holder)
+  // Secret holder randomization (worldgen.target secret_holder) — runtime
+  // mapping (secretId -> npcId). The definition stays immutable.
   const secretEntry = worldgen.randomize.find((r) => r.target === "secret_holder");
+  const secretHolders: Record<string, string> = {};
+  for (const npcDef of def.npcs.values()) {
+    for (const secret of npcDef.secrets ?? []) {
+      secretHolders[secret.id] = npcDef.id;
+    }
+  }
   if (secretEntry?.pool && secretEntry.pool.length > 0) {
-    // Find the first NPC with any secret and move its secrets to the picked holder.
     const holderPool = secretEntry.pool;
     const picked = pickOne(rng, holderPool);
     const sourceNpc = [...def.npcs.values()].find((n) => (n.secrets?.length ?? 0) > 0);
     if (picked && sourceNpc && picked !== sourceNpc.id) {
-      const secrets = def.npcs.get(sourceNpc.id)?.secrets ?? [];
-      // Move revealed secrets tracking: the holder NPC now carries the secret flags.
-      npcs[picked] = {
-        ...npcs[picked],
-        knowledgeFlags: [...(npcs[picked]?.knowledgeFlags ?? []), ...secrets.map((s) => `secret-${s.id}`)],
-      };
+      for (const secret of sourceNpc.secrets ?? []) {
+        secretHolders[secret.id] = picked;
+      }
       summary.push(`secret_holder randomized to ${picked}`);
     }
   }
 
-  // Faction stance jitter (worldgen.target faction_stance)
+  // Faction stance jitter (worldgen.target faction_stance) — documented
+  // no-op: faction-vs-faction relations have no runtime consumer in v1.
   const stanceEntry = worldgen.randomize.find((r) => r.target === "faction_stance");
-  if (stanceEntry?.jitter) {
-    for (const faction of def.factions.values()) {
-      // Jitter each faction's relations toward other factions.
-      // (Values are deterministic here; the effect is recorded for audit.)
-      summary.push(`faction_stance jitter recorded for ${faction.id}`);
+  if (stanceEntry) {
+    summary.push("faction_stance randomization is a no-op in v1 (no runtime consumer)");
+  }
+
+  // NPC placement (worldgen.target npc_placement) — randomize initial home.
+  const placementEntry = worldgen.randomize.find((r) => r.target === "npc_placement");
+  if (placementEntry?.pool && placementEntry.pool.length > 0) {
+    const allLocations = [...def.locations.keys()];
+    if (allLocations.length > 0) {
+      for (const id of placementEntry.pool) {
+        const npc = npcs[id];
+        if (npc) {
+          npcs[id] = { ...npc, currentLocationId: pickOne(rng, allLocations) ?? npc.currentLocationId };
+        }
+      }
+      summary.push("npc_placement randomized");
+    }
+  }
+
+  // Item placement (worldgen.target item_placement) — place into a random location.
+  const itemEntry = worldgen.randomize.find((r) => r.target === "item_placement");
+  const locationInventories: Record<string, { stacks: { itemId: string; quantity: number }[]; currency: number }> = {};
+  for (const loc of def.locations.values()) {
+    locationInventories[loc.id] = {
+      stacks: (loc.items ?? []).map((itemId) => ({ itemId, quantity: 1 })),
+      currency: 0,
+    };
+  }
+  if (itemEntry?.pool && itemEntry.pool.length > 0) {
+    const allLocations = [...def.locations.keys()];
+    if (allLocations.length > 0) {
+      for (const id of itemEntry.pool) {
+        const loc = pickOne(rng, allLocations);
+        if (loc) {
+          locationInventories[loc] = {
+            ...locationInventories[loc],
+            stacks: [...locationInventories[loc].stacks, { itemId: id, quantity: 1 }],
+          };
+        }
+      }
+      summary.push("item_placement randomized");
     }
   }
 
   // Starting event (worldgen.target starting_event)
   const eventEntry = worldgen.randomize.find((r) => r.target === "starting_event");
-  let activeEventIds: string[] = [];
+  let startingEvent: string | undefined;
   if (eventEntry?.pool && eventEntry.pool.length > 0) {
     const picked = pickOne(rng, eventEntry.pool);
     if (picked) {
-      activeEventIds = [picked];
+      startingEvent = picked;
       summary.push(`starting_event=${picked}`);
     }
   }
@@ -219,7 +282,6 @@ export function generateWorld(
     eventLog: [],
     commitments: def.plot.commitments.map((c) => ({ commitmentId: c.id, triggered: false, deadlineMissed: false })),
     director: {
-      seenEventIds: [],
       lastEventDay: null,
       tension: Object.fromEntries(
         def.director.tension.variables.map((v) => [v.name, v.initial]),
@@ -227,8 +289,11 @@ export function generateWorld(
     },
     rng,
     tasks: [],
-    activeEventIds,
+    playedEventIds: [],
+    eventLastPlayedDay: {},
+    secretHolders,
+    locationInventories,
   };
 
-  return { state, summary };
+  return { state, summary, startingEvent };
 }

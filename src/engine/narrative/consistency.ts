@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { WorldState } from "../types";
 import type { WorldDefinition } from "../types";
 import type { NarrativeOutput } from "./narrative";
+import { mechanicsTagKindSchema } from "./narrative";
 import { secretRevealable } from "../plot";
 import type { Effect } from "../../script/schemas/common";
 
@@ -20,11 +21,13 @@ export interface ConsistencyResult {
   output?: NarrativeOutput;
   /** Human-readable violation detail (narrativizable). */
   detail?: string;
+  /** Non-fatal warnings (soft taboos etc.) — narrative proceeds. */
+  warnings?: string[];
 }
 
-/** Taboo texts from world.yaml (hard severity only). */
-function hardTabooTexts(def: WorldDefinition): string[] {
-  return def.world.taboos.filter((t) => t.severity === "hard").map((t) => t.text);
+/** Taboo texts from world.yaml by severity. */
+function tabooTexts(def: WorldDefinition, severity: "hard" | "soft"): string[] {
+  return def.world.taboos.filter((t) => t.severity === severity).map((t) => t.text);
 }
 
 /** Extracts keywords quoted in Chinese/English quotes from taboo text. */
@@ -63,11 +66,11 @@ export function checkOutputConsistency(
     }
   }
 
-  // Taboo check: hard taboos must not surface their quoted keywords in prose.
-  // Taboo text is descriptive ("不得出现"玩家""游戏"…"), so we extract the
-  // quoted keywords and reject when any appears in the narrative.
+  // Taboo check: hard taboos must not surface their quoted keywords in prose
+  // (hard = reject); soft taboos are warnings only.
+  const warnings: string[] = [];
   const lowerNarrative = output.narrative.toLowerCase();
-  for (const taboo of hardTabooTexts(def)) {
+  for (const taboo of tabooTexts(def, "hard")) {
     const keywords = extractQuotedKeywords(taboo);
     for (const kw of keywords) {
       if (lowerNarrative.includes(kw.toLowerCase())) {
@@ -78,6 +81,18 @@ export function checkOutputConsistency(
         };
       }
     }
+  }
+  for (const taboo of tabooTexts(def, "soft")) {
+    const keywords = extractQuotedKeywords(taboo);
+    for (const kw of keywords) {
+      if (lowerNarrative.includes(kw.toLowerCase())) {
+        warnings.push(`soft taboo "${taboo.slice(0, 20)}" keyword "${kw}" matched`);
+      }
+    }
+  }
+
+  if (warnings.length > 0) {
+    return { ok: true, output, warnings };
   }
 
   // PermOK: mechanics tags must reference existing entities.
@@ -176,18 +191,6 @@ export function tagsToEffects(
       case "status":
         effects.push({ ...base, kind: "status", direction: "add", status: tag.key ?? "" } as Effect);
         break;
-      case "memory":
-        effects.push({ ...base, kind: "memory", direction: "add", text: tag.text ?? "", importance: undefined } as Effect);
-        break;
-      case "secret":
-        effects.push({ ...base, kind: "secret", direction: "set", secret: tag.key ?? "" } as Effect);
-        break;
-      case "event":
-        effects.push({ ...base, kind: "event", direction: "set", event: tag.key ?? "" } as Effect);
-        break;
-      case "narrative":
-        effects.push({ ...base, kind: "narrative", direction: "set", text: tag.text ?? "" } as Effect);
-        break;
     }
   }
   return effects;
@@ -222,26 +225,13 @@ export async function withConsistencyRetry(
 }
 
 /** Standalone zod schema for the dual-channel output (re-exported for tests). */
+export { mechanicsTagKindSchema };
+
 export const consistencySchema = z.object({
   narrative: z.string().min(1),
   mechanics_tags: z.array(
     z.object({
-      kind: z.enum([
-        "stat",
-        "skill",
-        "need",
-        "item",
-        "currency",
-        "relation",
-        "reputation",
-        "flag",
-        "teleport",
-        "status",
-        "memory",
-        "secret",
-        "event",
-        "narrative",
-      ]),
+      kind: mechanicsTagKindSchema,
       target: z.string(),
       key: z.string().optional(),
       value: z.number().optional(),

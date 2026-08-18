@@ -15,6 +15,7 @@ import {
   checkOutputConsistency,
   withConsistencyRetry,
   tagsToEffects,
+  consistencySchema,
 } from "../narrative/consistency";
 import { buildSystemPrompt, buildTurnPrompt, buildIntentPrompt } from "../narrative/prompt";
 import type { WorldState, WorldDefinition } from "../types";
@@ -183,5 +184,48 @@ describe("consistency enforcement (PDVA)", () => {
     expect(effects).toHaveLength(2);
     expect(effects[0].kind).toBe("stat");
     expect(effects[1].kind).toBe("flag");
+  });
+
+  it("rejects mechanics tag kinds outside the whitelist (memory/secret/event/narrative)", () => {
+    // The tag-kind whitelist is narrowed to 10 mechanical kinds; the four
+    // narrative/state kinds are rejected at schema level (I3/R8).
+    for (const kind of ["memory", "secret", "event", "narrative"] as const) {
+      const parsed = consistencySchema.safeParse({
+        narrative: "测试",
+        mechanics_tags: [{ kind, target: "player" }],
+      });
+      expect(parsed.success).toBe(false);
+    }
+    // The 10 allowed kinds still parse.
+    const allowed = consistencySchema.safeParse({
+      narrative: "测试",
+      mechanics_tags: [
+        { kind: "stat", target: "player", key: "hp", value: -1 },
+        { kind: "flag", target: "player", key: "witnessed" },
+      ],
+    });
+    expect(allowed.success).toBe(true);
+  });
+
+  it("soft taboo match returns ok=true with warnings", () => {
+    const { def, state } = setup();
+    // emberfall has no quoted-keyword soft taboo; inject one to exercise the
+    // soft-taboo warning path (R8: soft taboos warn, never reject).
+    const softDef = {
+      ...def,
+      world: {
+        ...def.world,
+        taboos: [
+          ...def.world.taboos,
+          { id: "soft-test", text: "避免使用\"划水\"等网络词汇", severity: "soft" as const },
+        ],
+      },
+    };
+    const result = checkOutputConsistency(softDef, state, {
+      narrative: "他今天又在划水。",
+      mechanics_tags: [],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.warnings?.length).toBeGreaterThan(0);
   });
 });

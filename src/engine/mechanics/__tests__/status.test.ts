@@ -49,10 +49,13 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
     facts: [],
     eventLog: [],
     commitments: [],
-    director: { seenEventIds: [], lastEventDay: null, tension: {} },
+    director: { lastEventDay: null, tension: {} },
     rng: { seed: 1, state: 1 },
     tasks: [],
-    activeEventIds: [],
+    playedEventIds: [],
+    eventLastPlayedDay: {},
+    secretHolders: {},
+    locationInventories: {},
     ...overrides,
   };
 }

@@ -8,6 +8,7 @@ import { generateWorld } from "../worldgen";
 import { resolveAction, gradeFromRoll, checkActionLegality } from "../actions";
 import { checkWorldRules, isKnownAction } from "../rules";
 import { checkCommitments, secretRevealable, commitmentTriggerFires } from "../plot";
+import { playEvent } from "../events";
 import { selectDirectorEvent, eventEligible, currentTensionBand } from "../director";
 import { advanceClock } from "../time";
 import type { WorldState, WorldDefinition } from "../types";
@@ -67,7 +68,11 @@ describe("action resolution", () => {
       ...state,
       npcs: {
         ...state.npcs,
-        elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, perception: 10 } },
+        elara: {
+          ...state.npcs.elara,
+          stats: { ...state.npcs.elara.stats, perception: 10 },
+          inventory: { stacks: [{ itemId: "tonic", quantity: 1 }], currency: 0 },
+        },
       },
     };
     const out = resolveAction({
@@ -81,15 +86,22 @@ describe("action resolution", () => {
     expect(out.rejected).toBe(false);
     expect(out.resolution?.resolveType).toBe("opposed_check");
     expect(out.resolution?.grade).toBe("fail");
+    // Fail: no item stolen, threat +10.
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "tonic")).toBe(false);
+    expect(out.state.player.threatGauge).toBe(10);
   });
 
-  it("opposed check net win succeeds", () => {
+  it("opposed check net win succeeds (with a stealable item)", () => {
     const { def, state } = setup();
     const withElara = {
       ...state,
       npcs: {
         ...state.npcs,
-        elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, perception: 10 } },
+        elara: {
+          ...state.npcs.elara,
+          stats: { ...state.npcs.elara.stats, perception: 10 },
+          inventory: { stacks: [{ itemId: "tonic", quantity: 1 }], currency: 0 },
+        },
       },
     };
     const out = resolveAction({
@@ -100,23 +112,30 @@ describe("action resolution", () => {
       rollOverride: 12,
       npcRollOverride: 10,
     });
+    expect(out.rejected).toBe(false);
     expect(out.resolution?.grade).toBe("success");
+    // Steal success transfers one item to the player.
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "tonic")).toBe(true);
   });
 
-  it("narrative_only resolves without roll or state consequences", () => {
+  it("narrative_only give transfers without rolling (builtin semantics)", () => {
     const { def, state } = setup();
-    const before = JSON.stringify(state.player);
+    // Miner origin starts with a lantern; give has narrative_only resolve +
+    // builtin transfer semantics (no d20 roll, no grade scaling).
     const out = resolveAction({
       definition: def,
       state,
       actionId: "give",
       targetNpcId: "elara",
+      params: { item: "lantern" },
     });
     expect(out.rejected).toBe(false);
     expect(out.resolution?.resolveType).toBe("narrative_only");
     expect(out.resolution?.grade).toBe("success");
     expect(out.resolution?.roll).toBeNull();
-    expect(JSON.stringify(out.state.player)).toBe(before);
+    // The lantern moved from the player to elara.
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(false);
+    expect(out.state.npcs.elara.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(true);
   });
 
   it("attack hit applies combat damage to the target NPC", () => {
@@ -190,11 +209,14 @@ describe("action resolution", () => {
     expect(gradeFromRoll(3, 10)).toBe("fail");
   });
 
-  it("time cost advances clock (anti-spam)", () => {
+  it("time cost reports effectiveTimeCost (clock advances in stepWorld)", () => {
     const { def, state } = setup();
     const before = state.clock.totalHours;
     const out = resolveAction({ definition: def, state, actionId: "wait" }); // wait costs 1h
-    expect(out.state.clock.totalHours).toBe(before + 1);
+    // resolveAction no longer advances the clock — it reports the cost and
+    // the caller (playerTurn) steps the world by it.
+    expect(out.effectiveTimeCost).toBe(1);
+    expect(out.state.clock.totalHours).toBe(before);
   });
 
   it("unaffordable cost rejects without state change", () => {
@@ -207,6 +229,16 @@ describe("action resolution", () => {
     const out = resolveAction({ definition: def, state: noHerb, actionId: "cast" });
     expect(out.rejected).toBe(true);
     expect(out.rejectReason).toBe("unaffordable");
+  });
+
+  it("origin denied_actions rejects the action (apprentice cannot cast)", () => {
+    const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
+    const { state } = generateWorld(def, "apprentice", { seed: 42 });
+    // apprentice.yaml declares denied_actions: [cast]; legality rejects
+    // before costs are checked (R8).
+    const out = resolveAction({ definition: def, state, actionId: "cast" });
+    expect(out.rejected).toBe(true);
+    expect(out.rejectReason).toBe("denied_action");
   });
 });
 
@@ -330,6 +362,27 @@ describe("commitments", () => {
     );
     expect(fired).toBe(true);
   });
+
+  it("R8 mainline: mine-collapse flag triggers the fact-source commitment", () => {
+    const { def, state } = setup();
+    // mine-collapse writes flag: mine-collapse-witnessed; the commitment
+    // collapse-survivor-rescued reads fact: mine-collapse-witnessed. The
+    // unified marker space (hasMarker) bridges the two, so the mainline
+    // commitment fires once the event played and perception >= 12.
+    const played = playEvent(state, def, "mine-collapse");
+    expect(played.played).toBe(true);
+    expect(played.state.player.flags).toContain("mine-collapse-witnessed");
+    const withPerception = {
+      ...played.state,
+      player: { ...played.state.player, stats: { ...played.state.player.stats, perception: 12 } },
+    };
+    const result = checkCommitments(withPerception, def);
+    expect(result.fired).toContain("collapse-survivor-rescued");
+    expect(
+      result.state.commitments.find((c) => c.commitmentId === "collapse-survivor-rescued")
+        ?.triggered,
+    ).toBe(true);
+  });
 });
 
 describe("director", () => {
@@ -337,7 +390,8 @@ describe("director", () => {
     const { def, state } = setup();
     const result = selectDirectorEvent(state, def);
     expect(result.selectedEventId).toBeDefined();
-    expect(result.state.director.seenEventIds).toContain(result.selectedEventId!);
+    // Selection records the play day; novelty truth lives in playedEventIds.
+    expect(result.state.director.lastEventDay).toBeGreaterThanOrEqual(0);
   });
 
   it("eventEligible filters by location constraint", () => {
@@ -345,7 +399,7 @@ describe("director", () => {
     const mineEvent = def.events.get("mine-collapse");
     if (mineEvent) {
       // mine-collapse targets mine-entrance; player at tavern -> not eligible
-      expect(eventEligible(mineEvent, state, def, 0)).toBe(false);
+      expect(eventEligible(mineEvent, state, def)).toBe(false);
     }
   });
 

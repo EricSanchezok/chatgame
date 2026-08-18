@@ -151,7 +151,12 @@ function applyNeed(
       direction === "set" ? delta : current + (direction === "remove" ? -delta : delta);
     return {
       ...needs,
-      [need]: { value: clampNeed(ctx, need, next), descriptor: needs[need]?.descriptor },
+      [need]: {
+        value: clampNeed(ctx, need, next),
+        descriptor: needs[need]?.descriptor
+          ? { ...needs[need].descriptor!, stale: true }
+          : undefined,
+      },
     };
   };
   if (target === "player") {
@@ -470,15 +475,6 @@ function applySecret(
   return { state, summary: `secret ${secretId} (no-op target ${target})` };
 }
 
-function applyEvent(state: WorldState, eventId: string): { state: WorldState; summary: string } {
-  if (state.activeEventIds.includes(eventId)) {
-    return { state, summary: `event ${eventId} already active` };
-  }
-  return {
-    state: { ...state, activeEventIds: [...state.activeEventIds, eventId] },
-    summary: `event ${eventId} queued`,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Main executor
@@ -488,6 +484,12 @@ export interface ApplyEffectsOptions {
   definition: WorldDefinition;
   grade?: ResultGrade;
   day: number;
+  /**
+   * Optional event-playback hook: called for each event-kind effect so the
+   * events layer can play it (with its own depth guard). When omitted,
+   * event-kind effects are recorded as summaries only (no playback).
+   */
+  onEvent?: (eventId: string) => WorldState;
 }
 
 /** Applies a list of effects immutably; returns new state + summaries. */
@@ -580,9 +582,8 @@ export function applyEffects(
         break;
       }
       case "event": {
-        const out = applyEvent(current, effect.event);
-        current = out.state;
-        summaries.push(out.summary);
+        current = options.onEvent ? options.onEvent(effect.event) : current;
+        summaries.push(`event ${effect.event} played`);
         break;
       }
       case "narrative":

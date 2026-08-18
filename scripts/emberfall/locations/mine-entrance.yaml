@@ -8,7 +8,7 @@ connections:
   - { to: dormitory, distance: 1, travel_time: 10 }
 ambient_events: []
 npcs_present: [old-miner]
-items: []
+items: [coal-essence]
 danger_level: 4
 entry_condition:
   all:

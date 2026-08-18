@@ -14,8 +14,8 @@ import { evalCondition, type ConditionContext } from "./condition";
 import { applyEffects } from "./effect";
 import { checkWorldRules } from "./rules";
 import { rollD20 } from "./rng";
-import { advanceClock } from "./time";
-import { computeDamage, applyDamage, addThreat } from "./mechanics/combat";
+import { BUILTIN_HANDLERS } from "./builtins";
+import { applyProgression } from "./mechanics/progression";
 
 export interface ResolutionContext {
   definition: WorldDefinition;
@@ -41,6 +41,8 @@ export interface ActionResolution {
   rejectReason?: string;
   rejectMessage?: string;
   logEntries: EventLogEntry[];
+  /** Effective time cost of the action (>= 1h); the caller steps the world. */
+  effectiveTimeCost: number;
 }
 
 /** Looks up the action definition from the script (enabled flag respected). */
@@ -96,7 +98,7 @@ function resolveCheck(ctx: ResolutionContext, action: ActionEntry): { grade: Res
   throw new Error("resolveCheck called for non-check");
 }
 
-/** Legality gate: action known + enabled + conditions + world rules. */
+/** Legality gate: action known + enabled + conditions + world rules + origin denials. */
 export function checkActionLegality(
   def: WorldDefinition,
   state: WorldState,
@@ -106,6 +108,11 @@ export function checkActionLegality(
   const action = findAction(def, actionId);
   if (!action) {
     return { ok: false, reasonCode: "unknown_action", message: `action "${actionId}" is not available` };
+  }
+  // Origin denied actions (origins[].denied_actions).
+  const origin = def.origins.get(state.player.originId);
+  if (origin?.denied_actions?.includes(actionId)) {
+    return { ok: false, reasonCode: "denied_action", message: "your background prevents this action" };
   }
   if (action.conditions) {
     const ctx: ConditionContext = { definition: def, state };
@@ -180,6 +187,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
       rejectReason: legality.reasonCode,
       rejectMessage: legality.message,
       logEntries,
+      effectiveTimeCost: 0,
     };
   }
 
@@ -194,6 +202,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
       rejectReason: "unaffordable",
       rejectMessage: "you cannot afford this",
       logEntries,
+      effectiveTimeCost: 0,
     };
   }
 
@@ -225,56 +234,49 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     }
   }
 
-  // 4. Apply effects (scaled by grade).
-  const effects = action.effects ?? [];
+  // 4. Apply effects (scaled by grade). narrative_only skips script effects
+  //    (pure narration — mechanical semantics live in builtins).
+  const effects = action.resolve.type === "narrative_only" ? [] : (action.effects ?? []);
   const effectOut = applyEffects(afterCosts, effects, { definition, grade, day });
   let finalState = effectOut.state;
 
-  // 4b. Combat + movement wiring (v1 minimal, deterministic):
-  //   - attack: on a hit (partial/success/crit) applies grade-scaled damage
-  //     to the target NPC (base = player strength); HP reaching 0 records a
-  //     `defeated:<npc>` fact.
-  //   - defend: passive defense stance — success reduces threat gauge.
-  //   - move/travel: with a known location target, relocates the player.
-  const actionSummaries: string[] = [];
-  if (ctx.actionId === "attack" && ctx.targetNpcId) {
-    if (grade === "success" || grade === "crit" || grade === "partial") {
-      const base = finalState.player.stats.strength ?? 1;
-      const dmg = computeDamage(base, grade);
-      const hit = applyDamage(finalState, definition, ctx.targetNpcId, dmg, "physical");
-      finalState = hit.state;
-      actionSummaries.push(`attack hit ${ctx.targetNpcId} for ${dmg} (hp ${hit.hpRemaining})`);
-      if (hit.hpRemaining <= 0) {
-        finalState = { ...finalState, facts: [...finalState.facts, `defeated:${ctx.targetNpcId}`] };
-        actionSummaries.push(`${ctx.targetNpcId} defeated`);
-      }
-    } else {
-      actionSummaries.push(`attack missed ${ctx.targetNpcId}`);
-    }
-  } else if (ctx.actionId === "defend") {
-    if (grade === "success" || grade === "crit") {
-      const stance = addThreat(finalState, definition, -5);
-      finalState = stance.state;
-      actionSummaries.push("defend stance: threat -5");
-    } else {
-      actionSummaries.push("defend stance: no effect");
-    }
-  } else if (
-    (ctx.actionId === "move" || ctx.actionId === "travel") &&
-    typeof ctx.params?.target === "string"
-  ) {
-    const loc = ctx.params.target;
-    if (definition.locations.has(loc)) {
-      finalState = { ...finalState, player: { ...finalState.player, locationId: loc } };
-      actionSummaries.push(`moved to ${loc}`);
+  // 4b. Built-in mechanical semantics (attack/defend/move/travel/use_item/
+  //     give/take/steal/trade) — data-driven registry, no per-action
+  //     hardcoding. Handlers return the next state + summaries.
+  let actionSummaries: string[] = [];
+  const handler = BUILTIN_HANDLERS[ctx.actionId];
+  if (handler) {
+    const builtinOut = handler({
+      definition,
+      state: finalState,
+      grade,
+      targetNpcId: ctx.targetNpcId,
+      params: ctx.params,
+    });
+    finalState = builtinOut.state;
+    actionSummaries = builtinOut.summaries;
+    if (builtinOut.rejected) {
+      return {
+        state,
+        rejected: true,
+        rejectReason: builtinOut.rejectReason,
+        rejectMessage: builtinOut.rejectMessage,
+        logEntries,
+        effectiveTimeCost: 0,
+      };
     }
   }
 
-  // 5. Advance time by the action cost (always >= 1h for actions with time cost).
-  const timeCost = action.costs?.time ?? 0;
-  if (timeCost > 0) {
-    finalState = { ...finalState, clock: advanceClock(finalState.clock, definition, timeCost) };
+  // 4c. Progression (stat_check / skill_check sources) after the check.
+  if (action.resolve.type === "stat_check" || action.resolve.type === "skill_check") {
+    const prog = applyProgression(finalState, definition, action.resolve.type);
+    finalState = prog.state;
   }
+
+  // 5. Effective time cost (>= 1h, anti-spam). The caller (playerTurn)
+  //    steps the world by this amount — clock advancement is NOT here.
+  const effectiveTimeCost = Math.max(action.costs?.time ?? 1, 1);
+
   // 6. ResolutionLog (auditable).
   const resolution: ResolutionLogEntry = {
     actionId: ctx.actionId,
@@ -298,5 +300,5 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   // Merge resolution logs into the world state (auditable history).
   finalState = { ...finalState, eventLog: [...finalState.eventLog, ...logEntries] };
 
-  return { state: finalState, resolution, rejected: false, logEntries };
+  return { state: finalState, resolution, rejected: false, logEntries, effectiveTimeCost };
 }

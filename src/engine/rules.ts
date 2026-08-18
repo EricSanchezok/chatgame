@@ -8,6 +8,7 @@
 // source of truth).
 import type { WorldState } from "./types";
 import type { WorldDefinition } from "./types";
+import { builtinActionIdSchema } from "../script/schemas/actions";
 
 export interface RuleCheckContext {
   definition: WorldDefinition;
@@ -29,12 +30,9 @@ export interface RuleCheckResult {
 /** Built-in mechanism checks keyed by world rule `mechanism` field. */
 type MechanismChecker = (ctx: RuleCheckContext) => string | null;
 
-const ALLOWED_ACTIONS = new Set([
-  "talk", "ask", "move", "travel", "investigate", "search", "persuade",
-  "intimidate", "deceive", "attack", "defend", "flee", "use_item", "give",
-  "take", "trade", "steal", "rest", "wait", "follow", "sneak", "gather",
-  "craft", "repair", "cast", "disguise",
-]);
+/** Action vocabulary: derived from the script contract (single source of
+ *  truth — src/script/schemas/actions.ts builtinActionIdSchema). */
+const ALLOWED_ACTIONS: ReadonlySet<string> = new Set(builtinActionIdSchema.options);
 
 /** item existence check: effects must reference existing script items (I2). */
 function itemExists(ctx: RuleCheckContext): string | null {

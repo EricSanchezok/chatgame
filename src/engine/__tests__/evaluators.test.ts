@@ -58,10 +58,13 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
     facts: ["mine-collapsed"],
     eventLog: [],
     commitments: [],
-    director: { seenEventIds: [], lastEventDay: null, tension: { danger: 10 } },
+    director: { lastEventDay: null, tension: { danger: 10 } },
     rng: { seed: 1, state: 1 },
     tasks: [],
-    activeEventIds: [],
+    playedEventIds: [],
+    eventLastPlayedDay: {},
+    secretHolders: {},
+    locationInventories: {},
     ...overrides,
   };
 }
@@ -236,9 +239,10 @@ describe("effect algebra", () => {
     expect(out.state.facts).toContain("mine-secret");
     expect(out.state.npcs.elara.revealedSecrets).toContain("mine-secret");
   });
-  it("event queues active event", () => {
+  it("event effect is a no-op without an onEvent hook", () => {
     const out = applyEffects(makeState(), [{ kind: "event", direction: "set", target: "player", event: "mine-collapse" }], { definition: emberfall, day: 0 });
-    expect(out.state.activeEventIds).toContain("mine-collapse");
+    expect(out.state).toEqual(makeState());
+    expect(out.summaries[0]).toContain("event");
   });
   it("narrative effect changes nothing", () => {
     const before = makeState();

@@ -1,12 +1,13 @@
 // Director system: selects events by tension-band weighting + novelty
-// (seen/cooldown) + pacing. RimWorld Storyteller-style — the world does
+// (played/cooldown) + pacing. RimWorld Storyteller-style — the world does
 // not randomly roll events, it selects them from a weighted pool filtered
-// by player/world state, and tracks what has been seen to avoid repetition.
+// by player/world state, and tracks what has been played to avoid
+// repetition. Selection only picks; playback lives in events.ts.
 import type { WorldState, EventLogEntry } from "./types";
 import type { WorldDefinition } from "./types";
 import type { Event } from "../script/schemas/event";
 import { evalCondition, type ConditionContext } from "./condition";
-import { weightedPick, nextInt, nextFloat } from "./rng";
+import { weightedPick, nextFloat } from "./rng";
 import { absoluteDay } from "./time";
 
 export interface DirectorSelectResult {
@@ -16,6 +17,36 @@ export interface DirectorSelectResult {
   logEntries: EventLogEntry[];
 }
 
+/** Difficulty ramp cap (multiplier never exceeds this constant). */
+export const DIFFICULTY_RAMP_CAP = 5;
+
+/** Effective cooldown for an event: event.cooldown, else novelty.cooldown_default. */
+export function eventCooldown(definition: WorldDefinition, event: Event): number {
+  return event.cooldown > 0 ? event.cooldown : definition.director.novelty.cooldown_default;
+}
+
+/**
+ * Novelty gate: a non-repeatable event plays once; a repeatable event must
+ * wait out its cooldown (event.cooldown ?? novelty.cooldown_default).
+ */
+export function eventNoveltyOk(
+  state: WorldState,
+  definition: WorldDefinition,
+  event: Event,
+): boolean {
+  const alreadyPlayed = state.playedEventIds.includes(event.id);
+  if (alreadyPlayed && !event.repeatable) return false;
+  if (alreadyPlayed && event.repeatable) {
+    const lastPlayed = state.eventLastPlayedDay[event.id];
+    const cooldown = eventCooldown(definition, event);
+    if (cooldown > 0 && lastPlayed !== undefined) {
+      const day = absoluteDay(definition, state.clock);
+      if (day - lastPlayed < cooldown) return false;
+    }
+  }
+  return true;
+}
+
 /** Computes the current tension band for an event selection. */
 export function currentTensionBand(
   state: WorldState,
@@ -23,16 +54,24 @@ export function currentTensionBand(
 ): { band: [number, number]; multiplier: number } {
   const tension = state.director.tension;
   const bands = definition.director.event_selection.bands;
-  // Determine the "band" via the first tension variable (danger).
-  const danger = tension["danger"] ?? 0;
+  // The first tension variable drives the band (all variables sync to the
+  // same gauge source, so any of them is representative).
+  const primary = definition.director.tension.variables[0];
+  const value = primary ? tension[primary.name] ?? primary.initial : 0;
   let multiplier = 1;
   let band: [number, number] = [0, 100];
   for (const b of bands) {
-    if (danger >= b.band[0] && danger <= b.band[1]) {
+    if (value >= b.band[0] && value <= b.band[1]) {
       multiplier = b.weight_multiplier;
       band = b.band;
       break;
     }
+  }
+  // Difficulty ramp: events get more likely/weighted as absolute days pass.
+  const ramp = definition.director.pacing.difficulty_ramp;
+  if (ramp > 0) {
+    const day = absoluteDay(definition, state.clock);
+    multiplier *= Math.min(1 + ramp * day, DIFFICULTY_RAMP_CAP);
   }
   return { band, multiplier };
 }
@@ -42,21 +81,12 @@ export function eventEligible(
   event: Event,
   state: WorldState,
   definition: WorldDefinition,
-  day: number,
 ): boolean {
-  // Not seen / cooldown respected.
-  const seen = state.director.seenEventIds.includes(event.id);
-  if (seen && !event.repeatable) return false;
-  if (seen && event.repeatable && event.cooldown > 0) {
-    // Cooldown: approximate with the last director event day.
-    if (state.director.lastEventDay !== null && day - state.director.lastEventDay < event.cooldown) {
-      return false;
-    }
-  }
-  // Exclusivity: if any mutually-exclusive event is already active/seen, skip.
+  if (!eventNoveltyOk(state, definition, event)) return false;
+  // Exclusivity: skip when any mutually-exclusive event has been played.
   if (event.exclusivity) {
     for (const other of event.exclusivity.mutually_exclusive) {
-      if (state.activeEventIds.includes(other)) return false;
+      if (state.playedEventIds.includes(other)) return false;
     }
   }
   // Location eligibility: at least one listed location matches player location
@@ -83,8 +113,8 @@ export function eventEligible(
 
 /**
  * Selects an event from the director pool using tension-band weighted
- * selection. Pure immutable update; returns the new state with the event
- * queued as active and the seen tracking updated.
+ * selection. Pure immutable update; returns the new state with the play
+ * tracking updated. The caller plays the selected event via events.ts.
  */
 export function selectDirectorEvent(
   state: WorldState,
@@ -92,7 +122,7 @@ export function selectDirectorEvent(
 ): DirectorSelectResult {
   const day = absoluteDay(definition, state.clock);
   const eligible = [...definition.events.values()].filter((e) =>
-    eventEligible(e, state, definition, day),
+    eventEligible(e, state, definition),
   );
   if (eligible.length === 0) {
     return { state, logEntries: [] };
@@ -115,40 +145,11 @@ export function selectDirectorEvent(
     },
   ];
 
-  // Mark seen + queue as active.
-  const seenEventIds = event.repeatable
-    ? [...state.director.seenEventIds, event.id]
-    : [...state.director.seenEventIds, event.id]; // non-repeatable filtered by eventEligible
-  const activeEventIds = state.activeEventIds.includes(event.id)
-    ? state.activeEventIds
-    : [...state.activeEventIds, event.id];
-
   return {
-    state: {
-      ...state,
-      director: {
-        ...state.director,
-        seenEventIds,
-        lastEventDay: day,
-      },
-      activeEventIds,
-    },
+    state: { ...state, director: { ...state.director, lastEventDay: day } },
     selectedEventId: event.id,
     logEntries,
   };
-}
-
-/** Returns a random eligible event (uniform, no tension weighting). */
-export function pickAmbientEvent(
-  state: WorldState,
-  definition: WorldDefinition,
-): Event | undefined {
-  const day = absoluteDay(definition, state.clock);
-  const eligible = [...definition.events.values()].filter((e) =>
-    eventEligible(e, state, definition, day),
-  );
-  if (eligible.length === 0) return undefined;
-  return eligible[nextInt(state.rng, 0, eligible.length - 1)];
 }
 
 /** Whether the director should attempt selection this turn (pacing). */

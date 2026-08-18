@@ -739,4 +739,260 @@ narrative:
     expect(issue).toBeDefined();
     expect(issue!.line).toBe(7);
   });
+
+  // --- R10: appendix C op×source matrix ---
+  it("rejects stat condition with has op", () => {
+    const files = validBase();
+    files["plot.yaml"] = files["plot.yaml"].replace(
+      "- { source: relationship, key: npc1, op: gte, value: 60 }",
+      "- { source: stat, key: strength, op: has }",
+    );
+    expectIssuesContaining(files, ['op "has" not allowed for source "stat"']);
+  });
+
+  it("rejects flag condition with numeric op", () => {
+    const files = validBase();
+    files["plot.yaml"] = files["plot.yaml"].replace(
+      "- { source: relationship, key: npc1, op: gte, value: 60 }",
+      "- { source: flag, key: some-flag, op: eq, value: 1 }",
+    );
+    expectIssuesContaining(files, ['op "eq" not allowed for source "flag"']);
+  });
+
+  it("rejects location condition with has op", () => {
+    const files = validBase();
+    files["plot.yaml"] = files["plot.yaml"].replace(
+      "- { source: relationship, key: npc1, op: gte, value: 60 }",
+      "- { source: location, key: current, op: has }",
+    );
+    expectIssuesContaining(files, ['op "has" not allowed for source "location"']);
+  });
+
+  it("rejects in op with non-array value", () => {
+    const files = validBase();
+    files["plot.yaml"] = files["plot.yaml"].replace(
+      "- { source: relationship, key: npc1, op: gte, value: 60 }",
+      "- { source: location, key: current, op: in, value: tavern }",
+    );
+    expectIssuesContaining(files, ['op "in" requires an array value']);
+  });
+
+  it("rejects eq op with array value", () => {
+    const files = validBase();
+    files["plot.yaml"] = files["plot.yaml"].replace(
+      "- { source: relationship, key: npc1, op: gte, value: 60 }",
+      "- { source: location, key: current, op: eq, value: [tavern] }",
+    );
+    expectIssuesContaining(files, ['op "eq" does not accept an array value']);
+  });
+
+  it("rejects npc secret reveal logic with illegal op", () => {
+    const files = validBase();
+    files["npcs/npc1.yaml"] = files["npcs/npc1.yaml"].replace(
+      "- { source: relationship, key: player, op: gte, value: 60 }",
+      "- { source: inventory, key: pickaxe, op: has }",
+    );
+    expectIssuesContaining(files, ['op "has" not allowed for source "inventory"']);
+  });
+
+  it("rejects narrative hook condition with illegal op", () => {
+    const files = validBase();
+    files["narrative/opening.yaml"] = files["narrative/opening.yaml"].replace(
+      "hooks: []",
+      "hooks:\n  - { text: 测试钩子, condition: { source: stat, key: hp, op: has } }",
+    );
+    expectIssuesContaining(files, ['op "has" not allowed for source "stat"']);
+  });
+
+  // --- R10: reference edge additions ---
+  it("rejects festival → missing event", () => {
+    const files = validBase();
+    files["time.yaml"] = files["time.yaml"].replace(
+      "world_advances: true",
+      'festivals:\n  - { id: festival-1, name: 测试节, date: "01-01", event: ghost }\nworld_advances: true',
+    );
+    expectIssuesContaining(files, ['event "ghost" not found']);
+  });
+
+  it("rejects schedule entry → missing location", () => {
+    const files = validBase();
+    files["time.yaml"] = files["time.yaml"].replace(
+      "location: tavern",
+      "location: ghost",
+    );
+    expectIssuesContaining(files, [
+      "schedules[keeper].entries[0].location",
+      'location "ghost" not found',
+    ]);
+  });
+
+  it("rejects task conditions/giver.condition → missing refs", () => {
+    const files = validBase();
+    files["tasks/t1.yaml"] = `
+id: t1
+name: 测试任务
+objective:
+  type: gather
+  target: { pool: [item1] }
+  quantity: 1
+giver:
+  pool: [npc1]
+  condition: { source: reputation, key: ghostfaction, op: gte, value: 10 }
+conditions:
+  all:
+    - { source: location, key: current, op: eq, value: ghostloc }
+    - { source: inventory, key: ghostitem, op: gte, value: 1 }
+    - { source: relationship, key: ghostnpc, op: gte, value: 1 }
+    - { source: stat, key: ghoststat, op: gte, value: 1 }
+    - { source: skill, key: ghostskill, op: gte, value: 1 }
+    - { source: need, key: ghostneed, op: gte, value: 1 }
+repeatable: false
+narrative:
+  offer: 给你
+  complete: 完成
+  fail: 失败
+`;
+    expectIssuesContaining(files, [
+      'npc "ghostnpc" not found',
+      'faction "ghostfaction" not found',
+      'location "ghostloc" not found',
+      'stat "ghoststat" not declared',
+      'skill "ghostskill" not declared',
+      'need "ghostneed" not declared',
+      'item "ghostitem" not found',
+    ]);
+  });
+
+  it("rejects location connection condition → missing refs", () => {
+    const files = validBase();
+    files["locations/tavern.yaml"] = files["locations/tavern.yaml"].replace(
+      "connections: []",
+      "connections:\n  - to: tavern\n    distance: 0\n    travel_time: 0\n    condition:\n      all:\n        - { source: location, key: current, op: eq, value: ghostcond }\n        - { source: stat, key: ghoststat, op: gte, value: 1 }",
+    );
+    expectIssuesContaining(files, [
+      'location "ghostcond" not found',
+      'stat "ghoststat" not declared',
+    ]);
+  });
+
+  it("rejects origin exclusive_to → missing location", () => {
+    const files = validBase();
+    files["origins/o1.yaml"] = files["origins/o1.yaml"].replace(
+      "starting_currency: 30",
+      "starting_currency: 30\nexclusive_to: ghost",
+    );
+    expectIssuesContaining(files, ['location "ghost" not found']);
+  });
+
+  it("rejects faction threshold effects → missing refs", () => {
+    const files = validBase();
+    files["factions/f1.yaml"] = `
+id: f1
+name: 测试势力
+description: 测试
+members: [npc1]
+relations: []
+reputation:
+  thresholds:
+    - value: 10
+      label: 友好
+      effects:
+        - { kind: relation, direction: add, target: player, npc: ghostnpc, value: 5 }
+        - { kind: status, direction: add, target: player, status: ghoststatus }
+        - { kind: item, direction: add, target: player, item: ghostitem }
+        - { kind: reputation, direction: add, target: player, faction: ghostfaction, value: 5 }
+        - { kind: stat, direction: add, target: player, stat: ghoststat, value: 1 }
+        - { kind: teleport, direction: set, target: player, location: ghostloc }
+  decay: 0
+`;
+    expectIssuesContaining(files, [
+      'npc "ghostnpc" not found',
+      'status "ghoststatus" not declared in mechanics.yaml',
+      'item "ghostitem" not found',
+      'faction "ghostfaction" not found',
+      'stat "ghoststat" not declared',
+      'location "ghostloc" not found',
+    ]);
+  });
+
+  it("rejects duplicate secret id across npcs", () => {
+    const files = validBase();
+    files["npcs/npc2.yaml"] = `
+id: npc2
+name: 测试NPC2
+base_class: humanoid
+description: 测试
+secrets:
+  - id: s1
+    content: 重复秘密
+    reveal:
+      logic: { source: flag, key: returned, op: has }
+llm:
+  personality: 测试
+  knowledge_filter: true
+`;
+    expectIssuesContaining(files, ['duplicate secret id "s1" across npcs']);
+  });
+
+  // --- R10: valid usage of new edges must not false-positive ---
+  it("accepts valid usage of the new edges", () => {
+    const files = validBase();
+    files["events/e1.yaml"] = `
+id: e1
+name: 测试事件
+type: crisis
+tags: [danger]
+trigger: director
+weight: 1
+cooldown: 1
+repeatable: false
+`;
+    files["time.yaml"] = files["time.yaml"].replace(
+      "world_advances: true",
+      'festivals:\n  - { id: festival-1, name: 测试节, date: "01-01", event: e1 }\nworld_advances: true',
+    );
+    files["factions/f1.yaml"] = `
+id: f1
+name: 测试势力
+description: 测试
+members: [npc1]
+relations: []
+reputation:
+  thresholds:
+    - value: 10
+      label: 友好
+      effects:
+        - { kind: item, direction: add, target: player, item: item1 }
+  decay: 0
+`;
+    files["tasks/t1.yaml"] = `
+id: t1
+name: 测试任务
+objective:
+  type: gather
+  target: { pool: [item1] }
+  quantity: 1
+giver:
+  pool: [npc1]
+  condition: { source: reputation, key: f1, op: gte, value: 10 }
+conditions:
+  all:
+    - { source: location, key: current, op: in, value: [tavern] }
+    - { source: inventory, key: item1, op: gte, value: 1 }
+    - { source: flag, key: returned, op: has }
+repeatable: false
+narrative:
+  offer: 给你
+  complete: 完成
+  fail: 失败
+`;
+    files["locations/tavern.yaml"] = files["locations/tavern.yaml"].replace(
+      "connections: []",
+      "connections:\n  - to: tavern\n    distance: 0\n    travel_time: 0\n    condition: { source: flag, key: returned, op: not_has }",
+    );
+    writeScript(files);
+    const result = validateScriptDir(dir);
+    expect(result.issues).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
 });

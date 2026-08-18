@@ -21,6 +21,7 @@ import {
   readSave,
   SAVE_SCHEMA_VERSION,
   SaveError,
+  normalizeWorldState,
 } from "../save";
 import type { WorldState, WorldDefinition } from "../types";
 
@@ -189,5 +190,35 @@ describe("save system", () => {
 
   it("readSave rejects missing file", () => {
     expect(() => readSave("/nonexistent/save.json")).toThrow(SaveError);
+  });
+});
+
+describe("save system: normalizeWorldState", () => {
+  it("fills missing derived fields from the definition", () => {
+    const { def, state } = setup();
+    // Strip the derived fields as a v2 snapshot could when hand-built.
+    const stripped: WorldState = {
+      ...state,
+      locationInventories: undefined as unknown as WorldState["locationInventories"],
+      secretHolders: undefined as unknown as WorldState["secretHolders"],
+      playedEventIds: undefined as unknown as WorldState["playedEventIds"],
+      eventLastPlayedDay: undefined as unknown as WorldState["eventLastPlayedDay"],
+    };
+    const normalized = normalizeWorldState(def, stripped);
+    // locationInventories rebuilt from locations[].items.
+    expect(normalized.locationInventories).toBeDefined();
+    const mine = normalized.locationInventories["mine-entrance"];
+    expect(mine.stacks.some((s) => s.itemId === "coal-essence")).toBe(true);
+    // secretHolders rebuilt from NPC secrets (knock-code -> old-wei).
+    expect(normalized.secretHolders["knock-code"]).toBe("old-wei");
+    // Played-tracking defaults.
+    expect(normalized.playedEventIds).toEqual([]);
+    expect(normalized.eventLastPlayedDay).toEqual({});
+  });
+
+  it("is a no-op on a complete v2 state", () => {
+    const { def, state } = setup();
+    const normalized = normalizeWorldState(def, state);
+    expect(JSON.stringify(normalized)).toBe(JSON.stringify(state));
   });
 });

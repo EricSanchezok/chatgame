@@ -26,7 +26,7 @@ secrets:
       logic:
         all:
           - { source: relationship, key: player, op: gte, value: 40 }
-          - { source: inventory, key: pickaxe, op: has }
+          - { source: inventory, key: pickaxe, op: gte, value: 1 }
 knowledge_flags: [mine-collapse-witness]
 llm:
   personality: 说话颠三倒四，偶尔冒出关键句子；怕黑，怕雷声

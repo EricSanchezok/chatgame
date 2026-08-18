@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Engine } from "../index";
 import { MockProvider } from "../narrative/mock";
+import type { WorldState } from "../types";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const EMBERFALL = path.join(REPO_ROOT, "scripts/emberfall");
@@ -111,5 +112,36 @@ describe("Engine facade", () => {
     // State invariants hold after turns.
     expect(engine.worldState.player.stats.hp).toBeGreaterThan(0);
     expect(engine.worldState.player.locationId.length).toBeGreaterThan(0);
+  });
+
+  it("condition commitment fires mid-turn (not only at day boundary)", async () => {
+    const engine = createEngine();
+    // elara-secret-reveal fires when player->elara relation >= 60. The
+    // miner origin starts at 20; raise it mid-day so the condition holds
+    // without any clock advance crossing a day boundary.
+    const state = engine.worldState;
+    const withRel = {
+      ...state,
+      player: {
+        ...state.player,
+        relations: [
+          { npcId: "elara", value: 70, stance: "friendly", type: "business" },
+        ],
+      },
+    };
+    (engine as unknown as { state: WorldState }).state = withRel;
+    await engine.playerTurn("你好，艾拉");
+    // The commitment fired this turn (triggered flag set + secret revealed).
+    const fired = engine.worldState.commitments.find(
+      (c) => c.commitmentId === "elara-secret-reveal",
+    );
+    expect(fired?.triggered).toBe(true);
+    expect(engine.worldState.facts).toContain("mine-secret");
+    // The turn's event log records the commitment firing.
+    expect(
+      engine.worldState.eventLog.some(
+        (e) => e.type === "commitment" && e.summary.includes("elara-secret-reveal"),
+      ),
+    ).toBe(true);
   });
 });

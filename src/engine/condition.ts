@@ -52,6 +52,15 @@ function compare(op: string, actual: number, value: number): boolean {
     default: return false;
   }
 }
+/** Unified marker lookup (player.flags ∪ world.flags ∪ facts). */
+export function hasMarker(state: WorldState, key: string): boolean {
+  return (
+    state.player.flags.includes(key) ||
+    state.flags.includes(key) ||
+    state.facts.includes(key)
+  );
+}
+
 
 /** Resolves a leaf condition to a boolean. Unknown/missing data => false. */
 export function evalConditionLeaf(
@@ -70,16 +79,12 @@ export function evalConditionLeaf(
       if (actual === undefined || typeof value !== "number") return false;
       return compare(op, actual, value);
     }
-    case "flag": {
-      if (!key) return false;
-      const has = state.player.flags.includes(key) || state.flags.includes(key);
-      if (op === "has") return has;
-      if (op === "not_has") return !has;
-      return false;
-    }
+    case "flag":
     case "fact": {
+      // flags and facts share one runtime marker space (no declaration pool
+      // in the schema — appendix E); both sources resolve via hasMarker.
       if (!key) return false;
-      const has = state.facts.includes(key);
+      const has = hasMarker(state, key);
       if (op === "has") return has;
       if (op === "not_has") return !has;
       return false;

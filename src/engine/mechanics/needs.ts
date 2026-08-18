@@ -33,7 +33,7 @@ function decayNeeds(
     }
     const decay = def.decay_per_day * (hoursElapsed / 24);
     const value = clampNeed(definition, name, need.value - decay);
-    next[name] = value === need.value ? need : { value, descriptor: need.descriptor };
+    next[name] = value === need.value ? need : { value, descriptor: need.descriptor ? { ...need.descriptor, stale: true } : undefined };
     if (value !== need.value) changed = true;
   }
   return changed ? next : needs;

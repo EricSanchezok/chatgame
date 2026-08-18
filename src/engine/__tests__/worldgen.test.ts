@@ -28,8 +28,8 @@ describe("worldgen", () => {
     // NPC stat jitter or starting event should differ for at least one aspect.
     const statsA = JSON.stringify(a.state.npcs.elara.stats);
     const statsB = JSON.stringify(b.state.npcs.elara.stats);
-    const eventA = JSON.stringify(a.state.activeEventIds);
-    const eventB = JSON.stringify(b.state.activeEventIds);
+    const eventA = JSON.stringify(a.startingEvent ?? "");
+    const eventB = JSON.stringify(b.startingEvent ?? "");
     expect(statsA !== statsB || eventA !== eventB).toBe(true);
   });
 
@@ -64,10 +64,10 @@ describe("worldgen", () => {
 
   it("randomizes starting event from worldgen pool", () => {
     const def = emberfallDef();
-    const { state } = generateWorld(def, "miner", { seed: 3 });
+    const { startingEvent } = generateWorld(def, "miner", { seed: 3 });
     // starting_event pool: [lantern-festival, market-day]
-    if (state.activeEventIds.length > 0) {
-      expect(["lantern-festival", "market-day"]).toContain(state.activeEventIds[0]);
+    if (startingEvent) {
+      expect(["lantern-festival", "market-day"]).toContain(startingEvent);
     }
   });
 
@@ -85,5 +85,25 @@ describe("worldgen", () => {
       expect(npc.stats.hp).toBeGreaterThanOrEqual(hpDef.min);
       expect(npc.stats.hp).toBeLessThanOrEqual(hpDef.max);
     }
+  });
+
+  it("seeds NPC initial memories with deterministic ids", () => {
+    const def = emberfallDef();
+    const { state } = generateWorld(def, "miner", { seed: 7 });
+    // old-wei declares memory.initial with two entries.
+    const oldWei = state.npcs["old-wei"];
+    expect(oldWei).toBeDefined();
+    expect(oldWei.memories.length).toBe(2);
+    // Deterministic id: <prefix>-<day>-<tags.length> — same seed -> same id.
+    expect(oldWei.memories[0].id).toMatch(/^mem-old-wei-\d+-\d+-\d+$/);
+    expect(oldWei.memories[1].id).not.toBe(oldWei.memories[0].id);
+    expect(oldWei.memories[0].text).toContain("敲击声");
+    expect(oldWei.memories[0].createdAtDay).toBe(0);
+    expect(oldWei.memories[0].archived).toBe(false);
+    // Same seed reproduces the exact same memory entries.
+    const again = generateWorld(def, "miner", { seed: 7 });
+    expect(JSON.stringify(again.state.npcs["old-wei"].memories)).toBe(
+      JSON.stringify(oldWei.memories),
+    );
   });
 });

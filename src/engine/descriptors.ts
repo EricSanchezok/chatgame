@@ -14,6 +14,8 @@
 import type { Descriptor, WorldState, DescriptorUpdate } from "./types";
 import type { WorldDefinition } from "./types";
 import { relationLabel, reputationLabel } from "./definition";
+import { z } from "zod";
+import type { LLMProvider } from "./narrative/provider";
 
 /** Max length of a generated description (engineering constraint). */
 export const DESCRIPTOR_MAX_CHARS = 300;
@@ -126,6 +128,43 @@ export const templateGenerator: DescriptorGenerator = {
   },
 };
 
+/** Descriptor output schema (the only LLM-visible description surface). */
+export const descriptorOutputSchema = z.object({
+  description: z.string().min(1),
+});
+
+/**
+ * LLM-backed descriptor generator: asks the provider for a <=300 char
+ * prose description anchored on the deterministic label/value. Mock
+ * returns the deterministic "（模拟描述）" placeholder; real providers
+ * return prose. Polarity validation + template fallback stay in
+ * refreshDescriptor — a failed/unavailable call never blocks the turn.
+ */
+export function llmDescriptorGenerator(provider: LLMProvider): DescriptorGenerator {
+  return {
+    async generate(input) {
+      const system =
+        "你是游戏状态描述器。根据给定的分类标签与数值，输出一段不超过300字的描述，只解释不评判规则。";
+      const prompt = [
+        `类型：${input.kind}`,
+        `标签：${input.label}`,
+        `数值：${input.value}`,
+        input.npcName ? `对象：${input.npcName}` : "",
+        input.priorDescription ? `先前的描述：${input.priorDescription}` : "",
+        input.recentEvents.length > 0 ? `最近事件：${input.recentEvents.join("；")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const out = await provider.generateObject({
+        system,
+        prompt,
+        schema: descriptorOutputSchema,
+      });
+      return out.description;
+    },
+  };
+}
+
 interface RefreshOptions {
   definition: WorldDefinition;
   generator?: DescriptorGenerator;
@@ -201,11 +240,6 @@ export async function refreshDescriptor(
   }
 }
 
-/** Marks a descriptor stale (called by the engine event bus on relevant changes). */
-export function markStale(descriptor: Descriptor | undefined): Descriptor | undefined {
-  if (!descriptor) return descriptor;
-  return descriptor.stale ? descriptor : { ...descriptor, stale: true };
-}
 
 /**
  * User/author edit: sets the description, keeps the value untouched, and

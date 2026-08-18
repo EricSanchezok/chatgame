@@ -6,6 +6,7 @@ import type { WorldState, EventLogEntry } from "./types";
 import type { WorldDefinition } from "./types";
 import { applyEffects } from "./effect";
 import { generateWorld } from "./worldgen";
+import { pickOne } from "./rng";
 
 export interface DeathCheckResult {
   state: WorldState;
@@ -81,13 +82,11 @@ export function applyWorldContinue(
   const kept = wc.state_kept;
   const keepFlags = kept.includes("flags");
   const keepRelations = kept.includes("relations_overview");
-
   const previousPlayer = state.player;
-  const firstOriginId = definition.origins.keys().next().value as string;
-  const newOriginId =
-    wc.succession === "new_character"
-      ? firstOriginId
-      : firstOriginId; // heir_pool: use first origin in v1 (documented)
+  // Succession origin: seeded RNG pick from all origins (v1 has no heir
+  // pool field in the schema — documented).
+  const originIds = [...definition.origins.keys()];
+  const newOriginId = pickOne(state.rng, originIds) ?? originIds[0];
 
   const generated = generateWorld(definition, newOriginId, {
     seed: state.rng.seed + 1,
@@ -95,6 +94,11 @@ export function applyWorldContinue(
   let newPlayer = { ...generated.state.player, name: previousPlayer.name };
   if (keepFlags) newPlayer = { ...newPlayer, flags: [...previousPlayer.flags] };
   if (keepRelations) newPlayer = { ...newPlayer, relations: [...previousPlayer.relations] };
+  // state_kept "lore": inherit `lore-` prefixed facts from the previous run.
+  if (kept.includes("lore")) {
+    const loreFacts = state.facts.filter((f) => f.startsWith("lore-"));
+    state = { ...state, facts: [...state.facts, ...loreFacts] };
+  }
 
   const day = Math.floor(state.clock.totalHours / definition.time.day_length_hours);
   logEntries.push({
@@ -133,7 +137,8 @@ export function applyHardReset(
     return { state, logEntries };
   }
   const hr = policy.hard_reset;
-  const firstOriginId = definition.origins.keys().next().value as string;
+  const originIds = [...definition.origins.keys()];
+  const firstOriginId = pickOne(state.rng, originIds) ?? originIds[0];
 
   let next: WorldState;
   if (hr.world_reroll === "reroll_worldgen") {

@@ -1,7 +1,7 @@
-// Save system: WorldState <-> JSON serialization + version validation +
+// Save system: WorldState <-> JSON serialization + version gate +
 // filesystem persistence. Saves are plain JSON snapshots (immutable state
-// makes this trivial) with a version gate — unknown versions are rejected
-// (migration tooling is a later blueprint).
+// makes this trivial). Agile mode: no backward compatibility — only the
+// current schema version is accepted and stale saves are rejected.
 import {
   existsSync,
   mkdirSync,
@@ -12,8 +12,8 @@ import {
 import path from "node:path";
 import type { SaveFile, WorldState, WorldDefinition } from "./types";
 
-/** Bump on breaking WorldState shape changes. */
-export const SAVE_SCHEMA_VERSION = 1;
+/** Bump on breaking WorldState shape changes. Older versions are rejected. */
+export const SAVE_SCHEMA_VERSION = 2;
 
 export class SaveError extends Error {}
 
@@ -44,7 +44,7 @@ export function serializeSave(
 
 /**
  * Deserializes a save file, validating the schema version and script id.
- * Throws SaveError on unknown versions or mismatched script.
+ * Throws SaveError on any version mismatch (no migration — agile mode).
  */
 export function deserializeSave(
   data: unknown,
@@ -121,4 +121,37 @@ export function roundTrip(state: WorldState, definition: WorldDefinition): World
   const save = serializeSave(definition, state);
   const restored = deserializeSave(save, definition.script.id);
   return restored.worldState;
+}
+/**
+ * Normalizes a world state against its definition: fills any missing
+ * derived fields (locationInventories from locations[].items, secretHolders
+ * from NPC secrets) so every v2 snapshot is complete. No-op on fresh saves.
+ */
+export function normalizeWorldState(
+  definition: WorldDefinition,
+  state: WorldState,
+): WorldState {
+  let next = state;
+  if (!next.locationInventories) {
+    const locationInventories: Record<string, WorldState["locationInventories"][string]> = {};
+    for (const loc of definition.locations.values()) {
+      locationInventories[loc.id] = {
+        stacks: (loc.items ?? []).map((itemId) => ({ itemId, quantity: 1 })),
+        currency: 0,
+      };
+    }
+    next = { ...next, locationInventories };
+  }
+  if (!next.secretHolders) {
+    const secretHolders: Record<string, string> = {};
+    for (const npcDef of definition.npcs.values()) {
+      for (const secret of npcDef.secrets ?? []) {
+        secretHolders[secret.id] = npcDef.id;
+      }
+    }
+    next = { ...next, secretHolders };
+  }
+  if (!next.playedEventIds) next = { ...next, playedEventIds: [] };
+  if (!next.eventLastPlayedDay) next = { ...next, eventLastPlayedDay: {} };
+  return next;
 }

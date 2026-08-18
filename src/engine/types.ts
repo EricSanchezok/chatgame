@@ -211,8 +211,6 @@ export interface CommitmentState {
 }
 
 export interface DirectorState {
-  /** Event ids already selected (novelty tracking). */
-  seenEventIds: string[];
   /** Absolute day of the last director-selected event. */
   lastEventDay: number | null;
   /** Live tension variable values keyed by director.yaml name. */
@@ -265,6 +263,13 @@ export interface ResolutionLogEntry {
   effectsApplied: string[];
 }
 
+export interface TaskCompletion {
+  taskId: string;
+  status: "complete" | "fail";
+  /** Narrative text for the completion/failure (from task.narrative). */
+  narrative: string;
+}
+
 // ---------------------------------------------------------------------------
 // Turn result
 // ---------------------------------------------------------------------------
@@ -295,9 +300,11 @@ export interface TurnResult {
   fellBackToTalk: boolean;
   /** Death policy consequence fired this turn (if any). */
   deathFired?: string;
+  /** World events (festivals/ambient/scheduled) played this turn. */
+  worldEvents: string[];
+  /** Task completions/failures detected this turn. */
+  taskCompletions: TaskCompletion[];
 }
-
-// ---------------------------------------------------------------------------
 // World state (the full immutable snapshot)
 // ---------------------------------------------------------------------------
 
@@ -315,8 +322,14 @@ export interface WorldState {
   director: DirectorState;
   rng: RngState;
   tasks: TaskInstanceState[];
-  /** Event ids currently "in play" (triggered, awaiting narrative resolution). */
-  activeEventIds: string[];
+  /** Event ids already played (single source of novelty truth). */
+  playedEventIds: string[];
+  /** Absolute day each event was last played (cooldown truth). */
+  eventLastPlayedDay: Record<string, number>;
+  /** Runtime secret holder mapping (secretId -> npcId). */
+  secretHolders: Record<string, string>;
+  /** Per-location inventories (take/trade sources). */
+  locationInventories: Record<string, InventoryState>;
 }
 
 // ---------------------------------------------------------------------------
