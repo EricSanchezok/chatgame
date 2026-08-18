@@ -16,6 +16,7 @@ Status: implemented
 - **docs/game-design/**：游戏设计参考——剧本格式、世界模型、机制规格（时间/背包/战斗/角色），一主题一页。
 - **docs/postmortem/、docs/cookbook/**：事故复盘、操作指南，首次需要时创建。
 - **.agents/notes/**：Agent Notes 决策记录，路径 `{lifecycle}/{class}/YYYY-MM-DD-topic.md`，格式见 [.agents/notes/README.md](../../README.md)。
+- **docs/research/**：调研记录——外部证据（理论/方法论/相似产品）。调研不是决定：结论被采纳时写成决策（notes）或规格（game-design），并链接回研究记录。
 
 规则：
 

@@ -13,6 +13,7 @@
 | postmortem/ | 事故复盘（首次需要时创建） | — |
 | cookbook/ | 操作指南（首次需要时创建） | 设计理由（→ notes） |
 | [README.md](../README.md)（根） | 产品简介 + 快速开始 | 详细参考 |
+| [research/](research/README.md) | 调研记录：外部证据（理论/方法论/相似产品） | 决定（→ notes）、规格（→ game-design） |
 
 ## 写作规则
 
@@ -20,3 +21,4 @@
 - 每个非平凡改动必须附 Agent Note（见 [.agents/notes/README.md](../.agents/notes/README.md)）。
 - 交叉引用用相对 Markdown 链接，不用裸文件名。
 - 文档用中文；代码标识符与注释用英文。
+- 调研证据 → `docs/research/`；采纳时写成决策或规格并链接回研究记录。
