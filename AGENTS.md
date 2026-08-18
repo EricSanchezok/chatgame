@@ -7,3 +7,33 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# AGENTS.md
+
+chatgame 是剧本驱动的 AI 聊天游戏框架。设计的第一性原理见 [游戏第一性原理 Agent Note](.agents/notes/implemented/game-design/2026-08-18-game-first-principles.md)；改架构前先读 [docs/architecture.md](docs/architecture.md)。
+
+## 仓库布局
+
+```
+src/          Next.js 应用（当前仅有脚手架）
+docs/         参考文档：architecture、game-design 等（地图见 docs/README.md）
+.agents/notes/ 决策记录（Agent Notes）：{生命周期}/{分类}/YYYY-MM-DD-主题.md
+scripts/      门禁脚本（按需引入）
+```
+
+## 命令
+
+```sh
+npm run dev      # 开发服务器
+npm run build    # 生产构建
+npm run lint     # ESLint
+```
+
+## 约定
+
+- **剧本驱动**：世界观/人物/机制由剧本定义，框架保持通用。禁止为单个游戏写死逻辑而绕过剧本。
+- **引擎管规则，LLM 管叙事**：状态（时间/背包/血量/记忆）是引擎管理的真实数据，绝不放进对话文本。
+- **每个非平凡改动必须附 Agent Note**（同一改动内完成）；决策记录格式见 [.agents/notes/README.md](.agents/notes/README.md)。
+- **每个事实只有一个家**：决策 → notes；规格 → docs/game-design；指令 → 本文件；别处只放链接。
+- 文档只写当前状态，不写变更历史；交叉引用用相对 Markdown 链接。
+- 文档与决策记录用中文；代码标识符与注释用英文。
