@@ -45,3 +45,19 @@ Status: implemented
 - 确定性：固定种子可复现（worldgen/导演/检定），存档含 RNG 状态读档连续。
 - 可测试：109+ 测试全绿（条件 10 op×11 source、效果 14 kind+grade、判定四类型+结果等级、承诺/秘密守卫、双轨描述、防作弊矩阵、存档往返、双 fixture 集成、Engine 门面端到端）。
 - 后续 UI Blueprint 可直接调用 Engine 门面（create/playerTurn/advance/save/load/setDescriptor），无需再作运行时设计决策。
+
+## 复核修正（2026-08-18，审计后补充）
+
+独立复核提出 7 项 blocking + 2 项 non-blocking，已全部修复：
+
+- **opposed 平手语义**：`resolveOpposed` 修正为 diff===0 → fail（平手=主动方失败，5e 语义）；边界重定义为 diff>=5 crit / diff>=1 success / diff===0 fail / diff>=-3 partial / 其余 fail。新增 `npcRollOverride` 支持确定性平手断言（gameplay.test.ts 真实断言 tie → fail）。
+- **战斗接线**：`resolveAction` 中 attack/defend 消费 `mechanics/combat.ts`——命中（partial/success/crit）按 grade 倍率对目标 applyDamage（基础=玩家 strength），HP 归零记录 `defeated:<npc>` fact；defend 成功降低 threatGauge（被动防御姿态）。move/travel 支持 `params.target` 位置移动（demo 需要）。
+- **描述层校验兜底**：新增 `descriptionPolarityOk` 最小规则校验器（负面标签不得含肯定式正面关键词，反之亦然；否定前缀 不/无/没/未/非 不算匹配），校验失败 → 确定性模板降级；entities.test.ts 有显式单测（构造违反极性的生成结果断言降级）。
+- **LLM 桥双路验证**：VercelProvider 支持注入 `languageModel`（ai/test `MockLanguageModelV4`），vercel.test.ts 覆盖合法 JSON 走真实 generateObject schema 校验路径 + 非法 JSON 抛错 + parseIntent 降级到 vocabulary fallback。
+- **starlight 集成**：starlight.test.ts 覆盖完整回合切片（steal opposed 平手 fail / attack 战斗伤害 / 超模输入拒绝零状态变化）。
+- **条件代数补全**：not_in 覆盖（location 数组场景）；时间推进补跨季节断言（currentSeason 包装回冬 / 2月1日入春 / 5月1日入夏），10 op × 11 source 全覆盖。顺带修正 `currentSeason` 实现 bug（取最后一个 start<=now 的季节而非第一个）。
+- **narrative_only 单测**：give 动作断言无掷骰、无状态后果、时间成本照常。
+- **engines 字段**：package.json `engines.node >=22`（AI SDK v7 要求）。
+- **demo 修正**：play-emberfall.ts 用 MockProvider `onGenerateObject` handler 使偷窃回合真正走 opposed 检定、新增攻击回合走战斗结算（冒烟输出验证：steal fail、attack crit 命中 28 伤害、艾拉 hp 80→48）。
+
+测试从 277 → 294（新增 vercel×3 / starlight×3 / entities 极性×3 / gameplay 平手+战斗+narrative_only×6 / evaluators not_in+季节×4），lint/build/validate/play 全部通过。

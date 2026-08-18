@@ -11,6 +11,7 @@ import {
   formatClock,
   scheduleAt,
   todayFestival,
+  currentSeason,
 } from "../time";
 import type { WorldState } from "../types";
 
@@ -116,10 +117,12 @@ describe("condition algebra", () => {
     expect(evalConditionLeaf({ source: "time", key: "hour", op: "gte", value: 0 }, ctx())).toBe(true);
     expect(evalConditionLeaf({ source: "time", key: "day", op: "eq", value: 1 }, ctx())).toBe(true);
   });
-  it("location eq / neq / in", () => {
+  it("location eq / neq / in / not_in", () => {
     expect(evalConditionLeaf({ source: "location", key: "current", op: "eq", value: "emberfall-tavern" }, ctx())).toBe(true);
     expect(evalConditionLeaf({ source: "location", key: "current", op: "neq", value: "town-square" }, ctx())).toBe(true);
     expect(evalConditionLeaf({ source: "location", key: "current", op: "in", value: ["town-square", "emberfall-tavern"] }, ctx())).toBe(true);
+    expect(evalConditionLeaf({ source: "location", key: "current", op: "not_in", value: ["town-square", "mine-entrance"] }, ctx())).toBe(true);
+    expect(evalConditionLeaf({ source: "location", key: "current", op: "not_in", value: ["emberfall-tavern"] }, ctx())).toBe(false);
   });
   it("inventory gte / currency lt", () => {
     expect(evalConditionLeaf({ source: "inventory", key: "pickaxe", op: "gte", value: 1 }, ctx())).toBe(true);
@@ -281,6 +284,25 @@ describe("clock", () => {
   it("todayFestival finds festival", () => {
     const c = advanceClock(createClock(emberfall, "晴", "春"), emberfall, 24 * 14); // 1月15日 灯节
     expect(todayFestival(emberfall, c)).toBe("festival-lanterns");
+  });
+  it("currentSeason wraps to the last season before the first start", () => {
+    // 1月1日 is before 春 (02-01) -> wraps to 冬 (11-01).
+    const c = createClock(emberfall, "晴", "春");
+    expect(currentSeason(emberfall, c)).toBe("冬");
+  });
+  it("currentSeason crosses into spring at 02-01", () => {
+    // 正月 has 30 days; advancing 30 days lands on 2月1日 = 春 start.
+    const c = advanceClock(createClock(emberfall, "晴", "春"), emberfall, 24 * 30);
+    expect(c.month).toBe(2);
+    expect(c.day).toBe(1);
+    expect(currentSeason(emberfall, c)).toBe("春");
+  });
+  it("currentSeason crosses into summer at 05-01", () => {
+    // Days in months 1-4: 30+29+30+30 = 119 -> 5月1日 = 夏 start.
+    const c = advanceClock(createClock(emberfall, "晴", "春"), emberfall, 24 * 119);
+    expect(c.month).toBe(5);
+    expect(c.day).toBe(1);
+    expect(currentSeason(emberfall, c)).toBe("夏");
   });
   it("scheduleAt returns activity for schedule entries", () => {
     const clock = advanceClock(createClock(emberfall, "晴", "春"), emberfall, 10); // 10:00

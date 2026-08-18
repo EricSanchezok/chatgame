@@ -12,6 +12,9 @@ export interface VercelProviderOptions {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  /** Injected LanguageModelV4 (tests: MockLanguageModelV4). When set, it
+   * bypasses the openai-compatible provider entirely. */
+  languageModel?: import("@ai-sdk/provider").LanguageModelV4;
 }
 
 /** Reads env config with sane defaults. */
@@ -27,6 +30,12 @@ export class VercelProvider implements LLMProvider {
   private readonly model;
 
   constructor(options: VercelProviderOptions | NodeJS.ProcessEnv) {
+    if ("languageModel" in options) {
+      const injected = (options as VercelProviderOptions).languageModel;
+      if (!injected) throw new Error("VercelProvider: languageModel must be provided when injected");
+      this.model = injected;
+      return;
+    }
     const opts: VercelProviderOptions =
       "baseUrl" in options || "model" in options
         ? (options as VercelProviderOptions)

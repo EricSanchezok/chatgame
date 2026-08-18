@@ -60,19 +60,112 @@ describe("action resolution", () => {
     expect(out.state.eventLog.length).toBeGreaterThan(0);
   });
 
-  it("opposed check resolves with tie = actor fails", () => {
+  it("opposed check tie = actor fails (5e semantics)", () => {
     const { def, state } = setup();
-    // steal uses opposed_check agility vs npc perception
+    // Deterministic tie: player agility 10, elara perception 10, both roll 10.
+    const withElara = {
+      ...state,
+      npcs: {
+        ...state.npcs,
+        elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, perception: 10 } },
+      },
+    };
     const out = resolveAction({
       definition: def,
-      state,
+      state: withElara,
       actionId: "steal",
       targetNpcId: "elara",
       rollOverride: 10,
+      npcRollOverride: 10,
     });
     expect(out.rejected).toBe(false);
     expect(out.resolution?.resolveType).toBe("opposed_check");
-    expect(out.resolution?.grade).toBeDefined();
+    expect(out.resolution?.grade).toBe("fail");
+  });
+
+  it("opposed check net win succeeds", () => {
+    const { def, state } = setup();
+    const withElara = {
+      ...state,
+      npcs: {
+        ...state.npcs,
+        elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, perception: 10 } },
+      },
+    };
+    const out = resolveAction({
+      definition: def,
+      state: withElara,
+      actionId: "steal",
+      targetNpcId: "elara",
+      rollOverride: 12,
+      npcRollOverride: 10,
+    });
+    expect(out.resolution?.grade).toBe("success");
+  });
+
+  it("narrative_only resolves without roll or state consequences", () => {
+    const { def, state } = setup();
+    const before = JSON.stringify(state.player);
+    const out = resolveAction({
+      definition: def,
+      state,
+      actionId: "give",
+      targetNpcId: "elara",
+    });
+    expect(out.rejected).toBe(false);
+    expect(out.resolution?.resolveType).toBe("narrative_only");
+    expect(out.resolution?.grade).toBe("success");
+    expect(out.resolution?.roll).toBeNull();
+    expect(JSON.stringify(out.state.player)).toBe(before);
+  });
+
+  it("attack hit applies combat damage to the target NPC", () => {
+    const { def, state } = setup();
+    const withElara = {
+      ...state,
+      npcs: { ...state.npcs, elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, hp: 80 } } },
+    };
+    const out = resolveAction({
+      definition: def,
+      state: withElara,
+      actionId: "attack",
+      targetNpcId: "elara",
+      rollOverride: 20, // crit: 20 + strength 14 vs DC 12
+    });
+    expect(out.rejected).toBe(false);
+    expect(out.resolution?.grade).toBe("crit");
+    expect(out.state.npcs.elara.stats.hp).toBeLessThan(80);
+    expect(out.resolution?.effectsApplied.some((s) => s.includes("attack hit"))).toBe(true);
+  });
+
+  it("attack defeat records defeated fact at 0 hp", () => {
+    const { def, state } = setup();
+    const weakElara = {
+      ...state,
+      npcs: { ...state.npcs, elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, hp: 10 } } },
+    };
+    const out = resolveAction({
+      definition: def,
+      state: weakElara,
+      actionId: "attack",
+      targetNpcId: "elara",
+      rollOverride: 20, // crit damage 2x14=28 -> hp 0
+    });
+    expect(out.state.npcs.elara.stats.hp).toBe(0);
+    expect(out.state.facts).toContain("defeated:elara");
+  });
+
+  it("defend success reduces threat gauge (passive defense)", () => {
+    const { def, state } = setup();
+    const tense = { ...state, player: { ...state.player, threatGauge: 30 } };
+    const out = resolveAction({
+      definition: def,
+      state: tense,
+      actionId: "defend",
+      rollOverride: 20, // 20 + defense 5 vs DC 10 -> success
+    });
+    expect(out.rejected).toBe(false);
+    expect(out.state.player.threatGauge).toBe(25);
   });
 
   it("unknown action is rejected with reason", () => {

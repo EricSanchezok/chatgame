@@ -15,6 +15,7 @@ import { applyEffects } from "./effect";
 import { checkWorldRules } from "./rules";
 import { rollD20 } from "./rng";
 import { advanceClock } from "./time";
+import { computeDamage, applyDamage, addThreat } from "./mechanics/combat";
 
 export interface ResolutionContext {
   definition: WorldDefinition;
@@ -26,6 +27,8 @@ export interface ResolutionContext {
   params?: Record<string, unknown>;
   /** Override the d20 roll (deterministic tests). */
   rollOverride?: number;
+  /** Override the NPC d20 roll in opposed checks (deterministic tests). */
+  npcRollOverride?: number;
 }
 
 export interface ActionResolution {
@@ -53,7 +56,15 @@ export function gradeFromRoll(roll: number, dc: number): ResultGrade {
   return "fail";
 }
 
-/** Resolves an opposed check: player roll+stat vs npc roll+npc_stat; ties = actor fails (5e). */
+/**
+ * Resolves an opposed check: player roll+stat vs npc roll+npc_stat.
+ * Tie (diff === 0) = actor fails (5e semantics). Bands:
+ *   diff >= 5  -> crit
+ *   diff >= 1  -> success (net win)
+ *   diff === 0 -> fail (tie goes to the defender)
+ *   diff >= -3 -> partial (narrow loss)
+ *   else       -> fail (decisive loss)
+ */
 function resolveOpposed(ctx: ResolutionContext, action: ActionEntry): { grade: ResultGrade; roll: number; dc: number } {
   const resolve = action.resolve;
   if (resolve.type !== "opposed_check") throw new Error("resolveOpposed called for non-opposed");
@@ -61,10 +72,11 @@ function resolveOpposed(ctx: ResolutionContext, action: ActionEntry): { grade: R
   const npc = ctx.targetNpcId ? ctx.state.npcs[ctx.targetNpcId] : undefined;
   const npcBonus = npc ? npc.stats[resolve.npc_stat] ?? 0 : 10;
   const playerRoll = ctx.rollOverride ?? rollD20(ctx.state.rng);
-  const npcRoll = rollD20(ctx.state.rng);
+  const npcRoll = ctx.npcRollOverride ?? rollD20(ctx.state.rng);
   const diff = playerRoll + playerBonus - (npcRoll + npcBonus);
   if (diff >= 5) return { grade: "crit", roll: playerRoll + playerBonus, dc: npcRoll + npcBonus };
   if (diff >= 1) return { grade: "success", roll: playerRoll + playerBonus, dc: npcRoll + npcBonus };
+  if (diff === 0) return { grade: "fail", roll: playerRoll + playerBonus, dc: npcRoll + npcBonus };
   if (diff >= -3) return { grade: "partial", roll: playerRoll + playerBonus, dc: npcRoll + npcBonus };
   return { grade: "fail", roll: playerRoll + playerBonus, dc: npcRoll + npcBonus };
 }
@@ -216,14 +228,53 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   // 4. Apply effects (scaled by grade).
   const effects = action.effects ?? [];
   const effectOut = applyEffects(afterCosts, effects, { definition, grade, day });
+  let finalState = effectOut.state;
+
+  // 4b. Combat + movement wiring (v1 minimal, deterministic):
+  //   - attack: on a hit (partial/success/crit) applies grade-scaled damage
+  //     to the target NPC (base = player strength); HP reaching 0 records a
+  //     `defeated:<npc>` fact.
+  //   - defend: passive defense stance — success reduces threat gauge.
+  //   - move/travel: with a known location target, relocates the player.
+  const actionSummaries: string[] = [];
+  if (ctx.actionId === "attack" && ctx.targetNpcId) {
+    if (grade === "success" || grade === "crit" || grade === "partial") {
+      const base = finalState.player.stats.strength ?? 1;
+      const dmg = computeDamage(base, grade);
+      const hit = applyDamage(finalState, definition, ctx.targetNpcId, dmg, "physical");
+      finalState = hit.state;
+      actionSummaries.push(`attack hit ${ctx.targetNpcId} for ${dmg} (hp ${hit.hpRemaining})`);
+      if (hit.hpRemaining <= 0) {
+        finalState = { ...finalState, facts: [...finalState.facts, `defeated:${ctx.targetNpcId}`] };
+        actionSummaries.push(`${ctx.targetNpcId} defeated`);
+      }
+    } else {
+      actionSummaries.push(`attack missed ${ctx.targetNpcId}`);
+    }
+  } else if (ctx.actionId === "defend") {
+    if (grade === "success" || grade === "crit") {
+      const stance = addThreat(finalState, definition, -5);
+      finalState = stance.state;
+      actionSummaries.push("defend stance: threat -5");
+    } else {
+      actionSummaries.push("defend stance: no effect");
+    }
+  } else if (
+    (ctx.actionId === "move" || ctx.actionId === "travel") &&
+    typeof ctx.params?.target === "string"
+  ) {
+    const loc = ctx.params.target;
+    if (definition.locations.has(loc)) {
+      finalState = { ...finalState, player: { ...finalState.player, locationId: loc } };
+      actionSummaries.push(`moved to ${loc}`);
+    }
+  }
 
   // 5. Advance time by the action cost (always >= 1h for actions with time cost).
   const timeCost = action.costs?.time ?? 0;
-  let finalState = effectOut.state;
   if (timeCost > 0) {
     finalState = { ...finalState, clock: advanceClock(finalState.clock, definition, timeCost) };
   }
-
   // 6. ResolutionLog (auditable).
   const resolution: ResolutionLogEntry = {
     actionId: ctx.actionId,
@@ -232,9 +283,8 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     roll,
     dc,
     grade,
-    effectsApplied: effectOut.summaries,
+    effectsApplied: [...effectOut.summaries, ...actionSummaries],
   };
-
   logEntries.push({
     id: `log-${finalState.eventLog.length + 1}`,
     day,

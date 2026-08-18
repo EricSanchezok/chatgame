@@ -89,16 +89,16 @@ export function absoluteDay(definition: WorldDefinition, clock: GameClock): numb
 export function currentSeason(definition: WorldDefinition, clock: GameClock): string {
   const seasons = definition.time.seasons ?? [];
   if (seasons.length === 0) return "常";
-  // Compare (month, day) tuples in descending order; pick the latest start <= now.
+  // Compare (month, day) tuples in ascending order; the current season is
+  // the LAST start <= now (before the year's first start it wraps to the
+  // final season). Seasons are assumed sorted by start.
   const nowKey = clock.month * 100 + clock.day;
   let current = seasons[seasons.length - 1].name;
   for (const season of seasons) {
     const [m, d] = season.start.split("-").map(Number);
     const key = m * 100 + d;
-    if (key <= nowKey) {
-      current = season.name;
-      break;
-    }
+    if (key > nowKey) break; // seasons sorted; later starts cannot match
+    current = season.name;
   }
   return current;
 }

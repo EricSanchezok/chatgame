@@ -30,6 +30,7 @@ import {
   labelForValue,
   crossedBand,
   DESCRIPTOR_MAX_CHARS,
+  descriptionPolarityOk,
 } from "../descriptors";
 import type { WorldState, Descriptor } from "../types";
 
@@ -259,6 +260,42 @@ describe("descriptors (dual-track)", () => {
     expect(elara.descriptor?.version).toBe(1);
     const oldminer = next.player.relations.find((r) => r.npcId === "oldminer")!;
     expect(oldminer.descriptor?.version).toBe(2); // untouched
+  });
+  it("descriptionPolarityOk rejects contradicting prose", () => {
+    // Positive label must not contain negative keywords.
+    expect(descriptionPolarityOk("友善", "她对我很友善，我们互相信任")).toBe(true);
+    expect(descriptionPolarityOk("友善", "表面上友善，其实心怀仇恨")).toBe(false);
+    // Negative label must not contain positive keywords.
+    expect(descriptionPolarityOk("死敌", "他视我为死敌，从不信任我")).toBe(true);
+    expect(descriptionPolarityOk("死敌", "虽然曾是死敌，如今我们彼此信任")).toBe(false);
+    // Neutral labels have no polarity contract.
+    expect(descriptionPolarityOk("陌生", "见面点头之交")).toBe(true);
+  });
+  it("refreshDescriptor falls back to template when polarity check fails", async () => {
+    const d = createDescriptor("友善");
+    const refreshed = await refreshDescriptor(d, "relation", 50, {
+      definition: emberfall,
+      generator: {
+        async generate() {
+          return "他对我很好，但我心里只有仇恨";
+        },
+      },
+    });
+    // Violating prose is replaced by the deterministic template.
+    expect(refreshed.description).toContain("你们之间的关系是");
+    expect(refreshed.stale).toBe(false);
+  });
+  it("refreshDescriptor keeps valid generated prose", async () => {
+    const d = createDescriptor("友善");
+    const refreshed = await refreshDescriptor(d, "relation", 50, {
+      definition: emberfall,
+      generator: {
+        async generate() {
+          return "她总是友善地招呼我，我们渐渐亲近起来";
+        },
+      },
+    });
+    expect(refreshed.description).toBe("她总是友善地招呼我，我们渐渐亲近起来");
   });
   it("descriptor edit does not change resolution inputs (value untouched)", () => {
     const state = makeState();

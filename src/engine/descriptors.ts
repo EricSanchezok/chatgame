@@ -51,6 +51,45 @@ export function fallbackDescription(kind: "relation" | "reputation" | "need", la
   }
 }
 
+/**
+ * Polarity consistency check (minimal rule validator, Blueprint success
+ * criterion): a description must not contradict its deterministic label.
+ * Negative labels (死敌/仇视/冷淡/恶名昭著/声名狼藉) must not contain
+ * positive-polarity keywords (信任/亲近/友善/挚友/德高望重/喜欢); positive
+ * labels (友善/亲近/挚友/小有名望/德高望重) must not contain negative
+ * keywords (仇恨/厌恶/敌视/背叛). Returns true when the text is consistent.
+ */
+const POSITIVE_KEYWORDS = ["信任", "亲近", "友善", "挚友", "喜欢", "德高望重", "小有名望", "欣赏"];
+const NEGATIVE_KEYWORDS = ["仇恨", "厌恶", "敌视", "背叛", "死敌", "仇视", "冷淡", "恶名昭著", "声名狼藉", "憎恨"];
+const POSITIVE_LABELS = ["友善", "亲近", "挚友", "小有名望", "德高望重"];
+const NEGATIVE_LABELS = ["死敌", "仇视", "冷淡", "恶名昭著", "声名狼藉"];
+
+/**
+ * Whether `text` contains `keyword` NOT preceded by a negation (不/无/没/未).
+ * "从不信任" must not count as a positive mention of 信任.
+ */
+function containsAffirmedKeyword(text: string, keyword: string): boolean {
+  let idx = text.indexOf(keyword);
+  while (idx >= 0) {
+    const prev = idx > 0 ? text[idx - 1] : "";
+    if (!["不", "无", "没", "未", "非"].includes(prev)) return true;
+    idx = text.indexOf(keyword, idx + keyword.length);
+  }
+  return false;
+}
+
+export function descriptionPolarityOk(label: string, description: string): boolean {
+  const isPositiveLabel = POSITIVE_LABELS.some((l) => label.includes(l));
+  const isNegativeLabel = NEGATIVE_LABELS.some((l) => label.includes(l));
+  if (isPositiveLabel) {
+    return !NEGATIVE_KEYWORDS.some((k) => containsAffirmedKeyword(description, k));
+  }
+  if (isNegativeLabel) {
+    return !POSITIVE_KEYWORDS.some((k) => containsAffirmedKeyword(description, k));
+  }
+  return true; // neutral/unknown labels have no polarity contract
+}
+
 /** Returns the deterministic label for a value of a given kind. */
 export function labelForValue(kind: "relation" | "reputation", value: number): string {
   return kind === "relation" ? relationLabel(value) : reputationLabel(value);
@@ -129,6 +168,19 @@ export async function refreshDescriptor(
     });
     const clipped =
       text.length > DESCRIPTOR_MAX_CHARS ? text.slice(0, DESCRIPTOR_MAX_CHARS) : text;
+    // Rule validation: polarity consistency with the deterministic label.
+    // On violation the prose is rejected and the deterministic template is
+    // used instead (Blueprint success criterion: 校验失败 -> 确定性模板降级).
+    if (!descriptionPolarityOk(label, clipped)) {
+      return {
+        label,
+        description: fallbackDescription(kind, label, value),
+        version: descriptor.version + 1,
+        stale: false,
+        sourceEventIds: descriptor.sourceEventIds,
+        userEdited: descriptor.userEdited,
+      };
+    }
     return {
       label,
       description: clipped || fallbackDescription(kind, label, value),
