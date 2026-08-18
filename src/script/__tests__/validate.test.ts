@@ -676,6 +676,27 @@ narrative:
     expectIssuesContaining(files, ['origin "ghost" not found in origins/']);
   });
 
+  // --- Newly covered: run soft_failure consequence.effects full kinds ---
+  it("rejects run soft_failure consequence effect → missing status", () => {
+    const files = validBase();
+    files["run.yaml"] = files["run.yaml"].replace(
+      "effects: []",
+      "effects:\n        - { kind: status, direction: add, target: player, status: ghost }",
+    );
+    expectIssuesContaining(files, [
+      'status "ghost" not declared in mechanics.yaml',
+    ]);
+  });
+
+  it("rejects run soft_failure consequence effect → missing item", () => {
+    const files = validBase();
+    files["run.yaml"] = files["run.yaml"].replace(
+      "effects: []",
+      "effects:\n        - { kind: item, direction: add, target: player, item: ghost }",
+    );
+    expectIssuesContaining(files, ['item "ghost" not found']);
+  });
+
   // --- Newly covered: illegal op in condition algebra ---
   it("rejects illegal condition op (bogus)", () => {
     const files = validBase();

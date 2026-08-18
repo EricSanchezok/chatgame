@@ -364,6 +364,19 @@ function checkReferences(
       } else if (gaugeRef && gaugeRef !== "threat_gauge") {
         add("run.yaml", undefined, "death_policy.soft_failure.gauge_ref", `gauge_ref "${gaugeRef}" does not match the declared threat_gauge`);
       }
+      const erefs = collectEffectRefs(run.death_policy.soft_failure.consequence.effects);
+      for (const id of erefs.stat) if (!pools.statNames.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `stat "${id}" not declared`);
+      for (const id of erefs.skill) if (!pools.skillNames.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `skill "${id}" not declared in mechanics.yaml`);
+      for (const id of erefs.need) if (!pools.needNames.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `need "${id}" not declared in mechanics.yaml`);
+      for (const id of erefs.item) if (!pools.itemIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `item "${id}" not found`);
+      for (const id of erefs.faction) if (!pools.factionIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `faction "${id}" not found`);
+      for (const id of erefs.npc) if (!pools.npcIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `npc "${id}" not found`);
+      for (const id of erefs.location) if (!pools.locationIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `location "${id}" not found`);
+      for (const id of erefs.status) if (!pools.statusEffectIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `status "${id}" not declared in mechanics.yaml`);
+      for (const id of erefs.event) if (!pools.eventIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `event "${id}" not found`);
+      for (const id of erefs.secret) if (!pools.secretIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `secret "${id}" not found`);
+      for (const id of erefs.targetNpc) if (!pools.npcIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `target npc "${id}" not found`);
+      for (const id of erefs.targetFaction) if (!pools.factionIds.has(id)) add("run.yaml", undefined, "death_policy.soft_failure.consequence.effects", `target faction "${id}" not found`);
     }
     for (const u of run.meta_progression.unlocks) {
       for (const id of u.grant) {

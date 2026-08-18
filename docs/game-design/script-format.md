@@ -826,11 +826,11 @@ leaf  := { source, key?, target?, op, value? }
 |---|---|---|
 | actions | stats, skills, needs, items（resolve/costs/conditions/effects） | ✅ 已实现 |
 | plot | secrets, npcs, events, locations（related + trigger conditions） | ✅ 已实现 |
-| events | locations, npcs, events（participants/exclusivity/narrative.template + conditions/effects 全 kind） | ✅ 已实现 |
+| events | locations, npcs, events（participants/exclusivity/narrative.template + conditions/effects 全 kind） | ✅ 已实现；矩阵中 events→tasks 无对应字段：events schema 无 tasks 引用字段，与 director→events 同理 |
 | tasks | items, npcs, locations（objective/giver）+ rewards 全 kind | ✅ 已实现 |
 | origins | npcs, locations, items, stats, skills, actions（starting_relations/starting_location/items/exclusive_leads/denied_actions/stats/skills） | ✅ 已实现 |
 | origins | flags（starting_knowledge） | ⚠️ v1.0 不校验：flag 无声明池，见下方说明 |
-| npcs | stats, skills, needs, schedule→time.yaml, home→locations, items, relations→npcs, secrets→plot（reveal.logic） | ✅ 已实现 |
+| npcs | stats, skills, needs, schedule→time.yaml, home→locations, items, relations→npcs, secrets→plot（reveal.logic） | ✅ 已实现；矩阵中 npcs relations→factions 无对应字段：relation target 按模块契约仅为 npc id（人际关系），势力关系由 factions.relations 声明 |
 | factions | npcs（members）, factions（relations）, items（reputation thresholds effects） | ✅ 已实现 |
 | locations | connections→locations, npcs, items, events（ambient_events + entry/exit conditions） | ✅ 已实现 |
 | items | stats, status_effects（effects_on_use + requirements） | ✅ 已实现 |
@@ -838,7 +838,7 @@ leaf  := { source, key?, target?, op, value? }
 | narrative/examples | npc ids | ✅ 已实现 |
 | worldgen | 引用池（npc/faction/item/event ids） | ✅ 已实现 |
 | director | events | ⚠️ v1.0 不校验：director.yaml 无 event 引用字段（tension 变量 source 已校验为 gauge） |
-| run.yaml | locations, gauge（soft_failure）、origins（unlocks[].grant） | ✅ 已实现 |
+| run.yaml | locations, gauge（soft_failure）、origins（unlocks[].grant）、consequence.effects 全 kind（含 status） | ✅ 已实现 |
 | facts（条件代数 source: fact） | fact 键 | ⚠️ v1.0 不校验：fact 无声明池（引擎运行态事件日志持有），剧本内保持一致即可 |
 
 **无声明池说明**：`flags`/`facts` 是运行态概念——flag 由出身/事件/承诺在运行时设置，fact 由事件日志产生，剧本没有集中的声明处，因此 v1.0 校验器不检查其存在性；剧本作者需自行保持一致。若未来引入 flags.yaml 声明池，再补对应校验（加法演进）。
