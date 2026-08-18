@@ -1,0 +1,8 @@
+event_id: tavern-gossip
+templates:
+  - tone: 市井
+    text: 酒馆里烟气缭绕，有人压着嗓子说：后山的旧通风井最近有人听见动静。
+    slot_vars: []
+  - tone: 神秘
+    text: 邻桌的矿工把酒杯往桌上一顿："封井三年了，谁还在底下敲石头？"
+    slot_vars: []

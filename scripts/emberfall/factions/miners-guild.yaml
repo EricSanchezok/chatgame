@@ -1,0 +1,21 @@
+id: miners-guild
+name: 矿工工会
+description: 矿脉枯竭后仍在守望的老工会，靠工棚和旧仓库撑门面
+goals:
+  - 查明矿难真相
+  - 为遇难矿工家属争取抚恤
+  - 保住矿工宿舍不被镇公所收回
+members: [old-miner, old-wei]
+relations:
+  - { target: town-office, value: -40, stance: wary }
+reputation:
+  thresholds:
+    - value: 30
+      label: 自己人
+      effects:
+        - { kind: item, direction: add, target: player, item: miner-badge }
+    - value: 70
+      label: 工友之友
+      effects:
+        - { kind: currency, direction: add, target: player, value: 20 }
+  decay: 1

@@ -1,0 +1,79 @@
+stats:
+  - { name: hp, min: 0, max: 100, initial: 100, description: 生命值 }
+  - { name: strength, min: 1, max: 20, initial: 10, description: 力量 }
+  - { name: agility, min: 1, max: 20, initial: 10, description: 敏捷 }
+  - { name: intellect, min: 1, max: 20, initial: 10, description: 智力 }
+  - { name: perception, min: 1, max: 20, initial: 10, description: 感知 }
+  - { name: technical, min: 1, max: 20, initial: 10, description: 技术 }
+skills:
+  - { name: hacking, min: 0, max: 20, initial: 0, description: 入侵系统 }
+  - { name: piloting, min: 0, max: 20, initial: 0, description: 驾驶与导航 }
+  - { name: engineering, min: 0, max: 20, initial: 0, description: 工程维修 }
+  - { name: medicine, min: 0, max: 20, initial: 0, description: 医疗 }
+  - { name: negotiation, min: 0, max: 20, initial: 0, description: 谈判 }
+needs:
+  - name: oxygen
+    min: 0
+    max: 100
+    initial: 100
+    decay_per_day: 8
+    thresholds:
+      - level: 30
+        label: 缺氧
+        effects:
+          - { kind: stat, direction: add, target: player, stat: hp, value: -10 }
+  - name: energy
+    min: 0
+    max: 100
+    initial: 80
+    decay_per_day: 6
+    thresholds:
+      - level: 20
+        label: 低电量
+        effects:
+          - { kind: stat, direction: add, target: player, stat: technical, value: -2 }
+  - name: mental
+    min: 0
+    max: 100
+    initial: 70
+    decay_per_day: 4
+    thresholds:
+      - level: 25
+        label: 精神恍惚
+        effects:
+          - { kind: stat, direction: add, target: player, stat: perception, value: -2 }
+status_effects:
+  - id: radiation-sickness
+    name: 辐射中毒
+    kind: debuff
+    effects:
+      - { kind: stat, direction: add, target: player, stat: hp, value: -5 }
+    duration: 12
+    stackable: true
+  - id: overload
+    name: 系统过载
+    kind: debuff
+    effects:
+      - { kind: skill, direction: add, target: player, skill: hacking, value: -3 }
+    duration: 6
+    stackable: false
+  - id: stim-boost
+    name: 兴奋剂增益
+    kind: buff
+    effects:
+      - { kind: stat, direction: add, target: player, stat: agility, value: 2 }
+    duration: 4
+    stackable: false
+inventory: { capacity: 20, stacking: true }
+currency: { name: 信用点, symbol: "cr", initial: 80 }
+combat:
+  damage_types: [能量, 动能]
+  defense_types: [护盾, 装甲]
+  hp_stat: hp
+  threat_gauge:
+    max: 100
+    on_full: threat_critical
+progression:
+  - { source: skill_check, target: hacking, amount: 1, cap: 20 }
+  - { source: skill_check, target: engineering, amount: 1, cap: 20 }
+  - { source: event, target: technical, amount: 1, cap: 20 }

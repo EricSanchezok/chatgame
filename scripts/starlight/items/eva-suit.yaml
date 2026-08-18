@@ -1,0 +1,9 @@
+id: eva-suit
+name: 舱外服
+type: equipment
+description: 带磁力靴与循环供氧的舱外作业服
+properties: { slot: body, stackable: false }
+effects_on_use:
+  - { kind: need, direction: add, target: player, need: oxygen, value: 50 }
+rarity: rare
+value: 120

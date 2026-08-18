@@ -1,0 +1,15 @@
+id: scholar
+name: 流浪学者
+description: 你为煤精的炼金论文而来，在灰烬镇盘桓多日，身上还带着几张草图和过量的书卷气
+difficulty: normal
+stats: { intellect: 15, strength: 7 }
+skills: { persuasion: 6, deception: 4 }
+items: [lantern]
+starting_location: town-hall
+starting_currency: 80
+starting_relations:
+  - { npc: mayor-shen, value: 20, stance: neutral, note: 向镇公所递过调查申请 }
+  - { npc: shen-jiugu, value: 30, stance: friendly, note: 向她请教过灰烬草的药用 }
+starting_knowledge: [repair-log-holder]
+exclusive_leads: [repair-log]
+denied_actions: [attack]

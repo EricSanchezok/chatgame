@@ -1,0 +1,5 @@
+id: lore-shen-clinic
+keywords: [沈九姑, 药草铺]
+inject_when: on_npc
+npcs: [shen-jiugu]
+content: 沈九姑的药草铺开了二十年，是灰烬镇唯一的药铺。矿难后她收治过不少矿工，也是从那时起，她的药价对矿工家属从来只收一半。

@@ -1,0 +1,10 @@
+id: command-cabin
+name: 站长舱室
+type: indoor
+description: 紧邻舰桥的舱室，整洁得不像话，桌面上只有一盏冷光灯
+connections:
+  - { to: bridge, distance: 1, travel_time: 2 }
+ambient_events: []
+npcs_present: []
+items: [data-chip]
+danger_level: 1

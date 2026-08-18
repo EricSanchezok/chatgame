@@ -1,0 +1,5 @@
+event_id: hull-alert
+templates:
+  - tone: 冷峻
+    text: "船体警报骤响，气密门自动落下。你的腕带在倒数：氧气还能撑多久，取决于你跑得多快。"
+    slot_vars: []

@@ -11,6 +11,18 @@ npm run dev
 
 打开 http://localhost:3000。
 
+## 剧本
+
+剧本是"世界"的声明式定义（18 模块，YAML）。示例与校验：
+
+```sh
+npm run script:validate -- scripts/emberfall   # 中式奇幻小镇示例
+npm run script:validate -- scripts/starlight   # 科幻空间站示例
+npm test                                       # schema + 语义校验测试
+```
+
+格式规格见 [docs/game-design/script-format.md](docs/game-design/script-format.md)。
+
 ## 文档
 
 - [docs/README.md](docs/README.md) — 文档地图

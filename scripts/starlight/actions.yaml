@@ -1,0 +1,117 @@
+actions:
+  - id: talk
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: ask
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: move
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: travel
+    enabled: true
+    resolve: { type: auto }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: investigate
+    enabled: true
+    resolve: { type: stat_check, stat: perception, dc: 12 }
+    llm_freedom: narration
+  - id: search
+    enabled: true
+    resolve: { type: stat_check, stat: perception, dc: 10 }
+    llm_freedom: narration
+  - id: persuade
+    enabled: true
+    resolve: { type: skill_check, skill: negotiation, dc: 12 }
+    llm_freedom: narration
+  - id: intimidate
+    enabled: true
+    resolve: { type: opposed_check, stat: strength, npc_stat: strength }
+    llm_freedom: narration
+  - id: deceive
+    enabled: true
+    resolve: { type: opposed_check, stat: intellect, npc_stat: perception }
+    llm_freedom: narration
+  - id: attack
+    enabled: true
+    resolve: { type: stat_check, stat: strength, dc: 12 }
+    llm_freedom: process
+  - id: defend
+    enabled: true
+    resolve: { type: stat_check, stat: agility, dc: 12 }
+    llm_freedom: process
+  - id: flee
+    enabled: true
+    resolve: { type: stat_check, stat: agility, dc: 12 }
+    llm_freedom: process
+  - id: use_item
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: give
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: take
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: trade
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: steal
+    enabled: true
+    resolve: { type: opposed_check, stat: agility, npc_stat: perception }
+    llm_freedom: narration
+  - id: rest
+    enabled: true
+    resolve: { type: auto }
+    costs: { time: 2 }
+    effects:
+      - { kind: stat, direction: add, target: player, stat: hp, value: 10 }
+      - { kind: need, direction: add, target: player, need: oxygen, value: 5 }
+      - { kind: need, direction: add, target: player, need: mental, value: 5 }
+    llm_freedom: narration
+  - id: wait
+    enabled: true
+    resolve: { type: narrative_only }
+    llm_freedom: narration
+  - id: follow
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: sneak
+    enabled: true
+    resolve: { type: stat_check, stat: agility, dc: 12 }
+    llm_freedom: narration
+  - id: craft
+    enabled: true
+    resolve: { type: skill_check, skill: engineering, dc: 14 }
+    conditions: { source: inventory, key: scrap-metal, op: gte, value: 2 }
+    costs:
+      items:
+        - { item: scrap-metal, quantity: 2 }
+      time: 2
+    effects:
+      - { kind: item, direction: add, target: player, item: repair-kit }
+    llm_freedom: narration
+  - id: repair
+    enabled: true
+    resolve: { type: skill_check, skill: engineering, dc: 12 }
+    conditions: { source: stat, key: technical, op: gte, value: 8 }
+    costs: { time: 1 }
+    effects:
+      - { kind: need, direction: add, target: player, need: oxygen, value: 10 }
+    llm_freedom: narration
+  - id: cast
+    enabled: true
+    display_name: 接入灯塔
+    resolve: { type: stat_check, stat: intellect, dc: 14 }
+    effects:
+      - { kind: status, direction: add, target: player, status: overload }
+    llm_freedom: process

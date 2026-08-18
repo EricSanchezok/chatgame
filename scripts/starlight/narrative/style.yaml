@@ -1,0 +1,6 @@
+voice: 第三人称有限
+tense: 现在时
+perspective: 跟随玩家的冷峻旁观视角
+density: sparse
+sentence_style: [短句为主, 用舱体与机械的意象渲染情绪, 避免抒情]
+forbidden_words: [魔法, 法力, 灵力]

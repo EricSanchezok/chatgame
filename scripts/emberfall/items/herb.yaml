@@ -1,0 +1,8 @@
+id: herb
+name: 灰烬草
+type: material
+description: 矿渣地里长出的药草，叶子泛着灰绿色，可入药也可作施法材料
+properties:
+  stackable: true
+rarity: common
+value: 3

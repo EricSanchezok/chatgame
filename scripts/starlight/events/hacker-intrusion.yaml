@@ -1,0 +1,16 @@
+id: hacker-intrusion
+name: 黑客入侵
+type: mystery
+tags: [cyber, stealth]
+trigger: director
+conditions:
+  all:
+    - { source: flag, key: vent-route-known, op: has }
+effects:
+  - { kind: flag, direction: set, target: player, flag: intrusion-traces-found }
+narrative: { template: hacker-intrusion }
+weight: 2
+cooldown: 5
+repeatable: false
+participants: [night-cat]
+locations: [cargo-bay]

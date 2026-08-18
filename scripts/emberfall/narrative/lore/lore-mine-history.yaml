@@ -1,0 +1,5 @@
+id: lore-mine-history
+keywords: [矿难, 塌方, 煤精]
+inject_when: on_location
+locations: [mine-entrance]
+content: 三年前，黑石矿主巷道在深夜塌方，十七名矿工再也没能上来。镇公所宣布主矿脉就此"枯竭"，矿井封停至今。矿工工会不认这个说法——他们记得，塌方前一周还在井下采到过大块煤精。

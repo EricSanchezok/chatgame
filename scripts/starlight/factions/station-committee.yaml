@@ -1,0 +1,11 @@
+id: station-committee
+name: 站务委员会
+description: 星港名义上的管理机构，一切决议都要过灯塔审核
+goals: [维持站内秩序, 保证下一艘补给船如期抵达]
+members: [station-chief]
+relations:
+  - { target: deck-gang, value: -40, stance: wary }
+reputation:
+  thresholds:
+    - { value: 60, label: 站务信任, effects: [ { kind: flag, direction: set, target: player, flag: reactor-access } ] }
+  decay: 0

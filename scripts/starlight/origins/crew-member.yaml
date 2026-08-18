@@ -1,0 +1,17 @@
+id: crew-member
+name: 船员出身
+description: 你在星港的舱段间当了三年轮班船员，熟悉每一条通风井与每一个配电柜
+difficulty: easy
+stats:
+  technical: 12
+skills:
+  engineering: 6
+items: [repair-kit, medkit]
+starting_location: hab-ring
+starting_currency: 40
+starting_relations:
+  - { npc: chief-engineer, value: 30, stance: friendly, note: 同一班组的搭档 }
+  - { npc: doctor-vera, value: 20, stance: friendly, note: 定期找你做体检 }
+starting_knowledge: [station-layout]
+exclusive_leads: [coolant-valve]
+denied_actions: []

@@ -1,0 +1,867 @@
+# 剧本格式规格（Script Format Specification）v1.0
+
+> 本文档是 chatgame 剧本格式 v1.0 的**人类契约**。机器契约见 `src/script/schemas/`（zod strict），两者一一对应；任何不一致以 schema 为准，且必须在同一变更内修复。
+>
+> 一个剧本 = 一个世界。加载不同剧本即成为完全不同的游戏；同一剧本每次开局体验不同；一个剧本可无限游玩。本文档定义"剧本必须回答的问题"——世界观、时间、机制、实体、事件、任务、叙事资产与运行策略——全部通过**纯配置**表达（无代码、无表达式字符串）。
+
+## 目录
+
+- [0. 总则](#0-总则)
+- [1. script.yaml — 元信息](#1-scriptyaml--元信息)
+- [2. world.yaml — 世界宪法](#2-worldyaml--世界宪法)
+- [3. time.yaml — 时间机制](#3-timeyaml--时间机制)
+- [4. mechanics.yaml — 机制配置](#4-mechanicsyaml--机制配置)
+- [5. actions.yaml — 动作词表](#5-actionsyaml--动作词表)
+- [6. plot.yaml — 承诺骨架](#6-plotyaml--承诺骨架)
+- [7. director.yaml — 导演系统](#7-directoryaml--导演系统)
+- [8. worldgen.yaml — 开局随机化](#8-worldgenyaml--开局随机化)
+- [9. run.yaml — 运行策略](#9-runyaml--运行策略)
+- [10. safety.yaml — 内容边界](#10-safetyyaml--内容边界)
+- [11. origins/ — 玩家出身](#11-origins--玩家出身)
+- [12. npcs/ — NPC](#12-npcs--npc)
+- [13. locations/ — 地点](#13-locations--地点)
+- [14. items/ — 物品](#14-items--物品)
+- [15. factions/ — 势力](#15-factions--势力)
+- [16. events/ — 事件池](#16-events--事件池)
+- [17. tasks/ — 任务模板](#17-tasks--任务模板)
+- [18. narrative/ — 叙事资产](#18-narrative--叙事资产)
+- [附录 A. 内置动作库](#附录-a-内置动作库26-个)
+- [附录 B. base_class 实体基类](#附录-b-base_class-实体基类)
+- [附录 C. 条件代数 op 全集](#附录-c-条件代数-op-全集)
+- [附录 D. 效果代数 kind 全集](#附录-d-效果代数-kind-全集)
+- [附录 E. 引用完整性矩阵](#附录-e-引用完整性矩阵)
+- [附录 F. 版本与扩展性契约](#附录-f-版本与扩展性契约)
+- [附录 G. 完整示例剧本片段](#附录-g-完整示例剧本片段)
+
+---
+
+## 0. 总则
+
+### 0.1 目录结构（强制）
+
+一个剧本 = 一个目录。目录名必须等于 `script.yaml` 中的 `id`（小写连字符）。全部 18 个模块中，`script.yaml`、`world.yaml`、`time.yaml`、`mechanics.yaml`、`actions.yaml`、`plot.yaml`、`director.yaml`、`worldgen.yaml`、`run.yaml`、`safety.yaml`、`origins/`、`npcs/`、`locations/`、`narrative/` 为**必选**；`items/`、`factions/`、`events/`、`tasks/` 为**可选**（但强烈建议提供；"无限游玩"依赖事件与任务供给）。
+
+```
+scripts/<id>/
+├── script.yaml      # 1. 元信息（必）
+├── world.yaml       # 2. 世界宪法（必）
+├── time.yaml        # 3. 时间机制（必）
+├── mechanics.yaml   # 4. 机制配置（必）
+├── actions.yaml     # 5. 动作词表（必）
+├── plot.yaml        # 6. 承诺骨架（必）
+├── director.yaml    # 7. 导演系统（必）
+├── worldgen.yaml    # 8. 开局随机化（必）
+├── run.yaml         # 9. 运行策略（必）
+├── safety.yaml      # 10. 内容边界（必）
+├── origins/         # 11. 玩家出身（必，≥1）
+├── npcs/            # 12. NPC（必，≥1）
+├── locations/       # 13. 地点（必，≥1）
+├── items/           # 14. 物品（可选）
+├── factions/        # 15. 势力（可选）
+├── events/          # 16. 事件池（可选）
+├── tasks/           # 17. 任务模板（可选）
+└── narrative/       # 18. 叙事资产（必）
+    ├── opening.yaml #    开场场景（必）
+    ├── style.yaml   #    文风指南（必）
+    ├── lore/        #    设定条目（可选）
+    ├── examples/    #    示例对话（可选）
+    └── event_texts/ #    事件文本模板（可选）
+```
+
+### 0.2 纯配置原则
+
+- **无代码、无表达式字符串**：所有逻辑用"条件代数"（附录 C）与"效果代数"（附录 D）的结构化对象表达。
+- **禁止字符串插值/公式求值**：条件值、效果量、概率权重均为字面量。
+- 剧本声明"什么"，引擎决定"怎么"：机制算法、注入策略、校验执行均属引擎。
+
+### 0.3 ID 契约
+
+- 实体 `id` 全局唯一（跨文件）、小写连字符（`^[a-z][a-z0-9-]*$`）、发布后**不得更改**（存档迁移前提）。
+- 跨文件引用（如 `home: emberfall-tavern`）必须指向存在的 id，由语义校验层逐边检查（附录 E）。
+
+### 0.4 运行态隔离
+
+- 剧本文件**禁止携带运行时状态**（无时间戳、无进程内可变值、无随机结果）。
+- 所有可变状态属引擎的 WorldState：世界定义实例 + 事件日志 + 玩家状态 + RNG 种子。
+
+### 0.5 版本契约
+
+- `schema_version` 必须为 `"1.0"` 且与引擎支持版本**严格相等**。
+- 2.0 之前只允许**加法演进**（新增可选字段、新增动作/effect/op）；破坏性变更必须升大版本。
+- 引擎仅加载与其声明版本严格相等的剧本。
+
+---
+
+## 1. script.yaml — 元信息
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `id` | string | ✅ | 小写连字符；必须等于目录名 |
+| `name` | string | ✅ | 剧本显示名 |
+| `description` | string | ✅ | 一句话介绍（作者/玩家可见） |
+| `schema_version` | string | ✅ | 固定 `"1.0"` |
+| `language` | string | ✅ | 剧本内容语言代码（如 `zh`、`en`） |
+| `tone` | string[] | ✅ | 情感基调（如 `悬疑`、`温情`），约束 LLM 文风 |
+| `author` | string | ✅ | 作者名 |
+| `credits` | string | ❌ | 致谢/来源 |
+| `ext` | object | ❌ | 自由扩展位（引擎版本化消费） |
+
+```yaml
+id: emberfall
+name: 灰烬镇
+description: 蒸汽与魔法并存的边陲小镇，矿脉枯竭，人心浮动
+schema_version: "1.0"
+language: zh
+tone: [悬疑, 温情]
+author: chatgame-team
+```
+
+---
+
+## 2. world.yaml — 世界宪法
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `background` | string | ✅ | 长文世界背景（LLM 世界观锚点） |
+| `rules` | array | ✅ | 引擎执行的声明式世界规则；每项 `{id, text, mechanism?}` |
+| `taboos` | array | ✅ | LLM 叙事禁区；每项 `{id, text, severity: hard\|soft}` |
+| `glossary` | array | ❌ | 术语表；每项 `{term, aliases[], definition}`，约束 LLM 术语一致性 |
+| `ext` | object | ❌ | 扩展位 |
+
+规则语义：
+
+- `rules`：**引擎执行**——违反即状态变更被拒/回滚。
+- `taboos`：**LLM 遵守**——`hard` 违反即引擎侧重试/截断；`soft` 违反即降级处理（警告）。
+- `glossary`：注入 LLM 上下文，保证专有名词一致。
+
+```yaml
+background: "灰烬镇坐落在黑石山脉脚下……矿脉在三年前枯竭，镇民靠残存的炼金工坊与过路商队维生。"
+rules:
+  - id: no-matter-creation
+    text: "任何人不能凭空创造物品"
+    mechanism: inventory
+  - id: magic-needs-material
+    text: "魔法需要施法材料"
+    mechanism: combat
+taboos:
+  - id: no-secret-leak
+    text: "不得让 NPC 透露未满足揭露条件的秘密"
+    severity: hard
+glossary:
+  - term: 灰烬
+    aliases: [烬]
+    definition: 黑石矿脉炼金残渣，镇名的由来
+```
+
+---
+
+## 3. time.yaml — 时间机制
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `unit` | string | ✅ | 固定 `"hour"` |
+| `day_length_hours` | integer | ✅ | >0 |
+| `calendar` | object | ✅ | `months[] {name, days}`（≥1）、`weekdays[]`（≥1） |
+| `seasons` | array | ❌ | `{name, start(月-日), weather_table[] {weather, weight}}` |
+| `festivals` | array | ❌ | `{id, name, date(月-日), event?(事件 id)}` |
+| `schedules` | array | ✅ | 命名作息模式；`{id, entries[] {from, to, activity, location?}}`，NPC 引用 |
+| `world_advances` | boolean | ✅ | 玩家离线时世界是否推进 |
+| `advance_mode` | string | ✅ | 固定 `"rule_based"`（离线推进用规则驱动，成本分层） |
+| `advance_scope` | string[] | ✅ | 子集：`schedules\|needs\|events\|factions\|time_events`；离线推进的确定性范围 |
+| `ext` | object | ❌ | 扩展位 |
+
+```yaml
+unit: hour
+day_length_hours: 24
+calendar:
+  months:
+    - { name: 一月, days: 31 }
+    - { name: 二月, days: 28 }
+  weekdays: [周一, 周二, 周三, 周四, 周五, 周六, 周日]
+seasons:
+  - name: 春
+    start: 03-01
+    weather_table: [ { weather: 晴, weight: 5 }, { weather: 雨, weight: 3 } ]
+schedules:
+  - id: tavern_keeper
+    entries:
+      - { from: 08:00, to: 22:00, activity: 开店, location: emberfall-tavern }
+      - { from: 22:00, to: 08:00, activity: 睡觉, location: emberfall-home }
+world_advances: true
+advance_mode: rule_based
+advance_scope: [schedules, needs, time_events]
+```
+
+---
+
+## 4. mechanics.yaml — 机制配置
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `stats` | array | ✅ | `{name, min, max, initial, description}`；剧本声明属性名，引擎提供统一数值语义 |
+| `skills` | array | ❌ | `{name, min, max, initial, description}` |
+| `needs` | array | ❌ | `{name, min, max, initial, decay_per_day, thresholds[] {level, label, effects[]}}` |
+| `status_effects` | array | ❌ | `{id, name, kind: buff\|debuff\|neutral, effects[], duration?, stackable}` |
+| `inventory` | object | ✅ | `{capacity, stacking}` |
+| `currency` | object | ✅ | `{name, symbol, initial}` |
+| `combat` | object | ✅ | `{damage_types[], defense_types[], hp_stat(引用 stats 名), threat_gauge {max, on_full(引用 run.yaml 软失败策略)}}` |
+| `progression` | array | ❌ | `{source: stat_check\|skill_check\|task\|event, target, amount, cap?}` |
+| `ext` | object | ❌ | 扩展位 |
+
+属性名由剧本声明，但**剧本不能定义新机制类型或算法**——新机制 = 引擎新版本 + schema_version 提升。
+
+```yaml
+stats:
+  - { name: strength, min: 1, max: 20, initial: 10, description: 力量 }
+  - { name: charisma, min: 1, max: 20, initial: 10, description: 魅力 }
+skills:
+  - { name: persuasion, min: 0, max: 20, initial: 0, description: 说服 }
+needs:
+  - name: hunger
+    min: 0
+    max: 100
+    initial: 80
+    decay_per_day: 20
+    thresholds:
+      - { level: 30, label: 饥饿, effects: [ { kind: stat, direction: add, target: player, stat: strength, value: -2 } ] }
+inventory: { capacity: 20, stacking: true }
+currency: { name: 金币, symbol: "g", initial: 50 }
+combat:
+  damage_types: [physical, fire, arcane]
+  defense_types: [armor, ward]
+  hp_stat: hp
+  threat_gauge: { max: 100, on_full: soft_failure_consequence }
+progression:
+  - { source: skill_check, target: persuasion, amount: 1, cap: 20 }
+```
+
+---
+
+## 5. actions.yaml — 动作词表
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `actions` | array | ✅ | 从内置动作库（附录 A，26 个）**选择**并配置 |
+| 每项 | object | — | `{id(库内), enabled, display_name?, resolve, conditions?, costs?, effects?, llm_freedom, cooldown?}` |
+| `ext` | object | ❌ | 扩展位 |
+
+`resolve`：
+
+- `{type: stat_check, stat, dc}` — 属性检定（d20 + 属性 vs DC）
+- `{type: skill_check, skill, dc}` — 技能检定
+- `{type: opposed_check, stat, npc_stat}` — 对抗检定（双方属性）
+- `{type: auto}` — 必然成功
+- `{type: narrative_only}` — 纯叙事，无引擎结算
+
+`llm_freedom`：`narration`（过程即兴、结果引擎定）| `process`（过程即兴、结果 LLM 定）| `result`（结果也引擎定）。
+
+```yaml
+actions:
+  - id: talk
+    enabled: true
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: persuade
+    enabled: true
+    resolve: { type: skill_check, skill: persuasion, dc: 12 }
+    llm_freedom: narration
+  - id: attack
+    enabled: true
+    resolve: { type: stat_check, stat: strength, dc: 12 }
+    effects:
+      - { kind: stat, direction: add, target: npc1, stat: hp, value: -5 }
+    llm_freedom: process
+```
+
+剧本可禁用/改名/配置动作，**不能声明新动作逻辑**；新动作 = 引擎版本 + 库扩展。
+
+---
+
+## 6. plot.yaml — 承诺骨架
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `commitments` | array | ✅ | `{id, description, type, trigger, must_happen, deadline?, related?}` |
+| `ext` | object | ❌ | 扩展位 |
+
+`type`：
+
+- `secret_reveal` — 某秘密最终被揭露；`trigger.condition` 为揭露条件
+- `time_event` — 某时间点必发生；`trigger.time` 为时间
+- `condition_event` — 条件满足必发生；`trigger.condition`
+
+`trigger`：`{time? {day, month?, hour?} | condition?(条件代数)}`。
+
+`deadline`：`{time|condition, on_miss {escalation_text, effects[]}}`。
+
+承诺是"什么必须发生"不是"怎么发生"——引擎记录承诺清单并在 LLM 输出后校验（NCP-Bench 依据）。
+
+```yaml
+commitments:
+  - id: elara-secret-reveal
+    description: "艾拉的秘密最终被揭露"
+    type: secret_reveal
+    trigger:
+      condition: { all: [ { source: relationship, key: elara, op: gte, value: 60 } ] }
+    must_happen: true
+    deadline:
+      time: { day: 90 }
+      on_miss:
+        escalation_text: "秘密以另一种方式浮出水面"
+        effects: [ { kind: flag, direction: set, target: player, flag: mine-secret-leaked } ]
+    related: { secrets: [mine-secret], npcs: [elara] }
+  - id: mine-anniversary
+    description: "矿难三周年纪念日，全镇事件"
+    type: time_event
+    trigger: { time: { month: 1, day: 3 } }
+    must_happen: true
+    related: { events: [anniversary] }
+```
+
+---
+
+## 7. director.yaml — 导演系统
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `tension` | object | ✅ | `variables[] {name, source, min, max, initial}`（张力变量，事件选择的输入） |
+| `event_selection` | object | ✅ | `policy: weighted_by_band`、`bands[] {band, weight_multiplier}`（张力带加权） |
+| `pacing` | object | ✅ | `crisis_density`、`breather_min_interval`、`difficulty_ramp` |
+| `novelty` | object | ✅ | `seen_tracking: true`、`cooldown_default`（新鲜度调度） |
+| `ext` | object | ❌ | 扩展位 |
+
+事件选择按玩家状态（张力带加权）而非纯随机/纯固定（RimWorld Storyteller 剧本化）。
+
+```yaml
+tension:
+  variables:
+    - { name: danger, source: threat_gauge, min: 0, max: 100, initial: 10 }
+event_selection:
+  policy: weighted_by_band
+  bands:
+    - { band: [0, 30], weight_multiplier: 0.8 }
+    - { band: [30, 70], weight_multiplier: 1.0 }
+    - { band: [70, 100], weight_multiplier: 1.3 }
+pacing: { crisis_density: 0.3, breather_min_interval: 2, difficulty_ramp: 0.05 }
+novelty: { seen_tracking: true, cooldown_default: 3 }
+```
+
+---
+
+## 8. worldgen.yaml — 开局随机化
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `randomize` | array | ✅ | `{target, jitter?, pool?, distribution: uniform\|weighted}` |
+| `fixed` | array | ✅ | 显式白名单：承诺、世界规则、术语表、禁忌永不随机 |
+| `seed` | object | ✅ | `policy: per_run`（每次开局不同） |
+| `ext` | object | ❌ | 扩展位 |
+
+`target` ∈ `npc_stats|npc_placement|secret_holder|faction_stance|weather|season|item_placement|starting_event`。
+
+```yaml
+randomize:
+  - target: npc_stats
+    jitter: 0.1
+  - target: secret_holder
+    pool: [elara, inspector, priest]
+    distribution: weighted
+  - target: weather
+    distribution: uniform
+fixed: [plot_commitments, world_rules, glossary, taboos]
+seed: { policy: per_run }
+```
+
+---
+
+## 9. run.yaml — 运行策略
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `death_policy` | object | ✅ | `{mode, soft_failure?, world_continue?, hard_reset?}` |
+| `meta_progression` | object | ✅ | `{keep[], reset[], unlocks[]}` |
+| `memory` | object | ✅ | `tier_retention_days {major, minor, trivial}` |
+| `context_compaction` | object | ✅ | `policy: summarize_archive`、`retention_tiers`（引用 memory） |
+| `ext` | object | ❌ | 扩展位 |
+
+`death_policy.mode`：
+
+- `soft_failure` — 威胁条过高→移送副作用地点（Fallen London 式）；`{gauge_ref, threshold, consequence {location, effects[], narrative}}`
+- `world_continue` — 世界延续，玩家换角色；`{succession: heir_pool\|new_character, state_kept[]}`
+- `hard_reset` — 世界重置；`{world_reroll: reroll_worldgen\|keep_world}`
+
+```yaml
+death_policy:
+  mode: soft_failure
+  soft_failure:
+    gauge_ref: threat_gauge
+    threshold: 100
+    consequence:
+      location: emberfall-infirmary
+      effects: [ { kind: stat, direction: add, target: player, stat: hp, value: -5 } ]
+      narrative: "你在昏迷中醒来，躺在诊疗室的病床上……"
+meta_progression:
+  keep: [flags, lore, relations_overview]
+  reset: [stats, inventory, location, memories, currency]
+  unlocks:
+    - { flag: returned_visitor, grant: [new_origin_miner_foreman] }
+memory:
+  tier_retention_days: { major: 0, minor: 90, trivial: 30 }
+context_compaction:
+  policy: summarize_archive
+  retention_tiers: [major, minor]
+```
+
+---
+
+## 10. safety.yaml — 内容边界
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `content_classes` | object | ✅ | 11 类 × 5 强度：`violence\|romance\|horror\|profanity\|self_harm\|sexual\|drugs\|gambling\|politics\|religion\|crime` × `none\|mild\|moderate\|intense\|explicit` |
+| `allowed` | object | ✅ | `{class: max_intensity}` |
+| `forbidden` | array | ✅ | 内容类列表（完全禁止） |
+| `age_rating` | string | ✅ | 如 `16+`、`18+` |
+| `ext` | object | ❌ | 扩展位 |
+
+声明级契约：执行（过滤管道）属引擎。
+
+```yaml
+content_classes: [violence, romance, horror, profanity, self_harm, sexual, drugs, gambling, politics, religion, crime]
+allowed:
+  violence: intense
+  romance: moderate
+  horror: intense
+  profanity: mild
+  self_harm: none
+  sexual: none
+  drugs: mild
+  gambling: moderate
+  politics: mild
+  religion: mild
+  crime: moderate
+forbidden: [self_harm, sexual]
+age_rating: "16+"
+```
+
+---
+
+## 11. origins/ — 玩家出身
+
+一文件一出身。`{id, name, description, difficulty?, stats?, skills?, items[], starting_location, starting_currency, starting_relations[], starting_knowledge[], exclusive_leads[], denied_actions[], exclusive_to?}`
+
+- `stats/skills`：`{override}` 覆盖剧本默认值
+- `starting_relations[]`：`{npc, value, stance?, note}`（stance 见模块 12）
+- `starting_knowledge[]`：flag ids（玩家已知信息）
+- `exclusive_leads[]`：event/secret ids（只有该出身能接触的线索）
+- `denied_actions[]`：动作 id（该出身禁用）
+- `exclusive_to?`：出生地的地点 id
+
+```yaml
+id: miner
+name: 矿工出身
+description: 你在地下摸爬滚打多年
+difficulty: easy
+stats: { strength: 14, charisma: 8 }
+skills: {}
+items: [pickaxe, lantern]
+starting_location: emberfall-tavern
+starting_currency: 30
+starting_relations:
+  - { npc: elara, value: 40, stance: friendly, note: 你常去她的酒馆 }
+starting_knowledge: [mine-collapsed-3y-ago]
+exclusive_leads: [mine-secret-hint]
+denied_actions: []
+```
+
+---
+
+## 12. npcs/ — NPC
+
+一文件一 NPC。`{id, name, base_class, description, traits[], stats?, skills?, needs?, occupation, schedule?, home?, items[], relations[], memory?, secrets[], knowledge_flags[], llm}`
+
+- `base_class`：`humanoid\|creature`（附录 B）
+- `traits[]`：`{name, description, effects[]?}`（特性影响行为/数值）
+- `relations[]`：`{target(npc id), value(-100..100), stance: hostile\|wary\|neutral\|friendly\|allied\|romantic, type: family\|friend\|rival\|romantic\|business\|enemy\|acquaintance, note}`；关系矩阵由引擎双向构建，NPC↔NPC 与 →player 同模型
+- `memory`：`{initial[] {text, importance: major\|minor\|trivial, tags[]}, forget_policy}`
+- `secrets[]`：`{id, content, reveal {logic(条件代数)}}`；未满足揭露条件前 LLM 不得剧透（taboo 默认项）
+- `llm`：`{personality, speech_patterns[], knowledge_filter: true, dialogue_examples?(引用 narrative/examples)}`
+
+```yaml
+id: elara
+name: 艾拉
+base_class: humanoid
+description: 酒馆老板娘，寡言但心细
+traits:
+  - { name: 谨慎, description: 不轻易信任陌生人, effects: [] }
+stats: { hp: 80, charisma: 14 }
+skills: { persuasion: 10 }
+occupation: tavern_keeper
+schedule: tavern_keeper
+home: emberfall-tavern
+items: []
+relations:
+  - { target: inspector, value: 30, stance: neutral, type: acquaintance, note: 常来查账 }
+memory:
+  initial:
+    - { text: "三年前丈夫死于矿井事故", importance: major, tags: [family, mine] }
+    - { text: "欠酒商 20 金币", importance: minor, tags: [debt] }
+secrets:
+  - id: mine-secret
+    content: "矿井事故另有隐情，与镇长有关"
+    reveal:
+      logic: { all: [ { source: relationship, key: player, op: gte, value: 60 } ] }
+knowledge_flags: [mine-secret-holder]
+llm:
+  personality: 说话轻声细语，回避谈论矿井
+  speech_patterns: [用短句, 爱用"孩子"称呼年轻人]
+  knowledge_filter: true
+```
+
+---
+
+## 13. locations/ — 地点
+
+一文件一地点。`{id, name, type, description, connections[], ambient_events?, npcs_present?, items?, danger_level, entry_condition?, exit_condition?}`
+
+- `type`：`indoor|outdoor|district|region`
+- `connections[]`：`{to(地点 id), distance, travel_time, condition?}`（构成地点图，移动动作依据）
+- `ambient_events[]`：event ids（该地点的氛围事件）
+- `npcs_present[]` / `items[]`：常驻 NPC / 物品
+- `danger_level`：0-10
+- `entry_condition` / `exit_condition`：条件代数
+
+```yaml
+id: emberfall-tavern
+name: 灰烬酒馆
+type: indoor
+description: 镇中心的老酒馆，炉火常年不灭
+connections:
+  - { to: emberfall-square, distance: 1, travel_time: 5 }
+  - { to: mine-entrance, distance: 3, travel_time: 30, condition: { all: [ { source: time, key: hour, op: gte, value: 6 } ] } }
+ambient_events: [tavern-gossip]
+npcs_present: [elara]
+items: [ale]
+danger_level: 1
+```
+
+---
+
+## 14. items/ — 物品
+
+一文件一物品。`{id, name, type, description, properties?, effects_on_use?, requirements?, rarity, value}`
+
+- `type`：`consumable|equipment|quest|material|currency_item|misc`
+- `properties`：`{slot?, stackable}`
+- `effects_on_use[]`：效果代数
+- `requirements`：条件代数
+- `rarity`：`common|uncommon|rare|epic|legendary`
+- `value`：货币数值
+
+```yaml
+id: healing-potion
+name: 治疗药水
+type: consumable
+description: 恢复 20 点生命
+properties: { stackable: true }
+effects_on_use:
+  - { kind: stat, direction: add, target: player, stat: hp, value: 20 }
+requirements: {}
+rarity: common
+value: 10
+```
+
+---
+
+## 15. factions/ — 势力
+
+一文件一势力。`{id, name, description, goals[], members[], relations[], reputation?}`
+
+- `goals[]`：势力目标（驱动势力行为）
+- `members[]`：npc ids
+- `relations[]`：`{target(faction id), value, stance}`
+- `reputation`：`{thresholds[] {value, label, effects[]}, decay}`（玩家对势力的声望）
+
+```yaml
+id: miners-guild
+name: 矿工工会
+description: 矿脉枯竭后仍在守望的老工会
+goals: [查明矿难真相, 为矿工争取抚恤]
+members: [old-miner]
+relations:
+  - { target: town-hall, value: -30, stance: wary }
+reputation:
+  thresholds:
+    - { value: 50, label: 信任, effects: [ { kind: item, direction: add, target: player, item: guild-pass } ] }
+  decay: 1
+```
+
+---
+
+## 16. events/ — 事件池
+
+一文件一事件。`{id, name, type, tags[], trigger, conditions?, effects?, narrative?, weight, cooldown, repeatable, exclusivity?, participants?, locations?}`
+
+- `type`：`crisis|opportunity|social|mystery|ambient|festival`
+- `tags[]`：novelty 模式标签（供 director 新鲜度调度）
+- `trigger`：`time|condition|director`
+- `conditions`：条件代数
+- `effects`：效果代数
+- `narrative`：引用 narrative/event_texts 模板（`{template: event_id}`）
+- `weight`：导演选中相对概率
+- `cooldown`：再次可选间隔（如 `3` = 3 个游戏日）
+- `repeatable`：boolean
+- `exclusivity`：`{group, mutually_exclusive[]}`
+- `participants[]`：npc id 池；`locations[]`：地点 id
+
+```yaml
+id: mine-collapse
+name: 矿井再次塌方
+type: crisis
+tags: [danger, mystery]
+trigger: director
+conditions:
+  all:
+    - { source: fact, key: mine-secret, op: not_has }
+effects:
+  - { kind: stat, direction: add, target: player, stat: hp, value: -10 }
+  - { kind: flag, direction: set, target: player, flag: mine-collapse-witnessed }
+narrative: { template: mine-collapse }
+weight: 2
+cooldown: 5
+repeatable: false
+exclusivity: { group: mine-crisis, mutually_exclusive: [mine-fire] }
+participants: [old-miner]
+locations: [mine-entrance]
+```
+
+---
+
+## 17. tasks/ — 任务模板
+
+一文件一任务（radiant quest 模板）。`{id, name, objective, giver, conditions?, rewards?, repeatable, cooldown?, time_limit?, narrative}`
+
+- `objective`：`{type: deliver|gather|hunt|escort|investigate|persuade|travel, target: {pool[]|any, of_type?}, quantity}`
+- `giver`：`{pool[](npc ids), condition?}`
+- `rewards`：`effects[]`
+- `narrative`：`{offer, complete, fail}`（文本模板）
+
+```yaml
+id: gather-herbs
+name: 采集药草
+objective:
+  type: gather
+  target: { pool: [herb], of_type: material }
+  quantity: 3
+giver: { pool: [herbalist] }
+conditions:
+  all:
+    - { source: location, key: current, op: eq, value: emberfall-forest }
+rewards:
+  - { kind: currency, direction: add, target: player, value: 15 }
+repeatable: true
+cooldown: 2
+time_limit: { days: 3 }
+narrative:
+  offer: "药草店的老板递给你一张清单……"
+  complete: "你带着药草回来，她点了点头。"
+  fail: "时限到了，你没能凑齐药草。"
+```
+
+---
+
+## 18. narrative/ — 叙事资产
+
+剧本只提供素材与风格参数；提示词组装是引擎职责。
+
+### 18.1 opening.yaml（必）
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `scene` | string | 开场场景描写 |
+| `first_lines[]` | string[] | 可选的开场台词 |
+| `hooks[]` | object[] | `{text, condition?(条件代数)}` 按条件选开场钩子 |
+
+### 18.2 style.yaml（必）
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `voice` | string | 叙述声音（如 `第三人称有限`） |
+| `tense` | string | 时态 |
+| `perspective` | string | 视角 |
+| `density` | string | 描写密度（`sparse\|normal\|dense`） |
+| `sentence_style[]` | string[] | 句式风格 |
+| `forbidden_words[]` | string[] | 禁用词 |
+
+### 18.3 lore/（可选）
+
+一文件一条目：`{id, keywords[], inject_when: always|on_keyword|on_location|on_npc, locations[]?, npcs[]?, content}`（Lorebook 按需注入）。
+
+### 18.4 examples/（可选）
+
+一文件一 NPC 或 generic：`{npc_id|"generic", exchanges[] {player, npc}}`（few-shot）。
+
+### 18.5 event_texts/（可选）
+
+一文件一事件：`{event_id, templates[] {tone, text, slot_vars[]}}`。
+
+```yaml
+# opening.yaml
+scene: "你睁开眼，灰烬镇的清晨雾气未散……"
+first_lines: ["酒馆老板娘艾拉正擦着杯子，抬头看你。"]
+hooks:
+  - text: "你是这里的熟客。"
+    condition: { all: [ { source: flag, key: returned_visitor, op: has } ] }
+```
+
+---
+
+## 附录 A. 内置动作库（26 个）
+
+| id | 语义 | 默认 resolve | 默认 llm_freedom |
+|---|---|---|---|
+| `talk` | 交谈 | auto | narration |
+| `ask` | 询问 | auto | narration |
+| `move` | 移动 | auto | narration |
+| `travel` | 旅行（跨地点图） | auto | narration |
+| `investigate` | 调查 | skill_check (perception) | narration |
+| `search` | 搜索 | skill_check (perception) | narration |
+| `persuade` | 说服 | skill_check (persuasion) | narration |
+| `intimidate` | 威胁 | opposed_check (charisma) | narration |
+| `deceive` | 欺骗 | opposed_check (deception) | narration |
+| `attack` | 攻击 | stat_check (strength) | process |
+| `defend` | 防御 | stat_check (defense) | process |
+| `flee` | 逃跑 | stat_check (agility) | process |
+| `use_item` | 使用物品 | auto | narration |
+| `give` | 给予 | auto | narration |
+| `take` | 拿取 | auto | narration |
+| `trade` | 交易 | auto | narration |
+| `steal` | 偷窃 | opposed_check (stealth) | narration |
+| `rest` | 休息 | auto | narration |
+| `wait` | 等待 | auto | narration |
+| `follow` | 跟随 | auto | narration |
+| `sneak` | 潜行 | skill_check (stealth) | narration |
+| `gather` | 采集 | skill_check (survival) | narration |
+| `craft` | 制造 | skill_check (crafting) | narration |
+| `repair` | 修理 | skill_check (crafting) | narration |
+| `cast` | 施法 | stat_check (intellect) | process |
+| `disguise` | 伪装 | skill_check (disguise) | narration |
+
+剧本配置动作时，`resolve` 的 stat/skill 必须存在于 mechanics.yaml（引用边：actions→stats/skills/needs）。
+
+---
+
+## 附录 B. base_class 实体基类
+
+| base_class | 说明 | 默认核心属性 |
+|---|---|---|
+| `humanoid` | 人形生物（人类/精灵等） | hp, strength, agility, charisma, intellect, perception |
+| `creature` | 非人形生物（野兽/怪物） | hp, strength, agility, aggression, instinct |
+
+NPC 必须声明 `base_class`；`stats/skills/needs` 为**覆盖**（override）剧本默认值，未覆盖项取剧本默认。
+
+---
+
+## 附录 C. 条件代数 op 全集
+
+条件代数递归定义：
+
+```
+logic := { all: [logic...] } | { any: [logic...] } | { not: logic } | leaf
+leaf  := { source, key?, target?, op, value? }
+```
+
+`source` ∈ `stat|skill|need|flag|fact|relationship|reputation|time|location|inventory|currency`
+
+`op` 全集（10 个）：
+
+| op | 适用 source | 语义 |
+|---|---|---|
+| `gte` | 数值类 | 大于等于 |
+| `lte` | 数值类 | 小于等于 |
+| `gt` | 数值类 | 大于 |
+| `lt` | 数值类 | 小于 |
+| `eq` | 数值/枚举 | 等于 |
+| `neq` | 数值/枚举 | 不等于 |
+| `has` | flag/fact | 标志存在（true） |
+| `not_has` | flag/fact | 标志不存在 |
+| `in` | 集合 | value 是集合，key 在其中 |
+| `not_in` | 集合 | value 是集合，key 不在其中 |
+
+- `time` source：`key` ∈ `hour|day|month|weekday`，`value` 数值比较。
+- `location` source：`key: current`，`value` 为地点 id（eq/neq）。
+- `relationship` source：`key` 为 NPC id 或 `player`，`value` 数值。
+- 禁止任何表达式字符串。
+
+---
+
+## 附录 D. 效果代数 kind 全集
+
+效果统一结构：`{kind, direction: add|remove|set, target: player|npc id|faction id, ...专属字段}`。
+
+| kind | 专属字段 | 语义 |
+|---|---|---|
+| `stat` | `stat, value` | 改属性 |
+| `skill` | `skill, value` | 改技能 |
+| `need` | `need, value` | 改需求 |
+| `item` | `item, value(数量)` | 加/减物品 |
+| `currency` | `value` | 加/减货币 |
+| `relation` | `npc, value` | 改关系值 |
+| `reputation` | `faction, value` | 改声望 |
+| `flag` | `flag` | 设/清标志 |
+| `teleport` | `location` | 传送 |
+| `status` | `status` | 施加状态效果 |
+| `memory` | `text, importance` | 添加记忆 |
+| `secret` | `secret` | 揭露秘密 |
+| `event` | `event` | 触发事件 |
+| `narrative` | `text` | 叙事提示 |
+
+---
+
+## 附录 E. 引用完整性矩阵
+
+语义校验层必须逐边检查（每条边 ≥1 测试）：
+
+| 源 | 引用目标 |
+|---|---|
+| actions | stats, skills, needs |
+| plot | secrets, npcs, events, locations |
+| events | locations, npcs, factions, items, tasks |
+| tasks | items, npcs, locations, factions |
+| origins | npcs, locations, items, flags, stats, skills |
+| npcs | base_class, stats, skills, needs, relations→npcs/factions, schedule→time.yaml, home→locations, items→items, secrets→plot |
+| factions | npcs, factions |
+| locations | connections→locations, npcs, items, events |
+| items | effects→stats, status_effects |
+| narrative/event_texts | event ids |
+| narrative/examples | npc ids |
+| worldgen | 引用池 |
+| director | events |
+| run.yaml | origins, locations, status |
+
+---
+
+## 附录 F. 版本与扩展性契约
+
+- `schema_version` 严格相等匹配（1.0）；2.0 前只允许加法演进；破坏性变更升大版本。
+- 所有 zod schema strict（未知字段报错）；每模块预留 `ext: {}` 扩展位（引擎版本化消费）。
+- **ID 契约**：实体 id 全局唯一、小写连字符；发布后不得更改。
+- **运行态隔离**：剧本文件禁止携带运行时状态（无时间戳、无进程内可变值）；所有可变状态属引擎 WorldState。
+- 引擎仅加载与声明版本严格相等的剧本；作者小改字段须等引擎版本（加法演进通道缓解）。
+
+---
+
+## 附录 G. 完整示例剧本片段
+
+（完整示例见 `scripts/emberfall/` 与 `scripts/starlight/`，两个题材各覆盖 18 模块。）
+
+```yaml
+# scripts/emberfall/script.yaml
+id: emberfall
+name: 灰烬镇
+description: 蒸汽与魔法并存的边陲小镇
+schema_version: "1.0"
+language: zh
+tone: [悬疑, 温情]
+author: chatgame-team
+```

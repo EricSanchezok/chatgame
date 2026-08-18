@@ -1,0 +1,23 @@
+id: gather-herbs
+name: 采集药草
+objective:
+  type: gather
+  target:
+    pool: [herb]
+    of_type: material
+  quantity: 3
+giver:
+  pool: [shen-jiugu]
+conditions:
+  all:
+    - { source: location, key: current, op: eq, value: forest-edge }
+rewards:
+  - { kind: currency, direction: add, target: player, value: 15 }
+  - { kind: relation, direction: add, target: player, npc: shen-jiugu, value: 5 }
+repeatable: true
+cooldown: 2
+time_limit: { days: 3 }
+narrative:
+  offer: 沈九姑把一张药单拍在柜台上："灰烬草三把，少一株都别回来交差。"
+  complete: 沈九姑掂了掂药草，哼了一声："还算识货。"
+  fail: 时限过了，沈九姑只当没这回事。

@@ -1,0 +1,37 @@
+background: "星港是一艘殖民时代的环状空间站，如今孤悬在太阳系外的深空锚点上。两百年前，第一批殖民船队把它的核心模块拼装完毕；今天，补给船半年才来一次，站内的一切——空气、水、重力、航线——都交由名为'灯塔'的 AI 统一调度。站务委员会握有名义上的管理权，货物区的甲板帮则在配给制之外经营着自己的灰色秩序。三号反应堆的冷却阀读数最近不太对劲，而灯塔的日志里，似乎有人擦掉了一行。"
+rules:
+  - id: rule-oxygen
+    text: "无氧与低压舱段会持续消耗氧气需求值，耗尽即扣减生命"
+    mechanism: needs
+  - id: rule-airlock
+    text: "穿过气密隔舱需要船员证或对应权限标志"
+    mechanism: inventory
+  - id: rule-reactor-zone
+    text: "未持有反应堆层权限时不得进入反应堆层"
+    mechanism: combat
+taboos:
+  - id: taboo-ai-leak
+    text: "不得让 NPC 在揭露条件满足前透露灯塔秘密"
+    severity: hard
+  - id: taboo-vacuum-error
+    text: "不得让角色不穿舱外服在真空中生还"
+    severity: hard
+  - id: taboo-technobabble
+    text: "避免堆砌无意义的伪科学名词"
+    severity: soft
+glossary:
+  - term: 星港
+    aliases: [空间站, 港]
+    definition: "绕深空锚点自转的殖民空间站，本剧本的舞台"
+  - term: 灯塔
+    aliases: [中枢, AI]
+    definition: "管理星港全部系统的 AI，来历不明"
+  - term: 甲板帮
+    aliases: [装卸帮]
+    definition: "盘踞货物区的底层船员帮会，掌控黑市"
+  - term: 信用点
+    aliases: [cr]
+    definition: "星港官方结算货币"
+  - term: 轮
+    aliases: [站月]
+    definition: "星港历法的时间单位，一轮等于三十天"

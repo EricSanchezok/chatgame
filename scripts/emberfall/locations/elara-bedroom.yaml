@@ -1,0 +1,10 @@
+id: elara-bedroom
+name: 酒馆后院
+type: indoor
+description: 酒馆后的小院与厢房，艾拉夜里在此歇息
+connections:
+  - { to: tavern, distance: 0, travel_time: 1 }
+ambient_events: []
+npcs_present: []
+items: []
+danger_level: 0

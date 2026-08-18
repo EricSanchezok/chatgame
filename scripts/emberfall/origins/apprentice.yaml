@@ -1,0 +1,15 @@
+id: apprentice
+name: 商会学徒
+description: 你随商队到灰烬镇学做买卖，货摊还没支起，先学会了看人眼色
+difficulty: hard
+stats: { agility: 13, strength: 8 }
+skills: { stealth: 6, survival: 4 }
+items: [tonic]
+starting_location: dormitory
+starting_currency: 10
+starting_relations:
+  - { npc: old-wei, value: 30, stance: friendly, note: 同住矿工宿舍，常分他一口汤 }
+  - { npc: caravan-boss, value: 25, stance: neutral, note: 跟着商队来的 }
+starting_knowledge: [mine-collapse-witness]
+exclusive_leads: []
+denied_actions: [cast]

@@ -1,0 +1,7 @@
+id: starlight
+name: 星港
+description: 深空中由 AI 灯塔管理的空间站，站务秩序与底层暗流并存
+schema_version: "1.0"
+language: zh
+tone: [悬疑, 冷峻]
+author: chatgame-team

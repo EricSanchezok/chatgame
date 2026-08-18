@@ -1,0 +1,10 @@
+id: herbalist-hut
+name: 药草铺
+type: indoor
+description: 沈九姑的药草铺，晒干的灰烬草悬满房梁，药香混着苦味
+connections:
+  - { to: forest-edge, distance: 1, travel_time: 10 }
+ambient_events: []
+npcs_present: [shen-jiugu]
+items: [healing-potion, tonic]
+danger_level: 1

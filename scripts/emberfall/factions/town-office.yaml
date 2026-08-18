@@ -1,0 +1,17 @@
+id: town-office
+name: 镇公所
+description: 灰烬镇的行政机构，掌账册与巡矿队，镇长沈镇坐镇
+goals:
+  - 维持镇务运转
+  - 按期收取炉火税
+  - 压下三年前矿难的旧账
+members: [mayor-shen]
+relations:
+  - { target: miners-guild, value: -40, stance: wary }
+reputation:
+  thresholds:
+    - value: 50
+      label: 良民
+      effects:
+        - { kind: currency, direction: add, target: player, value: 10 }
+  decay: 1

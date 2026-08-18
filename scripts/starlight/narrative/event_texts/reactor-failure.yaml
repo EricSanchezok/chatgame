@@ -1,0 +1,8 @@
+event_id: reactor-failure
+templates:
+  - tone: 冷峻
+    text: "警报把舱壁染成红色。三号反应堆的冷却阀读数像脱缰的陀螺仪，老周抓起工具带就往外冲：'都别靠近主回路！'"
+    slot_vars: []
+  - tone: 悬疑
+    text: "冷却阀的读数还在涨，检修终端却显示'系统正常'。你盯着那行绿色的字，突然意识到有人在说谎。"
+    slot_vars: []

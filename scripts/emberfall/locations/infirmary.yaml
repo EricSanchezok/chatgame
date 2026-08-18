@@ -1,0 +1,10 @@
+id: infirmary
+name: 诊疗所
+type: indoor
+description: 镇上的小诊疗所，病床与药柜挤在一间屋里，墙角的蒸汽暖炉吐着白汽
+connections:
+  - { to: town-square, distance: 1, travel_time: 5 }
+ambient_events: []
+npcs_present: [shen-jiugu]
+items: [healing-potion]
+danger_level: 1

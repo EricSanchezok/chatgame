@@ -1,0 +1,5 @@
+id: cargo-rumors
+keywords: [甲板帮, 黑市, 辐射]
+inject_when: on_npc
+npcs: [night-cat]
+content: "货物区最近流行一个说法：上周那个辐射中毒的装卸工，不是在反应堆层出的事。有人看见他当晚从灯塔维护井爬出来。"

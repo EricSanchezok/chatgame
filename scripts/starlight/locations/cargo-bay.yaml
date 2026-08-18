@@ -1,0 +1,11 @@
+id: cargo-bay
+name: 货物区
+type: indoor
+description: 堆满集装箱的装卸区，灯光常年坏一半，是甲板帮的地盘
+connections:
+  - { to: hab-ring, distance: 3, travel_time: 10 }
+  - { to: reactor-level, distance: 2, travel_time: 8 }
+ambient_events: [black-market-deal]
+npcs_present: [night-cat]
+items: [scrap-metal, fuel-cell]
+danger_level: 4

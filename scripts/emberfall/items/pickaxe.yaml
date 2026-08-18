@@ -1,0 +1,8 @@
+id: pickaxe
+name: 矿工鹤嘴锄
+type: equipment
+description: 黑石矿场的老式鹤嘴锄，木柄包着铜皮
+properties:
+  slot: hand
+rarity: common
+value: 15

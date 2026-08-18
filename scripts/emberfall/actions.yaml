@@ -1,0 +1,159 @@
+actions:
+  - id: talk
+    enabled: true
+    display_name: 交谈
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: ask
+    enabled: true
+    display_name: 询问
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: move
+    enabled: true
+    display_name: 移动
+    resolve: { type: auto }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: travel
+    enabled: true
+    display_name: 远行
+    resolve: { type: auto }
+    costs: { time: 6 }
+    llm_freedom: narration
+  - id: investigate
+    enabled: true
+    display_name: 调查
+    resolve: { type: skill_check, skill: perception, dc: 12 }
+    costs: { time: 2 }
+    llm_freedom: narration
+  - id: search
+    enabled: true
+    display_name: 搜索
+    resolve: { type: skill_check, skill: perception, dc: 10 }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: persuade
+    enabled: true
+    display_name: 说服
+    resolve: { type: skill_check, skill: persuasion, dc: 12 }
+    costs: { time: 1 }
+    effects:
+      - { kind: relation, direction: add, target: player, npc: elara, value: 2 }
+    llm_freedom: narration
+  - id: intimidate
+    enabled: true
+    display_name: 威吓
+    resolve: { type: opposed_check, stat: charisma, npc_stat: charisma }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: deceive
+    enabled: true
+    display_name: 欺瞒
+    resolve: { type: opposed_check, stat: charisma, npc_stat: perception }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: attack
+    enabled: true
+    display_name: 攻击
+    resolve: { type: stat_check, stat: strength, dc: 12 }
+    costs: { time: 1 }
+    llm_freedom: process
+  - id: defend
+    enabled: true
+    display_name: 防御
+    resolve: { type: stat_check, stat: defense, dc: 10 }
+    costs: { time: 1 }
+    llm_freedom: process
+  - id: flee
+    enabled: true
+    display_name: 逃跑
+    resolve: { type: stat_check, stat: agility, dc: 12 }
+    costs: { time: 1 }
+    llm_freedom: process
+  - id: use_item
+    enabled: true
+    display_name: 使用物品
+    resolve: { type: auto }
+    llm_freedom: narration
+  - id: give
+    enabled: true
+    display_name: 给予
+    resolve: { type: narrative_only }
+    llm_freedom: narration
+  - id: take
+    enabled: true
+    display_name: 拿取
+    resolve: { type: auto }
+    conditions: { all: [{ source: location, key: current, op: in, value: [town-hall] }] }
+    llm_freedom: narration
+  - id: trade
+    enabled: true
+    display_name: 交易
+    resolve: { type: auto }
+    costs: { currency: 0, time: 1 }
+    llm_freedom: narration
+  - id: steal
+    enabled: true
+    display_name: 偷窃
+    resolve: { type: opposed_check, stat: agility, npc_stat: perception }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: rest
+    enabled: true
+    display_name: 休息
+    resolve: { type: auto }
+    costs: { time: 8 }
+    effects:
+      - { kind: need, direction: add, target: player, need: fatigue, value: -40 }
+    llm_freedom: narration
+  - id: wait
+    enabled: true
+    display_name: 等待
+    resolve: { type: auto }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: follow
+    enabled: true
+    display_name: 跟随
+    resolve: { type: auto }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: sneak
+    enabled: true
+    display_name: 潜行
+    resolve: { type: skill_check, skill: stealth, dc: 12 }
+    costs: { time: 1 }
+    llm_freedom: narration
+  - id: gather
+    enabled: true
+    display_name: 采集
+    resolve: { type: skill_check, skill: survival, dc: 10 }
+    costs: { time: 2 }
+    effects:
+      - { kind: item, direction: add, target: player, item: herb, value: 1 }
+    llm_freedom: narration
+  - id: craft
+    enabled: true
+    display_name: 制造
+    resolve: { type: skill_check, skill: crafting, dc: 12 }
+    costs: { time: 4 }
+    llm_freedom: narration
+  - id: repair
+    enabled: true
+    display_name: 修理
+    resolve: { type: skill_check, skill: crafting, dc: 10 }
+    costs: { time: 2 }
+    llm_freedom: narration
+  - id: cast
+    enabled: true
+    display_name: 施法
+    resolve: { type: stat_check, stat: intellect, dc: 12 }
+    costs: { items: [{ item: herb, quantity: 1 }] }
+    llm_freedom: process
+  - id: disguise
+    enabled: true
+    display_name: 伪装
+    resolve: { type: skill_check, skill: deception, dc: 12 }
+    costs: { time: 1 }
+    llm_freedom: narration

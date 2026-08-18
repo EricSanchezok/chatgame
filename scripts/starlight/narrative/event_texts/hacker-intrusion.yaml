@@ -1,0 +1,8 @@
+event_id: hacker-intrusion
+templates:
+  - tone: 冷峻
+    text: "终端在无人操作时亮起，字符一行行滚动。有人从你的节点跳板，去了灯塔的核心目录。"
+    slot_vars: []
+  - tone: 悬疑
+    text: "你在通风井里发现一个不该存在的接口，上面还贴着夜猫风格的贴纸。"
+    slot_vars: []

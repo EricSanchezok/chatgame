@@ -1,0 +1,8 @@
+npc_id: generic
+exchanges:
+  - player: "你好。"
+    npc: "有事说事，走廊里不聊天。"
+  - player: "最近站里有什么风声？"
+    npc: "风声？配给又缩水了，甲板帮的价翻了一倍，就这些。"
+  - player: "谢谢。"
+    npc: "别谢，别跟人说你问过我。"

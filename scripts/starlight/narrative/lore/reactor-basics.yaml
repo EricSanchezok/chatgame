@@ -1,0 +1,5 @@
+id: reactor-basics
+keywords: [反应堆, 冷却]
+inject_when: on_location
+locations: [reactor-level]
+content: "三号反应堆为全站供能，冷却阀是它的命门。轮机长手册第一条：冷却阀读数漂移超过 3%，立即上报，无论灯塔是否批准。"

@@ -1,0 +1,8 @@
+id: data-chip
+name: 数据芯片
+type: quest
+description: 一枚加密芯片，容量大得可疑，接口处有烧灼痕迹
+properties: { stackable: true }
+effects_on_use: []
+rarity: rare
+value: 80

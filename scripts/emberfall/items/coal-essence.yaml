@@ -1,0 +1,8 @@
+id: coal-essence
+name: 煤精
+type: material
+description: 黑石矿脉深处的稀有矿石，蒸汽机与法阵的核心材料
+properties:
+  stackable: true
+rarity: rare
+value: 50

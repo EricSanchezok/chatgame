@@ -1,0 +1,11 @@
+id: deck-gang
+name: 甲板帮
+description: 货物区的装卸工与黑市贩子组成的底层帮会
+goals: [控制配给黑市, 查清上周装卸工的辐射中毒来源]
+members: [night-cat]
+relations:
+  - { target: station-committee, value: -40, stance: wary }
+reputation:
+  thresholds:
+    - { value: 50, label: 黑市开放, effects: [ { kind: item, direction: add, target: player, item: fuel-cell } ] }
+  decay: 1

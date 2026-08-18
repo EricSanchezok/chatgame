@@ -1,0 +1,8 @@
+id: scrap-metal
+name: 废金属
+type: material
+description: 拆解下来的舱壁残片，回收站按斤收
+properties: { stackable: true }
+effects_on_use: []
+rarity: common
+value: 3

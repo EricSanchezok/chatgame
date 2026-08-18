@@ -1,0 +1,22 @@
+id: repair-vent-duct
+name: 维修通风管道
+objective:
+  type: investigate
+  target:
+    any: true
+  quantity: 1
+giver:
+  pool: [chief-engineer]
+  condition:
+    all:
+      - { source: flag, key: station-layout, op: has }
+rewards:
+  - { kind: currency, direction: add, target: player, value: 30 }
+  - { kind: reputation, direction: add, target: player, faction: station-committee, value: 5 }
+repeatable: true
+cooldown: 3
+time_limit: { days: 2 }
+narrative:
+  offer: "老周指了指通风井的方向：'管道共振声不对，帮我查一圈。'"
+  complete: "你把松动段的紧固件全部拧紧，共振声消失了。"
+  fail: "你没有在时限内完成检修，共振声变成了投诉。"

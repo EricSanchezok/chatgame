@@ -1,0 +1,8 @@
+randomize:
+  - { target: npc_stats, jitter: 0.1 }
+  - { target: npc_placement, distribution: uniform }
+  - { target: secret_holder, pool: [station-chief, night-cat], distribution: weighted }
+  - { target: faction_stance, distribution: uniform }
+  - { target: starting_event, distribution: uniform }
+fixed: [plot_commitments, world_rules, glossary, taboos, festivals, locations]
+seed: { policy: per_run }

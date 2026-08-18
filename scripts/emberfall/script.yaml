@@ -1,0 +1,10 @@
+id: emberfall
+name: 灰烬镇
+description: 蒸汽与魔法并存的边陲矿镇，矿脉枯竭，人心浮动
+schema_version: "1.0"
+language: zh
+tone:
+  - 悬疑
+  - 温情
+  - 蒸汽幻想
+author: chatgame-team

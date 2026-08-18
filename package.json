@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "script:validate": "tsx scripts/validate-script.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "16.3.1",
@@ -21,6 +23,10 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.12",
+    "typescript": "^5",
+    "vitest": "^3.2.7",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   }
 }

@@ -1,0 +1,17 @@
+id: harvest-fair
+name: 丰收集
+type: festival
+tags: [festival, trade]
+trigger: time
+conditions:
+  all:
+    - { source: time, key: month, op: eq, value: 9 }
+    - { source: time, key: day, op: eq, value: 8 }
+effects:
+  - { kind: currency, direction: add, target: player, value: 5 }
+narrative: { template: harvest-fair }
+weight: 3
+cooldown: 30
+repeatable: true
+participants: [caravan-boss]
+locations: [town-square]

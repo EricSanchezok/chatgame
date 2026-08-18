@@ -1,0 +1,12 @@
+id: station-day-celebration
+name: 星港落成日庆典
+type: festival
+tags: [celebration]
+trigger: time
+effects:
+  - { kind: relation, direction: add, target: player, npc: station-chief, value: 10 }
+weight: 1
+cooldown: 0
+repeatable: true
+participants: [station-chief, doctor-vera]
+locations: [hab-ring]

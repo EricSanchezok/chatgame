@@ -1,0 +1,65 @@
+commitments:
+  - id: ai-origin-reveal
+    description: "灯塔的来历最终被揭露：核心模块来自一艘失踪的殖民船"
+    type: secret_reveal
+    trigger:
+      condition:
+        all:
+          - { source: relationship, key: player, op: gte, value: 60 }
+    must_happen: true
+    deadline:
+      time: { day: 60 }
+      on_miss:
+        escalation_text: "夜猫的加密档案被人匿名公开，秘密以数据泄露的方式浮出水面"
+        effects:
+          - { kind: flag, direction: set, target: player, flag: ai-origin-leaked }
+    related: { secrets: [ai-core-origin], npcs: [station-chief, night-cat] }
+  - id: reactor-crisis
+    description: "三号反应堆的冷却故障在第 12 天爆发为站内危机"
+    type: time_event
+    trigger:
+      time: { month: 1, day: 12, hour: 20 }
+    must_happen: true
+    deadline:
+      time: { day: 16 }
+      on_miss:
+        escalation_text: "冷却阀彻底卡死，反应堆层开始泄漏辐射，全站进入紧急状态"
+        effects:
+          - { kind: event, direction: set, target: player, event: reactor-failure }
+    related: { events: [reactor-failure], npcs: [chief-engineer], locations: [reactor-level] }
+  - id: blackout-hunt
+    description: "在玩家掌握通风井路线后，全站断电事件必被触发调查"
+    type: condition_event
+    trigger:
+      condition:
+        all:
+          - { source: flag, key: vent-route-known, op: has }
+          - { source: stat, key: technical, op: gte, value: 12 }
+    must_happen: true
+    deadline:
+      condition: { source: time, key: day, op: gte, value: 20 }
+      on_miss:
+        escalation_text: "断电谜团不了了之，但有人把矛头指向了玩家的活动记录"
+        effects:
+          - { kind: flag, direction: set, target: player, flag: blackout-suspect }
+    related: { events: [power-blackout], locations: [cargo-bay] }
+  - id: smuggling-ring
+    description: "玩家在甲板帮的声望达到门槛后，黑市走私网被摆上台面"
+    type: condition_event
+    trigger:
+      condition: { source: reputation, key: deck-gang, op: gte, value: 40 }
+    must_happen: true
+    deadline:
+      time: { day: 30 }
+      on_miss:
+        escalation_text: "站务突击搜查货物区，黑市转入地下，甲板帮对你的信任大打折扣"
+        effects:
+          - { kind: reputation, direction: add, target: player, faction: deck-gang, value: -10 }
+    related: { events: [black-market-deal], npcs: [night-cat, station-chief] }
+  - id: station-day-commitment
+    description: "星港落成纪念日，全站庆祝活动照常举行"
+    type: time_event
+    trigger:
+      time: { month: 2, day: 15 }
+    must_happen: true
+    related: { events: [station-day-celebration], locations: [hab-ring] }

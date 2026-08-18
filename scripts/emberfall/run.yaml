@@ -1,0 +1,24 @@
+death_policy:
+  mode: soft_failure
+  soft_failure:
+    gauge_ref: threat_gauge
+    threshold: 100
+    consequence:
+      location: infirmary
+      effects:
+        - { kind: stat, direction: add, target: player, stat: hp, value: -5 }
+        - { kind: currency, direction: remove, target: player, value: 10 }
+      narrative: 你在昏迷中被抬进诊疗所，草药师沈九姑摇了摇头："灰吸多了，命还在，钱没了。"
+meta_progression:
+  keep: [flags, lore, relations_overview]
+  reset: [stats, inventory, location, memories, currency]
+  unlocks:
+    - { flag: returned-visitor, grant: [miner, apprentice, scholar] }
+memory:
+  tier_retention_days:
+    major: 0
+    minor: 90
+    trivial: 30
+context_compaction:
+  policy: summarize_archive
+  retention_tiers: [major, minor]

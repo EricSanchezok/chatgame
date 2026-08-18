@@ -1,0 +1,13 @@
+id: reactor-level
+name: 反应堆层
+type: indoor
+description: 三号反应堆的所在舱段，冷却管道的嘶嘶声像某种大型生物在呼吸
+connections:
+  - { to: cargo-bay, distance: 2, travel_time: 8 }
+ambient_events: [reactor-hum]
+npcs_present: []
+items: []
+danger_level: 8
+entry_condition:
+  all:
+    - { source: flag, key: reactor-access, op: has }

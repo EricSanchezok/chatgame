@@ -1,0 +1,99 @@
+stats:
+  - { name: hp, min: 0, max: 100, initial: 100, description: 生命值 }
+  - { name: strength, min: 1, max: 20, initial: 10, description: 力量 }
+  - { name: charisma, min: 1, max: 20, initial: 10, description: 魅力 }
+  - { name: agility, min: 1, max: 20, initial: 10, description: 敏捷 }
+  - { name: intellect, min: 1, max: 20, initial: 10, description: 智力 }
+  - { name: perception, min: 1, max: 20, initial: 10, description: 感知 }
+  - { name: defense, min: 0, max: 20, initial: 5, description: 防御 }
+skills:
+  - { name: persuasion, min: 0, max: 20, initial: 0, description: 说服 }
+  - { name: stealth, min: 0, max: 20, initial: 0, description: 潜行 }
+  - { name: survival, min: 0, max: 20, initial: 0, description: 生存 }
+  - { name: crafting, min: 0, max: 20, initial: 0, description: 制造 }
+  - { name: deception, min: 0, max: 20, initial: 0, description: 欺骗 }
+  - { name: perception, min: 0, max: 20, initial: 0, description: 侦查 }
+needs:
+  - name: hunger
+    min: 0
+    max: 100
+    initial: 80
+    decay_per_day: 20
+    thresholds:
+      - level: 30
+        label: 饥饿
+        effects:
+          - { kind: stat, direction: add, target: player, stat: strength, value: -2 }
+      - level: 0
+        label: 饿晕
+        effects:
+          - { kind: stat, direction: add, target: player, stat: hp, value: -10 }
+  - name: thirst
+    min: 0
+    max: 100
+    initial: 80
+    decay_per_day: 25
+    thresholds:
+      - level: 30
+        label: 口渴
+        effects:
+          - { kind: stat, direction: add, target: player, stat: agility, value: -2 }
+  - name: fatigue
+    min: 0
+    max: 100
+    initial: 20
+    decay_per_day: 15
+    thresholds:
+      - level: 80
+        label: 疲惫不堪
+        effects:
+          - { kind: stat, direction: add, target: player, stat: perception, value: -3 }
+status_effects:
+  - id: ash-lung
+    name: 灰肺
+    kind: debuff
+    effects:
+      - { kind: stat, direction: add, target: player, stat: agility, value: -2 }
+    stackable: false
+  - id: tipsy
+    name: 微醺
+    kind: debuff
+    effects:
+      - { kind: stat, direction: add, target: player, stat: perception, value: -1 }
+      - { kind: stat, direction: add, target: player, stat: charisma, value: 1 }
+    duration: 2
+    stackable: false
+  - id: well-fed
+    name: 吃饱喝足
+    kind: buff
+    effects:
+      - { kind: need, direction: add, target: player, need: fatigue, value: 15 }
+    duration: 6
+    stackable: false
+  - id: light-wound
+    name: 轻伤
+    kind: debuff
+    effects:
+      - { kind: stat, direction: add, target: player, stat: hp, value: -10 }
+    stackable: true
+inventory:
+  capacity: 20
+  stacking: true
+currency:
+  name: 金币
+  symbol: 金
+  initial: 50
+combat:
+  damage_types: [physical, fire, arcane, poison]
+  defense_types: [armor, ward]
+  hp_stat: hp
+  threat_gauge:
+    max: 100
+    on_full: soft_failure_consequence
+progression:
+  - { source: stat_check, target: strength, amount: 1, cap: 20 }
+  - { source: stat_check, target: agility, amount: 1, cap: 20 }
+  - { source: skill_check, target: persuasion, amount: 1, cap: 20 }
+  - { source: skill_check, target: survival, amount: 1, cap: 20 }
+  - { source: task, target: crafting, amount: 1, cap: 20 }
+  - { source: event, target: perception, amount: 1, cap: 20 }

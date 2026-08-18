@@ -1,0 +1,35 @@
+id: shen-jiugu
+name: 沈九姑
+base_class: humanoid
+description: 镇上的草药师，医术与脾气一样硬，嘴毒心软
+traits:
+  - { name: 嘴毒心软, description: 嘴上不饶人，诊金却常常只收一半 }
+stats: { hp: 70, intellect: 16, perception: 14 }
+skills: { survival: 14, crafting: 12 }
+needs: { hunger: 70 }
+occupation: 草药师
+schedule: herbalist-schedule
+home: herbalist-hut
+items: [healing-potion, herb]
+relations:
+  - { target: elara, value: 50, stance: friendly, type: friend, note: 药草铺的酒馆常客 }
+  - { target: old-miner, value: 30, stance: neutral, type: acquaintance, note: 给他治过腰伤 }
+  - { target: old-wei, value: 40, stance: friendly, type: acquaintance, note: 常托他捎药草 }
+memory:
+  initial:
+    - { text: 塌方后镇公所收购了大量伤药，账目却再没公开过, importance: major, tags: [mine] }
+secrets:
+  - id: mine-toxin
+    content: 塌方后的矿井积水里有炼金废液，会让人慢性中毒
+    reveal:
+      logic:
+        all:
+          - { source: flag, key: mine-collapse-witnessed, op: has }
+          - { source: relationship, key: player, op: gte, value: 30 }
+knowledge_flags: [mine-collapse-witness]
+llm:
+  personality: 说话带刺，却从不误诊；讨厌不懂装懂的人
+  speech_patterns:
+    - 用"蠢货""糊涂虫"称呼病人
+    - 爱用医理打比方
+  knowledge_filter: true

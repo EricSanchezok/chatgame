@@ -1,0 +1,12 @@
+id: hull-alert
+name: 船体警报
+type: crisis
+tags: [danger, alarm]
+trigger: director
+effects:
+  - { kind: need, direction: add, target: player, need: oxygen, value: -20 }
+weight: 2
+narrative: { template: hull-alert }
+cooldown: 5
+repeatable: true
+locations: [hab-ring]

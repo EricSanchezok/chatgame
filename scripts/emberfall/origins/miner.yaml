@@ -1,0 +1,15 @@
+id: miner
+name: 矿工
+description: 你在黑石矿场挖了半辈子矿，矿脉枯竭后仍守在这里
+difficulty: easy
+stats: { strength: 14, charisma: 8 }
+skills: { survival: 5 }
+items: [pickaxe, lantern]
+starting_location: mine-entrance
+starting_currency: 30
+starting_relations:
+  - { npc: old-miner, value: 40, stance: friendly, note: 同一条巷道里刨过食 }
+  - { npc: elara, value: 20, stance: neutral, note: 下工后常去她的酒馆 }
+starting_knowledge: [mine-secret-holder]
+exclusive_leads: [knock-code]
+denied_actions: []

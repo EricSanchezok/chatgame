@@ -1,0 +1,11 @@
+id: tavern
+name: 灰烬酒馆
+type: indoor
+description: 镇中心的老酒馆，炉火常年不灭，酒客与矿工在此交换消息
+connections:
+  - { to: town-square, distance: 1, travel_time: 5 }
+  - { to: elara-bedroom, distance: 0, travel_time: 1 }
+ambient_events: [tavern-gossip]
+npcs_present: [elara]
+items: []
+danger_level: 1

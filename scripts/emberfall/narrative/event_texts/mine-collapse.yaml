@@ -1,0 +1,8 @@
+event_id: mine-collapse
+templates:
+  - tone: 紧张
+    text: 一声闷响从井口深处滚上来，地面跟着颤了一下。封井的木牌震得乱晃，灰土簌簌地落。
+    slot_vars: []
+  - tone: 阴沉
+    text: 井口的方向腾起一阵灰雾，巡矿队的铜哨声由远及近。老矿工攥紧了鹤嘴锄，脸色比灰还白。
+    slot_vars: []

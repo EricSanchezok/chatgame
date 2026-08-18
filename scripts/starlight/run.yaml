@@ -1,0 +1,14 @@
+death_policy:
+  mode: hard_reset
+  hard_reset:
+    world_reroll: reroll_worldgen
+meta_progression:
+  keep: [flags, lore, relations_overview]
+  reset: [stats, inventory, location, memories, currency]
+  unlocks:
+    - { flag: returned_visitor, grant: [station-merchant] }
+memory:
+  tier_retention_days: { major: 0, minor: 90, trivial: 30 }
+context_compaction:
+  policy: summarize_archive
+  retention_tiers: [major, minor]

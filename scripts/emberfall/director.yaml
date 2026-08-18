@@ -1,0 +1,18 @@
+tension:
+  variables:
+    - { name: danger, source: threat_gauge, min: 0, max: 100, initial: 10 }
+    - { name: mystery_depth, source: threat_gauge, min: 0, max: 100, initial: 15 }
+    - { name: social_warmth, source: threat_gauge, min: 0, max: 100, initial: 40 }
+event_selection:
+  policy: weighted_by_band
+  bands:
+    - { band: [0, 30], weight_multiplier: 0.8 }
+    - { band: [30, 70], weight_multiplier: 1.0 }
+    - { band: [70, 100], weight_multiplier: 1.3 }
+pacing:
+  crisis_density: 0.3
+  breather_min_interval: 2
+  difficulty_ramp: 0.05
+novelty:
+  seen_tracking: true
+  cooldown_default: 3

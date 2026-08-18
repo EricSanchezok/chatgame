@@ -1,0 +1,19 @@
+id: power-blackout
+name: 全站断电
+type: crisis
+tags: [darkness, sabotage]
+trigger: condition
+conditions:
+  all:
+    - { source: flag, key: vent-route-known, op: has }
+    - { source: skill, key: engineering, op: gte, value: 5 }
+effects:
+  - { kind: need, direction: add, target: player, need: energy, value: -30 }
+  - { kind: flag, direction: set, target: player, flag: blackout-witnessed }
+weight: 3
+cooldown: 7
+repeatable: false
+exclusivity:
+  group: reactor-crisis
+  mutually_exclusive: [reactor-failure]
+locations: [cargo-bay, hab-ring]

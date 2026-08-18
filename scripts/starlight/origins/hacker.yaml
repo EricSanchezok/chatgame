@@ -1,0 +1,18 @@
+id: hacker
+name: 黑客出身
+description: 你靠破解配给系统活到现在，灯塔的系统日志里有你未擦干净的脚印
+difficulty: hard
+stats:
+  intellect: 14
+  perception: 12
+skills:
+  hacking: 10
+items: [data-chip]
+starting_location: cargo-bay
+starting_currency: 20
+starting_relations:
+  - { npc: night-cat, value: -20, stance: wary, note: 你们抢过同一单黑活 }
+  - { npc: station-chief, value: -10, stance: wary, note: 站务系统里有你的案底 }
+starting_knowledge: [vent-route-known, black-market-prices, station-layout]
+exclusive_leads: [ai-core-origin]
+denied_actions: [intimidate]
