@@ -15,10 +15,10 @@ chatgame 是剧本驱动的 AI 聊天游戏框架。设计的第一性原理见 
 ## 仓库布局
 
 ```
-src/          Next.js 应用（当前仅有脚手架）
-docs/         参考文档：architecture、game-design 等（地图见 docs/README.md）
+src/          应用与引擎：app/（Next.js UI）、script/（剧本契约层）、engine/（引擎运行时）
+docs/         参考文档：architecture、game-design（剧本格式/引擎运行时）、research（调研证据）
 .agents/notes/ 决策记录（Agent Notes）：{生命周期}/{分类}/YYYY-MM-DD-主题.md
-scripts/      门禁脚本（按需引入）
+scripts/      门禁与演示脚本（validate-script / play-emberfall）
 ```
 
 ## 命令
@@ -27,6 +27,8 @@ scripts/      门禁脚本（按需引入）
 npm run dev      # 开发服务器
 npm run build    # 生产构建
 npm run lint     # ESLint
+npm run play     # 引擎 demo CLI（默认 Mock LLM）
+npm test         # vitest 测试
 ```
 
 ## 约定

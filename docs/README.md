@@ -9,7 +9,7 @@
 | [AGENTS.md](../AGENTS.md) | 常驻指令：布局、命令、约定（一两行一条，链接各自的家） | 故事、详细流程、被链接内容的重述 |
 | [.agents/notes/](../.agents/notes/README.md) | 决策记录：为什么、放弃了什么、后果（Agent Notes） | 迁移计划、待办清单 |
 | [architecture.md](architecture.md) | 系统总览：剧本/引擎/机制/LLM/UI 如何组成 | 类型定义、决策理由（→ notes） |
-| [game-design/](game-design/README.md) | 游戏设计参考：剧本格式（v1.0）、世界模型、机制规格 | 决策理由（→ notes） |
+| [game-design/](game-design/README.md) | 游戏设计参考：剧本格式（v1.0）、引擎运行时（v1）、机制规格 | 决策理由（→ notes） |
 | postmortem/ | 事故复盘（首次需要时创建） | — |
 | cookbook/ | 操作指南（首次需要时创建） | 设计理由（→ notes） |
 | [README.md](../README.md)（根） | 产品简介 + 快速开始 | 详细参考 |

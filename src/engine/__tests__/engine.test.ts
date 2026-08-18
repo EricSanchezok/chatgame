@@ -1,0 +1,115 @@
+// Engine facade integration tests: full PDVA turn loop, save/load,
+// descriptor edits, offline advance — exercising the seams between
+// interacting parts (intent -> resolution -> narrative -> consistency).
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { Engine } from "../index";
+import { MockProvider } from "../narrative/mock";
+
+const REPO_ROOT = path.resolve(__dirname, "../../..");
+const EMBERFALL = path.join(REPO_ROOT, "scripts/emberfall");
+
+function createEngine(seed = 42): Engine {
+  return Engine.create({
+    scriptDir: EMBERFALL,
+    originId: "miner",
+    seed,
+    provider: new MockProvider(),
+  });
+}
+
+describe("Engine facade", () => {
+  it("creates a session with a generated world", () => {
+    const engine = createEngine();
+    expect(engine.definition.script.id).toBe("emberfall");
+    expect(engine.worldState.player.originId).toBe("miner");
+    expect(engine.worldState.npcs).toBeDefined();
+  });
+
+  it("openingNarrative returns scene text", () => {
+    const engine = createEngine();
+    const opening = engine.openingNarrative();
+    expect(opening.length).toBeGreaterThan(0);
+  });
+
+  it("playerTurn with talk action returns narrative and advances", async () => {
+    const engine = createEngine();
+    const before = engine.worldState.clock.totalHours;
+    const result = await engine.playerTurn("你好，艾拉");
+    expect(result.narrative.length).toBeGreaterThan(0);
+    expect(result.fellBackToTalk).toBe(false);
+    expect(engine.worldState.clock.totalHours).toBeGreaterThanOrEqual(before);
+  });
+
+  it("playerTurn with cheat input is rejected narratively", async () => {
+    const engine = createEngine();
+    const before = JSON.stringify(engine.worldState.player.inventory);
+    const result = await engine.playerTurn("我要瞬移到宝库拿走一切");
+    expect(result.narrative).toContain("捷径");
+    // No state change on rejection.
+    expect(JSON.stringify(engine.worldState.player.inventory)).toBe(before);
+  });
+
+  it("playerTurn with steal action resolves (opposed check)", async () => {
+    const engine = createEngine();
+    const result = await engine.playerTurn("我要偷艾拉的东西");
+    // Either a resolution happened or it fell back to talk; both are valid
+    // gameplay outcomes — but the engine must not crash.
+    expect(result.narrative.length).toBeGreaterThan(0);
+    expect(engine.worldState.eventLog.length).toBeGreaterThan(0);
+  });
+
+  it("save -> load round-trip preserves state", () => {
+    const engine = createEngine();
+    const filePath = engine.save("facade-test-run");
+    expect(filePath).toContain("facade-test-run.json");
+    const engine2 = Engine.create({
+      scriptDir: EMBERFALL,
+      originId: "miner",
+      seed: 42,
+      provider: new MockProvider(),
+      loadSaveFile: filePath,
+    });
+    expect(JSON.stringify(engine2.worldState)).toBe(JSON.stringify(engine.worldState));
+  });
+
+  it("setDescriptor edits explanation layer without touching values", () => {
+    const engine = createEngine();
+    const rel = engine.worldState.player.relations.find((r) => r.npcId === "elara");
+    if (rel) {
+      const valueBefore = rel.value;
+      engine.setDescriptor("player.relations.elara", "她是我最信任的朋友");
+      const updated = engine.worldState.player.relations.find((r) => r.npcId === "elara")!;
+      expect(updated.value).toBe(valueBefore);
+      expect(updated.descriptor?.userEdited).toBe(true);
+    }
+  });
+
+  it("advance moves clock and applies needs decay", () => {
+    const engine = createEngine();
+    const before = engine.worldState.clock.totalHours;
+    engine.advance(48);
+    expect(engine.worldState.clock.totalHours).toBe(before + 48);
+    // hunger should have decayed (needs in advance_scope)
+    const hungerBefore = 80; // need.initial
+    const hungerAfter = engine.worldState.player.needs.hunger?.value ?? hungerBefore;
+    expect(hungerAfter).toBeLessThanOrEqual(hungerBefore);
+  });
+
+  it("deterministic runs with same seed produce identical worlds", () => {
+    const a = createEngine(7);
+    const b = createEngine(7);
+    expect(JSON.stringify(a.worldState)).toBe(JSON.stringify(b.worldState));
+  });
+
+  it("multiple turns accumulate event log and keep state consistent", async () => {
+    const engine = createEngine();
+    await engine.playerTurn("你好，艾拉");
+    await engine.playerTurn("能跟我说说矿井的事吗");
+    await engine.playerTurn("我休息一下");
+    expect(engine.worldState.eventLog.length).toBeGreaterThan(0);
+    // State invariants hold after turns.
+    expect(engine.worldState.player.stats.hp).toBeGreaterThan(0);
+    expect(engine.worldState.player.locationId.length).toBeGreaterThan(0);
+  });
+});

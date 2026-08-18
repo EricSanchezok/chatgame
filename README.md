@@ -11,17 +11,18 @@ npm run dev
 
 打开 http://localhost:3000。
 
-## 剧本
+## 剧本与引擎
 
-剧本是"世界"的声明式定义（18 模块，YAML）。示例与校验：
+剧本是"世界"的声明式定义（18 模块，YAML）；引擎是"世界如何运转"的运行时。体验：
 
 ```sh
-npm run script:validate -- scripts/emberfall   # 中式奇幻小镇示例
-npm run script:validate -- scripts/starlight   # 科幻空间站示例
-npm test                                       # schema + 语义校验测试
+npm run play                                       # demo CLI（默认 Mock LLM，无 key 可跑）
+CHATGAME_LLM_PROVIDER=vercel npm run play           # 真实 LLM（需配置 env）
+npm run script:validate -- scripts/emberfall       # 校验示例剧本
+npm test                                           # 全部测试
 ```
 
-格式规格见 [docs/game-design/script-format.md](docs/game-design/script-format.md)。
+规格：[docs/game-design/script-format.md](docs/game-design/script-format.md)（剧本格式）、[docs/game-design/engine-runtime.md](docs/game-design/engine-runtime.md)（引擎运行时）。
 
 ## 文档
 

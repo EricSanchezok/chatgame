@@ -4,7 +4,8 @@
 
 | 文档 | 内容 |
 |---|---|
-| [script-format.md](script-format.md) | 剧本格式 v1.0：18 模块字段定义 + 附录 A-G（当前规格） |
+| [script-format.md](script-format.md) | 剧本格式 v1.0：18 模块字段定义 + 附录 A-G |
+| [engine-runtime.md](engine-runtime.md) | 引擎运行时 v1：回合循环、判定、防作弊、双轨状态、LLM 桥、存档 |
 | time.md | 时间机制：时间流逝、日程、事件调度 |
 | character.md | 角色机制：属性、记忆、关系 |
 | inventory.md | 背包机制 |
@@ -20,6 +21,16 @@ npm run script:validate -- scripts/starlight
 ```
 
 决策依据见 [.agents/notes/implemented/game-design/2026-08-18-script-format.md](../../.agents/notes/implemented/game-design/2026-08-18-script-format.md)。
+
+## 引擎运行时
+
+引擎运行时 v1 已实现：`src/engine/`（回合循环 + 判定 + 防作弊 + 双轨状态 + LLM 桥 + 存档）。规格见 [engine-runtime.md](engine-runtime.md)；演示：
+
+```sh
+npm run play   # demo CLI（默认 Mock LLM，无 key 可跑）
+```
+
+决策依据见 [.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md](../../.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md)。
 
 规则：
 

@@ -15,3 +15,7 @@
 | 2026-08-18 | 游戏设计学术理论 | [2026-08-18-game-theory-academic.md](2026-08-18-game-theory-academic.md) |
 | 2026-08-18 | 玩法方法论与无限游玩 | [2026-08-18-methodology-playability.md](2026-08-18-methodology-playability.md) |
 | 2026-08-18 | 相似 AI 游戏与产品 | [2026-08-18-similar-ai-games.md](2026-08-18-similar-ai-games.md) |
+| 2026-08-18 | 判定机制方法学 | [2026-08-18-resolution-mechanics.md](2026-08-18-resolution-mechanics.md) |
+| 2026-08-18 | LLM 防作弊与动作约束 | [2026-08-18-llm-action-constraints.md](2026-08-18-llm-action-constraints.md) |
+| 2026-08-18 | TS LLM 生态选型 | [2026-08-18-ts-llm-ecosystem.md](2026-08-18-ts-llm-ecosystem.md) |
+| 2026-08-18 | 数值+描述双轨状态 | [2026-08-18-hybrid-state-descriptions.md](2026-08-18-hybrid-state-descriptions.md) |
