@@ -74,10 +74,11 @@ describe("prompt building", () => {
     expect(sys).toContain("叙事禁忌");
     expect(sys).toContain(def.script.name);
   });
-  it("turn prompt contains time + player input", () => {
+
+  it("turn prompt contains state snapshot + player input", () => {
     const { def, state } = setup();
     const prompt = buildTurnPrompt({ definition: def, state, playerInput: "你好" });
-    expect(prompt).toContain("当前时间");
+    expect(prompt).toContain("当前状态快照");
     expect(prompt).toContain("你好");
   });
   it("intent prompt lists available actions", () => {

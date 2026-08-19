@@ -184,6 +184,54 @@ describe("state snapshot block (layer B)", () => {
     // System instruction: values are the only fact source.
     expect(block).toContain("数值为唯一事实源");
   });
+
+  it("injects player needs as dual-track lines with values and labels", () => {
+    const { def, state } = setup();
+    // Lower hunger to a fired-threshold value so the label comes from the
+    // mechanics thresholds (hunger level 30 => label 饥饿), and attach a
+    // descriptor to thirst to exercise the descriptor-label path.
+    const needs = {
+      hunger: { value: 25, descriptor: undefined },
+      thirst: { value: 50, descriptor: { label: "口渴", description: "嗓子发干", version: 1, stale: false, sourceEventIds: [], userEdited: false } },
+      fatigue: { value: 20, descriptor: undefined },
+    };
+    const withNeeds = { ...state, player: { ...state.player, needs } };
+    const block = buildStateBlock(withNeeds, def);
+    // Need line: 玩家 | 需求 <id> <value>/100 | <label> [| description].
+    expect(block).toContain("玩家 | 需求 hunger 25/100 | 饥饿");
+    // Descriptor label + description ride along (anchored to the value).
+    expect(block).toContain("玩家 | 需求 thirst 50/100 | 口渴 | 嗓子发干");
+  });
+});
+
+describe("injection length stays bounded (no linear growth)", () => {
+  it("keeps the prompt size roughly flat as the transcript grows past the window", () => {
+    const { def, state } = setup();
+    // 10-turn transcript: window is capped at 6 turns.
+    let short = state;
+    for (let i = 0; i < 10; i++) short = addTurn(short, `回合内容${i + 1}`);
+    const shortBlocks = buildContextBlocks(short, def);
+    const shortPrompt = buildTurnPrompt({
+      definition: def,
+      state: short,
+      playerInput: "你好",
+      contextBlocks: shortBlocks,
+    });
+    // 40-turn transcript: the window stays at 6 turns, so the injected
+    // prompt must not grow anywhere near linearly (4x transcript => the
+    // prompt should grow by at most a small constant).
+    let long = state;
+    for (let i = 0; i < 40; i++) long = addTurn(long, `回合内容${i + 1}`);
+    const longBlocks = buildContextBlocks(long, def);
+    const longPrompt = buildTurnPrompt({
+      definition: def,
+      state: long,
+      playerInput: "你好",
+      contextBlocks: longBlocks,
+    });
+    // 4x the turns => less than 1.2x the injected prompt (window-bound).
+    expect(longPrompt.length).toBeLessThan(shortPrompt.length * 1.2);
+  });
 });
 
 describe("prompt injection order (A/B/C/D/E)", () => {
