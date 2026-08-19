@@ -232,10 +232,9 @@ export class EngineHost {
    * Internal retained API: no current caller, kept for future consumers.
    */
   scriptSaves(scriptId: string): string[] {
+    this.scriptDirFor(scriptId); // 404 gate
     return listScriptSaves(scriptId);
   }
-
-  /** Lists an installed script's origins for the new-game flow. */
   scriptOrigins(scriptId: string): Array<{
     id: string;
     name: string;

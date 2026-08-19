@@ -106,7 +106,7 @@ export interface WorldState {
     name: string;
     stats: Record<string, number>;
     skills: Record<string, number>;
-    needs: Record<string, { value: number; descriptor?: { label: string } }>;
+    needs: Record<string, { value: number; descriptor?: { label: string; description: string } }>;
     inventory: { stacks: ItemStack[]; currency: number };
     locationId: string;
     flags: string[];
@@ -118,7 +118,7 @@ export interface WorldState {
     }>;
     memories: Array<{ id: string; text: string; importance: string }>;
     relations: RelationState[];
-    reputation: Array<{ factionId: string; value: number }>;
+    reputation: Array<{ factionId: string; value: number; descriptor?: { label: string; description: string } }>;
   };
   npcs: Record<
     string,

@@ -374,6 +374,7 @@ export class Engine {
       case "on_cooldown":
         return "你刚刚才做过这件事，现在还不是时候——再等等吧。";
       case "denied_action":
+        return "你的出身让你做不出这种事。";
       case "unknown_action":
         return "这个世界没有这样的行动。";
       default:

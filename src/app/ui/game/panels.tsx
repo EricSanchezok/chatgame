@@ -337,13 +337,56 @@ function CharacterPanel({
             <dd style={{ color: "var(--cg-text)" }}>{state.player.stats[s.name] ?? 0}</dd>
           </div>
         ))}
-        {catalog.needs.map((n) => (
-          <div key={n.name} className="flex justify-between">
-            <dt style={{ color: "var(--cg-text-dim)" }}>{n.name}</dt>
-            <dd style={{ color: "var(--cg-text)" }}>{state.player.needs[n.name]?.value ?? 0}</dd>
-          </div>
-        ))}
       </dl>
+      {catalog.needs.length > 0 ? (
+        <div className="mt-4">
+          <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>需求</h4>
+          <ul className="space-y-2">
+            {catalog.needs.map((n) => {
+              const need = state.player.needs[n.name];
+              return (
+                <li key={n.name} className="cg-chrome rounded-lg border p-2"
+                  style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm" style={{ color: "var(--cg-text)" }}>{n.name}</span>
+                    <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
+                      {need?.descriptor?.label ?? ""} {need?.value ?? 0}
+                    </span>
+                  </div>
+                  <DescriptorEdit
+                    path={`player.needs.${n.name}`}
+                    initial={need?.descriptor?.description ?? ""}
+                    onSave={handlers.onUpdateDescriptor}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+      {state.player.reputation.length > 0 ? (
+        <div className="mt-4">
+          <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>声望</h4>
+          <ul className="space-y-2">
+            {state.player.reputation.map((r) => (
+              <li key={r.factionId} className="cg-chrome rounded-lg border p-2"
+                style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm" style={{ color: "var(--cg-text)" }}>{r.factionId}</span>
+                  <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
+                    {r.descriptor?.label ?? ""} {r.value}
+                  </span>
+                </div>
+                <DescriptorEdit
+                  path={`player.reputation.${r.factionId}`}
+                  initial={r.descriptor?.description ?? ""}
+                  onSave={handlers.onUpdateDescriptor}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {state.player.statuses.length > 0 ? (
         <div className="mt-4">
           <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>状态</h4>
