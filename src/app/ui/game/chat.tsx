@@ -60,7 +60,7 @@ export function GameScreen() {
       <header
         data-region="hud"
         className="cg-glass cg-chrome flex shrink-0 items-center justify-between gap-3 px-4 py-2"
-        style={{ borderBottom: "1px solid var(--cg-border)" }}
+        style={{ borderBottom: "var(--cg-border-width) solid var(--cg-border)" }}
       >
         <div className="flex items-center gap-4 text-sm">
           <span className="flex items-center gap-1.5" style={{ color: "var(--cg-text)" }}>
@@ -186,7 +186,7 @@ export function GameScreen() {
       <footer
         data-region="composer"
         className="cg-glass cg-chrome shrink-0 border-t px-4 py-3"
-        style={{ borderTop: "1px solid var(--cg-border)", paddingBottom: "max(env(safe-area-inset-bottom), var(--cg-space-3))" }}
+        style={{ borderTop: "var(--cg-border-width) solid var(--cg-border)", paddingBottom: "max(env(safe-area-inset-bottom), var(--cg-space-3))" }}
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-2">
           <form onSubmit={onSubmit} className="flex gap-2">
@@ -248,7 +248,7 @@ export function GameScreen() {
 
       {confirmExit ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="返回启动器">
-          <button type="button" tabIndex={-1} className="absolute inset-0" style={{ background: "rgba(0,0,0,0.45)" }} onClick={() => setConfirmExit(false)} />
+          <button type="button" tabIndex={-1} className="absolute inset-0" style={{ background: "color-mix(in srgb, var(--cg-background) calc(var(--cg-overlay-strength) * 100%), transparent)" }} onClick={() => setConfirmExit(false)} />
           <div className="cg-chrome relative rounded-xl border p-5" style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}>
             <p className="mb-4" style={{ color: "var(--cg-text)" }}>
               {state.dirty ? "有未保存的进度。返回前要保存吗？" : "确定返回启动器吗？"}

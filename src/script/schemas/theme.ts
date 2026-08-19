@@ -133,19 +133,6 @@ const effectsSchema = z
     overlay_strength: 0.45,
   });
 
-/** Inline per-location override: any subset of palette fields. */
-const paletteOverrideSchema = z
-  .object({
-    background: hexColorSchema.optional(),
-    surface: hexColorSchema.optional(),
-    surface_alt: hexColorSchema.optional(),
-    primary: hexColorSchema.optional(),
-    accent: hexColorSchema.optional(),
-    text: hexColorSchema.optional(),
-    text_dim: hexColorSchema.optional(),
-    border: hexColorSchema.optional(),
-  })
-  .strict();
 
 /** Inline per-location effects override (safe whitelist; no new faces). */
 const effectsOverrideSchema = z
@@ -216,7 +203,7 @@ export const themeSchema = z
 
 export type Theme = z.infer<typeof themeSchema>;
 export type ThemePalette = z.infer<typeof paletteSchema>;
-export type PaletteOverride = z.infer<typeof paletteOverrideSchema>;
+export type PaletteOverride = Partial<ThemePalette>;
 export type EffectsOverride = z.infer<typeof effectsOverrideSchema>;
 export type TypographyOverride = z.infer<typeof typographyOverrideSchema>;
 export type FontFace = z.infer<typeof fontFaceSchema>;

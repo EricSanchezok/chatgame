@@ -725,16 +725,44 @@ hooks:
 
 ## 19. theme.yaml — 主题（可选）
 
-纯加法模块（缺省合法）：声明剧本默认主题与按区域的动态视觉切换。根文件 `theme.yaml` + 可选 `themes/*.yaml`（同一 schema，附加主题包）。
+纯加法模块（缺省合法）：声明剧本默认主题与按区域的动态视觉切换。根文件 `theme.yaml` + 可选 `themes/*.yaml`（同一 schema，附加主题包）。**安全模型**：只允许白名单语义 Token（hex/enum/clamp/路径前缀），禁止任意 CSS、远程字体 URL 或 `<style>` 自由文本。
 
 | 字段 | 类型 | 必填 | 约束 |
 |---|---|---|---|
 | `id` | string | ✅ | 主题 id（目录内唯一；根文件建议 `default`） |
 | `name` | string | ✅ | 显示名 |
 | `palette` | object | ✅ | 8 色：`background/surface/surface_alt/primary/accent/text/text_dim/border`，全部 `^#[0-9a-fA-F]{3,8}$` 严格校验 |
-| `typography` | object | ✅ | `{font: serif\|sans\|mono, scale}`，scale clamp 0.85–1.3 |
-| `effects` | object | ✅ | `{bubble_radius(0–24), glass(0–1), motion: minimal\|subtle\|standard\|playful, scene_tint(hex)}` |
-| `by_location` | object | ❌ | `{地点 id: 主题 id \| 内联 palette 覆盖}`；按玩家所在区域动态切换整站视觉 |
+| `typography` | object | ✅ | 见下表 |
+| `effects` | object | ✅ | 见下表 |
+| `by_location` | object | ❌ | `{地点 id: 主题 id \| 内联覆盖}`；内联覆盖允许 palette 子集 + effects/typography 安全子集（不允许内联 faces 文件） |
+
+`typography`：
+
+| 字段 | 约束 |
+|---|---|
+| `font` | `serif\|sans\|mono`（系统回退角色） |
+| `scale` | 0.85–1.3（总字号倍率 → `--cg-scale`） |
+| `line_height` | 1.2–1.8 |
+| `letter_spacing_em` | -0.04–0.12 |
+| `faces` | 可选自定义字体：`{id, family, files: [{file, weight?, style?}]}`；`file` 必须 `assets/fonts/` 下 woff2/woff/ttf/otf（硬错误），存在性软警告 |
+| `roles` | `{ui?, narrative?, mono?}` → face id 或 `serif\|sans\|mono`；face id 必须存在于 `faces`（硬错误） |
+
+`family` 白名单：`^[A-Za-z0-9][A-Za-z0-9 _-]{0,62}$`（禁止引号/反斜杠等注入字符）。
+
+`effects`：
+
+| 字段 | 约束 |
+|---|---|
+| `bubble_radius` | 0–24（气泡圆角） |
+| `chrome_radius` | 0–24（壳/按钮/模态圆角） |
+| `glass` | 0–1（玻璃透明度） |
+| `blur_px` | 0–24（玻璃模糊） |
+| `shadow` | `none\|soft\|medium\|hard`（框架闭集映射，禁止原始 box-shadow） |
+| `border_width_px` | 1–3（chrome 边框） |
+| `density` | `compact\|cozy\|comfy`（间距倍率闭集） |
+| `motion` | `minimal\|subtle\|standard\|playful` |
+| `scene_tint` | hex（背景氛围） |
+| `overlay_strength` | 0–0.8（模态遮罩浓度） |
 
 ```yaml
 # theme.yaml
@@ -749,14 +777,26 @@ palette:
   text: "#e8dcc8"
   text_dim: "#9a8a72"
   border: "#4a3a28"
-typography: { font: serif, scale: 1.0 }
-effects: { bubble_radius: 14, glass: 0.65, motion: subtle, scene_tint: "#1c0f06" }
+typography:
+  font: serif
+  scale: 1.0
+  line_height: 1.6
+  letter_spacing_em: 0
+  faces:
+    - id: runes
+      family: Rune Serif
+      files:
+        - { file: assets/fonts/rune.woff2, weight: 400, style: normal }
+  roles:
+    ui: runes
+    narrative: runes
+effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.65, blur_px: 8, shadow: medium, border_width_px: 1, density: cozy, motion: subtle, scene_tint: "#1c0f06", overlay_strength: 0.45 }
 by_location:
   mine-entrance: dark-mine     # 引用 themes/dark-mine.yaml
   forest-edge: deep-forest
 ```
 
-校验：`by_location` 键必须存在于 `locations/`，值为主题 id 时该 id 必须存在于 `theme.yaml` + `themes/*.yaml` 合集（硬错误）；内联覆盖仅允许 palette 字段。无主题剧本由框架内置 dark/light 主题兜底。
+校验：`by_location` 键必须存在于 `locations/`，值为主题 id 时该 id 必须存在于 `theme.yaml` + `themes/*.yaml` 合集（硬错误）；`faces[].file` 必须在剧本目录内且位于 `assets/fonts/`（硬错误），文件存在性为软警告；`roles` 引用必须能解析到已声明 face id（硬错误）。无主题剧本由框架内置 dark/light 主题兜底。
 
 ---
 
@@ -773,12 +813,16 @@ by_location:
 | `voices` | npcs | `{file?, prompt?, profile?}` |
 | `ambient` | locations | `{file?, prompt?}` |
 | `effects` | events | `{file?, prompt?}` |
+| `ui` | 框架 chrome 槽 | `{file?, prompt?, alt?}`，键必须是固定枚举（见下） |
+
+`ui` 固定槽位枚举（框架 chrome 图标，与实体 id 解耦）：
+`inventory / character / relations / tasks / map / log / save / audio_on / audio_off / close / send / warning / hp / location / time`。未知槽位为硬错误；缺省时框架用内置 glyph 兜底。
 
 规则：
 
-- 所有键（实体 id）必须对应存在的 npc/location/item/event id——**硬错误**。
+- 实体键（portraits/backgrounds/icons/sprites/voices/ambient/effects）必须对应存在的 npc/location/item/event id——**硬错误**；`ui` 键必须属于上述固定枚举——**硬错误**。
 - `file` 指向 `assets/` 目录内文件（布局约定上表）；文件存在性 = **软警告**（允许 prompt-only）。
-- 文件类型白名单：svg/png/jpg/jpeg/webp/gif + mp3/wav/ogg。
+- 文件类型白名单：svg/png/jpg/jpeg/webp/gif + mp3/wav/ogg + woff2/woff/ttf/otf（字体）。
 
 ```yaml
 # assets.yaml
@@ -795,11 +839,15 @@ ambient:
   mine-entrance: { prompt: "distant mine rumbling" }
 effects:
   mine-collapse: { prompt: "collapsing rock rumble" }
+ui:
+  inventory: { file: assets/icons/ui/inventory.svg }
+  map: { prompt: "map icon" }
 ```
 
 媒体决策归引擎：`MediaCue`（`npc_speech`/`location_enter`/`event`）由状态差确定性推导，LLM 不参与（"引擎管规则，LLM 管叙事"的延伸）。前端消费见 [presentation.md](presentation.md)。
 
 ---
+
 
 ## 附录 A. 内置动作库（26 个）
 

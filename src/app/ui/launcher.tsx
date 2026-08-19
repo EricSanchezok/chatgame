@@ -104,11 +104,11 @@ export function Launcher() {
         <div className="mx-auto max-w-5xl px-6 py-8">
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {scripts.map((s) => {
-              const bg = s.theme?.palette.background ?? "#0f1115";
-              const surface = s.theme?.palette.surface ?? "#171a21";
-              const primary = s.theme?.palette.primary ?? "#6ea8fe";
-              const text = s.theme?.palette.text ?? "#e6e9ef";
-              const dim = s.theme?.palette.text_dim ?? "#9aa3b2";
+              const bg = s.theme?.palette.background ?? "var(--cg-background)";
+              const surface = s.theme?.palette.surface ?? "var(--cg-surface)";
+              const primary = s.theme?.palette.primary ?? "var(--cg-primary)";
+              const text = s.theme?.palette.text ?? "var(--cg-text)";
+              const dim = s.theme?.palette.text_dim ?? "var(--cg-text-dim)";
               return (
                 <article
                   key={s.id}
@@ -186,7 +186,7 @@ export function Launcher() {
       {/* New game / continue modal (centered overlay, same z-layer as game). */}
       {modal.kind !== "none" && openScript ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={modal.kind === "new" ? "新游戏" : "继续游戏"}>
-          <button type="button" tabIndex={-1} className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)" }} onClick={closeModal} />
+          <button type="button" tabIndex={-1} className="absolute inset-0" style={{ background: "color-mix(in srgb, var(--cg-background) calc(var(--cg-overlay-strength) * 100%), transparent)" }} onClick={closeModal} />
           <div className="cg-glass cg-chrome relative max-h-[80vh] w-full max-w-lg overflow-y-auto border p-5"
             style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", boxShadow: "var(--cg-shadow-value)" }}>
             <h2 className="mb-4 text-lg font-bold" style={{ color: "var(--cg-text)" }}>

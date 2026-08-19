@@ -1,6 +1,6 @@
 # 表现层规格（Presentation & UI）
 
-> 前端与表现层 v1 的规格——"剧本长什么样"的呈现契约：UI 结构、Route Handlers、主题系统、资产管线、多剧本管理。决策依据见 [.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md](../../.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md)；剧本侧契约见 [script-format.md](script-format.md)。
+> 前端与表现层 v1 的规格——"剧本长什么样"的呈现契约：UI 结构、Route Handlers、主题系统（Token v1.1）、资产管线、多剧本管理。决策依据见 [.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md](../../.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md) 与 [.agents/notes/implemented/feature/2026-08-19-layout-and-presentation-tokens.md](../../.agents/notes/implemented/feature/2026-08-19-layout-and-presentation-tokens.md)；剧本侧契约见 [script-format.md](script-format.md)。
 
 ## 总体架构
 
@@ -16,7 +16,7 @@
 
 - **引擎只在服务端运行**（fs/YAML/API key）；客户端通过 Route Handlers 访问，不存在浏览器内跑引擎的路线。
 - **EngineHost**（`src/server/engine-host.ts`）：会话注册表（创建/取回/销毁/30 分钟闲置回收/上限 20）、剧本扫描、zip/目录导入（单一核心 `script-import.ts`，web 与 CLI 共用）、资产文件安全服务（resolve 前缀校验防穿越）、每会话**串行化队列**（同一会话并发回合排队）。
-- **前端**（`src/app/`，'use client'，无新依赖）：`lib/api.ts`（类型化 fetch，唯一 HTTP 入口）、`lib/theme.ts`（JSON 主题 → CSS 变量）、`lib/audio.ts`（AudioController）、`ui/launcher.tsx`（剧本卡片墙）、`ui/game/`（state/chat/cards/panels）。
+- **前端**（`src/app/`，'use client'，无新依赖）：`lib/api.ts`（类型化 fetch，唯一 HTTP 入口）、`lib/theme.ts`（JSON 主题 → CSS 变量 + @font-face）、`lib/audio.ts`（AudioController）、`ui/launcher.tsx`（剧本卡片墙）、`ui/game/`（state/chat/cards/panels/ui-icon）。
 
 ## Route Handlers（全部）
 
@@ -35,16 +35,24 @@
 | `/api/sessions/:id/descriptor` | POST | 描述层用户编辑 |
 | `/api/sessions/:id` | DELETE | 销毁会话（未保存进度丢弃） |
 
-## 主题系统
+## UI 拓扑（v1.1：三区壳 + 居中模态）
 
-- **契约**：剧本根 `theme.yaml`（可选）声明默认主题 + `themes/*.yaml` 附加主题；`by_location` 按玩家所在区域切换（引用主题 id 或内联调色板覆盖）。字段全部白名单（hex `^#[0-9a-fA-F]{3,8}$`、字体 enum、scale 0.85–1.3、bubble_radius 0–24、glass 0–1、motion enum），无任意 CSS 注入。
-- **引擎解析一次**（`src/engine/presentation.ts` 的 `resolveTheme`）：default → by_location 覆盖 → 扁平 `ThemeView`；无主题剧本回退内置 `framework-dark` / `framework-light`。
-- **前端消费**：`lib/theme.ts` 把 ThemeView 写入 `:root` 的 `--cg-*` 变量；`globals.css` 声明 600ms 颜色过渡，`scene_tint` 作为背景氛围层（radial-gradient）。玩家设置：默认"跟随剧本"（by_location 动态切换），可手动选择任意剧本主题或内置主题。
+- **游戏页 = 稳定三区壳**：`data-region="hud"`（顶栏摘要 + 会话菜单，不滚动）/ `data-region="stage"`（对话流，**唯一**滚动容器，`min-h-0 flex-1 overflow-y-auto`）/ `data-region="composer"`（固定底栏：输入 + 面板入口）。全页 `h-dvh` 高度链锁死，**输入栏在任何状态下都贴视口底**（空转录/长消息/开模态都不漂移）。
+- **次要世界数据 = 居中模态**（`PanelFrame`）：`position:fixed` 覆盖层，`max-w-lg` + `max-h-[min(80dvh)]` + 内滚；遮罩浓度走 `--cg-overlay-strength`；Esc / 点遮罩 / 关闭按钮关闭；**不参与壳的 flex 轨道**。删除 v1 的右侧抽屉。
+- **启动器**：满高壳，header 固定、卡片墙滚动；新游戏/继续模态同居中覆盖层。
+- **UI 图标槽**：`UiIcon` 组件消费 `assets.yaml` 的 `ui` 固定槽位（inventory/character/relations/tasks/map/log/save/audio_on/audio_off/close/send/warning/hp/location/time）；剧本可覆盖，缺省框架 glyph 兜底表（单一真源，不再散落 emoji）。
+
+## 主题系统（Token v1.1）
+
+- **契约**：剧本根 `theme.yaml`（可选）声明默认主题 + `themes/*.yaml` 附加主题；`by_location` 按玩家所在区域切换（引用主题 id 或内联 palette/effects/typography 安全子集）。字段全部白名单（hex、enum、clamp、font path 前缀），**无任意 CSS 注入**（禁止原始 box-shadow/远程字体/style 文本）。
+- **Token 面**：色（8 palette）＋字体角色与**剧本本地字体**（`typography.faces` → `assets/fonts/*`，woff2/woff/ttf/otf）＋字号尺度（scale 驱动 rem）＋行高/字距＋气泡/chrome 半径＋glass/blur＋shadow 闭集＋density 间距闭集＋border 宽度＋motion＋scene_tint/overlay 强度。
+- **引擎解析一次**（`src/engine/presentation.ts` 的 `resolveTheme`）：default → by_location 覆盖 → 扁平 `ThemeView`（`toThemeView` 为唯一 DTO 映射）；无主题剧本回退内置 `framework-dark` / `framework-light`。
+- **前端消费**：`lib/theme.ts#applyTheme` 把 ThemeView 写入 `:root` 的 `--cg-*` 变量（shadow/density 由框架闭集映射），并注入单一 `<style data-cg-fonts>` @font-face 块（切换主题时替换）；`globals.css` 声明 600ms 颜色过渡、`scale` 驱动根字号、`scene_tint` 背景氛围、`prefers-reduced-motion` 全尊重。玩家设置：默认"跟随剧本"（by_location 动态切换），可手动选择任意剧本主题或内置主题。
 - 主题可读性不做 v1 强校验（作者自由可能低对比），内置主题兜底。
 
 ## 资产管线
 
-- **契约**：根 `assets.yaml`（可选）单一索引——`portraits/backgrounds/icons/sprites/voices/ambient/effects`，键为实体 id；条目 `{file}`（静态文件）和/或 `{prompt}`（文生图/TTS 占位）。引用校验硬错误（键必须对应存在的 npc/location/item/event id）；文件存在性软警告（prompt-only 合法）。文件类型白名单：svg/png/jpg/jpeg/webp/gif + mp3/wav/ogg。`assets.yaml` 是唯一资产真源。
+- **契约**：根 `assets.yaml`（可选）单一索引——`portraits/backgrounds/icons/sprites/voices/ambient/effects`（实体 id 键）+ `ui`（固定 chrome 槽位键）。实体键引用校验硬错误（必须对应存在的 npc/location/item/event id）；`ui` 键必须属于固定枚举（硬错误）；文件存在性软警告（prompt-only 合法）。文件类型白名单：svg/png/jpg/jpeg/webp/gif + mp3/wav/ogg + woff2/woff/ttf/otf。`assets.yaml` 是唯一资产真源。
 - **媒体线索**：引擎从状态差确定性推导 `MediaCue`（`npc_speech` / `location_enter` / `event`），LLM 不参与媒体决策。`TurnResult.mediaCues` + 转录条目携带。
 - **呈现**：`mediaCues` + `resolution` 驱动消息内嵌卡片（NpcCard 立绘+关系标签 / LocationCard 场景 / EventCard / ResolutionChip / ItemCard）；无立绘显示首字母头像、无场景纯色卡、无音频静默——任何剧本优雅降级。
 - **音频**：`AudioController`（`lib/audio.ts`）ambient 循环 800ms 交叉淡入、voice/sfx 一次性；启动器点击即满足自动播放策略；location_enter → 环境音切换、event → 音效、npc_speech → 语音。
@@ -64,11 +72,11 @@
 ## 验证
 
 ```sh
-npm test                        # 446：契约/引擎/服务/API handler 直调/组件（主题变量、音频映射、状态机、卡片降级）
+npm test                        # 契约/引擎/服务/API handler 直调/组件（主题变量、音频映射、状态机、卡片降级、Token schema）
 npm run lint
 npm run build
 npm run script:validate -- scripts/emberfall scripts/starlight
 npm run play                    # 引擎 CLI 冒烟
 ```
 
-手动清单：启动器两卡片 → 新游戏（出身）→ 多回合对话（NPC 卡 + 判定 chip）→ 移动（场景卡 + 区域主题过渡 + 环境音切换）→ 背包面板 → 主题切换 → 保存 → 返回 → 继续（历史完整）→ zip 导入第三张卡片。
+手动清单：启动器两卡片 → 新游戏（出身）→ 多回合对话（NPC 卡 + 判定 chip）→ 移动（场景卡 + 区域主题过渡 + 环境音切换）→ 背包面板（居中模态）→ 主题切换（色+半径+玻璃可见变化）→ 保存 → 返回 → 继续（历史完整）→ zip 导入第三张卡片。几何检查：空转录 / 多消息 / 开模态三种状态下，输入栏 y 位置一致（贴视口底）。

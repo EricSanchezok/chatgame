@@ -44,7 +44,6 @@ export function UiIcon({
   const src = entry?.file ? api.fileAsset(scriptId, entry.file) : "";
   if (src) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={alt ?? slot}
