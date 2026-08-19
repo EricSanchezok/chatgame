@@ -1,6 +1,6 @@
 # 表现层规格（Presentation & UI）
 
-> 前端与表现层 v1 的规格——"剧本长什么样"的呈现契约：UI 结构、Route Handlers、主题系统（Token v1.1）、资产管线、多剧本管理。决策依据见 [.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md](../../.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md) 与 [.agents/notes/implemented/feature/2026-08-19-layout-and-presentation-tokens.md](../../.agents/notes/implemented/feature/2026-08-19-layout-and-presentation-tokens.md)；剧本侧契约见 [script-format.md](script-format.md)。
+> 前端与表现层 v1 的规格——"剧本长什么样"的呈现契约：UI 结构、Route Handlers、主题系统（Token v1.1）、资产管线、多剧本管理。决策依据见 [决策记录 0012](../decisions/0012-ui-theme-assets-multiscript.md) 与 [决策记录 0011](../decisions/0011-layout-and-presentation-tokens.md)；剧本侧契约见 [script-format.md](script-format.md)。
 
 ## 总体架构
 
