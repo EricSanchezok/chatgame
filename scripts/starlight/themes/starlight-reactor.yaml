@@ -1,0 +1,19 @@
+id: starlight-reactor
+name: 反应堆
+palette:
+  background: "#0c0806"
+  surface: "#1a1008"
+  surface_alt: "#241608"
+  primary: "#ff8c42"
+  accent: "#ffb16e"
+  text: "#f5e8d8"
+  text_dim: "#b3987e"
+  border: "#4a2e18"
+typography:
+  font: sans
+  scale: 1.0
+effects:
+  bubble_radius: 12
+  glass: 0.55
+  motion: playful
+  scene_tint: "#120600"

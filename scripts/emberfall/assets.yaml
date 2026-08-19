@@ -1,0 +1,22 @@
+# emberfall presentation assets — 演示占位（纯加法，实体 yaml 未动）。
+# file 项指向 assets/ 下真实文件；prompt 项为文生图/TTS 占位（合法，无文件也通过校验）。
+portraits:
+  elara: { file: assets/portraits/elara.svg, alt: 艾拉 }
+  old-miner: { prompt: "灰烬镇老矿工，粗糙斗篷，矿灯" }
+backgrounds:
+  mine-entrance: { prompt: "黑石矿井入口，雾气与风灯，压抑" }
+  forest-edge: { prompt: "灰烬森林边缘，灰绿色苔藓与枯树" }
+  tavern: { prompt: "蒸汽魔法酒馆，暖黄灯光，铜管低鸣" }
+icons:
+  pickaxe: { file: assets/icons/pickaxe.svg, alt: 矿镐 }
+  coal-essence: { prompt: "发光的煤之精华水晶" }
+  miner-badge: { prompt: "黄铜矿工徽章" }
+sprites: {}
+voices:
+  elara: { profile: 低哑平静, prompt: "低哑平静的女性嗓音，短句" }
+ambient:
+  tavern: { prompt: "酒馆环境音：杯盏、炉火、低语" }
+  mine-entrance: { prompt: "矿井入口环境音：风声穿过栅栏，呜呜作响" }
+effects:
+  mine-collapse: { prompt: "矿洞坍塌音效：轰隆、碎石、尘土" }
+  mine-fire: { prompt: "矿坑火灾音效：火焰爆燃与警钟" }

@@ -2,11 +2,11 @@
 // and meta-progression (cross-run keep/reset/unlocks). Deterministic and
 // engine-owned — the player never "dies" mid-text; the policy transforms
 // the world state according to run.yaml.
-import type { WorldState, EventLogEntry } from "./types";
-import type { WorldDefinition } from "./types";
+import type { WorldState, EventLogEntry, WorldDefinition } from "./types";
 import { applyEffects } from "./effect";
 import { generateWorld } from "./worldgen";
 import { pickOne } from "./rng";
+import { hpStat } from "./mechanics/combat";
 
 export interface DeathCheckResult {
   state: WorldState;
@@ -78,6 +78,10 @@ export function applyWorldContinue(
   if (policy.mode !== "world_continue" || !policy.world_continue) {
     return { state, logEntries };
   }
+  // Trigger gate (hp 归零): the policy only fires when the player's HP
+  // reached 0 — the world continues between deaths, it does not reset.
+  const hp = state.player.stats[hpStat(definition)] ?? 0;
+  if (hp > 0) return { state, logEntries };
   const wc = policy.world_continue;
   const kept = wc.state_kept;
   const keepFlags = kept.includes("flags");
@@ -136,6 +140,11 @@ export function applyHardReset(
   if (policy.mode !== "hard_reset" || !policy.hard_reset) {
     return { state, logEntries };
   }
+  // Trigger gate (hp 归零): the world only resets when the player died —
+  // a healthy turn must never reroll worldgen (this was previously firing
+  // every turn and silently discarding engine state like the transcript).
+  const hp = state.player.stats[hpStat(definition)];
+  if (hp === undefined || hp > 0) return { state, logEntries };
   const hr = policy.hard_reset;
   const originIds = [...definition.origins.keys()];
   const firstOriginId = pickOne(state.rng, originIds) ?? originIds[0];
@@ -145,7 +154,9 @@ export function applyHardReset(
     const generated = generateWorld(definition, firstOriginId, {
       seed: state.rng.seed + 1,
     });
-    next = generated.state;
+    // The chat history survives the reroll: the UI renders history from
+    // the transcript, and the death narrative is appended as engine fact.
+    next = { ...generated.state, transcript: state.transcript };
   } else {
     // keep_world: keep npcs/clock/flags, reset player only.
     const generated = generateWorld(definition, firstOriginId, {

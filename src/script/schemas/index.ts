@@ -17,6 +17,8 @@ import { taskSchema } from "./task";
 import { timeSchema } from "./time";
 import { worldSchema } from "./world";
 import { worldgenSchema } from "./worldgen";
+import { themeSchema } from "./theme";
+import { assetsSchema, ASSET_KIND_ENTITY_POOL } from "./assets";
 
 export {
   actionsSchema,
@@ -37,7 +39,10 @@ export {
   timeSchema,
   worldSchema,
   worldgenSchema,
-};
+  themeSchema,
+  assetsSchema,
+  ASSET_KIND_ENTITY_POOL,
+ };
 
 export * from "./common";
 export * from "./narrative-index";

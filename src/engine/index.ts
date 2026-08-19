@@ -5,7 +5,7 @@
 //     narrative -> consistency -> descriptor refresh)
 //   advance(hours) -> deterministic offline world progression
 //   save() / loadSave() -> JSON snapshots
-import type { WorldDefinition, WorldState, SessionOptions, TurnResult } from "./types";
+import type { WorldDefinition, WorldState, SessionOptions, TurnResult, MediaCue } from "./types";
 import type { DescriptorPath } from "./descriptors";
 import { loadScript } from "./loader";
 import { generateWorld } from "./worldgen";
@@ -27,6 +27,7 @@ import { parseIntent } from "./narrative/intent";
 import { generateNarrative, fallbackNarrative, type NarrativeOutput } from "./narrative/narrative";
 import { withConsistencyRetry, tagsToEffects } from "./narrative/consistency";
 import { buildTurnPrompt } from "./narrative/prompt";
+import { appendTranscript, deriveMediaCues } from "./presentation";
 
 export interface EngineOptions extends SessionOptions {
   /** LLM provider override (defaults to env-configured: mock by default). */
@@ -44,6 +45,7 @@ function pureNarrative(text: string): TurnResult {
     fellBackToTalk: false,
     worldEvents: [],
     taskCompletions: [],
+    mediaCues: [],
   };
 }
 
@@ -89,13 +91,18 @@ export class Engine {
       }
     }
     const engine = new Engine(definition, state, provider);
-    // Play the worldgen starting event once at session creation.
+    // Fresh session: play the worldgen starting event and seed the opening
+    // transcript entry (the UI renders history from the transcript).
     if (!options.loadSaveFile && state.eventLog.length === 0) {
       const startingEventId = engine.startingEventId();
       if (startingEventId) {
         const out = playEvent(engine.state, definition, startingEventId);
         engine.state = out.state;
       }
+      const cues: MediaCue[] = startingEventId
+        ? [{ kind: "event", eventId: startingEventId }]
+        : [];
+      engine.state = appendTranscript(engine.state, "world", engine.openingNarrative(), cues);
     }
     return engine;
   }
@@ -121,10 +128,15 @@ export class Engine {
           parsed.reason === "cheat" ? "世界法则不会因一句话而改变。" :
           parsed.reason === "matter_creation" ? "万物不会凭空出现。" :
           "这件事在这个世界里做不到。";
+        this.state = appendTranscript(this.state, "player", input, []);
+        this.state = appendTranscript(this.state, "world", reason, []);
         return pureNarrative(reason);
       }
-      case "clarify":
+      case "clarify": {
+        this.state = appendTranscript(this.state, "player", input, []);
+        this.state = appendTranscript(this.state, "world", parsed.question, []);
         return pureNarrative(parsed.question);
+      }
       case "fallback_talk":
         break; // degrade to talk below
       case "direct":
@@ -140,6 +152,7 @@ export class Engine {
       targetNpcId: intent.target && this.definition.npcs.has(intent.target) ? intent.target : undefined,
       params: intent.target ? { target: intent.target } : undefined,
     });
+    const turnStartState = this.state;
     let state = resolution.state;
     if (resolution.rejected && resolution.rejectReason === "unknown_action") {
       // Unknown action degrades to talk (Bartle tolerance).
@@ -153,7 +166,10 @@ export class Engine {
     }
     if (resolution.rejected) {
       // Narrativized refusal (I7): machine reason -> world-consistent text.
-      return pureNarrative(this.narrativizeRejection(resolution.rejectReason ?? "", resolution.rejectMessage ?? ""));
+      const text = this.narrativizeRejection(resolution.rejectReason ?? "", resolution.rejectMessage ?? "");
+      this.state = appendTranscript(this.state, "player", input, []);
+      this.state = appendTranscript(this.state, "world", text, []);
+      return pureNarrative(text);
     }
 
     // 3. World step: advance the clock by the action's time cost and run
@@ -190,10 +206,15 @@ export class Engine {
       narrative: c.narrative,
     }));
 
-    // 6. Death policy check (soft_failure gauge etc.).
+    // 6. Death policy check (soft_failure gauge / hp 归零).
     const deathResult = applyDeathPolicy(state, this.definition);
     if (deathResult.firedMode) {
       state = deathResult.state;
+      if (deathResult.narrative) {
+        // The consequence is engine-owned fact: surface it in the chat
+        // history as a system entry (visible even after a world reroll).
+        state = appendTranscript(state, "system", deathResult.narrative, []);
+      }
     }
 
     // 7. Narrative generation (dual-channel) with consistency retry.
@@ -248,7 +269,11 @@ export class Engine {
     state = refreshed;
     this.state = state;
 
-    // 10. Assemble the turn result.
+    // 10. Media cues + transcript append + turn result assembly.
+    const mediaCues = deriveMediaCues(turnStartState, state, resolution.resolution);
+    state = appendTranscript(state, "player", input, []);
+    state = appendTranscript(state, "world", narrativeText, mediaCues);
+    this.state = state;
     const newLogs = state.eventLog.slice(-(resolution.logEntries.length + step.logEntries.length + taskOut.logEntries.length + 1));
     return {
       narrative: narrativeText,
@@ -259,6 +284,7 @@ export class Engine {
       deathFired: deathResult.firedMode,
       worldEvents,
       taskCompletions,
+      mediaCues,
     };
   }
 

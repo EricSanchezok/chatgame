@@ -1,0 +1,22 @@
+id: default
+name: 星港·冷光
+palette:
+  background: "#0b0e14"
+  surface: "#131826"
+  surface_alt: "#1a2032"
+  primary: "#4f7dff"
+  accent: "#7ea2ff"
+  text: "#dbe4f5"
+  text_dim: "#8494b3"
+  border: "#273148"
+typography:
+  font: sans
+  scale: 1.0
+effects:
+  bubble_radius: 10
+  glass: 0.7
+  motion: standard
+  scene_tint: "#05070c"
+by_location:
+  bridge: starlight-bridge
+  reactor-level: starlight-reactor

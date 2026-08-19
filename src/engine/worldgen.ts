@@ -293,6 +293,7 @@ export function generateWorld(
     eventLastPlayedDay: {},
     secretHolders,
     locationInventories,
+    transcript: [],
   };
 
   return { state, summary, startingEvent };

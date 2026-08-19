@@ -1,0 +1,16 @@
+# starlight presentation assets — 演示占位（纯加法）。
+portraits:
+  night-cat: { prompt: "星港黑猫义体人，冷光眼睛，兜帽" }
+  chief-engineer: { prompt: "星港首席工程师，工装与工具带" }
+backgrounds:
+  hab-ring: { prompt: "环形居住舱，全息广告与冷白光" }
+  bridge: { prompt: "星港舰桥，全息星图与仪表" }
+icons:
+  eva-suit: { prompt: "舱外活动服图标" }
+sprites: {}
+voices:
+  night-cat: { profile: 慵懒神秘, prompt: "慵懒神秘的年轻嗓音" }
+ambient:
+  hab-ring: { prompt: "居住舱环境音：通风管道低鸣与人群" }
+  reactor-level: { prompt: "反应堆层环境音：低频嗡鸣" }
+effects: {}

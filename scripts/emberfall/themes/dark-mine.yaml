@@ -1,0 +1,19 @@
+id: dark-mine
+name: 暗矿
+palette:
+  background: "#0a0806"
+  surface: "#14100c"
+  surface_alt: "#1c1610"
+  primary: "#8a5a2a"
+  accent: "#c08a4a"
+  text: "#d8c8b8"
+  text_dim: "#8a7a68"
+  border: "#3a2e20"
+typography:
+  font: serif
+  scale: 0.95
+effects:
+  bubble_radius: 10
+  glass: 0.5
+  motion: minimal
+  scene_tint: "#000000"

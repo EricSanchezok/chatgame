@@ -4,8 +4,9 @@
 
 | 文档 | 内容 |
 |---|---|
-| [script-format.md](script-format.md) | 剧本格式 v1.0：18 模块字段定义 + 附录 A-G |
-| [engine-runtime.md](engine-runtime.md) | 引擎运行时 v1：回合循环、判定、防作弊、双轨状态、LLM 桥、存档 |
+| [script-format.md](script-format.md) | 剧本格式 v1.0：18 模块 + theme/assets 两个可选表现模块 + 附录 A-G |
+| [engine-runtime.md](engine-runtime.md) | 引擎运行时 v1：回合循环、判定、防作弊、双轨状态、LLM 桥、存档、表现层 |
+| [presentation.md](presentation.md) | 表现层 v1：UI 结构、Route Handlers、主题系统、资产管线、多剧本管理 |
 | time.md | 时间机制：时间流逝、日程、事件调度 |
 | character.md | 角色机制：属性、记忆、关系 |
 | inventory.md | 背包机制 |
@@ -24,13 +25,23 @@ npm run script:validate -- scripts/starlight
 
 ## 引擎运行时
 
-引擎运行时 v1 已实现：`src/engine/`（回合循环 + 判定 + 防作弊 + 双轨状态 + LLM 桥 + 存档）。规格见 [engine-runtime.md](engine-runtime.md)；演示：
+引擎运行时 v1 已实现：`src/engine/`（回合循环 + 判定 + 防作弊 + 双轨状态 + LLM 桥 + 存档 + 表现层）。规格见 [engine-runtime.md](engine-runtime.md)；演示：
 
 ```sh
 npm run play   # demo CLI（默认 Mock LLM，无 key 可跑）
 ```
 
 决策依据见 [.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md](../../.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md)。
+
+## 表现层
+
+表现层 v1 已实现：`src/app/`（沉浸聊天式 UI + Route Handlers）+ `src/server/`（EngineHost 会话托管 + 剧本导入）。规格见 [presentation.md](presentation.md)；演示：
+
+```sh
+npm run dev   # 开发服务器（启动器 + 游戏 UI）
+```
+
+决策依据见 [.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md](../../.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md)。
 
 规则：
 

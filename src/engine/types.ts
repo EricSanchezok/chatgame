@@ -26,6 +26,8 @@ import type { Task } from "../script/schemas/task";
 import type { Time } from "../script/schemas/time";
 import type { World } from "../script/schemas/world";
 import type { Worldgen } from "../script/schemas/worldgen";
+import type { Theme } from "../script/schemas/theme";
+import type { AssetsManifest } from "../script/schemas/assets";
 
 // ---------------------------------------------------------------------------
 // Randomness
@@ -304,7 +306,32 @@ export interface TurnResult {
   worldEvents: string[];
   /** Task completions/failures detected this turn. */
   taskCompletions: TaskCompletion[];
+  /** Deterministic media cues derived from this turn (frontend cards/audio). */
+  mediaCues: MediaCue[];
+ }
+
+// ---------------------------------------------------------------------------
+// Transcript (complete conversation history, persisted in saves)
+// ---------------------------------------------------------------------------
+
+export interface TranscriptEntry {
+  id: string;
+  /** 1-based turn index within the session. */
+  turn: number;
+  role: "player" | "world" | "system";
+  text: string;
+  /** Media cues attached to this entry (rendered as inline cards). */
+  mediaCues: MediaCue[];
 }
+
+// ---------------------------------------------------------------------------
+// Media cues (engine-derived, never LLM-decided)
+// ---------------------------------------------------------------------------
+
+export type MediaCue =
+  | { kind: "npc_speech"; npcId: string }
+  | { kind: "location_enter"; locationId: string }
+  | { kind: "event"; eventId: string };
 // World state (the full immutable snapshot)
 // ---------------------------------------------------------------------------
 
@@ -330,7 +357,9 @@ export interface WorldState {
   secretHolders: Record<string, string>;
   /** Per-location inventories (take/trade sources). */
   locationInventories: Record<string, InventoryState>;
-}
+  /** Complete conversation history (persisted with saves). */
+  transcript: TranscriptEntry[];
+ }
 
 // ---------------------------------------------------------------------------
 // World definition (immutable script-derived blueprint)
@@ -364,9 +393,13 @@ export interface WorldDefinition {
   events: Map<string, Event>;
   tasks: Map<string, Task>;
   narrative: NarrativeAssets;
+  /** Script themes (theme.yaml default + themes/*). Key = theme id. */
+  themes: Map<string, Theme>;
+  /** Presentation asset index (undefined when the script has no assets.yaml). */
+  assets?: AssetsManifest;
   /** Directory the script was loaded from (for save paths). */
   sourceDir: string;
-}
+ }
 
 // ---------------------------------------------------------------------------
 // Save file

@@ -1,0 +1,22 @@
+id: default
+name: 灰烬镇·余烬
+palette:
+  background: "#1a1410"
+  surface: "#241c15"
+  surface_alt: "#2e2218"
+  primary: "#c96f2f"
+  accent: "#e8a04c"
+  text: "#e8dcc8"
+  text_dim: "#9a8a72"
+  border: "#4a3a28"
+typography:
+  font: serif
+  scale: 1.0
+effects:
+  bubble_radius: 14
+  glass: 0.65
+  motion: subtle
+  scene_tint: "#1c0f06"
+by_location:
+  mine-entrance: dark-mine
+  forest-edge: deep-forest

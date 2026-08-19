@@ -2,6 +2,7 @@
 // (src/script/validate.ts) and assembles an indexed WorldDefinition.
 // The contract layer stays read-only — the engine only consumes it.
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { validateScriptDir } from "../script/validate";
 import {
   actionsSchema,
@@ -26,7 +27,9 @@ import {
   exampleDialogueSchema,
   eventTextSchema,
   openingSchema,
-} from "../script/schemas";
+  themeSchema,
+  assetsSchema,
+ } from "../script/schemas";
 import { loadYamlFilesFromDir, loadYamlFile } from "../script/loader";
 import type { WorldDefinition } from "./types";
 
@@ -113,6 +116,26 @@ export function loadScript(scriptDir: string): WorldDefinition {
       eventTexts.push(eventTextSchema.parse(file.doc.toJS()));
     }
 
+    // Presentation modules (optional): theme.yaml default + themes/* + assets.yaml.
+    const themes = new Map<string, ReturnType<typeof themeSchema.parse>>();
+    for (const themeFile of loadYamlFilesFromDir(path.join(absDir, "themes"), "themes")) {
+      const t = themeSchema.parse(themeFile.doc.toJS());
+      if (themes.has(t.id)) {
+        throw new ScriptLoadError(`duplicate theme id "${t.id}"`);
+      }
+      themes.set(t.id, t);
+    }
+    if (existsSync(path.join(absDir, "theme.yaml"))) {
+      const rootTheme = parseRoot(path.join(absDir, "theme.yaml"), "theme.yaml", themeSchema);
+      if (themes.has(rootTheme.id)) {
+        throw new ScriptLoadError(`duplicate theme id "${rootTheme.id}" (theme.yaml + themes/)`);
+      }
+      themes.set(rootTheme.id, rootTheme);
+    }
+    let assets: ReturnType<typeof assetsSchema.parse> | undefined;
+    if (existsSync(path.join(absDir, "assets.yaml"))) {
+      assets = parseRoot(path.join(absDir, "assets.yaml"), "assets.yaml", assetsSchema);
+    }
     return {
       script,
       world,
@@ -132,6 +155,8 @@ export function loadScript(scriptDir: string): WorldDefinition {
       events,
       tasks,
       narrative: { opening, style, lore, examples, eventTexts },
+      themes,
+      assets,
       sourceDir: absDir,
     };
   } catch (err) {

@@ -72,6 +72,28 @@ describe("run policy: soft_failure", () => {
 });
 
 describe("run policy: world_continue / hard_reset", () => {
+  /** hp 归零 triggers the death policy; a healthy player must never fire. */
+  function deadState(state: WorldState): WorldState {
+    return { ...state, player: { ...state.player, stats: { ...state.player.stats, hp: 0 } } };
+  }
+
+  it("world_continue does not fire while the player is alive", () => {
+    const { def, state } = setup();
+    const wcDef = {
+      ...def,
+      run: {
+        ...def.run,
+        death_policy: {
+          mode: "world_continue" as const,
+          world_continue: { succession: "new_character" as const, state_kept: ["flags"] },
+        },
+      },
+    };
+    const result = applyWorldContinue(state, wcDef);
+    expect(result.firedMode).toBeUndefined();
+    expect(result.state).toBe(state);
+  });
+
   it("world_continue rebuilds player and keeps world state", () => {
     const { def, state } = setup();
     const wcDef = {
@@ -84,12 +106,29 @@ describe("run policy: world_continue / hard_reset", () => {
         },
       },
     };
-    const withFlag = { ...state, player: { ...state.player, flags: ["my-flag"] } };
+    const withFlag = deadState({ ...state, player: { ...state.player, flags: ["my-flag"] } });
     const result = applyWorldContinue(withFlag, wcDef);
     expect(result.firedMode).toBe("world_continue");
     // Flags kept, player origin reset to first origin.
     expect(result.state.player.flags).toContain("my-flag");
     expect(result.state.npcs).toEqual(withFlag.npcs); // world preserved
+  });
+
+  it("hard_reset does not fire while the player is alive", () => {
+    const { def, state } = setup();
+    const hrDef = {
+      ...def,
+      run: {
+        ...def.run,
+        death_policy: {
+          mode: "hard_reset" as const,
+          hard_reset: { world_reroll: "reroll_worldgen" as const },
+        },
+      },
+    };
+    const result = applyHardReset(state, hrDef);
+    expect(result.firedMode).toBeUndefined();
+    expect(result.state).toBe(state);
   });
 
   it("hard_reset rerolls the world (new npc states)", () => {
@@ -104,7 +143,7 @@ describe("run policy: world_continue / hard_reset", () => {
         },
       },
     };
-    const result = applyHardReset(state, hrDef);
+    const result = applyHardReset(deadState(state), hrDef);
     expect(result.firedMode).toBe("hard_reset");
     expect(result.state.scriptId).toBe("emberfall");
   });
@@ -120,7 +159,7 @@ describe("run policy: world_continue / hard_reset", () => {
         },
       },
     };
-    const result = applyHardReset(state, hrDef);
+    const result = applyHardReset(deadState(state), hrDef);
     expect(result.state.npcs).toEqual(state.npcs); // world kept
     // Player reset to the first origin in the script (keys order).
     const firstOriginId = def.origins.keys().next().value as string;

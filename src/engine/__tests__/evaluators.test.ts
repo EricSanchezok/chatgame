@@ -65,6 +65,7 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
     eventLastPlayedDay: {},
     secretHolders: {},
     locationInventories: {},
+    transcript: [],
     ...overrides,
   };
 }

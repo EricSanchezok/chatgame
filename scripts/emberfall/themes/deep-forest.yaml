@@ -1,0 +1,19 @@
+id: deep-forest
+name: 幽林
+palette:
+  background: "#0c140d"
+  surface: "#142015"
+  surface_alt: "#1a2818"
+  primary: "#3f7d44"
+  accent: "#6ba368"
+  text: "#dde8d0"
+  text_dim: "#8a9a7a"
+  border: "#26361f"
+typography:
+  font: serif
+  scale: 1.0
+effects:
+  bubble_radius: 16
+  glass: 0.6
+  motion: standard
+  scene_tint: "#06120a"

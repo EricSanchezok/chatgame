@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#241c15"/>
+      <stop offset="1" stop-color="#0d0906"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="16" fill="url(#bg)"/>
+  <g transform="rotate(45 64 64)">
+    <rect x="44" y="14" width="16" height="72" rx="8" fill="#8a6b4a"/>
+    <path d="M30 26 Q52 0 74 26 L74 34 Q52 10 30 34 Z" fill="#6b5140"/>
+    <path d="M54 26 Q76 0 98 26 L98 34 Q76 10 54 34 Z" fill="#6b5140"/>
+  </g>
+  <text x="64" y="118" text-anchor="middle" font-family="serif" font-size="12" fill="#e8a04c">矿镐</text>
+</svg>

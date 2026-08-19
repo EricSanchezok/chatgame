@@ -25,6 +25,8 @@
 - [16. events/ — 事件池](#16-events--事件池)
 - [17. tasks/ — 任务模板](#17-tasks--任务模板)
 - [18. narrative/ — 叙事资产](#18-narrative--叙事资产)
+- [19. theme.yaml — 主题（可选）](#19-themeyaml--主题可选)
+- [20. assets.yaml — 资产索引（可选）](#20-assetsyaml--资产索引可选)
 - [附录 A. 内置动作库](#附录-a-内置动作库26-个)
 - [附录 B. base_class 实体基类](#附录-b-base_class-实体基类)
 - [附录 C. 条件代数 op 全集](#附录-c-条件代数-op-全集)
@@ -60,12 +62,16 @@ scripts/<id>/
 ├── factions/        # 15. 势力（可选）
 ├── events/          # 16. 事件池（可选）
 ├── tasks/           # 17. 任务模板（可选）
-└── narrative/       # 18. 叙事资产（必）
-    ├── opening.yaml #    开场场景（必）
-    ├── style.yaml   #    文风指南（必）
-    ├── lore/        #    设定条目（可选）
-    ├── examples/    #    示例对话（可选）
-    └── event_texts/ #    事件文本模板（可选）
+├── narrative/       # 18. 叙事资产（必）
+│   ├── opening.yaml #    开场场景（必）
+│   ├── style.yaml   #    文风指南（必）
+│   ├── lore/        #    设定条目（可选）
+│   ├── examples/    #    示例对话（可选）
+│   └── event_texts/ #    事件文本模板（可选）
+├── theme.yaml       # 19. 主题（可选）：调色板/字体/动效 + by_location
+├── themes/          #    附加主题包（可选，同一 schema）
+├── assets.yaml      # 20. 资产索引（可选）：立绘/场景/图标/语音/音效
+└── assets/          #    资产文件目录（布局约定见 §20）
 ```
 
 ### 0.2 纯配置原则
@@ -716,6 +722,85 @@ hooks:
 
 ---
 
+
+## 19. theme.yaml — 主题（可选）
+
+纯加法模块（缺省合法）：声明剧本默认主题与按区域的动态视觉切换。根文件 `theme.yaml` + 可选 `themes/*.yaml`（同一 schema，附加主题包）。
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `id` | string | ✅ | 主题 id（目录内唯一；根文件建议 `default`） |
+| `name` | string | ✅ | 显示名 |
+| `palette` | object | ✅ | 8 色：`background/surface/surface_alt/primary/accent/text/text_dim/border`，全部 `^#[0-9a-fA-F]{3,8}$` 严格校验 |
+| `typography` | object | ✅ | `{font: serif\|sans\|mono, scale}`，scale clamp 0.85–1.3 |
+| `effects` | object | ✅ | `{bubble_radius(0–24), glass(0–1), motion: minimal\|subtle\|standard\|playful, scene_tint(hex)}` |
+| `by_location` | object | ❌ | `{地点 id: 主题 id \| 内联 palette 覆盖}`；按玩家所在区域动态切换整站视觉 |
+
+```yaml
+# theme.yaml
+id: default
+name: 灰烬镇·余烬
+palette:
+  background: "#1a1410"
+  surface: "#241c15"
+  surface_alt: "#2e2218"
+  primary: "#c96f2f"
+  accent: "#e8a04c"
+  text: "#e8dcc8"
+  text_dim: "#9a8a72"
+  border: "#4a3a28"
+typography: { font: serif, scale: 1.0 }
+effects: { bubble_radius: 14, glass: 0.65, motion: subtle, scene_tint: "#1c0f06" }
+by_location:
+  mine-entrance: dark-mine     # 引用 themes/dark-mine.yaml
+  forest-edge: deep-forest
+```
+
+校验：`by_location` 键必须存在于 `locations/`，值为主题 id 时该 id 必须存在于 `theme.yaml` + `themes/*.yaml` 合集（硬错误）；内联覆盖仅允许 palette 字段。无主题剧本由框架内置 dark/light 主题兜底。
+
+---
+
+## 20. assets.yaml — 资产索引（可选）
+
+纯加法模块（缺省合法）：**唯一资产真源**。静态文件引用 + 文生图/TTS 提示词占位，两类任一即可（prompt-only 合法，文件后补）。
+
+| 键 | 实体池 | 条目 |
+|---|---|---|
+| `portraits` | npcs | `{file?, prompt?, alt?}` |
+| `backgrounds` | locations | `{file?, prompt?}` |
+| `icons` | items | `{file?, prompt?}` |
+| `sprites` | npcs | `{file?, prompt?}` |
+| `voices` | npcs | `{file?, prompt?, profile?}` |
+| `ambient` | locations | `{file?, prompt?}` |
+| `effects` | events | `{file?, prompt?}` |
+
+规则：
+
+- 所有键（实体 id）必须对应存在的 npc/location/item/event id——**硬错误**。
+- `file` 指向 `assets/` 目录内文件（布局约定上表）；文件存在性 = **软警告**（允许 prompt-only）。
+- 文件类型白名单：svg/png/jpg/jpeg/webp/gif + mp3/wav/ogg。
+
+```yaml
+# assets.yaml
+portraits:
+  elara: { file: assets/portraits/elara.svg, alt: 艾拉 }
+  mine-guardian: { prompt: "steampunk mine golem, glowing eyes" }
+backgrounds:
+  emberfall-tavern: { prompt: "steampunk tavern, warm firelight" }
+icons:
+  pickaxe: { file: assets/icons/pickaxe.svg }
+voices:
+  elara: { prompt: "calm, low voice", profile: 低哑平静 }
+ambient:
+  mine-entrance: { prompt: "distant mine rumbling" }
+effects:
+  mine-collapse: { prompt: "collapsing rock rumble" }
+```
+
+媒体决策归引擎：`MediaCue`（`npc_speech`/`location_enter`/`event`）由状态差确定性推导，LLM 不参与（"引擎管规则，LLM 管叙事"的延伸）。前端消费见 [presentation.md](presentation.md)。
+
+---
+
 ## 附录 A. 内置动作库（26 个）
 
 | id | 语义 | 默认 resolve | 默认 llm_freedom |
@@ -839,9 +924,9 @@ leaf  := { source, key?, target?, op, value? }
 | worldgen | 引用池（npc/faction/item/event ids） | ✅ 已实现 |
 | director | events | ⚠️ v1.0 不校验：director.yaml 无 event 引用字段（tension 变量 source 已校验为 gauge） |
 | run.yaml | locations, gauge（soft_failure）、origins（unlocks[].grant）、consequence.effects 全 kind（含 status） | ✅ 已实现 |
+| theme | locations（by_location 键）、themes（by_location 主题 id 引用） | ✅ 已实现 |
+| assets | npcs（portraits/sprites/voices）、locations（backgrounds/ambient）、items（icons）、events（effects）；`file` 路径必须在剧本目录内 | ✅ 已实现（文件存在性为软警告） |
 | facts（条件代数 source: fact） | fact 键 | ⚠️ v1.0 不校验：fact 无声明池（引擎运行态事件日志持有），剧本内保持一致即可 |
-
-**无声明池说明**：`flags`/`facts` 是运行态概念——flag 由出身/事件/承诺在运行时设置，fact 由事件日志产生，剧本没有集中的声明处，因此 v1.0 校验器不检查其存在性；剧本作者需自行保持一致。若未来引入 flags.yaml 声明池，再补对应校验（加法演进）。
 ---
 
 ## 附录 F. 版本与扩展性契约

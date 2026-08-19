@@ -6,17 +6,11 @@
 
 ```
 剧本（Script，静态）      → src/script/：schema + 校验（只读契约层）
-引擎核心（Engine Core）   → src/engine/：世界状态、回合循环、机制、存档
+引擎核心（Engine Core）   → src/engine/：世界状态、回合循环、机制、存档、表现层
 LLM 桥（LLM Bridge）     → src/engine/narrative/：provider + prompt + 意图解析 + 一致性校验
-界面（UI）               → 后续 Blueprint（消费 Engine 门面）
+服务托管（EngineHost）   → src/server/：会话注册表、剧本库扫描、zip 导入、资产服务
+界面（UI）               → src/app/：Route Handlers + 沉浸聊天式前端（规格见 presentation.md）
 ```
-
-核心原则：
-
-- **引擎管规则，LLM 管叙事**——状态（时间/背包/血量/记忆/关系）是引擎管理的真实数据，LLM 只产生意图建议与叙事文本。
-- **不可变快照**——所有状态更新是纯函数 `(state, action) => newState` + append-only 事件日志；存档即快照。
-- **确定性**——所有随机源（worldgen/导演/检定）走注入式种子 RNG；同种子同结果。
-- **防作弊（PDVA）**——SchemaOK ∧ PermOK ∧ RuleOK 三关卡全确定性程序化；玩家文本永远不是效果来源。
 
 ## 模块地图
 
@@ -40,7 +34,9 @@ src/engine/
 ├── descriptors.ts    ★★双轨状态描述层（数值+标签+LLM 描述，生成器注入）
 ├── worldgen.ts       开局随机化（固定种子确定性，含 secret_holder 映射）
 ├── director.ts       事件选择（张力带加权 + novelty + difficulty_ramp）
-├── save.ts           JSON 存档 + 版本门（v2，无迁移）
+├── presentation.ts   ★表现层：resolveTheme（default+by_location）/ buildAssetManifest / deriveMediaCues（引擎确定性推导，LLM 不参与）/ appendTranscript
+├── save.ts           JSON 存档 + 版本门（v3，含 transcript，无迁移）
+├── media/            MediaProvider 接口 + off/mock 实现（env：CHATGAME_MEDIA_PROVIDER；真实生成 V2）
 └── narrative/
     ├── provider.ts   LLMProvider 接口 + factory（env 配置）
     ├── mock.ts       MockProvider（确定性，默认）
@@ -63,11 +59,11 @@ src/engine/
   → 5. costs（currency/items/time）→ effects（×grade）→ ResolutionLog
   → 6. stepWorld（统一世界推进：时钟/需求/状态/作息/事件/承诺/张力/任务）
   → 7. 导演选事件（张力带加权 + 冷却）→ 立即 playEvent → 任务检查（激活/进度/完成）
-  → 8. 死亡策略检查（soft_failure 威胁条等）
+  → 8. 死亡策略检查（soft_failure 威胁条 ≥ 阈值 / world_continue·hard_reset 玩家 hp 归零）
   → 9. LLM 叙事（双通道）→ 一致性校验（schema/perm/taboo/秘密）→ 重试≤2 → 降级
   → 10. 校验通过的 mechanics_tags → applyEffects → 描述层惰性刷新（LLM 生成器）
-  → TurnResult{narrative, resolution, logEntries, descriptorUpdates, worldEvents, taskCompletions, ...}
-```
+  → 11. 转录追加（player 输入 + world 叙事；拒绝/澄清/死亡也写入）+ mediaCues 推导
+  → TurnResult{narrative, resolution, logEntries, descriptorUpdates, worldEvents, taskCompletions, mediaCues, deathFired, ...}
 
 动作时间成本：`effectiveTimeCost = max(costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
 
@@ -141,26 +137,30 @@ src/engine/
 ## 存档
 
 - 路径 `.chatgame/saves/<scriptId>/<runId>.json`；格式 `{saveSchemaVersion, scriptId, createdAt, updatedAt, worldState}`。
-- 当前 schema 版本 = 2；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
-- `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值）。
-- 往返测试：save → load → 状态深度相等。
+- 当前 schema 版本 = 3（WorldState 新增 `transcript` 完整对话历史）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
+- `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值、`transcript` 缺省 []）。
+- 往返测试：save → load → 状态深度相等（含转录）。
 
 ## 运行策略
 
 - `soft_failure`：威胁条 ≥ 阈值 → 传送副作用地点 + effects + 重置威胁条（Fallen London 式）。
-- `world_continue`：`state_kept` 含 "lore" 时继承 `facts` 中 `lore-` 前缀项；重建玩家 origin 由种子 RNG 从全部 origins 随机选取。
-- `hard_reset`：reroll_worldgen（重跑世界）或 keep_world（保留世界重置玩家）。
+- `world_continue`：**玩家 hp 归零**才触发；`state_kept` 含 "lore" 时继承 `facts` 中 `lore-` 前缀项；重建玩家 origin 由种子 RNG 从全部 origins 随机选取。
+- `hard_reset`：**玩家 hp 归零**才触发；reroll_worldgen（重跑世界，转录保留）或 keep_world（保留世界重置玩家）。
+- 三种模式都有显式触发门（软失败看威胁条，另两种看 hp）——健康回合永不触发重置。
 - meta-progression：keep（flags/lore/relations_overview）/ reset（stats/inventory/location/memories/currency）/ unlocks（flag → grant origins）；Engine 门面暴露 `unlockedOrigins()` / `metaSnapshot()`。
 - `faction_stance` 为文档化 no-op（faction 间关系 v1 无运行时消费者）。
 
 ## 命令
 
 ```sh
-npm run play                                        # demo CLI（默认 Mock）
-CHATGAME_LLM_PROVIDER=vercel npm run play           # 真实 LLM（需配置 env）
-npm test                                            # 全部测试
+npm run dev                                        # 开发服务器（启动器 + 游戏 UI）
+npm run play                                       # demo CLI（默认 Mock）
+CHATGAME_LLM_PROVIDER=vercel npm run play          # 真实 LLM（需配置 env）
+npm test                                           # 全部测试
+npm run lint                                       # ESLint
+npm run build                                      # 生产构建
 ```
 
 ## 边界（v1 不实现）
 
-- UI 层、safety 内容过滤执行管道、多玩家/网络、真实 LLM 的完整验证（CI 不依赖 key）、记忆的 LLM 摘要压缩、剧本 schema 改动（passive 检定变体、剧本声明区间映射表——后续契约 Blueprint）、LLM 效果提议 delta 与动态动作生成（V2 加法演进）。
+- safety 内容过滤执行管道、多玩家/网络、真实 LLM 的完整验证（CI 不依赖 key）、记忆的 LLM 摘要压缩、真实文生图/TTS（MediaProvider 仅 off/mock，真实 provider V2）、回合流式输出、在线剧本市场/远程下载、用户认证与数据库持久化（会话在内存、存档在文件）、剧本 schema 改动（passive 检定变体、剧本声明区间映射表——后续契约 Blueprint）、LLM 效果提议 delta 与动态动作生成（V2 加法演进）。

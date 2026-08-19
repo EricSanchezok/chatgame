@@ -30,15 +30,23 @@ import {
   exampleDialogueSchema,
   eventTextSchema,
   builtinActionIdSchema,
+  themeSchema,
+  assetsSchema,
   type Condition,
   type Effect,
-} from "./schemas";
+ } from "./schemas";
+import {
+  checkPresentationModules,
+  type PresentationModules,
+} from "./validate-presentation";
 
 export interface ValidationIssue {
   file: string;
   line?: number;
   path: string;
   message: string;
+  /** "warning" is informational (e.g. missing asset file) and does not fail validation. */
+  severity?: "error" | "warning";
 }
 
 export interface ValidationResult {
@@ -64,6 +72,8 @@ const ROOT_MODULES: Array<{ name: string; schema: z.ZodType; required: boolean }
   { name: "worldgen", schema: worldgenSchema, required: true },
   { name: "run", schema: runSchema, required: true },
   { name: "safety", schema: safetySchema, required: true },
+  { name: "theme", schema: themeSchema, required: false },
+  { name: "assets", schema: assetsSchema, required: false },
 ];
 
 /** Collects all id-like references from a condition tree. */
@@ -942,16 +952,47 @@ export function validateScriptDir(scriptDir: string): ValidationResult {
     if (data !== undefined) arrays.eventTexts.push({ file, data });
   }
 
+  // --- Presentation modules (optional): themes/ dir + theme/assets root ---
+  const themeFiles = loadYamlFilesFromDir(path.join(scriptDir, "themes"), "themes");
+  const themeMods: PresentationModules["themes"] = [];
+  for (const file of themeFiles) {
+    const data = validateModule(file, themeSchema, issues);
+    if (data !== undefined) themeMods.push({ file, data });
+  }
+  const themeRoot = modules["theme"] as ParsedModule<z.infer<typeof themeSchema>> | undefined;
+  const assetsRoot = modules["assets"] as ParsedModule<z.infer<typeof assetsSchema>> | undefined;
+  const presentationMods: PresentationModules = {
+    theme: themeRoot,
+    themes: themeMods,
+    assets: assetsRoot,
+  };
+
   // --- Semantic reference checks (only when required modules parsed) ---
   const requiredParsed = ["script", "world", "time", "mechanics", "actions", "plot", "director", "worldgen", "run", "safety"].every(
     (name) => modules[name] !== undefined,
   );
   if (requiredParsed) {
     checkReferences(modules, arrays, issues);
+    // Presentation cross-checks need the entity pools built by checkReferences.
+    // Rebuild the minimal pools here (they are cheap) to keep both checks
+    // independent and side-effect free.
+    const npcIds = new Set(arrays.npcs.map((m) => m.data.id));
+    const locationIds = new Set(arrays.locations.map((m) => m.data.id));
+    const itemIds = new Set(arrays.items.map((m) => m.data.id));
+    const eventIds = new Set(arrays.events.map((m) => m.data.id));
+    const pIssues = checkPresentationModules(scriptDir, presentationMods, {
+      npcIds,
+      locationIds,
+      itemIds,
+      eventIds,
+    });
+    for (const p of pIssues) {
+      issues.push({ file: p.file, line: p.line, path: p.path, message: p.message, severity: p.severity });
+    }
   }
 
   return {
-    ok: issues.length === 0,
+    ok: issues.every((i) => i.severity === "warning"),
     issues,
     scriptId: script?.id ?? rootName,
   };
