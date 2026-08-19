@@ -40,9 +40,9 @@ Class: architecture
 
 1. **契约层**（剧本 schema v1.1）：语义标签枚举 → `z.string().min(1)`（relation type、status kind、event type、item rarity、location type、base_class、origin difficulty、commitment type、safety content_class/intensity）；relation 加 `description?` 位（替代原 `note` 位，note 语义并入 description）；status_effects 加 `description?`；`script.schema_version` 1.0 → 1.1。判定硬依赖的指令枚举全集保留：condition source/op、effect kind、task objective type、MediaCue、动作 id 白名单、memory importance、event trigger、resolve type、worldgen target、meta_progression.keep、taboo severity、lore inject_when、progression source、advance_scope、`"threat_gauge"`。
 
-2. **引擎层**（运行时 + 描述管道）：`RelationState` 补 `description?`（作者静态描述，worldgen/definition 构建关系时保留）；`llmDescriptorGenerator` 上下文增强（注入作者 description/type/剧本 description/近期事件）；`refreshAllStale` 扩展到 status 实例（statuses 路径）并用最近 10 条 eventLog 填充 `sourceEventIds`；`upsertRelation` 值变化只更新 value + `valueToStance` 派生 stance（label 兜底），**不再覆盖作者/LLM 管理的 type**；`applyStatus` 对已有实例标 stale；catalog 透传 stats/skills/items/statusEffects 的 description。
+2. **引擎层**（运行时 + 描述管道）：`RelationState` 补 `description?`（作者静态描述，worldgen/definition 构建关系时保留）；`llmDescriptorGenerator` 上下文增强（注入作者 description/type/剧本 description/近期事件）；`refreshAllStale` 扩展到 status 实例（statuses 路径）并用最近 10 条 eventLog 填充 `sourceEventIds`（entities.test.ts 断言非空）；`upsertRelation` 值变化只更新 value + `valueToStance` 派生 stance（label 兜底），**不再覆盖作者/LLM 管理的 type**；`applyStatus` 对已有实例标 stale；catalog 透传 stats/skills/items/statusEffects 的 description 与 factions id/name（engine-host.test.ts 断言 skills.description 与 factions 透传）。
 
-3. **消费层**（LLM + UI）：`buildTurnPrompt` 注入"关系与状态摘要"区块——玩家↔在场 NPC 关系（type + description + value）、玩家声望/需求/状态描述、NPC 视角关系网（随在场 NPC 注入，消灭白生成）；UI 面板展示 description（关系/声望/需求/状态/物品/属性）；关系描述可编辑（RelationsPanel → `updateDescriptor` → `setDescriptor` API → 既有 descriptor route）。
+3. **消费层**（LLM + UI）：`buildTurnPrompt` 注入"关系与状态摘要"区块——玩家↔在场 NPC 关系（type + description + value）、玩家声望/需求/状态描述、NPC 视角关系网（随在场 NPC 注入，消灭白生成）；UI 面板展示 description：CharacterPanel 展示属性/技能/需求/状态描述（catalog 透传 skills/stats/statusEffects description），RelationsPanel 展示关系描述 + 编辑入口（`updateDescriptor` → `setDescriptor` API → 既有 descriptor route）与**声望区块**（catalog factions id/name + reputation descriptor.description，缺省回退 label/value），InventoryPanel 物品卡展示 item description。
 
 版本契约：`SAVE_SCHEMA_VERSION` 3 → 4、`script.schema_version` 1.0 → 1.1（敏捷约定：旧档/旧剧本直接拒绝，不写迁移）。
 

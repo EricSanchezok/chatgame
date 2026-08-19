@@ -55,8 +55,10 @@ export interface Catalog {
   events: Array<{ id: string; name: string }>;
   actions: Array<{ id: string; displayName: string }>;
   stats: Array<{ name: string; min: number; max: number; description?: string }>;
+  skills: Array<{ name: string; min: number; max: number; description?: string }>;
   needs: Array<{ name: string }>;
   statusEffects: Array<{ id: string; name: string; description?: string }>;
+  factions: Array<{ id: string; name: string }>;
   tasks: Array<{ id: string; name: string }>;
   origins: Array<{ id: string; name: string }>;
   currency: { name: string; symbol: string };

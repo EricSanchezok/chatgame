@@ -254,6 +254,17 @@ function CharacterPanel({
             ) : null}
           </div>
         ))}
+        {catalog.skills.map((s) => (
+          <div key={s.name}>
+            <div className="flex justify-between">
+              <dt style={{ color: "var(--cg-text-dim)" }}>{s.name}</dt>
+              <dd style={{ color: "var(--cg-text)" }}>{state.player.skills[s.name] ?? 0}</dd>
+            </div>
+            {s.description ? (
+              <p className="text-xs" style={{ color: "var(--cg-text-dim)" }}>{s.description}</p>
+            ) : null}
+          </div>
+        ))}
         {catalog.needs.map((n) => (
           <div key={n.name}>
             <div className="flex justify-between">
@@ -369,6 +380,31 @@ function RelationsPanel({
           ))}
         </ul>
       )}
+      {state.player.reputation.length > 0 ? (
+        <div className="mt-4">
+          <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>声望</h4>
+          <ul className="space-y-2">
+            {state.player.reputation.map((rep) => (
+              <li key={rep.factionId} className="cg-chrome rounded-lg border p-3"
+                style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold" style={{ color: "var(--cg-text)" }}>
+                    {catalog.factions.find((f) => f.id === rep.factionId)?.name ?? rep.factionId}
+                  </span>
+                  <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
+                    {rep.descriptor?.label ?? rep.value}
+                  </span>
+                </div>
+                {rep.descriptor?.description ? (
+                  <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>
+                    {rep.descriptor.description}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </PanelFrame>
   );
 }
