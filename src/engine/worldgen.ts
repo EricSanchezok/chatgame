@@ -291,6 +291,7 @@ export function generateWorld(
     tasks: [],
     playedEventIds: [],
     eventLastPlayedDay: {},
+    actionCooldowns: {},
     secretHolders,
     locationInventories,
     transcript: [],

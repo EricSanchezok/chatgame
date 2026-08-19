@@ -15,6 +15,8 @@ export interface PromptInput {
   playerInput: string;
   /** NPC currently speaking (for knowledge filtering + persona). */
   npcId?: string;
+  /** Action being resolved this turn (drives the llm_freedom guidance). */
+  actionId?: string;
 }
 
 /** Builds the system prompt (world constitution + style + safety). */
@@ -59,13 +61,43 @@ export function buildSystemPrompt(def: WorldDefinition): string {
       parts.push(`- ${l.content}`);
     }
   }
+  // Content boundaries: script-declared safety contract, engine-enforced.
+  const safety = def.safety;
+  const allowedList = Object.entries(safety.allowed)
+    .filter(([, intensity]) => intensity !== "none")
+    .map(([contentClass, intensity]) => `${contentClass}=${intensity}`)
+    .join("、");
+  const forbiddenList = safety.forbidden.join("、");
+  parts.push("\n## 内容边界（必须遵守）");
+  parts.push(`- 本作品分级：${safety.age_rating}`);
+  parts.push(`- 允许的内容强度：${allowedList || "无"}`);
+  parts.push(`- 禁止的内容：${forbiddenList || "无"}`);
 
   return parts.join("\n");
 }
 
+/**
+ * Returns the llm_freedom guidance block for an action, or "" when the
+ * action id is unknown. The LLM never adjudicates mechanics — it narrates.
+ */
+export function buildActionFreedomBlock(actionId: string, def: WorldDefinition): string {
+  const action = def.actions.actions.find((a) => a.id === actionId);
+  if (!action) return "";
+
+  const guidance: Record<typeof action.llm_freedom, string> = {
+    narration:
+      "本动作允许自由叙事：按动作意图充分展开情节。机制由引擎结算，你只负责叙事。",
+    process:
+      "本动作只叙述机械流程的结果，不得虚构机制细节。机制由引擎结算，你只负责叙事。",
+    result:
+      "本动作只叙述最终结果，不展开过程。机制由引擎结算，你只负责叙事。",
+  };
+  return `## 当前动作\n${guidance[action.llm_freedom]}`;
+}
+
 /** Builds the player-facing prompt for a narrative turn. */
 export function buildTurnPrompt(input: PromptInput): string {
-  const { definition, state, playerInput, npcId } = input;
+  const { definition, state, playerInput, npcId, actionId } = input;
   const parts: string[] = [];
 
   parts.push(`## 当前时间：${formatClock(state.clock)}`);
@@ -141,6 +173,12 @@ export function buildTurnPrompt(input: PromptInput): string {
   parts.push(`\n## 玩家输入`);
   parts.push(playerInput);
 
+  if (actionId) {
+    const freedomBlock = buildActionFreedomBlock(actionId, definition);
+    if (freedomBlock) {
+      parts.push(`\n${freedomBlock}`);
+    }
+  }
   parts.push("\n## 输出要求");
   parts.push(
     "只叙述玩家能感知到的结果；数值变化交给引擎处理，不要在文字中伪造状态（如血量、物品、关系数值）。",

@@ -353,6 +353,8 @@ export interface WorldState {
   playedEventIds: string[];
   /** Absolute day each event was last played (cooldown truth). */
   eventLastPlayedDay: Record<string, number>;
+  /** Absolute day each action was last resolved successfully (cooldown truth). */
+  actionCooldowns: Record<string, number>;
   /** Runtime secret holder mapping (secretId -> npcId). */
   secretHolders: Record<string, string>;
   /** Per-location inventories (take/trade sources). */

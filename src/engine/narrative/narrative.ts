@@ -66,6 +66,7 @@ export async function generateNarrative(
     state: ctx.state,
     playerInput: ctx.playerInput,
     npcId: ctx.npcId,
+    actionId: ctx.resolution?.actionId,
   });
 
   const resolutionNote = ctx.resolution
