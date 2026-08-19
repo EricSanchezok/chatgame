@@ -12,8 +12,8 @@ schedule: caravan-schedule
 home: tavern
 items: [tonic]
 relations:
-  - { target: elara, value: 30, stance: friendly, type: business, note: 商队落脚酒馆的老主顾 }
-  - { target: mayor-shen, value: 20, stance: neutral, type: business, note: 过路税的交涉对象 }
+  - { target: elara, value: 30, type: 落脚的老主顾, description: 商队落脚酒馆的老主顾 }
+  - { target: mayor-shen, value: 20, type: 纳税的交涉对象, description: 过路税的交涉对象，公事公办 }
 memory:
   initial:
     - { text: 三年前矿难后，镇上的人不愿提矿井, importance: minor, tags: [mine] }

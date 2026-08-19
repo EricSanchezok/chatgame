@@ -8,8 +8,8 @@ items: [tonic]
 starting_location: dormitory
 starting_currency: 10
 starting_relations:
-  - { npc: old-wei, value: 30, stance: friendly, note: 同住矿工宿舍，常分他一口汤 }
-  - { npc: caravan-boss, value: 25, stance: neutral, note: 跟着商队来的 }
+  - { npc: old-wei, value: 30, type: 同宿的工友, description: 同住矿工宿舍，常分他一口汤 }
+  - { npc: caravan-boss, value: 25, type: 东家, description: 跟着商队来的 }
 starting_knowledge: [mine-collapse-witness]
 exclusive_leads: []
 denied_actions: [cast]

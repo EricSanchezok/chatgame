@@ -15,7 +15,7 @@ export const locationSchema = z
   .object({
     id: idSchema,
     name: z.string().min(1),
-    type: z.enum(["indoor", "outdoor", "district", "region"]),
+    type: z.string().min(1),
     description: z.string().min(1),
     connections: z.array(connectionSchema).default([]),
     ambient_events: z.array(idSchema).default([]),

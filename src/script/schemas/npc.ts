@@ -6,7 +6,6 @@ import {
   extSchema,
   idSchema,
   importanceSchema,
-  stanceSchema,
 } from "./common";
 
 const traitSchema = z
@@ -21,17 +20,10 @@ const relationSchema = z
   .object({
     target: idSchema,
     value: z.number().min(-100).max(100),
-    stance: stanceSchema,
-    type: z.enum([
-      "family",
-      "friend",
-      "rival",
-      "romantic",
-      "business",
-      "enemy",
-      "acquaintance",
-    ]),
-    note: z.string().optional(),
+    /** Semantic label — free text, authored by the script ("青梅竹马", "酒肉朋友"). */
+    type: z.string().min(1),
+    /** Static description — the author's natural-language expression of the relationship. */
+    description: z.string().optional(),
   })
   .strict();
 
@@ -68,7 +60,7 @@ export const npcSchema = z
   .object({
     id: idSchema,
     name: z.string().min(1),
-    base_class: z.enum(["humanoid", "creature"]),
+    base_class: z.string().min(1),
     description: z.string().min(1),
     traits: z.array(traitSchema).default([]),
     stats: z.record(idSchema, z.number()).optional(),

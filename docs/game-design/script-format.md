@@ -1,6 +1,6 @@
-# 剧本格式规格（Script Format Specification）v1.0
+# 剧本格式规格（Script Format Specification）v1.1
 
-> 本文档是 chatgame 剧本格式 v1.0 的**人类契约**。机器契约见 `src/script/schemas/`（zod strict），两者一一对应；任何不一致以 schema 为准，且必须在同一变更内修复。
+> 本文档是 chatgame 剧本格式 v1.1 的**人类契约**。机器契约见 `src/script/schemas/`（zod strict），两者一一对应；任何不一致以 schema 为准，且必须在同一变更内修复。
 >
 > 一个剧本 = 一个世界。加载不同剧本即成为完全不同的游戏；同一剧本每次开局体验不同；一个剧本可无限游玩。本文档定义"剧本必须回答的问题"——世界观、时间、机制、实体、事件、任务、叙事资产与运行策略——全部通过**纯配置**表达（无代码、无表达式字符串）。
 
@@ -108,7 +108,7 @@ scripts/<id>/
 
 ### 0.5 版本契约
 
-- `schema_version` 必须为 `"1.0"` 且与引擎支持版本**严格相等**。
+- `schema_version` 必须为 `"1.1"` 且与引擎支持版本**严格相等**。
 - 2.0 之前只允许**加法演进**（新增可选字段、新增动作/effect/op）；破坏性变更必须升大版本。
 - 引擎仅加载与其声明版本严格相等的剧本。
 
@@ -121,7 +121,7 @@ scripts/<id>/
 | `id` | string | ✅ | 小写连字符；必须等于目录名 |
 | `name` | string | ✅ | 剧本显示名 |
 | `description` | string | ✅ | 一句话介绍（作者/玩家可见） |
-| `schema_version` | string | ✅ | 固定 `"1.0"` |
+| `schema_version` | string | ✅ | 固定 `"1.1"` |
 | `language` | string | ✅ | 剧本内容语言代码（如 `zh`、`en`） |
 | `tone` | string[] | ✅ | 情感基调（如 `悬疑`、`温情`），约束 LLM 文风 |
 | `author` | string | ✅ | 作者名 |
@@ -132,7 +132,7 @@ scripts/<id>/
 id: emberfall
 name: 灰烬镇
 description: 蒸汽与魔法并存的边陲小镇，矿脉枯竭，人心浮动
-schema_version: "1.0"
+schema_version: "1.1"
 language: zh
 tone: [悬疑, 温情]
 author: chatgame-team
@@ -223,7 +223,7 @@ advance_scope: [schedules, needs, time_events]
 | `stats` | array | ✅ | `{name, min, max, initial, description}`；剧本声明属性名，引擎提供统一数值语义 |
 | `skills` | array | ❌ | `{name, min, max, initial, description}` |
 | `needs` | array | ❌ | `{name, min, max, initial, decay_per_day, thresholds[] {level, label, effects[]}}` |
-| `status_effects` | array | ❌ | `{id, name, kind: buff\|debuff\|neutral, effects[], duration?, stackable}` |
+| `status_effects` | array | ❌ | `{id, name, kind, description?, effects[], duration?, stackable}`；`kind` 为自由文本标签（如 buff/debuff/neutral，引擎不消费，仅作者分类） |
 | `inventory` | object | ✅ | `{capacity, stacking}` |
 | `currency` | object | ✅ | `{name, symbol, initial}` |
 | `combat` | object | ✅ | `{damage_types[], defense_types[], hp_stat(引用 stats 名), threat_gauge {max, on_full(引用 run.yaml 软失败策略)}}` |
@@ -308,7 +308,7 @@ actions:
 | `commitments` | array | ✅ | `{id, description, type, trigger, must_happen, deadline?, related?}` |
 | `ext` | object | ❌ | 扩展位 |
 
-`type`：
+`type`：自由文本（引擎不分支读取，仅作者分类）；约定俗成取值：
 
 - `secret_reveal` — 某秘密最终被揭露；`trigger.condition` 为揭露条件
 - `time_event` — 某时间点必发生；`trigger.time` 为时间
@@ -442,8 +442,8 @@ context_compaction:
 
 | 字段 | 类型 | 必填 | 约束 |
 |---|---|---|---|
-| `content_classes` | object | ✅ | 11 类 × 5 强度：`violence\|romance\|horror\|profanity\|self_harm\|sexual\|drugs\|gambling\|politics\|religion\|crime` × `none\|mild\|moderate\|intense\|explicit` |
-| `allowed` | object | ✅ | `{class: max_intensity}` |
+| `content_classes` | array | ✅ | 内容类标签（自由文本；剧本约定 11 类：`violence\|romance\|horror\|profanity\|self_harm\|sexual\|drugs\|gambling\|politics\|religion\|crime`） |
+| `allowed` | object | ✅ | `{class: max_intensity}`；强度为自由文本（剧本约定 `none\|mild\|moderate\|intense\|explicit`） |
 | `forbidden` | array | ✅ | 内容类列表（完全禁止） |
 | `age_rating` | string | ✅ | 如 `16+`、`18+` |
 | `ext` | object | ❌ | 扩展位 |
@@ -475,7 +475,7 @@ age_rating: "16+"
 一文件一出身。`{id, name, description, difficulty?, stats?, skills?, items[], starting_location, starting_currency, starting_relations[], starting_knowledge[], exclusive_leads[], denied_actions[], exclusive_to?}`
 
 - `stats/skills`：`{override}` 覆盖剧本默认值
-- `starting_relations[]`：`{npc, value, stance?, note}`（stance 见模块 12）
+- `starting_relations[]`：`{npc, value, type?, description?}`（type/description 均为自由文本，作者用自然语言表达关系质地）
 - `starting_knowledge[]`：flag ids（玩家已知信息）
 - `exclusive_leads[]`：event/secret ids（只有该出身能接触的线索）
 - `denied_actions[]`：动作 id（该出身禁用）
@@ -492,7 +492,7 @@ items: [pickaxe, lantern]
 starting_location: emberfall-tavern
 starting_currency: 30
 starting_relations:
-  - { npc: elara, value: 40, stance: friendly, note: 你常去她的酒馆 }
+  - { npc: elara, value: 40, type: 老主顾, description: 你常去她的酒馆 }
 starting_knowledge: [mine-collapsed-3y-ago]
 exclusive_leads: [mine-secret-hint]
 denied_actions: []
@@ -504,9 +504,9 @@ denied_actions: []
 
 一文件一 NPC。`{id, name, base_class, description, traits[], stats?, skills?, needs?, occupation, schedule?, home?, items[], relations[], memory?, secrets[], knowledge_flags[], llm}`
 
-- `base_class`：`humanoid\|creature`（附录 B）
+- `base_class`：自由文本（如 `humanoid`/`creature`，引擎不消费，仅为作者标签）
 - `traits[]`：`{name, description, effects[]?}`（特性影响行为/数值）
-- `relations[]`：`{target(npc id), value(-100..100), stance: hostile\|wary\|neutral\|friendly\|allied\|romantic, type: family\|friend\|rival\|romantic\|business\|enemy\|acquaintance, note}`；关系矩阵由引擎双向构建，NPC↔NPC 与 →player 同模型
+- `relations[]`：`{target(npc id), value(-100..100), type(自由文本，如 青梅竹马/酒肉朋友), description?(自由文本，关系的静态描述)}`；关系矩阵由引擎双向构建，NPC↔NPC 与 →player 同模型。**语义标签不用枚举**——数值是引擎事实源，type/description 承载"同是朋友但质地不同"的细腻语义，运行时注入 LLM 上下文
 - `memory`：`{initial[] {text, importance: major\|minor\|trivial, tags[]}, forget_policy{major_keep}}`；记忆强度按层级初始（major 1.0 / minor 0.6 / trivial 0.3），日界按 `tier_retention_days` 连续衰减，跌破阈值归档；被注入时强化
 - `secrets[]`：`{id, content, reveal {logic(条件代数)}}`；未满足揭露条件前 LLM 不得剧透（taboo 默认项）
 - `llm`：`{personality, speech_patterns[], knowledge_filter: true, dialogue_examples?(引用 narrative/examples)}`
@@ -525,7 +525,7 @@ schedule: tavern_keeper
 home: emberfall-tavern
 items: []
 relations:
-  - { target: inspector, value: 30, stance: neutral, type: acquaintance, note: 常来查账 }
+  - { target: inspector, value: 30, type: 老相识, description: 常来查账 }
 memory:
   initial:
     - { text: "三年前丈夫死于矿井事故", importance: major, tags: [family, mine] }
@@ -548,7 +548,7 @@ llm:
 
 一文件一地点。`{id, name, type, description, connections[], ambient_events?, npcs_present?, items?, danger_level, entry_condition?, exit_condition?}`
 
-- `type`：`indoor|outdoor|district|region`
+- `type`：自由文本（如 `indoor|outdoor|district|region`，引擎不消费，仅展示）
 - `connections[]`：`{to(地点 id), distance, travel_time, condition?}`（构成地点图，移动动作依据）
 - `ambient_events[]`：event ids（该地点的氛围事件）
 - `npcs_present[]` / `items[]`：常驻 NPC / 物品
@@ -579,7 +579,7 @@ danger_level: 1
 - `properties`：`{slot?, stackable}`
 - `effects_on_use[]`：效果代数
 - `requirements`：条件代数
-- `rarity`：`common|uncommon|rare|epic|legendary`
+- `rarity`：自由文本（如 `common|uncommon|rare|epic|legendary`，引擎不消费，仅展示）
 - `value`：货币数值
 
 ```yaml
@@ -603,7 +603,7 @@ value: 10
 
 - `goals[]`：势力目标（驱动势力行为）
 - `members[]`：npc ids
-- `relations[]`：`{target(faction id), value, stance}`
+- `relations[]`：`{target(faction id), value}`
 - `reputation`：`{thresholds[] {value, label, effects[]}, decay}`（玩家对势力的声望）
 
 ```yaml
@@ -613,7 +613,7 @@ description: 矿脉枯竭后仍在守望的老工会
 goals: [查明矿难真相, 为矿工争取抚恤]
 members: [old-miner]
 relations:
-  - { target: town-hall, value: -30, stance: wary }
+  - { target: town-hall, value: -30 }
 reputation:
   thresholds:
     - { value: 50, label: 信任, effects: [ { kind: item, direction: add, target: player, item: guild-pass } ] }
@@ -626,7 +626,7 @@ reputation:
 
 一文件一事件。`{id, name, type, tags[], trigger, conditions?, effects?, narrative?, weight, cooldown, repeatable, exclusivity?, participants?, locations?}`
 
-- `type`：`crisis|opportunity|social|mystery|ambient|festival`
+- `type`：自由文本（如 `crisis|opportunity|social|mystery|ambient|festival`，引擎不消费，仅分类标签）
 - `tags[]`：novelty 模式标签（供 director 新鲜度调度）
 - `trigger`：`time|condition|director`
 - `conditions`：条件代数
@@ -903,6 +903,8 @@ ui:
 ---
 
 ## 附录 B. base_class 实体基类
+INS.POST 887:
+> `base_class` 为自由文本标签（引擎不消费，仅作者分类）；下表为剧本约定俗成取值，新值随时可用。
 
 | base_class | 说明 | 默认核心属性 |
 |---|---|---|
@@ -980,7 +982,7 @@ leaf  := { source, key?, target?, op, value? }
 | events | locations, npcs, events（participants/exclusivity/narrative.template + conditions/effects 全 kind） | ✅ 已实现；矩阵中 events→tasks 无对应字段：events schema 无 tasks 引用字段，与 director→events 同理 |
 | tasks | items, npcs, locations（objective/giver）+ rewards 全 kind | ✅ 已实现 |
 | origins | npcs, locations, items, stats, skills, actions（starting_relations/starting_location/items/exclusive_leads/denied_actions/stats/skills） | ✅ 已实现 |
-| origins | flags（starting_knowledge） | ⚠️ v1.0 不校验：flag 无声明池，见下方说明 |
+| origins | flags（starting_knowledge） | ⚠️ v1.1 不校验：flag 无声明池，见下方说明 |
 | npcs | stats, skills, needs, schedule→time.yaml, home→locations, items, relations→npcs, secrets→plot（reveal.logic） | ✅ 已实现；矩阵中 npcs relations→factions 无对应字段：relation target 按模块契约仅为 npc id（人际关系），势力关系由 factions.relations 声明 |
 | factions | npcs（members）, factions（relations）, items（reputation thresholds effects） | ✅ 已实现 |
 | locations | connections→locations, npcs, items, events（ambient_events + entry/exit conditions） | ✅ 已实现 |
@@ -988,16 +990,16 @@ leaf  := { source, key?, target?, op, value? }
 | narrative/event_texts | event ids | ✅ 已实现 |
 | narrative/examples | npc ids | ✅ 已实现 |
 | worldgen | 引用池（npc/faction/item/event ids） | ✅ 已实现 |
-| director | events | ⚠️ v1.0 不校验：director.yaml 无 event 引用字段（tension 变量 source 已校验为 gauge） |
+| director | events | ⚠️ v1.1 不校验：director.yaml 无 event 引用字段（tension 变量 source 已校验为 gauge） |
 | run.yaml | locations, gauge（soft_failure）、origins（unlocks[].grant）、consequence.effects 全 kind（含 status） | ✅ 已实现 |
 | theme | locations（by_location 键）、themes（by_location 主题 id 引用） | ✅ 已实现 |
 | assets | npcs（portraits/sprites/voices）、locations（backgrounds/ambient）、items（icons）、events（effects）；`file` 路径必须在剧本目录内 | ✅ 已实现（文件存在性为软警告） |
-| facts（条件代数 source: fact） | fact 键 | ⚠️ v1.0 不校验：fact 无声明池（引擎运行态事件日志持有），剧本内保持一致即可 |
+| facts（条件代数 source: fact） | fact 键 | ⚠️ v1.1 不校验：fact 无声明池（引擎运行态事件日志持有），剧本内保持一致即可 |
 ---
 
 ## 附录 F. 版本与扩展性契约
 
-- `schema_version` 严格相等匹配（1.0）；2.0 前只允许加法演进；破坏性变更升大版本。
+- `schema_version` 严格相等匹配（1.1）；2.0 前只允许加法演进；破坏性变更升大版本。
 - 所有 zod schema strict（未知字段报错）；每模块预留 `ext: {}` 扩展位（引擎版本化消费）。
 - **ID 契约**：实体 id 全局唯一、小写连字符；发布后不得更改。
 - **运行态隔离**：剧本文件禁止携带运行时状态（无时间戳、无进程内可变值）；所有可变状态属引擎 WorldState。
@@ -1014,7 +1016,7 @@ leaf  := { source, key?, target?, op, value? }
 id: emberfall
 name: 灰烬镇
 description: 蒸汽与魔法并存的边陲小镇
-schema_version: "1.0"
+schema_version: "1.1"
 language: zh
 tone: [悬疑, 温情]
 author: chatgame-team

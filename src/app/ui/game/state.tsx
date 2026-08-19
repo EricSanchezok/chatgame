@@ -367,7 +367,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }
   }
 
-
   async function exitGame(saveFirst: boolean): Promise<void> {
     if (!state.session) {
       dispatch({ type: "exit" });

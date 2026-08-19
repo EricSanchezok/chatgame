@@ -19,7 +19,7 @@ export const eventSchema = z
   .object({
     id: idSchema,
     name: z.string().min(1),
-    type: z.enum(["crisis", "opportunity", "social", "mystery", "ambient", "festival"]),
+    type: z.string().min(1),
     tags: z.array(z.string().min(1)).default([]),
     trigger: z.enum(["time", "condition", "director"]),
     conditions: conditionSchema.optional(),

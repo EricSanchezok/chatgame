@@ -11,13 +11,7 @@ import { useEffect, useState } from "react";
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
 import { ItemCard } from "./cards";
 import { UiIcon } from "./ui-icon";
-import type { PanelId } from "./state";
-
-/** Panel-level side effects (advance clock / descriptor edits). */
-export interface PanelHandlers {
-  onAdvance: (hours: number) => Promise<void>;
-  onUpdateDescriptor: (path: string, text: string) => Promise<void>;
-}
+import { useGame, type PanelId } from "./state";
 
 const PANEL_TITLES: Record<PanelId, string> = {
   inventory: "背包",
@@ -79,84 +73,6 @@ function AdvanceControls({
           {confirming === o.hours ? "确认？" : o.label}
         </button>
       ))}
-    </div>
-  );
-}
-
-/** Inline descriptor editor: shows the current description (or a hint),
- * expands into a textarea, and saves through the engine's setDescriptor
- * path — values are never touched (dual-track rule). */
-function DescriptorEdit({
-  path,
-  initial,
-  onSave,
-}: {
-  path: string;
-  initial: string;
-  onSave: (path: string, text: string) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(initial);
-  const [saving, setSaving] = useState(false);
-  return (
-    <div className="mt-1">
-      {editing ? (
-        <div className="flex flex-col gap-1.5">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={2}
-            maxLength={300}
-            className="cg-chrome w-full rounded-lg border px-2 py-1 text-sm"
-            style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", color: "var(--cg-text)" }}
-            aria-label="描述编辑"
-          />
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              disabled={saving}
-              className="cg-chrome rounded-lg border px-2 py-0.5 text-xs"
-              style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
-              onClick={async () => {
-                setSaving(true);
-                try {
-                  await onSave(path, text.trim());
-                  setEditing(false);
-                } finally {
-                  setSaving(false);
-                }
-              }}
-            >
-              {saving ? "保存中……" : "保存"}
-            </button>
-            <button
-              type="button"
-              className="cg-chrome rounded-lg border px-2 py-0.5 text-xs"
-              style={{ borderColor: "var(--cg-border)", color: "var(--cg-text-dim)" }}
-              onClick={() => {
-                setText(initial);
-                setEditing(false);
-              }}
-            >
-              取消
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
-            {initial || "（暂无描述，点击编辑添加）"}
-          </p>
-          <button
-            type="button"
-            className="cg-chrome shrink-0 rounded-lg border px-2 py-0.5 text-xs"
-            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text-dim)" }}
-            onClick={() => setEditing(true)}
-          >
-            编辑
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -275,6 +191,7 @@ function InventoryPanel({
                 itemId={s.itemId}
                 name={item?.name ?? s.itemId}
                 quantity={s.quantity}
+                description={item?.description}
                 manifest={assets}
               />
             );
@@ -292,7 +209,6 @@ function CharacterPanel({
   assets,
   onClose,
   panel,
-  handlers,
 }: {
   state: WorldState;
   catalog: Catalog;
@@ -300,13 +216,13 @@ function CharacterPanel({
   assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
-  handlers: PanelHandlers;
 }) {
+  const { advance } = useGame();
   const hpMax = catalog.stats.find((s) => s.name === catalog.hpStat)?.max ?? 100;
   const hp = state.player.stats[catalog.hpStat] ?? 0;
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.character} scriptId={scriptId} assets={assets} onClose={onClose}>
-      <AdvanceControls onAdvance={handlers.onAdvance} disabled={false} />
+      <AdvanceControls onAdvance={advance} disabled={false} />
       <h3 className="font-semibold" style={{ color: "var(--cg-text)" }}>{state.player.name}</h3>
       <p className="mb-3 text-sm" style={{ color: "var(--cg-text-dim)" }}>
         {catalog.origins.find((o) => o.id === state.player.originId)?.name ?? state.player.originId}
@@ -328,27 +244,46 @@ function CharacterPanel({
       </div>
       <dl className="space-y-2 text-sm">
         {catalog.stats.map((s) => (
-          <div key={s.name} className="flex justify-between">
-            <dt style={{ color: "var(--cg-text-dim)" }}>{s.name}</dt>
-            <dd style={{ color: "var(--cg-text)" }}>{state.player.stats[s.name] ?? 0}</dd>
+          <div key={s.name}>
+            <div className="flex justify-between">
+              <dt style={{ color: "var(--cg-text-dim)" }}>{s.name}</dt>
+              <dd style={{ color: "var(--cg-text)" }}>{state.player.stats[s.name] ?? 0}</dd>
+            </div>
+            {s.description ? (
+              <p className="text-xs" style={{ color: "var(--cg-text-dim)" }}>{s.description}</p>
+            ) : null}
           </div>
         ))}
         {catalog.needs.map((n) => (
-          <div key={n.name} className="flex justify-between">
-            <dt style={{ color: "var(--cg-text-dim)" }}>{n.name}</dt>
-            <dd style={{ color: "var(--cg-text)" }}>{state.player.needs[n.name]?.value ?? 0}</dd>
+          <div key={n.name}>
+            <div className="flex justify-between">
+              <dt style={{ color: "var(--cg-text-dim)" }}>{n.name}</dt>
+              <dd style={{ color: "var(--cg-text)" }}>{state.player.needs[n.name]?.value ?? 0}</dd>
+            </div>
+            {state.player.needs[n.name]?.descriptor?.description ? (
+              <p className="text-xs" style={{ color: "var(--cg-text-dim)" }}>
+                {state.player.needs[n.name]?.descriptor?.description}
+              </p>
+            ) : null}
           </div>
         ))}
       </dl>
       {state.player.statuses.length > 0 ? (
         <div className="mt-4">
           <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>状态</h4>
-          {state.player.statuses.map((st) => (
-            <div key={st.statusId} className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
-              {catalog.statusEffects.find((s) => s.id === st.statusId)?.name ?? st.statusId}
-              {st.stacks > 1 ? ` ×${st.stacks}` : ""}
-            </div>
-          ))}
+          {state.player.statuses.map((st) => {
+            const statusDef = catalog.statusEffects.find((s) => s.id === st.statusId);
+            const desc = st.descriptor?.description ?? statusDef?.description;
+            return (
+              <div key={st.statusId} className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
+                {statusDef?.name ?? st.statusId}
+                {st.stacks > 1 ? ` ×${st.stacks}` : ""}
+                {desc ? (
+                  <span className="ml-1 text-xs" style={{ color: "var(--cg-text-dim)" }}>{desc}</span>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
     </PanelFrame>
@@ -362,7 +297,6 @@ function RelationsPanel({
   assets,
   onClose,
   panel,
-  handlers,
 }: {
   state: WorldState;
   catalog: Catalog;
@@ -370,8 +304,10 @@ function RelationsPanel({
   assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
-  handlers: PanelHandlers;
 }) {
+  const { updateDescriptor } = useGame();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
   const rels = state.player.relations;
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.relations} scriptId={scriptId} assets={assets} onClose={onClose}>
@@ -387,14 +323,48 @@ function RelationsPanel({
                   {catalog.npcs.find((n) => n.id === r.npcId)?.name ?? r.npcId}
                 </span>
                 <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
-                  {r.descriptor?.label ?? r.stance} {r.value}
+                  {r.descriptor?.label ?? r.type}{r.value !== 0 ? ` ${r.value}` : ""}
                 </span>
               </div>
-              <DescriptorEdit
-                path={`player.relations.${r.npcId}`}
-                initial={r.descriptor?.description ?? ""}
-                onSave={handlers.onUpdateDescriptor}
-              />
+              {editing === r.npcId ? (
+                <form
+                  className="mt-2 flex gap-2"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    await updateDescriptor(`player.relations.${r.npcId}`, draft);
+                    setEditing(null);
+                  }}
+                >
+                  <input
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    className="cg-chrome min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm"
+                    style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", color: "var(--cg-text)" }}
+                    aria-label={`编辑与${catalog.npcs.find((n) => n.id === r.npcId)?.name ?? r.npcId}的关系描述`}
+                  />
+                  <button type="submit" className="cg-chrome rounded-lg border px-2 py-1 text-sm"
+                    style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}>保存</button>
+                </form>
+              ) : (
+                <>
+                  {r.descriptor?.description || r.description ? (
+                    <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>
+                      {r.descriptor?.description || r.description}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="mt-1 text-xs underline-offset-2 hover:underline"
+                    style={{ color: "var(--cg-accent)" }}
+                    onClick={() => {
+                      setEditing(r.npcId);
+                      setDraft(r.descriptor?.description || r.description || "");
+                    }}
+                  >
+                    编辑描述
+                  </button>
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -410,7 +380,6 @@ function TasksPanel({
   assets,
   onClose,
   panel,
-  handlers,
 }: {
   state: WorldState;
   catalog: Catalog;
@@ -418,11 +387,11 @@ function TasksPanel({
   assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
-  handlers: PanelHandlers;
 }) {
+  const { advance } = useGame();
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.tasks} scriptId={scriptId} assets={assets} onClose={onClose}>
-      <AdvanceControls onAdvance={handlers.onAdvance} disabled={false} />
+      <AdvanceControls onAdvance={advance} disabled={false} />
       {state.tasks.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>暂无任务。</p>
       ) : (
@@ -533,7 +502,6 @@ export function ActivePanel({
   scriptId,
   assets,
   onClose,
-  handlers,
 }: {
   panel: PanelId | null;
   state: WorldState;
@@ -541,7 +509,6 @@ export function ActivePanel({
   scriptId: string;
   assets: AssetManifest | undefined;
   onClose: () => void;
-  handlers: PanelHandlers;
 }) {
   if (!panel || !catalog) return null;
   switch (panel) {
@@ -550,11 +517,11 @@ export function ActivePanel({
         <InventoryPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />
       );
     case "character":
-      return <CharacterPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} handlers={handlers} />;
+      return <CharacterPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "relations":
-      return <RelationsPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} handlers={handlers} />;
+      return <RelationsPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "tasks":
-      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} handlers={handlers} />;
+      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "map":
       return <MapPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "log":

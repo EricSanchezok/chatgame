@@ -12,9 +12,9 @@ schedule: herbalist-schedule
 home: herbalist-hut
 items: [healing-potion, herb]
 relations:
-  - { target: elara, value: 50, stance: friendly, type: friend, note: 药草铺的酒馆常客 }
-  - { target: old-miner, value: 30, stance: neutral, type: acquaintance, note: 给他治过腰伤 }
-  - { target: old-wei, value: 40, stance: friendly, type: acquaintance, note: 常托他捎药草 }
+  - { target: elara, value: 50, type: 手帕交, description: 药草铺的酒馆常客，私交甚笃 }
+  - { target: old-miner, value: 30, type: 老病号, description: 给他治过腰伤，老病号 }
+  - { target: old-wei, value: 40, type: 帮过忙的孩子, description: 常托他捎药草，看他可怜多照应 }
 memory:
   initial:
     - { text: 塌方后镇公所收购了大量伤药，账目却再没公开过, importance: major, tags: [mine] }

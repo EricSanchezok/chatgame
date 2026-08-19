@@ -15,9 +15,9 @@ schedule: infirmary-shift
 home: hab-ring
 items: [medkit]
 relations:
-  - { target: station-chief, value: 20, stance: neutral, type: acquaintance }
-  - { target: chief-engineer, value: 30, stance: friendly, type: friend, note: 老病号 }
-  - { target: night-cat, value: 10, stance: neutral, type: acquaintance, note: 赊账未清 }
+  - { target: station-chief, value: 20, type: 同事, description: 例行工作接洽 }
+  - { target: chief-engineer, value: 30, type: 老病号, description: 老病号，总劝他少泡机房 }
+  - { target: night-cat, value: 10, type: 赊账的病人, description: 赊账未清 }
 memory:
   initial:
     - { text: "上周收治了一名辐射中毒的装卸工", importance: major, tags: [radiation, cargo] }

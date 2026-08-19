@@ -1,7 +1,7 @@
 id: emberfall
 name: 灰烬镇
 description: 蒸汽与魔法并存的边陲矿镇，矿脉枯竭，人心浮动
-schema_version: "1.0"
+schema_version: "1.1"
 language: zh
 tone:
   - 悬疑

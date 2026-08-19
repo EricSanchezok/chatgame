@@ -15,8 +15,8 @@ schedule: crew-shift
 home: hab-ring
 items: [repair-kit, scrap-metal]
 relations:
-  - { target: station-chief, value: 40, stance: friendly, type: business, note: 常年对接站务 }
-  - { target: doctor-vera, value: 30, stance: friendly, type: friend, note: 老病号 }
+  - { target: station-chief, value: 40, type: 工作搭档, description: 常年对接站务，公事公办 }
+  - { target: doctor-vera, value: 30, type: 老病号, description: 老病号，隔三差五去医务室 }
 memory:
   initial:
     - { text: "三号反应堆的冷却阀读数三周前开始漂移", importance: major, tags: [reactor, coolant] }

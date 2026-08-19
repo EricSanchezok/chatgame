@@ -54,9 +54,9 @@ export interface Catalog {
   npcs: Array<{ id: string; name: string }>;
   events: Array<{ id: string; name: string }>;
   actions: Array<{ id: string; displayName: string }>;
-  stats: Array<{ name: string; min: number; max: number }>;
+  stats: Array<{ name: string; min: number; max: number; description?: string }>;
   needs: Array<{ name: string }>;
-  statusEffects: Array<{ id: string; name: string }>;
+  statusEffects: Array<{ id: string; name: string; description?: string }>;
   tasks: Array<{ id: string; name: string }>;
   origins: Array<{ id: string; name: string }>;
   currency: { name: string; symbol: string };
@@ -81,6 +81,8 @@ export interface RelationState {
   value: number;
   stance: string;
   type: string;
+  /** Author's static description from the script (survives worldgen). */
+  description?: string;
   descriptor?: { label: string; description: string };
 }
 
@@ -106,7 +108,7 @@ export interface WorldState {
     name: string;
     stats: Record<string, number>;
     skills: Record<string, number>;
-    needs: Record<string, { value: number; descriptor?: { label: string } }>;
+    needs: Record<string, { value: number; descriptor?: { label: string; description: string } }>;
     inventory: { stacks: ItemStack[]; currency: number };
     locationId: string;
     flags: string[];
@@ -115,6 +117,7 @@ export interface WorldState {
       statusId: string;
       remainingTicks: number | null;
       stacks: number;
+      descriptor?: { label: string; description: string };
     }>;
     memories: Array<{
       id: string;
@@ -126,7 +129,11 @@ export interface WorldState {
       archived: boolean;
     }>;
     relations: RelationState[];
-    reputation: Array<{ factionId: string; value: number }>;
+    reputation: Array<{
+      factionId: string;
+      value: number;
+      descriptor?: { label: string; description: string };
+    }>;
   };
   npcs: Record<
     string,
@@ -136,7 +143,12 @@ export interface WorldState {
       skills: Record<string, number>;
       currentLocationId: string;
       relations: RelationState[];
-      statuses: Array<{ statusId: string; remainingTicks: number | null; stacks: number }>;
+      statuses: Array<{
+        statusId: string;
+        remainingTicks: number | null;
+        stacks: number;
+        descriptor?: { label: string; description: string };
+      }>;
     }
   >;
   flags: string[];
@@ -276,6 +288,7 @@ export const api = {
     ),
   save: (id: string) =>
     post<{ saved: boolean; path: string }>(`/api/sessions/${encodeURIComponent(id)}/save`, {}),
+  /** User edit to a descriptor (explanation layer only; never touches values). */
   setDescriptor: (id: string, path: string, text: string) =>
     post<{ state: WorldState }>(`/api/sessions/${encodeURIComponent(id)}/descriptor`, { path, text }),
   advance: (id: string, hours: number) =>

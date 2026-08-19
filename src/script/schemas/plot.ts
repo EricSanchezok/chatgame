@@ -43,7 +43,7 @@ export const commitmentSchema = z
   .object({
     id: idSchema,
     description: z.string().min(1),
-    type: z.enum(["secret_reveal", "time_event", "condition_event"]),
+    type: z.string().min(1),
     trigger: triggerSchema,
     must_happen: z.literal(true),
     deadline: deadlineSchema.optional(),

@@ -13,10 +13,10 @@ schedule: tavern-keeper-schedule
 home: tavern
 items: []
 relations:
-  - { target: old-miner, value: 40, stance: friendly, type: friend, note: 老矿工常来喝闷酒 }
-  - { target: shen-jiugu, value: 50, stance: friendly, type: friend, note: 药草铺的常客 }
-  - { target: mayor-shen, value: -30, stance: wary, type: acquaintance, note: 三年前的抚恤金迟迟没发全 }
-  - { target: old-wei, value: 30, stance: neutral, type: acquaintance, note: 学徒偶尔来打杂 }
+  - { target: old-miner, value: 40, type: 老主顾, description: 老矿工常来喝闷酒 }
+  - { target: shen-jiugu, value: 50, type: 手帕交, description: 药草铺的常客，彼此信得过 }
+  - { target: mayor-shen, value: -30, type: 有积怨, description: 三年前的抚恤金迟迟没发全 }
+  - { target: old-wei, value: 30, type: 半个自家人, description: 学徒偶尔来打杂，管他一顿热饭 }
 memory:
   initial:
     - { text: 三年前丈夫死于矿井塌方，尸首没能运出来, importance: major, tags: [family, mine] }

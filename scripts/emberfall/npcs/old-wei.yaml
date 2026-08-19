@@ -12,9 +12,9 @@ schedule: apprentice-schedule
 home: dormitory
 items: []
 relations:
-  - { target: elara, value: 30, stance: neutral, type: acquaintance, note: 在酒馆打杂抵酒钱 }
-  - { target: old-miner, value: 20, stance: neutral, type: acquaintance, note: 同宿的工友 }
-  - { target: shen-jiugu, value: 40, stance: friendly, type: acquaintance, note: 沈九姑给他抓过药 }
+  - { target: elara, value: 30, type: 打杂抵债的学徒, description: 在酒馆打杂抵酒钱 }
+  - { target: old-miner, value: 20, type: 同宿的工友, description: 同宿的工友，常受他照应 }
+  - { target: shen-jiugu, value: 40, type: 救命恩人, description: 沈九姑给他抓过药，他记着这份情 }
 memory:
   initial:
     - { text: 塌方那天，他听见井底传来有节奏的敲击声, importance: major, tags: [mine] }

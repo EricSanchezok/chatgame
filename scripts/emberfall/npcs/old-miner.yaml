@@ -12,9 +12,9 @@ schedule: miner-schedule
 home: dormitory
 items: [pickaxe]
 relations:
-  - { target: elara, value: 40, stance: friendly, type: friend, note: 酒馆老主顾 }
-  - { target: mayor-shen, value: -60, stance: hostile, type: enemy, note: 抚恤金被拖欠的旧怨 }
-  - { target: old-wei, value: 20, stance: neutral, type: acquaintance, note: 同吃一锅饭的工友 }
+  - { target: elara, value: 40, type: 老主顾, description: 酒馆老主顾，冲她的热酒去 }
+  - { target: mayor-shen, value: -60, type: 死对头, description: 抚恤金被拖欠的旧怨 }
+  - { target: old-wei, value: 20, type: 同锅饭的工友, description: 同吃一锅饭的工友 }
 memory:
   initial:
     - { text: 塌方前一天，支柱检修记录簿不翼而飞, importance: major, tags: [mine] }
