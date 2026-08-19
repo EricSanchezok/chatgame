@@ -23,6 +23,7 @@ import {
   SaveError,
   normalizeWorldState,
 } from "../save";
+import { emptyContextSummary } from "../context";
 import type { WorldState, WorldDefinition } from "../types";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -235,13 +236,14 @@ describe("save system", () => {
 describe("save system: normalizeWorldState", () => {
   it("fills missing derived fields from the definition", () => {
     const { def, state } = setup();
-    // Strip the derived fields as a v2 snapshot could when hand-built.
+    // Strip the derived fields as a v3 snapshot could when hand-built.
     const stripped: WorldState = {
       ...state,
       locationInventories: undefined as unknown as WorldState["locationInventories"],
       secretHolders: undefined as unknown as WorldState["secretHolders"],
       playedEventIds: undefined as unknown as WorldState["playedEventIds"],
       eventLastPlayedDay: undefined as unknown as WorldState["eventLastPlayedDay"],
+      contextSummary: undefined as unknown as WorldState["contextSummary"],
     };
     const normalized = normalizeWorldState(def, stripped);
     // locationInventories rebuilt from locations[].items.
@@ -253,11 +255,14 @@ describe("save system: normalizeWorldState", () => {
     // Played-tracking defaults.
     expect(normalized.playedEventIds).toEqual([]);
     expect(normalized.eventLastPlayedDay).toEqual({});
+    // Rolling summary defaults to the empty state.
+    expect(normalized.contextSummary).toEqual(emptyContextSummary());
   });
 
-  it("is a no-op on a complete v2 state", () => {
+  it("is a no-op on a complete v4 state", () => {
     const { def, state } = setup();
-    const normalized = normalizeWorldState(def, state);
-    expect(JSON.stringify(normalized)).toBe(JSON.stringify(state));
+    const complete = { ...state, contextSummary: emptyContextSummary() };
+    const normalized = normalizeWorldState(def, complete);
+    expect(JSON.stringify(normalized)).toBe(JSON.stringify(complete));
   });
 });

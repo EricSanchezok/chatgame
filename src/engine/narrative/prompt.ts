@@ -7,6 +7,7 @@ import type { WorldDefinition } from "../types";
 import { summarizeForInjection } from "../memory";
 import { revealableSecrets } from "../plot";
 import { formatClock } from "../time";
+import { buildStateBlock, buildContextBlocks, type ContextBlocks } from "../context";
 
 export interface PromptInput {
   definition: WorldDefinition;
@@ -15,7 +16,10 @@ export interface PromptInput {
   playerInput: string;
   /** NPC currently speaking (for knowledge filtering + persona). */
   npcId?: string;
+  /** Pre-assembled context layers (B/C/D) for hybrid injection. */
+  contextBlocks?: ContextBlocks;
 }
+
 
 /** Builds the system prompt (world constitution + style + safety). */
 export function buildSystemPrompt(def: WorldDefinition): string {
@@ -63,10 +67,30 @@ export function buildSystemPrompt(def: WorldDefinition): string {
   return parts.join("\n");
 }
 
-/** Builds the player-facing prompt for a narrative turn. */
+/**
+ * Builds the player-facing prompt for a narrative turn: layer B (structured
+ * state snapshot), C (rolling summary), D (recent transcript verbatim),
+ * then the player's input last (recency bias). When `contextBlocks` is not
+ * provided (standalone callers), the context layers are assembled on the fly.
+ */
 export function buildTurnPrompt(input: PromptInput): string {
   const { definition, state, playerInput, npcId } = input;
+  const blocks: ContextBlocks = input.contextBlocks ?? buildContextBlocks(state, definition);
   const parts: string[] = [];
+
+  // Layer B: structured state snapshot (scene-scoped, values + descriptors).
+  parts.push(buildStateBlock(state, definition, npcId));
+
+  // Layer C: rolling summary (engine-held compaction; not a fact source).
+  if (blocks.summaryBlock) {
+    parts.push(`\n${blocks.summaryBlock}`);
+  }
+
+  // Layer D: recent transcript verbatim (chronological, recency-anchored).
+  if (blocks.transcriptBlock) {
+    parts.push(`\n${blocks.transcriptBlock}`);
+  }
+
 
   parts.push(`## 当前时间：${formatClock(state.clock)}`);
   parts.push(`## 玩家位置：${definition.locations.get(state.player.locationId)?.name ?? state.player.locationId}`);
