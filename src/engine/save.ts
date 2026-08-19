@@ -1,17 +1,15 @@
 // Save system: WorldState <-> JSON serialization + version gate +
-// filesystem persistence. Saves are plain JSON snapshots (immutable state
-// makes this trivial). Agile mode: no backward compatibility — only the
-// current schema version is accepted and stale saves are rejected.
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from "node:fs";
+// persistence. Saves are plain JSON snapshots (immutable state makes this
+// trivial). Agile mode: no backward compatibility — only the current
+// schema version is accepted and stale saves are rejected.
+//
+// All filesystem access goes through the SaveStore abstraction
+// (src/engine/save-store.ts): callers never touch fs details directly,
+// and writes are atomic (temp + rename).
 import path from "node:path";
 import type { SaveFile, WorldState, WorldDefinition } from "./types";
 import { emptyContextSummary } from "./context";
+import { fsSaveStore, saveDirForScript as storeSaveDir, type SaveStore } from "./save-store";
 
 /** Bump on breaking WorldState shape changes. Older versions are rejected. */
 export const SAVE_SCHEMA_VERSION = 4;
@@ -20,7 +18,7 @@ export class SaveError extends Error {}
 
 /** Default save root (relative to repo): .chatgame/saves/<scriptId>/. */
 export function saveDirForScript(scriptId: string): string {
-  return path.join(".chatgame", "saves", scriptId);
+  return storeSaveDir(scriptId);
 }
 
 /**
@@ -74,30 +72,40 @@ export function deserializeSave(
   return save as SaveFile;
 }
 
-/** Writes a save file to disk under .chatgame/saves/<scriptId>/<runId>.json. */
+/** Writes a save file via the SaveStore (atomic write; path unchanged). */
 export function writeSave(
   definition: WorldDefinition,
   state: WorldState,
   runId?: string,
+  store: SaveStore = fsSaveStore,
 ): string {
   const id = runId ?? new Date().toISOString().replace(/[:.]/g, "-");
-  const dir = saveDirForScript(definition.script.id);
-  mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `${id}.json`);
   const save = serializeSave(definition, state);
-  writeFileSync(filePath, JSON.stringify(save, null, 2), "utf8");
-  return filePath;
+  store.write(definition.script.id, `${id}.json`, JSON.stringify(save, null, 2));
+  // The returned path mirrors the store's root so callers can locate the
+  // file regardless of which backend (or test root) is in use.
+  return path.join(storeSaveDir(definition.script.id, store.root ?? ".chatgame"), `${id}.json`);
 }
 
-/** Reads a save file from disk. */
-export function readSave(filePath: string, expectedScriptId?: string): SaveFile {
-  if (!existsSync(filePath)) {
-    throw new SaveError(`save file not found: ${filePath}`);
-  }
+/**
+ * Reads a save file from its absolute path (the caller owns the path;
+ * the store owns the fs access). Version/script gates still apply.
+ */
+export function readSave(
+  filePath: string,
+  expectedScriptId?: string,
+  store: SaveStore = fsSaveStore,
+): SaveFile {
+  const runId = path.basename(filePath);
+  const scriptId = expectedScriptId ?? path.basename(path.dirname(filePath));
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+    raw = JSON.parse(store.read(scriptId, runId)) as unknown;
   } catch (err) {
+    if (err instanceof SaveError) throw err;
+    if (err instanceof Error && err.message.includes("not found")) {
+      throw new SaveError(`save file not found: ${filePath}`);
+    }
     const message = err instanceof Error ? err.message : String(err);
     throw new SaveError(`save file is not valid JSON: ${message}`);
   }
@@ -105,13 +113,22 @@ export function readSave(filePath: string, expectedScriptId?: string): SaveFile 
 }
 
 /** Lists existing save files for a script (sorted newest-first). */
-export function listSaves(scriptId: string): string[] {
-  const dir = saveDirForScript(scriptId);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .sort()
-    .reverse();
+export function listSaves(
+  scriptId: string,
+  store: SaveStore = fsSaveStore,
+): string[] {
+  return store.list(scriptId).map((s) => s.runId);
+}
+
+/**
+ * Save file metadata (filename + mtime) for the launcher's continue list.
+ * Uses stat.mtime only — no JSON parsing per save.
+ */
+export function saveSummaries(
+  scriptId: string,
+  store: SaveStore = fsSaveStore,
+): Array<{ runId: string; updatedAt: string }> {
+  return store.list(scriptId);
 }
 
 /**
@@ -123,6 +140,7 @@ export function roundTrip(state: WorldState, definition: WorldDefinition): World
   const restored = deserializeSave(save, definition.script.id);
   return restored.worldState;
 }
+
 /**
  * Normalizes a world state against its definition: fills any missing
  * derived fields (locationInventories from locations[].items, secretHolders

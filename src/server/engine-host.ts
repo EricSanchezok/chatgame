@@ -4,7 +4,7 @@
 // - Asset file serving with path-traversal protection
 // - Per-session serialization queue (concurrent turns on one session queue up)
 // A globalThis singleton survives Next dev HMR (no double instances).
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, renameSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Engine } from "../engine";
@@ -13,7 +13,7 @@ import { listSelectableThemes, resolveTheme, buildAssetManifest, toThemeView, ty
 import { createProvider, type LLMProvider } from "../engine/narrative/provider";
 import { createMediaProvider, type MediaProvider } from "../engine/media/provider";
 import { importScriptFromZip, importScriptFromDir, defaultScriptsRoot } from "./script-import";
-import { saveDirForScript, listSaves as listScriptSaves } from "../engine/save";
+import { saveDirForScript, metaPathForScript, createDataStore, type SaveStore } from "../engine/save-store";
 import type { WorldState, TurnResult, WorldDefinition } from "../engine/types";
 import type { Theme } from "../script/schemas/theme";
 
@@ -105,9 +105,11 @@ export class EngineHost {
   private readonly scriptsRoot: string;
   private readonly provider: LLMProvider;
   private readonly media: MediaProvider;
+  private readonly saveStore: SaveStore;
 
-  constructor(options: { scriptsRoot?: string } = {}) {
+  constructor(options: { scriptsRoot?: string; saveStore?: SaveStore } = {}) {
     this.scriptsRoot = options.scriptsRoot ?? defaultScriptsRoot();
+    this.saveStore = options.saveStore ?? createDataStore();
     this.provider = createProvider();
     this.media = createMediaProvider();
   }
@@ -116,10 +118,14 @@ export class EngineHost {
   static get(): EngineHost {
     const g = globalThis as unknown as HostGlobal;
     const root = process.env.CHATGAME_SCRIPTS_ROOT;
-    const cacheKey = root ? `__CHATGAME_ENGINE_HOST__:${root}` : "__CHATGAME_ENGINE_HOST__";
+    const dataRoot = process.env.CHATGAME_DATA_ROOT;
+    const cacheKey = `${root ?? ""}:${dataRoot ?? ""}`;
     const cache = g as unknown as Record<string, EngineHost | undefined>;
     if (!cache[cacheKey]) {
-      cache[cacheKey] = root ? new EngineHost({ scriptsRoot: path.resolve(root) }) : new EngineHost();
+      cache[cacheKey] = new EngineHost({
+        scriptsRoot: root ? path.resolve(root) : undefined,
+        saveStore: createDataStore(dataRoot),
+      });
     }
     return cache[cacheKey] as EngineHost;
   }
@@ -233,7 +239,7 @@ export class EngineHost {
    */
   scriptSaves(scriptId: string): string[] {
     this.scriptDirFor(scriptId); // 404 gate
-    return listScriptSaves(scriptId);
+    return this.saveStore.list(scriptId).map((s) => s.runId);
   }
   scriptOrigins(scriptId: string): Array<{
     id: string;
@@ -301,7 +307,10 @@ export class EngineHost {
       if (options.loadRunId !== path.basename(options.loadRunId) || !options.loadRunId.endsWith(".json")) {
         throw new HostError("invalid save id", 400);
       }
-      loadSaveFile = path.join(saveDirForScript(options.scriptId), options.loadRunId);
+      loadSaveFile = path.join(
+        saveDirForScript(options.scriptId, this.saveStore.root ?? ".chatgame"),
+        options.loadRunId,
+      );
       if (!existsSync(loadSaveFile)) {
         throw new HostError("save not found", 404);
       }
@@ -315,9 +324,16 @@ export class EngineHost {
       playerName: options.playerName,
       loadSaveFile,
       provider: this.provider,
+      saveStore: this.saveStore,
     });
     const id = randomUUID();
-    this.sessions.set(id, { id, scriptId: options.scriptId, engine, lastActivity: Date.now(), dirty: false });
+    this.sessions.set(id, {
+      id,
+      scriptId: options.scriptId,
+      engine,
+      lastActivity: Date.now(),
+      dirty: false,
+    });
     return { id, state: engine.worldState, presentation: this.sessionPresentation(id) };
   }
 
@@ -338,33 +354,41 @@ export class EngineHost {
     return next;
   }
 
-  /** Runs one player turn (serialized per session). */
+  /** Runs one player turn; auto-saves + merges meta after success. */
   turn(sessionId: string, input: string): Promise<TurnResult> {
-    return this.enqueue(sessionId, (session) =>
-      session.engine.playerTurn(input).then((result) => {
-        session.lastActivity = Date.now();
-        session.dirty = true;
-        return result;
-      }),
-    );
+    return this.enqueue(sessionId, async (session) => {
+      const result = await session.engine.playerTurn(input);
+      session.lastActivity = Date.now();
+      session.dirty = true;
+      // Every completed turn lands in the fixed autosave slot (no
+      // debounce: the write is millisecond-cheap and a turn is the natural
+      // merge point). Manual saves keep their own timestamped files.
+      session.engine.save("autosave");
+      // Meta-progression is merged on every turn so unlocks survive a
+      // refresh even before the player explicitly saves or dies.
+      this.writeMeta(session.id);
+      return result;
+    });
   }
 
-  /** Offline advance (serialized per session). */
-  advance(sessionId: string, hours: number): WorldState {
-    const record = this.requireSession(sessionId);
-    const state = record.engine.advance(hours);
-    record.lastActivity = Date.now();
-    record.dirty = true;
-    return state;
+  /** Offline advance (serialized per session; death policy runs inside). */
+  advance(sessionId: string, hours: number): Promise<WorldState> {
+    return this.enqueue(sessionId, (session) => {
+      const state = session.engine.advance(hours);
+      session.lastActivity = Date.now();
+      session.dirty = true;
+      return state;
+    });
   }
 
   /** Saves the session to disk; returns the file path. */
-  save(sessionId: string, runId?: string): string {
-    const record = this.requireSession(sessionId);
-    const filePath = record.engine.save(runId);
-    record.lastActivity = Date.now();
-    record.dirty = false;
-    return filePath;
+  save(sessionId: string, runId?: string): Promise<string> {
+    return this.enqueue(sessionId, (session) => {
+      const filePath = session.engine.save(runId);
+      session.lastActivity = Date.now();
+      session.dirty = false;
+      return filePath;
+    });
   }
 
   /** Lists existing save files for the session's script. */
@@ -373,22 +397,82 @@ export class EngineHost {
     return record.engine.saves();
   }
 
-  /** Save file metadata (filename + updatedAt) for the launcher's continue list. */
+  /** Save file metadata (filename + mtime) for the launcher's continue list. */
   saveSummaries(scriptId: string): Array<{ runId: string; updatedAt: string }> {
     this.scriptDirFor(scriptId); // 404 gate
-    const dir = saveDirForScript(scriptId);
-    if (!existsSync(dir)) return [];
-    return listScriptSaves(scriptId).map((fileName) => {
-      const abs = path.join(dir, fileName);
-      let updatedAt = "";
-      try {
-        const raw = JSON.parse(readFileSync(abs, "utf8")) as { updatedAt?: string };
-        updatedAt = raw.updatedAt ?? "";
-      } catch {
-        // Unreadable save: keep the filename, empty timestamp.
+    // stat.mtime only — no per-file JSON.parse.
+    return this.saveStore.list(scriptId);
+  }
+
+  /**
+   * Merges the session's currently granted origins into the script's
+   * meta-progression file (.chatgame/meta/<scriptId>.json) and writes it
+   * back atomically. A corrupt/missing file is treated as an empty set.
+   */
+  writeMeta(sessionId: string): string[] {
+    const record = this.requireSession(sessionId);
+    const scriptId = record.scriptId;
+    const granted = record.engine.unlockedOrigins();
+    const metaPath = metaPathForScript(scriptId, this.saveStore.root ?? ".chatgame");
+    let existing: string[] = [];
+    try {
+      if (existsSync(metaPath)) {
+        const raw = JSON.parse(readFileSync(metaPath, "utf8")) as { unlockedOrigins?: unknown };
+        if (Array.isArray(raw.unlockedOrigins)) {
+          existing = raw.unlockedOrigins.filter((x): x is string => typeof x === "string");
+        }
       }
-      return { runId: fileName, updatedAt };
-    });
+    } catch {
+      // Corrupt meta file: rebuild from the session's unlocks.
+    }
+    const merged = [...new Set([...existing, ...granted])];
+    mkdirSync(path.dirname(metaPath), { recursive: true });
+    const tmp = `${metaPath}.tmp`;
+    writeFileSync(
+      tmp,
+      JSON.stringify({ unlockedOrigins: merged, updatedAt: new Date().toISOString() }, null, 2),
+      "utf8",
+    );
+    renameSync(tmp, metaPath);
+    return merged;
+  }
+
+  /**
+   * Read-only view of the script's meta-progression: unlocked origins
+   * (union across runs) plus the set of origins that *can* be unlocked
+   * (from run.yaml unlocks[].grant) — the launcher derives "default
+   * origins" as `all origins − lockable ∪ unlocked`.
+   */
+  readMeta(scriptId: string): {
+    unlockedOrigins: string[];
+    lockableOrigins: string[];
+    updatedAt: string | null;
+  } {
+    const definition = this.loadDefinition(scriptId); // 404 gate
+    const lockable = [
+      ...new Set(
+        definition.run.meta_progression.unlocks.flatMap((u) => u.grant),
+      ),
+    ];
+    const metaPath = metaPathForScript(scriptId, this.saveStore.root ?? ".chatgame");
+    try {
+      if (!existsSync(metaPath)) {
+        return { unlockedOrigins: [], lockableOrigins: lockable, updatedAt: null };
+      }
+      const raw = JSON.parse(readFileSync(metaPath, "utf8")) as {
+        unlockedOrigins?: unknown;
+        updatedAt?: unknown;
+      };
+      return {
+        unlockedOrigins: Array.isArray(raw.unlockedOrigins)
+          ? raw.unlockedOrigins.filter((x): x is string => typeof x === "string")
+          : [],
+        lockableOrigins: lockable,
+        updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+      };
+    } catch {
+      return { unlockedOrigins: [], lockableOrigins: lockable, updatedAt: null };
+    }
   }
 
   /**
@@ -400,7 +484,10 @@ export class EngineHost {
     if (runId !== path.basename(runId) || !runId.endsWith(".json")) {
       throw new HostError("invalid save id", 400);
     }
-    const filePath = path.join(saveDirForScript(record.scriptId), runId);
+    const filePath = path.join(
+      saveDirForScript(record.scriptId, this.saveStore.root ?? ".chatgame"),
+      runId,
+    );
     if (!existsSync(filePath)) {
       throw new HostError("save not found", 404);
     }

@@ -9,6 +9,7 @@ import {
   cpSync,
   readdirSync,
   statSync,
+  existsSync,
 } from "node:fs";
 import { crc32 } from "node:zlib";
 import { tmpdir } from "node:os";
@@ -17,17 +18,24 @@ import AdmZip from "adm-zip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost, HostError } from "../engine-host";
 import { ScriptImportError, importScriptFromZip, MAX_UNPACKED_BYTES } from "../script-import";
+import { createFsSaveStore, metaPathForScript } from "../../engine/save-store";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const FIXTURES = path.join(REPO_ROOT, "scripts");
 
+
 let scriptsRoot: string;
+let dataRoot: string;
 let host: EngineHost;
 
 beforeEach(() => {
   scriptsRoot = path.join(tmpdir(), `cg-host-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  dataRoot = path.join(scriptsRoot, ".data");
   mkdirSync(scriptsRoot, { recursive: true });
-  host = new EngineHost({ scriptsRoot });
+  host = new EngineHost({
+    scriptsRoot,
+    saveStore: createFsSaveStore(dataRoot),
+  });
 });
 
 afterEach(() => {
@@ -248,7 +256,7 @@ describe("session lifecycle", () => {
     installStarlight();
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
     await host.turn(session.id, "我去舰桥");
-    const filePath = host.save(session.id, "host-test");
+    const filePath = await host.save(session.id, "host-test");
     expect(filePath).toContain("host-test.json");
     expect(host.listSaves(session.id)).toContain("host-test.json");
     const before = JSON.stringify(host.state(session.id));
@@ -284,5 +292,120 @@ describe("session lifecycle", () => {
   it("rejects unknown sessions and scripts", () => {
     expect(() => host.state("no-such-session")).toThrow(HostError);
     expect(() => host.createSession({ scriptId: "no-such-script", originId: "x" })).toThrow(HostError);
+  });
+});
+
+describe("persistence & autosave", () => {
+  it("auto-saves to the fixed autosave slot after every turn", async () => {
+    installStarlight();
+    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    await host.turn(session.id, "我去舰桥");
+    const autosavePath = path.join(dataRoot, "saves", "starlight", "autosave.json");
+    expect(existsSync(autosavePath)).toBe(true);
+    const raw = JSON.parse(readFileSync(autosavePath, "utf8")) as {
+      worldState: { transcript: unknown[] };
+    };
+    expect(raw.worldState.transcript.length).toBeGreaterThan(0);
+    // Atomic write: no .tmp residue next to the slot.
+    const dir = path.join(dataRoot, "saves", "starlight");
+    expect(readdirSync(dir).some((f) => f.endsWith(".tmp"))).toBe(false);
+    host.destroySession(session.id);
+  });
+
+  it("serializes advance behind turns on the same session", async () => {
+    installStarlight();
+    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    const beforeHours = host.state(session.id).clock.totalHours;
+    const [turnResult] = await Promise.all([
+      host.turn(session.id, "你好"),
+      host.advance(session.id, 6),
+    ]);
+    expect(turnResult.narrative.length).toBeGreaterThan(0);
+    // The per-session queue ran both; the final clock reflects the advance
+    // (plus the turn's own time cost) and no turn state was lost to a
+    // mid-flight mutation.
+    expect(host.state(session.id).clock.totalHours).toBeGreaterThanOrEqual(beforeHours + 6);
+    host.destroySession(session.id);
+  });
+
+  it("resumes a destroyed session from the autosave slot (refresh recovery)", async () => {
+    installStarlight();
+    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    await host.turn(session.id, "我去舰桥");
+    const transcriptBefore = JSON.stringify(host.state(session.id).transcript);
+    host.destroySession(session.id); // the in-memory session is gone
+
+    // A fresh host (server restart / reaped session) rebuilds from disk —
+    // the same path the launcher's "继续上次游戏" takes via
+    // createSession({ loadRunId: "autosave.json" }).
+    const host2 = new EngineHost({ scriptsRoot, saveStore: createFsSaveStore(dataRoot) });
+    const resumed = host2.createSession({ scriptId: "starlight", loadRunId: "autosave.json" });
+    expect(JSON.stringify(resumed.state.transcript)).toBe(transcriptBefore);
+    host2.destroySession(resumed.id);
+  });
+});
+
+describe("meta-progression persistence", () => {
+  it("writeMeta unions existing unlocks with the session's granted origins", async () => {
+    installStarlight();
+    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    // Seed a meta file as if a previous run had unlocked station-merchant.
+    const metaPath = metaPathForScript("starlight", dataRoot);
+    mkdirSync(path.dirname(metaPath), { recursive: true });
+    writeFileSync(
+      metaPath,
+      JSON.stringify({ unlockedOrigins: ["station-merchant"], updatedAt: "2026-01-01T00:00:00.000Z" }),
+    );
+
+    // Give the session the unlock flag by editing a save and reloading it.
+    const savePath = await host.save(session.id, "meta-test");
+    const save = JSON.parse(readFileSync(savePath, "utf8")) as {
+      worldState: { player: { flags: string[] } };
+    };
+    save.worldState.player.flags.push("returned_visitor");
+    writeFileSync(savePath, JSON.stringify(save));
+    host.load(session.id, "meta-test.json");
+
+    const merged = host.writeMeta(session.id);
+    expect(merged).toContain("station-merchant");
+    const meta = host.readMeta("starlight");
+    expect(meta.unlockedOrigins).toContain("station-merchant");
+    expect(meta.lockableOrigins).toContain("station-merchant");
+    host.destroySession(session.id);
+  });
+
+  it("readMeta tolerates a corrupt meta file", async () => {
+    installStarlight();
+    const metaPath = metaPathForScript("starlight", dataRoot);
+    mkdirSync(path.dirname(metaPath), { recursive: true });
+    writeFileSync(metaPath, "{ not json");
+    const meta = host.readMeta("starlight");
+    expect(meta.unlockedOrigins).toEqual([]);
+    expect(meta.lockableOrigins).toContain("station-merchant");
+  });
+});
+
+describe("advance death policy", () => {
+  it("runs hard_reset on hp 0 and appends a system transcript entry", async () => {
+    installStarlight();
+    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    // Inject hp = 0 through a save/load round-trip (deterministic trigger).
+    const savePath = await host.save(session.id, "dead-test");
+    const save = JSON.parse(readFileSync(savePath, "utf8")) as {
+      worldState: { player: { stats: Record<string, number> } };
+    };
+    save.worldState.player.stats.hp = 0;
+    writeFileSync(savePath, JSON.stringify(save));
+    host.load(session.id, "dead-test.json");
+    expect(host.state(session.id).player.stats.hp).toBe(0);
+
+    await host.advance(session.id, 1);
+    const state = host.state(session.id);
+    const systemEntries = state.transcript.filter((t) => t.role === "system");
+    expect(systemEntries.length).toBeGreaterThan(0);
+    expect(systemEntries.at(-1)?.text).toContain("世界重置");
+    // hard_reset rerolls worldgen: the player is rebuilt (hp restored).
+    expect((state.player.stats.hp ?? 0)).toBeGreaterThan(0);
+    host.destroySession(session.id);
   });
 });

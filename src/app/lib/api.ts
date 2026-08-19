@@ -206,6 +206,15 @@ export interface ScriptDetail {
   safety: { age_rating: string; content_classes: string[] };
 }
 
+export interface ScriptMeta {
+  scriptId: string;
+  /** Origin ids unlocked by meta-progression (union across runs). */
+  unlockedOrigins: string[];
+  /** Origin ids that can be unlocked (run.yaml unlocks[].grant). */
+  lockableOrigins: string[];
+  updatedAt: string | null;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -240,6 +249,8 @@ export const api = {
   listScripts: () => request<{ scripts: ScriptSummary[] }>("/api/scripts"),
   scriptDetail: (scriptId: string) =>
     request<ScriptDetail>(`/api/scripts/${encodeURIComponent(scriptId)}`),
+  scriptMeta: (scriptId: string) =>
+    request<ScriptMeta>(`/api/scripts/${encodeURIComponent(scriptId)}/meta`),
   importScript: (file: File, replace: boolean) => {
     const form = new FormData();
     form.set("file", file);

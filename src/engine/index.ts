@@ -11,15 +11,15 @@ import { loadScript } from "./loader";
 import { generateWorld } from "./worldgen";
 import { resolveAction } from "./actions";
 import { selectDirectorEvent, directorShouldSelect } from "./director";
-import { applyDeathPolicy } from "./run";
 import { applyEffects } from "./effect";
 import { refreshAllStale, setUserDescriptor, llmDescriptorGenerator } from "./descriptors";
 import { writeSave, readSave, listSaves, normalizeWorldState } from "./save";
+import { fsSaveStore, type SaveStore } from "./save-store";
+import { applyDeathPolicy, applyUnlocks, metaProgressionSnapshot } from "./run";
 import { stepWorld } from "./worldstep";
 import { playEvent, eventTextFor } from "./events";
 import { checkTasks } from "./tasks";
 import { checkCommitments } from "./plot";
-import { applyUnlocks, metaProgressionSnapshot } from "./run";
 import { absoluteDay } from "./time";
 import { evalCondition } from "./condition";
 import { createProvider, type LLMProvider } from "./narrative/provider";
@@ -36,8 +36,9 @@ export interface EngineOptions extends SessionOptions {
   provider?: LLMProvider;
   /** Load an existing save file instead of generating a new world. */
   loadSaveFile?: string;
+  /** Save backend (defaults to the repo-local fs store). */
+  saveStore?: SaveStore;
 }
-
 /** Narrative wrapper for rejection/clarification turns (no state change). */
 function pureNarrative(text: string): TurnResult {
   return {
@@ -55,17 +56,19 @@ export class Engine {
   readonly definition: WorldDefinition;
   private state: WorldState;
   private provider: LLMProvider;
+  private saveStore: SaveStore;
 
   private constructor(
     definition: WorldDefinition,
     state: WorldState,
     provider: LLMProvider,
+    saveStore: SaveStore,
   ) {
     this.definition = definition;
     this.state = state;
     this.provider = provider;
+    this.saveStore = saveStore;
   }
-
   /** Current immutable world state (read-only view for callers). */
   get worldState(): WorldState {
     return this.state;
@@ -81,7 +84,7 @@ export class Engine {
     const provider = options.provider ?? createProvider();
     let state: WorldState;
     if (options.loadSaveFile) {
-      const save = readSave(options.loadSaveFile, definition.script.id);
+      const save = readSave(options.loadSaveFile, definition.script.id, options.saveStore ?? fsSaveStore);
       state = normalizeWorldState(definition, save.worldState);
     } else {
       const generated = generateWorld(definition, options.originId, {
@@ -92,7 +95,7 @@ export class Engine {
         state = { ...state, player: { ...state.player, name: options.playerName } };
       }
     }
-    const engine = new Engine(definition, state, provider);
+    const engine = new Engine(definition, state, provider, options.saveStore ?? fsSaveStore);
     // Fresh session: play the worldgen starting event and seed the opening
     // transcript entry (the UI renders history from the transcript).
     if (!options.loadSaveFile && state.eventLog.length === 0) {
@@ -320,38 +323,45 @@ export class Engine {
     };
   }
 
-  /**
-   * Deterministic offline advancement: runs the unified world step for
-   * `hours` (respects time.world_advances and advance_scope).
-   */
   advance(hours: number): WorldState {
     if (hours <= 0) return this.state;
     if (!this.definition.time.world_advances) return this.state;
-    const step = stepWorld(this.state, this.definition, hours, {
+    let state = stepWorld(this.state, this.definition, hours, {
       scope: this.definition.time.advance_scope,
-    });
-    this.state = step.state;
+    }).state;
+    // Offline advancement can push the player into death conditions (hp 归零
+    // or soft_failure threshold). The policy must run here too, exactly like
+    // playerTurn step 6, so a resumed run is never left in a dead state with
+    // an inconsistent transcript.
+    const deathResult = applyDeathPolicy(state, this.definition);
+    if (deathResult.firedMode) {
+      state = deathResult.state;
+      if (deathResult.narrative) {
+        // Engine-owned fact: surface the consequence in the chat history as
+        // a system entry (visible even after a world reroll).
+        state = appendTranscript(state, "system", deathResult.narrative, []);
+      }
+    }
+    this.state = state;
     return this.state;
   }
 
   /** Saves the current world state to disk; returns the file path. */
   save(runId?: string): string {
-    return writeSave(this.definition, this.state, runId);
+    return writeSave(this.definition, this.state, runId, this.saveStore);
   }
 
   /** Lists existing save files for this script. */
   saves(): string[] {
-    return listSaves(this.definition.script.id);
+    return listSaves(this.definition.script.id, this.saveStore);
   }
 
   /** Reloads state from a save file (normalized against the definition). */
   load(filePath: string): WorldState {
-    const save = readSave(filePath, this.definition.script.id);
+    const save = readSave(filePath, this.definition.script.id, this.saveStore);
     this.state = normalizeWorldState(this.definition, save.worldState);
     return this.state;
   }
-
-  /** User edit to the explanation layer (never touches numeric values). */
   setDescriptor(path: DescriptorPath, text: string): WorldState {
     const out = setUserDescriptor(this.state, path, text);
     this.state = out.state;
