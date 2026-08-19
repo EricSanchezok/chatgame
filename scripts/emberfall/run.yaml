@@ -13,7 +13,7 @@ meta_progression:
   keep: [flags, lore, relations_overview]
   reset: [stats, inventory, location, currency]
   unlocks:
-    - { flag: returned-visitor, grant: [miner, apprentice, scholar] }
+    - { flag: returned-visitor, grant: [apprentice, scholar] }
 memory:
   tier_retention_days:
     major: 0

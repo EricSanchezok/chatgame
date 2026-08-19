@@ -6,17 +6,28 @@
 // without breaking the library.
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
-import { api, type SaveSummary, type ScriptDetail, type ScriptSummary } from "../lib/api";
+import { api, type SaveSummary, type ScriptDetail, type ScriptMeta, type ScriptSummary } from "../lib/api";
 import { rgba } from "../lib/theme";
-import { useGame } from "./game/state";
+import { hasLastRun, useGame } from "./game/state";
 
 type Modal = { kind: "new" | "continue" | "none"; scriptId: string } | { kind: "none" };
 
+/**
+ * An origin is selectable when it is a default origin (not listed in
+ * run.yaml unlocks[].grant) or already unlocked by meta-progression.
+ */
+function originAvailable(originId: string, meta: ScriptMeta | null): boolean {
+  if (!meta) return true;
+  if (!meta.lockableOrigins.includes(originId)) return true;
+  return meta.unlockedOrigins.includes(originId);
+}
+
 export function Launcher() {
-  const { state, startNewGame, continueGame, clearError } = useGame();
+  const { state, startNewGame, continueGame, resumeLast, clearError } = useGame();
   const [scripts, setScripts] = useState<ScriptSummary[]>([]);
   const [modal, setModal] = useState<Modal>({ kind: "none" });
   const [detail, setDetail] = useState<ScriptDetail | null>(null);
+  const [meta, setMeta] = useState<ScriptMeta | null>(null);
   const [originId, setOriginId] = useState("");
   const [playerName, setPlayerName] = useState("");
   const [saves, setSaves] = useState<SaveSummary[]>([]);
@@ -24,6 +35,9 @@ export function Launcher() {
   const [importError, setImportError] = useState("");
   const [importOk, setImportOk] = useState("");
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Computed once on mount (client-only; the reference lives in
+  // localStorage and is refreshed by the GameProvider on enter/exit).
+  const [lastRunAvailable, setLastRunAvailable] = useState(() => hasLastRun());
 
   const loadScripts = useCallback(async () => {
     try {
@@ -55,10 +69,19 @@ export function Launcher() {
     try {
       const d = await api.scriptDetail(scriptId);
       setDetail(d);
-      setOriginId(d.origins[0]?.id ?? "");
       setSaves(d.saves);
+      if (kind === "new") {
+        // Meta unlocks gate the origin picker (locked origins are dimmed).
+        const m = await api.scriptMeta(scriptId);
+        setMeta(m);
+        setOriginId(d.origins.find((o) => originAvailable(o.id, m))?.id ?? "");
+      } else {
+        setMeta(null);
+        setOriginId(d.origins[0]?.id ?? "");
+      }
     } catch (err) {
       setDetail(null);
+      setMeta(null);
       setImportError(err instanceof Error ? err.message : String(err));
     }
   }
@@ -66,6 +89,7 @@ export function Launcher() {
   function closeModal() {
     setModal({ kind: "none" });
     setDetail(null);
+    setMeta(null);
     setOriginId("");
     setPlayerName("");
     setSaves([]);
@@ -91,6 +115,16 @@ export function Launcher() {
 
   const openScript = modal.kind !== "none" ? scripts.find((s) => s.id === modal.scriptId) : undefined;
 
+  async function onResumeLast() {
+    clearError();
+    const ok = await resumeLast();
+    if (!ok) {
+      // The reference was stale (save/script deleted) and already cleared;
+      // hide the entry and keep the launcher open with the inline error.
+      setLastRunAvailable(false);
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col" style={{ background: "var(--cg-background)", color: "var(--cg-text)" }}>
       <header className="shrink-0 border-b px-6 py-5" style={{ borderColor: "var(--cg-border)" }}>
@@ -102,6 +136,26 @@ export function Launcher() {
 
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-6 py-8">
+          {lastRunAvailable ? (
+            <button
+              type="button"
+              onClick={() => void onResumeLast()}
+              disabled={state.busy}
+              className="cg-chrome mb-6 flex w-full items-center justify-between gap-3 rounded-xl border px-5 py-4 text-left"
+              style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}
+            >
+              <span>
+                <span className="block text-sm font-semibold" style={{ color: "var(--cg-text)" }}>
+                  继续上次游戏
+                </span>
+                <span className="mt-0.5 block text-xs" style={{ color: "var(--cg-text-dim)" }}>
+                  从最近的自动存档恢复进度
+                </span>
+              </span>
+              <span className="text-lg" style={{ color: "var(--cg-primary)" }}>→</span>
+            </button>
+          ) : null}
+
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {scripts.map((s) => {
               const bg = s.theme?.palette.background ?? "var(--cg-background)";
@@ -219,15 +273,24 @@ export function Launcher() {
                     className="cg-chrome w-full rounded-lg border px-3 py-2"
                     style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)", color: "var(--cg-text)" }}
                   >
-                    {detail.origins.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}{o.difficulty ? `（${o.difficulty}）` : ""}
-                      </option>
-                    ))}
+                    {detail.origins.map((o) => {
+                      const available = originAvailable(o.id, meta);
+                      return (
+                        <option key={o.id} value={o.id} disabled={!available}>
+                          {o.name}{o.difficulty ? `（${o.difficulty}）` : ""}
+                          {available ? "" : " · 未解锁"}
+                        </option>
+                      );
+                    })}
                   </select>
                   {detail.origins.find((o) => o.id === originId)?.description ? (
                     <p className="mt-2 text-sm" style={{ color: "var(--cg-text-dim)" }}>
                       {detail.origins.find((o) => o.id === originId)?.description}
+                    </p>
+                  ) : null}
+                  {meta && meta.lockableOrigins.some((id) => !meta.unlockedOrigins.includes(id)) ? (
+                    <p className="mt-2 text-xs" style={{ color: "var(--cg-text-dim)" }}>
+                      部分出身需要完成特定结局或事件才能解锁。
                     </p>
                   ) : null}
                 </div>

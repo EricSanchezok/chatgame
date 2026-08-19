@@ -11,16 +11,19 @@ let scriptsRoot: string;
 let sessionId: string;
 
 beforeAll(() => {
-  // Point EngineHost at a temp scripts root (avoids mutating the repo).
-  // The singleton caches by root, so env must be set before first import.
+  // Point EngineHost at a temp scripts root + temp data root (avoids
+  // mutating the repo). The singleton caches by env, so both must be set
+  // before the first import.
   scriptsRoot = path.join(tmpdir(), `cg-api-${Date.now()}`);
   mkdirSync(scriptsRoot, { recursive: true });
   cpSync(path.join(REPO_ROOT, "scripts", "starlight"), path.join(scriptsRoot, "starlight"), { recursive: true });
   process.env.CHATGAME_SCRIPTS_ROOT = scriptsRoot;
+  process.env.CHATGAME_DATA_ROOT = path.join(scriptsRoot, ".data");
 });
 
 afterAll(() => {
   delete process.env.CHATGAME_SCRIPTS_ROOT;
+  delete process.env.CHATGAME_DATA_ROOT;
   rmSync(scriptsRoot, { recursive: true, force: true });
 });
 
@@ -210,5 +213,100 @@ describe("sessions API", () => {
       params: Promise.resolve({ id: sessionId }),
     });
     expect(after.status).toBe(404);
+  });
+});
+
+describe("input ceilings", () => {
+  let id: string;
+  beforeAll(async () => {
+    // The shared sessionId was destroyed by the DELETE test; create a
+    // dedicated session for the ceiling checks.
+    const { POST } = await import("../sessions/route");
+    const res = await POST(
+      new Request("http://x/api/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scriptId: "starlight", originId: "crew-member", seed: 3 }),
+      }),
+    );
+    const body = await res.json();
+    id = body.id;
+  });
+
+  it("rejects turn input longer than 2000 chars with 400", async () => {
+    const { POST } = await import("../sessions/[id]/turn/route");
+    const res = await POST(
+      new Request("http://x/api/sessions/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: "x".repeat(2001) }),
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a 2000-char input", async () => {
+    const { POST } = await import("../sessions/[id]/turn/route");
+    const res = await POST(
+      new Request("http://x/api/sessions/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: "你好".repeat(1000) }),
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects advance hours over 1000 with 400", async () => {
+    const { POST } = await import("../sessions/[id]/advance/route");
+    const res = await POST(
+      new Request("http://x/api/sessions/advance", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hours: 1001 }),
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects non-integer advance hours with 400", async () => {
+    const { POST } = await import("../sessions/[id]/advance/route");
+    const res = await POST(
+      new Request("http://x/api/sessions/advance", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hours: 3.5 }),
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("meta API", () => {
+  it("GET /api/scripts/:id/meta returns unlocks + lockable set", async () => {
+    const { GET } = await import("../scripts/[scriptId]/meta/route");
+    const res = await GET(new Request("http://x/api/scripts/starlight/meta"), {
+      params: Promise.resolve({ scriptId: "starlight" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.unlockedOrigins)).toBe(true);
+    // starlight run.yaml: returned_visitor -> [station-merchant].
+    expect(body.lockableOrigins).toContain("station-merchant");
+    // The meta file may or may not exist yet (earlier turns write it on
+    // autosave); either state is valid.
+    expect(body.updatedAt === null || typeof body.updatedAt === "string").toBe(true);
+  });
+
+  it("GET /api/scripts/:id/meta 404s unknown scripts", async () => {
+    const { GET } = await import("../scripts/[scriptId]/meta/route");
+    const res = await GET(new Request("http://x/api/scripts/nope/meta"), {
+      params: Promise.resolve({ scriptId: "nope" }),
+    });
+    expect(res.status).toBe(404);
   });
 });

@@ -14,6 +14,11 @@ export async function POST(
     if (!body || typeof body.input !== "string" || body.input.trim() === "") {
       return json({ error: "input is required" }, 400);
     }
+    // Input ceiling: the LLM context is bounded; oversized free text is
+    // rejected up front instead of silently truncating the player's words.
+    if (body.input.length > 2000) {
+      return json({ error: "input must be 2000 characters or fewer" }, 400);
+    }
     const host = EngineHost.get();
     const result = await host.turn(id, body.input);
     return json({

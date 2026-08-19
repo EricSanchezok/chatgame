@@ -9,7 +9,7 @@ export async function POST(
   try {
     const { id } = await ctx.params;
     const body = await readJson<{ runId?: string }>(request);
-    const filePath = EngineHost.get().save(id, body?.runId);
+    const filePath = await EngineHost.get().save(id, body?.runId);
     return json({ saved: true, path: filePath }, 201);
   } catch (err) {
     return errorResponse(err);

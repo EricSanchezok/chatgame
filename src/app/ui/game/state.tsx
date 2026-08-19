@@ -28,6 +28,54 @@ export type PanelId = "inventory" | "character" | "relations" | "tasks" | "map" 
 /** "follow" = 跟随剧本 (default + by_location); otherwise a manual theme id. */
 export type ThemeMode = "follow" | string;
 
+/** localStorage key for the "continue last run" reference. */
+const LAST_RUN_KEY = "chatgame:last-run";
+
+export interface LastRunRef {
+  scriptId: string;
+  /** Save filename (basename) to resume; the autosave slot by default. */
+  runId: string;
+}
+
+/** Reads the persisted last-run reference (null when absent/invalid). */
+export function readLastRun(): LastRunRef | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LAST_RUN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LastRunRef>;
+    if (typeof parsed.scriptId !== "string" || typeof parsed.runId !== "string") return null;
+    return { scriptId: parsed.scriptId, runId: parsed.runId };
+  } catch {
+    return null;
+  }
+}
+
+/** True when a resumable last-run reference exists. */
+export function hasLastRun(): boolean {
+  return readLastRun() !== null;
+}
+
+/** Persists the last-run reference (best-effort; storage may be blocked). */
+export function writeLastRun(scriptId: string, runId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_RUN_KEY, JSON.stringify({ scriptId, runId }));
+  } catch {
+    // Storage full/blocked: the resume entry is best-effort only.
+  }
+}
+
+/** Clears the last-run reference (stale save / explicit reset). */
+export function clearLastRun(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(LAST_RUN_KEY);
+  } catch {
+    // Best-effort.
+  }
+}
+
 export interface SessionHandle {
   id: string;
   scriptId: string;
@@ -147,6 +195,7 @@ interface GameApi {
   state: GameState;
   startNewGame: (scriptId: string, originId: string, playerName?: string) => Promise<void>;
   continueGame: (scriptId: string, runId: string) => Promise<void>;
+  resumeLast: () => Promise<boolean>;
   sendTurn: (input: string) => Promise<void>;
   save: () => Promise<void>;
   advance: (hours: number) => Promise<void>;
@@ -217,6 +266,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
       locationRef.current = session.state.player.locationId;
       dispatch({ type: "enter", session: { ...session, scriptId }, detail });
       dispatch({ type: "audio", on: true }); // the start click is the gesture
+      // The disk owns the state; localStorage only remembers where to
+      // resume. Every turn lands in the autosave slot, so the reference
+      // points there and stays fresh after a refresh.
+      writeLastRun(scriptId, "autosave.json");
     } catch (err) {
       dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
     }
@@ -230,8 +283,32 @@ export function GameProvider({ children }: { children: ReactNode }) {
       locationRef.current = session.state.player.locationId;
       dispatch({ type: "enter", session: { ...session, scriptId }, detail });
       dispatch({ type: "audio", on: true });
+      writeLastRun(scriptId, runId);
     } catch (err) {
       dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /**
+   * Resumes the persisted last run (autosave slot) through the existing
+   * createSession({ loadRunId }) path. Returns false (and clears the stale
+   * reference) when the save/script no longer exists.
+   */
+  async function resumeLast(): Promise<boolean> {
+    const ref = readLastRun();
+    if (!ref) return false;
+    dispatch({ type: "busy", on: true });
+    try {
+      const detail = await api.scriptDetail(ref.scriptId);
+      const session = await api.createSession({ scriptId: ref.scriptId, loadRunId: ref.runId });
+      locationRef.current = session.state.player.locationId;
+      dispatch({ type: "enter", session: { ...session, scriptId: ref.scriptId }, detail });
+      dispatch({ type: "audio", on: true });
+      return true;
+    } catch (err) {
+      clearLastRun();
+      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      return false;
     }
   }
 
@@ -244,6 +321,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
         cuesToAudio(audio, result.mediaCues, state.detail.assets, state.session.scriptId, api.fileAsset, api.entityAsset);
       }
       dispatch({ type: "turn", result });
+      // The server autosaved after this turn; keep the resume pointer on
+      // the autosave slot so a refresh lands on the freshest state.
+      writeLastRun(state.session.scriptId, "autosave.json");
     } catch (err) {
       dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
     }
@@ -284,6 +364,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (saveFirst && state.dirty) await api.save(state.session.id);
+    // Keep the resume reference alive: the autosave (or the manual save
+    // above) is on disk, so "继续上次" still works after leaving.
+    writeLastRun(state.session.scriptId, "autosave.json");
     await api.destroySession(state.session.id);
     audio.stopAll();
     locationRef.current = null;
@@ -295,6 +378,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       state,
       startNewGame,
       continueGame,
+      resumeLast,
       sendTurn,
       save,
       advance,

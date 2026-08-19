@@ -83,3 +83,4 @@
 - [0014 — LLM 上下文管理——对话历史注入与滚动摘要](0014-llm-context-management.md)
 - [0015 — 记忆系统升级——相关性检索、连续遗忘与失效语义](0015-memory-strength-retrieval-supersede.md)
 - [0016 — 死契约接线与 UI 消费点补全（cooldown / llm_freedom / safety / zip 加固）](0016-dead-contract-wiring-and-ui-consumption.md)
+- [0017 — 会话持久化、刷新恢复与 meta 链路](0017-session-persistence-refresh-recovery-meta.md)
