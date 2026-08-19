@@ -4,7 +4,8 @@
 // Usage: install-hooks.mjs <target-dir>
 // The hook runs the four verifiers (whitespace is built into the hook script
 // via `git diff --cached --check`). Never touches global git config.
-import { mkdir, writeFile, readFile, stat, chmod } from 'node:fs/promises';
+import { mkdir, writeFile, chmod } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -28,28 +29,24 @@ git diff --cached --check
 }
 
 export async function installHook(targetDir) {
-  const gitDir = path.join(targetDir, '.git');
-  let st;
+  // Resolve the hooks directory the way git actually resolves it, so the
+  // hook lands where git executes hooks. This is the common hooks dir for
+  // both regular repositories and linked worktrees (git has no per-worktree
+  // hook mechanism; .git/worktrees/<name>/hooks is never consulted).
+  let hooksDir;
   try {
-    st = await stat(gitDir);
+    hooksDir = execSync('git rev-parse --git-path hooks', { cwd: targetDir })
+      .toString()
+      .trim();
   } catch {
-    throw new Error(`not a git repository: ${targetDir} (no .git)`);
+    throw new Error(`not a git repository: ${targetDir} (git rev-parse --git-path hooks failed)`);
   }
-  if (!st.isDirectory()) {
-    // worktree: .git is a file pointing to the real git dir
-    const gitFile = await readFile(gitDir, 'utf8');
-    const m = gitFile.match(/^gitdir:\s*(.+)$/m);
-    if (!m) throw new Error(`cannot resolve git dir from ${gitFile}`);
-    const realGit = path.resolve(targetDir, m[1].trim());
-    await writeHook(realGit, targetDir);
-    return realGit;
-  }
-  await writeHook(gitDir, targetDir);
-  return gitDir;
+  if (!hooksDir) throw new Error(`cannot resolve hooks dir for ${targetDir}`);
+  await writeHook(hooksDir, targetDir);
+  return hooksDir;
 }
 
-async function writeHook(gitDir, targetDir) {
-  const hooksDir = path.join(gitDir, 'hooks');
+async function writeHook(hooksDir, targetDir) {
   await mkdir(hooksDir, { recursive: true });
   const hookPath = path.join(hooksDir, HOOK_NAME);
   await writeFile(hookPath, hookScript(targetDir), { mode: 0o755 });
@@ -65,8 +62,8 @@ async function main() {
   }
   const abs = path.resolve(target);
   try {
-    const gitDir = await installHook(abs);
-    console.log(`install-hooks: installed ${HOOK_NAME} in ${gitDir}/hooks/`);
+    const hooksDir = await installHook(abs);
+    console.log(`install-hooks: installed ${HOOK_NAME} in ${hooksDir}/`);
   } catch (e) {
     console.error(`install-hooks: ${e.message}`);
     process.exit(1);
