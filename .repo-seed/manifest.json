@@ -87,7 +87,8 @@
     {
       "path": "scripts/verify-doc-links.mjs",
       "sha256": "d1a6699f375766fa6a14dbd3a2b99cbd1ed8d4e364f6c40d341ebc77e9fdab39",
-      "category": "gate"
+      "category": "gate",
+      "userModified": true
     },
     {
       "path": "scripts/verify-placeholders.mjs",
@@ -101,8 +102,9 @@
     },
     {
       "path": "scripts/install-hooks.mjs",
-      "sha256": "eebde0a26eca2e6f11e15d0d26fbf0b408af6370e251eb6a8473f7672f1620a7",
-      "category": "gate"
+      "sha256": "aec3790c8b17a890568530cf55a4ed10e1948a6742f58ca430514b9185d5bbc9",
+      "category": "gate",
+      "userModified": true
     },
     {
       "path": "CONTRIBUTING.md",
