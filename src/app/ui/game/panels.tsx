@@ -157,6 +157,67 @@ function PanelFrame({
   );
 }
 
+/**
+ * Inline descriptor editor shared by relations / needs / reputation rows:
+ * shows the description text with an edit entry that POSTs to the
+ * descriptor API (explanation layer only — values are never touched).
+ */
+function DescriptorEdit({
+  path,
+  text,
+  label,
+}: {
+  /** Engine DescriptorPath (player.relations.<npc> / .needs.<name> / .reputation.<faction>). */
+  path: string;
+  text: string;
+  /** Human-readable target name for the aria-label. */
+  label: string;
+}) {
+  const { updateDescriptor } = useGame();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+  if (editing) {
+    return (
+      <form
+        className="mt-1 flex gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          await updateDescriptor(path, draft);
+          setEditing(false);
+        }}
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="cg-chrome min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm"
+          style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", color: "var(--cg-text)" }}
+          aria-label={`编辑${label}的描述`}
+        />
+        <button type="submit" className="cg-chrome rounded-lg border px-2 py-1 text-sm"
+          style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}>保存</button>
+      </form>
+    );
+  }
+  return (
+    <>
+      {text ? (
+        <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>{text}</p>
+      ) : null}
+      <button
+        type="button"
+        className="mt-1 text-xs underline-offset-2 hover:underline"
+        style={{ color: "var(--cg-accent)" }}
+        onClick={() => {
+          setDraft(text);
+          setEditing(true);
+        }}
+      >
+        编辑描述
+      </button>
+    </>
+  );
+}
+
 function InventoryPanel({
   state,
   catalog,
@@ -254,20 +315,51 @@ function CharacterPanel({
             ) : null}
           </div>
         ))}
-        {catalog.needs.map((n) => (
-          <div key={n.name}>
-            <div className="flex justify-between">
-              <dt style={{ color: "var(--cg-text-dim)" }}>{n.name}</dt>
-              <dd style={{ color: "var(--cg-text)" }}>{state.player.needs[n.name]?.value ?? 0}</dd>
+        {catalog.needs.map((n) => {
+          const need = state.player.needs[n.name];
+          return (
+            <div key={n.name}>
+              <div className="flex justify-between">
+                <dt style={{ color: "var(--cg-text-dim)" }}>{n.name}</dt>
+                <dd style={{ color: "var(--cg-text)" }}>
+                  {need?.descriptor?.label ? `${need.descriptor.label} · ` : ""}{need?.value ?? 0}
+                </dd>
+              </div>
+              <DescriptorEdit
+                path={`player.needs.${n.name}`}
+                text={need?.descriptor?.description ?? ""}
+                label={n.name}
+              />
             </div>
-            {state.player.needs[n.name]?.descriptor?.description ? (
-              <p className="text-xs" style={{ color: "var(--cg-text-dim)" }}>
-                {state.player.needs[n.name]?.descriptor?.description}
-              </p>
-            ) : null}
-          </div>
-        ))}
+          );
+        })}
       </dl>
+      {state.player.reputation.length > 0 ? (
+        <div className="mt-4">
+          <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>声望</h4>
+          <ul className="space-y-2">
+            {state.player.reputation.map((r) => {
+              const factionName = catalog.factions.find((f) => f.id === r.factionId)?.name ?? r.factionId;
+              return (
+                <li key={r.factionId} className="cg-chrome rounded-lg border p-2"
+                  style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm" style={{ color: "var(--cg-text)" }}>{factionName}</span>
+                    <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
+                      {r.descriptor?.label ? `${r.descriptor.label} · ` : ""}{r.value}
+                    </span>
+                  </div>
+                  <DescriptorEdit
+                    path={`player.reputation.${r.factionId}`}
+                    text={r.descriptor?.description ?? ""}
+                    label={factionName}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
       {state.player.statuses.length > 0 ? (
         <div className="mt-4">
           <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>状态</h4>
@@ -305,9 +397,6 @@ function RelationsPanel({
   onClose: () => void;
   panel: PanelId;
 }) {
-  const { updateDescriptor } = useGame();
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
   const rels = state.player.relations;
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.relations} scriptId={scriptId} assets={assets} onClose={onClose}>
@@ -315,58 +404,25 @@ function RelationsPanel({
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>还没有结识任何人。</p>
       ) : (
         <ul className="space-y-3">
-          {rels.map((r) => (
-            <li key={r.npcId} className="cg-chrome rounded-lg border p-3"
-              style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
-              <div className="flex items-center justify-between">
-                <span className="font-semibold" style={{ color: "var(--cg-text)" }}>
-                  {catalog.npcs.find((n) => n.id === r.npcId)?.name ?? r.npcId}
-                </span>
-                <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
-                  {r.descriptor?.label ?? r.type}{r.value !== 0 ? ` ${r.value}` : ""}
-                </span>
-              </div>
-              {editing === r.npcId ? (
-                <form
-                  className="mt-2 flex gap-2"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    await updateDescriptor(`player.relations.${r.npcId}`, draft);
-                    setEditing(null);
-                  }}
-                >
-                  <input
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    className="cg-chrome min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm"
-                    style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", color: "var(--cg-text)" }}
-                    aria-label={`编辑与${catalog.npcs.find((n) => n.id === r.npcId)?.name ?? r.npcId}的关系描述`}
-                  />
-                  <button type="submit" className="cg-chrome rounded-lg border px-2 py-1 text-sm"
-                    style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}>保存</button>
-                </form>
-              ) : (
-                <>
-                  {r.descriptor?.description || r.description ? (
-                    <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>
-                      {r.descriptor?.description || r.description}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="mt-1 text-xs underline-offset-2 hover:underline"
-                    style={{ color: "var(--cg-accent)" }}
-                    onClick={() => {
-                      setEditing(r.npcId);
-                      setDraft(r.descriptor?.description || r.description || "");
-                    }}
-                  >
-                    编辑描述
-                  </button>
-                </>
-              )}
-            </li>
-          ))}
+          {rels.map((r) => {
+            const npcName = catalog.npcs.find((n) => n.id === r.npcId)?.name ?? r.npcId;
+            return (
+              <li key={r.npcId} className="cg-chrome rounded-lg border p-3"
+                style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold" style={{ color: "var(--cg-text)" }}>{npcName}</span>
+                  <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
+                    {r.descriptor?.label ?? r.type}{r.value !== 0 ? ` ${r.value}` : ""}
+                  </span>
+                </div>
+                <DescriptorEdit
+                  path={`player.relations.${r.npcId}`}
+                  text={r.descriptor?.description || r.description || ""}
+                  label={`与${npcName}的关系`}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
     </PanelFrame>

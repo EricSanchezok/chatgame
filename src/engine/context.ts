@@ -9,10 +9,11 @@
 //     generateText with a template that keeps facts and drops atmosphere)
 //   - long-term: engine memory (unchanged — engine writes, LLM never writes)
 //   - facts: numeric engine state (values are the only fact source;
+//     descriptions are injected by prompt.ts via the 关系与状态摘要 block)
 import type { WorldState, WorldDefinition, TranscriptEntry } from "./types";
 import { z } from "zod";
+import { formatClock } from "./time";
 import type { LLMProvider } from "./narrative/provider";
-import { relationLabel, reputationLabel } from "./definition";
 
 // ---------------------------------------------------------------------------
 // Tunables (defaults; overridable per-script via run.ext.llm_context)
@@ -28,8 +29,6 @@ export const SUMMARY_TRIGGER_RATIO = 0.65;
 export const CONTEXT_TOKEN_BUDGET = 24000;
 /** Max chars for a generated summary (conservative token ceiling). */
 export const SUMMARY_MAX_CHARS = 6000;
-/** Max descriptor lines injected per scene (keeps the block tight). */
-export const MAX_SCENE_DESCRIPTORS = 3;
 
 // ---------------------------------------------------------------------------
 // Run-level overrides (run.ext.llm_context) — optional, defaults locked
@@ -88,10 +87,6 @@ export function emptyContextSummary(): ContextSummary {
 // Budget estimation (no tokenizer dependency — conservative char estimate)
 // ---------------------------------------------------------------------------
 
-/** Conservative char-based estimate of prompt size (CJK chars ≈ 1-3 tokens). */
-export function estimateChars(parts: string[]): number {
-  return parts.reduce((sum, p) => sum + p.length, 0);
-}
 
 /** True when the current transcript+summary would overflow the injection budget. */
 export function overBudget(state: WorldState, definition: WorldDefinition): boolean {
@@ -145,100 +140,18 @@ export function transcriptWindow(
   return entries.slice(startIdx);
 }
 
-// ---------------------------------------------------------------------------
-// Structured state snapshot (layer B) — scene-scoped, descriptors anchored
-// ---------------------------------------------------------------------------
-
-export interface SceneDescriptorLine {
-  kind: "relation" | "reputation" | "need";
-  targetName: string;
-  value: number;
-  label: string;
-  description?: string;
-}
-
-/**
- * Collects the dual-track descriptor lines relevant to the current scene:
- * player relations/reputations/needs touching NPCs present at the player's
- * location, plus the speaking NPC's relations toward the player. Each line
- * pairs the numeric value with its deterministic label AND the LLM prose
- * description (description is anchored to the value — never a fact source).
- */
-export function sceneDescriptorLines(
-  state: WorldState,
-  definition: WorldDefinition,
-  npcId?: string,
-): SceneDescriptorLine[] {
-  const playerLoc = state.player.locationId;
-  const presentNpcs = [...definition.npcs.values()].filter(
-    (n) => state.npcs[n.id]?.currentLocationId === playerLoc,
-  );
-  const lines: SceneDescriptorLine[] = [];
-
-  // Player -> present-NPC relations (scene-relevant, capped).
-  for (const rel of state.player.relations) {
-    if (!presentNpcs.some((n) => n.id === rel.npcId)) continue;
-    const npcName = definition.npcs.get(rel.npcId)?.name ?? rel.npcId;
-    lines.push({
-      kind: "relation",
-      targetName: npcName,
-      value: rel.value,
-      label: rel.descriptor?.label ?? relationLabel(rel.value),
-      description: rel.descriptor?.description,
-    });
-    if (lines.length >= MAX_SCENE_DESCRIPTORS) return lines;
-  }
-
-  // Player -> faction reputations for factions present in the scene.
-  for (const rep of state.player.reputation) {
-    const faction = definition.factions.get(rep.factionId);
-    if (!faction) continue;
-    if (!faction.members.some((id) => presentNpcs.some((n) => n.id === id))) continue;
-    lines.push({
-      kind: "reputation",
-      targetName: faction.name ?? rep.factionId,
-      value: rep.value,
-      label: rep.descriptor?.label ?? reputationLabel(rep.value),
-      description: rep.descriptor?.description,
-    });
-    if (lines.length >= MAX_SCENE_DESCRIPTORS) return lines;
-  }
-
-  // Speaking NPC -> player relation (when an NPC is the conversation partner).
-  if (npcId) {
-    const npc = state.npcs[npcId];
-    if (npc) {
-      const relToPlayer = npc.relations.find((r) => r.npcId === "player");
-      if (relToPlayer) {
-        const npcName = definition.npcs.get(npcId)?.name ?? npcId;
-        lines.push({
-          kind: "relation",
-          targetName: npcName,
-          value: relToPlayer.value,
-          label: relToPlayer.descriptor?.label ?? relationLabel(relToPlayer.value),
-          description: relToPlayer.descriptor?.description,
-        });
-      }
-    }
-  }
-
-  return lines.slice(0, MAX_SCENE_DESCRIPTORS);
-}
-
 /**
  * Builds the structured state snapshot block (layer B): time/location,
- * present NPCs, active tasks, key flags, and scene-scoped dual-track
- * descriptor lines. Includes the system instruction that numeric values
- * are the only fact source and descriptions are explanations.
+ * present NPCs, active tasks, and key flags — facts only. Descriptions
+ * (relations/reputations/needs) are injected separately by prompt.ts via
+ * the 关系与状态摘要 block, so each fact has a single home. Includes the
+ * system instruction that numeric values are the only fact source and
+ * descriptions are explanations.
  */
-export function buildStateBlock(
-  state: WorldState,
-  definition: WorldDefinition,
-  npcId?: string,
-): string {
+export function buildStateBlock(state: WorldState, definition: WorldDefinition): string {
   const loc = definition.locations.get(state.player.locationId);
   const parts: string[] = ["## 当前状态快照"];
-  parts.push(`- 时间：第 ${state.clock.day} 天 ${state.clock.hour}:00（${state.clock.weather}，${state.clock.season}）`);
+  parts.push(`- 时间：${formatClock(state.clock)}`);
   parts.push(`- 地点：${loc?.name ?? state.player.locationId}`);
 
   const presentNpcs = [...definition.npcs.values()].filter(
@@ -261,17 +174,8 @@ export function buildStateBlock(
     parts.push(`- 关键状态标记：${keyFlags.join("、")}`);
   }
 
-  const lines = sceneDescriptorLines(state, definition, npcId);
-  if (lines.length > 0) {
-    parts.push("- 关系/声望/需求（数值为唯一事实源，描述仅为解释）：");
-    for (const l of lines) {
-      const desc = l.description ? ` | ${l.description}` : "";
-      parts.push(`  - ${l.targetName} | ${l.kind === "need" ? "需求" : l.kind === "relation" ? "关系" : "声望"} ${l.value}/100 | ${l.label}${desc}`);
-    }
-  }
-
   parts.push(
-    "以上状态与描述是引擎事实的说明，数值为唯一事实源；叙事不得与数值矛盾，描述仅为解释、不得作为新的事实来源。",
+    "以上状态与后续描述是引擎事实的说明，数值为唯一事实源；叙事不得与数值矛盾，描述仅为解释、不得作为新的事实来源。",
   );
   return parts.join("\n");
 }

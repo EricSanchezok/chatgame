@@ -141,6 +141,11 @@ describe("sessions API", () => {
 
   it("POST /api/sessions/:id/descriptor edits a descriptor and returns state", async () => {
     const { POST } = await import("../sessions/[id]/descriptor/route");
+    const stateMod = await import("../sessions/[id]/state/route");
+    const beforeRes = await stateMod.GET(new Request("http://x/api/sessions/state"), {
+      params: Promise.resolve({ id: sessionId }),
+    });
+    const before = (await beforeRes.json()).state.player.needs.oxygen.value;
     const res = await POST(
       new Request("http://x/api/sessions/descriptor", {
         method: "POST",
@@ -153,6 +158,26 @@ describe("sessions API", () => {
     const body = await res.json();
     expect(body.state.player.needs.oxygen.descriptor.description).toBe("呼吸顺畅");
     expect(body.state.player.needs.oxygen.descriptor.userEdited).toBe(true);
+    // Dual-track rule: the edit never touches the numeric value.
+    expect(body.state.player.needs.oxygen.value).toBe(before);
+  });
+
+  it("POST /api/sessions/:id/descriptor handles reputation paths safely (empty initial state)", async () => {
+    const { POST } = await import("../sessions/[id]/descriptor/route");
+    const res = await POST(
+      new Request("http://x/api/sessions/descriptor", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: "player.reputation.deck-gang", text: "船帮眼里的无名之辈" }),
+      }),
+      { params: Promise.resolve({ id: sessionId }) },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Fresh starlight sessions start with no reputation entries; the edit
+    // is a safe no-op that must not crash or mutate the list.
+    expect(Array.isArray(body.state.player.reputation)).toBe(true);
+    expect(body.state.player.reputation.length).toBe(0);
   });
 
   it("POST /api/sessions/:id/advance advances the clock and returns state", async () => {

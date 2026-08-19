@@ -77,7 +77,9 @@ export async function generateNarrative(
     ? `\n【引擎已结算】动作 ${ctx.resolution.actionId} → ${ctx.resolution.grade}`
     : "";
 
-  const prompt = `${turnPrompt}\n当前时间：${formatClock(ctx.state.clock)}${resolutionNote}`;
+  // The turn prompt already carries the time in the state snapshot (layer B);
+  // only the engine resolution note is appended here.
+  const prompt = `${turnPrompt}${resolutionNote}`;
 
   return ctx.provider.generateObject({
     system,

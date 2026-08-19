@@ -170,17 +170,18 @@ describe("rolling summary via generateText", () => {
 });
 
 describe("state snapshot block (layer B)", () => {
-  it("pairs numeric values with deterministic labels and descriptions", () => {
+  it("contains structured facts only — no descriptor lines", () => {
     const { def, state } = setup();
     // Move the player to the tavern where elara is present, so the
-    // scene-scoped descriptor lines include the player->elara relation.
+    // snapshot includes present NPCs (scene-scoped).
     const moved = { ...state, player: { ...state.player, locationId: "tavern" } };
-    const block = buildStateBlock(moved, def, "elara");
+    const block = buildStateBlock(moved, def);
     expect(block).toContain("当前状态快照");
     expect(block).toContain("在场 NPC");
-    // The dual-track line: name | 关系 value/100 | label [| description].
-    // emberfall: player->elara starts at 20 => deterministic label 友善.
-    expect(block).toMatch(/艾拉 \| 关系 20\/100 \| 友善/);
+    expect(block).toContain("时间：");
+    expect(block).toContain("地点：");
+    // Descriptions live in the 关系与状态摘要 block (prompt.ts), not here.
+    expect(block).not.toMatch(/关系 \d+\/100/);
     // System instruction: values are the only fact source.
     expect(block).toContain("数值为唯一事实源");
   });

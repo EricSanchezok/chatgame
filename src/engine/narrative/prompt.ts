@@ -7,7 +7,6 @@ import type { WorldDefinition } from "../types";
 import { selectMemories } from "../memory";
 import type { MemorySelection } from "../memory";
 import { revealableSecrets } from "../plot";
-import { formatClock } from "../time";
 import { buildStateBlock, buildContextBlocks, type ContextBlocks } from "../context";
 
 export interface PromptInput {
@@ -82,7 +81,6 @@ export function buildSystemPrompt(def: WorldDefinition): string {
 }
 
 /**
-/**
  * Returns the llm_freedom guidance block for an action, or "" when the
  * action id is unknown. The LLM never adjudicates mechanics — it narrates.
  */
@@ -138,8 +136,9 @@ export function buildTurnPrompt(input: PromptInput): string {
   // Memory selections (NPC + player) — computed once for prompt + reinforcement.
   const memories = memorySelections(input);
 
-  // Layer B: structured state snapshot (scene-scoped, values + descriptors).
-  parts.push(buildStateBlock(state, definition, npcId));
+  // Layer B: structured state snapshot (scene-scoped facts; descriptions
+  // live in the 关系与状态摘要 block below — single injection point).
+  parts.push(buildStateBlock(state, definition));
 
   // Layer C: rolling summary (engine-held compaction; not a fact source).
   if (blocks.summaryBlock) {
@@ -151,9 +150,6 @@ export function buildTurnPrompt(input: PromptInput): string {
     parts.push(`\n${blocks.transcriptBlock}`);
   }
 
-
-  parts.push(`## 当前时间：${formatClock(state.clock)}`);
-  parts.push(`## 玩家位置：${definition.locations.get(state.player.locationId)?.name ?? state.player.locationId}`);
 
   if (npcId) {
     const npcDef = definition.npcs.get(npcId);
@@ -246,7 +242,10 @@ export function buildTurnPrompt(input: PromptInput): string {
   for (const npc of presentNpcs) {
     const npcState = state.npcs[npc.id];
     for (const rel of npcState?.relations ?? []) {
-      const targetName = definition.npcs.get(rel.npcId)?.name ?? rel.npcId;
+      const targetName =
+        rel.npcId === "player"
+          ? "你"
+          : definition.npcs.get(rel.npcId)?.name ?? rel.npcId;
       const texture = rel.descriptor?.description || rel.description;
       stateLines.push(`- ${npc.name}与${targetName}：${rel.type}${texture ? `，${texture}` : ""}（关系值 ${rel.value}）`);
     }

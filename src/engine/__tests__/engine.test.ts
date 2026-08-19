@@ -51,6 +51,20 @@ describe("Engine facade", () => {
     expect(JSON.stringify(engine.worldState.player.inventory)).toBe(before);
   });
 
+  it("denied_action narrates with the origin-specific text (not unknown_action)", async () => {
+    // apprentice.yaml declares denied_actions: [cast]; the rejection text
+    // must reflect the origin restriction, not "world has no such action".
+    const engine = Engine.create({
+      scriptDir: EMBERFALL,
+      originId: "apprentice",
+      seed: 42,
+      provider: new MockProvider({ onGenerateObject: () => ({ actionId: "cast" }) }),
+    });
+    const result = await engine.playerTurn("我要施法");
+    expect(result.narrative).toContain("你的出身让你做不出这种事。");
+    expect(result.narrative).not.toContain("这个世界没有这样的行动。");
+  });
+
   it("playerTurn with steal action resolves (opposed check)", async () => {
     const engine = createEngine();
     const result = await engine.playerTurn("我要偷艾拉的东西");
