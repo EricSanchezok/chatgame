@@ -17,7 +17,8 @@ import {
   tagsToEffects,
   consistencySchema,
 } from "../narrative/consistency";
-import { buildSystemPrompt, buildTurnPrompt, buildIntentPrompt } from "../narrative/prompt";
+import { buildSystemPrompt, buildTurnPrompt, buildIntentPrompt, memorySelections } from "../narrative/prompt";
+import { createMemoryEntry, recordMemoryAccess } from "../memory";
 import type { WorldState, WorldDefinition } from "../types";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -73,19 +74,60 @@ describe("prompt building", () => {
     expect(sys).toContain("叙事禁忌");
     expect(sys).toContain(def.script.name);
   });
-
   it("turn prompt contains time + player input", () => {
     const { def, state } = setup();
     const prompt = buildTurnPrompt({ definition: def, state, playerInput: "你好" });
     expect(prompt).toContain("当前时间");
     expect(prompt).toContain("你好");
   });
-
   it("intent prompt lists available actions", () => {
     const { def, state } = setup();
     const { system } = buildIntentPrompt(def, state, "测试");
     expect(system).toContain("可用动作");
     expect(system).toContain("talk");
+  });
+
+  it("turn prompt injects the player memory block when memories exist", () => {
+    const { def, state } = setup();
+    const withMemories = {
+      ...state,
+      player: {
+        ...state.player,
+        memories: [createMemoryEntry("欠酒商 20 金币", "minor", 1, ["debt"], "pm1")],
+      },
+    };
+    const prompt = buildTurnPrompt({
+      definition: def,
+      state: withMemories,
+      playerInput: "去酒馆还钱",
+    });
+    expect(prompt).toContain("## 玩家的记忆");
+    expect(prompt).toContain("欠酒商 20 金币");
+  });
+
+  it("turn prompt omits the player memory block when no active memories", () => {
+    const { def, state } = setup();
+    const prompt = buildTurnPrompt({ definition: def, state, playerInput: "你好" });
+    expect(prompt).not.toContain("## 玩家的记忆");
+  });
+
+  it("memorySelections is deterministic and reinforces the same ids", () => {
+    const { def, state } = setup();
+    const withMemories = {
+      ...state,
+      player: {
+        ...state.player,
+        memories: [createMemoryEntry("欠酒商 20 金币", "minor", 1, ["debt"], "pm1")],
+      },
+    };
+    const input = { definition: def, state: withMemories, playerInput: "还钱", npcId: "elara" };
+    const sel = memorySelections(input);
+    const memId = withMemories.player.memories[0].id; // "pm1-1-1"
+    expect(sel.player.ids).toContain(memId);
+    // recordMemoryAccess boosts the exact injected ids.
+    const next = recordMemoryAccess(withMemories, def, sel.player.ids);
+    expect(next.player.memories[0].lastAccessedDay).not.toBeNull();
+    expect(next.player.memories[0].strength).toBeGreaterThan(0.3);
   });
 });
 

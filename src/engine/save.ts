@@ -13,7 +13,7 @@ import path from "node:path";
 import type { SaveFile, WorldState, WorldDefinition } from "./types";
 
 /** Bump on breaking WorldState shape changes. Older versions are rejected. */
-export const SAVE_SCHEMA_VERSION = 3;
+export const SAVE_SCHEMA_VERSION = 4;
 
 export class SaveError extends Error {}
 

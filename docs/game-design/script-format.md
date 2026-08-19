@@ -386,8 +386,7 @@ seed: { policy: per_run }
 |---|---|---|---|
 | `death_policy` | object | ✅ | `{mode, soft_failure?, world_continue?, hard_reset?}` |
 | `meta_progression` | object | ✅ | `{keep[], reset[], unlocks[]}` |
-| `memory` | object | ✅ | `tier_retention_days {major, minor, trivial}` |
-| `context_compaction` | object | ✅ | `policy: summarize_archive`、`retention_tiers`（引用 memory） |
+| `memory` | object | ✅ | `tier_retention_days {major, minor, trivial}`（major 0 = 永久） |
 | `ext` | object | ❌ | 扩展位 |
 
 `death_policy.mode`：
@@ -408,14 +407,11 @@ death_policy:
       narrative: "你在昏迷中醒来，躺在诊疗室的病床上……"
 meta_progression:
   keep: [flags, lore, relations_overview]
-  reset: [stats, inventory, location, memories, currency]
+  reset: [stats, inventory, location, currency]
   unlocks:
     - { flag: returned_visitor, grant: [new_origin_miner_foreman] }
 memory:
   tier_retention_days: { major: 0, minor: 90, trivial: 30 }
-context_compaction:
-  policy: summarize_archive
-  retention_tiers: [major, minor]
 ```
 
 ---
@@ -489,7 +485,7 @@ denied_actions: []
 - `base_class`：`humanoid\|creature`（附录 B）
 - `traits[]`：`{name, description, effects[]?}`（特性影响行为/数值）
 - `relations[]`：`{target(npc id), value(-100..100), stance: hostile\|wary\|neutral\|friendly\|allied\|romantic, type: family\|friend\|rival\|romantic\|business\|enemy\|acquaintance, note}`；关系矩阵由引擎双向构建，NPC↔NPC 与 →player 同模型
-- `memory`：`{initial[] {text, importance: major\|minor\|trivial, tags[]}, forget_policy}`
+- `memory`：`{initial[] {text, importance: major\|minor\|trivial, tags[]}, forget_policy{major_keep}}`；记忆强度按层级初始（major 1.0 / minor 0.6 / trivial 0.3），日界按 `tier_retention_days` 连续衰减，跌破阈值归档；被注入时强化
 - `secrets[]`：`{id, content, reveal {logic(条件代数)}}`；未满足揭露条件前 LLM 不得剧透（taboo 默认项）
 - `llm`：`{personality, speech_patterns[], knowledge_filter: true, dialogue_examples?(引用 narrative/examples)}`
 
@@ -944,7 +940,7 @@ leaf  := { source, key?, target?, op, value? }
 | `flag` | `flag` | 设/清标志 |
 | `teleport` | `location` | 传送 |
 | `status` | `status` | 施加状态效果 |
-| `memory` | `text, importance` | 添加记忆 |
+| `memory` | `text, importance, tags?, replaces?` | 添加记忆（tags 用于相关性检索；replaces 取代旧记忆并归档） |
 | `secret` | `secret` | 揭露秘密 |
 | `event` | `event` | 触发事件 |
 | `narrative` | `text` | 叙事提示 |

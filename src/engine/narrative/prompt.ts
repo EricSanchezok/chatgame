@@ -4,7 +4,8 @@
 // knowledge filter (anti-spoiler), taboos (hard/soft), descriptors.
 import type { WorldState } from "../types";
 import type { WorldDefinition } from "../types";
-import { summarizeForInjection } from "../memory";
+import { selectMemories } from "../memory";
+import type { MemorySelection } from "../memory";
 import { revealableSecrets } from "../plot";
 import { formatClock } from "../time";
 
@@ -63,10 +64,34 @@ export function buildSystemPrompt(def: WorldDefinition): string {
   return parts.join("\n");
 }
 
+/**
+ * Computes the memory selections injected into the turn prompt (NPC + player).
+ * Exported so the turn pipeline can reinforce the exact ids injected — the
+ * same state + same input always yields the same selection (deterministic).
+ */
+export function memorySelections(input: PromptInput): {
+  npc: MemorySelection | null;
+  player: MemorySelection;
+} {
+  const { state, playerInput, npcId } = input;
+  const context = {
+    npcId,
+    locationId: state.player.locationId,
+    playerInput,
+  };
+  const npcState = npcId !== undefined ? state.npcs[npcId] : undefined;
+  return {
+    npc: npcState ? selectMemories(npcState, context, 8) : null,
+    player: selectMemories(state.player, context, 8),
+  };
+}
+
 /** Builds the player-facing prompt for a narrative turn. */
 export function buildTurnPrompt(input: PromptInput): string {
   const { definition, state, playerInput, npcId } = input;
   const parts: string[] = [];
+  // Memory selections (NPC + player) — computed once for prompt + reinforcement.
+  const memories = memorySelections(input);
 
   parts.push(`## 当前时间：${formatClock(state.clock)}`);
   parts.push(`## 玩家位置：${definition.locations.get(state.player.locationId)?.name ?? state.player.locationId}`);
@@ -87,12 +112,16 @@ export function buildTurnPrompt(input: PromptInput): string {
           parts.push(`可以透露的秘密：${known.join("、")}`);
         }
       }
-      // Memory injection (deterministic top-k).
-      const memoryText = summarizeForInjection(npcState, 8);
-      if (memoryText) {
-        parts.push(`\n该角色的记忆：\n${memoryText}`);
+      // Memory injection (deterministic top-k by strength + relevance).
+      if (memories.npc && memories.npc.ids.length > 0) {
+        parts.push(`\n该角色的记忆：\n${memories.npc.text}`);
       }
     }
+  }
+
+  // Player memory injection (deterministic top-k by strength + relevance).
+  if (memories.player.ids.length > 0) {
+    parts.push(`\n## 玩家的记忆\n${memories.player.text}`);
   }
 
   // Lorebook injection: on_keyword (player input), on_location (player's

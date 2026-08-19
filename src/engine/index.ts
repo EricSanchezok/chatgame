@@ -26,7 +26,8 @@ import { createProvider, type LLMProvider } from "./narrative/provider";
 import { parseIntent } from "./narrative/intent";
 import { generateNarrative, fallbackNarrative, type NarrativeOutput } from "./narrative/narrative";
 import { withConsistencyRetry, tagsToEffects } from "./narrative/consistency";
-import { buildTurnPrompt } from "./narrative/prompt";
+import { memorySelections, buildTurnPrompt } from "./narrative/prompt";
+import { recordMemoryAccess } from "./memory";
 import { appendTranscript, deriveMediaCues } from "./presentation";
 
 export interface EngineOptions extends SessionOptions {
@@ -224,13 +225,27 @@ export class Engine {
       ...directorEventTexts,
     ];
 
+    const npcId = intent.target && this.definition.npcs.has(intent.target) ? intent.target : undefined;
+    // Memory selections computed before narrative generation so the exact
+    // injected ids can be reinforced afterwards (deterministic: same state +
+    // same input -> same selection, and LLM tags cannot write memory — I3).
+    const memSel = memorySelections({
+      definition: this.definition,
+      state,
+      playerInput: input,
+      npcId,
+    });
+    const injectedMemoryIds = [
+      ...memSel.player.ids,
+      ...(memSel.npc ? memSel.npc.ids : []),
+    ];
     const narrativeCtx = {
       provider: this.provider,
       definition: this.definition,
       state,
       playerInput: input,
       resolution: resolution.resolution,
-      npcId: intent.target && this.definition.npcs.has(intent.target) ? intent.target : undefined,
+      npcId,
     };
     const consistency = await withConsistencyRetry(
       () => generateNarrative(narrativeCtx),
@@ -243,6 +258,10 @@ export class Engine {
     if (consistency.ok && consistency.output) {
       narrativeText = consistency.output.narrative;
       mechanicsTags = consistency.output.mechanics_tags;
+      // Access reinforcement: only when the full prompt (with memory
+      // injection) actually generated the narrative — fallback paths that
+      // never injected must not reinforce (conservative, deterministic).
+      state = recordMemoryAccess(state, this.definition, injectedMemoryIds);
     } else {
       narrativeText = fallbackNarrative(this.definition, state, resolution.resolution).narrative;
     }

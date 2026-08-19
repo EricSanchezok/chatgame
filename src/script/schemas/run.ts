@@ -64,7 +64,7 @@ export const runSchema = z
       .object({
         keep: z.array(z.enum(["flags", "lore", "relations_overview"])).default([]),
         reset: z
-          .array(z.enum(["stats", "inventory", "location", "memories", "currency"]))
+          .array(z.enum(["stats", "inventory", "location", "currency"]))
           .default([]),
         unlocks: z.array(unlockSchema).default([]),
       })
@@ -78,12 +78,6 @@ export const runSchema = z
             trivial: z.number().nonnegative(),
           })
           .strict(),
-      })
-      .strict(),
-    context_compaction: z
-      .object({
-        policy: z.literal("summarize_archive"),
-        retention_tiers: z.array(z.enum(["major", "minor", "trivial"])).min(1),
       })
       .strict(),
     ext: extSchema,

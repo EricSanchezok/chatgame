@@ -177,6 +177,8 @@ export const effectSchema = z.discriminatedUnion("kind", [
       target: effectTargetSchema,
       text: z.string(),
       importance: z.enum(["major", "minor", "trivial"]).optional(),
+      tags: z.array(z.string().min(1)).optional(),
+      replaces: z.string().min(1).optional(),
     })
     .strict(),
   z

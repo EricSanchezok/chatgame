@@ -3,9 +3,10 @@
 // (partial = 0.5x, crit = 2x). The engine is the only writer of state
 // (I1/I5): this module is the single funnel for state changes.
 import type { Effect } from "../script/schemas/common";
-import type { ResultGrade, WorldState } from "./types";
+import type { MemoryEntry, ResultGrade, WorldState } from "./types";
 import type { WorldDefinition } from "./types";
 import { valueToStance } from "./definition";
+import { INITIAL_STRENGTH } from "./memory";
 
 /** Coefficient applied to numeric effect values by result grade. */
 export function gradeMultiplier(grade: ResultGrade): number {
@@ -426,23 +427,50 @@ function applyMemory(
   target: string,
   text: string,
   importance: "major" | "minor" | "trivial" | undefined,
+  tags: string[] = [],
+  replaces?: string,
 ): { state: WorldState; summary: string } {
-  const entry = {
-    id: `mem-${state.eventLog.length + 1}`,
-    text,
-    importance: importance ?? "minor",
-    tags: [],
-    createdAtDay: ctx.day,
-    archived: false,
+  const build = (
+    memories: MemoryEntry[],
+  ): { memories: MemoryEntry[]; entry: MemoryEntry } => {
+    // Deterministic, batch-unique id: actor list length is monotonically
+    // increasing (memories are never physically removed) and the target
+    // prefix keeps actors distinct. Replaces the old eventLog-length scheme
+    // which collided within a single effects batch / nested events.
+    const id = `${target}-mem-${ctx.day}-${memories.length}`;
+    const entry: MemoryEntry = {
+      id,
+      text,
+      importance: importance ?? "minor",
+      tags,
+      createdAtDay: ctx.day,
+      strength: INITIAL_STRENGTH[importance ?? "minor"],
+      lastAccessedDay: null,
+      lastDecayDay: ctx.day,
+      archived: false,
+    };
+    let next = memories;
+    if (replaces !== undefined) {
+      next = next.map((m) =>
+        m.id === replaces && !m.archived ? { ...m, archived: true, supersededBy: id } : m,
+      );
+    }
+    return { memories: [...next, entry], entry };
   };
   if (target === "player") {
     return {
-      state: updatePlayer(state, (p) => ({ ...p, memories: [...p.memories, entry] })),
+      state: updatePlayer(state, (p) => {
+        const { memories } = build(p.memories);
+        return { ...p, memories };
+      }),
       summary: "player memory added",
     };
   }
   return {
-    state: updateNpc(state, target, (n) => ({ ...n, memories: [...n.memories, entry] })),
+    state: updateNpc(state, target, (n) => {
+      const { memories } = build(n.memories);
+      return { ...n, memories };
+    }),
     summary: `${target} memory added`,
   };
 }
@@ -570,7 +598,15 @@ export function applyEffects(
         break;
       }
       case "memory": {
-        const out = applyMemory(current, ctx, effect.target, effect.text, effect.importance);
+        const out = applyMemory(
+          current,
+          ctx,
+          effect.target,
+          effect.text,
+          effect.importance,
+          effect.tags,
+          effect.replaces,
+        );
         current = out.state;
         summaries.push(out.summary);
         break;

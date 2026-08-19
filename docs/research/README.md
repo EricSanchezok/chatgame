@@ -19,3 +19,4 @@
 | 2026-08-18 | LLM 防作弊与动作约束 | [2026-08-18-llm-action-constraints.md](2026-08-18-llm-action-constraints.md) |
 | 2026-08-18 | TS LLM 生态选型 | [2026-08-18-ts-llm-ecosystem.md](2026-08-18-ts-llm-ecosystem.md) |
 | 2026-08-18 | 数值+描述双轨状态 | [2026-08-18-hybrid-state-descriptions.md](2026-08-18-hybrid-state-descriptions.md) |
+| 2026-08-19 | NPC 长期记忆与遗忘机制 | [2026-08-19-npc-memory.md](2026-08-19-npc-memory.md) |
