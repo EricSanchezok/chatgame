@@ -13,10 +13,16 @@ typography:
   font: sans
   scale: 1.0
   letter_spacing_em: 0.02
+  faces:
+    - id: jetbrains-mono
+      family: JetBrains Mono
+      files:
+        - { file: assets/fonts/jetbrains-mono-400.woff2, weight: 400, style: normal }
+        - { file: assets/fonts/jetbrains-mono-700.woff2, weight: 700, style: normal }
   roles:
-    ui: mono
+    ui: jetbrains-mono
     narrative: sans
-    mono: mono
+    mono: jetbrains-mono
 effects:
   bubble_radius: 10
   chrome_radius: 6

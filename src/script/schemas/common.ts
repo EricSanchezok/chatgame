@@ -14,19 +14,6 @@ export const idSchema = z
 export const extSchema = z.record(z.string(), z.unknown()).optional();
 
 /** Condition algebra: recursive {all|any|not} logic over typed leaves. */
-export const conditionSourceSchema = z.enum([
-  "stat",
-  "skill",
-  "need",
-  "flag",
-  "fact",
-  "relationship",
-  "reputation",
-  "time",
-  "location",
-  "inventory",
-  "currency",
-]);
 
 export const conditionOpSchema = z.enum([
   "gte",
