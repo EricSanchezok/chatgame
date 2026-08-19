@@ -83,7 +83,11 @@ export function Launcher() {
       try {
         const d = await api.scriptDetail(activeScriptId);
         const theme = d.presentation.themes[0];
-        if (!cancelled && theme) applyTheme(theme);
+        if (!cancelled && theme) {
+          applyTheme(theme, undefined, {
+            assetUrl: (file) => api.fileAsset(activeScriptId, file),
+          });
+        }
       } catch {
         // Library unreachable; keep the framework default look.
       }
