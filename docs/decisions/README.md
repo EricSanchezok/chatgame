@@ -80,3 +80,4 @@
 - [0011 — 对话主舞台布局 + 深度可扩展表现层 Token v1.1](0011-layout-and-presentation-tokens.md)
 - [0012 — 前端与表现层 v1——沉浸聊天式 UI + 剧本资产/主题系统 + 多剧本管理](0012-ui-theme-assets-multiscript.md)
 - [0013 — 采用 repo-seed 自治理层](0013-adopt-repo-seed-governance-layer.md)
+- [0014 — LLM 上下文管理——对话历史注入与滚动摘要](0014-llm-context-management.md)

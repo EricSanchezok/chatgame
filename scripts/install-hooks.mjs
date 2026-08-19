@@ -12,13 +12,18 @@ import { pathToFileURL } from 'node:url';
 
 export const HOOK_NAME = 'pre-commit';
 
-export function hookScript(repoRoot) {
-  // repoRoot is the absolute target directory; the hook resolves scripts relative to it.
+export function hookScript() {
+  // The hook lives in the repo's common hooks dir, which every checkout and
+  // linked worktree shares (git has no per-worktree hooks). It must NOT cd to
+  // the directory that installed it — a commit from any other worktree would
+  // be hijacked to run gates against the wrong tree. Resolve the actual
+  // checkout at commit time via git instead.
   return `#!/bin/sh
 # repo-seed pre-commit hook (installed by scripts/install-hooks.mjs)
 # Runs the governance gates on every commit. Zero dependencies.
 set -e
-cd "${repoRoot}" || exit 1
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 1
+cd "$top" || exit 1
 
 node scripts/verify-decisions.mjs
 node scripts/verify-doc-links.mjs
@@ -46,10 +51,10 @@ export async function installHook(targetDir) {
   return hooksDir;
 }
 
-async function writeHook(hooksDir, targetDir) {
+async function writeHook(hooksDir) {
   await mkdir(hooksDir, { recursive: true });
   const hookPath = path.join(hooksDir, HOOK_NAME);
-  await writeFile(hookPath, hookScript(targetDir), { mode: 0o755 });
+  await writeFile(hookPath, hookScript(), { mode: 0o755 });
   // Ensure executable bit on platforms that need it
   await chmod(hookPath, 0o755);
 }

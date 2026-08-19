@@ -40,8 +40,9 @@
     },
     {
       "path": "docs/decisions/README.md",
-      "sha256": "c3537cc7dac563b302437faae7a4f882af74fd5734fd924ed9322f2c651bd25c",
-      "category": "docs"
+      "sha256": "34c731b9f366b72a53ed5377c6e745fb80dfc551aecd6200acbe54002c997c3a",
+      "category": "docs",
+      "userModified": true
     },
     {
       "path": "docs/decisions/0000-use-markdown-architectural-decision-records.md",
@@ -102,7 +103,7 @@
     },
     {
       "path": "scripts/install-hooks.mjs",
-      "sha256": "aec3790c8b17a890568530cf55a4ed10e1948a6742f58ca430514b9185d5bbc9",
+      "sha256": "388ce4511e337617b76b464c436979a1fbad1f9c4e736ac9f35fdf2025cb6130",
       "category": "gate",
       "userModified": true
     },
