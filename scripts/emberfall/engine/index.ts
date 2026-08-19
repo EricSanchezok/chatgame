@@ -27,7 +27,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** `ember` effect: raises/lowers the forge-heat gauge (params: value, target). */
-const emberEffect: RuntimeEffectHandler = (state, effect, _ctx) => {
+const emberEffect: RuntimeEffectHandler = (state, effect) => {
   const params = effect as { value?: unknown; target?: unknown };
   const delta = typeof params.value === "number" ? params.value : 1;
   const current = readRuntime(state).ember ?? 0;

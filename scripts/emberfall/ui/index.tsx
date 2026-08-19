@@ -139,6 +139,7 @@ function EmberfallLauncherBackground() {
   };
   return (
     <div style={root} aria-hidden="true">
+      {/* eslint-disable-next-line @next/next/no-img-element -- script ui bundle runs outside the Next image pipeline */}
       <img src={TOWN_SQUARE_SCENE} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       <div style={wash} />
     </div>

@@ -133,6 +133,7 @@ function StarlightLauncherBackground() {
   };
   return (
     <div style={root} aria-hidden="true">
+      {/* eslint-disable-next-line @next/next/no-img-element -- script ui bundle runs outside the Next image pipeline */}
       <img src={BRIDGE_SCENE} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       <div style={wash} />
       <div style={scanline} />

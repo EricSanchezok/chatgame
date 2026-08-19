@@ -29,7 +29,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** `hull` effect: raises/lowers station hull integrity (params: value). */
-const hullEffect: RuntimeEffectHandler = (state, effect, _ctx) => {
+const hullEffect: RuntimeEffectHandler = (state, effect) => {
   const params = effect as { value?: unknown };
   const delta = typeof params.value === "number" ? params.value : 5;
   const current = readRuntime(state).hull_integrity ?? 100;

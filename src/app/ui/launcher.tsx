@@ -6,11 +6,11 @@
 // menu itself wears the script's look. The old "script card wall" is gone:
 // the script list is a compact switcher inside a themed shell.
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { api, type SaveSummary, type ScriptDetail, type ScriptMeta, type ScriptSummary } from "../lib/api";
 import { getSlot, loadScriptUi } from "../lib/script-registry";
 import { enterFullscreen } from "../lib/fullscreen";
-import { applyTheme, rgba } from "../lib/theme";
+import { applyTheme } from "../lib/theme";
 import { hasLastRun, useGame } from "./game/state";
 
 type Modal = { kind: "new" | "continue" | "none"; scriptId: string } | { kind: "none" };
