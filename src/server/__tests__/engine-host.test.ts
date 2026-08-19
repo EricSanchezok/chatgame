@@ -16,7 +16,7 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost, HostError } from "../engine-host";
-import { ScriptImportError } from "../script-import";
+import { ScriptImportError, importScriptFromZip, MAX_UNPACKED_BYTES } from "../script-import";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const FIXTURES = path.join(REPO_ROOT, "scripts");
@@ -141,6 +141,14 @@ describe("script library scanning", () => {
     writeFileSync(path.join(scriptsRoot, "junk", "notes.txt"), "not a script");
     expect(host.listScripts()).toHaveLength(0);
   });
+
+  it("exposes the script safety surface", () => {
+    installStarlight();
+    const safety = host.scriptSafety("starlight");
+    expect(safety.age_rating).toBe("16+");
+    expect(safety.content_classes).toContain("violence");
+    expect(safety.content_classes).toContain("crime");
+  });
 });
 
 describe("script import", () => {
@@ -163,6 +171,17 @@ describe("script import", () => {
   it("rejects zip-slip entries (raw zip bytes)", () => {
     const zip = rawZip([{ name: "../evil.yaml", content: "id: evil" }]);
     expect(() => host.importZip(zip)).toThrow(/unsafe entry/);
+  });
+
+  it("rejects zips whose unpacked size exceeds the cap", () => {
+    expect(MAX_UNPACKED_BYTES).toBe(100 * 1024 * 1024);
+    const zip = rawZip([{ name: "big-script/script.yaml", content: "id: big-script" }]);
+    expect(() =>
+      importScriptFromZip(zip, { scriptsRoot, maxUnpackedBytes: 8 }),
+    ).toThrow(ScriptImportError);
+    expect(() =>
+      importScriptFromZip(zip, { scriptsRoot, maxUnpackedBytes: 8 }),
+    ).toThrow(/unpacks too large/);
   });
 
   it("rejects invalid script content and keeps the library clean", () => {

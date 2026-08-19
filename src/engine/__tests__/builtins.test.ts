@@ -245,3 +245,52 @@ describe("inventory actions", () => {
     expect(out.state.player.inventory.currency).toBeLessThan(state.player.inventory.currency);
   });
 });
+
+describe("action cooldown", () => {
+  /** Emberfall action ids do not declare cooldowns; inject one for the gate. */
+  function withCooldown(def: WorldDefinition, actionId: string, cooldown: number): WorldDefinition {
+    return {
+      ...def,
+      actions: {
+        ...def.actions,
+        actions: def.actions.actions.map((a) =>
+          a.id === actionId ? { ...a, cooldown } : a,
+        ),
+      },
+    };
+  }
+
+  it("rejects a repeat while the action is on cooldown (on_cooldown)", () => {
+    const def = withCooldown(emberfall(), "investigate", 2);
+    let state = freshState(def);
+    // First use succeeds and anchors the cooldown at day 0.
+    const first = resolveAction({ definition: def, state, actionId: "investigate" });
+    expect(first.rejected).toBe(false);
+    state = first.state;
+    expect(state.actionCooldowns["investigate"]).toBe(0);
+    // Same day (0 < 2) -> rejected with the machine reason code.
+    const second = resolveAction({ definition: def, state, actionId: "investigate" });
+    expect(second.rejected).toBe(true);
+    expect(second.rejectReason).toBe("on_cooldown");
+  });
+
+  it("allows the action again once the cooldown days have passed", () => {
+    const def = withCooldown(emberfall(), "investigate", 2);
+    let state = freshState(def);
+    state = resolveAction({ definition: def, state, actionId: "investigate" }).state;
+    // Advance 2 full days: day 2, elapsed = 2 >= cooldown 2.
+    state = { ...state, clock: advanceClock(state.clock, def, 48) };
+    const later = resolveAction({ definition: def, state, actionId: "investigate" });
+    expect(later.rejected).toBe(false);
+    // The anchor refreshes to the new day.
+    expect(later.state.actionCooldowns["investigate"]).toBe(2);
+  });
+
+  it("cooldown 0 or missing means no gate", () => {
+    const def = emberfall();
+    const state = freshState(def);
+    const out = resolveAction({ definition: def, state, actionId: "investigate" });
+    expect(out.rejected).toBe(false);
+    expect(out.state.actionCooldowns["investigate"]).toBeUndefined();
+  });
+});

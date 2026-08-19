@@ -15,7 +15,7 @@ import { UiIcon } from "./ui-icon";
 import { useGame } from "./state";
 
 export function GameScreen() {
-  const { state, sendTurn, save, exitGame, setTheme, setAudio, setPanel } = useGame();
+  const { state, sendTurn, save, exitGame, setTheme, setAudio, setPanel, advance, updateDescriptor } = useGame();
   const [input, setInput] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -173,6 +173,12 @@ export function GameScreen() {
               />
             </div>
           ) : null}
+          {state.lastTurn ? (
+            <SystemFeedbackBlock
+              lastTurn={state.lastTurn}
+              actionName={actionName}
+            />
+          ) : null}
           {state.busy ? (
             <div className="self-start text-sm italic" style={{ color: "var(--cg-text-dim)" }}>
               世界正在回应……
@@ -235,6 +241,7 @@ export function GameScreen() {
         scriptId={session.scriptId}
         assets={detail.assets}
         onClose={() => setPanel(null)}
+        handlers={{ onAdvance: advance, onUpdateDescriptor: updateDescriptor }}
       />
 
       {state.error ? (
@@ -280,6 +287,52 @@ export function GameScreen() {
             </div>
           </div>
         </div>
+      ) : null}
+    </div>
+  );
+}
+/** TurnResult consumption block: engine-owned facts surfaced as system
+ * entries after the narrative (world events / task outcomes / death /
+ * intent fallback). Rendered only for the last turn, using system styles. */
+function SystemFeedbackBlock({
+  lastTurn,
+  actionName,
+}: {
+  lastTurn: NonNullable<ReturnType<typeof useGame>["state"]["lastTurn"]>;
+  actionName: (id: string) => string;
+}) {
+  const { worldEvents, taskCompletions, deathFired, fellBackToTalk } = lastTurn;
+  if (worldEvents.length === 0 && taskCompletions.length === 0 && !deathFired && !fellBackToTalk) {
+    return null;
+  }
+  return (
+    <div
+      className="self-start max-w-[85%] rounded-2xl border px-4 py-2 text-sm"
+      style={{ background: "var(--cg-surface-alt)", color: "var(--cg-text-dim)", borderColor: "var(--cg-border)" }}
+    >
+      {worldEvents.length > 0 ? (
+        <ul className="space-y-1">
+          {worldEvents.map((e, i) => (
+            <li key={i} className="whitespace-pre-wrap leading-relaxed">🌍 {e}</li>
+          ))}
+        </ul>
+      ) : null}
+      {taskCompletions.length > 0 ? (
+        <ul className="mt-1 space-y-1">
+          {taskCompletions.map((t) => (
+            <li key={t.taskId} className="whitespace-pre-wrap leading-relaxed">
+              {t.status === "complete" ? "✓" : "✗"} 任务{t.status === "complete" ? "完成" : "失败"}：{actionName(t.taskId)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {deathFired ? (
+        <p className="mt-1 font-semibold" style={{ color: "var(--cg-accent)" }}>
+          你遭遇了致命打击。
+        </p>
+      ) : null}
+      {fellBackToTalk ? (
+        <p className="mt-1 italic">未能识别你的意图，按交谈处理。</p>
       ) : null}
     </div>
   );

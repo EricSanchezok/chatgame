@@ -12,6 +12,8 @@ export interface ScriptSummary {
   language: string;
   theme?: { id: string; name: string; palette: ThemeView["palette"] };
   hasAssets: boolean;
+  /** Content rating surface (present when the script ships safety.yaml). */
+  safety?: { age_rating: string; content_classes: string[] };
 }
 
 export interface OriginSummary {
@@ -201,6 +203,7 @@ export interface ScriptDetail {
   catalog: Catalog;
   assets: AssetManifest;
   saves: SaveSummary[];
+  safety: { age_rating: string; content_classes: string[] };
 }
 
 export class ApiError extends Error {
@@ -262,6 +265,10 @@ export const api = {
     ),
   save: (id: string) =>
     post<{ saved: boolean; path: string }>(`/api/sessions/${encodeURIComponent(id)}/save`, {}),
+  setDescriptor: (id: string, path: string, text: string) =>
+    post<{ state: WorldState }>(`/api/sessions/${encodeURIComponent(id)}/descriptor`, { path, text }),
+  advance: (id: string, hours: number) =>
+    post<{ state: WorldState }>(`/api/sessions/${encodeURIComponent(id)}/advance`, { hours }),
   destroySession: (id: string) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }).then((res) => {
       if (!res.ok) throw new ApiError(res.status, res.statusText);

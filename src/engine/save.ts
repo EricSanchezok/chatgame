@@ -154,6 +154,7 @@ export function normalizeWorldState(
   }
   if (!next.playedEventIds) next = { ...next, playedEventIds: [] };
   if (!next.eventLastPlayedDay) next = { ...next, eventLastPlayedDay: {} };
+  if (!next.actionCooldowns) next = { ...next, actionCooldowns: {} };
   if (!next.transcript) next = { ...next, transcript: [] };
   if (!next.contextSummary) next = { ...next, contextSummary: emptyContextSummary() };
   return next;

@@ -7,6 +7,7 @@
 // effects (scaled by grade) → ResolutionLog (auditable).
 import type { WorldState, WorldDefinition, ResultGrade, ResolutionLogEntry, EventLogEntry } from "./types";
 import type { Actions } from "../script/schemas/actions";
+import { absoluteDay } from "./time";
 
 /** The action definition type (from actions schema). */
 type ActionEntry = Actions["actions"][number];
@@ -123,6 +124,21 @@ export function checkActionLegality(
   const ruleResult = checkWorldRules({ definition: def, state, actionId, target: targetNpcId });
   if (!ruleResult.allowed) {
     return { ok: false, reasonCode: ruleResult.reasonCode, message: ruleResult.message };
+  }
+  // Cooldown gate: the action may not be repeated until the declared
+  // cooldown (hours -> absolute days) has elapsed since its last success.
+  if (action.cooldown && action.cooldown > 0) {
+    const lastUsedDay = state.actionCooldowns[actionId];
+    if (lastUsedDay !== undefined) {
+      const elapsedDays = absoluteDay(def, state.clock) - lastUsedDay;
+      if (elapsedDays < action.cooldown) {
+        return {
+          ok: false,
+          reasonCode: "on_cooldown",
+          message: "this action is still on cooldown",
+        };
+      }
+    }
   }
   return { ok: true };
 }
@@ -276,6 +292,15 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   // 5. Effective time cost (>= 1h, anti-spam). The caller (playerTurn)
   //    steps the world by this amount — clock advancement is NOT here.
   const effectiveTimeCost = Math.max(action.costs?.time ?? 1, 1);
+
+  // 5b. Record the cooldown anchor (absolute day) for actions that declare
+  //     a cooldown, so the legality gate can reject early repeats.
+  if (action.cooldown && action.cooldown > 0) {
+    finalState = {
+      ...finalState,
+      actionCooldowns: { ...finalState.actionCooldowns, [ctx.actionId]: day },
+    };
+  }
 
   // 6. ResolutionLog (auditable).
   const resolution: ResolutionLogEntry = {

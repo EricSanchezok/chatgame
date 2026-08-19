@@ -7,11 +7,17 @@
 // Everything renders from WorldState + static Catalog; unknown ids degrade
 // to raw labels instead of crashing.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
 import { ItemCard } from "./cards";
 import { UiIcon } from "./ui-icon";
 import type { PanelId } from "./state";
+
+/** Panel-level side effects (advance clock / descriptor edits). */
+export interface PanelHandlers {
+  onAdvance: (hours: number) => Promise<void>;
+  onUpdateDescriptor: (path: string, text: string) => Promise<void>;
+}
 
 const PANEL_TITLES: Record<PanelId, string> = {
   inventory: "背包",
@@ -35,6 +41,128 @@ const PANEL_ICON_SLOT: Record<PanelId, "inventory" | "character" | "relations" |
 function fmtClock(state: WorldState): string {
   const c = state.clock;
   return `第 ${c.day} 日 ${c.hour} 时 · ${c.weather} · ${c.season}`;
+}
+
+/** Advance control: +1h / +6h / +1d. Time moves forward irrevocably, so
+ * every button asks for confirmation once before firing. */
+function AdvanceControls({
+  onAdvance,
+  disabled,
+}: {
+  onAdvance: (hours: number) => Promise<void>;
+  disabled: boolean;
+}) {
+  const [confirming, setConfirming] = useState<number | null>(null);
+  const options: Array<{ hours: number; label: string }> = [
+    { hours: 1, label: "+1 小时" },
+    { hours: 6, label: "+6 小时" },
+    { hours: 24, label: "+1 天" },
+  ];
+  return (
+    <div className="mb-4 flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--cg-border)" }}>
+      <span className="text-sm" style={{ color: "var(--cg-text-dim)" }}>快进</span>
+      {options.map((o) => (
+        <button
+          key={o.hours}
+          type="button"
+          disabled={disabled}
+          className="cg-chrome rounded-lg border px-2 py-1 text-xs"
+          style={{
+            borderColor: confirming === o.hours ? "var(--cg-primary)" : "var(--cg-border)",
+            color: confirming === o.hours ? "var(--cg-accent)" : "var(--cg-text)",
+          }}
+          onClick={async () => {
+            if (confirming !== o.hours) {
+              setConfirming(o.hours);
+              return;
+            }
+            setConfirming(null);
+            await onAdvance(o.hours);
+          }}
+        >
+          {confirming === o.hours ? "确认？" : o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Inline descriptor editor: shows the current description (or a hint),
+ * expands into a textarea, and saves through the engine's setDescriptor
+ * path — values are never touched (dual-track rule). */
+function DescriptorEdit({
+  path,
+  initial,
+  onSave,
+}: {
+  path: string;
+  initial: string;
+  onSave: (path: string, text: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="mt-1">
+      {editing ? (
+        <div className="flex flex-col gap-1.5">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={2}
+            maxLength={300}
+            className="cg-chrome w-full rounded-lg border px-2 py-1 text-sm"
+            style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", color: "var(--cg-text)" }}
+            aria-label="描述编辑"
+          />
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              disabled={saving}
+              className="cg-chrome rounded-lg border px-2 py-0.5 text-xs"
+              style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await onSave(path, text.trim());
+                  setEditing(false);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              {saving ? "保存中……" : "保存"}
+            </button>
+            <button
+              type="button"
+              className="cg-chrome rounded-lg border px-2 py-0.5 text-xs"
+              style={{ borderColor: "var(--cg-border)", color: "var(--cg-text-dim)" }}
+              onClick={() => {
+                setText(initial);
+                setEditing(false);
+              }}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
+            {initial || "（暂无描述，点击编辑添加）"}
+          </p>
+          <button
+            type="button"
+            className="cg-chrome shrink-0 rounded-lg border px-2 py-0.5 text-xs"
+            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text-dim)" }}
+            onClick={() => setEditing(true)}
+          >
+            编辑
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PanelFrame({
@@ -168,6 +296,7 @@ function CharacterPanel({
   assets,
   onClose,
   panel,
+  handlers,
 }: {
   state: WorldState;
   catalog: Catalog;
@@ -175,11 +304,13 @@ function CharacterPanel({
   assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
+  handlers: PanelHandlers;
 }) {
   const hpMax = catalog.stats.find((s) => s.name === catalog.hpStat)?.max ?? 100;
   const hp = state.player.stats[catalog.hpStat] ?? 0;
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.character} scriptId={scriptId} assets={assets} onClose={onClose}>
+      <AdvanceControls onAdvance={handlers.onAdvance} disabled={false} />
       <h3 className="font-semibold" style={{ color: "var(--cg-text)" }}>{state.player.name}</h3>
       <p className="mb-3 text-sm" style={{ color: "var(--cg-text-dim)" }}>
         {catalog.origins.find((o) => o.id === state.player.originId)?.name ?? state.player.originId}
@@ -235,6 +366,7 @@ function RelationsPanel({
   assets,
   onClose,
   panel,
+  handlers,
 }: {
   state: WorldState;
   catalog: Catalog;
@@ -242,6 +374,7 @@ function RelationsPanel({
   assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
+  handlers: PanelHandlers;
 }) {
   const rels = state.player.relations;
   return (
@@ -257,11 +390,15 @@ function RelationsPanel({
                 <span className="font-semibold" style={{ color: "var(--cg-text)" }}>
                   {catalog.npcs.find((n) => n.id === r.npcId)?.name ?? r.npcId}
                 </span>
-                <span className="text-sm" style={{ color: "var(--cg-accent)" }}>{r.stance} {r.value}</span>
+                <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
+                  {r.descriptor?.label ?? r.stance} {r.value}
+                </span>
               </div>
-              {r.descriptor?.description ? (
-                <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>{r.descriptor.description}</p>
-              ) : null}
+              <DescriptorEdit
+                path={`player.relations.${r.npcId}`}
+                initial={r.descriptor?.description ?? ""}
+                onSave={handlers.onUpdateDescriptor}
+              />
             </li>
           ))}
         </ul>
@@ -277,6 +414,7 @@ function TasksPanel({
   assets,
   onClose,
   panel,
+  handlers,
 }: {
   state: WorldState;
   catalog: Catalog;
@@ -284,9 +422,11 @@ function TasksPanel({
   assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
+  handlers: PanelHandlers;
 }) {
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.tasks} scriptId={scriptId} assets={assets} onClose={onClose}>
+      <AdvanceControls onAdvance={handlers.onAdvance} disabled={false} />
       {state.tasks.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>暂无任务。</p>
       ) : (
@@ -397,6 +537,7 @@ export function ActivePanel({
   scriptId,
   assets,
   onClose,
+  handlers,
 }: {
   panel: PanelId | null;
   state: WorldState;
@@ -404,6 +545,7 @@ export function ActivePanel({
   scriptId: string;
   assets: AssetManifest | undefined;
   onClose: () => void;
+  handlers: PanelHandlers;
 }) {
   if (!panel || !catalog) return null;
   switch (panel) {
@@ -412,11 +554,11 @@ export function ActivePanel({
         <InventoryPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />
       );
     case "character":
-      return <CharacterPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
+      return <CharacterPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} handlers={handlers} />;
     case "relations":
-      return <RelationsPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
+      return <RelationsPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} handlers={handlers} />;
     case "tasks":
-      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
+      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} handlers={handlers} />;
     case "map":
       return <MapPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "log":
