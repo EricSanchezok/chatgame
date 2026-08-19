@@ -209,8 +209,52 @@ export function buildTurnPrompt(input: PromptInput): string {
     }
   }
 
-  // Few-shot dialogue examples: match the NPC's dialogue_examples reference
-  // or the generic example set.
+  // Relationship & status summary — the dual-track descriptions injected
+  // so the LLM can perceive same-category-different-texture nuance
+  // ("从小玩到大的朋友" vs "酒肉朋友"). Values stay visible as anchors;
+  // prose is the semantic payload. Scoped to in-scene actors to bound
+  // prompt size (Blueprint: 放量注入 + 场景过滤).
+  const stateLines: string[] = [];
+  const presentNpcIds = new Set(presentNpcs.map((n) => n.id));
+  // Player -> NPC relations (in-scene only).
+  for (const rel of state.player.relations) {
+    if (!presentNpcIds.has(rel.npcId)) continue;
+    const npcName = definition.npcs.get(rel.npcId)?.name ?? rel.npcId;
+    const texture = rel.descriptor?.description || rel.description;
+    stateLines.push(`- 你与${npcName}：${rel.type}${texture ? `，${texture}` : ""}（关系值 ${rel.value}）`);
+  }
+  // Player reputation.
+  for (const rep of state.player.reputation) {
+    const factionName = definition.factions.get(rep.factionId)?.name ?? rep.factionId;
+    const desc = rep.descriptor?.description;
+    stateLines.push(`- ${factionName}对你的印象：${desc ?? `声望 ${rep.value}`}`);
+  }
+  // Player needs (only when a description exists).
+  for (const [need, ns] of Object.entries(state.player.needs)) {
+    const needName = definition.mechanics.needs?.find((n) => n.name === need)?.name ?? need;
+    if (ns.descriptor?.description) {
+      stateLines.push(`- ${needName}：${ns.descriptor.description}`);
+    }
+  }
+  // Player status effects.
+  for (const st of state.player.statuses) {
+    const statusDef = definition.mechanics.status_effects?.find((s) => s.id === st.statusId);
+    const desc = st.descriptor?.description ?? statusDef?.description;
+    if (desc) stateLines.push(`- 你处于${statusDef?.name ?? st.statusId}状态：${desc}`);
+  }
+  // NPC-to-NPC relations for in-scene NPCs (their view of the world).
+  for (const npc of presentNpcs) {
+    const npcState = state.npcs[npc.id];
+    for (const rel of npcState?.relations ?? []) {
+      const targetName = definition.npcs.get(rel.npcId)?.name ?? rel.npcId;
+      const texture = rel.descriptor?.description || rel.description;
+      stateLines.push(`- ${npc.name}与${targetName}：${rel.type}${texture ? `，${texture}` : ""}（关系值 ${rel.value}）`);
+    }
+  }
+  if (stateLines.length > 0) {
+    parts.push(`\n## 关系与状态摘要\n${stateLines.join("\n")}`);
+  }
+
   if (npcId) {
     const npcDef = definition.npcs.get(npcId);
     const exampleId = npcDef?.llm.dialogue_examples;

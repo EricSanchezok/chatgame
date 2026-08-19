@@ -15,8 +15,8 @@ schedule: night-cycle
 home: hab-ring
 items: [data-chip]
 relations:
-  - { target: station-chief, value: -30, stance: hostile, type: enemy, note: 被通缉 }
-  - { target: doctor-vera, value: 10, stance: neutral, type: acquaintance, note: 赊过账 }
+  - { target: station-chief, value: -30, type: 通缉犯与警长, description: 被通缉，彼此心知肚明 }
+  - { target: doctor-vera, value: 10, type: 赊过账的病人, description: 赊过账，欠一份人情 }
 memory:
   initial:
     - { text: "灯塔的日志里有几行被人为擦除的记录", importance: major, tags: [lighthouse, log] }

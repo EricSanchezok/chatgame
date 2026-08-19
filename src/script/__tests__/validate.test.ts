@@ -15,7 +15,7 @@ function validBase(): Record<string, string> {
 id: testscript
 name: 测试世界
 description: 用于语义校验测试
-schema_version: "1.0"
+schema_version: "1.1"
 language: zh
 tone: [悬疑]
 author: test
@@ -291,10 +291,10 @@ llm:
   it("rejects wrong schema_version", () => {
     const files = validBase();
     files["script.yaml"] = files["script.yaml"].replace(
-      'schema_version: "1.0"',
+      'schema_version: "1.1"',
       'schema_version: "2.0"',
     );
-    expectIssuesContaining(files, ["expected \"1.0\""]);
+    expectIssuesContaining(files, ["expected \"1.1\""]);
   });
 
   it("rejects invalid id format", () => {
@@ -364,7 +364,7 @@ llm:
     const files = validBase();
     files["npcs/npc1.yaml"] = files["npcs/npc1.yaml"].replace(
       "relations: []",
-      "relations:\n  - { target: ghost, value: 30, stance: neutral, type: acquaintance }",
+      "relations:\n  - { target: ghost, value: 30, type: 旧识 }",
     );
     expectIssuesContaining(files, ['relation target "ghost" not found']);
   });

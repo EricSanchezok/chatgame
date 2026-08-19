@@ -47,8 +47,9 @@ export function buildNpcRelations(npc: Npc): RelationState[] {
   return (npc.relations ?? []).map((r) => ({
     npcId: r.target,
     value: r.value,
-    stance: r.stance ?? valueToStance(r.value),
+    stance: valueToStance(r.value),
     type: r.type,
+    description: r.description,
   }));
 }
 

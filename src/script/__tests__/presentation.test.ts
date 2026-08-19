@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 const BASE: Record<string, string> = {
-  "script.yaml": `id: pres-testscript\nname: 测试\ndescription: d\nschema_version: "1.0"\nlanguage: zh\ntone: [悬疑]\nauthor: t\n`,
+  "script.yaml": `id: pres-testscript\nname: 测试\ndescription: d\nschema_version: "1.1"\nlanguage: zh\ntone: [悬疑]\nauthor: t\n`,
   "world.yaml": "background: b\nrules: [{ id: r1, text: r, mechanism: inventory }]\ntaboos: [{ id: t1, text: t, severity: hard }]\n",
   "time.yaml": `unit: hour\nday_length_hours: 24\ncalendar: { months: [{ name: 一月, days: 31 }], weekdays: [周一] }\nschedules:\n  - id: keeper\n    entries:\n      - { from: "08:00", to: "22:00", activity: 开店, location: tavern }\nworld_advances: true\nadvance_mode: rule_based\nadvance_scope: [schedules, needs, time_events]\n`,
   "mechanics.yaml": `stats:\n  - { name: hp, min: 1, max: 100, initial: 50, description: 生命 }\n  - { name: strength, min: 1, max: 20, initial: 10, description: 力量 }\nskills:\n  - { name: persuasion, min: 0, max: 20, initial: 0, description: 说服 }\nneeds:\n  - name: hunger\n    min: 0\n    max: 100\n    initial: 80\n    decay_per_day: 20\n    thresholds: []\ninventory: { capacity: 20, stacking: true }\ncurrency: { name: 金币, symbol: "g", initial: 50 }\ncombat:\n  damage_types: [physical]\n  defense_types: [armor]\n  hp_stat: hp\n  threat_gauge: { max: 100, on_full: soft_failure }\nstatus_effects: []\n`,

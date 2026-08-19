@@ -40,7 +40,7 @@ describe("script schema", () => {
       id: "emberfall",
       name: "灰烬镇",
       description: "边陲小镇",
-      schema_version: "1.0",
+      schema_version: "1.1",
       language: "zh",
       tone: ["悬疑"],
       author: "team",
@@ -51,7 +51,7 @@ describe("script schema", () => {
       id: "emberfall",
       name: "灰烬镇",
       description: "x",
-      schema_version: "1.0",
+      schema_version: "1.1",
       language: "zh",
       tone: ["悬疑"],
       author: "team",
@@ -74,7 +74,7 @@ describe("script schema", () => {
       id: "EmberFall",
       name: "灰烬镇",
       description: "x",
-      schema_version: "1.0",
+      schema_version: "1.1",
       language: "zh",
       tone: ["悬疑"],
       author: "team",
@@ -240,8 +240,8 @@ describe("safety schema", () => {
     age_rating: "16+",
   };
   it("accepts a valid safety", () => expectValid(safetySchema, valid));
-  it("rejects unknown intensity", () => expectInvalid(safetySchema, { ...valid, allowed: { ...valid.allowed, violence: "extreme" } }));
-  it("rejects unknown content class", () => expectInvalid(safetySchema, { ...valid, forbidden: ["magic"] }));
+  it("accepts free-text intensity", () => expectValid(safetySchema, { ...valid, allowed: { ...valid.allowed, violence: "极端" } }));
+  it("accepts free-text content class", () => expectValid(safetySchema, { ...valid, forbidden: ["超自然"] }));
 });
 
 describe("origin schema", () => {
@@ -255,12 +255,14 @@ describe("origin schema", () => {
     items: ["pickaxe"],
     starting_location: "tavern",
     starting_currency: 30,
-    starting_relations: [{ npc: "elara", value: 40, stance: "friendly", note: "常客" }],
+    starting_relations: [{ npc: "elara", value: 40, type: "老主顾", description: "常来查账" }],
     starting_knowledge: ["mine-collapsed"],
     exclusive_leads: ["secret-hint"],
     denied_actions: [],
   };
   it("accepts a valid origin", () => expectValid(originSchema, valid));
+  it("accepts free-text semantic labels on starting relations", () =>
+    expectValid(originSchema, { ...valid, starting_relations: [{ npc: "elara", value: 40, type: "青梅竹马", description: "从小玩到大" }] }));
   it("rejects relation value out of range", () =>
     expectInvalid(originSchema, { ...valid, starting_relations: [{ npc: "elara", value: 150 }] }));
   it("rejects unknown field", () => expectInvalid(originSchema, { ...valid, magic: 1 }));
@@ -279,14 +281,15 @@ describe("npc schema", () => {
     schedule: "keeper",
     home: "tavern",
     items: [],
-    relations: [{ target: "inspector", value: 30, stance: "neutral", type: "acquaintance" }],
+    relations: [{ target: "inspector", value: 30, type: "老相识", description: "同姓本家，走动不多" }],
     memory: { initial: [{ text: "丈夫死于矿难", importance: "major", tags: ["family"] }] },
     secrets: [{ id: "mine-secret", content: "另有隐情", reveal: { logic: { all: [{ source: "relationship", key: "player", op: "gte", value: 60 }] } } }],
     knowledge_flags: ["mine-secret-holder"],
     llm: { personality: "轻声细语", speech_patterns: ["用短句"], knowledge_filter: true },
   };
   it("accepts a valid npc", () => expectValid(npcSchema, valid));
-  it("rejects unknown base_class", () => expectInvalid(npcSchema, { ...valid, base_class: "robot" }));
+  it("accepts free-text relation type and description", () =>
+    expectValid(npcSchema, { ...valid, relations: [{ target: "inspector", value: 30, type: "青梅竹马", description: "从战火里一起活下来的兄弟" }] }));
   it("rejects knowledge_filter false", () => expectInvalid(npcSchema, { ...valid, llm: { ...valid.llm, knowledge_filter: false } }));
 });
 
@@ -303,7 +306,7 @@ describe("location schema", () => {
     danger_level: 1,
   };
   it("accepts a valid location", () => expectValid(locationSchema, valid));
-  it("rejects unknown type", () => expectInvalid(locationSchema, { ...valid, type: "dungeon" }));
+  it("accepts free-text location type", () => expectValid(locationSchema, { ...valid, type: "地下矿道" }));
   it("rejects danger_level out of range", () => expectInvalid(locationSchema, { ...valid, danger_level: 11 }));
 });
 
@@ -319,7 +322,7 @@ describe("item schema", () => {
     value: 10,
   };
   it("accepts a valid item", () => expectValid(itemSchema, valid));
-  it("rejects unknown type", () => expectInvalid(itemSchema, { ...valid, type: "weapon" }));
+  it("accepts free-text rarity", () => expectValid(itemSchema, { ...valid, rarity: "遗物" }));
   it("rejects negative value", () => expectInvalid(itemSchema, { ...valid, value: -5 }));
 });
 
@@ -330,11 +333,12 @@ describe("faction schema", () => {
     description: "老工会",
     goals: ["查明真相"],
     members: ["old-miner"],
-    relations: [{ target: "town-hall", value: -30, stance: "wary" }],
+    relations: [{ target: "town-hall", value: -30 }],
     reputation: { thresholds: [{ value: 50, label: "信任", effects: [] }], decay: 1 },
   };
   it("accepts a valid faction", () => expectValid(factionSchema, valid));
-  it("rejects unknown stance", () => expectInvalid(factionSchema, { ...valid, relations: [{ target: "town-hall", value: 0, stance: "buddy" }] }));
+  it("rejects unknown relation fields (strict)", () =>
+    expectInvalid(factionSchema, { ...valid, relations: [{ target: "town-hall", value: 0, stance: "wary" }] }));
 });
 
 describe("event schema", () => {
@@ -355,7 +359,6 @@ describe("event schema", () => {
   };
   it("accepts a valid event", () => expectValid(eventSchema, valid));
   it("rejects unknown trigger", () => expectInvalid(eventSchema, { ...valid, trigger: "manual" }));
-  it("rejects unknown type", () => expectInvalid(eventSchema, { ...valid, type: "quest" }));
 });
 
 describe("task schema", () => {

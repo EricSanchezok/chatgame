@@ -260,6 +260,10 @@ function upsertRelation(
   const existing = rels.find((r) => r.npcId === npcId);
   const nextValue = Math.max(-100, Math.min(100, value));
   if (existing) {
+    // Semantic label (type) is authored/managed by the script or the LLM
+    // layer — the engine never overwrites it. Only the deterministic stance
+    // (classification layer) tracks the value, and the descriptor is marked
+    // stale so the LLM can re-explain the changed value.
     return rels.map((r) =>
       r.npcId === npcId
         ? {
@@ -406,7 +410,15 @@ function applyStatus(
     if (direction === "remove") return statuses.filter((s) => s.statusId !== statusId);
     if (existing) {
       const stacks = statusDef?.stackable ? existing.stacks + 1 : existing.stacks;
-      return statuses.map((s) => (s.statusId === statusId ? { ...s, stacks } : s));
+      return statuses.map((s) =>
+        s.statusId === statusId
+          ? {
+              ...s,
+              stacks,
+              descriptor: s.descriptor ? { ...s.descriptor, stale: true } : undefined,
+            }
+          : s,
+      );
     }
     return [...statuses, { statusId, remainingTicks: duration, stacks: 1 }];
   };

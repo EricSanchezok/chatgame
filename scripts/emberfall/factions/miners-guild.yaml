@@ -7,7 +7,7 @@ goals:
   - 保住矿工宿舍不被镇公所收回
 members: [old-miner, old-wei]
 relations:
-  - { target: town-office, value: -40, stance: wary }
+  - { target: town-office, value: -40 }
 reputation:
   thresholds:
     - value: 30

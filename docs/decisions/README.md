@@ -85,3 +85,4 @@
 - [0016 — 死契约接线与 UI 消费点补全（cooldown / llm_freedom / safety / zip 加固）](0016-dead-contract-wiring-and-ui-consumption.md)
 - [0017 — 会话持久化、刷新恢复与 meta 链路](0017-session-persistence-refresh-recovery-meta.md)
 - [0018 — 前端沉浸式游戏化与剧本代码扩展（v2）](0018-immersive-frontend-script-code-v2.md)
+- [0019 — 数值系统描述化——语义枚举 → 自由文本 + description 全链路](0019-semantic-enums-to-free-text.md)

@@ -10,8 +10,8 @@ items: [fuel-cell, scrap-metal]
 starting_location: cargo-bay
 starting_currency: 120
 starting_relations:
-  - { npc: night-cat, value: 30, stance: neutral, note: 老主顾 }
-  - { npc: station-chief, value: 10, stance: neutral, note: 缴过不少站务费 }
+  - { npc: night-cat, value: 30, type: 老主顾, description: 老主顾，赊账也认 }
+  - { npc: station-chief, value: 10, type: 缴费的商户, description: 缴过不少站务费 }
 starting_knowledge: [black-market-prices, station-layout]
 exclusive_leads: [black-market-deal]
 denied_actions: []

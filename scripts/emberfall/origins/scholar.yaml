@@ -8,8 +8,8 @@ items: [lantern]
 starting_location: town-hall
 starting_currency: 80
 starting_relations:
-  - { npc: mayor-shen, value: 20, stance: neutral, note: 向镇公所递过调查申请 }
-  - { npc: shen-jiugu, value: 30, stance: friendly, note: 向她请教过灰烬草的药用 }
+  - { npc: mayor-shen, value: 20, type: 打过交道, description: 向镇公所递过调查申请 }
+  - { npc: shen-jiugu, value: 30, type: 请教过的先生, description: 向她请教过灰烬草的药用 }
 starting_knowledge: [repair-log-holder]
 exclusive_leads: [repair-log]
 denied_actions: [attack]

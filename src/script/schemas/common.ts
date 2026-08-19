@@ -261,11 +261,3 @@ export const monthDaySchema = z
 
 /** Severity levels shared across modules. */
 export const importanceSchema = z.enum(["major", "minor", "trivial"]);
-export const stanceSchema = z.enum([
-  "hostile",
-  "wary",
-  "neutral",
-  "friendly",
-  "allied",
-  "romantic",
-]);

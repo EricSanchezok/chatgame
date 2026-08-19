@@ -12,9 +12,9 @@ schedule: mayor-schedule
 home: mayor-house
 items: []
 relations:
-  - { target: elara, value: -30, stance: wary, type: acquaintance, note: 拖欠炉火税被她催过 }
-  - { target: old-miner, value: -60, stance: hostile, type: enemy, note: 抚恤金旧怨 }
-  - { target: shen-jiugu, value: 20, stance: neutral, type: acquaintance, note: 同姓本家，走动不多 }
+  - { target: elara, value: -30, type: 债主与欠债人, description: 拖欠炉火税被她催过 }
+  - { target: old-miner, value: -60, type: 旧怨, description: 抚恤金旧怨，见面无好话 }
+  - { target: shen-jiugu, value: 20, type: 同姓本家, description: 同姓本家，走动不多 }
 memory:
   initial:
     - { text: 支柱检修记录簿的最后经手人是巡矿队, importance: major, tags: [mine] }

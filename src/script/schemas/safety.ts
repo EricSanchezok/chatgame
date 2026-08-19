@@ -2,21 +2,8 @@
 import { z } from "zod";
 import { extSchema } from "./common";
 
-export const contentClassSchema = z.enum([
-  "violence",
-  "romance",
-  "horror",
-  "profanity",
-  "self_harm",
-  "sexual",
-  "drugs",
-  "gambling",
-  "politics",
-  "religion",
-  "crime",
-]);
-
-export const intensitySchema = z.enum(["none", "mild", "moderate", "intense", "explicit"]);
+export const contentClassSchema = z.string().min(1);
+export const intensitySchema = z.string().min(1);
 
 export const safetySchema = z
   .object({

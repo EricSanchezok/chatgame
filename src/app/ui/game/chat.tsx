@@ -19,7 +19,7 @@ import { UiIcon } from "./ui-icon";
 import { useGame } from "./state";
 
 export function GameScreen() {
-  const { state, sendTurn, save, exitGame, setTheme, setAudio, setPanel, setPause, advance, updateDescriptor } = useGame();
+  const { state, sendTurn, save, exitGame, setTheme, setAudio, setPanel, setPause } = useGame();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const session = state.session;
@@ -178,7 +178,6 @@ export function GameScreen() {
         scriptId={session.scriptId}
         assets={detail.assets}
         onClose={() => setPanel(null)}
-        handlers={{ onAdvance: advance, onUpdateDescriptor: updateDescriptor }}
       />
 
       {state.paused ? (

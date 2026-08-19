@@ -10,8 +10,8 @@ items: [repair-kit, medkit]
 starting_location: hab-ring
 starting_currency: 40
 starting_relations:
-  - { npc: chief-engineer, value: 30, stance: friendly, note: 同一班组的搭档 }
-  - { npc: doctor-vera, value: 20, stance: friendly, note: 定期找你做体检 }
+  - { npc: chief-engineer, value: 30, type: 同班组搭档, description: 同一班组的搭档 }
+  - { npc: doctor-vera, value: 20, type: 常做体检的病人, description: 定期找你做体检 }
 starting_knowledge: [station-layout]
 exclusive_leads: [coolant-valve]
 denied_actions: []

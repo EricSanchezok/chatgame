@@ -7,7 +7,7 @@ export const scriptSchema = z
     id: idSchema,
     name: z.string().min(1),
     description: z.string().min(1),
-    schema_version: z.literal("1.0"),
+    schema_version: z.literal("1.1"),
     language: z.string().min(2),
     tone: z.array(z.string().min(1)).min(1),
     author: z.string().min(1),

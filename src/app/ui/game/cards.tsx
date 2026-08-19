@@ -132,30 +132,37 @@ export function ItemCard({
   itemId,
   name,
   quantity,
+  description,
   manifest,
 }: {
   scriptId: string;
   itemId: string;
   name: string;
   quantity: number;
+  description?: string;
   manifest: AssetManifest | undefined;
 }) {
   const src = assetSrc(scriptId, manifest, "icons", itemId);
   return (
-    <div className="my-1 inline-flex items-center gap-2 rounded-lg border px-3 py-1.5"
+    <div className="my-1 inline-flex flex-col gap-0.5 rounded-lg border px-3 py-1.5"
       style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name} className="h-6 w-6 object-contain" />
-      ) : (
-        <span className="flex h-6 w-6 items-center justify-center rounded text-xs"
-          style={{ background: "var(--cg-primary)", color: "var(--cg-surface)" }}>
-          {name.slice(0, 1)}
-        </span>
-      )}
-      <span style={{ color: "var(--cg-text)" }}>{name}</span>
-      {quantity > 1 ? (
-        <span className="text-sm" style={{ color: "var(--cg-text-dim)" }}>×{quantity}</span>
+      <div className="flex items-center gap-2">
+        {src ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt={name} className="h-6 w-6 object-contain" />
+        ) : (
+          <span className="flex h-6 w-6 items-center justify-center rounded text-xs"
+            style={{ background: "var(--cg-primary)", color: "var(--cg-surface)" }}>
+            {name.slice(0, 1)}
+          </span>
+        )}
+        <span style={{ color: "var(--cg-text)" }}>{name}</span>
+        {quantity > 1 ? (
+          <span className="text-sm" style={{ color: "var(--cg-text-dim)" }}>×{quantity}</span>
+        ) : null}
+      </div>
+      {description ? (
+        <span className="text-xs" style={{ color: "var(--cg-text-dim)" }}>{description}</span>
       ) : null}
     </div>
   );

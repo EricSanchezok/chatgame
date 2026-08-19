@@ -14,9 +14,9 @@ schedule: command-shift
 home: command-cabin
 items: []
 relations:
-  - { target: night-cat, value: -30, stance: hostile, type: enemy, note: 通缉名单常客 }
-  - { target: chief-engineer, value: 40, stance: friendly, type: business, note: 站务与工程的对接人 }
-  - { target: doctor-vera, value: 20, stance: neutral, type: acquaintance }
+  - { target: night-cat, value: -30, type: 通缉犯与警长, description: 通缉名单常客 }
+  - { target: chief-engineer, value: 40, type: 工作搭档, description: 站务与工程的对接人 }
+  - { target: doctor-vera, value: 20, type: 同事, description: 医疗官的例行接洽 }
 memory:
   initial:
     - { text: "灯塔的年度自检报告从未公开过", importance: major, tags: [lighthouse, report] }

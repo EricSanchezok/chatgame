@@ -7,7 +7,7 @@ goals:
   - 压下三年前矿难的旧账
 members: [mayor-shen]
 relations:
-  - { target: miners-guild, value: -40, stance: wary }
+  - { target: miners-guild, value: -40 }
 reputation:
   thresholds:
     - value: 50

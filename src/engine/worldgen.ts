@@ -43,8 +43,9 @@ function buildNpcState(def: WorldDefinition, npcId: string): NpcState {
   const relations: RelationState[] = (npc.relations ?? []).map((r) => ({
     npcId: r.target,
     value: r.value,
-    stance: r.stance ?? valueToStance(r.value),
+    stance: valueToStance(r.value),
     type: r.type,
+    description: r.description,
   }));
   const factionRep = [...def.factions.values()]
     .filter((f) => f.members.includes(npcId))
@@ -106,8 +107,9 @@ function buildPlayerState(
   const relations: RelationState[] = (origin.starting_relations ?? []).map((r) => ({
     npcId: r.npc,
     value: r.value,
-    stance: r.stance ?? valueToStance(r.value),
-    type: "acquaintance",
+    stance: valueToStance(r.value),
+    type: r.type ?? "acquaintance",
+    description: r.description,
   }));
   // Exclusive leads become player flags (authors consume via conditions).
   const exclusiveFlags = (origin.exclusive_leads ?? []).map((lead) => `exclusive-lead:${lead}`);

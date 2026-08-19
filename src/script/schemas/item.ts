@@ -24,7 +24,7 @@ export const itemSchema = z
       .optional(),
     effects_on_use: z.array(effectSchema).default([]),
     requirements: conditionSchema.optional(),
-    rarity: z.enum(["common", "uncommon", "rare", "epic", "legendary"]),
+    rarity: z.string().min(1),
     value: z.number().nonnegative(),
     ext: extSchema,
   })

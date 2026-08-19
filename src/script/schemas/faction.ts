@@ -1,12 +1,11 @@
 // Module 15: factions/ — factions.
 import { z } from "zod";
-import { effectSchema, extSchema, idSchema, stanceSchema } from "./common";
+import { effectSchema, extSchema, idSchema } from "./common";
 
 const factionRelationSchema = z
   .object({
     target: idSchema,
     value: z.number().min(-100).max(100),
-    stance: stanceSchema,
   })
   .strict();
 

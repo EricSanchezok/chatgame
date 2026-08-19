@@ -35,13 +35,13 @@ src/engine/
 ├── worldgen.ts       开局随机化（固定种子确定性，含 secret_holder 映射）
 ├── director.ts       事件选择（张力带加权 + novelty + difficulty_ramp）
 ├── presentation.ts   ★表现层：resolveTheme（default+by_location）/ buildAssetManifest / deriveMediaCues（引擎确定性推导，LLM 不参与）/ appendTranscript
-├── save.ts           JSON 存档 + 版本门（v4，含 transcript + runtimeState，无迁移）
+├── save.ts           JSON 存档 + 版本门（v4，含 transcript + runtimeState + 描述位，无迁移）
 ├── media/            MediaProvider 接口 + off/mock 实现（env：CHATGAME_MEDIA_PROVIDER；真实生成 V2）
 └── narrative/
     ├── provider.ts   LLMProvider 接口 + factory（env 配置）
     ├── mock.ts       MockProvider（确定性，默认）
     ├── vercel.ts     VercelProvider（AI SDK v7 适配层）
-    ├── prompt.ts     PromptBuilder（宪法/style/lore/记忆/知识过滤/taboos）
+    ├── prompt.ts     PromptBuilder（宪法/style/lore/记忆/知识过滤/taboos + 关系与状态摘要）
     ├── intent.ts     ★意图解析（兜底分级：直映射/澄清/降级 talk/拒绝）
     ├── narrative.ts  ★双通道输出 {narrative, mechanics_tags}（白名单 10 种）
     └── consistency.ts★PDVA 校验 + 一致性重试
@@ -104,7 +104,9 @@ src/engine/
 - **分类层**：确定性标签（value → stance/label，规则生成）
 - **解释层**：LLM 描述（≤300 字，只解释/展示，**永不参与判定**）
 
-挂载位置：玩家/NPC 的关系、声望、需求。更新触发三级：事件（里程碑）/ 跨区间（阈值）/ 定期兜底；惰性生成 + 校验失败降级确定性模板；`setDescriptor` 用户可编辑（编辑不影响数值）。刷新路径：`refreshAllStale` 注入 LLM 生成器（`llmDescriptorGenerator`，走 provider `generateObject` + `descriptorOutputSchema`），生成失败或极性校验（`descriptionPolarityOk`）不过 → 确定性模板降级，不阻塞回合。
+挂载位置：玩家/NPC 的关系、声望、需求、状态效果实例（statuses）。更新触发三级：事件（里程碑）/ 跨区间（阈值）/ 定期兜底；惰性生成 + 校验失败降级确定性模板；`setDescriptor` 用户可编辑（编辑不影响数值）。刷新路径：`refreshAllStale` 注入 LLM 生成器（`llmDescriptorGenerator`，走 provider `generateObject` + `descriptorOutputSchema`），生成器输入含作者静态描述（relation type/description、status effect description）与近期事件（`sourceEventIds`），生成失败或极性校验（`descriptionPolarityOk`）不过 → 确定性模板降级，不阻塞回合。
+
+语义标签不枚举：关系 type、status kind、event type、item rarity、location type、base_class、origin difficulty、commitment type、safety 内容类等**引擎零分支读取**的标签全部为自由文本（剧本契约 v1.1，作者用自然语言表达"同是朋友但质地不同"）；引擎分支读取的指令枚举（condition source/op、effect kind、task objective type、MediaCue、动作 id、memory importance、event trigger、resolve type、worldgen target、meta_progression.keep、taboo severity、lore inject_when、progression source、advance_scope、`"threat_gauge"`）保持枚举。数值仍是唯一事实源；作者 description 与 LLM 生成描述注入叙事上下文（prompt.ts 关系与状态摘要，含 NPC 视角关系网）供 LLM 理解，**永不参与判定**。
 
 一致性防线：数值唯一事实源（LLM 物理上只能写描述字段）、生成输入锚定、校验兜底、描述不参与判定（架构分离）。
 
@@ -137,9 +139,9 @@ src/engine/
 ## 存档
 
 - 路径 `.chatgame/saves/<scriptId>/<runId>.json`；格式 `{saveSchemaVersion, scriptId, createdAt, updatedAt, worldState}`。
-- 当前 schema 版本 = 4（WorldState 包含：MemoryEntry 连续强度字段 strength/lastAccessedDay/lastDecayDay/supersededBy、contextSummary 滚动摘要、actionCooldowns 冷却表、runtimeState 扩展持久态）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
+- 当前 schema 版本 = 4（WorldState 包含：MemoryEntry 连续强度字段 strength/lastAccessedDay/lastDecayDay/supersededBy、contextSummary 滚动摘要、actionCooldowns 冷却表、runtimeState 扩展持久态、关系/状态描述位 RelationState.description 与状态实例 descriptor）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
 - `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值、`transcript` 缺省 []、`contextSummary` 缺省哨兵、`actionCooldowns` 缺省 {}、`runtimeState` 缺省 {}）。
-- 往返测试：save → load → 状态深度相等（含转录、contextSummary、actionCooldowns 与 runtimeState）。
+- 往返测试：save → load → 状态深度相等（含转录、contextSummary、actionCooldowns、runtimeState 与描述位）。
 
 ## 运行策略
 

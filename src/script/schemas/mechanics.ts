@@ -38,7 +38,10 @@ export const statusEffectSchema = z
   .object({
     id: idSchema,
     name: z.string().min(1),
-    kind: z.enum(["buff", "debuff", "neutral"]),
+    /** Semantic label — free text (buff/debuff/neutral were hardcoded and never read by the engine). */
+    kind: z.string().min(1),
+    /** Static description of the status effect. */
+    description: z.string().optional(),
     effects: z.array(effectSchema).default([]),
     duration: z.number().positive().optional(),
     stackable: z.boolean().default(false),

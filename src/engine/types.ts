@@ -141,8 +141,10 @@ export interface RelationState {
   value: number;
   /** Deterministic stance derived from value (classification layer). */
   stance: string;
-  /** Relationship type (from script definition when present). */
+  /** Semantic label (free text, authored by the script: "青梅竹马", "酒肉朋友"). */
   type: string;
+  /** Static description authored by the script (survives worldgen; LLM layer may refine it). */
+  description?: string;
   descriptor?: Descriptor;
 }
 

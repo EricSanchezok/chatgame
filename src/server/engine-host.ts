@@ -55,9 +55,9 @@ export interface CatalogView {
   npcs: Array<{ id: string; name: string }>;
   events: Array<{ id: string; name: string }>;
   actions: Array<{ id: string; displayName: string }>;
-  stats: Array<{ name: string; min: number; max: number }>;
+  stats: Array<{ name: string; min: number; max: number; description?: string }>;
   needs: Array<{ name: string }>;
-  statusEffects: Array<{ id: string; name: string }>;
+  statusEffects: Array<{ id: string; name: string; description?: string }>;
   tasks: Array<{ id: string; name: string }>;
   origins: Array<{ id: string; name: string }>;
   currency: { name: string; symbol: string };
@@ -212,11 +212,17 @@ export class EngineHost {
         id: a.id,
         displayName: a.display_name ?? a.id,
       })),
-      stats: definition.mechanics.stats.map((s) => ({ name: s.name, min: s.min, max: s.max })),
+      stats: definition.mechanics.stats.map((s) => ({
+        name: s.name,
+        min: s.min,
+        max: s.max,
+        description: s.description,
+      })),
       needs: (definition.mechanics.needs ?? []).map((n) => ({ name: n.name })),
       statusEffects: (definition.mechanics.status_effects ?? []).map((s) => ({
         id: s.id,
         name: s.name,
+        description: s.description,
       })),
       tasks: [...definition.tasks.values()].map((t) => ({ id: t.id, name: t.name })),
       origins: [...definition.origins.values()].map((o) => ({ id: o.id, name: o.name })),

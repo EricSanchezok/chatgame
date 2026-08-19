@@ -11,8 +11,8 @@ items: [data-chip]
 starting_location: cargo-bay
 starting_currency: 20
 starting_relations:
-  - { npc: night-cat, value: -20, stance: wary, note: 你们抢过同一单黑活 }
-  - { npc: station-chief, value: -10, stance: wary, note: 站务系统里有你的案底 }
+  - { npc: night-cat, value: -20, type: 抢过活的同行, description: 你们抢过同一单黑活 }
+  - { npc: station-chief, value: -10, type: 有案底的警长, description: 站务系统里有你的案底 }
 starting_knowledge: [vent-route-known, black-market-prices, station-layout]
 exclusive_leads: [ai-core-origin]
 denied_actions: [intimidate]
