@@ -53,6 +53,7 @@ export type GameAction =
   | { type: "error"; message: string }
   | { type: "enter"; session: SessionHandle; detail: ScriptDetail }
   | { type: "turn"; result: TurnResultFull }
+  | { type: "updateState"; state: WorldState }
   | { type: "theme"; mode: ThemeMode }
   | { type: "audio"; on: boolean }
   | { type: "panel"; panel: PanelId | null }
@@ -106,6 +107,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         busy: false,
         error: "",
       };
+    case "updateState":
+      return {
+        ...state,
+        session: state.session ? { ...state.session, state: action.state } : state.session,
+        dirty: true,
+        busy: false,
+        error: "",
+      };
     case "theme":
       return { ...state, themeMode: action.mode };
     case "audio":
@@ -140,6 +149,8 @@ interface GameApi {
   continueGame: (scriptId: string, runId: string) => Promise<void>;
   sendTurn: (input: string) => Promise<void>;
   save: () => Promise<void>;
+  advance: (hours: number) => Promise<void>;
+  updateDescriptor: (path: string, text: string) => Promise<void>;
   exitGame: (saveFirst: boolean) => Promise<void>;
   setTheme: (mode: ThemeMode) => void;
   setAudio: (on: boolean) => void;
@@ -243,6 +254,29 @@ export function GameProvider({ children }: { children: ReactNode }) {
     await api.save(state.session.id);
     dispatch({ type: "saved" });
   }
+  async function advance(hours: number): Promise<void> {
+    if (!state.session || state.busy) return;
+    dispatch({ type: "busy", on: true });
+    try {
+      const res = await api.advance(state.session.id, hours);
+      locationRef.current = res.state.player.locationId;
+      dispatch({ type: "updateState", state: res.state });
+    } catch (err) {
+      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async function updateDescriptor(path: string, text: string): Promise<void> {
+    if (!state.session || state.busy) return;
+    dispatch({ type: "busy", on: true });
+    try {
+      const res = await api.setDescriptor(state.session.id, path, text);
+      dispatch({ type: "updateState", state: res.state });
+    } catch (err) {
+      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
 
   async function exitGame(saveFirst: boolean): Promise<void> {
     if (!state.session) {
@@ -263,6 +297,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       continueGame,
       sendTurn,
       save,
+      advance,
+      updateDescriptor,
       exitGame,
       setTheme: (mode) => dispatch({ type: "theme", mode }),
       setAudio: (on) => dispatch({ type: "audio", on }),

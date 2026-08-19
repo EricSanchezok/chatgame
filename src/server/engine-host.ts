@@ -37,6 +37,8 @@ export interface ScriptSummary {
   theme?: { id: string; name: string; palette: Theme["palette"] };
   /** Whether the script has a presentation asset manifest. */
   hasAssets: boolean;
+  /** Content rating surface (empty strings when the script ships none). */
+  safety?: { age_rating: string; content_classes: string[] };
 }
 
 /** Static catalog data for the UI panels (names/descriptions, never state). */
@@ -150,6 +152,10 @@ export class EngineHost {
             ? { id: defaultTheme.id, name: defaultTheme.name, palette: defaultTheme.palette }
             : undefined,
           hasAssets: definition.assets !== undefined,
+          safety: {
+            age_rating: definition.safety?.age_rating ?? "",
+            content_classes: definition.safety?.content_classes ?? [],
+          },
         });
       } catch {
         // Invalid scripts are invisible in the library (validate gate keeps
@@ -221,9 +227,11 @@ export class EngineHost {
     return buildAssetManifest(this.loadDefinition(scriptId));
   }
 
-  /** Lists save files for a script (no live session needed). */
+  /**
+   * Lists save files for a script (no live session needed).
+   * Internal retained API: no current caller, kept for future consumers.
+   */
   scriptSaves(scriptId: string): string[] {
-    this.scriptDirFor(scriptId); // 404 gate
     return listScriptSaves(scriptId);
   }
 
@@ -241,6 +249,15 @@ export class EngineHost {
       description: o.description,
       difficulty: o.difficulty,
     }));
+  }
+
+  /** Safety surface for a script (empty when the script ships no safety data). */
+  scriptSafety(scriptId: string): { age_rating: string; content_classes: string[] } {
+    const safety = this.loadDefinition(scriptId).safety;
+    return {
+      age_rating: safety?.age_rating ?? "",
+      content_classes: safety?.content_classes ?? [],
+    };
   }
 
   /** Imports a script zip (rejects duplicates unless replace). */
@@ -492,7 +509,10 @@ export class EngineHost {
     return { data: readFileSync(abs), mimeType: MIME_BY_EXT[ext] };
   }
 
-  /** The active media provider (mock/off; real provider is a V2 addition). */
+  /**
+   * The active media provider (mock/off; real provider is a V2 addition).
+   * Internal retained API: no current caller, kept for future consumers.
+   */
   get mediaProvider(): MediaProvider {
     return this.media;
   }

@@ -13,6 +13,7 @@ export async function GET(
     return json({
       scriptId,
       presentation: host.scriptPresentation(scriptId),
+      safety: host.scriptSafety(scriptId),
       origins: host.scriptOrigins(scriptId),
       catalog: host.scriptCatalog(scriptId),
       assets: host.scriptAssets(scriptId),

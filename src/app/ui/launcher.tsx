@@ -122,7 +122,18 @@ export function Launcher() {
                 >
                   <div className="h-20" style={{ background: `linear-gradient(135deg, ${primary}, ${s.theme?.palette.accent ? rgba(s.theme.palette.accent, 0.35) : "color-mix(in srgb, var(--cg-primary) 35%, transparent)"})` }} />
                   <div className="flex flex-1 flex-col gap-2 p-4" style={{ background: surface }}>
-                    <h2 className="text-lg font-bold" style={{ color: text }}>{s.name}</h2>
+                    <h2 className="text-lg font-bold" style={{ color: text }}>
+                      {s.name}
+                      {s.safety?.age_rating ? (
+                        <span
+                          className="ml-2 rounded-full border px-2 py-0.5 align-middle text-xs"
+                          style={{ borderColor: dim, color: dim }}
+                          title="内容分级"
+                        >
+                          {s.safety.age_rating}
+                        </span>
+                      ) : null}
+                    </h2>
                     <p className="line-clamp-3 text-sm" style={{ color: dim }}>{s.description}</p>
                     <p className="text-xs" style={{ color: dim }}>
                       {s.author} · {s.tone.join(" / ") || "—"} · {s.hasAssets ? "含资产" : "无资产"}

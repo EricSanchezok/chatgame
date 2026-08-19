@@ -4,7 +4,8 @@
 // Pipeline: zip/dir -> temp staging -> find script.yaml -> parse id ->
 // move to scriptsRoot/<id> -> validateScriptDir gate -> result.
 // Security: zip-slip entries (absolute paths / ".." segments) are rejected
-// before extraction; the target directory name is forced to the script id.
+// before extraction; the target directory name is forced to the script id;
+// total unpacked bytes are capped (zip bomb protection).
 import {
   mkdirSync,
   rmSync,
@@ -22,6 +23,9 @@ import AdmZip from "adm-zip";
 import { parseDocument } from "yaml";
 import { validateScriptDir, type ValidationIssue } from "../script/validate";
 import { scriptSchema } from "../script/schemas";
+
+/** Cap on total unpacked bytes per zip import (zip bomb protection). */
+export const MAX_UNPACKED_BYTES = 100 * 1024 * 1024;
 
 export class ScriptImportError extends Error {
   /** Validation issues (present when the script content itself failed). */
@@ -71,8 +75,9 @@ function findScriptDir(root: string): string | null {
   return null;
 }
 
-/** Extracts a zip buffer into `target`, rejecting zip-slip entries. */
-function extractZip(zipBuffer: Buffer, target: string): void {
+/** Extracts a zip buffer into `target`, rejecting zip-slip entries and
+ * unpacking more than `maxUnpackedBytes` in total (zip bomb protection). */
+function extractZip(zipBuffer: Buffer, target: string, maxUnpackedBytes: number): void {
   let zip: AdmZip;
   try {
     zip = new AdmZip(zipBuffer);
@@ -82,6 +87,7 @@ function extractZip(zipBuffer: Buffer, target: string): void {
   const entries = zip.getEntries();
   if (entries.length === 0) throw new ScriptImportError("zip file is empty");
   mkdirSync(target, { recursive: true });
+  let unpackedBytes = 0;
   const rootAbs = path.resolve(target);
   for (const entry of entries) {
     const name = entry.entryName;
@@ -93,8 +99,15 @@ function extractZip(zipBuffer: Buffer, target: string): void {
     if (!abs.startsWith(rootAbs + path.sep) && abs !== rootAbs) {
       throw new ScriptImportError(`entry escapes the target directory: "${name}"`);
     }
+    const data = entry.getData();
+    unpackedBytes += Buffer.byteLength(data);
+    if (unpackedBytes > maxUnpackedBytes) {
+      throw new ScriptImportError(
+        `archive unpacks too large (limit: ${maxUnpackedBytes} bytes)`,
+      );
+    }
     mkdirSync(path.dirname(abs), { recursive: true });
-    writeFileSync(abs, entry.getData());
+    writeFileSync(abs, data);
   }
 }
 
@@ -145,12 +158,12 @@ function stageToLibrary(
  */
 export function importScriptFromZip(
   zipBuffer: Buffer,
-  options: { scriptsRoot?: string; replace?: boolean } = {},
+  options: { scriptsRoot?: string; replace?: boolean; maxUnpackedBytes?: number } = {},
 ): { scriptId: string; warnings: ValidationIssue[] } {
   const scriptsRoot = options.scriptsRoot ?? defaultScriptsRoot();
   const staging = path.join(stagingRoot(), `zip-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   try {
-    extractZip(zipBuffer, staging);
+    extractZip(zipBuffer, staging, options.maxUnpackedBytes ?? MAX_UNPACKED_BYTES);
     const scriptDir = findScriptDir(staging);
     if (!scriptDir) throw new ScriptImportError("zip contains no script.yaml");
     return stageToLibrary(scriptDir, scriptsRoot, options.replace ?? false);

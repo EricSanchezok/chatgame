@@ -44,6 +44,9 @@ describe("scripts API", () => {
     const body = await res.json();
     expect(body.origins.map((o: { id: string }) => o.id)).toContain("crew-member");
     expect(body.presentation.themes.length).toBeGreaterThanOrEqual(3);
+    expect(body.safety.age_rating).toBe("16+");
+    expect(body.safety.content_classes.length).toBeGreaterThan(0);
+    expect(body.safety.content_classes).toContain("violence");
   });
 
   it("GET /api/scripts/:id 404s unknown scripts", async () => {
@@ -131,6 +134,37 @@ describe("sessions API", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.state.transcript.length).toBeGreaterThanOrEqual(3); // opening + turn pair
+  });
+
+  it("POST /api/sessions/:id/descriptor edits a descriptor and returns state", async () => {
+    const { POST } = await import("../sessions/[id]/descriptor/route");
+    const res = await POST(
+      new Request("http://x/api/sessions/descriptor", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: "player.needs.oxygen", text: "呼吸顺畅" }),
+      }),
+      { params: Promise.resolve({ id: sessionId }) },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.state.player.needs.oxygen.descriptor.description).toBe("呼吸顺畅");
+    expect(body.state.player.needs.oxygen.descriptor.userEdited).toBe(true);
+  });
+
+  it("POST /api/sessions/:id/advance advances the clock and returns state", async () => {
+    const { POST } = await import("../sessions/[id]/advance/route");
+    const res = await POST(
+      new Request("http://x/api/sessions/advance", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hours: 24 }),
+      }),
+      { params: Promise.resolve({ id: sessionId }) },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.state.clock.totalHours).toBeGreaterThanOrEqual(24);
   });
 
   it("save -> list -> load round-trips via the API", async () => {
