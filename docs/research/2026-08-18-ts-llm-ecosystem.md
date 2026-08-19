@@ -263,4 +263,4 @@ const result = await generateText({
 
 ---
 
-*本报告为调研记录，不是决策；结论被采纳时请写成 .agents/notes/ 决策记录并链接回本文件（见 docs/research/README.md 约定）。*
+*本报告为调研记录，不是决策；结论被采纳时请写成 docs/decisions/ 决策记录并链接回本文件（见 docs/research/README.md 约定）。*

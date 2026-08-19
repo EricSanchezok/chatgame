@@ -1,6 +1,6 @@
 # 引擎运行时规格（Engine Runtime）
 
-> 本文档是 chatgame 引擎运行时 v1 的规格——"世界如何运转"的运行时实现契约。决策依据见 [.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md](../../.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md)；剧本格式契约见 [script-format.md](script-format.md)。
+> 本文档是 chatgame 引擎运行时 v1 的规格——"世界如何运转"的运行时实现契约。决策依据见 [决策记录 0007](../decisions/0007-engine-runtime.md)；剧本格式契约见 [script-format.md](script-format.md)。
 
 ## 架构分层
 

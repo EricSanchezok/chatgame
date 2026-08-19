@@ -136,6 +136,9 @@ meta_progression:
   unlocks: []
 memory:
   tier_retention_days: { major: 0, minor: 90, trivial: 30 }
+context_compaction:
+  policy: summarize_archive
+  retention_tiers: [major]
 `,
     "safety.yaml": `
 content_classes: [violence, romance, horror, profanity, self_harm, sexual, drugs, gambling, politics, religion, crime]

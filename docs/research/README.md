@@ -1,6 +1,6 @@
 # 调研记录（Research）
 
-这里存放对外部世界的调研证据——游戏设计理论、方法论、相似产品。调研不是决定：结论被采纳时写成决策（[.agents/notes/](../../.agents/notes/README.md)）或规格（[../game-design/](../game-design/README.md)），并链接回本目录的研究记录。
+这里存放对外部世界的调研证据——游戏设计理论、方法论、相似产品。调研不是决定：结论被采纳时写成决策（[docs/decisions/](../../docs/decisions/README.md)）或规格（[../game-design/](../game-design/README.md)），并链接回本目录的研究记录。
 
 ## 命名与格式
 

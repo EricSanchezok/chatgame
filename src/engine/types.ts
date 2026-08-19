@@ -341,6 +341,25 @@ export type MediaCue =
   | { kind: "npc_speech"; npcId: string }
   | { kind: "location_enter"; locationId: string }
   | { kind: "event"; eventId: string };
+// ---------------------------------------------------------------------------
+// Rolling context summary (mid-term memory layer, engine-held)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rolling narrative summary produced by context compaction (summarize
+ * via LLMProvider.generateText). Engine-held and persisted with saves —
+ * it is an explanation layer, never a fact source: numeric state values
+ * remain the only facts the engine and narrative may rely on.
+ */
+export interface ContextSummary {
+  /** Running summary text (incremental continuation, never a rewrite). */
+  text: string;
+  /** Transcript turn at which the last summary was produced (0 = none). */
+  lastSummaryTurn: number;
+  /** Inclusive transcript turn range covered by the last summary. */
+  sourceTurnRange: [number, number];
+}
+
 // World state (the full immutable snapshot)
 // ---------------------------------------------------------------------------
 
@@ -368,6 +387,8 @@ export interface WorldState {
   locationInventories: Record<string, InventoryState>;
   /** Complete conversation history (persisted with saves). */
   transcript: TranscriptEntry[];
+  /** Rolling context summary (absent until the first compaction). */
+  contextSummary?: ContextSummary;
  }
 
 // ---------------------------------------------------------------------------

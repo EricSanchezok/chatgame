@@ -21,7 +21,7 @@ npm run script:validate -- scripts/emberfall
 npm run script:validate -- scripts/starlight
 ```
 
-决策依据见 [.agents/notes/implemented/game-design/2026-08-18-script-format.md](../../.agents/notes/implemented/game-design/2026-08-18-script-format.md)。
+决策依据见 [决策记录 0005](../decisions/0005-script-format-v1.md)。
 
 ## 引擎运行时
 
@@ -31,7 +31,7 @@ npm run script:validate -- scripts/starlight
 npm run play   # demo CLI（默认 Mock LLM，无 key 可跑）
 ```
 
-决策依据见 [.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md](../../.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md)。
+决策依据见 [决策记录 0007](../decisions/0007-engine-runtime.md)。
 
 ## 表现层
 
@@ -41,9 +41,9 @@ npm run play   # demo CLI（默认 Mock LLM，无 key 可跑）
 npm run dev   # 开发服务器（启动器 + 游戏 UI）
 ```
 
-决策依据见 [.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md](../../.agents/notes/implemented/feature/2026-08-19-ui-theme-assets-multiscript.md)。
+决策依据见 [决策记录 0012](../decisions/0012-ui-theme-assets-multiscript.md)。
 
 规则：
 
-- 这里写"当前如何运转"的规格；"为什么这么设计"写进 [.agents/notes/](../../.agents/notes/README.md)。
+- 这里写"当前如何运转"的规格；"为什么这么设计"写进 [决策记录](../decisions/README.md)。
 - 有第一份内容时再创建对应文件，避免空目录占位。

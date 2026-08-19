@@ -28,6 +28,7 @@ import { generateNarrative, fallbackNarrative, type NarrativeOutput } from "./na
 import { withConsistencyRetry, tagsToEffects } from "./narrative/consistency";
 import { memorySelections, buildTurnPrompt } from "./narrative/prompt";
 import { recordMemoryAccess } from "./memory";
+import { buildContextBlocks, shouldSummarize, summarizeContext } from "./context";
 import { appendTranscript, deriveMediaCues } from "./presentation";
 
 export interface EngineOptions extends SessionOptions {
@@ -239,6 +240,10 @@ export class Engine {
       ...memSel.player.ids,
       ...(memSel.npc ? memSel.npc.ids : []),
     ];
+    // Context assembly: layers B (state snapshot) + C (rolling summary) +
+    // D (recent transcript verbatim) — the "LLM 失忆" fix. The player's
+    // current input is appended last inside buildTurnPrompt (recency bias).
+    const contextBlocks = buildContextBlocks(state, this.definition);
     const narrativeCtx = {
       provider: this.provider,
       definition: this.definition,
@@ -246,6 +251,7 @@ export class Engine {
       playerInput: input,
       resolution: resolution.resolution,
       npcId,
+      contextBlocks,
     };
     const consistency = await withConsistencyRetry(
       () => generateNarrative(narrativeCtx),
@@ -292,6 +298,13 @@ export class Engine {
     const mediaCues = deriveMediaCues(turnStartState, state, resolution.resolution);
     state = appendTranscript(state, "player", input, []);
     state = appendTranscript(state, "world", narrativeText, mediaCues);
+    // 10b. Context compaction: produce/continue the rolling summary when
+    //      triggered (turn-count fallback or budget overflow). A failure
+    //      degrades to the pure window — the turn is never blocked.
+    if (shouldSummarize(state, this.definition)) {
+      const summary = await summarizeContext(this.provider, this.definition, state);
+      if (summary) state = { ...state, contextSummary: summary };
+    }
     this.state = state;
     const newLogs = state.eventLog.slice(-(resolution.logEntries.length + step.logEntries.length + taskOut.logEntries.length + 1));
     return {

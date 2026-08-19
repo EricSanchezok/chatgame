@@ -29,4 +29,4 @@ npm test                                           # 全部测试
 - [docs/README.md](docs/README.md) — 文档地图
 - [docs/architecture.md](docs/architecture.md) — 系统总览
 - [docs/game-design/](docs/game-design/README.md) — 游戏设计参考
-- [.agents/notes/](.agents/notes/README.md) — 决策记录（为什么）
+- [docs/decisions/](docs/decisions/README.md) — 决策记录（为什么）

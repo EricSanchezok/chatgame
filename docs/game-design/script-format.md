@@ -387,6 +387,7 @@ seed: { policy: per_run }
 | `death_policy` | object | ✅ | `{mode, soft_failure?, world_continue?, hard_reset?}` |
 | `meta_progression` | object | ✅ | `{keep[], reset[], unlocks[]}` |
 | `memory` | object | ✅ | `tier_retention_days {major, minor, trivial}`（major 0 = 永久） |
+| `context_compaction` | object | ✅ | `policy: summarize_archive`、`retention_tiers`（引用 memory） |
 | `ext` | object | ❌ | 扩展位 |
 
 `death_policy.mode`：
@@ -412,6 +413,9 @@ meta_progression:
     - { flag: returned_visitor, grant: [new_origin_miner_foreman] }
 memory:
   tier_retention_days: { major: 0, minor: 90, trivial: 30 }
+context_compaction:
+  policy: summarize_archive
+  retention_tiers: [major, minor]
 ```
 
 ---

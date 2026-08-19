@@ -80,6 +80,12 @@ export const runSchema = z
           .strict(),
       })
       .strict(),
+    context_compaction: z
+      .object({
+        policy: z.literal("summarize_archive"),
+        retention_tiers: z.array(z.enum(["major", "minor", "trivial"])).min(1),
+      })
+      .strict(),
     ext: extSchema,
   })
   .strict();

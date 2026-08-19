@@ -206,6 +206,7 @@ describe("run schema", () => {
     },
     meta_progression: { keep: ["flags", "lore"], reset: ["stats"], unlocks: [{ flag: "returned", grant: ["origin2"] }] },
     memory: { tier_retention_days: { major: 0, minor: 90, trivial: 30 } },
+    context_compaction: { policy: "summarize_archive", retention_tiers: ["major", "minor"] },
   };
   it("accepts a valid run", () => expectValid(runSchema, valid));
   it("rejects soft_failure mode without config", () => expectInvalid(runSchema, { ...valid, death_policy: { mode: "soft_failure" } }));
