@@ -1,12 +1,23 @@
-# starlight presentation assets — 演示占位（纯加法）。
+# starlight presentation assets — 手绘分层 SVG 资产套件。
+# 风格：冷蓝全息（深空蓝底 + 霓虹蓝描边 + 扫描线/发光点），统一调色板。
+# file 项指向 assets/ 下真实文件；prompt 项为文生图/TTS 占位。
 portraits:
-  night-cat: { prompt: "星港黑猫义体人，冷光眼睛，兜帽" }
-  chief-engineer: { prompt: "星港首席工程师，工装与工具带" }
+  night-cat: { file: assets/portraits/night-cat.svg, alt: 夜猫，兜帽黑客与义体眼 }
+  chief-engineer: { file: assets/portraits/chief-engineer.svg, alt: 老周，轮机长 }
+  doctor-vera: { file: assets/portraits/doctor-vera.svg, alt: 维拉医生，医疗官 }
+  station-chief: { file: assets/portraits/station-chief.svg, alt: 沈站长，星港站长 }
 backgrounds:
-  hab-ring: { prompt: "环形居住舱，全息广告与冷白光" }
-  bridge: { prompt: "星港舰桥，全息星图与仪表" }
+  bridge: { file: assets/backgrounds/bridge.svg, alt: 星港舰桥，舷窗深空与全息星图 }
+  hab-ring: { file: assets/backgrounds/hab-ring.svg, alt: 居住舱环，舱门与全息广告 }
+  reactor-level: { file: assets/backgrounds/reactor-level.svg, alt: 三号反应堆层，橙色冷却辉光 }
+  cargo-bay: { file: assets/backgrounds/cargo-bay.svg, alt: 货物区，集装箱与坏灯 }
 icons:
-  eva-suit: { prompt: "舱外活动服图标" }
+  data-chip: { file: assets/icons/data-chip.svg, alt: 数据芯片 }
+  eva-suit: { file: assets/icons/eva-suit.svg, alt: 舱外作业服 }
+  fuel-cell: { file: assets/icons/fuel-cell.svg, alt: 燃料电池 }
+  medkit: { file: assets/icons/medkit.svg, alt: 医疗包 }
+  repair-kit: { file: assets/icons/repair-kit.svg, alt: 维修工具包 }
+  scrap-metal: { file: assets/icons/scrap-metal.svg, alt: 废金属舱壁残片 }
 sprites: {}
 voices:
   night-cat: { profile: 慵懒神秘, prompt: "慵懒神秘的年轻嗓音" }
@@ -14,3 +25,19 @@ ambient:
   hab-ring: { prompt: "居住舱环境音：通风管道低鸣与人群" }
   reactor-level: { prompt: "反应堆层环境音：低频嗡鸣" }
 effects: {}
+ui:
+  inventory: { file: assets/ui/inventory.svg }
+  character: { file: assets/ui/character.svg }
+  relations: { file: assets/ui/relations.svg }
+  tasks: { file: assets/ui/tasks.svg }
+  map: { file: assets/ui/map.svg }
+  log: { file: assets/ui/log.svg }
+  save: { file: assets/ui/save.svg }
+  audio_on: { file: assets/ui/audio_on.svg }
+  audio_off: { file: assets/ui/audio_off.svg }
+  close: { file: assets/ui/close.svg }
+  send: { file: assets/ui/send.svg }
+  warning: { file: assets/ui/warning.svg }
+  hp: { file: assets/ui/hp.svg }
+  location: { file: assets/ui/location.svg }
+  time: { file: assets/ui/time.svg }

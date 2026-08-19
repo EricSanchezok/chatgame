@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2e2218"/><stop offset="1" stop-color="#120c07"/></linearGradient>
+    <linearGradient id="a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8c07a"/><stop offset="1" stop-color="#c96f2f"/></linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#t)"/>
+  <path d="M18 34 h8 a6 6 0 0 1 12 0 h8" fill="none" stroke="url(#a)" stroke-width="3" stroke-linecap="round"/>
+  <rect x="22" y="14" width="8" height="20" rx="3" fill="none" stroke="url(#a)" stroke-width="2.5"/>
+  <rect x="34" y="14" width="8" height="20" rx="3" fill="none" stroke="url(#a)" stroke-width="2.5"/>
+  <path d="M14 44 Q24 52 32 52 Q40 52 50 44" fill="none" stroke="url(#a)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M10 48 Q24 58 32 58 Q40 58 54 48" fill="none" stroke="url(#a)" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M44 12 L56 24 M56 12 L44 24" stroke="#b8552c" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="8" cy="10" r="2" fill="#e8a04c" opacity="0.8"/>
+</svg>

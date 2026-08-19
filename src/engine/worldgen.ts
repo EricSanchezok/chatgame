@@ -6,6 +6,7 @@ import { createRng, nextFloat, pickOne, weightedPick } from "./rng";
 import { createClock } from "./time";
 import { valueToStance } from "./definition";
 import { createMemoryEntry } from "./memory";
+import { isBuiltinEffect } from "../script/schemas/common";
 
 export interface WorldgenOptions {
   /** Fixed seed (defaults to a time-based seed). */
@@ -53,13 +54,14 @@ function buildNpcState(def: WorldDefinition, npcId: string): NpcState {
   const skillsOut = skills;
   for (const trait of npc.traits ?? []) {
     for (const effect of trait.effects ?? []) {
-      if (effect.kind === "stat" && effect.target === "player") {
-        const name = effect.stat;
-        const base = statsOut[name] ?? 0;
-        const delta = effect.direction === "set" ? effect.value : base + (effect.direction === "remove" ? -effect.value : effect.value);
-        const statDef = def.mechanics.stats.find((s) => s.name === name);
-        statsOut = { ...statsOut, [name]: statDef ? Math.min(statDef.max, Math.max(statDef.min, delta)) : delta };
-      }
+      // Only built-in stat effects apply here; custom effect kinds are
+      // runtime-handled by the script extension, not during worldgen.
+      if (!isBuiltinEffect(effect) || effect.kind !== "stat" || effect.target !== "player") continue;
+      const name = effect.stat;
+      const base = statsOut[name] ?? 0;
+      const delta = effect.direction === "set" ? effect.value : base + (effect.direction === "remove" ? -effect.value : effect.value);
+      const statDef = def.mechanics.stats.find((s) => s.name === name);
+      statsOut = { ...statsOut, [name]: statDef ? Math.min(statDef.max, Math.max(statDef.min, delta)) : delta };
     }
   }
   // Initial memories (npc.memory.initial) seeded with deterministic ids.
@@ -295,6 +297,7 @@ export function generateWorld(
     secretHolders,
     locationInventories,
     transcript: [],
+    runtimeState: {},
   };
 
   return { state, summary, startingEvent };

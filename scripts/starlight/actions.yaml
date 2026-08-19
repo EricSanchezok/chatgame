@@ -115,3 +115,16 @@ actions:
     effects:
       - { kind: status, direction: add, target: player, status: overload }
     llm_freedom: process
+  # 自定义动作：电力重路由（handler 由 engine/index.ts 注册，演示
+  # 自定义 effect kind（hull）与自定义条件源（hull_integrity））
+  - id: reroute
+    enabled: true
+    display_name: 电力重路由
+    conditions:
+      all:
+        - { source: hull_integrity, op: lte, value: 95 }
+    costs: { time: 1 }
+    effects:
+      - { kind: hull, value: 15 }
+    handler: reroute
+    llm_freedom: narration

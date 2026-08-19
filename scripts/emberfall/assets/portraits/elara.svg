@@ -1,16 +1,122 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="768" viewBox="0 0 512 768" role="img" aria-label="艾拉：酒馆老板娘半身立绘">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3a2417"/>
-      <stop offset="1" stop-color="#1a100c"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a2c18"/>
+      <stop offset="0.6" stop-color="#2c1c12"/>
+      <stop offset="1" stop-color="#17100b"/>
     </linearGradient>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.32" r="0.62">
+      <stop offset="0" stop-color="#e8a04c" stop-opacity="0.28"/>
+      <stop offset="0.55" stop-color="#c96f2f" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#c96f2f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e1c12"/>
+      <stop offset="1" stop-color="#1a0f08"/>
+    </linearGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8c4a0"/>
+      <stop offset="1" stop-color="#c99a72"/>
+    </linearGradient>
+    <linearGradient id="dress" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a3c22"/>
+      <stop offset="1" stop-color="#4a2013"/>
+    </linearGradient>
+    <linearGradient id="apron" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0cdb4"/>
+      <stop offset="1" stop-color="#b3a080"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
   </defs>
-  <rect width="256" height="256" fill="url(#bg)"/>
-  <circle cx="128" cy="96" r="46" fill="#c98d6b"/>
-  <path d="M82 160 C92 196 164 196 174 160 Z" fill="#6b4a35"/>
-  <path d="M78 52 Q128 12 178 52 L168 92 Q128 80 88 92 Z" fill="#2f1f18"/>
-  <circle cx="112" cy="92" r="5" fill="#1a100c"/>
-  <circle cx="144" cy="92" r="5" fill="#1a100c"/>
-  <path d="M118 108 Q128 116 138 108" stroke="#3a2417" stroke-width="3" fill="none"/>
-  <text x="128" y="212" text-anchor="middle" font-family="serif" font-size="16" fill="#e8a04c">艾拉 · 酒馆老板娘</text>
+
+  <rect width="512" height="768" rx="28" fill="url(#bg)"/>
+  <circle cx="256" cy="250" r="300" fill="url(#bgGlow)"/>
+  <circle cx="140" cy="330" r="26" fill="#c96f2f" opacity="0.35" filter="url(#soft)"/>
+  <circle cx="400" cy="300" r="20" fill="#e8a04c" opacity="0.3" filter="url(#soft)"/>
+
+  <!-- back hair -->
+  <path d="M128 250 Q140 60 256 44 Q372 60 384 250 Q384 330 352 380 Q320 420 300 448 Q280 460 256 452 Q240 430 214 404 Q182 376 154 340 Q128 296 128 250 Z" fill="url(#hair)"/>
+  <path d="M128 250 Q136 200 150 178 Q158 168 166 172 Q150 210 146 250 Q150 300 168 330 Q160 336 152 326 Q134 292 128 250 Z" fill="#241408"/>
+  <path d="M384 250 Q376 200 362 178 Q354 168 346 172 Q362 210 366 250 Q362 300 344 330 Q352 336 360 326 Q378 292 384 250 Z" fill="#241408"/>
+
+  <!-- neck / shoulders -->
+  <path d="M208 352 Q256 340 304 352 L320 430 Q256 460 192 430 Z" fill="url(#skin)"/>
+  <path d="M236 392 Q256 398 276 392 Q268 414 256 416 Q244 414 236 392 Z" fill="#a8744c" opacity="0.5"/>
+
+  <!-- face -->
+  <ellipse cx="256" cy="258" rx="86" ry="102" fill="url(#skin)"/>
+  <path d="M256 160 Q296 160 312 190 Q330 216 328 246 Q322 300 296 330 Q276 354 256 356 Q236 354 216 330 Q190 300 184 246 Q182 216 200 190 Q216 160 256 160 Z" fill="url(#skin)"/>
+
+  <!-- bangs -->
+  <path d="M168 250 Q160 130 256 120 Q352 130 344 250 Q340 200 322 168 Q310 150 292 146 Q262 128 232 142 Q210 154 200 176 Q184 210 168 250 Z" fill="url(#hair)"/>
+  <path d="M176 240 Q180 190 200 168 Q206 196 196 234 Q192 258 188 272 Q176 256 176 240 Z" fill="#241408"/>
+  <path d="M256 122 Q312 132 330 176 Q334 200 332 224 Q318 174 292 156 Q276 148 256 146 Z" fill="#241408"/>
+  <path d="M184 272 Q180 290 176 308 Q166 288 168 268 Z" fill="url(#hair)"/>
+  <path d="M328 272 Q332 290 336 308 Q346 288 344 268 Z" fill="url(#hair)"/>
+
+  <!-- eyes: quiet, guarded -->
+  <g>
+    <path d="M204 262 Q220 254 236 262" stroke="#2c1a10" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M276 262 Q292 254 308 262" stroke="#2c1a10" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <circle cx="220" cy="262" r="7" fill="#3a2417"/>
+    <circle cx="292" cy="262" r="7" fill="#3a2417"/>
+    <circle cx="222" cy="260" r="2.4" fill="#f5e8d0"/>
+    <circle cx="294" cy="260" r="2.4" fill="#f5e8d0"/>
+    <path d="M196 250 Q212 242 232 248 M280 248 Q300 242 316 250" stroke="#8a6244" stroke-width="4" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- nose + mouth -->
+  <path d="M256 276 Q250 294 246 302 Q256 306 266 302 Q262 294 256 276 Z" fill="#d8ac80" opacity="0.85"/>
+  <path d="M256 304 Q250 306 246 302" stroke="#b8865a" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M230 336 Q256 344 282 336" stroke="#8a4c3a" stroke-width="6" fill="none" stroke-linecap="round"/>
+
+  <!-- blush + weariness -->
+  <ellipse cx="208" cy="290" rx="16" ry="9" fill="#d88a6a" opacity="0.25"/>
+  <ellipse cx="304" cy="290" rx="16" ry="9" fill="#d88a6a" opacity="0.25"/>
+  <path d="M206 308 Q212 316 220 318 M292 318 Q300 316 306 308" stroke="#a8744c" stroke-width="3" fill="none" opacity="0.4"/>
+
+  <!-- ears + earrings -->
+  <path d="M170 264 Q156 264 154 284 Q158 300 172 300 Z" fill="url(#skin)"/>
+  <path d="M342 264 Q356 264 358 284 Q354 300 340 300 Z" fill="url(#skin)"/>
+  <circle cx="168" cy="312" r="6" fill="#c96f2f"/>
+  <circle cx="344" cy="312" r="6" fill="#c96f2f"/>
+  <path d="M168 312 q0 14 -4 20" stroke="#e8a04c" stroke-width="3" fill="none"/>
+
+  <!-- hair bun + pin -->
+  <circle cx="256" cy="120" r="30" fill="url(#hair)"/>
+  <path d="M226 108 Q256 92 286 108 Q282 132 256 136 Q230 132 226 108 Z" fill="#1a0f08"/>
+  <rect x="240" y="128" width="32" height="8" rx="4" fill="#c9a36a" transform="rotate(-8 256 132)"/>
+
+  <!-- dress -->
+  <path d="M120 768 Q120 560 178 470 Q208 420 256 414 Q304 420 334 470 Q392 560 392 768 Z" fill="url(#dress)"/>
+  <path d="M120 768 Q120 560 178 470 Q208 420 256 414 L256 768 Z" fill="#5a2415" opacity="0.5"/>
+  <path d="M178 470 Q208 420 256 414 Q304 420 334 470 L322 530 Q256 552 190 530 Z" fill="#c96f2f" opacity="0.85"/>
+
+  <!-- apron -->
+  <path d="M206 500 Q256 480 306 500 L316 700 Q256 726 196 700 Z" fill="url(#apron)"/>
+  <path d="M206 500 Q256 480 306 500 L300 528 Q256 512 212 528 Z" fill="#f5e8d0" opacity="0.7"/>
+  <path d="M226 540 Q256 528 286 540 L283 700 Q256 712 229 700 Z" fill="#cbb89a" opacity="0.5"/>
+  <!-- apron pocket -->
+  <path d="M236 620 Q256 606 276 620 L273 660 Q256 674 239 660 Z" fill="#b3a080" stroke="#8f7d5e" stroke-width="3"/>
+  <!-- cloth tucked at waist -->
+  <path d="M204 512 Q220 500 232 508 Q228 540 212 536 Z" fill="#c0ac88"/>
+
+  <!-- arms crossed over apron -->
+  <path d="M182 470 Q150 520 152 590 Q168 618 190 606 Q206 592 214 560 Q222 520 218 490 Z" fill="url(#dress)"/>
+  <path d="M330 470 Q362 520 360 590 Q344 618 322 606 Q306 592 298 560 Q290 520 294 490 Z" fill="url(#dress)"/>
+  <path d="M196 596 Q214 584 234 606 Q242 616 232 624 Q214 628 198 616 Z" fill="url(#skin)"/>
+  <path d="M316 596 Q298 584 278 606 Q270 616 280 624 Q298 628 314 616 Z" fill="url(#skin)"/>
+
+  <!-- brass necklace -->
+  <path d="M226 402 Q256 418 286 402" stroke="#c9a36a" stroke-width="5" fill="none"/>
+  <path d="M256 414 l10 14 -10 4 -10 -4 Z" fill="#e8a04c"/>
+
+  <!-- ambient embers -->
+  <g fill="#e8a04c">
+    <circle cx="90" cy="220" r="4" opacity="0.7"/><circle cx="430" cy="180" r="3" opacity="0.55"/>
+    <circle cx="60" cy="420" r="3.4" opacity="0.6"/><circle cx="452" cy="400" r="3.8" opacity="0.7"/>
+    <circle cx="104" cy="560" r="3" opacity="0.5"/><circle cx="412" cy="600" r="3.2" opacity="0.55"/>
+  </g>
 </svg>

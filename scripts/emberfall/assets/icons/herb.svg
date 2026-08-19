@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="灰烬草：灰绿色药草">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e2c1a"/>
+      <stop offset="1" stop-color="#0c130b"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6ba368"/>
+      <stop offset="1" stop-color="#3f5a33"/>
+    </linearGradient>
+    <linearGradient id="leaf2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a8a52"/>
+      <stop offset="1" stop-color="#334a28"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="20" fill="url(#bg)"/>
+  <rect x="3" y="3" width="122" height="122" rx="17" fill="none" stroke="#3f5a33" stroke-width="2" opacity="0.6"/>
+  <g>
+    <path d="M64 116 Q60 92 64 74 Q72 84 72 96 Q72 108 64 116 Z" fill="#4a5a3a"/>
+    <!-- central stem -->
+    <path d="M64 112 Q60 70 64 30" stroke="#4a5a3a" stroke-width="4" fill="none"/>
+    <!-- leaves -->
+    <path d="M64 66 Q32 62 20 42 Q48 38 64 56 Q62 64 64 66 Z" fill="url(#leaf)"/>
+    <path d="M64 56 Q96 48 108 28 Q80 26 64 44 Q66 52 64 56 Z" fill="url(#leaf)"/>
+    <path d="M64 88 Q36 88 26 70 Q52 62 64 78 Q66 86 64 88 Z" fill="url(#leaf2)"/>
+    <path d="M64 80 Q94 82 104 64 Q78 58 64 72 Q66 78 64 80 Z" fill="url(#leaf2)"/>
+    <!-- leaf veins -->
+    <path d="M60 60 Q44 50 30 44" stroke="#2c4026" stroke-width="2" fill="none"/>
+    <path d="M68 50 Q82 42 96 32" stroke="#2c4026" stroke-width="2" fill="none"/>
+    <!-- ash dust -->
+    <g fill="#9fd88a" opacity="0.8">
+      <circle cx="36" cy="30" r="2"/><circle cx="96" cy="22" r="1.6"/><circle cx="50" cy="18" r="1.6"/>
+    </g>
+    <!-- bud -->
+    <path d="M64 30 q-8 -10 0 -18 q8 8 0 18 Z" fill="#7aa86e"/>
+  </g>
+</svg>

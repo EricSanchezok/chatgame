@@ -12,11 +12,19 @@ palette:
 typography:
   font: serif
   scale: 1.0
+  letter_spacing_em: 0.01
+  roles:
+    ui: serif
+    narrative: serif
+    mono: mono
 effects:
   bubble_radius: 14
+  chrome_radius: 10
   glass: 0.65
+  blur_px: 6
   motion: subtle
   scene_tint: "#1c0f06"
+  overlay_strength: 0.5
 by_location:
   mine-entrance: dark-mine
   forest-edge: deep-forest

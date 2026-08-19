@@ -35,7 +35,7 @@ src/engine/
 ├── worldgen.ts       开局随机化（固定种子确定性，含 secret_holder 映射）
 ├── director.ts       事件选择（张力带加权 + novelty + difficulty_ramp）
 ├── presentation.ts   ★表现层：resolveTheme（default+by_location）/ buildAssetManifest / deriveMediaCues（引擎确定性推导，LLM 不参与）/ appendTranscript
-├── save.ts           JSON 存档 + 版本门（v4，含 transcript，无迁移）
+├── save.ts           JSON 存档 + 版本门（v4，含 transcript + runtimeState，无迁移）
 ├── media/            MediaProvider 接口 + off/mock 实现（env：CHATGAME_MEDIA_PROVIDER；真实生成 V2）
 └── narrative/
     ├── provider.ts   LLMProvider 接口 + factory（env 配置）
@@ -137,9 +137,9 @@ src/engine/
 ## 存档
 
 - 路径 `.chatgame/saves/<scriptId>/<runId>.json`；格式 `{saveSchemaVersion, scriptId, createdAt, updatedAt, worldState}`。
-- 当前 schema 版本 = 4（MemoryEntry 连续强度字段：strength/lastAccessedDay/lastDecayDay/supersededBy）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
-- `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值、`transcript` 缺省 []）。
-- 往返测试：save → load → 状态深度相等（含转录）。
+- 当前 schema 版本 = 4（WorldState 包含：MemoryEntry 连续强度字段 strength/lastAccessedDay/lastDecayDay/supersededBy、contextSummary 滚动摘要、actionCooldowns 冷却表、runtimeState 扩展持久态）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
+- `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值、`transcript` 缺省 []、`contextSummary` 缺省哨兵、`actionCooldowns` 缺省 {}、`runtimeState` 缺省 {}）。
+- 往返测试：save → load → 状态深度相等（含转录、contextSummary、actionCooldowns 与 runtimeState）。
 
 ## 运行策略
 

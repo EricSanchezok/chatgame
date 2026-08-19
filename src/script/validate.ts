@@ -34,6 +34,7 @@ import {
   assetsSchema,
   type Condition,
   type Effect,
+  isBuiltinEffect,
  } from "./schemas";
 import {
   checkPresentationModules,
@@ -169,6 +170,9 @@ export function collectEffectRefs(effects: Effect[] | undefined): CollectedEffec
   };
   if (!effects) return refs;
   for (const e of effects) {
+    // Custom effect kinds carry free-form params — no entity references to
+    // validate (the script extension owns their semantics).
+    if (!isBuiltinEffect(e)) continue;
     switch (e.kind) {
       case "stat":
         refs.stat.add(e.stat);
@@ -540,16 +544,16 @@ function checkReferences(
   if (actions) {
     for (const a of actions.actions) {
       const base = `actions[${a.id}]`;
-      if (a.resolve.type === "stat_check" && !pools.statNames.has(a.resolve.stat)) {
+      if (a.resolve?.type === "stat_check" && !pools.statNames.has(a.resolve.stat)) {
         add("actions.yaml", undefined, `${base}.resolve.stat`, `stat "${a.resolve.stat}" not declared in mechanics.yaml`);
       }
-      if (a.resolve.type === "skill_check" && !pools.skillNames.has(a.resolve.skill)) {
+      if (a.resolve?.type === "skill_check" && !pools.skillNames.has(a.resolve.skill)) {
         add("actions.yaml", undefined, `${base}.resolve.skill`, `skill "${a.resolve.skill}" not declared in mechanics.yaml`);
       }
-      if (a.resolve.type === "opposed_check" && !pools.statNames.has(a.resolve.stat)) {
+      if (a.resolve?.type === "opposed_check" && !pools.statNames.has(a.resolve.stat)) {
         add("actions.yaml", undefined, `${base}.resolve.stat`, `stat "${a.resolve.stat}" not declared in mechanics.yaml`);
       }
-      if (a.resolve.type === "opposed_check" && !pools.statNames.has(a.resolve.npc_stat)) {
+      if (a.resolve?.type === "opposed_check" && !pools.statNames.has(a.resolve.npc_stat)) {
         add("actions.yaml", undefined, `${base}.resolve.npc_stat`, `npc_stat "${a.resolve.npc_stat}" not declared in mechanics.yaml`);
       }
       for (const c of a.costs?.items ?? []) {

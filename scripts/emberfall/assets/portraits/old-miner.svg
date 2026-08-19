@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="768" viewBox="0 0 512 768" role="img" aria-label="老矿工：佝偻背、络腮胡、额上矿灯">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33241a"/>
+      <stop offset="0.6" stop-color="#1e150e"/>
+      <stop offset="1" stop-color="#100b07"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.34" r="0.6">
+      <stop offset="0" stop-color="#d8963c" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#d8963c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d8ae84"/>
+      <stop offset="1" stop-color="#b08858"/>
+    </linearGradient>
+    <linearGradient id="coat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a4630"/>
+      <stop offset="1" stop-color="#33281c"/>
+    </linearGradient>
+    <linearGradient id="hat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b5438"/>
+      <stop offset="1" stop-color="#3a2e22"/>
+    </linearGradient>
+    <linearGradient id="beard" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8e0d0"/>
+      <stop offset="1" stop-color="#b8ac94"/>
+    </linearGradient>
+    <radialGradient id="lampGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffe2a8" stop-opacity="0.65"/>
+      <stop offset="0.55" stop-color="#ffb45e" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffb45e" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="768" rx="28" fill="url(#bg)"/>
+  <circle cx="256" cy="260" r="300" fill="url(#bgGlow)"/>
+
+  <!-- hunched torso -->
+  <path d="M96 768 Q92 590 152 500 Q186 448 256 430 Q320 448 356 496 Q420 580 420 768 Z" fill="url(#coat)"/>
+  <path d="M96 768 Q92 590 152 500 Q186 448 256 430 L256 768 Z" fill="#241c15" opacity="0.5"/>
+  <!-- shoulder pads + rivets -->
+  <path d="M150 500 Q130 520 128 548 L186 566 Q196 520 176 496 Z" fill="#4a3a28"/>
+  <path d="M362 500 Q382 520 384 548 L326 566 Q316 520 336 496 Z" fill="#4a3a28"/>
+  <circle cx="160" cy="540" r="6" fill="#c9a36a"/><circle cx="184" cy="552" r="6" fill="#c9a36a"/>
+  <circle cx="352" cy="540" r="6" fill="#c9a36a"/><circle cx="328" cy="552" r="6" fill="#c9a36a"/>
+  <!-- chest straps -->
+  <path d="M196 470 L176 620 M316 470 L336 620" stroke="#241c15" stroke-width="16"/>
+  <rect x="196" y="548" width="120" height="16" rx="6" fill="#c9a36a"/>
+  <!-- scarf -->
+  <path d="M196 452 Q256 486 316 452 Q330 470 324 484 Q256 512 188 484 Q182 470 196 452 Z" fill="#7a3020"/>
+  <path d="M196 452 Q256 486 316 452 Q324 462 320 474 Q256 498 192 474 Q188 462 196 452 Z" fill="#8f3a24"/>
+
+  <!-- neck -->
+  <path d="M220 400 Q256 392 292 400 L298 448 Q256 466 214 448 Z" fill="url(#skin)"/>
+  <path d="M232 434 Q256 444 280 434 Q276 452 256 454 Q236 452 232 434 Z" fill="#8a6244" opacity="0.6"/>
+
+  <!-- head (weathered, heavy jaw) -->
+  <ellipse cx="256" cy="272" rx="92" ry="106" fill="url(#skin)"/>
+  <path d="M256 166 Q306 166 324 196 Q342 224 340 258 Q336 314 304 342 Q282 366 256 368 Q230 366 208 342 Q176 314 172 258 Q170 224 188 196 Q206 166 256 166 Z" fill="url(#skin)"/>
+  <!-- brow ridge shadow -->
+  <path d="M196 248 Q256 232 316 248 Q316 258 256 260 Q196 258 196 248 Z" fill="#a8744c" opacity="0.5"/>
+  <!-- deep wrinkles -->
+  <g stroke="#9a6c44" stroke-width="3" fill="none" opacity="0.7" stroke-linecap="round">
+    <path d="M206 290 Q220 296 234 292"/>
+    <path d="M278 292 Q292 296 306 290"/>
+    <path d="M206 316 Q226 322 244 318"/>
+    <path d="M268 318 Q286 322 306 316"/>
+  </g>
+
+  <!-- eyes: stubborn, narrowed -->
+  <g>
+    <path d="M196 262 Q214 252 232 262" stroke="#241a10" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M280 262 Q298 252 316 262" stroke="#241a10" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <circle cx="214" cy="262" r="6" fill="#2c1a10"/>
+    <circle cx="298" cy="262" r="6" fill="#2c1a10"/>
+    <circle cx="216" cy="260" r="2" fill="#f0e4c8"/>
+    <circle cx="300" cy="260" r="2" fill="#f0e4c8"/>
+  </g>
+  <!-- bushy brows -->
+  <path d="M192 246 Q208 238 232 244 Q224 234 204 234 Q192 238 192 246 Z" fill="#c8bc9e"/>
+  <path d="M280 244 Q304 238 320 246 Q320 238 308 234 Q288 234 280 244 Z" fill="#c8bc9e"/>
+
+  <!-- nose -->
+  <path d="M256 280 Q250 300 246 310 Q256 316 266 310 Q262 300 256 280 Z" fill="#c89a6c" opacity="0.9"/>
+  <path d="M256 314 Q250 318 246 312" stroke="#9a6c44" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- bushy beard + mustache -->
+  <path d="M182 300 Q188 350 208 402 Q230 452 256 456 Q282 452 304 402 Q324 350 330 300 Q330 326 322 360 Q310 404 288 434 Q262 452 256 454 Q250 452 224 434 Q202 404 190 360 Q182 326 182 300 Z" fill="url(#beard)"/>
+  <path d="M200 322 Q230 340 256 338 Q282 340 312 322 Q304 356 282 374 Q256 382 230 374 Q208 356 200 322 Z" fill="#d8ceb8"/>
+  <path d="M214 330 Q236 346 256 344 Q276 346 298 330 Q284 358 256 362 Q228 358 214 330 Z" fill="#e8e0d0" opacity="0.8"/>
+  <!-- mouth hidden in beard -->
+  <path d="M238 348 Q256 354 274 348" stroke="#6b5a44" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- ears -->
+  <path d="M164 272 Q150 270 148 290 Q152 306 168 306 Z" fill="url(#skin)"/>
+  <path d="M348 272 Q362 270 364 290 Q360 306 344 306 Z" fill="url(#skin)"/>
+
+  <!-- flat cap -->
+  <path d="M160 232 Q158 160 256 152 Q354 160 352 232 Q352 244 330 244 Q300 252 256 252 Q212 252 182 244 Q160 244 160 232 Z" fill="url(#hat)"/>
+  <path d="M160 232 Q256 262 352 232 L352 244 Q256 272 160 244 Z" fill="#2c2115"/>
+  <path d="M166 224 Q256 252 346 224" stroke="#8a6b4a" stroke-width="6" fill="none"/>
+  <!-- miner lamp on cap -->
+  <rect x="222" y="138" width="32" height="16" rx="5" fill="#4a3a28"/>
+  <rect x="238" y="146" width="26" height="26" rx="4" fill="#241c15" stroke="#c9a36a" stroke-width="3"/>
+  <circle cx="256" cy="156" r="46" fill="url(#lampGlow)"/>
+  <circle cx="256" cy="156" r="9" fill="#ffe2a8"/>
+  <circle cx="256" cy="156" r="4" fill="#fff6dc"/>
+
+  <!-- background dust -->
+  <g fill="#c9a36a">
+    <circle cx="86" cy="200" r="3.6" opacity="0.6"/><circle cx="430" cy="240" r="3" opacity="0.5"/>
+    <circle cx="60" cy="420" r="3.2" opacity="0.55"/><circle cx="446" cy="500" r="3.4" opacity="0.6"/>
+    <circle cx="110" cy="600" r="3" opacity="0.45"/><circle cx="408" cy="640" r="3.2" opacity="0.5"/>
+  </g>
+</svg>

@@ -25,8 +25,9 @@
     },
     {
       "path": "docs/architecture.md",
-      "sha256": "a98ff6b5146c39614b8ced3ce4ceb36787b87d6026dffff7e1939bff9a66870c",
-      "category": "docs"
+      "sha256": "913809f55ba08b8a790e027726ac63c1dce08e69baa6c4913e2e64d39e57f0e0",
+      "category": "docs",
+      "userModified": true
     },
     {
       "path": "docs/development.md",

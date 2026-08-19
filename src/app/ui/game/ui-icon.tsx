@@ -2,30 +2,12 @@
 
 // UiIcon: framework chrome icons driven by the script's assets.yaml `ui`
 // slots. A script may override any fixed slot with its own file (svg/png);
-// otherwise the framework fallback glyph map renders (single source of
-// truth for the built-in glyphs — no per-component emoji litter).
+// otherwise the framework fallback icon set renders (inline SVG, themed via
+// currentColor — replaces the old emoji fallback table).
 
 import { api, type AssetManifest } from "../../lib/api";
 import type { UiIconSlot } from "../../../script/schemas/assets";
-
-/** Built-in glyph fallbacks per slot (used when the script declares none). */
-export const UI_GLYPHS: Record<UiIconSlot, string> = {
-  inventory: "🎒",
-  character: "🧑",
-  relations: "💞",
-  tasks: "📜",
-  map: "🗺️",
-  log: "📋",
-  save: "💾",
-  audio_on: "🔊",
-  audio_off: "🔇",
-  close: "✕",
-  send: "➤",
-  warning: "⚠️",
-  hp: "❤️",
-  location: "📍",
-  time: "🕐",
-};
+import { FallbackIcon } from "./icons";
 
 export function UiIcon({
   slot,
@@ -52,9 +34,23 @@ export function UiIcon({
       />
     );
   }
-  return (
-    <span role="img" aria-label={alt ?? slot} className={`${className ?? ""} shrink-0 leading-none`}>
-      {UI_GLYPHS[slot]}
-    </span>
-  );
+  return <FallbackIcon slot={slot as FallbackIconSlot} className={className} />;
 }
+
+/** Maps UiIconSlot onto the fallback icon set (same key space). */
+type FallbackIconSlot =
+  | "inventory"
+  | "character"
+  | "relations"
+  | "tasks"
+  | "map"
+  | "log"
+  | "save"
+  | "audio_on"
+  | "audio_off"
+  | "close"
+  | "send"
+  | "warning"
+  | "hp"
+  | "location"
+  | "time";

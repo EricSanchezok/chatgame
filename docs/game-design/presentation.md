@@ -16,7 +16,7 @@
 
 - **引擎只在服务端运行**（fs/YAML/API key）；客户端通过 Route Handlers 访问，不存在浏览器内跑引擎的路线。
 - **EngineHost**（`src/server/engine-host.ts`）：会话注册表（创建/取回/销毁/30 分钟闲置回收/上限 20）、剧本扫描、zip/目录导入（单一核心 `script-import.ts`，web 与 CLI 共用）、资产文件安全服务（resolve 前缀校验防穿越）、每会话**串行化队列**（同一会话并发回合排队）。
-- **前端**（`src/app/`，'use client'，无新依赖）：`lib/api.ts`（类型化 fetch，唯一 HTTP 入口）、`lib/theme.ts`（JSON 主题 → CSS 变量 + @font-face）、`lib/audio.ts`（AudioController）、`ui/launcher.tsx`（剧本卡片墙）、`ui/game/`（state/chat/cards/panels/ui-icon）。
+- **前端**（`src/app/`，'use client'，无新依赖）：`lib/api.ts`（类型化 fetch，唯一 HTTP 入口）、`lib/theme.ts`（JSON 主题 → CSS 变量 + @font-face）、`lib/audio.ts`（AudioController）、`lib/fullscreen.ts`（全屏封装）、`lib/script-registry.ts`（剧本 UI 槽位注册）、`lib/react-bridge.tsx`（宿主 React 单实例注入）、`ui/launcher.tsx`（主菜单）、`ui/game/`（state/chat/cards/panels/hud/toolbar/pause-menu/icons/slots/ui-icon）。
 
 ## Route Handlers（全部）
 
@@ -24,8 +24,9 @@
 |---|---|---|
 | `/api/scripts` | GET / POST | 剧本库列表 / multipart zip 导入（20MB 上限，重复 id 需 `replace=true`） |
 | `/api/scripts/:scriptId` | GET | presentation（主题列表）+ origins + catalog（面板静态标签）+ assets（资产清单）+ saves（存档摘要） |
-| `/api/scripts/:scriptId/assets/*` | GET | 资产文件字节流（MIME 白名单，防穿越 400） |
 | `/api/scripts/:scriptId/entity-assets/:kind/:entityId` | GET | 实体资产：声明文件优先，否则媒体 provider 按 prompt 生成（缓存 `.chatgame/media-cache/`）；无可用资产 404 |
+| `/api/scripts/:scriptId/ui-bundle` | GET | 剧本前端扩展 bundle（`ui/index.tsx` 编译产物，`text/javascript` + Cache-Control；无 ui 入口 404） |
+| `/api/runtime/react.mjs` / `jsx-runtime.mjs` | GET | 宿主 React 单实例薄壳（剧本 bundle 经此共享同一 React，防双实例崩 hooks） |
 | `/api/sessions` | GET / POST | 会话列表 / 创建（`{scriptId, originId?, seed?, playerName?, loadRunId?}`；新游戏需 originId，续档需 loadRunId） |
 | `/api/sessions/:id/state` | GET | worldState + presentation |
 | `/api/sessions/:id/presentation` | GET | themes + currentTheme + hasAssets |
@@ -35,12 +36,15 @@
 | `/api/sessions/:id/descriptor` | POST | 描述层用户编辑 |
 | `/api/sessions/:id` | DELETE | 销毁会话（未保存进度丢弃） |
 
-## UI 拓扑（v1.1：三区壳 + 居中模态）
+## UI 拓扑（v2：沉浸壳 + 悬浮工具栏 + 暂停菜单）
 
-- **游戏页 = 稳定三区壳**：`data-region="hud"`（顶栏摘要 + 会话菜单，不滚动）/ `data-region="stage"`（对话流，**唯一**滚动容器，`min-h-0 flex-1 overflow-y-auto`）/ `data-region="composer"`（固定底栏：输入 + 面板入口）。全页 `h-dvh` 高度链锁死，**输入栏在任何状态下都贴视口底**（空转录/长消息/开模态都不漂移）。
-- **次要世界数据 = 居中模态**（`PanelFrame`）：`position:fixed` 覆盖层，`max-w-lg` + `max-h-[min(80dvh)]` + 内滚；遮罩浓度走 `--cg-overlay-strength`；Esc / 点遮罩 / 关闭按钮关闭；**不参与壳的 flex 轨道**。删除 v1 的右侧抽屉。
-- **启动器**：满高壳，header 固定、卡片墙滚动；新游戏/继续模态同居中覆盖层。
-- **UI 图标槽**：`UiIcon` 组件消费 `assets.yaml` 的 `ui` 固定槽位（inventory/character/relations/tasks/map/log/save/audio_on/audio_off/close/send/warning/hp/location/time）；剧本可覆盖，缺省框架 glyph 兜底表（单一真源，不再散落 emoji）。
+- **游戏页 = 沉浸壳**：`data-region="hud"`（顶部玻璃信息条：血条/时钟/地点徽章，不滚动，**整槽可被剧本替换**）/ `data-region="stage"`（对话流，**唯一**滚动容器，`min-h-0 flex-1 overflow-y-auto`）/ `data-region="composer"`（固定底栏：输入 + 发送，**面板入口已移出**）/ `data-region="toolbar"`（右侧悬浮胶囊工具栏：背包/角色/关系/任务/地图/日志入口，**整槽可被剧本替换**）。全页 `h-dvh` 高度链锁死，**输入栏在任何状态下都贴视口底**（空转录/长消息/开模态都不漂移）。
+- **次要世界数据 = 居中模态**（`PanelFrame`）：`position:fixed` 覆盖层，`max-w-lg` + `max-h-[min(80dvh)]` + 内滚；遮罩浓度走 `--cg-overlay-strength`；Esc / 点遮罩 / 关闭按钮关闭；**不参与壳的 flex 轨道**。
+- **Esc 暂停设置页**（`PauseMenu`，`pause-menu` 槽）：Esc 打开；主题选择（跟随剧本/手动）、声音开关、保存 / 不保存返回 / 保存并返回主菜单；**顶栏的主题下拉框/声音/保存/返回按钮条已删除**。Esc 优先关闭打开的面板，再切换暂停。
+- **全屏**：开始新游戏点击（用户手势）请求 `requestFullscreen`；浏览器策略拒绝时静默降级为窗口模式，不阻塞游玩（`lib/fullscreen.ts`）。
+- **主菜单**（`Launcher`）：框架通用壳——**开始新游戏 / 继续 / 设置·导入剧本 / 切换剧本**；选中剧本的主题/字体/背景立即应用（`launcher:background` 槽位），主菜单视觉随剧本变化。旧"剧本卡片墙"首页形态已删除，剧本切换为紧凑胶囊条。
+- **UI 图标槽**：`UiIcon` 组件消费 `assets.yaml` 的 `ui` 固定槽位（inventory/character/relations/tasks/map/log/save/audio_on/audio_off/close/send/warning/hp/location/time）；剧本可覆盖，缺省框架 **SVG 图标集**（`ui/game/icons.tsx`，stroke=currentColor 随主题，**替换了 emoji 兜底表**）。
+- **剧本 UI 槽位**（`lib/script-registry.ts` + `ui/game/slots.tsx`）：剧本 `ui/index.tsx` 默认导出 `(ctx) => ctx.register(slot, { component, position?, order? })`；槽位 = `hud` / `toolbar` / `pause-menu` / `launcher` / `launcher:background` / `panel:<id>` / `bubble:<id>` / `message-card:<id>` / `composer` / `settings:<id>`。未注册槽位回退框架默认组件；切换剧本/加载失败时清空注册表（防跨剧本泄漏）。
 
 ## 主题系统（Token v1.1）
 
@@ -60,9 +64,9 @@
 
 ## 多剧本管理
 
-- **启动器**：已安装剧本卡片（名称/描述/作者/主题色渲染）；新游戏（出身选择：名称/描述/难度）→ 继续（存档列表：时间戳）→ 导入 zip（非法 zip 报错不影响库，合法出现新卡片）。
-- **游戏内流转**：返回启动器有未保存提示（dirty 标记）→ 保存并销毁会话 → 回启动器。
-- **转录进存档**：`WorldState.transcript`（player/world/system 条目 + mediaCues）随存档 v3 持久化，续玩完整恢复历史。
+- **主菜单**：选中剧本即应用其主题/背景（`launcher:background` 槽位）——菜单本身穿剧本的"皮肤"；开始新游戏（出身选择：名称/描述/难度）→ 继续（存档列表：时间戳）→ 设置·导入 zip（非法 zip 报错不影响库）。
+- **游戏内流转**：Esc 暂停菜单保存/返回；返回主菜单有未保存提示（dirty 标记）→ 保存并销毁会话 → 回主菜单。
+- **转录进存档**：`WorldState.transcript`（player/world/system 条目 + mediaCues）随存档 v4 持久化，续玩完整恢复历史。
 
 ## 会话与并发
 
@@ -79,4 +83,4 @@ npm run script:validate -- scripts/emberfall scripts/starlight
 npm run play                    # 引擎 CLI 冒烟
 ```
 
-手动清单：启动器两卡片 → 新游戏（出身）→ 多回合对话（NPC 卡 + 判定 chip）→ 移动（场景卡 + 区域主题过渡 + 环境音切换）→ 背包面板（居中模态）→ 主题切换（色+半径+玻璃可见变化）→ 保存 → 返回 → 继续（历史完整）→ zip 导入第三张卡片。几何检查：空转录 / 多消息 / 开模态三种状态下，输入栏 y 位置一致（贴视口底）。
+手动清单：主菜单选剧本（主题/背景立即变化）→ 新游戏（出身）→ 全屏进入 → 多回合对话（NPC 卡 + 判定 chip）→ 移动（场景卡 + 区域主题过渡 + 环境音切换）→ 右侧工具栏开背包面板（居中模态）→ Esc 暂停设置页（主题切换色+半径+玻璃可见变化）→ 保存 → 返回主菜单 → 继续（历史完整）→ zip 导入。几何检查：空转录 / 多消息 / 开面板 / 开暂停页四种状态下，输入栏 y 位置一致（贴视口底）。

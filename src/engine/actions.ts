@@ -70,6 +70,7 @@ export function gradeFromRoll(roll: number, dc: number): ResultGrade {
  */
 function resolveOpposed(ctx: ResolutionContext, action: ActionEntry): { grade: ResultGrade; roll: number; dc: number } {
   const resolve = action.resolve;
+  if (!resolve) throw new Error("resolveOpposed called for handler-only action");
   if (resolve.type !== "opposed_check") throw new Error("resolveOpposed called for non-opposed");
   const playerBonus = ctx.state.player.stats[resolve.stat] ?? 0;
   const npc = ctx.targetNpcId ? ctx.state.npcs[ctx.targetNpcId] : undefined;
@@ -84,9 +85,9 @@ function resolveOpposed(ctx: ResolutionContext, action: ActionEntry): { grade: R
   return { grade: "fail", roll: playerRoll + playerBonus, dc: npcRoll + npcBonus };
 }
 
-/** Resolves a stat/skill check (d20 + bonus vs DC). */
 function resolveCheck(ctx: ResolutionContext, action: ActionEntry): { grade: ResultGrade; roll: number; dc: number } {
   const resolve = action.resolve;
+  if (!resolve) throw new Error("resolveCheck called for handler-only action");
   const roll = ctx.rollOverride ?? rollD20(ctx.state.rng);
   if (resolve.type === "stat_check") {
     const bonus = ctx.state.player.stats[resolve.stat] ?? 0;
@@ -222,45 +223,53 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     };
   }
 
-  // 3. Resolve (auto / narrative_only never roll).
+  // 3. Resolve (auto / narrative_only never roll). Custom-handler actions
+  //    may omit resolve entirely — the handler owns resolution semantics.
   let grade: ResultGrade = "success";
   let roll: number | null = null;
   let dc: number | null = null;
-  switch (action.resolve.type) {
-    case "auto":
-      grade = "success";
-      break;
-    case "narrative_only":
-      grade = "success";
-      break;
-    case "stat_check":
-    case "skill_check": {
-      const r = resolveCheck(ctx, action);
-      grade = r.grade;
-      roll = r.roll;
-      dc = r.dc;
-      break;
-    }
-    case "opposed_check": {
-      const r = resolveOpposed(ctx, action);
-      grade = r.grade;
-      roll = r.roll;
-      dc = r.dc;
-      break;
+  if (action.resolve) {
+    switch (action.resolve.type) {
+      case "auto":
+        grade = "success";
+        break;
+      case "narrative_only":
+        grade = "success";
+        break;
+      case "stat_check":
+      case "skill_check": {
+        const r = resolveCheck(ctx, action);
+        grade = r.grade;
+        roll = r.roll;
+        dc = r.dc;
+        break;
+      }
+      case "opposed_check": {
+        const r = resolveOpposed(ctx, action);
+        grade = r.grade;
+        roll = r.roll;
+        dc = r.dc;
+        break;
+      }
     }
   }
 
   // 4. Apply effects (scaled by grade). narrative_only skips script effects
   //    (pure narration — mechanical semantics live in builtins).
-  const effects = action.resolve.type === "narrative_only" ? [] : (action.effects ?? []);
+  const effects =
+    action.resolve?.type === "narrative_only" ? [] : (action.effects ?? []);
   const effectOut = applyEffects(afterCosts, effects, { definition, grade, day });
   let finalState = effectOut.state;
 
-  // 4b. Built-in mechanical semantics (attack/defend/move/travel/use_item/
-  //     give/take/steal/trade) — data-driven registry, no per-action
-  //     hardcoding. Handlers return the next state + summaries.
+  // 4b. Mechanical semantics — data-driven registry. Custom actions
+  //     declare a `handler` id resolved from the script's engine extension
+  //     (overrides the built-in registry for the same id). Built-in actions
+  //     without a declared handler use the framework registry.
   let actionSummaries: string[] = [];
-  const handler = BUILTIN_HANDLERS[ctx.actionId];
+  const customHandler = action.handler
+    ? definition.extensions?.actionHandlers[action.handler]
+    : undefined;
+  const handler = customHandler ?? BUILTIN_HANDLERS[ctx.actionId];
   if (handler) {
     const builtinOut = handler({
       definition,
@@ -284,7 +293,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   }
 
   // 4c. Progression (stat_check / skill_check sources) after the check.
-  if (action.resolve.type === "stat_check" || action.resolve.type === "skill_check") {
+  if (action.resolve && (action.resolve.type === "stat_check" || action.resolve.type === "skill_check")) {
     const prog = applyProgression(finalState, definition, action.resolve.type);
     finalState = prog.state;
   }
@@ -306,7 +315,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   const resolution: ResolutionLogEntry = {
     actionId: ctx.actionId,
     target: ctx.targetNpcId,
-    resolveType: action.resolve.type,
+    resolveType: action.resolve?.type ?? "auto",
     roll,
     dc,
     grade,

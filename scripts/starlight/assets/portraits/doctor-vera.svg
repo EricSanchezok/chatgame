@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="768" viewBox="0 0 512 768" role="img" aria-label="维拉医生：医疗官，白褂与诊断仪">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#101824"/>
+      <stop offset="0.6" stop-color="#0a0f1a"/>
+      <stop offset="1" stop-color="#050810"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.32" r="0.6">
+      <stop offset="0" stop-color="#4fd0c8" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#4fd0c8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ecd8bc"/>
+      <stop offset="1" stop-color="#c8a884"/>
+    </linearGradient>
+    <linearGradient id="coat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dbe4f5"/>
+      <stop offset="1" stop-color="#a8b8d0"/>
+    </linearGradient>
+    <linearGradient id="scarf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4fd0c8"/>
+      <stop offset="1" stop-color="#2a8a84"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="768" rx="28" fill="url(#bg)"/>
+  <circle cx="256" cy="250" r="300" fill="url(#bgGlow)"/>
+  <!-- vitals glyph background -->
+  <g stroke="#4fd0c8" stroke-width="3" fill="none" opacity="0.3">
+    <path d="M80 140 H140 L152 120 L166 160 L180 110 L196 148 L230 140 H300"/>
+    <path d="M340 600 H420 L432 580 L446 620 L460 570 L476 608 L500 600"/>
+  </g>
+  <g fill="#4fd0c8" opacity="0.5">
+    <circle cx="152" cy="120" r="4"/><circle cx="180" cy="110" r="4"/><circle cx="432" cy="580" r="4"/><circle cx="460" cy="570" r="4"/>
+  </g>
+
+  <!-- torso: medical coat -->
+  <path d="M108 768 Q104 570 160 486 Q196 430 256 418 Q316 430 352 486 Q408 570 408 768 Z" fill="url(#coat)"/>
+  <path d="M108 768 Q104 570 160 486 Q196 430 256 418 L256 768 Z" fill="#8a9cb8" opacity="0.5"/>
+  <!-- coat opening -->
+  <path d="M196 470 Q256 452 316 470 L324 680 Q256 706 188 680 Z" fill="#0d1424" opacity="0.85"/>
+  <path d="M196 470 Q256 452 316 470 L312 496 Q256 480 200 496 Z" fill="#131c30"/>
+  <!-- inner top -->
+  <path d="M216 496 Q256 484 296 496 L300 560 Q256 576 212 560 Z" fill="#8494b3"/>
+  <path d="M256 496 V576" stroke="#5a6a8a" stroke-width="3"/>
+  <!-- coat lapels -->
+  <path d="M196 470 Q178 500 182 546 L214 556 Q206 506 216 484 Z" fill="#dbe4f5"/>
+  <path d="M316 470 Q334 500 330 546 L298 556 Q306 506 296 484 Z" fill="#dbe4f5"/>
+  <!-- badge -->
+  <rect x="226" y="516" width="60" height="44" rx="6" fill="#131c30" stroke="#4fd0c8" stroke-width="3"/>
+  <path d="M256 526 l14 20 h-28 Z" fill="#4fd0c8" opacity="0.9"/>
+  <path d="M248 552 h16" stroke="#4fd0c8" stroke-width="3"/>
+  <!-- coat buttons -->
+  <circle cx="256" cy="610" r="5" fill="#a8b8d0"/>
+  <circle cx="256" cy="650" r="5" fill="#a8b8d0"/>
+  <!-- pocket -->
+  <path d="M196 620 L232 612 L236 652 L200 660 Z" fill="#c8d4e8"/>
+  <path d="M206 620 l4 10 -6 2 -4 -10 Z" fill="#4fd0c8" opacity="0.8"/>
+  <!-- cuff monitors -->
+  <rect x="150" y="560" width="34" height="90" rx="8" fill="#a8b8d0" stroke="#8494b3" stroke-width="3"/>
+  <circle cx="167" cy="578" r="5" fill="#4fd0c8"/>
+  <circle cx="167" cy="600" r="5" fill="#4fd0c8" opacity="0.6"/>
+  <path d="M156 620 h22 M156 630 h16" stroke="#4fd0c8" stroke-width="3"/>
+
+  <!-- neck -->
+  <path d="M228 404 Q256 396 284 404 L290 446 Q256 464 222 446 Z" fill="url(#skin)"/>
+  <path d="M238 438 Q256 446 274 438 Q270 454 256 456 Q242 454 238 438 Z" fill="#8a6c50" opacity="0.5"/>
+
+  <!-- head -->
+  <ellipse cx="256" cy="272" rx="82" ry="96" fill="url(#skin)"/>
+  <path d="M256 176 Q296 176 310 198 Q324 222 322 248 Q318 298 292 326 Q274 348 256 350 Q238 348 220 326 Q194 298 190 248 Q188 222 202 198 Q216 176 256 176 Z" fill="url(#skin)"/>
+
+  <!-- swept-back hair -->
+  <path d="M186 240 Q184 144 256 132 Q328 144 326 240 Q324 184 300 158 Q278 142 256 140 Q234 142 212 158 Q188 184 186 240 Z" fill="#8a7a5a"/>
+  <path d="M186 240 Q184 144 256 132 Q328 144 326 240" fill="none" stroke="#6b5c44" stroke-width="4"/>
+  <path d="M190 200 q10 -18 28 -28 q-2 22 -12 36 q-10 2 -16 -8 Z" fill="#6b5c44"/>
+  <path d="M322 200 q-10 -18 -28 -28 q2 22 12 36 q10 2 16 -8 Z" fill="#6b5c44"/>
+  <!-- low bun -->
+  <circle cx="256" cy="140" r="18" fill="#8a7a5a"/>
+  <path d="M240 130 q16 8 32 0" stroke="#6b5c44" stroke-width="3" fill="none"/>
+
+  <!-- calm eyes -->
+  <g>
+    <path d="M204 260 Q220 254 236 260" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M276 260 Q292 254 308 260" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <circle cx="220" cy="260" r="6" fill="#2c2010"/>
+    <circle cx="292" cy="260" r="6" fill="#2c2010"/>
+    <circle cx="222" cy="258" r="2" fill="#f0e8d0"/>
+    <circle cx="294" cy="258" r="2" fill="#f0e8d0"/>
+  </g>
+  <!-- neat brows -->
+  <path d="M198 246 Q216 240 234 246" stroke="#5a4a34" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M278 246 Q296 240 314 246" stroke="#5a4a34" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- nose -->
+  <path d="M256 274 Q250 292 246 302 Q256 308 266 302 Q262 292 256 274 Z" fill="#d8bc94" opacity="0.9"/>
+  <path d="M256 306 Q250 310 246 304" stroke="#a88a62" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- composed mouth -->
+  <path d="M234 328 Q256 332 278 328" stroke="#8a5c42" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- ears + monitor stud -->
+  <path d="M174 274 Q160 272 158 292 Q162 308 178 308 Z" fill="url(#skin)"/>
+  <path d="M338 274 Q352 272 354 292 Q350 308 334 308 Z" fill="url(#skin)"/>
+  <circle cx="178" cy="306" r="4" fill="#4fd0c8"/>
+  <circle cx="334" cy="306" r="4" fill="#4fd0c8"/>
+</svg>

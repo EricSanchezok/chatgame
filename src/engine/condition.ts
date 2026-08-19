@@ -143,8 +143,14 @@ export function evalConditionLeaf(
       if (typeof value !== "number") return false;
       return compare(op, inv.currency, value);
     }
-    default:
-      return false;
+    default: {
+      // Custom condition source: dispatched to the script's engine
+      // extension. Unregistered sources evaluate to false (the validator
+      // reports them at load time; this is a runtime-only safety net).
+      const evaluator = ctx.definition.extensions?.conditions[source];
+      if (!evaluator) return false;
+      return evaluator(state, cond, { definition: ctx.definition, selfNpcId: ctx.selfNpcId, playerId: ctx.playerId });
+    }
   }
 }
 

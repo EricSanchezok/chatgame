@@ -93,6 +93,8 @@ export interface GameState {
   audioEnabled: boolean;
   dirty: boolean;
   panel: PanelId | null;
+  /** Esc pause menu overlay (game only). */
+  paused: boolean;
   lastTurn: TurnResultFull | null;
 }
 
@@ -105,6 +107,7 @@ export type GameAction =
   | { type: "theme"; mode: ThemeMode }
   | { type: "audio"; on: boolean }
   | { type: "panel"; panel: PanelId | null }
+  | { type: "pause"; on: boolean }
   | { type: "saved" }
   | { type: "exit" };
 
@@ -118,6 +121,7 @@ export const initialGameState: GameState = {
   audioEnabled: false,
   dirty: false,
   panel: null,
+  paused: false,
   lastTurn: null,
 };
 
@@ -138,6 +142,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         busy: false,
         dirty: false,
         panel: null,
+        paused: false,
         lastTurn: null,
       };
     case "turn":
@@ -169,6 +174,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, audioEnabled: action.on };
     case "panel":
       return { ...state, panel: action.panel };
+    case "pause":
+      // Opening pause closes any open panel; resuming restores nothing
+      // (the panel was already dismissed).
+      return { ...state, paused: action.on, panel: action.on ? null : state.panel };
     case "saved":
       return { ...state, dirty: false };
     case "exit":
@@ -204,6 +213,7 @@ interface GameApi {
   setTheme: (mode: ThemeMode) => void;
   setAudio: (on: boolean) => void;
   setPanel: (panel: PanelId | null) => void;
+  setPause: (on: boolean) => void;
   clearError: () => void;
 }
 
@@ -387,6 +397,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setTheme: (mode) => dispatch({ type: "theme", mode }),
       setAudio: (on) => dispatch({ type: "audio", on }),
       setPanel: (panel) => dispatch({ type: "panel", panel }),
+      setPause: (on) => dispatch({ type: "pause", on }),
       clearError: () => dispatch({ type: "error", message: "" }),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

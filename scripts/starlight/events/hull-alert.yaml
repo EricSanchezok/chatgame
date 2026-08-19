@@ -5,6 +5,7 @@ tags: [danger, alarm]
 trigger: director
 effects:
   - { kind: need, direction: add, target: player, need: oxygen, value: -20 }
+  - { kind: hull, value: -20 }
 weight: 2
 narrative: { template: hull-alert }
 cooldown: 5

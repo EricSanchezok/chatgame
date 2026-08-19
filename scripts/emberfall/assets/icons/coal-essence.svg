@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="煤精：发光的黑曜晶簇">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#241c15"/>
+      <stop offset="1" stop-color="#0d0906"/>
+    </linearGradient>
+    <linearGradient id="c1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a4040"/>
+      <stop offset="0.55" stop-color="#221c1c"/>
+      <stop offset="1" stop-color="#0c0a0a"/>
+    </linearGradient>
+    <linearGradient id="c2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5a4a4a"/>
+      <stop offset="0.6" stop-color="#2a2020"/>
+      <stop offset="1" stop-color="#120e0e"/>
+    </linearGradient>
+    <radialGradient id="coreGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffb45e" stop-opacity="0.85"/>
+      <stop offset="0.5" stop-color="#e8823a" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#e8823a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="20" fill="url(#bg)"/>
+  <rect x="3" y="3" width="122" height="122" rx="17" fill="none" stroke="#4a3a28" stroke-width="2" opacity="0.6"/>
+  <g>
+    <polygon points="64,16 82,40 64,58 46,40" fill="url(#c1)"/>
+    <polygon points="40,42 56,64 42,86 26,64" fill="url(#c2)"/>
+    <polygon points="86,44 102,64 86,86 70,66" fill="url(#c2)"/>
+    <polygon points="64,52 80,72 64,94 48,72" fill="#181414"/>
+    <polygon points="64,24 74,40 64,52 54,40" fill="#5a4a4a" opacity="0.7"/>
+    <polygon points="48,52 56,64 50,78 42,66" fill="#3a2e2e"/>
+    <polygon points="80,54 88,66 82,80 74,68" fill="#3a2e2e"/>
+    <circle cx="64" cy="56" r="34" fill="url(#coreGlow)"/>
+    <circle cx="62" cy="54" r="9" fill="#ffd08a" opacity="0.9"/>
+    <circle cx="62" cy="54" r="4" fill="#fff2d0"/>
+  </g>
+  <circle cx="30" cy="26" r="2" fill="#e8a04c" opacity="0.7"/>
+  <circle cx="102" cy="34" r="1.8" fill="#e8a04c" opacity="0.5"/>
+</svg>

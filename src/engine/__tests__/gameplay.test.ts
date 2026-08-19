@@ -244,8 +244,9 @@ describe("action resolution", () => {
 
 describe("world rules (RuleOK)", () => {
   it("known actions pass vocabulary gate", () => {
-    expect(isKnownAction("talk")).toBe(true);
-    expect(isKnownAction("fly")).toBe(false);
+    const { def } = setup();
+    expect(isKnownAction(def, "talk")).toBe(true);
+    expect(isKnownAction(def, "fly")).toBe(false);
   });
 
   it("rule check rejects action against absent npc", () => {

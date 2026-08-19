@@ -157,3 +157,18 @@ actions:
     resolve: { type: skill_check, skill: deception, dc: 12 }
     costs: { time: 1 }
     llm_freedom: narration
+  # 自定义动作：灰烬锻造（handler 由 engine/index.ts 注册，演示
+  # 自定义 effect kind（ember）与自定义条件源（ember_level））
+  - id: forge
+    enabled: true
+    display_name: 锻造
+    conditions:
+      all:
+        - { source: ember_level, op: lte, value: 90 }
+    costs:
+      items: [{ item: coal-essence, quantity: 1 }]
+      time: 1
+    effects:
+      - { kind: ember, value: 10 }
+    handler: forge
+    llm_freedom: narration

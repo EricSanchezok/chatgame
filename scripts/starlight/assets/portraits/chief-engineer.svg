@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="768" viewBox="0 0 512 768" role="img" aria-label="老周：轮机长，工装与工具带">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2032"/>
+      <stop offset="0.6" stop-color="#0d1424"/>
+      <stop offset="1" stop-color="#060a14"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.34" r="0.6">
+      <stop offset="0" stop-color="#ff8c42" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ff8c42" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d8ac80"/>
+      <stop offset="1" stop-color="#b08458"/>
+    </linearGradient>
+    <linearGradient id="coverall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5a68"/>
+      <stop offset="1" stop-color="#2c3844"/>
+    </linearGradient>
+    <linearGradient id="vest" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8c42" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#c85018" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="768" rx="28" fill="url(#bg)"/>
+  <circle cx="256" cy="260" r="300" fill="url(#bgGlow)"/>
+  <!-- schematic glyph background -->
+  <g stroke="#4f7dff" stroke-width="2" opacity="0.14" fill="none">
+    <path d="M96 170 h50 v30 h50 v-30 h40 M96 170 v30 h20"/>
+    <circle cx="96" cy="170" r="5" fill="#4f7dff"/>
+    <path d="M392 560 h-40 v24 h-44 v-24 h-30 M392 560 v24 h-20"/>
+    <circle cx="392" cy="560" r="5" fill="#4f7dff"/>
+  </g>
+
+  <!-- torso: worn coverall -->
+  <path d="M96 768 Q92 572 150 488 Q188 432 256 420 Q324 432 362 488 Q420 572 420 768 Z" fill="url(#coverall)"/>
+  <path d="M96 768 Q92 572 150 488 Q188 432 256 420 L256 768 Z" fill="#1e2830" opacity="0.5"/>
+  <!-- high-vis vest -->
+  <path d="M180 478 Q256 452 332 478 L340 560 Q256 584 172 560 Z" fill="url(#vest)"/>
+  <path d="M180 478 Q256 452 332 478 L326 502 Q256 480 186 502 Z" fill="#ffb16e" opacity="0.6"/>
+  <path d="M186 502 Q256 480 326 502" stroke="#8a2c10" stroke-width="3" fill="none"/>
+  <!-- zipper -->
+  <path d="M256 468 V640" stroke="#8494b3" stroke-width="5" stroke-dasharray="10 8"/>
+  <!-- chest pocket + pen -->
+  <rect x="196" y="520" width="44" height="40" rx="4" fill="#3a4652" stroke="#273148" stroke-width="3"/>
+  <rect x="206" y="512" width="8" height="16" rx="3" fill="#dbe4f5"/>
+  <rect x="222" y="514" width="8" height="14" rx="3" fill="#ff8c42"/>
+  <!-- tool belt -->
+  <rect x="150" y="620" width="212" height="34" rx="8" fill="#2c3844" stroke="#273148" stroke-width="4"/>
+  <g>
+    <rect x="166" y="610" width="26" height="44" rx="4" fill="#4a5a68"/>
+    <rect x="172" y="598" width="10" height="16" rx="2" fill="#dbe4f5"/>
+    <rect x="206" y="606" width="30" height="48" rx="4" fill="#4a5a68"/>
+    <path d="M221 596 l0 14 M214 606 h14 M214 620 h14" stroke="#dbe4f5" stroke-width="3"/>
+    <rect x="248" y="612" width="22" height="42" rx="4" fill="#4a5a68"/>
+    <rect x="254" y="602" width="10" height="14" rx="2" fill="#4fd08a"/>
+    <rect x="282" y="608" width="28" height="46" rx="4" fill="#4a5a68"/>
+    <circle cx="296" cy="628" r="8" fill="none" stroke="#dbe4f5" stroke-width="3"/>
+  </g>
+  <!-- gloves tucked -->
+  <path d="M160 660 q-14 20 -10 40 q16 8 26 -8 q10 -18 2 -34 Z" fill="#8494b3" opacity="0.7"/>
+  <path d="M352 660 q14 20 10 40 q-16 8 -26 -8 q-10 -18 -2 -34 Z" fill="#8494b3" opacity="0.7"/>
+
+  <!-- neck (stout) -->
+  <path d="M220 400 Q256 390 292 400 L300 448 Q256 468 212 448 Z" fill="url(#skin)"/>
+  <path d="M232 436 Q256 446 280 436 Q276 454 256 456 Q236 454 232 436 Z" fill="#7a5230" opacity="0.6"/>
+  <!-- collar -->
+  <path d="M200 450 Q256 428 312 450 L308 474 Q256 456 204 474 Z" fill="#2c3844"/>
+  <path d="M200 450 Q256 428 312 450 L310 460 Q256 440 202 460 Z" fill="#ff8c42" opacity="0.5"/>
+
+  <!-- head: square, weathered -->
+  <ellipse cx="256" cy="272" rx="88" ry="102" fill="url(#skin)"/>
+  <path d="M256 170 Q302 170 318 196 Q334 222 332 252 Q328 308 300 336 Q280 360 256 362 Q232 360 212 336 Q184 308 180 252 Q178 222 194 196 Q210 170 256 170 Z" fill="url(#skin)"/>
+
+  <!-- buzz cut -->
+  <path d="M180 236 Q178 158 256 148 Q334 158 332 236 Q322 186 292 170 Q272 162 256 162 Q240 162 220 170 Q190 186 180 236 Z" fill="#4a4a4a"/>
+  <path d="M188 210 q8 -14 24 -20 M220 190 q10 -10 24 -14 M266 178 q12 -6 24 -4 M300 186 q12 -8 24 -10" stroke="#333333" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+  <!-- greying temples -->
+  <path d="M182 240 Q182 200 200 182 Q194 214 192 244 Z" fill="#c8c8c8" opacity="0.8"/>
+  <path d="M330 240 Q330 200 312 182 Q318 214 320 244 Z" fill="#c8c8c8" opacity="0.8"/>
+
+  <!-- eyes: steady, warm -->
+  <g>
+    <path d="M200 264 Q216 256 232 264" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M280 264 Q296 256 312 264" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <circle cx="216" cy="264" r="6" fill="#2c1a10"/>
+    <circle cx="296" cy="264" r="6" fill="#2c1a10"/>
+    <circle cx="218" cy="262" r="2" fill="#f0e4c8"/>
+    <circle cx="298" cy="262" r="2" fill="#f0e4c8"/>
+  </g>
+  <!-- heavy brows -->
+  <path d="M192 250 Q212 242 234 250" stroke="#3a3a3a" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M278 250 Q300 242 320 250" stroke="#3a3a3a" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <!-- crow's feet -->
+  <path d="M196 278 q6 4 12 2 M308 278 q-6 4 -12 2" stroke="#8a6244" stroke-width="3" fill="none" opacity="0.6"/>
+
+  <!-- nose -->
+  <path d="M256 276 Q250 294 246 304 Q256 310 266 304 Q262 294 256 276 Z" fill="#c89a6c" opacity="0.9"/>
+  <path d="M256 308 Q250 312 246 306" stroke="#9a6c44" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- quiet grin, stubble -->
+  <path d="M234 332 Q256 340 278 332" stroke="#8a5a42" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M204 318 Q256 330 308 318 Q310 342 296 352 Q256 362 216 352 Q202 342 204 318 Z" fill="#5a5248" opacity="0.18"/>
+  <g stroke="#5a5248" stroke-width="2" opacity="0.5">
+    <path d="M220 336 q4 4 8 2 M244 344 q4 4 8 2 M268 342 q4 4 8 2 M290 334 q4 4 8 2"/>
+  </g>
+
+  <!-- ears -->
+  <path d="M168 274 Q154 272 152 292 Q156 308 172 308 Z" fill="url(#skin)"/>
+  <path d="M344 274 Q358 272 360 292 Q356 308 340 308 Z" fill="url(#skin)"/>
+  <!-- comm earpiece -->
+  <path d="M344 284 q14 4 12 16 q-14 2 -14 -12 Z" fill="#4f7dff"/>
+  <circle cx="352" cy="302" r="3" fill="#7ea2ff"/>
+</svg>

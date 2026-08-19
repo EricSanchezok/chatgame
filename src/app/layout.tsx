@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ReactBridge } from "./lib/react-bridge";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,7 +10,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="zh-CN" className="h-full antialiased">
-      <body className="flex h-dvh min-h-0 flex-col overflow-hidden">{children}</body>
+      <body className="flex h-dvh min-h-0 flex-col overflow-hidden">
+        <ReactBridge />
+        {children}
+      </body>
     </html>
   );
 }

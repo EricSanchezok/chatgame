@@ -99,11 +99,12 @@ describe("buildAssetManifest", () => {
   });
 
   it("loads the real fixture manifests", () => {
-    // emberfall ships file assets; starlight ships prompt-only placeholders.
+    // Both scripts ship real file assets (emberfall + starlight).
     const ember = buildAssetManifest(emberfall);
     expect(ember.portraits.elara.file).toContain("elara.svg");
     const star = buildAssetManifest(starlight);
-    expect(star.portraits["night-cat"].prompt).toBeTruthy();
+    expect(star.portraits["night-cat"].file).toContain("night-cat.svg");
+    // Voices stay prompt/profile placeholders (no TTS files shipped).
     expect(star.voices["night-cat"].profile).toBeTruthy();
   });
 });
