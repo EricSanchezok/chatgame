@@ -86,3 +86,4 @@
 - [0017 — 会话持久化、刷新恢复与 meta 链路](0017-session-persistence-refresh-recovery-meta.md)
 - [0018 — 前端沉浸式游戏化与剧本代码扩展（v2）](0018-immersive-frontend-script-code-v2.md)
 - [0019 — 数值系统描述化——语义枚举 → 自由文本 + description 全链路](0019-semantic-enums-to-free-text.md)
+- [0020 — 合并后审计——单一描述注入点、denied_action 回归与描述层 UI 消费补全](0020-post-merge-audit-single-home-injection.md)

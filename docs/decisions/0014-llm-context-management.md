@@ -28,9 +28,9 @@ Class: feature
 
 ## Decision Outcome
 
-`buildTurnPrompt` 扩展为五层注入（A→E）：A system 块（世界观/规则/禁忌/常驻 lore，原有）；B 结构化状态快照（时间/地点/在场 NPC/进行中任务/关键 flags/场景相关的关系-声望-需求数值+标签+LLM 描述，附"数值为唯一事实源、描述仅为解释"指令，场景过滤）；C 滚动摘要（`contextSummary.text`，增量续写非重写）；D 最近 6 回合 transcript verbatim（`run.ext.llm_context.window_turns` 可覆写）；E 玩家当前输入（最后，recency bias）。
+`buildTurnPrompt` 扩展为五层注入（A→E）：A system 块（世界观/规则/禁忌/常驻 lore，原有）；B 结构化状态快照（时间/地点/在场 NPC/进行中任务/关键 flags，附"数值为唯一事实源、描述仅为解释"指令）——描述注入已并入 [0019](0019-semantic-enums-to-free-text.md) 的"关系与状态摘要"区块（每个事实只有一个家，见 [0020](0020-post-merge-audit-single-home-injection.md)）；C 滚动摘要（`contextSummary.text`，增量续写非重写）；D 最近 6 回合 transcript verbatim（`run.ext.llm_context.window_turns` 可覆写）；E 玩家当前输入（最后，recency bias）。
 
-新增 `src/engine/context.ts` 承载上下文逻辑：常量 `CONTEXT_WINDOW_TURNS=6` / `SUMMARY_EVERY_TURNS=8` / `SUMMARY_TRIGGER_RATIO=0.65` / `CONTEXT_TOKEN_BUDGET=24000` / `SUMMARY_MAX_CHARS=6000` / `MAX_SCENE_DESCRIPTORS=3`（均可经 `run.ext.llm_context` 覆写）；`shouldSummarize` 双条件触发（距上次摘要 ≥8 回合，或字符估算超预算×比例）；`summarizeContext` 为 `LLMProvider.generateText` 的首个消费点，模板强制保留玩家目标/任务进度/剧情承诺/未解决线索/关系与声望变化/canonical facts、丢弃氛围描写，输出裁剪到上限，任何失败返回 `null`（降级为纯窗口）。
+新增 `src/engine/context.ts` 承载上下文逻辑：常量 `CONTEXT_WINDOW_TURNS=6` / `SUMMARY_EVERY_TURNS=8` / `SUMMARY_TRIGGER_RATIO=0.65` / `CONTEXT_TOKEN_BUDGET=24000` / `SUMMARY_MAX_CHARS=6000`（均可经 `run.ext.llm_context` 覆写）；`shouldSummarize` 双条件触发（距上次摘要 ≥8 回合，或字符估算超预算×比例）；`summarizeContext` 为 `LLMProvider.generateText` 的首个消费点，模板强制保留玩家目标/任务进度/剧情承诺/未解决线索/关系与声望变化/canonical facts、丢弃氛围描写，输出裁剪到上限，任何失败返回 `null`（降级为纯窗口）。
 
 `WorldState` 新增 `contextSummary?: ContextSummary`（`{ text, lastSummaryTurn, sourceTurnRange }`），随存档持久化；`SAVE_SCHEMA_VERSION` 3→4，旧档拒绝（敏捷约定）。摘要触发在 `playerTurn` 回合结算（transcript append 后）；意图解析 prompt 保持轻量、不注入历史。
 
