@@ -6,7 +6,6 @@ import type { WorldState } from "../types";
 import type { WorldDefinition } from "../types";
 import { summarizeForInjection } from "../memory";
 import { revealableSecrets } from "../plot";
-import { formatClock } from "../time";
 import { buildStateBlock, buildContextBlocks, type ContextBlocks } from "../context";
 
 export interface PromptInput {
@@ -91,9 +90,6 @@ export function buildTurnPrompt(input: PromptInput): string {
     parts.push(`\n${blocks.transcriptBlock}`);
   }
 
-
-  parts.push(`## 当前时间：${formatClock(state.clock)}`);
-  parts.push(`## 玩家位置：${definition.locations.get(state.player.locationId)?.name ?? state.player.locationId}`);
 
   if (npcId) {
     const npcDef = definition.npcs.get(npcId);

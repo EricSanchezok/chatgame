@@ -9,7 +9,7 @@
 //     generateText with a template that keeps facts and drops atmosphere)
 //   - long-term: engine memory (unchanged — engine writes, LLM never writes)
 //   - facts: numeric engine state (values are the only fact source;
-import type { WorldState, WorldDefinition, TranscriptEntry } from "./types";
+import type { WorldState, WorldDefinition, TranscriptEntry, Descriptor } from "./types";
 import { z } from "zod";
 import type { LLMProvider } from "./narrative/provider";
 import { relationLabel, reputationLabel } from "./definition";
@@ -30,6 +30,8 @@ export const CONTEXT_TOKEN_BUDGET = 24000;
 export const SUMMARY_MAX_CHARS = 6000;
 /** Max descriptor lines injected per scene (keeps the block tight). */
 export const MAX_SCENE_DESCRIPTORS = 3;
+/** Max player-need lines injected into the state snapshot (small separate list). */
+export const MAX_NEED_LINES = 3;
 
 // ---------------------------------------------------------------------------
 // Run-level overrides (run.ext.llm_context) — optional, defaults locked
@@ -82,15 +84,6 @@ export type ContextSummary = z.infer<typeof contextSummarySchema>;
 /** Creates an empty summary state (normalize fallback for old/new saves). */
 export function emptyContextSummary(): ContextSummary {
   return { text: "", lastSummaryTurn: 0, sourceTurnRange: [1, 0] };
-}
-
-// ---------------------------------------------------------------------------
-// Budget estimation (no tokenizer dependency — conservative char estimate)
-// ---------------------------------------------------------------------------
-
-/** Conservative char-based estimate of prompt size (CJK chars ≈ 1-3 tokens). */
-export function estimateChars(parts: string[]): number {
-  return parts.reduce((sum, p) => sum + p.length, 0);
 }
 
 /** True when the current transcript+summary would overflow the injection budget. */
@@ -152,9 +145,62 @@ export function transcriptWindow(
 export interface SceneDescriptorLine {
   kind: "relation" | "reputation" | "need";
   targetName: string;
+  /** Engine need id (need lines only). */
+  needName?: string;
   value: number;
   label: string;
   description?: string;
+}
+
+/**
+ * Resolves the deterministic label for a need: the descriptor label when
+ * present, else the closest fired threshold label (definition.mechanics
+ * .needs[].thresholds), else the need name. Mirrors thresholdFires polarity
+ * (descending needs fire at value <= level; ascending at value >= level).
+ */
+export function needLabelForValue(
+  definition: WorldDefinition,
+  name: string,
+  value: number,
+  descriptor?: Descriptor,
+): string {
+  if (descriptor?.label) return descriptor.label;
+  const needDef = definition.mechanics.needs?.find((n) => n.name === name);
+  if (needDef) {
+    const fired = needDef.thresholds.filter((t) =>
+      needDef.initial >= t.level ? value <= t.level : value >= t.level,
+    );
+    if (fired.length > 0) {
+      fired.sort((a, b) => Math.abs(a.level - value) - Math.abs(b.level - value));
+      return fired[0].label;
+    }
+  }
+  return name;
+}
+
+/**
+ * Collects dual-track lines for the player's needs (hunger/thirst/fatigue),
+ * capped at MAX_NEED_LINES. Each line pairs the numeric value with the
+ * deterministic label and the LLM prose description (description is
+ * anchored to the value — never a fact source).
+ */
+export function playerNeedLines(
+  state: WorldState,
+  definition: WorldDefinition,
+): SceneDescriptorLine[] {
+  const lines: SceneDescriptorLine[] = [];
+  for (const [name, need] of Object.entries(state.player.needs)) {
+    lines.push({
+      kind: "need",
+      targetName: "玩家",
+      needName: name,
+      value: need.value,
+      label: needLabelForValue(definition, name, need.value, need.descriptor),
+      description: need.descriptor?.description,
+    });
+    if (lines.length >= MAX_NEED_LINES) break;
+  }
+  return lines;
 }
 
 /**
@@ -261,12 +307,21 @@ export function buildStateBlock(
     parts.push(`- 关键状态标记：${keyFlags.join("、")}`);
   }
 
-  const lines = sceneDescriptorLines(state, definition, npcId);
+  // Dual-track lines: scene-scoped relations/reputations + player needs
+  // (values are the only fact source; descriptions are explanations).
+  const lines = [
+    ...sceneDescriptorLines(state, definition, npcId),
+    ...playerNeedLines(state, definition),
+  ];
   if (lines.length > 0) {
     parts.push("- 关系/声望/需求（数值为唯一事实源，描述仅为解释）：");
     for (const l of lines) {
       const desc = l.description ? ` | ${l.description}` : "";
-      parts.push(`  - ${l.targetName} | ${l.kind === "need" ? "需求" : l.kind === "relation" ? "关系" : "声望"} ${l.value}/100 | ${l.label}${desc}`);
+      if (l.kind === "need") {
+        parts.push(`  - ${l.targetName} | 需求 ${l.needName} ${l.value}/100 | ${l.label}${desc}`);
+      } else {
+        parts.push(`  - ${l.targetName} | ${l.kind === "relation" ? "关系" : "声望"} ${l.value}/100 | ${l.label}${desc}`);
+      }
     }
   }
 
@@ -310,11 +365,6 @@ export function summaryPromptTemplate(
   ].join("\n");
   return { system, prompt };
 }
-
-/** Summary output schema (generateText is free-form; this caps the result). */
-export const summaryOutputSchema = z.object({
-  summary: z.string().min(1),
-});
 
 /**
  * Generates (or incrementally continues) the rolling summary via

@@ -43,3 +43,10 @@ Status: implemented
 - 付出的：每个摘要触发点多一次 LLM 调用（每 8 回合 1 次，可接受）；存档 schema 升到 v4，旧存档被拒；prompt 长度增加（状态块 + 窗口 + 摘要），由预算常量约束。
 - 降级路径：摘要失败 → 跳过只注入窗口，回合不阻塞；descriptor 失败 → 既有确定性模板兜底（未改动）。
 - 并行约定：蓝图 A 不动 schema、C 不动 schema；本蓝图只加 `WorldState.contextSummary` 可选字段并 bump version 常量，合入无冲突。
+
+### 审查修复（2026-08-20）
+
+- **needs 双轨注入补全**：状态快照额外注入玩家需求行（`玩家 | 需求 hunger 25/100 | 饥饿`，独立 `MAX_NEED_LINES=3` 小列表），label 优先级：descriptor.label → 已触发 threshold label（`needLabelForValue`，镜像 `thresholdFires` 极性）→ need 名称。
+- **长会话不膨胀的确定性测量**：构造 10 回合 vs 40 回合 transcript，断言注入 prompt 长度增长 < 1.2×（窗口有界，替代真实 LLM 的长会话测量）。
+- **清理**：删除未使用的 `estimateChars`/`summaryOutputSchema` 导出；移除 `buildTurnPrompt` 中与状态块重复的「当前时间/玩家位置」行（状态块是唯一时间/地点事实源）。
+- **真实 LLM 手动验证（第 11 回合引用第 2 回合承诺）**：需要 LLM API key；环境未配置时该项记录为待办限制（非 v2 范围），由确定性测试 + Mock 覆盖全部行为路径。
