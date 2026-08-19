@@ -113,9 +113,14 @@ export function Launcher() {
                 <article
                   key={s.id}
                   className="cg-chrome flex flex-col overflow-hidden border"
-                  style={{ borderColor: rgba(s.theme?.palette.border ?? "#2a2f3a", 0.6), background: bg }}
+                  style={{
+                    borderColor: s.theme?.palette.border
+                      ? rgba(s.theme.palette.border, 0.6)
+                      : "var(--cg-border)",
+                    background: bg,
+                  }}
                 >
-                  <div className="h-20" style={{ background: `linear-gradient(135deg, ${primary}, ${rgba(s.theme?.palette.accent ?? primary, 0.35)})` }} />
+                  <div className="h-20" style={{ background: `linear-gradient(135deg, ${primary}, ${s.theme?.palette.accent ? rgba(s.theme.palette.accent, 0.35) : "color-mix(in srgb, var(--cg-primary) 35%, transparent)"})` }} />
                   <div className="flex flex-1 flex-col gap-2 p-4" style={{ background: surface }}>
                     <h2 className="text-lg font-bold" style={{ color: text }}>{s.name}</h2>
                     <p className="line-clamp-3 text-sm" style={{ color: dim }}>{s.description}</p>

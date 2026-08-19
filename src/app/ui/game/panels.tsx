@@ -61,15 +61,25 @@ function PanelFrame({
     };
   }, []);
 
+  // Esc closes from anywhere — the browser focus may stay on the shell
+  // behind the overlay, so a document-level listener (registered while the
+  // panel is open, cleaned up on unmount) is more reliable than a
+  // container onKeyDown. Re-registered when onClose changes.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
-      }}
+      tabIndex={-1}
     >
       <button
         type="button"
