@@ -1,6 +1,6 @@
 # 引擎运行时规格（Engine Runtime）
 
-> 本文档是 chatgame 引擎运行时 v1 的规格——"世界如何运转"的运行时实现契约。决策依据见 [.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md](../../.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md)；剧本格式契约见 [script-format.md](script-format.md)。
+> 本文档是 chatgame 引擎运行时 v1 的规格——"世界如何运转"的运行时实现契约。决策依据见 [决策记录 0007](../decisions/0007-engine-runtime.md)；剧本格式契约见 [script-format.md](script-format.md)。
 
 ## 架构分层
 
@@ -30,12 +30,12 @@ src/engine/
 ├── worldstep.ts      ★统一世界步进（回合与离线推进共用同一管道）
 ├── events.ts         事件执行（playEvent/checkScheduledEvents/ambient，唯一播放入口）
 ├── tasks.ts          任务系统（自动激活/进度/完成/时限失败）
-├── memory.ts         记忆分层（major/minor/trivial）+ 归档（确定性 id）
+├── memory.ts         记忆分层（major/minor/trivial）+ 连续强度衰减 + 相关性检索 + 访问强化 + supersede（确定性 id）
 ├── descriptors.ts    ★★双轨状态描述层（数值+标签+LLM 描述，生成器注入）
 ├── worldgen.ts       开局随机化（固定种子确定性，含 secret_holder 映射）
 ├── director.ts       事件选择（张力带加权 + novelty + difficulty_ramp）
 ├── presentation.ts   ★表现层：resolveTheme（default+by_location）/ buildAssetManifest / deriveMediaCues（引擎确定性推导，LLM 不参与）/ appendTranscript
-├── save.ts           JSON 存档 + 版本门（v3，含 transcript，无迁移）
+├── save.ts           JSON 存档 + 版本门（v4，含 transcript，无迁移）
 ├── media/            MediaProvider 接口 + off/mock 实现（env：CHATGAME_MEDIA_PROVIDER；真实生成 V2）
 └── narrative/
     ├── provider.ts   LLMProvider 接口 + factory（env 配置）
@@ -72,7 +72,7 @@ src/engine/
 `stepWorld(state, definition, hours, { scope })` 是唯一世界推进管道，回合循环与离线 `advance()` 共用：
 
 - **逐小时**：时钟推进 → 需求连续衰减 → NPC 作息移动（`scheduleAt` 重算位置）。
-- **日边界**（时钟跨天时执行一次）：状态效果 tick（duration=天数）→ 需求阈值（持续触发）→ 声望衰减 + 阈值（上升沿触发）→ 记忆归档（`tier_retention_days`，NPC `forget_policy` 覆盖）→ 节日事件 → time/condition 事件 → ambient 事件（30% 概率，`AMBIENT_EVENT_CHANCE`）→ 承诺检查 → 任务检查（时限失败 + 自动激活）→ 张力同步（tension 变量 ← threat_gauge）。
+- **日边界**（时钟跨天时执行一次）：状态效果 tick（duration=天数）→ 需求阈值（持续触发）→ 声望衰减 + 阈值（上升沿触发）→ 记忆衰减 + 归档（`tier_retention_days`，NPC `forget_policy` 覆盖）→ 节日事件 → time/condition 事件 → ambient 事件（30% 概率，`AMBIENT_EVENT_CHANCE`）→ 承诺检查 → 任务检查（时限失败 + 自动激活）→ 张力同步（tension 变量 ← threat_gauge）。
 - `advance_scope` 五项（schedules/needs/events/factions/time_events）门控离线推进；`world_advances: false` 时世界冻结。
 - 所有随机（ambient/导演/任务/世界生成）走注入式 `state.rng`，同种子同结果。
 
@@ -137,7 +137,7 @@ src/engine/
 ## 存档
 
 - 路径 `.chatgame/saves/<scriptId>/<runId>.json`；格式 `{saveSchemaVersion, scriptId, createdAt, updatedAt, worldState}`。
-- 当前 schema 版本 = 3（WorldState 新增 `transcript` 完整对话历史）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
+- 当前 schema 版本 = 4（MemoryEntry 连续强度字段：strength/lastAccessedDay/lastDecayDay/supersededBy）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
 - `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值、`transcript` 缺省 []）。
 - 往返测试：save → load → 状态深度相等（含转录）。
 
@@ -147,7 +147,7 @@ src/engine/
 - `world_continue`：**玩家 hp 归零**才触发；`state_kept` 含 "lore" 时继承 `facts` 中 `lore-` 前缀项；重建玩家 origin 由种子 RNG 从全部 origins 随机选取。
 - `hard_reset`：**玩家 hp 归零**才触发；reroll_worldgen（重跑世界，转录保留）或 keep_world（保留世界重置玩家）。
 - 三种模式都有显式触发门（软失败看威胁条，另两种看 hp）——健康回合永不触发重置。
-- meta-progression：keep（flags/lore/relations_overview）/ reset（stats/inventory/location/memories/currency）/ unlocks（flag → grant origins）；Engine 门面暴露 `unlockedOrigins()` / `metaSnapshot()`。
+- meta-progression：keep（flags/lore/relations_overview）/ reset（stats/inventory/location/currency）/ unlocks（flag → grant origins）；Engine 门面暴露 `unlockedOrigins()` / `metaSnapshot()`。
 - `faction_stance` 为文档化 no-op（faction 间关系 v1 无运行时消费者）。
 
 ## 命令

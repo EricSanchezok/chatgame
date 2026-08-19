@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import type { SaveFile, WorldState, WorldDefinition } from "./types";
+import { emptyContextSummary } from "./context";
 
 /** Bump on breaking WorldState shape changes. Older versions are rejected. */
 export const SAVE_SCHEMA_VERSION = 4;
@@ -155,5 +156,6 @@ export function normalizeWorldState(
   if (!next.eventLastPlayedDay) next = { ...next, eventLastPlayedDay: {} };
   if (!next.actionCooldowns) next = { ...next, actionCooldowns: {} };
   if (!next.transcript) next = { ...next, transcript: [] };
+  if (!next.contextSummary) next = { ...next, contextSummary: emptyContextSummary() };
   return next;
 }

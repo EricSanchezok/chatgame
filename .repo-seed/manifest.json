@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "repoSeedVersion": "0.2.0",
+  "lastSyncCommit": null,
+  "config": {
+    "license": "MIT",
+    "branchConvention": "main",
+    "monorepo": false
+  },
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "a1774b99c565b94b59cbbbabdf9778077d92bb27fd749e2ab7485d014c94ad70",
+      "category": "instruction"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "category": "instruction"
+    },
+    {
+      "path": "docs/AGENTS.md",
+      "sha256": "ba88fb45957e6a80242443011fc44b01f3d5ff092c1d4fa675fc406351ebb24f",
+      "category": "docs"
+    },
+    {
+      "path": "docs/architecture.md",
+      "sha256": "a98ff6b5146c39614b8ced3ce4ceb36787b87d6026dffff7e1939bff9a66870c",
+      "category": "docs"
+    },
+    {
+      "path": "docs/development.md",
+      "sha256": "51ddb4314d82789ffa11515304dbc07a474e93e6c9aba5b4f2fa499881ed5131",
+      "category": "docs"
+    },
+    {
+      "path": "docs/testing.md",
+      "sha256": "330ea0232a080833153e27b89f252f8a297dbf04372a999a6c96dd22212c4108",
+      "category": "docs"
+    },
+    {
+      "path": "docs/decisions/README.md",
+      "sha256": "34c731b9f366b72a53ed5377c6e745fb80dfc551aecd6200acbe54002c997c3a",
+      "category": "docs",
+      "userModified": true
+    },
+    {
+      "path": "docs/decisions/0000-use-markdown-architectural-decision-records.md",
+      "sha256": "b5fbee2c6addbc7ac662d865d9f3d4ff38528842eec7ab866a696d9bf00c2465",
+      "category": "docs"
+    },
+    {
+      "path": "docs/decisions/0001-repo-seed-is-a-skill-not-a-template.md",
+      "sha256": "24cc4eb0f52ead3d42aa47b1aace086f3b008590df3b88c71ff733f5f9232892",
+      "category": "docs"
+    },
+    {
+      "path": "docs/decisions/0002-self-governing-repository-design.md",
+      "sha256": "822955dbf2bb8566131dc2dd59bb1064ff80c79961dcf7a0cadb034f0c5ed999",
+      "category": "docs"
+    },
+    {
+      "path": "docs/decisions/0003-repo-review-instantiated-per-project.md",
+      "sha256": "7e212bd1a49522b198504ab292b5eb77b28949c5eb6070c9e6a33458a8e4b6bc",
+      "category": "docs"
+    },
+    {
+      "path": "docs/postmortems/README.md",
+      "sha256": "47b03d95aeae94d070abb1aa3391782e278431e6296b5f5cef51b5fe469dbc11",
+      "category": "docs"
+    },
+    {
+      "path": ".agents/skills/repo-review/SKILL.md",
+      "sha256": "0cee5bab1fd3afdd3a440a98e8e3be4e0d39b00a412538feba012e2ea9b6c699",
+      "category": "skill",
+      "userModified": true
+    },
+    {
+      "path": ".agents/skills/repo-decisions/SKILL.md",
+      "sha256": "65388918ec7d845e43aa7d36d3c04d5ff306d8199e99afe2c9a0b4520fb7ff80",
+      "category": "skill"
+    },
+    {
+      "path": "scripts/verify-decisions.mjs",
+      "sha256": "aab6a6e9603e71d9450b6d2090c47e90001377d75fa3b12966f58343a8563ef3",
+      "category": "gate"
+    },
+    {
+      "path": "scripts/verify-doc-links.mjs",
+      "sha256": "d1a6699f375766fa6a14dbd3a2b99cbd1ed8d4e364f6c40d341ebc77e9fdab39",
+      "category": "gate",
+      "userModified": true
+    },
+    {
+      "path": "scripts/verify-placeholders.mjs",
+      "sha256": "1b1c5e30be8eab9b5fea7d9231253c384edefc47219a18ec0a847473e07b14e5",
+      "category": "gate"
+    },
+    {
+      "path": "scripts/verify-manifest.mjs",
+      "sha256": "a4e1beecd016ce65ae031251604a6ae6fa79834cc021f1f15e8678aeccaa7d90",
+      "category": "gate"
+    },
+    {
+      "path": "scripts/install-hooks.mjs",
+      "sha256": "388ce4511e337617b76b464c436979a1fbad1f9c4e736ac9f35fdf2025cb6130",
+      "category": "gate",
+      "userModified": true
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "sha256": "cd746166ddbc19bd5932a53d62567d8dd8d687841f98b108bc278d210fb981cd",
+      "category": "meta"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "a693dd53fee308157ecadf98fd4df08378dddb384ed6c0b612bccd111ca361f4",
+      "category": "meta"
+    },
+    {
+      "path": ".editorconfig",
+      "sha256": "e3146b348c6eda13df225e5ebcfe1a2b861af1025d2e59016895b33a81fc7a3f",
+      "category": "meta"
+    },
+    {
+      "path": ".gitattributes",
+      "sha256": "5c3b2ff1cf34c6e0a482bdccbef050bd662149fd0084341ad18180e84fcde618",
+      "category": "meta"
+    },
+    {
+      "path": ".repo-seed/update-strategy.md",
+      "sha256": "1f476eeafc2b245a053bb477a28a92f8d2ac1c35166e6ca73da3f2bf3e5fd47f",
+      "category": "meta"
+    },
+    {
+      "path": ".github/pull_request_template.md",
+      "sha256": "b864d0adcf482762d31874b89bd079ea5d68a3781b75e1f5987c4c331d02b4f0",
+      "category": "github"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug.md",
+      "sha256": "011aaa5301e6fe2db8c2ef70911da79b122c2ca4235105fc917ee3ea8574c43f",
+      "category": "github"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/feature.md",
+      "sha256": "328dc950ab01003d7e41495f37407eb07f6828f9bc5ffe6053590f2a6f7d53eb",
+      "category": "github"
+    }
+  ]
+}

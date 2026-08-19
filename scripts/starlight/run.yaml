@@ -4,7 +4,7 @@ death_policy:
     world_reroll: reroll_worldgen
 meta_progression:
   keep: [flags, lore, relations_overview]
-  reset: [stats, inventory, location, memories, currency]
+  reset: [stats, inventory, location, currency]
   unlocks:
     - { flag: returned_visitor, grant: [station-merchant] }
 memory:
