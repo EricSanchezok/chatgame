@@ -8,7 +8,7 @@ import type { WorldState, WorldDefinition, EventLogEntry, TaskCompletion } from 
 import { advanceClock, absoluteDay, todayFestival, scheduleAt } from "./time";
 import { applyNeedDecay, applyNeedThresholds } from "./mechanics/needs";
 import { tickStatuses } from "./mechanics/status";
-import { applyGlobalForgetting } from "./memory";
+import { applyGlobalMemoryDecay } from "./memory";
 import { checkCommitments } from "./plot";
 import { checkTasks } from "./tasks";
 import { playEvent, checkScheduledEvents, playAmbientEvent } from "./events";
@@ -159,7 +159,7 @@ export function stepWorld(
       }
 
       // Memory archiving (always — retention is a memory policy, not advance_scope).
-      current = applyGlobalForgetting(current, definition);
+      current = applyGlobalMemoryDecay(current, definition);
 
       // Festivals: the festival's event plays once on its day.
       if (scope.has("time_events") || scope.has("events")) {

@@ -84,7 +84,6 @@ export const npcSchema = z
         initial: z.array(memoryEntrySchema).default([]),
         forget_policy: z
           .object({
-            trivial_after_days: z.number().nonnegative().optional(),
             major_keep: z.boolean().default(true),
           })
           .strict()

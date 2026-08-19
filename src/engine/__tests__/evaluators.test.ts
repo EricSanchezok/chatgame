@@ -230,11 +230,37 @@ describe("effect algebra", () => {
     out = applyEffects(out.state, [{ kind: "status", direction: "remove", target: "player", status: "poison" }], { definition: emberfall, day: 0 });
     expect(out.state.player.statuses.some((s) => s.statusId === "poison")).toBe(false);
   });
-  it("memory add to player", () => {
-    const out = applyEffects(makeState(), [{ kind: "memory", direction: "add", target: "player", text: "遇见艾拉", importance: "major" }], { definition: emberfall, day: 5 });
-    expect(out.state.player.memories).toHaveLength(1);
+  it("memory add to player with deterministic batch-unique id", () => {
+    const out = applyEffects(makeState(), [
+      { kind: "memory", direction: "add", target: "player", text: "遇见艾拉", importance: "major", tags: ["elara"] },
+      { kind: "memory", direction: "add", target: "player", text: "买了药水", importance: "minor" },
+    ], { definition: emberfall, day: 5 });
+    expect(out.state.player.memories).toHaveLength(2);
     expect(out.state.player.memories[0].importance).toBe("major");
     expect(out.state.player.memories[0].createdAtDay).toBe(5);
+    expect(out.state.player.memories[0].tags).toEqual(["elara"]);
+    // Batch-unique ids: no collision within a single effects batch.
+    expect(out.state.player.memories[0].id).toBe("player-mem-5-0");
+    expect(out.state.player.memories[1].id).toBe("player-mem-5-1");
+  });
+  it("memory replaces archives the superseded entry", () => {
+    const first = applyEffects(makeState(), [
+      { kind: "memory", direction: "add", target: "player", text: "欠酒商 20 金币", importance: "minor", tags: ["debt"] },
+    ], { definition: emberfall, day: 1 });
+    const id = first.state.player.memories[0].id;
+    const out = applyEffects(first.state, [
+      { kind: "memory", direction: "add", target: "player", text: "已还清酒商债务", importance: "minor", tags: ["debt"], replaces: id },
+    ], { definition: emberfall, day: 2 });
+    const old = out.state.player.memories.find((m) => m.id === id)!;
+    expect(old.archived).toBe(true);
+    expect(old.supersededBy).toBe(out.state.player.memories[1].id);
+  });
+  it("memory replaces with missing target is a tolerant no-op append", () => {
+    const out = applyEffects(makeState(), [
+      { kind: "memory", direction: "add", target: "player", text: "新记忆", replaces: "nope" },
+    ], { definition: emberfall, day: 1 });
+    expect(out.state.player.memories).toHaveLength(1);
+    expect(out.state.player.memories[0].archived).toBe(false);
   });
   it("secret reveal adds fact + marks NPC revealed", () => {
     const out = applyEffects(makeState(), [{ kind: "secret", direction: "set", target: "player", secret: "mine-secret" }], { definition: emberfall, day: 0 });

@@ -3,7 +3,7 @@
 - 调研日期：2026-08-18
 - 调研范围：传统模拟/策略/叙事游戏的关系系统（The Sims 4 与 Lovestruck、Dwarf Fortress、RimWorld、Crusader Kings 3、Fire Emblem、Persona 5、Stardew Valley、Disco Elysium）→ LLM 驱动的角色/记忆系统（Generative Agents、Humanoid Agents、Lyfe Agents、AI Dungeon、Character.AI、SillyTavern、星野/Talkie、Inworld）→ 学术证据（一致性与可信度）→ 社区工程实践
 - 信息来源：官方 wiki/文档/公告、学术论文（arXiv）、社区讨论（Reddit/Steam 论坛）、开源项目、二手报道
-- 决策落点：引擎双轨状态设计（label 确定性 + description LLM 层）见 [.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md](../../.agents/notes/implemented/architecture/2026-08-18-engine-runtime.md) 与 [docs/game-design/engine-runtime.md](../game-design/engine-runtime.md)
+- 决策落点：引擎双轨状态设计（label 确定性 + description LLM 层）见 [决策记录 0007](../../docs/decisions/0007-engine-runtime.md) 与 [docs/game-design/engine-runtime.md](../game-design/engine-runtime.md)
 
 ## 核心结论
 

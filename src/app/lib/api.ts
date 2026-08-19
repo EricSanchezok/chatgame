@@ -116,7 +116,15 @@ export interface WorldState {
       remainingTicks: number | null;
       stacks: number;
     }>;
-    memories: Array<{ id: string; text: string; importance: string }>;
+    memories: Array<{
+      id: string;
+      text: string;
+      importance: string;
+      tags: string[];
+      strength: number;
+      lastAccessedDay: number | null;
+      archived: boolean;
+    }>;
     relations: RelationState[];
     reputation: Array<{ factionId: string; value: number; descriptor?: { label: string; description: string } }>;
   };

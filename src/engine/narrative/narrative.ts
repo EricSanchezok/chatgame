@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { WorldState, ResultGrade, ResolutionLogEntry } from "../types";
 import type { WorldDefinition } from "../types";
 import type { LLMProvider } from "./provider";
+import type { ContextBlocks } from "../context";
 import { buildSystemPrompt, buildTurnPrompt } from "./prompt";
 import { formatClock } from "../time";
 
@@ -50,6 +51,8 @@ export interface NarrativeContext {
   resolution?: ResolutionLogEntry;
   /** NPC speaking (for persona injection). */
   npcId?: string;
+  /** Pre-assembled context layers (B/C/D) for hybrid injection. */
+  contextBlocks?: ContextBlocks;
 }
 
 /**
@@ -67,6 +70,7 @@ export async function generateNarrative(
     playerInput: ctx.playerInput,
     npcId: ctx.npcId,
     actionId: ctx.resolution?.actionId,
+    contextBlocks: ctx.contextBlocks,
   });
 
   const resolutionNote = ctx.resolution

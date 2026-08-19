@@ -1,6 +1,6 @@
 # 调研记录（Research）
 
-这里存放对外部世界的调研证据——游戏设计理论、方法论、相似产品。调研不是决定：结论被采纳时写成决策（[.agents/notes/](../../.agents/notes/README.md)）或规格（[../game-design/](../game-design/README.md)），并链接回本目录的研究记录。
+这里存放对外部世界的调研证据——游戏设计理论、方法论、相似产品。调研不是决定：结论被采纳时写成决策（[docs/decisions/](../../docs/decisions/README.md)）或规格（[../game-design/](../game-design/README.md)），并链接回本目录的研究记录。
 
 ## 命名与格式
 
@@ -19,3 +19,4 @@
 | 2026-08-18 | LLM 防作弊与动作约束 | [2026-08-18-llm-action-constraints.md](2026-08-18-llm-action-constraints.md) |
 | 2026-08-18 | TS LLM 生态选型 | [2026-08-18-ts-llm-ecosystem.md](2026-08-18-ts-llm-ecosystem.md) |
 | 2026-08-18 | 数值+描述双轨状态 | [2026-08-18-hybrid-state-descriptions.md](2026-08-18-hybrid-state-descriptions.md) |
+| 2026-08-19 | NPC 长期记忆与遗忘机制 | [2026-08-19-npc-memory.md](2026-08-19-npc-memory.md) |

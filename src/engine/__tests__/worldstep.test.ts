@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import { stepWorld } from "../worldstep";
+import { createMemoryEntry } from "../memory";
 import { advanceClock } from "../time";
 import type { WorldDefinition, WorldState } from "../types";
 
@@ -80,18 +81,11 @@ describe("stepWorld hourly progression", () => {
     expect(out.state.player.statuses[0].remainingTicks).toBe(1);
   });
 
-  it("applies memory archiving at the day boundary", () => {
+  it("applies memory decay at the day boundary", () => {
     const def = emberfall();
     const state = freshState(def);
     // trivial retention 30 days; inject a 40-day-old trivial memory.
-    const oldMemory = {
-      id: "mem-old",
-      text: "旧琐事",
-      importance: "trivial" as const,
-      tags: [],
-      createdAtDay: 1,
-      archived: false,
-    };
+    const oldMemory = createMemoryEntry("旧琐事", "trivial", 1, [], "mem-old");
     const withMemory = {
       ...state,
       player: { ...state.player, memories: [oldMemory] },

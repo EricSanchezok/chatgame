@@ -11,7 +11,7 @@ death_policy:
       narrative: 你在昏迷中被抬进诊疗所，草药师沈九姑摇了摇头："灰吸多了，命还在，钱没了。"
 meta_progression:
   keep: [flags, lore, relations_overview]
-  reset: [stats, inventory, location, memories, currency]
+  reset: [stats, inventory, location, currency]
   unlocks:
     - { flag: returned-visitor, grant: [miner, apprentice, scholar] }
 memory:
