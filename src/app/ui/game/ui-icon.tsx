@@ -40,7 +40,7 @@ export function UiIcon({
   className?: string;
   alt?: string;
 }) {
-  const entry = manifest?.ui[slot];
+  const entry = manifest?.ui?.[slot];
   const src = entry?.file ? api.fileAsset(scriptId, entry.file) : "";
   if (src) {
     return (
