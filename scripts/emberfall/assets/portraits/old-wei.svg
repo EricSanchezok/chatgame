@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="768" viewBox="0 0 512 768" role="img" aria-label="老魏：矿场学徒，半梦半醒的神情">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e2820"/>
+      <stop offset="0.6" stop-color="#1c1812"/>
+      <stop offset="1" stop-color="#0e0b08"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.34" r="0.6">
+      <stop offset="0" stop-color="#b8864a" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#b8864a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d8b48c"/>
+      <stop offset="1" stop-color="#b08858"/>
+    </linearGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a4038"/>
+      <stop offset="1" stop-color="#2e2820"/>
+    </linearGradient>
+    <linearGradient id="jacket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a4630"/>
+      <stop offset="1" stop-color="#33281c"/>
+    </linearGradient>
+    <linearGradient id="shirt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c8bc9e"/>
+      <stop offset="1" stop-color="#9a8e72"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="768" rx="28" fill="url(#bg)"/>
+  <circle cx="256" cy="260" r="300" fill="url(#bgGlow)"/>
+  <!-- faint knocking-pattern echo -->
+  <g stroke="#c9a36a" stroke-width="3" opacity="0.16" stroke-linecap="round">
+    <path d="M96 220 h24 M128 220 h24 M96 244 h24"/>
+    <path d="M368 420 h20 M396 420 h20 M368 440 h20 M388 440 h20"/>
+  </g>
+
+  <!-- torso: patched work jacket -->
+  <path d="M100 768 Q96 576 154 492 Q190 436 256 424 Q322 436 358 492 Q416 576 416 768 Z" fill="url(#jacket)"/>
+  <path d="M100 768 Q96 576 154 492 Q190 436 256 424 L256 768 Z" fill="#221a12" opacity="0.5"/>
+  <!-- patches -->
+  <path d="M140 600 q22 -8 30 10 q-20 12 -30 -10 Z" fill="#6b5438"/>
+  <path d="M150 592 q18 -6 24 8" stroke="#4a3a28" stroke-width="2" fill="none"/>
+  <path d="M330 640 q-20 -10 -26 8 q18 12 26 -8 Z" fill="#4a3a28"/>
+  <path d="M338 632 q-16 -8 -22 6" stroke="#33281c" stroke-width="2" fill="none"/>
+  <!-- shirt underneath -->
+  <path d="M206 462 Q256 444 306 462 L312 512 Q256 528 200 512 Z" fill="url(#shirt)"/>
+  <!-- rope belt + pickaxe handle -->
+  <path d="M186 540 Q256 528 326 540 Q322 556 316 562 Q256 546 196 562 Q190 556 186 540 Z" fill="#7a6a50"/>
+  <g>
+    <rect x="356" y="470" width="14" height="220" rx="6" fill="#8a6b4a" transform="rotate(8 363 580)"/>
+    <path d="M352 468 q20 -14 30 0 q-6 18 -30 0 Z" fill="#5a4630"/>
+    <rect x="366" y="520" width="10" height="120" rx="4" fill="#6b5138" transform="rotate(8 371 580)" opacity="0.7"/>
+  </g>
+
+  <!-- neck -->
+  <path d="M222 398 Q256 390 290 398 L296 442 Q256 458 216 442 Z" fill="url(#skin)"/>
+  <path d="M234 430 Q256 438 278 430 Q274 446 256 448 Q238 446 234 430 Z" fill="#8a6244" opacity="0.55"/>
+  <!-- loose collar -->
+  <path d="M212 448 Q256 430 300 448 L304 468 Q256 452 208 468 Z" fill="#a89a7e"/>
+
+  <!-- head (young but haggard) -->
+  <ellipse cx="256" cy="272" rx="86" ry="100" fill="url(#skin)"/>
+  <path d="M256 172 Q298 172 312 196 Q326 220 324 248 Q320 298 296 328 Q278 352 256 354 Q234 352 216 328 Q192 298 188 248 Q186 220 200 196 Q214 172 256 172 Z" fill="url(#skin)"/>
+
+  <!-- tangled hair -->
+  <path d="M188 236 Q180 148 256 138 Q332 148 324 236 Q322 180 300 158 Q282 142 262 140 Q234 142 218 158 Q194 182 188 236 Z" fill="url(#hair)"/>
+  <path d="M190 220 Q196 182 216 162 Q212 194 206 224 Q204 240 202 250 Q192 236 190 220 Z" fill="#241f18"/>
+  <path d="M322 220 Q316 182 296 162 Q300 194 306 224 Q308 240 310 250 Q320 236 322 220 Z" fill="#241f18"/>
+  <path d="M256 140 q30 6 46 26 q4 6 8 12 q-20 6 -40 0 q-16 -4 -26 -16 Z" fill="#3a342c"/>
+  <path d="M240 148 q-6 12 4 24 q10 -14 4 -24 Z" fill="#241f18" opacity="0.7"/>
+
+  <!-- heavy eyelids -->
+  <path d="M204 252 Q220 246 236 252" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M276 252 Q292 246 308 252" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M206 260 Q218 256 232 258" stroke="#241a10" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.5"/>
+  <path d="M280 258 Q294 256 306 260" stroke="#241a10" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.5"/>
+  <!-- half-lidded pupils -->
+  <ellipse cx="219" cy="264" rx="5" ry="4.5" fill="#2c1a10"/>
+  <ellipse cx="293" cy="264" rx="5" ry="4.5" fill="#2c1a10"/>
+  <circle cx="221" cy="262" r="1.8" fill="#e8dcc0"/>
+  <circle cx="295" cy="262" r="1.8" fill="#e8dcc0"/>
+  <!-- brows: uneven -->
+  <path d="M196 244 Q212 238 232 244" stroke="#4a4038" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M282 246 Q298 242 316 246" stroke="#4a4038" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- nose + chapped lips -->
+  <path d="M256 274 Q250 292 246 302 Q256 308 266 302 Q262 292 256 274 Z" fill="#c89a6c" opacity="0.9"/>
+  <path d="M256 306 Q250 310 246 304" stroke="#9a6c44" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M234 330 Q246 326 256 328 Q266 326 278 330" stroke="#8a5a42" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M240 334 q4 3 8 1" stroke="#8a5a42" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- stubble + shadow -->
+  <path d="M200 306 Q256 316 312 306 Q314 330 300 346 Q256 358 212 346 Q198 330 200 306 Z" fill="#4a4038" opacity="0.16"/>
+  <g stroke="#4a4038" stroke-width="2" opacity="0.5">
+    <path d="M216 326 q3 3 6 1 M230 332 q3 3 6 1 M252 336 q3 3 6 1 M274 332 q3 3 6 1 M288 326 q3 3 6 1"/>
+  </g>
+  <!-- dark circles -->
+  <ellipse cx="220" cy="276" rx="16" ry="8" fill="#8a5a42" opacity="0.3"/>
+  <ellipse cx="292" cy="276" rx="16" ry="8" fill="#8a5a42" opacity="0.3"/>
+  <!-- faint scar -->
+  <path d="M170 300 Q184 296 196 302" stroke="#b08858" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- ears -->
+  <path d="M170 276 Q156 274 154 294 Q158 310 174 310 Z" fill="url(#skin)"/>
+  <path d="M342 276 Q356 274 358 294 Q354 310 338 310 Z" fill="url(#skin)"/>
+
+  <!-- dangling headlamp strap -->
+  <path d="M150 470 Q128 560 140 640" stroke="#4a3a28" stroke-width="10" fill="none"/>
+  <rect x="128" y="640" width="26" height="34" rx="5" fill="#33281c" stroke="#c9a36a" stroke-width="3"/>
+  <circle cx="141" cy="657" r="18" fill="#e8a04c" opacity="0.25" filter="url(#soft)"/>
+  <ellipse cx="141" cy="657" rx="6" ry="8" fill="#f0b862"/>
+
+  <!-- dust -->
+  <g fill="#c9a36a">
+    <circle cx="90" cy="180" r="3" opacity="0.5"/><circle cx="426" cy="300" r="3.4" opacity="0.6"/>
+    <circle cx="70" cy="460" r="3.2" opacity="0.5"/><circle cx="440" cy="560" r="3" opacity="0.5"/>
+  </g>
+</svg>

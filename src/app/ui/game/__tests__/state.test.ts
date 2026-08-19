@@ -122,6 +122,16 @@ describe("gameReducer", () => {
     expect(opened.panel).toBe("inventory");
     expect(gameReducer(opened, { type: "panel", panel: null }).panel).toBeNull();
   });
+
+  it("pause toggles the overlay and closes panels", () => {
+    const entered = gameReducer(initialGameState, { type: "enter", session: makeSession(), detail });
+    const withPanel = gameReducer(entered, { type: "panel", panel: "inventory" });
+    const paused = gameReducer(withPanel, { type: "pause", on: true });
+    expect(paused.paused).toBe(true);
+    expect(paused.panel).toBeNull(); // opening pause closes any panel
+    const resumed = gameReducer(paused, { type: "pause", on: false });
+    expect(resumed.paused).toBe(false);
+  });
 });
 
 describe("resolveActiveTheme", () => {

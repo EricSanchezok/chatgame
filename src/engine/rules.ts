@@ -8,7 +8,6 @@
 // source of truth).
 import type { WorldState } from "./types";
 import type { WorldDefinition } from "./types";
-import { builtinActionIdSchema } from "../script/schemas/actions";
 
 export interface RuleCheckContext {
   definition: WorldDefinition;
@@ -30,9 +29,13 @@ export interface RuleCheckResult {
 /** Built-in mechanism checks keyed by world rule `mechanism` field. */
 type MechanismChecker = (ctx: RuleCheckContext) => string | null;
 
-/** Action vocabulary: derived from the script contract (single source of
- *  truth — src/script/schemas/actions.ts builtinActionIdSchema). */
-const ALLOWED_ACTIONS: ReadonlySet<string> = new Set(builtinActionIdSchema.options);
+/** Action vocabulary check: an action is known when the script declares it
+ *  (enabled) OR the script's engine extension registered a handler for it.
+ *  Single source of truth = actions.yaml + engine extensions. */
+function actionAllowed(def: WorldDefinition, actionId: string): boolean {
+  if (def.actions.actions.some((a) => a.id === actionId && a.enabled)) return true;
+  return actionId in def.extensions.actionHandlers;
+}
 
 /** item existence check: effects must reference existing script items (I2). */
 function itemExists(ctx: RuleCheckContext): string | null {
@@ -123,7 +126,7 @@ export function checkWorldRules(ctx: RuleCheckContext): RuleCheckResult {
   const def = ctx.definition;
 
   // 1. Action vocabulary check (I2/I5: intent must map to a known action).
-  if (!ALLOWED_ACTIONS.has(ctx.actionId)) {
+  if (!actionAllowed(def, ctx.actionId)) {
     return {
       allowed: false,
       reasonCode: "unknown_action",
@@ -156,6 +159,6 @@ export function checkWorldRules(ctx: RuleCheckContext): RuleCheckResult {
 }
 
 /** Convenience: does the world allow the action at all (vocabulary gate)? */
-export function isKnownAction(actionId: string): boolean {
-  return ALLOWED_ACTIONS.has(actionId);
+export function isKnownAction(def: WorldDefinition, actionId: string): boolean {
+  return actionAllowed(def, actionId);
 }

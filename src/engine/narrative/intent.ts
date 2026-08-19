@@ -106,7 +106,7 @@ export async function parseIntent(
     if (intent.clarification) {
       return { tier: "clarify", question: intent.clarification };
     }
-    if (isKnownAction(intent.actionId)) {
+    if (isKnownAction(def, intent.actionId)) {
       return { tier: "direct", intent };
     }
     // Unknown action from LLM -> fall through to vocabulary fallback.

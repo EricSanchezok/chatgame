@@ -30,6 +30,7 @@ import {
   themeSchema,
   assetsSchema,
  } from "../script/schemas";
+import { attachExtensions, type DefinitionWithoutExtensions } from "../script/runtime-code";
 import { loadYamlFilesFromDir, loadYamlFile } from "../script/loader";
 import type { WorldDefinition } from "./types";
 
@@ -136,7 +137,7 @@ export function loadScript(scriptDir: string): WorldDefinition {
     if (existsSync(path.join(absDir, "assets.yaml"))) {
       assets = parseRoot(path.join(absDir, "assets.yaml"), "assets.yaml", assetsSchema);
     }
-    return {
+    const definition: DefinitionWithoutExtensions = {
       script,
       world,
       time,
@@ -159,6 +160,9 @@ export function loadScript(scriptDir: string): WorldDefinition {
       assets,
       sourceDir: absDir,
     };
+    // Script engine extensions (custom effects/conditions/actions).
+    // Always present; empty when the script ships no engine code.
+    return attachExtensions(definition);
   } catch (err) {
     if (err instanceof ScriptLoadError) throw err;
     const message = err instanceof Error ? err.message : String(err);

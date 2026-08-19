@@ -3,6 +3,7 @@
 // (partial = 0.5x, crit = 2x). The engine is the only writer of state
 // (I1/I5): this module is the single funnel for state changes.
 import type { Effect } from "../script/schemas/common";
+import { isBuiltinEffect } from "../script/schemas/common";
 import type { MemoryEntry, ResultGrade, WorldState } from "./types";
 import type { WorldDefinition } from "./types";
 import { valueToStance } from "./definition";
@@ -535,6 +536,20 @@ export function applyEffects(
   };
 
   for (const effect of effects) {
+    // Custom effect kinds are dispatched to the script's engine extension.
+    // Unregistered kinds are skipped with a summary (the validator reports
+    // them as errors at load time, so this is a runtime-only safety net).
+    if (!isBuiltinEffect(effect)) {
+      const handler = options.definition.extensions?.effects[effect.kind];
+      if (handler) {
+        const out = handler(current, effect, ctx);
+        current = out.state;
+        summaries.push(...out.summaries);
+      } else {
+        summaries.push(`custom effect "${effect.kind}" has no registered handler`);
+      }
+      continue;
+    }
     const direction = effect.direction ?? "add";
     switch (effect.kind) {
       case "stat": {

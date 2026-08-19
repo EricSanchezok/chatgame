@@ -28,6 +28,7 @@ import type { World } from "../script/schemas/world";
 import type { Worldgen } from "../script/schemas/worldgen";
 import type { Theme } from "../script/schemas/theme";
 import type { AssetsManifest } from "../script/schemas/assets";
+import type { ScriptExtensions } from "./extensions";
 
 // ---------------------------------------------------------------------------
 // Randomness
@@ -391,6 +392,8 @@ export interface WorldState {
   transcript: TranscriptEntry[];
   /** Rolling context summary (absent until the first compaction). */
   contextSummary?: ContextSummary;
+  /** Script-extension-owned persistent state (opaque to the engine). */
+  runtimeState: Record<string, unknown>;
  }
 
 // ---------------------------------------------------------------------------
@@ -431,6 +434,9 @@ export interface WorldDefinition {
   assets?: AssetsManifest;
   /** Directory the script was loaded from (for save paths). */
   sourceDir: string;
+  /** Script-registered engine extensions (custom effects/conditions/actions).
+   *  Always present after loadScript; empty when the script ships no code. */
+  extensions: ScriptExtensions;
  }
 
 // ---------------------------------------------------------------------------

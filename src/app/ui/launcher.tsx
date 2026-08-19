@@ -1,13 +1,16 @@
 "use client";
 
-// Launcher: script card wall (theme-colored), zip import, new-game origin
-// picker, and continue (save list). Fills the viewport shell: the header
-// stays, the card grid scrolls, one modal per flow. Errors surface inline
-// without breaking the library.
+// Main menu: the framework's universal shell — start a new game, continue,
+// switch scripts, and settings (import). The selected script's theme /
+// font / background apply immediately (launcher:background slot), so the
+// menu itself wears the script's look. The old "script card wall" is gone:
+// the script list is a compact switcher inside a themed shell.
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { api, type SaveSummary, type ScriptDetail, type ScriptMeta, type ScriptSummary } from "../lib/api";
-import { rgba } from "../lib/theme";
+import { getSlot, loadScriptUi } from "../lib/script-registry";
+import { enterFullscreen } from "../lib/fullscreen";
+import { applyTheme } from "../lib/theme";
 import { hasLastRun, useGame } from "./game/state";
 
 type Modal = { kind: "new" | "continue" | "none"; scriptId: string } | { kind: "none" };
@@ -25,6 +28,7 @@ function originAvailable(originId: string, meta: ScriptMeta | null): boolean {
 export function Launcher() {
   const { state, startNewGame, continueGame, resumeLast, clearError } = useGame();
   const [scripts, setScripts] = useState<ScriptSummary[]>([]);
+  const [scriptId, setScriptId] = useState("");
   const [modal, setModal] = useState<Modal>({ kind: "none" });
   const [detail, setDetail] = useState<ScriptDetail | null>(null);
   const [meta, setMeta] = useState<ScriptMeta | null>(null);
@@ -39,23 +43,26 @@ export function Launcher() {
   // localStorage and is refreshed by the GameProvider on enter/exit).
   const [lastRunAvailable, setLastRunAvailable] = useState(() => hasLastRun());
 
-  const loadScripts = useCallback(async () => {
+  async function refreshScripts() {
     try {
       const res = await api.listScripts();
       setScripts(res.scripts);
+      setScriptId((prev) => prev || res.scripts[0]?.id || "");
     } catch {
-      // The library is empty or unreachable; show the empty state.
       setScripts([]);
     }
-  }, []);
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await api.listScripts();
-        if (!cancelled) setScripts(res.scripts);
+        if (!cancelled) {
+          setScripts(res.scripts);
+          setScriptId((prev) => prev || res.scripts[0]?.id || "");
+        }
       } catch {
-        // The library is empty or unreachable; show the empty state.
         if (!cancelled) setScripts([]);
       }
     })();
@@ -63,11 +70,34 @@ export function Launcher() {
       cancelled = true;
     };
   }, []);
-  async function openModal(kind: "new" | "continue", scriptId: string) {
+  const script = scripts.find((s) => s.id === scriptId) ?? scripts[0];
+
+  // The menu wears the selected script's skin: load its UI bundle (for the
+  // launcher:background slot) and apply its default theme immediately.
+  const activeScriptId = script?.id;
+  useEffect(() => {
+    if (!activeScriptId) return;
+    let cancelled = false;
+    void (async () => {
+      await loadScriptUi(activeScriptId);
+      try {
+        const d = await api.scriptDetail(activeScriptId);
+        const theme = d.presentation.themes[0];
+        if (!cancelled && theme) applyTheme(theme);
+      } catch {
+        // Library unreachable; keep the framework default look.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeScriptId]);
+
+  async function openModal(kind: "new" | "continue", id: string) {
     clearError();
-    setModal({ kind, scriptId });
+    setModal({ kind, scriptId: id });
     try {
-      const d = await api.scriptDetail(scriptId);
+      const d = await api.scriptDetail(id);
       setDetail(d);
       setSaves(d.saves);
       if (kind === "new") {
@@ -105,7 +135,7 @@ export function Launcher() {
     try {
       const result = await api.importScript(file, false);
       setImportOk(`已导入「${result.scriptId}」`);
-      await loadScripts();
+      await refreshScripts();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -113,7 +143,8 @@ export function Launcher() {
     }
   }
 
-  const openScript = modal.kind !== "none" ? scripts.find((s) => s.id === modal.scriptId) : undefined;
+  const bgDef = getSlot("launcher:background");
+  const Bg = bgDef?.component as React.ElementType | undefined;
 
   async function onResumeLast() {
     clearError();
@@ -126,141 +157,141 @@ export function Launcher() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" style={{ background: "var(--cg-background)", color: "var(--cg-text)" }}>
-      <header className="shrink-0 border-b px-6 py-5" style={{ borderColor: "var(--cg-border)" }}>
-        <h1 className="text-2xl font-bold tracking-wide">Chatgame · 剧本库</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>
-          选择一个剧本，开始一段由规则与叙事共同驱动的冒险。
-        </p>
-      </header>
+    <div
+      className="relative flex h-full min-h-0 flex-col overflow-hidden"
+      style={{ background: "var(--cg-background)", color: "var(--cg-text)" }}
+    >
+      {/* Script background (default: themed gradient; slot: script cover). */}
+      {Bg ? (
+        <div className="absolute inset-0 z-0" aria-hidden="true">
+          <Bg />
+        </div>
+      ) : (
+        <div
+          className="absolute inset-0 z-0"
+          aria-hidden="true"
+          style={{
+            background: "radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--cg-primary) 28%, transparent), transparent 65%), linear-gradient(180deg, var(--cg-background), var(--cg-surface))",
+          }}
+        />
+      )}
 
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-6 py-8">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-6">
+        <header className="text-center">
+          <h1 className="text-4xl font-bold tracking-wide" style={{ color: "var(--cg-text)" }}>
+            {script ? script.name : "Chatgame"}
+            {script?.safety?.age_rating ? (
+              <span
+                className="ml-3 rounded-full border px-2 py-0.5 align-middle text-xs"
+                style={{ borderColor: "var(--cg-text-dim)", color: "var(--cg-text-dim)" }}
+                title="内容分级"
+              >
+                {script.safety.age_rating}
+              </span>
+            ) : null}
+          </h1>
+          {script ? (
+            <p className="mt-2 max-w-md text-sm" style={{ color: "var(--cg-text-dim)" }}>
+              {script.description}
+            </p>
+          ) : null}
+        </header>
+
+        <nav className="flex flex-col gap-2" aria-label="主菜单">
+          <button
+            type="button"
+            disabled={!script}
+            className="cg-chrome rounded-xl px-8 py-3 text-base font-semibold"
+            style={{ background: "var(--cg-primary)", color: "var(--cg-surface)", opacity: script ? 1 : 0.5 }}
+            onClick={() => script && openModal("new", script.id)}
+          >
+            开始新游戏
+          </button>
+          <button
+            type="button"
+            disabled={!script}
+            className="cg-chrome rounded-xl border px-8 py-3 text-base"
+            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)", opacity: script ? 1 : 0.5 }}
+            onClick={() => script && openModal("continue", script.id)}
+          >
+            继续
+          </button>
           {lastRunAvailable ? (
             <button
               type="button"
               onClick={() => void onResumeLast()}
               disabled={state.busy}
-              className="cg-chrome mb-6 flex w-full items-center justify-between gap-3 rounded-xl border px-5 py-4 text-left"
-              style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}
+              className="cg-chrome rounded-xl border px-8 py-3 text-base font-semibold"
+              style={{ borderColor: "var(--cg-primary)", color: "var(--cg-primary)", background: "color-mix(in srgb, var(--cg-primary) 10%, transparent)" }}
             >
-              <span>
-                <span className="block text-sm font-semibold" style={{ color: "var(--cg-text)" }}>
-                  继续上次游戏
-                </span>
-                <span className="mt-0.5 block text-xs" style={{ color: "var(--cg-text-dim)" }}>
-                  从最近的自动存档恢复进度
-                </span>
-              </span>
-              <span className="text-lg" style={{ color: "var(--cg-primary)" }}>→</span>
+              继续上次游戏
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={importBusy}
+            className="cg-chrome rounded-xl border px-8 py-3 text-base"
+            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
+          >
+            {importBusy ? "导入中……" : "设置 / 导入剧本"}
+          </button>
+        </nav>
 
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {scripts.map((s) => {
-              const bg = s.theme?.palette.background ?? "var(--cg-background)";
-              const surface = s.theme?.palette.surface ?? "var(--cg-surface)";
-              const primary = s.theme?.palette.primary ?? "var(--cg-primary)";
-              const text = s.theme?.palette.text ?? "var(--cg-text)";
-              const dim = s.theme?.palette.text_dim ?? "var(--cg-text-dim)";
-              return (
-                <article
-                  key={s.id}
-                  className="cg-chrome flex flex-col overflow-hidden border"
-                  style={{
-                    borderColor: s.theme?.palette.border
-                      ? rgba(s.theme.palette.border, 0.6)
-                      : "var(--cg-border)",
-                    background: bg,
-                  }}
-                >
-                  <div className="h-20" style={{ background: `linear-gradient(135deg, ${primary}, ${s.theme?.palette.accent ? rgba(s.theme.palette.accent, 0.35) : "color-mix(in srgb, var(--cg-primary) 35%, transparent)"})` }} />
-                  <div className="flex flex-1 flex-col gap-2 p-4" style={{ background: surface }}>
-                    <h2 className="text-lg font-bold" style={{ color: text }}>
-                      {s.name}
-                      {s.safety?.age_rating ? (
-                        <span
-                          className="ml-2 rounded-full border px-2 py-0.5 align-middle text-xs"
-                          style={{ borderColor: dim, color: dim }}
-                          title="内容分级"
-                        >
-                          {s.safety.age_rating}
-                        </span>
-                      ) : null}
-                    </h2>
-                    <p className="line-clamp-3 text-sm" style={{ color: dim }}>{s.description}</p>
-                    <p className="text-xs" style={{ color: dim }}>
-                      {s.author} · {s.tone.join(" / ") || "—"} · {s.hasAssets ? "含资产" : "无资产"}
-                    </p>
-                    <div className="mt-auto flex gap-2 pt-3">
-                      <button
-                        type="button"
-                        className="cg-chrome flex-1 rounded-lg px-3 py-2 text-sm font-semibold"
-                        style={{ background: primary, color: bg }}
-                        onClick={() => void openModal("new", s.id)}
-                      >
-                        新游戏
-                      </button>
-                      <button
-                        type="button"
-                        className="cg-chrome flex-1 rounded-lg border px-3 py-2 text-sm"
-                        style={{ borderColor: "var(--cg-border)", color: text }}
-                        onClick={() => void openModal("continue", s.id)}
-                      >
-                        继续
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-
-            {/* Import card (always present). */}
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={importBusy}
-              className="cg-chrome flex min-h-48 flex-col items-center justify-center gap-2 border-2 border-dashed p-6 text-sm"
-              style={{ borderColor: "var(--cg-border)", color: "var(--cg-text-dim)" }}
-            >
-              <span className="text-2xl">＋</span>
-              {importBusy ? "导入中……" : "导入剧本（zip）"}
-            </button>
-            <input ref={fileRef} type="file" accept=".zip" className="hidden" onChange={(e) => void onImport(e)} />
+        {/* Script switcher (compact). */}
+        {scripts.length > 1 ? (
+          <div className="flex flex-wrap items-center justify-center gap-2" aria-label="切换剧本">
+            {scripts.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setScriptId(s.id)}
+                className="cg-chrome rounded-full border px-4 py-1.5 text-sm transition-colors"
+                style={
+                  s.id === script?.id
+                    ? { borderColor: "var(--cg-primary)", color: "var(--cg-primary)", background: "color-mix(in srgb, var(--cg-primary) 12%, transparent)" }
+                    : { borderColor: "var(--cg-border)", color: "var(--cg-text-dim)" }
+                }
+              >
+                {s.name}
+              </button>
+            ))}
           </div>
+        ) : null}
 
-          {scripts.length === 0 ? (
-            <p className="mt-8 text-center text-sm" style={{ color: "var(--cg-text-dim)" }}>
-              还没有已安装的剧本 —— 上传一个 zip 开始。
-            </p>
-          ) : null}
+        {scripts.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
+            还没有已安装的剧本 —— 上传一个 zip 开始。
+          </p>
+        ) : null}
 
-          {importError ? (
-            <p className="mt-4 rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-accent)" }}>
-              {importError}
-            </p>
-          ) : null}
-          {importOk ? (
-            <p className="mt-4 rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}>
-              {importOk}
-            </p>
-          ) : null}
-          {state.error ? (
-            <p className="mt-4 rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-accent)" }}>
-              {state.error}
-            </p>
-          ) : null}
-        </div>
-      </main>
+        {importError ? (
+          <p className="rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-accent)" }}>
+            {importError}
+          </p>
+        ) : null}
+        {importOk ? (
+          <p className="rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}>
+            {importOk}
+          </p>
+        ) : null}
+        {state.error ? (
+          <p className="rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-accent)" }}>
+            {state.error}
+          </p>
+        ) : null}
 
-      {/* New game / continue modal (centered overlay, same z-layer as game). */}
-      {modal.kind !== "none" && openScript ? (
+        <input ref={fileRef} type="file" accept=".zip" className="hidden" onChange={(e) => void onImport(e)} />
+      </div>
+
+      {/* New game / continue modal (centered overlay). */}
+      {modal.kind !== "none" && script ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={modal.kind === "new" ? "新游戏" : "继续游戏"}>
           <button type="button" tabIndex={-1} className="absolute inset-0" style={{ background: "color-mix(in srgb, var(--cg-background) calc(var(--cg-overlay-strength) * 100%), transparent)" }} onClick={closeModal} />
           <div className="cg-glass cg-chrome relative max-h-[80vh] w-full max-w-lg overflow-y-auto border p-5"
             style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", boxShadow: "var(--cg-shadow-value)" }}>
             <h2 className="mb-4 text-lg font-bold" style={{ color: "var(--cg-text)" }}>
-              {modal.kind === "new" ? `新游戏 · ${openScript.name}` : `继续 · ${openScript.name}`}
+              {modal.kind === "new" ? `新游戏 · ${script.name}` : `继续 · ${script.name}`}
             </h2>
 
             {modal.kind === "new" && detail ? (
@@ -348,6 +379,8 @@ export function Launcher() {
                   style={{ background: "var(--cg-primary)", color: "var(--cg-surface)", opacity: originId && !state.busy ? 1 : 0.5 }}
                   onClick={async () => {
                     closeModal();
+                    // User-gesture fullscreen request (silent degradation).
+                    void enterFullscreen();
                     await startNewGame(modal.scriptId, originId, playerName.trim() || undefined);
                   }}
                 >

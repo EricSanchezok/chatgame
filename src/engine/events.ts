@@ -4,6 +4,8 @@
 // tracking. Non-repeatable events play once; repeatable events respect
 // their cooldown (falling back to director.novelty.cooldown_default).
 import type { WorldState, WorldDefinition, EventLogEntry } from "./types";
+import type { Effect } from "../script/schemas/common";
+import { isBuiltinEffect } from "../script/schemas/common";
 import { applyEffects } from "./effect";
 import { applyProgression } from "./mechanics/progression";
 import { absoluteDay } from "./time";
@@ -84,9 +86,14 @@ export function playEvent(
   }
 
   // Apply non-event effects; event-kind effects recurse (depth guard above).
+  // Custom effect kinds flow through applyEffects to the script extension.
   let current = state;
-  const directEffects = event.effects.filter((e) => e.kind !== "event");
-  const nestedEvents = event.effects.filter((e) => e.kind === "event");
+  const directEffects = event.effects.filter(
+    (e) => !isBuiltinEffect(e) || e.kind !== "event",
+  );
+  const nestedEvents = event.effects.filter(
+    (e): e is Extract<Effect, { kind: "event" }> => isBuiltinEffect(e) && e.kind === "event",
+  );
   const out = applyEffects(current, directEffects, { definition, day });
   current = out.state;
   for (const nested of nestedEvents) {

@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="灰烬森林边缘：灰绿色苔藓、枯树与渗出雾气">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c140d"/>
+      <stop offset="0.55" stop-color="#142015"/>
+      <stop offset="1" stop-color="#0a1009"/>
+    </linearGradient>
+    <radialGradient id="moonGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#cfe0c4" stop-opacity="0.5"/>
+      <stop offset="0.5" stop-color="#cfe0c4" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#cfe0c4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moteGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#9fd88a" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#9fd88a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2818"/>
+      <stop offset="1" stop-color="#0c130b"/>
+    </linearGradient>
+    <linearGradient id="trunk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#141f12"/>
+      <stop offset="0.5" stop-color="#22301e"/>
+      <stop offset="1" stop-color="#10180e"/>
+    </linearGradient>
+    <linearGradient id="canopy" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c4026"/>
+      <stop offset="1" stop-color="#141f12"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="soft8" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <circle cx="1250" cy="230" r="180" fill="url(#moonGlow)"/>
+  <circle cx="1250" cy="230" r="52" fill="#dde8d0" opacity="0.9"/>
+  <circle cx="1234" cy="214" r="44" fill="#0c140d" opacity="0.45"/>
+  <circle cx="1266" cy="248" r="26" fill="#0c140d" opacity="0.25"/>
+
+  <!-- far treeline -->
+  <g fill="#10180e">
+    <path d="M0 520 l60 -110 60 110 Z M100 540 l50 -90 50 90 Z M200 510 l60 -120 60 120 Z M320 545 l45 -80 45 80 Z M410 515 l55 -105 55 105 Z M520 540 l50 -90 50 90 Z M620 510 l60 -115 60 115 Z M740 545 l45 -80 45 80 Z M830 515 l55 -100 55 100 Z M940 540 l50 -90 50 90 Z M1040 510 l60 -115 60 115 Z M1160 545 l45 -85 45 85 Z M1260 515 l55 -105 55 105 Z M1380 540 l50 -90 50 90 Z M1480 510 l60 -115 60 115 Z"/>
+  </g>
+
+  <!-- mid tree silhouettes -->
+  <g>
+    <path d="M150 640 L220 250 L290 640 Z" fill="url(#trunk)"/>
+    <path d="M160 560 q-60 -30 -40 -90 M250 530 q50 -40 30 -100 M300 580 q40 20 30 -60" stroke="#1a2818" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <ellipse cx="220" cy="290" rx="150" ry="110" fill="url(#canopy)"/>
+    <ellipse cx="130" cy="350" rx="80" ry="60" fill="#1e2c1a"/>
+    <ellipse cx="310" cy="360" rx="70" ry="50" fill="#1e2c1a"/>
+  </g>
+  <g>
+    <path d="M1180 640 L1250 300 L1320 640 Z" fill="url(#trunk)"/>
+    <path d="M1210 520 q-70 -20 -60 -100 M1310 500 q50 50 20 -120" stroke="#1a2818" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <ellipse cx="1250" cy="330" rx="140" ry="100" fill="url(#canopy)"/>
+    <ellipse cx="1160" cy="390" rx="70" ry="50" fill="#1e2c1a"/>
+    <ellipse cx="1340" cy="380" rx="80" ry="60" fill="#1e2c1a"/>
+  </g>
+  <g>
+    <path d="M760 660 L810 380 L860 660 Z" fill="url(#trunk)"/>
+    <path d="M780 540 q-50 -40 -30 -110 M840 530 q40 40 20 -100" stroke="#1a2818" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <ellipse cx="810" cy="410" rx="110" ry="80" fill="url(#canopy)"/>
+    <ellipse cx="730" cy="460" rx="60" ry="42" fill="#1e2c1a"/>
+    <ellipse cx="890" cy="450" rx="60" ry="42" fill="#1e2c1a"/>
+  </g>
+
+  <!-- dead tree -->
+  <g>
+    <path d="M520 640 L540 320 L560 640 Z" fill="#0d120b"/>
+    <path d="M540 420 q-80 -30 -110 -90 M540 380 q70 -20 100 -80 M548 460 q-60 40 -90 20 M552 340 q30 -60 80 -80" stroke="#0d120b" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <path d="M455 330 q-30 -40 -20 -80 M652 300 q40 -30 50 -70" stroke="#0d120b" stroke-width="7" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- glowing motes -->
+  <g filter="url(#soft8)">
+    <circle cx="300" cy="500" r="7" fill="#9fd88a" opacity="0.9"/>
+    <circle cx="640" cy="560" r="6" fill="#9fd88a" opacity="0.8"/>
+    <circle cx="980" cy="520" r="7" fill="#9fd88a" opacity="0.9"/>
+    <circle cx="1400" cy="580" r="6" fill="#9fd88a" opacity="0.7"/>
+    <circle cx="180" cy="600" r="5" fill="#9fd88a" opacity="0.6"/>
+    <circle cx="1100" cy="640" r="5" fill="#9fd88a" opacity="0.7"/>
+  </g>
+  <g filter="url(#soft)">
+    <circle cx="300" cy="500" r="26" fill="url(#moteGlow)"/>
+    <circle cx="640" cy="560" r="22" fill="url(#moteGlow)"/>
+    <circle cx="980" cy="520" r="26" fill="url(#moteGlow)"/>
+    <circle cx="1400" cy="580" r="22" fill="url(#moteGlow)"/>
+  </g>
+
+  <!-- ground -->
+  <rect x="0" y="640" width="1600" height="260" fill="url(#ground)"/>
+  <path d="M0 648 Q400 636 800 648 T1600 648" fill="none" stroke="#2c4026" stroke-width="6" opacity="0.6"/>
+
+  <!-- ash-herb patch -->
+  <g>
+    <path d="M240 700 q-10 -26 4 -44 q14 18 4 44 Z" fill="#3f5a33"/>
+    <path d="M262 700 q-12 -30 6 -50 q16 20 6 50 Z" fill="#4a6839"/>
+    <path d="M280 700 q-10 -22 2 -38 q10 16 2 38 Z" fill="#3f5a33"/>
+    <path d="M310 706 q-12 -26 4 -46 q14 20 4 46 Z" fill="#4a6839"/>
+    <path d="M330 700 q-10 -20 2 -34 q10 14 2 34 Z" fill="#3f5a33"/>
+  </g>
+  <g>
+    <path d="M920 760 q-12 -28 5 -48 q16 20 5 48 Z" fill="#3f5a33"/>
+    <path d="M946 760 q-14 -32 7 -54 q18 22 7 54 Z" fill="#4a6839"/>
+    <path d="M974 760 q-10 -24 3 -42 q12 18 3 42 Z" fill="#3f5a33"/>
+  </g>
+  <g>
+    <path d="M1250 700 q-10 -24 4 -42 q14 18 4 42 Z" fill="#3f5a33"/>
+    <path d="M1274 700 q-12 -28 6 -50 q16 22 6 50 Z" fill="#4a6839"/>
+  </g>
+
+  <!-- moss stones -->
+  <g>
+    <ellipse cx="420" cy="800" rx="80" ry="30" fill="#182414"/>
+    <ellipse cx="420" cy="790" rx="64" ry="18" fill="#263a20"/>
+    <ellipse cx="720" cy="830" rx="60" ry="22" fill="#182414"/>
+    <ellipse cx="720" cy="822" rx="48" ry="14" fill="#263a20"/>
+    <ellipse cx="1460" cy="810" rx="70" ry="26" fill="#182414"/>
+    <ellipse cx="1460" cy="800" rx="54" ry="16" fill="#263a20"/>
+  </g>
+
+  <!-- fog banks -->
+  <g fill="#bcd8ae" filter="url(#soft)">
+    <ellipse cx="300" cy="720" rx="500" ry="40" opacity="0.1"/>
+    <ellipse cx="950" cy="760" rx="600" ry="44" opacity="0.12"/>
+    <ellipse cx="1400" cy="720" rx="420" ry="36" opacity="0.09"/>
+    <ellipse cx="600" cy="820" rx="520" ry="36" opacity="0.08"/>
+  </g>
+  <ellipse cx="800" cy="920" rx="760" ry="100" fill="#040a06" opacity="0.7"/>
+</svg>

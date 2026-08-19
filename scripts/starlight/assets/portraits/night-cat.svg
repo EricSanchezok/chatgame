@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="768" viewBox="0 0 512 768" role="img" aria-label="夜猫：兜帽黑客，义体眼与数字宠物">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#131c30"/>
+      <stop offset="0.6" stop-color="#0b0e14"/>
+      <stop offset="1" stop-color="#06080e"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.32" r="0.6">
+      <stop offset="0" stop-color="#4f7dff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#4f7dff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8d4b0"/>
+      <stop offset="1" stop-color="#c2a884"/>
+    </linearGradient>
+    <linearGradient id="hood" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#273148"/>
+      <stop offset="1" stop-color="#141a2c"/>
+    </linearGradient>
+    <linearGradient id="jacket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c2a4a"/>
+      <stop offset="1" stop-color="#0d1424"/>
+    </linearGradient>
+    <linearGradient id="cyberEye" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7ea2ff"/>
+      <stop offset="0.5" stop-color="#4f7dff"/>
+      <stop offset="1" stop-color="#1c3a8a"/>
+    </linearGradient>
+    <radialGradient id="holoPet" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#4fd08a" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#4fd08a" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="768" rx="28" fill="url(#bg)"/>
+  <circle cx="256" cy="250" r="300" fill="url(#bgGlow)"/>
+
+  <!-- floating holo pet -->
+  <g>
+    <ellipse cx="400" cy="180" rx="34" ry="26" fill="#4fd08a" opacity="0.2" filter="url(#soft)"/>
+    <ellipse cx="400" cy="180" rx="26" ry="20" fill="#0d1424" stroke="#4fd08a" stroke-width="3"/>
+    <ellipse cx="400" cy="180" rx="14" ry="10" fill="#4fd08a" opacity="0.5"/>
+    <circle cx="400" cy="164" r="3" fill="#4fd08a"/>
+    <circle cx="400" cy="164" r="8" fill="none" stroke="#4fd08a" stroke-width="2"/>
+    <path d="M378 170 q-10 -8 -18 -2 M422 170 q10 -8 18 -2" stroke="#4fd08a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M400 180 q-6 10 0 16 M400 180 q6 10 0 16" stroke="#4fd08a" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.8"/>
+  </g>
+  <!-- data rain in background -->
+  <g font-family="monospace" font-size="16" fill="#4f7dff" opacity="0.4">
+    <text x="84" y="150">010</text><text x="84" y="180">110</text><text x="84" y="210">001</text>
+    <text x="452" y="300">101</text><text x="452" y="330">011</text><text x="452" y="360">010</text>
+  </g>
+
+  <!-- torso: tech jacket -->
+  <path d="M112 768 Q108 570 164 486 Q198 430 256 418 Q314 430 348 486 Q404 570 404 768 Z" fill="url(#jacket)"/>
+  <path d="M112 768 Q108 570 164 486 Q198 430 256 418 L256 768 Z" fill="#0a0f1c" opacity="0.55"/>
+  <!-- zipper -->
+  <path d="M256 470 V700" stroke="#4f7dff" stroke-width="5" stroke-dasharray="10 8"/>
+  <path d="M256 480 l10 -10 v14 l-10 -4 Z" fill="#7ea2ff"/>
+  <!-- glowing chest patch -->
+  <path d="M186 540 Q220 516 254 540 Q220 564 186 540 Z" fill="#0d1424" stroke="#4f7dff" stroke-width="3"/>
+  <circle cx="220" cy="540" r="6" fill="#4fd08a"/>
+  <path d="M208 540 h24" stroke="#4f7dff" stroke-width="2" opacity="0.8"/>
+  <!-- hoodie strings -->
+  <path d="M216 500 q-4 18 -2 34 M296 500 q4 18 2 34" stroke="#7ea2ff" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <circle cx="214" cy="536" r="3" fill="#7ea2ff"/><circle cx="298" cy="536" r="3" fill="#7ea2ff"/>
+  <!-- shoulder seam lights -->
+  <path d="M164 500 q-28 20 -40 60" stroke="#2f6fff" stroke-width="3" fill="none" opacity="0.7"/>
+  <path d="M348 500 q28 20 40 60" stroke="#2f6fff" stroke-width="3" fill="none" opacity="0.7"/>
+
+  <!-- neck -->
+  <path d="M226 402 Q256 394 286 402 L292 444 Q256 462 220 444 Z" fill="url(#skin)"/>
+  <path d="M236 436 Q256 444 276 436 Q272 452 256 454 Q240 452 236 436 Z" fill="#8a6c50" opacity="0.5"/>
+
+  <!-- head -->
+  <ellipse cx="256" cy="270" rx="84" ry="98" fill="url(#skin)"/>
+  <path d="M256 172 Q298 172 312 196 Q326 220 324 248 Q320 298 294 326 Q276 348 256 350 Q236 348 218 326 Q192 298 188 248 Q186 220 200 196 Q214 172 256 172 Z" fill="url(#skin)"/>
+
+  <!-- hood -->
+  <path d="M170 250 Q168 128 256 112 Q344 128 342 250 Q346 300 330 336 Q310 372 284 388 Q260 396 256 392 Q232 396 208 388 Q182 372 166 340 Q150 306 170 250 Z" fill="url(#hood)"/>
+  <path d="M170 250 Q168 128 256 112 Q344 128 342 250 Q346 290 336 320 Q310 364 284 380 Q262 386 256 384 Q236 378 212 362 Q188 342 174 316 Q164 284 170 250 Z" fill="#1c2a4a"/>
+  <path d="M170 250 Q168 128 256 112 Q344 128 342 250 Q330 210 300 182 Q278 164 256 160 Q234 164 212 182 Q182 210 170 250 Z" fill="#273148"/>
+  <path d="M170 250 Q168 128 256 112 Q344 128 342 250" fill="none" stroke="#4f7dff" stroke-width="4" opacity="0.6"/>
+
+  <!-- face opening in hood -->
+  <ellipse cx="256" cy="252" rx="78" ry="92" fill="url(#skin)"/>
+  <path d="M178 250 Q180 168 256 156 Q332 168 334 250 Q338 300 320 330 Q296 352 256 354 Q216 352 192 330 Q174 300 178 250 Z" fill="url(#skin)"/>
+  <path d="M182 238 Q186 180 256 168 Q326 180 330 238 Q324 200 300 178 Q278 166 256 166 Q234 166 212 178 Q188 200 182 238 Z" fill="#c8b48c" opacity="0.6"/>
+
+  <!-- messy bangs -->
+  <path d="M186 230 Q190 150 256 142 Q322 150 326 230 Q316 184 292 162 Q270 148 250 150 Q222 156 202 180 Q190 204 186 230 Z" fill="#5a6a8a"/>
+  <path d="M200 200 q8 -18 26 -26 q-2 20 -10 32 q-10 4 -16 -6 Z" fill="#3a4a68"/>
+  <path d="M304 206 q10 -20 30 -26 q4 18 -6 32 q-14 6 -24 -6 Z" fill="#3a4a68"/>
+
+  <!-- eyes: one natural, one cyber -->
+  <g>
+    <path d="M202 260 Q216 252 232 260" stroke="#1c1408" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <circle cx="217" cy="260" r="6.5" fill="#2c2010"/>
+    <circle cx="219" cy="258" r="2.2" fill="#f0e8d0"/>
+    <path d="M280 260 Q294 252 308 260" stroke="#1c1408" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <circle cx="294" cy="260" r="8" fill="url(#cyberEye)"/>
+    <circle cx="294" cy="260" r="3" fill="#d6f4ff"/>
+    <circle cx="294" cy="260" r="12" fill="none" stroke="#7ea2ff" stroke-width="2"/>
+    <path d="M288 254 h12 M294 248 v12" stroke="#7ea2ff" stroke-width="1.5" opacity="0.7"/>
+    <!-- cyber eye socket -->
+    <path d="M278 246 q16 -10 32 0" stroke="#273148" stroke-width="4" fill="none" opacity="0.8"/>
+  </g>
+  <!-- brows: sardonic -->
+  <path d="M196 246 Q212 240 232 246" stroke="#3a4a68" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M282 244 Q296 240 314 246" stroke="#3a4a68" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- nose + smirk -->
+  <path d="M256 272 Q250 290 246 300 Q256 306 266 300 Q262 290 256 272 Z" fill="#d4b48a" opacity="0.9"/>
+  <path d="M256 304 Q250 308 246 302" stroke="#9a7a58" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M232 328 Q246 322 256 324 Q268 320 284 330 Q276 336 256 336 Q236 336 232 328 Z" fill="#7a3c42"/>
+  <path d="M286 330 q6 0 8 4" stroke="#7a3c42" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- under-eye shadows -->
+  <ellipse cx="218" cy="278" rx="14" ry="7" fill="#5a6a8a" opacity="0.25"/>
+  <ellipse cx="294" cy="278" rx="14" ry="7" fill="#5a6a8a" opacity="0.2"/>
+
+  <!-- ears + data-earring -->
+  <path d="M178 268 Q164 266 162 286 Q166 302 182 302 Z" fill="url(#skin)"/>
+  <path d="M334 268 Q348 266 350 286 Q346 302 330 302 Z" fill="url(#skin)"/>
+  <path d="M180 306 l-6 16 6 2 6 -2 Z" fill="#4f7dff"/>
+  <circle cx="180" cy="322" r="3" fill="#7ea2ff"/>
+
+  <!-- hands: one typing, one in pocket -->
+  <path d="M170 610 Q150 590 148 570 Q160 556 174 566 Q186 578 184 600 Z" fill="url(#skin)"/>
+  <path d="M178 594 l14 -6 M178 604 l12 4" stroke="#8a6c50" stroke-width="3" fill="none"/>
+  <path d="M330 600 Q346 592 344 576 Q336 566 326 574 Q318 586 322 600 Z" fill="#0d1424"/>
+</svg>

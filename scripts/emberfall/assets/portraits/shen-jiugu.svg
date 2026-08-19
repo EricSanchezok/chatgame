@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="768" viewBox="0 0 512 768" role="img" aria-label="沈九姑：草药师，灰白发髻与药篓">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#263a20"/>
+      <stop offset="0.6" stop-color="#182418"/>
+      <stop offset="1" stop-color="#0c130b"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.32" r="0.6">
+      <stop offset="0" stop-color="#6ba368" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#6ba368" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0b892"/>
+      <stop offset="1" stop-color="#c29668"/>
+    </linearGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d8d2c0"/>
+      <stop offset="1" stop-color="#a89e88"/>
+    </linearGradient>
+    <linearGradient id="robe" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f5a33"/>
+      <stop offset="1" stop-color="#22301e"/>
+    </linearGradient>
+    <linearGradient id="shawl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a6839"/>
+      <stop offset="1" stop-color="#2c4026"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="768" rx="28" fill="url(#bg)"/>
+  <circle cx="256" cy="250" r="300" fill="url(#bgGlow)"/>
+
+  <!-- hanging herbs in background -->
+  <g opacity="0.8">
+    <path d="M84 60 V110 M112 76 V120 M404 60 V112 M432 78 V124" stroke="#4a6839" stroke-width="4"/>
+    <g fill="#5f7a4a">
+      <ellipse cx="84" cy="122" rx="7" ry="20"/><ellipse cx="84" cy="142" rx="6" ry="16"/><ellipse cx="84" cy="158" rx="4" ry="12"/>
+      <ellipse cx="112" cy="132" rx="7" ry="20"/><ellipse cx="112" cy="152" rx="6" ry="16"/>
+      <ellipse cx="404" cy="124" rx="7" ry="20"/><ellipse cx="404" cy="144" rx="6" ry="16"/><ellipse cx="404" cy="160" rx="4" ry="12"/>
+      <ellipse cx="432" cy="136" rx="7" ry="20"/><ellipse cx="432" cy="156" rx="6" ry="16"/>
+    </g>
+  </g>
+
+  <!-- torso -->
+  <path d="M104 768 Q100 570 158 488 Q192 432 256 420 Q318 432 352 486 Q410 566 410 768 Z" fill="url(#robe)"/>
+  <path d="M104 768 Q100 570 158 488 Q192 432 256 420 L256 768 Z" fill="#182418" opacity="0.5"/>
+  <!-- shawl -->
+  <path d="M150 500 Q196 452 256 448 Q316 452 362 500 Q366 560 350 588 Q256 622 162 588 Q146 560 150 500 Z" fill="url(#shawl)"/>
+  <path d="M150 500 Q256 458 362 500 L362 522 Q256 480 150 522 Z" fill="#5f7a4a" opacity="0.7"/>
+  <path d="M256 448 V622" stroke="#2c4026" stroke-width="4"/>
+  <!-- leaf embroidery -->
+  <g fill="#6ba368" opacity="0.8">
+    <path d="M210 540 q-8 -14 2 -24 q12 10 2 24 Z"/>
+    <path d="M296 540 q-8 -14 2 -24 q12 10 2 24 Z"/>
+    <path d="M210 596 q-8 -14 2 -24 q12 10 2 24 Z"/>
+    <path d="M296 596 q-8 -14 2 -24 q12 10 2 24 Z"/>
+  </g>
+
+  <!-- neck -->
+  <path d="M226 404 Q256 396 286 404 L292 448 Q256 466 220 448 Z" fill="url(#skin)"/>
+  <path d="M236 438 Q256 448 276 438 Q272 456 256 458 Q240 456 236 438 Z" fill="#8a6244" opacity="0.55"/>
+
+  <!-- head -->
+  <ellipse cx="256" cy="276" rx="86" ry="100" fill="url(#skin)"/>
+  <path d="M256 176 Q300 176 316 202 Q332 228 330 258 Q326 308 298 334 Q278 354 256 356 Q234 354 214 334 Q186 308 182 258 Q180 228 196 202 Q212 176 256 176 Z" fill="url(#skin)"/>
+
+  <!-- stern brow shadow -->
+  <path d="M198 246 Q256 232 314 246 Q314 256 256 258 Q198 256 198 246 Z" fill="#a8744c" opacity="0.45"/>
+  <!-- crow's feet + lines -->
+  <g stroke="#a8744c" stroke-width="3" fill="none" opacity="0.65" stroke-linecap="round">
+    <path d="M196 286 Q208 292 220 288"/>
+    <path d="M292 288 Q304 292 316 286"/>
+    <path d="M206 312 Q222 318 238 314"/>
+    <path d="M274 314 Q290 318 306 312"/>
+  </g>
+
+  <!-- eyes: sharp, mocking -->
+  <g>
+    <path d="M200 260 Q216 252 234 260" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M278 260 Q296 252 312 260" stroke="#241a10" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <circle cx="217" cy="260" r="6" fill="#2c1a10"/>
+    <circle cx="295" cy="260" r="6" fill="#2c1a10"/>
+    <circle cx="219" cy="258" r="2" fill="#f0e4c8"/>
+    <circle cx="297" cy="258" r="2" fill="#f0e4c8"/>
+    <!-- raised brow (one side) -->
+    <path d="M284 246 Q296 238 314 244" stroke="#a89e88" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M196 246 Q212 242 232 246" stroke="#a89e88" stroke-width="5" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- nose + thin skeptical mouth -->
+  <path d="M256 276 Q250 296 246 306 Q256 312 266 306 Q262 296 256 276 Z" fill="#ca9c70" opacity="0.9"/>
+  <path d="M256 312 Q250 316 246 310" stroke="#9a6c44" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M232 332 Q244 328 256 330 Q268 328 280 332" stroke="#7a4c3a" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M286 330 q8 -2 10 2" stroke="#7a4c3a" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- ears -->
+  <path d="M170 278 Q156 276 154 296 Q158 312 174 312 Z" fill="url(#skin)"/>
+  <path d="M342 278 Q356 276 358 296 Q354 312 338 312 Z" fill="url(#skin)"/>
+  <!-- jade earrings -->
+  <circle cx="172" cy="320" r="6" fill="#3f7d44"/>
+  <circle cx="340" cy="320" r="6" fill="#3f7d44"/>
+  <circle cx="172" cy="320" r="2.5" fill="#6ba368"/>
+
+  <!-- gray hair + topknot -->
+  <path d="M170 240 Q168 128 256 118 Q344 128 342 240 Q344 176 320 148 Q302 128 282 122 Q256 116 230 122 Q210 128 192 148 Q168 176 170 240 Z" fill="url(#hair)"/>
+  <circle cx="256" cy="128" r="26" fill="url(#hair)"/>
+  <path d="M232 116 Q256 102 280 116 Q278 142 256 148 Q234 142 232 116 Z" fill="#8f8672"/>
+  <rect x="246" y="140" width="20" height="6" rx="3" fill="#6b5a44" transform="rotate(6 256 143)"/>
+  <!-- side locks -->
+  <path d="M170 250 Q164 300 170 340 Q178 320 176 288 Q174 266 170 250 Z" fill="#c8c2b0"/>
+  <path d="M342 250 Q348 300 342 340 Q334 320 336 288 Q338 266 342 250 Z" fill="#c8c2b0"/>
+
+  <!-- herb basket -->
+  <g>
+    <path d="M108 640 Q96 700 116 730 L188 730 Q196 700 184 640 Z" fill="#8a6b4a"/>
+    <path d="M108 640 Q96 700 116 730 L152 730 Q148 700 150 640 Z" fill="#6b5138" opacity="0.6"/>
+    <g stroke="#c9a36a" stroke-width="3" fill="none">
+      <path d="M112 656 H180 M116 680 H176 M120 704 H172"/>
+    </g>
+    <g fill="#4a6839">
+      <path d="M124 646 q-8 -16 4 -28 q14 12 4 28 Z"/>
+      <path d="M150 646 q-8 -18 5 -30 q15 12 5 30 Z"/>
+      <path d="M172 648 q-6 -14 3 -24 q11 10 3 24 Z"/>
+    </g>
+    <path d="M120 660 q-10 -12 4 -22 q14 10 4 22 Z" fill="#5f7a4a"/>
+  </g>
+</svg>

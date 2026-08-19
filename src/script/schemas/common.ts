@@ -45,7 +45,8 @@ export type ConditionValue = number | string | boolean | Array<number | string>;
 
 export type Condition =
   | {
-      source: z.infer<typeof conditionSourceSchema>;
+      /** Built-in source id or a script-registered custom source. */
+      source: string;
       key?: string;
       target?: string;
       op: z.infer<typeof conditionOpSchema>;
@@ -56,7 +57,9 @@ export type Condition =
   | { not: Condition };
 
 const conditionLeafSchema = z.object({
-  source: conditionSourceSchema,
+  // Custom sources are allowed: unknown sources are evaluated by the
+  // script's engine extension (unregistered => condition stays false).
+  source: z.string(),
   key: z.string().optional(),
   target: z.string().optional(),
   op: conditionOpSchema,
@@ -83,7 +86,31 @@ export const conditionSchema: z.ZodType<Condition> = z.lazy(() =>
 const effectDirectionSchema = z.enum(["add", "remove", "set"]).optional();
 const effectTargetSchema = z.string();
 
-export const effectSchema = z.discriminatedUnion("kind", [
+/** Built-in effect kinds (validation gate for custom effect branches). */
+export const BUILTIN_EFFECT_KINDS = new Set([
+  "stat",
+  "skill",
+  "need",
+  "item",
+  "currency",
+  "relation",
+  "reputation",
+  "flag",
+  "teleport",
+  "status",
+  "memory",
+  "secret",
+  "event",
+  "narrative",
+]);
+
+/** Custom effect kind branch: any kind outside the builtin set, free-form params. */
+export const customEffectSchema = z
+  .object({ kind: z.string() })
+  .passthrough()
+  .refine((e) => !BUILTIN_EFFECT_KINDS.has(e.kind), { message: "unknown effect kind" });
+
+const builtinEffectSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("stat"),
@@ -207,7 +234,20 @@ export const effectSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
-export type Effect = z.infer<typeof effectSchema>;
+export type BuiltinEffect = z.infer<typeof builtinEffectSchema>;
+export type CustomEffect = z.infer<typeof customEffectSchema>;
+export type Effect = BuiltinEffect | CustomEffect;
+
+/** Type guard: true when the effect is a framework built-in kind. */
+export function isBuiltinEffect(effect: Effect): effect is BuiltinEffect {
+  return BUILTIN_EFFECT_KINDS.has(effect.kind);
+}
+
+export const effectSchema: z.ZodType<Effect> = z.union([
+  builtinEffectSchema,
+  customEffectSchema,
+]);
+
 
 /** Time-of-day in 24h HH:MM. */
 export const timeOfDaySchema = z

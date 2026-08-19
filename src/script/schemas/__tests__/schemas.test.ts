@@ -145,7 +145,12 @@ describe("actions schema", () => {
     ],
   };
   it("accepts valid actions", () => expectValid(actionsSchema, valid));
-  it("rejects non-builtin action id", () => expectInvalid(actionsSchema, { actions: [{ id: "fly", resolve: { type: "auto" } }] }));
+  // Custom action ids are now legal when the script ships a handler
+  // (script engine extension); only malformed ids are rejected.
+  it("accepts custom action id with handler", () =>
+    expectValid(actionsSchema, { actions: [{ id: "forge", handler: "forge", resolve: { type: "auto" } }] }));
+  it("rejects action without resolve or handler", () =>
+    expectInvalid(actionsSchema, { actions: [{ id: "fly" }] }));
   it("rejects unknown resolve type", () =>
     expectInvalid(actionsSchema, { actions: [{ id: "talk", resolve: { type: "random" } }] }));
   it("rejects unknown llm_freedom", () =>

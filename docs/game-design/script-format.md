@@ -41,7 +41,7 @@
 
 ### 0.1 目录结构（强制）
 
-一个剧本 = 一个目录。目录名必须等于 `script.yaml` 中的 `id`（小写连字符）。全部 18 个模块中，`script.yaml`、`world.yaml`、`time.yaml`、`mechanics.yaml`、`actions.yaml`、`plot.yaml`、`director.yaml`、`worldgen.yaml`、`run.yaml`、`safety.yaml`、`origins/`、`npcs/`、`locations/`、`narrative/` 为**必选**；`items/`、`factions/`、`events/`、`tasks/` 为**可选**（但强烈建议提供；"无限游玩"依赖事件与任务供给）。
+一个剧本 = 一个目录。目录名必须等于 `script.yaml` 中的 `id`（小写连字符）。全部 18 个模块中，`script.yaml`、`world.yaml`、`time.yaml`、`mechanics.yaml`、`actions.yaml`、`plot.yaml`、`director.yaml`、`worldgen.yaml`、`run.yaml`、`safety.yaml`、`origins/`、`npcs/`、`locations/`、`narrative/` 为**必选**；`items/`、`factions/`、`events/`、`tasks/` 为**可选**（但强烈建议提供；"无限游玩"依赖事件与任务供给）。`engine/` 与 `ui/` 为**可选代码目录**（见 §0.6）。
 
 ```
 scripts/<id>/
@@ -71,15 +71,31 @@ scripts/<id>/
 ├── theme.yaml       # 19. 主题（可选）：调色板/字体/动效 + by_location
 ├── themes/          #    附加主题包（可选，同一 schema）
 ├── assets.yaml      # 20. 资产索引（可选）：立绘/场景/图标/语音/音效
-└── assets/          #    资产文件目录（布局约定见 §20）
+├── assets/          #    资产文件目录（布局约定见 §20）
+├── engine/          #    可选：服务端扩展代码（§0.6）
+│   └── index.ts     #      默认导出 (ctx: EngineExtensionContext) => void
+└── ui/              #    可选：前端扩展代码（§0.6）
+    └── index.tsx    #      默认导出 (ctx: ScriptUiContext) => void
 ```
 
 ### 0.2 纯配置原则
 
-- **无代码、无表达式字符串**：所有逻辑用"条件代数"（附录 C）与"效果代数"（附录 D）的结构化对象表达。
-- **禁止字符串插值/公式求值**：条件值、效果量、概率权重均为字面量。
+- **核心逻辑用配置**：所有规则用"条件代数"（附录 C）与"效果代数"（附录 D）的结构化对象表达。
+- **代码目录是可选扩展缝**：需要超越配置表达力的剧本，可在 `engine/`（服务端规则扩展）与 `ui/`（前端表现扩展）写代码（§0.6）；**无代码目录的剧本完全合法**，等价于纯配置剧本。
+- **禁止字符串插值/公式求值**：条件值、效果量、概率权重均为字面量（配置面内）。
 - 剧本声明"什么"，引擎决定"怎么"：机制算法、注入策略、校验执行均属引擎。
 
+### 0.6 代码目录（engine/ 与 ui/，可选）
+
+剧本代码与框架同权（**信任剧本作者**；本地部署、作者即玩家）。`engine/` 代码在服务端运行（fs/YAML/API key 可达），`ui/` 代码在浏览器运行（React 组件，仅可访问框架注入的 props 与 CSS 变量 `--cg-*`）。
+
+- **engine/index.ts**（服务端扩展）：默认导出 `(ctx: EngineExtensionContext) => void`；可注册：
+  - `registerEffect(kind, handler)` — 自定义效果种类（`effect` 的 `kind` 不在内置集合时运行时裁决；未注册的 kind 在剧本校验时报错）。
+  - `registerConditionSource(source, evaluator)` — 自定义条件源（`condition.source` 任意字符串；未注册源求值为 false 且校验报错）。
+  - `registerActionHandler(id, handler)` — 自定义动作处理器（`actions[].handler` 引用；内置动作在声明 handler 时用自定义实现覆盖）。
+  - handler 均为纯函数（immutable state 更新 + summaries）；自定义持久状态写入 `WorldState.runtimeState`（引擎不解释内容，随存档 v4 持久化）。
+- **ui/index.tsx**（前端扩展）：默认导出 `(ctx: ScriptUiContext) => void`，`ctx.register(slot, { component, position?, order? })`；槽位见表现层规格 [presentation.md](presentation.md) 的 UI 拓扑。组件 props 由框架按槽位注入；未注册槽位回退框架默认组件。
+- **编译与缓存**：`engine/` 由 esbuild 编译为 CJS（`createRequire` 加载），`ui/` 编译为 ESM browser bundle（react 外部化，宿主单实例共享）；产物缓存于 `.chatgame/build/<id>/`（内容 hash 失效，gitignore）。
 ### 0.3 ID 契约
 
 - 实体 `id` 全局唯一（跨文件）、小写连字符（`^[a-z][a-z0-9-]*$`）、发布后**不得更改**（存档迁移前提）。
@@ -247,9 +263,11 @@ progression:
 
 | 字段 | 类型 | 必填 | 约束 |
 |---|---|---|---|
-| `actions` | array | ✅ | 从内置动作库（附录 A，26 个）**选择**并配置 |
-| 每项 | object | — | `{id(库内), enabled, display_name?, resolve, conditions?, costs?, effects?, llm_freedom, cooldown?}` |
+| `actions` | array | ✅ | 从内置动作库（附录 A，26 个）**选择**并配置，或声明**自定义动作**（`handler` 引用剧本 `engine/` 扩展注册的处理器，§0.6） |
+| 每项 | object | — | `{id, enabled, display_name?, resolve?, conditions?, costs?, effects?, llm_freedom, cooldown?, handler?}` |
 | `ext` | object | ❌ | 扩展位 |
+
+`resolve` 在声明 `handler` 时可省略（处理器拥有结算语义）；否则必填。动作 `id` 允许下划线（兼容内置 `use_item`）。
 
 `resolve`：
 
@@ -279,7 +297,7 @@ actions:
     llm_freedom: process
 ```
 
-剧本可禁用/改名/配置动作，**不能声明新动作逻辑**；新动作 = 引擎版本 + 库扩展。
+剧本可禁用/改名/配置内置动作；**自定义动作逻辑**通过 `handler` 引用剧本 `engine/index.ts` 注册的处理器（§0.6）——未注册的 handler id 在剧本校验时报错。
 
 ---
 

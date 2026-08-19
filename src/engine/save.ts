@@ -175,5 +175,6 @@ export function normalizeWorldState(
   if (!next.actionCooldowns) next = { ...next, actionCooldowns: {} };
   if (!next.transcript) next = { ...next, transcript: [] };
   if (!next.contextSummary) next = { ...next, contextSummary: emptyContextSummary() };
+  if (!next.runtimeState) next = { ...next, runtimeState: {} };
   return next;
 }

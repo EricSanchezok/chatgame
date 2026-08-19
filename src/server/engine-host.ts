@@ -605,6 +605,11 @@ export class EngineHost {
     return this.media;
   }
 
+  /** Absolute path of the script library root (imports + builds resolve here). */
+  get scriptLibraryRoot(): string {
+    return this.scriptsRoot;
+  }
+
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------

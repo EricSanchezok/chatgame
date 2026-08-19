@@ -38,10 +38,6 @@ const PANEL_ICON_SLOT: Record<PanelId, "inventory" | "character" | "relations" |
   log: "log",
 };
 
-function fmtClock(state: WorldState): string {
-  const c = state.clock;
-  return `第 ${c.day} 日 ${c.hour} 时 · ${c.weather} · ${c.season}`;
-}
 
 /** Advance control: +1h / +6h / +1d. Time moves forward irrevocably, so
  * every button asks for confirmation once before firing. */
@@ -566,4 +562,4 @@ export function ActivePanel({
   }
 }
 
-export { PANEL_TITLES, fmtClock };
+export { PANEL_TITLES };
