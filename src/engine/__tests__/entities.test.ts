@@ -302,6 +302,26 @@ describe("descriptors (dual-track)", () => {
     const oldminer = next.player.relations.find((r) => r.npcId === "oldminer")!;
     expect(oldminer.descriptor?.version).toBe(2); // untouched
   });
+  it("refreshAllStale wires status instances into the refresh loop with event sources", async () => {
+    const state = makeState();
+    state.player.statuses = [
+      { statusId: "tipsy", remainingTicks: 3, stacks: 1, descriptor: createDescriptor("微醺") },
+    ];
+    state.eventLog = [
+      { id: "e1", day: 1, hour: 10, type: "world", actor: "system", summary: "风从矿井口灌进来" },
+      { id: "e2", day: 1, hour: 11, type: "action", actor: "player", summary: "玩家喝了一杯麦酒" },
+      { id: "e3", day: 1, hour: 12, type: "system", actor: "system", summary: "微醺效果生效" },
+    ];
+    const { state: next, updates } = await refreshAllStale(state, { definition: emberfall });
+    // The status instance descriptor is wired into the refresh loop (R2).
+    const paths = updates.map((u) => u.path);
+    expect(paths).toContain("player.statuses.tipsy");
+    const status = next.player.statuses.find((s) => s.statusId === "tipsy")!;
+    expect(status.descriptor?.stale).toBe(false);
+    expect(status.descriptor?.description.length).toBeGreaterThan(0);
+    // sourceEventIds = tail of the event log (audit trail).
+    expect(status.descriptor?.sourceEventIds).toEqual(["e1", "e2", "e3"]);
+  });
   it("descriptionPolarityOk rejects contradicting prose", () => {
     // Positive label must not contain negative keywords.
     expect(descriptionPolarityOk("友善", "她对我很友善，我们互相信任")).toBe(true);

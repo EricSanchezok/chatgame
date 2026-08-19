@@ -56,6 +56,7 @@ export interface CatalogView {
   events: Array<{ id: string; name: string }>;
   actions: Array<{ id: string; displayName: string }>;
   stats: Array<{ name: string; min: number; max: number; description?: string }>;
+  skills: Array<{ name: string; min: number; max: number; description?: string }>;
   needs: Array<{ name: string }>;
   factions: Array<{ id: string; name: string }>;
   statusEffects: Array<{ id: string; name: string; description?: string }>;
@@ -214,6 +215,12 @@ export class EngineHost {
         displayName: a.display_name ?? a.id,
       })),
       stats: definition.mechanics.stats.map((s) => ({
+        name: s.name,
+        min: s.min,
+        max: s.max,
+        description: s.description,
+      })),
+      skills: (definition.mechanics.skills ?? []).map((s) => ({
         name: s.name,
         min: s.min,
         max: s.max,

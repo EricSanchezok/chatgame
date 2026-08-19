@@ -215,10 +215,6 @@ export function summaryPromptTemplate(
   return { system, prompt };
 }
 
-/** Summary output schema (generateText is free-form; this caps the result). */
-export const summaryOutputSchema = z.object({
-  summary: z.string().min(1),
-});
 
 /**
  * Generates (or incrementally continues) the rolling summary via

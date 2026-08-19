@@ -315,6 +315,17 @@ function CharacterPanel({
             ) : null}
           </div>
         ))}
+        {catalog.skills.map((s) => (
+          <div key={s.name}>
+            <div className="flex justify-between">
+              <dt style={{ color: "var(--cg-text-dim)" }}>{s.name}</dt>
+              <dd style={{ color: "var(--cg-text)" }}>{state.player.skills[s.name] ?? 0}</dd>
+            </div>
+            {s.description ? (
+              <p className="text-xs" style={{ color: "var(--cg-text-dim)" }}>{s.description}</p>
+            ) : null}
+          </div>
+        ))}
         {catalog.needs.map((n) => {
           const need = state.player.needs[n.name];
           return (

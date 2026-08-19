@@ -187,6 +187,33 @@ describe("state snapshot block (layer B)", () => {
   });
 });
 
+describe("injection length stays bounded (no linear growth)", () => {
+  it("keeps the prompt size roughly flat as the transcript grows past the window", () => {
+    const { def, state } = setup();
+    // 10-turn transcript: window is capped at 6 turns.
+    let short = state;
+    for (let i = 0; i < 10; i++) short = addTurn(short, `回合内容${i + 1}`);
+    const shortPrompt = buildTurnPrompt({
+      definition: def,
+      state: short,
+      playerInput: "你好",
+      contextBlocks: buildContextBlocks(short, def),
+    });
+    // 40-turn transcript: the window stays at 6 turns, so the injected
+    // prompt must not grow anywhere near linearly.
+    let long = state;
+    for (let i = 0; i < 40; i++) long = addTurn(long, `回合内容${i + 1}`);
+    const longPrompt = buildTurnPrompt({
+      definition: def,
+      state: long,
+      playerInput: "你好",
+      contextBlocks: buildContextBlocks(long, def),
+    });
+    // 4x the turns => less than 1.2x the injected prompt (window-bound).
+    expect(longPrompt.length).toBeLessThan(shortPrompt.length * 1.2);
+  });
+});
+
 describe("prompt injection order (A/B/C/D/E)", () => {
   it("orders state snapshot -> summary -> transcript -> player input", () => {
     const { def, state } = setup();

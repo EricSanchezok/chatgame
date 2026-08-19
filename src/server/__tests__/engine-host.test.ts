@@ -157,6 +157,20 @@ describe("script library scanning", () => {
     expect(safety.content_classes).toContain("violence");
     expect(safety.content_classes).toContain("crime");
   });
+  it("exposes catalog with skill descriptions and factions", () => {
+    installStarlight();
+    const catalog = host.scriptCatalog("starlight");
+    // skills.description passes through from mechanics.skills (R5).
+    expect(catalog.skills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "hacking", min: 0, max: 20, description: "入侵系统" }),
+      ]),
+    );
+    // factions id/name feed the reputation panel (R5).
+    expect(catalog.factions.map((f) => f.name)).toEqual(
+      expect.arrayContaining(["甲板帮", "站务委员会"]),
+    );
+  });
 });
 
 describe("script import", () => {
