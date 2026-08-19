@@ -117,7 +117,16 @@ export interface MemoryEntry {
   tags: string[];
   /** Absolute day (clock.totalHours / dayLength) at creation. */
   createdAtDay: number;
+  /** 0..1 continuous strength: tier-initial, decays daily, boosted on access. */
+  strength: number;
+  /** Absolute day of the last injection; null when never injected. */
+  lastAccessedDay: number | null;
+  /** Absolute day of the last decay application (multi-day jumps decay once per day). */
+  lastDecayDay: number;
+  /** True when strength fell below threshold or superseded; injection filter. */
   archived: boolean;
+  /** Id of the memory that superseded this one (audit trail). */
+  supersededBy?: string;
 }
 
 // ---------------------------------------------------------------------------

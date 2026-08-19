@@ -64,7 +64,7 @@ export const runSchema = z
       .object({
         keep: z.array(z.enum(["flags", "lore", "relations_overview"])).default([]),
         reset: z
-          .array(z.enum(["stats", "inventory", "location", "memories", "currency"]))
+          .array(z.enum(["stats", "inventory", "location", "currency"]))
           .default([]),
         unlocks: z.array(unlockSchema).default([]),
       })

@@ -15,10 +15,11 @@ import {
 } from "../relations";
 import {
   createMemoryEntry,
-  applyForgetting,
-  applyGlobalForgetting,
+  applyMemoryDecay,
+  applyGlobalMemoryDecay,
+  recordMemoryAccess,
   activeMemories,
-  summarizeForInjection,
+  selectMemories,
 } from "../memory";
 import {
   createDescriptor,
@@ -155,17 +156,32 @@ describe("memory", () => {
     expect(m.text).toBe("重要记忆");
     expect(m.importance).toBe("major");
     expect(m.createdAtDay).toBe(5);
+    expect(m.strength).toBe(1.0);
+    expect(m.lastAccessedDay).toBeNull();
+    expect(m.lastDecayDay).toBe(5);
     expect(m.archived).toBe(false);
   });
-  it("applyForgetting archives trivial past retention, keeps major when majorKeep", () => {
+  it("applyMemoryDecay decays strength and archives past retention (±1 day margin)", () => {
     const retention = { major: 0, minor: 90, trivial: 30 };
     const mems = [
       createMemoryEntry("旧琐事", "trivial", 1, [], "m1"),
       createMemoryEntry("旧要事", "major", 1, [], "m2"),
     ];
-    const result = applyForgetting(mems, 60, retention, true);
-    expect(result[0].archived).toBe(true); // trivial, 59 days > 30
-    expect(result[1].archived).toBe(false); // major, majorKeep
+    // Day 31 = created day 1 + retention 30: exactly at threshold (not archived).
+    const atThreshold = applyMemoryDecay(mems, 31, retention, true);
+    expect(atThreshold[0].archived).toBe(false);
+    expect(atThreshold[0].strength).toBeLessThan(0.3); // decayed
+    expect(atThreshold[1].archived).toBe(false); // major + majorKeep permanent
+    expect(atThreshold[1].strength).toBe(1.0);
+    // Day 32 = retention + 1: archived.
+    const after = applyMemoryDecay(mems, 32, retention, true);
+    expect(after[0].archived).toBe(true);
+  });
+  it("applyMemoryDecay with retention 0 is permanent", () => {
+    const mems = [createMemoryEntry("永久", "trivial", 1, [], "m1")];
+    const out = applyMemoryDecay(mems, 1000, { major: 0, minor: 90, trivial: 0 }, true);
+    expect(out[0].archived).toBe(false);
+    expect(out[0].strength).toBe(0.3);
   });
   it("activeMemories filters archived and sorts newest-first", () => {
     const state = makeState();
@@ -176,21 +192,40 @@ describe("memory", () => {
     expect(active).toHaveLength(2);
     expect(active[0].text).toBe("新");
   });
-  it("applyGlobalForgetting archives trivial player memories", () => {
+  it("applyGlobalMemoryDecay archives trivial player memories", () => {
     const state = makeState();
     state.player.memories = [createMemoryEntry("旧琐事", "trivial", 1, [], "m1")];
     state.clock = { ...state.clock, totalHours: 24 * 100 }; // day 100
-    const next = applyGlobalForgetting(state, emberfall);
+    const next = applyGlobalMemoryDecay(state, emberfall);
     expect(next.player.memories[0].archived).toBe(true);
   });
-  it("summarizeForInjection renders top memories", () => {
+  it("recordMemoryAccess boosts strength and records the access day", () => {
     const state = makeState();
-    state.player.memories = [
-      createMemoryEntry("遇见艾拉", "major", 1, [], "a"),
-      createMemoryEntry("买了药水", "minor", 2, [], "b"),
-    ];
-    const summary = summarizeForInjection(state.player);
-    expect(summary).toContain("[major] 遇见艾拉");
+    const entry = createMemoryEntry("遇见艾拉", "minor", 1, [], "a");
+    state.player.memories = [entry];
+    state.clock = { ...state.clock, totalHours: 24 * 3 }; // day 3
+    const next = recordMemoryAccess(state, emberfall, [entry.id]);
+    expect(next.player.memories[0].strength).toBeCloseTo(0.75); // 0.6 + 0.15
+    expect(next.player.memories[0].lastAccessedDay).toBe(3);
+  });
+  it("selectMemories ranks relevance over recency and renders lines", () => {
+    const state = makeState();
+    const oldRelevant = createMemoryEntry("欠酒商金币", "minor", 1, ["debt"], "a");
+    const freshIrrelevant = createMemoryEntry("买了药水", "minor", 10, [], "b");
+    state.player.memories = [freshIrrelevant, oldRelevant];
+    const sel = selectMemories(state.player, { playerInput: "还钱 debt" }, 8);
+    // The relevant old memory beats the fresh irrelevant one.
+    expect(sel.ids[0]).toBe(oldRelevant.id);
+    expect(sel.text).toContain("[minor] 欠酒商金币");
+    expect(sel.text).toContain("[minor] 买了药水");
+  });
+  it("selectMemories tie-breaks by createdAtDay desc then id asc", () => {
+    const state = makeState();
+    const older = createMemoryEntry("旧", "minor", 1, [], "a");
+    const newer = createMemoryEntry("新", "minor", 2, [], "b");
+    state.player.memories = [older, newer];
+    const sel = selectMemories(state.player, {}, 8);
+    expect(sel.ids).toEqual([newer.id, older.id]);
   });
 });
 

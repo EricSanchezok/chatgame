@@ -81,3 +81,4 @@
 - [0012 — 前端与表现层 v1——沉浸聊天式 UI + 剧本资产/主题系统 + 多剧本管理](0012-ui-theme-assets-multiscript.md)
 - [0013 — 采用 repo-seed 自治理层](0013-adopt-repo-seed-governance-layer.md)
 - [0014 — LLM 上下文管理——对话历史注入与滚动摘要](0014-llm-context-management.md)
+- [0015 — 记忆系统升级——相关性检索、连续遗忘与失效语义](0015-memory-strength-retrieval-supersede.md)
