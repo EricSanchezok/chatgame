@@ -8,6 +8,7 @@
 import {
   mkdirSync,
   rmSync,
+  rmdirSync,
   existsSync,
   renameSync,
   cpSync,
@@ -40,6 +41,15 @@ export function defaultScriptsRoot(): string {
 /** Staging root for import (cleaned per import; kept under .chatgame). */
 function stagingRoot(): string {
   return path.join(".chatgame", "import-tmp");
+}
+
+/** Removes the staging root when empty (best-effort; concurrent imports are safe). */
+function pruneEmptyStagingRoot(): void {
+  try {
+    rmdirSync(stagingRoot());
+  } catch {
+    // Not empty (another import in flight) or already gone — nothing to do.
+  }
 }
 
 /** True when the entry name could escape the extraction root (zip slip). */
@@ -146,6 +156,7 @@ export function importScriptFromZip(
     return stageToLibrary(scriptDir, scriptsRoot, options.replace ?? false);
   } finally {
     rmSync(staging, { recursive: true, force: true });
+    pruneEmptyStagingRoot();
   }
 }
 
@@ -171,5 +182,6 @@ export function importScriptFromDir(
     return stageToLibrary(staged, scriptsRoot, options.replace ?? false);
   } finally {
     rmSync(staging, { recursive: true, force: true });
+    pruneEmptyStagingRoot();
   }
 }
