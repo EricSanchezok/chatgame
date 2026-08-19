@@ -9,7 +9,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Engine } from "../engine";
 import { loadScript } from "../engine/loader";
-import { listSelectableThemes, resolveTheme, buildAssetManifest } from "../engine/presentation";
+import { listSelectableThemes, resolveTheme, buildAssetManifest, toThemeView, type ThemeView } from "../engine/presentation";
 import { createProvider, type LLMProvider } from "../engine/narrative/provider";
 import { createMediaProvider, type MediaProvider } from "../engine/media/provider";
 import { importScriptFromZip, importScriptFromDir, defaultScriptsRoot } from "./script-import";
@@ -62,14 +62,7 @@ export interface CatalogView {
   hpStat: string;
 }
 
-/** Full selectable theme view for the frontend (CSS variable source). */
-export interface ThemeView {
-  id: string;
-  name: string;
-  palette: Theme["palette"];
-  typography: Theme["typography"];
-  effects: Theme["effects"];
-}
+// ThemeView is the single flat theme DTO (defined in engine/presentation.ts).
 
 export interface SessionRecord {
   id: string;
@@ -98,6 +91,10 @@ const MIME_BY_EXT: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
 };
 
 export class EngineHost {
@@ -170,13 +167,7 @@ export class EngineHost {
   } {
     const definition = this.loadDefinition(scriptId);
     return {
-      themes: listSelectableThemes(definition).map((t) => ({
-        id: t.id,
-        name: t.name,
-        palette: t.palette,
-        typography: t.typography,
-        effects: t.effects,
-      })),
+      themes: listSelectableThemes(definition).map((t) => toThemeView(t)),
       assets: definition.assets !== undefined,
     };
   }
@@ -431,20 +422,8 @@ export class EngineHost {
     const definition = record.engine.definition;
     const current = resolveTheme(definition, record.engine.worldState);
     return {
-      themes: listSelectableThemes(definition).map((t) => ({
-        id: t.id,
-        name: t.name,
-        palette: t.palette,
-        typography: t.typography,
-        effects: t.effects,
-      })),
-      currentTheme: {
-        id: current.id,
-        name: current.name,
-        palette: current.palette,
-        typography: current.typography,
-        effects: current.effects,
-      },
+      themes: listSelectableThemes(definition).map((t) => toThemeView(t)),
+      currentTheme: toThemeView(current),
       hasAssets: definition.assets !== undefined,
     };
   }

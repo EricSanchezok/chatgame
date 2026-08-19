@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 /* Framework fallback theme (framework-dark). Script themes overwrite every
-   variable via lib/theme.ts when a session starts. */
+   variable via lib/theme.ts when a session starts. All values are the
+   whitelisted defaults from the theme schema (no arbitrary CSS). */
 :root {
   --cg-background: #0f1115;
   --cg-surface: #171a21;
@@ -11,11 +12,34 @@
   --cg-text: #e6e9ef;
   --cg-text-dim: #9aa3b2;
   --cg-border: #2a2f3a;
+
+  /* Typography roles + metrics. */
   --cg-font: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --cg-font-narrative: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --cg-font-mono: "SF Mono", Menlo, "Noto Sans Mono CJK SC", monospace;
   --cg-scale: 1;
+  --cg-line-height: 1.6;
+  --cg-letter-spacing: 0em;
+
+  /* Shape / material tokens. */
   --cg-radius: 14px;
+  --cg-radius-chrome: 12px;
   --cg-glass: 0.65;
+  --cg-blur: 8px;
+  --cg-shadow: medium;
+  --cg-shadow-value: 0 8px 28px rgba(0, 0, 0, 0.28);
+  --cg-border-width: 1px;
+
+  /* Spacing scale (cozy defaults; density tiers map in lib/theme.ts). */
+  --cg-density: cozy;
+  --cg-space-1: 6px;
+  --cg-space-2: 12px;
+  --cg-space-3: 18px;
+  --cg-space-4: 24px;
+
+  /* Ambient / overlay / motion. */
   --cg-tint: #000000;
+  --cg-overlay-strength: 0.45;
   --cg-motion: subtle;
 }
 
@@ -25,14 +49,27 @@
   --font-sans: var(--cg-font);
 }
 
+/* The type scale multiplier drives every rem-sized font via the root font
+   size — scale is actually consumed, not just written. */
+html {
+  font-size: calc(16px * var(--cg-scale));
+}
+
 /* Smooth theme transitions: colors glide, layout does not jump. */
 body {
   background: var(--cg-background);
   color: var(--cg-text);
   font-family: var(--cg-font);
+  line-height: var(--cg-line-height);
+  letter-spacing: var(--cg-letter-spacing);
   transition:
     background-color 600ms ease,
     color 600ms ease;
+}
+
+/* The long-form narrative stream can opt into its own font role. */
+.cg-narrative {
+  font-family: var(--cg-font-narrative);
 }
 
 /* Scene tint: an ambient radial wash over the theme background. */
@@ -51,31 +88,43 @@ body::before {
 }
 
 /* Motion tier: script-declared animation intensity; always respects
-   prefers-reduced-motion. */
+   prefers-reduced-motion. Panels enter as a centered fade/scale. */
 @media (prefers-reduced-motion: no-preference) {
   :root[style*="--cg-motion: playful"] .cg-panel,
   :root[style*="--cg-motion: standard"] .cg-panel {
-    animation: cg-slide-in 220ms ease-out;
+    animation: cg-panel-in 180ms ease-out;
   }
   :root[style*="--cg-motion: subtle"] .cg-panel {
-    animation: cg-slide-in 400ms ease-out;
+    animation: cg-panel-in 320ms ease-out;
   }
 }
 
-@keyframes cg-slide-in {
+@keyframes cg-panel-in {
   from {
     opacity: 0;
-    transform: translateX(24px);
+    transform: scale(0.97) translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: scale(1) translateY(0);
   }
 }
 
 /* Chat bubbles consume the script's bubble radius. */
 article[class*="rounded-2xl"] {
   border-radius: var(--cg-radius);
+}
+
+/* Chrome (shell/buttons/modals) consumes the chrome radius + border width. */
+.cg-chrome {
+  border-radius: var(--cg-radius-chrome);
+  border-width: var(--cg-border-width);
+}
+
+/* Glass chrome: translucency + blur, driven by theme tokens. */
+.cg-glass {
+  background: color-mix(in srgb, var(--cg-surface) calc((1 - var(--cg-glass)) * 100%), transparent);
+  backdrop-filter: blur(var(--cg-blur));
 }
 
 /* Respect reduced motion above all else. */

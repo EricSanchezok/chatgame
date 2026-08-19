@@ -1,14 +1,38 @@
 // Module: assets.yaml — presentation asset index (optional root module).
 // Single source of truth for all presentation assets (portraits,
-// backgrounds, icons, sprites, voices, ambient, effects). Entity YAML files
-// stay untouched: every key here references an existing npc/location/item/
-// event id (hard validation error); file existence is a soft warning
-// (prompt-only placeholders are legal — files can be added later).
+// backgrounds, icons, sprites, voices, ambient, effects, ui). Entity YAML
+// files stay untouched: every key here references an existing npc/location/
+// item/event id (hard validation error); file existence is a soft warning
+// (prompt-only placeholders are legal — files can be added later). The `ui`
+// section is a fixed chrome-icon slot set, decoupled from entity ids.
 import { z } from "zod";
 import { idSchema } from "./common";
 
 /** Allowed asset file extensions (whitelist). */
 const FILE_EXT_RE = /\.(svg|png|jpe?g|webp|gif|mp3|wav|ogg)$/i;
+
+/** Framework chrome icon slots a script may override via assets.yaml `ui`. */
+export const UI_ICON_SLOTS = [
+  "inventory",
+  "character",
+  "relations",
+  "tasks",
+  "map",
+  "log",
+  "save",
+  "audio_on",
+  "audio_off",
+  "close",
+  "send",
+  "warning",
+  "hp",
+  "location",
+  "time",
+] as const;
+
+export type UiIconSlot = (typeof UI_ICON_SLOTS)[number];
+
+/** Ui slot keys are validated against UI_ICON_SLOTS in validate-presentation (hard error). */
 
 const fileEntrySchema = z
   .object({
@@ -42,6 +66,8 @@ export const assetsSchema = z
     ambient: z.record(idSchema, fileEntrySchema).default({}),
     /** One-shot sound effects per event, keyed by event id. */
     effects: z.record(idSchema, fileEntrySchema).default({}),
+    /** Framework chrome icons, keyed by fixed UI slot (validated semantically). */
+    ui: z.record(z.string(), fileEntrySchema).default({}),
   })
   .strict();
 

@@ -36,6 +36,7 @@ export interface AssetManifest {
   voices: Record<string, AssetEntry>;
   ambient: Record<string, AssetEntry>;
   effects: Record<string, AssetEntry>;
+  ui: Record<string, AssetEntry>;
 }
 
 export interface Catalog {

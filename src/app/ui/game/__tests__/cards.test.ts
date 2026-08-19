@@ -15,6 +15,7 @@ const manifest: AssetManifest = {
   voices: { elara: { prompt: "calm", profile: "低哑" } },
   ambient: {},
   effects: {},
+  ui: {},
 };
 
 describe("assetSrc", () => {

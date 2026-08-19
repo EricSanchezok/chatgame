@@ -1,13 +1,17 @@
 "use client";
 
-// The game screen: chat stream is the primary view; the HUD keeps only
-// immediate info (time/location/HP), everything else lives behind panels.
-// Theme switching and save/exit live in a compact header menu.
+// The game screen: a stable three-region shell (top HUD / stage / bottom
+// composer). The chat stream is the primary surface; the composer (input +
+// panel entry points) never moves with the message flow; secondary world
+// data opens as centered modals (PanelFrame) over the shell — they never
+// change the flex tracks, so the input bar stays glued to the viewport
+// bottom in every state.
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Catalog, WorldState } from "../../lib/api";
 import { EntryCards, ResolutionChip } from "./cards";
 import { ActivePanel, fmtClock } from "./panels";
+import { UiIcon } from "./ui-icon";
 import { useGame } from "./state";
 
 export function GameScreen() {
@@ -41,18 +45,35 @@ export function GameScreen() {
     await sendTurn(text);
   }
 
+  const panelEntries: Array<{ panel: Parameters<typeof setPanel>[0]; label: string; slot: "inventory" | "character" | "relations" | "tasks" | "map" | "log" }> = [
+    { panel: "inventory", label: "背包", slot: "inventory" },
+    { panel: "character", label: "角色", slot: "character" },
+    { panel: "relations", label: "关系", slot: "relations" },
+    { panel: "tasks", label: "任务", slot: "tasks" },
+    { panel: "map", label: "地图", slot: "map" },
+    { panel: "log", label: "日志", slot: "log" },
+  ];
+
   return (
-    <div className="flex h-full flex-col" style={{ background: "var(--cg-background)" }}>
-      {/* HUD: only immediate info + menus. */}
+    <div className="flex h-full min-h-0 flex-col" style={{ background: "var(--cg-background)" }}>
+      {/* Top chrome: summary HUD + session menu. Never scrolls. */}
       <header
-        className="flex items-center justify-between gap-2 border-b px-4 py-2"
-        style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}
+        data-region="hud"
+        className="cg-glass cg-chrome flex shrink-0 items-center justify-between gap-3 px-4 py-2"
+        style={{ borderBottom: "1px solid var(--cg-border)" }}
       >
-        <div className="flex items-center gap-3 text-sm">
-          <span style={{ color: "var(--cg-text)" }}>🕐 {fmtClock(world)}</span>
-          <span style={{ color: "var(--cg-text-dim)" }}>📍 {locationName}</span>
-          <span className="flex items-center gap-1" style={{ color: "var(--cg-text)" }}>
-            ❤️ {hp}/{hpMax}
+        <div className="flex items-center gap-4 text-sm">
+          <span className="flex items-center gap-1.5" style={{ color: "var(--cg-text)" }}>
+            <UiIcon slot="time" scriptId={session.scriptId} manifest={detail.assets} className="h-4 w-4" />
+            {fmtClock(world)}
+          </span>
+          <span className="flex items-center gap-1.5" style={{ color: "var(--cg-text-dim)" }}>
+            <UiIcon slot="location" scriptId={session.scriptId} manifest={detail.assets} className="h-4 w-4" />
+            {locationName}
+          </span>
+          <span className="flex items-center gap-1.5" style={{ color: "var(--cg-text)" }}>
+            <UiIcon slot="hp" scriptId={session.scriptId} manifest={detail.assets} className="h-4 w-4" />
+            {hp}/{hpMax}
           </span>
           {state.dirty ? (
             <span className="text-xs" style={{ color: "var(--cg-accent)" }}>未保存</span>
@@ -62,7 +83,7 @@ export function GameScreen() {
           <select
             value={state.themeMode}
             onChange={(e) => setTheme(e.target.value)}
-            className="rounded-lg border px-2 py-1 text-sm"
+            className="cg-chrome rounded-lg border px-2 py-1 text-sm"
             style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", color: "var(--cg-text)" }}
             aria-label="主题"
           >
@@ -74,11 +95,11 @@ export function GameScreen() {
           <button
             type="button"
             onClick={() => setAudio(!state.audioEnabled)}
-            className="rounded-lg border px-2 py-1 text-sm"
+            className="cg-chrome rounded-lg border px-2 py-1 text-sm"
             style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
             aria-label={state.audioEnabled ? "关闭声音" : "打开声音"}
           >
-            {state.audioEnabled ? "🔊" : "🔇"}
+            <UiIcon slot={state.audioEnabled ? "audio_on" : "audio_off"} scriptId={session.scriptId} manifest={detail.assets} className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -90,15 +111,16 @@ export function GameScreen() {
               }
             }}
             disabled={state.busy}
-            className="rounded-lg border px-2 py-1 text-sm"
+            className="cg-chrome flex items-center gap-1 rounded-lg border px-2 py-1 text-sm"
             style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
           >
+            <UiIcon slot="save" scriptId={session.scriptId} manifest={detail.assets} className="h-4 w-4" />
             保存
           </button>
           <button
             type="button"
             onClick={() => setConfirmExit(true)}
-            className="rounded-lg border px-2 py-1 text-sm"
+            className="cg-chrome rounded-lg border px-2 py-1 text-sm"
             style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
           >
             返回
@@ -106,9 +128,9 @@ export function GameScreen() {
         </div>
       </header>
 
-      {/* Chat stream: the primary surface. */}
-      <main ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      {/* Stage: the chat stream — the only scrolling region on the game screen. */}
+      <main data-region="stage" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="cg-narrative mx-auto flex max-w-3xl flex-col gap-4">
           {world.transcript.map((entry) => (
             <article
               key={entry.id}
@@ -159,53 +181,53 @@ export function GameScreen() {
         </div>
       </main>
 
-      {/* Input bar. */}
-      <footer className="border-t px-4 py-3" style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}>
-        <form onSubmit={onSubmit} className="mx-auto flex max-w-3xl gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="说点什么，或试着行动（如：偷艾拉的东西 / 我去矿井入口）"
-            disabled={state.busy}
-            className="flex-1 rounded-full border px-4 py-2"
-            style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)", color: "var(--cg-text)" }}
-            aria-label="玩家输入"
-          />
-          <button
-            type="submit"
-            disabled={state.busy || !input.trim()}
-            className="rounded-full px-5 py-2 font-semibold"
-            style={{ background: "var(--cg-primary)", color: "var(--cg-surface)" }}
-          >
-            发送
-          </button>
-        </form>
+      {/* Bottom chrome: fixed composer (input + send + panel entry points).
+          Never moves with the transcript — the shell locks it to the viewport. */}
+      <footer
+        data-region="composer"
+        className="cg-glass cg-chrome shrink-0 border-t px-4 py-3"
+        style={{ borderTop: "1px solid var(--cg-border)", paddingBottom: "max(env(safe-area-inset-bottom), var(--cg-space-3))" }}
+      >
+        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+          <form onSubmit={onSubmit} className="flex gap-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="说点什么，或试着行动（如：偷艾拉的东西 / 我去矿井入口）"
+              disabled={state.busy}
+              className="cg-chrome flex-1 rounded-full border px-4 py-2"
+              style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)", color: "var(--cg-text)" }}
+              aria-label="玩家输入"
+            />
+            <button
+              type="submit"
+              disabled={state.busy || !input.trim()}
+              className="cg-chrome flex items-center gap-1.5 rounded-full px-5 py-2 font-semibold"
+              style={{ background: "var(--cg-primary)", color: "var(--cg-surface)" }}
+            >
+              <UiIcon slot="send" scriptId={session.scriptId} manifest={detail.assets} className="h-4 w-4" />
+              发送
+            </button>
+          </form>
+          <nav className="flex flex-wrap items-center justify-center gap-2">
+            {panelEntries.map(({ panel, label, slot }) => (
+              <button
+                key={panel}
+                type="button"
+                onClick={() => setPanel(panel)}
+                className="cg-chrome flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
+                style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
+              >
+                <UiIcon slot={slot} scriptId={session.scriptId} manifest={detail.assets} className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </nav>
+        </div>
       </footer>
 
-      {/* Panel entry points (the "open" ritual). */}
-      <nav className="flex justify-center gap-2 border-t px-4 py-2" style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}>
-        {(
-          [
-            ["inventory", "背包"],
-            ["character", "角色"],
-            ["relations", "关系"],
-            ["tasks", "任务"],
-            ["map", "地图"],
-            ["log", "日志"],
-          ] as const
-        ).map(([panel, label]) => (
-          <button
-            key={panel}
-            type="button"
-            onClick={() => setPanel(panel)}
-            className="rounded-lg border px-3 py-1.5 text-sm"
-            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
+      {/* Overlays: centered modal panels + exit confirm + toast. These are
+          position:fixed and never participate in the shell's flex tracks. */}
       <ActivePanel
         panel={state.panel}
         state={world}
@@ -227,18 +249,18 @@ export function GameScreen() {
       {confirmExit ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="返回启动器">
           <button type="button" tabIndex={-1} className="absolute inset-0" style={{ background: "rgba(0,0,0,0.45)" }} onClick={() => setConfirmExit(false)} />
-          <div className="relative rounded-xl border p-5" style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}>
+          <div className="cg-chrome relative rounded-xl border p-5" style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)" }}>
             <p className="mb-4" style={{ color: "var(--cg-text)" }}>
               {state.dirty ? "有未保存的进度。返回前要保存吗？" : "确定返回启动器吗？"}
             </p>
             <div className="flex justify-end gap-2">
-              <button type="button" className="rounded-lg border px-3 py-1.5 text-sm"
+              <button type="button" className="cg-chrome rounded-lg border px-3 py-1.5 text-sm"
                 style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
                 onClick={() => setConfirmExit(false)}>
                 取消
               </button>
               {state.dirty ? (
-                <button type="button" className="rounded-lg border px-3 py-1.5 text-sm"
+                <button type="button" className="cg-chrome rounded-lg border px-3 py-1.5 text-sm"
                   style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
                   onClick={async () => {
                     setConfirmExit(false);
@@ -247,7 +269,7 @@ export function GameScreen() {
                   不保存
                 </button>
               ) : null}
-              <button type="button" className="rounded-lg px-3 py-1.5 text-sm font-semibold"
+              <button type="button" className="cg-chrome rounded-lg px-3 py-1.5 text-sm font-semibold"
                 style={{ background: "var(--cg-primary)", color: "var(--cg-surface)" }}
                 onClick={async () => {
                   setConfirmExit(false);

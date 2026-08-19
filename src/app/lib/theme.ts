@@ -1,7 +1,26 @@
 // Theme application: a flat ThemeView -> CSS custom properties on an
-// element (document.documentElement by default). The UI consumes only
-// semantic variables; a 600ms transition in globals.css smooths switches.
+// element (document.documentElement by default) + optional @font-face
+// injection for script-bundled fonts. The UI consumes only semantic
+// variables; a 600ms transition in globals.css smooths switches.
 // Testable in node via an explicit target (no DOM dependency).
+
+export interface ThemeFontFile {
+  /** Path relative to the script root, under assets/fonts/. */
+  file: string;
+  /** Numeric weight 100–900. */
+  weight: number;
+  /** Font style. */
+  style: "normal" | "italic";
+}
+
+export interface ThemeFontFace {
+  id: string;
+  family: string;
+  files: ThemeFontFile[];
+}
+
+export type SystemFontRole = "serif" | "sans" | "mono";
+export type FontRole = SystemFontRole | string;
 
 export interface ThemePalette {
   background: string;
@@ -14,23 +33,44 @@ export interface ThemePalette {
   border: string;
 }
 
+export interface ThemeTypography {
+  font: SystemFontRole;
+  scale: number;
+  line_height: number;
+  letter_spacing_em: number;
+  faces: ThemeFontFace[];
+  roles: { ui?: FontRole; narrative?: FontRole; mono?: FontRole };
+}
+
+export interface ThemeEffects {
+  bubble_radius: number;
+  chrome_radius: number;
+  glass: number;
+  blur_px: number;
+  shadow: "none" | "soft" | "medium" | "hard";
+  border_width_px: number;
+  density: "compact" | "cozy" | "comfy";
+  motion: "minimal" | "subtle" | "standard" | "playful";
+  scene_tint: string;
+  overlay_strength: number;
+}
+
 export interface ThemeView {
   id: string;
   name: string;
   palette: ThemePalette;
-  typography: { font: "serif" | "sans" | "mono"; scale: number };
-  effects: {
-    bubble_radius: number;
-    glass: number;
-    motion: "minimal" | "subtle" | "standard" | "playful";
-    scene_tint: string;
-  };
+  typography: ThemeTypography;
+  effects: ThemeEffects;
 }
 
 /** Element surface we write CSS variables onto (subset of HTMLElement). */
 export interface CssTarget {
   style: { setProperty(name: string, value: string): void };
 }
+
+
+/** Resolves a script-relative asset file path to a URL (mirrors lib/api). */
+export type AssetUrlFn = (file: string) => string;
 
 const PALETTE_VARS: Record<keyof ThemePalette, string> = {
   background: "--cg-background",
@@ -43,19 +83,51 @@ const PALETTE_VARS: Record<keyof ThemePalette, string> = {
   border: "--cg-border",
 };
 
-/** Font stacks per theme typography font (CJK-safe fallbacks). */
-const FONT_STACKS: Record<ThemeView["typography"]["font"], string> = {
+/** Font stacks per system font role (CJK-safe fallbacks). */
+const FONT_STACKS: Record<SystemFontRole, string> = {
   serif: `Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif`,
   sans: `-apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif`,
   mono: `"SF Mono", Menlo, "Noto Sans Mono CJK SC", monospace`,
 };
 
+/** Closed shadow token set (framework maps keywords; authors cannot pass raw CSS). */
+const SHADOW_VALUES: Record<ThemeEffects["shadow"], string> = {
+  none: "none",
+  soft: "0 2px 12px rgba(0, 0, 0, 0.18)",
+  medium: "0 8px 28px rgba(0, 0, 0, 0.28)",
+  hard: "0 16px 48px rgba(0, 0, 0, 0.45)",
+};
+
+/** Closed spacing scale per density tier (--cg-space-1..4). */
+const DENSITY_SPACES: Record<ThemeEffects["density"], Record<"1" | "2" | "3" | "4", string>> = {
+  compact: { 1: "4px", 2: "8px", 3: "12px", 4: "16px" },
+  cozy: { 1: "6px", 2: "12px", 3: "18px", 4: "24px" },
+  comfy: { 1: "8px", 2: "16px", 3: "24px", 4: "32px" },
+};
+
+/** Resolves a font role to a CSS family list (face family first, system fallback). */
+function roleFamily(
+  role: FontRole | undefined,
+  faces: ThemeFontFace[],
+  defaultRole: SystemFontRole,
+): string {
+  const face = faces.find((f) => f.id === role);
+  if (face) return `"${face.family}", ${FONT_STACKS.sans}`;
+  const system = role === "serif" || role === "sans" || role === "mono" ? role : defaultRole;
+  return FONT_STACKS[system];
+}
+
 /**
- * Applies a theme to the target element's inline style. Every field maps
- * to a `--cg-*` variable; the motion enum lands on a data attribute that
- * CSS keyed animations consult (reduced-motion is respected in CSS).
+ * Applies a theme to the target element's inline style. Every field maps to
+ * a `--cg-*` variable; shadow/density land on closed framework token sets;
+ * script faces become @font-face rules in a single <style data-cg-fonts>.
+ * Family names were whitelisted at the schema layer — no CSS injection.
  */
-export function applyTheme(theme: ThemeView, target?: CssTarget): void {
+export function applyTheme(
+  theme: ThemeView,
+  target?: CssTarget,
+  options: { assetUrl?: AssetUrlFn } = {},
+): void {
   const el = target ?? (typeof document !== "undefined" ? document.documentElement : undefined);
   if (!el) return;
   for (const [key, cssVar] of Object.entries(PALETTE_VARS) as Array<
@@ -63,12 +135,82 @@ export function applyTheme(theme: ThemeView, target?: CssTarget): void {
   >) {
     el.style.setProperty(cssVar, theme.palette[key]);
   }
-  el.style.setProperty("--cg-font", FONT_STACKS[theme.typography.font]);
+
+  // Typography roles: ui / narrative / mono families.
+  const faces = theme.typography.faces;
+  const uiRole = theme.typography.roles.ui ?? theme.typography.font;
+  const narrativeRole = theme.typography.roles.narrative ?? uiRole;
+  const monoRole = theme.typography.roles.mono ?? "mono";
+  el.style.setProperty("--cg-font", roleFamily(uiRole, faces, theme.typography.font));
+  el.style.setProperty("--cg-font-narrative", roleFamily(narrativeRole, faces, theme.typography.font));
+  el.style.setProperty("--cg-font-mono", roleFamily(monoRole, faces, "mono"));
+
+  // Typography metrics.
   el.style.setProperty("--cg-scale", String(theme.typography.scale));
+  el.style.setProperty("--cg-line-height", String(theme.typography.line_height));
+  el.style.setProperty("--cg-letter-spacing", `${theme.typography.letter_spacing_em}em`);
+
+  // Shape / material tokens.
   el.style.setProperty("--cg-radius", `${theme.effects.bubble_radius}px`);
+  el.style.setProperty("--cg-radius-chrome", `${theme.effects.chrome_radius}px`);
   el.style.setProperty("--cg-glass", String(theme.effects.glass));
+  el.style.setProperty("--cg-blur", `${theme.effects.blur_px}px`);
+  el.style.setProperty("--cg-border-width", `${theme.effects.border_width_px}px`);
+  el.style.setProperty("--cg-shadow", theme.effects.shadow);
+  el.style.setProperty("--cg-shadow-value", SHADOW_VALUES[theme.effects.shadow]);
+  el.style.setProperty("--cg-density", theme.effects.density);
+  const spaces = DENSITY_SPACES[theme.effects.density];
+  el.style.setProperty("--cg-space-1", spaces["1"]);
+  el.style.setProperty("--cg-space-2", spaces["2"]);
+  el.style.setProperty("--cg-space-3", spaces["3"]);
+  el.style.setProperty("--cg-space-4", spaces["4"]);
+
+  // Ambient / overlay / motion.
   el.style.setProperty("--cg-tint", theme.effects.scene_tint);
+  el.style.setProperty("--cg-overlay-strength", String(theme.effects.overlay_strength));
   el.style.setProperty("--cg-motion", theme.effects.motion);
+
+  // Font faces: replace the previous theme's @font-face block (if any).
+  if (typeof document !== "undefined" && faces.length > 0 && options.assetUrl) {
+    injectFontFaces(theme, options.assetUrl, document);
+  } else if (typeof document !== "undefined") {
+    document.querySelector("style[data-cg-fonts]")?.remove();
+  }
+}
+
+/** Builds and swaps the single <style data-cg-fonts> @font-face block. */
+function injectFontFaces(theme: ThemeView, assetUrl: AssetUrlFn, doc: Document): void {
+  const previous = doc.querySelector("style[data-cg-fonts]");
+  if (previous) previous.remove();
+  const style = doc.createElement("style");
+  style.setAttribute("data-cg-fonts", "");
+  const rules = theme.typography.faces
+    .map((face) => {
+      const srcs = face.files
+        .map((f) => `url("${assetUrl(f.file)}") format("${fontFormat(f.file)}")`)
+        .join(", ");
+      return `@font-face{font-family:"${face.family}";font-style:${face.files[0]?.style ?? "normal"};font-weight:${face.files[0]?.weight ?? 400};font-display:swap;src:${srcs};}`;
+    })
+    .join("\n");
+  style.innerHTML = rules;
+  doc.head.appendChild(style);
+}
+
+/** Maps a font file extension to its CSS format hint. */
+function fontFormat(file: string): string {
+  const ext = file.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "woff2":
+      return "woff2";
+    case "woff":
+      return "woff";
+    case "ttf":
+      return "truetype";
+    case "otf":
+      return "opentype";
+    default:
+      return "woff2";
+  }
 }
 
 /** Converts a hex color to an rgba() string with the given alpha. */

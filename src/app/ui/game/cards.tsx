@@ -6,6 +6,7 @@
 
 import type { AssetManifest, Catalog, MediaCue, TranscriptEntry, WorldState } from "../../lib/api";
 import { api } from "../../lib/api";
+import { UiIcon } from "./ui-icon";
 
 /** Resolution grade -> display label. */
 export function gradeLabel(grade: string): string {
@@ -114,7 +115,10 @@ export function LocationCard({
         <img src={src} alt={name} className="h-32 w-full object-cover" />
       ) : null}
       <figcaption className="p-3">
-        <div className="font-semibold" style={{ color: "var(--cg-text)" }}>📍 {name}</div>
+        <div className="flex items-center gap-1.5 font-semibold" style={{ color: "var(--cg-text)" }}>
+          <UiIcon slot="location" scriptId={scriptId} manifest={manifest} className="h-4 w-4" />
+          {name}
+        </div>
         {description ? (
           <div className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>{description}</div>
         ) : null}
@@ -168,7 +172,10 @@ export function EventCard({ scriptId, eventId, name, manifest }: {
   return (
     <div className="my-1 rounded-lg border px-3 py-2"
       style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
-      <span className="text-sm font-semibold" style={{ color: "var(--cg-accent)" }}>⚡ {name}</span>
+      <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--cg-accent)" }}>
+        <UiIcon slot="warning" scriptId={scriptId} manifest={manifest} className="h-4 w-4" />
+        {name}
+      </span>
     </div>
   );
 }

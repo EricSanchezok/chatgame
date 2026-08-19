@@ -3,8 +3,22 @@
 // derives deterministic media cues from state transitions — the LLM never
 // decides media (extension of the "LLM 管叙事" boundary).
 import type { WorldDefinition, WorldState, MediaCue, ResolutionLogEntry } from "./types";
-import type { Theme, PaletteOverride } from "../script/schemas/theme";
+import type { Theme, PaletteOverride, EffectsOverride, TypographyOverride } from "../script/schemas/theme";
 import type { AssetsManifest } from "../script/schemas/assets";
+
+/** Flat theme view for the frontend (no by_location; the single server DTO shape). */
+export type ThemeView = Omit<Theme, "by_location">;
+
+/** Maps a full Theme to its flat frontend view (single mapping function). */
+export function toThemeView(theme: Theme): ThemeView {
+  return {
+    id: theme.id,
+    name: theme.name,
+    palette: theme.palette,
+    typography: theme.typography,
+    effects: theme.effects,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Theme resolution
@@ -24,8 +38,19 @@ export const FRAMEWORK_DARK_THEME: Theme = {
     text_dim: "#9aa3b2",
     border: "#2a2f3a",
   },
-  typography: { font: "sans", scale: 1.0 },
-  effects: { bubble_radius: 14, glass: 0.65, motion: "subtle", scene_tint: "#000000" },
+  typography: { font: "sans", scale: 1.0, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
+  effects: {
+    bubble_radius: 14,
+    chrome_radius: 12,
+    glass: 0.65,
+    blur_px: 8,
+    shadow: "medium",
+    border_width_px: 1,
+    density: "cozy",
+    motion: "subtle",
+    scene_tint: "#000000",
+    overlay_strength: 0.45,
+  },
   by_location: {},
 };
 
@@ -42,8 +67,19 @@ export const FRAMEWORK_LIGHT_THEME: Theme = {
     text_dim: "#6a7280",
     border: "#d8d4c9",
   },
-  typography: { font: "sans", scale: 1.0 },
-  effects: { bubble_radius: 14, glass: 0.8, motion: "subtle", scene_tint: "#ffffff" },
+  typography: { font: "sans", scale: 1.0, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
+  effects: {
+    bubble_radius: 14,
+    chrome_radius: 12,
+    glass: 0.8,
+    blur_px: 8,
+    shadow: "medium",
+    border_width_px: 1,
+    density: "cozy",
+    motion: "subtle",
+    scene_tint: "#ffffff",
+    overlay_strength: 0.45,
+  },
   by_location: {},
 };
 
@@ -55,10 +91,33 @@ function applyPaletteOverride(
   return { ...palette, ...override };
 }
 
+/** Merges an inline effects override onto a base effects object. */
+function applyEffectsOverride(
+  effects: Theme["effects"],
+  override: EffectsOverride,
+): Theme["effects"] {
+  return { ...effects, ...override };
+}
+
+/** Merges an inline typography override onto a base typography object. */
+function applyTypographyOverride(
+  typography: Theme["typography"],
+  override: TypographyOverride,
+): Theme["typography"] {
+  return {
+    ...typography,
+    ...(override.scale !== undefined ? { scale: override.scale } : {}),
+    ...(override.line_height !== undefined ? { line_height: override.line_height } : {}),
+    ...(override.letter_spacing_em !== undefined ? { letter_spacing_em: override.letter_spacing_em } : {}),
+    roles: { ...typography.roles, ...override.roles },
+  };
+}
+
 /**
  * Resolves the active theme for a player location: the script default theme
  * (or the framework fallback), remapped by by_location (theme id reference
- * or inline palette override). Always returns a complete flat Theme.
+ * or inline palette/effects/typography override). Always returns a complete
+ * flat Theme.
  */
 export function resolveTheme(
   definition: WorldDefinition,
@@ -73,7 +132,12 @@ export function resolveTheme(
     if (target) return target;
     return defaultTheme; // unknown id (should be caught by validation) — degrade
   }
-  return { ...defaultTheme, palette: applyPaletteOverride(defaultTheme.palette, remap) };
+  return {
+    ...defaultTheme,
+    palette: applyPaletteOverride(defaultTheme.palette, remap),
+    effects: remap.effects ? applyEffectsOverride(defaultTheme.effects, remap.effects) : defaultTheme.effects,
+    typography: remap.typography ? applyTypographyOverride(defaultTheme.typography, remap.typography) : defaultTheme.typography,
+  };
 }
 
 /** All selectable themes for a script: default + extras + framework built-ins. */
@@ -107,6 +171,7 @@ export function buildAssetManifest(definition: WorldDefinition): {
   voices: Record<string, ResolvedAsset>;
   ambient: Record<string, ResolvedAsset>;
   effects: Record<string, ResolvedAsset>;
+  ui: Record<string, ResolvedAsset>;
 } {
   const empty = (): Record<string, ResolvedAsset> => ({});
   const out = {
@@ -117,11 +182,12 @@ export function buildAssetManifest(definition: WorldDefinition): {
     voices: empty(),
     ambient: empty(),
     effects: empty(),
+    ui: empty(),
   };
   const manifest: AssetsManifest | undefined = definition.assets;
   if (!manifest) return out;
   for (const kind of Object.keys(out) as Array<keyof typeof out>) {
-    const section = manifest[kind];
+    const section = manifest[kind] as Record<string, ResolvedAsset> | undefined;
     if (!section) continue;
     for (const [id, entry] of Object.entries(section)) {
       out[kind][id] = {

@@ -193,3 +193,116 @@ describe("theme typing sanity", () => {
     expect(typeof t.by_location.mine).toBe("object");
   });
 });
+
+describe("themeSchema token v1.1", () => {
+  const BASE_PALETTE = {
+    background: "#111", surface: "#222", surface_alt: "#333", primary: "#444",
+    accent: "#555", text: "#eee", text_dim: "#999", border: "#666",
+  };
+
+  it("applies new token defaults (effects/typography)", () => {
+    const t = themeSchema.parse({ id: "x", name: "x", palette: BASE_PALETTE });
+    expect(t.effects.chrome_radius).toBe(12);
+    expect(t.effects.blur_px).toBe(8);
+    expect(t.effects.shadow).toBe("medium");
+    expect(t.effects.border_width_px).toBe(1);
+    expect(t.effects.density).toBe("cozy");
+    expect(t.effects.overlay_strength).toBe(0.45);
+    expect(t.typography.line_height).toBe(1.6);
+    expect(t.typography.letter_spacing_em).toBe(0);
+    expect(t.typography.faces).toEqual([]);
+    expect(t.typography.roles).toEqual({});
+  });
+
+  it("accepts a custom face + roles and clamps ranges", () => {
+    const t = themeSchema.parse({
+      id: "x",
+      name: "x",
+      palette: BASE_PALETTE,
+      typography: {
+        font: "serif",
+        scale: 1.2,
+        line_height: 1.8,
+        letter_spacing_em: 0.05,
+        faces: [
+          { id: "runes", family: "Rune Serif", files: [{ file: "assets/fonts/rune.woff2", weight: 700, style: "italic" }] },
+        ],
+        roles: { ui: "runes", narrative: "runes", mono: "mono" },
+      },
+      effects: { bubble_radius: 20, chrome_radius: 4, glass: 0.3, blur_px: 16, shadow: "hard", border_width_px: 2, density: "compact", overlay_strength: 0.6 },
+    });
+    expect(t.typography.faces[0].family).toBe("Rune Serif");
+    expect(t.typography.faces[0].files[0].weight).toBe(700);
+    expect(t.typography.roles.narrative).toBe("runes");
+    expect(t.effects.shadow).toBe("hard");
+    expect(t.effects.density).toBe("compact");
+  });
+
+  it("rejects a font family with quotes/backslash (injection guard)", () => {
+    const bad = themeSchema.safeParse({
+      id: "x",
+      name: "x",
+      palette: BASE_PALETTE,
+      typography: { faces: [{ id: "evil", family: 'Roboto"); background:red', files: [{ file: "assets/fonts/a.woff2" }] }] },
+    });
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects a font file outside assets/fonts/", () => {
+    const bad = themeSchema.safeParse({
+      id: "x",
+      name: "x",
+      palette: BASE_PALETTE,
+      typography: { faces: [{ id: "f", family: "F", files: [{ file: "assets/evil.woff2" }] }] },
+    });
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects unknown effects/shadow/density/motion values", () => {
+    const badShadow = themeSchema.safeParse({ id: "x", name: "x", palette: BASE_PALETTE, effects: { shadow: "huge" } });
+    expect(badShadow.success).toBe(false);
+    const badDensity = themeSchema.safeParse({ id: "x", name: "x", palette: BASE_PALETTE, effects: { density: "huge" } });
+    expect(badDensity.success).toBe(false);
+    const badOverlay = themeSchema.safeParse({ id: "x", name: "x", palette: BASE_PALETTE, effects: { overlay_strength: 1.5 } });
+    expect(badOverlay.success).toBe(false);
+  });
+});
+
+describe("assetsSchema ui slots", () => {
+  it("accepts known ui slots with file entries", () => {
+    const a = assetsSchema.parse({
+      ui: { inventory: { file: "assets/icons/inventory.svg" }, map: { prompt: "map icon" } },
+    });
+    expect(a.ui.inventory.file).toContain("inventory.svg");
+    expect(a.ui.map.prompt).toBe("map icon");
+  });
+});
+
+describe("validateScriptDir presentation token checks", () => {
+  it("fails hard on an unknown ui icon slot", () => {
+    writeBase({
+      "assets.yaml": `ui:\n  mystery-slot: { prompt: "x" }\n`,
+    });
+    const result = validateScriptDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((i) => i.message.includes('unknown ui icon slot "mystery-slot"'))).toBe(true);
+  });
+
+  it("fails hard on a font role referencing a missing face", () => {
+    writeBase({
+      "theme.yaml": `${VALID_THEME}typography:\n  roles:\n    ui: ghost-face\n`,
+    });
+    const result = validateScriptDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((i) => i.message.includes('font role "ghost-face"'))).toBe(true);
+  });
+
+  it("accepts a theme with a valid face (soft warning when file missing)", () => {
+    writeBase({
+      "theme.yaml": `${VALID_THEME}typography:\n  faces:\n    - id: runes\n      family: Rune Serif\n      files:\n        - { file: assets/fonts/rune.woff2, weight: 400, style: normal }\n  roles:\n    ui: runes\n`,
+    });
+    const result = validateScriptDir(dir);
+    expect(result.ok).toBe(true);
+    expect(result.issues.some((i) => i.severity === "warning" && i.message.includes("rune.woff2"))).toBe(true);
+  });
+});

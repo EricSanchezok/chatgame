@@ -12,6 +12,7 @@ const KINDS = new Set([
   "voices",
   "ambient",
   "effects",
+  "ui",
 ]);
 
 export async function GET(

@@ -20,8 +20,8 @@ function makeSession(): SessionHandle {
           background: "#111", surface: "#222", surface_alt: "#333", primary: "#666",
           accent: "#777", text: "#eee", text_dim: "#999", border: "#444",
         },
-        typography: { font: "sans", scale: 1 },
-        effects: { bubble_radius: 14, glass: 0.6, motion: "subtle", scene_tint: "#000" },
+        typography: { font: "sans", scale: 1, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
+        effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.6, blur_px: 8, shadow: "medium", border_width_px: 1, density: "cozy", motion: "subtle", scene_tint: "#000", overlay_strength: 0.45 },
       },
       {
         id: "dark-mine",
@@ -30,8 +30,8 @@ function makeSession(): SessionHandle {
           background: "#000", surface: "#111", surface_alt: "#1a1a1a", primary: "#884",
           accent: "#a95", text: "#eee", text_dim: "#888", border: "#333",
         },
-        typography: { font: "sans", scale: 1 },
-        effects: { bubble_radius: 14, glass: 0.6, motion: "subtle", scene_tint: "#000" },
+        typography: { font: "sans", scale: 1, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
+        effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.6, blur_px: 8, shadow: "medium", border_width_px: 1, density: "cozy", motion: "subtle", scene_tint: "#000", overlay_strength: 0.45 },
       },
     ],
     currentTheme: {
@@ -41,8 +41,8 @@ function makeSession(): SessionHandle {
         background: "#111", surface: "#222", surface_alt: "#333", primary: "#666",
         accent: "#777", text: "#eee", text_dim: "#999", border: "#444",
       },
-      typography: { font: "sans", scale: 1 },
-      effects: { bubble_radius: 14, glass: 0.6, motion: "subtle", scene_tint: "#000" },
+      typography: { font: "sans", scale: 1, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
+      effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.6, blur_px: 8, shadow: "medium", border_width_px: 1, density: "cozy", motion: "subtle", scene_tint: "#000", overlay_strength: 0.45 },
     },
     hasAssets: true,
   };

@@ -1,12 +1,16 @@
 "use client";
 
 // Overlay panels: the world data lives behind entry points, not flat on
-// screen. A shared frame (slide-in, glass blur, Esc/backdrop close) hosts
-// the six panels. Everything renders from WorldState + static Catalog;
-// unknown ids degrade to raw labels instead of crashing.
+// screen. A shared centered-modal frame (glass, shadow token, Esc/backdrop
+// close) hosts the six panels. Panels are position:fixed overlays — they
+// never participate in the shell's flex tracks, so the composer stays put.
+// Everything renders from WorldState + static Catalog; unknown ids degrade
+// to raw labels instead of crashing.
 
-import type { Catalog, WorldState } from "../../lib/api";
+import { useEffect } from "react";
+import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
 import { ItemCard } from "./cards";
+import { UiIcon } from "./ui-icon";
 import type { PanelId } from "./state";
 
 const PANEL_TITLES: Record<PanelId, string> = {
@@ -18,6 +22,16 @@ const PANEL_TITLES: Record<PanelId, string> = {
   log: "日志",
 };
 
+/** PanelId -> UiIcon slot (the same set of chrome slots). */
+const PANEL_ICON_SLOT: Record<PanelId, "inventory" | "character" | "relations" | "tasks" | "map" | "log"> = {
+  inventory: "inventory",
+  character: "character",
+  relations: "relations",
+  tasks: "tasks",
+  map: "map",
+  log: "log",
+};
+
 function fmtClock(state: WorldState): string {
   const c = state.clock;
   return `第 ${c.day} 日 ${c.hour} 时 · ${c.weather} · ${c.season}`;
@@ -26,17 +40,30 @@ function fmtClock(state: WorldState): string {
 function PanelFrame({
   panel,
   title,
+  scriptId,
+  assets,
   onClose,
   children,
 }: {
   panel: PanelId;
   title: string;
+  scriptId: string;
+  assets: AssetManifest | undefined;
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  // Lock background scroll while the modal is open; release on unmount.
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, []);
+
   return (
     <div
-      className="fixed inset-0 z-40 flex justify-end"
+      className="fixed inset-0 z-40 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -48,33 +75,33 @@ function PanelFrame({
         type="button"
         aria-label="关闭面板"
         className="absolute inset-0 cursor-default"
-        style={{ background: "rgba(0,0,0,0.35)" }}
+        style={{ background: "color-mix(in srgb, var(--cg-background) calc(var(--cg-overlay-strength) * 100%), transparent)" }}
         onClick={onClose}
         tabIndex={-1}
       />
       <section
-        className="relative flex h-full w-full max-w-md flex-col border-l p-5 pt-14 shadow-xl"
+        className="cg-panel cg-glass cg-chrome relative flex max-h-[min(80dvh,100%)] w-full max-w-lg flex-col border p-5 shadow-xl"
         style={{
-          background: "var(--cg-surface)",
           borderColor: "var(--cg-border)",
-          backdropFilter: `blur(${8}px)`,
+          boxShadow: "var(--cg-shadow-value)",
         }}
       >
-        <header className="absolute left-0 right-0 top-0 flex items-center justify-between border-b px-5 py-3"
-          style={{ borderColor: "var(--cg-border)" }}>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--cg-text)" }}>
-            {title} {panel === "inventory" ? "🎒" : panel === "character" ? "🧑" : panel === "relations" ? "💞" : panel === "tasks" ? "📜" : panel === "map" ? "🗺️" : "📋"}
+        <header className="flex items-center justify-between border-b pb-3" style={{ borderColor: "var(--cg-border)" }}>
+          <h2 className="flex items-center gap-2 text-lg font-semibold" style={{ color: "var(--cg-text)" }}>
+            <UiIcon slot={PANEL_ICON_SLOT[panel]} scriptId={scriptId} manifest={assets} className="h-5 w-5" />
+            {title}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border px-2.5 py-1 text-sm"
+            className="cg-chrome flex items-center gap-1 rounded-lg border px-2.5 py-1 text-sm"
             style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
           >
-            ✕
+            <UiIcon slot="close" scriptId={scriptId} manifest={assets} className="h-4 w-4" />
+            关闭
           </button>
         </header>
-        <div className="mt-4 flex-1 overflow-y-auto">{children}</div>
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</div>
       </section>
     </div>
   );
@@ -91,13 +118,13 @@ function InventoryPanel({
   state: WorldState;
   catalog: Catalog;
   scriptId: string;
-  assets: Parameters<typeof ItemCard>[0]["manifest"];
+  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
   const stacks = state.player.inventory.stacks;
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.inventory} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.inventory} scriptId={scriptId} assets={assets} onClose={onClose}>
       <p className="mb-3 text-sm" style={{ color: "var(--cg-text-dim)" }}>
         货币：{state.player.inventory.currency} {catalog.currency.symbol}
       </p>
@@ -127,18 +154,22 @@ function InventoryPanel({
 function CharacterPanel({
   state,
   catalog,
+  scriptId,
+  assets,
   onClose,
   panel,
 }: {
   state: WorldState;
   catalog: Catalog;
+  scriptId: string;
+  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
   const hpMax = catalog.stats.find((s) => s.name === catalog.hpStat)?.max ?? 100;
   const hp = state.player.stats[catalog.hpStat] ?? 0;
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.character} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.character} scriptId={scriptId} assets={assets} onClose={onClose}>
       <h3 className="font-semibold" style={{ color: "var(--cg-text)" }}>{state.player.name}</h3>
       <p className="mb-3 text-sm" style={{ color: "var(--cg-text-dim)" }}>
         {catalog.origins.find((o) => o.id === state.player.originId)?.name ?? state.player.originId}
@@ -190,23 +221,27 @@ function CharacterPanel({
 function RelationsPanel({
   state,
   catalog,
+  scriptId,
+  assets,
   onClose,
   panel,
 }: {
   state: WorldState;
   catalog: Catalog;
+  scriptId: string;
+  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
   const rels = state.player.relations;
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.relations} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.relations} scriptId={scriptId} assets={assets} onClose={onClose}>
       {rels.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>还没有结识任何人。</p>
       ) : (
         <ul className="space-y-3">
           {rels.map((r) => (
-            <li key={r.npcId} className="rounded-lg border p-3"
+            <li key={r.npcId} className="cg-chrome rounded-lg border p-3"
               style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
               <div className="flex items-center justify-between">
                 <span className="font-semibold" style={{ color: "var(--cg-text)" }}>
@@ -228,16 +263,20 @@ function RelationsPanel({
 function TasksPanel({
   state,
   catalog,
+  scriptId,
+  assets,
   onClose,
   panel,
 }: {
   state: WorldState;
   catalog: Catalog;
+  scriptId: string;
+  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.tasks} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.tasks} scriptId={scriptId} assets={assets} onClose={onClose}>
       {state.tasks.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>暂无任务。</p>
       ) : (
@@ -245,7 +284,7 @@ function TasksPanel({
           {state.tasks.map((t) => {
             const def = catalog.tasks.find((d) => d.id === t.taskId);
             return (
-              <li key={t.taskId} className="rounded-lg border p-3"
+              <li key={t.taskId} className="cg-chrome rounded-lg border p-3"
                 style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
                 <div className="flex items-center justify-between">
                   <span className="font-semibold" style={{ color: "var(--cg-text)" }}>{def?.name ?? t.taskId}</span>
@@ -268,19 +307,23 @@ function TasksPanel({
 function MapPanel({
   state,
   catalog,
+  scriptId,
+  assets,
   onClose,
   panel,
 }: {
   state: WorldState;
   catalog: Catalog;
+  scriptId: string;
+  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.map} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.map} scriptId={scriptId} assets={assets} onClose={onClose}>
       <ul className="space-y-2">
         {catalog.locations.map((l) => (
-          <li key={l.id} className="rounded-lg border p-3"
+          <li key={l.id} className="cg-chrome rounded-lg border p-3"
             style={{
               borderColor: l.id === state.player.locationId ? "var(--cg-primary)" : "var(--cg-border)",
               background: l.id === state.player.locationId ? "var(--cg-surface-alt)" : undefined,
@@ -306,16 +349,20 @@ function MapPanel({
 
 function LogPanel({
   state,
+  scriptId,
+  assets,
   onClose,
   panel,
 }: {
   state: WorldState;
+  scriptId: string;
+  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
   const entries = [...state.eventLog].reverse();
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.log} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.log} scriptId={scriptId} assets={assets} onClose={onClose}>
       {entries.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>还没有记录。</p>
       ) : (
@@ -345,7 +392,7 @@ export function ActivePanel({
   state: WorldState;
   catalog: Catalog | undefined;
   scriptId: string;
-  assets: Parameters<typeof ItemCard>[0]["manifest"];
+  assets: AssetManifest | undefined;
   onClose: () => void;
 }) {
   if (!panel || !catalog) return null;
@@ -355,15 +402,15 @@ export function ActivePanel({
         <InventoryPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />
       );
     case "character":
-      return <CharacterPanel state={state} catalog={catalog} onClose={onClose} panel={panel} />;
+      return <CharacterPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "relations":
-      return <RelationsPanel state={state} catalog={catalog} onClose={onClose} panel={panel} />;
+      return <RelationsPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "tasks":
-      return <TasksPanel state={state} catalog={catalog} onClose={onClose} panel={panel} />;
+      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "map":
-      return <MapPanel state={state} catalog={catalog} onClose={onClose} panel={panel} />;
+      return <MapPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "log":
-      return <LogPanel state={state} onClose={onClose} panel={panel} />;
+      return <LogPanel state={state} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
   }
 }
 

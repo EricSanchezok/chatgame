@@ -162,8 +162,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [state.session?.presentation, state.themeMode],
   );
   useEffect(() => {
-    if (activeTheme) applyTheme(activeTheme);
-  }, [activeTheme]);
+    if (!activeTheme) return;
+    if (state.session) {
+      applyTheme(activeTheme, undefined, {
+        assetUrl: (file) => api.fileAsset(state.session!.scriptId, file),
+      });
+    } else {
+      applyTheme(activeTheme);
+    }
+  }, [activeTheme, state.session]);
 
   // Ambient loop follows the player's location (graceful silent skip when
   // the script declares no audio file/prompt for the location).

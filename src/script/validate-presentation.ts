@@ -7,7 +7,7 @@ import path from "node:path";
 import type { LoadedYamlFile } from "./loader";
 import type { Theme } from "./schemas/theme";
 import type { AssetsManifest } from "./schemas/assets";
-import { ASSET_KIND_ENTITY_POOL } from "./schemas/assets";
+import { ASSET_KIND_ENTITY_POOL, UI_ICON_SLOTS } from "./schemas/assets";
 
 export interface PresentationIssue {
   file: string;
@@ -58,11 +58,13 @@ export function checkPresentationModules(
   if (mods.theme) themeIds.add(mods.theme.data.id);
   for (const t of mods.themes) themeIds.add(t.data.id);
 
+  const allThemes: Array<[Theme, { relPath: string }]> = [
+    ...(mods.theme ? [[mods.theme.data, mods.theme.file] as [Theme, { relPath: string }]] : []),
+    ...mods.themes.map((m) => [m.data, m.file] as [Theme, { relPath: string }]),
+  ];
+
   // --- theme.yaml / themes/: by_location references must exist ---
-  for (const [theme, file] of [
-    ...(mods.theme ? [[mods.theme.data, mods.theme.file] as const] : []),
-    ...mods.themes.map((m) => [m.data, m.file] as const),
-  ]) {
+  for (const [theme, file] of allThemes) {
     for (const [locId, value] of Object.entries(theme.by_location)) {
       if (!pools.locationIds.has(locId)) {
         add(
@@ -78,6 +80,44 @@ export function checkPresentationModules(
           "error",
           `by_location.${locId}`,
           `theme "${value}" not found (expected theme.yaml or themes/<id>.yaml)`,
+        );
+      }
+    }
+
+    // --- typography: faces must exist under assets/fonts/ (soft) ---
+    const faceIds = new Set(theme.typography.faces.map((f) => f.id));
+    for (const face of theme.typography.faces) {
+      for (const fontFile of face.files) {
+        const abs = path.resolve(scriptDir, fontFile.file);
+        const within = abs.startsWith(path.resolve(scriptDir) + path.sep);
+        if (!within) {
+          add(
+            file.relPath,
+            "error",
+            `typography.faces.${face.id}.file`,
+            `font path must stay inside the script directory`,
+          );
+          continue;
+        }
+        if (!existsSync(abs)) {
+          add(
+            file.relPath,
+            "warning",
+            `typography.faces.${face.id}.file`,
+            `font file "${fontFile.file}" not found (placeholder or missing file)`,
+          );
+        }
+      }
+    }
+
+    // --- typography: role references must resolve to a declared face id ---
+    for (const [roleName, roleValue] of Object.entries(theme.typography.roles)) {
+      if (typeof roleValue === "string" && !["serif", "sans", "mono"].includes(roleValue) && !faceIds.has(roleValue)) {
+        add(
+          file.relPath,
+          "error",
+          `typography.roles.${roleName}`,
+          `font role "${roleValue}" is not a declared face id (faces: ${[...faceIds].join(", ") || "none"})`,
         );
       }
     }
@@ -106,6 +146,27 @@ export function checkPresentationModules(
         if (!existsSync(abs)) {
           add(assetFile, "warning", `${kind}.${key}.file`, `asset file "${entry.file}" not found (prompt placeholder or missing file)`);
         }
+      }
+    }
+  }
+
+  // --- assets.yaml: ui slots must be known framework slots (hard) ---
+  const uiSection = assets.data.ui;
+  const uiSlotSet = new Set<string>(UI_ICON_SLOTS);
+  for (const [slot, entry] of Object.entries(uiSection)) {
+    if (!uiSlotSet.has(slot)) {
+      add(assetFile, "error", `ui.${slot}`, `unknown ui icon slot "${slot}" (expected one of: ${UI_ICON_SLOTS.join(", ")})`);
+      continue;
+    }
+    if (entry.file) {
+      const abs = path.resolve(scriptDir, entry.file);
+      const within = abs.startsWith(path.resolve(scriptDir) + path.sep);
+      if (!within) {
+        add(assetFile, "error", `ui.${slot}.file`, `asset path must stay inside the script directory`);
+        continue;
+      }
+      if (!existsSync(abs)) {
+        add(assetFile, "warning", `ui.${slot}.file`, `asset file "${entry.file}" not found (prompt placeholder or missing file)`);
       }
     }
   }
