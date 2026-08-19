@@ -12,6 +12,7 @@ palette:
 typography:
   font: serif
   scale: 1.0
+  letter_spacing_em: 0.01
   faces:
     - id: eb-garamond
       family: EB Garamond

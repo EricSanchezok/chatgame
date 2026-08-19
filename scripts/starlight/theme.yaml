@@ -12,6 +12,7 @@ palette:
 typography:
   font: sans
   scale: 1.0
+  letter_spacing_em: 0.02
   faces:
     - id: jetbrains-mono
       family: JetBrains Mono
