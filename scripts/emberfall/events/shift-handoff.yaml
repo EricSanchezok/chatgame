@@ -1,0 +1,15 @@
+id: shift-handoff
+name: 第一声鼓
+type: opening
+tags: [shift, witness]
+trigger: condition
+conditions:
+  all:
+    - { source: location, key: current, op: eq, value: lamp-house }
+effects: []
+narrative: { template: shift-handoff }
+weight: 1
+cooldown: 0
+repeatable: false
+participants: [he-gui, wang-shulan, han-zhi, liang-su]
+locations: [lamp-house]

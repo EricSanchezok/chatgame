@@ -1,0 +1,20 @@
+version: 1
+files:
+  assets/backgrounds/emberfall-cover.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for Emberfall cover
+    license: project-owned generated asset
+  assets/backgrounds/mine-shift.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for Emberfall underground shift scene
+    license: project-owned generated asset
+  assets/portraits/han-zhi.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for Han Zhi witness portrait
+    license: project-owned generated asset
+  assets/fonts/eb-garamond-400.woff2:
+    source: EB Garamond by Georg Duffner and Octavio Pardo
+    license: SIL Open Font License 1.1
+  assets/fonts/eb-garamond-700.woff2:
+    source: EB Garamond by Georg Duffner and Octavio Pardo
+    license: SIL Open Font License 1.1
+  assets/fonts/LICENSE-eb-garamond.txt:
+    source: EB Garamond license text distributed with the font files
+    license: SIL Open Font License 1.1

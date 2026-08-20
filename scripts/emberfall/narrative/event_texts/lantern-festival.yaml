@@ -1,8 +1,0 @@
-event_id: lantern-festival
-templates:
-  - tone: 温情
-    text: 灯节点灯了。孩子们举着灰纸糊的灯笼跑过广场，灯影在灰雾里晕成一片暖黄。
-    slot_vars: []
-  - tone: 怀旧
-    text: 艾拉在酒馆门口挂起一盏灯，火光映着她的脸："他走那年的灯，也是我挂的。"
-    slot_vars: []

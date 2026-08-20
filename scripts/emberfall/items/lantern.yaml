@@ -1,8 +1,0 @@
-id: lantern
-name: 煤精灯笼
-type: equipment
-description: 以煤精残片为灯芯的灯笼，灯火青白，风吹不灭
-properties:
-  slot: offhand
-rarity: uncommon
-value: 20

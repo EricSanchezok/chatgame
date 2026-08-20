@@ -1,8 +1,0 @@
-event_id: harvest-fair
-templates:
-  - tone: 热闹
-    text: 丰收集上，马掌柜的货摊堆满山货，讨价还价声此起彼伏。
-    slot_vars: []
-  - tone: 轻快
-    text: 沈九姑难得摆出几瓶新酿的药酒，说是"给丰收助兴，谁喝谁付钱"。
-    slot_vars: []

@@ -1,0 +1,11 @@
+id: pit-brotherhood
+name: 井下同班会
+description: 以同班互救和支护欠账维系的矿工组织。
+goals: [补齐支护木, 公开每次井下事故的班账]
+members: [he-gui, han-zhi]
+relations:
+  - { target: hearth-council, value: 5 }
+reputation:
+  thresholds:
+    - { value: 20, label: 同班见证, effects: [] }
+  decay: 0

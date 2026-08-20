@@ -1,49 +1,14 @@
-# emberfall presentation assets — 手绘分层 SVG 资产套件。
-# 风格：暖铜烬色（深褐底 + 铜橙高光 + 余烬尘点），统一调色板。
-# file 项指向 assets/ 下真实文件；prompt 项为文生图/TTS 占位。
-cover: { file: assets/backgrounds/town-square.svg, alt: 灰烬镇暮色节目封面 }
+cover: { file: assets/backgrounds/emberfall-cover.png, alt: 暮色矿镇的掌灯人、公共熔炉与井架 }
 portraits:
-  elara: { file: assets/portraits/elara.svg, alt: 艾拉，灰烬酒馆老板娘 }
-  old-miner: { file: assets/portraits/old-miner.svg, alt: 老矿工，额上矿灯 }
-  shen-jiugu: { file: assets/portraits/shen-jiugu.svg, alt: 沈九姑，草药师 }
-  mayor-shen: { file: assets/portraits/mayor-shen.svg, alt: 沈镇长，白面长袍 }
-  old-wei: { file: assets/portraits/old-wei.svg, alt: 老魏，矿场学徒 }
-  caravan-boss: { file: assets/portraits/caravan-boss.svg, alt: 马掌柜，商队领队 }
+  han-zhi: { file: assets/portraits/han-zhi.png, alt: 握着钟槌与班签的井下证人韩直 }
 backgrounds:
-  town-square: { file: assets/backgrounds/town-square.svg, alt: 暮色下的镇广场与煤精路灯 }
-  tavern: { file: assets/backgrounds/tavern.svg, alt: 灰烬酒馆内景，炉火与满墙酒瓶 }
-  mine-entrance: { file: assets/backgrounds/mine-entrance.svg, alt: 黑石矿井入口，封条与风灯 }
-  forest-edge: { file: assets/backgrounds/forest-edge.svg, alt: 灰烬森林边缘，雾气与萤火 }
-icons:
-  pickaxe: { file: assets/icons/pickaxe.svg, alt: 矿工鹤嘴锄 }
-  coal-essence: { file: assets/icons/coal-essence.svg, alt: 发光的煤精晶簇 }
-  miner-badge: { file: assets/icons/miner-badge.svg, alt: 黄铜矿工徽章 }
-  healing-potion: { file: assets/icons/healing-potion.svg, alt: 红色治疗药水 }
-  herb: { file: assets/icons/herb.svg, alt: 灰烬草药草 }
-  lantern: { file: assets/icons/lantern.svg, alt: 煤精灯笼，青白灯火 }
-  tonic: { file: assets/icons/tonic.svg, alt: 醒神汤药碗 }
+  lamp-house: { file: assets/backgrounds/emberfall-cover.png, alt: 公共熔炉旁的掌灯房与矿井井架 }
+  upper-drift: { file: assets/backgrounds/mine-shift.png, alt: 木柱与窄轨延伸的上层巷道 }
+  bell-gallery: { file: assets/backgrounds/mine-shift.png, alt: 可听见鼓钟回声的井下横巷 }
+  blue-seam: { file: assets/backgrounds/mine-shift.png, alt: 青白灰火映在煤层断面上 }
+icons: {}
 sprites: {}
-voices:
-  elara: { profile: 低哑平静, prompt: "低哑平静的女性嗓音，短句" }
-ambient:
-  tavern: { prompt: "酒馆环境音：杯盏、炉火、低语" }
-  mine-entrance: { prompt: "矿井入口环境音：风声穿过栅栏，呜呜作响" }
-effects:
-  mine-collapse: { prompt: "矿洞坍塌音效：轰隆、碎石、尘土" }
-  mine-fire: { prompt: "矿坑火灾音效：火焰爆燃与警钟" }
-ui:
-  inventory: { file: assets/ui/inventory.svg }
-  character: { file: assets/ui/character.svg }
-  relations: { file: assets/ui/relations.svg }
-  tasks: { file: assets/ui/tasks.svg }
-  map: { file: assets/ui/map.svg }
-  log: { file: assets/ui/log.svg }
-  save: { file: assets/ui/save.svg }
-  audio_on: { file: assets/ui/audio_on.svg }
-  audio_off: { file: assets/ui/audio_off.svg }
-  close: { file: assets/ui/close.svg }
-  send: { file: assets/ui/send.svg }
-  warning: { file: assets/ui/warning.svg }
-  hp: { file: assets/ui/hp.svg }
-  location: { file: assets/ui/location.svg }
-  time: { file: assets/ui/time.svg }
+voices: {}
+ambient: {}
+effects: {}
+ui: {}

@@ -1,0 +1,7 @@
+id: seam-sample
+name: 青火煤层样
+type: quest
+description: 从上层斜巷取下的煤层碎片，边缘有冷白灰火灼痕。
+properties: { stackable: false }
+rarity: rare
+value: 0

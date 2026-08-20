@@ -1,17 +1,27 @@
 id: emberfall
 name: 灰烬镇
-description: 蒸汽与魔法并存的边陲矿镇，矿脉枯竭，人心浮动
+description: 你执掌全镇唯一的公用灰灯，替每一次下井、证词与炉煤分配作证。
 schema_version: "1.1"
 language: zh
-tone:
-  - 悬疑
-  - 温情
-  - 蒸汽幻想
+tone: [悬疑, 工业民俗, 劳动纪实]
 author: chatgame-team
 engine_extension:
   api_version: 2
-  effects: [ember]
-  conditions: [ember_level]
-  action_handlers: [forge]
-  rule_mechanisms: [night_travel]
-  lifecycle: []
+  effects: []
+  conditions: [shift_state]
+  action_handlers:
+    - talk
+    - trim-wick
+    - draw-support
+    - begin-shift
+    - mine-move
+    - survey-seam
+    - listen-strata
+    - collect-coal
+    - set-prop
+    - recover-token
+    - return-shift
+    - record-testimony
+    - allocate-coal
+  rule_mechanisms: [shift-discipline]
+  lifecycle: [session_start, hour]

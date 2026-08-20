@@ -1,8 +1,0 @@
-event_id: mine-fire
-templates:
-  - tone: 危急
-    text: 火是从废料堆烧起来的，浓烟裹着灰烬往天上卷。老矿工拎着水桶吼："快！烧到工棚就全完了！"
-    slot_vars: []
-  - tone: 阴沉
-    text: 火势过后，废料堆塌下一角，露出半截被烟熏黑的旧矿车。
-    slot_vars: []

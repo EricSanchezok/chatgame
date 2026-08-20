@@ -1,94 +1,21 @@
 unit: hour
 day_length_hours: 24
 calendar:
-  months:
-    - { name: 正月, days: 30 }
-    - { name: 杏月, days: 29 }
-    - { name: 桃月, days: 30 }
-    - { name: 槐月, days: 30 }
-    - { name: 榴月, days: 29 }
-    - { name: 荷月, days: 30 }
-    - { name: 兰月, days: 30 }
-    - { name: 桂月, days: 29 }
-    - { name: 菊月, days: 30 }
-    - { name: 露月, days: 30 }
-    - { name: 冬月, days: 29 }
-    - { name: 腊月, days: 30 }
-  weekdays: [日曜, 月曜, 火曜, 水曜, 木曜, 金曜, 土曜]
-seasons:
-  - name: 春
-    start: "02-01"
-    weather_table:
-      - { weather: 晴, weight: 5 }
-      - { weather: 细雨, weight: 3 }
-      - { weather: 雾, weight: 2 }
-  - name: 夏
-    start: "05-01"
-    weather_table:
-      - { weather: 晴, weight: 4 }
-      - { weather: 雷雨, weight: 3 }
-      - { weather: 闷热, weight: 3 }
-  - name: 秋
-    start: "08-01"
-    weather_table:
-      - { weather: 晴, weight: 5 }
-      - { weather: 风, weight: 3 }
-      - { weather: 雨, weight: 2 }
-  - name: 冬
-    start: "11-01"
-    weather_table:
-      - { weather: 雪, weight: 4 }
-      - { weather: 阴, weight: 4 }
-      - { weather: 晴, weight: 2 }
-festivals:
-  - id: festival-lanterns
-    name: 灯节
-    date: "01-15"
-    event: lantern-festival
-  - id: festival-market
-    name: 春市
-    date: "04-05"
-    event: market-day
-  - id: festival-harvest
-    name: 丰收集
-    date: "09-08"
-    event: harvest-fair
-  - id: festival-ash
-    name: 烬日
-    date: "11-03"
-    event: ash-day
-  - id: festival-hunt
-    name: 冬猎
-    date: "12-21"
+  months: [{ name: 煤账月, days: 28 }]
+  weekdays: [起炉日, 支柱日, 排水日, 医灯日, 配火日, 休井日, 祭灰日]
 schedules:
-  - id: tavern-keeper-schedule
+  - id: foreman-duty
     entries:
-      - { from: "08:00", to: "22:00", activity: 开店招呼客人, location: tavern }
-      - { from: "22:00", to: "08:00", activity: 回后院休息, location: elara-bedroom }
-  - id: miner-schedule
+      - { from: "00:00", to: "23:59", location: lamp-house, activity: 核对下井木牌与支护欠账 }
+  - id: steward-duty
     entries:
-      - { from: "06:00", to: "18:00", activity: 在矿井附近做工, location: mine-entrance }
-      - { from: "18:00", to: "22:00", activity: 在酒馆喝闷酒, location: tavern }
-      - { from: "22:00", to: "06:00", activity: 回宿舍睡觉, location: dormitory }
-  - id: herbalist-schedule
+      - { from: "00:00", to: "23:59", location: lamp-house, activity: 看守公共熔炉和配火账 }
+  - id: bell-witness-duty
     entries:
-      - { from: "06:00", to: "10:00", activity: 进灰林采药, location: forest-edge }
-      - { from: "10:00", to: "20:00", activity: 在铺子里配药, location: herbalist-hut }
-      - { from: "20:00", to: "06:00", activity: 歇息, location: herbalist-hut }
-  - id: mayor-schedule
+      - { from: "00:00", to: "23:59", location: lamp-house, activity: 等待掌灯人核问鼓钟证词 }
+  - id: clinic-duty
     entries:
-      - { from: "08:00", to: "18:00", activity: 在镇公所办公, location: town-hall }
-      - { from: "18:00", to: "08:00", activity: 回宅邸休息, location: mayor-house }
-  - id: apprentice-schedule
-    entries:
-      - { from: "06:00", to: "18:00", activity: 在矿场外围做工, location: mine-entrance }
-      - { from: "18:00", to: "22:00", activity: 在酒馆打杂, location: tavern }
-      - { from: "22:00", to: "06:00", activity: 回宿舍睡觉, location: dormitory }
-  - id: caravan-schedule
-    entries:
-      - { from: "06:00", to: "18:00", activity: 在广场张罗货摊, location: town-square }
-      - { from: "18:00", to: "22:00", activity: 在酒馆谈买卖, location: tavern }
-      - { from: "22:00", to: "06:00", activity: 宿在酒馆客房, location: tavern }
+      - { from: "00:00", to: "23:59", location: lamp-house, activity: 登记诊所下一周的炉煤请求 }
 world_advances: true
 advance_mode: rule_based
-advance_scope: [schedules, needs, events, factions, time_events]
+advance_scope: [schedules, time_events]

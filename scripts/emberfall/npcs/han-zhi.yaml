@@ -1,0 +1,25 @@
+id: han-zhi
+name: 韩直
+base_class: humanoid
+description: 井下回钟人，昨夜听到封班后的第二次钟响，因旧债迟迟没有正式作证。
+traits:
+  - { name: 记声, description: 能辨认每段铁索传来的钟音。 }
+stats: { hp: 76, grit: 11, perception: 15 }
+skills: { listening: 14, testimony: 10 }
+occupation: bell-witness-duty
+schedule: bell-witness-duty
+home: lamp-house
+items: [bell-clapper]
+relations: []
+secrets:
+  - id: second-bell
+    content: 封班后有人用旧钟槌发出第二次下井信号，钟槌上的煤粉来自青火煤层。
+    reveal:
+      logic:
+        all:
+          - { source: shift_state, key: physicalEvidence, op: eq, value: true }
+knowledge_flags: [bell-duty-known]
+llm:
+  personality: 忠于准确声响，欠王漱兰一份迟交的证词，作证后计划更换回钟铁索。
+  speech_patterns: [先敲节拍, 再说时间和方位]
+  knowledge_filter: true

@@ -1,53 +1,7 @@
 commitments:
-  - id: elara-secret-reveal
-    description: 艾拉隐瞒的矿井秘密最终被揭露
-    type: secret_reveal
-    trigger:
-      condition:
-        all:
-          - { source: relationship, key: elara, op: gte, value: 60 }
+  - id: keep-public-ledger
+    description: 本班带回的煤与证据必须在公共熔炉旁公开结算。
+    type: duty
+    trigger: { time: { day: 7 } }
     must_happen: true
-    deadline:
-      time: { day: 90 }
-      on_miss:
-        escalation_text: 秘密以另一种方式浮出水面——一张旧账目从镇公所档案里掉了出来。
-        effects:
-          - { kind: flag, direction: set, target: player, flag: mine-secret-leaked }
-    related:
-      secrets: [mine-secret]
-      npcs: [elara]
-  - id: ash-day-anniversary
-    description: 烬日矿难三周年纪念如期举行
-    type: time_event
-    trigger: { time: { month: 11, day: 3, hour: 18 } }
-    must_happen: true
-    related:
-      events: [ash-day]
-      locations: [town-square]
-  - id: market-day-visit
-    description: 春市如期开市
-    type: time_event
-    trigger: { time: { month: 4, day: 5 } }
-    must_happen: true
-    related:
-      events: [market-day]
-      locations: [town-square]
-  - id: collapse-survivor-rescued
-    description: 矿难中幸存的学徒老魏被发现
-    type: condition_event
-    trigger:
-      condition:
-        all:
-          - { source: fact, key: mine-collapse-witnessed, op: has }
-          - { source: stat, key: perception, op: gte, value: 12 }
-    must_happen: true
-    deadline:
-      time: { day: 60 }
-      on_miss:
-        escalation_text: 无人再见过学徒老魏，酒馆里的座位从此空着。
-        effects:
-          - { kind: flag, direction: set, target: player, flag: apprentice-lost }
-    related:
-      npcs: [old-wei, mayor-shen]
-      events: [mine-collapse]
-      locations: [mine-entrance]
+    related: { locations: [lamp-house], npcs: [wang-shulan, han-zhi] }
