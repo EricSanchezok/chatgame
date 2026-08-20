@@ -10,7 +10,7 @@
 // factories call them at runtime. RTL auto-cleanup needs globals, which
 // vitest does not enable here — cleanup runs explicitly in afterEach.
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 
@@ -45,8 +45,8 @@ function makePresentation() {
 function makeCatalog() {
   return {
     locations: [{ id: "tavern", name: "酒馆", type: "indoor", description: "", npcsPresent: [], connections: [] }],
-    items: [], npcs: [], events: [], actions: [{ id: "talk", displayName: "交谈" }],
-    stats: [{ name: "hp", min: 0, max: 100 }], skills: [], needs: [], factions: [], statusEffects: [], tasks: [],
+    items: [{ id: "lamp-oil", name: "灯油", type: "supply", description: "" }], npcs: [], events: [], actions: [{ id: "talk", displayName: "交谈" }],
+    stats: [{ name: "hp", min: 0, max: 100 }], skills: [{ name: "focus", min: 0, max: 10 }], needs: [{ name: "energy" }], factions: [], statusEffects: [], tasks: [],
     origins: [{ id: "miner", name: "矿工" }], currency: { name: "金币", symbol: "金" }, hpStat: "hp",
   };
 }
@@ -84,6 +84,14 @@ vi.mock("../../../lib/api", () => ({
 
 vi.mock("../../../lib/script-registry", () => ({
   loadScriptUi: vi.fn().mockResolvedValue({ ok: false }),
+  useScriptRegistry: () => ({
+    generation: 1,
+    scriptId: "emberfall",
+    dependencyHash: null,
+    status: "active",
+    slots: new Map(),
+    error: null,
+  }),
   getSlot: () => undefined,
   clearSlots: () => {},
   registerSlot: () => {},
@@ -92,6 +100,7 @@ vi.mock("../../../lib/script-registry", () => ({
 
 import { GameProvider, useGameActions } from "../state";
 import { GameScreen } from "../chat";
+import { httpGamePort } from "../../../lib/api";
 
 function Harness({ children }: { children: ReactNode }) {
   const { startNewGame } = useGameActions();
@@ -122,20 +131,20 @@ describe("Esc pause menu (behavioral)", () => {
     );
 
     // Game screen visible (composer input rendered).
-    expect(await screen.findByLabelText("玩家输入")).toBeTruthy();
+    expect(await screen.findByLabelText("输入你的话或行动")).toBeTruthy();
 
     // Escape opens the pause menu dialog.
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
     expect(screen.getByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
-    expect(screen.getByText("设置")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "打开全局设置" })).toBeTruthy();
 
     // Second Escape closes it.
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
-    expect(screen.queryByRole("dialog", { name: "暂停菜单" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "暂停菜单" })).toBeNull());
   });
 
   it("Escape closes an open panel first, then opens the pause menu", async () => {
@@ -147,7 +156,7 @@ describe("Esc pause menu (behavioral)", () => {
       </GameProvider>,
     );
 
-    expect(await screen.findByLabelText("玩家输入")).toBeTruthy();
+    expect(await screen.findByLabelText("输入你的话或行动")).toBeTruthy();
 
     // Open the inventory panel via the toolbar entry.
     await act(async () => {
@@ -159,7 +168,7 @@ describe("Esc pause menu (behavioral)", () => {
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
-    expect(screen.queryByRole("dialog", { name: "背包" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "背包" })).toBeNull());
     expect(screen.queryByRole("dialog", { name: "暂停菜单" })).toBeNull();
 
     // Second Escape opens the pause menu.
@@ -167,5 +176,65 @@ describe("Esc pause menu (behavioral)", () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
     expect(screen.getByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
+  });
+
+  it("renders dynamic currency, item, resource and risk costs from an action preview", async () => {
+    vi.mocked(httpGamePort.previewAction).mockResolvedValueOnce({
+      actionId: "talk",
+      displayName: "强行交涉",
+      executable: true,
+      timeCost: 2,
+      costs: {
+        currency: 4,
+        items: [{ itemId: "lamp-oil", quantity: 1 }],
+        resources: [
+          { kind: "need", id: "energy", amount: 20 },
+          { kind: "stat", id: "hp", amount: 2 },
+          { kind: "skill", id: "focus", amount: 1 },
+          { kind: "runtime", id: "oxygen", amount: 5 },
+        ],
+      },
+      risk: { type: "skill", key: "focus", dc: 12 },
+    });
+    render(
+      <GameProvider>
+        <Harness>
+          <GameScreen />
+        </Harness>
+      </GameProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "交谈" }));
+    });
+
+    const feedback = (await screen.findByText("强行交涉")).closest('[role="status"]');
+    if (!feedback) throw new Error("action preview feedback was not rendered");
+    expect(feedback.textContent).toContain("货币：4 金币");
+    expect(feedback.textContent).toContain("物品：灯油 ×1");
+    expect(feedback.textContent).toContain("需求 energy：消耗 20");
+    expect(feedback.textContent).toContain("属性 hp：消耗 2");
+    expect(feedback.textContent).toContain("技能 focus：消耗 1");
+    expect(feedback.textContent).toContain("剧本资源 oxygen：消耗 5");
+    expect(feedback.textContent).toContain("判定：技能判定 · focus · DC 12");
+    expect(feedback.textContent).not.toContain("无货币消耗");
+
+    vi.mocked(httpGamePort.previewAction).mockResolvedValueOnce({
+      actionId: "talk",
+      displayName: "维持供氧",
+      executable: false,
+      reason: "energy 不足",
+      timeCost: 0,
+      costs: { currency: 0, items: [], resources: [{ kind: "need", id: "energy", amount: 30 }] },
+      risk: { type: "none" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "交谈" }));
+    });
+    const energyFeedback = (await screen.findByText("维持供氧")).closest('[role="status"]');
+    expect(energyFeedback?.textContent).toContain("当前不可执行：energy 不足");
+    expect(energyFeedback?.textContent).toContain("需求 energy：消耗 30");
+    expect(energyFeedback?.textContent).not.toContain("无资源消耗");
+    expect(energyFeedback?.textContent).not.toContain("无货币消耗");
   });
 });

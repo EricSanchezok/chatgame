@@ -14,7 +14,7 @@ export async function POST(
       return json({ error: "path and text are required" }, 400);
     }
     // The descriptor path grammar is enforced by the engine (DescriptorPath).
-    const state = EngineHost.get().setDescriptor(id, body.path as never, body.text);
+    const state = await EngineHost.get().setDescriptor(id, body.path as never, body.text);
     return json({ state });
   } catch (err) {
     return errorResponse(err);

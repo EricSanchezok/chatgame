@@ -1,57 +1,26 @@
-// Starlight UI extension: registers a holographic HUD (hull-integrity bar +
-// station clock), a launcher cover built from the bridge scene, and a
-// hologram inventory panel. Self-contained — only imports react; all colors
-// come from the --cg-* variables applied by the theme system. Slot props are
-// untyped at the seam, so every component falls back to sensible defaults
-// when the host renderer passes nothing.
-import { useEffect, useState, type CSSProperties } from "react";
+// Starlight UI extension: a mechanically v3-adapted HUD and inventory panel.
+import { type CSSProperties } from "react";
+import {
+  SCRIPT_UI_API_VERSION,
+  type HudSlotProps,
+  type PanelSlotProps,
+  type ScriptUiContext,
+} from "@chatgame/ui";
 
-/** Local mirror of the script-registry slot contract (kept dependency-free). */
-type ScriptSlotId = "launcher:background" | "hud" | `panel:${string}`;
-
-interface ScriptSlotDef {
-  component: unknown;
-  position?: "top" | "bottom" | "left" | "right";
-  order?: number;
-}
-
-interface ScriptUiContext {
-  register(slot: ScriptSlotId, def: ScriptSlotDef): void;
-}
-
-const BRIDGE_SCENE = "/api/scripts/starlight/assets/backgrounds/bridge.svg";
-
-interface StarlightHudProps {
-  hullIntegrity?: number;
-  oxygen?: number;
-  day?: number;
-  hour?: number;
-  location?: string;
-  [key: string]: unknown;
-}
+export const apiVersion = SCRIPT_UI_API_VERSION;
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function StarlightHud(props: StarlightHudProps = {}) {
-  const [clock, setClock] = useState(() => {
-    const hour = typeof props.hour === "number" ? props.hour : 6;
-    return { day: typeof props.day === "number" ? props.day : 1, hour };
-  });
-
-  // Local tick display only — the engine clock stays authoritative on the
-  // server; this component never mutates game state.
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setClock((c) => (c.hour >= 23 ? { day: c.day + 1, hour: 0 } : { ...c, hour: c.hour + 1 }));
-    }, 60_000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const hull = clampPercent(typeof props.hullIntegrity === "number" ? props.hullIntegrity : 82);
-  const oxygen = clampPercent(typeof props.oxygen === "number" ? props.oxygen : 100);
-  const location = typeof props.location === "string" ? props.location : "";
+function StarlightHud(props: HudSlotProps) {
+  const hpStat = props.catalog?.hpStat ?? "hp";
+  const hpMax = props.catalog?.stats.find((stat) => stat.name === hpStat)?.max ?? 100;
+  const hull = clampPercent(((props.state?.player.stats[hpStat] ?? 0) / Math.max(1, hpMax)) * 100);
+  const oxygen = clampPercent(props.state?.player.needs.oxygen?.value ?? 0);
+  const locationId = props.state?.player.locationId ?? "";
+  const location = props.catalog?.locations.find((item) => item.id === locationId)?.name ?? locationId;
+  const clock = props.state?.clock ?? { day: 1, hour: 6 };
 
   const frame: CSSProperties = {
     display: "flex",
@@ -61,7 +30,7 @@ function StarlightHud(props: StarlightHudProps = {}) {
     borderRadius: "var(--cg-radius-chrome, 12px)",
     background: "var(--cg-surface)",
     border: "var(--cg-border-width, 1px) solid var(--cg-border)",
-    boxShadow: "var(--cg-shadow-value, 0 2px 8px rgba(0,0,0,0.4))",
+    boxShadow: "var(--cg-shadow-value)",
     fontFamily: "var(--cg-font-mono, var(--cg-font, monospace))",
   };
 
@@ -86,8 +55,7 @@ function StarlightHud(props: StarlightHudProps = {}) {
   const barFill = (percent: number, tone: "primary" | "accent"): CSSProperties => ({
     width: `${percent}%`,
     height: "100%",
-    background: `linear-gradient(90deg, var(--cg-${tone}), var(--cg-accent))`,
-    boxShadow: "0 0 8px var(--cg-accent)",
+    background: `var(--cg-${tone})`,
     transition: "width 500ms ease",
   });
 
@@ -117,30 +85,6 @@ function StarlightHud(props: StarlightHudProps = {}) {
   );
 }
 
-function StarlightLauncherBackground() {
-  const root: CSSProperties = { position: "absolute", inset: 0, overflow: "hidden" };
-  const wash: CSSProperties = {
-    position: "absolute",
-    inset: 0,
-    background:
-      "linear-gradient(180deg, var(--cg-background) 0%, transparent 44%, var(--cg-background) 100%)",
-  };
-  const scanline: CSSProperties = {
-    position: "absolute",
-    inset: 0,
-    background: "repeating-linear-gradient(0deg, transparent 0 3px, var(--cg-border) 3px 4px)",
-    opacity: 0.25,
-  };
-  return (
-    <div style={root} aria-hidden="true">
-      {/* eslint-disable-next-line @next/next/no-img-element -- script ui bundle runs outside the Next image pipeline */}
-      <img src={BRIDGE_SCENE} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      <div style={wash} />
-      <div style={scanline} />
-    </div>
-  );
-}
-
 interface InventoryItemRow {
   name?: string;
   quantity?: number;
@@ -148,15 +92,12 @@ interface InventoryItemRow {
   [key: string]: unknown;
 }
 
-interface StarlightInventoryProps {
-  title?: string;
-  items?: InventoryItemRow[];
-  [key: string]: unknown;
-}
-
-function StarlightInventoryPanel(props: StarlightInventoryProps = {}) {
-  const items = Array.isArray(props.items) ? props.items : [];
-  const title = typeof props.title === "string" ? props.title : "Cargo Manifest";
+function StarlightInventoryPanel(props: PanelSlotProps) {
+  const items: InventoryItemRow[] = (props.state?.player.inventory.stacks ?? []).map((stack) => {
+    const item = props.catalog?.items.find((entry) => entry.id === stack.itemId);
+    return { name: item?.name ?? stack.itemId, description: item?.description, quantity: stack.quantity };
+  });
+  const title = "Cargo Manifest";
 
   const root: CSSProperties = {
     display: "flex",
@@ -227,7 +168,6 @@ function StarlightInventoryPanel(props: StarlightInventoryProps = {}) {
 }
 
 export default function registerStarlightUi(ctx: ScriptUiContext): void {
-  ctx.register("hud", { component: StarlightHud, position: "top", order: 10 });
-  ctx.register("launcher:background", { component: StarlightLauncherBackground, order: 10 });
+  ctx.register("hud", { component: StarlightHud });
   ctx.register("panel:inventory", { component: StarlightInventoryPanel });
 }

@@ -31,6 +31,7 @@ export class AudioController {
   private ambient: AudioElement | null = null;
   private ambientKey = "";
   private enabled = false;
+  private volumes = { master: 1, ambient: 1, voice: 1, effects: 1 };
 
   constructor(factory: AudioFactory = htmlAudioFactory()) {
     this.factory = factory;
@@ -45,6 +46,16 @@ export class AudioController {
   setEnabled(on: boolean): void {
     this.enabled = on;
     if (!on && this.ambient) this.ambient.pause();
+  }
+
+  setVolumes(volumes: { master: number; ambient: number; voice: number; effects: number }): void {
+    this.volumes = {
+      master: clampGain(volumes.master),
+      ambient: clampGain(volumes.ambient),
+      voice: clampGain(volumes.voice),
+      effects: clampGain(volumes.effects),
+    };
+    if (this.ambient) this.ambient.volume = this.volumes.master * this.volumes.ambient;
   }
 
   /** Current ambient track key (for tests). */
@@ -64,18 +75,18 @@ export class AudioController {
     this.ambient = next;
     this.ambientKey = key;
     void next.play();
-    this.fade(next, 0, 1, AMBIENT_FADE_MS);
+    this.fade(next, 0, this.volumes.master * this.volumes.ambient, AMBIENT_FADE_MS);
     if (prev) {
       this.fade(prev, prev.volume, 0, AMBIENT_FADE_MS, () => prev.pause());
     }
   }
 
   /** One-shot voice/sfx. */
-  playOnce(src: string): void {
+  playOnce(src: string, channel: "voice" | "effects" = "effects"): void {
     if (!this.enabled || !src) return;
     const el = this.factory();
     el.src = src;
-    el.volume = 1;
+    el.volume = this.volumes.master * this.volumes[channel];
     const onEnded = () => el.removeEventListener("ended", onEnded);
     el.addEventListener("ended", onEnded);
     void el.play();
@@ -106,6 +117,10 @@ export class AudioController {
     el.volume = from;
     tick();
   }
+}
+
+function clampGain(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1));
 }
 
 /** Maps engine media cues to audio actions given the asset manifest. */
@@ -141,12 +156,12 @@ export function cuesToAudio(
     }
     if (cue.kind === "event" && cue.eventId) {
       const src = srcFor(manifest.effects[cue.eventId], "effects", cue.eventId);
-      if (src) controller.playOnce(src);
+      if (src) controller.playOnce(src, "effects");
       continue;
     }
     if (cue.kind === "npc_speech" && cue.npcId) {
       const src = srcFor(manifest.voices[cue.npcId], "voices", cue.npcId);
-      if (src) controller.playOnce(src);
+      if (src) controller.playOnce(src, "voice");
     }
   }
 }

@@ -7,6 +7,8 @@
 import type { AssetManifest, Catalog, MediaCue, TranscriptEntry, WorldState } from "../../lib/api";
 import { httpGamePort } from "../../lib/api";
 import { UiIcon } from "./ui-icon";
+import { SlotRenderer } from "./slots";
+import type { MessageCardSlotProps } from "../../lib/script-registry";
 
 /** Resolution grade -> display label. */
 export function gradeLabel(grade: string): string {
@@ -221,7 +223,7 @@ export function EntryCards({
   catalog: Catalog | undefined;
   state: WorldState | undefined;
 }) {
-  const cards: Array<{ key: string; node: React.ReactNode }> = [];
+  const cards: Array<{ key: string; kind: string; payload: Readonly<Record<string, unknown>>; node: React.ReactNode }> = [];
   const npcName = (id: string) => catalog?.npcs.find((n) => n.id === id)?.name ?? id;
   const eventName = (id: string) => catalog?.events.find((e) => e.id === id)?.name ?? id;
   for (const cue of entry.mediaCues) {
@@ -229,6 +231,8 @@ export function EntryCards({
       const rel = state?.player.relations.find((r) => r.npcId === cue.npcId);
       cards.push({
         key: `npc-${cue.npcId}-${entry.id}`,
+        kind: cue.kind,
+        payload: { npcId: cue.npcId },
         node: (
           <NpcCard
             scriptId={scriptId}
@@ -243,6 +247,8 @@ export function EntryCards({
       const loc = catalog?.locations.find((l) => l.id === cue.locationId);
       cards.push({
         key: `loc-${cue.locationId}-${entry.id}`,
+        kind: cue.kind,
+        payload: { locationId: cue.locationId },
         node: (
           <LocationCard
             scriptId={scriptId}
@@ -256,11 +262,41 @@ export function EntryCards({
     } else if (cue.kind === "event") {
       cards.push({
         key: `evt-${cue.eventId}-${entry.id}`,
+        kind: cue.kind,
+        payload: { eventId: cue.eventId },
         node: <EventCard scriptId={scriptId} eventId={cue.eventId} name={eventName(cue.eventId)} manifest={manifest} />,
       });
     }
   }
-  return cards.length > 0 ? <div className="mt-2 flex flex-col">{cards.map((c) => c.node)}</div> : null;
+  return cards.length > 0 ? (
+    <div className="mt-2 flex flex-col">
+      {cards.map((card) => state && catalog ? (
+        <SlotRenderer
+          key={card.key}
+          slot={`message-card:${card.kind}`}
+          fallback={DefaultMessageCard}
+          slotProps={{
+            scriptId,
+            state,
+            catalog,
+            assets: manifest ?? emptyAssets,
+            entry,
+            kind: card.kind,
+            payload: card.payload,
+            children: card.node,
+          }}
+        />
+      ) : <div key={card.key}>{card.node}</div>)}
+    </div>
+  ) : null;
+}
+
+const emptyAssets: AssetManifest = {
+  portraits: {}, backgrounds: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, ui: {},
+};
+
+function DefaultMessageCard({ children }: MessageCardSlotProps) {
+  return <>{children}</>;
 }
 
 /** Cue -> human-readable media summary for tests and a11y. */

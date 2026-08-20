@@ -8,7 +8,7 @@ export async function DELETE(
 ): Promise<Response> {
   try {
     const { id } = await ctx.params;
-    EngineHost.get().destroySession(id);
+    await EngineHost.get().destroySession(id);
     return json({ destroyed: true });
   } catch (err) {
     return errorResponse(err);

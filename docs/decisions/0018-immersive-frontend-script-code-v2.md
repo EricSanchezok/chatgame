@@ -1,7 +1,7 @@
 # 前端沉浸式游戏化与剧本代码扩展（v2）
 
 ## Status
-Accepted
+Superseded by 0022
 Class: feature
 
 ## Context and Problem Statement

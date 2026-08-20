@@ -7,11 +7,13 @@
 // Everything renders from WorldState + static Catalog; unknown ids degrade
 // to raw labels instead of crashing.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
+import type { PanelSlotProps } from "../../lib/script-registry";
 import { ItemCard } from "./cards";
-import { UiIcon } from "./ui-icon";
 import { useGameActions, type PanelId } from "./state";
+import { Dialog } from "../dialog";
+import { SlotRenderer } from "./slots";
 
 const PANEL_TITLES: Record<PanelId, string> = {
   inventory: "背包",
@@ -21,17 +23,6 @@ const PANEL_TITLES: Record<PanelId, string> = {
   map: "地图",
   log: "日志",
 };
-
-/** PanelId -> UiIcon slot (the same set of chrome slots). */
-const PANEL_ICON_SLOT: Record<PanelId, "inventory" | "character" | "relations" | "tasks" | "map" | "log"> = {
-  inventory: "inventory",
-  character: "character",
-  relations: "relations",
-  tasks: "tasks",
-  map: "map",
-  log: "log",
-};
-
 
 /** Advance control: +1h / +6h / +1d. Time moves forward irrevocably, so
  * every button asks for confirmation once before firing. */
@@ -81,79 +72,20 @@ function PanelFrame({
   panel,
   title,
   scriptId,
-  assets,
   onClose,
   children,
 }: {
   panel: PanelId;
   title: string;
   scriptId: string;
-  assets: AssetManifest | undefined;
+  assets?: AssetManifest;
   onClose: () => void;
   children: React.ReactNode;
 }) {
-  // Lock background scroll while the modal is open; release on unmount.
-  useEffect(() => {
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, []);
-
-  // Esc closes from anywhere — the browser focus may stay on the shell
-  // behind the overlay, so a document-level listener (registered while the
-  // panel is open, cleaned up on unmount) is more reliable than a
-  // container onKeyDown. Re-registered when onClose changes.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      tabIndex={-1}
-    >
-      <button
-        type="button"
-        aria-label="关闭面板"
-        className="absolute inset-0 cursor-default"
-        style={{ background: "color-mix(in srgb, var(--cg-background) calc(var(--cg-overlay-strength) * 100%), transparent)" }}
-        onClick={onClose}
-        tabIndex={-1}
-      />
-      <section
-        className="cg-panel cg-glass cg-chrome relative flex max-h-[min(80dvh,100%)] w-full max-w-lg flex-col border p-5 shadow-xl"
-        style={{
-          borderColor: "var(--cg-border)",
-          boxShadow: "var(--cg-shadow-value)",
-        }}
-      >
-        <header className="flex items-center justify-between border-b pb-3" style={{ borderColor: "var(--cg-border)" }}>
-          <h2 className="flex items-center gap-2 text-lg font-semibold" style={{ color: "var(--cg-text)" }}>
-            <UiIcon slot={PANEL_ICON_SLOT[panel]} scriptId={scriptId} manifest={assets} className="h-5 w-5" />
-            {title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="cg-chrome flex items-center gap-1 rounded-lg border px-2.5 py-1 text-sm"
-            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
-          >
-            <UiIcon slot="close" scriptId={scriptId} manifest={assets} className="h-4 w-4" />
-            关闭
-          </button>
-        </header>
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</div>
-      </section>
-    </div>
+    <Dialog title={title} onClose={onClose}>
+      <div data-panel={panel} data-script={scriptId} className="cg-panel-content">{children}</div>
+    </Dialog>
   );
 }
 
@@ -574,10 +506,33 @@ export function ActivePanel({
   state: WorldState;
   catalog: Catalog | undefined;
   scriptId: string;
-  assets: AssetManifest | undefined;
+  assets: AssetManifest;
   onClose: () => void;
 }) {
   if (!panel || !catalog) return null;
+  const slotProps: PanelSlotProps = {
+    panelId: panel,
+    state,
+    catalog,
+    scriptId,
+    assets,
+    close: onClose,
+  };
+  return (
+    <SlotRenderer
+      slot={`panel:${panel}`}
+      fallback={DefaultActivePanel}
+      slotProps={slotProps}
+      scriptWrapper={(node) => (
+        <PanelFrame panel={panel} title={PANEL_TITLES[panel] ?? panel} scriptId={scriptId} assets={assets} onClose={onClose}>
+          {node}
+        </PanelFrame>
+      )}
+    />
+  );
+}
+
+function DefaultActivePanel({ panelId: panel, state, catalog, scriptId, assets, close: onClose }: PanelSlotProps) {
   switch (panel) {
     case "inventory":
       return (
@@ -594,6 +549,7 @@ export function ActivePanel({
     case "log":
       return <LogPanel state={state} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
   }
+  return null;
 }
 
 export { PANEL_TITLES };

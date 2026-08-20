@@ -1,47 +1,28 @@
-// Emberfall UI extension: registers a script-styled HUD (ember badge +
-// health bar), a launcher cover built from the town-square scene, and a
-// copper-paneled inventory panel. Self-contained — only imports react; all
-// colors come from the --cg-* variables applied by the theme system. Slot
-// props are untyped at the seam, so every component falls back to sensible
-// defaults when the host renderer passes nothing.
+// Emberfall UI extension: a mechanically v3-adapted HUD and inventory panel.
 import { useState, type CSSProperties } from "react";
+import {
+  SCRIPT_UI_API_VERSION,
+  type HudSlotProps,
+  type PanelSlotProps,
+  type ScriptUiContext,
+} from "@chatgame/ui";
 
-/** Local mirror of the script-registry slot contract (kept dependency-free). */
-type ScriptSlotId = "launcher:background" | "hud" | `panel:${string}`;
-
-interface ScriptSlotDef {
-  component: unknown;
-  position?: "top" | "bottom" | "left" | "right";
-  order?: number;
-}
-
-interface ScriptUiContext {
-  register(slot: ScriptSlotId, def: ScriptSlotDef): void;
-}
-
-const TOWN_SQUARE_SCENE = "/api/scripts/emberfall/assets/backgrounds/town-square.svg";
-
-interface EmberfallHudProps {
-  hp?: number;
-  hpMax?: number;
-  day?: number;
-  hour?: number;
-  location?: string;
-  [key: string]: unknown;
-}
+export const apiVersion = SCRIPT_UI_API_VERSION;
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function EmberfallHud(props: EmberfallHudProps = {}) {
+function EmberfallHud(props: HudSlotProps) {
   const [dimmed, setDimmed] = useState(false);
-  const hp = typeof props.hp === "number" ? props.hp : 80;
-  const hpMax = typeof props.hpMax === "number" ? props.hpMax : 100;
+  const hpStat = props.catalog?.hpStat ?? "hp";
+  const hp = props.state?.player.stats[hpStat] ?? 0;
+  const hpMax = props.catalog?.stats.find((stat) => stat.name === hpStat)?.max ?? 100;
   const percent = clampPercent((hp / Math.max(1, hpMax)) * 100);
-  const day = typeof props.day === "number" ? props.day : 1;
-  const hour = typeof props.hour === "number" ? props.hour : 8;
-  const location = typeof props.location === "string" ? props.location : "";
+  const day = props.state?.clock.day ?? 1;
+  const hour = props.state?.clock.hour ?? 8;
+  const locationId = props.state?.player.locationId ?? "";
+  const location = props.catalog?.locations.find((item) => item.id === locationId)?.name ?? locationId;
 
   const frame: CSSProperties = {
     display: "flex",
@@ -51,7 +32,7 @@ function EmberfallHud(props: EmberfallHudProps = {}) {
     borderRadius: "var(--cg-radius-chrome, 12px)",
     background: "var(--cg-surface)",
     border: "var(--cg-border-width, 1px) solid var(--cg-border)",
-    boxShadow: "var(--cg-shadow-value, 0 2px 8px rgba(0,0,0,0.4))",
+    boxShadow: "var(--cg-shadow-value)",
     fontFamily: "var(--cg-font, serif)",
     letterSpacing: "var(--cg-letter-spacing, 0)",
     opacity: dimmed ? 0.55 : 1,
@@ -84,7 +65,7 @@ function EmberfallHud(props: EmberfallHudProps = {}) {
     width: `${percent}%`,
     height: "100%",
     borderRadius: "999 0 0 999",
-    background: "linear-gradient(90deg, var(--cg-primary), var(--cg-accent))",
+    background: "var(--cg-primary)",
     transition: "width 400ms ease",
   };
 
@@ -129,23 +110,6 @@ function EmberfallHud(props: EmberfallHudProps = {}) {
   );
 }
 
-function EmberfallLauncherBackground() {
-  const root: CSSProperties = { position: "absolute", inset: 0, overflow: "hidden" };
-  const wash: CSSProperties = {
-    position: "absolute",
-    inset: 0,
-    background:
-      "linear-gradient(180deg, var(--cg-background) 0%, transparent 42%, var(--cg-background) 100%)",
-  };
-  return (
-    <div style={root} aria-hidden="true">
-      {/* eslint-disable-next-line @next/next/no-img-element -- script ui bundle runs outside the Next image pipeline */}
-      <img src={TOWN_SQUARE_SCENE} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      <div style={wash} />
-    </div>
-  );
-}
-
 interface InventoryItemRow {
   name?: string;
   quantity?: number;
@@ -153,15 +117,12 @@ interface InventoryItemRow {
   [key: string]: unknown;
 }
 
-interface EmberfallInventoryProps {
-  title?: string;
-  items?: InventoryItemRow[];
-  [key: string]: unknown;
-}
-
-function EmberfallInventoryPanel(props: EmberfallInventoryProps = {}) {
-  const items = Array.isArray(props.items) ? props.items : [];
-  const title = typeof props.title === "string" ? props.title : "Pack";
+function EmberfallInventoryPanel(props: PanelSlotProps) {
+  const items: InventoryItemRow[] = (props.state?.player.inventory.stacks ?? []).map((stack) => {
+    const item = props.catalog?.items.find((entry) => entry.id === stack.itemId);
+    return { name: item?.name ?? stack.itemId, description: item?.description, quantity: stack.quantity };
+  });
+  const title = "Pack";
 
   const root: CSSProperties = {
     display: "flex",
@@ -218,7 +179,6 @@ function EmberfallInventoryPanel(props: EmberfallInventoryProps = {}) {
 }
 
 export default function registerEmberfallUi(ctx: ScriptUiContext): void {
-  ctx.register("hud", { component: EmberfallHud, position: "top", order: 10 });
-  ctx.register("launcher:background", { component: EmberfallLauncherBackground, order: 10 });
+  ctx.register("hud", { component: EmberfallHud });
   ctx.register("panel:inventory", { component: EmberfallInventoryPanel });
 }

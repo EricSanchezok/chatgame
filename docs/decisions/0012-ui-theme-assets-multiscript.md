@@ -1,7 +1,7 @@
 # 前端与表现层 v1——沉浸聊天式 UI + 剧本资产/主题系统 + 多剧本管理
 
 ## Status
-Accepted
+Superseded by 0022
 Class: feature
 
 ## Context and Problem Statement

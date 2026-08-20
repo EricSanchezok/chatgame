@@ -1,7 +1,7 @@
 # 对话主舞台布局 + 深度可扩展表现层 Token v1.1
 
 ## Status
-Accepted
+Superseded by 0023
 Class: feature
 
 ## Context and Problem Statement

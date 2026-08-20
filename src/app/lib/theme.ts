@@ -29,6 +29,51 @@ export interface CssTarget {
   style: { setProperty(name: string, value: string): void };
 }
 
+export const HOST_THEME: ThemeView = {
+  id: "host-programme",
+  name: "剧目单后台",
+  palette: {
+    background: "#10110f",
+    surface: "#1b1d1a",
+    surface_alt: "#272924",
+    primary: "#efe9dc",
+    on_primary: "#10110f",
+    accent: "#c6a15b",
+    text: "#efe9dc",
+    text_dim: "#aaa69d",
+    border: "#454840",
+    focus: "#8ec9ba",
+    success: "#82b99e",
+    warning: "#e3b55e",
+    danger: "#d66a55",
+    selected: "#34362f",
+  },
+  typography: {
+    font: "sans",
+    scale: 1,
+    line_height: 1.65,
+    letter_spacing_em: 0,
+    faces: [],
+    roles: { ui: "sans", narrative: "sans", mono: "mono" },
+  },
+  effects: {
+    bubble_radius: 14,
+    chrome_radius: 12,
+    glass: 0,
+    blur_px: 0,
+    shadow: "soft",
+    border_width_px: 1,
+    density: "cozy",
+    motion: "minimal",
+    scene_tint: "#10110f",
+    overlay_strength: 0.78,
+  },
+};
+
+export function applyHostTheme(target?: CssTarget): void {
+  applyTheme(HOST_THEME, target);
+}
+
 
 /** Resolves a script-relative asset file path to a URL (mirrors lib/api). */
 export type AssetUrlFn = (file: string) => string;

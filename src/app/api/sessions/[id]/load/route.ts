@@ -12,7 +12,7 @@ export async function POST(
     if (!body || typeof body.runId !== "string") {
       return json({ error: "runId is required" }, 400);
     }
-    const state = EngineHost.get().load(id, body.runId);
+    const state = await EngineHost.get().load(id, body.runId);
     return json({ state });
   } catch (err) {
     return errorResponse(err);

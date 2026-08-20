@@ -1,4 +1,5 @@
 import type {
+  ActionPreview,
   IntentHint,
   ScriptDetail,
   SessionPresentation,
@@ -56,6 +57,7 @@ export type GameAction =
   | { type: "enter"; session: SessionHandle; detail: ScriptDetail; generation: number }
   | { type: "turn"; result: TurnResultFull; generation: number }
   | { type: "updateState"; state: WorldStateView; generation: number }
+  | { type: "previewed"; generation: number }
   | { type: "theme"; mode: ThemeMode }
   | { type: "audio"; on: boolean }
   | { type: "panel"; panel: PanelId | null }
@@ -108,6 +110,8 @@ export function reduceGameState(state: GameState, action: GameAction): GameState
         session: state.session ? { ...state.session, state: action.state } : null,
         dirty: true,
       };
+    case "previewed":
+      return { ...state, operation: "idle" };
     case "theme":
       return { ...state, themeMode: action.mode };
     case "audio":
@@ -156,6 +160,7 @@ export interface GameControllerEffects {
   rememberLastRun(scriptId: string, runId: string): void;
   clearLastRun(): void;
   onAudioEnabled(enabled: boolean): void;
+  onThemeChanged?(mode: ThemeMode): void;
   onTurn(result: TurnResultFull, detail: ScriptDetail, scriptId: string): void;
   onExit(): void;
 }
@@ -182,6 +187,7 @@ export class GameController {
     this.continueGame = this.continueGame.bind(this);
     this.resumeLast = this.resumeLast.bind(this);
     this.submitTurn = this.submitTurn.bind(this);
+    this.previewAction = this.previewAction.bind(this);
     this.save = this.save.bind(this);
     this.advance = this.advance.bind(this);
     this.updateDescriptor = this.updateDescriptor.bind(this);
@@ -225,7 +231,6 @@ export class GameController {
       if (request.signal.aborted || request.generation !== this.generation) return;
       this.store.dispatch({ type: "enter", session: { ...session, scriptId }, detail, generation: request.generation });
       this.effects.rememberLastRun(scriptId, "autosave.json");
-      this.setAudio(true);
     } catch (error) {
       this.fail(error, request.generation, request.signal);
     }
@@ -242,7 +247,6 @@ export class GameController {
       if (request.signal.aborted || request.generation !== this.generation) return;
       this.store.dispatch({ type: "enter", session: { ...session, scriptId }, detail, generation: request.generation });
       this.effects.rememberLastRun(scriptId, runId);
-      this.setAudio(true);
     } catch (error) {
       this.fail(error, request.generation, request.signal);
     }
@@ -273,13 +277,31 @@ export class GameController {
     }
   }
 
+  async previewAction(intentHint: IntentHint): Promise<ActionPreview | null> {
+    const before = this.store.getSnapshot();
+    if (!before.session || before.operation !== "idle") return null;
+    const request = this.begin("preview");
+    try {
+      const result = await this.port.previewAction(before.session.id, intentHint, request.signal);
+      this.finish(request.signal);
+      if (request.signal.aborted || request.generation !== this.generation) return null;
+      this.store.dispatch({ type: "previewed", generation: request.generation });
+      return result;
+    } catch (error) {
+      this.fail(error, request.generation, request.signal);
+      return null;
+    }
+  }
+
   async save(): Promise<void> {
-    const session = this.store.getSnapshot().session;
-    if (!session) return;
+    const before = this.store.getSnapshot();
+    if (!before.session || before.operation !== "idle") return;
+    const session = before.session;
     const request = this.begin("saving");
     try {
       await this.port.save(session.id, request.signal);
       this.finish(request.signal);
+      if (request.signal.aborted || request.generation !== this.generation) return;
       this.store.dispatch({ type: "saved", generation: request.generation });
     } catch (error) {
       this.fail(error, request.generation, request.signal);
@@ -287,12 +309,14 @@ export class GameController {
   }
 
   async advance(hours: number): Promise<void> {
-    const session = this.store.getSnapshot().session;
-    if (!session) return;
+    const before = this.store.getSnapshot();
+    if (!before.session || before.operation !== "idle") return;
+    const session = before.session;
     const request = this.begin("advancing");
     try {
       const result = await this.port.advance(session.id, hours, request.signal);
       this.finish(request.signal);
+      if (request.signal.aborted || request.generation !== this.generation) return;
       this.store.dispatch({ type: "updateState", state: result.state, generation: request.generation });
     } catch (error) {
       this.fail(error, request.generation, request.signal);
@@ -300,12 +324,14 @@ export class GameController {
   }
 
   async updateDescriptor(path: string, text: string): Promise<void> {
-    const session = this.store.getSnapshot().session;
-    if (!session) return;
+    const before = this.store.getSnapshot();
+    if (!before.session || before.operation !== "idle") return;
+    const session = before.session;
     const request = this.begin("saving");
     try {
       const result = await this.port.setDescriptor(session.id, path, text, request.signal);
       this.finish(request.signal);
+      if (request.signal.aborted || request.generation !== this.generation) return;
       this.store.dispatch({ type: "updateState", state: result.state, generation: request.generation });
     } catch (error) {
       this.fail(error, request.generation, request.signal);
@@ -329,7 +355,10 @@ export class GameController {
     }
   }
 
-  setTheme = (mode: ThemeMode) => this.store.dispatch({ type: "theme", mode });
+  setTheme = (mode: ThemeMode) => {
+    this.effects.onThemeChanged?.(mode);
+    this.store.dispatch({ type: "theme", mode });
+  };
   setAudio = (on: boolean) => {
     this.effects.onAudioEnabled(on);
     this.store.dispatch({ type: "audio", on });

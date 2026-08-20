@@ -22,9 +22,19 @@ typography:
     fontSize: "1rem"
     fontWeight: 400
     lineHeight: 1.65
+  title:
+    fontFamily: "ui-sans-serif, PingFang SC, Noto Sans SC, Microsoft YaHei, sans-serif"
+    fontSize: "clamp(1.35rem, 2.5vw, 2rem)"
+    fontWeight: 650
+    lineHeight: 1.15
   label:
     fontFamily: "ui-sans-serif, PingFang SC, Noto Sans SC, Microsoft YaHei, sans-serif"
     fontSize: "0.875rem"
+    fontWeight: 620
+    lineHeight: 1.35
+  status:
+    fontFamily: "ui-sans-serif, PingFang SC, Noto Sans SC, Microsoft YaHei, sans-serif"
+    fontSize: "0.75rem"
     fontWeight: 620
     lineHeight: 1.35
 rounded:
@@ -100,6 +110,10 @@ components:
 ## Shapes
 
 大面积舞台接近直角或使用极小裁切；交互控件使用 12px 圆角，独立表面最多 14px。药丸只用于短状态和筛选，不用于普通按钮、导航或长文本。图标为统一线宽的 `currentColor` SVG。
+
+## Motion
+
+宿主动效采用 Corporate / rigid 语言：不弹跳、不漂浮、不做环境循环。全局只用 `--cg-motion-quick`（90ms）、`--cg-motion-standard`（160ms）、`--cg-motion-deliberate`（360ms）三档时序；hover 使用 quick，按压使用 standard，Dialog 以 deliberate + ease-out 进入并以 220ms + ease-in 退出。等待、成功与错误必须同时有文字或结构标记，不能只靠颜色或透明度；系统或玩家选择减少动效时删除空间位移与循环，但保留瞬时按压、等待文案和结果反馈。
 
 ## Components
 

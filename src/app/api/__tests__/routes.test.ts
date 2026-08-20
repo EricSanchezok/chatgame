@@ -1,7 +1,7 @@
 // API layer tests: direct handler invocation (no HTTP server needed).
 // Asserts JSON bodies, status codes, and error mapping across the
 // scripts/sessions/assets routes.
-import { mkdirSync, rmSync, cpSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, cpSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -35,6 +35,8 @@ describe("scripts API", () => {
     const body = await res.json();
     expect(body.scripts).toHaveLength(1);
     expect(body.scripts[0].id).toBe("starlight");
+    expect(body.scripts[0]).toMatchObject({ schemaVersion: "1.1", source: { kind: "built-in", label: "内置" } });
+    expect(body.scripts[0].defaultThemeId).toBe("default");
     expect(body.scripts[0].theme.palette.background).toBe("#0b0e14");
   });
 
@@ -47,9 +49,32 @@ describe("scripts API", () => {
     const body = await res.json();
     expect(body.origins.map((o: { id: string }) => o.id)).toContain("crew-member");
     expect(body.presentation.themes.length).toBeGreaterThanOrEqual(3);
+    expect(body.presentation.defaultThemeId).toBe("default");
     expect(body.safety.age_rating).toBe("16+");
     expect(body.safety.content_classes.length).toBeGreaterThan(0);
     expect(body.safety.content_classes).toContain("violence");
+  });
+
+  it("serves immutable versioned UI bundles with ETag revalidation", async () => {
+    const detailMod = await import("../scripts/[scriptId]/route");
+    const detailRes = await detailMod.GET(new Request("http://x/api/scripts/starlight"), {
+      params: Promise.resolve({ scriptId: "starlight" }),
+    });
+    const detail = await detailRes.json();
+    const bundleUrl = detail.presentation.uiBundle.url as string;
+    const { GET } = await import("../scripts/[scriptId]/ui-bundle/route");
+    const first = await GET(new Request(`http://x${bundleUrl}`), {
+      params: Promise.resolve({ scriptId: "starlight" }),
+    });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("cache-control")).toContain("immutable");
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^"[0-9a-f]{20}"$/);
+
+    const cached = await GET(new Request(`http://x${bundleUrl}`, { headers: { "if-none-match": etag! } }), {
+      params: Promise.resolve({ scriptId: "starlight" }),
+    });
+    expect(cached.status).toBe(304);
   });
 
   it("GET /api/scripts/:id 404s unknown scripts", async () => {
@@ -58,6 +83,15 @@ describe("scripts API", () => {
       params: Promise.resolve({ scriptId: "nope" }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("DELETE /api/scripts/:id never deletes an application-owned built-in", async () => {
+    const { DELETE } = await import("../scripts/[scriptId]/route");
+    const res = await DELETE(new Request("http://x/api/scripts/starlight", { method: "DELETE" }), {
+      params: Promise.resolve({ scriptId: "starlight" }),
+    });
+    expect(res.status).toBe(403);
+    expect(existsSync(path.join(scriptsRoot, "starlight", "script.yaml"))).toBe(true);
   });
 });
 
@@ -119,7 +153,7 @@ describe("sessions API", () => {
       new Request("http://x/api/sessions/turn", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ input: "你好，黑猫" }),
+        body: JSON.stringify({ text: "你好，黑猫" }),
       }),
       { params: Promise.resolve({ id: sessionId }) },
     );
@@ -264,7 +298,7 @@ describe("input ceilings", () => {
       new Request("http://x/api/sessions/turn", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ input: "x".repeat(2001) }),
+        body: JSON.stringify({ text: "x".repeat(2001) }),
       }),
       { params: Promise.resolve({ id }) },
     );
@@ -277,7 +311,7 @@ describe("input ceilings", () => {
       new Request("http://x/api/sessions/turn", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ input: "你好".repeat(1000) }),
+        body: JSON.stringify({ text: "你好".repeat(1000) }),
       }),
       { params: Promise.resolve({ id }) },
     );
