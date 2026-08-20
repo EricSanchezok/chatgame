@@ -12,7 +12,7 @@
 
 预检 DTO 返回 token、scriptId、name、sourceName、schemaVersion、host/engine/UI API 版本、静态 cover 元数据、opaque `coverUrl`、权限、代码风险、冲突、素材来源覆盖、errors 与 warnings。语义无效的剧本仍返回可展示的预检；`errors` 非空时服务端拒绝 commit。暂存封面只能通过 `/api/scripts/import/preview/:token/cover` 读取，必须位于暂存剧本内、使用白名单图片类型且不超过 5MB，响应为 private/no-store 并带 `nosniff`。
 
-`POST /api/scripts/import/commit` JSON 必须显式包含 `{ "token": string, "replace": boolean }`。同 ID 不存在时 `replace` 必须为 `false`；同 ID 是导入剧本时，UI 单独取得替换确认后传 `true`；同 ID 是内置剧本时预检产生不可提交错误，commit 和底层安装核心也再次拒绝。代码信任确认与替换确认是两个独立用户决定，不能由冲突状态自动推导。
+`POST /api/scripts/import/commit` JSON 必须显式包含 `{ "token": string, "replace": boolean }`。同 ID 不存在时 `replace` 必须为 `false`；同 ID 是导入剧本时，UI 单独取得替换确认后传 `true`；同 ID 是内置剧本时预检产生不可提交错误，commit 和底层安装核心也再次拒绝。token 绑定预检时观察到的安装冲突与替换权限；commit 前若目标的存在状态或来源权限已改变，服务端返回 409 并要求重新预检。代码信任确认与替换确认是两个独立用户决定，不能由冲突状态自动推导。
 
 commit 先把校验通过的暂存内容复制到同一 scripts root 的 incoming 目录并写 receipt；替换时把旧导入目录改名为 backup，再原子改名 incoming，成功后删除 backup，失败时恢复旧目录。无论成功或失败都消费 token。存档不参与目录替换。
 

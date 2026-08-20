@@ -550,6 +550,18 @@ export function commitScriptImport(
     if (record.errors.length > 0) {
       throw new ScriptImportError("import preview contains validation errors", [], 422);
     }
+    const target = record.scriptId ? path.join(/* turbopackIgnore: true */ scriptsRoot, record.scriptId) : "";
+    const installed = target !== "" && existsSync(target);
+    const replaceAllowed = installed && scriptInstallSource(target).kind === "imported";
+    if (
+      installed !== record.conflicts.installed
+      || replaceAllowed !== record.conflicts.replaceAllowed
+    ) {
+      throw new ScriptImportError("installed script changed after preview; preview the zip again", [], 409);
+    }
+    if (options.replace && !record.conflicts.replaceAllowed) {
+      throw new ScriptImportError("this preview did not authorize replacement; preview the zip again", [], 409);
+    }
     const result = installStagedScript(path.join(previewDir, record.contentDirName), scriptsRoot, options.replace, record.sourceName);
     return { scriptId: result.scriptId, warnings: result.warnings.map((warning) => warning.message) };
   } finally {

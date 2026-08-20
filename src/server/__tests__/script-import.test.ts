@@ -94,6 +94,16 @@ describe("two-stage script import", () => {
     expect(() => commitScriptImport(confirmed.token, { replace: true, scriptsRoot, stagingRoot })).not.toThrow();
   });
 
+  it("does not let a conflict-free preview replace a script installed later", () => {
+    const stale = previewScriptImportFromZip(starlightZip(), { sourceName: "stale.zip", scriptsRoot, stagingRoot });
+    const winner = previewScriptImportFromZip(starlightZip(), { sourceName: "winner.zip", scriptsRoot, stagingRoot });
+    commitScriptImport(winner.token, { replace: false, scriptsRoot, stagingRoot });
+
+    expect(() => commitScriptImport(stale.token, { replace: true, scriptsRoot, stagingRoot }))
+      .toThrow(/changed after preview/);
+    expect(scriptInstallSource(path.join(scriptsRoot, "starlight"))).toEqual({ kind: "imported", label: "winner.zip" });
+  });
+
   it("never replaces or deletes a built-in script", () => {
     const builtIn = path.join(scriptsRoot, "starlight");
     mkdirSync(builtIn, { recursive: true });
