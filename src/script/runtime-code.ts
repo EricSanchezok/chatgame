@@ -129,18 +129,29 @@ export function loadScriptExtensions(definition: DefinitionWithoutExtensions): S
     ruleMechanisms: {},
     lifecycle: { sessionStart: [], turnResolved: [], hour: [], dayBoundary: [] },
   };
+  const registerUnique = <T>(
+    registry: Record<string, T>,
+    kind: string,
+    id: string,
+    handler: T,
+  ): void => {
+    if (Object.hasOwn(registry, id)) {
+      throw new Error(`duplicate ${kind} registration "${id}"`);
+    }
+    registry[id] = handler;
+  };
   const ctx: EngineExtensionContext = {
     registerEffect: (kind, handler) => {
-      extensions.effects[kind] = handler;
+      registerUnique(extensions.effects, "effect", kind, handler);
     },
     registerConditionSource: (source, evaluator) => {
-      extensions.conditions[source] = evaluator;
+      registerUnique(extensions.conditions, "condition source", source, evaluator);
     },
     registerActionHandler: (id, handler) => {
-      extensions.actionHandlers[id] = handler;
+      registerUnique(extensions.actionHandlers, "action handler", id, handler);
     },
     registerRuleMechanism: (id, checker) => {
-      extensions.ruleMechanisms[id] = checker;
+      registerUnique(extensions.ruleMechanisms, "rule mechanism", id, checker);
     },
     onSessionStart: (handler) => extensions.lifecycle.sessionStart.push(handler),
     onTurnResolved: (handler) => extensions.lifecycle.turnResolved.push(handler),
