@@ -13,6 +13,7 @@ Class: feature
 3. **advance 竞态**：`advance` 不走 per-session 串行队列，直接操作 `record.engine.advance(hours)`；异步 `turn` 在 await LLM 间隙被 advance 改 state，存在状态竞争。
 4. **advance 无死亡策略**：`Engine.advance` 纯 `stepWorld`，不跑 `applyDeathPolicy`；离线快进可能把玩家推进 hp 归零/soft_failure 状态而不触发后果。
 5. **meta-progression 死链路**：`applyUnlocks`/`metaProgressionSnapshot` 已实现但无处落盘，出身解锁无法跨局持久化，launcher 展示全部出身（含未解锁）。
+6. **回合发布早于持久化**：共享 `Engine` 在 autosave/meta 落盘前已经变异并发布；任一写入失败都会让读取接口和后续行动看见一个没有权威存档的半提交回合。
 
 另有边界缺失：`turn` input 无长度上限、`advance` hours 无上限；`saveSummaries` 对每个存档 `JSON.parse` 全文件取 updatedAt，低效。
 
@@ -21,6 +22,7 @@ Class: feature
 - 磁盘为权威，内存 Map 仅作缓存（保留 MAX_SESSIONS=20 / 30 分钟回收）。
 - 存档原子性：temp + rename 替换，杜绝写坏旧档。
 - advance 与 turn 并发安全：全部入 per-session 串行队列。
+- 回合状态、autosave 与 meta 构成单一提交边界；持久化失败不得改变可见状态或下一回合的引擎基线。
 - 恢复路径复用既有 `createSession({ loadRunId })`，不新增并行端点。
 - 未来 Vercel 部署：文件存储同样不可行，今天投资点是接口抽象（SaveStore）而非选库。
 
@@ -32,6 +34,8 @@ Class: feature
 - 每回合生成独立存档文件：文件堆积；固定 `autosave.json` 槽 + 手动时间戳档清晰。落选。
 - localStorage 直接持久化 sessionId 恢复内存：内存 Map 会回收，磁盘才是权威；走存档重建。落选。
 - SaveStore 抽象 + 原子写 + 每回合 autosave + localStorage 恢复 + meta 聚合文件——所选路线。
+- 继续在共享 Engine 上运行回合，只延后 `committedState` 赋值：共享 Engine 已经变异，失败后的 preview 和下一回合仍会基于脏状态。落选。
+- 从最后提交快照构造候选 Engine，候选完成 autosave/meta 后一次性交换 Engine 与可见快照——所选路线。
 
 ## Decision Outcome
 
@@ -41,7 +45,7 @@ Class: feature
 
 **`src/engine/index.ts`**：`Engine` 接受 `saveStore` 注入；`advance` 补死亡策略（`stepWorld` 后 `applyDeathPolicy`，`firedMode` 有值时 append system transcript，与 `playerTurn` 第 6 步一致）。
 
-**`src/server/engine-host.ts`**：`advance`/`save` 改为 `enqueue` 串行；`turn` 成功后 `engine.save("autosave")` + `writeMeta`；`writeMeta` 与既有 `.chatgame/meta/<scriptId>.json` 求并集原子写回（损坏容错为空集）；`readMeta` 返回 `{unlockedOrigins, lockableOrigins, updatedAt}`；`saveSummaries` 走 `SaveStore.list`（mtime，不再逐文件 JSON.parse）。
+**`src/server/engine-host.ts`**：`advance`/`save` 通过 `enqueue` 串行；`turn` 从最后提交的 `WorldState` 重建隔离候选 Engine，候选完成计算后先原子合并 meta、再写 `autosave.json`，两者成功才一次性交换 `session.engine` 与 `committedState`。autosave 拒绝写入时恢复 meta 的原始字节并丢弃候选 Engine，因此读取、preview 和下一回合仍基于前一完整提交。`writeMeta` 与既有 `.chatgame/meta/<scriptId>.json` 求并集原子写回（损坏容错为空集）；`readMeta` 返回 `{unlockedOrigins, lockableOrigins, updatedAt}`；`saveSummaries` 走 `SaveStore.list`（mtime，不再逐文件 JSON.parse）。
 
 **路由**：`turn/route.ts` input > 2000 → 400；`advance/route.ts` hours 非整数/超 1000 → 400 且 `await`；新增 `GET /api/scripts/[scriptId]/meta`。
 
@@ -53,9 +57,10 @@ Class: feature
 
 ## Pros and Cons of the Options
 
-- 所选路线：刷新页面可恢复最近进度（autosave 槽）；断电不损坏旧档（temp+rename）；advance 与 turn 并发安全；死亡/通关后新出身在 launcher 解锁；SaveStore 为未来云后端预留接口；`CHATGAME_DATA_ROOT` 让数据根可配置。代价：`host.save()/host.advance()` 签名变异步（破坏性，敏捷落地）；每回合一次 autosave + meta 写入成本毫秒级（规模内可接受）。
+- 所选路线：刷新页面可恢复最近进度（autosave 槽）；断电不损坏旧档（temp+rename）；advance 与 turn 并发安全；持久化失败不会泄漏或重复结算回合；死亡/通关后新出身在 launcher 解锁；SaveStore 为未来云后端预留接口；`CHATGAME_DATA_ROOT` 让数据根可配置。代价：`host.save()/host.advance()` 签名变异步（破坏性，敏捷落地）；每回合从提交快照重建候选 Engine，并执行一次 autosave + meta 写入，增加一次存档序列化与剧本加载成本。
 - SQLite/Postgres/KV：为当前规模付复杂度税，且不解决 Vercel 无持久盘问题。落选。
 - 定时/防抖存档：回合是天然合并点，防抖无收益。落选。
+- 共享 Engine 延迟发布：只隐藏 `committedState`，无法撤销 Engine 内部已发生的回合结算。落选。
 
 ## Links
 
