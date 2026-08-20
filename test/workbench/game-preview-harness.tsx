@@ -1,46 +1,65 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Home from "@/app/page";
+import type { GameControllerEffects } from "@/app/lib/game-store";
+import { defaultPlayerSettings, SETTINGS_STORAGE_KEY } from "@/app/lib/settings";
 import { clearSlots } from "@/app/lib/script-registry";
 import { applyTheme } from "@/app/lib/theme";
+import { GameScreen } from "@/app/ui/game/chat";
+import { GameProvider, useGameSelector } from "@/app/ui/game/state";
+import { Launcher } from "@/app/ui/launcher";
 import { fixturePresentation, CORE_SCRIPT_ID } from "./core-test-script";
 import { MockGamePort, type MockGameScenario } from "./mock-game-port";
-
-const LAST_RUN_KEY = "chatgame:last-run";
 
 export interface GamePreviewHarnessProps {
   scenario?: MockGameScenario;
   lastRun?: boolean;
 }
 
-/** Mounts the real application page with only its HTTP boundary replaced. */
+function PreviewRouter() {
+  const screen = useGameSelector((state) => state.screen);
+  return screen === "game" ? <GameScreen /> : <Launcher />;
+}
+
+/** Mounts the real application screens with the formal GamePort injected. */
 export function GamePreviewHarness({ scenario = {}, lastRun = false }: GamePreviewHarnessProps) {
   const [runtime] = useState(() => {
     const port = new MockGamePort(scenario);
-    const restoreFetch = port.install();
+    const effects: GameControllerEffects = {
+      readLastRun: () => (lastRun ? { scriptId: CORE_SCRIPT_ID, runId: "autosave.json" } : null),
+      rememberLastRun: () => undefined,
+      clearLastRun: () => undefined,
+      onAudioEnabled: () => undefined,
+      onTurn: () => undefined,
+      onExit: () => undefined,
+    };
     clearSlots();
-    if (lastRun) {
-      localStorage.setItem(LAST_RUN_KEY, JSON.stringify({ scriptId: CORE_SCRIPT_ID, runId: "autosave.json" }));
-    } else {
-      localStorage.removeItem(LAST_RUN_KEY);
-    }
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...defaultPlayerSettings,
+        lastRun: lastRun ? { scriptId: CORE_SCRIPT_ID, runId: "autosave.json" } : null,
+      }),
+    );
     applyTheme(fixturePresentation().currentTheme);
-    return { port, restoreFetch };
+    return { port, effects };
   });
 
   useEffect(
     () => () => {
-      runtime.restoreFetch();
       clearSlots();
-      localStorage.removeItem(LAST_RUN_KEY);
+      localStorage.removeItem(SETTINGS_STORAGE_KEY);
     },
     [runtime],
   );
 
   return (
     <div data-testid="game-preview-harness" className="h-dvh min-h-0 overflow-hidden">
-      <Home />
+      <GameProvider port={runtime.port} effects={runtime.effects}>
+        <div className="flex h-full min-h-0 flex-col">
+          <PreviewRouter />
+        </div>
+      </GameProvider>
     </div>
   );
 }

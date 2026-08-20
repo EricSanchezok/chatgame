@@ -24,10 +24,16 @@ const coreTheme: ThemeView = {
     surface: "#171d20",
     surface_alt: "#222b2f",
     primary: "#e5bd6b",
+    on_primary: "#101719",
     accent: "#8fc9c4",
     text: "#f4f0e7",
     text_dim: "#b8c0bd",
     border: "#667379",
+    focus: "#9edbd6",
+    success: "#8ecb98",
+    warning: "#e5bd6b",
+    danger: "#df8b85",
+    selected: "#33454a",
   },
   typography: {
     font: "sans",
@@ -210,8 +216,10 @@ export function createFixtureWorld(
         id: "operator",
         stats: { hp: 100 },
         skills: { focus: 8 },
+        needs: {},
         currentLocationId: "relay-room",
         relations: [],
+        reputation: [],
         statuses: [],
       },
     },
@@ -227,6 +235,7 @@ export function createFixtureWorld(
       "service-corridor": { stacks: [], currency: 0 },
     },
     transcript: transcriptFor(conversation),
+    runtimeState: {},
   };
 }
 
@@ -239,6 +248,7 @@ export function fixtureScripts(): ScriptSummary[] {
       author: "chatgame",
       tone: ["deterministic"],
       language: "zh-CN",
+      defaultThemeId: coreTheme.id,
       theme: { id: coreTheme.id, name: coreTheme.name, palette: coreTheme.palette },
       hasAssets: false,
       safety: { age_rating: "12+", content_classes: [] },
@@ -250,6 +260,7 @@ export function fixtureScripts(): ScriptSummary[] {
       author: "chatgame",
       tone: ["deterministic"],
       language: "zh-CN",
+      defaultThemeId: alternateTheme.id,
       theme: { id: alternateTheme.id, name: alternateTheme.name, palette: alternateTheme.palette },
       hasAssets: false,
       safety: { age_rating: "12+", content_classes: [] },
@@ -261,7 +272,12 @@ export function fixtureDetail(scriptId = CORE_SCRIPT_ID): ScriptDetail {
   const theme = scriptId === ALT_SCRIPT_ID ? alternateTheme : coreTheme;
   return {
     scriptId,
-    presentation: { themes: [theme], assets: false },
+    presentation: {
+      themes: [theme],
+      defaultThemeId: theme.id,
+      uiBundle: fixtureUiBundle(scriptId),
+      assets: false,
+    },
     origins: [
       { id: "observer", name: "观察员", description: "从完整日志开始。", difficulty: "标准" },
       { id: "operator", name: "值班员", description: "拥有测试门禁。", difficulty: "进阶" },
@@ -284,7 +300,21 @@ export function fixtureMeta(scriptId = CORE_SCRIPT_ID): ScriptMeta {
 
 export function fixturePresentation(scriptId = CORE_SCRIPT_ID): SessionPresentation {
   const currentTheme = scriptId === ALT_SCRIPT_ID ? alternateTheme : coreTheme;
-  return { themes: [currentTheme], currentTheme, hasAssets: false };
+  return {
+    themes: [currentTheme],
+    currentTheme,
+    defaultThemeId: currentTheme.id,
+    uiBundle: fixtureUiBundle(scriptId),
+    hasAssets: false,
+  };
+}
+
+function fixtureUiBundle(scriptId: string): NonNullable<SessionPresentation["uiBundle"]> {
+  return {
+    apiVersion: 3,
+    dependencyHash: `${scriptId}-workbench`,
+    url: `/api/scripts/${scriptId}/ui-bundle`,
+  };
 }
 
 export function fixtureTurnResult(state: WorldState, input: string): TurnResultFull {
