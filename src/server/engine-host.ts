@@ -75,6 +75,8 @@ export interface SessionRecord {
   id: string;
   scriptId: string;
   engine: Engine;
+  /** Last fully committed engine snapshot exposed to read-only host APIs. */
+  committedState: WorldState;
   lastActivity: number;
   /** True after any state-mutating operation since the last save. */
   dirty: boolean;
@@ -113,10 +115,10 @@ export class EngineHost {
   private readonly media: MediaProvider;
   private readonly saveStore: SaveStore;
 
-  constructor(options: { scriptsRoot?: string; saveStore?: SaveStore } = {}) {
+  constructor(options: { scriptsRoot?: string; saveStore?: SaveStore; provider?: LLMProvider } = {}) {
     this.scriptsRoot = options.scriptsRoot ?? defaultScriptsRoot();
     this.saveStore = options.saveStore ?? createDataStore();
-    this.provider = createProvider();
+    this.provider = options.provider ?? createProvider();
     this.media = createMediaProvider();
   }
 
@@ -365,6 +367,7 @@ export class EngineHost {
       id,
       scriptId: options.scriptId,
       engine,
+      committedState: engine.worldState,
       lastActivity: Date.now(),
       dirty: false,
     });
@@ -397,6 +400,7 @@ export class EngineHost {
   turn(sessionId: string, input: TurnInput): Promise<TurnResult> {
     return this.enqueue(sessionId, async (session) => {
       const result = await session.engine.playerTurn(input);
+      session.committedState = session.engine.worldState;
       session.lastActivity = Date.now();
       session.dirty = true;
       // Every completed turn lands in the fixed autosave slot (no
@@ -410,16 +414,18 @@ export class EngineHost {
     });
   }
 
-  previewAction(sessionId: string, hint: IntentHint): ActionPreview {
-    const record = this.requireSession(sessionId);
-    record.lastActivity = Date.now();
-    return record.engine.previewAction(hint);
+  previewAction(sessionId: string, hint: IntentHint): Promise<ActionPreview> {
+    return this.enqueue(sessionId, (record) => {
+      record.lastActivity = Date.now();
+      return record.engine.previewAction(hint);
+    });
   }
 
   /** Offline advance (serialized per session; death policy runs inside). */
   advance(sessionId: string, hours: number): Promise<WorldState> {
     return this.enqueue(sessionId, (session) => {
       const state = session.engine.advance(hours);
+      session.committedState = state;
       session.lastActivity = Date.now();
       session.dirty = true;
       return state;
@@ -535,6 +541,7 @@ export class EngineHost {
       );
       if (!existsSync(filePath)) throw new HostError("save not found", 404);
       const state = record.engine.load(filePath);
+      record.committedState = state;
       record.lastActivity = Date.now();
       record.dirty = false;
       return state;
@@ -549,6 +556,7 @@ export class EngineHost {
   ): Promise<WorldState> {
     return this.enqueue(sessionId, (record) => {
       const state = record.engine.setDescriptor(descriptorPath, text);
+      record.committedState = state;
       record.lastActivity = Date.now();
       record.dirty = true;
       return state;
@@ -557,7 +565,7 @@ export class EngineHost {
 
   /** Current world state for a session. */
   state(sessionId: string): WorldState {
-    return this.requireSession(sessionId).engine.worldState;
+    return this.requireSession(sessionId).committedState;
   }
 
   /** Presentation surface for a live session (themes + current location). */
@@ -569,7 +577,7 @@ export class EngineHost {
   } {
     const record = this.requireSession(sessionId);
     const definition = record.engine.definition;
-    const current = resolveTheme(definition, record.engine.worldState);
+    const current = resolveTheme(definition, record.committedState);
     return {
       themes: listSelectableThemes(definition).map((t) => toThemeView(t)),
       currentTheme: toThemeView(current),

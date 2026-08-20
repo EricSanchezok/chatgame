@@ -12,7 +12,7 @@ export async function POST(
     if (!hint || typeof hint.actionId !== "string" || hint.actionId.length === 0) {
       return json({ error: "actionId is required" }, 400);
     }
-    return json(EngineHost.get().previewAction(id, hint));
+    return json(await EngineHost.get().previewAction(id, hint));
   } catch (error) {
     return errorResponse(error);
   }

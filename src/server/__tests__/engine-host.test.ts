@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost, HostError } from "../engine-host";
 import { ScriptImportError, importScriptFromZip, MAX_UNPACKED_BYTES } from "../script-import";
 import { createFsSaveStore, metaPathForScript } from "../../engine/save-store";
+import { MockProvider } from "../../engine/narrative/mock";
+import type { GenerateTextOptions } from "../../engine/narrative/provider";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const FIXTURES = path.join(REPO_ROOT, "scripts");
@@ -47,6 +49,30 @@ function installStarlight(): void {
   cpSync(path.join(FIXTURES, "starlight"), path.join(scriptsRoot, "starlight"), {
     recursive: true,
   });
+}
+
+class PausingSummaryProvider extends MockProvider {
+  private pauseSummary = false;
+  private release!: () => void;
+  private markStarted!: () => void;
+  summaryStarted = new Promise<void>((resolve) => { this.markStarted = resolve; });
+
+  pauseNextSummary(): void {
+    this.pauseSummary = true;
+  }
+
+  releaseSummary(): void {
+    this.release?.();
+  }
+
+  override async generateText(options: GenerateTextOptions): Promise<string> {
+    if (this.pauseSummary && options.system.includes("剧情摘要器")) {
+      this.pauseSummary = false;
+      this.markStarted();
+      await new Promise<void>((resolve) => { this.release = resolve; });
+    }
+    return super.generateText(options);
+  }
 }
 
 /** Collects all fixture files (relative) under a directory tree. */
@@ -322,6 +348,39 @@ describe("session lifecycle", () => {
     expect(results).toHaveLength(3);
     expect(results.every((r) => r.narrative.length > 0)).toBe(true);
     await host.destroySession(session.id);
+  });
+
+  it("publishes only complete turn snapshots and queues previews behind the turn", async () => {
+    installStarlight();
+    const provider = new PausingSummaryProvider();
+    const gatedHost = new EngineHost({
+      scriptsRoot,
+      saveStore: createFsSaveStore(dataRoot),
+      provider,
+    });
+    const session = gatedHost.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    for (let turn = 1; turn < 8; turn += 1) {
+      await gatedHost.turn(session.id, { text: `准备记录 ${turn}` });
+    }
+    const committedBefore = JSON.stringify(gatedHost.state(session.id));
+    provider.pauseNextSummary();
+    const turn = gatedHost.turn(session.id, { text: "触发第八次摘要" });
+    await provider.summaryStarted;
+
+    expect(JSON.stringify(gatedHost.state(session.id))).toBe(committedBefore);
+    let previewResolved = false;
+    const preview = gatedHost.previewAction(session.id, { actionId: "talk" }).then((result) => {
+      previewResolved = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(previewResolved).toBe(false);
+
+    provider.releaseSummary();
+    await turn;
+    await expect(preview).resolves.toMatchObject({ actionId: "talk" });
+    expect(gatedHost.state(session.id).transcript.length).toBeGreaterThan(JSON.parse(committedBefore).transcript.length);
+    await gatedHost.destroySession(session.id);
   });
 
   it("reports session presentation with theme fallback", async () => {

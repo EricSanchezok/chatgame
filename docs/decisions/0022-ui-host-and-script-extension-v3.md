@@ -28,7 +28,7 @@ Class: architecture
 
 剧本激活的 scriptId、主题与 slots 作为一个 generation 提交；较早请求晚到时不得覆盖新激活。依赖图内容与 UI API 版本共同进入 bundle URL，服务端提供 ETag 与不可变缓存。构建只允许剧本目录内相对依赖、React 运行时和 `@chatgame/ui` 浏览器安全边界，禁止把宿主服务端模块或任意本地文件打入 bundle。
 
-宿主实现 `GameStore/controller + GamePort`，生产使用 `HttpGamePort`，测试与 Storybook 使用 `MockGamePort`。Context 只负责稳定注入和选择器。请求带 generation 与取消信号，过期结果不得更新活跃会话。
+宿主实现 `GameStore/controller + GamePort`，生产使用 `HttpGamePort`，测试与 Storybook 使用 `MockGamePort`。Context 只负责稳定注入和选择器。请求带 generation 与取消信号，过期结果不得更新活跃会话。EngineHost 只发布最后一次完整提交的会话快照，并让预检等待同一会话的 mutation 队列，异步回合内部状态不得被读取接口观察。
 
 UI API v3 仅暴露 `launcher`、`game-shell`、`scene`、`hud`、`toolbar`、`composer`、`pause-menu`、`panel:*`、`bubble:*`、`message-card:*`、`settings:*`。单例替换槽没有 position/order。剧本获得只读 view-model 和 `start`、`continue`、`openPanel`、`previewAction`、`submitTurn` 等 capability；路由、存档、网络、portal、焦点、错误隔离和可访问壳由宿主持有。
 
