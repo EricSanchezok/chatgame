@@ -215,6 +215,7 @@ describe("script engine extension seam", () => {
             summaries: ["purity effect applied"],
           };
         });
+        let successfulExecuteCalls = 0;
         ctx.registerActionHandler("purity-probe", ({ definition, state, params }: any) => {
           if (params?.actionMutation === "state") state.clock.hour = 99;
           if (params?.actionMutation === "definition") definition.world.background = "polluted";
@@ -224,7 +225,24 @@ describe("script engine extension seam", () => {
             : params?.timeMode === "negative" ? -1
             : params?.timeMode === "zero" ? 0
             : 1;
-          return { timeCost, execute: (nextState: any) => ({ state: nextState, summaries: [] }) };
+          return { timeCost, execute: (nextState: any) => {
+            if (params?.executeMutation === "success") successfulExecuteCalls += 1;
+            if (params?.executeMutation === "property") nextState.clock.hour = 99;
+            if (params?.executeMutation === "array") nextState.flags.push("polluted");
+            if (params?.executeMutation === "output-script-id") {
+              return { state: { ...nextState, scriptId: "forged" }, summaries: [] };
+            }
+            return {
+              state: {
+                ...nextState,
+                runtimeState: {
+                  ...nextState.runtimeState,
+                  executeCount: successfulExecuteCalls,
+                },
+              },
+              summaries: ["purity execute completed"],
+            };
+          } };
         });
         ctx.registerRuleMechanism("purity-rule", ({ definition, state, params }: any) => {
           if (params?.ruleMutation === "state") state.flags.push("polluted");
@@ -341,6 +359,38 @@ describe("script engine extension seam", () => {
         expect(state).toEqual(stateBefore);
         expect(definition.world.background).toBe(backgroundBefore);
       }
+
+      for (const executeMutation of ["property", "array"]) {
+        const params = { executeMutation };
+        expect(previewAction(definition, state, { actionId: action.id, params })).toMatchObject({
+          executable: true,
+        });
+        expect(() => resolveAction({ definition, state, actionId: action.id, params })).toThrow(TypeError);
+        expect(params).toEqual({ executeMutation });
+        expect(state).toEqual(stateBefore);
+      }
+      expect(() => resolveAction({
+        definition,
+        state,
+        actionId: action.id,
+        params: { executeMutation: "output-script-id" },
+      })).toThrow(/action handler "purity-probe" execute cannot change the active script id/);
+      expect(state).toEqual(stateBefore);
+
+      const successParams = { executeMutation: "success" };
+      expect(previewAction(definition, state, { actionId: action.id, params: successParams })).toMatchObject({
+        executable: true,
+      });
+      const executeOut = resolveAction({
+        definition,
+        state,
+        actionId: action.id,
+        params: successParams,
+      });
+      expect(executeOut.state.runtimeState.executeCount).toBe(1);
+      expect(executeOut.resolution?.effectsApplied).toContain("purity execute completed");
+      expect(() => executeOut.state.flags.push("detached-output")).not.toThrow();
+      expect(state).toEqual(stateBefore);
 
       for (const ruleMutation of ["state", "definition", "params"]) {
         const params = { ruleMutation };
