@@ -54,7 +54,9 @@ export default defineConfig({
     {
       name: "a11y",
       testMatch: "a11y/**/*.spec.ts",
-      use: { ...devices["Desktop Chrome"] },
+      // Axe must inspect the settled UI, not a transient opacity frame.
+      // Reduced motion is also a required accessibility preference matrix.
+      use: { ...devices["Desktop Chrome"], reducedMotion: "reduce" },
     },
     {
       name: "visual",
