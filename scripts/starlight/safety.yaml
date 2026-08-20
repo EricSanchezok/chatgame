@@ -1,15 +1,15 @@
 content_classes: [violence, romance, horror, profanity, self_harm, sexual, drugs, gambling, politics, religion, crime]
 allowed:
-  violence: moderate
+  violence: mild
   romance: mild
-  horror: moderate
+  horror: mild
   profanity: mild
   self_harm: none
   sexual: none
   drugs: none
-  gambling: mild
-  politics: mild
+  gambling: none
+  politics: moderate
   religion: mild
   crime: moderate
 forbidden: [self_harm, sexual, drugs]
-age_rating: "16+"
+age_rating: "12+"

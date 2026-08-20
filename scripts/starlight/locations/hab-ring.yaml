@@ -1,12 +1,11 @@
 id: hab-ring
-name: 居住舱环
-type: indoor
-description: 环绕中轴的居住区，空气里有循环过滤器的嗡鸣，走廊两侧是千篇一律的舱门
+name: 居住环 H 段
+type: 居住与互助
+description: P-07 服务的老居住段，舱门背后实住人数比灯塔登记册多二十二人，空气流量下降时先听见的是孩子咳嗽
 connections:
-  - { to: bridge, distance: 2, travel_time: 6 }
-  - { to: med-bay, distance: 1, travel_time: 3 }
-  - { to: cargo-bay, distance: 3, travel_time: 10 }
+  - { to: reactor-level, distance: 1, travel_time: 5 }
+  - { to: cargo-bay, distance: 2, travel_time: 8 }
 ambient_events: []
-npcs_present: [chief-engineer, doctor-vera]
+npcs_present: [doctor-vera]
 items: []
-danger_level: 2
+danger_level: 3

@@ -1,9 +1,8 @@
 id: repair-kit
-name: 维修工具包
+name: B-12 维修包
 type: equipment
-description: 一套多功能工程工具，含微型焊枪与万用表
+description: 扭矩扳手、检漏笔、颗粒阀夹具和一叠可追溯的物料签
 properties: { slot: hand, stackable: false }
-effects_on_use:
-  - { kind: skill, direction: add, target: player, skill: engineering, value: 2 }
-rarity: uncommon
-value: 40
+effects_on_use: []
+rarity: 工种配发
+value: 28

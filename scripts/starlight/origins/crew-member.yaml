@@ -1,17 +1,21 @@
 id: crew-member
-name: 船员出身
-description: 你在星港的舱段间当了三年轮班船员，熟悉每一条通风井与每一个配电柜
-difficulty: easy
+name: 维修二班值班员
+description: 你是拿着 B-12 交班签的普通维修工，能读表、换阀、申请舱外作业，但每次越权都会留在灯塔的审计记录里
+difficulty: normal
 stats:
-  technical: 12
+  technical: 14
+  perception: 12
 skills:
-  engineering: 6
-items: [repair-kit, medkit]
-starting_location: hab-ring
-starting_currency: 40
+  engineering: 8
+  eva: 6
+  negotiation: 4
+items: [repair-kit, eva-suit]
+starting_location: reactor-level
+starting_currency: 36
 starting_relations:
-  - { npc: chief-engineer, value: 30, type: 同班组搭档, description: 同一班组的搭档 }
-  - { npc: doctor-vera, value: 20, type: 常做体检的病人, description: 定期找你做体检 }
-starting_knowledge: [station-layout]
-exclusive_leads: [coolant-valve]
+  - { npc: chief-engineer, value: 35, type: 前后班搭档, description: 老周把工单交给你，也会追问每一笔物资 }
+  - { npc: doctor-vera, value: 25, type: 居住环联络人, description: 林小北信你的手艺，不信站务口径 }
+  - { npc: night-cat, value: 15, type: 配给窗口熟面孔, description: 阿岑愿意谈，但从不白送库存 }
+starting_knowledge: [station-layout, maintenance-access, eva-clearance, shift-b12]
+exclusive_leads: [scrubber-p07-alert]
 denied_actions: []

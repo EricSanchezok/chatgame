@@ -1,11 +1,11 @@
 id: station-committee
-name: 站务委员会
-description: 星港名义上的管理机构，一切决议都要过灯塔审核
-goals: [维持站内秩序, 保证下一艘补给船如期抵达]
-members: [station-chief]
+name: 站务维修处
+description: 负责工单、维修件和责任追溯的基层机构；它受灯塔配额约束，也要面对舱壁后的真实住户
+goals: [保持系统读数可审计, 把有限维修件撑到下一批补给]
+members: [chief-engineer]
 relations:
-  - { target: deck-gang, value: -40 }
+  - { target: deck-gang, value: -25 }
 reputation:
   thresholds:
-    - { value: 60, label: 站务信任, effects: [ { kind: flag, direction: set, target: player, flag: reactor-access } ] }
+    - { value: 20, label: 延长交班签, effects: [ { kind: flag, direction: set, target: player, flag: shift-tag-extended } ] }
   decay: 0

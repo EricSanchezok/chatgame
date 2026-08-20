@@ -1,11 +1,11 @@
 id: deck-gang
-name: 甲板帮
-description: 货物区的装卸工与黑市贩子组成的底层帮会
-goals: [控制配给黑市, 查清上周装卸工的辐射中毒来源]
-members: [night-cat]
+name: 下环互助会
+description: 由册外住户、照护者与夜间货运工组成的互助网络，目标是让实际人口得到实际空气
+goals: [维持册外居民的空气与水, 保存纸本人口和物资记录]
+members: [doctor-vera, night-cat]
 relations:
-  - { target: station-committee, value: -40 }
+  - { target: station-committee, value: -25 }
 reputation:
   thresholds:
-    - { value: 50, label: 黑市开放, effects: [ { kind: item, direction: add, target: player, item: fuel-cell } ] }
-  decay: 1
+    - { value: 20, label: 愿意作证, effects: [ { kind: flag, direction: set, target: player, flag: mutual-aid-witness } ] }
+  decay: 0

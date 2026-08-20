@@ -1,6 +1,6 @@
-voice: 第三人称有限
+voice: 第二人称现场记录
 tense: 现在时
-perspective: 跟随玩家的冷峻旁观视角
+perspective: 普通值班员能看到、听到和从表计确认的范围
 density: sparse
-sentence_style: [短句为主, 用舱体与机械的意象渲染情绪, 避免抒情]
-forbidden_words: [魔法, 法力, 灵力]
+sentence_style: [先写设备与人数再写感受, 无线电台词以频道和岗位区分, 结算后明确留下的物资与责任]
+forbidden_words: [舰长大人, 全息蓝光, 赛博空间, 命中注定, 唯一的希望, 改变一切]

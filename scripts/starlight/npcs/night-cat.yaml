@@ -1,36 +1,35 @@
 id: night-cat
-name: 夜猫
-base_class: humanoid
-description: 在配给系统里养了只"数字宠物"的年轻黑客，昼伏夜出
+name: 阿岑
+base_class: 人类货运配给员
+description: 货运 C 段夜间窗口的配给员，负责让账面余量和实际需要在换班前对上
 traits:
-  - name: 玩世不恭
-    description: 把入侵系统当成游戏
-  - name: 敏感
-    description: 对追踪信号异常警觉
-stats: { hp: 70, intellect: 16, agility: 14, perception: 12 }
-skills: { hacking: 14, negotiation: 4 }
-needs: { oxygen: 90, energy: 70, mental: 60 }
-occupation: 黑市掮客
-schedule: night-cycle
-home: hab-ring
-items: [data-chip]
+  - name: 货单记忆
+    description: 记得每只滤芯从哪个箱子来，又去了哪扇门
+  - name: 交易要对价
+    description: 愿意为册外居民担风险，但不会把风险只留给自己
+stats: { hp: 76, strength: 10, technical: 12, perception: 13 }
+skills: { engineering: 5, negotiation: 12 }
+needs: { rest: 52, hydration: 67 }
+occupation: 夜间货运配给员
+schedule: cargo-night
+home: cargo-bay
+items: []
 relations:
-  - { target: station-chief, value: -30, type: 通缉犯与警长, description: 被通缉，彼此心知肚明 }
-  - { target: doctor-vera, value: 10, type: 赊过账的病人, description: 赊过账，欠一份人情 }
+  - { target: chief-engineer, value: -8, type: 库存对账对象, description: 两人总在“挪用”和“救急”的定义上争执 }
+  - { target: doctor-vera, value: 42, type: 册外互助, description: 阿岑按林小北的纸本人数给货 }
 memory:
   initial:
-    - { text: "灯塔的日志里有几行被人为擦除的记录", importance: major, tags: [lighthouse, log] }
-    - { text: "给通风井的接口贴过荧光贴纸", importance: trivial, tags: [habit] }
+    - { text: "上一轮清库时，灯塔把 47 人的耗用标成了设备泄漏", importance: major, tags: [register, lighthouse, cargo] }
 secrets:
-  - id: lighthouse-log-erased
-    content: "灯塔日志里被擦除的那几行，指向一次未被记录的舱外作业"
+  - id: lighthouse-ledger-copy
+    content: "阿岑保存的配给底单显示，灯塔仍在引用首航登记册版本 REG-2178，并把册外居民归入无权重损耗"
     reveal:
       logic:
         all:
-          - { source: relationship, key: player, op: gte, value: 60 }
-          - { source: skill, key: hacking, op: gte, value: 8 }
-knowledge_flags: [vent-route-known, black-market-prices]
+          - { source: relationship, key: player, op: gte, value: 15 }
+          - { source: flag, key: p07-inspected, op: has }
+knowledge_flags: [cargo-stock, unregistered-households]
 llm:
-  personality: 用嘲讽掩饰不安，但会为朋友留后门
-  speech_patterns: [夹杂终端术语, 说话带刺但点到为止]
+  personality: 冷静、务实，把交易说成谁承担哪一笔审计风险
+  speech_patterns: [先报库存再开价, 不说黑话, 每个方案都附一项对价]
   knowledge_filter: true
