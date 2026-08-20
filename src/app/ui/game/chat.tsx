@@ -72,6 +72,8 @@ const Transcript = memo(function Transcript({
       ref={scrollRef}
       data-region="transcript"
       className="cg-transcript"
+      aria-label="游戏对话记录"
+      tabIndex={0}
       onScroll={(event) => {
         const element = event.currentTarget;
         atBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
