@@ -268,6 +268,15 @@ describe("semantic validation", () => {
     expect(result.issues).toEqual([]);
   });
 
+  it("rejects fractional action time costs from YAML", () => {
+    const files = validBase();
+    files["actions.yaml"] = files["actions.yaml"].replace(
+      "resolve: { type: auto }",
+      "resolve: { type: auto }\n    costs: { time: 1.5 }",
+    );
+    expectIssuesContaining(files, ["expected int"]);
+  });
+
   it("rejects an undeclared rule mechanism", () => {
     const files = validBase();
     files["world.yaml"] = files["world.yaml"].replace(

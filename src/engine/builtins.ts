@@ -42,7 +42,7 @@ export interface ActionHandlerPlan {
   rejectMessage?: string;
   /** Dynamic costs in addition to actions.yaml declarative costs. */
   costs?: HandlerCosts;
-  /** Authoritative duration override in engine hours. */
+  /** Authoritative duration override in non-negative integer engine hours. */
   timeCost?: number;
   /** Applies the already-validated plan once to the post-effect state. */
   execute(state: WorldState, grade: ResultGrade): BuiltinOutcome;

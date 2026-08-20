@@ -90,6 +90,16 @@ describe("stepWorld hourly progression", () => {
     expect(out.state.clock.totalHours).toBe(5);
   });
 
+  it.each([1.5, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid world-step duration %s before changing the clock",
+    (hours) => {
+      const def = testDefinition();
+      const state = freshState(def);
+      expect(() => stepWorld(state, def, hours)).toThrow(/non-negative finite integer/);
+      expect(state.clock.totalHours).toBe(0);
+    },
+  );
+
   it("decays needs continuously (hourly fractions)", () => {
     const def = testDefinition();
     const state = freshState(def);

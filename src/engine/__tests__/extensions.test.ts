@@ -223,6 +223,7 @@ describe("script engine extension seam", () => {
           const timeCost = params?.timeMode === "nan" ? Number.NaN
             : params?.timeMode === "infinity" ? Number.POSITIVE_INFINITY
             : params?.timeMode === "negative" ? -1
+            : params?.timeMode === "fractional" ? 1.5
             : params?.timeMode === "zero" ? 0
             : 1;
           return { timeCost, execute: (nextState: any) => {
@@ -332,12 +333,12 @@ describe("script engine extension seam", () => {
       expect(() => effectOut.state.flags.push("detached-output")).not.toThrow();
       expect(state).toEqual(stateBefore);
 
-      for (const timeMode of ["nan", "infinity", "negative"]) {
+      for (const timeMode of ["nan", "infinity", "negative", "fractional"]) {
         const params = { timeMode };
         expect(() => previewAction(definition, state, { actionId: action.id, params }))
-          .toThrow(/timeCost.*non-negative finite/);
+          .toThrow(/timeCost.*non-negative finite integer/);
         expect(() => resolveAction({ definition, state, actionId: action.id, params }))
-          .toThrow(/timeCost.*non-negative finite/);
+          .toThrow(/timeCost.*non-negative finite integer/);
         expect(state).toEqual(stateBefore);
       }
       expect(previewAction(definition, state, {

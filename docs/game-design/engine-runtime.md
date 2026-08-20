@@ -70,11 +70,11 @@ src/engine/
   → 11. 转录追加（player 输入 + world 叙事；拒绝/澄清/死亡也写入）+ mediaCues 推导
   → TurnResult{narrative, resolution, logEntries, descriptorUpdates, worldEvents, taskCompletions, mediaCues, deathFired, ...}
 
-动作预检与执行复用同一合法性、handler 规划与可支付性检查。`ActionPreview` 合并声明成本与动态 currency/items/resources，并使用计划耗时；执行在骰点和 effects 前由引擎统一校验、扣除动态成本一次，handler 不自行扣除。预检不执行 effects 或 `execute`。`plan.timeCost` 必须是非负有限数，负数、NaN、Infinity 直接报错；`effectiveTimeCost = max(plan.timeCost ?? costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
+动作预检与执行复用同一合法性、handler 规划与可支付性检查。`ActionPreview` 合并声明成本与动态 currency/items/resources，并使用计划耗时；执行在骰点和 effects 前由引擎统一校验、扣除动态成本一次，handler 不自行扣除。预检不执行 effects 或 `execute`。`actions.yaml costs.time` 与 `plan.timeCost` 都必须是非负有限整数小时，小数、负数、NaN、Infinity 直接报错；`effectiveTimeCost = max(plan.timeCost ?? costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
 
 ## 世界推进（worldstep.ts）
 
-`stepWorld(state, definition, hours, { scope })` 是唯一世界推进管道，回合循环与离线 `advance()` 共用：
+`stepWorld(state, definition, hours, { scope })` 是唯一世界推进管道，回合循环与离线 `advance()` 共用；`hours` 只接受非负有限整数，避免逐小时 hook、日程、事件与时钟产生部分推进：
 
 - **逐小时**：时钟推进 → 需求连续衰减 → NPC 作息移动（`scheduleAt` 重算位置）。
 - **日边界**（时钟跨天时执行一次）：状态效果 tick（duration=天数）→ 需求阈值（持久化边沿触发，停留区间不重复）→ 声望衰减 + 阈值（仅向上穿越时立即触发）→ 记忆衰减 + 归档（`tier_retention_days`，NPC `forget_policy` 覆盖）→ 节日事件 → time/condition 事件 → ambient 事件（30% 概率，`AMBIENT_EVENT_CHANCE`）→ 承诺检查 → 任务检查（时限失败 + 自动激活）→ 张力同步（tension 变量 ← threat_gauge）。

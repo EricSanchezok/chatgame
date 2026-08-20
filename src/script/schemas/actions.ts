@@ -61,7 +61,7 @@ const costsSchema = z
     items: z
       .array(z.object({ item: idSchema, quantity: z.number().int().positive() }).strict())
       .optional(),
-    time: z.number().nonnegative().optional(),
+    time: z.number().int().nonnegative().optional(),
   })
   .strict();
 

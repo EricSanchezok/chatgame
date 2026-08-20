@@ -8,6 +8,7 @@ import { generateWorld } from "../worldgen";
 import { previewAction, resolveAction } from "../actions";
 import { advanceClock } from "../time";
 import { BUILTIN_HANDLERS } from "../builtins";
+import { stepWorld } from "../worldstep";
 import type { WorldDefinition, WorldState } from "../types";
 import type { ActionEntry } from "../../script/schemas/actions";
 import type { Item } from "../../script/schemas/item";
@@ -193,13 +194,41 @@ describe("builtin registry", () => {
     expect(preview.costs.currency).toBe(2);
     expect(preview.timeCost).toBe(3);
     const resolution = resolveAction({ definition, state, actionId: action.id });
+    const stepped = stepWorld(resolution.state, definition, resolution.effectiveTimeCost);
 
     expect(preview.executable).toBe(true);
+    expect(preview.timeCost).toBe(resolution.effectiveTimeCost);
+    expect(stepped.state.clock.totalHours - state.clock.totalHours).toBe(preview.timeCost);
     expect(resolution.rejected).toBe(false);
     expect(resolution.state.player.flags).toContain("prepared");
     expect(state.player.inventory.currency - resolution.state.player.inventory.currency).toBe(2);
     expect(executions).toBe(1);
   });
+
+  it.each([1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid declarative action time %s at runtime",
+    (time) => {
+      const base = platformDefinition();
+      const malformed = {
+        id: "malformed-time",
+        enabled: true,
+        resolve: { type: "auto" as const },
+        costs: { time },
+        llm_freedom: "narration" as const,
+      };
+      const definition: WorldDefinition = {
+        ...base,
+        actions: { ...base.actions, actions: [...base.actions.actions, malformed] },
+      };
+      const state = freshState(definition);
+
+      expect(() => previewAction(definition, state, { actionId: malformed.id }))
+        .toThrow(/costs\.time.*non-negative finite integer/);
+      expect(() => resolveAction({ definition, state, actionId: malformed.id }))
+        .toThrow(/costs\.time.*non-negative finite integer/);
+      expect(state.clock.totalHours).toBe(0);
+    },
+  );
 
   it("centrally validates and pays dynamic costs exactly once", () => {
     const base = platformDefinition();

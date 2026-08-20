@@ -92,7 +92,7 @@ scripts/<id>/
 - **engine/index.ts**（服务端扩展）：默认导出 `(ctx: EngineExtensionContext) => void`；可注册：
   - `registerEffect(kind, handler)` — 自定义效果种类（`effect` 的 `kind` 不在内置集合时运行时裁决；未注册的 kind 在剧本校验时报错）。state/effect/context 输入是深度只读 Proxy；输出必须保持调用前 `scriptId`，并由引擎深度脱离代理后进入权威状态。
   - `registerConditionSource(source, evaluator)` — 自定义条件源（`condition.source` 任意字符串；未注册源在校验与运行期均报错）。state/leaf/context 输入是深度只读 Proxy，不能污染预检或执行状态。
-  - `registerActionHandler(id, handler)` — 自定义动作处理器（`actions[].handler` 引用；内置动作在声明 handler 时用自定义实现覆盖）。handler 纯规划并返回 `{rejected?, costs?, timeCost?, execute}`；动态成本只声明、不自行扣除，由引擎在骰点与效果前统一校验并扣除一次；`timeCost` 必须是非负有限数且最终至少一小时；`execute(state, grade)` 只在真实结算中调用一次，预检不得 dry-run。
+  - `registerActionHandler(id, handler)` — 自定义动作处理器（`actions[].handler` 引用；内置动作在声明 handler 时用自定义实现覆盖）。handler 纯规划并返回 `{rejected?, costs?, timeCost?, execute}`；动态成本只声明、不自行扣除，由引擎在骰点与效果前统一校验并扣除一次；`timeCost` 必须是非负有限整数小时且最终至少一小时；`execute(state, grade)` 只在真实结算中调用一次，预检不得 dry-run。
   - `registerRuleMechanism(id, checker)` — 自定义世界规则；checker 的 state/definition/params 是隔离的深度只读 Proxy，返回拒绝文本或 `null`。
   - `onSessionStart` / `onTurnResolved` / `onHour` / `onDayBoundary` — 纯生命周期；输入 state 与 context 全部深度只读，返回新状态与摘要，输出不得改变调用前捕获的 `scriptId`。
   - custom effect/condition、action planning、rule checker 与 lifecycle 写入 Map、数组或嵌套对象时即使在非 strict CJS 中也响亮失败。自定义持久状态写入返回值的 `WorldState.runtimeState`（引擎不解释内容，随存档 v5 持久化）。
