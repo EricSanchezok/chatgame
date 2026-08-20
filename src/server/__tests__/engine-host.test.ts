@@ -8,7 +8,6 @@ import {
   readFileSync,
   cpSync,
   readdirSync,
-  statSync,
   existsSync,
 } from "node:fs";
 import { crc32 } from "node:zlib";
@@ -21,19 +20,28 @@ import { ScriptImportError, importScriptFromZip, MAX_UNPACKED_BYTES } from "../s
 import { createFsSaveStore, metaPathForScript } from "../../engine/save-store";
 import { MockProvider } from "../../engine/narrative/mock";
 import type { GenerateTextOptions } from "../../engine/narrative/provider";
+import {
+  copyCoreTestScript,
+  coreTestScriptZip,
+  fixtureProvenance,
+  TEST_ALT_ORIGIN_ID,
+  TEST_ORIGIN_ID,
+  TEST_SCRIPT_ID,
+} from "./fixtures/core-script";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-const FIXTURES = path.join(REPO_ROOT, "scripts");
-
-
+let root: string;
 let scriptsRoot: string;
 let dataRoot: string;
+let fixtureSource: string;
 let host: EngineHost;
 
 beforeEach(() => {
-  scriptsRoot = path.join(tmpdir(), `cg-host-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  dataRoot = path.join(scriptsRoot, ".data");
+  root = path.join(tmpdir(), `cg-host-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  scriptsRoot = path.join(root, "scripts");
+  dataRoot = path.join(root, "data");
+  fixtureSource = path.join(root, "fixture-source");
   mkdirSync(scriptsRoot, { recursive: true });
+  copyCoreTestScript(fixtureSource);
   host = new EngineHost({
     scriptsRoot,
     saveStore: createFsSaveStore(dataRoot),
@@ -41,12 +49,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(scriptsRoot, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true });
 });
 
-/** Copies the starlight fixture into the temp scripts root (for scan tests). */
-function installStarlight(): void {
-  cpSync(path.join(FIXTURES, "starlight"), path.join(scriptsRoot, "starlight"), {
+/** Installs an application-owned copy of the generic core fixture. */
+function installFixture(): void {
+  cpSync(fixtureSource, path.join(scriptsRoot, TEST_SCRIPT_ID), {
     recursive: true,
   });
 }
@@ -75,48 +83,9 @@ class PausingSummaryProvider extends MockProvider {
   }
 }
 
-/** Collects all fixture files (relative) under a directory tree. */
-function walkFiles(dir: string, base = ""): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const abs = path.join(dir, entry);
-    const rel = base ? `${base}/${entry}` : entry;
-    if (statSync(abs).isDirectory()) {
-      out.push(...walkFiles(abs, rel));
-    } else {
-      out.push(rel);
-    }
-  }
-  return out;
-}
-
-function fixtureProvenance(srcDir: string): string {
-  const files = walkFiles(path.join(srcDir, "assets"), "assets");
-  return [
-    "version: 1",
-    "files:",
-    ...files.flatMap((file) => [
-      `  ${JSON.stringify(file)}:`,
-      "    source: chatgame test fixture",
-      "    license: test-only",
-    ]),
-    "",
-  ].join("\n");
-}
-
-/** Builds a minimal valid zip script (renamed starlight copy). */
+/** Builds a valid zip from a renamed copy of the generic core fixture. */
 function buildTestZip(scriptId: string): Buffer {
-  const zip = new AdmZip();
-  const srcDir = path.join(FIXTURES, "starlight");
-  for (const rel of walkFiles(srcDir)) {
-    const content = readFileSync(path.join(srcDir, rel), "utf8");
-    zip.addFile(
-      `${scriptId}/${rel}`,
-      Buffer.from(rel.endsWith("script.yaml") ? content.replace("id: starlight", `id: ${scriptId}`) : content),
-    );
-  }
-  zip.addFile(`${scriptId}/assets/provenance.yaml`, Buffer.from(fixtureProvenance(srcDir)));
-  return zip.toBuffer();
+  return coreTestScriptZip(fixtureSource, scriptId);
 }
 
 /**
@@ -174,14 +143,14 @@ function rawZip(entries: Array<{ name: string; content: string }>): Buffer {
 
 describe("script library scanning", () => {
   it("lists installed scripts with meta + theme palette", () => {
-    installStarlight();
+    installFixture();
     const scripts = host.listScripts();
     expect(scripts).toHaveLength(1);
     const s = scripts[0];
-    expect(s.id).toBe("starlight");
-    expect(s.name).toBe("星港");
-    expect(s.author).toBe("chatgame-team");
-    expect(s.theme?.palette.background).toBe("#0b0e14"); // from theme.yaml
+    expect(s.id).toBe(TEST_SCRIPT_ID);
+    expect(s.name).toBe("核心工作台");
+    expect(s.author).toBe("chatgame-test");
+    expect(s.theme?.palette.background).toBe("#0d1113"); // from theme.yaml
     expect(s.hasAssets).toBe(true);
   });
 
@@ -192,24 +161,24 @@ describe("script library scanning", () => {
   });
 
   it("exposes the script safety surface", () => {
-    installStarlight();
-    const safety = host.scriptSafety("starlight");
-    expect(safety.age_rating).toBe("16+");
+    installFixture();
+    const safety = host.scriptSafety(TEST_SCRIPT_ID);
+    expect(safety.age_rating).toBe("全年龄");
     expect(safety.content_classes).toContain("violence");
     expect(safety.content_classes).toContain("crime");
   });
   it("exposes catalog with skill descriptions and factions", () => {
-    installStarlight();
-    const catalog = host.scriptCatalog("starlight");
+    installFixture();
+    const catalog = host.scriptCatalog(TEST_SCRIPT_ID);
     // skills.description passes through from mechanics.skills (R5).
     expect(catalog.skills).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "hacking", min: 0, max: 20, description: "入侵系统" }),
+        expect.objectContaining({ name: "focus", min: 0, max: 10, description: "校准专注度" }),
       ]),
     );
     // factions id/name feed the reputation panel (R5).
     expect(catalog.factions.map((f) => f.name)).toEqual(
-      expect.arrayContaining(["甲板帮", "站务委员会"]),
+      expect.arrayContaining(["中继值班组"]),
     );
   });
 });
@@ -232,15 +201,15 @@ describe("script import", () => {
   });
 
   it("refuses to replace or remove application-owned built-ins", () => {
-    installStarlight();
-    expect(() => host.importZip(buildTestZip("starlight"), true)).toThrow(/cannot be replaced/);
-    expect(() => host.removeScript("starlight")).toThrow(/cannot be deleted/);
-    expect(existsSync(path.join(scriptsRoot, "starlight", "script.yaml"))).toBe(true);
+    installFixture();
+    expect(() => host.importZip(buildTestZip(TEST_SCRIPT_ID), true)).toThrow(/cannot be replaced/);
+    expect(() => host.removeScript(TEST_SCRIPT_ID)).toThrow(/cannot be deleted/);
+    expect(existsSync(path.join(scriptsRoot, TEST_SCRIPT_ID, "script.yaml"))).toBe(true);
   });
 
   it("refuses to remove an imported script while a session uses it", async () => {
     host.importZip(buildTestZip("testzip"));
-    const session = host.createSession({ scriptId: "testzip", originId: "crew-member", seed: 1 });
+    const session = host.createSession({ scriptId: "testzip", originId: TEST_ORIGIN_ID, seed: 1 });
     expect(() => host.removeScript("testzip")).toThrow(/active sessions/);
     await host.destroySession(session.id);
     expect(() => host.removeScript("testzip")).not.toThrow();
@@ -275,46 +244,47 @@ describe("script import", () => {
   it("imports from a directory", () => {
     const src = path.join(tmpdir(), `cg-dir-${Date.now()}`);
     mkdirSync(src, { recursive: true });
-    cpSync(path.join(FIXTURES, "starlight"), path.join(src, "starlight"), { recursive: true });
-    writeFileSync(path.join(src, "starlight", "assets", "provenance.yaml"), fixtureProvenance(path.join(FIXTURES, "starlight")));
-    const result = host.importDir(path.join(src, "starlight"));
-    expect(result.scriptId).toBe("starlight");
+    const importSource = path.join(src, TEST_SCRIPT_ID);
+    cpSync(fixtureSource, importSource, { recursive: true });
+    writeFileSync(path.join(importSource, "assets", "provenance.yaml"), fixtureProvenance(importSource));
+    const result = host.importDir(importSource);
+    expect(result.scriptId).toBe(TEST_SCRIPT_ID);
     rmSync(src, { recursive: true, force: true });
   });
 });
 
 describe("asset serving", () => {
   it("reads a whitelisted asset with the right content type", () => {
-    installStarlight();
-    mkdirSync(path.join(scriptsRoot, "starlight", "assets", "icons"), { recursive: true });
-    writeFileSync(path.join(scriptsRoot, "starlight", "assets", "icons", "x.svg"), "<svg/>");
-    const { data, mimeType } = host.readAsset("starlight", "icons/x.svg");
+    installFixture();
+    mkdirSync(path.join(scriptsRoot, TEST_SCRIPT_ID, "assets", "icons"), { recursive: true });
+    writeFileSync(path.join(scriptsRoot, TEST_SCRIPT_ID, "assets", "icons", "x.svg"), "<svg/>");
+    const { data, mimeType } = host.readAsset(TEST_SCRIPT_ID, "icons/x.svg");
     expect(mimeType).toBe("image/svg+xml");
     expect(data.toString()).toContain("<svg/>");
   });
 
   it("rejects path traversal", () => {
-    installStarlight();
-    expect(() => host.readAsset("starlight", "../../secret.txt")).toThrow(HostError);
-    expect(() => host.readAsset("starlight", "..\\..\\secret.txt")).toThrow(HostError);
+    installFixture();
+    expect(() => host.readAsset(TEST_SCRIPT_ID, "../../secret.txt")).toThrow(HostError);
+    expect(() => host.readAsset(TEST_SCRIPT_ID, "..\\..\\secret.txt")).toThrow(HostError);
   });
 
   it("rejects disallowed extensions", () => {
-    installStarlight();
-    expect(() => host.readAsset("starlight", "x.exe")).toThrow(HostError);
+    installFixture();
+    expect(() => host.readAsset(TEST_SCRIPT_ID, "x.exe")).toThrow(HostError);
   });
 
   it("404s unknown scripts and assets", () => {
     expect(() => host.readAsset("no-such-script", "a.svg")).toThrow(HostError);
-    installStarlight();
-    expect(() => host.readAsset("starlight", "missing.svg")).toThrow(HostError);
+    installFixture();
+    expect(() => host.readAsset(TEST_SCRIPT_ID, "missing.svg")).toThrow(HostError);
   });
 });
 
 describe("session lifecycle", () => {
   it("creates a session from an installed script and runs a turn", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
     expect(session.state.transcript.length).toBeGreaterThan(0); // opening entry
     const result = await host.turn(session.id, { text: "你好，黑猫" });
     expect(result.narrative.length).toBeGreaterThan(0);
@@ -324,9 +294,9 @@ describe("session lifecycle", () => {
   });
 
   it("save/load round-trips through the host", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
-    await host.turn(session.id, { text: "我去舰桥" });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
+    await host.turn(session.id, { text: "我去维护走廊" });
     const filePath = await host.save(session.id, "host-test");
     expect(filePath).toContain("host-test.json");
     expect(host.listSaves(session.id)).toContain("host-test.json");
@@ -338,8 +308,8 @@ describe("session lifecycle", () => {
   });
 
   it("serializes concurrent turns per session", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
     const results = await Promise.all([
       host.turn(session.id, { text: "你好" }),
       host.turn(session.id, { text: "休息" }),
@@ -351,14 +321,14 @@ describe("session lifecycle", () => {
   });
 
   it("publishes only complete turn snapshots and queues previews behind the turn", async () => {
-    installStarlight();
+    installFixture();
     const provider = new PausingSummaryProvider();
     const gatedHost = new EngineHost({
       scriptsRoot,
       saveStore: createFsSaveStore(dataRoot),
       provider,
     });
-    const session = gatedHost.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    const session = gatedHost.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
     for (let turn = 1; turn < 8; turn += 1) {
       await gatedHost.turn(session.id, { text: `准备记录 ${turn}` });
     }
@@ -384,12 +354,12 @@ describe("session lifecycle", () => {
   });
 
   it("reports session presentation with theme fallback", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
     const presentation = host.sessionPresentation(session.id);
-    expect(presentation.currentTheme.palette.background).toBe("#0b0e14");
+    expect(presentation.currentTheme.palette.background).toBe("#0d1113");
     expect(presentation.themes.map((t) => t.id)).toContain("framework-dark");
-    expect(presentation.themes.map((t) => t.id)).toContain("starlight-bridge");
+    expect(presentation.themes.map((t) => t.id)).toContain("default");
     await host.destroySession(session.id);
   });
 
@@ -401,24 +371,24 @@ describe("session lifecycle", () => {
 
 describe("persistence & autosave", () => {
   it("auto-saves to the fixed autosave slot after every turn", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
-    await host.turn(session.id, { text: "我去舰桥" });
-    const autosavePath = path.join(dataRoot, "saves", "starlight", "autosave.json");
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
+    await host.turn(session.id, { text: "我去维护走廊" });
+    const autosavePath = path.join(dataRoot, "saves", TEST_SCRIPT_ID, "autosave.json");
     expect(existsSync(autosavePath)).toBe(true);
     const raw = JSON.parse(readFileSync(autosavePath, "utf8")) as {
       worldState: { transcript: unknown[] };
     };
     expect(raw.worldState.transcript.length).toBeGreaterThan(0);
     // Atomic write: no .tmp residue next to the slot.
-    const dir = path.join(dataRoot, "saves", "starlight");
+    const dir = path.join(dataRoot, "saves", TEST_SCRIPT_ID);
     expect(readdirSync(dir).some((f) => f.endsWith(".tmp"))).toBe(false);
     await host.destroySession(session.id);
   });
 
   it("serializes advance behind turns on the same session", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
     const beforeHours = host.state(session.id).clock.totalHours;
     const [turnResult] = await Promise.all([
       host.turn(session.id, { text: "你好" }),
@@ -433,8 +403,8 @@ describe("persistence & autosave", () => {
   });
 
   it("serializes descriptor edits and teardown behind an in-flight turn", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
     const relation = host.state(session.id).player.relations[0];
     expect(relation).toBeDefined();
 
@@ -456,9 +426,9 @@ describe("persistence & autosave", () => {
   });
 
   it("resumes a destroyed session from the autosave slot (refresh recovery)", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
-    await host.turn(session.id, { text: "我去舰桥" });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
+    await host.turn(session.id, { text: "我去维护走廊" });
     const transcriptBefore = JSON.stringify(host.state(session.id).transcript);
     await host.destroySession(session.id); // the in-memory session is gone
 
@@ -466,7 +436,7 @@ describe("persistence & autosave", () => {
     // the same path the launcher's "继续上次游戏" takes via
     // createSession({ loadRunId: "autosave.json" }).
     const host2 = new EngineHost({ scriptsRoot, saveStore: createFsSaveStore(dataRoot) });
-    const resumed = host2.createSession({ scriptId: "starlight", loadRunId: "autosave.json" });
+    const resumed = host2.createSession({ scriptId: TEST_SCRIPT_ID, loadRunId: "autosave.json" });
     expect(JSON.stringify(resumed.state.transcript)).toBe(transcriptBefore);
     await host2.destroySession(resumed.id);
   });
@@ -474,14 +444,14 @@ describe("persistence & autosave", () => {
 
 describe("meta-progression persistence", () => {
   it("writeMeta unions existing unlocks with the session's granted origins", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
-    // Seed a meta file as if a previous run had unlocked station-merchant.
-    const metaPath = metaPathForScript("starlight", dataRoot);
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
+    // Seed a meta file as if a previous run had recorded an independent unlock.
+    const metaPath = metaPathForScript(TEST_SCRIPT_ID, dataRoot);
     mkdirSync(path.dirname(metaPath), { recursive: true });
     writeFileSync(
       metaPath,
-      JSON.stringify({ unlockedOrigins: ["station-merchant"], updatedAt: "2026-01-01T00:00:00.000Z" }),
+      JSON.stringify({ unlockedOrigins: ["legacy-observer"], updatedAt: "2026-01-01T00:00:00.000Z" }),
     );
 
     // Give the session the unlock flag by editing a save and reloading it.
@@ -494,28 +464,28 @@ describe("meta-progression persistence", () => {
     await host.load(session.id, "meta-test.json");
 
     const merged = host.writeMeta(session.id);
-    expect(merged).toContain("station-merchant");
-    const meta = host.readMeta("starlight");
-    expect(meta.unlockedOrigins).toContain("station-merchant");
-    expect(meta.lockableOrigins).toContain("station-merchant");
+    expect(merged).toEqual(expect.arrayContaining(["legacy-observer", TEST_ALT_ORIGIN_ID]));
+    const meta = host.readMeta(TEST_SCRIPT_ID);
+    expect(meta.unlockedOrigins).toEqual(expect.arrayContaining(["legacy-observer", TEST_ALT_ORIGIN_ID]));
+    expect(meta.lockableOrigins).toContain(TEST_ALT_ORIGIN_ID);
     await host.destroySession(session.id);
   });
 
   it("readMeta tolerates a corrupt meta file", async () => {
-    installStarlight();
-    const metaPath = metaPathForScript("starlight", dataRoot);
+    installFixture();
+    const metaPath = metaPathForScript(TEST_SCRIPT_ID, dataRoot);
     mkdirSync(path.dirname(metaPath), { recursive: true });
     writeFileSync(metaPath, "{ not json");
-    const meta = host.readMeta("starlight");
+    const meta = host.readMeta(TEST_SCRIPT_ID);
     expect(meta.unlockedOrigins).toEqual([]);
-    expect(meta.lockableOrigins).toContain("station-merchant");
+    expect(meta.lockableOrigins).toContain(TEST_ALT_ORIGIN_ID);
   });
 });
 
 describe("advance death policy", () => {
   it("runs hard_reset on hp 0 and appends a system transcript entry", async () => {
-    installStarlight();
-    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
     // Inject hp = 0 through a save/load round-trip (deterministic trigger).
     const savePath = await host.save(session.id, "dead-test");
     const save = JSON.parse(readFileSync(savePath, "utf8")) as {
