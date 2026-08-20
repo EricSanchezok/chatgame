@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-20T00:00:00+08:00",
+  "title": "Design System: Chatgame",
+  "extensions": {
+    "colorMeta": {
+      "house-black": { "role": "neutral", "displayName": "后台黑", "canonical": "#10110f" },
+      "house-surface": { "role": "neutral", "displayName": "幕间表面", "canonical": "#1b1d1a" },
+      "house-raised": { "role": "neutral", "displayName": "抬升表面", "canonical": "#272924" },
+      "programme-paper": { "role": "neutral", "displayName": "节目单纸色", "canonical": "#efe9dc" },
+      "programme-muted": { "role": "neutral", "displayName": "退后文字", "canonical": "#aaa69d" },
+      "house-brass": { "role": "primary", "displayName": "节目铜", "canonical": "#c6a15b" },
+      "house-focus": { "role": "tertiary", "displayName": "确认青", "canonical": "#8ec9ba" },
+      "house-danger": { "role": "secondary", "displayName": "处理红", "canonical": "#d66a55" }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "当前节目", "purpose": "当前剧本和页面的唯一主标题。" },
+      "body": { "displayName": "玩家正文", "purpose": "设置、说明和剧本元数据。" },
+      "label": { "displayName": "操作标签", "purpose": "按钮、状态和导航。" }
+    },
+    "shadows": [
+      { "name": "protected-focus", "value": "0 18px 48px rgba(0,0,0,0.38)", "purpose": "仅用于保护焦点的 Dialog。" }
+    ],
+    "motion": [
+      { "name": "state", "value": "160ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "hover、按压与状态反馈。" },
+      { "name": "programme-change", "value": "320ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "原子剧本切换完成后的单次聚焦变化。" }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "640px" },
+      { "name": "compact-landscape", "value": "760px" },
+      { "name": "desktop", "value": "1024px" }
+    ]
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "剧目单后台",
+    "overview": "当前剧本是唯一主节目，宿主像可靠的节目板和后台操作台，让玩家先开始或继续游戏，再进入剧本与设置工具。",
+    "keyCharacteristics": ["单一主节目", "平面材料", "明确动作层级", "剧本拥有舞台"],
+    "rules": [
+      { "name": "舞台所有权", "body": "宿主不在剧本舞台中形成第二个品牌层。", "section": "colors" },
+      { "name": "默认平面", "body": "深度只在焦点和临时层出现。", "section": "elevation" }
+    ],
+    "dos": ["让当前剧本封面主导首屏", "为每个控件实现完整交互状态", "保留移动与文字缩放下的任务顺序"],
+    "donts": ["不要使用卡片墙和装饰玻璃", "不要混合设置与剧本导入", "不要用动画掩盖状态竞态"]
+  }
+}
