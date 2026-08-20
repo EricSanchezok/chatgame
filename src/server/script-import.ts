@@ -551,6 +551,7 @@ function installStagedScript(
   scriptsRoot: string,
   replace: boolean,
   sourceLabel: string,
+  beforeReplace?: (scriptId: string) => void,
 ): { scriptId: string; warnings: ValidationIssue[] } {
   const identity = parseScriptIdentity(stagedDir);
   const warnings = validateStaged(stagedDir);
@@ -562,6 +563,7 @@ function installStagedScript(
   if (existsSync(target) && scriptInstallSource(target).kind !== "imported") {
     throw new ScriptImportError(`built-in script "${identity.id}" cannot be replaced`, [], 403);
   }
+  if (existsSync(target) && replace) beforeReplace?.(identity.id);
 
   const nonce = randomUUID();
   const incoming = path.join(scriptsRoot, `.${identity.id}.incoming-${nonce}`);
@@ -590,7 +592,13 @@ function installStagedScript(
 
 export function commitScriptImport(
   token: string,
-  options: { replace: boolean; scriptsRoot?: string; stagingRoot?: string; now?: number },
+  options: {
+    replace: boolean;
+    scriptsRoot?: string;
+    stagingRoot?: string;
+    now?: number;
+    beforeReplace?: (scriptId: string) => void;
+  },
 ): { scriptId: string; warnings: string[] } {
   const scriptsRoot = options.scriptsRoot ?? defaultScriptsRoot();
   const root = options.stagingRoot ?? importPreviewRoot();
@@ -613,7 +621,13 @@ export function commitScriptImport(
     if (options.replace && !record.conflicts.replaceAllowed) {
       throw new ScriptImportError("this preview did not authorize replacement; preview the zip again", [], 409);
     }
-    const result = installStagedScript(path.join(previewDir, record.contentDirName), scriptsRoot, options.replace, record.sourceName);
+    const result = installStagedScript(
+      path.join(previewDir, record.contentDirName),
+      scriptsRoot,
+      options.replace,
+      record.sourceName,
+      options.beforeReplace,
+    );
     return { scriptId: result.scriptId, warnings: result.warnings.map((warning) => warning.message) };
   } finally {
     rmSync(previewDir, { recursive: true, force: true });
@@ -624,7 +638,12 @@ export function commitScriptImport(
 /** CLI/direct host path. Web callers must use preview + commit. */
 export function importScriptFromZip(
   zipBuffer: Buffer,
-  options: { scriptsRoot?: string; replace?: boolean; maxUnpackedBytes?: number } = {},
+  options: {
+    scriptsRoot?: string;
+    replace?: boolean;
+    maxUnpackedBytes?: number;
+    beforeReplace?: (scriptId: string) => void;
+  } = {},
 ): { scriptId: string; warnings: ValidationIssue[] } {
   const root = importTempRoot();
   const staging = path.join(root, `zip-${randomUUID()}`);
@@ -632,7 +651,13 @@ export function importScriptFromZip(
     extractZip(zipBuffer, staging, options.maxUnpackedBytes ?? MAX_UNPACKED_BYTES);
     const scriptDir = findScriptDir(staging);
     if (!scriptDir) throw new ScriptImportError("zip contains no script.yaml");
-    return installStagedScript(scriptDir, options.scriptsRoot ?? defaultScriptsRoot(), options.replace ?? false, "命令行 zip 导入");
+    return installStagedScript(
+      scriptDir,
+      options.scriptsRoot ?? defaultScriptsRoot(),
+      options.replace ?? false,
+      "命令行 zip 导入",
+      options.beforeReplace,
+    );
   } finally {
     rmSync(staging, { recursive: true, force: true });
     pruneEmptyRoot(root);
@@ -641,13 +666,23 @@ export function importScriptFromZip(
 
 export function importScriptFromDir(
   srcDir: string,
-  options: { scriptsRoot?: string; replace?: boolean } = {},
+  options: {
+    scriptsRoot?: string;
+    replace?: boolean;
+    beforeReplace?: (scriptId: string) => void;
+  } = {},
 ): { scriptId: string; warnings: ValidationIssue[] } {
   const absolute = path.resolve(srcDir);
   if (!existsSync(path.join(absolute, "script.yaml"))) {
     throw new ScriptImportError(`directory "${srcDir}" contains no script.yaml`);
   }
-  return installStagedScript(absolute, options.scriptsRoot ?? defaultScriptsRoot(), options.replace ?? false, path.basename(absolute));
+  return installStagedScript(
+    absolute,
+    options.scriptsRoot ?? defaultScriptsRoot(),
+    options.replace ?? false,
+    path.basename(absolute),
+    options.beforeReplace,
+  );
 }
 
 export function removeInstalledScript(

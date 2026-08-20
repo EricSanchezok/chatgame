@@ -200,6 +200,56 @@ describe("script import", () => {
     expect(() => host.importZip(buildTestZip("testzip"), true)).not.toThrow();
   });
 
+  it("keeps an active imported script stable until its session ends", async () => {
+    const scriptId = "testzip";
+    host.importZip(buildTestZip(scriptId));
+    const installedDir = path.join(scriptsRoot, scriptId);
+    const receiptBefore = readFileSync(path.join(installedDir, ".chatgame-source.json"), "utf8");
+    const actionsBefore = readFileSync(path.join(installedDir, "actions.yaml"), "utf8");
+    const session = host.createSession({ scriptId, originId: TEST_ORIGIN_ID, seed: 1 });
+    const hint = { actionId: "investigate" } as const;
+    const previewBefore = await host.previewAction(session.id, hint);
+
+    const v2ActionsPath = path.join(fixtureSource, "actions.yaml");
+    writeFileSync(
+      v2ActionsPath,
+      readFileSync(v2ActionsPath, "utf8").replace("time: 24", "time: 7"),
+    );
+    const replacement = buildTestZip(scriptId);
+    const directoryReplacement = path.join(root, "directory-replacement", scriptId);
+    copyCoreTestScript(directoryReplacement, scriptId);
+    writeFileSync(
+      path.join(directoryReplacement, "assets", "provenance.yaml"),
+      fixtureProvenance(directoryReplacement),
+    );
+    const directoryActionsPath = path.join(directoryReplacement, "actions.yaml");
+    writeFileSync(
+      directoryActionsPath,
+      readFileSync(directoryActionsPath, "utf8").replace("time: 24", "time: 7"),
+    );
+
+    expect(() => host.importZip(replacement, true)).toThrow(
+      expect.objectContaining({ status: 409 }),
+    );
+    expect(() => host.importDir(directoryReplacement, true)).toThrow(
+      expect.objectContaining({ status: 409 }),
+    );
+    expect(readFileSync(path.join(installedDir, ".chatgame-source.json"), "utf8")).toBe(receiptBefore);
+    expect(readFileSync(path.join(installedDir, "actions.yaml"), "utf8")).toBe(actionsBefore);
+    await expect(host.previewAction(session.id, hint)).resolves.toEqual(previewBefore);
+
+    const beforeHours = host.state(session.id).clock.totalHours;
+    await host.turn(session.id, { text: "仍按第一版校验线路", intentHint: hint });
+    expect(host.state(session.id).clock.totalHours).toBe(beforeHours + 24);
+
+    await host.destroySession(session.id);
+    expect(() => host.importZip(replacement, true)).not.toThrow();
+    expect(readFileSync(path.join(installedDir, "actions.yaml"), "utf8")).toContain("time: 7");
+    const replacementSession = host.createSession({ scriptId, originId: TEST_ORIGIN_ID, seed: 1 });
+    await expect(host.previewAction(replacementSession.id, hint)).resolves.toMatchObject({ timeCost: 7 });
+    await host.destroySession(replacementSession.id);
+  });
+
   it("refuses to replace or remove application-owned built-ins", () => {
     installFixture();
     expect(() => host.importZip(buildTestZip(TEST_SCRIPT_ID), true)).toThrow(/cannot be replaced/);
