@@ -28,6 +28,8 @@ Storybook 使用 `@storybook/nextjs-vite` 和 `test/workbench/game-preview-harne
 
 共享 `test/workbench/core-test-script.ts` 与 `MockGamePort` 提供 Storybook、单元和视觉状态；`MockGamePort` 不进入生产玩家流程。`test/fixtures/core-test-library/core-test-script/` 提供可由生产 loader 读取的独立严格 YAML、Engine API v2 与 UI API v3 fixture，Playwright 用隔离 scripts/data root 驱动它并在套件边界清空数据。
 
+引擎、宿主和脚本契约的通用测试也必须从该独立 fixture 构造世界，不得把《灰烬镇》或《星港》当作平台夹具。只有验证某个内置剧本具体内容关系、素材清单或完整事件闭环的测试可以加载该剧本，并必须放在明确命名的内容回归分组中。
+
 fixture 注册全部公开 UI slot；注册集合由单元契约验证，真实生命周期覆盖 launcher、完整回合、event/location cue、自定义 bubble、panel、pause/save/exit/destroy/continue 与剧本设置。generation 竞态测试保证 world、主题和 bundle 描述符原子归属同一剧本。
 
 视觉矩阵覆盖 390×844、768×1024、1440×900、短横屏、200% 文字、减少动效、高对比和主要空、载入、失败、长内容、dialog、剧本库与设置状态，基线保存在 `e2e/__screenshots__/`。
