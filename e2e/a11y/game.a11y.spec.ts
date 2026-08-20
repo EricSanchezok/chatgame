@@ -19,6 +19,12 @@ test.afterEach(async ({ request }) => {
   await destroyActiveSessions(request);
 });
 
+test.beforeEach(async ({ page }) => {
+  // Axe must inspect the settled UI, not a transient opacity frame. This also
+  // exercises the required reduced-motion preference without timing sleeps.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+});
+
 test("real launcher, dialog, script library and settings have no serious axe failures", async ({ page }) => {
   await openRealLauncher(page);
   await expectNoSeriousWcagViolations(page);
