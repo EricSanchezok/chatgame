@@ -14,6 +14,7 @@ import { checkTasks } from "./tasks";
 import { playEvent, checkScheduledEvents, playAmbientEvent } from "./events";
 import { applyEffects } from "./effect";
 import { chance } from "./rng";
+import { runLifecycle } from "./extensions";
 
 /** Ambient event play chance per day while in a location with ambient events. */
 export const AMBIENT_EVENT_CHANCE = 0.3;
@@ -118,6 +119,7 @@ export function stepWorld(
 
   // Hourly loop: clock + needs decay + NPC schedule movement.
   for (let h = 0; h < hoursLeft; h++) {
+    const beforeState = current;
     const before = current.clock;
     const after = advanceClock(current.clock, definition, 1);
     current = { ...current, clock: after };
@@ -140,6 +142,21 @@ export function stepWorld(
         }
       }
       if (npcsChanged) current = { ...current, npcs: nextNpcs };
+    }
+
+    const hourly = runLifecycle("hour", current, { definition, previousState: beforeState });
+    current = hourly.state;
+    for (const summary of hourly.summaries) {
+      const log: EventLogEntry = {
+        id: `log-${current.eventLog.length + 1}`,
+        day: absoluteDay(definition, current.clock),
+        hour: current.clock.hour,
+        type: "system",
+        actor: "extension",
+        summary,
+      };
+      current = { ...current, eventLog: [...current.eventLog, log] };
+      logEntries.push(log);
     }
 
     // Daily boundary batch.
@@ -220,6 +237,21 @@ export function stepWorld(
         }
       }
       if (tensionChanged) current = { ...current, director: { ...current.director, tension } };
+
+      const boundary = runLifecycle("dayBoundary", current, { definition, previousState: beforeState });
+      current = boundary.state;
+      for (const summary of boundary.summaries) {
+        const log: EventLogEntry = {
+          id: `log-${current.eventLog.length + 1}`,
+          day,
+          hour: current.clock.hour,
+          type: "system",
+          actor: "extension",
+          summary,
+        };
+        current = { ...current, eventLog: [...current.eventLog, log] };
+        logEntries.push(log);
+      }
     }
   }
 

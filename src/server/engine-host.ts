@@ -16,6 +16,7 @@ import { importScriptFromZip, importScriptFromDir, defaultScriptsRoot } from "./
 import { saveDirForScript, metaPathForScript, createDataStore, type SaveStore } from "../engine/save-store";
 import type { WorldState, TurnResult, WorldDefinition } from "../engine/types";
 import type { Theme } from "../script/schemas/theme";
+import type { ActionPreview, IntentHint, TurnInput } from "../shared/client-dto";
 
 export class HostError extends Error {
   readonly status: number;
@@ -372,7 +373,7 @@ export class EngineHost {
   }
 
   /** Runs one player turn; auto-saves + merges meta after success. */
-  turn(sessionId: string, input: string): Promise<TurnResult> {
+  turn(sessionId: string, input: TurnInput): Promise<TurnResult> {
     return this.enqueue(sessionId, async (session) => {
       const result = await session.engine.playerTurn(input);
       session.lastActivity = Date.now();
@@ -386,6 +387,12 @@ export class EngineHost {
       this.writeMeta(session.id);
       return result;
     });
+  }
+
+  previewAction(sessionId: string, hint: IntentHint): ActionPreview {
+    const record = this.requireSession(sessionId);
+    record.lastActivity = Date.now();
+    return record.engine.previewAction(hint);
   }
 
   /** Offline advance (serialized per session; death policy runs inside). */
@@ -565,7 +572,7 @@ export class EngineHost {
    */
   async resolveAsset(
     scriptId: string,
-    kind: keyof ReturnType<typeof buildAssetManifest>,
+    kind: Exclude<keyof ReturnType<typeof buildAssetManifest>, "cover">,
     entityId: string,
   ): Promise<{ data: Buffer; mimeType: string } | null> {
     const manifest = buildAssetManifest(this.loadDefinition(scriptId));

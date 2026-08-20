@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
 import { ItemCard } from "./cards";
 import { UiIcon } from "./ui-icon";
-import { useGame, type PanelId } from "./state";
+import { useGameActions, type PanelId } from "./state";
 
 const PANEL_TITLES: Record<PanelId, string> = {
   inventory: "背包",
@@ -173,7 +173,7 @@ function DescriptorEdit({
   /** Human-readable target name for the aria-label. */
   label: string;
 }) {
-  const { updateDescriptor } = useGame();
+  const { updateDescriptor } = useGameActions();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
   if (editing) {
@@ -278,7 +278,7 @@ function CharacterPanel({
   onClose: () => void;
   panel: PanelId;
 }) {
-  const { advance } = useGame();
+  const { advance } = useGameActions();
   const hpMax = catalog.stats.find((s) => s.name === catalog.hpStat)?.max ?? 100;
   const hp = state.player.stats[catalog.hpStat] ?? 0;
   return (
@@ -455,7 +455,7 @@ function TasksPanel({
   onClose: () => void;
   panel: PanelId;
 }) {
-  const { advance } = useGame();
+  const { advance } = useGameActions();
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.tasks} scriptId={scriptId} assets={assets} onClose={onClose}>
       <AdvanceControls onAdvance={advance} disabled={false} />

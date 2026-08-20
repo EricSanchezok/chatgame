@@ -131,8 +131,10 @@ export function scheduleAt(
     const [toH, toM] = entry.to.split(":").map(Number);
     const from = fromH * 60 + fromM;
     const to = toH * 60 + toM;
-    // Entries are assumed to be within one day (from < to).
-    if (timeKey >= from && timeKey < to) {
+    const active = from < to
+      ? timeKey >= from && timeKey < to
+      : timeKey >= from || timeKey < to;
+    if (active) {
       return { activity: entry.activity, locationId: entry.location };
     }
   }
@@ -148,5 +150,4 @@ export function worldAdvances(definition: WorldDefinition): boolean {
 export function hoursBetween(definition: WorldDefinition, from: GameClock, to: GameClock): number {
   return to.totalHours - from.totalHours;
 }
-
 

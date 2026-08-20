@@ -3,7 +3,7 @@ name: 采集药草
 objective:
   type: gather
   target:
-    pool: [herb]
+    items: [herb]
     of_type: material
   quantity: 3
 giver:

@@ -2,28 +2,43 @@
 import { z } from "zod";
 import { conditionSchema, effectSchema, extSchema, idSchema } from "./common";
 
-const taskObjectiveSchema = z
-  .object({
-    type: z.enum(["deliver", "gather", "hunt", "escort", "investigate", "persuade", "travel"]),
-    target: z
-      .object({
-        pool: z.array(idSchema).optional(),
-        any: z.boolean().optional(),
-        of_type: z
-          .enum([
-            "consumable",
-            "equipment",
-            "quest",
-            "material",
-            "currency_item",
-            "misc",
-          ])
-          .optional(),
-      })
-      .strict(),
+const itemTypeSchema = z.enum([
+  "consumable",
+  "equipment",
+  "quest",
+  "material",
+  "currency_item",
+  "misc",
+]);
+
+const taskObjectiveSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("gather"),
+    target: z.object({ items: z.array(idSchema).min(1).optional(), of_type: itemTypeSchema.optional() }).strict()
+      .refine((target) => target.items !== undefined || target.of_type !== undefined, "gather target requires items or of_type"),
     quantity: z.number().int().positive().default(1),
-  })
-  .strict();
+  }).strict(),
+  z.object({
+    type: z.literal("deliver"),
+    target: z.object({ item: idSchema, recipient: idSchema }).strict(),
+    quantity: z.number().int().positive().default(1),
+  }).strict(),
+  z.object({ type: z.literal("hunt"), target: z.object({ npc: idSchema }).strict(), quantity: z.number().int().positive().default(1) }).strict(),
+  z.object({
+    type: z.literal("escort"),
+    target: z.object({ npc: idSchema.optional(), destination: idSchema.optional(), any: z.literal(true).optional() }).strict()
+      .refine((target) => target.any === true || target.npc !== undefined, "escort target requires npc or any"),
+    quantity: z.number().int().positive().default(1),
+  }).strict(),
+  z.object({
+    type: z.literal("investigate"),
+    target: z.object({ subject: idSchema.optional(), any: z.literal(true).optional() }).strict()
+      .refine((target) => target.any === true || target.subject !== undefined, "investigate target requires subject or any"),
+    quantity: z.number().int().positive().default(1),
+  }).strict(),
+  z.object({ type: z.literal("persuade"), target: z.object({ npc: idSchema }).strict(), quantity: z.number().int().positive().default(1) }).strict(),
+  z.object({ type: z.literal("travel"), target: z.object({ location: idSchema }).strict(), quantity: z.number().int().positive().default(1) }).strict(),
+]);
 
 const giverSchema = z
   .object({

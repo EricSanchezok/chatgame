@@ -52,6 +52,10 @@ const fileEntrySchema = z
 
 export const assetsSchema = z
   .object({
+    /** Static launcher cover. It must be a local file; generated media is not launcher truth. */
+    cover: fileEntrySchema
+      .refine((entry) => entry.file !== undefined, { message: "cover must declare a local file" })
+      .optional(),
     /** NPC portraits, keyed by npc id. */
     portraits: z.record(idSchema, fileEntrySchema).default({}),
     /** Location background scenes, keyed by location id. */

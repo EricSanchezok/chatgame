@@ -5,10 +5,16 @@ palette:
   surface: "#1a1008"
   surface_alt: "#241608"
   primary: "#ff8c42"
+  on_primary: "#160904"
   accent: "#ffb16e"
   text: "#f5e8d8"
-  text_dim: "#b3987e"
+  text_dim: "#c4a98e"
   border: "#4a2e18"
+  focus: "#8ec9ba"
+  success: "#8ab78a"
+  warning: "#efb45e"
+  danger: "#f07862"
+  selected: "#3a220e"
 typography:
   font: sans
   scale: 1.0

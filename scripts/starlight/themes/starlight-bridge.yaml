@@ -4,11 +4,17 @@ palette:
   background: "#060a14"
   surface: "#0d1424"
   surface_alt: "#131c30"
-  primary: "#2f6fff"
+  primary: "#99b5ff"
+  on_primary: "#070b14"
   accent: "#5f8fff"
   text: "#e6edff"
-  text_dim: "#93a4c8"
+  text_dim: "#a8b7d6"
   border: "#1c2a4a"
+  focus: "#8ec9ba"
+  success: "#80bda5"
+  warning: "#e3b55e"
+  danger: "#e27a68"
+  selected: "#1c2a48"
 typography:
   font: mono
   scale: 1.0

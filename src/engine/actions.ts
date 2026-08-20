@@ -17,6 +17,7 @@ import { checkWorldRules } from "./rules";
 import { rollD20 } from "./rng";
 import { BUILTIN_HANDLERS } from "./builtins";
 import { applyProgression } from "./mechanics/progression";
+import type { ActionPreview, IntentHint } from "../shared/client-dto";
 
 export interface ResolutionContext {
   definition: WorldDefinition;
@@ -186,6 +187,72 @@ function payCosts(
   // Time cost is applied after effects (see resolveAction); validated here only.
   return next;
 }
+
+/** Authoritative, side-effect-free action preflight used by the host composer. */
+export function previewAction(
+  definition: WorldDefinition,
+  state: WorldState,
+  hint: IntentHint,
+): ActionPreview {
+  const action = findAction(definition, hint.actionId);
+  const displayName = action?.display_name ?? hint.actionId;
+  const timeCost = Math.max(action?.costs?.time ?? 1, 1);
+  const costs = {
+    currency: action?.costs?.currency ?? 0,
+    items: (action?.costs?.items ?? []).map((item) => ({ itemId: item.item, quantity: item.quantity })),
+  };
+  const resolve = action?.resolve;
+  const risk: ActionPreview["risk"] = !resolve || resolve.type === "auto" || resolve.type === "narrative_only"
+    ? { type: "none" }
+    : resolve.type === "stat_check"
+      ? { type: "stat", key: resolve.stat, dc: resolve.dc }
+      : resolve.type === "skill_check"
+        ? { type: "skill", key: resolve.skill, dc: resolve.dc }
+        : { type: "opposed", key: resolve.stat };
+  const targetNpcId = hint.target && definition.npcs.has(hint.target) ? hint.target : undefined;
+  const legality = checkActionLegality(definition, state, hint.actionId, targetNpcId);
+  if (!action || !legality.ok) {
+    return {
+      actionId: hint.actionId,
+      displayName,
+      executable: false,
+      reasonCode: legality.ok ? "unknown_action" : legality.reasonCode,
+      reason: legality.ok ? "action is not available" : legality.message,
+      timeCost,
+      costs,
+      risk,
+    };
+  }
+  const afterCosts = payCosts(state, action);
+  if (!afterCosts) {
+    return { actionId: hint.actionId, displayName, executable: false, reasonCode: "unaffordable", reason: "costs are not available", timeCost, costs, risk };
+  }
+  const handler = action.handler
+    ? definition.extensions.actionHandlers[action.handler]
+    : BUILTIN_HANDLERS[hint.actionId];
+  if (handler) {
+    const outcome = handler({
+      definition,
+      state: afterCosts,
+      grade: "success",
+      targetNpcId,
+      params: { ...(hint.params ?? {}), ...(hint.target ? { target: hint.target } : {}) },
+    });
+    if (outcome.rejected) {
+      return {
+        actionId: hint.actionId,
+        displayName,
+        executable: false,
+        reasonCode: outcome.rejectReason ?? "action_rejected",
+        reason: outcome.rejectMessage ?? "the action cannot be performed now",
+        timeCost,
+        costs,
+        risk,
+      };
+    }
+  }
+  return { actionId: hint.actionId, displayName, executable: true, timeCost, costs, risk };
+}
 /**
  * Resolves an action end-to-end. Returns the new state + resolution log.
  * Pure immutable; all randomness flows through state.rng.
@@ -266,6 +333,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   //     (overrides the built-in registry for the same id). Built-in actions
   //     without a declared handler use the framework registry.
   let actionSummaries: string[] = [];
+  let handlerTimeCost: number | undefined;
   const customHandler = action.handler
     ? definition.extensions?.actionHandlers[action.handler]
     : undefined;
@@ -280,6 +348,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     });
     finalState = builtinOut.state;
     actionSummaries = builtinOut.summaries;
+    handlerTimeCost = builtinOut.timeCost;
     if (builtinOut.rejected) {
       return {
         state,
@@ -294,13 +363,15 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
 
   // 4c. Progression (stat_check / skill_check sources) after the check.
   if (action.resolve && (action.resolve.type === "stat_check" || action.resolve.type === "skill_check")) {
-    const prog = applyProgression(finalState, definition, action.resolve.type);
+    const prog = applyProgression(finalState, definition, action.resolve.type, {
+      target: action.resolve.type === "stat_check" ? action.resolve.stat : action.resolve.skill,
+    });
     finalState = prog.state;
   }
 
   // 5. Effective time cost (>= 1h, anti-spam). The caller (playerTurn)
   //    steps the world by this amount — clock advancement is NOT here.
-  const effectiveTimeCost = Math.max(action.costs?.time ?? 1, 1);
+  const effectiveTimeCost = handlerTimeCost ?? Math.max(action.costs?.time ?? 1, 1);
 
   // 5b. Record the cooldown anchor (absolute day) for actions that declare
   //     a cooldown, so the legality gate can reject early repeats.

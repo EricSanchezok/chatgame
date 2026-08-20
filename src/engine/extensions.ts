@@ -3,7 +3,8 @@
 // over immutable state — the same discipline as built-in engine modules.
 // The script registers handlers at load time; the engine dispatches to them
 // for unknown effect kinds / condition sources / custom action handlers.
-import type { WorldState, WorldDefinition, ResultGrade } from "./types";
+import type { WorldState, WorldDefinition, ResultGrade, ResolutionLogEntry } from "./types";
+import type { TurnInput } from "../shared/client-dto";
 import type { Effect, ConditionValue } from "../script/schemas/common";
 import type { BuiltinContext, BuiltinOutcome } from "./builtins";
 
@@ -40,11 +41,29 @@ export type RuntimeConditionEvaluator = (
 /** Custom action handler (same shape as built-in handlers). */
 export type RuntimeActionHandler = (ctx: BuiltinContext) => BuiltinOutcome;
 
+export interface RuntimeLifecycleContext {
+  definition: WorldDefinition;
+  previousState?: WorldState;
+  turnInput?: TurnInput;
+  resolution?: ResolutionLogEntry;
+}
+
+export type RuntimeLifecycleHandler = (
+  state: WorldState,
+  ctx: RuntimeLifecycleContext,
+) => { state: WorldState; summaries: string[] };
+
 /** Handlers registered by the script's engine extension (immutable after load). */
 export interface ScriptExtensions {
   effects: Record<string, RuntimeEffectHandler>;
   conditions: Record<string, RuntimeConditionEvaluator>;
   actionHandlers: Record<string, RuntimeActionHandler>;
+  lifecycle: {
+    sessionStart: RuntimeLifecycleHandler[];
+    turnResolved: RuntimeLifecycleHandler[];
+    hour: RuntimeLifecycleHandler[];
+    dayBoundary: RuntimeLifecycleHandler[];
+  };
 }
 
 /** Registration surface passed to the script's engine/index.ts default export. */
@@ -52,4 +71,29 @@ export interface EngineExtensionContext {
   registerEffect(kind: string, handler: RuntimeEffectHandler): void;
   registerConditionSource(source: string, evaluator: RuntimeConditionEvaluator): void;
   registerActionHandler(id: string, handler: RuntimeActionHandler): void;
+  onSessionStart(handler: RuntimeLifecycleHandler): void;
+  onTurnResolved(handler: RuntimeLifecycleHandler): void;
+  onHour(handler: RuntimeLifecycleHandler): void;
+  onDayBoundary(handler: RuntimeLifecycleHandler): void;
+}
+
+export type LifecyclePhase = keyof ScriptExtensions["lifecycle"];
+
+/** Runs registered lifecycle handlers in declaration order. */
+export function runLifecycle(
+  phase: LifecyclePhase,
+  state: WorldState,
+  context: RuntimeLifecycleContext,
+): { state: WorldState; summaries: string[] } {
+  let current = state;
+  const summaries: string[] = [];
+  for (const handler of context.definition.extensions.lifecycle[phase]) {
+    const result = handler(current, { ...context, previousState: context.previousState ?? state });
+    if (result.state.scriptId !== state.scriptId) {
+      throw new Error(`lifecycle ${phase} cannot change the active script id`);
+    }
+    current = result.state;
+    summaries.push(...result.summaries);
+  }
+  return { state: current, summaries };
 }

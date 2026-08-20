@@ -396,6 +396,8 @@ export interface WorldState {
   contextSummary?: ContextSummary;
   /** Script-extension-owned persistent state (opaque to the engine). */
   runtimeState: Record<string, unknown>;
+  /** Need threshold keys currently active; prevents sustained effects from drifting stats. */
+  activeNeedThresholds?: string[];
  }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 # emberfall presentation assets — 手绘分层 SVG 资产套件。
 # 风格：暖铜烬色（深褐底 + 铜橙高光 + 余烬尘点），统一调色板。
 # file 项指向 assets/ 下真实文件；prompt 项为文生图/TTS 占位。
+cover: { file: assets/backgrounds/town-square.svg, alt: 灰烬镇暮色节目封面 }
 portraits:
   elara: { file: assets/portraits/elara.svg, alt: 艾拉，灰烬酒馆老板娘 }
   old-miner: { file: assets/portraits/old-miner.svg, alt: 老矿工，额上矿灯 }

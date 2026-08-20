@@ -55,17 +55,23 @@ const systemFontRoleSchema = z.enum(["serif", "sans", "mono"]);
 /** CSS font roles: either a declared face id or a system role. */
 const fontRoleSchema = z.union([idSchema, systemFontRoleSchema]);
 
-/** The palette: 8 whitelisted hex colors. */
+/** Semantic palette consumed exclusively through `--cg-*` variables. */
 const paletteSchema = z
   .object({
     background: hexColorSchema,
     surface: hexColorSchema,
     surface_alt: hexColorSchema,
     primary: hexColorSchema,
+    on_primary: hexColorSchema,
     accent: hexColorSchema,
     text: hexColorSchema,
     text_dim: hexColorSchema,
     border: hexColorSchema,
+    focus: hexColorSchema,
+    success: hexColorSchema,
+    warning: hexColorSchema,
+    danger: hexColorSchema,
+    selected: hexColorSchema,
   })
   .strict();
 
@@ -178,10 +184,16 @@ const locationOverrideSchema = z
     surface: hexColorSchema.optional(),
     surface_alt: hexColorSchema.optional(),
     primary: hexColorSchema.optional(),
+    on_primary: hexColorSchema.optional(),
     accent: hexColorSchema.optional(),
     text: hexColorSchema.optional(),
     text_dim: hexColorSchema.optional(),
     border: hexColorSchema.optional(),
+    focus: hexColorSchema.optional(),
+    success: hexColorSchema.optional(),
+    warning: hexColorSchema.optional(),
+    danger: hexColorSchema.optional(),
+    selected: hexColorSchema.optional(),
     effects: effectsOverrideSchema.optional(),
     typography: typographyOverrideSchema.optional(),
   })

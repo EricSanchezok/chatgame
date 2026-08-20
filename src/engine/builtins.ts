@@ -26,6 +26,8 @@ export interface BuiltinOutcome {
   rejected?: boolean;
   rejectReason?: string;
   rejectMessage?: string;
+  /** Authoritative traversal duration in engine hours. */
+  timeCost?: number;
 }
 
 export type BuiltinHandler = (ctx: BuiltinContext) => BuiltinOutcome;
@@ -82,27 +84,34 @@ function transfer(
 }
 
 /** BFS reachability across the location connection graph. */
-function locationReachable(
+function travelPath(
   definition: WorldDefinition,
+  state: WorldState,
   from: string,
   to: string,
-): boolean {
-  if (from === to) return true;
+): Array<{ from: string; to: string; travelMinutes: number }> | null {
+  if (from === to) return [];
   const visited = new Set<string>([from]);
-  const queue = [from];
+  const queue: Array<{ locationId: string; edges: Array<{ from: string; to: string; travelMinutes: number }> }> = [
+    { locationId: from, edges: [] },
+  ];
   while (queue.length > 0) {
     const current = queue.shift()!;
-    const loc = definition.locations.get(current);
+    const loc = definition.locations.get(current.locationId);
     if (!loc) continue;
     for (const conn of loc.connections ?? []) {
-      if (conn.to === to) return true;
+      const atEdge = { ...state, player: { ...state.player, locationId: current.locationId } };
+      if (movementBlocked(definition, atEdge, current.locationId, conn.to)) continue;
+      const edge = { from: current.locationId, to: conn.to, travelMinutes: conn.travel_time };
+      const edges = [...current.edges, edge];
+      if (conn.to === to) return edges;
       if (!visited.has(conn.to) && definition.locations.has(conn.to)) {
         visited.add(conn.to);
-        queue.push(conn.to);
+        queue.push({ locationId: conn.to, edges });
       }
     }
   }
-  return false;
+  return null;
 }
 
 /** Checks entry/exit conditions for a move/travel between two locations. */
@@ -170,7 +179,11 @@ const moveHandler: BuiltinHandler = (ctx) => {
   if (!direct) return reject("not_directly_connected", "that place is not directly reachable from here", ctx);
   const blocked = movementBlocked(definition, state, current, target);
   if (blocked) return reject("movement_blocked", blocked, ctx);
-  return ok({ ...state, player: { ...state.player, locationId: target } }, [`moved to ${target}`]);
+  const edge = loc?.connections?.find((connection) => connection.to === target);
+  return {
+    ...ok({ ...state, player: { ...state.player, locationId: target } }, [`moved to ${target}`]),
+    timeCost: Math.max(1, Math.ceil((edge?.travel_time ?? 60) / 60)),
+  };
 };
 
 const travelHandler: BuiltinHandler = (ctx) => {
@@ -178,12 +191,18 @@ const travelHandler: BuiltinHandler = (ctx) => {
   const target = typeof params?.target === "string" ? params.target : undefined;
   if (!target) return reject("invalid_target", "no target location", ctx);
   const current = state.player.locationId;
-  if (!locationReachable(definition, current, target)) {
+  const path = travelPath(definition, state, current, target);
+  if (!path) {
     return reject("unreachable", "that place is not reachable from here", ctx);
   }
-  const blocked = movementBlocked(definition, state, current, target);
-  if (blocked) return reject("movement_blocked", blocked, ctx);
-  return ok({ ...state, player: { ...state.player, locationId: target } }, [`traveled to ${target}`]);
+  const travelMinutes = path.reduce((sum, edge) => sum + edge.travelMinutes, 0);
+  return {
+    ...ok(
+      { ...state, player: { ...state.player, locationId: target } },
+      path.map((edge) => `traveled ${edge.from} -> ${edge.to}`),
+    ),
+    timeCost: Math.max(1, Math.ceil(travelMinutes / 60)),
+  };
 };
 
 const useItemHandler: BuiltinHandler = (ctx) => {

@@ -33,10 +33,16 @@ export const FRAMEWORK_DARK_THEME: Theme = {
     surface: "#171a21",
     surface_alt: "#1e222b",
     primary: "#6ea8fe",
+    on_primary: "#0b111b",
     accent: "#9ecbff",
     text: "#e6e9ef",
     text_dim: "#9aa3b2",
     border: "#2a2f3a",
+    focus: "#8ec9ba",
+    success: "#82b99e",
+    warning: "#e3b55e",
+    danger: "#df7866",
+    selected: "#283246",
   },
   typography: { font: "sans", scale: 1.0, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
   effects: {
@@ -62,10 +68,16 @@ export const FRAMEWORK_LIGHT_THEME: Theme = {
     surface: "#ffffff",
     surface_alt: "#ece9e2",
     primary: "#2f6f4f",
+    on_primary: "#ffffff",
     accent: "#4a8f6c",
     text: "#22262b",
     text_dim: "#6a7280",
     border: "#d8d4c9",
+    focus: "#176a58",
+    success: "#2f7757",
+    warning: "#8a5a00",
+    danger: "#a63f32",
+    selected: "#dce9e1",
   },
   typography: { font: "sans", scale: 1.0, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
   effects: {
@@ -164,6 +176,7 @@ export interface ResolvedAsset {
 
 /** Classifies manifest entries into available files vs prompt placeholders. */
 export function buildAssetManifest(definition: WorldDefinition): {
+  cover?: ResolvedAsset;
   portraits: Record<string, ResolvedAsset>;
   backgrounds: Record<string, ResolvedAsset>;
   icons: Record<string, ResolvedAsset>;
@@ -175,6 +188,7 @@ export function buildAssetManifest(definition: WorldDefinition): {
 } {
   const empty = (): Record<string, ResolvedAsset> => ({});
   const out = {
+    cover: undefined as ResolvedAsset | undefined,
     portraits: empty(),
     backgrounds: empty(),
     icons: empty(),
@@ -186,7 +200,13 @@ export function buildAssetManifest(definition: WorldDefinition): {
   };
   const manifest: AssetsManifest | undefined = definition.assets;
   if (!manifest) return out;
-  for (const kind of Object.keys(out) as Array<keyof typeof out>) {
+  if (manifest.cover) {
+    out.cover = {
+      file: manifest.cover.file,
+      alt: manifest.cover.alt,
+    };
+  }
+  for (const kind of ["portraits", "backgrounds", "icons", "sprites", "voices", "ambient", "effects", "ui"] as const) {
     const section = manifest[kind] as Record<string, ResolvedAsset> | undefined;
     if (!section) continue;
     for (const [id, entry] of Object.entries(section)) {

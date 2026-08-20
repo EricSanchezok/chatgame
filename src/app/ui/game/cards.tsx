@@ -5,7 +5,7 @@
 // -> initial-letter avatar, no background -> solid color card.
 
 import type { AssetManifest, Catalog, MediaCue, TranscriptEntry, WorldState } from "../../lib/api";
-import { api } from "../../lib/api";
+import { httpGamePort } from "../../lib/api";
 import { UiIcon } from "./ui-icon";
 
 /** Resolution grade -> display label. */
@@ -28,13 +28,13 @@ export function gradeLabel(grade: string): string {
 export function assetSrc(
   scriptId: string,
   manifest: AssetManifest | undefined,
-  kind: keyof AssetManifest,
+  kind: Exclude<keyof AssetManifest, "cover">,
   entityId: string,
 ): string {
   const entry = manifest?.[kind][entityId];
   if (!entry) return "";
-  if (entry.file) return api.fileAsset(scriptId, entry.file);
-  if (entry.prompt) return api.entityAsset(scriptId, kind, entityId);
+  if (entry.file) return httpGamePort.assetUrl(scriptId, entry.file);
+  if (entry.prompt) return httpGamePort.entityAssetUrl(scriptId, kind, entityId);
   return "";
 }
 
