@@ -287,6 +287,33 @@ describe("world rules (RuleOK)", () => {
       expect(result.reasonCode).toContain("rule");
     }
   });
+
+  it("runs a script-registered rule mechanism", () => {
+    const { def, state } = setup();
+    const atNight = { ...state, clock: { ...state.clock, hour: 23 } };
+    const result = checkWorldRules({
+      definition: def,
+      state: atNight,
+      actionId: "travel",
+      target: "mine-entrance",
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reasonCode).toBe("rule:night-travel-forbidden");
+  });
+
+  it("rejects an unregistered rule mechanism loudly", () => {
+    const { def, state } = setup();
+    const result = checkWorldRules({
+      definition: {
+        ...def,
+        world: { ...def.world, rules: [{ id: "broken", text: "broken", mechanism: "missing" }] },
+      },
+      state,
+      actionId: "talk",
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reasonCode).toBe("unregistered_rule:missing");
+  });
 });
 
 describe("commitments", () => {
@@ -331,15 +358,19 @@ describe("commitments", () => {
 
   it("secretRevealable respects reveal condition (relationship + flag)", () => {
     const { def, state } = setup();
+    const heldByElara = {
+      ...state,
+      secretHolders: { ...state.secretHolders, "mine-secret": "elara" },
+    };
     // elara's mine-secret requires player relationship >= 60 AND flag miner-badge-shown
-    const notRevealable = secretRevealable(state, def, "elara", "mine-secret");
+    const notRevealable = secretRevealable(heldByElara, def, "elara", "mine-secret");
     expect(notRevealable).toBe(false);
     const withRel = {
-      ...state,
+      ...heldByElara,
       npcs: {
-        ...state.npcs,
+        ...heldByElara.npcs,
         elara: {
-          ...state.npcs.elara,
+          ...heldByElara.npcs.elara,
           relations: [{ npcId: "player", value: 80, stance: "allied", type: "business" }],
         },
       },
@@ -351,6 +382,17 @@ describe("commitments", () => {
       player: { ...withRel.player, flags: [...withRel.player.flags, "miner-badge-shown"] },
     };
     expect(secretRevealable(withBoth, def, "elara", "mine-secret")).toBe(true);
+  });
+
+  it("uses the runtime secret holder as the NPC knowledge boundary", () => {
+    const { def, state } = setup();
+    const reassigned = {
+      ...state,
+      facts: [...state.facts, "mine-secret"],
+      secretHolders: { ...state.secretHolders, "mine-secret": "old-miner" },
+    };
+    expect(secretRevealable(reassigned, def, "elara", "mine-secret")).toBe(false);
+    expect(secretRevealable(reassigned, def, "old-miner", "mine-secret")).toBe(true);
   });
 
   it("commitmentTriggerFires checks time + condition", () => {

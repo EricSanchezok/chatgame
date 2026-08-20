@@ -5,16 +5,14 @@ background: |
 rules:
   - id: no-matter-creation
     text: 任何人不能凭空创造物品；物品只能来自采集、交易或工艺制造
-    mechanism: inventory
+    mechanism: no_matter_creation
   - id: magic-needs-material
     text: 施法必须消耗施法材料（如灰烬草），否则法术无法发动
-    mechanism: combat
   - id: night-travel-forbidden
     text: 夜间（22:00 至次日 06:00）不得远行，山路与林道夜间关闭
-    mechanism: travel
+    mechanism: night_travel
   - id: ash-corruption
     text: 吸入过量灰烬会累积"灰肺"状态，降低行动能力
-    mechanism: combat
 taboos:
   - id: no-secret-leak
     text: 不得让 NPC 透露未满足揭露条件的秘密

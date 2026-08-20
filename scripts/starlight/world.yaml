@@ -2,13 +2,10 @@ background: "星港是一艘殖民时代的环状空间站，如今孤悬在太�
 rules:
   - id: rule-oxygen
     text: "无氧与低压舱段会持续消耗氧气需求值，耗尽即扣减生命"
-    mechanism: needs
   - id: rule-airlock
     text: "穿过气密隔舱需要船员证或对应权限标志"
-    mechanism: inventory
   - id: rule-reactor-zone
     text: "未持有反应堆层权限时不得进入反应堆层"
-    mechanism: combat
 taboos:
   - id: taboo-ai-leak
     text: "不得让 NPC 在揭露条件满足前透露灯塔秘密"

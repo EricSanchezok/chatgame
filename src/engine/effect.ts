@@ -497,6 +497,7 @@ function applySecret(
   // these). NPCs record the reveal on themselves.
   if (target === "player") {
     const facts = state.facts.includes(secretId) ? state.facts : [...state.facts, secretId];
+    const holder = state.secretHolders[secretId];
     return {
       state: {
         ...state,
@@ -504,7 +505,7 @@ function applySecret(
         npcs: Object.fromEntries(
           Object.entries(state.npcs).map(([id, n]) => [
             id,
-            n.revealedSecrets.includes(secretId)
+            id !== holder || n.revealedSecrets.includes(secretId)
               ? n
               : { ...n, revealedSecrets: [...n.revealedSecrets, secretId] },
           ]),
@@ -549,8 +550,8 @@ export function applyEffects(
 
   for (const effect of effects) {
     // Custom effect kinds are dispatched to the script's engine extension.
-    // Unregistered kinds are skipped with a summary (the validator reports
-    // them as errors at load time, so this is a runtime-only safety net).
+    // Unregistered kinds fail loudly. Preview/import validation normally
+    // catches this first; the runtime guard protects programmatic callers.
     if (!isBuiltinEffect(effect)) {
       const handler = options.definition.extensions?.effects[effect.kind];
       if (handler) {
@@ -558,7 +559,7 @@ export function applyEffects(
         current = out.state;
         summaries.push(...out.summaries);
       } else {
-        summaries.push(`custom effect "${effect.kind}" has no registered handler`);
+        throw new Error(`custom effect "${effect.kind}" has no registered handler`);
       }
       continue;
     }
@@ -601,9 +602,28 @@ export function applyEffects(
         break;
       }
       case "reputation": {
+        const before = current.player.reputation.find(
+          (entry) => entry.factionId === effect.faction,
+        )?.value ?? 0;
         const out = applyReputation(current, ctx, effect.target, effect.faction, direction, effect.value);
         current = out.state;
         summaries.push(out.summary);
+        if (effect.target === "player") {
+          const after = current.player.reputation.find(
+            (entry) => entry.factionId === effect.faction,
+          )?.value ?? 0;
+          const thresholds = options.definition.factions.get(effect.faction)?.reputation?.thresholds ?? [];
+          for (const threshold of thresholds) {
+            if (before < threshold.value && after >= threshold.value) {
+              const thresholdOut = applyEffects(current, threshold.effects, options);
+              current = thresholdOut.state;
+              summaries.push(
+                `reputation ${effect.faction} crossed ${threshold.label}`,
+                ...thresholdOut.summaries,
+              );
+            }
+          }
+        }
         break;
       }
       case "flag": {

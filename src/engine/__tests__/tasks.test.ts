@@ -91,7 +91,13 @@ describe("task time limits", () => {
     // (time_limit 3 days).
     const withActive = {
       ...state,
-      tasks: [{ taskId: "gather-herbs", status: "active" as const, acceptedDay: 1, progress: 0 }],
+      tasks: [{
+        taskId: "gather-herbs",
+        status: "active" as const,
+        acceptedDay: 1,
+        acceptedEventCount: 0,
+        progress: 0,
+      }],
       clock: advanceClock(state.clock, def, 24 * 20),
     };
     const out = checkTasks(withActive, def);
@@ -215,6 +221,49 @@ describe("task objective completions (synthetic tasks)", () => {
     expect(out.completions.some((c) => c.taskId === t.id && c.status === "complete")).toBe(true);
   });
 
+  it("counts any-action objectives only after the task was accepted", () => {
+    const def = emberfall();
+    const t = task("investigate-any", "任意调查", {
+      type: "investigate",
+      target: { any: true },
+      quantity: 1,
+    });
+    const state = coLocated(freshState(def), ["shen-jiugu"], "forest-edge");
+    const beforeAcceptance = {
+      ...state,
+      eventLog: [{
+        id: "log-1",
+        day: 0,
+        hour: 9,
+        type: "resolution" as const,
+        actor: "player",
+        summary: "old investigate",
+        detail: { actionId: "investigate" },
+      }],
+    };
+
+    const activated = checkTasks(beforeAcceptance, withTask(def, t));
+    expect(activated.completions.some((entry) => entry.taskId === t.id)).toBe(false);
+    const active = activated.state.tasks.find((entry) => entry.taskId === t.id);
+    expect(active?.status).toBe("active");
+    expect(active?.status === "active" ? active.acceptedEventCount : -1).toBe(1);
+
+    const afterAcceptance = {
+      ...activated.state,
+      eventLog: [...activated.state.eventLog, {
+        id: "log-2",
+        day: 0,
+        hour: 10,
+        type: "resolution" as const,
+        actor: "player",
+        summary: "new investigate",
+        detail: { actionId: "investigate" },
+      }],
+    };
+    const completed = checkTasks(afterAcceptance, withTask(def, t));
+    expect(completed.completions.some((entry) => entry.taskId === t.id)).toBe(true);
+  });
+
   it("hunt completes when a defeated:<npc> fact exists", () => {
     const def = emberfall();
     const t = task("hunt-test", "猎杀测试", {
@@ -301,5 +350,36 @@ describe("task objective completions (synthetic tasks)", () => {
     expect(out.state.player.stats.strength).toBe(ready.player.stats.strength + 1);
     // Task-source progression: crafting skill grows by 1 (mechanics.yaml).
     expect(out.state.player.skills.crafting).toBe(4);
+  });
+
+  it("reactivates repeatable tasks only after their cooldown", () => {
+    const def = emberfall();
+    const repeat = {
+      ...task("repeat-test", "重复测试", {
+        type: "gather",
+        target: { items: ["herb"] },
+        quantity: 1,
+      }),
+      cooldown: 2,
+    };
+    const definition = withTask(def, repeat);
+    const state = coLocated(freshState(def), ["shen-jiugu"], "forest-edge");
+    const ready = {
+      ...state,
+      player: {
+        ...state.player,
+        inventory: { ...state.player.inventory, stacks: [{ itemId: "herb", quantity: 1 }] },
+      },
+    };
+    const first = checkTasks(ready, definition);
+    expect(first.completions.some((entry) => entry.taskId === repeat.id)).toBe(true);
+    const tooSoon = checkTasks(first.state, definition);
+    expect(tooSoon.completions.some((entry) => entry.taskId === repeat.id)).toBe(false);
+    const afterCooldown = {
+      ...tooSoon.state,
+      clock: advanceClock(tooSoon.state.clock, definition, definition.time.day_length_hours * 2),
+    };
+    const repeated = checkTasks(afterCooldown, definition);
+    expect(repeated.completions.some((entry) => entry.taskId === repeat.id)).toBe(true);
   });
 });

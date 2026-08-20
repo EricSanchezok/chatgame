@@ -5,3 +5,10 @@ schema_version: "1.1"
 language: zh
 tone: [悬疑, 冷峻]
 author: chatgame-team
+engine_extension:
+  api_version: 2
+  effects: [hull]
+  conditions: [hull_integrity]
+  action_handlers: [reroute]
+  rule_mechanisms: []
+  lifecycle: []

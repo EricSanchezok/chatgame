@@ -1,7 +1,6 @@
-// Need decay + threshold effects. Values decay continuously
-// (decay_per_day * hours/24), thresholds fire while the value is past their
-// level — sustained RimWorld-style effects, NOT one-shot triggers, so no
-// fired-tracking state is needed and types.ts stays untouched.
+// Need decay + edge-triggered threshold effects. Values decay against the
+// script's declared day length; threshold state is persisted so sustained
+// low needs cannot repeatedly apply permanent effects.
 import type { NeedState, WorldState } from "../types";
 import type { WorldDefinition } from "../types";
 import { applyEffects } from "../effect";
@@ -93,7 +92,7 @@ export function applyNeedThresholds(
 ): { state: WorldState; triggered: string[] } {
   const triggered: string[] = [];
   let current = state;
-  const beforeActive = new Set(state.activeNeedThresholds ?? []);
+  const beforeActive = new Set(state.activeNeedThresholds);
   const activeNow = new Set<string>();
 
   const applyEntity = (target: string): void => {

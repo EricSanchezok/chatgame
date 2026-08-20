@@ -25,7 +25,7 @@ background: 测试世界背景
 rules:
   - id: r1
     text: 规则一
-    mechanism: inventory
+    mechanism: no_matter_creation
 taboos:
   - id: t1
     text: 禁忌一
@@ -266,6 +266,44 @@ describe("semantic validation", () => {
     const result = validateScriptDir(dir);
     expect(result.ok).toBe(true);
     expect(result.issues).toEqual([]);
+  });
+
+  it("rejects an undeclared rule mechanism", () => {
+    const files = validBase();
+    files["world.yaml"] = files["world.yaml"].replace(
+      "mechanism: no_matter_creation",
+      "mechanism: missing_rule",
+    );
+    expectIssuesContaining(files, ['rule mechanism "missing_rule" is not declared']);
+  });
+
+  it("rejects an undeclared custom effect", () => {
+    const files = validBase();
+    files["actions.yaml"] = files["actions.yaml"].replace(
+      "{ kind: stat, direction: add, target: npc1, stat: hp, value: -5 }",
+      "{ kind: spark, value: 1 }",
+    );
+    expectIssuesContaining(files, ['custom effect "spark" is not declared']);
+  });
+
+  it("requires a static v2 declaration when engine code exists", () => {
+    const files = validBase();
+    files["engine/index.ts"] = "export default function register() {}";
+    expectIssuesContaining(files, ["Engine Extension v2 declaration"]);
+  });
+
+  it("rejects an extension declaration without engine code", () => {
+    const files = validBase();
+    files["script.yaml"] += `
+engine_extension:
+  api_version: 2
+  effects: []
+  conditions: []
+  action_handlers: []
+  rule_mechanisms: []
+  lifecycle: []
+`;
+    expectIssuesContaining(files, ["engine/index.ts is missing"]);
   });
 
   it("rejects duplicate id across files", () => {

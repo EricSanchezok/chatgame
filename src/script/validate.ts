@@ -4,6 +4,7 @@
 // schema_version strict match, and ID naming rules.
 // Every issue carries file / field path / line number.
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { z } from "zod";
 import { loadYamlFile, loadYamlFilesFromDir, lineForPath, type LoadedYamlFile } from "./loader";
 import {
@@ -35,6 +36,7 @@ import {
   type Condition,
   type Effect,
   isBuiltinEffect,
+  BUILTIN_RULE_MECHANISMS,
  } from "./schemas";
 import {
   checkPresentationModules,
@@ -76,6 +78,88 @@ const ROOT_MODULES: Array<{ name: string; schema: z.ZodType; required: boolean }
   { name: "theme", schema: themeSchema, required: false },
   { name: "assets", schema: assetsSchema, required: false },
 ];
+
+const BUILTIN_CONDITION_SOURCES = new Set([
+  "stat", "skill", "need", "relationship", "reputation", "time",
+  "inventory", "currency", "flag", "fact", "location",
+]);
+
+function validateExtensionContract(
+  scriptDir: string,
+  script: z.infer<typeof scriptSchema>,
+  sources: Array<ParsedModule<unknown>>,
+  issues: ValidationIssue[],
+): void {
+  const declaration = script.engine_extension;
+  const engineEntry = path.join(scriptDir, "engine", "index.ts");
+  const hasEngineCode = existsSync(engineEntry);
+  const add = (file: string, fieldPath: string, message: string) =>
+    issues.push({ file, path: fieldPath, message });
+
+  if (hasEngineCode && !declaration) {
+    add("script.yaml", "engine_extension", "engine/index.ts requires an Engine Extension v2 declaration");
+  }
+  if (!hasEngineCode && declaration) {
+    add("script.yaml", "engine_extension", "engine_extension is declared but engine/index.ts is missing");
+  }
+  const declared = {
+    effects: new Set(declaration?.effects ?? []),
+    conditions: new Set(declaration?.conditions ?? []),
+    handlers: new Set(declaration?.action_handlers ?? []),
+    rules: new Set(declaration?.rule_mechanisms ?? []),
+  };
+  const ensureUnique = (
+    field: "effects" | "conditions" | "action_handlers" | "rule_mechanisms" | "lifecycle",
+    values: readonly string[],
+  ) => {
+    if (new Set(values).size !== values.length) {
+      add("script.yaml", `engine_extension.${field}`, "extension declarations must be unique");
+    }
+  };
+  if (declaration) {
+    ensureUnique("effects", declaration.effects);
+    ensureUnique("conditions", declaration.conditions);
+    ensureUnique("action_handlers", declaration.action_handlers);
+    ensureUnique("rule_mechanisms", declaration.rule_mechanisms);
+    ensureUnique("lifecycle", declaration.lifecycle);
+  }
+
+  const walk = (value: unknown, file: string, fieldPath: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => walk(entry, file, `${fieldPath}[${index}]`));
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    if (
+      typeof record.kind === "string" &&
+      typeof record.id !== "string" &&
+      !isBuiltinEffect(record as Effect)
+    ) {
+      if (!declared.effects.has(record.kind)) {
+        add(file, `${fieldPath}.kind`, `custom effect "${record.kind}" is not declared in script.yaml`);
+      }
+    }
+    if (typeof record.source === "string" && typeof record.op === "string") {
+      if (!BUILTIN_CONDITION_SOURCES.has(record.source) && !declared.conditions.has(record.source)) {
+        add(file, `${fieldPath}.source`, `custom condition source "${record.source}" is not declared in script.yaml`);
+      }
+    }
+    if (typeof record.handler === "string" && !declared.handlers.has(record.handler)) {
+      add(file, `${fieldPath}.handler`, `action handler "${record.handler}" is not declared in script.yaml`);
+    }
+    if (typeof record.mechanism === "string") {
+      const builtin = (BUILTIN_RULE_MECHANISMS as readonly string[]).includes(record.mechanism);
+      if (!builtin && !declared.rules.has(record.mechanism)) {
+        add(file, `${fieldPath}.mechanism`, `rule mechanism "${record.mechanism}" is not declared in script.yaml`);
+      }
+    }
+    for (const [key, child] of Object.entries(record)) {
+      walk(child, file, fieldPath ? `${fieldPath}.${key}` : key);
+    }
+  };
+  for (const source of sources) walk(source.data, source.file.relPath, "");
+}
 
 /** Collects all id-like references from a condition tree. */
 export function collectConditionRefs(
@@ -975,6 +1059,12 @@ export function validateScriptDir(scriptDir: string): ValidationResult {
     (name) => modules[name] !== undefined,
   );
   if (requiredParsed) {
+    const scriptModule = modules["script"] as ParsedModule<z.infer<typeof scriptSchema>>;
+    const extensionSources: Array<ParsedModule<unknown>> = [
+      ...Object.values(modules),
+      ...Object.values(arrays).flat(),
+    ];
+    validateExtensionContract(scriptDir, scriptModule.data, extensionSources, issues);
     checkReferences(modules, arrays, issues);
     // Presentation cross-checks need the entity pools built by checkReferences.
     // Rebuild the minimal pools here (they are cheap) to keep both checks

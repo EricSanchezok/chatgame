@@ -62,7 +62,7 @@ export function hasMarker(state: WorldState, key: string): boolean {
 }
 
 
-/** Resolves a leaf condition to a boolean. Unknown/missing data => false. */
+/** Resolves a leaf condition; missing built-in data is false, unknown sources fail loudly. */
 export function evalConditionLeaf(
   cond: Extract<Condition, { source: string }>,
   ctx: ConditionContext,
@@ -145,10 +145,10 @@ export function evalConditionLeaf(
     }
     default: {
       // Custom condition source: dispatched to the script's engine
-      // extension. Unregistered sources evaluate to false (the validator
-      // reports them at load time; this is a runtime-only safety net).
+      // extension. Unregistered sources fail loudly; silently returning
+      // false would turn a typo into unreachable content.
       const evaluator = ctx.definition.extensions?.conditions[source];
-      if (!evaluator) return false;
+      if (!evaluator) throw new Error(`condition source "${source}" has no registered evaluator`);
       return evaluator(state, cond, { definition: ctx.definition, selfNpcId: ctx.selfNpcId, playerId: ctx.playerId });
     }
   }

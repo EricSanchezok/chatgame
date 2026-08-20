@@ -106,7 +106,8 @@ export function checkActionLegality(
   def: WorldDefinition,
   state: WorldState,
   actionId: string,
-  targetNpcId?: string,
+  target?: string,
+  params?: Readonly<Record<string, unknown>>,
 ): { ok: true } | { ok: false; reasonCode: string; message: string } {
   const action = findAction(def, actionId);
   if (!action) {
@@ -123,7 +124,7 @@ export function checkActionLegality(
       return { ok: false, reasonCode: "condition_not_met", message: "the situation does not allow this" };
     }
   }
-  const ruleResult = checkWorldRules({ definition: def, state, actionId, target: targetNpcId });
+  const ruleResult = checkWorldRules({ definition: def, state, actionId, target, params });
   if (!ruleResult.allowed) {
     return { ok: false, reasonCode: ruleResult.reasonCode, message: ruleResult.message };
   }
@@ -196,7 +197,7 @@ export function previewAction(
 ): ActionPreview {
   const action = findAction(definition, hint.actionId);
   const displayName = action?.display_name ?? hint.actionId;
-  const timeCost = Math.max(action?.costs?.time ?? 1, 1);
+  let timeCost = Math.max(action?.costs?.time ?? 1, 1);
   const costs = {
     currency: action?.costs?.currency ?? 0,
     items: (action?.costs?.items ?? []).map((item) => ({ itemId: item.item, quantity: item.quantity })),
@@ -210,7 +211,7 @@ export function previewAction(
         ? { type: "skill", key: resolve.skill, dc: resolve.dc }
         : { type: "opposed", key: resolve.stat };
   const targetNpcId = hint.target && definition.npcs.has(hint.target) ? hint.target : undefined;
-  const legality = checkActionLegality(definition, state, hint.actionId, targetNpcId);
+  const legality = checkActionLegality(definition, state, hint.actionId, hint.target, hint.params);
   if (!action || !legality.ok) {
     return {
       actionId: hint.actionId,
@@ -238,6 +239,7 @@ export function previewAction(
       targetNpcId,
       params: { ...(hint.params ?? {}), ...(hint.target ? { target: hint.target } : {}) },
     });
+    if (outcome.timeCost !== undefined) timeCost = Math.max(1, outcome.timeCost);
     if (outcome.rejected) {
       return {
         actionId: hint.actionId,
@@ -263,7 +265,8 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   const logEntries: EventLogEntry[] = [];
 
   // 1. Legality gate (deterministic).
-  const legality = checkActionLegality(definition, state, ctx.actionId, ctx.targetNpcId);
+  const target = typeof ctx.params?.target === "string" ? ctx.params.target : ctx.targetNpcId;
+  const legality = checkActionLegality(definition, state, ctx.actionId, target, ctx.params);
   if (!legality.ok) {
     return {
       state,

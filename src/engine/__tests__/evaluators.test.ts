@@ -17,6 +17,7 @@ import type { WorldState } from "../types";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const emberfall = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
+const starlight = loadScript(path.join(REPO_ROOT, "scripts/starlight"));
 
 /** Minimal but structurally valid WorldState for evaluator tests. */
 function makeState(overrides: Partial<WorldState> = {}): WorldState {
@@ -64,10 +65,11 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
     playedEventIds: [],
     eventLastPlayedDay: {},
     actionCooldowns: {},
-    secretHolders: {},
+    secretHolders: { "mine-secret": "elara" },
     locationInventories: {},
     transcript: [],
     runtimeState: {},
+    activeNeedThresholds: [],
     ...overrides,
   };
 }
@@ -84,6 +86,14 @@ describe("condition algebra", () => {
   it("skill lte / gt", () => {
     expect(evalConditionLeaf({ source: "skill", key: "persuasion", op: "lte", value: 4 }, ctx())).toBe(true);
     expect(evalConditionLeaf({ source: "skill", key: "persuasion", op: "gt", value: 5 }, ctx())).toBe(false);
+  });
+  it("fails loudly for an unregistered custom source", () => {
+    expect(() =>
+      evalConditionLeaf(
+        { source: "missing_source", op: "eq", value: 1 },
+        ctx(),
+      )
+    ).toThrow(/no registered evaluator/);
   });
   it("need lt / eq", () => {
     expect(evalConditionLeaf({ source: "need", key: "fatigue", op: "lt", value: 31 }, ctx())).toBe(true);
@@ -157,6 +167,15 @@ describe("condition algebra", () => {
 });
 
 describe("effect algebra", () => {
+  it("fails loudly for an unregistered custom effect", () => {
+    expect(() =>
+      applyEffects(
+        makeState(),
+        [{ kind: "missing_effect", value: 1 }],
+        { definition: emberfall, day: 0 },
+      )
+    ).toThrow(/no registered handler/);
+  });
   it("grade multipliers", () => {
     expect(gradeMultiplier("fail")).toBe(1);
     expect(gradeMultiplier("success")).toBe(1);
@@ -214,6 +233,27 @@ describe("effect algebra", () => {
     s.player.reputation = [{ factionId: "miners-guild", value: 10 }];
     const out = applyEffects(s, [{ kind: "reputation", direction: "add", target: "player", faction: "miners-guild", value: 15 }], { definition: emberfall, day: 0 });
     expect(out.state.player.reputation.find((r) => r.factionId === "miners-guild")?.value).toBe(25);
+  });
+  it("applies reputation threshold effects on the rising edge", () => {
+    const state = makeState({
+      scriptId: "starlight",
+      player: {
+        ...makeState().player,
+        reputation: [{ factionId: "station-committee", value: 59 }],
+      },
+    });
+    const out = applyEffects(
+      state,
+      [{ kind: "reputation", direction: "add", target: "player", faction: "station-committee", value: 1 }],
+      { definition: starlight, day: 0 },
+    );
+    expect(out.state.player.flags).toContain("reactor-access");
+    const repeated = applyEffects(
+      out.state,
+      [{ kind: "reputation", direction: "add", target: "player", faction: "station-committee", value: 1 }],
+      { definition: starlight, day: 0 },
+    );
+    expect(repeated.summaries.filter((summary) => summary.includes("站务信任"))).toHaveLength(0);
   });
   it("flag set / remove", () => {
     let out = applyEffects(makeState(), [{ kind: "flag", direction: "set", target: "player", flag: "new-flag" }], { definition: emberfall, day: 0 });
@@ -342,5 +382,24 @@ describe("clock", () => {
     const slot = scheduleAt(emberfall, "tavern-keeper-schedule", clock);
     expect(slot).toBeDefined();
     expect(slot!.activity).toBe("开店招呼客人");
+  });
+  it("scheduleAt supports windows that cross midnight", () => {
+    const definition = {
+      ...emberfall,
+      time: {
+        ...emberfall.time,
+        schedules: [
+          ...emberfall.time.schedules,
+          {
+            id: "overnight-test",
+            entries: [{ from: "22:00", to: "06:00", activity: "值夜", location: "tavern" }],
+          },
+        ],
+      },
+    };
+    const start = createClock(definition, "晴", "春");
+    expect(scheduleAt(definition, "overnight-test", advanceClock(start, definition, 23))?.activity).toBe("值夜");
+    expect(scheduleAt(definition, "overnight-test", advanceClock(start, definition, 29))?.activity).toBe("值夜");
+    expect(scheduleAt(definition, "overnight-test", advanceClock(start, definition, 12))).toBeUndefined();
   });
 });

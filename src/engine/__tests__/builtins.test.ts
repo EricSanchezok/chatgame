@@ -7,7 +7,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
-import { resolveAction } from "../actions";
+import { previewAction, resolveAction } from "../actions";
 import { advanceClock } from "../time";
 import { BUILTIN_HANDLERS } from "../builtins";
 import type { WorldDefinition, WorldState } from "../types";
@@ -85,11 +85,15 @@ describe("movement", () => {
     });
     expect(out.rejected).toBe(false);
     expect(out.state.player.locationId).toBe("mine-entrance");
+    const preview = previewAction(def, state, { actionId: "travel", target: "mine-entrance" });
+    expect(preview.executable).toBe(true);
+    expect(preview.timeCost).toBe(out.effectiveTimeCost);
   });
 
   it("travel rejects an unreachable location", () => {
     const def = emberfall();
-    const state = atTavern(freshState(def));
+    const base = freshState(def);
+    const state = { ...atTavern(base), clock: advanceClock(base.clock, def, 8) };
     // Inject a disconnected location id that doesn't exist in the graph.
     const out = resolveAction({
       definition: def,
@@ -99,6 +103,48 @@ describe("movement", () => {
     });
     expect(out.rejected).toBe(true);
     expect(out.rejectReason).toBe("unreachable");
+  });
+
+  it("checks every intermediate edge and reports path-derived time", () => {
+    const base = emberfall();
+    const start = base.locations.get("tavern")!;
+    const middle = base.locations.get("town-square")!;
+    const target = base.locations.get("mine-entrance")!;
+    const locations = new Map([
+      [start.id, { ...start, connections: [{ to: middle.id, distance: 1, travel_time: 90 }] }],
+      [middle.id, {
+        ...middle,
+        exit_condition: { source: "flag", key: "middle-pass", op: "has" as const },
+        connections: [{ to: target.id, distance: 1, travel_time: 60 }],
+      }],
+      [target.id, { ...target, entry_condition: undefined, connections: [] }],
+    ]);
+    const definition = { ...base, locations };
+    const state = {
+      ...atTavern(freshState(base)),
+      clock: advanceClock(freshState(base).clock, base, 8),
+    };
+    const blocked = resolveAction({
+      definition,
+      state,
+      actionId: "travel",
+      params: { target: target.id },
+    });
+    expect(blocked.rejected).toBe(true);
+    expect(blocked.rejectReason).toBe("unreachable");
+
+    const allowed = resolveAction({
+      definition,
+      state: { ...state, player: { ...state.player, flags: [...state.player.flags, "middle-pass"] } },
+      actionId: "travel",
+      params: { target: target.id },
+    });
+    expect(allowed.rejected).toBe(false);
+    expect(allowed.effectiveTimeCost).toBe(3);
+    expect(allowed.resolution?.effectsApplied).toEqual([
+      `traveled ${start.id} -> ${middle.id}`,
+      `traveled ${middle.id} -> ${target.id}`,
+    ]);
   });
 });
 

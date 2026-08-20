@@ -61,7 +61,7 @@ function objectiveProgress(
     }
     case "escort": {
       const target = objective.target;
-      if (target.any) return actionCountSince(state, active.acceptedDay, "escort");
+      if (target.any) return actionCountSince(state, active.acceptedEventCount, "escort");
       const coLocated = target.npc ? state.npcs[target.npc]?.currentLocationId === player.locationId : false;
       const atDestination = target.destination === undefined || player.locationId === target.destination;
       return coLocated && atDestination ? objective.quantity : 0;
@@ -72,7 +72,7 @@ function objectiveProgress(
     }
     case "investigate": {
       const target = objective.target;
-      if (target.any) return actionCountSince(state, active.acceptedDay, "investigate");
+      if (target.any) return actionCountSince(state, active.acceptedEventCount, "investigate");
       return target.subject && hasMarker(state, target.subject) ? objective.quantity : 0;
     }
     case "persuade": {
@@ -89,9 +89,9 @@ function objectiveProgress(
   }
 }
 
-function actionCountSince(state: WorldState, acceptedDay: number, actionId: string): number {
-  return state.eventLog.filter((entry) => {
-    if (entry.type !== "resolution" || entry.day < acceptedDay) return false;
+function actionCountSince(state: WorldState, acceptedEventCount: number, actionId: string): number {
+  return state.eventLog.slice(acceptedEventCount).filter((entry) => {
+    if (entry.type !== "resolution") return false;
     const detail = entry.detail as { actionId?: unknown } | undefined;
     return detail?.actionId === actionId;
   }).length;
@@ -139,7 +139,13 @@ export function checkTasks(
           ...current,
           tasks: [
             ...current.tasks.filter((task) => task.taskId !== taskDef.id),
-            { taskId: taskDef.id, status: "active", acceptedDay: day, progress: 0 },
+            {
+              taskId: taskDef.id,
+              status: "active",
+              acceptedDay: day,
+              acceptedEventCount: current.eventLog.length,
+              progress: 0,
+            },
           ],
         };
         logEntries.push({

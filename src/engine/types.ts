@@ -232,7 +232,14 @@ export interface DirectorState {
 }
 
 export type TaskInstanceState =
-  | { taskId: string; status: "active"; acceptedDay: number; progress: number }
+  | {
+      taskId: string;
+      status: "active";
+      acceptedDay: number;
+      /** Event-log cursor captured at activation; action objectives only inspect later resolutions. */
+      acceptedEventCount: number;
+      progress: number;
+    }
   | { taskId: string; status: "complete"; acceptedDay: number; completedDay: number }
   | { taskId: string; status: "failed"; acceptedDay: number; failedDay: number };
 
@@ -397,7 +404,7 @@ export interface WorldState {
   /** Script-extension-owned persistent state (opaque to the engine). */
   runtimeState: Record<string, unknown>;
   /** Need threshold keys currently active; prevents sustained effects from drifting stats. */
-  activeNeedThresholds?: string[];
+  activeNeedThresholds: string[];
  }
 
 // ---------------------------------------------------------------------------

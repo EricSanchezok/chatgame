@@ -8,3 +8,10 @@ tone:
   - 温情
   - 蒸汽幻想
 author: chatgame-team
+engine_extension:
+  api_version: 2
+  effects: [ember]
+  conditions: [ember_level]
+  action_handlers: [forge]
+  rule_mechanisms: [night_travel]
+  lifecycle: []
