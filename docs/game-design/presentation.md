@@ -6,7 +6,7 @@
 
 浏览器只通过 `GamePort` 访问 Route Handlers；Engine、文件系统、存档和 LLM 保持在服务端。宿主持有路由、会话、网络、portal、Dialog、焦点、错误边界、实时播报、安全区和设置持久化；剧本持有世界内容、主题、静态素材与可选 UI bundle。剧本组件只能消费只读 view-model、宿主 capability 和 `--cg-*` 语义变量，不得创建第二套会话或读写宿主内部状态。
 
-同一会话的 `turn`、`advance`、`save`、`load`、`descriptor` 与销毁共用一条服务端 mutation 队列；销毁等待已排队操作完成并拒绝新操作。宿主只向读取接口发布最后一次完整提交的状态与表现快照，回合内部的异步中间态不可见；`previewAction` 作为只读操作也排在同一队列中，保证预检基于最新已提交状态。客户端 controller 在一个 generation 内只允许一个操作，取消或换代后的结果不得提交；`submitTurn(text, intentHint?)` 是唯一提交玩家行动的 capability。
+同一会话的 `turn`、`advance`、`save`、`load`、`descriptor` 与销毁共用一条服务端 mutation 队列；销毁等待已排队操作完成并拒绝新操作。每个 `turn` 从最后提交快照运行隔离的候选 Engine，autosave 与 meta 全部持久化成功后才原子发布候选 Engine、世界状态和表现快照；任一持久化失败使 Route Handler 返回错误，读取、转录、后续 preview 和下一回合继续使用前一完整提交，不得泄漏或重复结算失败回合。回合内部的异步中间态不可见；`previewAction` 作为只读操作也排在同一队列中，保证预检基于最新已提交状态。客户端 controller 在一个 generation 内只允许一个操作，取消或换代后的结果不得提交；`submitTurn(text, intentHint?)` 是唯一提交玩家行动的 capability。
 
 ## 玩家宿主
 

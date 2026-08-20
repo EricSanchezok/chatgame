@@ -4,11 +4,12 @@
 // - Asset file serving with path-traversal protection
 // - Per-session serialization queue (concurrent turns on one session queue up)
 // A globalThis singleton survives Next dev HMR (no double instances).
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Engine } from "../engine";
 import { loadScript } from "../engine/loader";
+import { serializeSave } from "../engine/save";
 import { FRAMEWORK_DARK_THEME, listSelectableThemes, resolveTheme, buildAssetManifest, toThemeView, type ThemeView } from "../engine/presentation";
 import { createProvider, type LLMProvider } from "../engine/narrative/provider";
 import { createMediaProvider, type MediaProvider } from "../engine/media/provider";
@@ -80,6 +81,11 @@ export interface SessionRecord {
   lastActivity: number;
   /** True after any state-mutating operation since the last save. */
   dirty: boolean;
+}
+
+interface MetaFileSnapshot {
+  path: string;
+  contents?: string;
 }
 
 interface HostGlobal {
@@ -399,19 +405,70 @@ export class EngineHost {
   /** Runs one player turn; auto-saves + merges meta after success. */
   turn(sessionId: string, input: TurnInput): Promise<TurnResult> {
     return this.enqueue(sessionId, async (session) => {
-      const result = await session.engine.playerTurn(input);
-      session.committedState = session.engine.worldState;
+      const candidate = this.createTurnCandidate(session);
+      const result = await candidate.playerTurn(input);
+      this.persistTurn(session.scriptId, candidate);
+      session.engine = candidate;
+      session.committedState = candidate.worldState;
       session.lastActivity = Date.now();
       session.dirty = true;
-      // Every completed turn lands in the fixed autosave slot (no
-      // debounce: the write is millisecond-cheap and a turn is the natural
-      // merge point). Manual saves keep their own timestamped files.
-      session.engine.save("autosave");
-      // Meta-progression is merged on every turn so unlocks survive a
-      // refresh even before the player explicitly saves or dies.
-      this.writeMeta(session.id);
       return result;
     });
+  }
+
+  /** Rehydrates an isolated engine from the last published state. */
+  private createTurnCandidate(session: SessionRecord): Engine {
+    const snapshotRunId = `turn-candidate-${randomUUID()}.json`;
+    const snapshot = JSON.stringify(
+      serializeSave(session.engine.definition, session.committedState),
+    );
+    let snapshotPending = true;
+    const candidateStore: SaveStore = {
+      root: this.saveStore.root,
+      write: (scriptId, runId, json) => this.saveStore.write(scriptId, runId, json),
+      read: (scriptId, runId) => {
+        if (snapshotPending && scriptId === session.scriptId && runId === snapshotRunId) {
+          snapshotPending = false;
+          return snapshot;
+        }
+        return this.saveStore.read(scriptId, runId);
+      },
+      list: (scriptId) => this.saveStore.list(scriptId),
+      delete: this.saveStore.delete
+        ? (scriptId, runId) => this.saveStore.delete!(scriptId, runId)
+        : undefined,
+    };
+    return Engine.create({
+      scriptDir: this.scriptDirFor(session.scriptId),
+      originId: "",
+      loadSaveFile: path.join(
+        saveDirForScript(session.scriptId, this.saveStore.root ?? ".chatgame"),
+        snapshotRunId,
+      ),
+      provider: this.provider,
+      saveStore: candidateStore,
+    });
+  }
+
+  /** Persists both turn-owned documents before the candidate can be published. */
+  private persistTurn(scriptId: string, candidate: Engine): void {
+    const metaSnapshot = this.captureMeta(scriptId);
+    try {
+      // Meta is written first because its filesystem document can be restored
+      // exactly if the SaveStore rejects the authoritative autosave write.
+      this.writeMetaFor(scriptId, candidate.unlockedOrigins());
+      candidate.save("autosave");
+    } catch (error) {
+      try {
+        this.restoreMeta(metaSnapshot);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "turn persistence failed and meta rollback failed",
+        );
+      }
+      throw error;
+    }
   }
 
   previewAction(sessionId: string, hint: IntentHint): Promise<ActionPreview> {
@@ -462,8 +519,10 @@ export class EngineHost {
    */
   writeMeta(sessionId: string): string[] {
     const record = this.requireSession(sessionId);
-    const scriptId = record.scriptId;
-    const granted = record.engine.unlockedOrigins();
+    return this.writeMetaFor(record.scriptId, record.engine.unlockedOrigins());
+  }
+
+  private writeMetaFor(scriptId: string, granted: string[]): string[] {
     const metaPath = metaPathForScript(scriptId, this.saveStore.root ?? ".chatgame");
     let existing: string[] = [];
     try {
@@ -486,6 +545,26 @@ export class EngineHost {
     );
     renameSync(tmp, metaPath);
     return merged;
+  }
+
+  private captureMeta(scriptId: string): MetaFileSnapshot {
+    const metaPath = metaPathForScript(scriptId, this.saveStore.root ?? ".chatgame");
+    return {
+      path: metaPath,
+      contents: existsSync(metaPath) ? readFileSync(metaPath, "utf8") : undefined,
+    };
+  }
+
+  private restoreMeta(snapshot: MetaFileSnapshot): void {
+    const tmp = `${snapshot.path}.tmp`;
+    rmSync(tmp, { force: true });
+    if (snapshot.contents === undefined) {
+      rmSync(snapshot.path, { force: true });
+      return;
+    }
+    mkdirSync(path.dirname(snapshot.path), { recursive: true });
+    writeFileSync(tmp, snapshot.contents, "utf8");
+    renameSync(tmp, snapshot.path);
   }
 
   /**

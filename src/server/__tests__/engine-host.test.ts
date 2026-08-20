@@ -17,7 +17,7 @@ import AdmZip from "adm-zip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost, HostError } from "../engine-host";
 import { ScriptImportError, importScriptFromZip, MAX_UNPACKED_BYTES } from "../script-import";
-import { createFsSaveStore, metaPathForScript } from "../../engine/save-store";
+import { createFsSaveStore, metaPathForScript, type SaveStore } from "../../engine/save-store";
 import { MockProvider } from "../../engine/narrative/mock";
 import type { GenerateTextOptions } from "../../engine/narrative/provider";
 import {
@@ -384,6 +384,83 @@ describe("persistence & autosave", () => {
     const dir = path.join(dataRoot, "saves", TEST_SCRIPT_ID);
     expect(readdirSync(dir).some((f) => f.endsWith(".tmp"))).toBe(false);
     await host.destroySession(session.id);
+  });
+
+  it("publishes the committed state only after autosave succeeds", async () => {
+    installFixture();
+    const delegate = createFsSaveStore(dataRoot);
+    let sessionId = "";
+    let visibleDuringWrite = "";
+    const observingStore: SaveStore = {
+      root: delegate.root,
+      read: (scriptId, runId) => delegate.read(scriptId, runId),
+      list: (scriptId) => delegate.list(scriptId),
+      write: (scriptId, runId, json) => {
+        if (runId === "autosave.json") {
+          visibleDuringWrite = JSON.stringify(host.state(sessionId));
+        }
+        delegate.write(scriptId, runId, json);
+      },
+    };
+    host = new EngineHost({ scriptsRoot, saveStore: observingStore });
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
+    sessionId = session.id;
+    const before = JSON.stringify(host.state(session.id));
+
+    await host.turn(session.id, {
+      text: "提交后才能看见这一回合",
+      intentHint: { actionId: "talk" },
+    });
+
+    const after = JSON.stringify(host.state(session.id));
+    expect(visibleDuringWrite).toBe(before);
+    expect(after).not.toBe(before);
+    const autosave = JSON.parse(delegate.read(TEST_SCRIPT_ID, "autosave.json")) as {
+      worldState: unknown;
+    };
+    expect(JSON.stringify(autosave.worldState)).toBe(after);
+  });
+
+  it("keeps the prior engine and committed transcript when autosave write fails", async () => {
+    installFixture();
+    const delegate = createFsSaveStore(dataRoot);
+    let failAutosave = true;
+    const failingStore: SaveStore = {
+      root: delegate.root,
+      read: (scriptId, runId) => delegate.read(scriptId, runId),
+      list: (scriptId) => delegate.list(scriptId),
+      write: (scriptId, runId, json) => {
+        if (failAutosave && runId === "autosave.json") {
+          throw new Error("injected autosave failure");
+        }
+        delegate.write(scriptId, runId, json);
+      },
+    };
+    host = new EngineHost({ scriptsRoot, saveStore: failingStore });
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
+    const input = "这一回合不得泄漏或重复";
+    const hint = { actionId: "investigate" } as const;
+    const metaPath = metaPathForScript(TEST_SCRIPT_ID, dataRoot);
+    const previousMeta = '{"unlockedOrigins":[],"updatedAt":"stable"}';
+    mkdirSync(path.dirname(metaPath), { recursive: true });
+    writeFileSync(metaPath, previousMeta);
+    const before = JSON.stringify(host.state(session.id));
+    const beforeHours = host.state(session.id).clock.totalHours;
+    const previewBefore = await host.previewAction(session.id, hint);
+
+    await expect(host.turn(session.id, { text: input, intentHint: hint }))
+      .rejects.toThrow("injected autosave failure");
+
+    expect(JSON.stringify(host.state(session.id))).toBe(before);
+    expect(host.state(session.id).transcript.some((entry) => entry.text === input)).toBe(false);
+    await expect(host.previewAction(session.id, hint)).resolves.toEqual(previewBefore);
+    expect(readFileSync(metaPath, "utf8")).toBe(previousMeta);
+    expect(() => delegate.read(TEST_SCRIPT_ID, "autosave.json")).toThrow(/not found/);
+
+    failAutosave = false;
+    await host.turn(session.id, { text: input, intentHint: hint });
+    expect(host.state(session.id).transcript.filter((entry) => entry.text === input)).toHaveLength(1);
+    expect(host.state(session.id).clock.totalHours).toBe(beforeHours + 24);
   });
 
   it("serializes advance behind turns on the same session", async () => {
