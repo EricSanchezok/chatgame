@@ -104,32 +104,32 @@ describe("cuesToAudio", () => {
     const { created, factory } = factorySpy();
     const c = new AudioController(factory);
     c.unlock();
-    cuesToAudio(c, [{ kind: "location_enter", locationId: "tavern" }], manifest, "emberfall", fileUrl, entityUrl);
+    cuesToAudio(c, [{ kind: "location_enter", locationId: "tavern" }], manifest, "fixture-script", fileUrl, entityUrl);
     expect(c.currentAmbientKey).toBe("tavern");
-    expect(created[0].src).toBe("/s/emberfall/audio/tavern.mp3");
+    expect(created[0].src).toBe("/s/fixture-script/audio/tavern.mp3");
   });
 
   it("maps event to a one-shot sfx", () => {
     const { created, factory } = factorySpy();
     const c = new AudioController(factory);
     c.unlock();
-    cuesToAudio(c, [{ kind: "event", eventId: "collapse" }], manifest, "emberfall", fileUrl, entityUrl);
+    cuesToAudio(c, [{ kind: "event", eventId: "collapse" }], manifest, "fixture-script", fileUrl, entityUrl);
     expect(created).toHaveLength(1);
-    expect(created[0].src).toBe("/s/emberfall/audio/collapse.mp3");
+    expect(created[0].src).toBe("/s/fixture-script/audio/collapse.mp3");
   });
 
   it("maps npc_speech to a voice line (file, then prompt)", () => {
     const a = factorySpy();
     const ca = new AudioController(a.factory);
     ca.unlock();
-    cuesToAudio(ca, [{ kind: "npc_speech", npcId: "elara" }], manifest, "emberfall", fileUrl, entityUrl);
-    expect(a.created[0].src).toBe("/s/emberfall/audio/elara.mp3");
+    cuesToAudio(ca, [{ kind: "npc_speech", npcId: "elara" }], manifest, "fixture-script", fileUrl, entityUrl);
+    expect(a.created[0].src).toBe("/s/fixture-script/audio/elara.mp3");
 
     const b = factorySpy();
     const cb = new AudioController(b.factory);
     cb.unlock();
-    cuesToAudio(cb, [{ kind: "npc_speech", npcId: "kade" }], manifest, "emberfall", fileUrl, entityUrl);
-    expect(b.created[0].src).toBe("/s/emberfall/e/voices/kade");
+    cuesToAudio(cb, [{ kind: "npc_speech", npcId: "kade" }], manifest, "fixture-script", fileUrl, entityUrl);
+    expect(b.created[0].src).toBe("/s/fixture-script/e/voices/kade");
   });
 
   it("silently skips entities with no asset", () => {

@@ -46,9 +46,9 @@ function makeSession(): SessionHandle {
   };
   return {
     id: "s1",
-    scriptId: "emberfall",
+    scriptId: "fixture-script",
     state: {
-      scriptId: "emberfall",
+      scriptId: "fixture-script",
       clock: {
         totalHours: 0, day: 1, month: 1, year: 1, hour: 8,
         weekday: 0, weather: "晴", season: "夏",
@@ -69,7 +69,7 @@ function makeSession(): SessionHandle {
   };
 }
 
-const detail = { scriptId: "emberfall" } as ScriptDetail;
+const detail = { scriptId: "fixture-script" } as ScriptDetail;
 
 describe("reduceGameState", () => {
   it("enter switches to the game screen and resets dirty/panel", () => {

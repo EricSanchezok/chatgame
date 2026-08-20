@@ -37,7 +37,7 @@ function expectInvalid(schema: { safeParse: (v: unknown) => { success: boolean }
 describe("script schema", () => {
   it("accepts a valid script", () => {
     expectValid(scriptSchema, {
-      id: "emberfall",
+      id: "fixture-script",
       name: "灰烬镇",
       description: "边陲小镇",
       schema_version: "1.1",
@@ -48,7 +48,7 @@ describe("script schema", () => {
   });
   it("rejects unknown fields (strict)", () => {
     expectInvalid(scriptSchema, {
-      id: "emberfall",
+      id: "fixture-script",
       name: "灰烬镇",
       description: "x",
       schema_version: "1.1",
@@ -60,7 +60,7 @@ describe("script schema", () => {
   });
   it("rejects wrong schema_version", () => {
     expectInvalid(scriptSchema, {
-      id: "emberfall",
+      id: "fixture-script",
       name: "灰烬镇",
       description: "x",
       schema_version: "2.0",

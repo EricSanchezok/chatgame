@@ -20,24 +20,24 @@ const manifest: AssetManifest = {
 
 describe("assetSrc", () => {
   it("prefers the declared file", () => {
-    expect(assetSrc("emberfall", manifest, "portraits", "elara")).toBe(
-      "/api/scripts/emberfall/assets/portraits/elara.svg",
+    expect(assetSrc("fixture-script", manifest, "portraits", "elara")).toBe(
+      "/api/scripts/fixture-script/assets/portraits/elara.svg",
     );
   });
 
   it("falls back to the prompt-generated entity URL", () => {
-    expect(assetSrc("emberfall", manifest, "portraits", "guardian")).toBe(
-      "/api/scripts/emberfall/entity-assets/portraits/guardian",
+    expect(assetSrc("fixture-script", manifest, "portraits", "guardian")).toBe(
+      "/api/scripts/fixture-script/entity-assets/portraits/guardian",
     );
-    expect(assetSrc("emberfall", manifest, "backgrounds", "tavern")).toBe(
-      "/api/scripts/emberfall/entity-assets/backgrounds/tavern",
+    expect(assetSrc("fixture-script", manifest, "backgrounds", "tavern")).toBe(
+      "/api/scripts/fixture-script/entity-assets/backgrounds/tavern",
     );
   });
 
   it("returns empty for unknown entities (graceful degradation)", () => {
-    expect(assetSrc("emberfall", manifest, "portraits", "nobody")).toBe("");
-    expect(assetSrc("emberfall", undefined, "portraits", "elara")).toBe("");
-    expect(assetSrc("emberfall", manifest, "ambient", "tavern")).toBe("");
+    expect(assetSrc("fixture-script", manifest, "portraits", "nobody")).toBe("");
+    expect(assetSrc("fixture-script", undefined, "portraits", "elara")).toBe("");
+    expect(assetSrc("fixture-script", manifest, "ambient", "tavern")).toBe("");
   });
 });
 

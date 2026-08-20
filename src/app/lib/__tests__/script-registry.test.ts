@@ -38,7 +38,7 @@ describe("slot registry", () => {
   it("commits a complete bundle in one registry snapshot", async () => {
     const observed: number[] = [];
     const unsubscribe = subscribeScriptRegistry(() => observed.push(getScriptRegistrySnapshot().slots.size));
-    const result = await loadScriptUi("emberfall", bundle("a"), {
+    const result = await loadScriptUi("script-a", bundle("a"), {
       importer: async () => moduleWith((context) => {
         context.register("hud", def);
         context.register("toolbar", another);
@@ -47,16 +47,16 @@ describe("slot registry", () => {
     unsubscribe();
 
     expect(result.ok).toBe(true);
-    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "emberfall", dependencyHash: "a", status: "active" });
+    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-a", dependencyHash: "a", status: "active" });
     expect(observed).toEqual([0, 2]);
   });
 
   it("rejects duplicate slot registrations without replacing the active version", async () => {
-    await loadScriptUi("emberfall", bundle("good"), {
+    await loadScriptUi("script-a", bundle("good"), {
       importer: async () => moduleWith((context) => context.register("hud", def)),
     });
     const previousSlots = getScriptRegistrySnapshot().slots;
-    const result = await loadScriptUi("emberfall", bundle("bad"), {
+    const result = await loadScriptUi("script-a", bundle("bad"), {
       importer: async () => moduleWith((context) => {
         context.register("hud", def);
         context.register("hud", another);
@@ -66,33 +66,33 @@ describe("slot registry", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("more than once");
     expect(getScriptRegistrySnapshot().slots).toBe(previousSlots);
-    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "emberfall", dependencyHash: "good", status: "active" });
+    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-a", dependencyHash: "good", status: "active" });
   });
 
   it("keeps the prior same-script version on an import failure", async () => {
-    await loadScriptUi("emberfall", bundle("good"), {
+    await loadScriptUi("script-a", bundle("good"), {
       importer: async () => moduleWith((context) => context.register("hud", def)),
     });
     const before = getScriptRegistrySnapshot();
-    const result = await loadScriptUi("emberfall", bundle("broken"), {
+    const result = await loadScriptUi("script-a", bundle("broken"), {
       importer: async () => { throw new Error("network unavailable"); },
     });
 
     expect(result).toMatchObject({ ok: false, error: "network unavailable" });
     expect(getScriptRegistrySnapshot().slots).toBe(before.slots);
-    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "emberfall", dependencyHash: "good", error: "network unavailable" });
+    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-a", dependencyHash: "good", error: "network unavailable" });
   });
 
   it("keeps the last complete same-script version when overlapping activation fails", async () => {
-    await loadScriptUi("emberfall", bundle("good"), {
+    await loadScriptUi("script-a", bundle("good"), {
       importer: async () => moduleWith((context) => context.register("hud", def)),
     });
     const previousSlots = getScriptRegistrySnapshot().slots;
     let finishFirst!: (value: ReturnType<typeof moduleWith>) => void;
     const pendingFirst = new Promise<ReturnType<typeof moduleWith>>((resolve) => { finishFirst = resolve; });
 
-    const first = loadScriptUi("emberfall", bundle("next"), { importer: async () => pendingFirst });
-    const second = await loadScriptUi("emberfall", bundle("broken"), {
+    const first = loadScriptUi("script-a", bundle("next"), { importer: async () => pendingFirst });
+    const second = await loadScriptUi("script-a", bundle("broken"), {
       importer: async () => { throw new Error("overlapping activation failed"); },
     });
     finishFirst(moduleWith((context) => context.register("toolbar", another)));
@@ -102,7 +102,7 @@ describe("slot registry", () => {
     expect(staleFirst.stale).toBe(true);
     expect(getScriptRegistrySnapshot().slots).toBe(previousSlots);
     expect(getScriptRegistrySnapshot()).toMatchObject({
-      scriptId: "emberfall",
+      scriptId: "script-a",
       dependencyHash: "good",
       status: "active",
       error: "overlapping activation failed",
@@ -110,22 +110,22 @@ describe("slot registry", () => {
   });
 
   it("uses target-script host fallbacks after a cross-script failure", async () => {
-    await loadScriptUi("emberfall", bundle("a"), {
+    await loadScriptUi("script-a", bundle("a"), {
       importer: async () => moduleWith((context) => context.register("hud", def)),
     });
-    await loadScriptUi("starlight", bundle("b"), {
-      importer: async () => { throw new Error("broken starlight bundle"); },
+    await loadScriptUi("script-b", bundle("b"), {
+      importer: async () => { throw new Error("broken script-b bundle"); },
     });
 
-    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "starlight", dependencyHash: "b", status: "error" });
+    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-b", dependencyHash: "b", status: "error" });
     expect(getScriptRegistrySnapshot().slots.size).toBe(0);
   });
 
   it("ignores a late A completion after B has activated", async () => {
     let resolveA!: (value: ReturnType<typeof moduleWith>) => void;
     const pendingA = new Promise<ReturnType<typeof moduleWith>>((resolve) => { resolveA = resolve; });
-    const a = loadScriptUi("emberfall", bundle("a"), { importer: async () => pendingA });
-    const b = await loadScriptUi("starlight", bundle("b"), {
+    const a = loadScriptUi("script-a", bundle("a"), { importer: async () => pendingA });
+    const b = await loadScriptUi("script-b", bundle("b"), {
       importer: async () => moduleWith((context) => context.register("toolbar", another)),
     });
     resolveA(moduleWith((context) => context.register("hud", def)));
@@ -133,7 +133,7 @@ describe("slot registry", () => {
 
     expect(b.ok).toBe(true);
     expect(lateA.stale).toBe(true);
-    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "starlight", dependencyHash: "b" });
+    expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-b", dependencyHash: "b" });
     expect(hasSlot("toolbar")).toBe(true);
     expect(hasSlot("hud")).toBe(false);
   });

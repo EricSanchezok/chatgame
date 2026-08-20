@@ -16,7 +16,7 @@ import { useEffect } from "react";
 
 function makeWorldState() {
   return {
-    scriptId: "emberfall",
+    scriptId: "fixture-script",
     clock: { totalHours: 0, day: 1, month: 1, year: 1, hour: 8, weekday: 0, weather: "晴", season: "春" },
     player: {
       originId: "miner", name: "矿工", stats: { hp: 80 }, skills: {}, needs: {},
@@ -58,7 +58,7 @@ function makeAssets() {
 vi.mock("../../../lib/api", () => ({
   httpGamePort: {
     scriptDetail: vi.fn().mockResolvedValue({
-      scriptId: "emberfall",
+      scriptId: "fixture-script",
       presentation: makePresentation(),
       origins: [{ id: "miner", name: "矿工", description: "" }],
       catalog: makeCatalog(),
@@ -86,7 +86,7 @@ vi.mock("../../../lib/script-registry", () => ({
   loadScriptUi: vi.fn().mockResolvedValue({ ok: false }),
   useScriptRegistry: () => ({
     generation: 1,
-    scriptId: "emberfall",
+    scriptId: "fixture-script",
     dependencyHash: null,
     status: "active",
     slots: new Map(),
@@ -107,7 +107,7 @@ function Harness({ children }: { children: ReactNode }) {
   // Run once on mount; startNewGame identity changes with every state
   // change, so an exhaustive-deps effect would loop forever.
   useEffect(() => {
-    void startNewGame("emberfall", "miner");
+    void startNewGame("fixture-script", "miner");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return <>{children}</>;
