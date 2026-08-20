@@ -26,4 +26,6 @@
 - [0022](../decisions/0022-ui-host-and-script-extension-v3.md) 定义不可变临时 registry、版本校验、订阅和主题/bundle 原子激活。
 - [0024](../decisions/0024-frontend-workbench-and-ci.md) 要求真实浏览器覆盖首次加载、快速 A→B 切换、bundle 失败与同 ID 替换。
 - `ScriptPresentation` 使用明确 `defaultThemeId`，不得从集合顺序推断默认主题。
+- 同剧本 bundle 更新失败保留上一完整 registry 与主题；跨剧本失败只能使用目标剧本的宿主 fallback，禁止旧 slots 接收新 view-model。
+- bundle 注册在临时 registry 中完成，重复 slot、API 版本不匹配或渲染错误必须显式失败并进入错误边界。
 - E2E 断言玩家点击前后剧本 id、标题、主题、背景和可用动作来自同一激活版本。

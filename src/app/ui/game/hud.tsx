@@ -6,14 +6,14 @@
 // slot-replaceable: a script ui bundle may register its own "hud" slot,
 // which replaces this default entirely.
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
-import { getSlot } from "../../lib/script-registry";
 import { UiIcon } from "./ui-icon";
+import { SlotRenderer } from "./slots";
 
 export interface HudProps {
   state: WorldState;
-  catalog?: Catalog;
+  catalog: Catalog;
   scriptId: string;
-  assets?: AssetManifest;
+  assets: AssetManifest;
 }
 
 function fmtClock(state: WorldState): string {
@@ -83,10 +83,5 @@ function DefaultHud({ state, catalog, scriptId, assets }: HudProps) {
 
 /** Slot-replaceable HUD entry point. */
 export function Hud(props: HudProps) {
-  const def = getSlot("hud");
-  if (def) {
-    const C = def.component as React.ElementType;
-    return <C {...props} />;
-  }
-  return <DefaultHud {...props} />;
+  return <SlotRenderer slot="hud" fallback={DefaultHud} slotProps={props} />;
 }

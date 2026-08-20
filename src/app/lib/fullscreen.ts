@@ -4,7 +4,13 @@
 
 /** True when the document is currently in fullscreen mode. */
 export function isFullscreen(): boolean {
-  return typeof document !== "undefined" && document.fullscreenElement !== null;
+  return typeof document !== "undefined" && Boolean(document.fullscreenElement);
+}
+
+export function subscribeFullscreen(listener: () => void): () => void {
+  if (typeof document === "undefined") return () => undefined;
+  document.addEventListener("fullscreenchange", listener);
+  return () => document.removeEventListener("fullscreenchange", listener);
 }
 
 /**

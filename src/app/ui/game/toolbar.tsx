@@ -5,15 +5,16 @@
 // composer. Script ui bundles may replace the whole toolbar via the
 // "toolbar" slot.
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
-import { getSlot } from "../../lib/script-registry";
 import { UiIcon } from "./ui-icon";
 import type { PanelId } from "./state";
+import { SlotRenderer } from "./slots";
+import type { ToolbarSlotProps } from "../../lib/script-registry";
 
 export interface ToolbarProps {
   state: WorldState;
-  catalog?: Catalog;
+  catalog: Catalog;
   scriptId: string;
-  assets?: AssetManifest;
+  assets: AssetManifest;
   panel: PanelId | null;
   onOpenPanel: (panel: PanelId) => void;
 }
@@ -64,12 +65,24 @@ function DefaultToolbar({ scriptId, assets, panel, onOpenPanel }: ToolbarProps) 
   );
 }
 
+function DefaultToolbarSlot(props: ToolbarSlotProps) {
+  return <DefaultToolbar {...props} onOpenPanel={props.openPanel} />;
+}
+
 /** Slot-replaceable toolbar entry point. */
 export function Toolbar(props: ToolbarProps) {
-  const def = getSlot("toolbar");
-  if (def) {
-    const C = def.component as React.ElementType;
-    return <C {...props} />;
-  }
-  return <DefaultToolbar {...props} />;
+  return (
+    <SlotRenderer
+      slot="toolbar"
+      fallback={DefaultToolbarSlot}
+      slotProps={{
+        scriptId: props.scriptId,
+        state: props.state,
+        catalog: props.catalog,
+        assets: props.assets,
+        panel: props.panel,
+        openPanel: props.onOpenPanel,
+      }}
+    />
+  );
 }

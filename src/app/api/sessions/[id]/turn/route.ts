@@ -4,6 +4,7 @@
 import { EngineHost } from "../../../../../server/engine-host";
 import { json, errorResponse, readJson } from "../../../h";
 import type { TurnInput } from "../../../../../shared/client-dto";
+import { completeSessionPresentation } from "../../../script-presentation";
 
 export async function POST(
   request: Request,
@@ -32,7 +33,7 @@ export async function POST(
     return json({
       ...result,
       state: host.state(id),
-      presentation: host.sessionPresentation(id),
+      presentation: await completeSessionPresentation(host, id),
     });
   } catch (err) {
     return errorResponse(err);

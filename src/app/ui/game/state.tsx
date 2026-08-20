@@ -22,6 +22,7 @@ import {
 } from "../../lib/game-store";
 import { applyTheme, type ThemeView } from "../../lib/theme";
 import { patchPlayerSettings, readPlayerSettings } from "../../lib/settings";
+import { loadScriptUi } from "../../lib/script-registry";
 import type { SessionPresentation } from "../../../shared/client-dto";
 
 export type { GameState, PanelId, ThemeMode } from "../../lib/game-store";
@@ -42,6 +43,7 @@ interface GameRuntime {
   store: GameStore;
   controller: GameController;
   port: GamePort;
+  audio: AudioController;
 }
 
 const GameRuntimeContext = createContext<GameRuntime | null>(null);
@@ -59,6 +61,7 @@ function productionEffects(audio: AudioController, port: GamePort): GameControll
       audio.setEnabled(enabled);
       patchPlayerSettings({ audioEnabled: enabled });
     },
+    onThemeChanged: (mode) => patchPlayerSettings({ themeMode: mode }),
     onTurn: (result, detail, scriptId) => {
       cuesToAudio(
         audio,
@@ -90,11 +93,24 @@ export function GameProvider({
     return {
       store,
       port,
+      audio,
       controller: new GameController(store, port, effects ?? productionEffects(audio, port)),
     };
   });
 
   useEffect(() => () => runtime.controller.dispose(), [runtime]);
+
+  useEffect(() => {
+    const settings = readPlayerSettings();
+    runtime.audio.setVolumes({
+      master: settings.masterVolume / 100,
+      ambient: settings.ambientVolume / 100,
+      voice: settings.voiceVolume / 100,
+      effects: settings.effectsVolume / 100,
+    });
+    runtime.controller.setTheme(settings.themeMode);
+    runtime.controller.setAudio(settings.audioEnabled);
+  }, [runtime]);
 
   const session = useGameStoreValue(runtime.store, (state) => state.session);
   const themeMode = useGameStoreValue(runtime.store, (state) => state.themeMode);
@@ -104,9 +120,11 @@ export function GameProvider({
   );
 
   useEffect(() => {
-    if (!activeTheme) return;
-    applyTheme(activeTheme, undefined, {
-      assetUrl: session ? (file) => runtime.port.assetUrl(session.scriptId, file) : undefined,
+    if (!activeTheme || !session) return;
+    void loadScriptUi(session.scriptId, session.presentation.uiBundle, {
+      beforeCommit: () => applyTheme(activeTheme, undefined, {
+        assetUrl: (file) => runtime.port.assetUrl(session.scriptId, file),
+      }),
     });
   }, [activeTheme, runtime.port, session]);
 
@@ -114,8 +132,11 @@ export function GameProvider({
 }
 
 function useGameStoreValue<T>(store: GameStore, selector: (state: GameState) => T): T {
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  return selector(snapshot);
+  return useSyncExternalStore(
+    store.subscribe,
+    () => selector(store.getSnapshot()),
+    () => selector(store.getSnapshot()),
+  );
 }
 
 export function useGameSelector<T>(selector: (state: GameState) => T): T {

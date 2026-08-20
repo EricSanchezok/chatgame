@@ -101,6 +101,8 @@ export interface ScriptSummary {
   author: string;
   tone: string[];
   language: string;
+  schemaVersion: string;
+  source: { kind: "built-in" | "imported"; label: string };
   defaultThemeId: string;
   theme?: { id: string; name: string; palette: ThemePalette };
   cover?: AssetEntry;
@@ -349,9 +351,22 @@ export interface ImportPreview {
   scriptId: string;
   name: string;
   sourceName: string;
-  conflicts: { installed: boolean };
+  schemaVersion: string | null;
+  apiVersions: { hostUi: typeof SCRIPT_UI_API_VERSION; engine: number | null; scriptUi: number | null };
+  cover?: AssetEntry;
+  coverUrl?: string;
+  conflicts: { installed: boolean; replaceAllowed: boolean };
   permissions: Array<"engine" | "ui" | "assets">;
+  assetProvenance: {
+    manifestPresent: boolean;
+    coveredFiles: number;
+    totalFiles: number;
+    missingFiles: string[];
+    extraFiles: string[];
+    remoteReferences: string[];
+  };
   risks: ImportRisk[];
+  errors: string[];
   warnings: string[];
 }
 

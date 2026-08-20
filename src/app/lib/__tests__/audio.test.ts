@@ -78,6 +78,17 @@ describe("AudioController", () => {
     c.playAmbient("tavern", "/a/tavern.mp3");
     expect(created).toHaveLength(1);
   });
+
+  it("applies master and channel gain to voice and effects", () => {
+    const { created, factory } = factorySpy();
+    const c = new AudioController(factory);
+    c.setVolumes({ master: 0.5, ambient: 0.8, voice: 0.6, effects: 0.2 });
+    c.unlock();
+    c.playOnce("voice.mp3", "voice");
+    c.playOnce("effect.mp3", "effects");
+    expect(created[0].volume).toBeCloseTo(0.3);
+    expect(created[1].volume).toBeCloseTo(0.1);
+  });
 });
 
 describe("cuesToAudio", () => {

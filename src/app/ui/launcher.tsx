@@ -1,404 +1,265 @@
 "use client";
 
-// Main menu: the framework's universal shell — start a new game, continue,
-// switch scripts, and settings (import). The selected script's theme /
-// font / background apply immediately (launcher:background slot), so the
-// menu itself wears the script's look. The old "script card wall" is gone:
-// the script list is a compact switcher inside a themed shell.
-
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import type { SaveSummary, ScriptDetail, ScriptMeta, ScriptSummary } from "../lib/api";
-import { getSlot, loadScriptUi } from "../lib/script-registry";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { LauncherSlotProps } from "../lib/script-registry";
+import type { ScriptDetail, ScriptMeta, ScriptSummary } from "../lib/api";
+import { loadScriptUi } from "../lib/script-registry";
 import { enterFullscreen } from "../lib/fullscreen";
 import { applyTheme } from "../lib/theme";
-import { readPlayerSettings } from "../lib/settings";
+import { patchPlayerSettings, readPlayerSettings } from "../lib/settings";
+import { Dialog } from "./dialog";
+import { SlotRenderer } from "./game/slots";
 import { useGameActions, useGamePort, useGameSelector } from "./game/state";
 
-type Modal = { kind: "new" | "continue" | "none"; scriptId: string } | { kind: "none" };
+type ActiveProgramme = { script: ScriptSummary; detail: ScriptDetail };
+type LauncherDialog = "new" | "saves" | null;
 
-/**
- * An origin is selectable when it is a default origin (not listed in
- * run.yaml unlocks[].grant) or already unlocked by meta-progression.
- */
 function originAvailable(originId: string, meta: ScriptMeta | null): boolean {
-  if (!meta) return true;
-  if (!meta.lockableOrigins.includes(originId)) return true;
+  if (!meta || !meta.lockableOrigins.includes(originId)) return true;
   return meta.unlockedOrigins.includes(originId);
 }
 
+function coverUrl(script: ScriptSummary, assetUrl: (scriptId: string, file: string) => string): string {
+  return script.cover?.file ? assetUrl(script.id, script.cover.file) : "";
+}
+
+function DefaultLauncherBackground({ script, coverUrl: src }: Pick<LauncherSlotProps, "script" | "coverUrl">) {
+  return src ? (
+    // eslint-disable-next-line @next/next/no-img-element -- local script assets are runtime-addressed.
+    <img className="cg-programme__cover-image" src={src} alt={script.cover?.alt ?? ""} />
+  ) : (
+    <div className="cg-programme__cover-fallback" aria-hidden="true">{script.name.slice(0, 1)}</div>
+  );
+}
+
+function DefaultLauncherProgramme({ script, detail, coverUrl: src, actions }: LauncherSlotProps) {
+  return (
+    <main className="cg-programme">
+      <section className="cg-programme__stage" aria-labelledby="programme-title">
+        <div className="cg-programme__cover">
+          <DefaultLauncherBackground script={script} coverUrl={src} />
+        </div>
+        <div className="cg-programme__copy">
+          <h1 id="programme-title">{script.name}</h1>
+          <p>{script.description}</p>
+          <dl className="cg-programme__facts">
+            <div><dt>作者</dt><dd>{script.author}</dd></div>
+            <div><dt>语言</dt><dd>{script.language}</dd></div>
+            {script.safety?.age_rating ? <div><dt>分级</dt><dd>{script.safety.age_rating}</dd></div> : null}
+          </dl>
+          {script.tone.length > 0 ? <p className="cg-programme__tone">{script.tone.join(" · ")}</p> : null}
+        </div>
+      </section>
+
+      <aside className="cg-programme__actions" aria-label={`${script.name} 玩家操作`}>
+        <button type="button" className="cg-button cg-button--primary" onClick={actions.openNewGame}>
+          开始新游戏
+        </button>
+        <button
+          type="button"
+          className="cg-button cg-button--secondary"
+          onClick={actions.openSaves}
+          disabled={detail.saves.length === 0}
+          aria-describedby={detail.saves.length === 0 ? "no-saves-help" : undefined}
+        >
+          选择存档
+        </button>
+        {detail.saves.length === 0 ? <p id="no-saves-help" className="cg-help">尚无可继续的存档。</p> : null}
+      </aside>
+    </main>
+  );
+}
+
 export function Launcher() {
-  const state = useGameSelector((snapshot) => snapshot);
-  const { startNewGame, continueGame, resumeLast, clearError } = useGameActions();
   const port = useGamePort();
-  const busy = state.operation !== "idle";
-  const [scripts, setScripts] = useState<ScriptSummary[]>([]);
-  const [scriptId, setScriptId] = useState("");
-  const [modal, setModal] = useState<Modal>({ kind: "none" });
-  const [detail, setDetail] = useState<ScriptDetail | null>(null);
+  const { startNewGame, continueGame, resumeLast, clearError } = useGameActions();
+  const operation = useGameSelector((state) => state.operation);
+  const gameError = useGameSelector((state) => state.error);
+  const [active, setActive] = useState<ActiveProgramme | null>(null);
+  const [dialog, setDialog] = useState<LauncherDialog>(null);
   const [meta, setMeta] = useState<ScriptMeta | null>(null);
   const [originId, setOriginId] = useState("");
   const [playerName, setPlayerName] = useState("");
-  const [saves, setSaves] = useState<SaveSummary[]>([]);
-  const [importBusy, setImportBusy] = useState(false);
-  const [importError, setImportError] = useState("");
-  const [importOk, setImportOk] = useState("");
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  // Computed once on mount (client-only; the reference lives in
-  // localStorage and is refreshed by the GameProvider on enter/exit).
-  const [lastRunAvailable, setLastRunAvailable] = useState(() => readPlayerSettings().lastRun !== null);
-
-  async function refreshScripts() {
-    try {
-      const res = await port.listScripts();
-      setScripts(res.scripts);
-      setScriptId((prev) => prev || res.scripts[0]?.id || "");
-    } catch {
-      setScripts([]);
-    }
-  }
+  const [lastRunValid, setLastRunValid] = useState(false);
+  const [status, setStatus] = useState("正在整理剧目单……");
+  const activationRef = useRef(0);
+  const busy = operation !== "idle";
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await port.listScripts();
-        if (!cancelled) {
-          setScripts(res.scripts);
-          setScriptId((prev) => prev || res.scripts[0]?.id || "");
-        }
-      } catch {
-        if (!cancelled) setScripts([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [port]);
-  const script = scripts.find((s) => s.id === scriptId) ?? scripts[0];
-
-  // The menu wears the selected script's skin: load its UI bundle (for the
-  // launcher:background slot) and apply its default theme immediately.
-  const activeScriptId = script?.id;
-  useEffect(() => {
-    if (!activeScriptId) return;
-    let cancelled = false;
+    const controller = new AbortController();
+    const activation = ++activationRef.current;
     void (async () => {
-      await loadScriptUi(activeScriptId);
       try {
-        const d = await port.scriptDetail(activeScriptId);
-        const theme = d.presentation.themes.find((entry) => entry.id === d.presentation.defaultThemeId);
-        if (!cancelled && theme) {
-          applyTheme(theme, undefined, {
-            assetUrl: (file) => port.assetUrl(activeScriptId, file),
-          });
+        const { scripts } = await port.listScripts(controller.signal);
+        if (controller.signal.aborted || activation !== activationRef.current) return;
+        if (scripts.length === 0) {
+          setActive(null);
+          setStatus("剧本库为空。前往“剧本”导入一个 zip 文件。");
+          return;
         }
-      } catch {
-        // Library unreachable; keep the framework default look.
+        const settings = readPlayerSettings();
+        const selected = scripts.find((script) => script.id === settings.activeScriptId) ?? scripts[0];
+        const detail = await port.scriptDetail(selected.id, controller.signal);
+        if (controller.signal.aborted || activation !== activationRef.current) return;
+        const theme = detail.presentation.themes.find((item) => item.id === detail.presentation.defaultThemeId)
+          ?? detail.presentation.themes[0];
+        const ui = await loadScriptUi(selected.id, detail.presentation.uiBundle, {
+          beforeCommit: () => {
+            if (theme) applyTheme(theme, undefined, { assetUrl: (file) => port.assetUrl(selected.id, file) });
+          },
+        });
+        if (controller.signal.aborted || activation !== activationRef.current || ui.stale) return;
+        if (ui.ok) patchPlayerSettings({ activeScriptId: selected.id });
+        setActive({ script: selected, detail });
+        setStatus(ui.ok ? `${selected.name}已就绪。` : `${selected.name}使用宿主界面；扩展加载失败。`);
+
+        const last = settings.lastRun;
+        if (!last) {
+          setLastRunValid(false);
+        } else {
+          const lastScript = scripts.find((script) => script.id === last.scriptId);
+          if (!lastScript) {
+            patchPlayerSettings({ lastRun: null });
+            setLastRunValid(false);
+          } else {
+            const lastDetail = last.scriptId === selected.id
+              ? detail
+              : await port.scriptDetail(last.scriptId, controller.signal);
+            const valid = lastDetail.saves.some((save) => save.runId === last.runId);
+            if (!valid) patchPlayerSettings({ lastRun: null });
+            if (!controller.signal.aborted) setLastRunValid(valid);
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setStatus(`剧目单读取失败：${error instanceof Error ? error.message : String(error)}。请重试。`);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeScriptId, port]);
+    return () => controller.abort();
+  }, [port]);
 
-  async function openModal(kind: "new" | "continue", id: string) {
+  const openNewGame = useCallback(() => {
+    if (!active) return;
     clearError();
-    setModal({ kind, scriptId: id });
-    try {
-      const d = await port.scriptDetail(id);
-      setDetail(d);
-      setSaves(d.saves);
-      if (kind === "new") {
-        // Meta unlocks gate the origin picker (locked origins are dimmed).
-        const m = await port.scriptMeta(id);
-        setMeta(m);
-        setOriginId(d.origins.find((o) => originAvailable(o.id, m))?.id ?? "");
-      } else {
-        setMeta(null);
-        setOriginId(d.origins[0]?.id ?? "");
-      }
-    } catch (err) {
-      setDetail(null);
-      setMeta(null);
-      setImportError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  function closeModal() {
-    setModal({ kind: "none" });
-    setDetail(null);
+    setDialog("new");
     setMeta(null);
-    setOriginId("");
-    setPlayerName("");
-    setSaves([]);
-  }
+    void port.scriptMeta(active.script.id).then((nextMeta) => {
+      setMeta(nextMeta);
+      setOriginId(active.detail.origins.find((origin) => originAvailable(origin.id, nextMeta))?.id ?? "");
+    }).catch((error) => setStatus(`出身信息读取失败：${error instanceof Error ? error.message : String(error)}`));
+  }, [active, clearError, port]);
 
-  async function onImport(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setImportBusy(true);
-    setImportError("");
-    setImportOk("");
-    try {
-      const preview = await port.previewImport(file);
-      const result = await port.commitImport(preview.token, false);
-      setImportOk(`已导入「${result.scriptId}」`);
-      await refreshScripts();
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setImportBusy(false);
-    }
-  }
-
-  const bgDef = getSlot("launcher:background");
-  const Bg = bgDef?.component as React.ElementType | undefined;
-
-  async function onResumeLast() {
+  const openSaves = useCallback(() => {
     clearError();
-    const ok = await resumeLast();
-    if (!ok) {
-      // The reference was stale (save/script deleted) and already cleared;
-      // hide the entry and keep the launcher open with the inline error.
-      setLastRunAvailable(false);
-    }
-  }
+    setDialog("saves");
+  }, [clearError]);
+
+  const actions = useMemo<LauncherSlotProps["actions"]>(() => ({
+    openNewGame,
+    openSaves,
+    async start(nextOriginId, nextPlayerName) {
+      if (!active) return;
+      setDialog(null);
+      if (readPlayerSettings().fullscreenOnStart) void enterFullscreen();
+      await startNewGame(active.script.id, nextOriginId, nextPlayerName);
+    },
+    async continueRun(runId) {
+      if (!active) return;
+      setDialog(null);
+      if (readPlayerSettings().fullscreenOnStart) void enterFullscreen();
+      await continueGame(active.script.id, runId);
+    },
+  }), [active, continueGame, openNewGame, openSaves, startNewGame]);
+
+  const continueLastRun = useCallback(async () => {
+    if (readPlayerSettings().fullscreenOnStart) void enterFullscreen();
+    await resumeLast();
+  }, [resumeLast]);
 
   return (
-    <div
-      className="relative flex h-full min-h-0 flex-col overflow-hidden"
-      style={{ background: "var(--cg-background)", color: "var(--cg-text)" }}
-    >
-      {/* Script background (default: themed gradient; slot: script cover). */}
-      {Bg ? (
-        <div className="absolute inset-0 z-0" aria-hidden="true">
-          <Bg />
-        </div>
+    <div className="cg-host-page">
+      <header className="cg-host-header">
+        <Link className="cg-wordmark" href="/" aria-label="Chatgame 游戏首页">Chatgame</Link>
+        <nav className="cg-host-nav" aria-label="全局">
+          <span aria-current="page">游戏</span>
+          <Link href="/scripts">剧本</Link>
+          <Link href="/settings">设置</Link>
+        </nav>
+      </header>
+
+      {active ? (
+        <>
+          {lastRunValid ? (
+            <div className="cg-resume-strip">
+              <p>上一次世界仍停在原处。</p>
+              <button type="button" className="cg-button cg-button--primary" disabled={busy} onClick={() => void continueLastRun()}>
+                {busy ? "正在继续……" : "继续上次游戏"}
+              </button>
+            </div>
+          ) : null}
+          <SlotRenderer
+            slot="launcher"
+            fallback={DefaultLauncherProgramme}
+            slotProps={{
+              script: active.script,
+              detail: active.detail,
+              coverUrl: coverUrl(active.script, port.assetUrl.bind(port)),
+              actions,
+            }}
+          />
+        </>
       ) : (
-        <div
-          className="absolute inset-0 z-0"
-          aria-hidden="true"
-          style={{
-            background: "radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--cg-primary) 28%, transparent), transparent 65%), linear-gradient(180deg, var(--cg-background), var(--cg-surface))",
-          }}
-        />
+        <main className="cg-empty-library">
+          <h1>今晚还没有剧目</h1>
+          <p>{status}</p>
+          <Link className="cg-button cg-button--primary" href="/scripts">打开剧本库</Link>
+        </main>
       )}
 
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-6">
-        <header className="text-center">
-          <h1 className="text-4xl font-bold tracking-wide" style={{ color: "var(--cg-text)" }}>
-            {script ? script.name : "Chatgame"}
-            {script?.safety?.age_rating ? (
-              <span
-                className="ml-3 rounded-full border px-2 py-0.5 align-middle text-xs"
-                style={{ borderColor: "var(--cg-text-dim)", color: "var(--cg-text-dim)" }}
-                title="内容分级"
-              >
-                {script.safety.age_rating}
-              </span>
-            ) : null}
-          </h1>
-          {script ? (
-            <p className="mt-2 max-w-md text-sm" style={{ color: "var(--cg-text-dim)" }}>
-              {script.description}
-            </p>
-          ) : null}
-        </header>
+      <p className="cg-sr-only" role="status" aria-live="polite">{gameError || status}</p>
 
-        <nav className="flex flex-col gap-2" aria-label="主菜单">
-          <button
-            type="button"
-            disabled={!script}
-            className="cg-chrome rounded-xl px-8 py-3 text-base font-semibold"
-            style={{ background: "var(--cg-primary)", color: "var(--cg-surface)", opacity: script ? 1 : 0.5 }}
-            onClick={() => script && openModal("new", script.id)}
+      {dialog === "new" && active ? (
+        <Dialog title={`开始《${active.script.name}》`} description="选择一个已解锁的出身；世界会以此建立第一份存档。" onClose={() => setDialog(null)}>
+          <form
+            className="cg-form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!originId || busy) return;
+              void actions.start(originId, playerName.trim() || undefined);
+            }}
           >
-            开始新游戏
-          </button>
-          <button
-            type="button"
-            disabled={!script}
-            className="cg-chrome rounded-xl border px-8 py-3 text-base"
-            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)", opacity: script ? 1 : 0.5 }}
-            onClick={() => script && openModal("continue", script.id)}
-          >
-            继续
-          </button>
-          {lastRunAvailable ? (
-            <button
-              type="button"
-              onClick={() => void onResumeLast()}
-              disabled={busy}
-              className="cg-chrome rounded-xl border px-8 py-3 text-base font-semibold"
-              style={{ borderColor: "var(--cg-primary)", color: "var(--cg-primary)", background: "color-mix(in srgb, var(--cg-primary) 10%, transparent)" }}
-            >
-              继续上次游戏
+            <label htmlFor="origin">出身</label>
+            <select id="origin" value={originId} onChange={(event) => setOriginId(event.target.value)} disabled={!meta || busy}>
+              {active.detail.origins.map((origin) => (
+                <option key={origin.id} value={origin.id} disabled={!originAvailable(origin.id, meta)}>
+                  {origin.name}{origin.difficulty ? ` · ${origin.difficulty}` : ""}{originAvailable(origin.id, meta) ? "" : " · 未解锁"}
+                </option>
+              ))}
+            </select>
+            <p className="cg-help">{active.detail.origins.find((origin) => origin.id === originId)?.description}</p>
+            <label htmlFor="player-name">名字（可选）</label>
+            <input id="player-name" value={playerName} onChange={(event) => setPlayerName(event.target.value)} autoComplete="nickname" />
+            <button data-autofocus type="submit" className="cg-button cg-button--primary" disabled={!originId || busy}>
+              {busy ? "正在建立世界……" : "进入世界"}
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={importBusy}
-            className="cg-chrome rounded-xl border px-8 py-3 text-base"
-            style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
-          >
-            {importBusy ? "导入中……" : "设置 / 导入剧本"}
-          </button>
-        </nav>
+          </form>
+        </Dialog>
+      ) : null}
 
-        {/* Script switcher (compact). */}
-        {scripts.length > 1 ? (
-          <div className="flex flex-wrap items-center justify-center gap-2" aria-label="切换剧本">
-            {scripts.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setScriptId(s.id)}
-                className="cg-chrome rounded-full border px-4 py-1.5 text-sm transition-colors"
-                style={
-                  s.id === script?.id
-                    ? { borderColor: "var(--cg-primary)", color: "var(--cg-primary)", background: "color-mix(in srgb, var(--cg-primary) 12%, transparent)" }
-                    : { borderColor: "var(--cg-border)", color: "var(--cg-text-dim)" }
-                }
-              >
-                {s.name}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {scripts.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
-            还没有已安装的剧本 —— 上传一个 zip 开始。
-          </p>
-        ) : null}
-
-        {importError ? (
-          <p className="rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-accent)" }}>
-            {importError}
-          </p>
-        ) : null}
-        {importOk ? (
-          <p className="rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}>
-            {importOk}
-          </p>
-        ) : null}
-        {state.error ? (
-          <p className="rounded-lg border px-4 py-2 text-sm" style={{ borderColor: "var(--cg-border)", color: "var(--cg-accent)" }}>
-            {state.error}
-          </p>
-        ) : null}
-
-        <input ref={fileRef} type="file" accept=".zip" className="hidden" onChange={(e) => void onImport(e)} />
-      </div>
-
-      {/* New game / continue modal (centered overlay). */}
-      {modal.kind !== "none" && script ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={modal.kind === "new" ? "新游戏" : "继续游戏"}>
-          <button type="button" tabIndex={-1} className="absolute inset-0" style={{ background: "color-mix(in srgb, var(--cg-background) calc(var(--cg-overlay-strength) * 100%), transparent)" }} onClick={closeModal} />
-          <div className="cg-glass cg-chrome relative max-h-[80vh] w-full max-w-lg overflow-y-auto border p-5"
-            style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface)", boxShadow: "var(--cg-shadow-value)" }}>
-            <h2 className="mb-4 text-lg font-bold" style={{ color: "var(--cg-text)" }}>
-              {modal.kind === "new" ? `新游戏 · ${script.name}` : `继续 · ${script.name}`}
-            </h2>
-
-            {modal.kind === "new" && detail ? (
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-sm" style={{ color: "var(--cg-text-dim)" }}>出身</label>
-                  <select
-                    value={originId}
-                    onChange={(e) => setOriginId(e.target.value)}
-                    className="cg-chrome w-full rounded-lg border px-3 py-2"
-                    style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)", color: "var(--cg-text)" }}
-                  >
-                    {detail.origins.map((o) => {
-                      const available = originAvailable(o.id, meta);
-                      return (
-                        <option key={o.id} value={o.id} disabled={!available}>
-                          {o.name}{o.difficulty ? `（${o.difficulty}）` : ""}
-                          {available ? "" : " · 未解锁"}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  {detail.origins.find((o) => o.id === originId)?.description ? (
-                    <p className="mt-2 text-sm" style={{ color: "var(--cg-text-dim)" }}>
-                      {detail.origins.find((o) => o.id === originId)?.description}
-                    </p>
-                  ) : null}
-                  {meta && meta.lockableOrigins.some((id) => !meta.unlockedOrigins.includes(id)) ? (
-                    <p className="mt-2 text-xs" style={{ color: "var(--cg-text-dim)" }}>
-                      部分出身需要完成特定结局或事件才能解锁。
-                    </p>
-                  ) : null}
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm" style={{ color: "var(--cg-text-dim)" }}>名字（可选）</label>
-                  <input
-                    value={playerName}
-                    onChange={(e) => setPlayerName(e.target.value)}
-                    placeholder="留空则使用出身名"
-                    className="cg-chrome w-full rounded-lg border px-3 py-2"
-                    style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)", color: "var(--cg-text)" }}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {modal.kind === "continue" ? (
-              saves.length === 0 ? (
-                <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>还没有存档 —— 先开一局新游戏吧。</p>
-              ) : (
-                <ul className="space-y-2">
-                  {saves.map((s) => (
-                    <li key={s.runId}>
-                      <button
-                        type="button"
-                        className="cg-chrome w-full rounded-lg border px-3 py-2 text-left text-sm"
-                        style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }}
-                        onClick={async () => {
-                          closeModal();
-                          await continueGame(modal.scriptId, s.runId);
-                        }}
-                      >
-                        {s.updatedAt ? new Date(s.updatedAt).toLocaleString() : s.runId}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )
-            ) : null}
-
-            {busy ? (
-              <p className="mt-4 text-sm" style={{ color: "var(--cg-text-dim)" }}>正在创建会话……</p>
-            ) : null}
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button type="button" className="cg-chrome rounded-lg border px-3 py-1.5 text-sm"
-                style={{ borderColor: "var(--cg-border)", color: "var(--cg-text)" }} onClick={closeModal}>
-                取消
-              </button>
-              {modal.kind === "new" ? (
-                <button
-                  type="button"
-                  disabled={!originId || busy}
-                  className="cg-chrome rounded-lg px-4 py-1.5 text-sm font-semibold"
-                  style={{ background: "var(--cg-primary)", color: "var(--cg-surface)", opacity: originId && !busy ? 1 : 0.5 }}
-                  onClick={async () => {
-                    closeModal();
-                    // User-gesture fullscreen request (silent degradation).
-                    void enterFullscreen();
-                    await startNewGame(modal.scriptId, originId, playerName.trim() || undefined);
-                  }}
-                >
-                  开始冒险
+      {dialog === "saves" && active ? (
+        <Dialog title="选择存档" description={`继续《${active.script.name}》中的一个时间点。`} onClose={() => setDialog(null)}>
+          <ul className="cg-save-list">
+            {active.detail.saves.map((save) => (
+              <li key={save.runId}>
+                <button type="button" className="cg-save-row" disabled={busy} onClick={() => void actions.continueRun(save.runId)}>
+                  <span>{save.runId === "autosave.json" ? "自动存档" : save.runId.replace(/\.json$/, "")}</span>
+                  <time dateTime={save.updatedAt}>{new Date(save.updatedAt).toLocaleString("zh-CN")}</time>
                 </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
+              </li>
+            ))}
+          </ul>
+        </Dialog>
       ) : null}
     </div>
   );

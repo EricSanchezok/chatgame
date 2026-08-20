@@ -112,6 +112,10 @@ export class MockGamePort implements GamePort {
     return fixtureMeta(scriptId);
   }
 
+  async deleteScript(scriptId: string, signal?: AbortSignal): Promise<void> {
+    await this.wait(`/api/scripts/${scriptId}`, signal);
+  }
+
   async previewImport(file: File, signal?: AbortSignal): Promise<ImportPreview> {
     await this.wait("/api/scripts/import-preview", signal);
     return {
@@ -119,9 +123,13 @@ export class MockGamePort implements GamePort {
       scriptId: CORE_SCRIPT_ID,
       name: file.name,
       sourceName: file.name,
-      conflicts: { installed: false },
+      schemaVersion: "1.1",
+      apiVersions: { hostUi: 3, engine: 2, scriptUi: null },
+      conflicts: { installed: false, replaceAllowed: false },
       permissions: [],
+      assetProvenance: { manifestPresent: false, coveredFiles: 0, totalFiles: 0, missingFiles: [], extraFiles: [], remoteReferences: [] },
       risks: [],
+      errors: [],
       warnings: [],
     };
   }

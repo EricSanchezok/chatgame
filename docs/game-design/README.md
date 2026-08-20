@@ -6,7 +6,8 @@
 |---|---|
 | [script-format.md](script-format.md) | 剧本格式 v1.0：18 模块 + theme/assets 两个可选表现模块 + 附录 A-G |
 | [engine-runtime.md](engine-runtime.md) | 引擎运行时 v1：回合循环、判定、防作弊、双轨状态、LLM 桥、存档、表现层 |
-| [presentation.md](presentation.md) | 表现层 v1：UI 结构、Route Handlers、主题系统、资产管线、多剧本管理 |
+| [presentation.md](presentation.md) | 表现层 v3：玩家宿主、UI API、主题、可访问性与并发边界 |
+| [script-import.md](script-import.md) | 两阶段剧本导入、素材来源、安装所有权与失败语义 |
 | time.md | 时间机制：时间流逝、日程、事件调度 |
 | character.md | 角色机制：属性、记忆、关系 |
 | inventory.md | 背包机制 |
@@ -35,13 +36,13 @@ npm run play   # demo CLI（默认 Mock LLM，无 key 可跑）
 
 ## 表现层
 
-表现层 v1 已实现：`src/app/`（沉浸聊天式 UI + Route Handlers）+ `src/server/`（EngineHost 会话托管 + 剧本导入）。规格见 [presentation.md](presentation.md)；演示：
+表现层由 `src/app/` 的玩家宿主与 Route Handlers、`src/server/` 的会话托管与导入核心组成。规格见 [presentation.md](presentation.md) 与 [script-import.md](script-import.md)；演示：
 
 ```sh
 npm run dev   # 开发服务器（启动器 + 游戏 UI）
 ```
 
-决策依据见 [决策记录 0012](../decisions/0012-ui-theme-assets-multiscript.md)。
+决策依据见 [决策记录 0022](../decisions/0022-ui-host-and-script-extension-v3.md) 与 [决策记录 0023](../decisions/0023-layout-theme-and-accessibility-v2.md)。
 
 规则：
 

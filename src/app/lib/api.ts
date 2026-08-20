@@ -30,6 +30,7 @@ export interface GamePort {
   listScripts(signal?: AbortSignal): Promise<{ scripts: ScriptSummary[] }>;
   scriptDetail(scriptId: string, signal?: AbortSignal): Promise<ScriptDetail>;
   scriptMeta(scriptId: string, signal?: AbortSignal): Promise<ScriptMeta>;
+  deleteScript(scriptId: string, signal?: AbortSignal): Promise<void>;
   previewImport(file: File, signal?: AbortSignal): Promise<ImportPreview>;
   commitImport(token: string, replace: boolean, signal?: AbortSignal): Promise<ImportCommitResult>;
   createSession(
@@ -87,14 +88,18 @@ export class HttpGamePort implements GamePort {
     return this.request<ScriptMeta>(`/api/scripts/${encodeURIComponent(scriptId)}/meta`, { signal });
   }
 
+  async deleteScript(scriptId: string, signal?: AbortSignal) {
+    await this.request<{ deleted: true }>(`/api/scripts/${encodeURIComponent(scriptId)}`, { method: "DELETE", signal });
+  }
+
   previewImport(file: File, signal?: AbortSignal) {
     const form = new FormData();
     form.set("file", file);
-    return this.request<ImportPreview>("/api/scripts/import-preview", { method: "POST", body: form, signal });
+    return this.request<ImportPreview>("/api/scripts/import/preview", { method: "POST", body: form, signal });
   }
 
   commitImport(token: string, replace: boolean, signal?: AbortSignal) {
-    return this.post<ImportCommitResult>("/api/scripts/import-commit", { token, replace }, signal);
+    return this.post<ImportCommitResult>("/api/scripts/import/commit", { token, replace }, signal);
   }
 
   createSession(input: Parameters<GamePort["createSession"]>[0], signal?: AbortSignal) {

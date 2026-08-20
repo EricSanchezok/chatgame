@@ -1,7 +1,7 @@
 # 布局、主题与无障碍表现契约 v2
 
 ## Status
-Proposed
+Accepted
 Class: feature
 
 ## Context and Problem Statement

@@ -9,10 +9,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Engine } from "../engine";
 import { loadScript } from "../engine/loader";
-import { listSelectableThemes, resolveTheme, buildAssetManifest, toThemeView, type ThemeView } from "../engine/presentation";
+import { FRAMEWORK_DARK_THEME, listSelectableThemes, resolveTheme, buildAssetManifest, toThemeView, type ThemeView } from "../engine/presentation";
 import { createProvider, type LLMProvider } from "../engine/narrative/provider";
 import { createMediaProvider, type MediaProvider } from "../engine/media/provider";
-import { importScriptFromZip, importScriptFromDir, defaultScriptsRoot } from "./script-import";
+import { importScriptFromZip, importScriptFromDir, defaultScriptsRoot, removeInstalledScript, scriptInstallSource } from "./script-import";
 import { saveDirForScript, metaPathForScript, createDataStore, type SaveStore } from "../engine/save-store";
 import type { WorldState, TurnResult, WorldDefinition } from "../engine/types";
 import type { Theme } from "../script/schemas/theme";
@@ -34,6 +34,8 @@ export interface ScriptSummary {
   author: string;
   tone: string[];
   language: string;
+  schemaVersion: string;
+  source: { kind: "built-in" | "imported"; label: string };
   /** Theme palette (undefined when the script ships no theme.yaml). */
   theme?: { id: string; name: string; palette: Theme["palette"] };
   /** Whether the script has a presentation asset manifest. */
@@ -105,6 +107,7 @@ const MIME_BY_EXT: Record<string, string> = {
 export class EngineHost {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly queues = new Map<string, Promise<unknown>>();
+  private readonly closing = new Set<string>();
   private readonly scriptsRoot: string;
   private readonly provider: LLMProvider;
   private readonly media: MediaProvider;
@@ -157,6 +160,8 @@ export class EngineHost {
           author: definition.script.author,
           tone: definition.script.tone,
           language: definition.script.language,
+          schemaVersion: definition.script.schema_version,
+          source: scriptInstallSource(dir),
           theme: defaultTheme
             ? { id: defaultTheme.id, name: defaultTheme.name, palette: defaultTheme.palette }
             : undefined,
@@ -178,11 +183,13 @@ export class EngineHost {
   /** Presentation surface for a script: selectable themes + asset index. */
   scriptPresentation(scriptId: string): {
     themes: ThemeView[];
+    defaultThemeId: string;
     assets: boolean;
   } {
     const definition = this.loadDefinition(scriptId);
     return {
       themes: listSelectableThemes(definition).map((t) => toThemeView(t)),
+      defaultThemeId: definition.themes.get("default")?.id ?? FRAMEWORK_DARK_THEME.id,
       assets: definition.assets !== undefined,
     };
   }
@@ -301,6 +308,15 @@ export class EngineHost {
     return { scriptId: result.scriptId, warnings: result.warnings.map((w) => w.message) };
   }
 
+  /** Removes an imported script only when no live session still uses it. */
+  removeScript(scriptId: string): void {
+    this.reapIdle();
+    if ([...this.sessions.values()].some((session) => session.scriptId === scriptId)) {
+      throw new HostError(`script "${scriptId}" has active sessions`, 409);
+    }
+    removeInstalledScript(scriptId, { scriptsRoot: this.scriptsRoot });
+  }
+
   // -------------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------------
@@ -362,13 +378,18 @@ export class EngineHost {
 
   /** Serializes async operations per session (turns/advances queue up). */
   private enqueue<T>(sessionId: string, op: (session: SessionRecord) => Promise<T> | T): Promise<T> {
+    if (this.closing.has(sessionId)) throw new HostError("session is closing", 409);
     const record = this.requireSession(sessionId);
     const tail = this.queues.get(sessionId) ?? Promise.resolve();
     const next = tail.then(
       () => op(record),
       () => op(record),
     );
-    this.queues.set(sessionId, next.catch(() => undefined));
+    const guarded = next.catch(() => undefined);
+    this.queues.set(sessionId, guarded);
+    void guarded.finally(() => {
+      if (this.queues.get(sessionId) === guarded) this.queues.delete(sessionId);
+    });
     return next;
   }
 
@@ -503,22 +524,21 @@ export class EngineHost {
    * Loads a save file into the session by its run id (filename inside the
    * script's save dir). Traversal outside the save dir is rejected.
    */
-  load(sessionId: string, runId: string): WorldState {
-    const record = this.requireSession(sessionId);
+  load(sessionId: string, runId: string): Promise<WorldState> {
     if (runId !== path.basename(runId) || !runId.endsWith(".json")) {
       throw new HostError("invalid save id", 400);
     }
-    const filePath = path.join(
-      saveDirForScript(record.scriptId, this.saveStore.root ?? ".chatgame"),
-      runId,
-    );
-    if (!existsSync(filePath)) {
-      throw new HostError("save not found", 404);
-    }
-    const state = record.engine.load(filePath);
-    record.lastActivity = Date.now();
-    record.dirty = false;
-    return state;
+    return this.enqueue(sessionId, (record) => {
+      const filePath = path.join(
+        saveDirForScript(record.scriptId, this.saveStore.root ?? ".chatgame"),
+        runId,
+      );
+      if (!existsSync(filePath)) throw new HostError("save not found", 404);
+      const state = record.engine.load(filePath);
+      record.lastActivity = Date.now();
+      record.dirty = false;
+      return state;
+    });
   }
 
   /** User edit to a descriptor (explanation layer only). */
@@ -526,12 +546,13 @@ export class EngineHost {
     sessionId: string,
     descriptorPath: Parameters<Engine["setDescriptor"]>[0],
     text: string,
-  ): WorldState {
-    const record = this.requireSession(sessionId);
-    const state = record.engine.setDescriptor(descriptorPath, text);
-    record.lastActivity = Date.now();
-    record.dirty = true;
-    return state;
+  ): Promise<WorldState> {
+    return this.enqueue(sessionId, (record) => {
+      const state = record.engine.setDescriptor(descriptorPath, text);
+      record.lastActivity = Date.now();
+      record.dirty = true;
+      return state;
+    });
   }
 
   /** Current world state for a session. */
@@ -543,6 +564,7 @@ export class EngineHost {
   sessionPresentation(sessionId: string): {
     themes: ThemeView[];
     currentTheme: ThemeView;
+    defaultThemeId: string;
     hasAssets: boolean;
   } {
     const record = this.requireSession(sessionId);
@@ -551,14 +573,28 @@ export class EngineHost {
     return {
       themes: listSelectableThemes(definition).map((t) => toThemeView(t)),
       currentTheme: toThemeView(current),
+      defaultThemeId: definition.themes.get("default")?.id ?? FRAMEWORK_DARK_THEME.id,
       hasAssets: definition.assets !== undefined,
     };
   }
 
   /** Destroys a session (unsaved changes are discarded). */
-  destroySession(sessionId: string): void {
-    this.sessions.delete(sessionId);
-    this.queues.delete(sessionId);
+  async destroySession(sessionId: string): Promise<void> {
+    this.requireSession(sessionId);
+    if (this.closing.has(sessionId)) throw new HostError("session is closing", 409);
+    this.closing.add(sessionId);
+    const tail = this.queues.get(sessionId) ?? Promise.resolve();
+    const closing = tail.then(
+      () => { this.sessions.delete(sessionId); },
+      () => { this.sessions.delete(sessionId); },
+    );
+    this.queues.set(sessionId, closing);
+    try {
+      await closing;
+    } finally {
+      this.closing.delete(sessionId);
+      if (this.queues.get(sessionId) === closing) this.queues.delete(sessionId);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -660,6 +696,7 @@ export class EngineHost {
     const now = Date.now();
     for (const [id, record] of this.sessions) {
       if (now - record.lastActivity > SESSION_IDLE_MS) {
+        if (this.queues.has(id) || this.closing.has(id)) continue;
         this.sessions.delete(id);
         this.queues.delete(id);
       }

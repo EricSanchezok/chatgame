@@ -49,37 +49,47 @@ function installStarlight(): void {
   });
 }
 
-/** Collects all .yaml paths (relative) under a directory tree. */
-function walkYaml(dir: string, base = ""): string[] {
+/** Collects all fixture files (relative) under a directory tree. */
+function walkFiles(dir: string, base = ""): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const abs = path.join(dir, entry);
     const rel = base ? `${base}/${entry}` : entry;
     if (statSync(abs).isDirectory()) {
-      out.push(...walkYaml(abs, rel));
-    } else if (entry.endsWith(".yaml")) {
+      out.push(...walkFiles(abs, rel));
+    } else {
       out.push(rel);
     }
   }
   return out;
 }
 
+function fixtureProvenance(srcDir: string): string {
+  const files = walkFiles(path.join(srcDir, "assets"), "assets");
+  return [
+    "version: 1",
+    "files:",
+    ...files.flatMap((file) => [
+      `  ${JSON.stringify(file)}:`,
+      "    source: chatgame test fixture",
+      "    license: test-only",
+    ]),
+    "",
+  ].join("\n");
+}
+
 /** Builds a minimal valid zip script (renamed starlight copy). */
 function buildTestZip(scriptId: string): Buffer {
   const zip = new AdmZip();
   const srcDir = path.join(FIXTURES, "starlight");
-  for (const rel of walkYaml(srcDir)) {
+  for (const rel of walkFiles(srcDir)) {
     const content = readFileSync(path.join(srcDir, rel), "utf8");
     zip.addFile(
-      `${scriptId}-dir/${rel}`,
+      `${scriptId}/${rel}`,
       Buffer.from(rel.endsWith("script.yaml") ? content.replace("id: starlight", `id: ${scriptId}`) : content),
     );
   }
-  const coverPath = "assets/backgrounds/bridge.svg";
-  zip.addFile(
-    `${scriptId}-dir/${coverPath}`,
-    readFileSync(path.join(srcDir, coverPath)),
-  );
+  zip.addFile(`${scriptId}/assets/provenance.yaml`, Buffer.from(fixtureProvenance(srcDir)));
   return zip.toBuffer();
 }
 
@@ -195,6 +205,21 @@ describe("script import", () => {
     expect(() => host.importZip(buildTestZip("testzip"), true)).not.toThrow();
   });
 
+  it("refuses to replace or remove application-owned built-ins", () => {
+    installStarlight();
+    expect(() => host.importZip(buildTestZip("starlight"), true)).toThrow(/cannot be replaced/);
+    expect(() => host.removeScript("starlight")).toThrow(/cannot be deleted/);
+    expect(existsSync(path.join(scriptsRoot, "starlight", "script.yaml"))).toBe(true);
+  });
+
+  it("refuses to remove an imported script while a session uses it", async () => {
+    host.importZip(buildTestZip("testzip"));
+    const session = host.createSession({ scriptId: "testzip", originId: "crew-member", seed: 1 });
+    expect(() => host.removeScript("testzip")).toThrow(/active sessions/);
+    await host.destroySession(session.id);
+    expect(() => host.removeScript("testzip")).not.toThrow();
+  });
+
   it("rejects zip-slip entries (raw zip bytes)", () => {
     const zip = rawZip([{ name: "../evil.yaml", content: "id: evil" }]);
     expect(() => host.importZip(zip)).toThrow(/unsafe entry/);
@@ -225,6 +250,7 @@ describe("script import", () => {
     const src = path.join(tmpdir(), `cg-dir-${Date.now()}`);
     mkdirSync(src, { recursive: true });
     cpSync(path.join(FIXTURES, "starlight"), path.join(src, "starlight"), { recursive: true });
+    writeFileSync(path.join(src, "starlight", "assets", "provenance.yaml"), fixtureProvenance(path.join(FIXTURES, "starlight")));
     const result = host.importDir(path.join(src, "starlight"));
     expect(result.scriptId).toBe("starlight");
     rmSync(src, { recursive: true, force: true });
@@ -267,7 +293,7 @@ describe("session lifecycle", () => {
     const result = await host.turn(session.id, { text: "你好，黑猫" });
     expect(result.narrative.length).toBeGreaterThan(0);
     expect(host.state(session.id).transcript.length).toBeGreaterThan(session.state.transcript.length);
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
     expect(() => host.state(session.id)).toThrow(HostError);
   });
 
@@ -280,9 +306,9 @@ describe("session lifecycle", () => {
     expect(host.listSaves(session.id)).toContain("host-test.json");
     const before = JSON.stringify(host.state(session.id));
     // load() takes a basename run id (traversal-proof), not a full path.
-    host.load(session.id, "host-test.json");
+    await host.load(session.id, "host-test.json");
     expect(JSON.stringify(host.state(session.id))).toBe(before);
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
   });
 
   it("serializes concurrent turns per session", async () => {
@@ -295,17 +321,17 @@ describe("session lifecycle", () => {
     ]);
     expect(results).toHaveLength(3);
     expect(results.every((r) => r.narrative.length > 0)).toBe(true);
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
   });
 
-  it("reports session presentation with theme fallback", () => {
+  it("reports session presentation with theme fallback", async () => {
     installStarlight();
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
     const presentation = host.sessionPresentation(session.id);
     expect(presentation.currentTheme.palette.background).toBe("#0b0e14");
     expect(presentation.themes.map((t) => t.id)).toContain("framework-dark");
     expect(presentation.themes.map((t) => t.id)).toContain("starlight-bridge");
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
   });
 
   it("rejects unknown sessions and scripts", () => {
@@ -328,7 +354,7 @@ describe("persistence & autosave", () => {
     // Atomic write: no .tmp residue next to the slot.
     const dir = path.join(dataRoot, "saves", "starlight");
     expect(readdirSync(dir).some((f) => f.endsWith(".tmp"))).toBe(false);
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
   });
 
   it("serializes advance behind turns on the same session", async () => {
@@ -344,7 +370,30 @@ describe("persistence & autosave", () => {
     // (plus the turn's own time cost) and no turn state was lost to a
     // mid-flight mutation.
     expect(host.state(session.id).clock.totalHours).toBeGreaterThanOrEqual(beforeHours + 6);
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
+  });
+
+  it("serializes descriptor edits and teardown behind an in-flight turn", async () => {
+    installStarlight();
+    const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
+    const relation = host.state(session.id).player.relations[0];
+    expect(relation).toBeDefined();
+
+    const turn = host.turn(session.id, { text: "检查线路" });
+    const descriptor = host.setDescriptor(
+      session.id,
+      `player.relations.${relation.npcId}`,
+      "回合结束后仍保留的描述",
+    );
+    await Promise.all([turn, descriptor]);
+    expect(host.state(session.id).player.relations.find((item) => item.npcId === relation.npcId)?.descriptor?.description)
+      .toBe("回合结束后仍保留的描述");
+
+    const finalTurn = host.turn(session.id, { text: "最后检查一次" });
+    const teardown = host.destroySession(session.id);
+    expect(() => host.advance(session.id, 1)).toThrow(/closing/);
+    await Promise.all([finalTurn, teardown]);
+    expect(() => host.state(session.id)).toThrow(HostError);
   });
 
   it("resumes a destroyed session from the autosave slot (refresh recovery)", async () => {
@@ -352,7 +401,7 @@ describe("persistence & autosave", () => {
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
     await host.turn(session.id, { text: "我去舰桥" });
     const transcriptBefore = JSON.stringify(host.state(session.id).transcript);
-    host.destroySession(session.id); // the in-memory session is gone
+    await host.destroySession(session.id); // the in-memory session is gone
 
     // A fresh host (server restart / reaped session) rebuilds from disk —
     // the same path the launcher's "继续上次游戏" takes via
@@ -360,7 +409,7 @@ describe("persistence & autosave", () => {
     const host2 = new EngineHost({ scriptsRoot, saveStore: createFsSaveStore(dataRoot) });
     const resumed = host2.createSession({ scriptId: "starlight", loadRunId: "autosave.json" });
     expect(JSON.stringify(resumed.state.transcript)).toBe(transcriptBefore);
-    host2.destroySession(resumed.id);
+    await host2.destroySession(resumed.id);
   });
 });
 
@@ -383,14 +432,14 @@ describe("meta-progression persistence", () => {
     };
     save.worldState.player.flags.push("returned_visitor");
     writeFileSync(savePath, JSON.stringify(save));
-    host.load(session.id, "meta-test.json");
+    await host.load(session.id, "meta-test.json");
 
     const merged = host.writeMeta(session.id);
     expect(merged).toContain("station-merchant");
     const meta = host.readMeta("starlight");
     expect(meta.unlockedOrigins).toContain("station-merchant");
     expect(meta.lockableOrigins).toContain("station-merchant");
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
   });
 
   it("readMeta tolerates a corrupt meta file", async () => {
@@ -415,7 +464,7 @@ describe("advance death policy", () => {
     };
     save.worldState.player.stats.hp = 0;
     writeFileSync(savePath, JSON.stringify(save));
-    host.load(session.id, "dead-test.json");
+    await host.load(session.id, "dead-test.json");
     expect(host.state(session.id).player.stats.hp).toBe(0);
 
     await host.advance(session.id, 1);
@@ -425,6 +474,6 @@ describe("advance death policy", () => {
     expect(systemEntries.at(-1)?.text).toContain("世界重置");
     // hard_reset rerolls worldgen: the player is rebuilt (hp restored).
     expect((state.player.stats.hp ?? 0)).toBeGreaterThan(0);
-    host.destroySession(session.id);
+    await host.destroySession(session.id);
   });
 });

@@ -1,33 +1,25 @@
-// Script library API: list installed scripts and import new ones (zip).
-import type { NextRequest } from "next/server";
+// Script library API: read-only installed-script index. Import is an explicit
+// preview/commit flow under /api/scripts/import/*.
 import { EngineHost } from "../../../server/engine-host";
 import { json, errorResponse } from "../h";
 
-const MAX_IMPORT_BYTES = 20 * 1024 * 1024; // 20 MB zip cap
-
 export async function GET(): Promise<Response> {
   try {
-    const scripts = EngineHost.get().listScripts();
+    const host = EngineHost.get();
+    const scripts = host.listScripts().map((script) => {
+      const presentation = host.scriptPresentation(script.id);
+      const assets = host.scriptAssets(script.id);
+      const defaultTheme = presentation.themes.find((theme) => theme.id === presentation.defaultThemeId);
+      return {
+        ...script,
+        defaultThemeId: presentation.defaultThemeId,
+        theme: defaultTheme
+          ? { id: defaultTheme.id, name: defaultTheme.name, palette: defaultTheme.palette }
+          : script.theme,
+        cover: assets.cover,
+      };
+    });
     return json({ scripts });
-  } catch (err) {
-    return errorResponse(err);
-  }
-}
-
-export async function POST(request: NextRequest): Promise<Response> {
-  try {
-    const form = await request.formData();
-    const file = form.get("file");
-    const replace = form.get("replace") === "true";
-    if (!(file instanceof File)) {
-      return json({ error: "missing zip file (multipart field 'file')" }, 400);
-    }
-    if (file.size > MAX_IMPORT_BYTES) {
-      return json({ error: `zip too large (max ${MAX_IMPORT_BYTES / 1024 / 1024} MB)` }, 400);
-    }
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const result = EngineHost.get().importZip(buffer, replace);
-    return json(result, 201);
   } catch (err) {
     return errorResponse(err);
   }

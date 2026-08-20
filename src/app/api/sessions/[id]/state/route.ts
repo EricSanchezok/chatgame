@@ -1,6 +1,7 @@
 // Session state API: full world state + presentation surface.
 import { EngineHost } from "../../../../../server/engine-host";
 import { json, errorResponse } from "../../../h";
+import { completeSessionPresentation } from "../../../script-presentation";
 
 export async function GET(
   _request: Request,
@@ -12,7 +13,7 @@ export async function GET(
     return json({
       id,
       state: host.state(id),
-      presentation: host.sessionPresentation(id),
+      presentation: await completeSessionPresentation(host, id),
     });
   } catch (err) {
     return errorResponse(err);

@@ -20,7 +20,7 @@ export function errorResponse(err: unknown): NextResponse {
         error: err.message,
         issues: err.issues.map((i) => ({ file: i.file, path: i.path, message: i.message })),
       },
-      { status: 400 },
+      { status: err.status },
     );
   }
   const message = err instanceof Error ? err.message : String(err);

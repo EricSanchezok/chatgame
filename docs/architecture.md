@@ -35,6 +35,6 @@ src/app/      UI + Route Handlers：沉浸式前端（主菜单 / game + 槽位�
 剧本 = 纯配置（YAML 模块）+ **可选代码目录**（`engine/` 与 `ui/`）。剧本代码与框架同权（**信任本地剧本作者**——本地部署、作者即玩家；导入 zip = 运行他人代码，导入 UI 已明示）。配置表达不了的规则/表现由代码扩展缝承接：
 
 - **`engine/index.ts`**（服务端）：默认导出 `(ctx: EngineExtensionContext) => void`，注册自定义效果 kind / 条件 source / 动作 handler / 规则机制 / 生命周期；动作 handler 先返回纯 `ActionHandlerPlan`（拒绝、动态成本、耗时、单次 `execute`），预检只读计划、执行阶段才调用 `execute`。自定义持久状态写入 `WorldState.runtimeState`（引擎不解释，随存档 v5 持久化）。由 `src/script/runtime-code.ts` 用 esbuild 编译为 CJS 加载（`.chatgame/build/<id>/` 内容 hash 缓存）。
-- **`ui/index.tsx`**（浏览器）：默认导出 `(ctx: ScriptUiContext) => void`，注册组件到槽位（`hud` / `toolbar` / `pause-menu` / `launcher` / `launcher:background` / `panel:<id>` / `bubble:<id>` / `message-card:<id>` 等）；未注册槽位回退框架默认组件。由 `src/server/script-ui-build.ts` 编译为 ESM bundle（react 外部化 + 宿主单实例共享），浏览器经 `/api/scripts/<id>/ui-bundle` 动态加载。
+- **`ui/index.tsx`**（浏览器）：默认导出注册函数，只从唯一客户端安全契约 `@chatgame/ui` 导入 API 与类型，并注册到[表现层规格定义的 UI v3 槽位](game-design/presentation.md#游戏壳与槽位)；未注册槽位使用宿主 fallback。由 `src/server/script-ui-build.ts` 编译为 ESM bundle（React 与 `@chatgame/ui` 外部化），浏览器经版本化 `/api/scripts/<id>/ui-bundle` 加载。`src/app/lib/script-registry.ts` 以 scriptId、generation、主题和 slots 的不可变快照原子激活 bundle，旧请求或失败注册不能产生跨剧本混合状态；详细构建与竞态语义见[表现层规格](game-design/presentation.md#ui-bundle-构建与激活)。
 
 内置闭集（effect/condition/action 的白名单语义）保持不变；未知或未注册的 kind/source/handler/rule 在剧本校验和运行期都响亮失败，不允许把无效声明静默降级为游戏结果。

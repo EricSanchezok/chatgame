@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ReactBridge } from "./lib/react-bridge";
+import { PlayerPreferenceSync } from "./ui/preference-sync";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="zh-CN" className="h-full antialiased">
       <body className="flex h-dvh min-h-0 flex-col overflow-hidden">
         <ReactBridge />
+        <PlayerPreferenceSync />
         {children}
       </body>
     </html>
