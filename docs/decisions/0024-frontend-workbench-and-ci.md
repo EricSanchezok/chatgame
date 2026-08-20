@@ -1,7 +1,7 @@
 # 前端测试工作台与 CI
 
 ## Status
-Proposed
+Accepted
 Class: testing
 
 ## Context and Problem Statement
@@ -24,11 +24,11 @@ Class: testing
 
 ## Decision Outcome
 
-Storybook 使用 `@storybook/nextjs-vite` 和真实 `GamePreviewHarness`；Vitest/RTL 测纯 store、契约与组件，Storybook 浏览器测试覆盖交互和组件级 axe；Playwright 对生产构建执行真实路由 E2E、页面级 axe 和确定性视觉快照。
+Storybook 使用 `@storybook/nextjs-vite` 和 `test/workbench/game-preview-harness.tsx`；Vitest/RTL 分别在 Node 与 jsdom 环境测试契约和组件，Storybook browser mode 覆盖交互和组件级 axe；Playwright 通过 `next start` 对生产构建执行真实路由 E2E、页面级 axe 和确定性视觉快照。
 
-共享 `core-test-script` 与 `MockGamePort` 生成平台夹具，两个内置剧本仅拥有各自场景测试。视觉矩阵覆盖手机、平板、桌面、短横屏、200% 文字、减少动效、高对比和主要空/加载/失败/长内容状态。
+共享 `test/workbench/core-test-script.ts` 与 `MockGamePort` 生成不依赖内置剧本 ID 的平台夹具。视觉矩阵覆盖 390×844、768×1024、1440×900、短横屏、200% 文字、减少动效、高对比和主要空、失败、长内容状态，基线保存在 `e2e/__screenshots__/`。
 
-命令分为 `check:fast`、`check:ui`、`check:all`；提交前按触碰面运行快速门禁，GitHub Actions 执行生产构建与完整浏览器矩阵。视觉基线保存在仓库，避免外部 SaaS 依赖。
+命令分为 `check:fast`、`check:ui`、`check:all`；`.github/workflows/frontend-workbench.yml` 在 Node 22 上分别执行快速门禁与 Chromium 浏览器矩阵。视觉回归不依赖外部 SaaS。
 
 ## Pros and Cons of the Options
 
