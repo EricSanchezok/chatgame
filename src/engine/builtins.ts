@@ -1,20 +1,18 @@
 // Built-in action semantics: a data-driven registry of mechanical action
 // behaviors (attack / defend / move / travel / use_item / give / take /
-// steal / trade). resolveAction applies script effects first, then calls
-// the registered handler for mechanical consequences. Handlers are pure
-// immutable updates; movement/steal rejections carry machine reason codes
-// that the narrative layer narrativizes (I7).
+// steal / trade). A handler first produces a pure plan (validation, dynamic
+// costs, time); execution applies that plan exactly once after script effects.
+// Preview reads plan metadata without dry-running the state transition.
 import type { WorldState, WorldDefinition, ResultGrade } from "./types";
 import { computeDamage, applyDamage, addThreat } from "./mechanics/combat";
 import { applyEffects } from "./effect";
 import { evalCondition, type ConditionContext } from "./condition";
 import { itemCount, addItem, removeItem, addCurrency, removeCurrency } from "./mechanics/inventory";
+import { advanceClock } from "./time";
 
 export interface BuiltinContext {
   definition: WorldDefinition;
   state: WorldState;
-  /** Result grade from the resolution (auto/check). */
-  grade: ResultGrade;
   targetNpcId?: string;
   params?: Record<string, unknown>;
 }
@@ -22,30 +20,53 @@ export interface BuiltinContext {
 export interface BuiltinOutcome {
   state: WorldState;
   summaries: string[];
-  /** Movement-style rejection (narrativized by the caller). */
+}
+
+export interface HandlerCosts {
+  currency?: number;
+  items?: Array<{ itemId: string; quantity: number }>;
+  resources?: Array<{
+    kind: "need" | "stat" | "skill" | "runtime";
+    id: string;
+    amount: number;
+  }>;
+}
+
+export interface ActionHandlerPlan {
+  /** Planning rejection (narrativized by the caller); execute is not called. */
   rejected?: boolean;
   rejectReason?: string;
   rejectMessage?: string;
-  /** Authoritative traversal duration in engine hours. */
+  /** Dynamic costs in addition to actions.yaml declarative costs. */
+  costs?: HandlerCosts;
+  /** Authoritative duration override in engine hours. */
   timeCost?: number;
+  /** Applies the already-validated plan once to the post-effect state. */
+  execute(state: WorldState, grade: ResultGrade): BuiltinOutcome;
 }
 
-export type BuiltinHandler = (ctx: BuiltinContext) => BuiltinOutcome;
+export type BuiltinHandler = (ctx: BuiltinContext) => ActionHandlerPlan;
 
 /** Convenience: builds an accepted outcome. */
 function ok(state: WorldState, summaries: string[]): BuiltinOutcome {
   return { state, summaries };
 }
 
-/** Convenience: builds a rejected outcome (no state change). */
-function reject(reason: string, message: string, ctx: BuiltinContext): BuiltinOutcome {
+/** Convenience: builds a rejected plan (no execution). */
+function reject(reason: string, message: string): ActionHandlerPlan {
   return {
-    state: ctx.state,
-    summaries: [],
     rejected: true,
     rejectReason: reason,
     rejectMessage: message,
+    execute: (state) => ok(state, []),
   };
+}
+
+function planned(
+  execute: ActionHandlerPlan["execute"],
+  metadata: Omit<ActionHandlerPlan, "execute"> = {},
+): ActionHandlerPlan {
+  return { ...metadata, execute };
 }
 
 /** Transfers qty of itemId from one inventory to another (both sides). */
@@ -83,7 +104,7 @@ function transfer(
   return state;
 }
 
-/** BFS reachability across the location connection graph. */
+/** Lowest-duration simple path, with every edge checked at its actual clock. */
 function travelPath(
   definition: WorldDefinition,
   state: WorldState,
@@ -91,244 +112,315 @@ function travelPath(
   to: string,
 ): Array<{ from: string; to: string; travelMinutes: number }> | null {
   if (from === to) return [];
-  const visited = new Set<string>([from]);
-  const queue: Array<{ locationId: string; edges: Array<{ from: string; to: string; travelMinutes: number }> }> = [
-    { locationId: from, edges: [] },
+  const queue: Array<{
+    locationId: string;
+    elapsedMinutes: number;
+    visited: ReadonlySet<string>;
+    edges: Array<{ from: string; to: string; travelMinutes: number }>;
+  }> = [
+    { locationId: from, elapsedMinutes: 0, visited: new Set([from]), edges: [] },
   ];
   while (queue.length > 0) {
+    queue.sort((a, b) => a.elapsedMinutes - b.elapsedMinutes);
     const current = queue.shift()!;
+    if (current.locationId === to) return current.edges;
     const loc = definition.locations.get(current.locationId);
     if (!loc) continue;
     for (const conn of loc.connections ?? []) {
-      const atEdge = { ...state, player: { ...state.player, locationId: current.locationId } };
-      if (movementBlocked(definition, atEdge, current.locationId, conn.to)) continue;
+      if (current.visited.has(conn.to) || !definition.locations.has(conn.to)) continue;
+      const departureState = {
+        ...state,
+        clock: advanceClock(state.clock, definition, current.elapsedMinutes / 60),
+        player: { ...state.player, locationId: current.locationId },
+      };
+      if (movementBlocked(definition, departureState, current.locationId, conn.to, conn.travel_time)) continue;
       const edge = { from: current.locationId, to: conn.to, travelMinutes: conn.travel_time };
       const edges = [...current.edges, edge];
-      if (conn.to === to) return edges;
-      if (!visited.has(conn.to) && definition.locations.has(conn.to)) {
-        visited.add(conn.to);
-        queue.push({ locationId: conn.to, edges });
-      }
+      queue.push({
+        locationId: conn.to,
+        elapsedMinutes: current.elapsedMinutes + conn.travel_time,
+        visited: new Set([...current.visited, conn.to]),
+        edges,
+      });
     }
   }
   return null;
 }
 
-/** Checks entry/exit conditions for a move/travel between two locations. */
+/** Checks departure gates now and the destination entry gate on arrival. */
 function movementBlocked(
   definition: WorldDefinition,
   state: WorldState,
   from: string,
   to: string,
+  travelMinutes?: number,
 ): string | null {
   const fromLoc = definition.locations.get(from);
   const toLoc = definition.locations.get(to);
   if (!toLoc) return `location "${to}" does not exist`;
-  const ctx: ConditionContext = { definition, state };
-  if (fromLoc?.exit_condition && !evalCondition(fromLoc.exit_condition, ctx)) {
+  const departureCtx: ConditionContext = { definition, state };
+  if (fromLoc?.exit_condition && !evalCondition(fromLoc.exit_condition, departureCtx)) {
     return "you cannot leave this place right now";
   }
-  if (toLoc.entry_condition && !evalCondition(toLoc.entry_condition, ctx)) {
-    return "you cannot enter that place right now";
-  }
-  // Direct connection condition (for move).
   const conn = fromLoc?.connections?.find((c) => c.to === to);
-  if (conn?.condition && !evalCondition(conn.condition, ctx)) {
+  if (conn?.condition && !evalCondition(conn.condition, departureCtx)) {
     return "the way is blocked";
+  }
+  const arrivalState = {
+    ...state,
+    clock: advanceClock(state.clock, definition, (travelMinutes ?? conn?.travel_time ?? 60) / 60),
+    player: { ...state.player, locationId: to },
+  };
+  const arrivalCtx: ConditionContext = { definition, state: arrivalState };
+  if (toLoc.entry_condition && !evalCondition(toLoc.entry_condition, arrivalCtx)) {
+    return "you cannot enter that place right now";
   }
   return null;
 }
 
 const attackHandler: BuiltinHandler = (ctx) => {
-  const { definition, state, grade, targetNpcId } = ctx;
-  if (!targetNpcId) return ok(state, []);
-  const summaries: string[] = [];
-  let current = state;
-  if (grade === "success" || grade === "crit" || grade === "partial") {
-    const base = current.player.stats.strength ?? 1;
-    const dmg = computeDamage(base, grade);
-    const hit = applyDamage(current, definition, targetNpcId, dmg, "physical");
-    current = hit.state;
-    summaries.push(`attack hit ${targetNpcId} for ${dmg} (hp ${hit.hpRemaining})`);
-    if (hit.hpRemaining <= 0) {
-      current = { ...current, facts: [...current.facts, `defeated:${targetNpcId}`] };
-      summaries.push(`${targetNpcId} defeated`);
+  const { definition, targetNpcId } = ctx;
+  return planned((state, grade) => {
+    if (!targetNpcId) return ok(state, []);
+    const summaries: string[] = [];
+    let current = state;
+    if (grade === "success" || grade === "crit" || grade === "partial") {
+      const base = current.player.stats.strength ?? 1;
+      const dmg = computeDamage(base, grade);
+      const hit = applyDamage(current, definition, targetNpcId, dmg, "physical");
+      current = hit.state;
+      summaries.push(`attack hit ${targetNpcId} for ${dmg} (hp ${hit.hpRemaining})`);
+      if (hit.hpRemaining <= 0) {
+        current = { ...current, facts: [...current.facts, `defeated:${targetNpcId}`] };
+        summaries.push(`${targetNpcId} defeated`);
+      }
+    } else {
+      summaries.push(`attack missed ${targetNpcId}`);
     }
-  } else {
-    summaries.push(`attack missed ${targetNpcId}`);
-  }
-  return ok(current, summaries);
+    return ok(current, summaries);
+  });
 };
 
 const defendHandler: BuiltinHandler = (ctx) => {
-  const { definition, state, grade } = ctx;
-  if (grade === "success" || grade === "crit") {
-    const stance = addThreat(state, definition, -5);
-    return ok(stance.state, ["defend stance: threat -5"]);
-  }
-  return ok(state, ["defend stance: no effect"]);
+  const { definition } = ctx;
+  return planned((state, grade) => {
+    if (grade === "success" || grade === "crit") {
+      const stance = addThreat(state, definition, -5);
+      return ok(stance.state, ["defend stance: threat -5"]);
+    }
+    return ok(state, ["defend stance: no effect"]);
+  });
 };
 
 const moveHandler: BuiltinHandler = (ctx) => {
   const { definition, state, params } = ctx;
   const target = typeof params?.target === "string" ? params.target : undefined;
-  if (!target) return reject("invalid_target", "no target location", ctx);
+  if (!target) return reject("invalid_target", "no target location");
   const current = state.player.locationId;
   const loc = definition.locations.get(current);
   const direct = loc?.connections?.some((c) => c.to === target) ?? false;
-  if (!direct) return reject("not_directly_connected", "that place is not directly reachable from here", ctx);
-  const blocked = movementBlocked(definition, state, current, target);
-  if (blocked) return reject("movement_blocked", blocked, ctx);
+  if (!direct) return reject("not_directly_connected", "that place is not directly reachable from here");
   const edge = loc?.connections?.find((connection) => connection.to === target);
-  return {
-    ...ok({ ...state, player: { ...state.player, locationId: target } }, [`moved to ${target}`]),
-    timeCost: Math.max(1, Math.ceil((edge?.travel_time ?? 60) / 60)),
-  };
+  const blocked = movementBlocked(definition, state, current, target, edge?.travel_time);
+  if (blocked) return reject("movement_blocked", blocked);
+  return planned(
+    (nextState) => ok(
+      { ...nextState, player: { ...nextState.player, locationId: target } },
+      [`moved to ${target}`],
+    ),
+    {
+      timeCost: Math.max(1, Math.ceil((edge?.travel_time ?? 60) / 60)),
+    },
+  );
 };
 
 const travelHandler: BuiltinHandler = (ctx) => {
   const { definition, state, params } = ctx;
   const target = typeof params?.target === "string" ? params.target : undefined;
-  if (!target) return reject("invalid_target", "no target location", ctx);
+  if (!target) return reject("invalid_target", "no target location");
   const current = state.player.locationId;
   const path = travelPath(definition, state, current, target);
   if (!path) {
-    return reject("unreachable", "that place is not reachable from here", ctx);
+    return reject("unreachable", "that place is not reachable from here");
   }
   const travelMinutes = path.reduce((sum, edge) => sum + edge.travelMinutes, 0);
-  return {
-    ...ok(
-      { ...state, player: { ...state.player, locationId: target } },
+  return planned(
+    (nextState) => ok(
+      { ...nextState, player: { ...nextState.player, locationId: target } },
       path.map((edge) => `traveled ${edge.from} -> ${edge.to}`),
     ),
-    timeCost: Math.max(1, Math.ceil(travelMinutes / 60)),
-  };
+    { timeCost: Math.max(1, Math.ceil(travelMinutes / 60)) },
+  );
 };
 
 const useItemHandler: BuiltinHandler = (ctx) => {
   const { definition, state, params } = ctx;
   const itemId = typeof params?.item === "string" ? params.item : undefined;
-  if (!itemId) return reject("invalid_target", "no item specified", ctx);
+  if (!itemId) return reject("invalid_target", "no item specified");
   const item = definition.items.get(itemId);
-  if (!item) return reject("unknown_item", `item "${itemId}" does not exist`, ctx);
+  if (!item) return reject("unknown_item", `item "${itemId}" does not exist`);
   if (item.requirements) {
     const condCtx: ConditionContext = { definition, state };
     if (!evalCondition(item.requirements, condCtx)) {
-      return reject("item_requirement_not_met", "you cannot use that right now", ctx);
+      return reject("item_requirement_not_met", "you cannot use that right now");
     }
   }
   const inv = state.player.inventory;
-  if (itemCount(inv, itemId) < 1) return reject("item_not_held", "you do not have that item", ctx);
+  if (itemCount(inv, itemId) < 1) return reject("item_not_held", "you do not have that item");
   const day = Math.floor(state.clock.totalHours / definition.time.day_length_hours);
-  const out = applyEffects(state, item.effects_on_use, { definition, day });
-  let current = out.state;
-  const summaries = [...out.summaries];
-  if (item.type === "consumable") {
-    const removed = removeItem(current.player.inventory, itemId, 1);
-    if (!removed.ok) return reject("item_not_held", "you do not have that item", ctx);
-    current = {
-      ...current,
-      player: { ...current.player, inventory: removed.inv },
-    };
-    summaries.push(`consumed 1 ${itemId}`);
-  }
-  return ok(current, summaries);
+  return planned(
+    (nextState) => {
+      const out = applyEffects(nextState, item.effects_on_use, { definition, day });
+      let current = out.state;
+      const summaries = [...out.summaries];
+      if (item.type === "consumable") {
+        const removed = removeItem(current.player.inventory, itemId, 1);
+        if (!removed.ok) throw new Error(`planned item cost disappeared: ${itemId}`);
+        current = {
+          ...current,
+          player: { ...current.player, inventory: removed.inv },
+        };
+        summaries.push(`consumed 1 ${itemId}`);
+      }
+      return ok(current, summaries);
+    },
+    item.type === "consumable"
+      ? { costs: { items: [{ itemId, quantity: 1 }] } }
+      : {},
+  );
 };
 
 const giveHandler: BuiltinHandler = (ctx) => {
   const { definition, state, targetNpcId, params } = ctx;
   const itemId = typeof params?.item === "string" ? params.item : undefined;
-  if (!targetNpcId) return reject("invalid_target", "no recipient", ctx);
-  if (!itemId) return reject("invalid_target", "no item specified", ctx);
-  if (!definition.npcs.has(targetNpcId)) return reject("unknown_npc", "that person does not exist", ctx);
-  if (itemCount(state.player.inventory, itemId) < 1) return reject("item_not_held", "you do not have that item", ctx);
+  if (!targetNpcId) return reject("invalid_target", "no recipient");
+  if (!itemId) return reject("invalid_target", "no item specified");
+  if (!definition.npcs.has(targetNpcId)) return reject("unknown_npc", "that person does not exist");
+  if (itemCount(state.player.inventory, itemId) < 1) return reject("item_not_held", "you do not have that item");
   const moved = transfer(state, definition, "player", targetNpcId, itemId, 1);
-  if (!moved) return reject("transfer_failed", "that person cannot carry it", ctx);
-  return ok(moved, [`gave 1 ${itemId} to ${targetNpcId}`]);
+  if (!moved) return reject("transfer_failed", "that person cannot carry it");
+  return planned(
+    (nextState) => {
+      const next = transfer(nextState, definition, "player", targetNpcId, itemId, 1);
+      if (!next) throw new Error(`planned transfer failed: ${itemId}`);
+      return ok(next, [`gave 1 ${itemId} to ${targetNpcId}`]);
+    },
+    { costs: { items: [{ itemId, quantity: 1 }] } },
+  );
 };
 
 const takeHandler: BuiltinHandler = (ctx) => {
   const { definition, state, params } = ctx;
   const itemId = typeof params?.item === "string" ? params.item : undefined;
-  if (!itemId) return reject("invalid_target", "no item specified", ctx);
+  if (!itemId) return reject("invalid_target", "no item specified");
   const loc = state.player.locationId;
   const locInv = state.locationInventories[loc];
-  if (!locInv || itemCount(locInv, itemId) < 1) return reject("item_not_here", "that item is not here", ctx);
+  if (!locInv || itemCount(locInv, itemId) < 1) return reject("item_not_here", "that item is not here");
   const removed = removeItem(locInv, itemId, 1);
   const added = addItem(state.player.inventory, itemId, 1, definition);
-  if (!removed.ok || !added.ok) return reject("transfer_failed", "you cannot carry that", ctx);
-  return ok(
-    {
-      ...state,
-      locationInventories: { ...state.locationInventories, [loc]: removed.inv },
-      player: { ...state.player, inventory: added.inv },
-    },
-    [`took 1 ${itemId}`],
-  );
+  if (!removed.ok || !added.ok) return reject("transfer_failed", "you cannot carry that");
+  return planned((nextState) => {
+    const nextLocInv = nextState.locationInventories[loc];
+    const nextRemoved = removeItem(nextLocInv, itemId, 1);
+    const nextAdded = addItem(nextState.player.inventory, itemId, 1, definition);
+    if (!nextRemoved.ok || !nextAdded.ok) throw new Error(`planned location transfer failed: ${itemId}`);
+    return ok(
+      {
+        ...nextState,
+        locationInventories: { ...nextState.locationInventories, [loc]: nextRemoved.inv },
+        player: { ...nextState.player, inventory: nextAdded.inv },
+      },
+      [`took 1 ${itemId}`],
+    );
+  });
 };
 
 const stealHandler: BuiltinHandler = (ctx) => {
-  const { definition, state, grade, targetNpcId, params } = ctx;
-  if (!targetNpcId) return reject("invalid_target", "no target", ctx);
+  const { definition, state, targetNpcId, params } = ctx;
+  if (!targetNpcId) return reject("invalid_target", "no target");
   const npc = state.npcs[targetNpcId];
-  if (!npc) return reject("unknown_npc", "that person does not exist", ctx);
-  if (npc.inventory.stacks.length === 0) return reject("nothing_to_steal", "that person has nothing to steal", ctx);
+  if (!npc) return reject("unknown_npc", "that person does not exist");
+  if (npc.inventory.stacks.length === 0) return reject("nothing_to_steal", "that person has nothing to steal");
   const itemId = typeof params?.item === "string" ? params.item : npc.inventory.stacks[0].itemId;
-  if (grade === "success" || grade === "crit") {
-    const moved = transfer(state, definition, targetNpcId, "player", itemId, 1);
-    if (!moved) return reject("transfer_failed", "you cannot carry that", ctx);
-    return ok(moved, [`stole 1 ${itemId} from ${targetNpcId}`]);
-  }
-  if (grade === "partial") {
-    const threat = addThreat(state, definition, 5);
-    return ok(threat.state, ["steal partial: no item, threat +5"]);
-  }
-  const threat = addThreat(state, definition, 10);
-  return ok(threat.state, ["steal failed: threat +10"]);
+  const moved = transfer(state, definition, targetNpcId, "player", itemId, 1);
+  if (!moved) return reject("transfer_failed", "you cannot carry that");
+  return planned((nextState, grade) => {
+    if (grade === "success" || grade === "crit") {
+      const next = transfer(nextState, definition, targetNpcId, "player", itemId, 1);
+      if (!next) throw new Error(`planned theft transfer failed: ${itemId}`);
+      return ok(next, [`stole 1 ${itemId} from ${targetNpcId}`]);
+    }
+    if (grade === "partial") {
+      const threat = addThreat(nextState, definition, 5);
+      return ok(threat.state, ["steal partial: no item, threat +5"]);
+    }
+    const threat = addThreat(nextState, definition, 10);
+    return ok(threat.state, ["steal failed: threat +10"]);
+  });
 };
 
 const tradeHandler: BuiltinHandler = (ctx) => {
   const { definition, state, targetNpcId, params } = ctx;
-  if (!targetNpcId) return reject("invalid_target", "no trading partner", ctx);
+  if (!targetNpcId) return reject("invalid_target", "no trading partner");
   const npc = state.npcs[targetNpcId];
-  if (!npc) return reject("unknown_npc", "that person does not exist", ctx);
+  if (!npc) return reject("unknown_npc", "that person does not exist");
   const itemId = typeof params?.item === "string" ? params.item : undefined;
   const direction = typeof params?.direction === "string" ? params.direction : "buy";
-  if (!itemId) return reject("invalid_target", "no item specified", ctx);
+  if (!itemId) return reject("invalid_target", "no item specified");
   const item = definition.items.get(itemId);
-  if (!item) return reject("unknown_item", `item "${itemId}" does not exist`, ctx);
+  if (!item) return reject("unknown_item", `item "${itemId}" does not exist`);
 
   if (direction === "buy") {
     // Player buys from NPC: NPC holds the item, player pays its value.
-    if (itemCount(npc.inventory, itemId) < 1) return reject("item_not_held", "that person does not have that item", ctx);
-    if (state.player.inventory.currency < item.value) return reject("unaffordable", "you cannot afford that", ctx);
+    if (itemCount(npc.inventory, itemId) < 1) return reject("item_not_held", "that person does not have that item");
+    if (state.player.inventory.currency < item.value) return reject("unaffordable", "you cannot afford that");
     const moved = transfer(state, definition, targetNpcId, "player", itemId, 1);
-    if (!moved) return reject("transfer_failed", "you cannot carry that", ctx);
-    const paid = removeCurrency(moved.player.inventory, item.value);
-    const npcPaid = { ...moved.npcs[targetNpcId], inventory: addCurrency(moved.npcs[targetNpcId].inventory, item.value) };
-    return ok(
-      {
-        ...moved,
-        player: { ...moved.player, inventory: paid },
-        npcs: { ...moved.npcs, [targetNpcId]: npcPaid },
+    if (!moved) return reject("transfer_failed", "you cannot carry that");
+    return planned(
+      (nextState) => {
+        const next = transfer(nextState, definition, targetNpcId, "player", itemId, 1);
+        if (!next) throw new Error(`planned trade transfer failed: ${itemId}`);
+        const paid = removeCurrency(next.player.inventory, item.value);
+        const npcPaid = {
+          ...next.npcs[targetNpcId],
+          inventory: addCurrency(next.npcs[targetNpcId].inventory, item.value),
+        };
+        return ok(
+          {
+            ...next,
+            player: { ...next.player, inventory: paid },
+            npcs: { ...next.npcs, [targetNpcId]: npcPaid },
+          },
+          [`bought 1 ${itemId} for ${item.value}`],
+        );
       },
-      [`bought 1 ${itemId} for ${item.value}`],
+      { costs: { currency: item.value } },
     );
   }
   // Player sells to NPC: NPC must have enough currency (v1: NPCs start with 0).
-  if (itemCount(state.player.inventory, itemId) < 1) return reject("item_not_held", "you do not have that item", ctx);
-  if (npc.inventory.currency < item.value) return reject("unaffordable", "that person cannot afford it", ctx);
+  if (itemCount(state.player.inventory, itemId) < 1) return reject("item_not_held", "you do not have that item");
+  if (npc.inventory.currency < item.value) return reject("unaffordable", "that person cannot afford it");
   const moved = transfer(state, definition, "player", targetNpcId, itemId, 1);
-  if (!moved) return reject("transfer_failed", "that person cannot carry it", ctx);
-  const npcPaid = { ...moved.npcs[targetNpcId], inventory: removeCurrency(moved.npcs[targetNpcId].inventory, item.value) };
-  const playerPaid = addCurrency(moved.player.inventory, item.value);
-  return ok(
-    {
-      ...moved,
-      player: { ...moved.player, inventory: playerPaid },
-      npcs: { ...moved.npcs, [targetNpcId]: npcPaid },
+  if (!moved) return reject("transfer_failed", "that person cannot carry it");
+  return planned(
+    (nextState) => {
+      const next = transfer(nextState, definition, "player", targetNpcId, itemId, 1);
+      if (!next) throw new Error(`planned trade transfer failed: ${itemId}`);
+      const npcPaid = {
+        ...next.npcs[targetNpcId],
+        inventory: removeCurrency(next.npcs[targetNpcId].inventory, item.value),
+      };
+      const playerPaid = addCurrency(next.player.inventory, item.value);
+      return ok(
+        {
+          ...next,
+          player: { ...next.player, inventory: playerPaid },
+          npcs: { ...next.npcs, [targetNpcId]: npcPaid },
+        },
+        [`sold 1 ${itemId} for ${item.value}`],
+      );
     },
-    [`sold 1 ${itemId} for ${item.value}`],
+    { costs: { items: [{ itemId, quantity: 1 }] } },
   );
 };
 

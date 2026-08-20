@@ -5,7 +5,7 @@
 // the world-step daily boundary — idempotent by task status.
 import type { WorldState, WorldDefinition, EventLogEntry, TaskCompletion } from "./types";
 import type { Task } from "../script/schemas/task";
-import { evalCondition, hasMarker, type ConditionContext } from "./condition";
+import { evalCondition, type ConditionContext } from "./condition";
 import { applyEffects } from "./effect";
 import { applyProgression } from "./mechanics/progression";
 import { absoluteDay } from "./time";
@@ -72,8 +72,11 @@ function objectiveProgress(
     }
     case "investigate": {
       const target = objective.target;
-      if (target.any) return actionCountSince(state, active.acceptedEventCount, "investigate");
-      return target.subject && hasMarker(state, target.subject) ? objective.quantity : 0;
+      if ("any" in target) return actionCountSince(state, active.acceptedEventCount, "investigate");
+      const present = target.marker.source === "fact"
+        ? state.facts.includes(target.marker.key)
+        : state.player.flags.includes(target.marker.key) || state.flags.includes(target.marker.key);
+      return present ? objective.quantity : 0;
     }
     case "persuade": {
       const target = objective.target;
@@ -110,6 +113,18 @@ export function checkTasks(
   const completions: TaskCompletion[] = [];
   const logEntries: EventLogEntry[] = [];
   const day = absoluteDay(definition, state.clock);
+  const appendLog = (summary: string): void => {
+    const entry: EventLogEntry = {
+      id: `log-${current.eventLog.length + 1}`,
+      day,
+      hour: current.clock.hour,
+      type: "world",
+      actor: "system",
+      summary,
+    };
+    current = { ...current, eventLog: [...current.eventLog, entry] };
+    logEntries.push(entry);
+  };
 
   for (const taskDef of definition.tasks.values()) {
     const activeExisting = current.tasks.find((t) => t.taskId === taskDef.id && t.status === "active");
@@ -135,6 +150,7 @@ export function checkTasks(
         giverOk &&
         giverPresent(current, taskDef.giver.pool)
       ) {
+        appendLog(`task "${taskDef.id}" activated`);
         current = {
           ...current,
           tasks: [
@@ -148,14 +164,6 @@ export function checkTasks(
             },
           ],
         };
-        logEntries.push({
-          id: `log-${current.eventLog.length + 1}`,
-          day,
-          hour: current.clock.hour,
-          type: "world",
-          actor: "system",
-          summary: `task "${taskDef.id}" activated`,
-        });
       }
     }
 
@@ -178,14 +186,7 @@ export function checkTasks(
           ),
         };
         completions.push({ taskId: taskDef.id, status: "fail", narrative: taskDef.narrative.fail });
-        logEntries.push({
-          id: `log-${current.eventLog.length + 1}`,
-          day,
-          hour: current.clock.hour,
-          type: "world",
-          actor: "system",
-          summary: `task "${taskDef.id}" failed (time limit)`,
-        });
+        appendLog(`task "${taskDef.id}" failed (time limit)`);
         continue;
       }
     }
@@ -210,14 +211,7 @@ export function checkTasks(
         ),
       };
       completions.push({ taskId: taskDef.id, status: "complete", narrative: taskDef.narrative.complete });
-      logEntries.push({
-        id: `log-${current.eventLog.length + 1}`,
-        day,
-        hour: current.clock.hour,
-        type: "world",
-        actor: "system",
-        summary: `task "${taskDef.id}" completed`,
-      });
+      appendLog(`task "${taskDef.id}" completed`);
     } else if (progress !== active.progress) {
       current = {
         ...current,

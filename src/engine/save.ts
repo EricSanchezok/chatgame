@@ -69,6 +69,10 @@ export function deserializeSave(
   if (!save.worldState || typeof save.worldState !== "object") {
     throw new SaveError("save file is missing worldState");
   }
+  const worldState = save.worldState as Partial<WorldState>;
+  if (!Array.isArray(worldState.activeNeedThresholds) || !worldState.activeNeedThresholds.every((id) => typeof id === "string")) {
+    throw new SaveError("save file worldState is missing activeNeedThresholds");
+  }
   return save as SaveFile;
 }
 
@@ -144,7 +148,7 @@ export function roundTrip(state: WorldState, definition: WorldDefinition): World
 /**
  * Normalizes a world state against its definition: fills any missing
  * derived fields (locationInventories from locations[].items, secretHolders
- * from NPC secrets) so every v2 snapshot is complete. No-op on fresh saves.
+ * from NPC secrets) so every valid v5 snapshot is complete. No-op on fresh saves.
  */
 export function normalizeWorldState(
   definition: WorldDefinition,

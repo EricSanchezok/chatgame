@@ -8,6 +8,7 @@ import type { MemoryEntry, ResultGrade, WorldState } from "./types";
 import type { WorldDefinition } from "./types";
 import { valueToStance } from "./definition";
 import { INITIAL_STRENGTH } from "./memory";
+import { addStatus, removeStatus } from "./mechanics/status";
 
 /** Coefficient applied to numeric effect values by result grade. */
 export function gradeMultiplier(grade: ResultGrade): number {
@@ -401,27 +402,11 @@ function applyStatus(
   statusId: string,
   direction: "add" | "remove" | "set",
 ): { state: WorldState; summary: string } {
-  const statusDef = ctx.definition.mechanics.status_effects?.find((s) => s.id === statusId);
-  const duration = statusDef?.duration ?? null;
   const apply = (
     statuses: WorldState["player"]["statuses"],
-  ): WorldState["player"]["statuses"] => {
-    const existing = statuses.find((s) => s.statusId === statusId);
-    if (direction === "remove") return statuses.filter((s) => s.statusId !== statusId);
-    if (existing) {
-      const stacks = statusDef?.stackable ? existing.stacks + 1 : existing.stacks;
-      return statuses.map((s) =>
-        s.statusId === statusId
-          ? {
-              ...s,
-              stacks,
-              descriptor: s.descriptor ? { ...s.descriptor, stale: true } : undefined,
-            }
-          : s,
-      );
-    }
-    return [...statuses, { statusId, remainingTicks: duration, stacks: 1 }];
-  };
+  ): WorldState["player"]["statuses"] => direction === "remove"
+    ? removeStatus(statuses, statusId)
+    : addStatus(statuses, statusId, ctx.definition);
   if (target === "player") {
     return {
       state: updatePlayer(state, (p) => ({ ...p, statuses: apply(p.statuses) })),

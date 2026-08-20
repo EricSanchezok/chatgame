@@ -374,6 +374,14 @@ describe("task schema", () => {
     narrative: { offer: "给你清单", complete: "完成", fail: "失败" },
   };
   it("accepts a valid task", () => expectValid(taskSchema, valid));
+  it("accepts an explicit investigate marker target", () => expectValid(taskSchema, {
+    ...valid,
+    objective: { type: "investigate", target: { marker: { source: "fact", key: "evidence-found" } }, quantity: 1 },
+  }));
+  it("rejects the ambiguous investigate subject target", () => expectInvalid(taskSchema, {
+    ...valid,
+    objective: { type: "investigate", target: { subject: "mine" }, quantity: 1 },
+  }));
   it("rejects unknown objective type", () => expectInvalid(taskSchema, { ...valid, objective: { type: "fetch", target: { pool: [] } } }));
   it("rejects empty giver pool", () => expectInvalid(taskSchema, { ...valid, giver: { pool: [] } }));
 });

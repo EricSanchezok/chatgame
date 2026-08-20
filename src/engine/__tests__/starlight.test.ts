@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
-import { resolveAction } from "../actions";
+import { previewAction, resolveAction } from "../actions";
 import { parseIntent } from "../narrative/intent";
 import { MockProvider } from "../narrative/mock";
 import type { WorldState, WorldDefinition } from "../types";
@@ -50,6 +50,18 @@ describe("starlight full turn-loop slice", () => {
     expect(out.rejected).toBe(false);
     expect(out.state.npcs["night-cat"].stats.hp).toBeLessThan(hpBefore);
     expect(out.resolution?.effectsApplied.some((s) => s.includes("attack hit"))).toBe(true);
+  });
+
+  it("previews and executes the same dynamic reroute energy cost", () => {
+    const { def, state: fresh } = setup();
+    const state = { ...fresh, runtimeState: { ...fresh.runtimeState, hull_integrity: 80 } };
+    const energyBefore = state.player.needs.energy.value;
+    const preview = previewAction(def, state, { actionId: "reroute" });
+    const out = resolveAction({ definition: def, state, actionId: "reroute" });
+    expect(preview.executable).toBe(true);
+    expect(preview.costs.resources).toEqual([{ kind: "need", id: "energy", amount: 20 }]);
+    expect(out.rejected).toBe(false);
+    expect(energyBefore - out.state.player.needs.energy.value).toBe(20);
   });
 
   it("overpowered request is rejected with zero state change", async () => {

@@ -66,7 +66,7 @@
 
 - **主菜单**：选中剧本即应用其主题/背景（`launcher:background` 槽位）——菜单本身穿剧本的"皮肤"；开始新游戏（出身选择：名称/描述/难度）→ 继续（存档列表：时间戳）→ 设置·导入 zip（非法 zip 报错不影响库）。
 - **游戏内流转**：Esc 暂停菜单保存/返回；返回主菜单有未保存提示（dirty 标记）→ 保存并销毁会话 → 回主菜单。
-- **转录进存档**：`WorldState.transcript`（player/world/system 条目 + mediaCues）随存档 v4 持久化，续玩完整恢复历史。
+- **转录进存档**：`WorldState.transcript`（player/world/system 条目 + mediaCues）随存档 v5 持久化，续玩完整恢复历史；加载既有会话不重复执行 `onSessionStart`。
 
 ## 会话与并发
 

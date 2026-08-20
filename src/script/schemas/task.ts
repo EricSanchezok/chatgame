@@ -32,8 +32,10 @@ const taskObjectiveSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     type: z.literal("investigate"),
-    target: z.object({ subject: idSchema.optional(), any: z.literal(true).optional() }).strict()
-      .refine((target) => target.any === true || target.subject !== undefined, "investigate target requires subject or any"),
+    target: z.union([
+      z.object({ marker: z.object({ source: z.enum(["flag", "fact"]), key: idSchema }).strict() }).strict(),
+      z.object({ any: z.literal(true) }).strict(),
+    ]),
     quantity: z.number().int().positive().default(1),
   }).strict(),
   z.object({ type: z.literal("persuade"), target: z.object({ npc: idSchema }).strict(), quantity: z.number().int().positive().default(1) }).strict(),

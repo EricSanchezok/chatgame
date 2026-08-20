@@ -215,6 +215,14 @@ describe("save system", () => {
     expect(() => deserializeSave(save, "starlight")).toThrow(SaveError);
   });
 
+  it("deserializeSave rejects a v5 snapshot missing active need thresholds", () => {
+    const { def, state } = setup();
+    const save = serializeSave(def, state);
+    const worldState = { ...save.worldState } as Partial<WorldState>;
+    delete worldState.activeNeedThresholds;
+    expect(() => deserializeSave({ ...save, worldState })).toThrow(/activeNeedThresholds/);
+  });
+
   it("deserializeSave rejects non-object", () => {
     expect(() => deserializeSave(null)).toThrow(SaveError);
     expect(() => deserializeSave("nope")).toThrow(SaveError);
@@ -259,7 +267,7 @@ describe("save system: normalizeWorldState", () => {
     expect(normalized.contextSummary).toEqual(emptyContextSummary());
   });
 
-  it("is a no-op on a complete v4 state", () => {
+  it("is a no-op on a complete v5 state", () => {
     const { def, state } = setup();
     const complete = { ...state, contextSummary: emptyContextSummary() };
     const normalized = normalizeWorldState(def, complete);

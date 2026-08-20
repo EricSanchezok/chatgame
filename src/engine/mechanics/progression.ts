@@ -1,7 +1,7 @@
 // Progression: script-declared stat/skill growth. For each
 // mechanics.progression entry matching the source (stat_check | skill_check
-// | task | event), add `amount` to the target stat/skill on the player and
-// every NPC, clamped to entry.cap (else the stat/skill definition min/max).
+// | task | event), add `amount` to the triggering entity's target stat/skill,
+// clamped to entry.cap (else the stat/skill definition min/max).
 import type { WorldState } from "../types";
 import type { WorldDefinition } from "../types";
 import type { progressionEntrySchema } from "../../script/schemas/mechanics";
@@ -84,9 +84,9 @@ function progressEntity<T extends { stats: Record<string, number>; skills: Recor
 }
 
 /**
- * Applies all progression entries matching source to the player and every
- * NPC. Target lookup checks stats first, then skills. Returns the new state
- * plus one summary per applied entry.
+ * Applies matching progression entries only to `options.entityId` (the
+ * player by default). Target lookup checks stats first, then skills. Returns
+ * the new state plus one summary per applied entry.
  */
 export function applyProgression(
   state: WorldState,

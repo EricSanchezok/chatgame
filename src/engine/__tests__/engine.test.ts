@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { Engine } from "../index";
 import { MockProvider } from "../narrative/mock";
+import { createFsSaveStore } from "../save-store";
 import type { WorldState } from "../types";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -177,26 +178,39 @@ describe("Engine facade", () => {
       const engineFile = path.join(scriptDir, "engine", "index.ts");
       const marker = '  ctx.registerRuleMechanism("night_travel", nightTravelRule);';
       const hooks = `
-  ctx.onSessionStart((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, sessionStarts: 1 } }, summaries: ["session start"] }));
+  ctx.onSessionStart((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, sessionStarts: Number(state.runtimeState.sessionStarts ?? 0) + 1 } }, summaries: ["session start"] }));
   ctx.onTurnResolved((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, turns: Number(state.runtimeState.turns ?? 0) + 1 } }, summaries: ["turn resolved"] }));
   ctx.onHour((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, hours: Number(state.runtimeState.hours ?? 0) + 1 } }, summaries: [] }));
   ctx.onDayBoundary((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, days: Number(state.runtimeState.days ?? 0) + 1 } }, summaries: ["day boundary"] }));`;
       writeFileSync(engineFile, readFileSync(engineFile, "utf8").replace(marker, `${marker}${hooks}`));
 
+      const saveStore = createFsSaveStore(tempRoot);
       const engine = Engine.create({
         scriptDir,
         originId: "miner",
         seed: 7,
         provider: new MockProvider(),
+        saveStore,
       });
       expect(engine.worldState.runtimeState.sessionStarts).toBe(1);
       expect(engine.worldState.transcript.some((entry) => entry.role === "world")).toBe(true);
+      const savePath = engine.save("lifecycle-resume");
+      const resumed = Engine.create({
+        scriptDir,
+        originId: "miner",
+        provider: new MockProvider(),
+        saveStore,
+        loadSaveFile: savePath,
+      });
+      expect(resumed.worldState.runtimeState.sessionStarts).toBe(1);
       engine.advance(24);
       expect(engine.worldState.runtimeState.hours).toBe(24);
       expect(engine.worldState.runtimeState.days).toBe(1);
-      await engine.playerTurn({ text: "你好", intentHint: { actionId: "talk" } });
+      const turnLogStart = engine.worldState.eventLog.length;
+      const result = await engine.playerTurn({ text: "你好", intentHint: { actionId: "talk" } });
       expect(engine.worldState.runtimeState.turns).toBe(1);
       expect(engine.worldState.runtimeState.hours).toBe(25);
+      expect(result.logEntries).toEqual(engine.worldState.eventLog.slice(turnLogStart));
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

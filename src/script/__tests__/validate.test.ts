@@ -471,6 +471,27 @@ narrative:
     expectIssuesContaining(files, ['npc "ghost" not found']);
   });
 
+  it("accepts a task fixture with an explicit investigate flag marker", () => {
+    const files = validBase();
+    files["tasks/t1.yaml"] = `
+id: t1
+name: 调查标记
+objective:
+  type: investigate
+  target: { marker: { source: flag, key: evidence-found } }
+  quantity: 1
+giver: { pool: [npc1] }
+rewards: []
+repeatable: false
+narrative:
+  offer: 去查明真相
+  complete: 真相已明
+  fail: 线索断了
+`;
+    writeScript(files);
+    expect(validateScriptDir(dir)).toMatchObject({ ok: true, issues: [] });
+  });
+
   it("rejects item effect → missing stat", () => {
     const files = validBase();
     files["items/item1.yaml"] = files["items/item1.yaml"].replace(

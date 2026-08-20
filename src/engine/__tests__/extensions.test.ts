@@ -131,23 +131,23 @@ describe("script engine extension seam (emberfall)", () => {
     const cold = handler({
       definition: def,
       state,
-      grade: "success",
       targetNpcId: undefined,
       params: { item: "lantern" },
     });
     expect(cold.rejected).toBe(true);
     expect(cold.rejectReason).toBe("forge_cold");
     // Stoked forge forges the lantern.
+    const hotState = { ...state, runtimeState: { ...state.runtimeState, ember: 20 } };
     const hot = handler({
       definition: def,
-      state: { ...state, runtimeState: { ...state.runtimeState, ember: 20 } },
-      grade: "success",
+      state: hotState,
       targetNpcId: undefined,
       params: { item: "lantern" },
     });
     expect(hot.rejected).toBeFalsy();
-    expect(hot.summaries.some((s) => s.includes("forged"))).toBe(true);
-    expect(hot.state.player.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(true);
+    const outcome = hot.execute(hotState, "success");
+    expect(outcome.summaries.some((s) => s.includes("forged"))).toBe(true);
+    expect(outcome.state.player.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(true);
   });
 
   it("round-trips runtimeState through save v5", () => {

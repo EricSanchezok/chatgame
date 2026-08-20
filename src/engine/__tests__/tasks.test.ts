@@ -79,11 +79,41 @@ describe("task objective progress", () => {
     expect(out.state.player.inventory.currency).toBeGreaterThan(
       coLocated.player.inventory.currency,
     );
+    expect(out.logEntries.map((entry) => entry.id)).toEqual(["log-1", "log-2"]);
+    expect(out.state.eventLog).toEqual(out.logEntries);
+    expect(out.logEntries.map((entry) => entry.summary)).toEqual([
+      'task "gather-herbs" activated',
+      'task "gather-herbs" completed',
+    ]);
   });
 
 });
 
 describe("task time limits", () => {
+  it("keeps the exact deadline day playable and fails the following day", () => {
+    const def = emberfall();
+    const state = freshState(def);
+    const active = {
+      ...state,
+      tasks: [{
+        taskId: "gather-herbs",
+        status: "active" as const,
+        acceptedDay: 1,
+        acceptedEventCount: 0,
+        progress: 0,
+      }],
+      clock: advanceClock(state.clock, def, 24 * 4),
+    };
+    const atDeadline = checkTasks(active, def);
+    expect(atDeadline.state.tasks.find((task) => task.taskId === "gather-herbs")?.status).toBe("active");
+    const afterDeadline = checkTasks({
+      ...atDeadline.state,
+      clock: advanceClock(atDeadline.state.clock, def, 24),
+    }, def);
+    expect(afterDeadline.state.tasks.find((task) => task.taskId === "gather-herbs")?.status).toBe("failed");
+    expect(afterDeadline.state.eventLog.at(-1)?.summary).toContain("failed (time limit)");
+  });
+
   it("fails an active task past its time limit", () => {
     const def = emberfall();
     const state = freshState(def);
@@ -209,7 +239,7 @@ describe("task objective completions (synthetic tasks)", () => {
     const def = emberfall();
     const t = task("investigate-test", "调查测试", {
       type: "investigate",
-      target: { subject: "cond-marker" },
+      target: { marker: { source: "flag", key: "cond-marker" } },
       quantity: 1,
     });
     const state = coLocated(freshState(def), ["shen-jiugu"], "forest-edge");
@@ -219,6 +249,18 @@ describe("task objective completions (synthetic tasks)", () => {
     };
     const out = checkTasks(withMarker, withTask(def, t));
     expect(out.completions.some((c) => c.taskId === t.id && c.status === "complete")).toBe(true);
+  });
+
+  it("investigate reads the declared fact marker source", () => {
+    const def = emberfall();
+    const t = task("investigate-fact", "事实调查", {
+      type: "investigate",
+      target: { marker: { source: "fact", key: "collapse-evidence" } },
+      quantity: 1,
+    });
+    const state = coLocated(freshState(def), ["shen-jiugu"], "forest-edge");
+    const out = checkTasks({ ...state, facts: [...state.facts, "collapse-evidence"] }, withTask(def, t));
+    expect(out.completions.some((entry) => entry.taskId === t.id && entry.status === "complete")).toBe(true);
   });
 
   it("counts any-action objectives only after the task was accepted", () => {
@@ -246,12 +288,12 @@ describe("task objective completions (synthetic tasks)", () => {
     expect(activated.completions.some((entry) => entry.taskId === t.id)).toBe(false);
     const active = activated.state.tasks.find((entry) => entry.taskId === t.id);
     expect(active?.status).toBe("active");
-    expect(active?.status === "active" ? active.acceptedEventCount : -1).toBe(1);
+    expect(active?.status === "active" ? active.acceptedEventCount : -1).toBe(activated.state.eventLog.length);
 
     const afterAcceptance = {
       ...activated.state,
       eventLog: [...activated.state.eventLog, {
-        id: "log-2",
+        id: `log-${activated.state.eventLog.length + 1}`,
         day: 0,
         hour: 10,
         type: "resolution" as const,

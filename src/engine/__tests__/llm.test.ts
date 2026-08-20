@@ -112,6 +112,24 @@ describe("prompt building", () => {
     expect(prompt).not.toContain("## 玩家的记忆");
   });
 
+  it("injects the full secret content for its runtime holder", () => {
+    const { def, state } = setup();
+    const secret = def.npcs.get("elara")!.secrets![0];
+    const reassigned = {
+      ...state,
+      facts: [...state.facts, secret.id],
+      secretHolders: { ...state.secretHolders, [secret.id]: "old-miner" },
+    };
+    const prompt = buildTurnPrompt({
+      definition: def,
+      state: reassigned,
+      playerInput: "矿井究竟怎么了？",
+      npcId: "old-miner",
+    });
+    expect(prompt).toContain(secret.id);
+    expect(prompt).toContain(secret.content);
+  });
+
   it("memorySelections is deterministic and reinforces the same ids", () => {
     const { def, state } = setup();
     const withMemories = {
@@ -180,6 +198,20 @@ describe("consistency enforcement (PDVA)", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.failedReason).toBe("secret");
+  });
+
+  it("uses the runtime holder when filtering reassigned secret prose", () => {
+    const { def, state } = setup();
+    const secret = def.npcs.get("elara")!.secrets![0];
+    const reassigned = {
+      ...state,
+      facts: [...state.facts, secret.id],
+      secretHolders: { ...state.secretHolders, [secret.id]: "old-miner" },
+    };
+    expect(checkOutputConsistency(def, reassigned, {
+      narrative: secret.content,
+      mechanics_tags: [],
+    }).ok).toBe(true);
   });
 
   it("rejects mechanics tag referencing a nonexistent item", () => {

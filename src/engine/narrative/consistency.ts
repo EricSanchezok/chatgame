@@ -53,9 +53,10 @@ export function checkOutputConsistency(
   }
 
   // Secret guard: the prose must not leak secrets the player cannot know.
-  for (const npcId of Object.keys(state.npcs)) {
-    for (const secret of def.npcs.get(npcId)?.secrets ?? []) {
-      const canKnow = secretRevealable(state, def, npcId, secret.id);
+  for (const npc of def.npcs.values()) {
+    for (const secret of npc.secrets ?? []) {
+      const holder = state.secretHolders[secret.id];
+      const canKnow = holder !== undefined && secretRevealable(state, def, holder, secret.id);
       if (!canKnow && output.narrative.includes(secret.content.slice(0, 12))) {
         return {
           ok: false,
