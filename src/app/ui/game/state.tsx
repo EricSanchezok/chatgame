@@ -72,6 +72,9 @@ function productionEffects(audio: AudioController, port: GamePort): GameControll
         (id, kind, entityId) => port.entityAssetUrl(id, kind, entityId),
       );
     },
+    onSessionCleanupError: (sessionId, error) => {
+      console.error(`Failed to clean up uncommitted session "${sessionId}"`, error);
+    },
     onExit: () => audio.stopAll(),
   };
 }

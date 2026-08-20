@@ -28,8 +28,12 @@ export interface MockGameScenario {
   conversation?: ConversationFixture;
   session?: "ready" | "error";
   turn?: "ready" | "error";
+  destroySession?: "ready" | "error";
   detailErrorScriptId?: string;
   latencyMs?: Partial<Record<string, number>>;
+  createLatencyMs?: Partial<Record<string, number>>;
+  ignoreCreateAbortScriptIds?: string[];
+  sessionLimit?: number;
 }
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
@@ -63,6 +67,12 @@ export class MockGamePort implements GamePort {
     Omit<MockGameScenario, "library" | "conversation" | "session" | "turn">;
   private currentWorld: WorldState;
   private currentPresentation: SessionPresentation;
+  private sessionSequence = 0;
+  private readonly sessionWorlds = new Map<string, WorldState>();
+  private readonly sessionPresentations = new Map<string, SessionPresentation>();
+  readonly activeSessionScripts = new Map<string, string>();
+  readonly createdSessions: Array<{ id: string; scriptId: string }> = [];
+  readonly destroyedSessionIds: string[] = [];
 
   constructor(scenario: MockGameScenario = {}) {
     this.scenario = {
@@ -70,19 +80,28 @@ export class MockGamePort implements GamePort {
       conversation: scenario.conversation ?? "short",
       session: scenario.session ?? "ready",
       turn: scenario.turn ?? "ready",
+      destroySession: scenario.destroySession,
       detailErrorScriptId: scenario.detailErrorScriptId,
       latencyMs: scenario.latencyMs,
+      createLatencyMs: scenario.createLatencyMs,
+      ignoreCreateAbortScriptIds: scenario.ignoreCreateAbortScriptIds,
+      sessionLimit: scenario.sessionLimit,
     };
     this.currentWorld = createFixtureWorld(CORE_SCRIPT_ID, this.scenario.conversation);
     this.currentPresentation = fixturePresentation(CORE_SCRIPT_ID);
   }
 
-  private async wait(path: string, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) throw abortError();
-    const delay = this.scenario.latencyMs?.[path] ?? 0;
+  private async wait(
+    path: string,
+    signal?: AbortSignal,
+    options: { delayMs?: number; ignoreAbort?: boolean } = {},
+  ): Promise<void> {
+    if (!options.ignoreAbort && signal?.aborted) throw abortError();
+    const delay = options.delayMs ?? this.scenario.latencyMs?.[path] ?? 0;
     if (delay <= 0) return;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(resolve, delay);
+      if (options.ignoreAbort) return;
       signal?.addEventListener(
         "abort",
         () => {
@@ -143,23 +162,39 @@ export class MockGamePort implements GamePort {
     input: Parameters<GamePort["createSession"]>[0],
     signal?: AbortSignal,
   ): Promise<CreateSessionResult> {
-    await this.wait("/api/sessions", signal);
+    await this.wait("/api/sessions", signal, {
+      delayMs: this.scenario.createLatencyMs?.[input.scriptId],
+      ignoreAbort: this.scenario.ignoreCreateAbortScriptIds?.includes(input.scriptId),
+    });
     if (this.scenario.session === "error") throw new Error("会话恢复失败");
-    this.currentWorld = createFixtureWorld(input.scriptId, this.scenario.conversation);
-    this.currentPresentation = fixturePresentation(input.scriptId);
+    if (this.activeSessionScripts.size >= (this.scenario.sessionLimit ?? Number.POSITIVE_INFINITY)) {
+      throw new Error("活跃会话数量已达上限");
+    }
+    this.sessionSequence += 1;
+    const id = this.sessionSequence === 1 ? "preview-session" : `preview-session-${this.sessionSequence}`;
+    const world = createFixtureWorld(input.scriptId, this.scenario.conversation);
+    const presentation = fixturePresentation(input.scriptId);
+    this.currentWorld = world;
+    this.currentPresentation = presentation;
+    this.sessionWorlds.set(id, world);
+    this.sessionPresentations.set(id, presentation);
+    this.activeSessionScripts.set(id, input.scriptId);
+    this.createdSessions.push({ id, scriptId: input.scriptId });
     return {
-      id: "preview-session",
-      state: structuredClone(this.currentWorld),
-      presentation: structuredClone(this.currentPresentation),
+      id,
+      state: structuredClone(world),
+      presentation: structuredClone(presentation),
     };
   }
 
   async submitTurn(id: string, input: TurnInput, signal?: AbortSignal): Promise<TurnResultFull> {
     await this.wait(`/api/sessions/${id}/turn`, signal);
     if (this.scenario.turn === "error") throw new Error("世界响应超时");
-    const result = fixtureTurnResult(this.currentWorld, input.text);
+    const result = fixtureTurnResult(this.sessionWorlds.get(id) ?? this.currentWorld, input.text);
     this.currentWorld = result.state;
     this.currentPresentation = result.presentation;
+    this.sessionWorlds.set(id, result.state);
+    this.sessionPresentations.set(id, result.presentation);
     return structuredClone(result);
   }
 
@@ -183,8 +218,8 @@ export class MockGamePort implements GamePort {
     await this.wait(`/api/sessions/${id}/state`, signal);
     return {
       id,
-      state: structuredClone(this.currentWorld),
-      presentation: structuredClone(this.currentPresentation),
+      state: structuredClone(this.sessionWorlds.get(id) ?? this.currentWorld),
+      presentation: structuredClone(this.sessionPresentations.get(id) ?? this.currentPresentation),
     };
   }
 
@@ -195,23 +230,26 @@ export class MockGamePort implements GamePort {
 
   async setDescriptor(id: string, _path: string, _text: string, signal?: AbortSignal) {
     await this.wait(`/api/sessions/${id}/descriptor`, signal);
-    return { state: structuredClone(this.currentWorld) };
+    return { state: structuredClone(this.sessionWorlds.get(id) ?? this.currentWorld) };
   }
 
   async advance(id: string, hours: number, signal?: AbortSignal) {
     await this.wait(`/api/sessions/${id}/advance`, signal);
+    const currentWorld = this.sessionWorlds.get(id) ?? this.currentWorld;
     this.currentWorld = {
-      ...this.currentWorld,
+      ...currentWorld,
       clock: {
-        ...this.currentWorld.clock,
-        totalHours: this.currentWorld.clock.totalHours + hours,
+        ...currentWorld.clock,
+        totalHours: currentWorld.clock.totalHours + hours,
       },
       player: {
-        ...this.currentWorld.player,
+        ...currentWorld.player,
         locationId: "service-corridor",
       },
     };
     this.currentPresentation = fixturePresentation(this.currentWorld.scriptId, "service-corridor");
+    this.sessionWorlds.set(id, this.currentWorld);
+    this.sessionPresentations.set(id, this.currentPresentation);
     return {
       state: structuredClone(this.currentWorld),
       presentation: structuredClone(this.currentPresentation),
@@ -220,6 +258,11 @@ export class MockGamePort implements GamePort {
 
   async destroySession(id: string, signal?: AbortSignal): Promise<void> {
     await this.wait(`/api/sessions/${id}`, signal);
+    if (this.scenario.destroySession === "error") throw new Error("会话清理失败");
+    this.activeSessionScripts.delete(id);
+    this.sessionWorlds.delete(id);
+    this.sessionPresentations.delete(id);
+    this.destroyedSessionIds.push(id);
   }
 
   assetUrl(scriptId: string, file: string): string {

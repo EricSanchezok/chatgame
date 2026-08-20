@@ -30,7 +30,7 @@ Class: architecture
 
 剧本激活的 scriptId、主题与 slots 作为一个 generation 提交；较早请求晚到时不得覆盖新激活。依赖图内容与 UI API 版本共同进入 bundle URL，服务端提供 ETag 与不可变缓存。构建只允许剧本目录内相对依赖、React 运行时和 `@chatgame/ui` 浏览器安全边界，禁止把宿主服务端模块或任意本地文件打入 bundle。
 
-宿主实现 `GameStore/controller + GamePort`，生产使用 `HttpGamePort`，测试与 Storybook 使用 `MockGamePort`。Context 只负责稳定注入和选择器。请求带 generation 与取消信号，过期结果不得更新活跃会话。EngineHost 只发布最后一次完整提交的会话快照，并让预检等待同一会话的 mutation 队列，异步回合内部状态不得被读取接口观察。`turn` 与 `advance` 返回同一个提交点产生的 `{ state, presentation }`；EngineHost 在队列操作内解析地点主题，客户端用一个 reducer action 提交两者，不保留 state-only 的 `advance` 契约。
+宿主实现 `GameStore/controller + GamePort`，生产使用 `HttpGamePort`，测试与 Storybook 使用 `MockGamePort`。Context 只负责稳定注入和选择器。请求带 generation 与取消信号，过期结果不得更新活跃会话。`start` 与 `continue` 并行取得剧本详情和服务端 session，但新 session 在同一 generation 的 `enter` 成功前只是 controller 持有的临时资源；任一分支失败、请求被换代或提交失败时都以独立 DELETE 清理，取消不能被当作服务端未创建的证明。清理失败通过独立 effect 报告，不覆盖当前 generation 的主错误或已提交 session。EngineHost 只发布最后一次完整提交的会话快照，并让预检等待同一会话的 mutation 队列，异步回合内部状态不得被读取接口观察。`turn` 与 `advance` 返回同一个提交点产生的 `{ state, presentation }`；EngineHost 在队列操作内解析地点主题，客户端用一个 reducer action 提交两者，不保留 state-only 的 `advance` 契约。
 
 UI API v3 仅暴露 `launcher`、`game-shell`、`scene`、`hud`、`toolbar`、`composer`、`pause-menu`、`panel:*`、`bubble:*`、`message-card:*`、`settings:*`。单例替换槽没有 position/order。剧本获得只读 view-model 和 `start`、`continue`、`openPanel`、`previewAction`、`submitTurn` 等 capability；路由、存档、网络、portal、焦点、错误隔离和可访问壳由宿主持有。
 
