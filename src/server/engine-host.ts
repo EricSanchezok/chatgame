@@ -83,6 +83,18 @@ export interface SessionRecord {
   dirty: boolean;
 }
 
+export interface CommittedSessionPresentation {
+  themes: ThemeView[];
+  currentTheme: ThemeView;
+  defaultThemeId: string;
+  hasAssets: boolean;
+}
+
+export interface CommittedSessionSnapshot {
+  state: WorldState;
+  presentation: CommittedSessionPresentation;
+}
+
 interface MetaFileSnapshot {
   path: string;
   contents?: string;
@@ -362,7 +374,7 @@ export class EngineHost {
     playerName?: string;
     /** Save filename (basename, .json) to resume; rejects traversal. */
     loadRunId?: string;
-  }): { id: string; state: WorldState; presentation: ReturnType<EngineHost["sessionPresentation"]> } {
+  }): { id: string } & CommittedSessionSnapshot {
     this.reapIdle();
     if (this.sessions.size >= MAX_SESSIONS) {
       throw new HostError(`too many active sessions (max ${MAX_SESSIONS})`, 429);
@@ -393,15 +405,16 @@ export class EngineHost {
       saveStore: this.saveStore,
     });
     const id = randomUUID();
-    this.sessions.set(id, {
+    const record: SessionRecord = {
       id,
       scriptId: options.scriptId,
       engine,
       committedState: engine.worldState,
       lastActivity: Date.now(),
       dirty: false,
-    });
-    return { id, state: engine.worldState, presentation: this.sessionPresentation(id) };
+    };
+    this.sessions.set(id, record);
+    return { id, ...this.snapshotFor(record) };
   }
 
   listSessions(): Array<{ id: string; scriptId: string }> {
@@ -427,7 +440,7 @@ export class EngineHost {
   }
 
   /** Runs one player turn; auto-saves + merges meta after success. */
-  turn(sessionId: string, input: TurnInput): Promise<TurnResult> {
+  turn(sessionId: string, input: TurnInput): Promise<TurnResult & CommittedSessionSnapshot> {
     return this.enqueue(sessionId, async (session) => {
       const candidate = this.createTurnCandidate(session);
       const result = await candidate.playerTurn(input);
@@ -436,7 +449,7 @@ export class EngineHost {
       session.committedState = candidate.worldState;
       session.lastActivity = Date.now();
       session.dirty = true;
-      return result;
+      return { ...result, ...this.snapshotFor(session) };
     });
   }
 
@@ -503,13 +516,13 @@ export class EngineHost {
   }
 
   /** Offline advance (serialized per session; death policy runs inside). */
-  advance(sessionId: string, hours: number): Promise<WorldState> {
+  advance(sessionId: string, hours: number): Promise<CommittedSessionSnapshot> {
     return this.enqueue(sessionId, (session) => {
       const state = session.engine.advance(hours);
       session.committedState = state;
       session.lastActivity = Date.now();
       session.dirty = true;
-      return state;
+      return this.snapshotFor(session);
     });
   }
 
@@ -672,13 +685,23 @@ export class EngineHost {
   }
 
   /** Presentation surface for a live session (themes + current location). */
-  sessionPresentation(sessionId: string): {
-    themes: ThemeView[];
-    currentTheme: ThemeView;
-    defaultThemeId: string;
-    hasAssets: boolean;
-  } {
-    const record = this.requireSession(sessionId);
+  sessionPresentation(sessionId: string): CommittedSessionPresentation {
+    return this.presentationFor(this.requireSession(sessionId));
+  }
+
+  /** World and location-derived presentation from one synchronous commit. */
+  sessionSnapshot(sessionId: string): CommittedSessionSnapshot {
+    return this.snapshotFor(this.requireSession(sessionId));
+  }
+
+  private snapshotFor(record: SessionRecord): CommittedSessionSnapshot {
+    return {
+      state: record.committedState,
+      presentation: this.presentationFor(record),
+    };
+  }
+
+  private presentationFor(record: SessionRecord): CommittedSessionPresentation {
     const definition = record.engine.definition;
     const current = resolveTheme(definition, record.committedState);
     return {

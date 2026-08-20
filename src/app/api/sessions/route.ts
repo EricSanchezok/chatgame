@@ -1,7 +1,7 @@
 // Sessions API: create new sessions (or resume from a save) and list active ones.
 import { EngineHost } from "../../../server/engine-host";
 import { json, errorResponse, readJson } from "../h";
-import { completeSessionPresentation } from "../script-presentation";
+import { completePresentation } from "../script-presentation";
 
 interface CreateBody {
   scriptId: string;
@@ -38,7 +38,7 @@ export async function POST(request: Request): Promise<Response> {
     });
     return json({
       ...session,
-      presentation: await completeSessionPresentation(EngineHost.get(), session.id),
+      presentation: await completePresentation(EngineHost.get(), session.state.scriptId, session.presentation),
     }, 201);
   } catch (err) {
     return errorResponse(err);

@@ -16,14 +16,22 @@ export async function scriptUiBundle(
   };
 }
 
-export async function completeSessionPresentation(
+/** Attaches the script-stable bundle to an already committed presentation. */
+export async function completePresentation(
   host: EngineHost,
-  sessionId: string,
+  scriptId: string,
+  presentation: Omit<SessionPresentation, "uiBundle">,
 ): Promise<SessionPresentation> {
-  const presentation = host.sessionPresentation(sessionId);
-  const scriptId = host.state(sessionId).scriptId;
   return {
     ...presentation,
     uiBundle: await scriptUiBundle(host, scriptId),
   };
+}
+
+export async function completeSessionPresentation(
+  host: EngineHost,
+  sessionId: string,
+): Promise<SessionPresentation> {
+  const snapshot = host.sessionSnapshot(sessionId);
+  return completePresentation(host, snapshot.state.scriptId, snapshot.presentation);
 }

@@ -78,14 +78,54 @@ context_compaction:
   retention_tiers: [major]
 `;
 
+const DAY_BOUNDARY_ENGINE = `export default function register(context: any): void {
+  context.onSessionStart((state: any) => ({
+    state: { ...state, runtimeState: { ...state.runtimeState, coreTestEngine: "v2-ready" } },
+    summaries: ["core test Engine API v2 session_start completed"],
+  }));
+  context.onDayBoundary((state: any) => ({
+    state: { ...state, player: { ...state.player, locationId: "service-corridor" } },
+    summaries: ["core test day boundary moved the observer"],
+  }));
+}
+`;
+
+/** Adds a day-boundary location transition and matching by-location theme. */
+export function applyAdvancePresentationOverlay(destination: string): void {
+  const scriptPath = path.join(destination, "script.yaml");
+  writeFileSync(
+    scriptPath,
+    readFileSync(scriptPath, "utf8")
+      .replace("lifecycle: [session_start]", "lifecycle: [session_start, day_boundary]"),
+  );
+  writeFileSync(path.join(destination, "engine", "index.ts"), DAY_BOUNDARY_ENGINE);
+  const defaultThemePath = path.join(destination, "theme.yaml");
+  const defaultTheme = readFileSync(defaultThemePath, "utf8");
+  mkdirSync(path.join(destination, "themes"), { recursive: true });
+  writeFileSync(
+    path.join(destination, "themes", "service-corridor.yaml"),
+    defaultTheme
+      .replace(/^id: default$/m, "id: service-corridor")
+      .replace(/^name: .+$/m, "name: 维护走廊")
+      .replace('background: "#0d1113"', 'background: "#111827"')
+      .replace('scene_tint: "#111719"', 'scene_tint: "#172033"'),
+  );
+  writeFileSync(
+    defaultThemePath,
+    `${defaultTheme.trimEnd()}\nby_location:\n  service-corridor: service-corridor\n`,
+  );
+}
+
 /** Copies the shared core script and applies server-test-only presentation/run overlays. */
 export function copyCoreTestScript(destination: string, scriptId = TEST_SCRIPT_ID): void {
   cpSync(CORE_TEST_SCRIPT_DIR, destination, { recursive: true });
   const scriptPath = path.join(destination, "script.yaml");
   writeFileSync(
     scriptPath,
-    readFileSync(scriptPath, "utf8").replace(/^id: core-test-script$/m, `id: ${scriptId}`),
+    readFileSync(scriptPath, "utf8")
+      .replace(/^id: core-test-script$/m, `id: ${scriptId}`),
   );
+  applyAdvancePresentationOverlay(destination);
 
   mkdirSync(path.join(destination, "assets", "backgrounds"), { recursive: true });
   writeFileSync(path.join(destination, "assets.yaml"), ASSETS_MANIFEST);

@@ -72,6 +72,22 @@ const alternateTheme: ThemeView = {
   },
 };
 
+const corridorTheme: ThemeView = {
+  ...coreTheme,
+  id: "workbench-corridor",
+  name: "维护走廊",
+  palette: {
+    ...coreTheme.palette,
+    background: "#111827",
+    surface: "#182235",
+    border: "#53627c",
+  },
+  effects: {
+    ...coreTheme.effects,
+    scene_tint: "#172033",
+  },
+};
+
 const emptyAssets: AssetManifest = {
   portraits: {},
   backgrounds: {},
@@ -310,12 +326,18 @@ export function fixtureMeta(scriptId = CORE_SCRIPT_ID): ScriptMeta {
   };
 }
 
-export function fixturePresentation(scriptId = CORE_SCRIPT_ID): SessionPresentation {
-  const currentTheme = scriptId === ALT_SCRIPT_ID ? alternateTheme : coreTheme;
+export function fixturePresentation(
+  scriptId = CORE_SCRIPT_ID,
+  locationId = "relay-room",
+): SessionPresentation {
+  const defaultTheme = scriptId === ALT_SCRIPT_ID ? alternateTheme : coreTheme;
+  const currentTheme = scriptId === CORE_SCRIPT_ID && locationId === "service-corridor"
+    ? corridorTheme
+    : defaultTheme;
   return {
-    themes: [currentTheme],
+    themes: currentTheme.id === defaultTheme.id ? [defaultTheme] : [defaultTheme, currentTheme],
     currentTheme,
-    defaultThemeId: currentTheme.id,
+    defaultThemeId: defaultTheme.id,
     uiBundle: fixtureUiBundle(scriptId),
     hasAssets: false,
   };

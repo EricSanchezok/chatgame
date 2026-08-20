@@ -8,6 +8,7 @@ import type {
   ScriptMeta,
   ScriptSummary,
   SessionPresentation,
+  SessionSnapshot,
   TurnInput,
   TurnResultFull,
   WorldStateView,
@@ -42,7 +43,7 @@ export interface GamePort {
   state(id: string, signal?: AbortSignal): Promise<{ id: string; state: WorldStateView; presentation: SessionPresentation }>;
   save(id: string, signal?: AbortSignal): Promise<{ saved: boolean; path: string }>;
   setDescriptor(id: string, path: string, text: string, signal?: AbortSignal): Promise<{ state: WorldStateView }>;
-  advance(id: string, hours: number, signal?: AbortSignal): Promise<{ state: WorldStateView }>;
+  advance(id: string, hours: number, signal?: AbortSignal): Promise<SessionSnapshot>;
   destroySession(id: string, signal?: AbortSignal): Promise<void>;
   assetUrl(scriptId: string, file: string): string;
   entityAssetUrl(scriptId: string, kind: string, entityId: string): string;
@@ -134,7 +135,7 @@ export class HttpGamePort implements GamePort {
   }
 
   advance(id: string, hours: number, signal?: AbortSignal) {
-    return this.post<{ state: WorldStateView }>(`/api/sessions/${encodeURIComponent(id)}/advance`, { hours }, signal);
+    return this.post<SessionSnapshot>(`/api/sessions/${encodeURIComponent(id)}/advance`, { hours }, signal);
   }
 
   async destroySession(id: string, signal?: AbortSignal): Promise<void> {

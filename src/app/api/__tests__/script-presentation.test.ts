@@ -14,13 +14,15 @@ describe("completeSessionPresentation", () => {
     } as SessionPresentation["currentTheme"];
     const host = {
       scriptLibraryRoot: "/not-installed",
-      sessionPresentation: () => ({
-        themes: [theme],
-        currentTheme: theme,
-        defaultThemeId: "authoritative-theme",
-        hasAssets: false,
+      sessionSnapshot: () => ({
+        state: { scriptId: "missing-ui" },
+        presentation: {
+          themes: [theme],
+          currentTheme: theme,
+          defaultThemeId: "authoritative-theme",
+          hasAssets: false,
+        },
       }),
-      state: () => ({ scriptId: "missing-ui" }),
     } as unknown as EngineHost;
 
     const result = await completeSessionPresentation(host, "session");

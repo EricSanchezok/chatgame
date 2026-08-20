@@ -302,16 +302,17 @@ export interface SessionPresentation {
   hasAssets: boolean;
 }
 
-export interface CreateSessionResult {
-  id: string;
+/** One committed world/presentation generation from a session operation. */
+export interface SessionSnapshot {
   state: WorldStateView;
   presentation: SessionPresentation;
 }
 
-export interface TurnResultFull extends TurnResultView {
-  state: WorldStateView;
-  presentation: SessionPresentation;
+export interface CreateSessionResult extends SessionSnapshot {
+  id: string;
 }
+
+export interface TurnResultFull extends TurnResultView, SessionSnapshot {}
 
 export interface SaveSummary {
   runId: string;

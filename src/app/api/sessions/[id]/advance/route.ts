@@ -1,6 +1,7 @@
 // Session advance API: deterministic offline world progression.
 import { EngineHost } from "../../../../../server/engine-host";
 import { json, errorResponse, readJson } from "../../../h";
+import { completePresentation } from "../../../script-presentation";
 
 export async function POST(
   request: Request,
@@ -17,8 +18,12 @@ export async function POST(
     if (body.hours > 1000) {
       return json({ error: "hours must be 1000 or fewer" }, 400);
     }
-    const state = await EngineHost.get().advance(id, body.hours);
-    return json({ state });
+    const host = EngineHost.get();
+    const result = await host.advance(id, body.hours);
+    return json({
+      ...result,
+      presentation: await completePresentation(host, result.state.scriptId, result.presentation),
+    });
   } catch (err) {
     return errorResponse(err);
   }

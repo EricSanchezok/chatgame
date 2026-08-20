@@ -413,6 +413,21 @@ describe("session lifecycle", () => {
     await host.destroySession(session.id);
   });
 
+  it("returns advance state and location theme from the same committed snapshot", async () => {
+    installFixture();
+    const session = host.createSession({ scriptId: TEST_SCRIPT_ID, originId: TEST_ORIGIN_ID, seed: 7 });
+    expect(session.state.player.locationId).toBe("relay-room");
+    expect(session.presentation.currentTheme.id).toBe("default");
+
+    const advanced = await host.advance(session.id, 24);
+
+    expect(advanced.state.player.locationId).toBe("service-corridor");
+    expect(advanced.presentation.currentTheme.id).toBe("service-corridor");
+    expect(advanced.presentation.currentTheme.effects.scene_tint).toBe("#172033");
+    expect(host.sessionSnapshot(session.id)).toEqual(advanced);
+    await host.destroySession(session.id);
+  });
+
   it("rejects unknown sessions and scripts", () => {
     expect(() => host.state("no-such-session")).toThrow(HostError);
     expect(() => host.createSession({ scriptId: "no-such-script", originId: "x" })).toThrow(HostError);

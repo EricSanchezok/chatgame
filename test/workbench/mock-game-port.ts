@@ -198,9 +198,24 @@ export class MockGamePort implements GamePort {
     return { state: structuredClone(this.currentWorld) };
   }
 
-  async advance(id: string, _hours: number, signal?: AbortSignal) {
+  async advance(id: string, hours: number, signal?: AbortSignal) {
     await this.wait(`/api/sessions/${id}/advance`, signal);
-    return { state: structuredClone(this.currentWorld) };
+    this.currentWorld = {
+      ...this.currentWorld,
+      clock: {
+        ...this.currentWorld.clock,
+        totalHours: this.currentWorld.clock.totalHours + hours,
+      },
+      player: {
+        ...this.currentWorld.player,
+        locationId: "service-corridor",
+      },
+    };
+    this.currentPresentation = fixturePresentation(this.currentWorld.scriptId, "service-corridor");
+    return {
+      state: structuredClone(this.currentWorld),
+      presentation: structuredClone(this.currentPresentation),
+    };
   }
 
   async destroySession(id: string, signal?: AbortSignal): Promise<void> {

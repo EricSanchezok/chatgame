@@ -17,6 +17,10 @@ describe("MockGamePort", () => {
     expect(session.state.scriptId).toBe(CORE_SCRIPT_ID);
     expect(session.state.transcript).toEqual([]);
     expect(session.presentation.defaultThemeId).toBe("workbench-core");
+
+    const advanced = await contract.advance(session.id, 24);
+    expect(advanced.state.player.locationId).toBe("service-corridor");
+    expect(advanced.presentation.currentTheme.id).toBe("workbench-corridor");
   });
 
   it("makes failure paths explicit", async () => {
