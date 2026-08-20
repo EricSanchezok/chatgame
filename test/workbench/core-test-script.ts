@@ -227,7 +227,15 @@ export function createFixtureWorld(
     facts: [],
     eventLog: [],
     commitments: [],
-    tasks: [{ taskId: "restore-signal", status: "active", acceptedDay: 2, progress: 1 }],
+    tasks: [
+      {
+        taskId: "restore-signal",
+        status: "active",
+        acceptedDay: 2,
+        acceptedEventCount: 0,
+        progress: 1,
+      },
+    ],
     playedEventIds: ["signal-loss"],
     secretHolders: {},
     locationInventories: {
