@@ -32,7 +32,7 @@ Class: architecture
 
 UI API v3 仅暴露 `launcher`、`game-shell`、`scene`、`hud`、`toolbar`、`composer`、`pause-menu`、`panel:*`、`bubble:*`、`message-card:*`、`settings:*`。单例替换槽没有 position/order。剧本获得只读 view-model 和 `start`、`continue`、`openPanel`、`previewAction`、`submitTurn` 等 capability；路由、存档、网络、portal、焦点、错误隔离和可访问壳由宿主持有。
 
-`ScriptPresentation` 明确返回 `defaultThemeId` 与版本化 `uiBundle`，剧本摘要从资产清单读取静态封面。两阶段导入在执行剧本代码前展示校验、来源、权限与冲突；暂存 token 绑定预检时的冲突和替换权限，安装状态变化后必须重新预检。
+`ScriptPresentation` 明确返回 `defaultThemeId` 与版本化 `uiBundle`，剧本摘要从资产清单读取静态封面。两阶段导入在执行剧本代码前展示校验、来源、权限与冲突；暂存 token 绑定预检时目标安装的完整内容身份、安装代次、冲突和替换权限。每次成功安装写入新的 opaque 安装代次，commit 同步重算并比较目标身份，因此缺失、替换、删除后原样重装等任一变化都会使旧 token 返回 409，必须重新预检。
 
 ## Pros and Cons of the Options
 
