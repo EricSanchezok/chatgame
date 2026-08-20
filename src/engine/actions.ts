@@ -18,7 +18,7 @@ import { rollD20 } from "./rng";
 import { BUILTIN_HANDLERS, type ActionHandlerPlan, type HandlerCosts } from "./builtins";
 import { applyProgression } from "./mechanics/progression";
 import type { ActionPreview, IntentHint } from "../shared/client-dto";
-import { readonlySnapshot } from "./readonly-snapshot";
+import { mutableSnapshot, readonlySnapshot } from "./readonly-snapshot";
 
 export interface ResolutionContext {
   definition: WorldDefinition;
@@ -325,6 +325,22 @@ function planHandler(
   });
 }
 
+/** Runs a planned transition once behind the same extension purity boundary. */
+function executeHandlerPlan(
+  plan: ActionHandlerPlan,
+  state: WorldState,
+  grade: ResultGrade,
+  handlerId: string,
+): ReturnType<ActionHandlerPlan["execute"]> {
+  const activeScriptId = state.scriptId;
+  const input = readonlySnapshot({ state, grade });
+  const outcome = plan.execute(input.state, input.grade);
+  if (outcome.state.scriptId !== activeScriptId) {
+    throw new Error(`action handler "${handlerId}" execute cannot change the active script id`);
+  }
+  return mutableSnapshot(outcome);
+}
+
 /** Authoritative, side-effect-free action preflight used by the host composer. */
 export function previewAction(
   definition: WorldDefinition,
@@ -507,7 +523,12 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   //     without a declared handler use the framework registry.
   let actionSummaries: string[] = [];
   if (plan) {
-    const builtinOut = plan.execute(finalState, grade);
+    const builtinOut = executeHandlerPlan(
+      plan,
+      finalState,
+      grade,
+      action.handler ?? ctx.actionId,
+    );
     finalState = builtinOut.state;
     actionSummaries = builtinOut.summaries;
   }
