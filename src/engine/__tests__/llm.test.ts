@@ -1,9 +1,7 @@
 // LLM bridge tests: intent parsing (fallback tiers), narrative dual-channel
 // output, and consistency enforcement (PDVA gate: schema/perm/rule +
 // secret/taboo guards). MockProvider keeps everything deterministic.
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import { MockProvider } from "../narrative/mock";
 import { parseIntent } from "../narrative/intent";
@@ -20,12 +18,64 @@ import {
 import { buildSystemPrompt, buildTurnPrompt, buildIntentPrompt, memorySelections } from "../narrative/prompt";
 import { createMemoryEntry, recordMemoryAccess } from "../memory";
 import type { WorldState, WorldDefinition } from "../types";
+import type { Npc } from "../../script/schemas/npc";
+import { loadCoreTestDefinition } from "./core-test-fixture";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
+const SECRET_ID = "relay-secret";
+const SECRET_CONTENT = "备用中继线路位于封闭的维护舱内";
+
+function withNarrativeContracts(def: WorldDefinition): WorldDefinition {
+  const operator = def.npcs.get("operator");
+  if (!operator) throw new Error("core test fixture must define operator");
+
+  const operatorWithSecret: Npc = {
+    ...operator,
+    secrets: [
+      ...operator.secrets,
+      {
+        id: SECRET_ID,
+        content: SECRET_CONTENT,
+        reveal: {
+          logic: {
+            all: [{ source: "flag", key: "access-granted", op: "has" }],
+          },
+        },
+      },
+    ],
+  };
+  const auditor: Npc = {
+    ...operator,
+    id: "auditor",
+    name: "审计员",
+    description: "独立复核中继记录的测试角色。",
+    occupation: undefined,
+    schedule: undefined,
+    home: "service-corridor",
+    relations: [],
+    secrets: [],
+    knowledge_flags: [],
+  };
+
+  return {
+    ...def,
+    world: {
+      ...def.world,
+      taboos: [
+        ...def.world.taboos,
+        { id: "no-internal-protocol", text: "不得提及\"内部协议\"", severity: "hard" },
+      ],
+    },
+    npcs: new Map([
+      ...def.npcs,
+      [operatorWithSecret.id, operatorWithSecret],
+      [auditor.id, auditor],
+    ]),
+  };
+}
 
 function setup(): { def: WorldDefinition; state: WorldState } {
-  const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
-  const { state } = generateWorld(def, "miner", { seed: 42 });
+  const def = withNarrativeContracts(loadCoreTestDefinition());
+  const { state } = generateWorld(def, "observer", { seed: 42 });
   return { def, state };
 }
 
@@ -40,11 +90,10 @@ describe("intent parsing", () => {
 
   it("vocabulary fallback maps action ids", async () => {
     const { def, state } = setup();
-    const provider = new MockProvider();
-    const tier = await parseIntent(provider, def, state, "我想休息一下");
-    if (tier.tier === "direct") {
-      expect(["rest", "talk"]).toContain(tier.intent.actionId);
-    }
+    const provider = new MockProvider({ onGenerateObject: () => ({ actionId: "unknown" }) });
+    const tier = await parseIntent(provider, def, state, "我要校验线路");
+    expect(tier.tier).toBe("direct");
+    if (tier.tier === "direct") expect(tier.intent.actionId).toBe("investigate");
   });
 
   it("unknown input degrades to talk", async () => {
@@ -57,10 +106,9 @@ describe("intent parsing", () => {
   it("extracts npc target from text", async () => {
     const { def, state } = setup();
     const provider = new MockProvider();
-    const tier = await parseIntent(provider, def, state, "我要和艾拉说话");
+    const tier = await parseIntent(provider, def, state, "我要和值班员说话");
     if (tier.tier === "direct") {
-      // elara's display name is 艾拉; target should resolve to elara or undefined
-      expect(["elara", undefined]).toContain(tier.intent.target);
+      expect(["operator", undefined]).toContain(tier.intent.target);
     }
   });
 });
@@ -94,16 +142,16 @@ describe("prompt building", () => {
       ...state,
       player: {
         ...state.player,
-        memories: [createMemoryEntry("欠酒商 20 金币", "minor", 1, ["debt"], "pm1")],
+        memories: [createMemoryEntry("需复核第二路信号", "minor", 1, ["audit"], "pm1")],
       },
     };
     const prompt = buildTurnPrompt({
       definition: def,
       state: withMemories,
-      playerInput: "去酒馆还钱",
+      playerInput: "复核信号",
     });
     expect(prompt).toContain("## 玩家的记忆");
-    expect(prompt).toContain("欠酒商 20 金币");
+    expect(prompt).toContain("需复核第二路信号");
   });
 
   it("turn prompt omits the player memory block when no active memories", () => {
@@ -114,17 +162,17 @@ describe("prompt building", () => {
 
   it("injects the full secret content for its runtime holder", () => {
     const { def, state } = setup();
-    const secret = def.npcs.get("elara")!.secrets![0];
+    const secret = def.npcs.get("operator")!.secrets[0];
     const reassigned = {
       ...state,
       facts: [...state.facts, secret.id],
-      secretHolders: { ...state.secretHolders, [secret.id]: "old-miner" },
+      secretHolders: { ...state.secretHolders, [secret.id]: "auditor" },
     };
     const prompt = buildTurnPrompt({
       definition: def,
       state: reassigned,
-      playerInput: "矿井究竟怎么了？",
-      npcId: "old-miner",
+      playerInput: "备用线路在哪里？",
+      npcId: "auditor",
     });
     expect(prompt).toContain(secret.id);
     expect(prompt).toContain(secret.content);
@@ -136,10 +184,10 @@ describe("prompt building", () => {
       ...state,
       player: {
         ...state.player,
-        memories: [createMemoryEntry("欠酒商 20 金币", "minor", 1, ["debt"], "pm1")],
+        memories: [createMemoryEntry("需复核第二路信号", "minor", 1, ["audit"], "pm1")],
       },
     };
-    const input = { definition: def, state: withMemories, playerInput: "还钱", npcId: "elara" };
+    const input = { definition: def, state: withMemories, playerInput: "复核", npcId: "operator" };
     const sel = memorySelections(input);
     const memId = withMemories.player.memories[0].id; // "pm1-1-1"
     expect(sel.player.ids).toContain(memId);
@@ -158,8 +206,8 @@ describe("narrative generation", () => {
       provider,
       definition: def,
       state,
-      playerInput: "你好，艾拉",
-      npcId: "elara",
+      playerInput: "你好，值班员",
+      npcId: "operator",
     });
     expect(typeof output.narrative).toBe("string");
     expect(Array.isArray(output.mechanics_tags)).toBe(true);
@@ -168,7 +216,7 @@ describe("narrative generation", () => {
   it("fallbackNarrative narrates resolution deterministically", () => {
     const { def, state } = setup();
     const out = fallbackNarrative(def, state, {
-      actionId: "persuade",
+      actionId: "investigate",
       resolveType: "skill_check",
       roll: 10,
       dc: 12,
@@ -183,7 +231,7 @@ describe("consistency enforcement (PDVA)", () => {
   it("accepts clean output", () => {
     const { def, state } = setup();
     const result = checkOutputConsistency(def, state, {
-      narrative: "艾拉轻轻摇头，没有回答。",
+      narrative: "值班员确认线路没有变化。",
       mechanics_tags: [],
     });
     expect(result.ok).toBe(true);
@@ -191,7 +239,7 @@ describe("consistency enforcement (PDVA)", () => {
 
   it("rejects narrative leaking an unrevealed secret", () => {
     const { def, state } = setup();
-    const secret = def.npcs.get("elara")!.secrets![0];
+    const secret = def.npcs.get("operator")!.secrets[0];
     const result = checkOutputConsistency(def, state, {
       narrative: `她压低声音：${secret.content}`,
       mechanics_tags: [],
@@ -202,11 +250,11 @@ describe("consistency enforcement (PDVA)", () => {
 
   it("uses the runtime holder when filtering reassigned secret prose", () => {
     const { def, state } = setup();
-    const secret = def.npcs.get("elara")!.secrets![0];
+    const secret = def.npcs.get("operator")!.secrets[0];
     const reassigned = {
       ...state,
       facts: [...state.facts, secret.id],
-      secretHolders: { ...state.secretHolders, [secret.id]: "old-miner" },
+      secretHolders: { ...state.secretHolders, [secret.id]: "auditor" },
     };
     expect(checkOutputConsistency(def, reassigned, {
       narrative: secret.content,
@@ -227,10 +275,10 @@ describe("consistency enforcement (PDVA)", () => {
   it("rejects hard taboo text in prose", () => {
     const { def, state } = setup();
     const result = checkOutputConsistency(def, state, {
-      narrative: "你感到这是一个游戏系统在运行。",
+      narrative: "值班员提到了内部协议。",
       mechanics_tags: [],
     });
-    // no-fourth-wall taboo is hard: "游戏" appears in it
+    // The immutable test overlay declares "内部协议" as a hard taboo keyword.
     expect(result.ok).toBe(false);
   });
 
@@ -240,7 +288,7 @@ describe("consistency enforcement (PDVA)", () => {
     const result = await withConsistencyRetry(
       async () => {
         calls++;
-        const secret = def.npcs.get("elara")!.secrets![0];
+        const secret = def.npcs.get("operator")!.secrets[0];
         return { narrative: `泄漏：${secret.content}`, mechanics_tags: [] };
       },
       def,
@@ -284,8 +332,8 @@ describe("consistency enforcement (PDVA)", () => {
 
   it("soft taboo match returns ok=true with warnings", () => {
     const { def, state } = setup();
-    // emberfall has no quoted-keyword soft taboo; inject one to exercise the
-    // soft-taboo warning path (R8: soft taboos warn, never reject).
+    // Inject a quoted-keyword soft taboo to exercise the warning path
+    // (R8: soft taboos warn, never reject).
     const softDef = {
       ...def,
       world: {

@@ -2,16 +2,13 @@
 //   (a) valid JSON goes through the real generateObject schema-validation path;
 //   (b) invalid JSON throws and the LLMProvider caller (parseIntent) degrades
 //       to the deterministic fallback (Blueprint success criterion: 双路验证).
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 import { VercelProvider } from "../narrative/vercel";
 import { intentSchema, parseIntent } from "../narrative/intent";
-import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import type { WorldState, WorldDefinition } from "../types";
-
-const REPO_ROOT = path.resolve(__dirname, "../../..");
+import { loadCoreTestDefinition } from "./core-test-fixture";
 
 /** A MockLanguageModelV4 that always emits the given raw text. */
 function mockModel(text: string): MockLanguageModelV4 {
@@ -29,8 +26,8 @@ function mockModel(text: string): MockLanguageModelV4 {
 }
 
 function setup(): { def: WorldDefinition; state: WorldState } {
-  const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
-  const { state } = generateWorld(def, "miner", { seed: 42 });
+  const def = loadCoreTestDefinition();
+  const { state } = generateWorld(def, "observer", { seed: 42 });
   return { def, state };
 }
 
@@ -57,9 +54,9 @@ describe("VercelProvider dual-path (MockLanguageModelV4)", () => {
     const provider = new VercelProvider({
       languageModel: mockModel("not json at all"),
     });
-    const tier = await parseIntent(provider, def, state, "我想休息一下");
-    // The LLM path failed -> deterministic vocabulary fallback maps 休息 -> rest.
-    expect(["direct", "fallback_talk"]).toContain(tier.tier);
-    if (tier.tier === "direct") expect(tier.intent.actionId).toBe("rest");
+    const tier = await parseIntent(provider, def, state, "我要校验线路");
+    // The LLM path failed -> deterministic vocabulary fallback maps the display name.
+    expect(tier.tier).toBe("direct");
+    if (tier.tier === "direct") expect(tier.intent.actionId).toBe("investigate");
   });
 });

@@ -1,11 +1,9 @@
 // LLM context management tests: transcript windowing, rolling summary
 // triggers + incremental continuation (generateText), failure degradation,
 // save round-trip, and prompt injection order (A/B/C/D/E).
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Engine } from "../index";
 import { MockProvider } from "../narrative/mock";
-import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import {
   SUMMARY_EVERY_TURNS,
@@ -19,13 +17,11 @@ import {
 import { buildTurnPrompt } from "../narrative/prompt";
 import { appendTranscript } from "../presentation";
 import type { WorldState, WorldDefinition } from "../types";
-
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-const EMBERFALL = path.join(REPO_ROOT, "scripts/emberfall");
+import { CORE_TEST_SCRIPT_DIR, loadCoreTestDefinition } from "./core-test-fixture";
 
 function setup(): { def: WorldDefinition; state: WorldState } {
-  const def = loadScript(EMBERFALL);
-  const { state } = generateWorld(def, "miner", { seed: 42 });
+  const def = loadCoreTestDefinition();
+  const { state } = generateWorld(def, "observer", { seed: 42 });
   return { def, state: { ...state, contextSummary: emptyContextSummary() } };
 }
 
@@ -124,7 +120,7 @@ describe("rolling summary via generateText", () => {
     const provider = new MockProvider({
       onGenerateText: (prompt) => {
         prompts.push(prompt);
-        return "摘要一：玩家在矿井结识了艾拉。";
+        return "摘要一：观察员在中继室见到了值班员。";
       },
     });
     const first = await summarizeContext(provider, def, s);
@@ -136,7 +132,7 @@ describe("rolling summary via generateText", () => {
     for (let i = 0; i < 4; i++) s = addTurn(s, `后续内容${i + 1}`);
     const withPrior = { ...s, contextSummary: first! };
     const second = await summarizeContext(provider, def, withPrior);
-    expect(prompts[1]).toContain("摘要一：玩家在矿井结识了艾拉。");
+    expect(prompts[1]).toContain("摘要一：观察员在中继室见到了值班员。");
     expect(second!.sourceTurnRange[0]).toBeGreaterThan(first!.sourceTurnRange[1]);
   });
 
@@ -172,10 +168,9 @@ describe("rolling summary via generateText", () => {
 describe("state snapshot block (layer B)", () => {
   it("contains structured facts only — no descriptor lines", () => {
     const { def, state } = setup();
-    // Move the player to the tavern where elara is present, so the
-    // snapshot includes present NPCs (scene-scoped).
-    const moved = { ...state, player: { ...state.player, locationId: "tavern" } };
-    const block = buildStateBlock(moved, def);
+    // The observer and operator both start in the relay room, so the
+    // snapshot includes a scene-scoped NPC without built-in content.
+    const block = buildStateBlock(state, def);
     expect(block).toContain("当前状态快照");
     expect(block).toContain("在场 NPC");
     expect(block).toContain("时间：");
@@ -228,7 +223,7 @@ describe("prompt injection order (A/B/C/D/E)", () => {
       definition: def,
       state: s,
       playerInput: "你好",
-      npcId: "elara",
+      npcId: "operator",
       contextBlocks: blocks,
     });
     const stateIdx = prompt.indexOf("当前状态快照");
@@ -262,13 +257,13 @@ describe("prompt injection order (A/B/C/D/E)", () => {
 describe("engine integration", () => {
   it("produces a rolling summary after SUMMARY_EVERY_TURNS turns", async () => {
     const engine = Engine.create({
-      scriptDir: EMBERFALL,
-      originId: "miner",
+      scriptDir: CORE_TEST_SCRIPT_DIR,
+      originId: "observer",
       seed: 42,
       provider: new MockProvider(),
     });
     for (let i = 0; i < SUMMARY_EVERY_TURNS; i++) {
-      await engine.playerTurn({ text: "你好，艾拉" });
+      await engine.playerTurn({ text: "你好，值班员" });
     }
     const summary = engine.worldState.contextSummary;
     expect(summary).toBeDefined();
@@ -278,20 +273,20 @@ describe("engine integration", () => {
 
   it("persists the summary across save/load round-trip", async () => {
     const engine = Engine.create({
-      scriptDir: EMBERFALL,
-      originId: "miner",
+      scriptDir: CORE_TEST_SCRIPT_DIR,
+      originId: "observer",
       seed: 42,
       provider: new MockProvider(),
     });
     for (let i = 0; i < SUMMARY_EVERY_TURNS; i++) {
-      await engine.playerTurn({ text: "你好，艾拉" });
+      await engine.playerTurn({ text: "你好，值班员" });
     }
     const summaryBefore = engine.worldState.contextSummary;
     expect(summaryBefore!.text.length).toBeGreaterThan(0);
     const filePath = engine.save("context-summary-roundtrip");
     const engine2 = Engine.create({
-      scriptDir: EMBERFALL,
-      originId: "miner",
+      scriptDir: CORE_TEST_SCRIPT_DIR,
+      originId: "observer",
       seed: 42,
       provider: new MockProvider(),
       loadSaveFile: filePath,
@@ -306,13 +301,13 @@ describe("engine integration", () => {
       },
     });
     const engine = Engine.create({
-      scriptDir: EMBERFALL,
-      originId: "miner",
+      scriptDir: CORE_TEST_SCRIPT_DIR,
+      originId: "observer",
       seed: 42,
       provider: failing,
     });
     for (let i = 0; i < SUMMARY_EVERY_TURNS + 1; i++) {
-      const result = await engine.playerTurn({ text: "你好，艾拉" });
+      const result = await engine.playerTurn({ text: "你好，值班员" });
       expect(result.narrative.length).toBeGreaterThan(0);
     }
     // No summary was stored, but the turns completed.
