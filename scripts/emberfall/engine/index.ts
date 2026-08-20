@@ -24,11 +24,13 @@ interface ShiftRuntime {
   pumpCoal: number;
   hearthCoal: number;
   settlementCount: number;
+  allocationOutcome: string;
   physicalEvidence: boolean;
   testimonyEvidence: boolean;
   conclusionReached: boolean;
   echoRecorded: boolean;
   tokenRecovered: boolean;
+  testimonyAttempts: number;
   conversations: number;
   lastDutyTarget: string;
   npcDutyHeGui: string;
@@ -54,11 +56,13 @@ const DEFAULT_RUNTIME: ShiftRuntime = {
   pumpCoal: 0,
   hearthCoal: 0,
   settlementCount: 0,
+  allocationOutcome: "尚未配火；诊所、排水泵与居民炉都在等待本班结论。",
   physicalEvidence: false,
   testimonyEvidence: false,
   conclusionReached: false,
   echoRecorded: false,
   tokenRecovered: false,
+  testimonyAttempts: 0,
   conversations: 0,
   lastDutyTarget: "",
   npcDutyHeGui: "职责：领班何桂负责木牌与支柱清点，欠三队一轮新木料。",
@@ -77,18 +81,6 @@ function withRuntime(state: WorldState, patch: Partial<ShiftRuntime>): WorldStat
 
 function addFact(state: WorldState, fact: string): WorldState {
   return state.facts.includes(fact) ? state : { ...state, facts: [...state.facts, fact] };
-}
-
-function addItem(state: WorldState, itemId: string): WorldState {
-  const stacks = state.player.inventory.stacks;
-  const existing = stacks.find((stack) => stack.itemId === itemId);
-  const nextStacks = existing
-    ? stacks.map((stack) => stack.itemId === itemId ? { ...stack, quantity: stack.quantity + 1 } : stack)
-    : [...stacks, { itemId, quantity: 1 }];
-  return {
-    ...state,
-    player: { ...state.player, inventory: { ...state.player.inventory, stacks: nextStacks } },
-  };
 }
 
 function accepted(
@@ -194,17 +186,24 @@ const surveySeamHandler: RuntimeActionHandler = ({ state }) => {
   const invalid = requirePhase(state, "underground");
   if (invalid) return invalid;
   if (state.player.locationId !== "upper-drift") return rejected("wrong_workface", "上层斜巷才保留着未登记楔痕");
-  return accepted((nextState) => {
+  return accepted((nextState, grade) => {
     const next = runtime(nextState);
-    let result = addItem(nextState, "seam-sample");
-    result = addFact(result, "evidence:seam-sample");
+    const found = grade !== "fail";
+    const ashDelta = grade === "fail" ? 16 : grade === "partial" ? 14 : grade === "crit" ? 8 : 12;
+    let result = nextState;
+    if (found) {
+      result = addFact(result, "evidence:seam-sample");
+    }
     return {
       state: withRuntime(result, {
-        physicalEvidence: true,
-        ashExposure: Math.min(100, next.ashExposure + 12),
+        physicalEvidence: next.physicalEvidence || found,
+        ashExposure: Math.min(100, next.ashExposure + ashDelta),
+        minePressure: grade === "crit" ? Math.max(0, next.minePressure - 4) : next.minePressure,
         undergroundActions: next.undergroundActions + 1,
       }),
-      summaries: ["取得实物来源：青火煤层样；灯火 -8"],
+      summaries: [found
+        ? `取得实物来源：青火煤层样；${grade === "crit" ? "同时辨明应力走向；" : ""}灯火 -8`
+        : "煤层碎裂污染了取样，本次没有形成实物证据；灯火 -8"],
     };
   }, [{ kind: "runtime", id: "lamp", amount: 8 }]);
 };
@@ -213,15 +212,20 @@ const listenStrataHandler: RuntimeActionHandler = ({ state }) => {
   const invalid = requirePhase(state, "underground");
   if (invalid) return invalid;
   if (state.player.locationId !== "bell-gallery") return rejected("no_bell_echo", "只有回钟横巷能分辨铁索回声");
-  return accepted((nextState) => {
+  return accepted((nextState, grade) => {
     const next = runtime(nextState);
+    const heard = grade !== "fail";
+    const ashDelta = grade === "fail" ? 10 : grade === "partial" ? 8 : grade === "crit" ? 4 : 7;
     return {
       state: withRuntime(nextState, {
-        echoRecorded: true,
-        ashExposure: Math.min(100, next.ashExposure + 7),
+        echoRecorded: next.echoRecorded || heard,
+        ashExposure: Math.min(100, next.ashExposure + ashDelta),
+        minePressure: grade === "crit" ? Math.max(0, next.minePressure - 2) : next.minePressure,
         undergroundActions: next.undergroundActions + 1,
       }),
-      summaries: ["记下封班后第二次钟响的方位；灯火 -6"],
+      summaries: [heard
+        ? `记下封班后第二次钟响${grade === "partial" ? "的大致" : "的准确"}方位；灯火 -6`
+        : "落石声盖过铁索回响，本次没有形成钟声记录；灯火 -6"],
     };
   }, [{ kind: "runtime", id: "lamp", amount: 6 }]);
 };
@@ -230,16 +234,18 @@ const collectCoalHandler: RuntimeActionHandler = ({ state }) => {
   const invalid = requirePhase(state, "underground");
   if (invalid) return invalid;
   if (state.player.locationId !== "blue-seam") return rejected("no_workable_coal", "只有青火煤层有可带回的炉煤");
-  return accepted((nextState) => {
+  return accepted((nextState, grade) => {
     const next = runtime(nextState);
+    const amount = grade === "fail" ? 0 : grade === "partial" ? 6 : grade === "crit" ? 14 : 10;
+    const ashDelta = grade === "fail" ? 16 : grade === "partial" ? 13 : grade === "crit" ? 7 : 10;
     return {
       state: withRuntime(nextState, {
-        carriedCoal: next.carriedCoal + 10,
-        coalExtracted: next.coalExtracted + 10,
-        ashExposure: Math.min(100, next.ashExposure + 10),
+        carriedCoal: next.carriedCoal + amount,
+        coalExtracted: next.coalExtracted + amount,
+        ashExposure: Math.min(100, next.ashExposure + ashDelta),
         undergroundActions: next.undergroundActions + 1,
       }),
-      summaries: ["采得炉煤 +10；灯火 -10"],
+      summaries: [amount > 0 ? `采得炉煤 +${amount}；灯火 -10` : "煤层剥落成灰，本次没有采得可用炉煤；灯火 -10"],
     };
   }, [{ kind: "runtime", id: "lamp", amount: 10 }]);
 };
@@ -247,15 +253,19 @@ const collectCoalHandler: RuntimeActionHandler = ({ state }) => {
 const setPropHandler: RuntimeActionHandler = ({ state }) => {
   const invalid = requirePhase(state, "underground");
   if (invalid) return invalid;
-  return accepted((nextState) => {
+  return accepted((nextState, grade) => {
     const next = runtime(nextState);
+    const pressureReduction = grade === "fail" ? 0 : grade === "partial" ? 5 : grade === "crit" ? 15 : 10;
+    const ashDelta = grade === "fail" ? 6 : grade === "partial" ? 4 : grade === "crit" ? 1 : 2;
     return {
       state: withRuntime(nextState, {
-        minePressure: Math.max(0, next.minePressure - 10),
-        ashExposure: Math.min(100, next.ashExposure + 2),
+        minePressure: Math.max(0, next.minePressure - pressureReduction),
+        ashExposure: Math.min(100, next.ashExposure + ashDelta),
         undergroundActions: next.undergroundActions + 1,
       }),
-      summaries: ["支护 -1，矿层压力下降；灯火 -4"],
+      summaries: [pressureReduction > 0
+        ? `支护 -1，矿层压力 -${pressureReduction}；灯火 -4`
+        : "支柱没有吃住岩层，支护与灯火已消耗但压力未降"],
     };
   }, [
     { kind: "runtime", id: "supports", amount: 1 },
@@ -267,16 +277,20 @@ const recoverTokenHandler: RuntimeActionHandler = ({ state }) => {
   const invalid = requirePhase(state, "underground");
   if (invalid) return invalid;
   if (state.player.locationId !== "blue-seam") return rejected("token_absent", "旧班签卡在青火煤层排水槽边");
-  return accepted((nextState) => {
+  return accepted((nextState, grade) => {
     const next = runtime(nextState);
-    const result = addFact(addItem(nextState, "bell-clapper"), "evidence:old-shift-token");
+    const recovered = grade !== "fail";
+    const ashDelta = grade === "fail" ? 12 : grade === "partial" ? 10 : grade === "crit" ? 5 : 8;
+    let result = nextState;
+    if (recovered) result = addFact(result, "evidence:old-shift-token");
     return {
       state: withRuntime(result, {
-        tokenRecovered: true,
-        ashExposure: Math.min(100, next.ashExposure + 8),
+        tokenRecovered: next.tokenRecovered || recovered,
+        ashExposure: Math.min(100, next.ashExposure + ashDelta),
+        minePressure: grade === "crit" ? Math.max(0, next.minePressure - 3) : next.minePressure,
         undergroundActions: next.undergroundActions + 1,
       }),
-      summaries: ["起取旧班签与钟槌擦痕；灯火 -7"],
+      summaries: [recovered ? "起取旧班签与钟槌擦痕；灯火 -7" : "排水槽再次塌落，本次没有取出旧班签；灯火 -7"],
     };
   }, [{ kind: "runtime", id: "lamp", amount: 7 }]);
 };
@@ -285,26 +299,31 @@ const returnShiftHandler: RuntimeActionHandler = ({ state }) => {
   const invalid = requirePhase(state, "underground");
   if (invalid) return invalid;
   const current = runtime(state);
-  if (current.undergroundActions < 3 || current.undergroundActions > 8) {
-    return rejected("shift_length", "完整班次必须包含 3 至 8 个井下行动");
-  }
-  if (current.carriedCoal <= 0) return rejected("empty_return", "至少带回一份炉煤才能收班");
+  if (current.undergroundActions < 3) return rejected("shift_length", "完整班次至少包含 3 个井下行动");
+  const emergency = current.undergroundActions >= 8 || current.ashExposure >= 100;
+  if (!emergency && current.carriedCoal <= 0) return rejected("empty_return", "至少带回一份炉煤才能正常收班");
+  if (!emergency && !current.physicalEvidence) return rejected("missing_physical_source", "正常收班前必须带回一份实物证据");
   const carriedCoal = current.carriedCoal;
+  const testimonyReady = carriedCoal > 0 && current.physicalEvidence;
+  const lampCost = Math.min(4, current.lamp);
   return accepted((nextState) => {
     const next = runtime(nextState);
     return {
       state: {
         ...withRuntime(nextState, {
-          phase: "returned",
+          phase: testimonyReady ? "returned" : "preparing",
           depth: 0,
           publicFurnace: next.publicFurnace + carriedCoal,
           carriedCoal: 0,
+          ashExposure: Math.max(0, next.ashExposure - 40),
         }),
         player: { ...nextState.player, locationId: "lamp-house" },
       },
-      summaries: [`收班返镇，炉煤入公账 +${carriedCoal}；灯火 -4`],
+      summaries: [testimonyReady
+        ? `收班返镇，炉煤入公账 +${carriedCoal}；灯火 -${lampCost}`
+        : `紧急返镇，炉煤入公账 +${carriedCoal}；本班未满足见证条件，回到班前准备`],
     };
-  }, [{ kind: "runtime", id: "lamp", amount: 4 }]);
+  }, lampCost > 0 ? [{ kind: "runtime", id: "lamp", amount: lampCost }] : []);
 };
 
 const recordTestimonyHandler: RuntimeActionHandler = ({ state, targetNpcId }) => {
@@ -313,12 +332,25 @@ const recordTestimonyHandler: RuntimeActionHandler = ({ state, targetNpcId }) =>
   const current = runtime(state);
   if (targetNpcId !== "han-zhi") return rejected("wrong_witness", "第二次钟响必须由当班回钟人韩直作证");
   if (!current.physicalEvidence) return rejected("missing_physical_source", "先取得独立实物来源，再核对证词");
-  return accepted((nextState) => {
-    let result = addFact(nextState, "evidence:bell-testimony");
-    result = addFact(result, "conclusion:unlogged-second-descent");
+  return accepted((nextState, grade) => {
+    const next = runtime(nextState);
+    const recorded = grade !== "fail";
+    const concluded = grade === "success" || grade === "crit";
+    let result = nextState;
+    if (recorded) result = addFact(result, "evidence:bell-testimony");
+    if (concluded) result = addFact(result, "conclusion:unlogged-second-descent");
+    if (grade === "crit") result = addFact(result, "evidence:bell-tally-copy");
     return {
-      state: withRuntime(result, { testimonyEvidence: true, conclusionReached: true }),
-      summaries: ["取得证词来源：韩直的钟房记录；双源互证成立"],
+      state: withRuntime(result, {
+        testimonyAttempts: next.testimonyAttempts + 1,
+        testimonyEvidence: next.testimonyEvidence || recorded,
+        conclusionReached: next.conclusionReached || concluded,
+      }),
+      summaries: [grade === "fail"
+        ? "证词时间与班账冲突，本次没有形成有效证词来源"
+        : concluded
+          ? `取得证词来源：韩直的钟房记录；双源互证成立${grade === "crit" ? "，并附得钟房班签抄件" : ""}`
+          : "取得一份不完整的钟房证词，尚不足以形成双源结论"],
     };
   });
 };
@@ -326,20 +358,37 @@ const recordTestimonyHandler: RuntimeActionHandler = ({ state, targetNpcId }) =>
 const allocateCoalHandler: RuntimeActionHandler = ({ state, params }) => {
   const invalid = requirePhase(state, "returned");
   if (invalid) return invalid;
-  if (runtime(state).settlementCount !== 0) return rejected("already_settled", "本班配火已经结算，不能重复");
+  const current = runtime(state);
+  if (!current.physicalEvidence || !current.testimonyEvidence || !current.conclusionReached) {
+    return rejected("missing_evidence", "实物与证词尚未形成双源结论，不能公开配火");
+  }
+  if (current.settlementCount !== 0) return rejected("already_settled", "本班配火已经结算，不能重复");
   const allocation = typeof params?.allocation === "string" ? params.allocation : "";
   if (!["clinic", "pump", "hearth"].includes(allocation)) return rejected("invalid_allocation", "请选择诊所、排水泵或居民炉火");
   return accepted((nextState) => {
     const next = runtime(nextState);
     const field = allocation === "clinic" ? "clinicCoal" : allocation === "pump" ? "pumpCoal" : "hearthCoal";
+    const outcome = allocation === "clinic"
+      ? "诊所获得 8 煤；梁素下一班开启夜间吸灰柜，排水泵与居民炉继续登记欠煤。"
+      : allocation === "pump"
+        ? "排水泵获得 8 煤；下一班青火煤层积水下降，梁素把夜间吸灰柜延期。"
+        : "居民炉获得 8 煤；下一班掌灯房维持夜间供暖，诊所与排水泵继续登记欠煤。";
+    const liangPlan = allocation === "clinic"
+      ? "计划已启动：梁素下一班开启夜间吸灰柜，并复核灰蚀名单。"
+      : allocation === "pump"
+        ? "计划已调整：梁素等待下一次配火，先把灰蚀重症转到日间处理。"
+        : "计划已调整：梁素维持日间诊疗，继续登记夜间吸灰柜欠煤。";
     return {
       state: withRuntime(nextState, {
         [field]: next[field] + 8,
         coalAllocated: next.coalAllocated + 8,
         settlementCount: 1,
         phase: "settled",
+        allocationOutcome: outcome,
+        npcPlanLiangSu: liangPlan,
+        npcPromiseWangShulan: `承诺兑现：王漱兰公开把 8 煤配给${allocation === "clinic" ? "诊所" : allocation === "pump" ? "排水泵" : "居民炉"}，其余请求留在欠账。`,
       }),
-      summaries: [`公开配火：${allocation} +8；本班结算完成`],
+      summaries: [`公开配火：${allocation} +8；${outcome}`],
     };
   }, [{ kind: "runtime", id: "publicFurnace", amount: 8 }]);
 };
@@ -359,8 +408,9 @@ const shiftCondition: RuntimeConditionEvaluator = (state, leaf) => {
 
 const shiftRule: RuntimeRuleChecker = ({ state, actionId }) => {
   const current = runtime(state);
-  if (current.ashExposure >= 100 && current.phase === "underground" && actionId !== "return-shift") {
-    return "灰蚀已满，只能立即收班返镇";
+  if (current.phase === "underground" && actionId !== "return-shift") {
+    if (current.ashExposure >= 100) return "灰蚀已满，只能立即收班返镇";
+    if (current.undergroundActions >= 8) return "本班已完成八个井下行动，只能立即收班返镇";
   }
   return null;
 };

@@ -4,7 +4,7 @@ palette:
   background: "#151411"
   surface: "#24221c"
   surface_alt: "#312e25"
-  primary: "#a56f4c"
+  primary: "#aa7652"
   on_primary: "#151411"
   accent: "#9fc7c4"
   text: "#e7dec8"

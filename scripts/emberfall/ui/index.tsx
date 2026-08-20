@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   SCRIPT_UI_API_VERSION,
   type ComposerSlotProps,
@@ -22,7 +22,7 @@ const CSS = `
 .ef-scene-region{grid-area:scene;min-width:0;min-height:0;overflow:hidden}
 .ef-tool-region{grid-area:tools;padding-right:env(safe-area-inset-right);border-left:var(--cg-border-width) solid var(--cg-border)}
 .ef-composer-region{grid-area:composer;padding-bottom:env(safe-area-inset-bottom);border-top:var(--cg-border-width) solid var(--cg-border)}
-.ef-hud{display:grid;grid-template-columns:auto repeat(5,minmax(5.5rem,1fr));align-items:stretch;background:var(--cg-surface)}
+.ef-hud{display:grid;grid-template-columns:auto repeat(6,minmax(5.5rem,1fr));align-items:stretch;background:var(--cg-surface);overflow-x:auto}
 .ef-mark{display:grid;place-items:center;min-width:4.75rem;padding:var(--cg-space-2);background:var(--cg-primary);color:var(--cg-on-primary);font-weight:700;letter-spacing:.12em}
 .ef-readout{min-width:0;padding:var(--cg-space-2) var(--cg-space-3);border-left:var(--cg-border-width) solid var(--cg-border)}
 .ef-label{display:block;color:var(--cg-text-dim);font-family:var(--cg-font-mono);font-size:calc(.66rem * var(--cg-scale));letter-spacing:.12em;text-transform:uppercase;white-space:nowrap}
@@ -54,7 +54,7 @@ const CSS = `
 .ef-tool:focus-visible,.ef-action:focus-visible,.ef-execute:focus-visible,.ef-send:focus-visible,.ef-input:focus-visible{outline:calc(var(--cg-border-width) * 2) solid var(--cg-focus);outline-offset:-2px}
 .ef-composer{display:grid;grid-template-columns:minmax(0,1fr) minmax(15rem,.48fr);gap:var(--cg-space-3);padding:var(--cg-space-3);background:var(--cg-surface)}
 .ef-actions{display:flex;gap:var(--cg-space-2);overflow-x:auto;padding-bottom:var(--cg-space-1)}
-.ef-action{appearance:none;flex:0 0 auto;min-height:2.7rem;padding:var(--cg-space-2) var(--cg-space-3);border:var(--cg-border-width) solid var(--cg-border);border-radius:var(--cg-radius-chrome);background:var(--cg-surface-alt);color:var(--cg-text);font:inherit;text-align:left;cursor:pointer;transition:transform 150ms ease,border-color 150ms ease,background 150ms ease}
+.ef-action{appearance:none;flex:0 0 auto;min-height:2.75rem;padding:var(--cg-space-2) var(--cg-space-3);border:var(--cg-border-width) solid var(--cg-border);border-radius:var(--cg-radius-chrome);background:var(--cg-surface-alt);color:var(--cg-text);font:inherit;text-align:left;cursor:pointer;transition:transform 150ms ease,border-color 150ms ease,background 150ms ease}
 .ef-action:hover{transform:translateY(-1px);border-color:var(--cg-accent)}
 .ef-action:active{transform:translateY(1px)}
 .ef-action[aria-pressed=true]{background:var(--cg-selected);border-color:var(--cg-focus)}
@@ -62,12 +62,12 @@ const CSS = `
 .ef-preview{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--cg-space-2);align-items:center;padding-left:var(--cg-space-3);border-left:var(--cg-border-width) solid var(--cg-border)}
 .ef-preview p{margin:0;color:var(--cg-text-dim);font-size:calc(.76rem * var(--cg-scale));line-height:1.35}
 .ef-preview strong{color:var(--cg-text)}
-.ef-execute,.ef-send{appearance:none;border:var(--cg-border-width) solid var(--cg-primary);border-radius:var(--cg-radius-chrome);background:var(--cg-primary);color:var(--cg-on-primary);font:inherit;font-weight:700;cursor:pointer;transition:transform 150ms ease,opacity 150ms ease}
-.ef-execute{min-height:2.75rem;padding:var(--cg-space-2) var(--cg-space-3)}
+.ef-execute,.ef-send{appearance:none;min-height:2.75rem;border:var(--cg-border-width) solid var(--cg-primary);border-radius:var(--cg-radius-chrome);background:var(--cg-primary);color:var(--cg-on-primary);font:inherit;font-weight:700;cursor:pointer;transition:transform 150ms ease,opacity 150ms ease}
+.ef-execute{padding:var(--cg-space-2) var(--cg-space-3)}
 .ef-execute:active,.ef-send:active{transform:translateY(1px)}
 .ef-execute:disabled,.ef-send:disabled{opacity:.5;cursor:not-allowed}
 .ef-freeform{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--cg-space-2)}
-.ef-input{min-height:2.6rem;padding:var(--cg-space-2) var(--cg-space-3);border:var(--cg-border-width) solid var(--cg-border);border-radius:var(--cg-radius-chrome);background:var(--cg-background);color:var(--cg-text);font:inherit}
+.ef-input{min-height:2.75rem;padding:var(--cg-space-2) var(--cg-space-3);border:var(--cg-border-width) solid var(--cg-border);border-radius:var(--cg-radius-chrome);background:var(--cg-background);color:var(--cg-text);font:inherit}
 .ef-input::placeholder{color:var(--cg-text-dim)}
 .ef-send{padding:var(--cg-space-2) var(--cg-space-4)}
 .ef-panel{min-width:min(38rem,88vw);max-width:48rem;max-height:78vh;overflow:auto;padding:var(--cg-space-4);background:var(--cg-surface);border:var(--cg-border-width) solid var(--cg-border);box-shadow:var(--cg-shadow-value)}
@@ -86,9 +86,9 @@ const CSS = `
 .ef-conclusion{margin-top:var(--cg-space-3);padding:var(--cg-space-3);border-left:.24rem solid var(--cg-warning);background:var(--cg-background)}
 .ef-empty{color:var(--cg-text-dim)}
 .ef-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-@media (max-width:900px){.ef-workface{grid-template-columns:minmax(0,1fr)}.ef-ledger{display:none}.ef-hud{grid-template-columns:auto repeat(3,minmax(4.5rem,1fr))}.ef-hud .ef-optional{display:none}.ef-composer{grid-template-columns:minmax(0,1fr)}.ef-preview{padding:var(--cg-space-2) 0 0;border-left:0;border-top:var(--cg-border-width) solid var(--cg-border)}.ef-freeform{grid-column:auto}.ef-main-scene{grid-template-rows:minmax(12rem,1fr) auto}}
-@media (max-width:520px){.ef-shell{grid-template:"rail rail" auto "scene scene" minmax(0,1fr) "composer composer" auto "tools tools" auto/1fr auto}.ef-tool-region{padding-right:env(safe-area-inset-right);padding-bottom:env(safe-area-inset-bottom);padding-left:env(safe-area-inset-left);border-left:0;border-top:var(--cg-border-width) solid var(--cg-border)}.ef-composer-region{padding-bottom:0}.ef-tools{height:auto;flex-direction:row}.ef-tool{flex:1;border-bottom:0;border-right:var(--cg-border-width) solid var(--cg-border)}.ef-mark{min-width:3.25rem;font-size:calc(.75rem * var(--cg-scale))}.ef-readout{padding:var(--cg-space-2)}.ef-hud{grid-template-columns:auto repeat(2,minmax(4.25rem,1fr))}.ef-hud .ef-mobile-hide{display:none}.ef-composer{padding:var(--cg-space-2)}.ef-caption{left:var(--cg-space-2);right:var(--cg-space-2);bottom:var(--cg-space-2)}.ef-transcript{max-height:10rem}.ef-freeform{grid-template-columns:minmax(0,1fr)}}
-@media (max-height:430px) and (orientation:landscape){.ef-hud{grid-template-columns:auto repeat(5,minmax(4.2rem,1fr))}.ef-readout{padding:var(--cg-space-1) var(--cg-space-2)}.ef-main-scene{grid-template-rows:minmax(9rem,1fr)}.ef-transcript{display:none}.ef-composer{padding:var(--cg-space-2);grid-template-columns:minmax(0,1fr) minmax(13rem,.45fr)}.ef-freeform{display:none}}
+@media (max-width:900px){.ef-workface{grid-template-columns:minmax(0,1fr)}.ef-ledger{display:none}.ef-hud{grid-template-columns:auto repeat(6,minmax(5rem,1fr))}.ef-composer{grid-template-columns:minmax(0,1fr)}.ef-preview{padding:var(--cg-space-2) 0 0;border-left:0;border-top:var(--cg-border-width) solid var(--cg-border)}.ef-freeform{grid-column:auto}.ef-main-scene{grid-template-rows:minmax(12rem,1fr) auto}}
+@media (max-width:520px){.ef-shell{grid-template:"rail rail" auto "scene scene" minmax(0,1fr) "composer composer" auto "tools tools" auto/1fr auto}.ef-tool-region{padding-right:env(safe-area-inset-right);padding-bottom:env(safe-area-inset-bottom);padding-left:env(safe-area-inset-left);border-left:0;border-top:var(--cg-border-width) solid var(--cg-border)}.ef-composer-region{padding-bottom:0}.ef-tools{height:auto;flex-direction:row}.ef-tool{flex:1;border-bottom:0;border-right:var(--cg-border-width) solid var(--cg-border)}.ef-mark{position:sticky;left:0;z-index:1;min-width:3.25rem;font-size:calc(.75rem * var(--cg-scale))}.ef-readout{padding:var(--cg-space-2)}.ef-hud{grid-template-columns:auto repeat(6,minmax(4.25rem,1fr))}.ef-composer{padding:var(--cg-space-2)}.ef-caption{left:var(--cg-space-2);right:var(--cg-space-2);bottom:var(--cg-space-2)}.ef-transcript{max-height:10rem}.ef-freeform{grid-template-columns:minmax(0,1fr)}}
+@media (max-height:430px) and (orientation:landscape){.ef-hud{grid-template-columns:auto repeat(6,minmax(4.2rem,1fr))}.ef-readout{padding:var(--cg-space-1) var(--cg-space-2)}.ef-main-scene{grid-template-rows:minmax(7rem,1fr) minmax(4rem,6rem)}.ef-transcript{max-height:6rem}.ef-composer{padding:var(--cg-space-2);grid-template-columns:minmax(0,1fr) minmax(13rem,.45fr)}.ef-freeform{grid-column:1/-1}}
 @media (prefers-reduced-motion:reduce){.ef-meter>span,.ef-tool,.ef-action,.ef-execute,.ef-send{transition:none}.ef-action:hover{transform:none}}
 `;
 
@@ -168,12 +168,16 @@ function IncidentLedger({ model }: { model: ScriptHostModel }) {
 }
 
 function PromiseLedger({ model }: { model: ScriptHostModel }) {
+  const dutyTargetId = stringValue(model, "lastDutyTarget");
+  const dutyTarget = model.catalog.npcs.find((entry) => entry.id === dutyTargetId)?.name ?? dutyTargetId;
   const entries = [
     ["职责", stringValue(model, "npcDutyHeGui")],
     ["欠账", stringValue(model, "npcDebtHanZhi")],
     ["承诺", stringValue(model, "npcPromiseWangShulan")],
     ["计划", stringValue(model, "npcPlanLiangSu")],
+    ["配火后果", stringValue(model, "allocationOutcome")],
   ];
+  if (numberValue(model, "conversations") > 0) entries.push(["核问记录", `已核问 ${dutyTarget || "当班人员"}；职责口径写入本班账。`]);
   return <aside className="ef-ledger" aria-label="矿镇承诺账"><span className="ef-kicker">PUBLIC LEDGER</span><h2>承诺账</h2>{entries.map(([label, text]) => <div className="ef-entry" key={label}><time>{label}</time><p>{text}</p></div>)}</aside>;
 }
 
@@ -225,7 +229,15 @@ function EmberfallToolbar(props: ToolbarSlotProps) {
 
 interface ActionChoice { label: string; detail: string; hint: IntentHint }
 
-function choices(model: ScriptHostModel): ActionChoice[] {
+export function createPreviewRequestGate() {
+  let latest = 0;
+  return {
+    begin: () => { latest += 1; return latest; },
+    isCurrent: (generation: number) => generation === latest,
+  };
+}
+
+export function emberfallActionChoices(model: ScriptHostModel): ActionChoice[] {
   const phase = stringValue(model, "phase", "preparing");
   const location = model.state.player.locationId;
   if (phase === "preparing") return [
@@ -235,6 +247,9 @@ function choices(model: ScriptHostModel): ActionChoice[] {
     { label: "核问何桂", detail: "职责与支护欠账", hint: { actionId: "talk", target: "he-gui" } },
   ];
   if (phase === "underground") {
+    const count = numberValue(model, "undergroundActions");
+    const emergency = count >= 8 || numberValue(model, "ashExposure") >= 100;
+    if (emergency) return [{ label: "紧急返镇", detail: "本班封口 · 不再深入", hint: { actionId: "return-shift" } }];
     const result: ActionChoice[] = [];
     if (location === "upper-drift") {
       result.push({ label: "测绘矿层", detail: "灯火 8 · 实物源", hint: { actionId: "survey-seam" } });
@@ -251,16 +266,19 @@ function choices(model: ScriptHostModel): ActionChoice[] {
       result.push({ label: "去回钟横巷", detail: "灯火 5 · 深度 2", hint: { actionId: "mine-move", params: { target: "bell-gallery" } } });
     }
     result.push({ label: "加设支柱", detail: "支护 1 · 灯火 4", hint: { actionId: "set-prop" } });
-    const count = numberValue(model, "undergroundActions");
-    if (count >= 3 && count <= 8 && numberValue(model, "carriedCoal") > 0) result.push({ label: "收班返镇", detail: "灯火 4 · 炉煤入账", hint: { actionId: "return-shift" } });
+    if (count >= 3 && numberValue(model, "carriedCoal") > 0 && boolValue(model, "physicalEvidence")) result.push({ label: "收班返镇", detail: "灯火至多 4 · 炉煤入账", hint: { actionId: "return-shift" } });
     return result;
   }
-  if (phase === "returned") return [
-    { label: "记录韩直证词", detail: "第二独立来源", hint: { actionId: "record-testimony", target: "han-zhi" } },
-    { label: "配给诊所", detail: "炉煤 8", hint: { actionId: "allocate-coal", params: { allocation: "clinic" } } },
-    { label: "配给排水泵", detail: "炉煤 8", hint: { actionId: "allocate-coal", params: { allocation: "pump" } } },
-    { label: "配给居民炉", detail: "炉煤 8", hint: { actionId: "allocate-coal", params: { allocation: "hearth" } } },
-  ];
+  if (phase === "returned") {
+    if (!boolValue(model, "conclusionReached")) {
+      return [{ label: "记录韩直证词", detail: "结论成立前的必需来源", hint: { actionId: "record-testimony", target: "han-zhi" } }];
+    }
+    return [
+      { label: "配给诊所", detail: "炉煤 8", hint: { actionId: "allocate-coal", params: { allocation: "clinic" } } },
+      { label: "配给排水泵", detail: "炉煤 8", hint: { actionId: "allocate-coal", params: { allocation: "pump" } } },
+      { label: "配给居民炉", detail: "炉煤 8", hint: { actionId: "allocate-coal", params: { allocation: "hearth" } } },
+    ];
+  }
   return [{ label: "核问王漱兰", detail: "复核本班公账", hint: { actionId: "talk", target: "wang-shulan" } }];
 }
 
@@ -277,11 +295,19 @@ function EmberfallComposer(props: ComposerSlotProps) {
   const [preview, setPreview] = useState<ActionPreview | null>(null);
   const [checking, setChecking] = useState(false);
   const [text, setText] = useState("");
-  const actionChoices = choices(props);
+  const previewGate = useRef(createPreviewRequestGate());
+  const actionChoices = emberfallActionChoices(props);
   const select = async (choice: ActionChoice) => {
+    const generation = previewGate.current.begin();
     setSelected(choice);
+    setPreview(null);
     setChecking(true);
-    try { setPreview(await props.previewAction(choice.hint)); } finally { setChecking(false); }
+    try {
+      const nextPreview = await props.previewAction(choice.hint);
+      if (previewGate.current.isCurrent(generation)) setPreview(nextPreview);
+    } finally {
+      if (previewGate.current.isCurrent(generation)) setChecking(false);
+    }
   };
   const execute = async () => {
     if (!selected || !preview?.executable || props.busy) return;
