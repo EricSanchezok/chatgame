@@ -11,7 +11,7 @@ related_targets: ["scripts/starlight/assets.yaml","scripts/starlight/theme.yaml"
 - Mode: Operate + Experience。
 - Audience/job: 玩家作为普通值班员接收交班、定位事故、比较合法维修/灰色调度/系统服从等处理路径，并承担时间、物资、社区声望和追踪热度后果。
 - Success: 首视口在隐藏标题时仍可识别为老旧民用站的交班台，而不是舰长仪表盘；警报和成本可在数秒内理解。
-- Direction: 磨损的 Shift Console 与热敏交班记录。获选构图为 [thermal handoff](mocks/starlight-thermal-handoff.png)；环形图用于地图面板而非支配首屏。
+- Direction: 磨损的 Shift Console 与热敏交班记录。获选构图为 [thermal handoff](../mocks/starlight-thermal-handoff.png)；环形图用于地图面板而非支配首屏。
 - Memorable moment: 新事故只触发一次琥珀扫灯并在热敏纸上打印新行；玩家签署工单后读数由服务器结果更新。
 - Constraints: 不使用冷蓝霓虹、扫描线、玻璃卡、聊天气泡或客户端假时钟；告警同时使用标签、图标和纹理；移动端按状态—事故—方案—输入顺序折叠。
 

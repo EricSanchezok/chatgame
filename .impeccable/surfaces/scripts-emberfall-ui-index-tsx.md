@@ -11,7 +11,7 @@ related_targets: ["scripts/emberfall/assets.yaml","scripts/emberfall/theme.yaml"
 - Mode: Experience + Operate。
 - Audience/job: 玩家作为公共灰灯持有人，在一次矿井班次中看清位置、灯火、灰蚀、路线代价、证据和公共炉承诺，完成准备—下井—带回—结算。
 - Success: 首视口在隐藏标题时仍可识别为矿镇当班工具；12 个行动内可完成一轮；所有读数来自服务器权威状态。
-- Direction: 煤尘账簿与矿井测绘台。获选构图为 [mine cross-section](mocks/emberfall-mine-cross-section.png)；field-book 只提供证据账的局部语言。
+- Direction: 煤尘账簿与矿井测绘台。获选构图为 [mine cross-section](../mocks/emberfall-mine-cross-section.png)；field-book 只提供证据账的局部语言。
 - Memorable moment: 两个独立证据被青白粉笔线连接，结论盖章可用；青白是唯一超自然高亮。
 - Constraints: 不使用旧棕色几何 SVG、玻璃、泛用卡片、聊天气泡模板或脚本外硬编码；移动端先保住班次和行动，再把台账放入宿主管理的 panel。
 
