@@ -12,6 +12,11 @@ interface VisualMatrixEntry {
   prepare?: (page: Page) => Promise<void>;
 }
 
+async function expectStableScreenshot(page: Page, name: string): Promise<void> {
+  await settleVisualPage(page);
+  await expect(page).toHaveScreenshot(name, { animations: "allow" });
+}
+
 async function setPlayerPreferences(
   page: Page,
   patch: Record<string, string | number | boolean>,
@@ -60,8 +65,7 @@ for (const entry of matrix) {
     await installMockGameRoutes(page);
     await openLauncher(page);
     await entry.prepare?.(page);
-    await settleVisualPage(page);
-    await expect(page).toHaveScreenshot(`launcher-${entry.name}.png`);
+    await expectStableScreenshot(page, `launcher-${entry.name}.png`);
   });
 }
 
@@ -70,19 +74,19 @@ test("launcher empty, loading, error and new-game states", async ({ page }) => {
   await installMockGameRoutes(page, { library: "empty" });
   await page.goto("/");
   await page.getByRole("heading", { name: "今晚还没有剧目" }).waitFor();
-  await expect(page).toHaveScreenshot("launcher-empty.png");
+  await expectStableScreenshot(page, "launcher-empty.png");
 
   await page.unrouteAll({ behavior: "wait" });
   await installMockGameRoutes(page, { latencyMs: { "/api/scripts": 2_000 } });
   await page.reload();
   await page.locator(".cg-empty-library p").filter({ hasText: "正在整理剧目单……" }).waitFor();
-  await expect(page).toHaveScreenshot("launcher-loading.png");
+  await expectStableScreenshot(page, "launcher-loading.png");
 
   await page.unrouteAll({ behavior: "wait" });
   await installMockGameRoutes(page, { library: "error" });
   await page.reload();
   await page.locator(".cg-empty-library p").filter({ hasText: /剧目单读取失败/ }).waitFor();
-  await expect(page).toHaveScreenshot("launcher-error.png");
+  await expectStableScreenshot(page, "launcher-error.png");
 
   await page.unrouteAll({ behavior: "wait" });
   await installMockGameRoutes(page);
@@ -90,7 +94,7 @@ test("launcher empty, loading, error and new-game states", async ({ page }) => {
   await page.getByRole("heading", { name: /工作台剧本/ }).waitFor();
   await page.getByRole("button", { name: "开始新游戏" }).click();
   await page.getByRole("dialog", { name: /开始《工作台剧本》/ }).getByRole("combobox").waitFor();
-  await expect(page).toHaveScreenshot("launcher-new-game-dialog.png");
+  await expectStableScreenshot(page, "launcher-new-game-dialog.png");
 });
 
 test("conversation empty, long, error and pause states", async ({ page }) => {
@@ -98,11 +102,11 @@ test("conversation empty, long, error and pause states", async ({ page }) => {
   await installMockGameRoutes(page, { conversation: "empty" });
   await openLauncher(page);
   await startFixtureGame(page);
-  await expect(page).toHaveScreenshot("conversation-empty.png");
+  await expectStableScreenshot(page, "conversation-empty.png");
 
   await page.keyboard.press("Escape");
   await page.getByRole("dialog", { name: "暂停菜单" }).waitFor();
-  await expect(page).toHaveScreenshot("pause-menu.png");
+  await expectStableScreenshot(page, "pause-menu.png");
 
   await page.unrouteAll({ behavior: "wait" });
   await installMockGameRoutes(page, { conversation: "long", turn: "error" });
@@ -110,12 +114,12 @@ test("conversation empty, long, error and pause states", async ({ page }) => {
   await page.getByRole("heading", { name: /工作台剧本/ }).waitFor();
   await startFixtureGame(page);
   await expect(page.getByText(/第 27 次确认/)).toBeAttached();
-  await expect(page).toHaveScreenshot("conversation-long.png");
+  await expectStableScreenshot(page, "conversation-long.png");
 
   await page.getByRole("textbox", { name: "输入你的话或行动" }).fill("检查备用线路");
   await page.getByRole("button", { name: "发送" }).click();
   await page.getByRole("alert").filter({ hasText: "世界响应超时" }).waitFor();
-  await expect(page).toHaveScreenshot("conversation-error.png");
+  await expectStableScreenshot(page, "conversation-error.png");
 });
 
 test("script library and settings routes", async ({ page }) => {
@@ -128,9 +132,9 @@ test("script library and settings routes", async ({ page }) => {
   await page.getByRole("heading", { name: "备用测试剧本" }).waitFor();
   await page.getByRole("button", { name: "工作台剧本" }).click();
   await page.getByRole("heading", { name: "工作台剧本" }).waitFor();
-  await expect(page).toHaveScreenshot("scripts-route.png");
+  await expectStableScreenshot(page, "scripts-route.png");
 
   await page.goto("/settings");
   await page.getByRole("heading", { name: "设置", exact: true }).waitFor();
-  await expect(page).toHaveScreenshot("settings-route.png");
+  await expectStableScreenshot(page, "settings-route.png");
 });

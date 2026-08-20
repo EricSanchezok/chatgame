@@ -82,7 +82,9 @@ export function Dialog({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        event.stopPropagation();
+        // Other host shortcuts also listen on document. They must not toggle
+        // the state that owns this dialog while its own close is in flight.
+        event.stopImmediatePropagation();
         requestClose();
         return;
       }

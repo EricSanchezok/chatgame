@@ -33,6 +33,7 @@ Storybook 使用 `@storybook/nextjs-vite` 和 `test/workbench/game-preview-harne
 fixture 注册全部公开 UI slot；注册集合由单元契约验证，真实生命周期覆盖 launcher、完整回合、event/location cue、自定义 bubble、panel、pause/save/exit/destroy/continue 与剧本设置。generation 竞态测试保证 world、主题和 bundle 描述符原子归属同一剧本。
 
 视觉矩阵覆盖 390×844、768×1024、1440×900、短横屏、200% 文字、减少动效、高对比和主要空、载入、失败、长内容、dialog、剧本库与设置状态，基线保存在 `e2e/__screenshots__/`。
+截图前必须等待字体与所有有限动画完成，再允许最终帧动画状态进入截图；不得通过“禁用动画”把 Dialog 的入场帧固定为透明。全页最大差异像素比例为 1%，避免深色背景掩盖主要构图的完整变化。
 
 命令分为 `check:fast`、`check:ui`、`check:all`；`.github/workflows/frontend-workbench.yml` 在 Node 22 上分别执行快速门禁与 Chromium 浏览器矩阵。视觉回归不依赖外部 SaaS。
 

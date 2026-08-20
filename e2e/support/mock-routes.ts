@@ -47,6 +47,8 @@ export async function startFixtureGame(page: Page): Promise<void> {
 export async function settleVisualPage(page: Page): Promise<void> {
   await page.evaluate(async () => {
     await document.fonts.ready;
+    const finiteAnimations = document.getAnimations().filter((animation) =>
+      animation.effect?.getTiming().iterations !== Infinity);
+    await Promise.all(finiteAnimations.map((animation) => animation.finished.catch(() => undefined)));
   });
-  await page.waitForTimeout(100);
 }

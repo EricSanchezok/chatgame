@@ -138,7 +138,7 @@ describe("Esc pause menu (behavioral)", () => {
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
-    expect(screen.getByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "打开全局设置" })).toBeTruthy();
 
     // Second Escape closes it.
@@ -176,7 +176,7 @@ describe("Esc pause menu (behavioral)", () => {
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
-    expect(screen.getByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
   });
 
   it("renders dynamic currency, item, resource and risk costs from an action preview", async () => {

@@ -29,7 +29,9 @@ export default defineConfig({
     toHaveScreenshot: {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixelRatio: 0.05,
+      // Five percent allowed the entire launcher composition to change while
+      // the dark background still made the snapshot pass.
+      maxDiffPixelRatio: 0.01,
     },
   },
   webServer: {
