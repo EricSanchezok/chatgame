@@ -1,0 +1,55 @@
+name: Frontend workbench
+
+on:
+  pull_request:
+  push:
+    branches: [main, integration, "codex/**"]
+
+concurrency:
+  group: frontend-workbench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  STORYBOOK_DISABLE_TELEMETRY: "1"
+
+jobs:
+  fast:
+    name: Fast gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:fast
+
+  ui:
+    name: Browser, accessibility, and visual gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check:ui
+      - name: Upload workbench diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-workbench-${{ github.run_attempt }}
+          path: |
+            .storybook/static
+            e2e/artifacts
+          if-no-files-found: ignore
+          retention-days: 7
