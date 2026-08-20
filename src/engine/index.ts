@@ -97,18 +97,20 @@ export class Engine {
         state = { ...state, player: { ...state.player, name: options.playerName } };
       }
     }
-    const sessionStart = runLifecycle("sessionStart", state, { definition });
-    state = sessionStart.state;
-    for (const summary of sessionStart.summaries) {
-      const log: EventLogEntry = {
-        id: `log-${state.eventLog.length + 1}`,
-        day: absoluteDay(definition, state.clock),
-        hour: state.clock.hour,
-        type: "system",
-        actor: "extension",
-        summary,
-      };
-      state = { ...state, eventLog: [...state.eventLog, log] };
+    if (!options.loadSaveFile) {
+      const sessionStart = runLifecycle("sessionStart", state, { definition });
+      state = sessionStart.state;
+      for (const summary of sessionStart.summaries) {
+        const log: EventLogEntry = {
+          id: `log-${state.eventLog.length + 1}`,
+          day: absoluteDay(definition, state.clock),
+          hour: state.clock.hour,
+          type: "system",
+          actor: "extension",
+          summary,
+        };
+        state = { ...state, eventLog: [...state.eventLog, log] };
+      }
     }
     const engine = new Engine(definition, state, provider, options.saveStore ?? fsSaveStore);
     // Fresh session: play the worldgen starting event and seed the opening
@@ -167,6 +169,7 @@ export class Engine {
     }
 
     // 2. Resolve the action (legality + resolution + costs/effects).
+    const turnLogStart = this.state.eventLog.length;
     const intent = parsed.tier === "direct" || parsed.tier === "fallback_talk" ? parsed.intent : { actionId: "talk" };
     const resolution = resolveAction({
       definition: this.definition,
@@ -211,7 +214,6 @@ export class Engine {
       resolution: resolution.resolution,
     });
     state = turnLifecycle.state;
-    const lifecycleLogs: EventLogEntry[] = [];
     for (const summary of turnLifecycle.summaries) {
       const log: EventLogEntry = {
         id: `log-${state.eventLog.length + 1}`,
@@ -222,7 +224,6 @@ export class Engine {
         summary,
       };
       state = { ...state, eventLog: [...state.eventLog, log] };
-      lifecycleLogs.push(log);
     }
 
     // 3b. Turn-level commitment check: condition triggers fire as soon as
@@ -351,7 +352,7 @@ export class Engine {
       if (summary) state = { ...state, contextSummary: summary };
     }
     this.state = state;
-    const newLogs = state.eventLog.slice(-(resolution.logEntries.length + step.logEntries.length + lifecycleLogs.length + taskOut.logEntries.length + 1));
+    const newLogs = state.eventLog.slice(turnLogStart);
     return {
       narrative: narrativeText,
       resolution: resolution.resolution,

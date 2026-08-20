@@ -91,9 +91,9 @@ scripts/<id>/
 
 - **engine/index.ts**（服务端扩展）：默认导出 `(ctx: EngineExtensionContext) => void`；可注册：
   - `registerEffect(kind, handler)` — 自定义效果种类（`effect` 的 `kind` 不在内置集合时运行时裁决；未注册的 kind 在剧本校验时报错）。
-  - `registerConditionSource(source, evaluator)` — 自定义条件源（`condition.source` 任意字符串；未注册源求值为 false 且校验报错）。
-  - `registerActionHandler(id, handler)` — 自定义动作处理器（`actions[].handler` 引用；内置动作在声明 handler 时用自定义实现覆盖）。
-  - handler 均为纯函数（immutable state 更新 + summaries）；自定义持久状态写入 `WorldState.runtimeState`（引擎不解释内容，随存档 v4 持久化）。
+  - `registerConditionSource(source, evaluator)` — 自定义条件源（`condition.source` 任意字符串；未注册源在校验与运行期均报错）。
+  - `registerActionHandler(id, handler)` — 自定义动作处理器（`actions[].handler` 引用；内置动作在声明 handler 时用自定义实现覆盖）。handler 纯规划并返回 `{rejected?, costs?, timeCost?, execute}`；`execute(state, grade)` 只在真实结算中调用一次，预检不得 dry-run。
+  - handler 均以不可变快照工作；自定义持久状态写入 `WorldState.runtimeState`（引擎不解释内容，随存档 v5 持久化）。
 - **ui/index.tsx**（前端扩展）：默认导出 `(ctx: ScriptUiContext) => void`，`ctx.register(slot, { component, position?, order? })`；槽位见表现层规格 [presentation.md](presentation.md) 的 UI 拓扑。组件 props 由框架按槽位注入；未注册槽位回退框架默认组件。
 - **编译与缓存**：`engine/` 由 esbuild 编译为 CJS（`createRequire` 加载），`ui/` 编译为 ESM browser bundle（react 外部化，宿主单实例共享）；产物缓存于 `.chatgame/build/<id>/`（内容 hash 失效，gitignore）。
 ### 0.3 ID 契约
@@ -232,6 +232,8 @@ advance_scope: [schedules, needs, time_events]
 
 属性名由剧本声明，但**剧本不能定义新机制类型或算法**——新机制 = 引擎新版本 + schema_version 提升。
 
+`needs[].thresholds` 是持久化边沿触发：数值首次进入阈值区间时施加效果，停留期间不重复；恢复离开后再次进入才可重触发。`progression` 只增长触发行为对应的实体（默认玩家）与对应 target，不广播到所有 NPC。
+
 ```yaml
 stats:
   - { name: strength, min: 1, max: 20, initial: 10, description: 力量 }
@@ -297,7 +299,7 @@ actions:
     llm_freedom: process
 ```
 
-剧本可禁用/改名/配置内置动作；**自定义动作逻辑**通过 `handler` 引用剧本 `engine/index.ts` 注册的处理器（§0.6）——未注册的 handler id 在剧本校验时报错。
+剧本可禁用/改名/配置内置动作；**自定义动作逻辑**通过 `handler` 引用剧本 `engine/index.ts` 注册的处理器（§0.6）——未注册的 handler id 在剧本校验和运行期均报错。客户端的权威 `ActionPreview` 将声明成本与 handler 计划中的动态货币/物品/资源成本合并，并采用计划耗时。
 
 ---
 
@@ -605,6 +607,7 @@ value: 10
 - `members[]`：npc ids
 - `relations[]`：`{target(faction id), value}`
 - `reputation`：`{thresholds[] {value, label, effects[]}, decay}`（玩家对势力的声望）
+- 声望阈值效果只在数值向上穿越 `value` 的当次 reputation effect 中立即触发；停留在阈值上方或向下变化不重复触发。
 
 ```yaml
 id: miners-guild
@@ -665,17 +668,18 @@ locations: [mine-entrance]
 
 一文件一任务（radiant quest 模板）。`{id, name, objective, giver, conditions?, rewards?, repeatable, cooldown?, time_limit?, narrative}`
 
-- `objective`：`{type: deliver|gather|hunt|escort|investigate|persuade|travel, target: {pool[]|any, of_type?}, quantity}`
+- `objective` 按类型使用严格 target：gather=`{items[]}` 或 `{of_type}`；deliver=`{item,recipient}`；hunt=`{npc}`；escort=`{npc,destination?}` 或 `{any:true}`；investigate=`{marker:{source:flag|fact,key}}` 或 `{any:true}`；persuade=`{npc}`；travel=`{location}`。`quantity` 为正整数。
 - `giver`：`{pool[](npc ids), condition?}`
 - `rewards`：`effects[]`
 - `narrative`：`{offer, complete, fail}`（文本模板）
+- `time_limit.days` 的截止日包含在可完成窗口内；只在截止日之后失败。任务激活、完成与失败都写入同一 `WorldState.eventLog`，`any` 目标从激活日志之后的事件游标计数。
 
 ```yaml
 id: gather-herbs
 name: 采集药草
 objective:
   type: gather
-  target: { pool: [herb], of_type: material }
+  target: { items: [herb] }
   quantity: 3
 giver: { pool: [herbalist] }
 conditions:
@@ -1000,7 +1004,7 @@ leaf  := { source, key?, target?, op, value? }
 ## 附录 F. 版本与扩展性契约
 
 - `schema_version` 严格相等匹配（1.1）；2.0 前只允许加法演进；破坏性变更升大版本。
-- 所有 zod schema strict（未知字段报错）；每模块预留 `ext: {}` 扩展位（引擎版本化消费）。
+- 所有 zod schema strict（未知字段报错）；每模块预留 `ext: {}` 扩展位（只允许版本化消费者解释）。Engine Extension v2 的声明集合必须与实际注册集合精确相等，未知或漏注册的扩展在校验与运行期都响亮失败。
 - **ID 契约**：实体 id 全局唯一、小写连字符；发布后不得更改。
 - **运行态隔离**：剧本文件禁止携带运行时状态（无时间戳、无进程内可变值）；所有可变状态属引擎 WorldState。
 - 引擎仅加载与声明版本严格相等的剧本；作者小改字段须等引擎版本（加法演进通道缓解）。

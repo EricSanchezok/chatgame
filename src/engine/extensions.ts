@@ -6,7 +6,7 @@
 import type { WorldState, WorldDefinition, ResultGrade, ResolutionLogEntry } from "./types";
 import type { TurnInput } from "../shared/client-dto";
 import type { Effect, ConditionValue } from "../script/schemas/common";
-import type { BuiltinContext, BuiltinOutcome } from "./builtins";
+import type { BuiltinHandler } from "./builtins";
 
 /** Context passed to a custom effect handler. */
 export interface RuntimeEffectContext {
@@ -39,7 +39,7 @@ export type RuntimeConditionEvaluator = (
 ) => boolean;
 
 /** Custom action handler (same shape as built-in handlers). */
-export type RuntimeActionHandler = (ctx: BuiltinContext) => BuiltinOutcome;
+export type RuntimeActionHandler = BuiltinHandler;
 
 export interface RuntimeRuleContext {
   definition: WorldDefinition;

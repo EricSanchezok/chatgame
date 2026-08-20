@@ -180,11 +180,18 @@ export function secretRevealable(
   if (state.secretHolders[secretId] !== npcId) return false;
   // Already revealed to the player -> fine.
   if (state.facts.includes(secretId)) return true;
-  const secret = [...definition.npcs.values()]
-    .flatMap((npc) => npc.secrets ?? [])
-    .find((entry) => entry.id === secretId);
+  const secret = secretDefinition(definition, secretId);
   if (!secret) return false;
   return evalCondition(secret.reveal.logic, { definition, state, selfNpcId: npcId });
+}
+
+export function secretDefinition(
+  definition: WorldDefinition,
+  secretId: string,
+) {
+  return [...definition.npcs.values()]
+    .flatMap((npc) => npc.secrets ?? [])
+    .find((entry) => entry.id === secretId);
 }
 
 /** Returns the list of secrets the player may currently know for an NPC. */
@@ -197,6 +204,17 @@ export function revealableSecrets(
     .filter(([, holder]) => holder === npcId)
     .map(([secretId]) => secretId)
     .filter((secretId) => secretRevealable(state, definition, npcId, secretId));
+}
+
+/** Revealable definitions, resolved independently from their runtime holder. */
+export function revealableSecretDefinitions(
+  state: WorldState,
+  definition: WorldDefinition,
+  npcId: string,
+) {
+  return revealableSecrets(state, definition, npcId)
+    .map((secretId) => secretDefinition(definition, secretId))
+    .filter((secret): secret is NonNullable<typeof secret> => secret !== undefined);
 }
 
 /** Returns a commitment state by id (undefined when absent). */

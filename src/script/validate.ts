@@ -736,7 +736,6 @@ function checkReferences(
         if (t.objective.target.destination && !pools.locationIds.has(t.objective.target.destination)) add(m.file.relPath, undefined, `${base}.objective.target.destination`, `location "${t.objective.target.destination}" not found`);
         break;
       case "investigate":
-        if (t.objective.target.subject && !pools.npcIds.has(t.objective.target.subject) && !pools.locationIds.has(t.objective.target.subject)) add(m.file.relPath, undefined, `${base}.objective.target.subject`, `subject "${t.objective.target.subject}" not found`);
         break;
       case "persuade":
         if (!pools.npcIds.has(t.objective.target.npc)) add(m.file.relPath, undefined, `${base}.objective.target.npc`, `npc "${t.objective.target.npc}" not found`);

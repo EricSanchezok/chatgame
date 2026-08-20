@@ -15,7 +15,7 @@ import { evalCondition, type ConditionContext } from "./condition";
 import { applyEffects } from "./effect";
 import { checkWorldRules } from "./rules";
 import { rollD20 } from "./rng";
-import { BUILTIN_HANDLERS } from "./builtins";
+import { BUILTIN_HANDLERS, type ActionHandlerPlan, type HandlerCosts } from "./builtins";
 import { applyProgression } from "./mechanics/progression";
 import type { ActionPreview, IntentHint } from "../shared/client-dto";
 
@@ -189,6 +189,38 @@ function payCosts(
   return next;
 }
 
+function previewCosts(action: ActionEntry, dynamic?: HandlerCosts): ActionPreview["costs"] {
+  const items = new Map<string, number>();
+  for (const item of action.costs?.items ?? []) {
+    items.set(item.item, (items.get(item.item) ?? 0) + item.quantity);
+  }
+  for (const item of dynamic?.items ?? []) {
+    items.set(item.itemId, (items.get(item.itemId) ?? 0) + item.quantity);
+  }
+  return {
+    currency: (action.costs?.currency ?? 0) + (dynamic?.currency ?? 0),
+    items: [...items].map(([itemId, quantity]) => ({ itemId, quantity })),
+    ...(dynamic?.resources?.length ? { resources: dynamic.resources } : {}),
+  };
+}
+
+function planHandler(
+  definition: WorldDefinition,
+  state: WorldState,
+  action: ActionEntry,
+  actionId: string,
+  targetNpcId: string | undefined,
+  params: Record<string, unknown> | undefined,
+): ActionHandlerPlan | undefined {
+  if (action.handler) {
+    const handler = definition.extensions.actionHandlers[action.handler];
+    if (!handler) throw new Error(`action handler "${action.handler}" is not registered`);
+    return handler({ definition, state, targetNpcId, params });
+  }
+  const handler = BUILTIN_HANDLERS[actionId];
+  return handler?.({ definition, state, targetNpcId, params });
+}
+
 /** Authoritative, side-effect-free action preflight used by the host composer. */
 export function previewAction(
   definition: WorldDefinition,
@@ -198,10 +230,7 @@ export function previewAction(
   const action = findAction(definition, hint.actionId);
   const displayName = action?.display_name ?? hint.actionId;
   let timeCost = Math.max(action?.costs?.time ?? 1, 1);
-  const costs = {
-    currency: action?.costs?.currency ?? 0,
-    items: (action?.costs?.items ?? []).map((item) => ({ itemId: item.item, quantity: item.quantity })),
-  };
+  let costs = action ? previewCosts(action) : { currency: 0, items: [] };
   const resolve = action?.resolve;
   const risk: ActionPreview["risk"] = !resolve || resolve.type === "auto" || resolve.type === "narrative_only"
     ? { type: "none" }
@@ -228,31 +257,24 @@ export function previewAction(
   if (!afterCosts) {
     return { actionId: hint.actionId, displayName, executable: false, reasonCode: "unaffordable", reason: "costs are not available", timeCost, costs, risk };
   }
-  const handler = action.handler
-    ? definition.extensions.actionHandlers[action.handler]
-    : BUILTIN_HANDLERS[hint.actionId];
-  if (handler) {
-    const effects = action.resolve?.type === "narrative_only" ? [] : (action.effects ?? []);
-    const previewState = applyEffects(afterCosts, effects, {
-      definition,
-      grade: "success",
-      day: absoluteDay(definition, state.clock),
-    }).state;
-    const outcome = handler({
-      definition,
-      state: previewState,
-      grade: "success",
-      targetNpcId,
-      params: { ...(hint.params ?? {}), ...(hint.target ? { target: hint.target } : {}) },
-    });
-    if (outcome.timeCost !== undefined) timeCost = Math.max(1, outcome.timeCost);
-    if (outcome.rejected) {
+  const plan = planHandler(
+    definition,
+    afterCosts,
+    action,
+    hint.actionId,
+    targetNpcId,
+    { ...(hint.params ?? {}), ...(hint.target ? { target: hint.target } : {}) },
+  );
+  if (plan) {
+    costs = previewCosts(action, plan.costs);
+    if (plan.timeCost !== undefined) timeCost = Math.max(1, plan.timeCost);
+    if (plan.rejected) {
       return {
         actionId: hint.actionId,
         displayName,
         executable: false,
-        reasonCode: outcome.rejectReason ?? "action_rejected",
-        reason: outcome.rejectMessage ?? "the action cannot be performed now",
+        reasonCode: plan.rejectReason ?? "action_rejected",
+        reason: plan.rejectMessage ?? "the action cannot be performed now",
         timeCost,
         costs,
         risk,
@@ -330,47 +352,46 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     }
   }
 
-  // 4. Apply effects (scaled by grade). narrative_only skips script effects
+  // 4. Plan handler semantics against the paid state. Planning is pure and
+  //    supplies authoritative dynamic costs/time without executing effects.
+  const plan = planHandler(
+    definition,
+    afterCosts,
+    action,
+    ctx.actionId,
+    ctx.targetNpcId,
+    ctx.params,
+  );
+  if (plan?.rejected) {
+    return {
+      state,
+      rejected: true,
+      rejectReason: plan.rejectReason,
+      rejectMessage: plan.rejectMessage,
+      logEntries,
+      effectiveTimeCost: 0,
+    };
+  }
+
+  // 4b. Apply effects (scaled by grade). narrative_only skips script effects
   //    (pure narration — mechanical semantics live in builtins).
   const effects =
     action.resolve?.type === "narrative_only" ? [] : (action.effects ?? []);
   const effectOut = applyEffects(afterCosts, effects, { definition, grade, day });
   let finalState = effectOut.state;
 
-  // 4b. Mechanical semantics — data-driven registry. Custom actions
+  // 4c. Execute the already-validated handler plan exactly once. Custom actions
   //     declare a `handler` id resolved from the script's engine extension
   //     (overrides the built-in registry for the same id). Built-in actions
   //     without a declared handler use the framework registry.
   let actionSummaries: string[] = [];
-  let handlerTimeCost: number | undefined;
-  const customHandler = action.handler
-    ? definition.extensions?.actionHandlers[action.handler]
-    : undefined;
-  const handler = customHandler ?? BUILTIN_HANDLERS[ctx.actionId];
-  if (handler) {
-    const builtinOut = handler({
-      definition,
-      state: finalState,
-      grade,
-      targetNpcId: ctx.targetNpcId,
-      params: ctx.params,
-    });
+  if (plan) {
+    const builtinOut = plan.execute(finalState, grade);
     finalState = builtinOut.state;
     actionSummaries = builtinOut.summaries;
-    handlerTimeCost = builtinOut.timeCost;
-    if (builtinOut.rejected) {
-      return {
-        state,
-        rejected: true,
-        rejectReason: builtinOut.rejectReason,
-        rejectMessage: builtinOut.rejectMessage,
-        logEntries,
-        effectiveTimeCost: 0,
-      };
-    }
   }
 
-  // 4c. Progression (stat_check / skill_check sources) after the check.
+  // 4d. Progression (stat_check / skill_check sources) after the check.
   if (action.resolve && (action.resolve.type === "stat_check" || action.resolve.type === "skill_check")) {
     const prog = applyProgression(finalState, definition, action.resolve.type, {
       target: action.resolve.type === "stat_check" ? action.resolve.stat : action.resolve.skill,
@@ -380,7 +401,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
 
   // 5. Effective time cost (>= 1h, anti-spam). The caller (playerTurn)
   //    steps the world by this amount — clock advancement is NOT here.
-  const effectiveTimeCost = handlerTimeCost ?? Math.max(action.costs?.time ?? 1, 1);
+  const effectiveTimeCost = plan?.timeCost ?? Math.max(action.costs?.time ?? 1, 1);
 
   // 5b. Record the cooldown anchor (absolute day) for actions that declare
   //     a cooldown, so the legality gate can reject early repeats.

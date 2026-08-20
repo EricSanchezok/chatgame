@@ -6,7 +6,7 @@ import type { WorldState } from "../types";
 import type { WorldDefinition } from "../types";
 import { selectMemories } from "../memory";
 import type { MemorySelection } from "../memory";
-import { revealableSecrets } from "../plot";
+import { revealableSecretDefinitions } from "../plot";
 import { buildStateBlock, buildContextBlocks, type ContextBlocks } from "../context";
 
 export interface PromptInput {
@@ -162,9 +162,9 @@ export function buildTurnPrompt(input: PromptInput): string {
       }
       // Knowledge filter: only reveal secrets the player may know.
       if (npcDef.llm.knowledge_filter) {
-        const known = revealableSecrets(state, definition, npcId);
+        const known = revealableSecretDefinitions(state, definition, npcId);
         if (known.length > 0) {
-          parts.push(`可以透露的秘密：${known.join("、")}`);
+          parts.push(`可以透露的秘密：${known.map((secret) => `${secret.id}：${secret.content}`).join("；")}`);
         }
       }
       // Memory injection (deterministic top-k by strength + relevance).

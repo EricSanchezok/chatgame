@@ -43,6 +43,7 @@ export function addStatus(
           ...s,
           stacks: stackable ? s.stacks + 1 : s.stacks,
           remainingTicks: duration,
+          descriptor: s.descriptor ? { ...s.descriptor, stale: true } : undefined,
         }
       : s,
   );

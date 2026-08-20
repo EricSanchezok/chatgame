@@ -70,11 +70,10 @@ const emberLevelEvaluator: RuntimeConditionEvaluator = (state, leaf) => {
 const forgeHandler: RuntimeActionHandler = (ctx) => {
   const { definition, state, params } = ctx;
   const reject = (reason: string, message: string) => ({
-    state,
-    summaries: [],
     rejected: true,
     rejectReason: reason,
     rejectMessage: message,
+    execute: (nextState: typeof state) => ({ state: nextState, summaries: [] }),
   });
 
   const item = typeof params?.item === "string" ? params.item : "lantern";
@@ -92,14 +91,18 @@ const forgeHandler: RuntimeActionHandler = (ctx) => {
     return reject("inventory_full", "your pack has no room for the lantern");
   }
 
-  const existing = inv.stacks.find((s) => s.itemId === item);
-  const stacks = existing
-    ? inv.stacks.map((s) => (s.itemId === item ? { ...s, quantity: s.quantity + 1 } : s))
-    : [...inv.stacks, { itemId: item, quantity: 1 }];
-
   return {
-    state: { ...state, player: { ...state.player, inventory: { ...inv, stacks } } },
-    summaries: ["forged 1 lantern at the ash forge"],
+    execute: (nextState) => {
+      const nextInv = nextState.player.inventory;
+      const existing = nextInv.stacks.find((s) => s.itemId === item);
+      const stacks = existing
+        ? nextInv.stacks.map((s) => (s.itemId === item ? { ...s, quantity: s.quantity + 1 } : s))
+        : [...nextInv.stacks, { itemId: item, quantity: 1 }];
+      return {
+        state: { ...nextState, player: { ...nextState.player, inventory: { ...nextInv, stacks } } },
+        summaries: ["forged 1 lantern at the ash forge"],
+      };
+    },
   };
 };
 

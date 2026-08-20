@@ -35,7 +35,7 @@ src/engine/
 ├── worldgen.ts       开局随机化（固定种子确定性，含 secret_holder 映射）
 ├── director.ts       事件选择（张力带加权 + novelty + difficulty_ramp）
 ├── presentation.ts   ★表现层：resolveTheme（default+by_location）/ buildAssetManifest / deriveMediaCues（引擎确定性推导，LLM 不参与）/ appendTranscript
-├── save.ts           JSON 存档 + 版本门（v4，含 transcript + runtimeState + 描述位，无迁移）
+├── save.ts           JSON 存档 + 版本门（v5，含 threshold 游标、transcript、runtimeState 与描述位，无迁移）
 ├── media/            MediaProvider 接口 + off/mock 实现（env：CHATGAME_MEDIA_PROVIDER；真实生成 V2）
 └── narrative/
     ├── provider.ts   LLMProvider 接口 + factory（env 配置）
@@ -47,6 +47,10 @@ src/engine/
     └── consistency.ts★PDVA 校验 + 一致性重试
 ```
 
+## Engine Extension v2
+
+剧本在 `script.yaml.engine_extension` 静态声明 effects、conditions、action handlers、rule mechanisms 与 lifecycle，加载时必须与 `engine/index.ts` 的实际注册集合精确相等；重复、未知或漏注册均响亮失败。动作 handler 返回纯 `ActionHandlerPlan`，规划阶段只计算拒绝、动态成本与耗时，`execute` 只在真实结算中对 post-effect state 调用一次。`onSessionStart` 只运行于 fresh session，加载 v5 存档不重放；其余生命周期按注册顺序运行且摘要进入事件日志。
+
 ## 回合循环（playerTurn）
 
 ```
@@ -56,7 +60,7 @@ src/engine/
   → 3. 判定：stat/skill_check（d20+bonus vs DC）/ opposed（平手=主动方失败）/
        auto / narrative_only（跳过剧本 effects，内置语义照常）
   → 4. 结果等级：fail/partial/success/crit（partial=0.5×, crit=2×）
-  → 5. costs（currency/items/time）→ effects（×grade）→ ResolutionLog
+  → 5. 声明 costs → handler 纯计划（动态成本/耗时）→ effects（×grade）→ plan.execute 一次 → ResolutionLog
   → 6. stepWorld（统一世界推进：时钟/需求/状态/作息/事件/承诺/张力/任务）
   → 7. 导演选事件（张力带加权 + 冷却）→ 立即 playEvent → 任务检查（激活/进度/完成）
   → 8. 死亡策略检查（soft_failure 威胁条 ≥ 阈值 / world_continue·hard_reset 玩家 hp 归零）
@@ -65,21 +69,21 @@ src/engine/
   → 11. 转录追加（player 输入 + world 叙事；拒绝/澄清/死亡也写入）+ mediaCues 推导
   → TurnResult{narrative, resolution, logEntries, descriptorUpdates, worldEvents, taskCompletions, mediaCues, deathFired, ...}
 
-动作时间成本：`effectiveTimeCost = max(costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
+动作预检与执行复用同一合法性和 handler 规划。`ActionPreview` 合并声明成本与动态 currency/items/resources，并使用计划耗时；预检不执行 effects 或 `execute`。`effectiveTimeCost = plan.timeCost ?? max(costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
 
 ## 世界推进（worldstep.ts）
 
 `stepWorld(state, definition, hours, { scope })` 是唯一世界推进管道，回合循环与离线 `advance()` 共用：
 
 - **逐小时**：时钟推进 → 需求连续衰减 → NPC 作息移动（`scheduleAt` 重算位置）。
-- **日边界**（时钟跨天时执行一次）：状态效果 tick（duration=天数）→ 需求阈值（持续触发）→ 声望衰减 + 阈值（上升沿触发）→ 记忆衰减 + 归档（`tier_retention_days`，NPC `forget_policy` 覆盖）→ 节日事件 → time/condition 事件 → ambient 事件（30% 概率，`AMBIENT_EVENT_CHANCE`）→ 承诺检查 → 任务检查（时限失败 + 自动激活）→ 张力同步（tension 变量 ← threat_gauge）。
+- **日边界**（时钟跨天时执行一次）：状态效果 tick（duration=天数）→ 需求阈值（持久化边沿触发，停留区间不重复）→ 声望衰减 + 阈值（仅向上穿越时立即触发）→ 记忆衰减 + 归档（`tier_retention_days`，NPC `forget_policy` 覆盖）→ 节日事件 → time/condition 事件 → ambient 事件（30% 概率，`AMBIENT_EVENT_CHANCE`）→ 承诺检查 → 任务检查（时限失败 + 自动激活）→ 张力同步（tension 变量 ← threat_gauge）。
 - `advance_scope` 五项（schedules/needs/events/factions/time_events）门控离线推进；`world_advances: false` 时世界冻结。
 - 所有随机（ambient/导演/任务/世界生成）走注入式 `state.rng`，同种子同结果。
 
 ## 事件与任务
 
 - **事件**（`events.ts`）：`playEvent` 是唯一事件执行入口——应用 effects（event 类效果递归，深度上限 5 防循环）→ 记录 `playedEventIds` / `eventLastPlayedDay` → 事件文本（event_texts 模板，无则确定性占位句）→ `applyProgression(source: "event")`。五类触发：director（导演选中即播）/ time（时钟匹配）/ condition（条件满足）/ festival（节日当天）/ ambient（所在地点池 30%）。不可重复事件只播一次；可重复事件按 `event.cooldown ?? director.novelty.cooldown_default` 冷却。
-- **任务**（`tasks.ts`）：承诺式自动激活（giver 同场 + 条件满足 + 可重复/冷却）；objective 状态驱动进度（gather/deliver/escort/hunt/investigate/persuade/travel）；完成 → 奖励 effects + `applyProgression(source: "task")`；`time_limit.days` 到期失败；同一纯函数 `checkTasks` 挂回合循环与日边界，幂等。
+- **任务**（`tasks.ts`）：承诺式自动激活（giver 同场 + 条件满足 + 可重复/冷却）；objective 是严格联合类型，investigate 明确读取 flag/fact marker 或从激活游标之后计数 `any` 调查。激活/完成/失败都写入 `WorldState.eventLog`；完成 → 奖励 effects + `applyProgression(source: "task")`；`time_limit.days` 的精确截止日仍可完成，次日起失败；同一纯函数 `checkTasks` 挂回合循环与日边界，幂等。
 - **张力**：导演以第一个张力变量驱动带区间选择；`difficulty_ramp` 生效（`multiplier = band.weight × min(1 + ramp × day, 5)`）。
 
 ## 内置动作（builtins.ts）
@@ -88,11 +92,13 @@ src/engine/
 
 - **attack**：命中（partial/success/crit）按玩家 strength × grade 对目标 `applyDamage`，HP ≤ 0 记 `defeated:<npc>` fact。
 - **defend**：success/crit → 威胁 -5。
-- **move**：目标必须与当前地点直接相连；**travel**：目标必须在地点图 BFS 可达。两者校验 `exit_condition` / `entry_condition` / 连接 `condition`，拒绝带机器 reasonCode（叙事化）。
+- **move**：目标必须与当前地点直接相连；**travel**：在可行简单路径中选总 `travel_time` 最短者。每段在真实出发时钟校验 `exit_condition` 与连接 `condition`，推进该段分钟后以抵达时钟校验 `entry_condition`；拒绝带机器 reasonCode（叙事化）。
 - **use_item**：校验 `item.requirements` → `effects_on_use` → consumable 消耗 1 件。
 - **give / take**：玩家 ↔ NPC / 地点库存转移（容量检查）。
 - **steal**：success/crit 转移 1 件，partial 威胁 +5，fail 威胁 +10；空库存拒绝。
 - **trade**：buy/sell 走 `item.value` 货币交换（NPC 初始货币 0，卖自然拒绝并叙事化）。
+
+状态重施加统一走 `mechanics/status.ts#addStatus`：总是刷新 `remainingTicks`，仅 stackable 状态增加层数。成长只应用到触发行为对应的实体和 target。
 
 动作合法性：`checkActionLegality` 增加 `origin.denied_actions` 拒绝（reasonCode `denied_action`）；动作 id 集合以 `src/script/schemas/actions.ts` 为单一真源。
 
@@ -129,6 +135,7 @@ src/engine/
 - 超模处理矩阵：偷远处物品→前置条件不满足→叙事化拒绝；瞬移/开挂→无对应原语→拒绝+世界内合理化；凭空造物→SchemaOK 失败→拒绝。
 - mechanics_tags 白名单收窄为 10 种（stat/skill/need/item/currency/relation/reputation/flag/teleport/status）；soft taboo 命中 → 仅警告不拒绝；`denied_actions` 在合法性关卡拒绝。
 - flag/fact 统一标记空间：`hasMarker` 检查 player.flags ∪ world.flags ∪ facts（修复"flag 写入 / fact 读取"不一致，emberfall 主线由此打通）。
+- 秘密知识边界只读运行态 `secretHolders`；prompt 为真实 holder 注入秘密 id 与完整正文，一致性过滤用同一 holder 判断，定义文件中的原始 owner 不参与运行态裁决。
 
 ## LLM 桥
 
@@ -139,9 +146,9 @@ src/engine/
 ## 存档
 
 - 路径 `.chatgame/saves/<scriptId>/<runId>.json`；格式 `{saveSchemaVersion, scriptId, createdAt, updatedAt, worldState}`。
-- 当前 schema 版本 = 4（WorldState 包含：MemoryEntry 连续强度字段 strength/lastAccessedDay/lastDecayDay/supersededBy、contextSummary 滚动摘要、actionCooldowns 冷却表、runtimeState 扩展持久态、关系/状态描述位 RelationState.description 与状态实例 descriptor）；load 严格校验版本，旧版本直接拒绝（敏捷开发，不做迁移）。
+- 当前 schema 版本 = 5（WorldState 包含持久化 `activeNeedThresholds`、MemoryEntry 连续强度字段、contextSummary、actionCooldowns、runtimeState、关系/状态描述位与 transcript）；load 严格校验版本与 `activeNeedThresholds` 字符串数组，缺字段的伪 v5 和旧版本都直接拒绝（敏捷开发，不做迁移）。
 - `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值、`transcript` 缺省 []、`contextSummary` 缺省哨兵、`actionCooldowns` 缺省 {}、`runtimeState` 缺省 {}）。
-- 往返测试：save → load → 状态深度相等（含转录、contextSummary、actionCooldowns、runtimeState 与描述位）。
+- 往返测试：save → load → 状态深度相等（含 threshold 游标、转录、contextSummary、actionCooldowns、runtimeState 与描述位），且 load 不重复执行 session-start lifecycle。
 
 ## 运行策略
 

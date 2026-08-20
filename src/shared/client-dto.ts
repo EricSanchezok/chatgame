@@ -259,7 +259,15 @@ export interface ActionPreview {
   reasonCode?: string;
   reason?: string;
   timeCost: number;
-  costs: { currency: number; items: Array<{ itemId: string; quantity: number }> };
+  costs: {
+    currency: number;
+    items: Array<{ itemId: string; quantity: number }>;
+    resources?: Array<{
+      kind: "need" | "stat" | "skill" | "runtime";
+      id: string;
+      amount: number;
+    }>;
+  };
   risk: { type: "none" | "stat" | "skill" | "opposed"; key?: string; dc?: number };
 }
 

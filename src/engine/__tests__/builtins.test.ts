@@ -40,7 +40,7 @@ describe("builtin registry", () => {
     expect(BUILTIN_HANDLERS).toHaveProperty("trade");
   });
 
-  it("previews handlers against the same post-cost, post-effect state as execution", () => {
+  it("previews handler plans without dry-running execution", () => {
     const base = emberfall();
     const action = {
       id: "prepare",
@@ -55,6 +55,7 @@ describe("builtin registry", () => {
       llm_freedom: "narration" as const,
       handler: "requires-prepared",
     };
+    let executions = 0;
     const definition: WorldDefinition = {
       ...base,
       actions: { ...base.actions, actions: [...base.actions.actions, action] },
@@ -62,25 +63,45 @@ describe("builtin registry", () => {
         ...base.extensions,
         actionHandlers: {
           ...base.extensions.actionHandlers,
-          "requires-prepared": ({ state }) => state.player.flags.includes("prepared")
-            ? { state, summaries: ["prepared"] }
-            : {
-                state,
-                summaries: [],
-                rejected: true,
-                rejectReason: "not_prepared",
-                rejectMessage: "preparation did not apply",
-              },
+          "requires-prepared": () => ({
+            costs: { currency: 2 },
+            timeCost: 3,
+            execute: (state) => {
+              executions += 1;
+              return { state, summaries: ["prepared"] };
+            },
+          }),
         },
       },
     };
     const state = freshState(definition);
 
     const preview = previewAction(definition, state, { actionId: action.id });
+    expect(executions).toBe(0);
+    expect(preview.costs.currency).toBe(2);
+    expect(preview.timeCost).toBe(3);
     const resolution = resolveAction({ definition, state, actionId: action.id });
 
     expect(preview.executable).toBe(true);
     expect(resolution.rejected).toBe(false);
+    expect(resolution.state.player.flags).toContain("prepared");
+    expect(executions).toBe(1);
+  });
+
+  it("fails loudly when a declared action handler is missing at runtime", () => {
+    const base = emberfall();
+    const action = {
+      id: "broken-action",
+      enabled: true,
+      llm_freedom: "narration" as const,
+      handler: "missing-handler",
+    };
+    const definition = {
+      ...base,
+      actions: { ...base.actions, actions: [...base.actions.actions, action] },
+    };
+    expect(() => previewAction(definition, freshState(definition), { actionId: action.id }))
+      .toThrow(/missing-handler.*not registered/);
   });
 });
 
@@ -188,6 +209,62 @@ describe("movement", () => {
       `traveled ${start.id} -> ${middle.id}`,
       `traveled ${middle.id} -> ${target.id}`,
     ]);
+  });
+
+  it("chooses the lowest-duration path instead of the fewest edges", () => {
+    const base = emberfall();
+    const start = base.locations.get("tavern")!;
+    const middle = base.locations.get("town-square")!;
+    const target = base.locations.get("mine-entrance")!;
+    const locations = new Map([
+      [start.id, { ...start, exit_condition: undefined, connections: [
+        { to: target.id, distance: 1, travel_time: 180 },
+        { to: middle.id, distance: 1, travel_time: 30 },
+      ] }],
+      [middle.id, { ...middle, exit_condition: undefined, entry_condition: undefined, connections: [
+        { to: target.id, distance: 1, travel_time: 30 },
+      ] }],
+      [target.id, { ...target, entry_condition: undefined, connections: [] }],
+    ]);
+    const definition = { ...base, locations };
+    const state = { ...atTavern(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
+    const out = resolveAction({ definition, state, actionId: "travel", params: { target: target.id } });
+    expect(out.rejected).toBe(false);
+    expect(out.effectiveTimeCost).toBe(1);
+    expect(out.resolution?.effectsApplied).toEqual([
+      `traveled ${start.id} -> ${middle.id}`,
+      `traveled ${middle.id} -> ${target.id}`,
+    ]);
+  });
+
+  it("checks later travel edges at the clock reached by prior segments", () => {
+    const base = emberfall();
+    const start = base.locations.get("tavern")!;
+    const middle = base.locations.get("town-square")!;
+    const target = base.locations.get("mine-entrance")!;
+    const locations = new Map([
+      [start.id, { ...start, exit_condition: undefined, connections: [
+        { to: middle.id, distance: 1, travel_time: 120 },
+      ] }],
+      [middle.id, { ...middle, exit_condition: undefined, entry_condition: undefined, connections: [
+        {
+          to: target.id,
+          distance: 1,
+          travel_time: 60,
+          condition: { source: "time", key: "hour", op: "gte" as const, value: 10 },
+        },
+      ] }],
+      [target.id, {
+        ...target,
+        entry_condition: { source: "time", key: "hour", op: "gte" as const, value: 11 },
+        connections: [],
+      }],
+    ]);
+    const definition = { ...base, locations };
+    const state = { ...atTavern(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
+    const out = resolveAction({ definition, state, actionId: "travel", params: { target: target.id } });
+    expect(out.rejected).toBe(false);
+    expect(out.effectiveTimeCost).toBe(3);
   });
 });
 
@@ -318,20 +395,29 @@ describe("inventory actions", () => {
         ...freshState(def).npcs,
         elara: {
           ...freshState(def).npcs.elara,
-          inventory: { stacks: [{ itemId: "tonic", quantity: 1 }], currency: 0 },
+          inventory: { stacks: [{ itemId: "herb", quantity: 1 }], currency: 0 },
         },
       },
+    });
+    const preview = previewAction(def, state, {
+      actionId: "trade",
+      target: "elara",
+      params: { item: "herb", direction: "buy" },
     });
     const out = resolveAction({
       definition: def,
       state,
       actionId: "trade",
       targetNpcId: "elara",
-      params: { item: "tonic", direction: "buy" },
+      params: { item: "herb", direction: "buy" },
     });
+    const itemValue = def.items.get("herb")!.value;
+    expect(itemValue).toBe(3);
+    expect(preview.executable).toBe(true);
+    expect(preview.costs.currency).toBe(itemValue);
     expect(out.rejected).toBe(false);
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "tonic")).toBe(true);
-    expect(out.state.player.inventory.currency).toBeLessThan(state.player.inventory.currency);
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "herb")).toBe(true);
+    expect(state.player.inventory.currency - out.state.player.inventory.currency).toBe(itemValue);
   });
 });
 

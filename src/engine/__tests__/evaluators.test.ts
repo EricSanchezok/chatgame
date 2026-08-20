@@ -271,6 +271,38 @@ describe("effect algebra", () => {
     out = applyEffects(out.state, [{ kind: "status", direction: "remove", target: "player", status: "poison" }], { definition: emberfall, day: 0 });
     expect(out.state.player.statuses.some((s) => s.statusId === "poison")).toBe(false);
   });
+  it("status reapplication refreshes duration through the shared status mechanic", () => {
+    const base = makeState();
+    const state = makeState({
+      player: {
+        ...base.player,
+        statuses: [{
+          statusId: "tipsy",
+          remainingTicks: 1,
+          stacks: 1,
+          descriptor: {
+            label: "微醺",
+            description: "酒意尚浅",
+            version: 1,
+            stale: false,
+            sourceEventIds: [],
+            userEdited: false,
+          },
+        }],
+      },
+    });
+    const out = applyEffects(
+      state,
+      [{ kind: "status", direction: "add", target: "player", status: "tipsy" }],
+      { definition: emberfall, day: 0 },
+    );
+    expect(out.state.player.statuses[0]).toMatchObject({
+      statusId: "tipsy",
+      remainingTicks: 2,
+      stacks: 1,
+      descriptor: { stale: true },
+    });
+  });
   it("memory add to player with deterministic batch-unique id", () => {
     const out = applyEffects(makeState(), [
       { kind: "memory", direction: "add", target: "player", text: "遇见艾拉", importance: "major", tags: ["elara"] },
