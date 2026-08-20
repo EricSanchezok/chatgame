@@ -5,105 +5,127 @@ import { describe, expect, it } from "vitest";
 import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import type { WorldDefinition } from "../types";
+import { loadCoreTestDefinition } from "./core-test-fixture";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-
-function emberfallDef(): WorldDefinition {
-  return loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
+function worldgenDefinition(): WorldDefinition {
+  const base = loadCoreTestDefinition();
+  const operator = base.npcs.get("operator")!;
+  const handoff = base.events.get("handoff-signal")!;
+  const alternate = { ...handoff, id: "alternate-signal", name: "备用交班信号" };
+  return {
+    ...base,
+    npcs: new Map(base.npcs).set("operator", {
+      ...operator,
+      stats: { ...operator.stats, hp: 50 },
+    }),
+    events: new Map(base.events).set(alternate.id, alternate),
+    time: {
+      ...base.time,
+      seasons: [{
+        name: "校准季",
+        start: "01-01",
+        weather_table: [
+          { weather: "clear-signal", weight: 1 },
+          { weather: "static", weight: 1 },
+        ],
+      }],
+    },
+    worldgen: {
+      ...base.worldgen,
+      randomize: [
+        ...base.worldgen.randomize.filter((entry) => entry.target !== "starting_event"),
+        { target: "npc_stats", jitter: 0.2, distribution: "uniform" },
+        { target: "weather", distribution: "uniform" },
+        {
+          target: "starting_event",
+          pool: [handoff.id, alternate.id],
+          distribution: "uniform",
+        },
+      ],
+    },
+  };
 }
 
 describe("worldgen", () => {
   it("same seed produces identical worlds (determinism)", () => {
-    const def = emberfallDef();
-    const a = generateWorld(def, "miner", { seed: 42 });
-    const b = generateWorld(def, "miner", { seed: 42 });
+    const def = worldgenDefinition();
+    const a = generateWorld(def, "observer", { seed: 42 });
+    const b = generateWorld(def, "observer", { seed: 42 });
     expect(JSON.stringify(a.state)).toBe(JSON.stringify(b.state));
     expect(a.summary.join(",")).toBe(b.summary.join(","));
   });
 
   it("different seeds produce different worlds (randomness)", () => {
-    const def = emberfallDef();
-    const a = generateWorld(def, "miner", { seed: 1 });
-    const b = generateWorld(def, "miner", { seed: 2 });
-    // NPC stat jitter or starting event should differ for at least one aspect.
-    const statsA = JSON.stringify(a.state.npcs.elara.stats);
-    const statsB = JSON.stringify(b.state.npcs.elara.stats);
-    const eventA = JSON.stringify(a.startingEvent ?? "");
-    const eventB = JSON.stringify(b.startingEvent ?? "");
-    expect(statsA !== statsB || eventA !== eventB).toBe(true);
+    const def = worldgenDefinition();
+    const a = generateWorld(def, "observer", { seed: 1 });
+    const b = generateWorld(def, "observer", { seed: 2 });
+    expect(a.state.npcs.operator.stats.hp).not.toBe(b.state.npcs.operator.stats.hp);
   });
 
-  it("builds player from origin with stats/items/relations", () => {
-    const def = emberfallDef();
-    const { state } = generateWorld(def, "miner", { seed: 7 });
-    expect(state.player.originId).toBe("miner");
-    expect(state.player.stats.strength).toBeGreaterThan(0);
-    expect(state.player.inventory.stacks.length).toBeGreaterThan(0);
-    expect(state.player.locationId).toBeTruthy();
+  it("builds player from origin with stats and relations", () => {
+    const def = worldgenDefinition();
+    const { state } = generateWorld(def, "observer", { seed: 7 });
+    expect(state.player.originId).toBe("observer");
+    expect(state.player.stats.hp).toBeGreaterThan(0);
+    expect(state.player.skills.focus).toBe(8);
+    expect(state.player.relations.some((relation) => relation.npcId === "operator")).toBe(true);
+    expect(state.player.locationId).toBe("relay-room");
     expect(state.player.flags).toBeDefined();
   });
 
   it("builds NPC runtime state from definitions", () => {
-    const def = emberfallDef();
-    const { state } = generateWorld(def, "miner", { seed: 7 });
-    expect(Object.keys(state.npcs).length).toBeGreaterThanOrEqual(1);
-    for (const npc of Object.values(state.npcs)) {
-      expect(npc.stats.hp).toBeGreaterThan(0);
-      expect(npc.currentLocationId).toBeTruthy();
-      expect(npc.knowledgeFlags).toBeDefined();
-    }
+    const def = worldgenDefinition();
+    const { state } = generateWorld(def, "observer", { seed: 7 });
+    expect(Object.keys(state.npcs)).toEqual(["operator"]);
+    expect(state.npcs.operator.stats.hp).toBeGreaterThan(0);
+    expect(state.npcs.operator.currentLocationId).toBe("relay-room");
+    expect(state.npcs.operator.knowledgeFlags).toContain("handoff-known");
   });
 
   it("initializes commitments and director tension", () => {
-    const def = emberfallDef();
-    const { state } = generateWorld(def, "miner", { seed: 7 });
+    const def = worldgenDefinition();
+    const { state } = generateWorld(def, "observer", { seed: 7 });
     expect(state.commitments.length).toBe(def.plot.commitments.length);
-    expect(state.commitments.every((c) => !c.triggered)).toBe(true);
-    expect(Object.keys(state.director.tension).length).toBeGreaterThan(0);
+    expect(state.commitments.every((commitment) => !commitment.triggered)).toBe(true);
+    expect(state.director.tension).toEqual({ load: 0 });
   });
 
-  it("randomizes starting event from worldgen pool", () => {
-    const def = emberfallDef();
-    const { startingEvent } = generateWorld(def, "miner", { seed: 3 });
-    // starting_event pool: [lantern-festival, market-day]
-    if (startingEvent) {
-      expect(["lantern-festival", "market-day"]).toContain(startingEvent);
-    }
+  it("randomizes starting event from the declared pool", () => {
+    const def = worldgenDefinition();
+    const { startingEvent } = generateWorld(def, "observer", { seed: 3 });
+    expect(["handoff-signal", "alternate-signal"]).toContain(startingEvent);
   });
 
-  it("randomizes weather within season table", () => {
-    const def = emberfallDef();
-    const { state } = generateWorld(def, "miner", { seed: 9 });
-    expect(state.clock.weather.length).toBeGreaterThan(0);
+  it("randomizes weather within the season table", () => {
+    const def = worldgenDefinition();
+    const { state } = generateWorld(def, "observer", { seed: 9 });
+    expect(["clear-signal", "static"]).toContain(state.clock.weather);
   });
 
   it("applies npc_stats jitter within bounds", () => {
-    const def = emberfallDef();
-    const { state } = generateWorld(def, "miner", { seed: 11 });
-    const hpDef = def.mechanics.stats.find((s) => s.name === "hp")!;
-    for (const npc of Object.values(state.npcs)) {
-      expect(npc.stats.hp).toBeGreaterThanOrEqual(hpDef.min);
-      expect(npc.stats.hp).toBeLessThanOrEqual(hpDef.max);
-    }
+    const def = worldgenDefinition();
+    const { state } = generateWorld(def, "observer", { seed: 11 });
+    const hpDef = def.mechanics.stats.find((stat) => stat.name === "hp")!;
+    expect(state.npcs.operator.stats.hp).toBeGreaterThanOrEqual(hpDef.min);
+    expect(state.npcs.operator.stats.hp).toBeLessThanOrEqual(hpDef.max);
   });
+});
 
-  it("seeds NPC initial memories with deterministic ids", () => {
-    const def = emberfallDef();
-    const { state } = generateWorld(def, "miner", { seed: 7 });
-    // old-wei declares memory.initial with two entries.
+describe("Emberfall content regression", () => {
+  it("seeds old-wei initial memories with their authored content and deterministic ids", () => {
+    const definition = loadScript(path.resolve(__dirname, "../../../scripts/emberfall"));
+    const { state } = generateWorld(definition, "miner", { seed: 7 });
     const oldWei = state.npcs["old-wei"];
+
     expect(oldWei).toBeDefined();
-    expect(oldWei.memories.length).toBe(2);
-    // Deterministic id: <prefix>-<day>-<tags.length> — same seed -> same id.
+    expect(oldWei.memories).toHaveLength(2);
     expect(oldWei.memories[0].id).toMatch(/^mem-old-wei-\d+-\d+-\d+$/);
     expect(oldWei.memories[1].id).not.toBe(oldWei.memories[0].id);
     expect(oldWei.memories[0].text).toContain("敲击声");
     expect(oldWei.memories[0].createdAtDay).toBe(0);
     expect(oldWei.memories[0].archived).toBe(false);
-    // Same seed reproduces the exact same memory entries.
-    const again = generateWorld(def, "miner", { seed: 7 });
-    expect(JSON.stringify(again.state.npcs["old-wei"].memories)).toBe(
-      JSON.stringify(oldWei.memories),
-    );
+
+    const again = generateWorld(definition, "miner", { seed: 7 });
+    expect(again.state.npcs["old-wei"].memories).toEqual(oldWei.memories);
   });
 });
