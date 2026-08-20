@@ -4,6 +4,7 @@
 import type { Condition } from "../script/schemas/common";
 import type { WorldState } from "./types";
 import type { WorldDefinition } from "./types";
+import { readonlySnapshot } from "./readonly-snapshot";
 
 /** Runtime context required to evaluate a condition against world state. */
 export interface ConditionContext {
@@ -149,7 +150,16 @@ export function evalConditionLeaf(
       // false would turn a typo into unreachable content.
       const evaluator = ctx.definition.extensions?.conditions[source];
       if (!evaluator) throw new Error(`condition source "${source}" has no registered evaluator`);
-      return evaluator(state, cond, { definition: ctx.definition, selfNpcId: ctx.selfNpcId, playerId: ctx.playerId });
+      const input = readonlySnapshot({
+        state,
+        leaf: cond,
+        context: {
+          definition: ctx.definition,
+          selfNpcId: ctx.selfNpcId,
+          playerId: ctx.playerId,
+        },
+      });
+      return evaluator(input.state, input.leaf, input.context);
     }
   }
 }

@@ -9,6 +9,7 @@ import type { WorldDefinition } from "./types";
 import { valueToStance } from "./definition";
 import { INITIAL_STRENGTH } from "./memory";
 import { addStatus, removeStatus } from "./mechanics/status";
+import { mutableSnapshot, readonlySnapshot } from "./readonly-snapshot";
 
 /** Coefficient applied to numeric effect values by result grade. */
 export function gradeMultiplier(grade: ResultGrade): number {
@@ -540,9 +541,15 @@ export function applyEffects(
     if (!isBuiltinEffect(effect)) {
       const handler = options.definition.extensions?.effects[effect.kind];
       if (handler) {
-        const out = handler(current, effect, ctx);
-        current = out.state;
-        summaries.push(...out.summaries);
+        const activeScriptId = current.scriptId;
+        const input = readonlySnapshot({ state: current, effect, context: ctx });
+        const out = handler(input.state, input.effect, input.context);
+        if (out.state.scriptId !== activeScriptId) {
+          throw new Error(`custom effect "${effect.kind}" cannot change the active script id`);
+        }
+        const detached = mutableSnapshot(out);
+        current = detached.state;
+        summaries.push(...detached.summaries);
       } else {
         throw new Error(`custom effect "${effect.kind}" has no registered handler`);
       }

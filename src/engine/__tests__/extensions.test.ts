@@ -165,13 +165,31 @@ describe("script engine extension seam (emberfall)", () => {
     expect(SAVE_SCHEMA_VERSION).toBe(5);
   });
 
-  it("enforces action, rule, and lifecycle purity through the compiled CJS entry", () => {
+  it("enforces every extension purity boundary through the compiled CJS entry", () => {
     const scriptDir = mkdtempSync(path.join(tmpdir(), "cg-runtime-purity-"));
     try {
       mkdirSync(path.join(scriptDir, "engine"));
       writeFileSync(
         path.join(scriptDir, "engine", "index.ts"),
         `export default function register(ctx: any) {
+          ctx.registerConditionSource("purity-condition", (state: any, leaf: any, context: any) => {
+            if (leaf.key === "state") state.clock.hour = 99;
+            if (leaf.key === "definition") context.definition.world.background = "polluted";
+            if (leaf.key === "leaf") leaf.key = "polluted";
+            return true;
+          });
+          ctx.registerEffect("purity-effect", (state: any, effect: any, context: any) => {
+            if (effect.mutation === "state") state.scriptId = "forged";
+            if (effect.mutation === "definition") context.definition.world.background = "polluted";
+            if (effect.mutation === "effect") effect.mutation = "polluted";
+            if (effect.mutation === "output-script-id") {
+              return { state: { ...state, scriptId: "forged" }, summaries: [] };
+            }
+            return {
+              state: { ...state, runtimeState: { ...state.runtimeState, effectApplied: true } },
+              summaries: ["purity effect applied"],
+            };
+          });
           ctx.registerActionHandler("purity-probe", ({ definition, state, params }: any) => {
             if (params?.actionMutation === "state") state.clock.hour = 99;
             if (params?.actionMutation === "definition") definition.world.background = "polluted";
@@ -214,8 +232,8 @@ describe("script engine extension seam (emberfall)", () => {
       const base = loadScript(emberfall);
       const engineExtension: NonNullable<typeof base.script.engine_extension> = {
         api_version: 2,
-        effects: [],
-        conditions: [],
+        effects: ["purity-effect"],
+        conditions: ["purity-condition"],
         action_handlers: ["purity-probe"],
         rule_mechanisms: ["purity-rule"],
         lifecycle: ["session_start", "turn_resolved", "hour", "day_boundary"],
@@ -252,6 +270,35 @@ describe("script engine extension seam (emberfall)", () => {
       const state = generateWorld(definition, "miner", { seed: 7 }).state;
       const stateBefore = structuredClone(state);
       const backgroundBefore = definition.world.background;
+
+      for (const conditionMutation of ["state", "definition", "leaf"]) {
+        const condition = { source: "purity-condition", key: conditionMutation, op: "eq" };
+        expect(() => evalCondition(condition as never, { definition, state })).toThrow(TypeError);
+        expect(condition).toEqual({ source: "purity-condition", key: conditionMutation, op: "eq" });
+        expect(state).toEqual(stateBefore);
+        expect(definition.world.background).toBe(backgroundBefore);
+      }
+
+      for (const effectMutation of ["state", "definition", "effect"]) {
+        const effect = { kind: "purity-effect", mutation: effectMutation };
+        expect(() => applyEffects(state, [effect as never], { definition, day: 0 })).toThrow(TypeError);
+        expect(effect).toEqual({ kind: "purity-effect", mutation: effectMutation });
+        expect(state).toEqual(stateBefore);
+        expect(definition.world.background).toBe(backgroundBefore);
+      }
+      expect(() => applyEffects(
+        state,
+        [{ kind: "purity-effect", mutation: "output-script-id" } as never],
+        { definition, day: 0 },
+      )).toThrow(/custom effect "purity-effect" cannot change the active script id/);
+      const effectOut = applyEffects(
+        state,
+        [{ kind: "purity-effect", mutation: "success" } as never],
+        { definition, day: 0 },
+      );
+      expect(effectOut.state.runtimeState.effectApplied).toBe(true);
+      expect(() => effectOut.state.flags.push("detached-output")).not.toThrow();
+      expect(state).toEqual(stateBefore);
 
       for (const timeMode of ["nan", "infinity", "negative"]) {
         const params = { timeMode };
