@@ -1,4 +1,4 @@
-// Starlight fixture integration tests: a full turn-loop slice on the second
+// Starlight content integration tests: a full turn-loop slice on the built-in
 // script — steal (opposed check), attack (combat damage), and an overpowered
 // request rejection with zero state change (Done Criteria #2).
 import path from "node:path";
@@ -20,7 +20,7 @@ function setup(): { def: WorldDefinition; state: WorldState } {
   return { def, state };
 }
 
-describe("starlight full turn-loop slice", () => {
+describe("Starlight content regression: full turn-loop slice", () => {
   it("steal resolves as an opposed check (tie = actor fails)", () => {
     const { def, state } = setup();
     // player agility 10 + roll 10 = 20; night-cat perception 12 + roll 8 = 20.

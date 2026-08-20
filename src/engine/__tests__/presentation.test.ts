@@ -97,7 +97,7 @@ describe("buildAssetManifest", () => {
 
 });
 
-describe("Emberfall content regression", () => {
+describe("Built-in asset content regression", () => {
   it("loads the real built-in asset manifests", () => {
     const emberfall = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
     const starlight = loadScript(path.join(REPO_ROOT, "scripts/starlight"));

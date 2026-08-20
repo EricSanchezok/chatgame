@@ -44,7 +44,7 @@ describe("Dialog", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.getByRole("dialog").parentElement).toHaveClass("cg-dialog-layer--closing");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(opener);
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
   it("keeps focus on the dialog surface if every control becomes unavailable", async () => {

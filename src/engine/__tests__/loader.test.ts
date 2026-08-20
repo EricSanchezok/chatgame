@@ -1,5 +1,4 @@
-// Core loader tests: both fixtures must load into WorldDefinition,
-// and the contract layer must remain untouched (validation still passes).
+// Loader tests cover generic errors plus real built-in content integration.
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScript, ScriptLoadError } from "../loader";
@@ -7,6 +6,13 @@ import { loadScript, ScriptLoadError } from "../loader";
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 
 describe("loadScript", () => {
+  it("throws ScriptLoadError for an invalid script", () => {
+    const tmp = path.join(REPO_ROOT, "scripts");
+    expect(() => loadScript(path.join(tmp, "nonexistent"))).toThrow(ScriptLoadError);
+  });
+});
+
+describe("Built-in script loader content regression", () => {
   it("loads emberfall into a WorldDefinition", () => {
     const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
     expect(def.script.id).toBe("emberfall");
@@ -22,11 +28,6 @@ describe("loadScript", () => {
     expect(def.script.id).toBe("starlight");
     expect(def.npcs.size).toBeGreaterThanOrEqual(1);
     expect(def.locations.size).toBeGreaterThanOrEqual(1);
-  });
-
-  it("throws ScriptLoadError for an invalid script", () => {
-    const tmp = path.join(REPO_ROOT, "scripts");
-    expect(() => loadScript(path.join(tmp, "nonexistent"))).toThrow(ScriptLoadError);
   });
 
   it("builds NPC relations with deterministic stances", () => {

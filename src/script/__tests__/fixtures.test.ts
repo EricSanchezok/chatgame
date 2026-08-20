@@ -1,6 +1,6 @@
-// Fixture integration tests: every script directory under scripts/ must
+// Built-in content regression: every script directory under scripts/ must
 // pass the full validator (structural zod + semantic reference checks).
-// This proves both fixtures (emberfall, starlight) are valid scripts.
+// This proves every shipped built-in script is valid as authored.
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ function findScriptDirs(root: string): string[] {
     .map((entry) => path.join(root, entry));
 }
 
-describe("script fixtures", () => {
+describe("Built-in script validation content regression", () => {
   const dirs = findScriptDirs(scriptsRoot);
 
   it("discovers at least one fixture", () => {
