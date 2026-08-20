@@ -83,6 +83,32 @@ describe("slot registry", () => {
     expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "emberfall", dependencyHash: "good", error: "network unavailable" });
   });
 
+  it("keeps the last complete same-script version when overlapping activation fails", async () => {
+    await loadScriptUi("emberfall", bundle("good"), {
+      importer: async () => moduleWith((context) => context.register("hud", def)),
+    });
+    const previousSlots = getScriptRegistrySnapshot().slots;
+    let finishFirst!: (value: ReturnType<typeof moduleWith>) => void;
+    const pendingFirst = new Promise<ReturnType<typeof moduleWith>>((resolve) => { finishFirst = resolve; });
+
+    const first = loadScriptUi("emberfall", bundle("next"), { importer: async () => pendingFirst });
+    const second = await loadScriptUi("emberfall", bundle("broken"), {
+      importer: async () => { throw new Error("overlapping activation failed"); },
+    });
+    finishFirst(moduleWith((context) => context.register("toolbar", another)));
+    const staleFirst = await first;
+
+    expect(second).toMatchObject({ ok: false, error: "overlapping activation failed" });
+    expect(staleFirst.stale).toBe(true);
+    expect(getScriptRegistrySnapshot().slots).toBe(previousSlots);
+    expect(getScriptRegistrySnapshot()).toMatchObject({
+      scriptId: "emberfall",
+      dependencyHash: "good",
+      status: "active",
+      error: "overlapping activation failed",
+    });
+  });
+
   it("uses target-script host fallbacks after a cross-script failure", async () => {
     await loadScriptUi("emberfall", bundle("a"), {
       importer: async () => moduleWith((context) => context.register("hud", def)),

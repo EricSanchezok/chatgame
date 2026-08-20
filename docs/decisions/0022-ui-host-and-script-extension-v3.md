@@ -24,7 +24,7 @@ Class: architecture
 
 ## Decision Outcome
 
-建立客户端安全的 UI API v3。唯一契约由 `@chatgame/ui` 导出；剧本 bundle 声明版本并一次注册到临时不可变 registry，重复 slot 或任一校验失败使整次注册失败。registry 通过 `useSyncExternalStore` 被 React 订阅；同剧本更新失败保留上一完整版本，跨剧本失败提交目标剧本的空 slots 并使用宿主 fallback，旧剧本组件不得接收新剧本 view-model。
+建立客户端安全的 UI API v3。唯一契约由 `@chatgame/ui` 导出；剧本 bundle 声明版本并一次注册到临时不可变 registry，重复 slot 或任一校验失败使整次注册失败。registry 通过 `useSyncExternalStore` 被 React 订阅；最后一次完整激活版本独立于所有进行中的请求保留，同一剧本的重叠激活失败仍恢复该版本，跨剧本失败提交目标剧本的空 slots 并使用宿主 fallback，旧剧本组件不得接收新剧本 view-model。
 
 剧本激活的 scriptId、主题与 slots 作为一个 generation 提交；较早请求晚到时不得覆盖新激活。依赖图内容与 UI API 版本共同进入 bundle URL，服务端提供 ETag 与不可变缓存。构建只允许剧本目录内相对依赖、React 运行时和 `@chatgame/ui` 浏览器安全边界，禁止把宿主服务端模块或任意本地文件打入 bundle。
 

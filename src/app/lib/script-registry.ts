@@ -47,6 +47,7 @@ let snapshot: RegistrySnapshot = {
   slots: EMPTY_SLOTS,
   error: null,
 };
+let retainedActiveSnapshot: RegistrySnapshot | null = null;
 const listeners = new Set<() => void>();
 
 function publish(next: RegistrySnapshot): void {
@@ -93,6 +94,7 @@ export function registerSlot<K extends SlotId>(slot: K, def: SlotDef<K>): void {
 
 export function clearSlots(): void {
   generation += 1;
+  retainedActiveSnapshot = null;
   publish({
     generation,
     scriptId: null,
@@ -143,21 +145,25 @@ export async function loadScriptUi(
   bundle?: ScriptUiBundleDescriptor,
   options: LoadScriptUiOptions = {},
 ): Promise<LoadScriptUiResult> {
-  const previous = snapshot;
+  const previousActive = retainedActiveSnapshot?.scriptId === scriptId
+    ? retainedActiveSnapshot
+    : null;
   const activation = ++generation;
   publish({ ...snapshot, generation: activation, status: "loading", error: null });
 
   const commit = (slots: ReadonlyMap<SlotId, SlotDef>, error: string | null) => {
     if (activation !== generation) return false;
     options.beforeCommit?.();
-    publish({
+    const next: RegistrySnapshot = {
       generation: activation,
       scriptId,
       dependencyHash: bundle?.dependencyHash ?? null,
       status: error ? "error" : "active",
       slots,
       error,
-    });
+    };
+    if (!error) retainedActiveSnapshot = next;
+    publish(next);
     return true;
   };
 
@@ -193,8 +199,8 @@ export async function loadScriptUi(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (activation !== generation) return { ok: false, stale: true, generation: activation };
-    if (previous.status === "active" && previous.scriptId === scriptId) {
-      publish({ ...previous, generation: activation, error: message });
+    if (previousActive) {
+      publish({ ...previousActive, generation: activation, error: message });
     } else if (!commit(EMPTY_SLOTS, message)) {
       return { ok: false, stale: true, generation: activation };
     }
