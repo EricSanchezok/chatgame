@@ -49,7 +49,7 @@ src/engine/
 
 ## Engine Extension v2
 
-剧本在 `script.yaml.engine_extension` 静态声明 effects、conditions、action handlers、rule mechanisms 与 lifecycle，加载时必须与 `engine/index.ts` 的实际注册集合精确相等；重复、未知或漏注册均响亮失败。动作 handler 返回纯 `ActionHandlerPlan`，规划阶段只计算拒绝、动态成本与耗时，`execute` 只在真实结算中对 post-effect state 调用一次。action planning、剧本 rule checker 与四种 lifecycle 的 state/definition/params/context 输入都使用隔离的深度只读 Proxy；Map、数组或嵌套值的普通赋值在非 strict CJS 中也主动抛错。lifecycle 输出脱离代理后继续流转，并以调用前捕获的 `scriptId` 校验脚本边界。`onSessionStart` 只运行于 fresh session，加载 v5 存档不重放；其余生命周期按注册顺序运行且摘要进入事件日志。
+剧本在 `script.yaml.engine_extension` 静态声明 effects、conditions、action handlers、rule mechanisms 与 lifecycle，加载时必须与 `engine/index.ts` 的实际注册集合精确相等；重复、未知或漏注册均响亮失败。动作 handler 返回纯 `ActionHandlerPlan`，规划阶段只计算拒绝、动态成本与耗时，`execute` 只在真实结算中对 post-effect state 调用一次。custom effect、custom condition、action planning、剧本 rule checker 与四种 lifecycle 的 state/definition/params/effect/leaf/context 输入都使用隔离的深度只读 Proxy；Map、数组或嵌套值的普通赋值在非 strict CJS 中也主动抛错。custom effect 与 lifecycle 输出以调用前捕获的 `scriptId` 校验脚本边界，并整体深度脱离代理后继续流转。`onSessionStart` 只运行于 fresh session，加载 v5 存档不重放；其余生命周期按注册顺序运行且摘要进入事件日志。
 
 ## 回合循环（playerTurn）
 
