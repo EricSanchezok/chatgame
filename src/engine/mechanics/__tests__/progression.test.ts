@@ -64,11 +64,11 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
 }
 
 describe("progression", () => {
-  it("stat_check grows matching stats on the player and NPCs", () => {
+  it("stat_check grows matching stats only on the authoritative actor", () => {
     const state = makeState();
-    const out = applyProgression(state, emberfall, "stat_check");
+    const out = applyProgression(state, emberfall, "stat_check", { target: "strength" });
     expect(out.state.player.stats.strength).toBe(15); // +1
-    expect(out.state.player.stats.agility).toBe(11); // +1
+    expect(out.state.player.stats.agility).toBe(10); // a strength check does not train agility
     expect(out.state.player.skills.persuasion).toBe(4); // skill_check only
     expect(out.state.npcs.elara.stats.charisma).toBe(14); // no matching entry
     expect(state.player.stats.strength).toBe(14); // original untouched
@@ -107,9 +107,7 @@ describe("progression", () => {
   it("summaries report applied entries with entity ids", () => {
     const state = makeState();
     state.npcs.elara.skills.survival = 5;
-    const out = applyProgression(state, emberfall, "skill_check");
-    const playerSummary = out.summaries.find((s) => s.entity === "player" && s.target === "persuasion");
-    expect(playerSummary).toEqual({ source: "skill_check", target: "persuasion", entity: "player", amount: 1 });
+    const out = applyProgression(state, emberfall, "skill_check", { entityId: "elara" });
     const npcSummary = out.summaries.find((s) => s.entity === "elara" && s.target === "survival");
     expect(npcSummary).toEqual({ source: "skill_check", target: "survival", entity: "elara", amount: 1 });
     expect(out.state.npcs.elara.skills.survival).toBe(6);

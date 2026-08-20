@@ -1,13 +1,8 @@
 // Game state reducer tests: pure transitions + active theme resolution.
 // The reducer and resolver are plain functions (no React runtime needed).
 import { describe, expect, it } from "vitest";
-import {
-  gameReducer,
-  initialGameState,
-  resolveActiveTheme,
-  type GameState,
-  type SessionHandle,
-} from "../state";
+import { resolveActiveTheme } from "../state";
+import { initialGameState, reduceGameState, type GameState, type SessionHandle } from "../../../lib/game-store";
 import type { SessionPresentation, ScriptDetail } from "../../../lib/api";
 
 function makeSession(): SessionHandle {
@@ -18,7 +13,8 @@ function makeSession(): SessionHandle {
         name: "默认",
         palette: {
           background: "#111", surface: "#222", surface_alt: "#333", primary: "#666",
-          accent: "#777", text: "#eee", text_dim: "#999", border: "#444",
+          on_primary: "#fff", accent: "#777", text: "#eee", text_dim: "#999", border: "#444",
+          focus: "#8ec9ba", success: "#6a6", warning: "#ca5", danger: "#c66", selected: "#555",
         },
         typography: { font: "sans", scale: 1, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
         effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.6, blur_px: 8, shadow: "medium", border_width_px: 1, density: "cozy", motion: "subtle", scene_tint: "#000", overlay_strength: 0.45 },
@@ -28,7 +24,8 @@ function makeSession(): SessionHandle {
         name: "暗矿",
         palette: {
           background: "#000", surface: "#111", surface_alt: "#1a1a1a", primary: "#884",
-          accent: "#a95", text: "#eee", text_dim: "#888", border: "#333",
+          on_primary: "#fff", accent: "#a95", text: "#eee", text_dim: "#888", border: "#333",
+          focus: "#8ec9ba", success: "#6a6", warning: "#ca5", danger: "#c66", selected: "#555",
         },
         typography: { font: "sans", scale: 1, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
         effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.6, blur_px: 8, shadow: "medium", border_width_px: 1, density: "cozy", motion: "subtle", scene_tint: "#000", overlay_strength: 0.45 },
@@ -39,12 +36,13 @@ function makeSession(): SessionHandle {
       name: "默认",
       palette: {
         background: "#111", surface: "#222", surface_alt: "#333", primary: "#666",
-        accent: "#777", text: "#eee", text_dim: "#999", border: "#444",
+        on_primary: "#fff", accent: "#777", text: "#eee", text_dim: "#999", border: "#444",
+        focus: "#8ec9ba", success: "#6a6", warning: "#ca5", danger: "#c66", selected: "#555",
       },
       typography: { font: "sans", scale: 1, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
       effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.6, blur_px: 8, shadow: "medium", border_width_px: 1, density: "cozy", motion: "subtle", scene_tint: "#000", overlay_strength: 0.45 },
     },
-    hasAssets: true,
+    defaultThemeId: "default", hasAssets: true,
   };
   return {
     id: "s1",
@@ -65,6 +63,7 @@ function makeSession(): SessionHandle {
       commitments: [],
       tasks: [], playedEventIds: [], secretHolders: {},
       locationInventories: {}, transcript: [],
+      runtimeState: {},
     },
     presentation,
   };
@@ -72,14 +71,14 @@ function makeSession(): SessionHandle {
 
 const detail = { scriptId: "emberfall" } as ScriptDetail;
 
-describe("gameReducer", () => {
+describe("reduceGameState", () => {
   it("enter switches to the game screen and resets dirty/panel", () => {
     const before: GameState = {
       ...initialGameState,
       dirty: true,
       panel: "inventory",
     };
-    const after = gameReducer(before, { type: "enter", session: makeSession(), detail });
+    const after = reduceGameState(before, { type: "enter", session: makeSession(), detail, generation: 0 });
     expect(after.screen).toBe("game");
     expect(after.session?.id).toBe("s1");
     expect(after.dirty).toBe(false);
@@ -88,7 +87,7 @@ describe("gameReducer", () => {
 
   it("turn applies the fresh state and marks dirty", () => {
     const session = makeSession();
-    const entered = gameReducer(initialGameState, { type: "enter", session, detail });
+    const entered = reduceGameState(initialGameState, { type: "enter", session, detail, generation: 0 });
     const result = {
       narrative: "回应",
       logEntries: [],
@@ -100,36 +99,36 @@ describe("gameReducer", () => {
       state: { ...session.state, player: { ...session.state.player, locationId: "mine" } },
       presentation: session.presentation,
     };
-    const after = gameReducer(entered, { type: "turn", result });
+    const after = reduceGameState(entered, { type: "turn", result, generation: 0 });
     expect(after.session?.state.player.locationId).toBe("mine");
     expect(after.dirty).toBe(true);
     expect(after.lastTurn?.narrative).toBe("回应");
   });
 
   it("saved clears dirty; exit returns to the initial launcher state", () => {
-    const entered = gameReducer(initialGameState, { type: "enter", session: makeSession(), detail });
-    const dirty = gameReducer(entered, { type: "theme", mode: "dark-mine" });
-    const saved = gameReducer(dirty, { type: "saved" });
+    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, generation: 0 });
+    const dirty = reduceGameState(entered, { type: "theme", mode: "dark-mine" });
+    const saved = reduceGameState(dirty, { type: "saved", generation: 0 });
     expect(saved.dirty).toBe(false);
     expect(saved.themeMode).toBe("dark-mine");
-    const exited = gameReducer(saved, { type: "exit" });
+    const exited = reduceGameState(saved, { type: "exit", generation: 0 });
     expect(exited).toEqual(initialGameState);
   });
 
   it("panel toggles the active overlay", () => {
-    const entered = gameReducer(initialGameState, { type: "enter", session: makeSession(), detail });
-    const opened = gameReducer(entered, { type: "panel", panel: "inventory" });
+    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, generation: 0 });
+    const opened = reduceGameState(entered, { type: "panel", panel: "inventory" });
     expect(opened.panel).toBe("inventory");
-    expect(gameReducer(opened, { type: "panel", panel: null }).panel).toBeNull();
+    expect(reduceGameState(opened, { type: "panel", panel: null }).panel).toBeNull();
   });
 
   it("pause toggles the overlay and closes panels", () => {
-    const entered = gameReducer(initialGameState, { type: "enter", session: makeSession(), detail });
-    const withPanel = gameReducer(entered, { type: "panel", panel: "inventory" });
-    const paused = gameReducer(withPanel, { type: "pause", on: true });
+    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, generation: 0 });
+    const withPanel = reduceGameState(entered, { type: "panel", panel: "inventory" });
+    const paused = reduceGameState(withPanel, { type: "pause", on: true });
     expect(paused.paused).toBe(true);
     expect(paused.panel).toBeNull(); // opening pause closes any panel
-    const resumed = gameReducer(paused, { type: "pause", on: false });
+    const resumed = reduceGameState(paused, { type: "pause", on: false });
     expect(resumed.paused).toBe(false);
   });
 });

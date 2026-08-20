@@ -31,7 +31,7 @@ function decayNeeds(
       next[name] = need;
       continue;
     }
-    const decay = def.decay_per_day * (hoursElapsed / 24);
+    const decay = def.decay_per_day * (hoursElapsed / definition.time.day_length_hours);
     const value = clampNeed(definition, name, need.value - decay);
     next[name] = value === need.value ? need : { value, descriptor: need.descriptor ? { ...need.descriptor, stale: true } : undefined };
     if (value !== need.value) changed = true;
@@ -82,11 +82,9 @@ function thresholdFires(
 }
 
 /**
- * Applies threshold effects for every need currently past a threshold level.
- * The same threshold re-fires each call while the value stays past it —
- * sustained effects, so status duration/stackability governs how the effect
- * repeats instead of an extra fired-record on WorldState.
- * Returns new state + triggered "need:label" keys.
+ * Applies effects only on the edge entering a threshold. Active keys are
+ * persisted so daily checks cannot permanently drift stats while a need
+ * remains low; recovery clears the key and permits a later re-entry.
  */
 export function applyNeedThresholds(
   state: WorldState,
@@ -95,6 +93,8 @@ export function applyNeedThresholds(
 ): { state: WorldState; triggered: string[] } {
   const triggered: string[] = [];
   let current = state;
+  const beforeActive = new Set(state.activeNeedThresholds ?? []);
+  const activeNow = new Set<string>();
 
   const applyEntity = (target: string): void => {
     const needs = target === "player" ? current.player.needs : current.npcs[target]?.needs;
@@ -103,12 +103,13 @@ export function applyNeedThresholds(
       const def = definition.mechanics.needs?.find((n) => n.name === name);
       if (!def) continue;
       for (const threshold of def.thresholds) {
-        if (!thresholdFires(def, threshold, need.value) || threshold.effects.length === 0) {
+        if (!thresholdFires(def, threshold, need.value)) {
           continue;
         }
         const label = `${name}:${threshold.label}`;
         const key = target === "player" ? label : `${target}:${label}`;
-        if (triggered.includes(key)) continue;
+        activeNow.add(key);
+        if (beforeActive.has(key) || threshold.effects.length === 0) continue;
         triggered.push(key);
         const out = applyEffects(current, threshold.effects, { definition, day });
         current = out.state;
@@ -119,6 +120,11 @@ export function applyNeedThresholds(
   applyEntity("player");
   for (const npcId of Object.keys(current.npcs)) {
     applyEntity(npcId);
+  }
+  const nextActive = [...activeNow].sort();
+  const prior = [...beforeActive].sort();
+  if (nextActive.join("\0") !== prior.join("\0")) {
+    current = { ...current, activeNeedThresholds: nextActive };
   }
   return { state: current, triggered };
 }

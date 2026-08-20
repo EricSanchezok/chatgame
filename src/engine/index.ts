@@ -5,11 +5,12 @@
 //     narrative -> consistency -> descriptor refresh)
 //   advance(hours) -> deterministic offline world progression
 //   save() / loadSave() -> JSON snapshots
-import type { WorldDefinition, WorldState, SessionOptions, TurnResult, MediaCue } from "./types";
+import type { WorldDefinition, WorldState, SessionOptions, TurnResult, MediaCue, EventLogEntry } from "./types";
+import type { ActionPreview, TurnInput } from "../shared/client-dto";
 import type { DescriptorPath } from "./descriptors";
 import { loadScript } from "./loader";
 import { generateWorld } from "./worldgen";
-import { resolveAction } from "./actions";
+import { previewAction, resolveAction } from "./actions";
 import { selectDirectorEvent, directorShouldSelect } from "./director";
 import { applyEffects } from "./effect";
 import { refreshAllStale, setUserDescriptor, llmDescriptorGenerator } from "./descriptors";
@@ -30,6 +31,7 @@ import { memorySelections, buildTurnPrompt } from "./narrative/prompt";
 import { recordMemoryAccess } from "./memory";
 import { buildContextBlocks, shouldSummarize, summarizeContext } from "./context";
 import { appendTranscript, deriveMediaCues } from "./presentation";
+import { runLifecycle } from "./extensions";
 
 export interface EngineOptions extends SessionOptions {
   /** LLM provider override (defaults to env-configured: mock by default). */
@@ -95,6 +97,19 @@ export class Engine {
         state = { ...state, player: { ...state.player, name: options.playerName } };
       }
     }
+    const sessionStart = runLifecycle("sessionStart", state, { definition });
+    state = sessionStart.state;
+    for (const summary of sessionStart.summaries) {
+      const log: EventLogEntry = {
+        id: `log-${state.eventLog.length + 1}`,
+        day: absoluteDay(definition, state.clock),
+        hour: state.clock.hour,
+        type: "system",
+        actor: "extension",
+        summary,
+      };
+      state = { ...state, eventLog: [...state.eventLog, log] };
+    }
     const engine = new Engine(definition, state, provider, options.saveStore ?? fsSaveStore);
     // Fresh session: play the worldgen starting event and seed the opening
     // transcript entry (the UI renders history from the transcript).
@@ -124,9 +139,12 @@ export class Engine {
    * PDVA pipeline — the LLM proposes (intent + narrative), the engine
    * validates and resolves everything.
    */
-  async playerTurn(input: string): Promise<TurnResult> {
+  async playerTurn(turnInput: TurnInput): Promise<TurnResult> {
+    const input = turnInput.text;
     // 1. Intent parsing (LLM or deterministic fallback; cheat gate first).
-    const parsed = await parseIntent(this.provider, this.definition, this.state, input);
+    const parsed = turnInput.intentHint
+      ? { tier: "direct" as const, intent: { actionId: turnInput.intentHint.actionId, target: turnInput.intentHint.target } }
+      : await parseIntent(this.provider, this.definition, this.state, input);
     switch (parsed.tier) {
       case "reject": {
         const reason = parsed.reason === "teleport" ? "此地没有这样的捷径。" :
@@ -155,7 +173,10 @@ export class Engine {
       state: this.state,
       actionId: intent.actionId,
       targetNpcId: intent.target && this.definition.npcs.has(intent.target) ? intent.target : undefined,
-      params: intent.target ? { target: intent.target } : undefined,
+      params: {
+        ...(turnInput.intentHint?.params ?? {}),
+        ...(intent.target ? { target: intent.target } : {}),
+      },
     });
     const turnStartState = this.state;
     let state = resolution.state;
@@ -182,6 +203,27 @@ export class Engine {
     //    commitments/tension) for that span.
     const step = stepWorld(state, this.definition, resolution.effectiveTimeCost);
     state = step.state;
+
+    const turnLifecycle = runLifecycle("turnResolved", state, {
+      definition: this.definition,
+      previousState: turnStartState,
+      turnInput,
+      resolution: resolution.resolution,
+    });
+    state = turnLifecycle.state;
+    const lifecycleLogs: EventLogEntry[] = [];
+    for (const summary of turnLifecycle.summaries) {
+      const log: EventLogEntry = {
+        id: `log-${state.eventLog.length + 1}`,
+        day: absoluteDay(this.definition, state.clock),
+        hour: state.clock.hour,
+        type: "system",
+        actor: "extension",
+        summary,
+      };
+      state = { ...state, eventLog: [...state.eventLog, log] };
+      lifecycleLogs.push(log);
+    }
 
     // 3b. Turn-level commitment check: condition triggers fire as soon as
     //     their condition holds mid-day (the day-boundary check inside
@@ -309,7 +351,7 @@ export class Engine {
       if (summary) state = { ...state, contextSummary: summary };
     }
     this.state = state;
-    const newLogs = state.eventLog.slice(-(resolution.logEntries.length + step.logEntries.length + taskOut.logEntries.length + 1));
+    const newLogs = state.eventLog.slice(-(resolution.logEntries.length + step.logEntries.length + lifecycleLogs.length + taskOut.logEntries.length + 1));
     return {
       narrative: narrativeText,
       resolution: resolution.resolution,
@@ -321,6 +363,10 @@ export class Engine {
       taskCompletions,
       mediaCues,
     };
+  }
+
+  previewAction(hint: Parameters<typeof previewAction>[2]): ActionPreview {
+    return previewAction(this.definition, this.state, hint);
   }
 
   advance(hours: number): WorldState {

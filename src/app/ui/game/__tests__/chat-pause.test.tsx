@@ -24,14 +24,14 @@ function makeWorldState() {
       threatGauge: 0, statuses: [], memories: [], relations: [], reputation: [],
     },
     npcs: {}, flags: [], facts: [], eventLog: [], commitments: [], tasks: [],
-    playedEventIds: [], secretHolders: {}, locationInventories: {}, transcript: [],
+    playedEventIds: [], secretHolders: {}, locationInventories: {}, transcript: [], runtimeState: {},
   };
 }
 
 function makeTheme() {
   return {
     id: "default", name: "默认",
-    palette: { background: "#111", surface: "#222", surface_alt: "#333", primary: "#666", accent: "#777", text: "#eee", text_dim: "#999", border: "#444" },
+    palette: { background: "#111", surface: "#222", surface_alt: "#333", primary: "#666", on_primary: "#fff", accent: "#777", text: "#eee", text_dim: "#999", border: "#444", focus: "#8ec9ba", success: "#6a6", warning: "#ca5", danger: "#c66", selected: "#555" },
     typography: { font: "serif", scale: 1, line_height: 1.6, letter_spacing_em: 0, faces: [], roles: {} },
     effects: { bubble_radius: 14, chrome_radius: 12, glass: 0.6, blur_px: 8, shadow: "medium", border_width_px: 1, density: "cozy", motion: "subtle", scene_tint: "#000", overlay_strength: 0.45 },
   };
@@ -39,14 +39,14 @@ function makeTheme() {
 
 function makePresentation() {
   const theme = makeTheme();
-  return { themes: [theme], currentTheme: theme, hasAssets: true };
+  return { themes: [theme], currentTheme: theme, defaultThemeId: "default", hasAssets: true };
 }
 
 function makeCatalog() {
   return {
     locations: [{ id: "tavern", name: "酒馆", type: "indoor", description: "", npcsPresent: [], connections: [] }],
     items: [], npcs: [], events: [], actions: [{ id: "talk", displayName: "交谈" }],
-    stats: [{ name: "hp", min: 0, max: 100 }], needs: [], statusEffects: [], tasks: [],
+    stats: [{ name: "hp", min: 0, max: 100 }], skills: [], needs: [], factions: [], statusEffects: [], tasks: [],
     origins: [{ id: "miner", name: "矿工" }], currency: { name: "金币", symbol: "金" }, hpStat: "hp",
   };
 }
@@ -56,7 +56,7 @@ function makeAssets() {
 }
 
 vi.mock("../../../lib/api", () => ({
-  api: {
+  httpGamePort: {
     scriptDetail: vi.fn().mockResolvedValue({
       scriptId: "emberfall",
       presentation: makePresentation(),
@@ -66,14 +66,19 @@ vi.mock("../../../lib/api", () => ({
       saves: [],
     }),
     createSession: vi.fn().mockResolvedValue({ id: "s1", state: makeWorldState(), presentation: makePresentation() }),
-    turn: vi.fn(),
+    submitTurn: vi.fn(),
+    previewAction: vi.fn(),
     save: vi.fn().mockResolvedValue({ saved: true, path: "" }),
     destroySession: vi.fn().mockResolvedValue(undefined),
     state: vi.fn(),
     listScripts: vi.fn().mockResolvedValue({ scripts: [] }),
-    importScript: vi.fn(),
-    fileAsset: (_scriptId: string, file: string) => `/api/scripts/x/assets/${file.replace(/^assets\//, "")}`,
-    entityAsset: () => "",
+    previewImport: vi.fn(),
+    commitImport: vi.fn(),
+    setDescriptor: vi.fn(),
+    advance: vi.fn(),
+    scriptMeta: vi.fn(),
+    assetUrl: (_scriptId: string, file: string) => `/api/scripts/x/assets/${file.replace(/^assets\//, "")}`,
+    entityAssetUrl: () => "",
   },
 }));
 
@@ -85,11 +90,11 @@ vi.mock("../../../lib/script-registry", () => ({
   hasSlot: () => false,
 }));
 
-import { GameProvider, useGame } from "../state";
+import { GameProvider, useGameActions } from "../state";
 import { GameScreen } from "../chat";
 
 function Harness({ children }: { children: ReactNode }) {
-  const { startNewGame } = useGame();
+  const { startNewGame } = useGameActions();
   // Run once on mount; startNewGame identity changes with every state
   // change, so an exhaustive-deps effect would loop forever.
   useEffect(() => {

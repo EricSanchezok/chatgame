@@ -1,6 +1,7 @@
 # starlight presentation assets — 手绘分层 SVG 资产套件。
 # 风格：冷蓝全息（深空蓝底 + 霓虹蓝描边 + 扫描线/发光点），统一调色板。
 # file 项指向 assets/ 下真实文件；prompt 项为文生图/TTS 占位。
+cover: { file: assets/backgrounds/bridge.svg, alt: 星港舰桥节目封面 }
 portraits:
   night-cat: { file: assets/portraits/night-cat.svg, alt: 夜猫，兜帽黑客与义体眼 }
   chief-engineer: { file: assets/portraits/chief-engineer.svg, alt: 老周，轮机长 }

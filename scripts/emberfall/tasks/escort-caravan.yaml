@@ -3,7 +3,7 @@ name: 护送商队
 objective:
   type: escort
   target:
-    pool: [caravan-boss]
+    npc: caravan-boss
   quantity: 1
 giver:
   pool: [mayor-shen]

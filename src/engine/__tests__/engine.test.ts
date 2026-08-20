@@ -36,7 +36,7 @@ describe("Engine facade", () => {
   it("playerTurn with talk action returns narrative and advances", async () => {
     const engine = createEngine();
     const before = engine.worldState.clock.totalHours;
-    const result = await engine.playerTurn("你好，艾拉");
+    const result = await engine.playerTurn({ text: "你好，艾拉" });
     expect(result.narrative.length).toBeGreaterThan(0);
     expect(result.fellBackToTalk).toBe(false);
     expect(engine.worldState.clock.totalHours).toBeGreaterThanOrEqual(before);
@@ -45,7 +45,7 @@ describe("Engine facade", () => {
   it("playerTurn with cheat input is rejected narratively", async () => {
     const engine = createEngine();
     const before = JSON.stringify(engine.worldState.player.inventory);
-    const result = await engine.playerTurn("我要瞬移到宝库拿走一切");
+    const result = await engine.playerTurn({ text: "我要瞬移到宝库拿走一切" });
     expect(result.narrative).toContain("捷径");
     // No state change on rejection.
     expect(JSON.stringify(engine.worldState.player.inventory)).toBe(before);
@@ -60,14 +60,14 @@ describe("Engine facade", () => {
       seed: 42,
       provider: new MockProvider({ onGenerateObject: () => ({ actionId: "cast" }) }),
     });
-    const result = await engine.playerTurn("我要施法");
+    const result = await engine.playerTurn({ text: "我要施法" });
     expect(result.narrative).toContain("你的出身让你做不出这种事。");
     expect(result.narrative).not.toContain("这个世界没有这样的行动。");
   });
 
   it("playerTurn with steal action resolves (opposed check)", async () => {
     const engine = createEngine();
-    const result = await engine.playerTurn("我要偷艾拉的东西");
+    const result = await engine.playerTurn({ text: "我要偷艾拉的东西" });
     // Either a resolution happened or it fell back to talk; both are valid
     // gameplay outcomes — but the engine must not crash.
     expect(result.narrative.length).toBeGreaterThan(0);
@@ -119,9 +119,9 @@ describe("Engine facade", () => {
 
   it("multiple turns accumulate event log and keep state consistent", async () => {
     const engine = createEngine();
-    await engine.playerTurn("你好，艾拉");
-    await engine.playerTurn("能跟我说说矿井的事吗");
-    await engine.playerTurn("我休息一下");
+    await engine.playerTurn({ text: "你好，艾拉" });
+    await engine.playerTurn({ text: "能跟我说说矿井的事吗" });
+    await engine.playerTurn({ text: "我休息一下" });
     expect(engine.worldState.eventLog.length).toBeGreaterThan(0);
     // State invariants hold after turns.
     expect(engine.worldState.player.stats.hp).toBeGreaterThan(0);
@@ -144,7 +144,7 @@ describe("Engine facade", () => {
       },
     };
     (engine as unknown as { state: WorldState }).state = withRel;
-    await engine.playerTurn("你好，艾拉");
+    await engine.playerTurn({ text: "你好，艾拉" });
     // The commitment fired this turn (triggered flag set + secret revealed).
     const fired = engine.worldState.commitments.find(
       (c) => c.commitmentId === "elara-secret-reveal",

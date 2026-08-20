@@ -35,7 +35,12 @@ function contentHash(source: string): string {
 export function loadScriptExtensions(scriptDir: string): ScriptExtensions {
   const entry = engineEntryFile(scriptDir);
   if (!existsSync(entry)) {
-    return { effects: {}, conditions: {}, actionHandlers: {} };
+    return {
+      effects: {},
+      conditions: {},
+      actionHandlers: {},
+      lifecycle: { sessionStart: [], turnResolved: [], hour: [], dayBoundary: [] },
+    };
   }
 
   const scriptId = path.basename(scriptDir);
@@ -86,7 +91,12 @@ export function loadScriptExtensions(scriptDir: string): ScriptExtensions {
     throw new ScriptLoadError(`script "${scriptId}" engine/index.ts must default-export a function`);
   }
 
-  const extensions: ScriptExtensions = { effects: {}, conditions: {}, actionHandlers: {} };
+  const extensions: ScriptExtensions = {
+    effects: {},
+    conditions: {},
+    actionHandlers: {},
+    lifecycle: { sessionStart: [], turnResolved: [], hour: [], dayBoundary: [] },
+  };
   const ctx: EngineExtensionContext = {
     registerEffect: (kind, handler) => {
       extensions.effects[kind] = handler;
@@ -97,6 +107,10 @@ export function loadScriptExtensions(scriptDir: string): ScriptExtensions {
     registerActionHandler: (id, handler) => {
       extensions.actionHandlers[id] = handler;
     },
+    onSessionStart: (handler) => extensions.lifecycle.sessionStart.push(handler),
+    onTurnResolved: (handler) => extensions.lifecycle.turnResolved.push(handler),
+    onHour: (handler) => extensions.lifecycle.hour.push(handler),
+    onDayBoundary: (handler) => extensions.lifecycle.dayBoundary.push(handler),
   };
   try {
     (register as (c: EngineExtensionContext) => void)(ctx);

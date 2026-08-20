@@ -4,64 +4,25 @@
 // variables; a 600ms transition in globals.css smooths switches.
 // Testable in node via an explicit target (no DOM dependency).
 
-export interface ThemeFontFile {
-  /** Path relative to the script root, under assets/fonts/. */
-  file: string;
-  /** Numeric weight 100–900. */
-  weight: number;
-  /** Font style. */
-  style: "normal" | "italic";
-}
+import type {
+  FontRole,
+  SystemFontRole,
+  ThemeEffects,
+  ThemeFontFace,
+  ThemePalette,
+  ThemeView,
+} from "../../shared/client-dto";
 
-export interface ThemeFontFace {
-  id: string;
-  family: string;
-  files: ThemeFontFile[];
-}
-
-export type SystemFontRole = "serif" | "sans" | "mono";
-export type FontRole = SystemFontRole | string;
-
-export interface ThemePalette {
-  background: string;
-  surface: string;
-  surface_alt: string;
-  primary: string;
-  accent: string;
-  text: string;
-  text_dim: string;
-  border: string;
-}
-
-export interface ThemeTypography {
-  font: SystemFontRole;
-  scale: number;
-  line_height: number;
-  letter_spacing_em: number;
-  faces: ThemeFontFace[];
-  roles: { ui?: FontRole; narrative?: FontRole; mono?: FontRole };
-}
-
-export interface ThemeEffects {
-  bubble_radius: number;
-  chrome_radius: number;
-  glass: number;
-  blur_px: number;
-  shadow: "none" | "soft" | "medium" | "hard";
-  border_width_px: number;
-  density: "compact" | "cozy" | "comfy";
-  motion: "minimal" | "subtle" | "standard" | "playful";
-  scene_tint: string;
-  overlay_strength: number;
-}
-
-export interface ThemeView {
-  id: string;
-  name: string;
-  palette: ThemePalette;
-  typography: ThemeTypography;
-  effects: ThemeEffects;
-}
+export type {
+  FontRole,
+  SystemFontRole,
+  ThemeEffects,
+  ThemeFontFace,
+  ThemeFontFile,
+  ThemePalette,
+  ThemeTypography,
+  ThemeView,
+} from "../../shared/client-dto";
 
 /** Element surface we write CSS variables onto (subset of HTMLElement). */
 export interface CssTarget {
@@ -77,10 +38,16 @@ const PALETTE_VARS: Record<keyof ThemePalette, string> = {
   surface: "--cg-surface",
   surface_alt: "--cg-surface-alt",
   primary: "--cg-primary",
+  on_primary: "--cg-on-primary",
   accent: "--cg-accent",
   text: "--cg-text",
   text_dim: "--cg-text-dim",
   border: "--cg-border",
+  focus: "--cg-focus",
+  success: "--cg-success",
+  warning: "--cg-warning",
+  danger: "--cg-danger",
+  selected: "--cg-selected",
 };
 
 /** Font stacks per system font role (CJK-safe fallbacks). */
@@ -185,12 +152,9 @@ function injectFontFaces(theme: ThemeView, assetUrl: AssetUrlFn, doc: Document):
   const style = doc.createElement("style");
   style.setAttribute("data-cg-fonts", "");
   const rules = theme.typography.faces
-    .map((face) => {
-      const srcs = face.files
-        .map((f) => `url("${assetUrl(f.file)}") format("${fontFormat(f.file)}")`)
-        .join(", ");
-      return `@font-face{font-family:"${face.family}";font-style:${face.files[0]?.style ?? "normal"};font-weight:${face.files[0]?.weight ?? 400};font-display:swap;src:${srcs};}`;
-    })
+    .flatMap((face) => face.files.map((file) =>
+      `@font-face{font-family:"${face.family}";font-style:${file.style};font-weight:${file.weight};font-display:swap;src:url("${assetUrl(file.file)}") format("${fontFormat(file.file)}");}`,
+    ))
     .join("\n");
   style.innerHTML = rules;
   doc.head.appendChild(style);

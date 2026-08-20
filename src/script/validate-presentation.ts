@@ -128,6 +128,16 @@ export function checkPresentationModules(
   if (!assets) return issues;
   const assetFile = assets.file.relPath;
 
+  if (assets.data.cover?.file) {
+    const abs = path.resolve(scriptDir, assets.data.cover.file);
+    const within = abs.startsWith(path.resolve(scriptDir) + path.sep);
+    if (!within) {
+      add(assetFile, "error", "cover.file", "cover path must stay inside the script directory");
+    } else if (!existsSync(abs)) {
+      add(assetFile, "error", "cover.file", `cover file "${assets.data.cover.file}" not found`);
+    }
+  }
+
   for (const [kind, poolKey] of Object.entries(ASSET_KIND_ENTITY_POOL)) {
     const pool = pools[`${poolKey}Ids` as "npcIds" | "locationIds" | "itemIds" | "eventIds"];
     const section = (assets.data as unknown as Record<string, Record<string, { file?: string }>>)[kind];

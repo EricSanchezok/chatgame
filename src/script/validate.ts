@@ -636,31 +636,30 @@ function checkReferences(
   for (const m of arrays.tasks) {
     const t = m.data;
     const base = `tasks[${t.id}]`;
-    const poolIds = t.objective.target.pool ?? [];
-    let allowed: Set<string>;
     switch (t.objective.type) {
-      case "deliver":
       case "gather":
+        for (const id of t.objective.target.items ?? []) if (!pools.itemIds.has(id)) add(m.file.relPath, undefined, `${base}.objective.target.items`, `item "${id}" not found`);
+        break;
+      case "deliver":
+        if (!pools.itemIds.has(t.objective.target.item)) add(m.file.relPath, undefined, `${base}.objective.target.item`, `item "${t.objective.target.item}" not found`);
+        if (!pools.npcIds.has(t.objective.target.recipient)) add(m.file.relPath, undefined, `${base}.objective.target.recipient`, `npc "${t.objective.target.recipient}" not found`);
+        break;
       case "hunt":
-        allowed = pools.itemIds;
+        if (!pools.npcIds.has(t.objective.target.npc)) add(m.file.relPath, undefined, `${base}.objective.target.npc`, `npc "${t.objective.target.npc}" not found`);
         break;
       case "escort":
-      case "persuade":
-        allowed = pools.npcIds;
-        break;
-      case "travel":
-        allowed = pools.locationIds;
+        if (t.objective.target.npc && !pools.npcIds.has(t.objective.target.npc)) add(m.file.relPath, undefined, `${base}.objective.target.npc`, `npc "${t.objective.target.npc}" not found`);
+        if (t.objective.target.destination && !pools.locationIds.has(t.objective.target.destination)) add(m.file.relPath, undefined, `${base}.objective.target.destination`, `location "${t.objective.target.destination}" not found`);
         break;
       case "investigate":
-        allowed = new Set([...pools.npcIds, ...pools.locationIds]);
+        if (t.objective.target.subject && !pools.npcIds.has(t.objective.target.subject) && !pools.locationIds.has(t.objective.target.subject)) add(m.file.relPath, undefined, `${base}.objective.target.subject`, `subject "${t.objective.target.subject}" not found`);
         break;
-      default:
-        allowed = new Set();
-    }
-    for (const id of poolIds) {
-      if (!allowed.has(id)) {
-        add(m.file.relPath, undefined, `${base}.objective.target.pool`, `target "${id}" not found for objective type ${t.objective.type}`);
-      }
+      case "persuade":
+        if (!pools.npcIds.has(t.objective.target.npc)) add(m.file.relPath, undefined, `${base}.objective.target.npc`, `npc "${t.objective.target.npc}" not found`);
+        break;
+      case "travel":
+        if (!pools.locationIds.has(t.objective.target.location)) add(m.file.relPath, undefined, `${base}.objective.target.location`, `location "${t.objective.target.location}" not found`);
+        break;
     }
     for (const id of t.giver.pool) if (!pools.npcIds.has(id)) add(m.file.relPath, undefined, `${base}.giver.pool`, `npc "${id}" not found`);
     const erefs = collectEffectRefs(t.rewards);

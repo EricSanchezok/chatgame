@@ -42,7 +42,7 @@ export function addStatus(
       ? {
           ...s,
           stacks: stackable ? s.stacks + 1 : s.stacks,
-          remainingTicks: stackable ? duration : s.remainingTicks,
+          remainingTicks: duration,
         }
       : s,
   );
@@ -64,8 +64,10 @@ function applyStatusEffects(
   for (const status of statuses) {
     const effects = statusEffects(definition, status.statusId);
     if (effects.length === 0) continue;
-    const out = applyEffects(current, effects, { definition, day });
-    current = out.state;
+    for (let stack = 0; stack < status.stacks; stack++) {
+      const out = applyEffects(current, effects, { definition, day });
+      current = out.state;
+    }
   }
   return current;
 }

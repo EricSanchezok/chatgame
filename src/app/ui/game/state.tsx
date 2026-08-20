@@ -1,413 +1,137 @@
 "use client";
 
-// GameProvider: the single UI state owner for a game session.
-// Pure reducer (testable in node) + a thin shell that wires API calls,
-// theme application and audio side effects. No external state library.
-
 import {
   createContext,
   useContext,
   useEffect,
   useMemo,
-  useReducer,
-  useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import {
-  api,
-  type ScriptDetail,
-  type SessionPresentation,
-  type TurnResultFull,
-  type WorldState,
-} from "../../lib/api";
-import { applyTheme, type ThemeView } from "../../lib/theme";
+import { httpGamePort, type GamePort } from "../../lib/api";
 import { AudioController, cuesToAudio } from "../../lib/audio";
+import {
+  createGameStore,
+  GameController,
+  initialGameState,
+  type GameControllerEffects,
+  type GameState,
+  type GameStore,
+  type ThemeMode,
+} from "../../lib/game-store";
+import { applyTheme, type ThemeView } from "../../lib/theme";
+import { patchPlayerSettings, readPlayerSettings } from "../../lib/settings";
+import type { SessionPresentation } from "../../../shared/client-dto";
 
-export type PanelId = "inventory" | "character" | "relations" | "tasks" | "map" | "log";
-/** "follow" = 跟随剧本 (default + by_location); otherwise a manual theme id. */
-export type ThemeMode = "follow" | string;
+export type { GameState, PanelId, ThemeMode } from "../../lib/game-store";
 
-/** localStorage key for the "continue last run" reference. */
-const LAST_RUN_KEY = "chatgame:last-run";
-
-export interface LastRunRef {
-  scriptId: string;
-  /** Save filename (basename) to resume; the autosave slot by default. */
-  runId: string;
-}
-
-/** Reads the persisted last-run reference (null when absent/invalid). */
-export function readLastRun(): LastRunRef | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(LAST_RUN_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<LastRunRef>;
-    if (typeof parsed.scriptId !== "string" || typeof parsed.runId !== "string") return null;
-    return { scriptId: parsed.scriptId, runId: parsed.runId };
-  } catch {
-    return null;
-  }
-}
-
-/** True when a resumable last-run reference exists. */
-export function hasLastRun(): boolean {
-  return readLastRun() !== null;
-}
-
-/** Persists the last-run reference (best-effort; storage may be blocked). */
-export function writeLastRun(scriptId: string, runId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(LAST_RUN_KEY, JSON.stringify({ scriptId, runId }));
-  } catch {
-    // Storage full/blocked: the resume entry is best-effort only.
-  }
-}
-
-/** Clears the last-run reference (stale save / explicit reset). */
-export function clearLastRun(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(LAST_RUN_KEY);
-  } catch {
-    // Best-effort.
-  }
-}
-
-export interface SessionHandle {
-  id: string;
-  scriptId: string;
-  state: WorldState;
-  presentation: SessionPresentation;
-}
-
-export interface GameState {
-  screen: "launcher" | "game";
-  busy: boolean;
-  error: string;
-  session: SessionHandle | null;
-  detail: ScriptDetail | null;
-  themeMode: ThemeMode;
-  audioEnabled: boolean;
-  dirty: boolean;
-  panel: PanelId | null;
-  /** Esc pause menu overlay (game only). */
-  paused: boolean;
-  lastTurn: TurnResultFull | null;
-}
-
-export type GameAction =
-  | { type: "busy"; on: boolean }
-  | { type: "error"; message: string }
-  | { type: "enter"; session: SessionHandle; detail: ScriptDetail }
-  | { type: "turn"; result: TurnResultFull }
-  | { type: "updateState"; state: WorldState }
-  | { type: "theme"; mode: ThemeMode }
-  | { type: "audio"; on: boolean }
-  | { type: "panel"; panel: PanelId | null }
-  | { type: "pause"; on: boolean }
-  | { type: "saved" }
-  | { type: "exit" };
-
-export const initialGameState: GameState = {
-  screen: "launcher",
-  busy: false,
-  error: "",
-  session: null,
-  detail: null,
-  themeMode: "follow",
-  audioEnabled: false,
-  dirty: false,
-  panel: null,
-  paused: false,
-  lastTurn: null,
-};
-
-/** Pure state transitions (exported for node tests). */
-export function gameReducer(state: GameState, action: GameAction): GameState {
-  switch (action.type) {
-    case "busy":
-      return { ...state, busy: action.on };
-    case "error":
-      return { ...state, error: action.message, busy: false };
-    case "enter":
-      return {
-        ...state,
-        screen: "game",
-        session: action.session,
-        detail: action.detail,
-        error: "",
-        busy: false,
-        dirty: false,
-        panel: null,
-        paused: false,
-        lastTurn: null,
-      };
-    case "turn":
-      return {
-        ...state,
-        session: state.session
-          ? {
-              ...state.session,
-              state: action.result.state,
-              presentation: action.result.presentation,
-            }
-          : state.session,
-        lastTurn: action.result,
-        dirty: true,
-        busy: false,
-        error: "",
-      };
-    case "updateState":
-      return {
-        ...state,
-        session: state.session ? { ...state.session, state: action.state } : state.session,
-        dirty: true,
-        busy: false,
-        error: "",
-      };
-    case "theme":
-      return { ...state, themeMode: action.mode };
-    case "audio":
-      return { ...state, audioEnabled: action.on };
-    case "panel":
-      return { ...state, panel: action.panel };
-    case "pause":
-      // Opening pause closes any open panel; resuming restores nothing
-      // (the panel was already dismissed).
-      return { ...state, paused: action.on, panel: action.on ? null : state.panel };
-    case "saved":
-      return { ...state, dirty: false };
-    case "exit":
-      return { ...initialGameState };
-    default:
-      return state;
-  }
-}
-
-/** Resolves the active theme for a themeMode (exported for tests). */
 export function resolveActiveTheme(
   presentation: SessionPresentation | undefined,
   themeMode: ThemeMode,
 ): ThemeView | null {
   if (!presentation) return null;
   if (themeMode !== "follow") {
-    const manual = presentation.themes.find((t) => t.id === themeMode);
+    const manual = presentation.themes.find((theme) => theme.id === themeMode);
     if (manual) return manual;
   }
   return presentation.currentTheme;
 }
 
-interface GameApi {
-  state: GameState;
-  startNewGame: (scriptId: string, originId: string, playerName?: string) => Promise<void>;
-  continueGame: (scriptId: string, runId: string) => Promise<void>;
-  resumeLast: () => Promise<boolean>;
-  sendTurn: (input: string) => Promise<void>;
-  save: () => Promise<void>;
-  advance: (hours: number) => Promise<void>;
-  updateDescriptor: (path: string, text: string) => Promise<void>;
-  exitGame: (saveFirst: boolean) => Promise<void>;
-  setTheme: (mode: ThemeMode) => void;
-  setAudio: (on: boolean) => void;
-  setPanel: (panel: PanelId | null) => void;
-  setPause: (on: boolean) => void;
-  clearError: () => void;
+interface GameRuntime {
+  store: GameStore;
+  controller: GameController;
+  port: GamePort;
 }
 
-const GameContext = createContext<GameApi | null>(null);
+const GameRuntimeContext = createContext<GameRuntime | null>(null);
 
-export function GameProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(gameReducer, initialGameState);
-  // Stable singleton per provider mount (never recreated during renders).
-  const [audio] = useState(() => new AudioController());
-  const locationRef = useRef<string | null>(null);
+function productionEffects(audio: AudioController, port: GamePort): GameControllerEffects {
+  return {
+    readLastRun: () => readPlayerSettings().lastRun,
+    rememberLastRun: (scriptId, runId) => {
+      patchPlayerSettings({ lastRun: { scriptId, runId } });
+    },
+    clearLastRun: () => {
+      patchPlayerSettings({ lastRun: null });
+    },
+    onAudioEnabled: (enabled) => {
+      audio.setEnabled(enabled);
+      patchPlayerSettings({ audioEnabled: enabled });
+    },
+    onTurn: (result, detail, scriptId) => {
+      cuesToAudio(
+        audio,
+        result.mediaCues,
+        detail.assets,
+        scriptId,
+        (id, file) => port.assetUrl(id, file),
+        (id, kind, entityId) => port.entityAssetUrl(id, kind, entityId),
+      );
+    },
+    onExit: () => audio.stopAll(),
+  };
+}
 
-  // Theme application: JSON theme -> :root CSS variables (600ms transition
-  // in globals.css smooths the switch).
+export function GameProvider({
+  children,
+  port = httpGamePort,
+  initialState,
+  effects,
+}: {
+  children: ReactNode;
+  port?: GamePort;
+  initialState?: GameState;
+  effects?: GameControllerEffects;
+}) {
+  const [runtime] = useState<GameRuntime>(() => {
+    const store = createGameStore(initialState ?? initialGameState);
+    const audio = new AudioController();
+    return {
+      store,
+      port,
+      controller: new GameController(store, port, effects ?? productionEffects(audio, port)),
+    };
+  });
+
+  useEffect(() => () => runtime.controller.dispose(), [runtime]);
+
+  const session = useGameStoreValue(runtime.store, (state) => state.session);
+  const themeMode = useGameStoreValue(runtime.store, (state) => state.themeMode);
   const activeTheme = useMemo(
-    () => resolveActiveTheme(state.session?.presentation, state.themeMode),
-    [state.session?.presentation, state.themeMode],
+    () => resolveActiveTheme(session?.presentation, themeMode),
+    [session?.presentation, themeMode],
   );
+
   useEffect(() => {
     if (!activeTheme) return;
-    if (state.session) {
-      applyTheme(activeTheme, undefined, {
-        assetUrl: (file) => api.fileAsset(state.session!.scriptId, file),
-      });
-    } else {
-      applyTheme(activeTheme);
-    }
-  }, [activeTheme, state.session]);
+    applyTheme(activeTheme, undefined, {
+      assetUrl: session ? (file) => runtime.port.assetUrl(session.scriptId, file) : undefined,
+    });
+  }, [activeTheme, runtime.port, session]);
 
-  // Ambient loop follows the player's location (graceful silent skip when
-  // the script declares no audio file/prompt for the location).
-  const locationId = state.session?.state.player.locationId;
-  useEffect(() => {
-    const controller = audio;
-    if (!state.audioEnabled) {
-      controller.setEnabled(false);
-      return;
-    }
-    controller.setEnabled(true);
-    if (!state.session || !state.detail || !locationId) return;
-    if (locationRef.current === locationId) return;
-    locationRef.current = locationId;
-    const entry = state.detail.assets.ambient[locationId];
-    if (!entry) {
-      controller.playAmbient(locationId, ""); // stops the previous loop
-      return;
-    }
-    const src = entry.file
-      ? api.fileAsset(state.session.scriptId, entry.file)
-      : entry.prompt
-        ? api.entityAsset(state.session.scriptId, "ambient", locationId)
-        : "";
-    controller.playAmbient(locationId, src);
-  }, [state.audioEnabled, locationId, state.session, state.detail, audio]);
-
-  async function startNewGame(scriptId: string, originId: string, playerName?: string): Promise<void> {
-    dispatch({ type: "busy", on: true });
-    try {
-      const detail = await api.scriptDetail(scriptId);
-      const session = await api.createSession({ scriptId, originId, playerName });
-      locationRef.current = session.state.player.locationId;
-      dispatch({ type: "enter", session: { ...session, scriptId }, detail });
-      dispatch({ type: "audio", on: true }); // the start click is the gesture
-      // The disk owns the state; localStorage only remembers where to
-      // resume. Every turn lands in the autosave slot, so the reference
-      // points there and stays fresh after a refresh.
-      writeLastRun(scriptId, "autosave.json");
-    } catch (err) {
-      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  async function continueGame(scriptId: string, runId: string): Promise<void> {
-    dispatch({ type: "busy", on: true });
-    try {
-      const detail = await api.scriptDetail(scriptId);
-      const session = await api.createSession({ scriptId, loadRunId: runId });
-      locationRef.current = session.state.player.locationId;
-      dispatch({ type: "enter", session: { ...session, scriptId }, detail });
-      dispatch({ type: "audio", on: true });
-      writeLastRun(scriptId, runId);
-    } catch (err) {
-      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  /**
-   * Resumes the persisted last run (autosave slot) through the existing
-   * createSession({ loadRunId }) path. Returns false (and clears the stale
-   * reference) when the save/script no longer exists.
-   */
-  async function resumeLast(): Promise<boolean> {
-    const ref = readLastRun();
-    if (!ref) return false;
-    dispatch({ type: "busy", on: true });
-    try {
-      const detail = await api.scriptDetail(ref.scriptId);
-      const session = await api.createSession({ scriptId: ref.scriptId, loadRunId: ref.runId });
-      locationRef.current = session.state.player.locationId;
-      dispatch({ type: "enter", session: { ...session, scriptId: ref.scriptId }, detail });
-      dispatch({ type: "audio", on: true });
-      return true;
-    } catch (err) {
-      clearLastRun();
-      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
-      return false;
-    }
-  }
-
-  async function sendTurn(input: string): Promise<void> {
-    if (!state.session || state.busy) return;
-    dispatch({ type: "busy", on: true });
-    try {
-      const result = await api.turn(state.session.id, input);
-      if (state.audioEnabled && state.detail) {
-        cuesToAudio(audio, result.mediaCues, state.detail.assets, state.session.scriptId, api.fileAsset, api.entityAsset);
-      }
-      dispatch({ type: "turn", result });
-      // The server autosaved after this turn; keep the resume pointer on
-      // the autosave slot so a refresh lands on the freshest state.
-      writeLastRun(state.session.scriptId, "autosave.json");
-    } catch (err) {
-      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  async function save(): Promise<void> {
-    if (!state.session) return;
-    await api.save(state.session.id);
-    dispatch({ type: "saved" });
-  }
-  async function advance(hours: number): Promise<void> {
-    if (!state.session || state.busy) return;
-    dispatch({ type: "busy", on: true });
-    try {
-      const res = await api.advance(state.session.id, hours);
-      locationRef.current = res.state.player.locationId;
-      dispatch({ type: "updateState", state: res.state });
-    } catch (err) {
-      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  async function updateDescriptor(path: string, text: string): Promise<void> {
-    if (!state.session || state.busy) return;
-    dispatch({ type: "busy", on: true });
-    try {
-      const res = await api.setDescriptor(state.session.id, path, text);
-      dispatch({ type: "updateState", state: res.state });
-    } catch (err) {
-      dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  async function exitGame(saveFirst: boolean): Promise<void> {
-    if (!state.session) {
-      dispatch({ type: "exit" });
-      return;
-    }
-    if (saveFirst && state.dirty) await api.save(state.session.id);
-    // Keep the resume reference alive: the autosave (or the manual save
-    // above) is on disk, so "继续上次" still works after leaving.
-    writeLastRun(state.session.scriptId, "autosave.json");
-    await api.destroySession(state.session.id);
-    audio.stopAll();
-    locationRef.current = null;
-    dispatch({ type: "exit" });
-  }
-
-  const value = useMemo<GameApi>(
-    () => ({
-      state,
-      startNewGame,
-      continueGame,
-      resumeLast,
-      sendTurn,
-      save,
-      advance,
-      updateDescriptor,
-      exitGame,
-      setTheme: (mode) => dispatch({ type: "theme", mode }),
-      setAudio: (on) => dispatch({ type: "audio", on }),
-      setPanel: (panel) => dispatch({ type: "panel", panel }),
-      setPause: (on) => dispatch({ type: "pause", on }),
-      clearError: () => dispatch({ type: "error", message: "" }),
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state],
-  );
-
-  return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
+  return <GameRuntimeContext.Provider value={runtime}>{children}</GameRuntimeContext.Provider>;
 }
 
-export function useGame(): GameApi {
-  const ctx = useContext(GameContext);
-  if (!ctx) throw new Error("useGame must be used inside GameProvider");
-  return ctx;
+function useGameStoreValue<T>(store: GameStore, selector: (state: GameState) => T): T {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  return selector(snapshot);
+}
+
+export function useGameSelector<T>(selector: (state: GameState) => T): T {
+  const runtime = useContext(GameRuntimeContext);
+  if (!runtime) throw new Error("useGameSelector must be used inside GameProvider");
+  return useGameStoreValue(runtime.store, selector);
+}
+
+export function useGameActions(): GameController {
+  const runtime = useContext(GameRuntimeContext);
+  if (!runtime) throw new Error("useGameActions must be used inside GameProvider");
+  return runtime.controller;
+}
+
+export function useGamePort(): GamePort {
+  const runtime = useContext(GameRuntimeContext);
+  if (!runtime) throw new Error("useGamePort must be used inside GameProvider");
+  return runtime.port;
 }

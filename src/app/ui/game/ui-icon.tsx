@@ -5,7 +5,7 @@
 // otherwise the framework fallback icon set renders (inline SVG, themed via
 // currentColor — replaces the old emoji fallback table).
 
-import { api, type AssetManifest } from "../../lib/api";
+import { httpGamePort, type AssetManifest } from "../../lib/api";
 import type { UiIconSlot } from "../../../script/schemas/assets";
 import { FallbackIcon } from "./icons";
 
@@ -23,7 +23,7 @@ export function UiIcon({
   alt?: string;
 }) {
   const entry = manifest?.ui?.[slot];
-  const src = entry?.file ? api.fileAsset(scriptId, entry.file) : "";
+  const src = entry?.file ? httpGamePort.assetUrl(scriptId, entry.file) : "";
   if (src) {
     return (
       <img

@@ -79,7 +79,7 @@ describe("status", () => {
   it("addStatus refreshes a non-stackable timed status without stacking", () => {
     const initial: StatusInstance[] = [{ statusId: "tipsy", remainingTicks: 1, stacks: 1 }];
     const out = addStatus(initial, "tipsy", emberfall);
-    expect(out).toEqual([{ statusId: "tipsy", remainingTicks: 1, stacks: 1 }]);
+    expect(out).toEqual([{ statusId: "tipsy", remainingTicks: 2, stacks: 1 }]);
   });
 
   it("removeStatus removes every instance of the status id", () => {

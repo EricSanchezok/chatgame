@@ -7,11 +7,12 @@
 // the script list is a compact switcher inside a themed shell.
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { api, type SaveSummary, type ScriptDetail, type ScriptMeta, type ScriptSummary } from "../lib/api";
+import type { SaveSummary, ScriptDetail, ScriptMeta, ScriptSummary } from "../lib/api";
 import { getSlot, loadScriptUi } from "../lib/script-registry";
 import { enterFullscreen } from "../lib/fullscreen";
 import { applyTheme } from "../lib/theme";
-import { hasLastRun, useGame } from "./game/state";
+import { readPlayerSettings } from "../lib/settings";
+import { useGameActions, useGamePort, useGameSelector } from "./game/state";
 
 type Modal = { kind: "new" | "continue" | "none"; scriptId: string } | { kind: "none" };
 
@@ -26,7 +27,10 @@ function originAvailable(originId: string, meta: ScriptMeta | null): boolean {
 }
 
 export function Launcher() {
-  const { state, startNewGame, continueGame, resumeLast, clearError } = useGame();
+  const state = useGameSelector((snapshot) => snapshot);
+  const { startNewGame, continueGame, resumeLast, clearError } = useGameActions();
+  const port = useGamePort();
+  const busy = state.operation !== "idle";
   const [scripts, setScripts] = useState<ScriptSummary[]>([]);
   const [scriptId, setScriptId] = useState("");
   const [modal, setModal] = useState<Modal>({ kind: "none" });
@@ -41,11 +45,11 @@ export function Launcher() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Computed once on mount (client-only; the reference lives in
   // localStorage and is refreshed by the GameProvider on enter/exit).
-  const [lastRunAvailable, setLastRunAvailable] = useState(() => hasLastRun());
+  const [lastRunAvailable, setLastRunAvailable] = useState(() => readPlayerSettings().lastRun !== null);
 
   async function refreshScripts() {
     try {
-      const res = await api.listScripts();
+      const res = await port.listScripts();
       setScripts(res.scripts);
       setScriptId((prev) => prev || res.scripts[0]?.id || "");
     } catch {
@@ -57,7 +61,7 @@ export function Launcher() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.listScripts();
+        const res = await port.listScripts();
         if (!cancelled) {
           setScripts(res.scripts);
           setScriptId((prev) => prev || res.scripts[0]?.id || "");
@@ -69,7 +73,7 @@ export function Launcher() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [port]);
   const script = scripts.find((s) => s.id === scriptId) ?? scripts[0];
 
   // The menu wears the selected script's skin: load its UI bundle (for the
@@ -81,11 +85,11 @@ export function Launcher() {
     void (async () => {
       await loadScriptUi(activeScriptId);
       try {
-        const d = await api.scriptDetail(activeScriptId);
-        const theme = d.presentation.themes[0];
+        const d = await port.scriptDetail(activeScriptId);
+        const theme = d.presentation.themes.find((entry) => entry.id === d.presentation.defaultThemeId);
         if (!cancelled && theme) {
           applyTheme(theme, undefined, {
-            assetUrl: (file) => api.fileAsset(activeScriptId, file),
+            assetUrl: (file) => port.assetUrl(activeScriptId, file),
           });
         }
       } catch {
@@ -95,18 +99,18 @@ export function Launcher() {
     return () => {
       cancelled = true;
     };
-  }, [activeScriptId]);
+  }, [activeScriptId, port]);
 
   async function openModal(kind: "new" | "continue", id: string) {
     clearError();
     setModal({ kind, scriptId: id });
     try {
-      const d = await api.scriptDetail(id);
+      const d = await port.scriptDetail(id);
       setDetail(d);
       setSaves(d.saves);
       if (kind === "new") {
         // Meta unlocks gate the origin picker (locked origins are dimmed).
-        const m = await api.scriptMeta(scriptId);
+        const m = await port.scriptMeta(id);
         setMeta(m);
         setOriginId(d.origins.find((o) => originAvailable(o.id, m))?.id ?? "");
       } else {
@@ -137,7 +141,8 @@ export function Launcher() {
     setImportError("");
     setImportOk("");
     try {
-      const result = await api.importScript(file, false);
+      const preview = await port.previewImport(file);
+      const result = await port.commitImport(preview.token, false);
       setImportOk(`已导入「${result.scriptId}」`);
       await refreshScripts();
     } catch (err) {
@@ -224,7 +229,7 @@ export function Launcher() {
             <button
               type="button"
               onClick={() => void onResumeLast()}
-              disabled={state.busy}
+              disabled={busy}
               className="cg-chrome rounded-xl border px-8 py-3 text-base font-semibold"
               style={{ borderColor: "var(--cg-primary)", color: "var(--cg-primary)", background: "color-mix(in srgb, var(--cg-primary) 10%, transparent)" }}
             >
@@ -366,7 +371,7 @@ export function Launcher() {
               )
             ) : null}
 
-            {state.busy ? (
+            {busy ? (
               <p className="mt-4 text-sm" style={{ color: "var(--cg-text-dim)" }}>正在创建会话……</p>
             ) : null}
 
@@ -378,9 +383,9 @@ export function Launcher() {
               {modal.kind === "new" ? (
                 <button
                   type="button"
-                  disabled={!originId || state.busy}
+                  disabled={!originId || busy}
                   className="cg-chrome rounded-lg px-4 py-1.5 text-sm font-semibold"
-                  style={{ background: "var(--cg-primary)", color: "var(--cg-surface)", opacity: originId && !state.busy ? 1 : 0.5 }}
+                  style={{ background: "var(--cg-primary)", color: "var(--cg-surface)", opacity: originId && !busy ? 1 : 0.5 }}
                   onClick={async () => {
                     closeModal();
                     // User-gesture fullscreen request (silent degradation).

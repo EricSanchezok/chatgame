@@ -56,12 +56,14 @@ function progressEntity<T extends { stats: Record<string, number>; skills: Recor
   definition: WorldDefinition,
   source: ProgressionSource,
   summaries: ProgressionSummary[],
+  targetFilter?: string,
 ): T {
   let stats = entity.stats;
   let skills = entity.skills;
   for (const entry of definition.mechanics.progression ?? []) {
     if (entry.source !== source) continue;
     const target = entry.target;
+    if (targetFilter && target !== targetFilter) continue;
     if (target in stats) {
       const next = clampValue(definition, target, entry.cap, stats[target] + entry.amount);
       if (next !== stats[target]) {
@@ -90,23 +92,23 @@ export function applyProgression(
   state: WorldState,
   definition: WorldDefinition,
   source: ProgressionSource,
+  options: { entityId?: "player" | string; target?: string } = {},
 ): { state: WorldState; summaries: ProgressionSummary[] } {
   const summaries: ProgressionSummary[] = [];
-  const player = progressEntity(state.player, "player", definition, source, summaries);
-
-  let npcsChanged = false;
-  const nextNpcs: Record<string, WorldState["npcs"][string]> = {};
-  for (const [id, npc] of Object.entries(state.npcs)) {
-    const progressed = progressEntity(npc, id, definition, source, summaries);
-    if (progressed !== npc) npcsChanged = true;
-    nextNpcs[id] = progressed;
-  }
+  const entityId = options.entityId ?? "player";
+  const player = entityId === "player"
+    ? progressEntity(state.player, "player", definition, source, summaries, options.target)
+    : state.player;
+  const npc = entityId === "player" ? undefined : state.npcs[entityId];
+  const progressedNpc = npc
+    ? progressEntity(npc, entityId, definition, source, summaries, options.target)
+    : undefined;
 
   return {
     state: {
       ...state,
       player,
-      npcs: npcsChanged ? nextNpcs : state.npcs,
+      npcs: progressedNpc ? { ...state.npcs, [entityId]: progressedNpc } : state.npcs,
     },
     summaries,
   };

@@ -268,7 +268,7 @@ describe("engine integration", () => {
       provider: new MockProvider(),
     });
     for (let i = 0; i < SUMMARY_EVERY_TURNS; i++) {
-      await engine.playerTurn("你好，艾拉");
+      await engine.playerTurn({ text: "你好，艾拉" });
     }
     const summary = engine.worldState.contextSummary;
     expect(summary).toBeDefined();
@@ -284,7 +284,7 @@ describe("engine integration", () => {
       provider: new MockProvider(),
     });
     for (let i = 0; i < SUMMARY_EVERY_TURNS; i++) {
-      await engine.playerTurn("你好，艾拉");
+      await engine.playerTurn({ text: "你好，艾拉" });
     }
     const summaryBefore = engine.worldState.contextSummary;
     expect(summaryBefore!.text.length).toBeGreaterThan(0);
@@ -312,7 +312,7 @@ describe("engine integration", () => {
       provider: failing,
     });
     for (let i = 0; i < SUMMARY_EVERY_TURNS + 1; i++) {
-      const result = await engine.playerTurn("你好，艾拉");
+      const result = await engine.playerTurn({ text: "你好，艾拉" });
       expect(result.narrative.length).toBeGreaterThan(0);
     }
     // No summary was stored, but the turns completed.

@@ -300,6 +300,7 @@ export function generateWorld(
     locationInventories,
     transcript: [],
     runtimeState: {},
+    activeNeedThresholds: [],
   };
 
   return { state, summary, startingEvent };

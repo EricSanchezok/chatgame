@@ -120,4 +120,17 @@ describe("needs", () => {
     expect(quiet.triggered).toEqual([]);
     expect(quiet.state).toBe(full); // nothing fired, state identity kept
   });
+
+  it("does not reapply a threshold until the need recovers and crosses again", () => {
+    const base = makeState();
+    const low = { ...base, player: { ...base.player, needs: { hunger: { value: 20 } } } };
+    const first = applyNeedThresholds(low, emberfall, 1);
+    const second = applyNeedThresholds(first.state, emberfall, 2);
+    expect(second.triggered).toEqual([]);
+    expect(second.state.player.stats.strength).toBe(first.state.player.stats.strength);
+    const recovered = { ...second.state, player: { ...second.state.player, needs: { hunger: { value: 70 } } } };
+    const clear = applyNeedThresholds(recovered, emberfall, 3);
+    const lowAgain = { ...clear.state, player: { ...clear.state.player, needs: { hunger: { value: 20 } } } };
+    expect(applyNeedThresholds(lowAgain, emberfall, 4).triggered).toContain("hunger:饥饿");
+  });
 });

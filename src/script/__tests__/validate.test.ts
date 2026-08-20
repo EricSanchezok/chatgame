@@ -420,7 +420,7 @@ id: t1
 name: 测试任务
 objective:
   type: gather
-  target: { pool: [item1] }
+  target: { items: [item1] }
   quantity: 1
 giver: { pool: [ghost] }
 rewards: []
@@ -589,7 +589,7 @@ id: t1
 name: 测试任务
 objective:
   type: gather
-  target: { pool: [item1] }
+  target: { items: [item1] }
   quantity: 1
 giver: { pool: [npc1] }
 rewards:
@@ -610,7 +610,7 @@ id: t1
 name: 测试任务
 objective:
   type: gather
-  target: { pool: [item1] }
+  target: { items: [item1] }
   quantity: 1
 giver: { pool: [npc1] }
 rewards:
@@ -631,7 +631,7 @@ id: t1
 name: 测试任务
 objective:
   type: gather
-  target: { pool: [item1] }
+  target: { items: [item1] }
   quantity: 1
 giver: { pool: [npc1] }
 rewards:
@@ -652,7 +652,7 @@ id: t1
 name: 测试任务
 objective:
   type: gather
-  target: { pool: [item1] }
+  target: { items: [item1] }
   quantity: 1
 giver: { pool: [npc1] }
 rewards:
@@ -833,7 +833,7 @@ id: t1
 name: 测试任务
 objective:
   type: gather
-  target: { pool: [item1] }
+  target: { items: [item1] }
   quantity: 1
 giver:
   pool: [npc1]
@@ -970,7 +970,7 @@ id: t1
 name: 测试任务
 objective:
   type: gather
-  target: { pool: [item1] }
+  target: { items: [item1] }
   quantity: 1
 giver:
   pool: [npc1]

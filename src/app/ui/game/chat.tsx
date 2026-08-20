@@ -8,7 +8,7 @@
 // replace the HUD, toolbar, pause menu, bubbles, or panels via slots.
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Catalog, WorldState } from "../../lib/api";
+import type { Catalog, TurnResultFull, WorldState } from "../../lib/api";
 import { loadScriptUi } from "../../lib/script-registry";
 import { EntryCards, ResolutionChip } from "./cards";
 import { ActivePanel } from "./panels";
@@ -16,10 +16,12 @@ import { Hud } from "./hud";
 import { Toolbar } from "./toolbar";
 import { PauseMenu } from "./pause-menu";
 import { UiIcon } from "./ui-icon";
-import { useGame } from "./state";
+import { useGameActions, useGameSelector } from "./state";
 
 export function GameScreen() {
-  const { state, sendTurn, save, exitGame, setTheme, setAudio, setPanel, setPause } = useGame();
+  const state = useGameSelector((snapshot) => snapshot);
+  const { submitTurn, save, exitGame, setTheme, setAudio, setPanel, setPause } = useGameActions();
+  const busy = state.operation !== "idle";
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const session = state.session;
@@ -61,9 +63,9 @@ export function GameScreen() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || state.busy) return;
+    if (!text || busy) return;
     setInput("");
-    await sendTurn(text);
+    await submitTurn(text);
   }
 
   return (
@@ -122,7 +124,7 @@ export function GameScreen() {
               actionName={actionName}
             />
           ) : null}
-          {state.busy ? (
+          {busy ? (
             <div className="self-start text-sm italic" style={{ color: "var(--cg-text-dim)" }}>
               世界正在回应……
             </div>
@@ -152,14 +154,14 @@ export function GameScreen() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="说点什么，或试着行动（如：偷艾拉的东西 / 我去矿井入口）"
-              disabled={state.busy}
+              disabled={busy}
               className="cg-chrome flex-1 rounded-full border px-4 py-2"
               style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)", color: "var(--cg-text)" }}
               aria-label="玩家输入"
             />
             <button
               type="submit"
-              disabled={state.busy || !input.trim()}
+              disabled={busy || !input.trim()}
               className="cg-chrome flex items-center gap-1.5 rounded-full px-5 py-2 font-semibold"
               style={{ background: "var(--cg-primary)", color: "var(--cg-surface)" }}
             >
@@ -186,7 +188,7 @@ export function GameScreen() {
           themes={session.presentation.themes}
           audioEnabled={state.audioEnabled}
           dirty={state.dirty}
-          busy={state.busy}
+          busy={busy}
           onTheme={setTheme}
           onAudio={setAudio}
           onSave={async () => {
@@ -222,7 +224,7 @@ function SystemFeedbackBlock({
   lastTurn,
   actionName,
 }: {
-  lastTurn: NonNullable<ReturnType<typeof useGame>["state"]["lastTurn"]>;
+  lastTurn: TurnResultFull;
   actionName: (id: string) => string;
 }) {
   const { worldEvents, taskCompletions, deathFired, fellBackToTalk } = lastTurn;

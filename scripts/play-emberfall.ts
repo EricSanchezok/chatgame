@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 
   for (const input of turns) {
     console.log(`\n--- 玩家：${input} ---`);
-    const result = await engine.playerTurn(input);
+    const result = await engine.playerTurn({ text: input });
     console.log(result.narrative);
     if (result.resolution) {
       console.log(`[判定] ${result.resolution.actionId} → ${result.resolution.grade} (roll=${result.resolution.roll ?? "-"}/dc=${result.resolution.dc ?? "-"})`);

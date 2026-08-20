@@ -75,6 +75,11 @@ function buildTestZip(scriptId: string): Buffer {
       Buffer.from(rel.endsWith("script.yaml") ? content.replace("id: starlight", `id: ${scriptId}`) : content),
     );
   }
+  const coverPath = "assets/backgrounds/bridge.svg";
+  zip.addFile(
+    `${scriptId}-dir/${coverPath}`,
+    readFileSync(path.join(srcDir, coverPath)),
+  );
   return zip.toBuffer();
 }
 
@@ -259,7 +264,7 @@ describe("session lifecycle", () => {
     installStarlight();
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
     expect(session.state.transcript.length).toBeGreaterThan(0); // opening entry
-    const result = await host.turn(session.id, "你好，黑猫");
+    const result = await host.turn(session.id, { text: "你好，黑猫" });
     expect(result.narrative.length).toBeGreaterThan(0);
     expect(host.state(session.id).transcript.length).toBeGreaterThan(session.state.transcript.length);
     host.destroySession(session.id);
@@ -269,7 +274,7 @@ describe("session lifecycle", () => {
   it("save/load round-trips through the host", async () => {
     installStarlight();
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
-    await host.turn(session.id, "我去舰桥");
+    await host.turn(session.id, { text: "我去舰桥" });
     const filePath = await host.save(session.id, "host-test");
     expect(filePath).toContain("host-test.json");
     expect(host.listSaves(session.id)).toContain("host-test.json");
@@ -284,9 +289,9 @@ describe("session lifecycle", () => {
     installStarlight();
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
     const results = await Promise.all([
-      host.turn(session.id, "你好"),
-      host.turn(session.id, "休息"),
-      host.turn(session.id, "再见"),
+      host.turn(session.id, { text: "你好" }),
+      host.turn(session.id, { text: "休息" }),
+      host.turn(session.id, { text: "再见" }),
     ]);
     expect(results).toHaveLength(3);
     expect(results.every((r) => r.narrative.length > 0)).toBe(true);
@@ -313,7 +318,7 @@ describe("persistence & autosave", () => {
   it("auto-saves to the fixed autosave slot after every turn", async () => {
     installStarlight();
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
-    await host.turn(session.id, "我去舰桥");
+    await host.turn(session.id, { text: "我去舰桥" });
     const autosavePath = path.join(dataRoot, "saves", "starlight", "autosave.json");
     expect(existsSync(autosavePath)).toBe(true);
     const raw = JSON.parse(readFileSync(autosavePath, "utf8")) as {
@@ -331,7 +336,7 @@ describe("persistence & autosave", () => {
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
     const beforeHours = host.state(session.id).clock.totalHours;
     const [turnResult] = await Promise.all([
-      host.turn(session.id, "你好"),
+      host.turn(session.id, { text: "你好" }),
       host.advance(session.id, 6),
     ]);
     expect(turnResult.narrative.length).toBeGreaterThan(0);
@@ -345,7 +350,7 @@ describe("persistence & autosave", () => {
   it("resumes a destroyed session from the autosave slot (refresh recovery)", async () => {
     installStarlight();
     const session = host.createSession({ scriptId: "starlight", originId: "crew-member", seed: 7 });
-    await host.turn(session.id, "我去舰桥");
+    await host.turn(session.id, { text: "我去舰桥" });
     const transcriptBefore = JSON.stringify(host.state(session.id).transcript);
     host.destroySession(session.id); // the in-memory session is gone
 

@@ -365,7 +365,7 @@ describe("task schema", () => {
   const valid = {
     id: "gather-herbs",
     name: "采集药草",
-    objective: { type: "gather", target: { pool: ["herb"] }, quantity: 3 },
+    objective: { type: "gather", target: { items: ["herb"] }, quantity: 3 },
     giver: { pool: ["herbalist"] },
     rewards: [{ kind: "currency", direction: "add", target: "player", value: 15 }],
     repeatable: true,

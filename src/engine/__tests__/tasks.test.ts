@@ -167,7 +167,7 @@ describe("task objective completions (synthetic tasks)", () => {
     const def = emberfall();
     const t = task("deliver-test", "交付测试", {
       type: "deliver",
-      target: { pool: ["elara", "tonic"] },
+      target: { recipient: "elara", item: "tonic" },
       quantity: 1,
     });
     const state = coLocated(freshState(def), ["shen-jiugu", "elara"], "forest-edge");
@@ -203,7 +203,7 @@ describe("task objective completions (synthetic tasks)", () => {
     const def = emberfall();
     const t = task("investigate-test", "调查测试", {
       type: "investigate",
-      target: { pool: ["cond-marker"] },
+      target: { subject: "cond-marker" },
       quantity: 1,
     });
     const state = coLocated(freshState(def), ["shen-jiugu"], "forest-edge");
@@ -219,7 +219,7 @@ describe("task objective completions (synthetic tasks)", () => {
     const def = emberfall();
     const t = task("hunt-test", "猎杀测试", {
       type: "hunt",
-      target: { pool: ["caravan-boss"] },
+      target: { npc: "caravan-boss" },
       quantity: 1,
     });
     const state = coLocated(freshState(def), ["shen-jiugu"], "forest-edge");
@@ -236,7 +236,7 @@ describe("task objective completions (synthetic tasks)", () => {
     const def = emberfall();
     const t = task("travel-test", "旅行测试", {
       type: "travel",
-      target: { pool: ["tavern"] },
+      target: { location: "tavern" },
       quantity: 1,
     });
     const state = coLocated(freshState(def), ["shen-jiugu"], "forest-edge");
@@ -254,7 +254,7 @@ describe("task objective completions (synthetic tasks)", () => {
     const def = emberfall();
     const t = task("persuade-test", "说服测试", {
       type: "persuade",
-      target: { pool: ["elara"] },
+      target: { npc: "elara" },
       quantity: 50,
     });
     // giver = shen-jiugu must be co-located; the persuade target elara's
@@ -276,7 +276,7 @@ describe("task objective completions (synthetic tasks)", () => {
     const t = task(
       "reward-test",
       "奖励测试",
-      { type: "gather", target: { pool: ["herb"] }, quantity: 1 },
+      { type: "gather", target: { items: ["herb"] }, quantity: 1 },
       [
         { kind: "currency", direction: "add", target: "player", value: 7 },
         { kind: "stat", direction: "add", target: "player", stat: "strength", value: 1 },
