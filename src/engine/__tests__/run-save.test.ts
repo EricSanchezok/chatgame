@@ -1,9 +1,7 @@
 // Run policy + save system tests: death modes (soft_failure/
 // world_continue/hard_reset), meta-progression snapshot, and save/load
 // round-trip stability + version gates.
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import {
   checkSoftFailure,
@@ -25,24 +23,89 @@ import {
 } from "../save";
 import { emptyContextSummary } from "../context";
 import type { WorldState, WorldDefinition } from "../types";
+import type { Location } from "../../script/schemas/location";
+import type { Npc } from "../../script/schemas/npc";
+import { loadCoreTestDefinition } from "./core-test-fixture";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
+const SCRIPT_ID = "core-test-script";
 
 function setup(): { def: WorldDefinition; state: WorldState } {
-  const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
-  const { state } = generateWorld(def, "miner", { seed: 42 });
+  const def = loadCoreTestDefinition();
+  const { state } = generateWorld(def, "observer", { seed: 42 });
   return { def, state };
+}
+
+function withSoftFailure(def: WorldDefinition): WorldDefinition {
+  return {
+    ...def,
+    run: {
+      ...def.run,
+      death_policy: {
+        mode: "soft_failure",
+        soft_failure: {
+          gauge_ref: "threat_gauge",
+          threshold: 100,
+          consequence: {
+            location: "relay-room",
+            effects: [{ kind: "stat", direction: "add", target: "player", stat: "hp", value: -5 }],
+            narrative: "值班员将观察员送回中继室复位。",
+          },
+        },
+      },
+    },
+  };
+}
+
+function withMetaUnlock(def: WorldDefinition): WorldDefinition {
+  return {
+    ...def,
+    run: {
+      ...def.run,
+      meta_progression: {
+        ...def.run.meta_progression,
+        unlocks: [{ flag: "returned-visitor", grant: ["observer"] }],
+      },
+    },
+  };
+}
+
+function withDerivedFields(def: WorldDefinition): WorldDefinition {
+  const relayRoom = def.locations.get("relay-room");
+  const operator = def.npcs.get("operator");
+  if (!relayRoom || !operator) throw new Error("core test fixture is incomplete");
+  const locationWithItem: Location = {
+    ...relayRoom,
+    items: [...relayRoom.items, "test-token"],
+  };
+  const operatorWithSecret: Npc = {
+    ...operator,
+    secrets: [
+      ...operator.secrets,
+      {
+        id: "relay-secret",
+        content: "备用线路已完成校验。",
+        reveal: { logic: { all: [{ source: "flag", key: "access-granted", op: "has" }] } },
+      },
+    ],
+  };
+  return {
+    ...def,
+    locations: new Map([...def.locations, [locationWithItem.id, locationWithItem]]),
+    npcs: new Map([...def.npcs, [operatorWithSecret.id, operatorWithSecret]]),
+  };
 }
 
 describe("run policy: soft_failure", () => {
   it("does not fire below threshold", () => {
-    const { def, state } = setup();
+    const { def: base, state } = setup();
+    const def = withSoftFailure(base);
     const result = checkSoftFailure(state, def);
     expect(result.firedMode).toBeUndefined();
   });
 
   it("fires at threshold: teleports + resets gauge", () => {
-    const { def, state } = setup();
+    const { def: base, state } = setup();
+    const def = withSoftFailure(base);
     const stressed = { ...state, player: { ...state.player, threatGauge: 100 } };
     const result = checkSoftFailure(stressed, def);
     expect(result.firedMode).toBe("soft_failure");
@@ -65,7 +128,8 @@ describe("run policy: soft_failure", () => {
   });
 
   it("applyDeathPolicy dispatches to soft_failure", () => {
-    const { def, state } = setup();
+    const { def: base, state } = setup();
+    const def = withSoftFailure(base);
     const stressed = { ...state, player: { ...state.player, threatGauge: 100 } };
     const result = applyDeathPolicy(stressed, def);
     expect(result.firedMode).toBe("soft_failure");
@@ -146,7 +210,7 @@ describe("run policy: world_continue / hard_reset", () => {
     };
     const result = applyHardReset(deadState(state), hrDef);
     expect(result.firedMode).toBe("hard_reset");
-    expect(result.state.scriptId).toBe("emberfall");
+    expect(result.state.scriptId).toBe(SCRIPT_ID);
   });
   it("hard_reset keep_world preserves npcs but resets player", () => {
     const { def, state } = setup();
@@ -160,12 +224,19 @@ describe("run policy: world_continue / hard_reset", () => {
         },
       },
     };
-    const result = applyHardReset(deadState(state), hrDef);
+    const changed = deadState({
+      ...state,
+      player: {
+        ...state.player,
+        inventory: { stacks: [{ itemId: "test-token", quantity: 1 }], currency: 99 },
+      },
+    });
+    const result = applyHardReset(changed, hrDef);
     expect(result.state.npcs).toEqual(state.npcs); // world kept
     // Player reset to the first origin in the script (keys order).
     const firstOriginId = def.origins.keys().next().value as string;
     expect(result.state.player.originId).toBe(firstOriginId);
-    expect(result.state.player.inventory).not.toEqual(state.player.inventory); // reset
+    expect(result.state.player.inventory).not.toEqual(changed.player.inventory); // reset
   });
 });
 
@@ -173,18 +244,17 @@ describe("meta-progression", () => {
   it("metaProgressionSnapshot respects keep list", () => {
     const { def, state } = setup();
     const snap = metaProgressionSnapshot(state, def);
-    // emberfall run.yaml keep: [flags, lore, relations_overview]
-    expect(Array.isArray(snap.flags)).toBe(true);
-    expect(Array.isArray(snap.lore)).toBe(true);
-    expect(Array.isArray(snap.relations)).toBe(true);
+    expect(snap.flags).toEqual(state.player.flags);
+    expect(snap.lore).toEqual([]);
+    expect(snap.relations).toEqual([]);
   });
 
   it("applyUnlocks grants origins for met flags", () => {
-    const { def, state } = setup();
-    const withFlag = { ...state, player: { ...state.player, flags: [...state.player.flags, "returned_visitor"] } };
+    const { def: base, state } = setup();
+    const def = withMetaUnlock(base);
+    const withFlag = { ...state, player: { ...state.player, flags: [...state.player.flags, "returned-visitor"] } };
     const granted = applyUnlocks(withFlag, def);
-    // emberfall run.yaml unlocks: returned_visitor -> [miner-foreman] (if defined)
-    expect(Array.isArray(granted)).toBe(true);
+    expect(granted).toEqual(["observer"]);
   });
 });
 
@@ -199,7 +269,7 @@ describe("save system", () => {
     const { def, state } = setup();
     const save = serializeSave(def, state, "2026-01-01T00:00:00.000Z");
     expect(save.saveSchemaVersion).toBe(SAVE_SCHEMA_VERSION);
-    expect(save.scriptId).toBe("emberfall");
+    expect(save.scriptId).toBe(SCRIPT_ID);
     expect(save.createdAt).toBe("2026-01-01T00:00:00.000Z");
   });
 
@@ -212,7 +282,7 @@ describe("save system", () => {
   it("deserializeSave rejects mismatched script id", () => {
     const { def, state } = setup();
     const save = serializeSave(def, state);
-    expect(() => deserializeSave(save, "starlight")).toThrow(SaveError);
+    expect(() => deserializeSave(save, "other-script")).toThrow(SaveError);
   });
 
   it("rejects forged inner script ids and checks the expected script against both ids", () => {
@@ -220,17 +290,17 @@ describe("save system", () => {
     const save = serializeSave(def, state);
     const forgedInner = {
       ...save,
-      worldState: { ...save.worldState, scriptId: "starlight" },
+      worldState: { ...save.worldState, scriptId: "other-script" },
     };
     expect(() => deserializeSave(forgedInner)).toThrow(/worldState\.scriptId.*envelope scriptId/);
-    expect(() => deserializeSave(forgedInner, "emberfall")).toThrow(/worldState\.scriptId.*envelope scriptId/);
+    expect(() => deserializeSave(forgedInner, SCRIPT_ID)).toThrow(/worldState\.scriptId.*envelope scriptId/);
 
     const internallyConsistentWrongScript = {
       ...forgedInner,
-      scriptId: "starlight",
+      scriptId: "other-script",
     };
-    expect(() => deserializeSave(internallyConsistentWrongScript, "emberfall"))
-      .toThrow(/save is for script "starlight" but expected "emberfall"/);
+    expect(() => deserializeSave(internallyConsistentWrongScript, SCRIPT_ID))
+      .toThrow(/save is for script "other-script" but expected "core-test-script"/);
   });
 
   it("deserializeSave rejects a v5 snapshot missing active need thresholds", () => {
@@ -244,7 +314,7 @@ describe("save system", () => {
   it("deserializeSave rejects a forged v5 envelope with only one world field", () => {
     expect(() => deserializeSave({
       saveSchemaVersion: SAVE_SCHEMA_VERSION,
-      scriptId: "emberfall",
+      scriptId: SCRIPT_ID,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       worldState: { activeNeedThresholds: [] },
@@ -276,7 +346,7 @@ describe("save system", () => {
     const { def, state } = setup();
     const filePath = writeSave(def, state, "test-run-001");
     expect(filePath).toContain("test-run-001.json");
-    const restored = readSave(filePath, "emberfall");
+    const restored = readSave(filePath, SCRIPT_ID);
     expect(JSON.stringify(restored.worldState)).toBe(JSON.stringify(state));
   });
 
@@ -287,7 +357,8 @@ describe("save system", () => {
 
 describe("save system: normalizeWorldState", () => {
   it("fills missing derived fields from the definition", () => {
-    const { def, state } = setup();
+    const { def: base, state } = setup();
+    const def = withDerivedFields(base);
     // Strip the derived fields as a v3 snapshot could when hand-built.
     const stripped: WorldState = {
       ...state,
@@ -300,10 +371,10 @@ describe("save system: normalizeWorldState", () => {
     const normalized = normalizeWorldState(def, stripped);
     // locationInventories rebuilt from locations[].items.
     expect(normalized.locationInventories).toBeDefined();
-    const mine = normalized.locationInventories["mine-entrance"];
-    expect(mine.stacks.some((s) => s.itemId === "coal-essence")).toBe(true);
-    // secretHolders rebuilt from NPC secrets (knock-code -> old-wei).
-    expect(normalized.secretHolders["knock-code"]).toBe("old-wei");
+    const relay = normalized.locationInventories["relay-room"];
+    expect(relay.stacks.some((s) => s.itemId === "test-token")).toBe(true);
+    // secretHolders rebuilt from the overlaid NPC secret.
+    expect(normalized.secretHolders["relay-secret"]).toBe("operator");
     // Played-tracking defaults.
     expect(normalized.playedEventIds).toEqual([]);
     expect(normalized.eventLastPlayedDay).toEqual({});
