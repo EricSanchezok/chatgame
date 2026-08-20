@@ -1,12 +1,14 @@
 // API layer tests: direct handler invocation (no HTTP server needed).
 // Asserts JSON bodies, status codes, and error mapping across the
 // scripts/sessions/assets routes.
-import { mkdirSync, rmSync, cpSync, existsSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, cpSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
+const CORE_SCRIPT_ID = "core-test-script";
+const CORE_ORIGIN_ID = "observer";
 let scriptsRoot: string;
 let sessionId: string;
 
@@ -14,9 +16,12 @@ beforeAll(() => {
   // Point EngineHost at a temp scripts root + temp data root (avoids
   // mutating the repo). The singleton caches by env, so both must be set
   // before the first import.
-  scriptsRoot = path.join(tmpdir(), `cg-api-${Date.now()}`);
-  mkdirSync(scriptsRoot, { recursive: true });
-  cpSync(path.join(REPO_ROOT, "scripts", "starlight"), path.join(scriptsRoot, "starlight"), { recursive: true });
+  scriptsRoot = mkdtempSync(path.join(tmpdir(), "cg-api-"));
+  cpSync(
+    path.join(REPO_ROOT, "test", "fixtures", "core-test-library", CORE_SCRIPT_ID),
+    path.join(scriptsRoot, CORE_SCRIPT_ID),
+    { recursive: true },
+  );
   process.env.CHATGAME_SCRIPTS_ROOT = scriptsRoot;
   process.env.CHATGAME_DATA_ROOT = path.join(scriptsRoot, ".data");
 });
@@ -34,37 +39,37 @@ describe("scripts API", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.scripts).toHaveLength(1);
-    expect(body.scripts[0].id).toBe("starlight");
+    expect(body.scripts[0].id).toBe(CORE_SCRIPT_ID);
     expect(body.scripts[0]).toMatchObject({ schemaVersion: "1.1", source: { kind: "built-in", label: "内置" } });
     expect(body.scripts[0].defaultThemeId).toBe("default");
-    expect(body.scripts[0].theme.palette.background).toBe("#0b0e14");
+    expect(body.scripts[0].theme.palette.background).toBe("#0d1113");
   });
 
   it("GET /api/scripts/:id returns presentation + origins", async () => {
     const { GET } = await import("../scripts/[scriptId]/route");
-    const res = await GET(new Request("http://x/api/scripts/starlight"), {
-      params: Promise.resolve({ scriptId: "starlight" }),
+    const res = await GET(new Request(`http://x/api/scripts/${CORE_SCRIPT_ID}`), {
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.origins.map((o: { id: string }) => o.id)).toContain("crew-member");
+    expect(body.origins.map((o: { id: string }) => o.id)).toContain(CORE_ORIGIN_ID);
     expect(body.presentation.themes.length).toBeGreaterThanOrEqual(3);
     expect(body.presentation.defaultThemeId).toBe("default");
-    expect(body.safety.age_rating).toBe("16+");
+    expect(body.safety.age_rating).toBe("全年龄");
     expect(body.safety.content_classes.length).toBeGreaterThan(0);
     expect(body.safety.content_classes).toContain("violence");
   });
 
   it("serves immutable versioned UI bundles with ETag revalidation", async () => {
     const detailMod = await import("../scripts/[scriptId]/route");
-    const detailRes = await detailMod.GET(new Request("http://x/api/scripts/starlight"), {
-      params: Promise.resolve({ scriptId: "starlight" }),
+    const detailRes = await detailMod.GET(new Request(`http://x/api/scripts/${CORE_SCRIPT_ID}`), {
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID }),
     });
     const detail = await detailRes.json();
     const bundleUrl = detail.presentation.uiBundle.url as string;
     const { GET } = await import("../scripts/[scriptId]/ui-bundle/route");
     const first = await GET(new Request(`http://x${bundleUrl}`), {
-      params: Promise.resolve({ scriptId: "starlight" }),
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID }),
     });
     expect(first.status).toBe(200);
     expect(first.headers.get("cache-control")).toContain("immutable");
@@ -72,7 +77,7 @@ describe("scripts API", () => {
     expect(etag).toMatch(/^"[0-9a-f]{20}"$/);
 
     const cached = await GET(new Request(`http://x${bundleUrl}`, { headers: { "if-none-match": etag! } }), {
-      params: Promise.resolve({ scriptId: "starlight" }),
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID }),
     });
     expect(cached.status).toBe(304);
   });
@@ -87,22 +92,22 @@ describe("scripts API", () => {
 
   it("DELETE /api/scripts/:id never deletes an application-owned built-in", async () => {
     const { DELETE } = await import("../scripts/[scriptId]/route");
-    const res = await DELETE(new Request("http://x/api/scripts/starlight", { method: "DELETE" }), {
-      params: Promise.resolve({ scriptId: "starlight" }),
+    const res = await DELETE(new Request(`http://x/api/scripts/${CORE_SCRIPT_ID}`, { method: "DELETE" }), {
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID }),
     });
     expect(res.status).toBe(403);
-    expect(existsSync(path.join(scriptsRoot, "starlight", "script.yaml"))).toBe(true);
+    expect(existsSync(path.join(scriptsRoot, CORE_SCRIPT_ID, "script.yaml"))).toBe(true);
   });
 });
 
 describe("assets API", () => {
   it("serves a real asset file with the right content type", async () => {
-    // starlight assets.yaml has no real files; add one to the temp copy.
-    mkdirSync(path.join(scriptsRoot, "starlight", "assets", "icons"), { recursive: true });
-    writeFileSync(path.join(scriptsRoot, "starlight", "assets", "icons", "probe.svg"), "<svg/>");
+    // The core fixture has no real assets; add one only to the temp copy.
+    mkdirSync(path.join(scriptsRoot, CORE_SCRIPT_ID, "assets", "icons"), { recursive: true });
+    writeFileSync(path.join(scriptsRoot, CORE_SCRIPT_ID, "assets", "icons", "probe.svg"), "<svg/>");
     const { GET } = await import("../scripts/[scriptId]/assets/[...path]/route");
-    const res = await GET(new Request("http://x/api/scripts/starlight/assets/icons/probe.svg"), {
-      params: Promise.resolve({ scriptId: "starlight", path: ["icons", "probe.svg"] }),
+    const res = await GET(new Request(`http://x/api/scripts/${CORE_SCRIPT_ID}/assets/icons/probe.svg`), {
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID, path: ["icons", "probe.svg"] }),
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/svg+xml");
@@ -111,8 +116,8 @@ describe("assets API", () => {
 
   it("rejects path traversal with 400", async () => {
     const { GET } = await import("../scripts/[scriptId]/assets/[...path]/route");
-    const res = await GET(new Request("http://x/api/scripts/starlight/assets/../../secret"), {
-      params: Promise.resolve({ scriptId: "starlight", path: ["..", "..", "secret"] }),
+    const res = await GET(new Request(`http://x/api/scripts/${CORE_SCRIPT_ID}/assets/../../secret`), {
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID, path: ["..", "..", "secret"] }),
     });
     expect(res.status).toBe(400);
   });
@@ -125,14 +130,14 @@ describe("sessions API", () => {
       new Request("http://x/api/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scriptId: "starlight", originId: "crew-member", seed: 11 }),
+        body: JSON.stringify({ scriptId: CORE_SCRIPT_ID, originId: CORE_ORIGIN_ID, seed: 11 }),
       }),
     );
     expect(res.status).toBe(201);
     const body = await res.json();
     sessionId = body.id;
     expect(body.state.transcript.length).toBeGreaterThan(0);
-    expect(body.presentation.currentTheme.palette.background).toBe("#0b0e14");
+    expect(body.presentation.currentTheme.palette.background).toBe("#0d1113");
   });
 
   it("POST /api/sessions rejects missing fields", async () => {
@@ -141,7 +146,7 @@ describe("sessions API", () => {
       new Request("http://x/api/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scriptId: "starlight" }),
+        body: JSON.stringify({ scriptId: CORE_SCRIPT_ID }),
       }),
     );
     expect(res.status).toBe(400);
@@ -179,21 +184,27 @@ describe("sessions API", () => {
     const beforeRes = await stateMod.GET(new Request("http://x/api/sessions/state"), {
       params: Promise.resolve({ id: sessionId }),
     });
-    const before = (await beforeRes.json()).state.player.needs.oxygen.value;
+    const beforeState = (await beforeRes.json()).state;
+    const before = beforeState.player.relations.find(
+      (relation: { npcId: string }) => relation.npcId === "operator",
+    ).value;
     const res = await POST(
       new Request("http://x/api/sessions/descriptor", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: "player.needs.oxygen", text: "呼吸顺畅" }),
+        body: JSON.stringify({ path: "player.relations.operator", text: "交班记录可信" }),
       }),
       { params: Promise.resolve({ id: sessionId }) },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.state.player.needs.oxygen.descriptor.description).toBe("呼吸顺畅");
-    expect(body.state.player.needs.oxygen.descriptor.userEdited).toBe(true);
+    const relation = body.state.player.relations.find(
+      (item: { npcId: string }) => item.npcId === "operator",
+    );
+    expect(relation.descriptor.description).toBe("交班记录可信");
+    expect(relation.descriptor.userEdited).toBe(true);
     // Dual-track rule: the edit never touches the numeric value.
-    expect(body.state.player.needs.oxygen.value).toBe(before);
+    expect(relation.value).toBe(before);
   });
 
   it("POST /api/sessions/:id/descriptor handles reputation paths safely (empty initial state)", async () => {
@@ -202,13 +213,13 @@ describe("sessions API", () => {
       new Request("http://x/api/sessions/descriptor", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: "player.reputation.deck-gang", text: "船帮眼里的无名之辈" }),
+        body: JSON.stringify({ path: "player.reputation.calibration-team", text: "校准组眼里的无名之辈" }),
       }),
       { params: Promise.resolve({ id: sessionId }) },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    // Fresh starlight sessions start with no reputation entries; the edit
+    // Fresh core-test-script sessions start with no reputation entries; the edit
     // is a safe no-op that must not crash or mutate the list.
     expect(Array.isArray(body.state.player.reputation)).toBe(true);
     expect(body.state.player.reputation.length).toBe(0);
@@ -285,7 +296,7 @@ describe("input ceilings", () => {
       new Request("http://x/api/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scriptId: "starlight", originId: "crew-member", seed: 3 }),
+        body: JSON.stringify({ scriptId: CORE_SCRIPT_ID, originId: CORE_ORIGIN_ID, seed: 3 }),
       }),
     );
     const body = await res.json();
@@ -348,14 +359,13 @@ describe("input ceilings", () => {
 describe("meta API", () => {
   it("GET /api/scripts/:id/meta returns unlocks + lockable set", async () => {
     const { GET } = await import("../scripts/[scriptId]/meta/route");
-    const res = await GET(new Request("http://x/api/scripts/starlight/meta"), {
-      params: Promise.resolve({ scriptId: "starlight" }),
+    const res = await GET(new Request(`http://x/api/scripts/${CORE_SCRIPT_ID}/meta`), {
+      params: Promise.resolve({ scriptId: CORE_SCRIPT_ID }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.unlockedOrigins)).toBe(true);
-    // starlight run.yaml: returned_visitor -> [station-merchant].
-    expect(body.lockableOrigins).toContain("station-merchant");
+    expect(body.lockableOrigins).toEqual([]);
     // The meta file may or may not exist yet (earlier turns write it on
     // autosave); either state is valid.
     expect(body.updatedAt === null || typeof body.updatedAt === "string").toBe(true);
