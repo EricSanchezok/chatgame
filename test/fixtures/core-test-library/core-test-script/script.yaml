@@ -1,0 +1,14 @@
+id: core-test-script
+name: 核心工作台
+description: 独立验证宿主、引擎扩展与剧本界面契约的确定性剧本。
+schema_version: "1.1"
+language: zh-CN
+tone: [技术悬疑, 克制]
+author: chatgame-test
+engine_extension:
+  api_version: 2
+  effects: []
+  conditions: []
+  action_handlers: []
+  rule_mechanisms: []
+  lifecycle: [session_start]

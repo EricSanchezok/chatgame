@@ -20,14 +20,14 @@ export async function installMockGameRoutes(
   scenario: MockGameScenario = {},
 ): Promise<MockGamePort> {
   const port = new MockGamePort(scenario);
+  await page.route("**/api/**", async (route) => fulfillFromPort(route, port));
   await page.route("**/api/scripts/*/ui-bundle", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "text/javascript",
-      body: "export default function register() {}",
+      body: "export const apiVersion = 3; export default function register() {}",
     });
   });
-  await page.route("**/api/**", async (route) => fulfillFromPort(route, port));
   return port;
 }
 
@@ -38,10 +38,10 @@ export async function openLauncher(page: Page): Promise<void> {
 
 export async function startFixtureGame(page: Page): Promise<void> {
   await page.getByRole("button", { name: "开始新游戏" }).click();
-  const dialog = page.getByRole("dialog", { name: "新游戏" });
+  const dialog = page.getByRole("dialog", { name: /开始《工作台剧本》/ });
   await dialog.getByRole("combobox").waitFor();
-  await dialog.getByRole("button", { name: "开始冒险" }).click();
-  await page.getByRole("textbox", { name: "玩家输入" }).waitFor();
+  await dialog.getByRole("button", { name: "进入世界" }).click();
+  await page.getByRole("textbox", { name: "输入你的话或行动" }).waitFor();
 }
 
 export async function settleVisualPage(page: Page): Promise<void> {

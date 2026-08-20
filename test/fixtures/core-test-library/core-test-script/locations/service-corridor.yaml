@@ -1,0 +1,12 @@
+id: service-corridor
+name: 维护走廊
+type: interior
+description: 用于验证地点迁移与消息卡片的短走廊。
+connections:
+  - to: relay-room
+    distance: 1
+    travel_time: 1
+ambient_events: []
+npcs_present: []
+items: []
+danger_level: 0

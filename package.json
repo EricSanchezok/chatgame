@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint --ignore-pattern '.storybook/static/**' --ignore-pattern 'e2e/artifacts/**'",
     "script:validate": "tsx scripts/validate-script.ts",
-    "script:check": "npm run script:validate -- scripts/emberfall && npm run script:validate -- scripts/starlight",
+    "script:check": "npm run script:validate -- scripts/emberfall && npm run script:validate -- scripts/starlight && npm run script:validate -- test/fixtures/core-test-library/core-test-script",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "npm run test:unit",
     "test:unit": "vitest run --project unit",

@@ -1,0 +1,16 @@
+id: handoff-signal
+name: 交班信号
+type: opening
+tags: [handoff]
+trigger: condition
+conditions:
+  all:
+    - { source: location, key: current, op: eq, value: service-corridor }
+effects: []
+narrative:
+  template: handoff-signal
+weight: 1
+cooldown: 0
+repeatable: false
+participants: []
+locations: [service-corridor]

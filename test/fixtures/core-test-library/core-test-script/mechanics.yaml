@@ -1,0 +1,26 @@
+stats:
+  - name: hp
+    min: 0
+    max: 100
+    initial: 80
+    description: 生命状态
+skills:
+  - name: focus
+    min: 0
+    max: 10
+    initial: 6
+    description: 校准专注度
+inventory:
+  capacity: 4
+  stacking: true
+currency:
+  name: 校准点
+  symbol: 点
+  initial: 3
+combat:
+  damage_types: [signal]
+  defense_types: [shield]
+  hp_stat: hp
+  threat_gauge:
+    max: 100
+    on_full: soft_failure

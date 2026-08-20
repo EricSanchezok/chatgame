@@ -1,0 +1,20 @@
+id: operator
+name: 值班员
+base_class: humanoid
+description: 负责确认中继站每次状态转移都有记录。
+traits: []
+stats:
+  hp: 100
+skills:
+  focus: 9
+occupation: operator-shift
+schedule: operator-shift
+home: relay-room
+items: []
+relations: []
+secrets: []
+knowledge_flags: [handoff-known]
+llm:
+  personality: 简洁、准确，只陈述已验证事实。
+  speech_patterns: [先报状态，再报下一步]
+  knowledge_filter: true

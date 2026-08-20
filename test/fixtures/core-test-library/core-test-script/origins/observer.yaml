@@ -1,0 +1,17 @@
+id: observer
+name: 协议观察员
+description: 从中继室开始，拥有稳定的校准参数。
+difficulty: 标准
+skills:
+  focus: 8
+items: []
+starting_location: relay-room
+starting_currency: 3
+starting_relations:
+  - npc: operator
+    value: 20
+    type: 同班
+    description: 共同维护测试线路。
+starting_knowledge: [handoff-known]
+exclusive_leads: []
+denied_actions: []

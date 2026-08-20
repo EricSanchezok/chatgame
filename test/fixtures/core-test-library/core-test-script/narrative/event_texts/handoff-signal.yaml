@@ -1,0 +1,5 @@
+event_id: handoff-signal
+templates:
+  - tone: 克制
+    text: 交班信号已确认，所有宿主接口等待校验。
+    slot_vars: []

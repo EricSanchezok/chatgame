@@ -1,0 +1,12 @@
+id: relay-room
+name: 中继室
+type: interior
+description: 一间灯光稳定、线路编号清晰的测试房间。
+connections:
+  - to: service-corridor
+    distance: 1
+    travel_time: 1
+ambient_events: []
+npcs_present: [operator]
+items: []
+danger_level: 0

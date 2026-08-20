@@ -24,9 +24,13 @@ Class: testing
 
 ## Decision Outcome
 
-Storybook 使用 `@storybook/nextjs-vite` 和 `test/workbench/game-preview-harness.tsx`；Vitest/RTL 分别在 Node 与 jsdom 环境测试契约和组件，Storybook browser mode 覆盖交互和组件级 axe；Playwright 通过 `next start` 对生产构建执行真实路由 E2E、页面级 axe 和确定性视觉快照。
+Storybook 使用 `@storybook/nextjs-vite` 和 `test/workbench/game-preview-harness.tsx`；Vitest/RTL 分别在 Node 与 jsdom 环境测试契约和组件，Storybook browser mode 覆盖交互和组件级 axe；Playwright 通过 `next start` 对生产构建执行真实路由 E2E、页面级 axe 和确定性视觉快照。生产玩家流程不拦截 `/api/**`，请求经 Route Handler、EngineHost 与引擎到 Mock LLM 这一非确定性边界。
 
-共享 `test/workbench/core-test-script.ts` 与 `MockGamePort` 生成不依赖内置剧本 ID 的平台夹具。视觉矩阵覆盖 390×844、768×1024、1440×900、短横屏、200% 文字、减少动效、高对比和主要空、失败、长内容状态，基线保存在 `e2e/__screenshots__/`。
+共享 `test/workbench/core-test-script.ts` 与 `MockGamePort` 提供 Storybook、单元和视觉状态；`MockGamePort` 不进入生产玩家流程。`test/fixtures/core-test-library/core-test-script/` 提供可由生产 loader 读取的独立严格 YAML、Engine API v2 与 UI API v3 fixture，Playwright 用隔离 scripts/data root 驱动它并在套件边界清空数据。
+
+fixture 注册全部公开 UI slot；注册集合由单元契约验证，真实生命周期覆盖 launcher、完整回合、event/location cue、自定义 bubble、panel、pause/save/exit/destroy/continue 与剧本设置。generation 竞态测试保证 world、主题和 bundle 描述符原子归属同一剧本。
+
+视觉矩阵覆盖 390×844、768×1024、1440×900、短横屏、200% 文字、减少动效、高对比和主要空、载入、失败、长内容、dialog、剧本库与设置状态，基线保存在 `e2e/__screenshots__/`。
 
 命令分为 `check:fast`、`check:ui`、`check:all`；`.github/workflows/frontend-workbench.yml` 在 Node 22 上分别执行快速门禁与 Chromium 浏览器矩阵。视觉回归不依赖外部 SaaS。
 

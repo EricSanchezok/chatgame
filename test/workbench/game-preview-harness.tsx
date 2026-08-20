@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { GameControllerEffects } from "@/app/lib/game-store";
-import { defaultPlayerSettings, SETTINGS_STORAGE_KEY } from "@/app/lib/settings";
+import { defaultPlayerSettings, SETTINGS_STORAGE_KEY, writePlayerSettings } from "@/app/lib/settings";
 import { clearSlots } from "@/app/lib/script-registry";
 import { applyTheme } from "@/app/lib/theme";
 import { GameScreen } from "@/app/ui/game/chat";
@@ -34,13 +34,10 @@ export function GamePreviewHarness({ scenario = {}, lastRun = false }: GamePrevi
       onExit: () => undefined,
     };
     clearSlots();
-    localStorage.setItem(
-      SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        ...defaultPlayerSettings,
-        lastRun: lastRun ? { scriptId: CORE_SCRIPT_ID, runId: "autosave.json" } : null,
-      }),
-    );
+    writePlayerSettings({
+      ...defaultPlayerSettings,
+      lastRun: lastRun ? { scriptId: CORE_SCRIPT_ID, runId: "autosave.json" } : null,
+    });
     applyTheme(fixturePresentation().currentTheme);
     return { port, effects };
   });
@@ -49,6 +46,7 @@ export function GamePreviewHarness({ scenario = {}, lastRun = false }: GamePrevi
     () => () => {
       clearSlots();
       localStorage.removeItem(SETTINGS_STORAGE_KEY);
+      writePlayerSettings(defaultPlayerSettings);
     },
     [runtime],
   );

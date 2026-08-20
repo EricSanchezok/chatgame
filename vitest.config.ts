@@ -9,6 +9,9 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
+  optimizeDeps: {
+    include: ["react-dom", "next/link"],
+  },
   test: {
     projects: [
       {

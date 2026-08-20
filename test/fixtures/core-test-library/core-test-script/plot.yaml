@@ -1,0 +1,10 @@
+commitments:
+  - id: record-first-turn
+    description: 第一次行动必须被写入可追溯记录。
+    type: audit
+    trigger:
+      time:
+        day: 30
+    must_happen: true
+    related:
+      locations: [relay-room]

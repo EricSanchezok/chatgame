@@ -1,0 +1,7 @@
+randomize:
+  - target: starting_event
+    pool: [handoff-signal]
+    distribution: uniform
+fixed: [world_rules, plot_commitments]
+seed:
+  policy: per_run

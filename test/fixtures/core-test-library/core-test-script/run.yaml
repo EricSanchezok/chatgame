@@ -1,0 +1,17 @@
+death_policy:
+  mode: world_continue
+  world_continue:
+    succession: new_character
+    state_kept: [flags]
+meta_progression:
+  keep: [flags]
+  reset: [stats]
+  unlocks: []
+memory:
+  tier_retention_days:
+    major: 0
+    minor: 30
+    trivial: 7
+context_compaction:
+  policy: summarize_archive
+  retention_tiers: [major]

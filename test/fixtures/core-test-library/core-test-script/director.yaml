@@ -1,0 +1,19 @@
+tension:
+  variables:
+    - name: load
+      source: threat_gauge
+      min: 0
+      max: 100
+      initial: 0
+event_selection:
+  policy: weighted_by_band
+  bands:
+    - band: [0, 100]
+      weight_multiplier: 0
+pacing:
+  crisis_density: 0
+  breather_min_interval: 99
+  difficulty_ramp: 0
+novelty:
+  seen_tracking: true
+  cooldown_default: 99
