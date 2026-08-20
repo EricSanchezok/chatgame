@@ -2,8 +2,8 @@
 // is ALWAYS engine-side; LLM never judges success/failure).
 //
 // Flow: legality check (action known + enabled + conditions + rules) →
-// resolve (stat/skill/opposed/auto/narrative_only) → result grade
-// (fail/partial/success/crit, Blades-style) → costs (currency/items/time) →
+// costs (currency/items) → resolve (stat/skill/opposed/auto/narrative_only)
+// → result grade (fail/partial/success/crit, Blades-style) →
 // effects (scaled by grade) → ResolutionLog (auditable).
 import type { WorldState, WorldDefinition, ResultGrade, ResolutionLogEntry, EventLogEntry } from "./types";
 import type { Actions } from "../script/schemas/actions";
@@ -232,9 +232,15 @@ export function previewAction(
     ? definition.extensions.actionHandlers[action.handler]
     : BUILTIN_HANDLERS[hint.actionId];
   if (handler) {
+    const effects = action.resolve?.type === "narrative_only" ? [] : (action.effects ?? []);
+    const previewState = applyEffects(afterCosts, effects, {
+      definition,
+      grade: "success",
+      day: absoluteDay(definition, state.clock),
+    }).state;
     const outcome = handler({
       definition,
-      state: afterCosts,
+      state: previewState,
       grade: "success",
       targetNpcId,
       params: { ...(hint.params ?? {}), ...(hint.target ? { target: hint.target } : {}) },

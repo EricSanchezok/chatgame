@@ -58,6 +58,40 @@ describe("script engine extension seam (emberfall)", () => {
     }
   });
 
+  it("rejects duplicate registrations instead of silently replacing a handler", () => {
+    const scriptDir = mkdtempSync(path.join(tmpdir(), "cg-engine-extension-"));
+    try {
+      mkdirSync(path.join(scriptDir, "engine"));
+      writeFileSync(
+        path.join(scriptDir, "engine", "index.ts"),
+        `export default function register(ctx: any) {
+          const handler = (state: any) => ({ state, summaries: [] });
+          ctx.registerEffect("duplicate", handler);
+          ctx.registerEffect("duplicate", handler);
+        }`,
+        "utf8",
+      );
+      const definition = {
+        sourceDir: scriptDir,
+        script: {
+          id: "duplicate",
+          engine_extension: {
+            api_version: 2,
+            effects: ["duplicate"],
+            conditions: [],
+            action_handlers: [],
+            rule_mechanisms: [],
+            lifecycle: [],
+          },
+        },
+      } as unknown as DefinitionWithoutExtensions;
+
+      expect(() => loadScriptExtensions(definition)).toThrow(/duplicate effect registration/);
+    } finally {
+      rmSync(scriptDir, { recursive: true, force: true });
+    }
+  });
+
   it("executes a custom effect kind through applyEffects", () => {
     const def = loadScript(emberfall);
     const { state } = generateWorld(def, "miner", { seed: 1 });

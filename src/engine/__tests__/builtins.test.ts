@@ -39,6 +39,49 @@ describe("builtin registry", () => {
     expect(BUILTIN_HANDLERS).toHaveProperty("steal");
     expect(BUILTIN_HANDLERS).toHaveProperty("trade");
   });
+
+  it("previews handlers against the same post-cost, post-effect state as execution", () => {
+    const base = emberfall();
+    const action = {
+      id: "prepare",
+      enabled: true,
+      resolve: { type: "auto" as const },
+      effects: [{
+        kind: "flag" as const,
+        direction: "add" as const,
+        target: "player",
+        flag: "prepared",
+      }],
+      llm_freedom: "narration" as const,
+      handler: "requires-prepared",
+    };
+    const definition: WorldDefinition = {
+      ...base,
+      actions: { ...base.actions, actions: [...base.actions.actions, action] },
+      extensions: {
+        ...base.extensions,
+        actionHandlers: {
+          ...base.extensions.actionHandlers,
+          "requires-prepared": ({ state }) => state.player.flags.includes("prepared")
+            ? { state, summaries: ["prepared"] }
+            : {
+                state,
+                summaries: [],
+                rejected: true,
+                rejectReason: "not_prepared",
+                rejectMessage: "preparation did not apply",
+              },
+        },
+      },
+    };
+    const state = freshState(definition);
+
+    const preview = previewAction(definition, state, { actionId: action.id });
+    const resolution = resolveAction({ definition, state, actionId: action.id });
+
+    expect(preview.executable).toBe(true);
+    expect(resolution.rejected).toBe(false);
+  });
 });
 
 describe("movement", () => {
