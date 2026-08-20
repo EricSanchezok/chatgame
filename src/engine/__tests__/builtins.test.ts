@@ -85,7 +85,145 @@ describe("builtin registry", () => {
     expect(preview.executable).toBe(true);
     expect(resolution.rejected).toBe(false);
     expect(resolution.state.player.flags).toContain("prepared");
+    expect(state.player.inventory.currency - resolution.state.player.inventory.currency).toBe(2);
     expect(executions).toBe(1);
+  });
+
+  it("centrally validates and pays dynamic costs exactly once", () => {
+    const base = emberfall();
+    const action = {
+      id: "metered-action",
+      enabled: true,
+      resolve: { type: "auto" as const },
+      llm_freedom: "narration" as const,
+      handler: "metered-handler",
+    };
+    const definition: WorldDefinition = {
+      ...base,
+      actions: { ...base.actions, actions: [...base.actions.actions, action] },
+      extensions: {
+        ...base.extensions,
+        actionHandlers: {
+          ...base.extensions.actionHandlers,
+          "metered-handler": () => ({
+            costs: { currency: 7 },
+            timeCost: 0,
+            execute: (state) => ({ state, summaries: ["metered"] }),
+          }),
+        },
+      },
+    };
+    const fresh = freshState(definition);
+    const state = {
+      ...fresh,
+      player: {
+        ...fresh.player,
+        inventory: { ...fresh.player.inventory, currency: 30 },
+      },
+    };
+    const preview = previewAction(definition, state, { actionId: action.id });
+    const first = resolveAction({ definition, state, actionId: action.id });
+    const second = resolveAction({ definition, state: first.state, actionId: action.id });
+    expect(preview).toMatchObject({ executable: true, timeCost: 1, costs: { currency: 7 } });
+    expect(first.effectiveTimeCost).toBe(1);
+    expect(first.state.player.inventory.currency).toBe(23);
+    expect(second.state.player.inventory.currency).toBe(16);
+
+    const poor = {
+      ...state,
+      player: { ...state.player, inventory: { ...state.player.inventory, currency: 6 } },
+    };
+    expect(previewAction(definition, poor, { actionId: action.id })).toMatchObject({
+      executable: false,
+      reasonCode: "unaffordable",
+      costs: { currency: 7 },
+    });
+    const rejected = resolveAction({ definition, state: poor, actionId: action.id });
+    expect(rejected.rejected).toBe(true);
+    expect(rejected.state).toEqual(poor);
+  });
+
+  it("gives planners a frozen clone and preserves the authoritative state on mutation", () => {
+    const base = emberfall();
+    const action = {
+      id: "malicious-action",
+      enabled: true,
+      resolve: { type: "stat_check" as const, stat: "strength", dc: 10 },
+      llm_freedom: "narration" as const,
+      handler: "mutating-handler",
+    };
+    const definition: WorldDefinition = {
+      ...base,
+      actions: { ...base.actions, actions: [...base.actions.actions, action] },
+      extensions: {
+        ...base.extensions,
+        actionHandlers: {
+          ...base.extensions.actionHandlers,
+          "mutating-handler": ({ state }) => {
+            state.player.flags.push("planner-pollution");
+            return { execute: (nextState) => ({ state: nextState, summaries: [] }) };
+          },
+        },
+      },
+    };
+    const state = freshState(definition);
+    const before = structuredClone(state);
+    expect(() => previewAction(definition, state, { actionId: action.id })).toThrow(TypeError);
+    expect(state).toEqual(before);
+    expect(() => resolveAction({ definition, state, actionId: action.id })).toThrow(TypeError);
+    expect(state).toEqual(before);
+  });
+
+  it("isolates the world definition from malicious planning mutations", () => {
+    const base = emberfall();
+    const action = {
+      id: "definition-mutation",
+      enabled: true,
+      resolve: { type: "auto" as const },
+      llm_freedom: "narration" as const,
+      handler: "definition-mutator",
+    };
+    const definition: WorldDefinition = {
+      ...base,
+      actions: { ...base.actions, actions: [...base.actions.actions, action] },
+      extensions: {
+        ...base.extensions,
+        actionHandlers: {
+          ...base.extensions.actionHandlers,
+          "definition-mutator": ({ definition: planningDefinition, params }) => {
+            if (params?.mutation === "nested") {
+              planningDefinition.world.background = "polluted";
+            } else {
+              planningDefinition.locations.clear();
+            }
+            return { execute: (state) => ({ state, summaries: [] }) };
+          },
+        },
+      },
+    };
+    const state = freshState(definition);
+    const before = structuredClone(state);
+    const locationIds = [...definition.locations.keys()];
+    const worldBackground = definition.world.background;
+
+    expect(() => previewAction(definition, state, {
+      actionId: action.id,
+      params: { mutation: "nested" },
+    })).toThrow(TypeError);
+    expect(definition.world.background).toBe(worldBackground);
+    expect(() => previewAction(definition, state, { actionId: action.id })).toThrow(TypeError);
+    expect([...definition.locations.keys()]).toEqual(locationIds);
+    expect(state).toEqual(before);
+    expect(() => resolveAction({
+      definition,
+      state,
+      actionId: action.id,
+      params: { mutation: "nested" },
+    })).toThrow(TypeError);
+    expect(definition.world.background).toBe(worldBackground);
+    expect(() => resolveAction({ definition, state, actionId: action.id })).toThrow(TypeError);
+    expect([...definition.locations.keys()]).toEqual(locationIds);
+    expect(state).toEqual(before);
   });
 
   it("fails loudly when a declared action handler is missing at runtime", () => {
@@ -265,6 +403,30 @@ describe("movement", () => {
     const out = resolveAction({ definition, state, actionId: "travel", params: { target: target.id } });
     expect(out.rejected).toBe(false);
     expect(out.effectiveTimeCost).toBe(3);
+  });
+
+  it("evaluates the actual parallel edge instead of the first edge to that destination", () => {
+    const base = emberfall();
+    const start = base.locations.get("tavern")!;
+    const target = base.locations.get("town-square")!;
+    const locations = new Map([
+      [start.id, { ...start, exit_condition: undefined, connections: [
+        {
+          to: target.id,
+          distance: 1,
+          travel_time: 10,
+          condition: { source: "flag", key: "sealed-route-open", op: "has" as const },
+        },
+        { to: target.id, distance: 1, travel_time: 75 },
+      ] }],
+      [target.id, { ...target, entry_condition: undefined, connections: [] }],
+    ]);
+    const definition = { ...base, locations };
+    const state = { ...atTavern(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
+    const out = resolveAction({ definition, state, actionId: "travel", params: { target: target.id } });
+    expect(out.rejected).toBe(false);
+    expect(out.effectiveTimeCost).toBe(2);
+    expect(out.state.player.locationId).toBe(target.id);
   });
 });
 

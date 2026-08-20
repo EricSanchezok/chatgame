@@ -10,9 +10,10 @@ import path from "node:path";
 import type { SaveFile, WorldState, WorldDefinition } from "./types";
 import { emptyContextSummary } from "./context";
 import { fsSaveStore, saveDirForScript as storeSaveDir, type SaveStore } from "./save-store";
+import { SAVE_SCHEMA_VERSION, saveFileSchema } from "./save-schema";
 
 /** Bump on breaking WorldState shape changes. Older versions are rejected. */
-export const SAVE_SCHEMA_VERSION = 5;
+export { SAVE_SCHEMA_VERSION } from "./save-schema";
 
 export class SaveError extends Error {}
 
@@ -32,13 +33,15 @@ export function serializeSave(
   createdAt?: string,
 ): SaveFile {
   const now = createdAt ?? new Date().toISOString();
-  return {
+  const save: SaveFile = {
     saveSchemaVersion: SAVE_SCHEMA_VERSION,
     scriptId: definition.script.id,
     createdAt: now,
     updatedAt: now,
     worldState: JSON.parse(JSON.stringify(state)) as WorldState,
   };
+  saveFileSchema.parse(save);
+  return save;
 }
 
 /**
@@ -52,28 +55,27 @@ export function deserializeSave(
   if (!data || typeof data !== "object") {
     throw new SaveError("save file is not an object");
   }
-  const save = data as Partial<SaveFile>;
-  if (save.saveSchemaVersion !== SAVE_SCHEMA_VERSION) {
+  const candidate = data as Partial<SaveFile>;
+  if (candidate.saveSchemaVersion !== SAVE_SCHEMA_VERSION) {
     throw new SaveError(
-      `save schema version ${String(save.saveSchemaVersion)} is not supported (expected ${SAVE_SCHEMA_VERSION})`,
+      `save schema version ${String(candidate.saveSchemaVersion)} is not supported (expected ${SAVE_SCHEMA_VERSION})`,
     );
   }
-  if (typeof save.scriptId !== "string") {
-    throw new SaveError("save file is missing scriptId");
+  const parsed = saveFileSchema.safeParse(data);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue.path.length > 0 ? issue.path.join(".") : "save";
+    throw new SaveError(`save file is invalid at ${path}: ${issue.message}`);
   }
+  // Validation must not reconstruct the snapshot: callers rely on byte-stable
+  // property order for deterministic save/load round trips.
+  const save = data as SaveFile;
   if (expectedScriptId && save.scriptId !== expectedScriptId) {
     throw new SaveError(
       `save is for script "${save.scriptId}" but expected "${expectedScriptId}"`,
     );
   }
-  if (!save.worldState || typeof save.worldState !== "object") {
-    throw new SaveError("save file is missing worldState");
-  }
-  const worldState = save.worldState as Partial<WorldState>;
-  if (!Array.isArray(worldState.activeNeedThresholds) || !worldState.activeNeedThresholds.every((id) => typeof id === "string")) {
-    throw new SaveError("save file worldState is missing activeNeedThresholds");
-  }
-  return save as SaveFile;
+  return save;
 }
 
 /** Writes a save file via the SaveStore (atomic write; path unchanged). */

@@ -92,8 +92,8 @@ scripts/<id>/
 - **engine/index.ts**（服务端扩展）：默认导出 `(ctx: EngineExtensionContext) => void`；可注册：
   - `registerEffect(kind, handler)` — 自定义效果种类（`effect` 的 `kind` 不在内置集合时运行时裁决；未注册的 kind 在剧本校验时报错）。
   - `registerConditionSource(source, evaluator)` — 自定义条件源（`condition.source` 任意字符串；未注册源在校验与运行期均报错）。
-  - `registerActionHandler(id, handler)` — 自定义动作处理器（`actions[].handler` 引用；内置动作在声明 handler 时用自定义实现覆盖）。handler 纯规划并返回 `{rejected?, costs?, timeCost?, execute}`；`execute(state, grade)` 只在真实结算中调用一次，预检不得 dry-run。
-  - handler 均以不可变快照工作；自定义持久状态写入 `WorldState.runtimeState`（引擎不解释内容，随存档 v5 持久化）。
+  - `registerActionHandler(id, handler)` — 自定义动作处理器（`actions[].handler` 引用；内置动作在声明 handler 时用自定义实现覆盖）。handler 纯规划并返回 `{rejected?, costs?, timeCost?, execute}`；动态成本只声明、不自行扣除，由引擎在骰点与效果前统一校验并扣除一次；`execute(state, grade)` 只在真实结算中调用一次，预检不得 dry-run。
+  - handler 规划收到与权威状态隔离的 `WorldState`、`WorldDefinition` 和参数深度只读快照；写入 Map、数组或嵌套对象会响亮失败。自定义持久状态写入 `WorldState.runtimeState`（引擎不解释内容，随存档 v5 持久化）。
 - **ui/index.tsx**（前端扩展）：默认导出 `(ctx: ScriptUiContext) => void`，`ctx.register(slot, { component, position?, order? })`；槽位见表现层规格 [presentation.md](presentation.md) 的 UI 拓扑。组件 props 由框架按槽位注入；未注册槽位回退框架默认组件。
 - **编译与缓存**：`engine/` 由 esbuild 编译为 CJS（`createRequire` 加载），`ui/` 编译为 ESM browser bundle（react 外部化，宿主单实例共享）；产物缓存于 `.chatgame/build/<id>/`（内容 hash 失效，gitignore）。
 ### 0.3 ID 契约
@@ -299,7 +299,7 @@ actions:
     llm_freedom: process
 ```
 
-剧本可禁用/改名/配置内置动作；**自定义动作逻辑**通过 `handler` 引用剧本 `engine/index.ts` 注册的处理器（§0.6）——未注册的 handler id 在剧本校验和运行期均报错。客户端的权威 `ActionPreview` 将声明成本与 handler 计划中的动态货币/物品/资源成本合并，并采用计划耗时。
+剧本可禁用/改名/配置内置动作；**自定义动作逻辑**通过 `handler` 引用剧本 `engine/index.ts` 注册的处理器（§0.6）——未注册的 handler id 在剧本校验和运行期均报错。客户端的权威 `ActionPreview` 将声明成本与 handler 计划中的动态货币/物品/资源成本合并，并采用至少一小时的计划耗时；引擎对预检和真实结算使用同一规划与可支付性语义。
 
 ---
 
@@ -384,6 +384,8 @@ novelty: { seen_tracking: true, cooldown_default: 3 }
 | `ext` | object | ❌ | 扩展位 |
 
 `target` ∈ `npc_stats|npc_placement|secret_holder|faction_stance|weather|season|item_placement|starting_event`。
+
+`starting_event` 从 `pool` 按运行种子确定性选择；fresh session 通过事件管道播放一次，并把同一 event id 写入开场 transcript 的 MediaCue。load 只恢复已持久化结果，不再次播放。
 
 ```yaml
 randomize:

@@ -189,18 +189,152 @@ function payCosts(
   return next;
 }
 
+function immutablePlanningClone<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return value;
+  const prior = seen.get(value as object);
+  if (prior) return prior as T;
+  if (value instanceof Map) {
+    const target = new Map<unknown, unknown>();
+    const proxy: Map<unknown, unknown> = new Proxy(target, {
+      get(map, property) {
+        if (property === "set" || property === "delete" || property === "clear") {
+          return () => { throw new TypeError("planning definition maps are read-only"); };
+        }
+        if (property === "forEach") {
+          return (callback: (entryValue: unknown, key: unknown, source: Map<unknown, unknown>) => void, thisArg?: unknown) =>
+            map.forEach((entryValue, key) => callback.call(thisArg, entryValue, key, proxy));
+        }
+        const member = Reflect.get(map, property, map) as unknown;
+        return typeof member === "function" ? member.bind(map) : member;
+      },
+      set() { throw new TypeError("planning definition maps are read-only"); },
+      defineProperty() { throw new TypeError("planning definition maps are read-only"); },
+      deleteProperty() { throw new TypeError("planning definition maps are read-only"); },
+    });
+    seen.set(value, proxy);
+    for (const [key, entryValue] of value) {
+      target.set(immutablePlanningClone(key, seen), immutablePlanningClone(entryValue, seen));
+    }
+    return proxy as T;
+  }
+  if (typeof value === "function") {
+    const proxy = new Proxy(value, {
+      set() { throw new TypeError("planning definition functions are read-only"); },
+      defineProperty() { throw new TypeError("planning definition functions are read-only"); },
+      deleteProperty() { throw new TypeError("planning definition functions are read-only"); },
+    });
+    seen.set(value, proxy);
+    return proxy;
+  }
+  const clone: unknown[] | Record<PropertyKey, unknown> = Array.isArray(value) ? [] : {};
+  seen.set(value, clone);
+  for (const key of Reflect.ownKeys(value)) {
+    (clone as Record<PropertyKey, unknown>)[key] = immutablePlanningClone(
+      (value as Record<PropertyKey, unknown>)[key],
+      seen,
+    );
+  }
+  return Object.freeze(clone) as T;
+}
+
+function normalizedHandlerCosts(costs?: HandlerCosts): Required<Pick<HandlerCosts, "currency" | "items" | "resources">> {
+  const currency = costs?.currency ?? 0;
+  if (!Number.isFinite(currency) || currency < 0) throw new Error("handler currency cost must be a non-negative finite number");
+  const itemTotals = new Map<string, number>();
+  for (const item of costs?.items ?? []) {
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new Error(`handler item cost for "${item.itemId}" must be a positive integer`);
+    }
+    itemTotals.set(item.itemId, (itemTotals.get(item.itemId) ?? 0) + item.quantity);
+  }
+  const resourceTotals = new Map<string, NonNullable<HandlerCosts["resources"]>[number]>();
+  for (const resource of costs?.resources ?? []) {
+    if (!Number.isFinite(resource.amount) || resource.amount <= 0) {
+      throw new Error(`handler resource cost for "${resource.id}" must be positive and finite`);
+    }
+    const key = `${resource.kind}\0${resource.id}`;
+    const existing = resourceTotals.get(key);
+    resourceTotals.set(key, {
+      ...resource,
+      amount: (existing?.amount ?? 0) + resource.amount,
+    });
+  }
+  return {
+    currency,
+    items: [...itemTotals].map(([itemId, quantity]) => ({ itemId, quantity })),
+    resources: [...resourceTotals.values()],
+  };
+}
+
+/** Validates and deducts planned dynamic costs exactly once. */
+function payHandlerCosts(state: WorldState, costs?: HandlerCosts): WorldState | null {
+  const normalized = normalizedHandlerCosts(costs);
+  if (state.player.inventory.currency < normalized.currency) return null;
+  for (const item of normalized.items) {
+    const held = state.player.inventory.stacks.find((stack) => stack.itemId === item.itemId)?.quantity ?? 0;
+    if (held < item.quantity) return null;
+  }
+  for (const resource of normalized.resources) {
+    const current = resource.kind === "need"
+      ? state.player.needs[resource.id]?.value
+      : resource.kind === "stat"
+        ? state.player.stats[resource.id]
+        : resource.kind === "skill"
+          ? state.player.skills[resource.id]
+          : state.runtimeState[resource.id];
+    if (typeof current !== "number" || !Number.isFinite(current) || current < resource.amount) return null;
+  }
+
+  let next: WorldState = {
+    ...state,
+    player: {
+      ...state.player,
+      inventory: {
+        ...state.player.inventory,
+        currency: state.player.inventory.currency - normalized.currency,
+        stacks: state.player.inventory.stacks
+          .map((stack) => {
+            const cost = normalized.items.find((item) => item.itemId === stack.itemId);
+            return cost ? { ...stack, quantity: stack.quantity - cost.quantity } : stack;
+          })
+          .filter((stack) => stack.quantity > 0),
+      },
+    },
+  };
+  for (const resource of normalized.resources) {
+    if (resource.kind === "need") {
+      const need = next.player.needs[resource.id]!;
+      next = {
+        ...next,
+        player: {
+          ...next.player,
+          needs: { ...next.player.needs, [resource.id]: { ...need, value: need.value - resource.amount } },
+        },
+      };
+    } else if (resource.kind === "stat") {
+      next = { ...next, player: { ...next.player, stats: { ...next.player.stats, [resource.id]: next.player.stats[resource.id] - resource.amount } } };
+    } else if (resource.kind === "skill") {
+      next = { ...next, player: { ...next.player, skills: { ...next.player.skills, [resource.id]: next.player.skills[resource.id] - resource.amount } } };
+    } else {
+      next = { ...next, runtimeState: { ...next.runtimeState, [resource.id]: (next.runtimeState[resource.id] as number) - resource.amount } };
+    }
+  }
+  return next;
+}
+
 function previewCosts(action: ActionEntry, dynamic?: HandlerCosts): ActionPreview["costs"] {
+  const normalized = normalizedHandlerCosts(dynamic);
   const items = new Map<string, number>();
   for (const item of action.costs?.items ?? []) {
     items.set(item.item, (items.get(item.item) ?? 0) + item.quantity);
   }
-  for (const item of dynamic?.items ?? []) {
+  for (const item of normalized.items) {
     items.set(item.itemId, (items.get(item.itemId) ?? 0) + item.quantity);
   }
   return {
-    currency: (action.costs?.currency ?? 0) + (dynamic?.currency ?? 0),
+    currency: (action.costs?.currency ?? 0) + normalized.currency,
     items: [...items].map(([itemId, quantity]) => ({ itemId, quantity })),
-    ...(dynamic?.resources?.length ? { resources: dynamic.resources } : {}),
+    ...(normalized.resources.length ? { resources: normalized.resources } : {}),
   };
 }
 
@@ -215,10 +349,20 @@ function planHandler(
   if (action.handler) {
     const handler = definition.extensions.actionHandlers[action.handler];
     if (!handler) throw new Error(`action handler "${action.handler}" is not registered`);
-    return handler({ definition, state, targetNpcId, params });
+    return handler({
+      definition: immutablePlanningClone(definition),
+      state: immutablePlanningClone(state),
+      targetNpcId,
+      params: params ? immutablePlanningClone(params) : undefined,
+    });
   }
   const handler = BUILTIN_HANDLERS[actionId];
-  return handler?.({ definition, state, targetNpcId, params });
+  return handler?.({
+    definition: immutablePlanningClone(definition),
+    state: immutablePlanningClone(state),
+    targetNpcId,
+    params: params ? immutablePlanningClone(params) : undefined,
+  });
 }
 
 /** Authoritative, side-effect-free action preflight used by the host composer. */
@@ -253,13 +397,13 @@ export function previewAction(
       risk,
     };
   }
-  const afterCosts = payCosts(state, action);
-  if (!afterCosts) {
+  const paidCosts = payCosts(state, action);
+  if (!paidCosts) {
     return { actionId: hint.actionId, displayName, executable: false, reasonCode: "unaffordable", reason: "costs are not available", timeCost, costs, risk };
   }
   const plan = planHandler(
     definition,
-    afterCosts,
+    paidCosts,
     action,
     hint.actionId,
     targetNpcId,
@@ -279,6 +423,9 @@ export function previewAction(
         costs,
         risk,
       };
+    }
+    if (!payHandlerCosts(paidCosts, plan.costs)) {
+      return { actionId: hint.actionId, displayName, executable: false, reasonCode: "unaffordable", reason: "dynamic costs are not available", timeCost, costs, risk };
     }
   }
   return { actionId: hint.actionId, displayName, executable: true, timeCost, costs, risk };
@@ -309,8 +456,8 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   const action = findAction(definition, ctx.actionId)!;
 
   // 2. Pay costs first (unpayable -> rejection, no state change).
-  const afterCosts = payCosts(state, action);
-  if (!afterCosts) {
+  const paidCosts = payCosts(state, action);
+  if (!paidCosts) {
     return {
       state,
       rejected: true,
@@ -320,40 +467,11 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
       effectiveTimeCost: 0,
     };
   }
+  // Resolution mutates the RNG cursor; isolate it from the caller's snapshot.
+  const afterCosts = { ...paidCosts, rng: { ...paidCosts.rng } };
 
-  // 3. Resolve (auto / narrative_only never roll). Custom-handler actions
-  //    may omit resolve entirely — the handler owns resolution semantics.
-  let grade: ResultGrade = "success";
-  let roll: number | null = null;
-  let dc: number | null = null;
-  if (action.resolve) {
-    switch (action.resolve.type) {
-      case "auto":
-        grade = "success";
-        break;
-      case "narrative_only":
-        grade = "success";
-        break;
-      case "stat_check":
-      case "skill_check": {
-        const r = resolveCheck(ctx, action);
-        grade = r.grade;
-        roll = r.roll;
-        dc = r.dc;
-        break;
-      }
-      case "opposed_check": {
-        const r = resolveOpposed(ctx, action);
-        grade = r.grade;
-        roll = r.roll;
-        dc = r.dc;
-        break;
-      }
-    }
-  }
-
-  // 4. Plan handler semantics against the paid state. Planning is pure and
-  //    supplies authoritative dynamic costs/time without executing effects.
+  // 3. Plan handler semantics against the paid state, then let the engine
+  //    validate and deduct all dynamic costs before any roll or effect.
   const plan = planHandler(
     definition,
     afterCosts,
@@ -372,15 +490,57 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
       effectiveTimeCost: 0,
     };
   }
+  const afterHandlerCosts = payHandlerCosts(afterCosts, plan?.costs);
+  if (!afterHandlerCosts) {
+    return {
+      state,
+      rejected: true,
+      rejectReason: "unaffordable",
+      rejectMessage: "you cannot afford this",
+      logEntries,
+      effectiveTimeCost: 0,
+    };
+  }
 
-  // 4b. Apply effects (scaled by grade). narrative_only skips script effects
+  // 4. Resolve (auto / narrative_only never roll). Custom-handler actions
+  //    may omit resolve entirely — the handler owns resolution semantics.
+  let grade: ResultGrade = "success";
+  let roll: number | null = null;
+  let dc: number | null = null;
+  if (action.resolve) {
+    switch (action.resolve.type) {
+      case "auto":
+        grade = "success";
+        break;
+      case "narrative_only":
+        grade = "success";
+        break;
+      case "stat_check":
+      case "skill_check": {
+        const r = resolveCheck({ ...ctx, state: afterHandlerCosts }, action);
+        grade = r.grade;
+        roll = r.roll;
+        dc = r.dc;
+        break;
+      }
+      case "opposed_check": {
+        const r = resolveOpposed({ ...ctx, state: afterHandlerCosts }, action);
+        grade = r.grade;
+        roll = r.roll;
+        dc = r.dc;
+        break;
+      }
+    }
+  }
+
+  // 5. Apply effects (scaled by grade). narrative_only skips script effects
   //    (pure narration — mechanical semantics live in builtins).
   const effects =
     action.resolve?.type === "narrative_only" ? [] : (action.effects ?? []);
-  const effectOut = applyEffects(afterCosts, effects, { definition, grade, day });
+  const effectOut = applyEffects(afterHandlerCosts, effects, { definition, grade, day });
   let finalState = effectOut.state;
 
-  // 4c. Execute the already-validated handler plan exactly once. Custom actions
+  // 5b. Execute the already-validated handler plan exactly once. Custom actions
   //     declare a `handler` id resolved from the script's engine extension
   //     (overrides the built-in registry for the same id). Built-in actions
   //     without a declared handler use the framework registry.
@@ -391,7 +551,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     actionSummaries = builtinOut.summaries;
   }
 
-  // 4d. Progression (stat_check / skill_check sources) after the check.
+  // 5c. Progression (stat_check / skill_check sources) after the check.
   if (action.resolve && (action.resolve.type === "stat_check" || action.resolve.type === "skill_check")) {
     const prog = applyProgression(finalState, definition, action.resolve.type, {
       target: action.resolve.type === "stat_check" ? action.resolve.stat : action.resolve.skill,
@@ -399,11 +559,11 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     finalState = prog.state;
   }
 
-  // 5. Effective time cost (>= 1h, anti-spam). The caller (playerTurn)
+  // 6. Effective time cost (>= 1h, anti-spam). The caller (playerTurn)
   //    steps the world by this amount — clock advancement is NOT here.
-  const effectiveTimeCost = plan?.timeCost ?? Math.max(action.costs?.time ?? 1, 1);
+  const effectiveTimeCost = Math.max(plan?.timeCost ?? action.costs?.time ?? 1, 1);
 
-  // 5b. Record the cooldown anchor (absolute day) for actions that declare
+  // 6b. Record the cooldown anchor (absolute day) for actions that declare
   //     a cooldown, so the legality gate can reject early repeats.
   if (action.cooldown && action.cooldown > 0) {
     finalState = {
@@ -412,7 +572,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     };
   }
 
-  // 6. ResolutionLog (auditable).
+  // 7. ResolutionLog (auditable).
   const resolution: ResolutionLogEntry = {
     actionId: ctx.actionId,
     target: ctx.targetNpcId,

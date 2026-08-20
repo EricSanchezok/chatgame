@@ -223,6 +223,32 @@ describe("save system", () => {
     expect(() => deserializeSave({ ...save, worldState })).toThrow(/activeNeedThresholds/);
   });
 
+  it("deserializeSave rejects a forged v5 envelope with only one world field", () => {
+    expect(() => deserializeSave({
+      saveSchemaVersion: SAVE_SCHEMA_VERSION,
+      scriptId: "emberfall",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      worldState: { activeNeedThresholds: [] },
+    })).toThrow(/worldState\.(scriptId|clock|player|npcs)/);
+  });
+
+  it("deserializeSave rejects an invalid nested player inventory shape", () => {
+    const { def, state } = setup();
+    const save = serializeSave(def, state);
+    const malformed = {
+      ...save,
+      worldState: {
+        ...save.worldState,
+        player: {
+          ...save.worldState.player,
+          inventory: { stacks: "not-an-array", currency: 10 },
+        },
+      },
+    };
+    expect(() => deserializeSave(malformed)).toThrow(/worldState\.player\.inventory\.stacks/);
+  });
+
   it("deserializeSave rejects non-object", () => {
     expect(() => deserializeSave(null)).toThrow(SaveError);
     expect(() => deserializeSave("nope")).toThrow(SaveError);
