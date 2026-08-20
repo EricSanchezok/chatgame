@@ -1,12 +1,13 @@
 // Script import core shared by the web two-stage flow and the CLI. Preview
 // performs extraction and static validation only; commit is the only step
 // allowed to mutate the installed library.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -346,6 +347,7 @@ interface PreviewRecord extends ImportPreview {
   contentDirName: string;
   createdAt: number;
   expiresAt: number;
+  targetIdentity: string;
 }
 
 export function scriptInstallSource(scriptDir: string): ScriptSummarySource {
@@ -359,6 +361,41 @@ export function scriptInstallSource(scriptDir: string): ScriptSummarySource {
 }
 
 type ScriptSummarySource = { kind: "built-in" | "imported"; label: string };
+
+function installedTargetIdentity(target: string): string {
+  if (!existsSync(/* turbopackIgnore: true */ target)) return "absent";
+
+  const hash = createHash("sha256");
+  const updateEntry = (kind: string, relative: string): void => {
+    hash.update(`${kind}:${Buffer.byteLength(relative)}:${relative}:`);
+  };
+  const visit = (dir: string, relativeDir: string): void => {
+    const entries = readdirSync(/* turbopackIgnore: true */ dir, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const relative = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+      const absolute = path.join(/* turbopackIgnore: true */ dir, entry.name);
+      if (entry.isDirectory()) {
+        updateEntry("directory", relative);
+        visit(absolute, relative);
+      } else if (entry.isFile()) {
+        const data = readFileSync(/* turbopackIgnore: true */ absolute);
+        updateEntry("file", relative);
+        hash.update(`${data.byteLength}:`);
+        hash.update(data);
+      } else if (entry.isSymbolicLink()) {
+        const link = readlinkSync(/* turbopackIgnore: true */ absolute);
+        updateEntry("symlink", relative);
+        hash.update(`${Buffer.byteLength(link)}:${link}`);
+      } else {
+        updateEntry("other", relative);
+      }
+    }
+  };
+
+  visit(target, "");
+  return `installed:${hash.digest("hex")}`;
+}
 
 function previewRecordPath(root: string, token: string): string {
   return path.join(root, token, "preview.json");
@@ -433,6 +470,7 @@ export function previewScriptImportFromZip(
     const installedDir = metadata.scriptId !== "" ? path.join(/* turbopackIgnore: true */ scriptsRoot, metadata.scriptId) : "";
     const installed = installedDir !== "" && existsSync(installedDir);
     const replaceAllowed = installed && scriptInstallSource(installedDir).kind === "imported";
+    const targetIdentity = installedDir === "" ? "absent" : installedTargetIdentity(installedDir);
     if (installed && !replaceAllowed) errors.push(`built-in script "${metadata.scriptId}" cannot be replaced`);
     const record: PreviewRecord = {
       token,
@@ -448,12 +486,20 @@ export function previewScriptImportFromZip(
       warnings,
       createdAt: now,
       expiresAt: now + (options.ttlMs ?? IMPORT_PREVIEW_TTL_MS),
+      targetIdentity,
     };
     writeFileSync(previewRecordPath(root, token), JSON.stringify(record), "utf8");
-    const { contentDirName: _contentDirName, createdAt: _createdAt, expiresAt: _expiresAt, ...preview } = record;
+    const {
+      contentDirName: _contentDirName,
+      createdAt: _createdAt,
+      expiresAt: _expiresAt,
+      targetIdentity: _targetIdentity,
+      ...preview
+    } = record;
     void _contentDirName;
     void _createdAt;
     void _expiresAt;
+    void _targetIdentity;
     return preview;
   } catch (error) {
     rmSync(previewDir, { recursive: true, force: true });
@@ -521,7 +567,11 @@ function installStagedScript(
   const incoming = path.join(scriptsRoot, `.${identity.id}.incoming-${nonce}`);
   const backup = path.join(scriptsRoot, `.${identity.id}.backup-${nonce}`);
   cpSync(stagedDir, incoming, { recursive: true });
-  writeFileSync(path.join(incoming, INSTALL_SOURCE_FILE), JSON.stringify({ label: sourceLabel }), "utf8");
+  writeFileSync(
+    path.join(incoming, INSTALL_SOURCE_FILE),
+    JSON.stringify({ label: sourceLabel, installationId: randomUUID() }),
+    "utf8",
+  );
   let backedUp = false;
   try {
     if (existsSync(target)) {
@@ -554,6 +604,7 @@ export function commitScriptImport(
     const installed = target !== "" && existsSync(target);
     const replaceAllowed = installed && scriptInstallSource(target).kind === "imported";
     if (
+      installedTargetIdentity(target) !== record.targetIdentity ||
       installed !== record.conflicts.installed
       || replaceAllowed !== record.conflicts.replaceAllowed
     ) {

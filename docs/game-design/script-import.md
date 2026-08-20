@@ -4,7 +4,7 @@
 
 ## 安装所有权
 
-`scripts/<id>/` 中没有 `.chatgame-source.json` 的目录属于应用，来源显示为“内置”，Web 与 CLI 都不得替换或删除。导入成功的目录写入安装 receipt，来源显示上传文件名或目录名；只有带有效 receipt 的导入目录可以被替换或删除。删除前宿主拒绝仍有活跃会话的剧本；删除剧本目录和已构建 UI bundle，但保留存档。
+`scripts/<id>/` 中没有 `.chatgame-source.json` 的目录属于应用，来源显示为“内置”，Web 与 CLI 都不得替换或删除。导入成功的目录写入包含来源标签和 opaque 安装代次的 receipt，来源显示上传文件名或目录名；每次安装或替换都生成新代次，只有带有效 receipt 的导入目录可以被替换或删除。删除前宿主拒绝仍有活跃会话的剧本；删除剧本目录和已构建 UI bundle，但保留存档。
 
 ## 两阶段 Web 协议
 
@@ -12,7 +12,7 @@
 
 预检 DTO 返回 token、scriptId、name、sourceName、schemaVersion、host/engine/UI API 版本、静态 cover 元数据、opaque `coverUrl`、权限、代码风险、冲突、素材来源覆盖、errors 与 warnings。语义无效的剧本仍返回可展示的预检；`errors` 非空时服务端拒绝 commit。暂存封面只能通过 `/api/scripts/import/preview/:token/cover` 读取，必须位于暂存剧本内、使用白名单图片类型且不超过 5MB，响应为 private/no-store 并带 `nosniff`。
 
-`POST /api/scripts/import/commit` JSON 必须显式包含 `{ "token": string, "replace": boolean }`。同 ID 不存在时 `replace` 必须为 `false`；同 ID 是导入剧本时，UI 单独取得替换确认后传 `true`；同 ID 是内置剧本时预检产生不可提交错误，commit 和底层安装核心也再次拒绝。token 绑定预检时观察到的安装冲突与替换权限；commit 前若目标的存在状态或来源权限已改变，服务端返回 409 并要求重新预检。代码信任确认与替换确认是两个独立用户决定，不能由冲突状态自动推导。
+`POST /api/scripts/import/commit` JSON 必须显式包含 `{ "token": string, "replace": boolean }`。同 ID 不存在时 `replace` 必须为 `false`；同 ID 是导入剧本时，UI 单独取得替换确认后传 `true`；同 ID 是内置剧本时预检产生不可提交错误，commit 和底层安装核心也再次拒绝。token 绑定预检时目标目录的完整内容树 hash、安装代次、安装冲突与替换权限；commit 紧邻原子目录替换前同步重算并比较该身份。缺失后安装、A 被 B 替换、删除后原样重装或来源权限改变都会返回 409 并要求重新预检，旧 token 不得覆盖当前安装。代码信任确认与替换确认是两个独立用户决定，不能由冲突状态自动推导。
 
 commit 先把校验通过的暂存内容复制到同一 scripts root 的 incoming 目录并写 receipt；替换时把旧导入目录改名为 backup，再原子改名 incoming，成功后删除 backup，失败时恢复旧目录。无论成功或失败都消费 token。存档不参与目录替换。
 

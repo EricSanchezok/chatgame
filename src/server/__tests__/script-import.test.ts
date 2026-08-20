@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
@@ -82,6 +82,49 @@ describe("two-stage script import", () => {
     expect(() => commitScriptImport(stale.token, { replace: true, scriptsRoot, stagingRoot }))
       .toThrow(/changed after preview/);
     expect(scriptInstallSource(path.join(scriptsRoot, TEST_SCRIPT_ID))).toEqual({ kind: "imported", label: "winner.zip" });
+  });
+
+  it("does not let a stale replacement preview overwrite a newer replacement", () => {
+    const initial = previewScriptImportFromZip(fixtureZip(), { sourceName: "initial.zip", scriptsRoot, stagingRoot });
+    commitScriptImport(initial.token, { replace: false, scriptsRoot, stagingRoot });
+    const stale = previewScriptImportFromZip(fixtureZip(), { sourceName: "stale.zip", scriptsRoot, stagingRoot });
+    const winner = previewScriptImportFromZip(fixtureZip(), { sourceName: "winner.zip", scriptsRoot, stagingRoot });
+
+    commitScriptImport(winner.token, { replace: true, scriptsRoot, stagingRoot });
+    expect(() => commitScriptImport(stale.token, { replace: true, scriptsRoot, stagingRoot }))
+      .toThrow(expect.objectContaining({ status: 409 }));
+    expect(scriptInstallSource(path.join(scriptsRoot, TEST_SCRIPT_ID)))
+      .toEqual({ kind: "imported", label: "winner.zip" });
+    expect(() => commitScriptImport(stale.token, { replace: true, scriptsRoot, stagingRoot }))
+      .toThrow(expect.objectContaining({ status: 404 }));
+  });
+
+  it("invalidates a replacement preview after deleting and reinstalling the same package", () => {
+    const initial = previewScriptImportFromZip(fixtureZip(), { sourceName: "same.zip", scriptsRoot, stagingRoot });
+    commitScriptImport(initial.token, { replace: false, scriptsRoot, stagingRoot });
+    const stale = previewScriptImportFromZip(fixtureZip(), { sourceName: "stale.zip", scriptsRoot, stagingRoot });
+
+    removeInstalledScript(TEST_SCRIPT_ID, { scriptsRoot });
+    const reinstalled = previewScriptImportFromZip(fixtureZip(), { sourceName: "same.zip", scriptsRoot, stagingRoot });
+    commitScriptImport(reinstalled.token, { replace: false, scriptsRoot, stagingRoot });
+
+    expect(() => commitScriptImport(stale.token, { replace: true, scriptsRoot, stagingRoot }))
+      .toThrow(expect.objectContaining({ status: 409 }));
+    expect(scriptInstallSource(path.join(scriptsRoot, TEST_SCRIPT_ID)))
+      .toEqual({ kind: "imported", label: "same.zip" });
+  });
+
+  it("invalidates a replacement preview when installed content changes in place", () => {
+    const initial = previewScriptImportFromZip(fixtureZip(), { sourceName: "initial.zip", scriptsRoot, stagingRoot });
+    commitScriptImport(initial.token, { replace: false, scriptsRoot, stagingRoot });
+    const stale = previewScriptImportFromZip(fixtureZip(), { sourceName: "stale.zip", scriptsRoot, stagingRoot });
+    const installedScript = path.join(scriptsRoot, TEST_SCRIPT_ID, "script.yaml");
+
+    appendFileSync(installedScript, "\n# operator edit\n");
+
+    expect(() => commitScriptImport(stale.token, { replace: true, scriptsRoot, stagingRoot }))
+      .toThrow(expect.objectContaining({ status: 409 }));
+    expect(statSync(installedScript).size).toBeGreaterThan(statSync(path.join(fixtureSource, "script.yaml")).size);
   });
 
   it("never replaces or deletes a built-in script", () => {
