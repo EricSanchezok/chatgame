@@ -2,6 +2,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScript, ScriptLoadError } from "../loader";
+import { generateWorld } from "../worldgen";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 
@@ -30,11 +31,16 @@ describe("Built-in script loader content regression", () => {
     expect(def.locations.size).toBeGreaterThanOrEqual(1);
   });
 
-  it("builds NPC relations with deterministic stances", () => {
-    const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
-    const elara = def.npcs.get("elara");
-    expect(elara).toBeDefined();
-    expect((elara!.relations ?? []).length).toBeGreaterThan(0);
+  it("builds authored NPC relations with deterministic stances", () => {
+    const def = loadScript(path.join(REPO_ROOT, "scripts/starlight"));
+    const first = generateWorld(def, "crew-member", { seed: 7 }).state.npcs["chief-engineer"];
+    const second = generateWorld(def, "crew-member", { seed: 7 }).state.npcs["chief-engineer"];
+
+    expect(first.relations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ npcId: "doctor-vera", value: 34, stance: "friendly" }),
+      expect.objectContaining({ npcId: "night-cat", value: -8, stance: "neutral" }),
+    ]));
+    expect(second.relations).toEqual(first.relations);
   });
 });
 

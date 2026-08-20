@@ -13,11 +13,21 @@ import { loadCoreTestDefinition } from "../../__tests__/core-test-fixture";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const EMBERFALL = path.join(REPO_ROOT, "scripts/emberfall");
+const STARLIGHT = path.join(REPO_ROOT, "scripts/starlight");
 
 function createEmberfallEngine(seed = 42): Engine {
   return Engine.create({
     scriptDir: EMBERFALL,
-    originId: "miner",
+    originId: "lamp-keeper",
+    seed,
+    provider: new MockProvider(),
+  });
+}
+
+function createStarlightEngine(seed = 42): Engine {
+  return Engine.create({
+    scriptDir: STARLIGHT,
+    originId: "crew-member",
     seed,
     provider: new MockProvider(),
   });
@@ -96,29 +106,30 @@ describe("buildTurnPrompt relationship & status summary", () => {
 describe("Emberfall content regression", () => {
   it("injects the author's static description as the semantic texture", () => {
     const engine = createEmberfallEngine();
-    const state = placeNpcWithPlayer(engine, "old-miner");
+    const state = placeNpcWithPlayer(engine, "wang-shulan");
     const prompt = buildTurnPrompt({
       definition: engine.definition,
       state,
-      playerInput: "老矿工，早啊",
-      npcId: "old-miner",
+      playerInput: "请核对公账",
+      npcId: "wang-shulan",
     });
-    // The miner origin's starting relation to old-miner carries the authored
-    // description "同一条巷道里刨过食" — the LLM must see this texture, not a
-    // bare enum.
-    expect(prompt).toContain("同一条巷道里刨过食");
+    expect(prompt).toContain("共守公账");
+    expect(prompt).toContain("她认可你对数量的谨慎。");
+    expect(prompt).toContain("关系值 20");
   });
 
   it("injects authored NPC-to-NPC relation texture", () => {
-    const engine = createEmberfallEngine();
-    const state = placeNpcWithPlayer(engine, "old-miner");
+    const engine = createStarlightEngine();
+    const state = placeNpcWithPlayer(engine, "chief-engineer");
     const prompt = buildTurnPrompt({
       definition: engine.definition,
       state,
-      playerInput: "你好",
-      npcId: "old-miner",
+      playerInput: "复核交班关系",
+      npcId: "chief-engineer",
     });
-    expect(prompt).toMatch(/老矿工与/);
-    expect(prompt).toMatch(/死对头|老主顾/);
+    expect(prompt).toContain("老周与林小北：事故联络");
+    expect(prompt).toContain("两人对居住环设备底数比灯塔更熟");
+    expect(prompt).toContain("老周与阿岑：库存对账对象");
+    expect(prompt).toContain("关系值 -8");
   });
 });

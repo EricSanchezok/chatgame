@@ -102,9 +102,14 @@ describe("Built-in asset content regression", () => {
     const emberfall = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
     const starlight = loadScript(path.join(REPO_ROOT, "scripts/starlight"));
     const ember = buildAssetManifest(emberfall);
-    expect(ember.portraits.elara.file).toContain("elara.svg");
+    expect(ember.cover?.file).toBe("assets/backgrounds/emberfall-cover.png");
+    expect(ember.portraits["han-zhi"].file).toBe("assets/portraits/han-zhi.png");
     const star = buildAssetManifest(starlight);
-    expect(star.portraits["night-cat"].file).toContain("night-cat.svg");
+    expect(star.cover?.file).toBe("assets/backgrounds/shift-console-cover.webp");
+    expect(star.backgrounds["reactor-level"].file).toBe("assets/backgrounds/maintenance-spine.webp");
+    expect(star.effects["scrubber-p07-alert"].file).toBe("assets/audio/p07-alert.ogg");
+    expect(star.portraits["night-cat"].prompt).toBeTruthy();
+    expect(star.portraits["night-cat"].file).toBeUndefined();
     // Voices stay prompt/profile placeholders (no TTS files shipped).
     expect(star.voices["night-cat"].profile).toBeTruthy();
   });

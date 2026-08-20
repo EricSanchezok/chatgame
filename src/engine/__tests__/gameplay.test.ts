@@ -2,12 +2,10 @@
 // selection over immutable overlays of the independent core definition.
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
-import { checkActionLegality, gradeFromRoll, resolveAction } from "../actions";
+import { checkActionLegality, gradeFromRoll, previewAction, resolveAction } from "../actions";
 import { checkWorldRules, isKnownAction } from "../rules";
 import { checkCommitments, commitmentTriggerFires, secretRevealable } from "../plot";
-import { playEvent } from "../events";
 import { currentTensionBand, eventEligible, selectDirectorEvent } from "../director";
 import { advanceClock } from "../time";
 import type { WorldDefinition, WorldState } from "../types";
@@ -15,6 +13,8 @@ import type { Actions } from "../../script/schemas/actions";
 import type { Event } from "../../script/schemas/event";
 import type { Item } from "../../script/schemas/item";
 import { loadCoreTestDefinition } from "./core-test-fixture";
+import { Engine } from "../index";
+import { MockProvider } from "../narrative/mock";
 
 type Action = Actions["actions"][number];
 
@@ -538,22 +538,51 @@ describe("director", () => {
 });
 
 describe("Emberfall content regression", () => {
-  it("R8 mine-collapse flag closes the fact-source commitment loop", () => {
-    const definition = loadScript(path.resolve(__dirname, "../../../scripts/emberfall"));
-    const state = generateWorld(definition, "miner", { seed: 42 }).state;
-    const played = playEvent(state, definition, "mine-collapse");
-
-    expect(played.played).toBe(true);
-    expect(played.state.player.flags).toContain("mine-collapse-witnessed");
-    const withPerception = {
-      ...played.state,
-      player: { ...played.state.player, stats: { ...played.state.player.stats, perception: 12 } },
+  it("requires independent physical and testimony evidence before public allocation", () => {
+    const engine = Engine.create({
+      scriptDir: path.resolve(__dirname, "../../../scripts/emberfall"),
+      originId: "lamp-keeper",
+      seed: 42,
+      provider: new MockProvider(),
+    });
+    const definition = engine.definition;
+    let state = engine.worldState;
+    const resolve = (actionId: string, options: { targetNpcId?: string; params?: Record<string, unknown> } = {}) => {
+      const outcome = resolveAction({
+        definition,
+        state,
+        actionId,
+        targetNpcId: options.targetNpcId,
+        params: options.params,
+        rollOverride: 20,
+      });
+      expect(outcome.rejected, `${actionId}: ${outcome.rejectReason ?? "rejected"}`).toBe(false);
+      state = outcome.state;
     };
-    const result = checkCommitments(withPerception, definition);
-    expect(result.fired).toContain("collapse-survivor-rescued");
-    expect(
-      result.state.commitments.find((entry) => entry.commitmentId === "collapse-survivor-rescued")
-        ?.triggered,
-    ).toBe(true);
+
+    resolve("begin-shift");
+    resolve("survey-seam");
+    expect(state.facts).toContain("evidence:seam-sample");
+    expect(state.facts).not.toContain("evidence:bell-testimony");
+    expect(state.facts).not.toContain("conclusion:unlogged-second-descent");
+
+    resolve("mine-move", { params: { target: "bell-gallery" } });
+    resolve("listen-strata");
+    resolve("mine-move", { params: { target: "blue-seam" } });
+    resolve("collect-coal");
+    resolve("return-shift");
+
+    expect(previewAction(definition, state, {
+      actionId: "allocate-coal",
+      params: { allocation: "clinic" },
+    }).executable).toBe(false);
+
+    resolve("record-testimony", { targetNpcId: "han-zhi" });
+    expect(state.facts).toContain("evidence:bell-testimony");
+    expect(state.facts).toContain("conclusion:unlogged-second-descent");
+    expect(previewAction(definition, state, {
+      actionId: "allocate-coal",
+      params: { allocation: "clinic" },
+    }).executable).toBe(true);
   });
 });

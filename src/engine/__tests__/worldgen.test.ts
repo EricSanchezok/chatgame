@@ -111,21 +111,21 @@ describe("worldgen", () => {
   });
 });
 
-describe("Emberfall content regression", () => {
-  it("seeds old-wei initial memories with their authored content and deterministic ids", () => {
-    const definition = loadScript(path.resolve(__dirname, "../../../scripts/emberfall"));
-    const { state } = generateWorld(definition, "miner", { seed: 7 });
-    const oldWei = state.npcs["old-wei"];
+describe("Starlight content regression", () => {
+  it("seeds Starlight shift memories with authored content and deterministic ids", () => {
+    const definition = loadScript(path.resolve(__dirname, "../../../scripts/starlight"));
+    const { state } = generateWorld(definition, "crew-member", { seed: 7 });
+    const chief = state.npcs["chief-engineer"];
 
-    expect(oldWei).toBeDefined();
-    expect(oldWei.memories).toHaveLength(2);
-    expect(oldWei.memories[0].id).toMatch(/^mem-old-wei-\d+-\d+-\d+$/);
-    expect(oldWei.memories[1].id).not.toBe(oldWei.memories[0].id);
-    expect(oldWei.memories[0].text).toContain("敲击声");
-    expect(oldWei.memories[0].createdAtDay).toBe(0);
-    expect(oldWei.memories[0].archived).toBe(false);
+    expect(chief).toBeDefined();
+    expect(chief.memories).toHaveLength(2);
+    expect(chief.memories[0].id).toMatch(/^mem-chief-engineer-\d+-\d+-\d+$/);
+    expect(chief.memories[1].id).not.toBe(chief.memories[0].id);
+    expect(chief.memories[0].text).toContain("P-07 压差");
+    expect(chief.memories[0].createdAtDay).toBe(0);
+    expect(chief.memories[0].archived).toBe(false);
 
-    const again = generateWorld(definition, "miner", { seed: 7 });
-    expect(again.state.npcs["old-wei"].memories).toEqual(oldWei.memories);
+    const again = generateWorld(definition, "crew-member", { seed: 7 });
+    expect(again.state.npcs["chief-engineer"].memories).toEqual(chief.memories);
   });
 });
