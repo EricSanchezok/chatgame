@@ -4,6 +4,13 @@
 import type { GameClock } from "./types";
 import type { WorldDefinition } from "./types";
 
+/** Rejects spans that cannot be processed exactly by hourly world hooks. */
+export function assertNonNegativeIntegerHours(hours: number, label: string): void {
+  if (!Number.isFinite(hours) || !Number.isInteger(hours) || hours < 0) {
+    throw new Error(`${label} must be a non-negative finite integer`);
+  }
+}
+
 /** Creates the starting clock at day 1, month 1, year 1, hour 0. */
 export function createClock(definition: WorldDefinition, weather: string, season: string): GameClock {
   return {
@@ -150,4 +157,3 @@ export function worldAdvances(definition: WorldDefinition): boolean {
 export function hoursBetween(definition: WorldDefinition, from: GameClock, to: GameClock): number {
   return to.totalHours - from.totalHours;
 }
-

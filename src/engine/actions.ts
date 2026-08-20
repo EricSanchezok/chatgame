@@ -7,7 +7,7 @@
 // effects (scaled by grade) → ResolutionLog (auditable).
 import type { WorldState, WorldDefinition, ResultGrade, ResolutionLogEntry, EventLogEntry } from "./types";
 import type { Actions } from "../script/schemas/actions";
-import { absoluteDay } from "./time";
+import { absoluteDay, assertNonNegativeIntegerHours } from "./time";
 
 /** The action definition type (from actions schema). */
 type ActionEntry = Actions["actions"][number];
@@ -190,10 +190,9 @@ function payCosts(
   return next;
 }
 
-function normalizedHandlerTimeCost(timeCost: number | undefined, declarativeTimeCost: number | undefined): number {
-  if (timeCost !== undefined && (!Number.isFinite(timeCost) || timeCost < 0)) {
-    throw new Error("handler timeCost must be a non-negative finite number");
-  }
+function normalizedActionTimeCost(timeCost: number | undefined, declarativeTimeCost: number | undefined): number {
+  if (declarativeTimeCost !== undefined) assertNonNegativeIntegerHours(declarativeTimeCost, "action costs.time");
+  if (timeCost !== undefined) assertNonNegativeIntegerHours(timeCost, "handler timeCost");
   return Math.max(timeCost ?? declarativeTimeCost ?? 1, 1);
 }
 
@@ -349,7 +348,7 @@ export function previewAction(
 ): ActionPreview {
   const action = findAction(definition, hint.actionId);
   const displayName = action?.display_name ?? hint.actionId;
-  let timeCost = Math.max(action?.costs?.time ?? 1, 1);
+  let timeCost = normalizedActionTimeCost(undefined, action?.costs?.time);
   let costs = action ? previewCosts(action) : { currency: 0, items: [] };
   const resolve = action?.resolve;
   const risk: ActionPreview["risk"] = !resolve || resolve.type === "auto" || resolve.type === "narrative_only"
@@ -387,7 +386,7 @@ export function previewAction(
   );
   if (plan) {
     costs = previewCosts(action, plan.costs);
-    timeCost = normalizedHandlerTimeCost(plan.timeCost, action.costs?.time);
+    timeCost = normalizedActionTimeCost(plan.timeCost, action.costs?.time);
     if (plan.rejected) {
       return {
         actionId: hint.actionId,
@@ -414,6 +413,8 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
   const { definition, state } = ctx;
   const day = Math.floor(state.clock.totalHours / definition.time.day_length_hours);
   const logEntries: EventLogEntry[] = [];
+  const action = findAction(definition, ctx.actionId);
+  const declarativeTimeCost = normalizedActionTimeCost(undefined, action?.costs?.time);
 
   // 1. Legality gate (deterministic).
   const target = typeof ctx.params?.target === "string" ? ctx.params.target : ctx.targetNpcId;
@@ -429,7 +430,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     };
   }
 
-  const action = findAction(definition, ctx.actionId)!;
+  if (!action) throw new Error(`legal action "${ctx.actionId}" is missing from the definition`);
 
   // 2. Pay costs first (unpayable -> rejection, no state change).
   const paidCosts = payCosts(state, action);
@@ -456,7 +457,9 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     ctx.targetNpcId,
     ctx.params,
   );
-  const effectiveTimeCost = normalizedHandlerTimeCost(plan?.timeCost, action.costs?.time);
+  const effectiveTimeCost = plan
+    ? normalizedActionTimeCost(plan.timeCost, action.costs?.time)
+    : declarativeTimeCost;
   if (plan?.rejected) {
     return {
       state,

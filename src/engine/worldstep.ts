@@ -5,7 +5,7 @@
 // decay/thresholds, memory archiving, festivals, time/condition events,
 // ambient events, commitments and tension sync all flow through here.
 import type { WorldState, WorldDefinition, EventLogEntry, TaskCompletion } from "./types";
-import { advanceClock, absoluteDay, todayFestival, scheduleAt } from "./time";
+import { advanceClock, absoluteDay, assertNonNegativeIntegerHours, todayFestival, scheduleAt } from "./time";
 import { applyNeedDecay, applyNeedThresholds } from "./mechanics/needs";
 import { tickStatuses } from "./mechanics/status";
 import { applyGlobalMemoryDecay } from "./memory";
@@ -89,17 +89,16 @@ export function stepWorld(
   hours: number,
   options: StepWorldOptions = {},
 ): StepWorldResult {
-  if (hours <= 0) return { state, worldEvents: [], taskCompletions: [], logEntries: [] };
+  assertNonNegativeIntegerHours(hours, "stepWorld hours");
+  if (hours === 0) return { state, worldEvents: [], taskCompletions: [], logEntries: [] };
   const scope = new Set(options.scope ?? (["schedules", "needs", "events", "factions", "time_events"] as AdvanceScope[]));
   const logEntries: EventLogEntry[] = [];
   const worldEvents: string[] = [];
   const taskCompletions: TaskCompletion[] = [];
 
   let current = state;
-  const hoursLeft = Math.floor(hours);
-
   // Hourly loop: clock + needs decay + NPC schedule movement.
-  for (let h = 0; h < hoursLeft; h++) {
+  for (let h = 0; h < hours; h++) {
     const beforeState = current;
     const before = current.clock;
     const after = advanceClock(current.clock, definition, 1);
