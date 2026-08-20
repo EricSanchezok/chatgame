@@ -25,7 +25,7 @@ src/engine/
 ├── condition.ts      条件代数求值器（10 op × 11 source，flag/fact 统一标记空间）
 ├── effect.ts         效果代数执行器（14 kind + ResultGrade 系数）
 ├── rules.ts          ★RuleOK 关卡：world.yaml rules 确定性执行
-├── actions.ts        ★判定管道：合法性 → resolve → 结果等级 → costs/effects
+├── actions.ts        ★判定管道：合法性 → costs/handler 计划 → resolve → 结果等级 → effects/execute
 ├── builtins.ts       内置动作注册表（attack/defend/move/travel/use_item/give/take/steal/trade）
 ├── worldstep.ts      ★统一世界步进（回合与离线推进共用同一管道）
 ├── events.ts         事件执行（playEvent/checkScheduledEvents/ambient，唯一播放入口）
@@ -49,7 +49,7 @@ src/engine/
 
 ## Engine Extension v2
 
-剧本在 `script.yaml.engine_extension` 静态声明 effects、conditions、action handlers、rule mechanisms 与 lifecycle，加载时必须与 `engine/index.ts` 的实际注册集合精确相等；重复、未知或漏注册均响亮失败。动作 handler 返回纯 `ActionHandlerPlan`，规划阶段只计算拒绝、动态成本与耗时，`execute` 只在真实结算中对 post-effect state 调用一次。`onSessionStart` 只运行于 fresh session，加载 v5 存档不重放；其余生命周期按注册顺序运行且摘要进入事件日志。
+剧本在 `script.yaml.engine_extension` 静态声明 effects、conditions、action handlers、rule mechanisms 与 lifecycle，加载时必须与 `engine/index.ts` 的实际注册集合精确相等；重复、未知或漏注册均响亮失败。动作 handler 返回纯 `ActionHandlerPlan`，规划阶段只计算拒绝、动态成本与耗时，`execute` 只在真实结算中对 post-effect state 调用一次。规划输入是与权威 `WorldState`、`WorldDefinition` 和参数隔离的深度只读快照，写入 Map 或嵌套值会响亮失败。`onSessionStart` 只运行于 fresh session，加载 v5 存档不重放；其余生命周期按注册顺序运行且摘要进入事件日志。
 
 ## 回合循环（playerTurn）
 
@@ -57,10 +57,11 @@ src/engine/
 玩家自由文本
   → 1. 意图解析：LLM 映射 {action_id, target}（兜底分级；超模先拒绝）
   → 2. 引擎合法性：动作/条件/世界规则（RuleOK）→ 叙事化拒绝（I7）
-  → 3. 判定：stat/skill_check（d20+bonus vs DC）/ opposed（平手=主动方失败）/
+  → 3. 声明 costs → handler 纯计划（动态成本/耗时）→ 引擎统一支付动态 costs
+  → 4. 判定：stat/skill_check（d20+bonus vs DC）/ opposed（平手=主动方失败）/
        auto / narrative_only（跳过剧本 effects，内置语义照常）
-  → 4. 结果等级：fail/partial/success/crit（partial=0.5×, crit=2×）
-  → 5. 声明 costs → handler 纯计划（动态成本/耗时）→ effects（×grade）→ plan.execute 一次 → ResolutionLog
+       → 结果等级：fail/partial/success/crit（partial=0.5×, crit=2×）
+  → 5. effects（×grade）→ plan.execute 一次 → ResolutionLog
   → 6. stepWorld（统一世界推进：时钟/需求/状态/作息/事件/承诺/张力/任务）
   → 7. 导演选事件（张力带加权 + 冷却）→ 立即 playEvent → 任务检查（激活/进度/完成）
   → 8. 死亡策略检查（soft_failure 威胁条 ≥ 阈值 / world_continue·hard_reset 玩家 hp 归零）
@@ -69,7 +70,7 @@ src/engine/
   → 11. 转录追加（player 输入 + world 叙事；拒绝/澄清/死亡也写入）+ mediaCues 推导
   → TurnResult{narrative, resolution, logEntries, descriptorUpdates, worldEvents, taskCompletions, mediaCues, deathFired, ...}
 
-动作预检与执行复用同一合法性和 handler 规划。`ActionPreview` 合并声明成本与动态 currency/items/resources，并使用计划耗时；预检不执行 effects 或 `execute`。`effectiveTimeCost = plan.timeCost ?? max(costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
+动作预检与执行复用同一合法性、handler 规划与可支付性检查。`ActionPreview` 合并声明成本与动态 currency/items/resources，并使用计划耗时；执行在骰点和 effects 前由引擎统一校验、扣除动态成本一次，handler 不自行扣除。预检不执行 effects 或 `execute`。`effectiveTimeCost = max(plan.timeCost ?? costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
 
 ## 世界推进（worldstep.ts）
 
@@ -79,6 +80,7 @@ src/engine/
 - **日边界**（时钟跨天时执行一次）：状态效果 tick（duration=天数）→ 需求阈值（持久化边沿触发，停留区间不重复）→ 声望衰减 + 阈值（仅向上穿越时立即触发）→ 记忆衰减 + 归档（`tier_retention_days`，NPC `forget_policy` 覆盖）→ 节日事件 → time/condition 事件 → ambient 事件（30% 概率，`AMBIENT_EVENT_CHANCE`）→ 承诺检查 → 任务检查（时限失败 + 自动激活）→ 张力同步（tension 变量 ← threat_gauge）。
 - `advance_scope` 五项（schedules/needs/events/factions/time_events）门控离线推进；`world_advances: false` 时世界冻结。
 - 所有随机（ambient/导演/任务/世界生成）走注入式 `state.rng`，同种子同结果。
+- fresh session 保留 `worldgen` 选出的 starting event，并在开场 transcript 前通过 `playEvent` 播放一次；事件事实、正文和 `{kind:"event"}` MediaCue 使用同一 event id。load 从已持久化 transcript/事件状态恢复，不重放开场事件。
 
 ## 事件与任务
 
@@ -92,7 +94,7 @@ src/engine/
 
 - **attack**：命中（partial/success/crit）按玩家 strength × grade 对目标 `applyDamage`，HP ≤ 0 记 `defeated:<npc>` fact。
 - **defend**：success/crit → 威胁 -5。
-- **move**：目标必须与当前地点直接相连；**travel**：在可行简单路径中选总 `travel_time` 最短者。每段在真实出发时钟校验 `exit_condition` 与连接 `condition`，推进该段分钟后以抵达时钟校验 `entry_condition`；拒绝带机器 reasonCode（叙事化）。
+- **move**：目标必须与当前地点直接相连，并在平行边中选择耗时最短的可行边；**travel**：在可行简单路径中选总 `travel_time` 最短者。每段在真实出发时钟校验实际遍历边的 `exit_condition` 与连接 `condition`，推进该段分钟后以抵达时钟校验 `entry_condition`；拒绝带机器 reasonCode（叙事化）。
 - **use_item**：校验 `item.requirements` → `effects_on_use` → consumable 消耗 1 件。
 - **give / take**：玩家 ↔ NPC / 地点库存转移（容量检查）。
 - **steal**：success/crit 转移 1 件，partial 威胁 +5，fail 威胁 +10；空库存拒绝。
@@ -146,8 +148,8 @@ src/engine/
 ## 存档
 
 - 路径 `.chatgame/saves/<scriptId>/<runId>.json`；格式 `{saveSchemaVersion, scriptId, createdAt, updatedAt, worldState}`。
-- 当前 schema 版本 = 5（WorldState 包含持久化 `activeNeedThresholds`、MemoryEntry 连续强度字段、contextSummary、actionCooldowns、runtimeState、关系/状态描述位与 transcript）；load 严格校验版本与 `activeNeedThresholds` 字符串数组，缺字段的伪 v5 和旧版本都直接拒绝（敏捷开发，不做迁移）。
-- `normalizeWorldState` 在 create/load 后补齐派生字段（`locationInventories` 从 `locations[].items`、`secretHolders` 从 NPC secrets、played 追踪默认值、`transcript` 缺省 []、`contextSummary` 缺省哨兵、`actionCooldowns` 缺省 {}、`runtimeState` 缺省 {}）。
+- 当前 schema 版本 = 5（WorldState 包含持久化 `activeNeedThresholds`、MemoryEntry 连续强度字段、contextSummary、actionCooldowns、runtimeState、关系/状态描述位与 transcript）；save/load 共用完整严格的 `SaveFile`/`WorldState` schema。缺 clock/player/npcs 等必需字段、嵌套字段类型错误、伪造版本号的残缺 v5 和旧版本都直接拒绝（敏捷开发，不做迁移）。
+- `normalizeWorldState` 在 fresh create 后建立派生字段，并在通过完整 schema 的 load 后规范可选 `contextSummary`；它不充当残缺存档的迁移通道。
 - 往返测试：save → load → 状态深度相等（含 threshold 游标、转录、contextSummary、actionCooldowns、runtimeState 与描述位），且 load 不重复执行 session-start lifecycle。
 
 ## 运行策略

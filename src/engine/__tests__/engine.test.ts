@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { Engine } from "../index";
 import { MockProvider } from "../narrative/mock";
 import { createFsSaveStore } from "../save-store";
+import { eventTextFor } from "../events";
 import type { WorldState } from "../types";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -34,6 +35,49 @@ describe("Engine facade", () => {
     const engine = createEngine();
     const opening = engine.openingNarrative();
     expect(opening.length).toBeGreaterThan(0);
+  });
+
+  it("plays the deterministic worldgen starting event once and cues it in the opening", () => {
+    const first = createEngine(42);
+    const second = createEngine(42);
+    const cue = first.worldState.transcript[0]?.mediaCues[0];
+    expect(cue).toMatchObject({ kind: "event" });
+    const eventId = cue?.kind === "event" ? cue.eventId : "";
+    expect(eventId).not.toBe("");
+    expect(second.worldState.transcript[0]?.mediaCues[0]).toEqual(cue);
+    expect(first.worldState.playedEventIds.filter((id) => id === eventId)).toHaveLength(1);
+    expect(first.worldState.eventLog.filter((entry) => entry.summary === `event "${eventId}" played`)).toHaveLength(1);
+    const event = first.definition.events.get(eventId)!;
+    const eventText = eventTextFor(first.definition, event.narrative?.template ?? eventId);
+    expect(eventText).toBeDefined();
+    expect(first.worldState.transcript[0]?.text).toContain(eventText!);
+  });
+
+  it("loads an opening event without replaying it", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "cg-opening-event-"));
+    try {
+      const saveStore = createFsSaveStore(tempRoot);
+      const fresh = Engine.create({
+        scriptDir: EMBERFALL,
+        originId: "miner",
+        seed: 42,
+        provider: new MockProvider(),
+        saveStore,
+      });
+      const savePath = fresh.save("opening-event");
+      const loaded = Engine.create({
+        scriptDir: EMBERFALL,
+        originId: "miner",
+        provider: new MockProvider(),
+        saveStore,
+        loadSaveFile: savePath,
+      });
+      expect(loaded.worldState).toEqual(fresh.worldState);
+      expect(loaded.worldState.transcript).toHaveLength(1);
+      expect(loaded.worldState.playedEventIds).toEqual(fresh.worldState.playedEventIds);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("playerTurn with talk action returns narrative and advances", async () => {

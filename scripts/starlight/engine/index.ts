@@ -76,27 +76,18 @@ const rerouteHandler: RuntimeActionHandler = (ctx) => {
     execute: (nextState: typeof state) => ({ state: nextState, summaries: [] }),
   });
 
-  const energy = state.player.needs.energy?.value ?? 0;
-  if (energy < 20) {
-    return reject("insufficient_energy", "you are too drained to reroute power");
-  }
+  const energyCost = 20;
   const day = Math.floor(state.clock.totalHours / definition.time.day_length_hours);
   if (readRuntime(state).last_reroute_day === day) {
     return reject("already_routed", "the power grid was rerouted earlier today");
   }
 
   return {
-    costs: { resources: [{ kind: "need" as const, id: "energy", amount: 20 }] },
+    costs: { resources: [{ kind: "need" as const, id: "energy", amount: energyCost }] },
     execute: (nextState) => {
-      const nextEnergy = nextState.player.needs.energy?.value ?? 0;
-      const needs = {
-        ...nextState.player.needs,
-        energy: { ...(nextState.player.needs.energy ?? { value: 0 }), value: Math.max(0, nextEnergy - 20) },
-      };
       return {
         state: {
           ...nextState,
-          player: { ...nextState.player, needs },
           runtimeState: { ...nextState.runtimeState, last_reroute_day: day },
         },
         summaries: ["rerouted life-support power to the hull grid (-20 energy)"],

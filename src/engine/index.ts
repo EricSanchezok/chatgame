@@ -59,17 +59,20 @@ export class Engine {
   private state: WorldState;
   private provider: LLMProvider;
   private saveStore: SaveStore;
+  private readonly openingEventId?: string;
 
   private constructor(
     definition: WorldDefinition,
     state: WorldState,
     provider: LLMProvider,
     saveStore: SaveStore,
+    openingEventId?: string,
   ) {
     this.definition = definition;
     this.state = state;
     this.provider = provider;
     this.saveStore = saveStore;
+    this.openingEventId = openingEventId;
   }
   /** Current immutable world state (read-only view for callers). */
   get worldState(): WorldState {
@@ -85,14 +88,17 @@ export class Engine {
     const definition = loadScript(options.scriptDir);
     const provider = options.provider ?? createProvider();
     let state: WorldState;
+    let openingEventId: string | undefined;
     if (options.loadSaveFile) {
       const save = readSave(options.loadSaveFile, definition.script.id, options.saveStore ?? fsSaveStore);
       state = normalizeWorldState(definition, save.worldState);
+      openingEventId = state.transcript[0]?.mediaCues.find((cue) => cue.kind === "event")?.eventId;
     } else {
       const generated = generateWorld(definition, options.originId, {
         seed: options.seed,
       });
       state = normalizeWorldState(definition, generated.state);
+      openingEventId = generated.startingEvent;
       if (options.playerName) {
         state = { ...state, player: { ...state.player, name: options.playerName } };
       }
@@ -112,28 +118,29 @@ export class Engine {
         state = { ...state, eventLog: [...state.eventLog, log] };
       }
     }
-    const engine = new Engine(definition, state, provider, options.saveStore ?? fsSaveStore);
     // Fresh session: play the worldgen starting event and seed the opening
     // transcript entry (the UI renders history from the transcript).
     if (!options.loadSaveFile) {
-      const startingEventId = engine.startingEventId();
-      if (startingEventId) {
-        const out = playEvent(engine.state, definition, startingEventId);
-        engine.state = out.state;
+      if (openingEventId) {
+        const out = playEvent(state, definition, openingEventId);
+        state = out.state;
+        if (!out.played) openingEventId = undefined;
       }
-      const cues: MediaCue[] = startingEventId
-        ? [{ kind: "event", eventId: startingEventId }]
+    }
+    const engine = new Engine(
+      definition,
+      state,
+      provider,
+      options.saveStore ?? fsSaveStore,
+      openingEventId,
+    );
+    if (!options.loadSaveFile) {
+      const cues: MediaCue[] = openingEventId
+        ? [{ kind: "event", eventId: openingEventId }]
         : [];
       engine.state = appendTranscript(engine.state, "world", engine.openingNarrative(), cues);
     }
     return engine;
-  }
-
-  /** The worldgen starting event id (undefined when not randomized). */
-  private startingEventId(): string | undefined {
-    return this.definition.worldgen.randomize.find((r) => r.target === "starting_event")
-      ? this.state.playedEventIds[this.state.playedEventIds.length - 1]
-      : undefined;
   }
 
   /**
@@ -433,9 +440,12 @@ export class Engine {
     let text = `${opening.scene}\n${opening.first_lines.join("\n")}`;
     if (hookText) text = `${text}\n${hookText}`;
     // Append the starting event's text when one played at creation.
-    const startingEvent = this.startingEventId();
-    if (startingEvent) {
-      const eventText = eventTextFor(this.definition, startingEvent);
+    if (this.openingEventId) {
+      const event = this.definition.events.get(this.openingEventId);
+      const eventText = eventTextFor(
+        this.definition,
+        event?.narrative?.template ?? this.openingEventId,
+      ) ?? (event ? `（事件 "${event.name}" 发生了。）` : undefined);
       if (eventText) text = `${text}\n\n${eventText}`;
     }
     return text;
