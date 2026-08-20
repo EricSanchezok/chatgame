@@ -28,8 +28,8 @@ describe("ScriptsLibrary import preview", () => {
       errors: [],
       warnings: [],
     });
-    const { container } = render(<ScriptsLibrary />);
-    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    render(<ScriptsLibrary />);
+    const input = screen.getByLabelText<HTMLInputElement>("选择要导入的剧本 zip 文件");
     fireEvent.change(input, { target: { files: [new File(["zip"], "preview.zip", { type: "application/zip" })] } });
     const cover = await screen.findByRole("img", { name: "预检封面" });
     expect(cover).toHaveAttribute("src", "/api/scripts/import/preview/00000000-0000-0000-0000-000000000001/cover");

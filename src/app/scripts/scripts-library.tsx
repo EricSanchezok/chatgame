@@ -143,7 +143,14 @@ export function ScriptsLibrary() {
           <button type="button" className="cg-button cg-button--primary" disabled={busy} onClick={() => fileRef.current?.click()}>
             {busy ? "正在检查……" : "导入 zip"}
           </button>
-          <input ref={fileRef} className="cg-sr-only" type="file" accept=".zip,application/zip" onChange={(event) => void chooseFile(event)} />
+          <input
+            ref={fileRef}
+            className="cg-sr-only"
+            type="file"
+            accept=".zip,application/zip"
+            aria-label="选择要导入的剧本 zip 文件"
+            onChange={(event) => void chooseFile(event)}
+          />
         </header>
 
         <label className="cg-search" htmlFor="script-search">
