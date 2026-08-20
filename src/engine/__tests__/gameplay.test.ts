@@ -1,26 +1,190 @@
-// Gameplay tests: action resolution (grades, legality, anti-cheat),
-// world rules enforcement (RuleOK), commitment firing/deadlines,
-// director event selection (tension bands + novelty).
+// Gameplay tests: action resolution, RuleOK, commitments, and director
+// selection over immutable overlays of the independent core definition.
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
-import { resolveAction, gradeFromRoll, checkActionLegality } from "../actions";
+import { checkActionLegality, gradeFromRoll, resolveAction } from "../actions";
 import { checkWorldRules, isKnownAction } from "../rules";
-import { checkCommitments, secretRevealable, commitmentTriggerFires } from "../plot";
+import { checkCommitments, commitmentTriggerFires, secretRevealable } from "../plot";
 import { playEvent } from "../events";
-import { selectDirectorEvent, eventEligible, currentTensionBand } from "../director";
+import { currentTensionBand, eventEligible, selectDirectorEvent } from "../director";
 import { advanceClock } from "../time";
-import type { WorldState, WorldDefinition } from "../types";
+import type { WorldDefinition, WorldState } from "../types";
+import type { Actions } from "../../script/schemas/actions";
+import type { Event } from "../../script/schemas/event";
+import type { Item } from "../../script/schemas/item";
+import { loadCoreTestDefinition } from "./core-test-fixture";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
+type Action = Actions["actions"][number];
+
+const COMPONENT: Item = {
+  id: "component",
+  name: "校准组件",
+  type: "material",
+  description: "用于确定性动作测试的组件。",
+  properties: { stackable: true },
+  effects_on_use: [],
+  rarity: "test",
+  value: 1,
+  ext: {},
+};
+
+const DIRECTOR_EVENT: Event = {
+  id: "director-pulse",
+  name: "导演脉冲",
+  type: "test",
+  tags: [],
+  trigger: "director",
+  effects: [],
+  weight: 1,
+  cooldown: 0,
+  repeatable: false,
+  participants: ["operator"],
+  locations: ["relay-room"],
+  ext: {},
+};
+
+function action(id: string, resolve: Action["resolve"], overrides: Partial<Action> = {}): Action {
+  return {
+    id,
+    enabled: true,
+    resolve,
+    llm_freedom: "narration",
+    ...overrides,
+  } as Action;
+}
+
+function gameplayDefinition(): WorldDefinition {
+  const base = loadCoreTestDefinition();
+  const operator = base.npcs.get("operator")!;
+  const auditor = {
+    ...operator,
+    id: "auditor",
+    name: "审计员",
+    schedule: undefined,
+    occupation: undefined,
+    home: "service-corridor",
+    relations: [],
+    secrets: [],
+    knowledge_flags: [],
+  };
+  const secret = {
+    id: "relay-secret",
+    content: "中继站保留了一条隐藏校准记录。",
+    reveal: {
+      logic: {
+        all: [
+          { source: "relationship", op: "gte" as const, value: 60 },
+          { source: "flag", key: "badge-shown", op: "has" as const },
+        ],
+      },
+    },
+  };
+  const actions: Action[] = [
+    action("talk", { type: "auto" }),
+    action("persuade", { type: "skill_check", skill: "focus", dc: 12 }),
+    action("steal", { type: "opposed_check", stat: "hp", npc_stat: "hp" }),
+    action("give", { type: "narrative_only" }),
+    action("attack", { type: "stat_check", stat: "strength", dc: 12 }),
+    action("defend", { type: "auto" }),
+    action("take", { type: "auto" }, {
+      conditions: { all: [{ source: "location", key: "current", op: "eq", value: "service-corridor" }] },
+    }),
+    action("wait", { type: "auto" }, { costs: { time: 1 } }),
+    action("cast", { type: "auto" }, { costs: { items: [{ item: COMPONENT.id, quantity: 1 }] } }),
+    action("gather", { type: "auto" }),
+    action("travel", { type: "auto" }),
+  ];
+  return {
+    ...base,
+    mechanics: {
+      ...base.mechanics,
+      stats: [
+        ...base.mechanics.stats,
+        { name: "strength", min: 0, max: 20, initial: 14, description: "测试力量" },
+      ],
+    },
+    actions: { ...base.actions, actions },
+    items: new Map([[COMPONENT.id, COMPONENT]]),
+    npcs: new Map([
+      [operator.id, { ...operator, secrets: [secret] }],
+      [auditor.id, auditor],
+    ]),
+    plot: {
+      ...base.plot,
+      commitments: [
+        {
+          id: "shift-anniversary",
+          description: "第二日第三小时进行交班。",
+          type: "time",
+          trigger: { time: { day: 2, hour: 3 } },
+          must_happen: true,
+        },
+        {
+          id: "operator-trust",
+          description: "值班员信任达到阈值。",
+          type: "condition",
+          trigger: { condition: { all: [{ source: "relationship", key: "operator", op: "gte", value: 60 }] } },
+          must_happen: true,
+        },
+        {
+          id: "restore-signal",
+          description: "恢复中继信号。",
+          type: "condition",
+          trigger: { condition: { all: [{ source: "flag", key: "signal-restored", op: "has" }] } },
+          must_happen: true,
+          deadline: {
+            time: { day: 2 },
+            on_miss: {
+              escalation_text: "中继信号进入降级模式",
+              effects: [{ kind: "flag", direction: "set", target: "player", flag: "signal-degraded" }],
+            },
+          },
+        },
+      ],
+    },
+    director: {
+      ...base.director,
+      event_selection: {
+        ...base.director.event_selection,
+        bands: [{ band: [0, 100], weight_multiplier: 1 }],
+      },
+    },
+    events: new Map([[DIRECTOR_EVENT.id, DIRECTOR_EVENT]]),
+    extensions: {
+      ...base.extensions,
+      ruleMechanisms: {
+        ...base.extensions.ruleMechanisms,
+        "quiet-window": ({ state }) => state.clock.hour >= 22 ? "travel is closed" : null,
+      },
+    },
+  };
+}
 
 function setup(): { def: WorldDefinition; state: WorldState } {
-  const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
-  const { state } = generateWorld(def, "miner", { seed: 42 });
-  // Move the player to the tavern so elara (home: tavern) is present.
-  const atTavern = { ...state, player: { ...state.player, locationId: "tavern" } };
-  return { def, state: atTavern };
+  const def = gameplayDefinition();
+  const generated = generateWorld(def, "observer", { seed: 42 }).state;
+  return {
+    def,
+    state: {
+      ...generated,
+      player: {
+        ...generated.player,
+        locationId: "relay-room",
+        inventory: { ...generated.player.inventory, stacks: [{ itemId: COMPONENT.id, quantity: 1 }] },
+      },
+      npcs: {
+        ...generated.npcs,
+        operator: {
+          ...generated.npcs.operator,
+          currentLocationId: "relay-room",
+          inventory: { stacks: [{ itemId: COMPONENT.id, quantity: 1 }], currency: 0 },
+        },
+        auditor: { ...generated.npcs.auditor, currentLocationId: "service-corridor" },
+      },
+    },
+  };
 }
 
 describe("action resolution", () => {
@@ -28,243 +192,197 @@ describe("action resolution", () => {
     const { def, state } = setup();
     const out = resolveAction({ definition: def, state, actionId: "talk" });
     expect(out.rejected).toBe(false);
-    expect(out.resolution?.grade).toBe("success");
-    expect(out.resolution?.resolveType).toBe("auto");
-    expect(out.resolution?.roll).toBeNull();
+    expect(out.resolution).toMatchObject({ grade: "success", resolveType: "auto", roll: null });
   });
 
   it("skill_check resolves grade from roll", () => {
     const { def, state } = setup();
-    // persuade DC 12; rollOverride 20 + skill -> crit
     const out = resolveAction({
       definition: def,
       state,
       actionId: "persuade",
-      targetNpcId: "elara",
+      targetNpcId: "operator",
       rollOverride: 20,
     });
     expect(out.rejected).toBe(false);
-    expect(["crit", "success"]).toContain(out.resolution!.grade);
-    expect(out.resolution!.dc).toBe(12);
+    expect(out.resolution?.grade).toBe("crit");
+    expect(out.resolution?.dc).toBe(12);
   });
 
-  it("failed roll yields fail grade and still records log", () => {
+  it("failed roll yields fail grade and records a log", () => {
     const { def, state } = setup();
-    const out = resolveAction({
-      definition: def,
-      state,
-      actionId: "persuade",
-      targetNpcId: "elara",
-      rollOverride: 1,
-    });
+    const unfocused = { ...state, player: { ...state.player, skills: { ...state.player.skills, focus: 0 } } };
+    const out = resolveAction({ definition: def, state: unfocused, actionId: "persuade", rollOverride: 1 });
     expect(out.resolution?.grade).toBe("fail");
-    expect(out.state.eventLog.length).toBeGreaterThan(0);
+    expect(out.state.eventLog).toHaveLength(1);
   });
 
-  it("opposed check tie = actor fails (5e semantics)", () => {
+  it("opposed check tie means the actor fails", () => {
     const { def, state } = setup();
-    // Deterministic tie: player agility 10, elara perception 10, both roll 10.
-    const withElara = {
+    const tied = {
       ...state,
+      player: { ...state.player, stats: { ...state.player.stats, hp: 10 } },
       npcs: {
         ...state.npcs,
-        elara: {
-          ...state.npcs.elara,
-          stats: { ...state.npcs.elara.stats, perception: 10 },
-          inventory: { stacks: [{ itemId: "tonic", quantity: 1 }], currency: 0 },
-        },
+        operator: { ...state.npcs.operator, stats: { ...state.npcs.operator.stats, hp: 10 } },
       },
     };
     const out = resolveAction({
       definition: def,
-      state: withElara,
+      state: tied,
       actionId: "steal",
-      targetNpcId: "elara",
+      targetNpcId: "operator",
       rollOverride: 10,
       npcRollOverride: 10,
     });
-    expect(out.rejected).toBe(false);
-    expect(out.resolution?.resolveType).toBe("opposed_check");
     expect(out.resolution?.grade).toBe("fail");
-    // Fail: no item stolen, threat +10.
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "tonic")).toBe(false);
+    expect(out.state.player.inventory.stacks).toEqual(tied.player.inventory.stacks);
     expect(out.state.player.threatGauge).toBe(10);
   });
 
-  it("opposed check net win succeeds (with a stealable item)", () => {
+  it("opposed check net win succeeds with a stealable item", () => {
     const { def, state } = setup();
-    const withElara = {
+    const balanced = {
       ...state,
+      player: { ...state.player, stats: { ...state.player.stats, hp: 10 }, inventory: { ...state.player.inventory, stacks: [] } },
       npcs: {
         ...state.npcs,
-        elara: {
-          ...state.npcs.elara,
-          stats: { ...state.npcs.elara.stats, perception: 10 },
-          inventory: { stacks: [{ itemId: "tonic", quantity: 1 }], currency: 0 },
-        },
+        operator: { ...state.npcs.operator, stats: { ...state.npcs.operator.stats, hp: 10 } },
       },
     };
     const out = resolveAction({
       definition: def,
-      state: withElara,
+      state: balanced,
       actionId: "steal",
-      targetNpcId: "elara",
+      targetNpcId: "operator",
       rollOverride: 12,
       npcRollOverride: 10,
     });
-    expect(out.rejected).toBe(false);
     expect(out.resolution?.grade).toBe("success");
-    // Steal success transfers one item to the player.
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "tonic")).toBe(true);
+    expect(out.state.player.inventory.stacks).toContainEqual({ itemId: COMPONENT.id, quantity: 1 });
   });
 
-  it("narrative_only give transfers without rolling (builtin semantics)", () => {
+  it("narrative_only give transfers without rolling", () => {
     const { def, state } = setup();
-    // Miner origin starts with a lantern; give has narrative_only resolve +
-    // builtin transfer semantics (no d20 roll, no grade scaling).
     const out = resolveAction({
       definition: def,
       state,
       actionId: "give",
-      targetNpcId: "elara",
-      params: { item: "lantern" },
+      targetNpcId: "operator",
+      params: { item: COMPONENT.id },
     });
-    expect(out.rejected).toBe(false);
-    expect(out.resolution?.resolveType).toBe("narrative_only");
-    expect(out.resolution?.grade).toBe("success");
-    expect(out.resolution?.roll).toBeNull();
-    // The lantern moved from the player to elara.
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(false);
-    expect(out.state.npcs.elara.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(true);
+    expect(out.resolution).toMatchObject({ resolveType: "narrative_only", grade: "success", roll: null });
+    expect(out.state.player.inventory.stacks).not.toContainEqual({ itemId: COMPONENT.id, quantity: 1 });
+    expect(out.state.npcs.operator.inventory.stacks).toContainEqual({ itemId: COMPONENT.id, quantity: 2 });
   });
 
   it("attack hit applies combat damage to the target NPC", () => {
     const { def, state } = setup();
-    const withElara = {
+    const target = {
       ...state,
-      npcs: { ...state.npcs, elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, hp: 80 } } },
+      npcs: { ...state.npcs, operator: { ...state.npcs.operator, stats: { ...state.npcs.operator.stats, hp: 80 } } },
     };
     const out = resolveAction({
       definition: def,
-      state: withElara,
+      state: target,
       actionId: "attack",
-      targetNpcId: "elara",
-      rollOverride: 20, // crit: 20 + strength 14 vs DC 12
+      targetNpcId: "operator",
+      rollOverride: 20,
     });
-    expect(out.rejected).toBe(false);
     expect(out.resolution?.grade).toBe("crit");
-    expect(out.state.npcs.elara.stats.hp).toBeLessThan(80);
-    expect(out.resolution?.effectsApplied.some((s) => s.includes("attack hit"))).toBe(true);
+    expect(out.state.npcs.operator.stats.hp).toBeLessThan(80);
+    expect(out.resolution?.effectsApplied.some((summary) => summary.includes("attack hit"))).toBe(true);
   });
 
-  it("attack defeat records defeated fact at 0 hp", () => {
+  it("attack defeat records a defeated fact at zero hp", () => {
     const { def, state } = setup();
-    const weakElara = {
+    const weak = {
       ...state,
-      npcs: { ...state.npcs, elara: { ...state.npcs.elara, stats: { ...state.npcs.elara.stats, hp: 10 } } },
+      npcs: { ...state.npcs, operator: { ...state.npcs.operator, stats: { ...state.npcs.operator.stats, hp: 10 } } },
     };
     const out = resolveAction({
       definition: def,
-      state: weakElara,
+      state: weak,
       actionId: "attack",
-      targetNpcId: "elara",
-      rollOverride: 20, // crit damage 2x14=28 -> hp 0
+      targetNpcId: "operator",
+      rollOverride: 20,
     });
-    expect(out.state.npcs.elara.stats.hp).toBe(0);
-    expect(out.state.facts).toContain("defeated:elara");
+    expect(out.state.npcs.operator.stats.hp).toBe(0);
+    expect(out.state.facts).toContain("defeated:operator");
   });
 
-  it("defend success reduces threat gauge (passive defense)", () => {
+  it("defend success reduces threat gauge", () => {
     const { def, state } = setup();
     const tense = { ...state, player: { ...state.player, threatGauge: 30 } };
-    const out = resolveAction({
-      definition: def,
-      state: tense,
-      actionId: "defend",
-      rollOverride: 20, // 20 + defense 5 vs DC 10 -> success
-    });
-    expect(out.rejected).toBe(false);
+    const out = resolveAction({ definition: def, state: tense, actionId: "defend" });
     expect(out.state.player.threatGauge).toBe(25);
   });
 
-  it("unknown action is rejected with reason", () => {
+  it("unknown action is rejected with a reason", () => {
     const { def, state } = setup();
-    const out = resolveAction({ definition: def, state, actionId: "teleport_anywhere" });
-    expect(out.rejected).toBe(true);
-    expect(out.rejectReason).toBe("unknown_action");
+    const out = resolveAction({ definition: def, state, actionId: "teleport-anywhere" });
+    expect(out).toMatchObject({ rejected: true, rejectReason: "unknown_action" });
   });
 
-  it("action with unmet condition is rejected (take requires location)", () => {
+  it("action with an unmet condition is rejected", () => {
     const { def, state } = setup();
-    // take has condition location in town-hall; player is at tavern
     const out = resolveAction({ definition: def, state, actionId: "take" });
-    expect(out.rejected).toBe(true);
-    expect(out.rejectReason).toBe("condition_not_met");
+    expect(out).toMatchObject({ rejected: true, rejectReason: "condition_not_met" });
   });
 
-  it("gradeFromRoll maps bands", () => {
+  it("gradeFromRoll maps result bands", () => {
     expect(gradeFromRoll(20, 10)).toBe("crit");
     expect(gradeFromRoll(12, 10)).toBe("success");
     expect(gradeFromRoll(8, 10)).toBe("partial");
     expect(gradeFromRoll(3, 10)).toBe("fail");
   });
 
-  it("time cost reports effectiveTimeCost (clock advances in stepWorld)", () => {
+  it("reports time cost without advancing the clock", () => {
     const { def, state } = setup();
-    const before = state.clock.totalHours;
-    const out = resolveAction({ definition: def, state, actionId: "wait" }); // wait costs 1h
-    // resolveAction no longer advances the clock — it reports the cost and
-    // the caller (playerTurn) steps the world by it.
+    const out = resolveAction({ definition: def, state, actionId: "wait" });
     expect(out.effectiveTimeCost).toBe(1);
-    expect(out.state.clock.totalHours).toBe(before);
+    expect(out.state.clock.totalHours).toBe(state.clock.totalHours);
   });
 
   it("unaffordable cost rejects without state change", () => {
     const { def, state } = setup();
-    const noHerb = {
+    const empty = {
       ...state,
       player: { ...state.player, inventory: { ...state.player.inventory, stacks: [] } },
     };
-    // cast costs herb (item); without any items -> unaffordable
-    const out = resolveAction({ definition: def, state: noHerb, actionId: "cast" });
-    expect(out.rejected).toBe(true);
-    expect(out.rejectReason).toBe("unaffordable");
+    const out = resolveAction({ definition: def, state: empty, actionId: "cast" });
+    expect(out).toMatchObject({ rejected: true, rejectReason: "unaffordable", state: empty });
   });
 
-  it("origin denied_actions rejects the action (apprentice cannot cast)", () => {
-    const def = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
-    const { state } = generateWorld(def, "apprentice", { seed: 42 });
-    // apprentice.yaml declares denied_actions: [cast]; legality rejects
-    // before costs are checked (R8).
-    const out = resolveAction({ definition: def, state, actionId: "cast" });
-    expect(out.rejected).toBe(true);
-    expect(out.rejectReason).toBe("denied_action");
+  it("origin denied_actions rejects before costs are checked", () => {
+    const def = gameplayDefinition();
+    const observer = def.origins.get("observer")!;
+    const restricted = {
+      ...def,
+      origins: new Map(def.origins).set(observer.id, { ...observer, denied_actions: ["cast"] }),
+    };
+    const state = generateWorld(restricted, "observer", { seed: 42 }).state;
+    const out = resolveAction({ definition: restricted, state, actionId: "cast" });
+    expect(out).toMatchObject({ rejected: true, rejectReason: "denied_action" });
   });
 });
 
 describe("world rules (RuleOK)", () => {
-  it("known actions pass vocabulary gate", () => {
+  it("known actions pass the vocabulary gate", () => {
     const { def } = setup();
     expect(isKnownAction(def, "talk")).toBe(true);
     expect(isKnownAction(def, "fly")).toBe(false);
   });
 
-  it("rule check rejects action against absent npc", () => {
+  it("rejects an action against an absent NPC", () => {
     const { def, state } = setup();
-    const result = checkWorldRules({
-      definition: def,
-      state,
-      actionId: "talk",
-      target: "old-miner", // not at player location (tavern)
-    });
-    expect(result.allowed).toBe(false);
-    expect(result.reasonCode).toBe("npc_absent");
+    const result = checkWorldRules({ definition: def, state, actionId: "talk", target: "auditor" });
+    expect(result).toMatchObject({ allowed: false, reasonCode: "npc_absent" });
   });
 
-  it("rule check allows talk with present npc", () => {
+  it("allows talk with a present NPC", () => {
     const { def, state } = setup();
-    const result = checkWorldRules({ definition: def, state, actionId: "talk", target: "elara" });
-    expect(result.allowed).toBe(true);
+    expect(checkWorldRules({ definition: def, state, actionId: "talk", target: "operator" }).allowed).toBe(true);
   });
 
   it("no-matter-creation blocks obtaining undefined items", () => {
@@ -273,32 +391,35 @@ describe("world rules (RuleOK)", () => {
       definition: def,
       state,
       actionId: "gather",
-      target: "nonexistent-item",
+      target: "missing-component",
     });
-    expect(result.allowed).toBe(false);
-    expect(result.reasonCode).toBe("rule:no-matter-creation");
+    expect(result).toMatchObject({ allowed: false, reasonCode: "rule:conservation" });
   });
 
-  it("checkActionLegality wraps rule violations", () => {
+  it("checkActionLegality propagates rule violations", () => {
     const { def, state } = setup();
-    const result = checkActionLegality(def, state, "gather", "nonexistent-item");
-    expect(!result.ok).toBe(true);
-    if (!result.ok) {
-      expect(result.reasonCode).toContain("rule");
-    }
+    const result = checkActionLegality(def, state, "gather", "missing-component");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasonCode).toBe("rule:conservation");
   });
 
   it("runs a script-registered rule mechanism", () => {
     const { def, state } = setup();
+    const definition = {
+      ...def,
+      world: {
+        ...def.world,
+        rules: [...def.world.rules, { id: "quiet-hours", text: "深夜关闭旅行", mechanism: "quiet-window" }],
+      },
+    };
     const atNight = { ...state, clock: { ...state.clock, hour: 23 } };
     const result = checkWorldRules({
-      definition: def,
+      definition,
       state: atNight,
       actionId: "travel",
-      target: "mine-entrance",
+      target: "service-corridor",
     });
-    expect(result.allowed).toBe(false);
-    expect(result.reasonCode).toBe("rule:night-travel-forbidden");
+    expect(result).toMatchObject({ allowed: false, reasonCode: "rule:quiet-hours" });
   });
 
   it("rejects an unregistered rule mechanism loudly", () => {
@@ -311,152 +432,128 @@ describe("world rules (RuleOK)", () => {
       state,
       actionId: "talk",
     });
-    expect(result.allowed).toBe(false);
-    expect(result.reasonCode).toBe("unregistered_rule:missing");
+    expect(result).toMatchObject({ allowed: false, reasonCode: "unregistered_rule:missing" });
   });
 });
 
 describe("commitments", () => {
   it("time commitment fires on its date", () => {
     const { def, state } = setup();
-    // ash-day-anniversary: month 11 day 3 hour 18
-    // months 1-10 days: 30+29+30+30+29+30+30+29+30+30 = 297
-    const advanced = {
-      ...state,
-      clock: advanceClock(state.clock, def, 24 * 297 + 24 * 2 + 18),
-    };
-    const result = checkCommitments(advanced, def);
-    expect(result.fired).toContain("ash-day-anniversary");
+    const atTrigger = { ...state, clock: advanceClock(state.clock, def, 27) };
+    expect(checkCommitments(atTrigger, def).fired).toContain("shift-anniversary");
   });
 
-  it("condition commitment fires when relationship reaches threshold", () => {
+  it("condition commitment fires when a relationship reaches its threshold", () => {
     const { def, state } = setup();
-    // elara-secret-reveal: relationship elara >= 60 (player perspective)
-    const withRel = {
+    const trusted = {
       ...state,
       player: {
         ...state.player,
-        relations: [
-          { npcId: "elara", value: 70, stance: "friendly", type: "business" },
-        ],
+        relations: [{ npcId: "operator", value: 70, stance: "friendly", type: "colleague" }],
       },
     };
-    const result = checkCommitments(withRel, def);
-    expect(result.fired).toContain("elara-secret-reveal");
-    expect(
-      result.state.commitments.find((c) => c.commitmentId === "elara-secret-reveal")?.triggered,
-    ).toBe(true);
+    const result = checkCommitments(trusted, def);
+    expect(result.fired).toContain("operator-trust");
+    expect(result.state.commitments.find((entry) => entry.commitmentId === "operator-trust")?.triggered).toBe(true);
   });
 
-  it("deadline miss applies on_miss escalation", () => {
+  it("deadline miss applies its escalation", () => {
     const { def, state } = setup();
-    // collapse-survivor-rescued has deadline day 60
-    const advanced = { ...state, clock: advanceClock(state.clock, def, 24 * 61) };
-    const result = checkCommitments(advanced, def);
-    expect(result.missed).toContain("collapse-survivor-rescued");
+    const late = { ...state, clock: advanceClock(state.clock, def, def.time.day_length_hours * 3) };
+    const result = checkCommitments(late, def);
+    expect(result.missed).toContain("restore-signal");
+    expect(result.state.player.flags).toContain("signal-degraded");
   });
 
-  it("secretRevealable respects reveal condition (relationship + flag)", () => {
+  it("secretRevealable respects relationship and flag conditions", () => {
     const { def, state } = setup();
-    const heldByElara = {
-      ...state,
-      secretHolders: { ...state.secretHolders, "mine-secret": "elara" },
-    };
-    // elara's mine-secret requires player relationship >= 60 AND flag miner-badge-shown
-    const notRevealable = secretRevealable(heldByElara, def, "elara", "mine-secret");
-    expect(notRevealable).toBe(false);
-    const withRel = {
-      ...heldByElara,
+    const held = { ...state, secretHolders: { "relay-secret": "operator" } };
+    expect(secretRevealable(held, def, "operator", "relay-secret")).toBe(false);
+    const trusted = {
+      ...held,
       npcs: {
-        ...heldByElara.npcs,
-        elara: {
-          ...heldByElara.npcs.elara,
-          relations: [{ npcId: "player", value: 80, stance: "allied", type: "business" }],
+        ...held.npcs,
+        operator: {
+          ...held.npcs.operator,
+          relations: [{ npcId: "player", value: 80, stance: "allied", type: "colleague" }],
         },
       },
     };
-    // Relationship met but flag missing -> still not revealable.
-    expect(secretRevealable(withRel, def, "elara", "mine-secret")).toBe(false);
-    const withBoth = {
-      ...withRel,
-      player: { ...withRel.player, flags: [...withRel.player.flags, "miner-badge-shown"] },
+    expect(secretRevealable(trusted, def, "operator", "relay-secret")).toBe(false);
+    const authorized = {
+      ...trusted,
+      player: { ...trusted.player, flags: [...trusted.player.flags, "badge-shown"] },
     };
-    expect(secretRevealable(withBoth, def, "elara", "mine-secret")).toBe(true);
+    expect(secretRevealable(authorized, def, "operator", "relay-secret")).toBe(true);
   });
 
-  it("uses the runtime secret holder as the NPC knowledge boundary", () => {
+  it("uses the runtime secret holder as the knowledge boundary", () => {
     const { def, state } = setup();
     const reassigned = {
       ...state,
-      facts: [...state.facts, "mine-secret"],
-      secretHolders: { ...state.secretHolders, "mine-secret": "old-miner" },
+      facts: [...state.facts, "relay-secret"],
+      secretHolders: { "relay-secret": "auditor" },
     };
-    expect(secretRevealable(reassigned, def, "elara", "mine-secret")).toBe(false);
-    expect(secretRevealable(reassigned, def, "old-miner", "mine-secret")).toBe(true);
+    expect(secretRevealable(reassigned, def, "operator", "relay-secret")).toBe(false);
+    expect(secretRevealable(reassigned, def, "auditor", "relay-secret")).toBe(true);
   });
 
-  it("commitmentTriggerFires checks time + condition", () => {
+  it("commitmentTriggerFires checks time and condition triggers", () => {
     const { def, state } = setup();
-    const commitment = def.plot.commitments.find((c) => c.id === "ash-day-anniversary")!;
+    const commitment = def.plot.commitments.find((entry) => entry.id === "shift-anniversary")!;
     expect(commitmentTriggerFires(commitment, { definition: def, state })).toBe(false);
-    const fired = commitmentTriggerFires(
+    expect(commitmentTriggerFires(
       { ...commitment, trigger: { time: { day: state.clock.day, month: state.clock.month } } },
       { definition: def, state },
-    );
-    expect(fired).toBe(true);
+    )).toBe(true);
+  });
+});
+
+describe("director", () => {
+  it("selects an event when the pool is eligible", () => {
+    const { def, state } = setup();
+    const result = selectDirectorEvent(state, def);
+    expect(result.selectedEventId).toBe(DIRECTOR_EVENT.id);
+    expect(result.state.director.lastEventDay).toBeGreaterThanOrEqual(0);
   });
 
-  it("R8 mainline: mine-collapse flag triggers the fact-source commitment", () => {
+  it("eventEligible filters by location constraint", () => {
     const { def, state } = setup();
-    // mine-collapse writes flag: mine-collapse-witnessed; the commitment
-    // collapse-survivor-rescued reads fact: mine-collapse-witnessed. The
-    // unified marker space (hasMarker) bridges the two, so the mainline
-    // commitment fires once the event played and perception >= 12.
-    const played = playEvent(state, def, "mine-collapse");
+    const elsewhere = { ...state, player: { ...state.player, locationId: "service-corridor" } };
+    expect(eventEligible(DIRECTOR_EVENT, elsewhere, def)).toBe(false);
+  });
+
+  it("resolves a positive tension band multiplier", () => {
+    const { def, state } = setup();
+    const { band, multiplier } = currentTensionBand(state, def);
+    expect(band).toEqual([0, 100]);
+    expect(multiplier).toBe(1);
+  });
+
+  it("does not select when nothing is eligible", () => {
+    const { def, state } = setup();
+    const result = selectDirectorEvent(state, { ...def, events: new Map() });
+    expect(result.selectedEventId).toBeUndefined();
+  });
+});
+
+describe("Emberfall content regression", () => {
+  it("R8 mine-collapse flag closes the fact-source commitment loop", () => {
+    const definition = loadScript(path.resolve(__dirname, "../../../scripts/emberfall"));
+    const state = generateWorld(definition, "miner", { seed: 42 }).state;
+    const played = playEvent(state, definition, "mine-collapse");
+
     expect(played.played).toBe(true);
     expect(played.state.player.flags).toContain("mine-collapse-witnessed");
     const withPerception = {
       ...played.state,
       player: { ...played.state.player, stats: { ...played.state.player.stats, perception: 12 } },
     };
-    const result = checkCommitments(withPerception, def);
+    const result = checkCommitments(withPerception, definition);
     expect(result.fired).toContain("collapse-survivor-rescued");
     expect(
-      result.state.commitments.find((c) => c.commitmentId === "collapse-survivor-rescued")
+      result.state.commitments.find((entry) => entry.commitmentId === "collapse-survivor-rescued")
         ?.triggered,
     ).toBe(true);
-  });
-});
-
-describe("director", () => {
-  it("selects an event when pool is eligible", () => {
-    const { def, state } = setup();
-    const result = selectDirectorEvent(state, def);
-    expect(result.selectedEventId).toBeDefined();
-    // Selection records the play day; novelty truth lives in playedEventIds.
-    expect(result.state.director.lastEventDay).toBeGreaterThanOrEqual(0);
-  });
-
-  it("eventEligible filters by location constraint", () => {
-    const { def, state } = setup();
-    const mineEvent = def.events.get("mine-collapse");
-    if (mineEvent) {
-      // mine-collapse targets mine-entrance; player at tavern -> not eligible
-      expect(eventEligible(mineEvent, state, def)).toBe(false);
-    }
-  });
-
-  it("tension band multiplier resolves", () => {
-    const { def, state } = setup();
-    const { band, multiplier } = currentTensionBand(state, def);
-    expect(band).toBeDefined();
-    expect(multiplier).toBeGreaterThan(0);
-  });
-
-  it("does not select when nothing eligible (empty world)", () => {
-    const { def, state } = setup();
-    const emptyDef = { ...def, events: new Map() };
-    const result = selectDirectorEvent(state, emptyDef as WorldDefinition);
-    expect(result.selectedEventId).toBeUndefined();
   });
 });
