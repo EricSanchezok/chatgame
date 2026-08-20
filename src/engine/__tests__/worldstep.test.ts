@@ -3,9 +3,8 @@
 // NPC schedule movement, reputation decay/thresholds, memory archiving,
 // festivals, time/condition events, commitments, tension sync, and
 // advance_scope gating. Determinism: all randomness flows through rng.
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadScript } from "../loader";
+import { loadCoreTestDefinition } from "./core-test-fixture";
 import { generateWorld } from "../worldgen";
 import { stepWorld } from "../worldstep";
 import { applyNeedThresholds } from "../mechanics/needs";
@@ -13,55 +12,109 @@ import { createMemoryEntry } from "../memory";
 import { advanceClock } from "../time";
 import type { WorldDefinition, WorldState } from "../types";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-
-function emberfall(): WorldDefinition {
-  return loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
+function testDefinition(): WorldDefinition {
+  const core = loadCoreTestDefinition();
+  const definition: WorldDefinition = {
+    ...core,
+    time: {
+      ...core.time,
+      festivals: [{ id: "calibration-day", name: "Calibration day", date: "01-02", event: "handoff-signal" }],
+      advance_scope: ["schedules", "needs", "events", "factions", "time_events"],
+    },
+    mechanics: {
+      ...core.mechanics,
+      stats: [
+        ...core.mechanics.stats,
+        { name: "strength", min: 0, max: 20, initial: 14 },
+        { name: "perception", min: 0, max: 20, initial: 10 },
+      ],
+      needs: [{
+        name: "energy",
+        min: 0,
+        max: 100,
+        initial: 80,
+        decay_per_day: 20,
+        thresholds: [{
+          level: 30,
+          label: "low",
+          effects: [{ kind: "stat", direction: "add", target: "player", stat: "strength", value: -2 }],
+        }],
+      }],
+      status_effects: [{
+        id: "signal-drift",
+        name: "Signal drift",
+        kind: "debuff",
+        effects: [{ kind: "stat", direction: "add", target: "player", stat: "perception", value: -1 }],
+        duration: 2,
+        stackable: false,
+      }],
+    },
+    items: new Map([
+      ...core.items,
+      ["sample", {
+        id: "sample",
+        name: "Sample",
+        type: "material" as const,
+        description: "A deterministic task sample.",
+        properties: { stackable: true },
+        effects_on_use: [],
+        rarity: "common",
+        value: 1,
+      }],
+    ]),
+    tasks: new Map([
+      ...core.tasks,
+      ["collect-samples", {
+        id: "collect-samples",
+        name: "Collect samples",
+        objective: { type: "gather" as const, target: { items: ["sample"] }, quantity: 3 },
+        giver: { pool: ["operator"] },
+        rewards: [],
+        repeatable: false,
+        narrative: { offer: "Collect three samples.", complete: "Samples logged.", fail: "Sampling expired." },
+      }],
+    ]),
+  };
+  return Object.freeze(definition);
 }
 
 function freshState(def: WorldDefinition, seed = 42): WorldState {
-  return generateWorld(def, "miner", { seed }).state;
+  return generateWorld(def, "observer", { seed }).state;
 }
 
 describe("stepWorld hourly progression", () => {
   it("advances the clock by the requested hours", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
     const out = stepWorld(state, def, 5);
     expect(out.state.clock.totalHours).toBe(5);
   });
 
   it("decays needs continuously (hourly fractions)", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
-    const hungerBefore = state.player.needs.hunger.value;
+    const energyBefore = state.player.needs.energy.value;
     const out = stepWorld(state, def, 12);
-    // hunger decay_per_day 20 -> -10 over 12h.
-    expect(out.state.player.needs.hunger.value).toBeCloseTo(hungerBefore - 10, 1);
+    // energy decay_per_day 20 -> -10 over 12h.
+    expect(out.state.player.needs.energy.value).toBeCloseTo(energyBefore - 10, 1);
   });
 
   it("moves NPCs per their schedule at the day/hour boundary", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
-    // Miner origin starts at mine-entrance; old-miner has a schedule that
-    // puts him at mine-entrance at 06:00-18:00 and tavern 18:00-22:00.
-    const npc = state.npcs["old-miner"];
-    const startLoc = npc.currentLocationId;
-    // Advance 10 hours -> hour 10: old-miner should be at mine-entrance
-    // (if his schedule says so) OR stay wherever he was (home).
+    const npc = state.npcs.operator;
+    expect(npc.currentLocationId).toBe("relay-room");
     const out = stepWorld(state, def, 10);
-    const npcAfter = out.state.npcs["old-miner"];
-    expect(npcAfter.currentLocationId).toBeTruthy();
-    void startLoc;
+    expect(out.state.npcs.operator.currentLocationId).toBe("relay-room");
   });
 
   it("applies need thresholds once on entry, not on every day while sustained", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
-    // Force hunger below the 30 threshold -> strength -2 applies daily.
+    // Force energy below the 30 threshold -> strength -2 applies daily.
     const starving = {
       ...state,
-      player: { ...state.player, needs: { ...state.player.needs, hunger: { value: 10 } } },
+      player: { ...state.player, needs: { ...state.player.needs, energy: { value: 10 } } },
     };
     const out = stepWorld(starving, def, 24);
     expect(out.state.player.stats.strength).toBeLessThan(14);
@@ -72,24 +125,24 @@ describe("stepWorld hourly progression", () => {
   });
 
   it("ticks status effects once per day", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
     const withStatus = {
       ...state,
       player: {
         ...state.player,
-        statuses: [{ statusId: "tipsy", remainingTicks: 2, stacks: 1 }],
+        statuses: [{ statusId: "signal-drift", remainingTicks: 2, stacks: 1 }],
       },
     };
     const out = stepWorld(withStatus, def, 24);
-    // tipsy: perception -1 per tick; after 1 day -> remainingTicks 1.
+    // signal-drift: perception -1 per tick; after 1 day -> remainingTicks 1.
     expect(out.state.player.statuses[0].remainingTicks).toBe(1);
   });
 
   it("applies memory decay at the day boundary", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
-    // trivial retention 30 days; inject a 40-day-old trivial memory.
+    // The core fixture retains trivial memories for seven days.
     const oldMemory = createMemoryEntry("旧琐事", "trivial", 1, [], "mem-old");
     const withMemory = {
       ...state,
@@ -101,42 +154,35 @@ describe("stepWorld hourly progression", () => {
   });
 
   it("syncs tension variables to the threat gauge", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
     const tense = { ...state, player: { ...state.player, threatGauge: 60 } };
     const out = stepWorld(tense, def, 24);
-    // danger/mystery_depth/social_warmth all source threat_gauge -> 60.
-    expect(out.state.director.tension["danger"]).toBe(60);
+    expect(out.state.director.tension.load).toBe(60);
   });
 
-  it("respects advance_scope: needs-only skips events/commitments", () => {
-    const def = emberfall();
+  it("respects advance_scope: needs-only skips time events", () => {
+    const def = testDefinition();
     const state = freshState(def);
-    // Force a commitment to be due (day 61 > collapse-survivor deadline 60).
-    const advanced = { ...state, clock: advanceClock(state.clock, def, 24 * 61) };
-    const out = stepWorld(advanced, def, 1, { scope: ["needs"] });
-    // With scope ["needs"], the commitment check is skipped.
-    const missed = out.state.commitments.find((c) => c.commitmentId === "collapse-survivor-rescued");
-    expect(missed?.deadlineMissed).toBeFalsy();
+    const ready = { ...state, player: { ...state.player, locationId: "service-corridor" } };
+    const out = stepWorld(ready, def, 24, { scope: ["needs"] });
+    expect(out.worldEvents).toEqual([]);
+    expect(out.state.playedEventIds).not.toContain("handoff-signal");
   });
 
   it("plays festival events on their date (advance_scope time_events)", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
-    // 春市 (festival-market) is 04-05; arrive at 04-04 10:00 and step into
-    // the festival day. market-day needs the player at town-square with a
-    // participant present (caravan-boss is there 06:00-18:00).
     const festivalDay = {
       ...state,
-      player: { ...state.player, locationId: "town-square" },
-      clock: advanceClock(state.clock, def, 24 * 92 + 10),
+      player: { ...state.player, locationId: "service-corridor" },
     };
     const out = stepWorld(festivalDay, def, 24);
     expect(out.worldEvents.length).toBeGreaterThan(0);
   });
 
   it("is deterministic under a fixed seed (incl. ambient events)", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const a = freshState(def, 7);
     const b = freshState(def, 7);
     const outA = stepWorld(a, def, 24 * 3);
@@ -145,19 +191,19 @@ describe("stepWorld hourly progression", () => {
   });
 
   it("returns task completions from the day boundary", () => {
-    const def = emberfall();
+    const def = testDefinition();
     const state = freshState(def);
-    // gather-herbs: turn-loop activation happens while the giver is present;
+    // collect-samples: turn-loop activation happens while the giver is present;
     // the day boundary check completes it once the objective is met. Inject
-    // the active task (as the turn loop would) and give the player 3 herbs.
+    // the active task (as the turn loop would) and give the player 3 samples.
     const activeTask = {
       ...state,
       player: {
         ...state.player,
-        inventory: { ...state.player.inventory, stacks: [{ itemId: "herb", quantity: 3 }] },
+        inventory: { ...state.player.inventory, stacks: [{ itemId: "sample", quantity: 3 }] },
       },
       tasks: [{
-        taskId: "gather-herbs",
+        taskId: "collect-samples",
         status: "active" as const,
         acceptedDay: 0,
         acceptedEventCount: 0,
@@ -165,8 +211,8 @@ describe("stepWorld hourly progression", () => {
       }],
     };
     const out = stepWorld(activeTask, def, 24);
-    const done = out.taskCompletions.find((c) => c.taskId === "gather-herbs");
+    const done = out.taskCompletions.find((c) => c.taskId === "collect-samples");
     expect(done?.status).toBe("complete");
-    expect(out.state.tasks.find((t) => t.taskId === "gather-herbs")?.status).toBe("complete");
+    expect(out.state.tasks.find((t) => t.taskId === "collect-samples")?.status).toBe("complete");
   });
 });

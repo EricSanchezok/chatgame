@@ -1,9 +1,8 @@
 // Entity runtime tests: relations matrix, memory layering/forgetting,
 // and the dual-track descriptor layer (labels + stale + lazy refresh +
 // user edits + descriptions never participate in resolution).
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadScript } from "../loader";
+import { loadCoreTestDefinition } from "./core-test-fixture";
 import {
   setRelation,
   adjustRelation,
@@ -35,21 +34,20 @@ import {
 } from "../descriptors";
 import type { WorldState, Descriptor } from "../types";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-const emberfall = loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
+const definition = Object.freeze(loadCoreTestDefinition());
 
 function makeState(overrides: Partial<WorldState> = {}): WorldState {
   return {
-    scriptId: "emberfall",
-    clock: { totalHours: 0, day: 1, month: 1, year: 1, hour: 0, weekday: 0, weather: "晴", season: "春" },
+    scriptId: definition.script.id,
+    clock: { totalHours: 0, day: 1, month: 1, year: 1, hour: 0, weekday: 0, weather: "clear", season: "baseline" },
     player: {
-      originId: "miner",
-      name: "矿工",
+      originId: "observer",
+      name: "观察员",
       stats: { hp: 50 },
       skills: {},
       needs: { hunger: { value: 70 } },
       inventory: { stacks: [], currency: 30 },
-      locationId: "emberfall-tavern",
+      locationId: "relay-room",
       flags: [],
       threatGauge: 0,
       statuses: [],
@@ -58,8 +56,8 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
       reputation: [],
     },
     npcs: {
-      elara: {
-        id: "elara",
+      operator: {
+        id: "operator",
         stats: { hp: 80 },
         skills: {},
         needs: {},
@@ -68,12 +66,12 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
         memories: [],
         knowledgeFlags: [],
         revealedSecrets: [],
-        currentLocationId: "emberfall-tavern",
+        currentLocationId: "relay-room",
         statuses: [],
         reputation: [],
       },
-      oldminer: {
-        id: "oldminer",
+      auditor: {
+        id: "auditor",
         stats: { hp: 60 },
         skills: {},
         needs: {},
@@ -82,7 +80,7 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
         memories: [],
         knowledgeFlags: [],
         revealedSecrets: [],
-        currentLocationId: "mine-entrance",
+        currentLocationId: "service-corridor",
         statuses: [],
         reputation: [],
       },
@@ -108,54 +106,57 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
 
 describe("relations", () => {
   it("setRelation creates an edge with deterministic stance", () => {
-    const rels = setRelation([], "elara", 70);
+    const rels = setRelation([], "operator", 70);
     expect(rels).toHaveLength(1);
     expect(rels[0].value).toBe(70);
     expect(rels[0].stance).toBe("allied");
     expect(rels[0].type).toBe("acquaintance");
   });
   it("setRelation updates existing edge and marks descriptor stale", () => {
-    const base = [{ npcId: "elara", value: 10, stance: "neutral", type: "friend", descriptor: createDescriptor("陌生", "旧描述") }];
-    const rels = setRelation(base, "elara", 80, "romantic");
+    const base = [{ npcId: "operator", value: 10, stance: "neutral", type: "colleague", descriptor: createDescriptor("陌生", "旧描述") }];
+    const rels = setRelation(base, "operator", 80, "trusted");
     expect(rels[0].value).toBe(80);
-    expect(rels[0].type).toBe("romantic");
+    expect(rels[0].type).toBe("trusted");
     expect(rels[0].descriptor?.stale).toBe(true);
     expect(rels[0].descriptor?.description).toBe("旧描述"); // value untouched by descriptor edit
   });
   it("adjustRelation adds delta", () => {
-    const rels = adjustRelation([{ npcId: "elara", value: 10, stance: "neutral", type: "friend" }], "elara", 15);
+    const rels = adjustRelation([{ npcId: "operator", value: 10, stance: "neutral", type: "colleague" }], "operator", 15);
     expect(rels[0].value).toBe(25);
   });
   it("values clamp to -100..100", () => {
-    const rels = setRelation([], "elara", 150);
+    const rels = setRelation([], "operator", 150);
     expect(rels[0].value).toBe(100);
   });
   it("playerRelationValue / npcRelationValue", () => {
-    const s = makeState();
-    s.player.relations = [{ npcId: "elara", value: 40, stance: "friendly", type: "friend" }];
-    expect(playerRelationValue(s, "elara")).toBe(40);
+    const base = makeState();
+    const s = makeState({ player: {
+      ...base.player,
+      relations: [{ npcId: "operator", value: 40, stance: "friendly", type: "colleague" }],
+    } });
+    expect(playerRelationValue(s, "operator")).toBe(40);
     expect(playerRelationValue(s, "unknown")).toBe(0);
-    expect(npcRelationValue(s, "elara")).toBe(65);
+    expect(npcRelationValue(s, "operator")).toBe(65);
   });
   it("sameLocation checks player-npc and npc-npc", () => {
     const s = makeState();
-    expect(sameLocation(s, PLAYER_REF, "elara")).toBe(true);
-    expect(sameLocation(s, "elara", "oldminer")).toBe(false);
+    expect(sameLocation(s, PLAYER_REF, "operator")).toBe(true);
+    expect(sameLocation(s, "operator", "auditor")).toBe(false);
   });
   it("applyRelationUpdates applies multiple directed edges", () => {
     const s = makeState();
     const next = applyRelationUpdates(s, [
-      { owner: "player", target: "elara", value: 50 },
-      { owner: "elara", target: "oldminer", value: 20 },
+      { owner: "player", target: "operator", value: 50 },
+      { owner: "operator", target: "auditor", value: 20 },
     ]);
-    expect(playerRelationValue(next, "elara")).toBe(50);
-    expect(next.npcs.elara.relations.find((r) => r.npcId === "oldminer")?.value).toBe(20);
+    expect(playerRelationValue(next, "operator")).toBe(50);
+    expect(next.npcs.operator.relations.find((r) => r.npcId === "auditor")?.value).toBe(20);
   });
 });
 
 describe("memory", () => {
   it("createMemoryEntry sets fields", () => {
-    const m = createMemoryEntry("重要记忆", "major", 5, ["mine"], "mem");
+    const m = createMemoryEntry("重要记忆", "major", 5, ["relay"], "mem");
     expect(m.text).toBe("重要记忆");
     expect(m.importance).toBe("major");
     expect(m.createdAtDay).toBe(5);
@@ -187,46 +188,56 @@ describe("memory", () => {
     expect(out[0].strength).toBe(0.3);
   });
   it("activeMemories filters archived and sorts newest-first", () => {
-    const state = makeState();
     const old = createMemoryEntry("旧", "minor", 1, [], "a");
     const fresh = createMemoryEntry("新", "major", 10, [], "b");
-    state.player.memories = [old, { ...fresh }, { ...old, archived: true }];
+    const base = makeState();
+    const state = makeState({ player: {
+      ...base.player,
+      memories: [old, { ...fresh }, { ...old, archived: true }],
+    } });
     const active = activeMemories(state.player);
     expect(active).toHaveLength(2);
     expect(active[0].text).toBe("新");
   });
   it("applyGlobalMemoryDecay archives trivial player memories", () => {
-    const state = makeState();
-    state.player.memories = [createMemoryEntry("旧琐事", "trivial", 1, [], "m1")];
-    state.clock = { ...state.clock, totalHours: 24 * 100 }; // day 100
-    const next = applyGlobalMemoryDecay(state, emberfall);
+    const base = makeState();
+    const state = makeState({
+      player: {
+        ...base.player,
+        memories: [createMemoryEntry("旧琐事", "trivial", 1, [], "m1")],
+      },
+      clock: { ...base.clock, totalHours: 24 * 100 },
+    });
+    const next = applyGlobalMemoryDecay(state, definition);
     expect(next.player.memories[0].archived).toBe(true);
   });
   it("recordMemoryAccess boosts strength and records the access day", () => {
-    const state = makeState();
-    const entry = createMemoryEntry("遇见艾拉", "minor", 1, [], "a");
-    state.player.memories = [entry];
-    state.clock = { ...state.clock, totalHours: 24 * 3 }; // day 3
-    const next = recordMemoryAccess(state, emberfall, [entry.id]);
+    const entry = createMemoryEntry("遇见值班员", "minor", 1, [], "a");
+    const base = makeState();
+    const state = makeState({
+      player: { ...base.player, memories: [entry] },
+      clock: { ...base.clock, totalHours: 24 * 3 },
+    });
+    const next = recordMemoryAccess(state, definition, [entry.id]);
     expect(next.player.memories[0].strength).toBeCloseTo(0.75); // 0.6 + 0.15
     expect(next.player.memories[0].lastAccessedDay).toBe(3);
   });
   it("selectMemories ranks relevance over recency and renders lines", () => {
-    const state = makeState();
-    const oldRelevant = createMemoryEntry("欠酒商金币", "minor", 1, ["debt"], "a");
-    const freshIrrelevant = createMemoryEntry("买了药水", "minor", 10, [], "b");
-    state.player.memories = [freshIrrelevant, oldRelevant];
-    const sel = selectMemories(state.player, { playerInput: "还钱 debt" }, 8);
+    const oldRelevant = createMemoryEntry("校准尚未完成", "minor", 1, ["calibration"], "a");
+    const freshIrrelevant = createMemoryEntry("记录了样本", "minor", 10, [], "b");
+    const base = makeState();
+    const state = makeState({ player: { ...base.player, memories: [freshIrrelevant, oldRelevant] } });
+    const sel = selectMemories(state.player, { playerInput: "继续 calibration" }, 8);
     // The relevant old memory beats the fresh irrelevant one.
     expect(sel.ids[0]).toBe(oldRelevant.id);
-    expect(sel.text).toContain("[minor] 欠酒商金币");
-    expect(sel.text).toContain("[minor] 买了药水");
+    expect(sel.text).toContain("[minor] 校准尚未完成");
+    expect(sel.text).toContain("[minor] 记录了样本");
   });
   it("selectMemories tie-breaks by createdAtDay desc then id asc", () => {
-    const state = makeState();
     const older = createMemoryEntry("旧", "minor", 1, [], "a");
     const newer = createMemoryEntry("新", "minor", 2, [], "b");
-    state.player.memories = [older, newer];
+    const base = makeState();
+    const state = makeState({ player: { ...base.player, memories: [older, newer] } });
     const sel = selectMemories(state.player, {}, 8);
     expect(sel.ids).toEqual([newer.id, older.id]);
   });
@@ -252,7 +263,7 @@ describe("descriptors (dual-track)", () => {
   it("refreshDescriptor regenerates stale descriptor with fallback", async () => {
     const d = createDescriptor("友善");
     const refreshed = await refreshDescriptor(d, "relation", 50, {
-      definition: emberfall,
+      definition,
       recentEvents: [],
     });
     expect(refreshed.stale).toBe(false);
@@ -261,7 +272,7 @@ describe("descriptors (dual-track)", () => {
   });
   it("refreshDescriptor keeps fresh descriptors untouched", async () => {
     const d = { ...createDescriptor("友善"), stale: false, description: "已生成" };
-    const refreshed = await refreshDescriptor(d, "relation", 50, { definition: emberfall });
+    const refreshed = await refreshDescriptor(d, "relation", 50, { definition });
     expect(refreshed.description).toBe("已生成");
     expect(refreshed.version).toBe(0);
   });
@@ -278,46 +289,57 @@ describe("descriptors (dual-track)", () => {
     expect(edited.stale).toBe(false);
   });
   it("setUserDescriptor applies edit to state and returns update", () => {
-    const state = makeState();
-    state.player.relations = [{ npcId: "elara", value: 50, stance: "friendly", type: "friend", descriptor: createDescriptor("友善") }];
-    const { state: next, update } = setUserDescriptor(state, "player.relations.elara", "她是我最信任的朋友");
+    const base = makeState();
+    const state = makeState({ player: {
+      ...base.player,
+      relations: [{ npcId: "operator", value: 50, stance: "friendly", type: "colleague", descriptor: createDescriptor("友善") }],
+    } });
+    const { state: next, update } = setUserDescriptor(state, "player.relations.operator", "这是我最信任的同事");
     expect(update.descriptor.userEdited).toBe(true);
-    const rel = next.player.relations.find((r) => r.npcId === "elara")!;
-    expect(rel.descriptor?.description).toBe("她是我最信任的朋友");
+    const rel = next.player.relations.find((r) => r.npcId === "operator")!;
+    expect(rel.descriptor?.description).toBe("这是我最信任的同事");
     expect(rel.value).toBe(50); // value untouched
   });
   it("refreshAllStale refreshes stale descriptors only", async () => {
-    const state = makeState();
-    state.player.relations = [
-      { npcId: "elara", value: 50, stance: "friendly", type: "friend", descriptor: createDescriptor("友善") }, // stale
-      { npcId: "oldminer", value: 20, stance: "neutral", type: "acquaintance", descriptor: { ...createDescriptor("陌生"), stale: false, description: "已生成", version: 2 } }, // fresh
-    ];
-    const { state: next, updates } = await refreshAllStale(state, { definition: emberfall });
-    // elara is stale -> refreshed; oldminer is fresh -> untouched.
+    const base = makeState();
+    const state = makeState({ player: {
+      ...base.player,
+      relations: [
+        { npcId: "operator", value: 50, stance: "friendly", type: "colleague", descriptor: createDescriptor("友善") }, // stale
+        { npcId: "auditor", value: 20, stance: "neutral", type: "acquaintance", descriptor: { ...createDescriptor("陌生"), stale: false, description: "已生成", version: 2 } }, // fresh
+      ],
+    } });
+    const { state: next, updates } = await refreshAllStale(state, { definition });
+    // operator is stale -> refreshed; auditor is fresh -> untouched.
     const paths = updates.map((u) => u.path);
-    expect(paths).toContain("player.relations.elara");
-    expect(paths).not.toContain("player.relations.oldminer");
-    const elara = next.player.relations.find((r) => r.npcId === "elara")!;
-    expect(elara.descriptor?.stale).toBe(false);
-    expect(elara.descriptor?.version).toBe(1);
-    const oldminer = next.player.relations.find((r) => r.npcId === "oldminer")!;
-    expect(oldminer.descriptor?.version).toBe(2); // untouched
+    expect(paths).toContain("player.relations.operator");
+    expect(paths).not.toContain("player.relations.auditor");
+    const operator = next.player.relations.find((r) => r.npcId === "operator")!;
+    expect(operator.descriptor?.stale).toBe(false);
+    expect(operator.descriptor?.version).toBe(1);
+    const auditor = next.player.relations.find((r) => r.npcId === "auditor")!;
+    expect(auditor.descriptor?.version).toBe(2); // untouched
   });
   it("refreshAllStale wires status instances into the refresh loop with event sources", async () => {
-    const state = makeState();
-    state.player.statuses = [
-      { statusId: "tipsy", remainingTicks: 3, stacks: 1, descriptor: createDescriptor("微醺") },
-    ];
-    state.eventLog = [
-      { id: "e1", day: 1, hour: 10, type: "world", actor: "system", summary: "风从矿井口灌进来" },
-      { id: "e2", day: 1, hour: 11, type: "action", actor: "player", summary: "玩家喝了一杯麦酒" },
-      { id: "e3", day: 1, hour: 12, type: "system", actor: "system", summary: "微醺效果生效" },
-    ];
-    const { state: next, updates } = await refreshAllStale(state, { definition: emberfall });
+    const base = makeState();
+    const state = makeState({
+      player: {
+        ...base.player,
+        statuses: [
+          { statusId: "signal-drift", remainingTicks: 3, stacks: 1, descriptor: createDescriptor("信号漂移") },
+        ],
+      },
+      eventLog: [
+        { id: "e1", day: 1, hour: 10, type: "world", actor: "system", summary: "维护走廊传来信号" },
+        { id: "e2", day: 1, hour: 11, type: "action", actor: "player", summary: "玩家开始校准" },
+        { id: "e3", day: 1, hour: 12, type: "system", actor: "system", summary: "信号漂移状态生效" },
+      ],
+    });
+    const { state: next, updates } = await refreshAllStale(state, { definition });
     // The status instance descriptor is wired into the refresh loop (R2).
     const paths = updates.map((u) => u.path);
-    expect(paths).toContain("player.statuses.tipsy");
-    const status = next.player.statuses.find((s) => s.statusId === "tipsy")!;
+    expect(paths).toContain("player.statuses.signal-drift");
+    const status = next.player.statuses.find((s) => s.statusId === "signal-drift")!;
     expect(status.descriptor?.stale).toBe(false);
     expect(status.descriptor?.description.length).toBeGreaterThan(0);
     // sourceEventIds = tail of the event log (audit trail).
@@ -336,7 +358,7 @@ describe("descriptors (dual-track)", () => {
   it("refreshDescriptor falls back to template when polarity check fails", async () => {
     const d = createDescriptor("友善");
     const refreshed = await refreshDescriptor(d, "relation", 50, {
-      definition: emberfall,
+      definition,
       generator: {
         async generate() {
           return "他对我很好，但我心里只有仇恨";
@@ -350,7 +372,7 @@ describe("descriptors (dual-track)", () => {
   it("refreshDescriptor keeps valid generated prose", async () => {
     const d = createDescriptor("友善");
     const refreshed = await refreshDescriptor(d, "relation", 50, {
-      definition: emberfall,
+      definition,
       generator: {
         async generate() {
           return "她总是友善地招呼我，我们渐渐亲近起来";
@@ -360,9 +382,12 @@ describe("descriptors (dual-track)", () => {
     expect(refreshed.description).toBe("她总是友善地招呼我，我们渐渐亲近起来");
   });
   it("descriptor edit does not change resolution inputs (value untouched)", () => {
-    const state = makeState();
-    state.player.relations = [{ npcId: "elara", value: 50, stance: "friendly", type: "friend", descriptor: createDescriptor("友善") }];
-    const { state: next } = setUserDescriptor(state, "player.relations.elara", "我们是不共戴天的仇敌");
+    const base = makeState();
+    const state = makeState({ player: {
+      ...base.player,
+      relations: [{ npcId: "operator", value: 50, stance: "friendly", type: "colleague", descriptor: createDescriptor("友善") }],
+    } });
+    const { state: next } = setUserDescriptor(state, "player.relations.operator", "我们是不共戴天的仇敌");
     expect(next.player.relations[0].value).toBe(50);
     expect(next.player.relations[0].stance).toBe("friendly"); // deterministic label unchanged
   });
