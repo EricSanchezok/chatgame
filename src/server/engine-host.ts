@@ -13,7 +13,7 @@ import { serializeSave } from "../engine/save";
 import { FRAMEWORK_DARK_THEME, listSelectableThemes, resolveTheme, buildAssetManifest, toThemeView, type ThemeView } from "../engine/presentation";
 import { createProvider, type LLMProvider } from "../engine/narrative/provider";
 import { createMediaProvider, type MediaProvider } from "../engine/media/provider";
-import { importScriptFromZip, importScriptFromDir, defaultScriptsRoot, removeInstalledScript, scriptInstallSource } from "./script-import";
+import { commitScriptImport, importScriptFromZip, importScriptFromDir, defaultScriptsRoot, removeInstalledScript, scriptInstallSource } from "./script-import";
 import { saveDirForScript, metaPathForScript, createDataStore, type SaveStore } from "../engine/save-store";
 import type { WorldState, TurnResult, WorldDefinition } from "../engine/types";
 import type { Theme } from "../script/schemas/theme";
@@ -303,6 +303,7 @@ export class EngineHost {
     const result = importScriptFromZip(zipBuffer, {
       scriptsRoot: this.scriptsRoot,
       replace,
+      beforeReplace: (scriptId) => this.assertNoActiveSessionsForReplacement(scriptId),
     });
     return { scriptId: result.scriptId, warnings: result.warnings.map((w) => w.message) };
   }
@@ -312,8 +313,21 @@ export class EngineHost {
     const result = importScriptFromDir(srcDir, {
       scriptsRoot: this.scriptsRoot,
       replace,
+      beforeReplace: (scriptId) => this.assertNoActiveSessionsForReplacement(scriptId),
     });
     return { scriptId: result.scriptId, warnings: result.warnings.map((w) => w.message) };
+  }
+
+  /** Commits a Web preview under the same active-session authority as removal. */
+  commitImport(
+    token: string,
+    options: { replace: boolean; stagingRoot?: string; now?: number },
+  ): { scriptId: string; warnings: string[] } {
+    return commitScriptImport(token, {
+      ...options,
+      scriptsRoot: this.scriptsRoot,
+      beforeReplace: (scriptId) => this.assertNoActiveSessionsForReplacement(scriptId),
+    });
   }
 
   /** Removes an imported script only when no live session still uses it. */
@@ -323,6 +337,16 @@ export class EngineHost {
       throw new HostError(`script "${scriptId}" has active sessions`, 409);
     }
     removeInstalledScript(scriptId, { scriptsRoot: this.scriptsRoot });
+  }
+
+  private assertNoActiveSessionsForReplacement(scriptId: string): void {
+    this.reapIdle();
+    if ([...this.sessions.values()].some((session) => session.scriptId === scriptId)) {
+      throw new HostError(
+        `script "${scriptId}" has active sessions; end them and preview the replacement again`,
+        409,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------

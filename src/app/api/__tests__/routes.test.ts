@@ -1,10 +1,12 @@
 // API layer tests: direct handler invocation (no HTTP server needed).
 // Asserts JSON bodies, status codes, and error mapping across the
 // scripts/sessions/assets routes.
-import { mkdirSync, rmSync, cpSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { EngineHost } from "../../../server/engine-host";
+import { copyCoreTestScript, coreTestScriptZip } from "../../../server/__tests__/fixtures/core-script";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const CORE_SCRIPT_ID = "core-test-script";
@@ -97,6 +99,97 @@ describe("scripts API", () => {
     });
     expect(res.status).toBe(403);
     expect(existsSync(path.join(scriptsRoot, CORE_SCRIPT_ID, "script.yaml"))).toBe(true);
+  });
+});
+
+describe("script import API", () => {
+  it("rejects an active v1 replacement and requires a fresh preview after the session ends", async () => {
+    const scriptId = "route-import-fixture";
+    const sourceRoot = mkdtempSync(path.join(tmpdir(), "cg-api-import-"));
+    const v1Source = path.join(sourceRoot, "v1");
+    const v2Source = path.join(sourceRoot, "v2");
+    copyCoreTestScript(v1Source, scriptId);
+    copyCoreTestScript(v2Source, scriptId);
+    const v2ActionsPath = path.join(v2Source, "actions.yaml");
+    writeFileSync(
+      v2ActionsPath,
+      readFileSync(v2ActionsPath, "utf8").replace("time: 24", "time: 7"),
+    );
+    const previewRoute = await import("../scripts/import/preview/route");
+    const commitRoute = await import("../scripts/import/commit/route");
+    const preview = async (source: string, name: string): Promise<Record<string, unknown>> => {
+      const form = new FormData();
+      form.set(
+        "file",
+        new File([new Uint8Array(coreTestScriptZip(source, scriptId))], name, {
+          type: "application/zip",
+        }),
+      );
+      const response = await previewRoute.POST(new Request("http://x/api/scripts/import/preview", {
+        method: "POST",
+        body: form,
+      }));
+      expect(response.status).toBe(201);
+      return response.json() as Promise<Record<string, unknown>>;
+    };
+    const commit = (token: unknown): Promise<Response> => commitRoute.POST(new Request(
+      "http://x/api/scripts/import/commit",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, replace: true }),
+      },
+    ));
+
+    try {
+      const firstPreview = await preview(v1Source, "route-v1.zip");
+      const firstCommit = await commitRoute.POST(new Request("http://x/api/scripts/import/commit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: firstPreview.token, replace: false }),
+      }));
+      expect(firstCommit.status).toBe(201);
+
+      const host = EngineHost.get();
+      const installedDir = path.join(scriptsRoot, scriptId);
+      const receiptBefore = readFileSync(path.join(installedDir, ".chatgame-source.json"), "utf8");
+      const actionsBefore = readFileSync(path.join(installedDir, "actions.yaml"), "utf8");
+      const session = host.createSession({ scriptId, originId: CORE_ORIGIN_ID, seed: 5 });
+      const hint = { actionId: "investigate" } as const;
+      const previewBefore = await host.previewAction(session.id, hint);
+
+      const replacementPreview = await preview(v2Source, "route-v2.zip");
+      expect(replacementPreview.conflicts).toEqual({ installed: true, replaceAllowed: true });
+      const rejected = await commit(replacementPreview.token);
+      expect(rejected.status).toBe(409);
+      await expect(rejected.json()).resolves.toEqual({
+        error: expect.stringMatching(/active sessions.*preview the replacement again/),
+      });
+
+      expect(readFileSync(path.join(installedDir, ".chatgame-source.json"), "utf8")).toBe(receiptBefore);
+      expect(readFileSync(path.join(installedDir, "actions.yaml"), "utf8")).toBe(actionsBefore);
+      await expect(host.previewAction(session.id, hint)).resolves.toEqual(previewBefore);
+      const beforeHours = host.state(session.id).clock.totalHours;
+      await host.turn(session.id, { text: "活跃会话仍执行第一版", intentHint: hint });
+      expect(host.state(session.id).clock.totalHours).toBe(beforeHours + 24);
+
+      const consumed = await commit(replacementPreview.token);
+      expect(consumed.status).toBe(404);
+      await host.destroySession(session.id);
+
+      const freshPreview = await preview(v2Source, "route-v2.zip");
+      const replaced = await commit(freshPreview.token);
+      expect(replaced.status).toBe(201);
+      expect(readFileSync(path.join(installedDir, ".chatgame-source.json"), "utf8")).not.toBe(receiptBefore);
+      expect(readFileSync(path.join(installedDir, "actions.yaml"), "utf8")).toContain("time: 7");
+
+      const v2Session = host.createSession({ scriptId, originId: CORE_ORIGIN_ID, seed: 5 });
+      await expect(host.previewAction(v2Session.id, hint)).resolves.toMatchObject({ timeCost: 7 });
+      await host.destroySession(v2Session.id);
+      host.removeScript(scriptId);
+    } finally {
+      rmSync(sourceRoot, { recursive: true, force: true });
+    }
   });
 });
 

@@ -14,6 +14,7 @@ Class: architecture
 - 所有公开插槽必须真实可达、强类型、可回退。
 - 剧本激活、主题与 bundle 必须原子一致。
 - 客户端只消费稳定、只读的语义 view-model 与 capability。
+- 已加载剧本目录在活跃会话结束前保持不变，避免回合、预检、主题与扩展代码跨安装版本。
 
 ## Considered Options
 
@@ -21,6 +22,7 @@ Class: architecture
 - 只允许主题 token，不允许运行时代码。
 - 建立版本化 UI API、响应式原子 registry 和宿主 I/O 边界。
 - 让剧本接管路由、网络和会话状态。
+- 允许替换活跃会话的导入剧本并让既有 Engine 继续运行旧版本。
 
 ## Decision Outcome
 
@@ -32,7 +34,7 @@ Class: architecture
 
 UI API v3 仅暴露 `launcher`、`game-shell`、`scene`、`hud`、`toolbar`、`composer`、`pause-menu`、`panel:*`、`bubble:*`、`message-card:*`、`settings:*`。单例替换槽没有 position/order。剧本获得只读 view-model 和 `start`、`continue`、`openPanel`、`previewAction`、`submitTurn` 等 capability；路由、存档、网络、portal、焦点、错误隔离和可访问壳由宿主持有。
 
-`ScriptPresentation` 明确返回 `defaultThemeId` 与版本化 `uiBundle`，剧本摘要从资产清单读取静态封面。两阶段导入在执行剧本代码前展示校验、来源、权限与冲突；暂存 token 绑定预检时目标安装的完整内容身份、安装代次、冲突和替换权限。每次成功安装写入新的 opaque 安装代次，commit 同步重算并比较目标身份，因此缺失、替换、删除后原样重装等任一变化都会使旧 token 返回 409，必须重新预检。
+`ScriptPresentation` 明确返回 `defaultThemeId` 与版本化 `uiBundle`，剧本摘要从资产清单读取静态封面。两阶段导入在执行剧本代码前展示校验、来源、权限与冲突；暂存 token 绑定预检时目标安装的完整内容身份、安装代次、冲突和替换权限。每次成功安装写入新的 opaque 安装代次，commit 同步重算并比较目标身份，因此缺失、替换、删除后原样重装等任一变化都会使旧 token 返回 409，必须重新预检。EngineHost 是活跃会话的唯一权威，Web commit、host zip 导入和 host 目录导入在原子替换前都由它拒绝仍有活跃会话的 scriptId；失败消费 Web token，结束会话后必须重新预检。
 
 ## Pros and Cons of the Options
 
@@ -55,6 +57,11 @@ UI API v3 仅暴露 `launcher`、`game-shell`、`scene`、`hud`、`toolbar`、`c
 
 - 好：自由度最高。
 - 坏：会话、存档、错误处理与无障碍分叉，无法保持框架一致性。
+
+### 替换活跃会话的剧本
+
+- 好：安装操作无需等待玩家退出。
+- 坏：会话 Engine、候选回合重新加载的目录、行动预检、主题和 UI bundle 可能来自不同安装版本，无法形成一致快照。
 
 ## Links
 
