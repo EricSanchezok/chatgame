@@ -1,7 +1,7 @@
 # 引擎运行时完备化——v1 未接线系统一次交付
 
 ## Status
-Accepted
+Superseded by [0021](0021-gameplay-and-engine-extension-v2.md)
 Class: feature
 
 ## Context and Problem Statement
