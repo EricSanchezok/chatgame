@@ -1,24 +1,25 @@
 id: default
-name: 星港·冷光
+name: 星港·磨损值班台
 palette:
-  background: "#0b0e14"
-  surface: "#131826"
-  surface_alt: "#1a2032"
-  primary: "#91adff"
-  on_primary: "#080b13"
-  accent: "#7ea2ff"
-  text: "#dbe4f5"
-  text_dim: "#9faecc"
-  border: "#273148"
-  focus: "#8ec9ba"
-  success: "#84bda6"
-  warning: "#e5b85c"
-  danger: "#e37b68"
-  selected: "#232d47"
+  background: "#171510"
+  surface: "#242019"
+  surface_alt: "#332d22"
+  primary: "#d8a23e"
+  on_primary: "#171109"
+  accent: "#8eae91"
+  text: "#f4ead5"
+  text_dim: "#c8bba1"
+  border: "#6c604b"
+  focus: "#ffd271"
+  success: "#91b894"
+  warning: "#e4ad48"
+  danger: "#e36c57"
+  selected: "#4a3d24"
 typography:
   font: sans
   scale: 1.0
-  letter_spacing_em: 0.02
+  line_height: 1.5
+  letter_spacing_em: 0.01
   faces:
     - id: jetbrains-mono
       family: JetBrains Mono
@@ -26,17 +27,17 @@ typography:
         - { file: assets/fonts/jetbrains-mono-400.woff2, weight: 400, style: normal }
         - { file: assets/fonts/jetbrains-mono-700.woff2, weight: 700, style: normal }
   roles:
-    ui: jetbrains-mono
+    ui: sans
     narrative: sans
     mono: jetbrains-mono
 effects:
-  bubble_radius: 10
-  chrome_radius: 6
-  glass: 0.7
-  blur_px: 10
-  motion: standard
-  scene_tint: "#05070c"
-  overlay_strength: 0.55
-by_location:
-  bridge: starlight-bridge
-  reactor-level: starlight-reactor
+  bubble_radius: 4
+  chrome_radius: 8
+  glass: 1
+  blur_px: 0
+  shadow: none
+  border_width_px: 2
+  density: compact
+  motion: subtle
+  scene_tint: "#171510"
+  overlay_strength: 0.68

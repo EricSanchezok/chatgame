@@ -1,9 +1,0 @@
-id: medkit
-name: 医疗包
-type: consumable
-description: 标准急救包，含止血凝胶与止痛剂
-properties: { stackable: true }
-effects_on_use:
-  - { kind: stat, direction: add, target: player, stat: hp, value: 30 }
-rarity: common
-value: 25

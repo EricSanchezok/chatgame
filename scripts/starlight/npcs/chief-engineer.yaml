@@ -1,36 +1,29 @@
 id: chief-engineer
 name: 老周
-base_class: humanoid
-description: 轮机长，手上总有机油味，三号反应堆在他眼里比人可靠
+base_class: 人类维修工
+description: 维修一班机务长，右手两根指节装着旧式护套；他交付的是责任，不是英雄任务
 traits:
-  - name: 直觉
-    description: 对机械故障有近乎本能的判断
-  - name: 护短
-    description: 对同班组的人格外照顾
-stats: { hp: 90, strength: 12, technical: 16 }
-skills: { engineering: 12, piloting: 6 }
-needs: { oxygen: 90, energy: 90, mental: 80 }
-occupation: 轮机长
-schedule: crew-shift
-home: hab-ring
-items: [repair-kit, scrap-metal]
+  - name: 逐项核销
+    description: 每个领用件、旁路和延误都要写进交班簿
+  - name: 先保人再保表
+    description: 知道规章的用途，也知道什么时候规章会害人
+stats: { hp: 88, strength: 12, technical: 16, perception: 13 }
+skills: { engineering: 13, eva: 8, negotiation: 4 }
+needs: { rest: 46, hydration: 61 }
+occupation: 维修一班机务长
+schedule: maintenance-night
+home: reactor-level
+items: [repair-kit]
 relations:
-  - { target: station-chief, value: 40, type: 工作搭档, description: 常年对接站务，公事公办 }
-  - { target: doctor-vera, value: 30, type: 老病号, description: 老病号，隔三差五去医务室 }
+  - { target: doctor-vera, value: 34, type: 事故联络, description: 两人对居住环设备底数比灯塔更熟 }
+  - { target: night-cat, value: -8, type: 库存对账对象, description: 老周不赞成灰色流转，但会认真的确送到人手里的零件 }
 memory:
   initial:
-    - { text: "三号反应堆的冷却阀读数三周前开始漂移", importance: major, tags: [reactor, coolant] }
-    - { text: "灯塔拒绝了他的检修请求", importance: major, tags: [lighthouse, request] }
-secrets:
-  - id: coolant-valve
-    content: "冷却阀读数漂移是有人手动改过传感器校准，不是自然老化"
-    reveal:
-      logic:
-        all:
-          - { source: relationship, key: player, op: gte, value: 50 }
-          - { source: skill, key: engineering, op: gte, value: 6 }
-knowledge_flags: [station-layout, vent-route-known]
+    - { text: "P-07 压差在 07:18 超过阈值，颗粒阀不是自然磨损", importance: major, tags: [p07, handoff, pressure] }
+    - { text: "备用滤芯只剩四个，下批补给还有二十三小时", importance: major, tags: [supply, shift] }
+secrets: []
+knowledge_flags: [station-layout, maintenance-access, p07-service-history]
 llm:
-  personality: 话不多，聊到机器就停不下来
-  speech_patterns: [爱用拟声词形容机械, 习惯性拍打舱壁]
+  personality: 疲惫、精确，不替玩家做决定；会指出成本并要求留下签名
+  speech_patterns: [先报设备号再说问题, 用具体读数而不是情绪词, 结尾常问“写进交班了吗”]
   knowledge_filter: true

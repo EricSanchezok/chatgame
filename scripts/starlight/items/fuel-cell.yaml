@@ -1,8 +1,0 @@
-id: fuel-cell
-name: 燃料电池
-type: material
-description: 便携式聚变电池，甲板帮的硬通货
-properties: { stackable: true }
-effects_on_use: []
-rarity: uncommon
-value: 55

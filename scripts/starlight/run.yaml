@@ -1,14 +1,19 @@
 death_policy:
-  mode: hard_reset
-  hard_reset:
-    world_reroll: reroll_worldgen
+  mode: soft_failure
+  soft_failure:
+    gauge_ref: threat_gauge
+    threshold: 100
+    consequence:
+      location: hab-ring
+      effects:
+        - { kind: flag, direction: set, target: player, flag: shift-suspended }
+      narrative: "你的交班签被暂时收走。林小北把你带回居住环，下一班从一份事故说明开始。"
 meta_progression:
   keep: [flags, lore, relations_overview]
   reset: [stats, inventory, location, currency]
-  unlocks:
-    - { flag: returned_visitor, grant: [station-merchant] }
+  unlocks: []
 memory:
-  tier_retention_days: { major: 0, minor: 90, trivial: 30 }
+  tier_retention_days: { major: 0, minor: 60, trivial: 14 }
 context_compaction:
   policy: summarize_archive
   retention_tiers: [major, minor]

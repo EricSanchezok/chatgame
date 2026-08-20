@@ -1,0 +1,14 @@
+id: eva-truss
+name: 舱外桁架 E-4
+type: 舱外作业
+description: P-07 的外部旁路阀位于老散热桁架背面；这条路不花滤芯，却把低压风险和审计痕迹留给值班员
+connections:
+  - { to: reactor-level, distance: 2, travel_time: 12 }
+ambient_events: []
+npcs_present: []
+items: []
+danger_level: 8
+entry_condition:
+  all:
+    - { source: flag, key: eva-clearance, op: has }
+    - { source: inventory, key: eva-suit, op: gte, value: 1 }

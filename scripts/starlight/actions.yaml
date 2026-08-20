@@ -1,130 +1,47 @@
 actions:
   - id: talk
     enabled: true
+    display_name: 无线电联络
     resolve: { type: auto }
-    llm_freedom: narration
-  - id: ask
-    enabled: true
-    resolve: { type: auto }
+    costs: { time: 1 }
+    handler: radio
     llm_freedom: narration
   - id: move
     enabled: true
+    display_name: 前往站区
     resolve: { type: auto }
-    llm_freedom: narration
-  - id: travel
-    enabled: true
-    resolve: { type: auto }
-    costs: { time: 1 }
     llm_freedom: narration
   - id: investigate
     enabled: true
-    resolve: { type: stat_check, stat: perception, dc: 12 }
-    llm_freedom: narration
-  - id: search
-    enabled: true
-    resolve: { type: stat_check, stat: perception, dc: 10 }
-    llm_freedom: narration
-  - id: persuade
-    enabled: true
-    resolve: { type: skill_check, skill: negotiation, dc: 12 }
-    llm_freedom: narration
-  - id: intimidate
-    enabled: true
-    resolve: { type: opposed_check, stat: strength, npc_stat: strength }
-    llm_freedom: narration
-  - id: deceive
-    enabled: true
-    resolve: { type: opposed_check, stat: intellect, npc_stat: perception }
-    llm_freedom: narration
-  - id: attack
-    enabled: true
-    resolve: { type: stat_check, stat: strength, dc: 12 }
-    llm_freedom: process
-  - id: defend
-    enabled: true
-    resolve: { type: stat_check, stat: agility, dc: 12 }
-    llm_freedom: process
-  - id: flee
-    enabled: true
-    resolve: { type: stat_check, stat: agility, dc: 12 }
-    llm_freedom: process
-  - id: use_item
-    enabled: true
+    display_name: 检查 P-07
     resolve: { type: auto }
-    llm_freedom: narration
-  - id: give
-    enabled: true
-    resolve: { type: auto }
-    llm_freedom: narration
-  - id: take
-    enabled: true
-    resolve: { type: auto }
-    llm_freedom: narration
-  - id: trade
-    enabled: true
-    resolve: { type: auto }
-    llm_freedom: narration
-  - id: steal
-    enabled: true
-    resolve: { type: opposed_check, stat: agility, npc_stat: perception }
-    llm_freedom: narration
-  - id: rest
-    enabled: true
-    resolve: { type: auto }
-    costs: { time: 2 }
-    effects:
-      - { kind: stat, direction: add, target: player, stat: hp, value: 10 }
-      - { kind: need, direction: add, target: player, need: oxygen, value: 5 }
-      - { kind: need, direction: add, target: player, need: mental, value: 5 }
-    llm_freedom: narration
-  - id: wait
-    enabled: true
-    resolve: { type: narrative_only }
-    llm_freedom: narration
-  - id: follow
-    enabled: true
-    resolve: { type: auto }
-    llm_freedom: narration
-  - id: sneak
-    enabled: true
-    resolve: { type: stat_check, stat: agility, dc: 12 }
-    llm_freedom: narration
-  - id: craft
-    enabled: true
-    resolve: { type: skill_check, skill: engineering, dc: 14 }
-    conditions: { source: inventory, key: scrap-metal, op: gte, value: 2 }
-    costs:
-      items:
-        - { item: scrap-metal, quantity: 2 }
-      time: 2
-    effects:
-      - { kind: item, direction: add, target: player, item: repair-kit }
+    handler: inspect-scrubber
     llm_freedom: narration
   - id: repair
     enabled: true
-    resolve: { type: skill_check, skill: engineering, dc: 12 }
-    conditions: { source: stat, key: technical, op: gte, value: 8 }
-    costs: { time: 1 }
+    display_name: 更换颗粒阀
+    resolve: { type: auto }
     effects:
-      - { kind: need, direction: add, target: player, need: oxygen, value: 10 }
+      - { kind: reputation, direction: add, target: player, faction: station-committee, value: 8 }
+      - { kind: reputation, direction: add, target: player, faction: deck-gang, value: 4 }
+      - { kind: flag, direction: set, target: player, flag: p07-standard-repair }
+    handler: repair-scrubber
     llm_freedom: narration
-  - id: cast
+  - id: sneak
     enabled: true
-    display_name: 接入灯塔
-    resolve: { type: stat_check, stat: intellect, dc: 14 }
-    effects:
-      - { kind: status, direction: add, target: player, status: overload }
-    llm_freedom: process
-  # 自定义动作：电力重路由（handler 由 engine/index.ts 注册，演示
-  # 自定义 effect kind（hull）与自定义条件源（hull_integrity））
-  - id: reroute
+    display_name: 舱外旁路
+    resolve: { type: skill_check, skill: eva, dc: 10 }
+    handler: bypass-scrubber
+    llm_freedom: narration
+  - id: trade
     enabled: true
-    display_name: 电力重路由
-    conditions:
-      all:
-        - { source: hull_integrity, op: lte, value: 95 }
-    costs: { time: 1 }
-    effects:
-      - { kind: hull, value: 15 }
-    handler: reroute
+    display_name: 谈判配给例外
+    resolve: { type: skill_check, skill: negotiation, dc: 8 }
+    handler: trade-allocation
+    llm_freedom: narration
+  - id: rest
+    enabled: true
+    display_name: 轮休二十分钟
+    resolve: { type: auto }
+    handler: recover
     llm_freedom: narration

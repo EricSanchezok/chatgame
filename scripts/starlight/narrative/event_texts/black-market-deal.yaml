@@ -1,8 +1,0 @@
-event_id: black-market-deal
-templates:
-  - tone: 冷峻
-    text: "货物区的阴影里，夜猫亮出三枚数据芯片：'新货，只收燃料，不赊账。'"
-    slot_vars: []
-  - tone: 冷峻
-    text: "集装箱背后，交易双方各退一步。你注意到监视器转头的方向刻意避开了这里。"
-    slot_vars: []

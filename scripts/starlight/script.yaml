@@ -1,14 +1,14 @@
 id: starlight
 name: 星港
-description: 深空中由 AI 灯塔管理的空间站，站务秩序与底层暗流并存
+description: 在一座老旧民用空间站值夜班：接手事故、核对资源，并为未登记居民争取下一口空气
 schema_version: "1.1"
 language: zh
-tone: [悬疑, 冷峻]
+tone: [工业现实, 社会悬疑, 克制温情]
 author: chatgame-team
 engine_extension:
   api_version: 2
-  effects: [hull]
-  conditions: [hull_integrity]
-  action_handlers: [reroute]
+  effects: []
+  conditions: []
+  action_handlers: [radio, inspect-scrubber, repair-scrubber, bypass-scrubber, trade-allocation, recover]
   rule_mechanisms: []
-  lifecycle: []
+  lifecycle: [session_start, hour]

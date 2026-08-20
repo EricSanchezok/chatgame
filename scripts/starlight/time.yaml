@@ -6,28 +6,19 @@ calendar:
     - { name: 第二轮, days: 30 }
   weekdays: [周期一, 周期二, 周期三, 周期四, 周期五, 周期六, 周期日]
 schedules:
-  - id: crew-shift
+  - id: maintenance-night
     entries:
-      - { from: 06:00, to: 14:00, activity: 轮班执勤, location: reactor-level }
-      - { from: 14:00, to: 22:00, activity: 舱段巡检, location: hab-ring }
-      - { from: 22:00, to: 06:00, activity: 睡眠, location: hab-ring }
-  - id: command-shift
+      - { from: 22:00, to: 06:00, activity: 维修夜班, location: reactor-level }
+      - { from: 06:00, to: 14:00, activity: 交班与备勤, location: hab-ring }
+      - { from: 14:00, to: 22:00, activity: 睡眠, location: hab-ring }
+  - id: cargo-night
     entries:
-      - { from: 07:00, to: 19:00, activity: 站务调度, location: bridge }
-      - { from: 19:00, to: 07:00, activity: 值班室待命, location: command-cabin }
-  - id: night-cycle
+      - { from: 20:00, to: 08:00, activity: 配给交接, location: cargo-bay }
+      - { from: 08:00, to: 20:00, activity: 休息, location: hab-ring }
+  - id: habitat-watch
     entries:
-      - { from: 22:00, to: 10:00, activity: 夜间活动, location: hab-ring }
-      - { from: 10:00, to: 22:00, activity: 睡眠, location: hab-ring }
-  - id: infirmary-shift
-    entries:
-      - { from: 08:00, to: 20:00, activity: 坐诊, location: med-bay }
-      - { from: 20:00, to: 08:00, activity: 休息, location: hab-ring }
-festivals:
-  - id: station-day-festival
-    name: 星港落成日
-    date: 02-15
-    event: station-day-celebration
+      - { from: 18:00, to: 06:00, activity: 居住环巡查, location: hab-ring }
+      - { from: 06:00, to: 18:00, activity: 互助站值守, location: hab-ring }
 world_advances: true
 advance_mode: rule_based
 advance_scope: [schedules, needs, events, factions, time_events]

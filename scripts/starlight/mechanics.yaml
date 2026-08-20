@@ -1,79 +1,51 @@
 stats:
-  - { name: hp, min: 0, max: 100, initial: 100, description: 生命值 }
-  - { name: strength, min: 1, max: 20, initial: 10, description: 力量 }
-  - { name: agility, min: 1, max: 20, initial: 10, description: 敏捷 }
-  - { name: intellect, min: 1, max: 20, initial: 10, description: 智力 }
-  - { name: perception, min: 1, max: 20, initial: 10, description: 感知 }
-  - { name: technical, min: 1, max: 20, initial: 10, description: 技术 }
+  - { name: hp, min: 0, max: 100, initial: 100, description: 身体状态 }
+  - { name: strength, min: 1, max: 20, initial: 10, description: 搬运与强制操作 }
+  - { name: agility, min: 1, max: 20, initial: 10, description: 狭窄空间与舱外机动 }
+  - { name: intellect, min: 1, max: 20, initial: 10, description: 读图与故障推理 }
+  - { name: perception, min: 1, max: 20, initial: 11, description: 读表与现场检查 }
+  - { name: technical, min: 1, max: 20, initial: 12, description: 维修资质与设备理解 }
 skills:
-  - { name: hacking, min: 0, max: 20, initial: 0, description: 入侵系统 }
-  - { name: piloting, min: 0, max: 20, initial: 0, description: 驾驶与导航 }
-  - { name: engineering, min: 0, max: 20, initial: 0, description: 工程维修 }
-  - { name: medicine, min: 0, max: 20, initial: 0, description: 医疗 }
-  - { name: negotiation, min: 0, max: 20, initial: 0, description: 谈判 }
+  - { name: engineering, min: 0, max: 20, initial: 5, description: 民用系统维修 }
+  - { name: eva, min: 0, max: 20, initial: 3, description: 舱外作业 }
+  - { name: negotiation, min: 0, max: 20, initial: 2, description: 跨岗位协商与配给交易 }
 needs:
-  - name: oxygen
+  - name: rest
     min: 0
     max: 100
-    initial: 100
-    decay_per_day: 8
-    thresholds:
-      - level: 30
-        label: 缺氧
-        effects:
-          - { kind: stat, direction: add, target: player, stat: hp, value: -10 }
-  - name: energy
-    min: 0
-    max: 100
-    initial: 80
-    decay_per_day: 6
-    thresholds:
-      - level: 20
-        label: 低电量
-        effects:
-          - { kind: stat, direction: add, target: player, stat: technical, value: -2 }
-  - name: mental
-    min: 0
-    max: 100
-    initial: 70
-    decay_per_day: 4
+    initial: 82
+    decay_per_day: 18
     thresholds:
       - level: 25
-        label: 精神恍惚
+        label: 过劳
         effects:
           - { kind: stat, direction: add, target: player, stat: perception, value: -2 }
-status_effects:
-  - id: radiation-sickness
-    name: 辐射中毒
-    kind: debuff
-    effects:
-      - { kind: stat, direction: add, target: player, stat: hp, value: -5 }
-    duration: 12
-    stackable: true
-  - id: overload
-    name: 系统过载
-    kind: debuff
-    effects:
-      - { kind: skill, direction: add, target: player, skill: hacking, value: -3 }
-    duration: 6
-    stackable: false
-  - id: stim-boost
-    name: 兴奋剂增益
-    kind: buff
-    effects:
-      - { kind: stat, direction: add, target: player, stat: agility, value: 2 }
-    duration: 4
-    stackable: false
-inventory: { capacity: 20, stacking: true }
-currency: { name: 信用点, symbol: "cr", initial: 80 }
-combat:
-  damage_types: [能量, 动能]
-  defense_types: [护盾, 装甲]
-  hp_stat: hp
-  threat_gauge:
+  - name: hydration
+    min: 0
     max: 100
-    on_full: threat_critical
+    initial: 78
+    decay_per_day: 12
+    thresholds:
+      - level: 20
+        label: 脱水
+        effects:
+          - { kind: stat, direction: add, target: player, stat: agility, value: -2 }
+status_effects:
+  - id: eva-stress
+    name: 舱外应激
+    kind: 工种负荷
+    description: 长时间舱外作业造成动作迟滞
+    effects:
+      - { kind: stat, direction: add, target: player, stat: agility, value: -1 }
+    duration: 1
+    stackable: false
+inventory: { capacity: 8, stacking: true }
+currency: { name: 工分, symbol: "票", initial: 36 }
+combat:
+  damage_types: [挤压, 低压]
+  defense_types: [工装, 舱壁]
+  hp_stat: hp
+  threat_gauge: { max: 100, on_full: shift_suspension }
 progression:
-  - { source: skill_check, target: hacking, amount: 1, cap: 20 }
-  - { source: skill_check, target: engineering, amount: 1, cap: 20 }
+  - { source: skill_check, target: negotiation, amount: 1, cap: 20 }
   - { source: event, target: technical, amount: 1, cap: 20 }

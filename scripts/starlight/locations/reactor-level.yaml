@@ -1,13 +1,15 @@
 id: reactor-level
-name: 反应堆层
-type: indoor
-description: 三号反应堆的所在舱段，冷却管道的嘶嘶声像某种大型生物在呼吸
+name: 维修主干 B-12
+type: 维修与交班
+description: 供给居住环的风管、电缆和热交换管在这里汇拢；P-07 的颗粒阀压差已经超过工单阈值
 connections:
-  - { to: cargo-bay, distance: 2, travel_time: 8 }
-ambient_events: [reactor-hum]
-npcs_present: []
+  - { to: hab-ring, distance: 1, travel_time: 5 }
+  - { to: cargo-bay, distance: 1, travel_time: 6 }
+  - { to: eva-truss, distance: 2, travel_time: 12 }
+ambient_events: []
+npcs_present: [chief-engineer]
 items: []
-danger_level: 8
+danger_level: 5
 entry_condition:
   all:
-    - { source: flag, key: reactor-access, op: has }
+    - { source: flag, key: maintenance-access, op: has }
