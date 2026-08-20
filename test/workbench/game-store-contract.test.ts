@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SessionSnapshot } from "@/app/lib/api";
 import { createGameStore, GameController } from "@/app/lib/game-store";
-import { ALT_SCRIPT_ID, CORE_SCRIPT_ID } from "./core-test-script";
+import {
+  ALT_SCRIPT_ID,
+  CORE_SCRIPT_ID,
+  createFixtureWorld,
+  fixturePresentation,
+} from "./core-test-script";
 import { MockGamePort } from "./mock-game-port";
 
 describe("GameController generation contract", () => {
@@ -50,6 +56,49 @@ describe("GameController generation contract", () => {
     expect(state.session?.state.scriptId).toBe(ALT_SCRIPT_ID);
     expect(state.session?.presentation.currentTheme.id).toBe("workbench-alt");
     expect(state.session?.presentation.uiBundle?.dependencyHash).toBe(`${ALT_SCRIPT_ID}-workbench`);
+  });
+
+  it("commits advance location and presentation as one snapshot", async () => {
+    const port = new MockGamePort();
+    const store = createGameStore();
+    const controller = new GameController(store, port);
+    await controller.startNewGame(CORE_SCRIPT_ID, "observer");
+
+    await controller.advance(24);
+
+    const session = store.getSnapshot().session;
+    expect(session?.state.player.locationId).toBe("service-corridor");
+    expect(session?.presentation.currentTheme.id).toBe("workbench-corridor");
+    expect(session?.presentation.currentTheme.effects.scene_tint).toBe("#172033");
+    expect(session?.presentation.defaultThemeId).toBe("workbench-core");
+  });
+
+  it("does not let an obsolete advance snapshot replace a newer generation", async () => {
+    const port = new MockGamePort();
+    let resolveAdvance!: (snapshot: SessionSnapshot) => void;
+    vi.spyOn(port, "advance").mockImplementationOnce(
+      () => new Promise<SessionSnapshot>((resolve) => { resolveAdvance = resolve; }),
+    );
+    const store = createGameStore();
+    const controller = new GameController(store, port);
+    await controller.startNewGame(CORE_SCRIPT_ID, "observer");
+
+    const staleAdvance = controller.advance(24);
+    await Promise.resolve();
+    await controller.startNewGame(ALT_SCRIPT_ID, "observer");
+    const staleState = createFixtureWorld(CORE_SCRIPT_ID);
+    staleState.player.locationId = "service-corridor";
+    resolveAdvance({
+      state: staleState,
+      presentation: fixturePresentation(CORE_SCRIPT_ID, "service-corridor"),
+    });
+    await staleAdvance;
+
+    const session = store.getSnapshot().session;
+    expect(store.getSnapshot().requestGeneration).toBe(2);
+    expect(session?.state.scriptId).toBe(ALT_SCRIPT_ID);
+    expect(session?.state.player.locationId).toBe("relay-room");
+    expect(session?.presentation.currentTheme.id).toBe("workbench-alt");
   });
 
   it("previews and submits a typed action hint through the real GamePort capability", async () => {

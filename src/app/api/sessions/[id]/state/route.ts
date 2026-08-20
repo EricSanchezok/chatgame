@@ -1,7 +1,7 @@
 // Session state API: full world state + presentation surface.
 import { EngineHost } from "../../../../../server/engine-host";
 import { json, errorResponse } from "../../../h";
-import { completeSessionPresentation } from "../../../script-presentation";
+import { completePresentation } from "../../../script-presentation";
 
 export async function GET(
   _request: Request,
@@ -10,10 +10,11 @@ export async function GET(
   try {
     const { id } = await ctx.params;
     const host = EngineHost.get();
+    const snapshot = host.sessionSnapshot(id);
     return json({
       id,
-      state: host.state(id),
-      presentation: await completeSessionPresentation(host, id),
+      ...snapshot,
+      presentation: await completePresentation(host, snapshot.state.scriptId, snapshot.presentation),
     });
   } catch (err) {
     return errorResponse(err);

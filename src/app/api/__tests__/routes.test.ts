@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EngineHost } from "../../../server/engine-host";
-import { copyCoreTestScript, coreTestScriptZip } from "../../../server/__tests__/fixtures/core-script";
+import {
+  applyAdvancePresentationOverlay,
+  copyCoreTestScript,
+  coreTestScriptZip,
+} from "../../../server/__tests__/fixtures/core-script";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const CORE_SCRIPT_ID = "core-test-script";
@@ -19,11 +23,13 @@ beforeAll(() => {
   // mutating the repo). The singleton caches by env, so both must be set
   // before the first import.
   scriptsRoot = mkdtempSync(path.join(tmpdir(), "cg-api-"));
+  const scriptDir = path.join(scriptsRoot, CORE_SCRIPT_ID);
   cpSync(
     path.join(REPO_ROOT, "test", "fixtures", "core-test-library", CORE_SCRIPT_ID),
-    path.join(scriptsRoot, CORE_SCRIPT_ID),
+    scriptDir,
     { recursive: true },
   );
+  applyAdvancePresentationOverlay(scriptDir);
   process.env.CHATGAME_SCRIPTS_ROOT = scriptsRoot;
   process.env.CHATGAME_DATA_ROOT = path.join(scriptsRoot, ".data");
 });
@@ -318,7 +324,7 @@ describe("sessions API", () => {
     expect(body.state.player.reputation.length).toBe(0);
   });
 
-  it("POST /api/sessions/:id/advance advances the clock and returns state", async () => {
+  it("POST /api/sessions/:id/advance returns one location/theme snapshot", async () => {
     const { POST } = await import("../sessions/[id]/advance/route");
     const res = await POST(
       new Request("http://x/api/sessions/advance", {
@@ -331,6 +337,9 @@ describe("sessions API", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.state.clock.totalHours).toBeGreaterThanOrEqual(24);
+    expect(body.state.player.locationId).toBe("service-corridor");
+    expect(body.presentation.currentTheme.id).toBe("service-corridor");
+    expect(body.presentation.currentTheme.effects.scene_tint).toBe("#172033");
   });
 
   it("save -> list -> load round-trips via the API", async () => {

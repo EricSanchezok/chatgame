@@ -3,6 +3,7 @@ import type {
   IntentHint,
   ScriptDetail,
   SessionPresentation,
+  SessionSnapshot,
   TurnResultFull,
   WorldStateView,
 } from "../../shared/client-dto";
@@ -56,6 +57,7 @@ export type GameAction =
   | { type: "error"; message: string; generation: number }
   | { type: "enter"; session: SessionHandle; detail: ScriptDetail; generation: number }
   | { type: "turn"; result: TurnResultFull; generation: number }
+  | { type: "sessionSnapshot"; snapshot: SessionSnapshot; generation: number }
   | { type: "updateState"; state: WorldStateView; generation: number }
   | { type: "previewed"; generation: number }
   | { type: "theme"; mode: ThemeMode }
@@ -101,6 +103,15 @@ export function reduceGameState(state: GameState, action: GameAction): GameState
           ? { ...state.session, state: action.result.state, presentation: action.result.presentation }
           : null,
         lastTurn: action.result,
+        dirty: true,
+      };
+    case "sessionSnapshot":
+      return {
+        ...state,
+        operation: "idle",
+        session: state.session
+          ? { ...state.session, state: action.snapshot.state, presentation: action.snapshot.presentation }
+          : null,
         dirty: true,
       };
     case "updateState":
@@ -317,7 +328,7 @@ export class GameController {
       const result = await this.port.advance(session.id, hours, request.signal);
       this.finish(request.signal);
       if (request.signal.aborted || request.generation !== this.generation) return;
-      this.store.dispatch({ type: "updateState", state: result.state, generation: request.generation });
+      this.store.dispatch({ type: "sessionSnapshot", snapshot: result, generation: request.generation });
     } catch (error) {
       this.fail(error, request.generation, request.signal);
     }
