@@ -31,6 +31,7 @@ export function GamePreviewHarness({ scenario = {}, lastRun = false }: GamePrevi
       clearLastRun: () => undefined,
       onAudioEnabled: () => undefined,
       onTurn: () => undefined,
+      onSessionCleanupError: () => undefined,
       onExit: () => undefined,
     };
     clearSlots();

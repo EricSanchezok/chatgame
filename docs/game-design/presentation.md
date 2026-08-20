@@ -8,6 +8,8 @@
 
 同一会话的 `turn`、`advance`、`save`、`load`、`descriptor` 与销毁共用一条服务端 mutation 队列；销毁等待已排队操作完成并拒绝新操作。每个 `turn` 从最后提交快照运行隔离的候选 Engine，autosave 与 meta 全部持久化成功后才原子发布候选 Engine、世界状态和表现快照；任一持久化失败使 Route Handler 返回错误，读取、转录、后续 preview 和下一回合继续使用前一完整提交，不得泄漏或重复结算失败回合。`turn` 与 `advance` 的响应都包含同一提交点的 `{ state, presentation }`，地点主题在队列操作内从该 state 解析；客户端以一个 reducer action 同时更新世界与表现，不接受 state-only 的 `advance` 响应。回合内部的异步中间态不可见；`previewAction` 作为只读操作也排在同一队列中，保证预检基于最新已提交状态。客户端 controller 在一个 generation 内只允许一个操作，取消或换代后的结果不得提交；`submitTurn(text, intentHint?)` 是唯一提交玩家行动的 capability。
 
+`start` 与 `continue` 同时请求 `scriptDetail` 和 `createSession`，并等待两个结果都收敛，避免一个请求先失败后遗失另一个迟到成功的 session id。创建成功的 id 在 `enter` 通过 generation 校验并提交前属于临时资源；detail/create 任一失败、abort、换代或 store 提交失败都调用无旧 abort signal 的 `destroySession`。controller 记录已提交 id，旧 generation 的清理不得销毁新 generation 已提交的 session。DELETE 失败通过 `onSessionCleanupError` 独立报告，原始启动错误、当前 screen 与当前 session 保持不变。
+
 ## 玩家宿主
 
 `/` 是“剧目单后台”启动器：首视口只突出当前剧本的静态封面、标题、说明和玩家动作。有效的最近存档才显示“继续上次游戏”；“开始新游戏”和“选择存档”分别打开受控 Dialog；“剧本”和“设置”是独立页面。普通网页不显示虚假的退出动作；进入全屏后，暂停菜单监听 `fullscreenchange` 并显示“退出全屏”。

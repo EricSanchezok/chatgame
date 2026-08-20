@@ -173,6 +173,7 @@ export interface GameControllerEffects {
   onAudioEnabled(enabled: boolean): void;
   onThemeChanged?(mode: ThemeMode): void;
   onTurn(result: TurnResultFull, detail: ScriptDetail, scriptId: string): void;
+  onSessionCleanupError(sessionId: string, error: Error): void;
   onExit(): void;
 }
 
@@ -182,12 +183,14 @@ const noEffects: GameControllerEffects = {
   clearLastRun: () => undefined,
   onAudioEnabled: () => undefined,
   onTurn: () => undefined,
+  onSessionCleanupError: () => undefined,
   onExit: () => undefined,
 };
 
 export class GameController {
   private generation = 0;
   private readonly pending = new Set<AbortController>();
+  private readonly committedSessionIds = new Set<string>();
 
   constructor(
     readonly store: GameStore,
@@ -231,36 +234,87 @@ export class GameController {
     this.store.dispatch({ type: "error", message: error instanceof Error ? error.message : String(error), generation });
   }
 
-  async startNewGame(scriptId: string, originId: string, playerName?: string): Promise<void> {
-    const request = this.begin("starting", true);
+  private async cleanupUncommittedSession(sessionId: string): Promise<void> {
+    if (this.committedSessionIds.has(sessionId)) return;
     try {
-      const [detail, session] = await Promise.all([
-        this.port.scriptDetail(scriptId, request.signal),
-        this.port.createSession({ scriptId, originId, playerName }, request.signal),
-      ]);
-      this.finish(request.signal);
-      if (request.signal.aborted || request.generation !== this.generation) return;
-      this.store.dispatch({ type: "enter", session: { ...session, scriptId }, detail, generation: request.generation });
-      this.effects.rememberLastRun(scriptId, "autosave.json");
+      await this.port.destroySession(sessionId);
     } catch (error) {
-      this.fail(error, request.generation, request.signal);
+      this.effects.onSessionCleanupError(
+        sessionId,
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
   }
 
-  async continueGame(scriptId: string, runId: string): Promise<void> {
+  private async openSession(
+    scriptId: string,
+    input: Parameters<GamePort["createSession"]>[0],
+    rememberedRunId: string,
+  ): Promise<void> {
     const request = this.begin("starting", true);
+    let createdSessionId: string | null = null;
+    let committed = false;
     try {
-      const [detail, session] = await Promise.all([
-        this.port.scriptDetail(scriptId, request.signal),
-        this.port.createSession({ scriptId, loadRunId: runId }, request.signal),
-      ]);
-      this.finish(request.signal);
+      const detailRequest = Promise.resolve().then(
+        () => this.port.scriptDetail(scriptId, request.signal),
+      );
+      const sessionRequest = Promise.resolve()
+        .then(() => this.port.createSession(input, request.signal))
+        .then((session) => {
+          createdSessionId = session.id;
+          return session;
+        });
+      const [detailResult, sessionResult] = await Promise.allSettled([detailRequest, sessionRequest]);
+      if (detailResult.status === "rejected") throw detailResult.reason;
+      if (sessionResult.status === "rejected") throw sessionResult.reason;
+
       if (request.signal.aborted || request.generation !== this.generation) return;
-      this.store.dispatch({ type: "enter", session: { ...session, scriptId }, detail, generation: request.generation });
-      this.effects.rememberLastRun(scriptId, runId);
+      const session = sessionResult.value;
+      this.store.dispatch({
+        type: "enter",
+        session: { ...session, scriptId },
+        detail: detailResult.value,
+        generation: request.generation,
+      });
+      const active = this.store.getSnapshot();
+      if (
+        request.signal.aborted ||
+        request.generation !== this.generation ||
+        active.requestGeneration !== request.generation ||
+        active.session?.id !== session.id
+      ) return;
+
+      committed = true;
+      this.committedSessionIds.add(session.id);
+      this.effects.rememberLastRun(scriptId, rememberedRunId);
     } catch (error) {
       this.fail(error, request.generation, request.signal);
+    } finally {
+      this.finish(request.signal);
+      if (createdSessionId && !committed) {
+        const active = this.store.getSnapshot();
+        if (
+          active.requestGeneration === request.generation &&
+          active.session?.id === createdSessionId
+        ) {
+          this.committedSessionIds.add(createdSessionId);
+        } else {
+          await this.cleanupUncommittedSession(createdSessionId);
+        }
+      }
     }
+  }
+
+  async startNewGame(scriptId: string, originId: string, playerName?: string): Promise<void> {
+    await this.openSession(
+      scriptId,
+      { scriptId, originId, playerName },
+      "autosave.json",
+    );
+  }
+
+  async continueGame(scriptId: string, runId: string): Promise<void> {
+    await this.openSession(scriptId, { scriptId, loadRunId: runId }, runId);
   }
 
   async resumeLast(): Promise<boolean> {
@@ -358,6 +412,7 @@ export class GameController {
       await this.port.destroySession(before.session.id, request.signal);
       this.finish(request.signal);
       if (request.signal.aborted || request.generation !== this.generation) return;
+      this.committedSessionIds.delete(before.session.id);
       this.effects.rememberLastRun(before.session.scriptId, "autosave.json");
       this.effects.onExit();
       this.store.dispatch({ type: "exit", generation: request.generation });

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionSnapshot } from "@/app/lib/api";
-import { createGameStore, GameController } from "@/app/lib/game-store";
+import {
+  createGameStore,
+  GameController,
+  type GameAction,
+  type GameControllerEffects,
+  type GameStore,
+} from "@/app/lib/game-store";
 import {
   ALT_SCRIPT_ID,
   CORE_SCRIPT_ID,
@@ -9,10 +15,25 @@ import {
 } from "./core-test-script";
 import { MockGamePort } from "./mock-game-port";
 
+function effectsWithCleanup(
+  onSessionCleanupError: GameControllerEffects["onSessionCleanupError"] = () => undefined,
+): GameControllerEffects {
+  return {
+    readLastRun: () => null,
+    rememberLastRun: () => undefined,
+    clearLastRun: () => undefined,
+    onAudioEnabled: () => undefined,
+    onTurn: () => undefined,
+    onSessionCleanupError,
+    onExit: () => undefined,
+  };
+}
+
 describe("GameController generation contract", () => {
   it("commits world, theme and bundle descriptor from one script generation", async () => {
     const port = new MockGamePort({
-      latencyMs: { [`/api/scripts/${CORE_SCRIPT_ID}`]: 50 },
+      createLatencyMs: { [CORE_SCRIPT_ID]: 50 },
+      ignoreCreateAbortScriptIds: [CORE_SCRIPT_ID],
     });
     const store = createGameStore();
     const controller = new GameController(store, port);
@@ -38,6 +59,71 @@ describe("GameController generation contract", () => {
       defaultTheme: "workbench-alt",
       bundle: `/api/scripts/${ALT_SCRIPT_ID}/ui-bundle`,
     });
+    const staleSession = port.createdSessions.find((session) => session.scriptId === CORE_SCRIPT_ID);
+    const activeSession = port.createdSessions.find((session) => session.scriptId === ALT_SCRIPT_ID);
+    expect(staleSession).toBeDefined();
+    expect(activeSession).toBeDefined();
+    expect(port.destroyedSessionIds).toContain(staleSession?.id);
+    expect([...port.activeSessionScripts.entries()]).toEqual([[activeSession?.id, ALT_SCRIPT_ID]]);
+  });
+
+  it("cleans a late continue session after detail fails and frees the session limit", async () => {
+    const port = new MockGamePort({
+      detailErrorScriptId: CORE_SCRIPT_ID,
+      createLatencyMs: { [CORE_SCRIPT_ID]: 30 },
+      sessionLimit: 1,
+    });
+    const store = createGameStore();
+    const controller = new GameController(store, port);
+
+    await controller.continueGame(CORE_SCRIPT_ID, "autosave.json");
+
+    const rejectedSession = port.createdSessions.find((session) => session.scriptId === CORE_SCRIPT_ID);
+    expect(store.getSnapshot().error).toBe("剧本详情载入失败");
+    expect(port.destroyedSessionIds).toContain(rejectedSession?.id);
+    expect(port.activeSessionScripts.size).toBe(0);
+
+    port.scenario.detailErrorScriptId = undefined;
+    await controller.startNewGame(ALT_SCRIPT_ID, "observer");
+    expect(store.getSnapshot().session?.scriptId).toBe(ALT_SCRIPT_ID);
+    expect([...port.activeSessionScripts.values()]).toEqual([ALT_SCRIPT_ID]);
+  });
+
+  it("observes cleanup failure without replacing the primary activation error", async () => {
+    const cleanupError = vi.fn<GameControllerEffects["onSessionCleanupError"]>();
+    const port = new MockGamePort({
+      detailErrorScriptId: CORE_SCRIPT_ID,
+      destroySession: "error",
+    });
+    const store = createGameStore();
+    const controller = new GameController(store, port, effectsWithCleanup(cleanupError));
+
+    await controller.startNewGame(CORE_SCRIPT_ID, "observer");
+
+    expect(store.getSnapshot().error).toBe("剧本详情载入失败");
+    expect(cleanupError).toHaveBeenCalledWith(
+      port.createdSessions[0]?.id,
+      expect.objectContaining({ message: "会话清理失败" }),
+    );
+  });
+
+  it("destroys a created session when the store activation commit fails", async () => {
+    const base = createGameStore();
+    const store: GameStore = {
+      ...base,
+      dispatch(action: GameAction) {
+        if (action.type === "enter") throw new Error("session activation commit failed");
+        base.dispatch(action);
+      },
+    };
+    const port = new MockGamePort();
+    const controller = new GameController(store, port);
+
+    await controller.startNewGame(CORE_SCRIPT_ID, "observer");
+
+    expect(store.getSnapshot().error).toBe("session activation commit failed");
+    expect(port.destroyedSessionIds).toEqual([port.createdSessions[0]?.id]);
+    expect(port.activeSessionScripts.size).toBe(0);
   });
 
   it("does not let an older turn replace a newer session presentation", async () => {
