@@ -1,8 +1,0 @@
-event_id: ash-day
-templates:
-  - tone: 肃穆
-    text: 烬日这天，全镇熄了炉火。矿工与家属在井口前列队，灰烬落在每个人的肩头，无人拂去。
-    slot_vars: []
-  - tone: 沉痛
-    text: 沈镇长念完悼词，老矿工把一盏灯放进井口栅栏："哥几个，回不来的路，给你们照着。"
-    slot_vars: []

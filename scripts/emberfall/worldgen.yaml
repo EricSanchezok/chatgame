@@ -1,13 +1,4 @@
 randomize:
-  - { target: npc_stats, jitter: 0.1 }
-  - { target: secret_holder, pool: [elara, old-miner, mayor-shen], distribution: weighted }
-  - { target: faction_stance, jitter: 0.1 }
-  - { target: weather, distribution: uniform }
-  - { target: starting_event, pool: [lantern-festival, market-day], distribution: uniform }
-fixed:
-  - plot_commitments
-  - world_rules
-  - glossary
-  - taboos
-seed:
-  policy: per_run
+  - { target: starting_event, pool: [shift-handoff], distribution: uniform }
+fixed: [plot_commitments, world_rules, glossary, taboos]
+seed: { policy: per_run }

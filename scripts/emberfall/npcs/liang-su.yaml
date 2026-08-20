@@ -1,0 +1,19 @@
+id: liang-su
+name: 梁素
+base_class: humanoid
+description: 矿镇诊所看护，记录灰蚀病例，承诺拿到炉煤便维持夜间吸灰柜。
+traits:
+  - { name: 先救急, description: 把最危险的灰蚀病例排在最前。 }
+stats: { hp: 78, grit: 10, perception: 12 }
+skills: { testimony: 11 }
+occupation: clinic-duty
+schedule: clinic-duty
+home: lamp-house
+items: []
+relations: []
+secrets: []
+knowledge_flags: [clinic-request-known]
+llm:
+  personality: 说话简短，公开诊所欠煤与可维持的班次；计划每周复核灰蚀名单。
+  speech_patterns: [先说病例数, 再说需要的煤]
+  knowledge_filter: true

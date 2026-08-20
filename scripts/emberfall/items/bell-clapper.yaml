@@ -1,0 +1,7 @@
+id: bell-clapper
+name: 旧钟槌
+type: quest
+description: 沾着青火煤层粉末的旧钟槌，能与韩直的证词互证。
+properties: { stackable: false }
+rarity: rare
+value: 0

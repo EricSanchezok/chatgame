@@ -1,44 +1,15 @@
-background: |
-  灰烬镇坐落在黑石山脉脚下，因矿而兴。三年前主矿脉在一次塌方中"枯竭"，矿井被封，镇子靠残存的炼金工坊与过路商队勉强维生。
-  镇上的屋顶常年落着一层薄灰，那是矿渣与炼金残渣混成的"灰烬"，也是镇名的由来。
-  蒸汽管道在街巷间低鸣，法阵在工坊里发光——这里的人早已习惯机器与魔法共用一套炉膛。
+background: 灰烬镇靠一座公共熔炉过冬。矿工按鼓钟下井，掌灯人记录每块煤、每根支柱与每份证词；矿层里的青白灰火不会说话，却会把被改写的班账照出来。
 rules:
-  - id: no-matter-creation
-    text: 任何人不能凭空创造物品；物品只能来自采集、交易或工艺制造
-    mechanism: no_matter_creation
-  - id: magic-needs-material
-    text: 施法必须消耗施法材料（如灰烬草），否则法术无法发动
-  - id: night-travel-forbidden
-    text: 夜间（22:00 至次日 06:00）不得远行，山路与林道夜间关闭
-    mechanism: night_travel
-  - id: ash-corruption
-    text: 吸入过量灰烬会累积"灰肺"状态，降低行动能力
+  - id: witnessed-accounting
+    text: 炉煤、灯火与支护由班账守恒，结算不得重复。
+    mechanism: shift-discipline
+  - id: paired-evidence
+    text: 任何事故结论都需要实物与证词两类独立来源互证。
+    mechanism: shift-discipline
 taboos:
-  - id: no-secret-leak
-    text: 不得让 NPC 透露未满足揭露条件的秘密
-    severity: hard
-  - id: no-fourth-wall
-    text: 叙事中不得出现"玩家""游戏""系统"等打破第四面墙的表述
-    severity: hard
-  - id: no-modern-words
-    text: 不得使用现代科技词汇与网络流行语
-    severity: soft
-  - id: no-real-politics
-    text: 不得影射现实世界的政治事件与人物
-    severity: soft
+  - { id: no-free-coal, text: 煤不得在叙事中凭空增减, severity: hard }
+  - { id: no-modern-tech, text: 不出现电力与现代机械, severity: hard }
 glossary:
-  - term: 灰烬
-    aliases: [烬, 灰]
-    definition: 黑石矿脉的炼金残渣，可作工坊燃料，镇名的由来
-  - term: 煤精
-    aliases: [黑晶]
-    definition: 黑石矿脉深处的稀有矿石，蒸汽机与法阵的核心材料
-  - term: 烬日
-    aliases: [矿难纪念日]
-    definition: 十一月三日，纪念三年前矿难的镇祭日
-  - term: 巡矿队
-    aliases: [矿卫]
-    definition: 镇公所下辖的矿场治安队
-  - term: 镇公所
-    aliases: [公所, 镇厅]
-    definition: 灰烬镇的行政机构，镇长办公处
+  - { term: 灰灯, aliases: [公灯], definition: 全镇共用的青白矿灯，由掌灯人保管并记账。 }
+  - { term: 鼓钟, aliases: [班钟], definition: 井上击鼓、井下应钟的轮班报时规矩。 }
+  - { term: 见证账, aliases: [班账], definition: 同时记录资源、事故实物与证词来源的公共账册。 }

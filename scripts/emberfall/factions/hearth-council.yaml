@@ -1,0 +1,11 @@
+id: hearth-council
+name: 公共炉议事会
+description: 诊所、排水泵与居民炉火共同监督的一周一次配煤会议。
+goals: [炉煤守恒, 公开下一周的用途与欠账]
+members: [wang-shulan, liang-su]
+relations:
+  - { target: pit-brotherhood, value: 5 }
+reputation:
+  thresholds:
+    - { value: 20, label: 公账守护人, effects: [] }
+  decay: 0

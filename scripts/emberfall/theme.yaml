@@ -1,23 +1,24 @@
 id: default
-name: 灰烬镇·余烬
+name: 灰烬镇·煤尘账簿
 palette:
-  background: "#1a1410"
-  surface: "#241c15"
-  surface_alt: "#2e2218"
-  primary: "#c96f2f"
-  on_primary: "#160d07"
-  accent: "#e8a04c"
-  text: "#e8dcc8"
-  text_dim: "#b8a78c"
-  border: "#4a3a28"
-  focus: "#8ed7c4"
-  success: "#85b878"
-  warning: "#e8b45b"
-  danger: "#ec8068"
-  selected: "#3a2a1b"
+  background: "#151411"
+  surface: "#24221c"
+  surface_alt: "#312e25"
+  primary: "#aa7652"
+  on_primary: "#151411"
+  accent: "#9fc7c4"
+  text: "#e7dec8"
+  text_dim: "#aaa18e"
+  border: "#5b574b"
+  focus: "#c4e7e3"
+  success: "#90a779"
+  warning: "#c3985e"
+  danger: "#bd7569"
+  selected: "#3e514f"
 typography:
   font: serif
-  scale: 1.0
+  scale: 1
+  line_height: 1.55
   letter_spacing_em: 0.01
   faces:
     - id: eb-garamond
@@ -25,18 +26,19 @@ typography:
       files:
         - { file: assets/fonts/eb-garamond-400.woff2, weight: 400, style: normal }
         - { file: assets/fonts/eb-garamond-700.woff2, weight: 700, style: normal }
-  roles:
-    ui: eb-garamond
-    narrative: eb-garamond
-    mono: mono
+  roles: { ui: eb-garamond, narrative: eb-garamond, mono: mono }
 effects:
-  bubble_radius: 14
-  chrome_radius: 10
-  glass: 0.65
-  blur_px: 6
+  bubble_radius: 2
+  chrome_radius: 8
+  glass: 0
+  blur_px: 0
+  shadow: none
+  border_width_px: 1
+  density: compact
   motion: subtle
-  scene_tint: "#1c0f06"
-  overlay_strength: 0.5
+  scene_tint: "#151411"
+  overlay_strength: 0.66
 by_location:
-  mine-entrance: dark-mine
-  forest-edge: deep-forest
+  upper-drift: { background: "#101210", surface: "#20231f", surface_alt: "#2d302a" }
+  bell-gallery: { background: "#0d1110", surface: "#1d2321", surface_alt: "#29302d" }
+  blue-seam: { background: "#0a0e0e", surface: "#19201f", surface_alt: "#25302e" }

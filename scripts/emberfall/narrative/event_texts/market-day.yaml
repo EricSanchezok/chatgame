@@ -1,8 +1,0 @@
-event_id: market-day
-templates:
-  - tone: 热闹
-    text: 春市开市，镇广场的摊棚连成一片，叫卖声盖过了蒸汽管道的低鸣。
-    slot_vars: []
-  - tone: 轻快
-    text: 马掌柜的货摊前挤满了人，艾拉也难得地摆出一小桶麦酒。灰烬镇的春天，总算有了点人气。
-    slot_vars: []

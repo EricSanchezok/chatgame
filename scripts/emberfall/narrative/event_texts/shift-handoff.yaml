@@ -1,0 +1,5 @@
+event_id: shift-handoff
+templates:
+  - tone: 克制
+    text: 第一声鼓落下。你接过灰灯、班牌与空白见证页，本班只有一次公开结算。
+    slot_vars: []

@@ -1,12 +1,6 @@
-voice: 第三人称有限，叙述贴合主角视角，冷静克制，偶有矿镇式的粗粝比喻
-tense: 过去时
-perspective: 第二人称"你"
-density: normal
-sentence_style:
-  - 短句为主，动作与感官细节优先
-  - 对话不加多余修饰，人物腔调即身份
-  - 环境描写一两句带过，不铺陈
-forbidden_words:
-  - 玩家
-  - 系统
-  - 任务面板
+voice: 冷静的矿班见证记录，人物说话带职责与欠账
+tense: 现在时
+perspective: 第二人称
+density: sparse
+sentence_style: [短句, 先写可观察动作, 数量必须与状态一致]
+forbidden_words: [史诗, 命运之子, 升级, 血条]

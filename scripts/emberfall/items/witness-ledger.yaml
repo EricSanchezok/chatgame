@@ -1,0 +1,7 @@
+id: witness-ledger
+name: 见证账册
+type: equipment
+description: 记录每次下井资源、实物来源和证词来源的耐灰账册。
+properties: { stackable: false }
+rarity: common
+value: 0

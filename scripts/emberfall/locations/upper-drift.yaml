@@ -1,0 +1,11 @@
+id: upper-drift
+name: 上层斜巷
+type: underground
+description: 旧木柱夹着窄轨，最近换过的楔子却没有写进支护账。
+connections:
+  - { to: lamp-house, distance: 1, travel_time: 60 }
+  - { to: bell-gallery, distance: 1, travel_time: 60 }
+ambient_events: []
+npcs_present: []
+items: []
+danger_level: 2
