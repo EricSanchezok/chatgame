@@ -1,15 +1,18 @@
 // Script engine extension seam tests: scripts/<id>/engine/index.ts is
 // compiled and loaded by runtime-code.ts; custom effects / condition
 // sources / action handlers execute through the normal engine path and
-// persist via runtimeState (save v4). The built-in emberfall script ships
+// persist via runtimeState (save v5). The built-in emberfall script ships
 // an engine extension (ember / ember_level / forge) — the real fixture.
 import path from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { loadScript } from "../loader";
 import { applyEffects } from "../effect";
 import { evalCondition } from "../condition";
 import { generateWorld } from "../worldgen";
 import { roundTrip, SAVE_SCHEMA_VERSION } from "../save";
+import { loadScriptExtensions, type DefinitionWithoutExtensions } from "../../script/runtime-code";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const emberfall = path.join(REPO_ROOT, "scripts/emberfall");
@@ -20,6 +23,39 @@ describe("script engine extension seam (emberfall)", () => {
     expect(def.extensions.effects["ember"]).toBeTypeOf("function");
     expect(def.extensions.conditions["ember_level"]).toBeTypeOf("function");
     expect(def.extensions.actionHandlers["forge"]).toBeTypeOf("function");
+    expect(def.extensions.ruleMechanisms["night_travel"]).toBeTypeOf("function");
+  });
+
+  it("rejects registrations that differ from the static v2 declaration", () => {
+    const scriptDir = mkdtempSync(path.join(tmpdir(), "cg-engine-extension-"));
+    try {
+      mkdirSync(path.join(scriptDir, "engine"));
+      writeFileSync(
+        path.join(scriptDir, "engine", "index.ts"),
+        `export default function register(ctx: any) {
+          ctx.registerEffect("actual", (state: any) => ({ state, summaries: [] }));
+        }`,
+        "utf8",
+      );
+      const definition = {
+        sourceDir: scriptDir,
+        script: {
+          id: "mismatch",
+          engine_extension: {
+            api_version: 2,
+            effects: ["declared"],
+            conditions: [],
+            action_handlers: [],
+            rule_mechanisms: [],
+            lifecycle: [],
+          },
+        },
+      } as unknown as DefinitionWithoutExtensions;
+
+      expect(() => loadScriptExtensions(definition)).toThrow(/declaration does not match registrations/);
+    } finally {
+      rmSync(scriptDir, { recursive: true, force: true });
+    }
   });
 
   it("executes a custom effect kind through applyEffects", () => {
@@ -80,7 +116,7 @@ describe("script engine extension seam (emberfall)", () => {
     expect(hot.state.player.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(true);
   });
 
-  it("round-trips runtimeState through save v4", () => {
+  it("round-trips runtimeState through save v5", () => {
     const def = loadScript(emberfall);
     const { state } = generateWorld(def, "miner", { seed: 1 });
     const withState = {
@@ -89,6 +125,6 @@ describe("script engine extension seam (emberfall)", () => {
     };
     const restored = roundTrip(withState, def);
     expect(restored.runtimeState).toEqual({ ember: 7, forged: true });
-    expect(SAVE_SCHEMA_VERSION).toBe(4);
+    expect(SAVE_SCHEMA_VERSION).toBe(5);
   });
 });

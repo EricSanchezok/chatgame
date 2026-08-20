@@ -15,7 +15,7 @@ import { safetySchema } from "./safety";
 import { scriptSchema } from "./script";
 import { taskSchema } from "./task";
 import { timeSchema } from "./time";
-import { worldSchema } from "./world";
+import { worldSchema, BUILTIN_RULE_MECHANISMS } from "./world";
 import { worldgenSchema } from "./worldgen";
 import { themeSchema } from "./theme";
 import { assetsSchema, ASSET_KIND_ENTITY_POOL } from "./assets";
@@ -38,6 +38,7 @@ export {
   taskSchema,
   timeSchema,
   worldSchema,
+  BUILTIN_RULE_MECHANISMS,
   worldgenSchema,
   themeSchema,
   assetsSchema,

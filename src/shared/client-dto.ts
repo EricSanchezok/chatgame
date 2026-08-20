@@ -230,7 +230,7 @@ export interface WorldStateView {
   eventLog: Array<{ id: string; day: number; hour: number; type: string; actor: string; summary: string }>;
   commitments: Array<{ commitmentId: string; triggered: boolean; deadlineMissed: boolean }>;
   tasks: Array<
-    | { taskId: string; status: "active"; acceptedDay: number; progress: number }
+    | { taskId: string; status: "active"; acceptedDay: number; acceptedEventCount: number; progress: number }
     | { taskId: string; status: "complete"; acceptedDay: number; completedDay: number }
     | { taskId: string; status: "failed"; acceptedDay: number; failedDay: number }
   >;

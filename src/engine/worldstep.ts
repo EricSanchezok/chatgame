@@ -12,7 +12,6 @@ import { applyGlobalMemoryDecay } from "./memory";
 import { checkCommitments } from "./plot";
 import { checkTasks } from "./tasks";
 import { playEvent, checkScheduledEvents, playAmbientEvent } from "./events";
-import { applyEffects } from "./effect";
 import { chance } from "./rng";
 import { runLifecycle } from "./extensions";
 
@@ -47,12 +46,10 @@ function clampReputation(definition: WorldDefinition, value: number): number {
   return Math.max(-100, Math.min(100, value));
 }
 
-/** Applies faction reputation decay + thresholds (advance_scope: factions). */
+/** Applies faction reputation decay (advance_scope: factions). */
 function applyFactionStep(
   state: WorldState,
   definition: WorldDefinition,
-  day: number,
-  logEntries: EventLogEntry[],
 ): WorldState {
   let current = state;
   const repDefs = [...definition.factions.values()]
@@ -77,22 +74,6 @@ function applyFactionStep(
             },
           }
         : { ...current, player: { ...current.player, reputation: [...current.player.reputation, row] } };
-    }
-    // Rising-edge threshold: apply effects only when crossing up.
-    for (const threshold of rep.thresholds) {
-      const after = current.player.reputation.find((r) => r.factionId === faction.id)?.value ?? 0;
-      if (before < threshold.value && after >= threshold.value) {
-        const out = applyEffects(current, threshold.effects, { definition, day });
-        current = out.state;
-        logEntries.push({
-          id: `log-${current.eventLog.length + 1}`,
-          day,
-          hour: current.clock.hour,
-          type: "world",
-          actor: "system",
-          summary: `faction "${faction.id}" reputation threshold "${threshold.label}" crossed`,
-        });
-      }
     }
   }
   return current;
@@ -172,7 +153,7 @@ export function stepWorld(
       }
 
       if (scope.has("factions")) {
-        current = applyFactionStep(current, definition, day, logEntries);
+        current = applyFactionStep(current, definition);
       }
 
       // Memory archiving (always — retention is a memory policy, not advance_scope).

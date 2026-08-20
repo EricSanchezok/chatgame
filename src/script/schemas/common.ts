@@ -44,8 +44,8 @@ export type Condition =
   | { not: Condition };
 
 const conditionLeafSchema = z.object({
-  // Custom sources are allowed: unknown sources are evaluated by the
-  // script's engine extension (unregistered => condition stays false).
+  // Custom sources are allowed when declared and registered by the script's
+  // Engine Extension v2; unregistered sources fail validation/runtime.
   source: z.string(),
   key: z.string().optional(),
   target: z.string().optional(),

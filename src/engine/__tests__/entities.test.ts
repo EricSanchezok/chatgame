@@ -101,6 +101,7 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
     locationInventories: {},
     transcript: [],
     runtimeState: {},
+    activeNeedThresholds: [],
     ...overrides,
   };
 }

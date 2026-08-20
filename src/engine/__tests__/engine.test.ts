@@ -2,6 +2,8 @@
 // descriptor edits, offline advance — exercising the seams between
 // interacting parts (intent -> resolution -> narrative -> consistency).
 import path from "node:path";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { Engine } from "../index";
 import { MockProvider } from "../narrative/mock";
@@ -157,5 +159,46 @@ describe("Engine facade", () => {
         (e) => e.type === "commitment" && e.summary.includes("elara-secret-reveal"),
       ),
     ).toBe(true);
+  });
+
+  it("runs every Engine Extension v2 lifecycle phase through real entry points", async () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "cg-lifecycle-"));
+    const scriptDir = path.join(tempRoot, "emberfall");
+    cpSync(EMBERFALL, scriptDir, { recursive: true });
+    try {
+      const scriptFile = path.join(scriptDir, "script.yaml");
+      writeFileSync(
+        scriptFile,
+        readFileSync(scriptFile, "utf8").replace(
+          "lifecycle: []",
+          "lifecycle: [session_start, turn_resolved, hour, day_boundary]",
+        ),
+      );
+      const engineFile = path.join(scriptDir, "engine", "index.ts");
+      const marker = '  ctx.registerRuleMechanism("night_travel", nightTravelRule);';
+      const hooks = `
+  ctx.onSessionStart((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, sessionStarts: 1 } }, summaries: ["session start"] }));
+  ctx.onTurnResolved((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, turns: Number(state.runtimeState.turns ?? 0) + 1 } }, summaries: ["turn resolved"] }));
+  ctx.onHour((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, hours: Number(state.runtimeState.hours ?? 0) + 1 } }, summaries: [] }));
+  ctx.onDayBoundary((state) => ({ state: { ...state, runtimeState: { ...state.runtimeState, days: Number(state.runtimeState.days ?? 0) + 1 } }, summaries: ["day boundary"] }));`;
+      writeFileSync(engineFile, readFileSync(engineFile, "utf8").replace(marker, `${marker}${hooks}`));
+
+      const engine = Engine.create({
+        scriptDir,
+        originId: "miner",
+        seed: 7,
+        provider: new MockProvider(),
+      });
+      expect(engine.worldState.runtimeState.sessionStarts).toBe(1);
+      expect(engine.worldState.transcript.some((entry) => entry.role === "world")).toBe(true);
+      engine.advance(24);
+      expect(engine.worldState.runtimeState.hours).toBe(24);
+      expect(engine.worldState.runtimeState.days).toBe(1);
+      await engine.playerTurn({ text: "你好", intentHint: { actionId: "talk" } });
+      expect(engine.worldState.runtimeState.turns).toBe(1);
+      expect(engine.worldState.runtimeState.hours).toBe(25);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });

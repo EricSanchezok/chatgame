@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import { stepWorld } from "../worldstep";
+import { applyNeedThresholds } from "../mechanics/needs";
 import { createMemoryEntry } from "../memory";
 import { advanceClock } from "../time";
 import type { WorldDefinition, WorldState } from "../types";
@@ -54,7 +55,7 @@ describe("stepWorld hourly progression", () => {
     void startLoc;
   });
 
-  it("applies need thresholds at the day boundary (sustained)", () => {
+  it("applies need thresholds once on entry, not on every day while sustained", () => {
     const def = emberfall();
     const state = freshState(def);
     // Force hunger below the 30 threshold -> strength -2 applies daily.
@@ -64,6 +65,10 @@ describe("stepWorld hourly progression", () => {
     };
     const out = stepWorld(starving, def, 24);
     expect(out.state.player.stats.strength).toBeLessThan(14);
+    const afterFirst = out.state.player.stats.strength;
+    const repeated = applyNeedThresholds(out.state, def, 2);
+    expect(repeated.state.player.stats.strength).toBe(afterFirst);
+    expect(repeated.triggered).toEqual([]);
   });
 
   it("ticks status effects once per day", () => {
@@ -151,7 +156,13 @@ describe("stepWorld hourly progression", () => {
         ...state.player,
         inventory: { ...state.player.inventory, stacks: [{ itemId: "herb", quantity: 3 }] },
       },
-      tasks: [{ taskId: "gather-herbs", status: "active" as const, acceptedDay: 0, progress: 0 }],
+      tasks: [{
+        taskId: "gather-herbs",
+        status: "active" as const,
+        acceptedDay: 0,
+        acceptedEventCount: 0,
+        progress: 0,
+      }],
     };
     const out = stepWorld(activeTask, def, 24);
     const done = out.taskCompletions.find((c) => c.taskId === "gather-herbs");

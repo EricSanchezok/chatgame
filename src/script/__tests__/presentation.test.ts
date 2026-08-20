@@ -26,7 +26,7 @@ afterEach(() => {
 
 const BASE: Record<string, string> = {
   "script.yaml": `id: pres-testscript\nname: 测试\ndescription: d\nschema_version: "1.1"\nlanguage: zh\ntone: [悬疑]\nauthor: t\n`,
-  "world.yaml": "background: b\nrules: [{ id: r1, text: r, mechanism: inventory }]\ntaboos: [{ id: t1, text: t, severity: hard }]\n",
+  "world.yaml": "background: b\nrules: [{ id: r1, text: r, mechanism: no_matter_creation }]\ntaboos: [{ id: t1, text: t, severity: hard }]\n",
   "time.yaml": `unit: hour\nday_length_hours: 24\ncalendar: { months: [{ name: 一月, days: 31 }], weekdays: [周一] }\nschedules:\n  - id: keeper\n    entries:\n      - { from: "08:00", to: "22:00", activity: 开店, location: tavern }\nworld_advances: true\nadvance_mode: rule_based\nadvance_scope: [schedules, needs, time_events]\n`,
   "mechanics.yaml": `stats:\n  - { name: hp, min: 1, max: 100, initial: 50, description: 生命 }\n  - { name: strength, min: 1, max: 20, initial: 10, description: 力量 }\nskills:\n  - { name: persuasion, min: 0, max: 20, initial: 0, description: 说服 }\nneeds:\n  - name: hunger\n    min: 0\n    max: 100\n    initial: 80\n    decay_per_day: 20\n    thresholds: []\ninventory: { capacity: 20, stacking: true }\ncurrency: { name: 金币, symbol: "g", initial: 50 }\ncombat:\n  damage_types: [physical]\n  defense_types: [armor]\n  hp_stat: hp\n  threat_gauge: { max: 100, on_full: soft_failure }\nstatus_effects: []\n`,
   "actions.yaml": "actions:\n  - id: talk\n    enabled: true\n    resolve: { type: auto }\n    llm_freedom: narration\n",
@@ -53,16 +53,20 @@ function writeBase(extra: Record<string, string> = {}): void {
   }
 }
 
-const VALID_THEME = `id: default\nname: 主主题\npalette:\n  background: "#1a1410"\n  surface: "#241c15"\n  surface_alt: "#2e2218"\n  primary: "#c96f2f"\n  accent: "#e8a04c"\n  text: "#e8dcc8"\n  text_dim: "#9a8a72"\n  border: "#4a3a28"\n`;
+const VALID_THEME = `id: default\nname: 主主题\npalette:\n  background: "#1a1410"\n  surface: "#241c15"\n  surface_alt: "#2e2218"\n  primary: "#c96f2f"\n  on_primary: "#101010"\n  accent: "#e8a04c"\n  text: "#e8dcc8"\n  text_dim: "#9a8a72"\n  border: "#4a3a28"\n  focus: "#8ec9ba"\n  success: "#70a875"\n  warning: "#d8a24a"\n  danger: "#d66a55"\n  selected: "#3b3428"\n`;
 
-const DARK_MINE_THEME = `id: dark-mine\nname: 暗矿\npalette:\n  background: "#0a0806"\n  surface: "#14100c"\n  surface_alt: "#1c1610"\n  primary: "#8a5a2a"\n  accent: "#c08a4a"\n  text: "#d8c8b8"\n  text_dim: "#8a7a68"\n  border: "#3a2e20"\n`;
+const DARK_MINE_THEME = `id: dark-mine\nname: 暗矿\npalette:\n  background: "#0a0806"\n  surface: "#14100c"\n  surface_alt: "#1c1610"\n  primary: "#8a5a2a"\n  on_primary: "#f4eadf"\n  accent: "#c08a4a"\n  text: "#d8c8b8"\n  text_dim: "#8a7a68"\n  border: "#3a2e20"\n  focus: "#90b9ad"\n  success: "#6d9e73"\n  warning: "#c99645"\n  danger: "#c66252"\n  selected: "#30271d"\n`;
 
 describe("themeSchema", () => {
   it("accepts a full valid theme", () => {
     const t = themeSchema.parse({
       id: "default",
       name: "主",
-      palette: { background: "#111", surface: "#222", surface_alt: "#333", primary: "#444", accent: "#555", text: "#eee", text_dim: "#999", border: "#666" },
+      palette: {
+        background: "#111", surface: "#222", surface_alt: "#333", primary: "#444",
+        on_primary: "#fff", accent: "#555", text: "#eee", text_dim: "#999", border: "#666",
+        focus: "#0af", success: "#0a0", warning: "#fa0", danger: "#f00", selected: "#777",
+      },
     });
     expect(t.palette.primary).toBe("#444");
     expect(t.typography.font).toBe("sans");
@@ -83,7 +87,11 @@ describe("themeSchema", () => {
     const bad = themeSchema.safeParse({
       id: "x",
       name: "x",
-      palette: { background: "#111", surface: "#222", surface_alt: "#333", primary: "#444", accent: "#555", text: "#eee", text_dim: "#999", border: "#666" },
+      palette: {
+        background: "#111", surface: "#222", surface_alt: "#333", primary: "#444",
+        on_primary: "#fff", accent: "#555", text: "#eee", text_dim: "#999", border: "#666",
+        focus: "#0af", success: "#0a0", warning: "#fa0", danger: "#f00", selected: "#777",
+      },
       typography: { font: "serif", scale: 2.5 },
     });
     expect(bad.success).toBe(false);
@@ -93,7 +101,11 @@ describe("themeSchema", () => {
     const bad = themeSchema.safeParse({
       id: "x",
       name: "x",
-      palette: { background: "#111", surface: "#222", surface_alt: "#333", primary: "#444", accent: "#555", text: "#eee", text_dim: "#999", border: "#666" },
+      palette: {
+        background: "#111", surface: "#222", surface_alt: "#333", primary: "#444",
+        on_primary: "#fff", accent: "#555", text: "#eee", text_dim: "#999", border: "#666",
+        focus: "#0af", success: "#0a0", warning: "#fa0", danger: "#f00", selected: "#777",
+      },
       evil: "field",
     });
     expect(bad.success).toBe(false);
@@ -187,7 +199,11 @@ describe("theme typing sanity", () => {
     const t: Theme = themeSchema.parse({
       id: "default",
       name: "主",
-      palette: { background: "#111", surface: "#222", surface_alt: "#333", primary: "#444", accent: "#555", text: "#eee", text_dim: "#999", border: "#666" },
+      palette: {
+        background: "#111", surface: "#222", surface_alt: "#333", primary: "#444",
+        on_primary: "#fff", accent: "#555", text: "#eee", text_dim: "#999", border: "#666",
+        focus: "#0af", success: "#0a0", warning: "#fa0", danger: "#f00", selected: "#777",
+      },
       by_location: { mine: { background: "#000" } },
     });
     expect(typeof t.by_location.mine).toBe("object");
@@ -197,7 +213,8 @@ describe("theme typing sanity", () => {
 describe("themeSchema token v1.1", () => {
   const BASE_PALETTE = {
     background: "#111", surface: "#222", surface_alt: "#333", primary: "#444",
-    accent: "#555", text: "#eee", text_dim: "#999", border: "#666",
+    on_primary: "#fff", accent: "#555", text: "#eee", text_dim: "#999", border: "#666",
+    focus: "#0af", success: "#0a0", warning: "#fa0", danger: "#f00", selected: "#777",
   };
 
   it("applies new token defaults (effects/typography)", () => {

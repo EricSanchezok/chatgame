@@ -8,6 +8,7 @@
 // source of truth).
 import type { WorldState } from "./types";
 import type { WorldDefinition } from "./types";
+import { BUILTIN_RULE_MECHANISMS as BUILTIN_RULE_MECHANISM_IDS } from "../script/schemas/world";
 
 export interface RuleCheckContext {
   definition: WorldDefinition;
@@ -16,6 +17,7 @@ export interface RuleCheckContext {
   actionId: string;
   /** Target entity id (npc/player) when applicable. */
   target?: string;
+  params?: Readonly<Record<string, unknown>>;
 }
 
 export interface RuleCheckResult {
@@ -103,12 +105,7 @@ function threatNotFull(ctx: RuleCheckContext): string | null {
   return null;
 }
 
-const MECHANISM_CHECKERS: Record<string, MechanismChecker> = {
-  // Mechanism names come from world.yaml `rules[].mechanism` (fixture uses
-  // inventory/combat/travel). Map them to deterministic checkers.
-  inventory: noMatterCreation,
-  combat: noMatterCreation,
-  travel: () => null, // travel restrictions are handled by action conditions
+const BUILTIN_RULE_CHECKERS: Readonly<Record<(typeof BUILTIN_RULE_MECHANISM_IDS)[number], MechanismChecker>> = {
   item_exists: itemExists,
   no_matter_creation: noMatterCreation,
   npc_present: npcPresent,
@@ -136,8 +133,16 @@ export function checkWorldRules(ctx: RuleCheckContext): RuleCheckResult {
 
   // 2. World rules declared in world.yaml with mechanism -> deterministic checkers.
   for (const rule of def.world.rules) {
-    const checker = rule.mechanism ? MECHANISM_CHECKERS[rule.mechanism] : undefined;
-    if (checker) {
+    if (rule.mechanism) {
+      const checker = (BUILTIN_RULE_CHECKERS as Readonly<Record<string, MechanismChecker>>)[rule.mechanism]
+        ?? def.extensions.ruleMechanisms[rule.mechanism];
+      if (!checker) {
+        return {
+          allowed: false,
+          reasonCode: `unregistered_rule:${rule.mechanism}`,
+          message: `world rule mechanism "${rule.mechanism}" is not registered`,
+        };
+      }
       const violation = checker(ctx);
       if (violation) {
         return {

@@ -113,7 +113,7 @@ export class Engine {
     const engine = new Engine(definition, state, provider, options.saveStore ?? fsSaveStore);
     // Fresh session: play the worldgen starting event and seed the opening
     // transcript entry (the UI renders history from the transcript).
-    if (!options.loadSaveFile && state.eventLog.length === 0) {
+    if (!options.loadSaveFile) {
       const startingEventId = engine.startingEventId();
       if (startingEventId) {
         const out = playEvent(engine.state, definition, startingEventId);

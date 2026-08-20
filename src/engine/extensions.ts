@@ -41,6 +41,16 @@ export type RuntimeConditionEvaluator = (
 /** Custom action handler (same shape as built-in handlers). */
 export type RuntimeActionHandler = (ctx: BuiltinContext) => BuiltinOutcome;
 
+export interface RuntimeRuleContext {
+  definition: WorldDefinition;
+  state: WorldState;
+  actionId: string;
+  target?: string;
+  params?: Readonly<Record<string, unknown>>;
+}
+
+export type RuntimeRuleChecker = (ctx: RuntimeRuleContext) => string | null;
+
 export interface RuntimeLifecycleContext {
   definition: WorldDefinition;
   previousState?: WorldState;
@@ -58,6 +68,7 @@ export interface ScriptExtensions {
   effects: Record<string, RuntimeEffectHandler>;
   conditions: Record<string, RuntimeConditionEvaluator>;
   actionHandlers: Record<string, RuntimeActionHandler>;
+  ruleMechanisms: Record<string, RuntimeRuleChecker>;
   lifecycle: {
     sessionStart: RuntimeLifecycleHandler[];
     turnResolved: RuntimeLifecycleHandler[];
@@ -71,6 +82,7 @@ export interface EngineExtensionContext {
   registerEffect(kind: string, handler: RuntimeEffectHandler): void;
   registerConditionSource(source: string, evaluator: RuntimeConditionEvaluator): void;
   registerActionHandler(id: string, handler: RuntimeActionHandler): void;
+  registerRuleMechanism(id: string, checker: RuntimeRuleChecker): void;
   onSessionStart(handler: RuntimeLifecycleHandler): void;
   onTurnResolved(handler: RuntimeLifecycleHandler): void;
   onHour(handler: RuntimeLifecycleHandler): void;

@@ -8,6 +8,7 @@ import type {
   RuntimeActionHandler,
   RuntimeConditionEvaluator,
   RuntimeEffectHandler,
+  RuntimeRuleChecker,
 } from "../../../src/engine/extensions";
 import type { WorldState } from "../../../src/engine/types";
 
@@ -102,8 +103,16 @@ const forgeHandler: RuntimeActionHandler = (ctx) => {
   };
 };
 
+const nightTravelRule: RuntimeRuleChecker = ({ state, actionId }) => {
+  if (actionId !== "travel") return null;
+  return state.clock.hour >= 22 || state.clock.hour < 6
+    ? "mountain routes are closed between 22:00 and 06:00"
+    : null;
+};
+
 export default function registerEmberfallExtensions(ctx: EngineExtensionContext): void {
   ctx.registerEffect("ember", emberEffect);
   ctx.registerConditionSource("ember_level", emberLevelEvaluator);
   ctx.registerActionHandler("forge", forgeHandler);
+  ctx.registerRuleMechanism("night_travel", nightTravelRule);
 }

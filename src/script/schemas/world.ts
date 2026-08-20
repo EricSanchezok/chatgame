@@ -2,6 +2,15 @@
 import { z } from "zod";
 import { extSchema, idSchema } from "./common";
 
+export const BUILTIN_RULE_MECHANISMS = [
+  "item_exists",
+  "no_matter_creation",
+  "npc_present",
+  "teleport_target",
+  "no_debt",
+  "threat_not_full",
+] as const;
+
 export const worldRuleSchema = z
   .object({
     id: idSchema,
