@@ -9,6 +9,7 @@
 import type { WorldState } from "./types";
 import type { WorldDefinition } from "./types";
 import { BUILTIN_RULE_MECHANISMS as BUILTIN_RULE_MECHANISM_IDS } from "../script/schemas/world";
+import { readonlySnapshot } from "./readonly-snapshot";
 
 export interface RuleCheckContext {
   definition: WorldDefinition;
@@ -134,16 +135,18 @@ export function checkWorldRules(ctx: RuleCheckContext): RuleCheckResult {
   // 2. World rules declared in world.yaml with mechanism -> deterministic checkers.
   for (const rule of def.world.rules) {
     if (rule.mechanism) {
-      const checker = (BUILTIN_RULE_CHECKERS as Readonly<Record<string, MechanismChecker>>)[rule.mechanism]
-        ?? def.extensions.ruleMechanisms[rule.mechanism];
-      if (!checker) {
+      const builtinChecker = (BUILTIN_RULE_CHECKERS as Readonly<Record<string, MechanismChecker>>)[rule.mechanism];
+      const extensionChecker = def.extensions.ruleMechanisms[rule.mechanism];
+      if (!builtinChecker && !extensionChecker) {
         return {
           allowed: false,
           reasonCode: `unregistered_rule:${rule.mechanism}`,
           message: `world rule mechanism "${rule.mechanism}" is not registered`,
         };
       }
-      const violation = checker(ctx);
+      const violation = builtinChecker
+        ? builtinChecker(ctx)
+        : extensionChecker!(readonlySnapshot(ctx));
       if (violation) {
         return {
           allowed: false,

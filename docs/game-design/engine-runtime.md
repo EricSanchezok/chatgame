@@ -49,7 +49,7 @@ src/engine/
 
 ## Engine Extension v2
 
-剧本在 `script.yaml.engine_extension` 静态声明 effects、conditions、action handlers、rule mechanisms 与 lifecycle，加载时必须与 `engine/index.ts` 的实际注册集合精确相等；重复、未知或漏注册均响亮失败。动作 handler 返回纯 `ActionHandlerPlan`，规划阶段只计算拒绝、动态成本与耗时，`execute` 只在真实结算中对 post-effect state 调用一次。规划输入是与权威 `WorldState`、`WorldDefinition` 和参数隔离的深度只读快照，写入 Map 或嵌套值会响亮失败。`onSessionStart` 只运行于 fresh session，加载 v5 存档不重放；其余生命周期按注册顺序运行且摘要进入事件日志。
+剧本在 `script.yaml.engine_extension` 静态声明 effects、conditions、action handlers、rule mechanisms 与 lifecycle，加载时必须与 `engine/index.ts` 的实际注册集合精确相等；重复、未知或漏注册均响亮失败。动作 handler 返回纯 `ActionHandlerPlan`，规划阶段只计算拒绝、动态成本与耗时，`execute` 只在真实结算中对 post-effect state 调用一次。action planning、剧本 rule checker 与四种 lifecycle 的 state/definition/params/context 输入都使用隔离的深度只读 Proxy；Map、数组或嵌套值的普通赋值在非 strict CJS 中也主动抛错。lifecycle 输出脱离代理后继续流转，并以调用前捕获的 `scriptId` 校验脚本边界。`onSessionStart` 只运行于 fresh session，加载 v5 存档不重放；其余生命周期按注册顺序运行且摘要进入事件日志。
 
 ## 回合循环（playerTurn）
 
@@ -70,7 +70,7 @@ src/engine/
   → 11. 转录追加（player 输入 + world 叙事；拒绝/澄清/死亡也写入）+ mediaCues 推导
   → TurnResult{narrative, resolution, logEntries, descriptorUpdates, worldEvents, taskCompletions, mediaCues, deathFired, ...}
 
-动作预检与执行复用同一合法性、handler 规划与可支付性检查。`ActionPreview` 合并声明成本与动态 currency/items/resources，并使用计划耗时；执行在骰点和 effects 前由引擎统一校验、扣除动态成本一次，handler 不自行扣除。预检不执行 effects 或 `execute`。`effectiveTimeCost = max(plan.timeCost ?? costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
+动作预检与执行复用同一合法性、handler 规划与可支付性检查。`ActionPreview` 合并声明成本与动态 currency/items/resources，并使用计划耗时；执行在骰点和 effects 前由引擎统一校验、扣除动态成本一次，handler 不自行扣除。预检不执行 effects 或 `execute`。`plan.timeCost` 必须是非负有限数，负数、NaN、Infinity 直接报错；`effectiveTimeCost = max(plan.timeCost ?? costs.time ?? 1, 1)`，由 `playerTurn` 在效果后调用 `stepWorld` 推进（时间推进不在 resolveAction 内）。
 
 ## 世界推进（worldstep.ts）
 
@@ -148,7 +148,7 @@ src/engine/
 ## 存档
 
 - 路径 `.chatgame/saves/<scriptId>/<runId>.json`；格式 `{saveSchemaVersion, scriptId, createdAt, updatedAt, worldState}`。
-- 当前 schema 版本 = 5（WorldState 包含持久化 `activeNeedThresholds`、MemoryEntry 连续强度字段、contextSummary、actionCooldowns、runtimeState、关系/状态描述位与 transcript）；save/load 共用完整严格的 `SaveFile`/`WorldState` schema。缺 clock/player/npcs 等必需字段、嵌套字段类型错误、伪造版本号的残缺 v5 和旧版本都直接拒绝（敏捷开发，不做迁移）。
+- 当前 schema 版本 = 5（WorldState 包含持久化 `activeNeedThresholds`、MemoryEntry 连续强度字段、contextSummary、actionCooldowns、runtimeState、关系/状态描述位与 transcript）；save/load 共用完整严格的 `SaveFile`/`WorldState` schema。envelope `scriptId` 必须等于 `worldState.scriptId`，且与加载目标一致；缺 clock/player/npcs 等必需字段、嵌套字段类型错误、伪造版本号/脚本 ID 的残缺 v5 和旧版本都直接拒绝（敏捷开发，不做迁移）。
 - `normalizeWorldState` 在 fresh create 后建立派生字段，并在通过完整 schema 的 load 后规范可选 `contextSummary`；它不充当残缺存档的迁移通道。
 - 往返测试：save → load → 状态深度相等（含 threshold 游标、转录、contextSummary、actionCooldowns、runtimeState 与描述位），且 load 不重复执行 session-start lifecycle。
 

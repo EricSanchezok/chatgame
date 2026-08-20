@@ -18,6 +18,7 @@ import { rollD20 } from "./rng";
 import { BUILTIN_HANDLERS, type ActionHandlerPlan, type HandlerCosts } from "./builtins";
 import { applyProgression } from "./mechanics/progression";
 import type { ActionPreview, IntentHint } from "../shared/client-dto";
+import { readonlySnapshot } from "./readonly-snapshot";
 
 export interface ResolutionContext {
   definition: WorldDefinition;
@@ -189,52 +190,11 @@ function payCosts(
   return next;
 }
 
-function immutablePlanningClone<T>(value: T, seen = new WeakMap<object, unknown>()): T {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null) return value;
-  const prior = seen.get(value as object);
-  if (prior) return prior as T;
-  if (value instanceof Map) {
-    const target = new Map<unknown, unknown>();
-    const proxy: Map<unknown, unknown> = new Proxy(target, {
-      get(map, property) {
-        if (property === "set" || property === "delete" || property === "clear") {
-          return () => { throw new TypeError("planning definition maps are read-only"); };
-        }
-        if (property === "forEach") {
-          return (callback: (entryValue: unknown, key: unknown, source: Map<unknown, unknown>) => void, thisArg?: unknown) =>
-            map.forEach((entryValue, key) => callback.call(thisArg, entryValue, key, proxy));
-        }
-        const member = Reflect.get(map, property, map) as unknown;
-        return typeof member === "function" ? member.bind(map) : member;
-      },
-      set() { throw new TypeError("planning definition maps are read-only"); },
-      defineProperty() { throw new TypeError("planning definition maps are read-only"); },
-      deleteProperty() { throw new TypeError("planning definition maps are read-only"); },
-    });
-    seen.set(value, proxy);
-    for (const [key, entryValue] of value) {
-      target.set(immutablePlanningClone(key, seen), immutablePlanningClone(entryValue, seen));
-    }
-    return proxy as T;
+function normalizedHandlerTimeCost(timeCost: number | undefined, declarativeTimeCost: number | undefined): number {
+  if (timeCost !== undefined && (!Number.isFinite(timeCost) || timeCost < 0)) {
+    throw new Error("handler timeCost must be a non-negative finite number");
   }
-  if (typeof value === "function") {
-    const proxy = new Proxy(value, {
-      set() { throw new TypeError("planning definition functions are read-only"); },
-      defineProperty() { throw new TypeError("planning definition functions are read-only"); },
-      deleteProperty() { throw new TypeError("planning definition functions are read-only"); },
-    });
-    seen.set(value, proxy);
-    return proxy;
-  }
-  const clone: unknown[] | Record<PropertyKey, unknown> = Array.isArray(value) ? [] : {};
-  seen.set(value, clone);
-  for (const key of Reflect.ownKeys(value)) {
-    (clone as Record<PropertyKey, unknown>)[key] = immutablePlanningClone(
-      (value as Record<PropertyKey, unknown>)[key],
-      seen,
-    );
-  }
-  return Object.freeze(clone) as T;
+  return Math.max(timeCost ?? declarativeTimeCost ?? 1, 1);
 }
 
 function normalizedHandlerCosts(costs?: HandlerCosts): Required<Pick<HandlerCosts, "currency" | "items" | "resources">> {
@@ -350,18 +310,18 @@ function planHandler(
     const handler = definition.extensions.actionHandlers[action.handler];
     if (!handler) throw new Error(`action handler "${action.handler}" is not registered`);
     return handler({
-      definition: immutablePlanningClone(definition),
-      state: immutablePlanningClone(state),
+      definition: readonlySnapshot(definition),
+      state: readonlySnapshot(state),
       targetNpcId,
-      params: params ? immutablePlanningClone(params) : undefined,
+      params: params ? readonlySnapshot(params) : undefined,
     });
   }
   const handler = BUILTIN_HANDLERS[actionId];
   return handler?.({
-    definition: immutablePlanningClone(definition),
-    state: immutablePlanningClone(state),
+    definition: readonlySnapshot(definition),
+    state: readonlySnapshot(state),
     targetNpcId,
-    params: params ? immutablePlanningClone(params) : undefined,
+    params: params ? readonlySnapshot(params) : undefined,
   });
 }
 
@@ -411,7 +371,7 @@ export function previewAction(
   );
   if (plan) {
     costs = previewCosts(action, plan.costs);
-    if (plan.timeCost !== undefined) timeCost = Math.max(1, plan.timeCost);
+    timeCost = normalizedHandlerTimeCost(plan.timeCost, action.costs?.time);
     if (plan.rejected) {
       return {
         actionId: hint.actionId,
@@ -480,6 +440,7 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
     ctx.targetNpcId,
     ctx.params,
   );
+  const effectiveTimeCost = normalizedHandlerTimeCost(plan?.timeCost, action.costs?.time);
   if (plan?.rejected) {
     return {
       state,
@@ -561,8 +522,6 @@ export function resolveAction(ctx: ResolutionContext): ActionResolution {
 
   // 6. Effective time cost (>= 1h, anti-spam). The caller (playerTurn)
   //    steps the world by this amount — clock advancement is NOT here.
-  const effectiveTimeCost = Math.max(plan?.timeCost ?? action.costs?.time ?? 1, 1);
-
   // 6b. Record the cooldown anchor (absolute day) for actions that declare
   //     a cooldown, so the legality gate can reject early repeats.
   if (action.cooldown && action.cooldown > 0) {

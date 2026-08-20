@@ -13,6 +13,9 @@ import { evalCondition } from "../condition";
 import { generateWorld } from "../worldgen";
 import { roundTrip, SAVE_SCHEMA_VERSION } from "../save";
 import { loadScriptExtensions, type DefinitionWithoutExtensions } from "../../script/runtime-code";
+import { previewAction, resolveAction } from "../actions";
+import { runLifecycle, type LifecyclePhase } from "../extensions";
+import type { WorldDefinition, WorldState } from "../types";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const emberfall = path.join(REPO_ROOT, "scripts/emberfall");
@@ -160,5 +163,150 @@ describe("script engine extension seam (emberfall)", () => {
     const restored = roundTrip(withState, def);
     expect(restored.runtimeState).toEqual({ ember: 7, forged: true });
     expect(SAVE_SCHEMA_VERSION).toBe(5);
+  });
+
+  it("enforces action, rule, and lifecycle purity through the compiled CJS entry", () => {
+    const scriptDir = mkdtempSync(path.join(tmpdir(), "cg-runtime-purity-"));
+    try {
+      mkdirSync(path.join(scriptDir, "engine"));
+      writeFileSync(
+        path.join(scriptDir, "engine", "index.ts"),
+        `export default function register(ctx: any) {
+          ctx.registerActionHandler("purity-probe", ({ definition, state, params }: any) => {
+            if (params?.actionMutation === "state") state.clock.hour = 99;
+            if (params?.actionMutation === "definition") definition.world.background = "polluted";
+            if (params?.actionMutation === "params") params.actionMutation = "polluted";
+            const timeCost = params?.timeMode === "nan" ? Number.NaN
+              : params?.timeMode === "infinity" ? Number.POSITIVE_INFINITY
+              : params?.timeMode === "negative" ? -1
+              : params?.timeMode === "zero" ? 0
+              : 1;
+            return { timeCost, execute: (nextState: any) => ({ state: nextState, summaries: [] }) };
+          });
+          ctx.registerRuleMechanism("purity-rule", ({ definition, state, params }: any) => {
+            if (params?.ruleMutation === "state") state.flags.push("polluted");
+            if (params?.ruleMutation === "definition") definition.world.background = "polluted";
+            if (params?.ruleMutation === "params") params.ruleMutation = "polluted";
+            return null;
+          });
+          ctx.onSessionStart((state: any) => {
+            if (state.runtimeState.lifecycleProbe === "output-script-id") {
+              return { state: { ...state, scriptId: "forged" }, summaries: [] };
+            }
+            state.scriptId = "forged";
+            return { state, summaries: [] };
+          });
+          ctx.onTurnResolved((state: any) => {
+            state.flags.push("polluted");
+            return { state, summaries: [] };
+          });
+          ctx.onHour((state: any, context: any) => {
+            context.definition.world.background = "polluted";
+            return { state, summaries: [] };
+          });
+          ctx.onDayBoundary((state: any, context: any) => {
+            context.previousState.clock.hour = 99;
+            return { state, summaries: [] };
+          });
+        }`,
+        "utf8",
+      );
+      const base = loadScript(emberfall);
+      const engineExtension: NonNullable<typeof base.script.engine_extension> = {
+        api_version: 2,
+        effects: [],
+        conditions: [],
+        action_handlers: ["purity-probe"],
+        rule_mechanisms: ["purity-rule"],
+        lifecycle: ["session_start", "turn_resolved", "hour", "day_boundary"],
+      };
+      const script = {
+        ...base.script,
+        id: "runtime-purity-probe",
+        engine_extension: engineExtension,
+      };
+      const { extensions: _baseExtensions, ...baseWithoutExtensions } = base;
+      void _baseExtensions;
+      const withoutExtensions: DefinitionWithoutExtensions = {
+        ...baseWithoutExtensions,
+        sourceDir: scriptDir,
+        script,
+      };
+      const extensions = loadScriptExtensions(withoutExtensions);
+      const action = {
+        id: "purity-probe-action",
+        enabled: true,
+        resolve: { type: "auto" as const },
+        llm_freedom: "narration" as const,
+        handler: "purity-probe",
+      };
+      const definition: WorldDefinition = {
+        ...withoutExtensions,
+        actions: { ...base.actions, actions: [...base.actions.actions, action] },
+        world: {
+          ...base.world,
+          rules: [{ id: "purity-rule", text: "probe purity", mechanism: "purity-rule" }],
+        },
+        extensions,
+      };
+      const state = generateWorld(definition, "miner", { seed: 7 }).state;
+      const stateBefore = structuredClone(state);
+      const backgroundBefore = definition.world.background;
+
+      for (const timeMode of ["nan", "infinity", "negative"]) {
+        const params = { timeMode };
+        expect(() => previewAction(definition, state, { actionId: action.id, params }))
+          .toThrow(/timeCost.*non-negative finite/);
+        expect(() => resolveAction({ definition, state, actionId: action.id, params }))
+          .toThrow(/timeCost.*non-negative finite/);
+        expect(state).toEqual(stateBefore);
+      }
+      const zeroPreview = previewAction(definition, state, {
+        actionId: action.id,
+        params: { timeMode: "zero" },
+      });
+      const zeroResolution = resolveAction({
+        definition,
+        state,
+        actionId: action.id,
+        params: { timeMode: "zero" },
+      });
+      expect(zeroPreview.timeCost).toBe(1);
+      expect(zeroResolution.effectiveTimeCost).toBe(1);
+
+      for (const actionMutation of ["state", "definition", "params"]) {
+        const params = { actionMutation };
+        expect(() => previewAction(definition, state, { actionId: action.id, params })).toThrow(TypeError);
+        expect(() => resolveAction({ definition, state, actionId: action.id, params })).toThrow(TypeError);
+        expect(params).toEqual({ actionMutation });
+        expect(state).toEqual(stateBefore);
+        expect(definition.world.background).toBe(backgroundBefore);
+      }
+
+      for (const ruleMutation of ["state", "definition", "params"]) {
+        const params = { ruleMutation };
+        expect(() => previewAction(definition, state, { actionId: action.id, params })).toThrow(TypeError);
+        expect(() => resolveAction({ definition, state, actionId: action.id, params })).toThrow(TypeError);
+        expect(params).toEqual({ ruleMutation });
+        expect(state).toEqual(stateBefore);
+        expect(definition.world.background).toBe(backgroundBefore);
+      }
+
+      const lifecycleCases: LifecyclePhase[] = ["sessionStart", "turnResolved", "hour", "dayBoundary"];
+      for (const phase of lifecycleCases) {
+        expect(() => runLifecycle(phase, state, { definition, previousState: state })).toThrow(TypeError);
+        expect(state).toEqual(stateBefore);
+        expect(definition.world.background).toBe(backgroundBefore);
+      }
+      const forgedOutputState: WorldState = {
+        ...state,
+        runtimeState: { ...state.runtimeState, lifecycleProbe: "output-script-id" },
+      };
+      expect(() => runLifecycle("sessionStart", forgedOutputState, { definition }))
+        .toThrow(/cannot change the active script id/);
+      expect(forgedOutputState.scriptId).toBe("runtime-purity-probe");
+    } finally {
+      rmSync(scriptDir, { recursive: true, force: true });
+    }
   });
 });
