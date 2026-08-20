@@ -169,4 +169,12 @@ export const saveFileSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   worldState: worldStateSchema,
-}).strict() satisfies z.ZodType<SaveFile>;
+}).strict().superRefine((save, context) => {
+  if (save.scriptId !== save.worldState.scriptId) {
+    context.addIssue({
+      code: "custom",
+      path: ["worldState", "scriptId"],
+      message: "must match the save envelope scriptId",
+    });
+  }
+}) satisfies z.ZodType<SaveFile>;

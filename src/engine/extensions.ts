@@ -7,6 +7,7 @@ import type { WorldState, WorldDefinition, ResultGrade, ResolutionLogEntry } fro
 import type { TurnInput } from "../shared/client-dto";
 import type { Effect, ConditionValue } from "../script/schemas/common";
 import type { BuiltinHandler } from "./builtins";
+import { mutableSnapshot, readonlySnapshot } from "./readonly-snapshot";
 
 /** Context passed to a custom effect handler. */
 export interface RuntimeEffectContext {
@@ -99,12 +100,16 @@ export function runLifecycle(
 ): { state: WorldState; summaries: string[] } {
   let current = state;
   const summaries: string[] = [];
+  const activeScriptId = state.scriptId;
   for (const handler of context.definition.extensions.lifecycle[phase]) {
-    const result = handler(current, { ...context, previousState: context.previousState ?? state });
-    if (result.state.scriptId !== state.scriptId) {
+    const result = handler(
+      readonlySnapshot(current),
+      readonlySnapshot({ ...context, previousState: context.previousState ?? state }),
+    );
+    if (result.state.scriptId !== activeScriptId) {
       throw new Error(`lifecycle ${phase} cannot change the active script id`);
     }
-    current = result.state;
+    current = mutableSnapshot(result.state);
     summaries.push(...result.summaries);
   }
   return { state: current, summaries };

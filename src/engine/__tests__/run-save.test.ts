@@ -215,6 +215,24 @@ describe("save system", () => {
     expect(() => deserializeSave(save, "starlight")).toThrow(SaveError);
   });
 
+  it("rejects forged inner script ids and checks the expected script against both ids", () => {
+    const { def, state } = setup();
+    const save = serializeSave(def, state);
+    const forgedInner = {
+      ...save,
+      worldState: { ...save.worldState, scriptId: "starlight" },
+    };
+    expect(() => deserializeSave(forgedInner)).toThrow(/worldState\.scriptId.*envelope scriptId/);
+    expect(() => deserializeSave(forgedInner, "emberfall")).toThrow(/worldState\.scriptId.*envelope scriptId/);
+
+    const internallyConsistentWrongScript = {
+      ...forgedInner,
+      scriptId: "starlight",
+    };
+    expect(() => deserializeSave(internallyConsistentWrongScript, "emberfall"))
+      .toThrow(/save is for script "starlight" but expected "emberfall"/);
+  });
+
   it("deserializeSave rejects a v5 snapshot missing active need thresholds", () => {
     const { def, state } = setup();
     const save = serializeSave(def, state);
