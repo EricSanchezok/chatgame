@@ -3,28 +3,140 @@
 // Movement follows the location connection graph (move = direct edge,
 // travel = multi-hop reachability); trades move inventory + currency;
 // use_item applies effects_on_use and consumes consumables.
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadScript } from "../loader";
 import { generateWorld } from "../worldgen";
 import { previewAction, resolveAction } from "../actions";
 import { advanceClock } from "../time";
 import { BUILTIN_HANDLERS } from "../builtins";
 import type { WorldDefinition, WorldState } from "../types";
+import type { ActionEntry } from "../../script/schemas/actions";
+import type { Item } from "../../script/schemas/item";
+import type { Location } from "../../script/schemas/location";
+import { loadCoreTestDefinition } from "./core-test-fixture";
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
+function platformDefinition(): WorldDefinition {
+  const base = loadCoreTestDefinition();
+  const relayRoom = base.locations.get("relay-room");
+  const serviceCorridor = base.locations.get("service-corridor");
+  if (!relayRoom || !serviceCorridor) throw new Error("core test fixture is incomplete");
 
-function emberfall(): WorldDefinition {
-  return loadScript(path.join(REPO_ROOT, "scripts/emberfall"));
+  const archiveRoom: Location = {
+    ...serviceCorridor,
+    id: "archive-room",
+    name: "档案室",
+    description: "用于验证多段路径与地点物品的独立房间。",
+    connections: [{ to: "service-corridor", distance: 1, travel_time: 60 }],
+    npcs_present: [],
+    items: ["remote-token"],
+  };
+  const locations = new Map<string, Location>([
+    ...base.locations,
+    [relayRoom.id, {
+      ...relayRoom,
+      connections: [{ to: "service-corridor", distance: 1, travel_time: 30 }],
+    }],
+    [serviceCorridor.id, {
+      ...serviceCorridor,
+      connections: [
+        { to: "relay-room", distance: 1, travel_time: 30 },
+        { to: "archive-room", distance: 1, travel_time: 60 },
+      ],
+    }],
+    [archiveRoom.id, archiveRoom],
+  ]);
+  const items = new Map<string, Item>([
+    ...base.items,
+    ["charge-pack", {
+      id: "charge-pack",
+      name: "校准电池",
+      type: "consumable",
+      description: "一次性恢复校准状态的测试物品。",
+      properties: { stackable: true },
+      effects_on_use: [{ kind: "stat", direction: "add", target: "player", stat: "hp", value: 5 }],
+      rarity: "common",
+      value: 2,
+    }],
+    ["access-badge", {
+      id: "access-badge",
+      name: "通行徽章",
+      type: "equipment",
+      description: "用于验证角色间物品转移。",
+      properties: { stackable: false, slot: "badge" },
+      effects_on_use: [],
+      rarity: "common",
+      value: 1,
+    }],
+    ["relay-chip", {
+      id: "relay-chip",
+      name: "中继芯片",
+      type: "material",
+      description: "用于验证交易成本。",
+      properties: { stackable: true },
+      effects_on_use: [],
+      rarity: "common",
+      value: 3,
+    }],
+    ["remote-token", {
+      id: "remote-token",
+      name: "远端令牌",
+      type: "material",
+      description: "只存在于档案室的测试物品。",
+      properties: { stackable: true },
+      effects_on_use: [],
+      rarity: "common",
+      value: 1,
+    }],
+  ]);
+  const actions: ActionEntry[] = [
+    ...base.actions.actions,
+    { id: "move", enabled: true, resolve: { type: "auto" }, llm_freedom: "narration" },
+    { id: "travel", enabled: true, resolve: { type: "auto" }, llm_freedom: "narration" },
+    { id: "use_item", enabled: true, resolve: { type: "auto" }, llm_freedom: "narration" },
+    { id: "give", enabled: true, resolve: { type: "narrative_only" }, llm_freedom: "narration" },
+    {
+      id: "take",
+      enabled: true,
+      resolve: { type: "auto" },
+      conditions: { all: [{ source: "location", key: "current", op: "eq", value: "archive-room" }] },
+      llm_freedom: "narration",
+    },
+    {
+      id: "steal",
+      enabled: true,
+      resolve: { type: "opposed_check", stat: "agility", npc_stat: "agility" },
+      llm_freedom: "narration",
+    },
+    {
+      id: "trade",
+      enabled: true,
+      resolve: { type: "auto" },
+      costs: { currency: 0, time: 1 },
+      llm_freedom: "narration",
+    },
+  ];
+  return {
+    ...base,
+    mechanics: {
+      ...base.mechanics,
+      stats: [
+        ...base.mechanics.stats,
+        { name: "agility", min: 0, max: 20, initial: 10, description: "动作校准值" },
+      ],
+      inventory: { ...base.mechanics.inventory, capacity: 20 },
+    },
+    actions: { ...base.actions, actions },
+    locations,
+    items,
+  };
 }
 
 function freshState(def: WorldDefinition, seed = 42): WorldState {
-  return generateWorld(def, "miner", { seed }).state;
+  return generateWorld(def, "observer", { seed }).state;
 }
 
-/** Move the player to tavern (elara's home) for NPC-interaction tests. */
-function atTavern(state: WorldState): WorldState {
-  return { ...state, player: { ...state.player, locationId: "tavern" } };
+/** Keep the player with the operator for NPC-interaction tests. */
+function atRelayRoom(state: WorldState): WorldState {
+  return { ...state, player: { ...state.player, locationId: "relay-room" } };
 }
 
 describe("builtin registry", () => {
@@ -41,7 +153,7 @@ describe("builtin registry", () => {
   });
 
   it("previews handler plans without dry-running execution", () => {
-    const base = emberfall();
+    const base = platformDefinition();
     const action = {
       id: "prepare",
       enabled: true,
@@ -90,7 +202,7 @@ describe("builtin registry", () => {
   });
 
   it("centrally validates and pays dynamic costs exactly once", () => {
-    const base = emberfall();
+    const base = platformDefinition();
     const action = {
       id: "metered-action",
       enabled: true,
@@ -144,11 +256,11 @@ describe("builtin registry", () => {
   });
 
   it("gives planners a frozen clone and preserves the authoritative state on mutation", () => {
-    const base = emberfall();
+    const base = platformDefinition();
     const action = {
       id: "malicious-action",
       enabled: true,
-      resolve: { type: "stat_check" as const, stat: "strength", dc: 10 },
+      resolve: { type: "stat_check" as const, stat: "hp", dc: 10 },
       llm_freedom: "narration" as const,
       handler: "mutating-handler",
     };
@@ -175,7 +287,7 @@ describe("builtin registry", () => {
   });
 
   it("isolates the world definition from malicious planning mutations", () => {
-    const base = emberfall();
+    const base = platformDefinition();
     const action = {
       id: "definition-mutation",
       enabled: true,
@@ -227,7 +339,7 @@ describe("builtin registry", () => {
   });
 
   it("fails loudly when a declared action handler is missing at runtime", () => {
-    const base = emberfall();
+    const base = platformDefinition();
     const action = {
       id: "broken-action",
       enabled: true,
@@ -245,57 +357,54 @@ describe("builtin registry", () => {
 
 describe("movement", () => {
   it("move rejects a location that is not directly connected", () => {
-    const def = emberfall();
-    const state = atTavern(freshState(def));
-    // tavern connects to town-square + elara-bedroom only.
+    const def = platformDefinition();
+    const state = atRelayRoom(freshState(def));
     const out = resolveAction({
       definition: def,
       state,
       actionId: "move",
-      params: { target: "mine-entrance" },
+      params: { target: "archive-room" },
     });
     expect(out.rejected).toBe(true);
     expect(out.rejectReason).toBe("not_directly_connected");
   });
 
   it("move succeeds to a directly connected location", () => {
-    const def = emberfall();
-    const state = atTavern(freshState(def));
+    const def = platformDefinition();
+    const state = atRelayRoom(freshState(def));
     const out = resolveAction({
       definition: def,
       state,
       actionId: "move",
-      params: { target: "town-square" },
+      params: { target: "service-corridor" },
     });
     expect(out.rejected).toBe(false);
-    expect(out.state.player.locationId).toBe("town-square");
+    expect(out.state.player.locationId).toBe("service-corridor");
   });
 
   it("travel succeeds to a multi-hop reachable location", () => {
-    const def = emberfall();
-    // mine-entrance opens at 06:00 (entry_condition); travel at 08:00.
+    const def = platformDefinition();
     const state = {
-      ...atTavern(freshState(def)),
+      ...atRelayRoom(freshState(def)),
       clock: advanceClock(freshState(def).clock, def, 8),
     };
-    // tavern -> town-square -> mine-entrance (2 hops).
     const out = resolveAction({
       definition: def,
       state,
       actionId: "travel",
-      params: { target: "mine-entrance" },
+      params: { target: "archive-room" },
     });
     expect(out.rejected).toBe(false);
-    expect(out.state.player.locationId).toBe("mine-entrance");
-    const preview = previewAction(def, state, { actionId: "travel", target: "mine-entrance" });
+    expect(out.state.player.locationId).toBe("archive-room");
+    const preview = previewAction(def, state, { actionId: "travel", target: "archive-room" });
     expect(preview.executable).toBe(true);
     expect(preview.timeCost).toBe(out.effectiveTimeCost);
   });
 
   it("travel rejects an unreachable location", () => {
-    const def = emberfall();
+    const def = platformDefinition();
     const base = freshState(def);
-    const state = { ...atTavern(base), clock: advanceClock(base.clock, def, 8) };
+    const state = { ...atRelayRoom(base), clock: advanceClock(base.clock, def, 8) };
     // Inject a disconnected location id that doesn't exist in the graph.
     const out = resolveAction({
       definition: def,
@@ -308,10 +417,10 @@ describe("movement", () => {
   });
 
   it("checks every intermediate edge and reports path-derived time", () => {
-    const base = emberfall();
-    const start = base.locations.get("tavern")!;
-    const middle = base.locations.get("town-square")!;
-    const target = base.locations.get("mine-entrance")!;
+    const base = platformDefinition();
+    const start = base.locations.get("relay-room")!;
+    const middle = base.locations.get("service-corridor")!;
+    const target = base.locations.get("archive-room")!;
     const locations = new Map([
       [start.id, { ...start, connections: [{ to: middle.id, distance: 1, travel_time: 90 }] }],
       [middle.id, {
@@ -323,7 +432,7 @@ describe("movement", () => {
     ]);
     const definition = { ...base, locations };
     const state = {
-      ...atTavern(freshState(base)),
+      ...atRelayRoom(freshState(base)),
       clock: advanceClock(freshState(base).clock, base, 8),
     };
     const blocked = resolveAction({
@@ -350,10 +459,10 @@ describe("movement", () => {
   });
 
   it("chooses the lowest-duration path instead of the fewest edges", () => {
-    const base = emberfall();
-    const start = base.locations.get("tavern")!;
-    const middle = base.locations.get("town-square")!;
-    const target = base.locations.get("mine-entrance")!;
+    const base = platformDefinition();
+    const start = base.locations.get("relay-room")!;
+    const middle = base.locations.get("service-corridor")!;
+    const target = base.locations.get("archive-room")!;
     const locations = new Map([
       [start.id, { ...start, exit_condition: undefined, connections: [
         { to: target.id, distance: 1, travel_time: 180 },
@@ -365,7 +474,7 @@ describe("movement", () => {
       [target.id, { ...target, entry_condition: undefined, connections: [] }],
     ]);
     const definition = { ...base, locations };
-    const state = { ...atTavern(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
+    const state = { ...atRelayRoom(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
     const out = resolveAction({ definition, state, actionId: "travel", params: { target: target.id } });
     expect(out.rejected).toBe(false);
     expect(out.effectiveTimeCost).toBe(1);
@@ -376,10 +485,10 @@ describe("movement", () => {
   });
 
   it("checks later travel edges at the clock reached by prior segments", () => {
-    const base = emberfall();
-    const start = base.locations.get("tavern")!;
-    const middle = base.locations.get("town-square")!;
-    const target = base.locations.get("mine-entrance")!;
+    const base = platformDefinition();
+    const start = base.locations.get("relay-room")!;
+    const middle = base.locations.get("service-corridor")!;
+    const target = base.locations.get("archive-room")!;
     const locations = new Map([
       [start.id, { ...start, exit_condition: undefined, connections: [
         { to: middle.id, distance: 1, travel_time: 120 },
@@ -399,16 +508,16 @@ describe("movement", () => {
       }],
     ]);
     const definition = { ...base, locations };
-    const state = { ...atTavern(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
+    const state = { ...atRelayRoom(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
     const out = resolveAction({ definition, state, actionId: "travel", params: { target: target.id } });
     expect(out.rejected).toBe(false);
     expect(out.effectiveTimeCost).toBe(3);
   });
 
   it("evaluates the actual parallel edge instead of the first edge to that destination", () => {
-    const base = emberfall();
-    const start = base.locations.get("tavern")!;
-    const target = base.locations.get("town-square")!;
+    const base = platformDefinition();
+    const start = base.locations.get("relay-room")!;
+    const target = base.locations.get("service-corridor")!;
     const locations = new Map([
       [start.id, { ...start, exit_condition: undefined, connections: [
         {
@@ -422,7 +531,7 @@ describe("movement", () => {
       [target.id, { ...target, entry_condition: undefined, connections: [] }],
     ]);
     const definition = { ...base, locations };
-    const state = { ...atTavern(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
+    const state = { ...atRelayRoom(freshState(base)), clock: advanceClock(freshState(base).clock, base, 8) };
     const out = resolveAction({ definition, state, actionId: "travel", params: { target: target.id } });
     expect(out.rejected).toBe(false);
     expect(out.effectiveTimeCost).toBe(2);
@@ -432,85 +541,89 @@ describe("movement", () => {
 
 describe("inventory actions", () => {
   it("use_item applies effects_on_use and consumes consumables", () => {
-    const def = emberfall();
+    const def = platformDefinition();
     const state = freshState(def);
-    // Miner origin starts with a lantern (equipment — not consumable).
-    // Give the player a consumable to test consumption.
-    const withTonic = {
+    const withChargePack = {
       ...state,
       player: {
         ...state.player,
         inventory: {
           ...state.player.inventory,
-          stacks: [...state.player.inventory.stacks, { itemId: "tonic", quantity: 2 }],
+          stacks: [...state.player.inventory.stacks, { itemId: "charge-pack", quantity: 2 }],
         },
       },
     };
     const out = resolveAction({
       definition: def,
-      state: withTonic,
+      state: withChargePack,
       actionId: "use_item",
-      params: { item: "tonic" },
+      params: { item: "charge-pack" },
     });
     expect(out.rejected).toBe(false);
-    // tonic effects_on_use: need hunger +20 (well-fed style) — verify the
-    // stack was consumed (2 -> 1).
-    expect(out.state.player.inventory.stacks.find((s) => s.itemId === "tonic")?.quantity).toBe(1);
+    expect(out.state.player.inventory.stacks.find((s) => s.itemId === "charge-pack")?.quantity).toBe(1);
   });
 
   it("use_item rejects an item not held", () => {
-    const def = emberfall();
+    const def = platformDefinition();
     const state = freshState(def);
     const out = resolveAction({
       definition: def,
       state,
       actionId: "use_item",
-      params: { item: "coal-essence" }, // not in the player's inventory
+      params: { item: "remote-token" }, // not in the player's inventory
     });
     expect(out.rejected).toBe(true);
     expect(out.rejectReason).toBe("item_not_held");
   });
 
   it("give transfers an item to a co-located NPC", () => {
-    const def = emberfall();
-    const state = atTavern(freshState(def));
+    const def = platformDefinition();
+    const fresh = atRelayRoom(freshState(def));
+    const state = {
+      ...fresh,
+      player: {
+        ...fresh.player,
+        inventory: {
+          ...fresh.player.inventory,
+          stacks: [...fresh.player.inventory.stacks, { itemId: "access-badge", quantity: 1 }],
+        },
+      },
+    };
     const out = resolveAction({
       definition: def,
       state,
       actionId: "give",
-      targetNpcId: "elara",
-      params: { item: "lantern" },
+      targetNpcId: "operator",
+      params: { item: "access-badge" },
     });
     expect(out.rejected).toBe(false);
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(false);
-    expect(out.state.npcs.elara.inventory.stacks.some((s) => s.itemId === "lantern")).toBe(true);
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "access-badge")).toBe(false);
+    expect(out.state.npcs.operator.inventory.stacks.some((s) => s.itemId === "access-badge")).toBe(true);
   });
 
   it("take transfers an item from the location inventory", () => {
-    const def = emberfall();
+    const def = platformDefinition();
     const state = freshState(def);
-    // Player starts at mine-entrance which now has coal-essence.
     const out = resolveAction({
       definition: def,
       state,
       actionId: "take",
-      params: { item: "coal-essence" },
+      params: { item: "remote-token" },
     });
-    // take requires the player be at town-hall (action condition) — so it
-    // rejects for the wrong reason; verify the condition gate first.
+    // take requires the player be in the archive room; verify the condition gate first.
     expect(out.rejected).toBe(true);
     expect(out.rejectReason).toBe("condition_not_met");
   });
 
   it("steal succeeds and transfers an item from the target NPC", () => {
-    const def = emberfall();
-    const state = atTavern({
+    const def = platformDefinition();
+    const state = atRelayRoom({
       ...freshState(def),
       npcs: {
         ...freshState(def).npcs,
-        elara: {
-          ...freshState(def).npcs.elara,
-          inventory: { stacks: [{ itemId: "tonic", quantity: 1 }], currency: 0 },
+        operator: {
+          ...freshState(def).npcs.operator,
+          inventory: { stacks: [{ itemId: "charge-pack", quantity: 1 }], currency: 0 },
         },
       },
     });
@@ -518,22 +631,23 @@ describe("inventory actions", () => {
       definition: def,
       state,
       actionId: "steal",
-      targetNpcId: "elara",
+      targetNpcId: "operator",
       rollOverride: 20,
+      npcRollOverride: 1,
     });
     expect(out.rejected).toBe(false);
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "tonic")).toBe(true);
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "charge-pack")).toBe(true);
   });
 
   it("steal fails with threat when the roll fails", () => {
-    const def = emberfall();
-    const state = atTavern({
+    const def = platformDefinition();
+    const state = atRelayRoom({
       ...freshState(def),
       npcs: {
         ...freshState(def).npcs,
-        elara: {
-          ...freshState(def).npcs.elara,
-          inventory: { stacks: [{ itemId: "tonic", quantity: 1 }], currency: 0 },
+        operator: {
+          ...freshState(def).npcs.operator,
+          inventory: { stacks: [{ itemId: "charge-pack", quantity: 1 }], currency: 0 },
         },
       },
     });
@@ -541,50 +655,51 @@ describe("inventory actions", () => {
       definition: def,
       state,
       actionId: "steal",
-      targetNpcId: "elara",
+      targetNpcId: "operator",
       rollOverride: 1,
+      npcRollOverride: 20,
     });
     expect(out.rejected).toBe(false);
     expect(out.state.player.threatGauge).toBeGreaterThan(0);
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "tonic")).toBe(false);
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "charge-pack")).toBe(false);
   });
 
   it("trade buy moves currency + item between player and NPC", () => {
-    const def = emberfall();
-    const state = atTavern({
+    const def = platformDefinition();
+    const state = atRelayRoom({
       ...freshState(def),
       npcs: {
         ...freshState(def).npcs,
-        elara: {
-          ...freshState(def).npcs.elara,
-          inventory: { stacks: [{ itemId: "herb", quantity: 1 }], currency: 0 },
+        operator: {
+          ...freshState(def).npcs.operator,
+          inventory: { stacks: [{ itemId: "relay-chip", quantity: 1 }], currency: 0 },
         },
       },
     });
     const preview = previewAction(def, state, {
       actionId: "trade",
-      target: "elara",
-      params: { item: "herb", direction: "buy" },
+      target: "operator",
+      params: { item: "relay-chip", direction: "buy" },
     });
     const out = resolveAction({
       definition: def,
       state,
       actionId: "trade",
-      targetNpcId: "elara",
-      params: { item: "herb", direction: "buy" },
+      targetNpcId: "operator",
+      params: { item: "relay-chip", direction: "buy" },
     });
-    const itemValue = def.items.get("herb")!.value;
+    const itemValue = def.items.get("relay-chip")!.value;
     expect(itemValue).toBe(3);
     expect(preview.executable).toBe(true);
     expect(preview.costs.currency).toBe(itemValue);
     expect(out.rejected).toBe(false);
-    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "herb")).toBe(true);
+    expect(out.state.player.inventory.stacks.some((s) => s.itemId === "relay-chip")).toBe(true);
     expect(state.player.inventory.currency - out.state.player.inventory.currency).toBe(itemValue);
   });
 });
 
 describe("action cooldown", () => {
-  /** Emberfall action ids do not declare cooldowns; inject one for the gate. */
+  /** The core action does not declare a cooldown; inject one for the gate. */
   function withCooldown(def: WorldDefinition, actionId: string, cooldown: number): WorldDefinition {
     return {
       ...def,
@@ -598,7 +713,7 @@ describe("action cooldown", () => {
   }
 
   it("rejects a repeat while the action is on cooldown (on_cooldown)", () => {
-    const def = withCooldown(emberfall(), "investigate", 2);
+    const def = withCooldown(platformDefinition(), "investigate", 2);
     let state = freshState(def);
     // First use succeeds and anchors the cooldown at day 0.
     const first = resolveAction({ definition: def, state, actionId: "investigate" });
@@ -612,7 +727,7 @@ describe("action cooldown", () => {
   });
 
   it("allows the action again once the cooldown days have passed", () => {
-    const def = withCooldown(emberfall(), "investigate", 2);
+    const def = withCooldown(platformDefinition(), "investigate", 2);
     let state = freshState(def);
     state = resolveAction({ definition: def, state, actionId: "investigate" }).state;
     // Advance 2 full days: day 2, elapsed = 2 >= cooldown 2.
@@ -624,7 +739,7 @@ describe("action cooldown", () => {
   });
 
   it("cooldown 0 or missing means no gate", () => {
-    const def = emberfall();
+    const def = platformDefinition();
     const state = freshState(def);
     const out = resolveAction({ definition: def, state, actionId: "investigate" });
     expect(out.rejected).toBe(false);
