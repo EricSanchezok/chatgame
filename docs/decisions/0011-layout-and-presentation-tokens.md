@@ -1,7 +1,7 @@
 # 对话主舞台布局 + 深度可扩展表现层 Token v1.1
 
 ## Status
-Superseded by 0023
+Superseded by [0023](0023-layout-theme-and-accessibility-v2.md)
 Class: feature
 
 ## Context and Problem Statement

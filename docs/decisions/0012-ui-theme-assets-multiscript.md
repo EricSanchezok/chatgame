@@ -1,7 +1,7 @@
 # 前端与表现层 v1——沉浸聊天式 UI + 剧本资产/主题系统 + 多剧本管理
 
 ## Status
-Superseded by 0022
+Superseded by [0022](0022-ui-host-and-script-extension-v3.md)
 Class: feature
 
 ## Context and Problem Statement

@@ -1,7 +1,7 @@
 # 前端沉浸式游戏化与剧本代码扩展（v2）
 
 ## Status
-Superseded by 0022
+Superseded by [0022](0022-ui-host-and-script-extension-v3.md)
 Class: feature
 
 ## Context and Problem Statement
