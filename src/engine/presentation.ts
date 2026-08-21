@@ -184,6 +184,7 @@ export function buildAssetManifest(definition: WorldDefinition): {
   voices: Record<string, ResolvedAsset>;
   ambient: Record<string, ResolvedAsset>;
   effects: Record<string, ResolvedAsset>;
+  illustrations: Record<string, ResolvedAsset>;
   ui: Record<string, ResolvedAsset>;
 } {
   const empty = (): Record<string, ResolvedAsset> => ({});
@@ -196,6 +197,7 @@ export function buildAssetManifest(definition: WorldDefinition): {
     voices: empty(),
     ambient: empty(),
     effects: empty(),
+    illustrations: empty(),
     ui: empty(),
   };
   const manifest: AssetsManifest | undefined = definition.assets;
@@ -206,7 +208,7 @@ export function buildAssetManifest(definition: WorldDefinition): {
       alt: manifest.cover.alt,
     };
   }
-  for (const kind of ["portraits", "backgrounds", "icons", "sprites", "voices", "ambient", "effects", "ui"] as const) {
+  for (const kind of ["portraits", "backgrounds", "icons", "sprites", "voices", "ambient", "effects", "illustrations", "ui"] as const) {
     const section = manifest[kind] as Record<string, ResolvedAsset> | undefined;
     if (!section) continue;
     for (const [id, entry] of Object.entries(section)) {
@@ -242,6 +244,7 @@ const SPEECH_ACTIONS = new Set([
  *  - npc_speech: the resolution targeted an NPC with a speech-like action
  *  - location_enter: the player's location changed
  *  - event: events were newly played this turn (playedEventIds diff)
+ *  - item_reveal: the player's inventory gained an item this turn
  */
 export function deriveMediaCues(
   prev: WorldState,
@@ -260,6 +263,11 @@ export function deriveMediaCues(
     if (!prevSet.has(id)) {
       cues.push({ kind: "event", eventId: id });
     }
+  }
+  const previousItems = new Map(prev.player.inventory.stacks.map((stack) => [stack.itemId, stack.quantity]));
+  for (const stack of next.player.inventory.stacks) {
+    const gained = stack.quantity - (previousItems.get(stack.itemId) ?? 0);
+    if (gained > 0) cues.push({ kind: "item_reveal", itemId: stack.itemId, quantity: gained });
   }
   return cues;
 }

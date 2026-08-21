@@ -42,7 +42,7 @@ npm run play   # demo CLI（默认 Mock LLM，无 key 可跑）
 npm run dev   # 开发服务器（启动器 + 游戏 UI）
 ```
 
-决策依据见 [决策记录 0022](../decisions/0022-ui-host-and-script-extension-v3.md) 与 [决策记录 0023](../decisions/0023-layout-theme-and-accessibility-v2.md)。
+决策依据见 [决策记录 0027](../decisions/0027-session-first-ui-api-v4.md) 与 [决策记录 0028](../decisions/0028-conversation-first-game-layout.md)。
 
 规则：
 

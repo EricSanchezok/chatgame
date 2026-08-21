@@ -9,7 +9,7 @@ import {
   hydratePlayerSettings,
   patchPlayerSettings,
   subscribePlayerSettings,
-  type PlayerSettingsV2,
+  type PlayerSettingsV3,
 } from "../lib/settings";
 import {
   loadScriptUi,
@@ -54,7 +54,7 @@ export function SettingsScreen() {
     return () => controller.abort();
   }, []);
 
-  function update(patch: Partial<Omit<PlayerSettingsV2, "version">>) {
+  function update(patch: Partial<Omit<PlayerSettingsV3, "version">>) {
     patchPlayerSettings(patch);
     setStatus("设置已保存。");
   }
@@ -79,8 +79,8 @@ export function SettingsScreen() {
         <section className="cg-settings-section" aria-labelledby="reading-title">
           <div><h2 id="reading-title">阅读</h2><p>调整文字密度与信息辨识度。</p></div>
           <div className="cg-setting-fields">
-            <label htmlFor="text-scale"><span>文字大小</span><select id="text-scale" value={settings.textScale} onChange={(event) => update({ textScale: Number(event.target.value) as PlayerSettingsV2["textScale"] })}><option value="1">标准</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option></select></label>
-            <label htmlFor="contrast"><span>对比度</span><select id="contrast" value={settings.contrast} onChange={(event) => update({ contrast: event.target.value as PlayerSettingsV2["contrast"] })}><option value="system">跟随系统</option><option value="more">增强</option></select></label>
+            <label htmlFor="text-scale"><span>文字大小</span><select id="text-scale" value={settings.textScale} onChange={(event) => update({ textScale: Number(event.target.value) as PlayerSettingsV3["textScale"] })}><option value="1">标准</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option></select></label>
+            <label htmlFor="contrast"><span>对比度</span><select id="contrast" value={settings.contrast} onChange={(event) => update({ contrast: event.target.value as PlayerSettingsV3["contrast"] })}><option value="system">跟随系统</option><option value="more">增强</option></select></label>
             <label htmlFor="theme-mode"><span>游戏主题</span><select id="theme-mode" value={settings.themeMode} onChange={(event) => update({ themeMode: event.target.value })}><option value="follow">跟随剧本与地点</option>{detail?.presentation.themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}</select></label>
           </div>
         </section>
@@ -93,7 +93,7 @@ export function SettingsScreen() {
             <label htmlFor="ambient-volume"><span>环境音 · {settings.ambientVolume}%</span><input id="ambient-volume" type="range" min="0" max="100" value={settings.ambientVolume} onChange={(event) => update({ ambientVolume: Number(event.target.value) })} /></label>
             <label htmlFor="voice-volume"><span>语音 · {settings.voiceVolume}%</span><input id="voice-volume" type="range" min="0" max="100" value={settings.voiceVolume} onChange={(event) => update({ voiceVolume: Number(event.target.value) })} /></label>
             <label htmlFor="effects-volume"><span>音效 · {settings.effectsVolume}%</span><input id="effects-volume" type="range" min="0" max="100" value={settings.effectsVolume} onChange={(event) => update({ effectsVolume: Number(event.target.value) })} /></label>
-            <label htmlFor="motion"><span>动效</span><select id="motion" value={settings.motion} onChange={(event) => update({ motion: event.target.value as PlayerSettingsV2["motion"] })}><option value="system">跟随系统</option><option value="reduce">减少</option></select></label>
+            <label htmlFor="motion"><span>动效</span><select id="motion" value={settings.motion} onChange={(event) => update({ motion: event.target.value as PlayerSettingsV3["motion"] })}><option value="system">跟随系统</option><option value="reduce">减少</option></select></label>
             <label className="cg-switch"><span><strong>开始时进入全屏</strong><small>浏览器拒绝全屏时，游戏仍会在窗口中继续。</small></span><input type="checkbox" checked={settings.fullscreenOnStart} onChange={(event) => update({ fullscreenOnStart: event.target.checked })} /></label>
           </div>
         </section>

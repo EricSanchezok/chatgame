@@ -47,7 +47,7 @@ describe("two-stage script import", () => {
     expect(preview).toMatchObject({
       scriptId: TEST_SCRIPT_ID,
       schemaVersion: "1.1",
-      apiVersions: { hostUi: 3, engine: 2, scriptUi: 3 },
+      apiVersions: { hostUi: 4, engine: 2, scriptUi: 4 },
       conflicts: { installed: false, replaceAllowed: false },
       errors: [],
     });

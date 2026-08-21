@@ -1,13 +1,14 @@
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import type { BubbleSlotProps, ComposerSlotProps, GameShellSlotProps, SceneSlotProps, ScriptHostModel } from "../../lib/script-registry";
-import type { ActionPreview, Catalog, IntentHint, TranscriptEntry, TurnResultFull } from "../../lib/api";
+import type { ActionPreview, Catalog, IntentHint, TurnResultFull } from "../../lib/api";
 import { useScriptRegistry } from "../../lib/script-registry";
-import { EntryCards, ResolutionChip } from "./cards";
+import { assetSrc, EntryCards, ResolutionChip } from "./cards";
 import { ActivePanel } from "./panels";
 import { Hud } from "./hud";
 import { Toolbar } from "./toolbar";
+import { ObjectiveTracker } from "./objective-tracker";
 import { PauseMenu } from "./pause-menu";
 import { UiIcon } from "./ui-icon";
 import { SlotRenderer } from "./slots";
@@ -16,10 +17,19 @@ import { useGameActions, useGameSelector } from "./state";
 function DefaultGameShell({ regions }: GameShellSlotProps) {
   return (
     <div className="cg-game-shell">
-      {regions.hud}
-      {regions.scene}
-      {regions.toolbar}
-      {regions.composer}
+      <div className="cg-game-chrome">{regions.hud}</div>
+      <div className="cg-game-stage">
+        <div className="cg-game-canvas">
+          <section className="cg-game-main" aria-label="会话">
+            {regions.scene}
+          </section>
+          <aside className="cg-game-rail" aria-label="当前目标与工具">
+            {regions.tracker}
+            {regions.toolbar}
+          </aside>
+        </div>
+      </div>
+      <div className="cg-game-compose-dock">{regions.composer}</div>
       {regions.overlays}
     </div>
   );
@@ -29,15 +39,46 @@ function DefaultScene({ transcript }: SceneSlotProps) {
   return <>{transcript}</>;
 }
 
-function DefaultBubble({ entry, children }: BubbleSlotProps) {
+function NpcIdentity({ speaker, first, scriptId, assets }: {
+  speaker: NonNullable<BubbleSlotProps["speaker"]>;
+  first: boolean;
+  scriptId: string;
+  assets: ScriptHostModel["assets"];
+}) {
+  const portrait = assetSrc(scriptId, assets, "portraits", speaker.id);
+  return (
+    <span className="cg-speaker">
+      <button type="button" className="cg-speaker__trigger" aria-describedby={`npc-${speaker.id}-profile`}>
+        <span className="cg-speaker__avatar" aria-hidden="true">
+          {speaker.name.slice(0, 1)}
+          {portrait ? (
+            // eslint-disable-next-line @next/next/no-img-element -- script portraits are runtime-addressed.
+            <img src={portrait} alt="" />
+          ) : null}
+        </span>
+        <span><strong>{speaker.name}</strong>{speaker.occupation ? <small>{speaker.occupation}</small> : null}</span>
+      </button>
+      <span className="cg-speaker__popover" id={`npc-${speaker.id}-profile`} role="tooltip">
+        <strong>{speaker.name}</strong>
+        {speaker.occupation ? <span>{speaker.occupation}</span> : null}
+        <span>{speaker.description}</span>
+        {speaker.relationLabel ? <span>{speaker.relationLabel}</span> : null}
+        {first ? <em>首次相遇</em> : null}
+      </span>
+    </span>
+  );
+}
+
+function DefaultBubble({ entry, speaker, isFirstAppearance, scriptId, assets, children }: BubbleSlotProps) {
   return (
     <article className="cg-message" data-role={entry.role}>
+      {speaker ? <NpcIdentity speaker={speaker} first={isFirstAppearance} scriptId={scriptId} assets={assets} /> : null}
       {children}
     </article>
   );
 }
 
-function BubbleAdapter(props: ScriptHostModel & { entry: TranscriptEntry; children: ReactNode }) {
+function BubbleAdapter(props: ScriptHostModel & BubbleSlotProps) {
   return (
     <SlotRenderer
       slot={`bubble:${props.entry.role}`}
@@ -59,17 +100,24 @@ const Transcript = memo(function Transcript({
   const scrollRef = useRef<HTMLElement | null>(null);
   const atBottomRef = useRef(true);
   const transcript = model.state.transcript;
+  const transcriptLength = transcript.length;
+  const hasPlayerTurn = transcript.some((entry) => entry.role === "player");
   const actionName = (id: string) => model.catalog.actions.find((action) => action.id === id)?.displayName ?? id;
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element || !atBottomRef.current) return;
+    if (lastTurn === null && !hasPlayerTurn) {
+      element.scrollTop = 0;
+      return;
+    }
     element.scrollTop = element.scrollHeight;
-  }, [transcript.length, lastTurn]);
+  }, [transcriptLength, hasPlayerTurn, lastTurn]);
 
   return (
-    <main
+    <section
       ref={scrollRef}
+      role="log"
       data-region="transcript"
       className="cg-transcript"
       aria-label="游戏对话记录"
@@ -80,12 +128,24 @@ const Transcript = memo(function Transcript({
       }}
     >
       <div className="cg-transcript__inner">
-        {transcript.map((entry) => (
-          <BubbleAdapter key={entry.id} {...model} entry={entry}>
-            <p>{entry.text}</p>
-            {entry.role === "world" ? <EntryCards entry={entry} {...model} manifest={model.assets} /> : null}
-          </BubbleAdapter>
-        ))}
+        {transcript.map((entry, index) => {
+          const speech = entry.mediaCues.find((cue) => cue.kind === "npc_speech");
+          const npcId = speech?.kind === "npc_speech" ? speech.npcId : null;
+          const npc = npcId ? model.catalog.npcs.find((candidate) => candidate.id === npcId) : undefined;
+          const relation = npcId ? model.state.player.relations.find((candidate) => candidate.npcId === npcId) : undefined;
+          const isFirstAppearance = Boolean(npcId) && !transcript.slice(0, index).some((candidate) =>
+            candidate.mediaCues.some((cue) => cue.kind === "npc_speech" && cue.npcId === npcId));
+          const speaker = npc ? {
+            ...npc,
+            relationLabel: relation ? `${relation.stance} · ${relation.value}` : undefined,
+          } : undefined;
+          return (
+            <BubbleAdapter key={entry.id} {...model} entry={entry} speaker={speaker} isFirstAppearance={isFirstAppearance}>
+              <p>{entry.text}</p>
+              {entry.role === "world" ? <EntryCards entry={entry} {...model} manifest={model.assets} /> : null}
+            </BubbleAdapter>
+          );
+        })}
         {lastTurn?.resolution && lastTurn.resolution.actionId !== "talk" ? (
           <div className="cg-resolution-row">
             <ResolutionChip
@@ -99,7 +159,7 @@ const Transcript = memo(function Transcript({
         {lastTurn ? <SystemFeedbackBlock lastTurn={lastTurn} actionName={actionName} /> : null}
         {busy ? <p className="cg-world-wait" role="status">世界正在回应……</p> : null}
       </div>
-    </main>
+    </section>
   );
 });
 
@@ -203,7 +263,7 @@ function DefaultComposer({ busy, submitTurn, previewAction, scriptId, assets, ca
           placeholder="说点什么，或描述你的行动"
           disabled={busy}
           maxLength={2000}
-          rows={2}
+          rows={1}
         />
         <button type="submit" className="cg-button cg-button--primary" disabled={busy || input.trim().length === 0}>
           <UiIcon slot="send" scriptId={scriptId} manifest={assets} className="cg-icon" />
@@ -240,8 +300,9 @@ export function GameScreen() {
   const themeMode = useGameSelector((state) => state.themeMode);
   const audioEnabled = useGameSelector((state) => state.audioEnabled);
   const lastTurn = useGameSelector((state) => state.lastTurn);
+  const trackedTaskId = useGameSelector((state) => state.trackedTaskId);
   const registry = useScriptRegistry();
-  const { submitTurn, previewAction, save, exitGame, setTheme, setAudio, setPanel, setPause } = useGameActions();
+  const { submitTurn, previewAction, save, exitGame, setTheme, setAudio, setPanel, setPause, setTrackedTask } = useGameActions();
   const busy = operation !== "idle";
 
   useEffect(() => {
@@ -272,7 +333,7 @@ export function GameScreen() {
   const scene = <SlotRenderer slot="scene" fallback={DefaultScene} slotProps={{ ...model, transcript }} />;
   const overlays = (
     <>
-      <ActivePanel panel={panel} {...model} onClose={() => setPanel(null)} />
+      <ActivePanel panel={panel} {...model} trackedTaskId={trackedTaskId} onTrackTask={setTrackedTask} onClose={() => setPanel(null)} />
       {paused ? (
         <PauseMenu
           {...model}
@@ -297,8 +358,9 @@ export function GameScreen() {
   );
   const regions: GameShellSlotProps["regions"] = {
     hud: <Hud {...model} />,
+    tracker: <ObjectiveTracker {...model} trackedTaskId={trackedTaskId} openTasks={() => setPanel("tasks")} />,
     scene,
-    toolbar: <Toolbar {...model} panel={panel} onOpenPanel={setPanel} />,
+    toolbar: <Toolbar {...model} panel={panel} onOpenPanel={setPanel} onOpenPause={() => setPause(true)} />,
     composer: <ComposerRegion model={model} busy={busy} submitTurn={submit} previewAction={preview} />,
     overlays,
   };
@@ -312,7 +374,8 @@ function SystemFeedbackBlock({
   lastTurn: TurnResultFull;
   actionName: (id: string) => string;
 }) {
-  const { worldEvents, taskCompletions, deathFired, fellBackToTalk } = lastTurn;
+  const { taskCompletions, deathFired, fellBackToTalk } = lastTurn;
+  const worldEvents = lastTurn.worldEvents.filter((event) => !/^event \"[^\"]+\" played$/i.test(event));
   if (worldEvents.length === 0 && taskCompletions.length === 0 && !deathFired && !fellBackToTalk) return null;
   return (
     <section className="cg-system-feedback" aria-label="回合结果">

@@ -68,25 +68,24 @@ export function NpcCard({
 }) {
   const src = assetSrc(scriptId, manifest, "portraits", npcId);
   return (
-    <figure className="my-2 flex items-center gap-3 rounded-xl border p-3"
-      style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
+    <figure className="cg-npc-introduction">
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
           alt={npcName}
-          className="h-14 w-14 shrink-0 rounded-full object-cover"
+          className="cg-npc-introduction__portrait"
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = "none";
             (e.currentTarget.nextElementSibling as HTMLElement | null)?.classList.remove("hidden");
           }}
         />
       ) : null}
-      <AvatarFallback name={npcName} />
-      <figcaption className="min-w-0">
-        <div className="font-semibold" style={{ color: "var(--cg-text)" }}>{npcName}</div>
+      {!src ? <AvatarFallback name={npcName} /> : null}
+      <figcaption>
+        <div className="cg-npc-introduction__name">{npcName}</div>
         {relationLabel ? (
-          <div className="text-sm" style={{ color: "var(--cg-text-dim)" }}>{relationLabel}</div>
+          <div className="cg-npc-introduction__relation">{relationLabel}</div>
         ) : null}
       </figcaption>
     </figure>
@@ -109,20 +108,20 @@ export function LocationCard({
   const src = assetSrc(scriptId, manifest, "backgrounds", locationId);
   return (
     <figure
-      className="my-2 overflow-hidden rounded-xl border"
-      style={{ borderColor: "var(--cg-border)", background: src ? undefined : "var(--cg-surface-alt)" }}
+      className="cg-location-card"
+      style={{ background: src ? undefined : "var(--cg-surface-alt)" }}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name} className="h-32 w-full object-cover" />
+        <img src={src} alt={manifest?.backgrounds[locationId]?.alt ?? name} />
       ) : null}
-      <figcaption className="p-3">
-        <div className="flex items-center gap-1.5 font-semibold" style={{ color: "var(--cg-text)" }}>
+      <figcaption>
+        <div className="cg-media-caption__title">
           <UiIcon slot="location" scriptId={scriptId} manifest={manifest} className="h-4 w-4" />
           {name}
         </div>
         {description ? (
-          <div className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>{description}</div>
+          <div className="cg-media-caption__description">{description}</div>
         ) : null}
       </figcaption>
     </figure>
@@ -146,25 +145,24 @@ export function ItemCard({
 }) {
   const src = assetSrc(scriptId, manifest, "icons", itemId);
   return (
-    <div className="my-1 inline-flex flex-col gap-0.5 rounded-lg border px-3 py-1.5"
-      style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
-      <div className="flex items-center gap-2">
+    <div className="cg-item-reveal">
+      <div className="cg-item-reveal__main">
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt={name} className="h-6 w-6 object-contain" />
+          <img src={src} alt={name} className="cg-item-reveal__icon" />
         ) : (
-          <span className="flex h-6 w-6 items-center justify-center rounded text-xs"
+          <span className="cg-item-reveal__fallback"
             style={{ background: "var(--cg-primary)", color: "var(--cg-surface)" }}>
             {name.slice(0, 1)}
           </span>
         )}
-        <span style={{ color: "var(--cg-text)" }}>{name}</span>
+        <span>{name}</span>
         {quantity > 1 ? (
-          <span className="text-sm" style={{ color: "var(--cg-text-dim)" }}>×{quantity}</span>
+          <span className="cg-item-reveal__quantity">×{quantity}</span>
         ) : null}
       </div>
       {description ? (
-        <span className="text-xs" style={{ color: "var(--cg-text-dim)" }}>{description}</span>
+        <span className="cg-item-reveal__description">{description}</span>
       ) : null}
     </div>
   );
@@ -176,16 +174,18 @@ export function EventCard({ scriptId, eventId, name, manifest }: {
   name: string;
   manifest: AssetManifest | undefined;
 }) {
-  const src = assetSrc(scriptId, manifest, "effects", eventId);
-  void src; // effect audio plays via cuesToAudio; the card is text-only.
+  const src = assetSrc(scriptId, manifest, "illustrations", eventId);
   return (
-    <div className="my-1 rounded-lg border px-3 py-2"
-      style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
-      <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--cg-accent)" }}>
+    <figure className="cg-event-card" style={{ background: "var(--cg-surface-alt)" }}>
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element -- script illustrations are runtime-addressed.
+        <img src={src} alt={manifest?.illustrations[eventId]?.alt ?? name} />
+      ) : null}
+      <figcaption className="cg-event-card__caption">
         <UiIcon slot="warning" scriptId={scriptId} manifest={manifest} className="h-4 w-4" />
         {name}
-      </span>
-    </div>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -201,8 +201,7 @@ export function ResolutionChip({
   dc: number | null;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs"
-      style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)", color: "var(--cg-text)" }}>
+    <span className="cg-resolution-chip">
       {actionName} · {gradeLabel(grade)}
       {roll !== null && dc !== null ? ` (${roll}/${dc})` : ""}
     </span>
@@ -224,25 +223,10 @@ export function EntryCards({
   state: WorldState | undefined;
 }) {
   const cards: Array<{ key: string; kind: string; payload: Readonly<Record<string, unknown>>; node: React.ReactNode }> = [];
-  const npcName = (id: string) => catalog?.npcs.find((n) => n.id === id)?.name ?? id;
   const eventName = (id: string) => catalog?.events.find((e) => e.id === id)?.name ?? id;
   for (const cue of entry.mediaCues) {
     if (cue.kind === "npc_speech") {
-      const rel = state?.player.relations.find((r) => r.npcId === cue.npcId);
-      cards.push({
-        key: `npc-${cue.npcId}-${entry.id}`,
-        kind: cue.kind,
-        payload: { npcId: cue.npcId },
-        node: (
-          <NpcCard
-            scriptId={scriptId}
-            npcId={cue.npcId}
-            npcName={npcName(cue.npcId)}
-            relationLabel={rel ? `${rel.stance} ${rel.value}` : undefined}
-            manifest={manifest}
-          />
-        ),
-      });
+      continue;
     } else if (cue.kind === "location_enter") {
       const loc = catalog?.locations.find((l) => l.id === cue.locationId);
       cards.push({
@@ -266,10 +250,18 @@ export function EntryCards({
         payload: { eventId: cue.eventId },
         node: <EventCard scriptId={scriptId} eventId={cue.eventId} name={eventName(cue.eventId)} manifest={manifest} />,
       });
+    } else if (cue.kind === "item_reveal") {
+      const item = catalog?.items.find((candidate) => candidate.id === cue.itemId);
+      cards.push({
+        key: `item-${cue.itemId}-${entry.id}`,
+        kind: cue.kind,
+        payload: { itemId: cue.itemId, quantity: cue.quantity },
+        node: <ItemCard scriptId={scriptId} itemId={cue.itemId} name={item?.name ?? cue.itemId} quantity={cue.quantity} description={item?.description} manifest={manifest} />,
+      });
     }
   }
   return cards.length > 0 ? (
-    <div className="mt-2 flex flex-col">
+    <div className="cg-entry-media">
       {cards.map((card) => state && catalog ? (
         <SlotRenderer
           key={card.key}
@@ -292,7 +284,7 @@ export function EntryCards({
 }
 
 const emptyAssets: AssetManifest = {
-  portraits: {}, backgrounds: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, ui: {},
+  portraits: {}, backgrounds: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, illustrations: {}, ui: {},
 };
 
 function DefaultMessageCard({ children }: MessageCardSlotProps) {
@@ -308,6 +300,8 @@ export function cueSummary(cue: MediaCue, catalog?: Catalog): string {
       return `location_enter:${cue.locationId}`;
     case "event":
       return `event:${cue.eventId}`;
+    case "item_reveal":
+      return `item_reveal:${cue.itemId}:${cue.quantity}`;
   }
   void catalog;
   return "";

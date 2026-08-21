@@ -16,11 +16,11 @@ const def: SlotDef = { component: () => null };
 const another: SlotDef = { component: () => null };
 
 function bundle(hash: string): ScriptUiBundleDescriptor {
-  return { apiVersion: 3, dependencyHash: hash, url: `/bundle/${hash}.mjs` };
+  return { apiVersion: 4, dependencyHash: hash, url: `/bundle/${hash}.mjs` };
 }
 
 function moduleWith(register: (context: ScriptUiContext) => void) {
-  return { apiVersion: 3, default: register };
+  return { apiVersion: 4, default: register };
 }
 
 beforeEach(clearSlots);

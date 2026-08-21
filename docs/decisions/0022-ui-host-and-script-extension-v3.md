@@ -1,7 +1,7 @@
 # 前端宿主与剧本 UI 扩展契约 v3
 
 ## Status
-Accepted
+Superseded by [0027](0027-session-first-ui-api-v4.md)
 Class: architecture
 
 ## Context and Problem Statement

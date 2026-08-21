@@ -6,7 +6,7 @@ traits:
   - { name: 先救急, description: 把最危险的灰蚀病例排在最前。 }
 stats: { hp: 78, grit: 10, perception: 12 }
 skills: { testimony: 11 }
-occupation: clinic-duty
+occupation: 灰蚀诊所值班员
 schedule: clinic-duty
 home: lamp-house
 items: []

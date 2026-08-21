@@ -45,11 +45,13 @@ describe("Engine facade", () => {
   it("plays the deterministic worldgen starting event once and cues it in the opening", () => {
     const first = createEngine(42);
     const second = createEngine(42);
-    const cue = first.worldState.transcript[0]?.mediaCues[0];
+    const openingCues = first.worldState.transcript[0]?.mediaCues ?? [];
+    expect(openingCues[0]).toEqual({ kind: "location_enter", locationId: first.worldState.player.locationId });
+    const cue = openingCues.find((candidate) => candidate.kind === "event");
     expect(cue).toMatchObject({ kind: "event" });
     const eventId = cue?.kind === "event" ? cue.eventId : "";
     expect(eventId).not.toBe("");
-    expect(second.worldState.transcript[0]?.mediaCues[0]).toEqual(cue);
+    expect(second.worldState.transcript[0]?.mediaCues.find((candidate) => candidate.kind === "event")).toEqual(cue);
     expect(first.worldState.playedEventIds.filter((id) => id === eventId)).toHaveLength(1);
     expect(first.worldState.eventLog.filter((entry) => entry.summary === `event "${eventId}" played`)).toHaveLength(1);
     const event = first.definition.events.get(eventId)!;

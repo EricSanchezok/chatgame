@@ -30,6 +30,30 @@ files:
   assets/backgrounds/eva-truss.webp.json:
     source: chatgame-team prompt sidecar for eva-truss.webp
     license: project-owned
+  assets/illustrations/scrubber-p07-alert.webp:
+    source: "OpenAI image_gen original generated for chatgame; prompt stored in adjacent sidecar"
+    license: project-owned
+  assets/illustrations/scrubber-p07-alert.webp.json:
+    source: chatgame-team prompt sidecar for scrubber-p07-alert.webp
+    license: project-owned
+  assets/portraits/chief-engineer.webp:
+    source: "OpenAI image_gen original generated for chatgame; prompt stored in adjacent sidecar"
+    license: project-owned
+  assets/portraits/chief-engineer.webp.json:
+    source: chatgame-team prompt sidecar for chief-engineer.webp
+    license: project-owned
+  assets/portraits/doctor-vera.webp:
+    source: "OpenAI image_gen original generated for chatgame; prompt stored in adjacent sidecar"
+    license: project-owned
+  assets/portraits/doctor-vera.webp.json:
+    source: chatgame-team prompt sidecar for doctor-vera.webp
+    license: project-owned
+  assets/portraits/night-cat.webp:
+    source: "OpenAI image_gen original generated for chatgame; prompt stored in adjacent sidecar"
+    license: project-owned
+  assets/portraits/night-cat.webp.json:
+    source: chatgame-team prompt sidecar for night-cat.webp
+    license: project-owned
   assets/fonts/jetbrains-mono-400.woff2:
     source: JetBrains Mono by JetBrains
     license: OFL-1.1

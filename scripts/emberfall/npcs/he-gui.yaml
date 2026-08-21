@@ -6,7 +6,7 @@ traits:
   - { name: 守规, description: 宁可误班也不省掉点柱步骤。 }
 stats: { hp: 82, grit: 14, perception: 9 }
 skills: { timbering: 13 }
-occupation: foreman-duty
+occupation: 井下领班
 schedule: foreman-duty
 home: lamp-house
 items: []

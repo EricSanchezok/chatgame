@@ -132,7 +132,7 @@ describe("Esc pause menu (behavioral)", () => {
 
     // Game screen visible (composer input rendered).
     expect(await screen.findByLabelText("输入你的话或行动")).toBeTruthy();
-    expect(screen.getByRole("main", { name: "游戏对话记录" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("log", { name: "游戏对话记录" })).toHaveAttribute("tabindex", "0");
 
     // Escape opens the pause menu dialog.
     await act(async () => {

@@ -352,19 +352,15 @@ describe("Emberfall flagship vertical slice", () => {
     const source = readFileSync(path.join(SCRIPT_DIR, "ui/index.tsx"), "utf8");
     expect(source).not.toMatch(/\bfetch\s*\(/);
     expect(source).not.toMatch(/createStore|useSyncExternalStore|localStorage/);
-    expect(source).toContain('ctx.register("game-shell"');
+    expect(source).not.toContain('ctx.register("game-shell"');
+    expect(source).not.toContain('ctx.register("scene"');
+    expect(source).toContain('ctx.register("objective-tracker"');
     expect(source).toContain('ctx.register("composer"');
     expect(source).toContain("previewAction(choice.hint)");
     expect(source).toContain("isCurrent(generation)");
-    expect(source).toContain('stringValue(model, "allocationOutcome")');
-    expect(source).toContain('stringValue(model, "lastDutyTarget")');
-    expect(source).not.toContain(".ef-hud .ef-optional{display:none}");
-    expect(source).not.toContain(".ef-hud .ef-mobile-hide{display:none}");
-    expect(source).not.toContain(".ef-transcript{display:none}");
-    expect(source).not.toContain(".ef-freeform{display:none}");
-    expect(source).toContain(".ef-action{appearance:none;flex:0 0 auto;min-height:2.75rem");
-    expect(source).toContain(".ef-input{min-height:2.75rem");
-    expect(source).toContain(".ef-execute,.ef-send{appearance:none;min-height:2.75rem");
+    expect(source).toContain('className="cg-composer ef-chat-composer"');
+    expect(source).not.toContain("ef-transcript");
+    expect(source).not.toContain("记入班账");
     expect(readFileSync(path.join(SCRIPT_DIR, "assets.yaml"), "utf8")).not.toContain(".svg");
   });
 

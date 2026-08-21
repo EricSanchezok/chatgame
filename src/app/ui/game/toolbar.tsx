@@ -1,14 +1,11 @@
 "use client";
 
-// Default right-side floating toolbar: a glass capsule column of panel
-// entry points, hovering over the scene background — decoupled from the
-// composer. Script ui bundles may replace the whole toolbar via the
-// "toolbar" slot.
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
 import { UiIcon } from "./ui-icon";
 import type { PanelId } from "./state";
 import { SlotRenderer } from "./slots";
 import type { ToolbarSlotProps } from "../../lib/script-registry";
+import { FallbackIcon } from "./icons";
 
 export interface ToolbarProps {
   state: WorldState;
@@ -17,6 +14,7 @@ export interface ToolbarProps {
   assets: AssetManifest;
   panel: PanelId | null;
   onOpenPanel: (panel: PanelId) => void;
+  onOpenPause: () => void;
 }
 
 const ENTRIES: Array<{
@@ -32,13 +30,12 @@ const ENTRIES: Array<{
   { panel: "log", label: "日志", slot: "log" },
 ];
 
-function DefaultToolbar({ scriptId, assets, panel, onOpenPanel }: ToolbarProps) {
+function DefaultToolbar({ scriptId, assets, panel, onOpenPanel, onOpenPause }: ToolbarProps) {
   return (
     <nav
       data-region="toolbar"
       aria-label="游戏面板"
-      className="cg-glass cg-chrome fixed right-3 top-1/2 z-40 flex -translate-y-1/2 flex-col gap-1.5 rounded-2xl border p-1.5"
-      style={{ borderColor: "var(--cg-border)" }}
+      className="cg-toolbar"
     >
       {ENTRIES.map(({ panel: id, label, slot }) => {
         const active = panel === id;
@@ -50,23 +47,35 @@ function DefaultToolbar({ scriptId, assets, panel, onOpenPanel }: ToolbarProps) 
             aria-label={label}
             aria-pressed={active}
             onClick={() => onOpenPanel(id)}
-            className="cg-chrome flex h-10 w-10 items-center justify-center rounded-xl text-lg transition-colors"
+            className="cg-toolbar__action"
             style={
               active
                 ? { background: "var(--cg-primary)", color: "var(--cg-surface)" }
                 : { color: "var(--cg-text)", background: "transparent" }
             }
           >
-            <UiIcon slot={slot} scriptId={scriptId} manifest={assets} className="h-5 w-5" />
+            <UiIcon slot={slot} scriptId={scriptId} manifest={assets} className="cg-icon" />
+            <span>{label}</span>
           </button>
         );
       })}
+      <button
+        type="button"
+        title="暂停"
+        aria-label="暂停"
+        onClick={onOpenPause}
+        className="cg-toolbar__action"
+        style={{ color: "var(--cg-text)", background: "transparent" }}
+      >
+        <FallbackIcon slot="menu" className="cg-icon" />
+        <span>暂停</span>
+      </button>
     </nav>
   );
 }
 
 function DefaultToolbarSlot(props: ToolbarSlotProps) {
-  return <DefaultToolbar {...props} onOpenPanel={props.openPanel} />;
+  return <DefaultToolbar {...props} onOpenPanel={props.openPanel} onOpenPause={props.openPause} />;
 }
 
 /** Slot-replaceable toolbar entry point. */
@@ -82,6 +91,7 @@ export function Toolbar(props: ToolbarProps) {
         assets: props.assets,
         panel: props.panel,
         openPanel: props.onOpenPanel,
+        openPause: props.onOpenPause,
       }}
     />
   );

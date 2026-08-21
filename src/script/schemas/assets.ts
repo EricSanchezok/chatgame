@@ -1,6 +1,6 @@
 // Module: assets.yaml — presentation asset index (optional root module).
 // Single source of truth for all presentation assets (portraits,
-// backgrounds, icons, sprites, voices, ambient, effects, ui). Entity YAML
+// backgrounds, icons, sprites, voices, ambient, effects, illustrations, ui). Entity YAML
 // files stay untouched: every key here references an existing npc/location/
 // item/event id (hard validation error); file existence is a soft warning
 // (prompt-only placeholders are legal — files can be added later). The `ui`
@@ -70,6 +70,8 @@ export const assetsSchema = z
     ambient: z.record(idSchema, fileEntrySchema).default({}),
     /** One-shot sound effects per event, keyed by event id. */
     effects: z.record(idSchema, fileEntrySchema).default({}),
+    /** Event and encounter illustrations, keyed by event id. */
+    illustrations: z.record(idSchema, fileEntrySchema).default({}),
     /** Framework chrome icons, keyed by fixed UI slot (validated semantically). */
     ui: z.record(z.string(), fileEntrySchema).default({}),
   })
@@ -87,4 +89,5 @@ export const ASSET_KIND_ENTITY_POOL: Record<string, "npc" | "location" | "item" 
   ambient: "location",
   icons: "item",
   effects: "event",
+  illustrations: "event",
 } as const;

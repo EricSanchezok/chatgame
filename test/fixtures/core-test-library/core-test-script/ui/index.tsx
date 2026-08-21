@@ -7,6 +7,7 @@ import {
   type HudSlotProps,
   type LauncherSlotProps,
   type MessageCardSlotProps,
+  type ObjectiveTrackerSlotProps,
   type PanelSlotProps,
   type PauseMenuSlotProps,
   type SceneSlotProps,
@@ -29,7 +30,7 @@ function WorkbenchLauncher({ script, detail, actions }: LauncherSlotProps) {
     <main data-slot="launcher" className="cg-programme" aria-labelledby="core-programme-title">
       <section className="cg-programme__stage" style={frame}>
         <div className="cg-programme__copy">
-          <p style={{ color: "var(--cg-accent)" }}>UI API v3 · deterministic fixture</p>
+          <p style={{ color: "var(--cg-accent)" }}>UI API v4 · deterministic fixture</p>
           <h1 id="core-programme-title">{script.name}</h1>
           <p>{script.description}</p>
           <p>{detail.origins.length} 个出身 · {detail.catalog.locations.length} 个地点</p>
@@ -56,12 +57,17 @@ function WorkbenchGameShell({ regions }: GameShellSlotProps) {
   return (
     <div data-slot="game-shell" className="cg-game-shell">
       {regions.hud}
+      {regions.tracker}
       {regions.scene}
       {regions.toolbar}
       {regions.composer}
       {regions.overlays}
     </div>
   );
+}
+
+function WorkbenchObjectiveTracker({ openTasks }: ObjectiveTrackerSlotProps) {
+  return <button type="button" data-slot="objective-tracker" className="cg-objective-tracker" onClick={openTasks}>核心测试目标</button>;
 }
 
 function WorkbenchScene({ transcript }: SceneSlotProps) {
@@ -205,6 +211,7 @@ export default function registerCoreTestUi(context: ScriptUiContext): void {
   context.register("game-shell", { component: WorkbenchGameShell });
   context.register("scene", { component: WorkbenchScene });
   context.register("hud", { component: WorkbenchHud });
+  context.register("objective-tracker", { component: WorkbenchObjectiveTracker });
   context.register("toolbar", { component: WorkbenchToolbar });
   context.register("composer", { component: WorkbenchComposer });
   context.register("pause-menu", { component: WorkbenchPauseMenu });
@@ -214,5 +221,6 @@ export default function registerCoreTestUi(context: ScriptUiContext): void {
   context.register("bubble:system", { component: WorkbenchBubble });
   context.register("message-card:event", { component: WorkbenchMessageCard });
   context.register("message-card:location_enter", { component: WorkbenchMessageCard });
+  context.register("message-card:item_reveal", { component: WorkbenchMessageCard });
   context.register("settings:fixture", { component: WorkbenchSettings });
 }

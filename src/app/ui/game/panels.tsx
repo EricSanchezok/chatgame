@@ -379,6 +379,8 @@ function TasksPanel({
   assets,
   onClose,
   panel,
+  trackedTaskId,
+  onTrackTask,
 }: {
   state: WorldState;
   catalog: Catalog;
@@ -386,6 +388,8 @@ function TasksPanel({
   assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
+  trackedTaskId: string | null;
+  onTrackTask: (taskId: string | null) => void;
 }) {
   const { advance } = useGameActions();
   return (
@@ -407,7 +411,12 @@ function TasksPanel({
                   </span>
                 </div>
                 {t.status === "active" && "progress" in t ? (
-                  <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>进度 {t.progress}</p>
+                  <>
+                    <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>{def?.objectiveText ?? "继续推进任务"} · {t.progress}/{def?.quantity ?? 1}</p>
+                    <button type="button" className="cg-button cg-button--quiet mt-2" aria-pressed={trackedTaskId === t.taskId} onClick={() => onTrackTask(trackedTaskId === t.taskId ? null : t.taskId)}>
+                      {trackedTaskId === t.taskId ? "取消追踪" : "追踪任务"}
+                    </button>
+                  </>
                 ) : null}
               </li>
             );
@@ -474,7 +483,7 @@ function LogPanel({
   onClose: () => void;
   panel: PanelId;
 }) {
-  const entries = [...state.eventLog].reverse();
+  const entries = [...state.transcript].reverse().slice(0, 50);
   return (
     <PanelFrame panel={panel} title={PANEL_TITLES.log} scriptId={scriptId} assets={assets} onClose={onClose}>
       {entries.length === 0 ? (
@@ -483,8 +492,10 @@ function LogPanel({
         <ul className="space-y-2">
           {entries.map((e) => (
             <li key={e.id} className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
-              <span className="mr-2" style={{ color: "var(--cg-accent)" }}>D{e.day} {String(e.hour).padStart(2, "0")}时</span>
-              {e.summary}
+              <span className="mr-2" style={{ color: "var(--cg-accent)" }}>
+                {e.role === "player" ? "你" : e.role === "system" ? "系统" : "世界"}
+              </span>
+              {e.text}
             </li>
           ))}
         </ul>
@@ -501,6 +512,8 @@ export function ActivePanel({
   scriptId,
   assets,
   onClose,
+  trackedTaskId,
+  onTrackTask,
 }: {
   panel: PanelId | null;
   state: WorldState;
@@ -508,6 +521,8 @@ export function ActivePanel({
   scriptId: string;
   assets: AssetManifest;
   onClose: () => void;
+  trackedTaskId: string | null;
+  onTrackTask: (taskId: string | null) => void;
 }) {
   if (!panel || !catalog) return null;
   const slotProps: PanelSlotProps = {
@@ -516,6 +531,8 @@ export function ActivePanel({
     catalog,
     scriptId,
     assets,
+    trackedTaskId,
+    trackTask: onTrackTask,
     close: onClose,
   };
   return (
@@ -532,7 +549,7 @@ export function ActivePanel({
   );
 }
 
-function DefaultActivePanel({ panelId: panel, state, catalog, scriptId, assets, close: onClose }: PanelSlotProps) {
+function DefaultActivePanel({ panelId: panel, state, catalog, scriptId, assets, trackedTaskId, trackTask, close: onClose }: PanelSlotProps) {
   switch (panel) {
     case "inventory":
       return (
@@ -543,7 +560,7 @@ function DefaultActivePanel({ panelId: panel, state, catalog, scriptId, assets, 
     case "relations":
       return <RelationsPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "tasks":
-      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
+      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} trackedTaskId={trackedTaskId} onTrackTask={trackTask} />;
     case "map":
       return <MapPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
     case "log":

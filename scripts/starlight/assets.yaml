@@ -3,19 +3,21 @@ cover:
   alt: 磨损的星港民用值班台，热敏交班纸从控制台垂下，舷窗外是老旧环站
 portraits:
   chief-engineer:
-    prompt: "中国老维修工，磨损奶油色工装，琥珀工作灯，真实工业肖像，无霓虹"
+    file: assets/portraits/chief-engineer.webp
     alt: 老周，维修一班机务长
   doctor-vera:
-    prompt: "中国女性社区空气互助员，手写胸牌与旧工作夹克，真实工业肖像，无霓虹"
+    file: assets/portraits/doctor-vera.webp
     alt: 林小北，居住环空气互助员
   night-cat:
-    prompt: "中国年轻货运配给员，磨损工作背心与纸本货单，真实工业肖像，无霓虹"
+    file: assets/portraits/night-cat.webp
     alt: 阿岑，夜间货运配给员
 backgrounds:
   hab-ring: { file: assets/backgrounds/habitat-ring.webp, alt: 住户自行维护的弧形居住环，旧舱门、晾衣和铁罐植物沿走廊分布 }
   cargo-bay: { file: assets/backgrounds/cargo-exchange.webp, alt: 货运配给段，封存滤芯停在旧配给窗口前 }
   reactor-level: { file: assets/backgrounds/maintenance-spine.webp, alt: 维修主干 B-12，P-07 净化机检修口和旁路手轮已经打开 }
   eva-truss: { file: assets/backgrounds/eva-truss.webp, alt: 舱外桁架 E-4，安全绳路线通往外部旁路阀 }
+illustrations:
+  scrubber-p07-alert: { file: assets/illustrations/scrubber-p07-alert.webp, alt: P-07 净化机压差告警亮起，居民留下的维修便签围着打开的滤芯舱 }
 icons: {}
 sprites: {}
 voices:

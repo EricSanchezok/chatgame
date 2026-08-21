@@ -19,6 +19,7 @@ export type SlotId =
   | "game-shell"
   | "scene"
   | "hud"
+  | "objective-tracker"
   | "toolbar"
   | "composer"
   | "pause-menu"
@@ -47,7 +48,14 @@ export interface LauncherSlotProps {
 }
 
 export interface GameShellSlotProps extends ScriptHostModel {
-  regions: { hud: ReactNode; scene: ReactNode; toolbar: ReactNode; composer: ReactNode; overlays: ReactNode };
+  regions: {
+    hud: ReactNode;
+    tracker: ReactNode;
+    scene: ReactNode;
+    toolbar: ReactNode;
+    composer: ReactNode;
+    overlays: ReactNode;
+  };
 }
 
 export interface SceneSlotProps extends ScriptHostModel { transcript: ReactNode }
@@ -56,6 +64,12 @@ export type HudSlotProps = ScriptHostModel;
 export interface ToolbarSlotProps extends ScriptHostModel {
   panel: string | null;
   openPanel(panel: string): void;
+  openPause(): void;
+}
+
+export interface ObjectiveTrackerSlotProps extends ScriptHostModel {
+  trackedTaskId: string | null;
+  openTasks(): void;
 }
 
 export interface ComposerSlotProps extends ScriptHostModel {
@@ -79,8 +93,24 @@ export interface PauseMenuSlotProps extends ScriptHostModel {
   exit(saveFirst: boolean): Promise<void>;
 }
 
-export interface PanelSlotProps extends ScriptHostModel { panelId: string; close(): void }
-export interface BubbleSlotProps extends ScriptHostModel { entry: TranscriptEntry; children: ReactNode }
+export interface PanelSlotProps extends ScriptHostModel {
+  panelId: string;
+  trackedTaskId: string | null;
+  trackTask(taskId: string | null): void;
+  close(): void;
+}
+export interface BubbleSlotProps extends ScriptHostModel {
+  entry: TranscriptEntry;
+  speaker?: {
+    id: string;
+    name: string;
+    description: string;
+    occupation?: string;
+    relationLabel?: string;
+  };
+  isFirstAppearance: boolean;
+  children: ReactNode;
+}
 
 export interface MessageCardSlotProps extends ScriptHostModel {
   kind: string;
@@ -90,7 +120,7 @@ export interface MessageCardSlotProps extends ScriptHostModel {
 }
 
 export interface PlayerUiSettings {
-  version: 2;
+  version: 3;
   audioEnabled: boolean;
   masterVolume: number;
   ambientVolume: number;
@@ -103,6 +133,7 @@ export interface PlayerUiSettings {
   motion: "system" | "reduce";
   activeScriptId: string | null;
   lastRun: { scriptId: string; runId: string } | null;
+  trackedTasks: Record<string, string>;
 }
 
 export interface SettingsSlotProps {
@@ -117,8 +148,9 @@ export type SlotProps<K extends SlotId> =
   K extends "launcher" ? LauncherSlotProps
     : K extends "game-shell" ? GameShellSlotProps
       : K extends "scene" ? SceneSlotProps
-        : K extends "hud" ? HudSlotProps
-          : K extends "toolbar" ? ToolbarSlotProps
+      : K extends "hud" ? HudSlotProps
+          : K extends "objective-tracker" ? ObjectiveTrackerSlotProps
+            : K extends "toolbar" ? ToolbarSlotProps
             : K extends "composer" ? ComposerSlotProps
               : K extends "pause-menu" ? PauseMenuSlotProps
                 : K extends `panel:${string}` ? PanelSlotProps
@@ -130,6 +162,6 @@ export type SlotProps<K extends SlotId> =
 export interface SlotDef<K extends SlotId = SlotId> { component: ComponentType<SlotProps<K>> }
 
 export interface ScriptUiContext {
-  readonly apiVersion: 3;
+  readonly apiVersion: 4;
   register<K extends SlotId>(slot: K, def: SlotDef<K>): void;
 }

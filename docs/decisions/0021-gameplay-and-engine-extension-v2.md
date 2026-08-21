@@ -55,4 +55,4 @@ Class: architecture
 
 - [0004](0004-game-first-principles.md) — 游戏第一性原理。
 - [0008](0008-engine-completeness.md) — 早期运行时完备化范围。
-- [0022](0022-ui-host-and-script-extension-v3.md) — 消费动作预检与扩展状态的 UI 契约。
+- [0027](0027-session-first-ui-api-v4.md) — 消费动作预检与扩展状态的 UI 契约。

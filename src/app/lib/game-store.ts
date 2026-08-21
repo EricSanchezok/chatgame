@@ -15,6 +15,7 @@ export type GameOperation = "idle" | "starting" | "turn" | "preview" | "saving" 
 
 export interface SessionHandle {
   id: string;
+  runId: string;
   scriptId: string;
   state: WorldStateView;
   presentation: SessionPresentation;
@@ -33,6 +34,7 @@ export interface GameState {
   panel: PanelId | null;
   paused: boolean;
   lastTurn: TurnResultFull | null;
+  trackedTaskId: string | null;
   requestGeneration: number;
 }
 
@@ -49,13 +51,14 @@ export const initialGameState: GameState = {
   panel: null,
   paused: false,
   lastTurn: null,
+  trackedTaskId: null,
   requestGeneration: 0,
 };
 
 export type GameAction =
   | { type: "begin"; operation: GameOperation; generation: number }
   | { type: "error"; message: string; generation: number }
-  | { type: "enter"; session: SessionHandle; detail: ScriptDetail; generation: number }
+  | { type: "enter"; session: SessionHandle; detail: ScriptDetail; trackedTaskId: string | null; generation: number }
   | { type: "turn"; result: TurnResultFull; generation: number }
   | { type: "sessionSnapshot"; snapshot: SessionSnapshot; generation: number }
   | { type: "updateState"; state: WorldStateView; generation: number }
@@ -64,6 +67,7 @@ export type GameAction =
   | { type: "audio"; on: boolean }
   | { type: "panel"; panel: PanelId | null }
   | { type: "pause"; on: boolean }
+  | { type: "trackTask"; taskId: string | null }
   | { type: "saved"; generation: number }
   | { type: "announce"; message: string }
   | { type: "clearError" }
@@ -92,6 +96,7 @@ export function reduceGameState(state: GameState, action: GameAction): GameState
         panel: null,
         paused: false,
         lastTurn: null,
+        trackedTaskId: action.trackedTaskId,
       };
     case "turn":
       return {
@@ -131,6 +136,8 @@ export function reduceGameState(state: GameState, action: GameAction): GameState
       return { ...state, panel: action.panel };
     case "pause":
       return { ...state, paused: action.on, panel: action.on ? null : state.panel };
+    case "trackTask":
+      return { ...state, trackedTaskId: action.taskId };
     case "saved":
       return { ...state, operation: "idle", dirty: false, announcement: "游戏已保存" };
     case "announce":
@@ -174,6 +181,8 @@ export interface GameControllerEffects {
   onThemeChanged?(mode: ThemeMode): void;
   onTurn(result: TurnResultFull, detail: ScriptDetail, scriptId: string): void;
   onSessionCleanupError(sessionId: string, error: Error): void;
+  readTrackedTask?(scriptId: string, runId: string): string | null;
+  rememberTrackedTask?(scriptId: string, runId: string, taskId: string | null): void;
   onExit(): void;
 }
 
@@ -274,6 +283,7 @@ export class GameController {
         type: "enter",
         session: { ...session, scriptId },
         detail: detailResult.value,
+        trackedTaskId: this.effects.readTrackedTask?.(scriptId, session.runId) ?? null,
         generation: request.generation,
       });
       const active = this.store.getSnapshot();
@@ -431,6 +441,12 @@ export class GameController {
   };
   setPanel = (panel: PanelId | null) => this.store.dispatch({ type: "panel", panel });
   setPause = (on: boolean) => this.store.dispatch({ type: "pause", on });
+  setTrackedTask = (taskId: string | null) => {
+    const session = this.store.getSnapshot().session;
+    if (!session) return;
+    this.effects.rememberTrackedTask?.(session.scriptId, session.runId, taskId);
+    this.store.dispatch({ type: "trackTask", taskId });
+  };
   clearError = () => this.store.dispatch({ type: "clearError" });
 
   dispose(): void {

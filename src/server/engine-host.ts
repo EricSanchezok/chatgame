@@ -17,6 +17,7 @@ import { commitScriptImport, importScriptFromZip, importScriptFromDir, defaultSc
 import { saveDirForScript, metaPathForScript, createDataStore, type SaveStore } from "../engine/save-store";
 import type { WorldState, TurnResult, WorldDefinition } from "../engine/types";
 import type { Theme } from "../script/schemas/theme";
+import type { Task } from "../script/schemas/task";
 import type { ActionPreview, IntentHint, TurnInput } from "../shared/client-dto";
 
 export class HostError extends Error {
@@ -56,7 +57,7 @@ export interface CatalogView {
     connections: Array<{ to: string; distance: number; travel_time: number }>;
   }>;
   items: Array<{ id: string; name: string; type: string; description: string }>;
-  npcs: Array<{ id: string; name: string }>;
+  npcs: Array<{ id: string; name: string; description: string; occupation?: string }>;
   events: Array<{ id: string; name: string }>;
   actions: Array<{ id: string; displayName: string }>;
   stats: Array<{ name: string; min: number; max: number; description?: string }>;
@@ -64,7 +65,7 @@ export interface CatalogView {
   needs: Array<{ name: string }>;
   factions: Array<{ id: string; name: string }>;
   statusEffects: Array<{ id: string; name: string; description?: string }>;
-  tasks: Array<{ id: string; name: string }>;
+  tasks: Array<{ id: string; name: string; summary: string; objectiveText: string; quantity: number }>;
   origins: Array<{ id: string; name: string }>;
   currency: { name: string; symbol: string };
   hpStat: string;
@@ -75,6 +76,7 @@ export interface CatalogView {
 export interface SessionRecord {
   id: string;
   scriptId: string;
+  runId: string;
   engine: Engine;
   /** Last fully committed engine snapshot exposed to read-only host APIs. */
   committedState: WorldState;
@@ -106,6 +108,27 @@ interface HostGlobal {
 
 const SESSION_IDLE_MS = 30 * 60 * 1000; // 30 min idle reaping
 const MAX_SESSIONS = 20;
+
+function taskObjectiveText(objective: Task["objective"]): string {
+  switch (objective.type) {
+    case "gather":
+      return `收集 ${objective.quantity} 件目标物品`;
+    case "deliver":
+      return `交付 ${objective.target.item} ×${objective.quantity}`;
+    case "hunt":
+      return `处理 ${objective.target.npc} ×${objective.quantity}`;
+    case "escort":
+      return objective.target.destination
+        ? `护送至 ${objective.target.destination}`
+        : `完成 ${objective.quantity} 次护送`;
+    case "investigate":
+      return `完成 ${objective.quantity} 项调查`;
+    case "persuade":
+      return `说服 ${objective.target.npc}`;
+    case "travel":
+      return `前往 ${objective.target.location}`;
+  }
+}
 
 /** MIME map for the whitelisted asset extensions. */
 const MIME_BY_EXT: Record<string, string> = {
@@ -236,7 +259,12 @@ export class EngineHost {
         type: i.type,
         description: i.description,
       })),
-      npcs: [...definition.npcs.values()].map((n) => ({ id: n.id, name: n.name })),
+      npcs: [...definition.npcs.values()].map((n) => ({
+        id: n.id,
+        name: n.name,
+        description: n.description,
+        occupation: n.occupation,
+      })),
       events: [...definition.events.values()].map((e) => ({ id: e.id, name: e.name })),
       actions: definition.actions.actions.map((a) => ({
         id: a.id,
@@ -261,7 +289,13 @@ export class EngineHost {
         name: s.name,
         description: s.description,
       })),
-      tasks: [...definition.tasks.values()].map((t) => ({ id: t.id, name: t.name })),
+      tasks: [...definition.tasks.values()].map((t) => ({
+        id: t.id,
+        name: t.name,
+        summary: t.narrative.offer,
+        objectiveText: taskObjectiveText(t.objective),
+        quantity: t.objective.quantity,
+      })),
       origins: [...definition.origins.values()].map((o) => ({ id: o.id, name: o.name })),
       currency: {
         name: definition.mechanics.currency.name,
@@ -374,7 +408,7 @@ export class EngineHost {
     playerName?: string;
     /** Save filename (basename, .json) to resume; rejects traversal. */
     loadRunId?: string;
-  }): { id: string } & CommittedSessionSnapshot {
+  }): { id: string; runId: string } & CommittedSessionSnapshot {
     this.reapIdle();
     if (this.sessions.size >= MAX_SESSIONS) {
       throw new HostError(`too many active sessions (max ${MAX_SESSIONS})`, 429);
@@ -408,13 +442,14 @@ export class EngineHost {
     const record: SessionRecord = {
       id,
       scriptId: options.scriptId,
+      runId: options.loadRunId ?? "autosave.json",
       engine,
       committedState: engine.worldState,
       lastActivity: Date.now(),
       dirty: false,
     };
     this.sessions.set(id, record);
-    return { id, ...this.snapshotFor(record) };
+    return { id, runId: record.runId, ...this.snapshotFor(record) };
   }
 
   listSessions(): Array<{ id: string; scriptId: string }> {

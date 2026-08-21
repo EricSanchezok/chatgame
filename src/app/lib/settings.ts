@@ -1,11 +1,11 @@
 import type { PlayerUiSettings } from "../../shared/ui-api";
 
-export const SETTINGS_STORAGE_KEY = "chatgame:settings:v2";
+export const SETTINGS_STORAGE_KEY = "chatgame:settings:v3";
 
-export type PlayerSettingsV2 = PlayerUiSettings;
+export type PlayerSettingsV3 = PlayerUiSettings;
 
-export const defaultPlayerSettings: PlayerSettingsV2 = {
-  version: 2,
+export const defaultPlayerSettings: PlayerSettingsV3 = {
+  version: 3,
   audioEnabled: false,
   masterVolume: 80,
   ambientVolume: 65,
@@ -18,6 +18,7 @@ export const defaultPlayerSettings: PlayerSettingsV2 = {
   motion: "system",
   activeScriptId: null,
   lastRun: null,
+  trackedTasks: {},
 };
 
 let snapshot = defaultPlayerSettings;
@@ -33,18 +34,18 @@ function storage(): Storage | null {
   }
 }
 
-function parseSettings(raw: string | null): PlayerSettingsV2 {
+function parseSettings(raw: string | null): PlayerSettingsV3 {
   try {
-    const parsed = JSON.parse(raw ?? "null") as Partial<PlayerSettingsV2> | null;
-    if (!parsed || parsed.version !== 2) return defaultPlayerSettings;
+    const parsed = JSON.parse(raw ?? "null") as Partial<PlayerSettingsV3> | null;
+    if (!parsed || parsed.version !== 3) return defaultPlayerSettings;
     const textScale = [1, 1.25, 1.5, 2].includes(parsed.textScale ?? 0)
-      ? parsed.textScale as PlayerSettingsV2["textScale"]
+      ? parsed.textScale as PlayerSettingsV3["textScale"]
       : 1;
     const lastRun = parsed.lastRun && typeof parsed.lastRun.scriptId === "string" && typeof parsed.lastRun.runId === "string"
       ? parsed.lastRun
       : null;
     return {
-      version: 2,
+      version: 3,
       audioEnabled: parsed.audioEnabled === true,
       masterVolume: volume(parsed.masterVolume, 80),
       ambientVolume: volume(parsed.ambientVolume, 65),
@@ -57,6 +58,9 @@ function parseSettings(raw: string | null): PlayerSettingsV2 {
       motion: parsed.motion === "reduce" ? "reduce" : "system",
       activeScriptId: typeof parsed.activeScriptId === "string" ? parsed.activeScriptId : null,
       lastRun,
+      trackedTasks: Object.fromEntries(Object.entries(parsed.trackedTasks ?? {}).filter(
+        (entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string",
+      )),
     };
   } catch {
     return defaultPlayerSettings;
@@ -69,13 +73,13 @@ function volume(value: unknown, fallback: number): number {
     : fallback;
 }
 
-function publish(next: PlayerSettingsV2): PlayerSettingsV2 {
+function publish(next: PlayerSettingsV3): PlayerSettingsV3 {
   snapshot = next;
   for (const listener of listeners) listener();
   return next;
 }
 
-export function hydratePlayerSettings(): PlayerSettingsV2 {
+export function hydratePlayerSettings(): PlayerSettingsV3 {
   if (!hydrated) {
     hydrated = true;
     publish(parseSettings(storage()?.getItem(SETTINGS_STORAGE_KEY) ?? null));
@@ -83,15 +87,15 @@ export function hydratePlayerSettings(): PlayerSettingsV2 {
   return snapshot;
 }
 
-export function readPlayerSettings(): PlayerSettingsV2 {
+export function readPlayerSettings(): PlayerSettingsV3 {
   return typeof window === "undefined" ? defaultPlayerSettings : hydratePlayerSettings();
 }
 
-export function getPlayerSettingsSnapshot(): PlayerSettingsV2 {
+export function getPlayerSettingsSnapshot(): PlayerSettingsV3 {
   return snapshot;
 }
 
-export function getServerPlayerSettingsSnapshot(): PlayerSettingsV2 {
+export function getServerPlayerSettingsSnapshot(): PlayerSettingsV3 {
   return defaultPlayerSettings;
 }
 
@@ -100,7 +104,7 @@ export function subscribePlayerSettings(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function writePlayerSettings(next: PlayerSettingsV2): void {
+export function writePlayerSettings(next: PlayerSettingsV3): void {
   try {
     storage()?.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
   } catch {
@@ -110,14 +114,14 @@ export function writePlayerSettings(next: PlayerSettingsV2): void {
 }
 
 export function patchPlayerSettings(
-  patch: Partial<Omit<PlayerSettingsV2, "version">>,
-): PlayerSettingsV2 {
-  const next = { ...readPlayerSettings(), ...patch, version: 2 as const };
+  patch: Partial<Omit<PlayerSettingsV3, "version">>,
+): PlayerSettingsV3 {
+  const next = { ...readPlayerSettings(), ...patch, version: 3 as const };
   writePlayerSettings(next);
   return next;
 }
 
-export function applyPreferenceAttributes(settings: PlayerSettingsV2, target?: HTMLElement): void {
+export function applyPreferenceAttributes(settings: PlayerSettingsV3, target?: HTMLElement): void {
   const root = target ?? (typeof document === "undefined" ? undefined : document.documentElement);
   if (!root) return;
   root.dataset.cgContrast = settings.contrast;

@@ -45,6 +45,9 @@ export async function startFixtureGame(page: Page): Promise<void> {
 }
 
 export async function settleVisualPage(page: Page): Promise<void> {
+  // Pointer position is process-local state in Chromium. Move it away from
+  // interactive surfaces so snapshots never alternate between hover/rest.
+  await page.mouse.move(0, 0);
   await page.evaluate(async () => {
     await document.fonts.ready;
     const finiteAnimations = document.getAnimations().filter((animation) =>

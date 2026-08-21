@@ -108,8 +108,7 @@ describe("Built-in asset content regression", () => {
     expect(star.cover?.file).toBe("assets/backgrounds/shift-console-cover.webp");
     expect(star.backgrounds["reactor-level"].file).toBe("assets/backgrounds/maintenance-spine.webp");
     expect(star.effects["scrubber-p07-alert"].file).toBe("assets/audio/p07-alert.ogg");
-    expect(star.portraits["night-cat"].prompt).toBeTruthy();
-    expect(star.portraits["night-cat"].file).toBeUndefined();
+    expect(star.portraits["night-cat"].file).toBe("assets/portraits/night-cat.webp");
     // Voices stay prompt/profile placeholders (no TTS files shipped).
     expect(star.voices["night-cat"].profile).toBeTruthy();
   });
@@ -149,6 +148,20 @@ describe("deriveMediaCues", () => {
     const next = { ...prev, playedEventIds: [...prev.playedEventIds, "handoff-signal"] };
     const cues = deriveMediaCues(prev, next);
     expect(cues).toContainEqual({ kind: "event", eventId: "handoff-signal" });
+  });
+
+  it("emits an item reveal only for the positive inventory delta", () => {
+    const prev = makeState();
+    const next = {
+      ...prev,
+      player: {
+        ...prev.player,
+        inventory: { ...prev.player.inventory, stacks: [{ itemId: "test-key", quantity: 2 }] },
+      },
+    };
+    expect(deriveMediaCues(prev, next)).toContainEqual({ kind: "item_reveal", itemId: "test-key", quantity: 2 });
+    expect(deriveMediaCues(next, { ...next, player: { ...next.player, inventory: { ...next.player.inventory, stacks: [{ itemId: "test-key", quantity: 1 }] } } })
+      .some((cue) => cue.kind === "item_reveal")).toBe(false);
   });
 
   it("combines multiple cue kinds in one turn", () => {

@@ -1,20 +1,20 @@
 id: default
-name: 星港·磨损值班台
+name: 星港·民用夜班
 palette:
-  background: "#171510"
-  surface: "#242019"
-  surface_alt: "#332d22"
-  primary: "#d8a23e"
-  on_primary: "#171109"
-  accent: "#8eae91"
-  text: "#f4ead5"
-  text_dim: "#c8bba1"
-  border: "#6c604b"
-  focus: "#ffd271"
-  success: "#91b894"
-  warning: "#e4ad48"
-  danger: "#e36c57"
-  selected: "#4a3d24"
+  background: "#111513"
+  surface: "#1a201d"
+  surface_alt: "#252c28"
+  primary: "#d4a653"
+  on_primary: "#12140f"
+  accent: "#8fb8a8"
+  text: "#eef0e8"
+  text_dim: "#aeb5aa"
+  border: "#414943"
+  focus: "#c7dfd5"
+  success: "#95b9a2"
+  warning: "#d6a44a"
+  danger: "#d76555"
+  selected: "#2a3933"
 typography:
   font: sans
   scale: 1.0
@@ -31,13 +31,13 @@ typography:
     narrative: sans
     mono: jetbrains-mono
 effects:
-  bubble_radius: 4
-  chrome_radius: 8
-  glass: 1
+  bubble_radius: 12
+  chrome_radius: 14
+  glass: 0
   blur_px: 0
   shadow: none
-  border_width_px: 2
+  border_width_px: 1
   density: compact
   motion: subtle
-  scene_tint: "#171510"
-  overlay_strength: 0.68
+  scene_tint: "#111513"
+  overlay_strength: 0.54

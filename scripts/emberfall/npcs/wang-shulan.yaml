@@ -6,7 +6,7 @@ traits:
   - { name: 公账, description: 任何请求都必须写明数量与下一次核验。 }
 stats: { hp: 72, grit: 8, perception: 14 }
 skills: { testimony: 12 }
-occupation: steward-duty
+occupation: 公共熔炉账房
 schedule: steward-duty
 home: lamp-house
 items: []

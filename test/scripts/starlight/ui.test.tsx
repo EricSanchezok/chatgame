@@ -6,7 +6,7 @@ import type { AssetManifest, Catalog, WorldStateView } from "../../../src/shared
 import type {
   ComposerSlotProps,
   HudSlotProps,
-  SceneSlotProps,
+  ObjectiveTrackerSlotProps,
   ScriptUiContext,
   SlotId,
   SlotProps,
@@ -16,7 +16,7 @@ import registerStarlightUi from "../../../scripts/starlight/ui/index";
 function fixture() {
   const slots = new Map<SlotId, ComponentType<never>>();
   const context: ScriptUiContext = {
-    apiVersion: 3,
+    apiVersion: 4,
     register(slot, definition) {
       slots.set(slot, definition.component as ComponentType<never>);
     },
@@ -49,7 +49,7 @@ function fixture() {
   const assets = {
     cover: { file: "assets/backgrounds/shift-console-cover.webp" },
     backgrounds: { "reactor-level": { file: "assets/backgrounds/maintenance-spine.webp", alt: "维修主干 B-12 的 P-07 检修口" } },
-    portraits: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, ui: {},
+    portraits: {}, illustrations: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, ui: {},
   } satisfies AssetManifest;
   const model = {
     scriptId: "starlight",
@@ -67,21 +67,23 @@ function fixture() {
 
 afterEach(cleanup);
 
-describe("Starlight Shift Console components", () => {
-  it("renders authoritative worker metrics and a semantic scene asset route", () => {
+describe("Starlight conversation-first components", () => {
+  it("renders only decision-critical worker metrics and a compact objective", () => {
     const { model, component } = fixture();
     const Hud = component("hud");
-    const Scene = component("scene");
+    const Tracker = component("objective-tracker");
     const { rerender } = render(<Hud {...model satisfies HudSlotProps} />);
     expect(screen.getByRole("banner", { name: "星港权威值班读数" })).toHaveTextContent("维修主干 B-12");
-    expect(screen.getByRole("banner")).toHaveTextContent("船体83%");
-    expect(screen.getByRole("banner")).toHaveTextContent("追踪热度12%");
+    expect(screen.getByRole("banner")).toHaveTextContent("EVA 氧100%");
+    expect(screen.getByRole("banner")).toHaveTextContent("疲劳18%");
+    expect(screen.getByRole("banner")).toHaveTextContent("电网61%");
+    expect(screen.getByRole("banner")).toHaveTextContent("供给4 件");
 
-    const sceneProps = { ...model, transcript: <p>交班对话</p> } satisfies SceneSlotProps;
-    rerender(<Scene {...sceneProps} />);
-    const image = screen.getByRole("img", { name: /维修主干 B-12/ });
-    expect(image).toHaveAttribute("src", "/api/scripts/starlight/assets/backgrounds/maintenance-spine.webp");
-    expect(screen.getByLabelText("星港交班与游戏对话记录")).toHaveAttribute("tabindex", "0");
+    const openTasks = vi.fn();
+    const trackerProps = { ...model, trackedTaskId: null, openTasks } satisfies ObjectiveTrackerSlotProps;
+    rerender(<Tracker {...trackerProps} />);
+    fireEvent.click(screen.getByRole("button", { name: "查看 P-07 当前工单" }));
+    expect(openTasks).toHaveBeenCalledOnce();
   });
 
   it("uses the host preview and submit callbacks for the first work-order action", async () => {
@@ -98,12 +100,12 @@ describe("Starlight Shift Console components", () => {
     const submitTurn = vi.fn(async () => undefined);
     render(<Composer {...model} busy={false} previewAction={previewAction} submitTurn={submitTurn} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /先检查 P-07/ }));
+    fireEvent.click(screen.getByRole("button", { name: /检查 P-07/ }));
     await waitFor(() => expect(previewAction).toHaveBeenCalledWith({ actionId: "investigate" }));
     expect(await screen.findByText("可执行 · 成本已锁定")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "签署并执行" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(submitTurn).toHaveBeenCalledWith(
-      "按工单执行：检查 P-07",
+      "检查 P-07",
       { actionId: "investigate" },
     ));
   });

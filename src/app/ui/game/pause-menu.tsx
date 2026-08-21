@@ -53,19 +53,19 @@ function DefaultPauseMenu({
             {audioEnabled ? "开" : "关"}
           </button>
         </div>
-        <div className="cg-dialog-actions">
+        <div className="cg-pause-actions">
           {fullscreen ? (
-            <button type="button" className="cg-button cg-button--secondary" onClick={() => void leaveFullscreen()}>
+            <button type="button" className="cg-button cg-button--quiet cg-pause-actions__utility" onClick={() => void leaveFullscreen()}>
               退出全屏
             </button>
           ) : null}
-          <button type="button" className="cg-button cg-button--secondary" disabled={busy} onClick={() => void save().then(close)}>
+          <button type="button" className="cg-button cg-button--quiet cg-pause-actions__utility" disabled={busy} onClick={() => void save().then(close)}>
             {busy ? "正在保存……" : dirty ? "保存当前进度" : "再次保存"}
           </button>
-          <button type="button" className="cg-button cg-button--quiet" disabled={busy} onClick={() => void exit(false)}>
+          <button type="button" className="cg-button cg-button--quiet cg-pause-actions__exit" disabled={busy} onClick={() => void exit(false)}>
             不保存返回
           </button>
-          <button type="button" className="cg-button cg-button--primary" disabled={busy} onClick={() => void exit(true)}>
+          <button type="button" className="cg-button cg-button--primary cg-pause-actions__exit" disabled={busy} onClick={() => void exit(true)}>
             保存并返回
           </button>
         </div>
@@ -102,7 +102,7 @@ export function PauseMenu(props: PauseMenuProps) {
 }
 
 const emptyAssets: AssetManifest = {
-  portraits: {}, backgrounds: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, ui: {},
+  portraits: {}, backgrounds: {}, illustrations: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, ui: {},
 };
 const emptyCatalog = {
   locations: [], items: [], npcs: [], events: [], actions: [], stats: [], skills: [], needs: [], factions: [], statusEffects: [], tasks: [], origins: [],

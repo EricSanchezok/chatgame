@@ -1,7 +1,7 @@
 # 布局、主题与无障碍表现契约 v2
 
 ## Status
-Accepted
+Superseded by [0028](0028-conversation-first-game-layout.md)
 Class: feature
 
 ## Context and Problem Statement

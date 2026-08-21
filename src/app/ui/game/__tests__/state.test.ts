@@ -46,6 +46,7 @@ function makeSession(): SessionHandle {
   };
   return {
     id: "s1",
+    runId: "autosave.json",
     scriptId: "fixture-script",
     state: {
       scriptId: "fixture-script",
@@ -78,7 +79,7 @@ describe("reduceGameState", () => {
       dirty: true,
       panel: "inventory",
     };
-    const after = reduceGameState(before, { type: "enter", session: makeSession(), detail, generation: 0 });
+    const after = reduceGameState(before, { type: "enter", session: makeSession(), detail, trackedTaskId: null, generation: 0 });
     expect(after.screen).toBe("game");
     expect(after.session?.id).toBe("s1");
     expect(after.dirty).toBe(false);
@@ -87,7 +88,7 @@ describe("reduceGameState", () => {
 
   it("turn applies the fresh state and marks dirty", () => {
     const session = makeSession();
-    const entered = reduceGameState(initialGameState, { type: "enter", session, detail, generation: 0 });
+    const entered = reduceGameState(initialGameState, { type: "enter", session, detail, trackedTaskId: null, generation: 0 });
     const result = {
       narrative: "回应",
       logEntries: [],
@@ -106,7 +107,7 @@ describe("reduceGameState", () => {
   });
 
   it("saved clears dirty; exit returns to the initial launcher state", () => {
-    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, generation: 0 });
+    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, trackedTaskId: null, generation: 0 });
     const dirty = reduceGameState(entered, { type: "theme", mode: "dark-mine" });
     const saved = reduceGameState(dirty, { type: "saved", generation: 0 });
     expect(saved.dirty).toBe(false);
@@ -116,14 +117,14 @@ describe("reduceGameState", () => {
   });
 
   it("panel toggles the active overlay", () => {
-    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, generation: 0 });
+    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, trackedTaskId: null, generation: 0 });
     const opened = reduceGameState(entered, { type: "panel", panel: "inventory" });
     expect(opened.panel).toBe("inventory");
     expect(reduceGameState(opened, { type: "panel", panel: null }).panel).toBeNull();
   });
 
   it("pause toggles the overlay and closes panels", () => {
-    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, generation: 0 });
+    const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, trackedTaskId: null, generation: 0 });
     const withPanel = reduceGameState(entered, { type: "panel", panel: "inventory" });
     const paused = reduceGameState(withPanel, { type: "pause", on: true });
     expect(paused.paused).toBe(true);

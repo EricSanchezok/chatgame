@@ -14,35 +14,32 @@ function assetFiles(dir: string): string[] {
   });
 }
 
-describe("Starlight Shift Console UI contract", () => {
-  it("registers every public surface used by the vertical slice", () => {
+describe("Starlight conversation-first UI contract", () => {
+  it("inherits the host conversation shell and registers only script-specific surfaces", () => {
     const slots = new Map<SlotId, unknown>();
     const context: ScriptUiContext = {
-      apiVersion: 3,
+      apiVersion: 4,
       register(slot, definition) {
         slots.set(slot, definition.component);
       },
     };
     registerStarlightUi(context);
-    expect(apiVersion).toBe(3);
+    expect(apiVersion).toBe(4);
     expect([...slots.keys()].sort()).toEqual([
-      "bubble:player",
-      "bubble:system",
-      "bubble:world",
       "composer",
-      "game-shell",
       "hud",
       "launcher",
-      "message-card:event",
-      "message-card:location_enter",
+      "objective-tracker",
       "panel:inventory",
       "panel:log",
       "panel:map",
+      "panel:tasks",
       "pause-menu",
-      "scene",
       "settings:starlight",
       "toolbar",
     ]);
+    expect(slots.has("game-shell")).toBe(false);
+    expect(slots.has("scene")).toBe(false);
   });
 
   it("reads host props and delegates actions without fetch or a private game store", () => {
@@ -50,9 +47,14 @@ describe("Starlight Shift Console UI contract", () => {
     expect(source).not.toMatch(/\bfetch\s*\(/);
     expect(source).not.toMatch(/\b(?:localStorage|sessionStorage|createContext|useReducer)\b/);
     expect(source).toContain("runtimeState");
-    expect(source).toContain("previewAction({ actionId })");
-    expect(source).toContain("submitTurn(`按工单执行");
-    expect(source).toContain("/api/scripts/${encodeURIComponent(scriptId)}/assets/${relative");
+    expect(source).toContain("previewAction(choice.hint)");
+    expect(source).toContain("submitTurn(messageText, hint)");
+    expect(source).toContain('className="cg-composer sl-chat-composer"');
+    expect(source).not.toContain('ctx.register("game-shell"');
+    expect(source).not.toContain('ctx.register("scene"');
+    expect(source).not.toContain("StarlightGameShell");
+    expect(source).not.toContain("StarlightScene");
+    expect(source).not.toContain("sl-workspace");
   });
 
   it("covers compact phone, tablet, desktop, short landscape, 200% text, reduced motion and contrast", () => {

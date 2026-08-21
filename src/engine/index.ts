@@ -135,9 +135,10 @@ export class Engine {
       openingEventId,
     );
     if (!options.loadSaveFile) {
-      const cues: MediaCue[] = openingEventId
-        ? [{ kind: "event", eventId: openingEventId }]
-        : [];
+      const cues: MediaCue[] = [
+        { kind: "location_enter", locationId: engine.state.player.locationId },
+        ...(openingEventId ? [{ kind: "event", eventId: openingEventId } as const] : []),
+      ];
       engine.state = appendTranscript(engine.state, "world", engine.openingNarrative(), cues);
     }
     return engine;

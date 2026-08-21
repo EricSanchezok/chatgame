@@ -12,7 +12,7 @@ test.afterEach(async ({ request }) => {
 
 test("production host runs a complete script lifecycle through real routes", async ({ page, request }) => {
   await openRealLauncher(page);
-  await expect(page.locator('[data-slot="launcher"]')).toContainText("UI API v3");
+  await expect(page.locator('[data-slot="launcher"]')).toContainText("UI API v4");
 
   await startRealFixtureGame(page);
   await expect(page.locator('[data-slot="hud"]')).toContainText("Engine API v2 已启动");
@@ -28,8 +28,8 @@ test("production host runs a complete script lifecycle through real routes", asy
   await page.getByRole("button", { name: "提交验证" }).click();
   await expect(page.locator('[data-slot="bubble-player"]').filter({ hasText: "复核一号中继线路" })).toBeVisible();
   await expect(page.locator('[data-slot="bubble-world"]')).toHaveCount(2);
-  await expect(page.locator('[data-slot="message-card-location_enter"]')).toBeVisible();
-  await expect(page.locator('[data-slot="message-card-event"]')).toBeVisible();
+  await expect(page.locator('[data-slot="message-card-location_enter"]').last()).toBeVisible();
+  await expect(page.locator('[data-slot="message-card-event"]').last()).toBeVisible();
 
   await page.getByRole("button", { name: "触发系统记录" }).click();
   await expect(page.locator('[data-slot="bubble-system"]')).toContainText("世界记得你来过");

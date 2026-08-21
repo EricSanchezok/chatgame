@@ -57,17 +57,32 @@ export const NewGameDialog: Story = {
 };
 
 export const ConversationEmpty: Story = {
-  args: { scenario: { conversation: "empty" } },
+  args: { scenario: { conversation: "empty", hostShell: true } },
   play: async ({ canvasElement }) => {
     await startGame(canvasElement);
   },
 };
 
 export const ConversationLong: Story = {
-  args: { scenario: { conversation: "long" } },
+  args: { scenario: { conversation: "long", hostShell: true } },
   play: async ({ canvasElement }) => {
     await startGame(canvasElement);
     await expect(within(canvasElement).findByText(/第 27 次确认/)).resolves.toBeVisible();
+  },
+};
+
+export const ConversationRolesAndMedia: Story = {
+  args: { scenario: { hostShell: true } },
+  play: async ({ canvasElement }) => {
+    await startGame(canvasElement);
+    const canvas = within(canvasElement);
+    await expect(canvas.findByRole("log", { name: "游戏对话记录" })).resolves.toBeVisible();
+    await expect(canvas.findByText("交班记录已载入。")).resolves.toBeVisible();
+    await expect(canvas.findByText("我先核对交班记录，再检查中继柜。")).resolves.toBeVisible();
+    await expect(canvas.findAllByText("中继室")).resolves.toHaveLength(2);
+    await expect(canvas.findByText("信号中断")).resolves.toBeVisible();
+    await userEvent.click(await canvas.findByRole("button", { name: /值班员/ }));
+    await expect(canvas.findByText("负责维护中继室的公开值班人员。")).resolves.toBeVisible();
   },
 };
 

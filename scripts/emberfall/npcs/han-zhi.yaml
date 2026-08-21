@@ -6,7 +6,7 @@ traits:
   - { name: 记声, description: 能辨认每段铁索传来的钟音。 }
 stats: { hp: 76, grit: 11, perception: 15 }
 skills: { listening: 14, testimony: 10 }
-occupation: bell-witness-duty
+occupation: 钟房见证人
 schedule: bell-witness-duty
 home: lamp-house
 items: [bell-clapper]

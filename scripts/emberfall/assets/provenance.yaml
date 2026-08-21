@@ -6,6 +6,21 @@ files:
   assets/backgrounds/mine-shift.png:
     source: OpenAI image generation via Codex imagegen; project prompt for Emberfall underground shift scene
     license: project-owned generated asset
+  assets/backgrounds/lamp-house.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for the Emberfall public lamp house
+    license: project-owned generated asset
+  assets/backgrounds/upper-drift.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for the Emberfall upper drift
+    license: project-owned generated asset
+  assets/backgrounds/bell-gallery.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for the Emberfall bell gallery
+    license: project-owned generated asset
+  assets/backgrounds/blue-seam.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for the Emberfall blue seam
+    license: project-owned generated asset
+  assets/illustrations/shift-handoff.png:
+    source: OpenAI image generation via Codex imagegen; project prompt for the Emberfall shift handoff event
+    license: project-owned generated asset
   assets/portraits/han-zhi.png:
     source: OpenAI image generation via Codex imagegen; project prompt for Han Zhi witness portrait
     license: project-owned generated asset

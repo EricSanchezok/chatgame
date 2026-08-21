@@ -22,9 +22,9 @@ async function setPlayerPreferences(
   patch: Record<string, string | number | boolean>,
 ): Promise<void> {
   await page.evaluate((next) => {
-    const key = "chatgame:settings:v2";
-    const current = JSON.parse(localStorage.getItem(key) ?? '{"version":2}') as Record<string, unknown>;
-    localStorage.setItem(key, JSON.stringify({ ...current, ...next, version: 2 }));
+    const key = "chatgame:settings:v3";
+    const current = JSON.parse(localStorage.getItem(key) ?? '{"version":3}') as Record<string, unknown>;
+    localStorage.setItem(key, JSON.stringify({ ...current, ...next, version: 3 }));
   }, patch);
   await page.reload();
   await page.getByRole("heading", { name: /工作台剧本/ }).waitFor();
@@ -34,6 +34,8 @@ const matrix: VisualMatrixEntry[] = [
   { name: "phone-390x844", viewport: { width: 390, height: 844 } },
   { name: "tablet-768x1024", viewport: { width: 768, height: 1024 } },
   { name: "desktop-1440x900", viewport: { width: 1440, height: 900 } },
+  { name: "desktop-2560x1440", viewport: { width: 2560, height: 1440 } },
+  { name: "desktop-5120x2880", viewport: { width: 5120, height: 2880 } },
   { name: "short-landscape-844x390", viewport: { width: 844, height: 390 } },
   {
     name: "text-200-percent",

@@ -5,7 +5,7 @@
  */
 
 export const CLIENT_API_VERSION = 3 as const;
-export const SCRIPT_UI_API_VERSION = 3 as const;
+export const SCRIPT_UI_API_VERSION = 4 as const;
 
 export interface ThemeFontFile {
   file: string;
@@ -85,6 +85,7 @@ export interface AssetManifest {
   voices: Record<string, AssetEntry>;
   ambient: Record<string, AssetEntry>;
   effects: Record<string, AssetEntry>;
+  illustrations: Record<string, AssetEntry>;
   ui: Record<string, AssetEntry>;
 }
 
@@ -127,7 +128,12 @@ export interface Catalog {
     connections: Array<{ to: string; distance: number; travel_time: number }>;
   }>;
   items: Array<{ id: string; name: string; type: string; description: string }>;
-  npcs: Array<{ id: string; name: string }>;
+  npcs: Array<{
+    id: string;
+    name: string;
+    description: string;
+    occupation?: string;
+  }>;
   events: Array<{ id: string; name: string }>;
   actions: Array<{ id: string; displayName: string }>;
   stats: Array<{ name: string; min: number; max: number; description?: string }>;
@@ -135,7 +141,13 @@ export interface Catalog {
   needs: Array<{ name: string }>;
   factions: Array<{ id: string; name: string }>;
   statusEffects: Array<{ id: string; name: string; description?: string }>;
-  tasks: Array<{ id: string; name: string }>;
+  tasks: Array<{
+    id: string;
+    name: string;
+    summary: string;
+    objectiveText: string;
+    quantity: number;
+  }>;
   origins: Array<{ id: string; name: string }>;
   currency: { name: string; symbol: string };
   hpStat: string;
@@ -144,7 +156,8 @@ export interface Catalog {
 export type MediaCue =
   | { kind: "npc_speech"; npcId: string }
   | { kind: "location_enter"; locationId: string }
-  | { kind: "event"; eventId: string };
+  | { kind: "event"; eventId: string }
+  | { kind: "item_reveal"; itemId: string; quantity: number };
 
 export interface TranscriptEntry {
   id: string;
@@ -310,6 +323,7 @@ export interface SessionSnapshot {
 
 export interface CreateSessionResult extends SessionSnapshot {
   id: string;
+  runId: string;
 }
 
 export interface TurnResultFull extends TurnResultView, SessionSnapshot {}

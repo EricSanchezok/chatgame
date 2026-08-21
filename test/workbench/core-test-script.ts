@@ -91,6 +91,7 @@ const corridorTheme: ThemeView = {
 const emptyAssets: AssetManifest = {
   portraits: {},
   backgrounds: {},
+  illustrations: {},
   icons: {},
   sprites: {},
   voices: {},
@@ -119,7 +120,7 @@ const catalog: Catalog = {
     },
   ],
   items: [{ id: "test-key", name: "测试钥匙", type: "tool", description: "只服务于工作台夹具。" }],
-  npcs: [{ id: "operator", name: "值班员" }],
+  npcs: [{ id: "operator", name: "值班员", description: "负责维护中继室的公开值班人员。", occupation: "中继值班员" }],
   events: [{ id: "signal-loss", name: "信号中断" }],
   actions: [
     { id: "talk", displayName: "交谈" },
@@ -130,7 +131,7 @@ const catalog: Catalog = {
   needs: [{ name: "rest" }],
   factions: [{ id: "operators", name: "值班组" }],
   statusEffects: [],
-  tasks: [{ id: "restore-signal", name: "恢复信号" }],
+  tasks: [{ id: "restore-signal", name: "恢复信号", summary: "查明中继室的信号故障。", objectiveText: "检查备用线路", quantity: 1 }],
   origins: [
     { id: "observer", name: "观察员" },
     { id: "operator", name: "值班员" },
@@ -154,7 +155,10 @@ function transcriptFor(fixture: ConversationFixture): TranscriptEntry[] {
       turn: 2,
       role: "world",
       text: "中继室的指示灯依次熄灭，只剩最远端的一盏仍在闪烁。",
-      mediaCues: [{ kind: "event", eventId: "signal-loss" }],
+      mediaCues: [
+        { kind: "location_enter", locationId: "relay-room" },
+        { kind: "event", eventId: "signal-loss" },
+      ],
     },
     {
       id: "opening-3",
@@ -168,7 +172,10 @@ function transcriptFor(fixture: ConversationFixture): TranscriptEntry[] {
       turn: 4,
       role: "world",
       text: "值班员把测试钥匙推到你面前，提醒你先确认备用线路。",
-      mediaCues: [{ kind: "npc_speech", npcId: "operator" }],
+      mediaCues: [
+        { kind: "npc_speech", npcId: "operator" },
+        { kind: "item_reveal", itemId: "test-key", quantity: 1 },
+      ],
     },
   ];
   if (fixture === "short") return short;
@@ -345,7 +352,7 @@ export function fixturePresentation(
 
 function fixtureUiBundle(scriptId: string): NonNullable<SessionPresentation["uiBundle"]> {
   return {
-    apiVersion: 3,
+    apiVersion: 4,
     dependencyHash: `${scriptId}-workbench`,
     url: `/api/scripts/${scriptId}/ui-bundle`,
   };

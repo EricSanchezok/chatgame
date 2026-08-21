@@ -25,7 +25,7 @@ describe("versioned player settings", () => {
       fullscreenOnStart: false,
     });
     expect(JSON.parse(localStorage.getItem(settings.SETTINGS_STORAGE_KEY)!)).toMatchObject({
-      version: 2,
+      version: 3,
       themeMode: "default",
       masterVolume: 73,
       ambientVolume: 42,

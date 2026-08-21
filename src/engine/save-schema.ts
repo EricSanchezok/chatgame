@@ -112,6 +112,7 @@ const mediaCueSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("npc_speech"), npcId: z.string() }).strict(),
   z.object({ kind: z.literal("location_enter"), locationId: z.string() }).strict(),
   z.object({ kind: z.literal("event"), eventId: z.string() }).strict(),
+  z.object({ kind: z.literal("item_reveal"), itemId: z.string(), quantity: z.number().int().positive() }).strict(),
 ]);
 
 export const worldStateSchema = z.object({

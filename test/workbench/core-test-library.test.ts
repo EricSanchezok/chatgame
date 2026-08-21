@@ -13,6 +13,7 @@ const expectedSlots = [
   "game-shell",
   "scene",
   "hud",
+  "objective-tracker",
   "toolbar",
   "composer",
   "pause-menu",
@@ -22,6 +23,7 @@ const expectedSlots = [
   "bubble:system",
   "message-card:event",
   "message-card:location_enter",
+  "message-card:item_reveal",
   "settings:fixture",
 ] satisfies SlotId[];
 
@@ -34,17 +36,17 @@ describe("core test script library", () => {
     expect(definition.extensions.lifecycle.sessionStart).toHaveLength(1);
   });
 
-  it("registers a reachable representative of every public UI API v3 slot", () => {
+  it("registers a reachable representative of every public UI API v4 slot", () => {
     const slots = new Map<SlotId, SlotDef>();
     const context: ScriptUiContext = {
-      apiVersion: 3,
+      apiVersion: 4,
       register<K extends SlotId>(slot: K, definition: SlotDef<K>) {
         slots.set(slot, definition as SlotDef);
       },
     };
     registerCoreTestUi(context);
 
-    expect(apiVersion).toBe(3);
+    expect(apiVersion).toBe(4);
     expect([...slots.keys()]).toEqual(expectedSlots);
     for (const slot of expectedSlots) expect(slots.get(slot)?.component).toBeTypeOf("function");
   });

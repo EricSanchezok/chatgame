@@ -34,6 +34,7 @@ export interface MockGameScenario {
   createLatencyMs?: Partial<Record<string, number>>;
   ignoreCreateAbortScriptIds?: string[];
   sessionLimit?: number;
+  hostShell?: boolean;
 }
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
@@ -86,6 +87,7 @@ export class MockGamePort implements GamePort {
       createLatencyMs: scenario.createLatencyMs,
       ignoreCreateAbortScriptIds: scenario.ignoreCreateAbortScriptIds,
       sessionLimit: scenario.sessionLimit,
+      hostShell: scenario.hostShell,
     };
     this.currentWorld = createFixtureWorld(CORE_SCRIPT_ID, this.scenario.conversation);
     this.currentPresentation = fixturePresentation(CORE_SCRIPT_ID);
@@ -123,7 +125,10 @@ export class MockGamePort implements GamePort {
     await this.wait(`/api/scripts/${scriptId}`, signal);
     if (scriptId === this.scenario.detailErrorScriptId) throw new Error("剧本详情载入失败");
     if (scriptId !== CORE_SCRIPT_ID && scriptId !== ALT_SCRIPT_ID) throw new Error("剧本不存在");
-    return fixtureDetail(scriptId);
+    const detail = fixtureDetail(scriptId);
+    return this.scenario.hostShell
+      ? { ...detail, presentation: { ...detail.presentation, uiBundle: undefined } }
+      : detail;
   }
 
   async scriptMeta(scriptId: string, signal?: AbortSignal): Promise<ScriptMeta> {
@@ -143,7 +148,7 @@ export class MockGamePort implements GamePort {
       name: file.name,
       sourceName: file.name,
       schemaVersion: "1.1",
-      apiVersions: { hostUi: 3, engine: 2, scriptUi: null },
+      apiVersions: { hostUi: 4, engine: 2, scriptUi: null },
       conflicts: { installed: false, replaceAllowed: false },
       permissions: [],
       assetProvenance: { manifestPresent: false, coveredFiles: 0, totalFiles: 0, missingFiles: [], extraFiles: [], remoteReferences: [] },
@@ -173,7 +178,8 @@ export class MockGamePort implements GamePort {
     this.sessionSequence += 1;
     const id = this.sessionSequence === 1 ? "preview-session" : `preview-session-${this.sessionSequence}`;
     const world = createFixtureWorld(input.scriptId, this.scenario.conversation);
-    const presentation = fixturePresentation(input.scriptId);
+    const fixture = fixturePresentation(input.scriptId);
+    const presentation = this.scenario.hostShell ? { ...fixture, uiBundle: undefined } : fixture;
     this.currentWorld = world;
     this.currentPresentation = presentation;
     this.sessionWorlds.set(id, world);
@@ -182,6 +188,7 @@ export class MockGamePort implements GamePort {
     this.createdSessions.push({ id, scriptId: input.scriptId });
     return {
       id,
+      runId: input.loadRunId ?? "autosave.json",
       state: structuredClone(world),
       presentation: structuredClone(presentation),
     };

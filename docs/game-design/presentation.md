@@ -1,6 +1,6 @@
-# 表现层规格（Presentation & UI v3）
+# 表现层规格（Presentation & UI v4）
 
-> 本文是玩家宿主、主题、剧本 UI 扩展与可访问性边界的当前参考。导入协议见 [script-import.md](script-import.md)，剧本表现数据见 [script-format.md](script-format.md)，决策依据见 [0022](../decisions/0022-ui-host-and-script-extension-v3.md) 与 [0023](../decisions/0023-layout-theme-and-accessibility-v2.md)。
+> 本文是玩家宿主、主题、剧本 UI 扩展与可访问性边界的当前参考。导入协议见 [script-import.md](script-import.md)，剧本表现数据见 [script-format.md](script-format.md)，决策依据见 [0027](../decisions/0027-session-first-ui-api-v4.md) 与 [0028](../decisions/0028-conversation-first-game-layout.md)。
 
 ## 所有权
 
@@ -16,13 +16,17 @@
 
 `/scripts` 是纵向档案式剧本库，列表展示名称、作者、规格版本、来源和当前状态，详情、激活、导入、替换与删除互相分离。内置剧本不可替换或删除；导入剧本只有在没有活跃会话时才能替换或删除，失败提示玩家结束相关会话后重新预检，删除保留存档。导入预检和确认遵循 [script-import.md](script-import.md)。
 
-`/settings` 保存版本化 `PlayerUiSettings v2`：声音总开关、主音量、环境音、语音、音效、进入游戏时全屏、主题模式、文字缩放、对比度和减少动效。设置使用 `chatgame:settings:v2` 本地键；无效或其他版本数据回退默认值，不维护旧设置迁移路径。开始或续玩不得擅自覆盖玩家声音选择。
+`/settings` 保存版本化 `PlayerUiSettings v3`：声音总开关、主音量、环境音、语音、音效、进入游戏时全屏、主题模式、文字缩放、对比度、减少动效和按 `scriptId:runId` 隔离的追踪任务。设置使用 `chatgame:settings:v3` 本地键；无效或其他版本数据回退默认值，不维护旧设置迁移路径。开始或续玩不得擅自覆盖玩家声音选择；任务追踪只影响 UI，不进入世界状态。
 
 ## 游戏壳与槽位
 
-客户端安全契约的唯一入口是 `@chatgame/ui`，其 UI API 版本为 3。公开槽位只有 `launcher`、`game-shell`、`scene`、`hud`、`toolbar`、`composer`、`pause-menu`、`panel:<id>`、`bubble:<id>`、`message-card:<id>` 与 `settings:<id>`；每个槽位在宿主都有真实消费点和完整 fallback。单例槽位不接受位置或排序参数，同一 bundle 重复注册同一槽位使整个 bundle 注册失败。
+客户端安全契约的唯一入口是 `@chatgame/ui`，其 UI API 版本为 4。公开槽位只有 `launcher`、`game-shell`、`scene`、`hud`、`objective-tracker`、`toolbar`、`composer`、`pause-menu`、`panel:<id>`、`bubble:<id>`、`message-card:<id>` 与 `settings:<id>`；每个槽位在宿主都有真实消费点和完整 fallback。单例槽位不接受位置或排序参数，同一 bundle 重复注册同一槽位使整个 bundle 注册失败。
 
-`game-shell` 接收宿主提供的 scene、transcript、composer、hud、toolbar 与 panels renderer，剧本可以重排但不能绕开它们的语义和无障碍边界。默认壳以转录为唯一长滚动区，输入器保持独立局部状态；只有用户原本位于底部时，新消息才自动滚到底，输入变化不重绘整棵转录树。默认 composer 提供真实快捷行动，先调用 `previewAction(intentHint)` 展示时间、资源与风险，再以同一 `intentHint` 提交回合。
+`game-shell` 接收宿主提供的 scene、composer、hud、tracker、toolbar 与 panels renderer，剧本可以重排但不能绕开它们的语义和无障碍边界。默认壳以 760–860px 的居中转录为唯一长滚动区：世界叙述无气泡，NPC 显示可访问头像与公开资料，玩家使用右对齐紧凑气泡，系统反馈使用低调结果条。地点、事件和物品媒体作为消息卡进入转录，不使用固定场景背景。只有用户原本位于底部时，新消息才自动滚到底，输入变化不重绘整棵转录树。
+
+顶部 HUD 只常驻剧本/位置/时间和三到四项关键资源；右上只显示一个 `objective-tracker`，点击进入任务浮层。地图、任务、背包、人物和证据通过宿主 Dialog 打开，桌面端居中并 dim + blur 背景，移动端为全屏面板。默认 composer 与转录同宽，提供三到五个建议行动，先调用 `previewAction(intentHint)` 展示时间、资源、风险和不可执行原因，再以唯一发送按钮提交建议行动或自由文本；不得提供相互竞争的第二个主提交按钮。
+
+`BubbleSlotProps` 的 `speaker` 只包含公开 NPC id、姓名、简介、职业和关系显示，`isFirstAppearance` 支持首次相遇卡；`PanelSlotProps` 的 `trackedTaskId` 与 `trackTask` 只读写本地追踪偏好。剧本不得从秘密、holder 或任意运行态拼出额外公开档案。
 
 `PauseMenuSlotProps` 提供主题、声音、保存、返回启动器与实时全屏状态；`SettingsSlotProps` 提供当前设置与受控更新；其他槽位只接收对应的语义 view-model。剧本不得直接 fetch 会话 API、控制全局 portal 或持有可变 registry。
 
@@ -38,7 +42,7 @@ registry 是由 `useSyncExternalStore` 订阅的不可变快照，快照同时�
 
 `theme.yaml` 和 `themes/*.yaml` 解析为白名单 `ThemeView`。主题只能写入 `--cg-*` 语义变量，包括背景、表面、前景、主操作及其前景、焦点、边界、成功、警告、危险、选中、字体、密度、半径和动效。剧本与宿主组件都不得硬编码颜色或注入任意 CSS；字体文件只来自剧本的 `assets/fonts/`。
 
-`assets.yaml` 是运行时素材索引，`MediaCue` 由引擎根据状态差确定性产生，LLM 不决定媒体。未提供图片、音频或剧本槽位时，宿主使用文字、结构和静态 fallback，游戏仍可完成。导入素材的来源与远程热链门禁见 [script-import.md](script-import.md)。
+`assets.yaml` 是运行时素材索引，`backgrounds` 以地点 id 索引，`illustrations` 以事件 id 索引，`portraits` 与 `icons` 分别服务 NPC 与物品。`MediaCue` 由引擎根据状态差确定性产生 `npc_speech`、`location_enter`、`event` 与 `item_reveal`，LLM 和客户端不决定媒体。未提供图片、音频或剧本槽位时，宿主使用文字、结构和静态 fallback，游戏仍可完成。导入素材的来源与远程热链门禁见 [script-import.md](script-import.md)。
 
 `AudioController` 分离 master、ambient、voice 与 effects gain；设置变化实时应用。声音默认关闭，只有玩家明确开启后播放；进入游戏不改变此选择。全屏失败静默降级为窗口模式，不阻塞游玩。
 
@@ -46,7 +50,7 @@ registry 是由 `useSyncExternalStore` 订阅的不可变快照，快照同时�
 
 Dialog 使用 `aria-modal`、标题/说明关联、背景 inert、焦点陷阱、Esc 关闭和焦点恢复；没有可用控件时焦点停在 dialog surface。状态通过 `aria-live` 和可见文字反馈，等待、成功、警告与错误不只靠颜色或 opacity。主要目标至少 44×44px，布局在 390px 宽、短横屏、安全区和 200% 文字下保留同一任务顺序。
 
-宿主动效是 Corporate / rigid：CSS 只使用 quick、standard、deliberate 三档 `--cg-*` 时序，hover 小于 100ms，按压 120–180ms，Dialog 以约 360ms ease-out 进入并以约 220ms ease-in 退出。系统或玩家选择减少动效时移除空间位移与环境循环，并取消 Dialog 退出等待；按压、等待文案和结果反馈仍保留。
+宿主动效克制表达因果：新消息约 160ms 轻微淡入，媒体卡约 360ms 展开，Dialog 约 220ms 淡入缩放。系统或玩家选择减少动效时移除位移、缩放、clip 展开与环境循环，并取消 Dialog 退出等待；按压、等待文案和结果反馈仍保留。
 
 ## HTTP 表面
 
@@ -72,7 +76,7 @@ Dialog 使用 `aria-modal`、标题/说明关联、背景 inert、焦点陷阱�
 
 ## 验证矩阵
 
-自动化至少覆盖 UI API 版本/重复 slot/失败保留/跨剧本隔离/A-B generation、依赖图 hash/边界 import/ETag、快捷行动 preview 与 typed submit、controller 与 EngineHost 并发、Dialog focus/inert/reduced motion、全屏实时状态、设置持久化、两阶段导入和内置源码保护。布局试玩覆盖 390×844、桌面、短横屏、200% 文字、键盘导航、系统与显式减少动效、空/长转录、输入中、新消息到达、加载/成功/错误和全屏进入/退出。
+自动化至少覆盖 UI API 版本/重复 slot/失败保留/跨剧本隔离/A-B generation、objective tracker、NPC 公开资料、四类媒体提示、依赖图 hash/边界 import/ETag、快捷行动 preview 与 typed submit、controller 与 EngineHost 并发、Dialog focus/inert/reduced motion、全屏实时状态、设置持久化、两阶段导入和内置源码保护。真实入口分别验证两个剧本的地点卡、NPC 资料、建议行动、自由输入、追踪切换、任务/背包/地图浮层、保存退出与继续。布局覆盖 390×844、768×1024、1440×900、2560×1440、短横屏、200% 文字、键盘导航、高对比与减少动效，并断言转录是唯一主滚动、composer 始终可操作、内置剧本没有永久三栏或固定背景。
 
 ```sh
 npm run typecheck

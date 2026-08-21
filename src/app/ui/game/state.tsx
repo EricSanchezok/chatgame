@@ -75,6 +75,15 @@ function productionEffects(audio: AudioController, port: GamePort): GameControll
     onSessionCleanupError: (sessionId, error) => {
       console.error(`Failed to clean up uncommitted session "${sessionId}"`, error);
     },
+    readTrackedTask: (scriptId, runId) => readPlayerSettings().trackedTasks[`${scriptId}:${runId}`] ?? null,
+    rememberTrackedTask: (scriptId, runId, taskId) => {
+      const settings = readPlayerSettings();
+      const key = `${scriptId}:${runId}`;
+      const trackedTasks = { ...settings.trackedTasks };
+      if (taskId) trackedTasks[key] = taskId;
+      else delete trackedTasks[key];
+      patchPlayerSettings({ trackedTasks });
+    },
     onExit: () => audio.stopAll(),
   };
 }

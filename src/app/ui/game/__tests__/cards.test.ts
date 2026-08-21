@@ -10,6 +10,7 @@ const manifest: AssetManifest = {
     guardian: { prompt: "mine golem" },
   },
   backgrounds: { tavern: { prompt: "steampunk tavern" } },
+  illustrations: {},
   icons: { pickaxe: { file: "assets/icons/pickaxe.svg" } },
   sprites: {},
   voices: { elara: { prompt: "calm", profile: "低哑" } },
@@ -57,9 +58,11 @@ describe("cueSummary", () => {
       { kind: "npc_speech", npcId: "elara" },
       { kind: "location_enter", locationId: "mine" },
       { kind: "event", eventId: "collapse" },
+      { kind: "item_reveal", itemId: "pickaxe", quantity: 2 },
     ];
     expect(cueSummary(cues[0])).toBe("npc_speech:elara");
     expect(cueSummary(cues[1])).toBe("location_enter:mine");
     expect(cueSummary(cues[2])).toBe("event:collapse");
+    expect(cueSummary(cues[3])).toBe("item_reveal:pickaxe:2");
   });
 });

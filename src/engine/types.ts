@@ -350,7 +350,8 @@ export interface TranscriptEntry {
 export type MediaCue =
   | { kind: "npc_speech"; npcId: string }
   | { kind: "location_enter"; locationId: string }
-  | { kind: "event"; eventId: string };
+  | { kind: "event"; eventId: string }
+  | { kind: "item_reveal"; itemId: string; quantity: number };
 // ---------------------------------------------------------------------------
 // Rolling context summary (mid-term memory layer, engine-held)
 // ---------------------------------------------------------------------------
