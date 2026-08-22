@@ -150,6 +150,7 @@ function worldState(): SimulationState {
         nextAction: {
           id: "keeper-action-0",
           actorId: "keeper",
+          baseRevision: 0,
           rawText: "继续看守石门",
           goal: "不让陌生人通过",
           targetIds: [],
@@ -159,9 +160,11 @@ function worldState(): SimulationState {
     player: {
       entityId: "player",
       knowledge: { localEntities: {}, claims: {}, evidence: {}, observationIds: [] },
+      bindings: {},
     },
     rng: createSeededRng(42),
     events: [],
+    history: [],
   };
 }
 

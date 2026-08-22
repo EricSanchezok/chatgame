@@ -245,12 +245,17 @@ export function validateSimulationState(state: SimulationState, requireNextActio
 
   const agentEntities = new Set<string>();
   for (const agent of Object.values(state.agents)) {
-    if (!state.truth.entities[agent.entityId]) throw new Error(`agent ${agent.id} has no entity`);
+    const entity = state.truth.entities[agent.entityId];
+    if (!entity) throw new Error(`agent ${agent.id} has no entity`);
+    if (entity.lifecycle !== "active") throw new Error(`agent ${agent.id} belongs to a retired entity`);
     if (agentEntities.has(agent.entityId)) throw new Error(`multiple agents own entity ${agent.entityId}`);
     agentEntities.add(agent.entityId);
     if (requireNextActions && !agent.nextAction) throw new Error(`agent ${agent.id} has no next action`);
     if (agent.nextAction && agent.nextAction.actorId !== agent.id) {
       throw new Error(`agent ${agent.id} owns action for ${agent.nextAction.actorId}`);
+    }
+    if (requireNextActions && agent.nextAction && agent.nextAction.baseRevision !== state.revision) {
+      throw new Error(`agent ${agent.id} has an action for revision ${agent.nextAction.baseRevision}`);
     }
   }
 }
@@ -280,6 +285,9 @@ export function applyTransitionProposal(
       next.step += 1;
       if (next.player.intent) next.player.intent.status = proposal.intentStatus;
       next.events.push(...structuredClone(proposal.events));
+      for (const [agentId, agent] of Object.entries(next.agents)) {
+        if (next.truth.entities[agent.entityId]?.lifecycle !== "active") delete next.agents[agentId];
+      }
       validateSimulationState(next, false);
     } catch (error) {
       issues.push(error instanceof Error ? error.message : String(error));

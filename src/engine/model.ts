@@ -167,6 +167,7 @@ export interface PlayerKnowledgeState {
 export interface AgentActionProposal {
   id: string;
   actorId: AgentId | "player";
+  baseRevision: number;
   rawText: string;
   goal: string;
   means?: string;
@@ -215,10 +216,12 @@ export interface SimulationState {
   player: {
     entityId: EntityId;
     knowledge: PlayerKnowledgeState;
+    bindings: Record<LocalEntityId, EpistemicBinding>;
     intent?: PlayerIntent;
   };
   rng: SeededRngState;
   events: WorldEvent[];
+  history: CommittedStep[];
 }
 
 export type CheckVisibility = "full" | "result_only" | "hidden";
@@ -342,6 +345,7 @@ export interface TransitionProposal {
 }
 
 export interface CommittedStep {
+  baseRevision: number;
   revision: number;
   step: number;
   actions: AgentActionProposal[];
@@ -349,4 +353,6 @@ export interface CommittedStep {
   outcomes: ActionOutcome[];
   events: WorldEvent[];
   observations: ObservationPacket[];
+  operations: WorldDeltaOperation[];
+  beliefPatches: BeliefPatch[];
 }
