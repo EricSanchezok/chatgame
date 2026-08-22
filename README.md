@@ -1,6 +1,6 @@
 # chatgame
 
-剧本驱动的 AI 聊天游戏框架：加载不同"剧本"即成为完全不同的游戏；同一剧本每次开局体验不同；一个剧本就是一个可以无限游玩的世界。
+chatgame 是剧本驱动的开放世界 AI 游戏引擎。玩家提交的是任意自然语言目标，而不是动作菜单中的 `actionId`；所有自主 Agent 基于各自有限认知同时行动，唯一 Truth Engine 依据世界真相、法则与检定联合裁决，并在每个世界步骤原子持久化。
 
 ## 快速开始
 
@@ -9,24 +9,33 @@ npm install
 npm run dev
 ```
 
-打开 http://localhost:3000。
+打开 <http://localhost:3000>。仓库不捆绑可玩世界；初次进入会看到导入入口。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
 
-## 剧本与引擎
-
-剧本是"世界"的声明式定义（18 模块，YAML）；引擎是"世界如何运转"的运行时。体验：
+真实模型默认使用 OpenAI-compatible provider：
 
 ```sh
-npm run play                                       # demo CLI（默认 Mock LLM，无 key 可跑）
-CHATGAME_LLM_PROVIDER=vercel npm run play           # 真实 LLM（需配置 env）
-npm run script:validate -- scripts/emberfall       # 校验示例剧本
-npm test                                           # 全部测试
+CHATGAME_LLM_API_KEY=... npm run dev
 ```
 
-规格：[docs/game-design/script-format.md](docs/game-design/script-format.md)（剧本格式）、[docs/game-design/engine-runtime.md](docs/game-design/engine-runtime.md)（引擎运行时）。
+可选变量为 `CHATGAME_LLM_BASE_URL`、`CHATGAME_LLM_MODEL`、`CHATGAME_TRUTH_MODEL` 与 `CHATGAME_AGENT_MODEL`。`CHATGAME_LLM_PROVIDER=mock` 只用于测试与本地管线验证，不提供真实游戏裁决质量。
 
-## 文档
+## 常用命令
 
-- [docs/README.md](docs/README.md) — 文档地图
-- [docs/architecture.md](docs/architecture.md) — 系统总览
-- [docs/game-design/](docs/game-design/README.md) — 游戏设计参考
-- [docs/decisions/](docs/decisions/README.md) — 决策记录（为什么）
+```sh
+npm test
+npm run lint
+npm run typecheck
+npm run build
+npm run world:validate -- <world-directory>
+npm run world:import -- <world.zip> [--replace]
+npm run check:fast
+npm run check:all
+```
+
+## 从哪里开始读
+
+- [系统架构](docs/architecture.md)
+- [世界剧本格式](docs/game-design/script-format.md)
+- [Truth Engine 运行时](docs/game-design/engine-runtime.md)
+- [工作台与流式 API](docs/game-design/presentation.md)
+- [决策日志](docs/decisions/README.md)

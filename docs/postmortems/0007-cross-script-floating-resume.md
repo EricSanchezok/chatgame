@@ -26,5 +26,5 @@
 
 - `LauncherSlotProps.resume` 只提供当前剧本按 `updatedAt` 选出的最新存档、忙碌状态和恢复 capability。
 - 默认 launcher 的“开始新游戏、继续游戏、选择存档”共享同一卡片操作区；不再存在 `.cg-resume-strip`。
-- [布局端到端测试](../../e2e/flows/layout.spec.ts) 断言三个入口位于中央卡片，旧浮层为零引用，并用另一个当前剧本的乱序存档验证只恢复该剧本最新存档。
+- 该启动器与旧布局测试已随被取代的 UI 删除；当前浏览器门禁见[决策 0034](../decisions/0034-truth-engine-verification-matrix.md)。
 - 玩家设置和 controller 不再保存跨剧本全局 last-run 指针；所有续玩目标来自当前剧本的权威存档列表。

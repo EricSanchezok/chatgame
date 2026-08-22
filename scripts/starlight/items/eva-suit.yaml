@@ -1,8 +1,0 @@
-id: eva-suit
-name: E-4 舱外工装
-type: equipment
-description: 老式硬领舱外服，氧量由工装表独立计量；每次出舱都要在交班簿签名
-properties: { slot: body, stackable: false }
-effects_on_use: []
-rarity: 受控设备
-value: 90

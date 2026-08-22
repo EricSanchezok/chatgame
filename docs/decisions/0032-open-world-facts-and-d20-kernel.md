@@ -1,7 +1,7 @@
 # 开放事实世界与通用 d20 内核
 
 ## Status
-Proposed
+Accepted
 Class: architecture
 
 ## Context and Problem Statement
@@ -27,11 +27,11 @@ Class: architecture
 
 canonical truth 以稳定实体和开放 `WorldFact` 图表达。位置、包含、归属和生命周期使用结构化关系；其他性质由剧本命名的 predicate 与描述表达。背包是 containment 与 quantity，不再是独立机制；关系、状态和能力也不再拥有并行状态源。
 
-引擎提供 `Meter`、`Quantity`、`Rating`、`Rank`、`DiceExpression` 与声明式 threshold。剧本定义生命、灵力、理智、修为、货币或其他数值的名称、范围、适用实体及阈值后果。硬内核执行范围、唯一包含、转移守恒以及带法则和 provenance 的生产、消耗。
+引擎提供 `Meter`、`Quantity`、`Rating` 与声明式 threshold。剧本定义生命、灵力、理智、修为、货币或其他数值的名称、范围、适用实体及阈值后果。硬内核执行范围、唯一包含、转移守恒以及带法则和 provenance 的生产、消耗。
 
 不确定行动使用通用 d20 检定：Truth Engine 在看到随机值前提交相关 rating、修正、熟练、DC、优势/劣势、风险和可见性；注入式种子随机源生成结果；Truth Engine 再按自然语言世界法典结算。连续依赖检定可以分阶段请求，但每一阶段都必须先承诺后掷骰。
 
-首期只实现 d20 内核和规则包接口，不捆绑完整 SRD 内容。剧本格式包含世界法典、初始实体、开放事实、数值目录和 Agent profile，不包含 actions.yaml、effect 白名单或自定义 action handler。
+首期只实现 d20 内核，不捆绑完整 SRD 内容。剧本格式包含世界法典、初始实体、开放事实、数值目录和 Agent profile，不包含 actions.yaml、effect 白名单或自定义 action handler。
 
 ### Consequences
 

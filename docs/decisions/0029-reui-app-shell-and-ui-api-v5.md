@@ -64,4 +64,4 @@ UI API 直接升级为 v5，保留 v4 的全部 SlotId，并公开 `Button`、`B
 - [0024](0024-frontend-workbench-and-ci.md) — 前端测试工作台与 CI。
 - [0017](0017-session-persistence-refresh-recovery-meta.md) — 本记录收紧了其中跨剧本“继续上次游戏”的入口语义，存档持久化与 meta 契约保持不变。
 - [表现层规格](../game-design/presentation.md) — 当前 AppShell、UI API 和验证契约。
-- [布局回归测试](../../e2e/flows/layout.spec.ts) — 桌面与移动端的中心轴、单一主滚动区、触控尺寸和溢出断言。
+- [0034](0034-truth-engine-verification-matrix.md) — 取代旧布局矩阵的当前验证策略。

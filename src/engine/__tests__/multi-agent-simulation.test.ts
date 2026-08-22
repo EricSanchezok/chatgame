@@ -162,11 +162,11 @@ function simpleTransition(
   }
   return {
     baseRevision: 0,
-    outcomes: jointActionIds.map((actionId) => ({
-      actionId,
+    outcomes: jointActionIds.map((proposalId) => ({
+      proposalId,
       status: "succeeded",
       summary: "行动得到联合裁决。",
-      causeRefs: [{ kind: "action", id: actionId }],
+      causeRefs: [{ kind: "action", id: proposalId }],
       knownAlternatives: [],
     })),
     operations,
@@ -318,6 +318,12 @@ describe("multi-agent simulation", () => {
 
   it("does not expose canonical identity bindings to AgentMind", async () => {
     const initial = state(["agent-a"]);
+    initial.agents["agent-a"].belief.localEntities.masked = {
+      id: "masked",
+      name: "陌生人",
+      description: "身份未知的人。",
+      status: "observed",
+    };
     initial.agents["agent-a"].bindings.masked = {
       localEntityId: "masked",
       canonicalEntityIds: ["player"],
@@ -343,6 +349,60 @@ describe("multi-agent simulation", () => {
     await engine.step();
   });
 
+  it("gives Truth Engine each Agent belief alongside truth so it can resolve mistaken actions", async () => {
+    const initial = state(["agent-a"]);
+    initial.truth.facts["masked-truth"] = {
+      id: "masked-truth",
+      subjectId: "player",
+      predicate: "identity",
+      value: { kind: "text", value: "traveler" },
+      description: "此人的真实身份是旅人。",
+      access: { kind: "private" },
+      provenance: [{ kind: "event", id: "worldgen" }],
+    };
+    initial.agents["agent-a"].belief.localEntities.masked = {
+      id: "masked",
+      name: "可疑者",
+      description: "我认为这是潜入者。",
+      status: "observed",
+    };
+    initial.agents["agent-a"].belief.claims["masked-identity"] = {
+      id: "masked-identity",
+      subjectId: "masked",
+      predicate: "identity",
+      value: { kind: "text", value: "infiltrator" },
+      description: "我相信此人是潜入者。",
+      stance: "believed",
+      confidence: 0.9,
+      evidenceIds: [],
+    };
+    initial.agents["agent-a"].bindings.masked = {
+      localEntityId: "masked",
+      canonicalEntityIds: ["player"],
+    };
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        canonicalTruth?: { facts: Record<string, { value: { value: string } }> };
+        agentEpistemics?: Record<string, { belief: { claims: Record<string, { value: { value: string } }> } }>;
+        jointActions?: Array<{ id: string }>;
+        revision?: number;
+        agent?: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent!.id, context.revision!);
+      expect(context.canonicalTruth?.facts["masked-truth"].value.value).toBe("traveler");
+      expect(context.agentEpistemics?.["agent-a"].belief.claims["masked-identity"].value.value)
+        .toBe("infiltrator");
+      return {
+        kind: "transition",
+        proposal: simpleTransition(context.jointActions!.map((action) => action.id), ["agent-a"]),
+      };
+    });
+    const engine = new SimulationEngine(definition(initial), new TruthEngine(provider), new AgentMind(provider));
+    engine.beginPlayerIntent("让误认继续影响行动");
+
+    await engine.step();
+  });
+
   it("rolls back the whole step when any AgentMind cannot produce a valid action", async () => {
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as { jointActions?: Array<{ id: string }> };
@@ -364,5 +424,44 @@ describe("multi-agent simulation", () => {
     expect(engine.snapshot.revision).toBe(0);
     expect(engine.snapshot.truth.elapsedSeconds).toBe(0);
     expect(engine.snapshot.history).toHaveLength(0);
+  });
+
+  it("rejects circular or forward event causality instead of accepting a self-justifying world", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        jointActions?: Array<{ id: string }>;
+        revision?: number;
+        agent?: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent!.id, context.revision!);
+      const transition = simpleTransition(
+        context.jointActions!.map((action) => action.id),
+        ["agent-a", "agent-b"],
+      );
+      transition.events = [
+        {
+          id: "event:first",
+          step: 1,
+          description: "第一个事件错误地依赖未来事件。",
+          causes: [{ kind: "event", id: "event:future" }],
+        },
+        {
+          id: "event:future",
+          step: 1,
+          description: "未来事件。",
+          causes: [{ kind: "law", id: "time-passes" }],
+        },
+      ];
+      transition.observations = transition.observations.map((observation) => ({
+        ...observation,
+        sourceEventIds: ["event:first"],
+      }));
+      return { kind: "transition", proposal: transition };
+    });
+    const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
+    engine.beginPlayerIntent("制造循环因果");
+
+    await expect(engine.step()).rejects.toThrow("unknown event event:future");
+    expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
   });
 });

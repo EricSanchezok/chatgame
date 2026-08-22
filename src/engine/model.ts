@@ -253,7 +253,7 @@ export interface D20CheckResult {
 }
 
 export interface ActionOutcome {
-  actionId: string;
+  proposalId: string;
   status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
   summary: string;
   causeRefs: CausalRef[];

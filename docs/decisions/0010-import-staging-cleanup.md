@@ -1,7 +1,7 @@
 # 导入暂存目录清理
 
 ## Status
-Accepted
+Superseded by [0033](0033-persistent-streaming-world-runs.md)
 Class: bug-fix
 
 ## Context and Problem Statement
@@ -49,4 +49,4 @@ Class: bug-fix
 - 好：空目录即删、非空自动失败、失败路径同样清理、并发安全。
 
 ## Links
-- [src/server/script-import.ts](../../src/server/script-import.ts) — 修复所在模块。
+- [0033](0033-persistent-streaming-world-runs.md) — 当前导入与运行持久化边界。

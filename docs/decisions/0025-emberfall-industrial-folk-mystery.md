@@ -1,7 +1,7 @@
 # 《灰烬镇》工业民俗悬疑重做
 
 ## Status
-Accepted
+Deprecated
 Class: feature
 
 ## Context and Problem Statement

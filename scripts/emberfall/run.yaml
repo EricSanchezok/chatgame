@@ -1,7 +1,0 @@
-death_policy:
-  mode: world_continue
-  world_continue: { succession: new_character, state_kept: [flags, facts] }
-meta_progression: { keep: [flags, lore], reset: [stats], unlocks: [] }
-memory:
-  tier_retention_days: { major: 0, minor: 21, trivial: 7 }
-context_compaction: { policy: summarize_archive, retention_tiers: [major, minor] }

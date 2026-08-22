@@ -8,6 +8,18 @@ import { MemoryWorldSessionStore } from "../world-session-store";
 
 const fixtureRoot = path.resolve("test/fixtures");
 
+class TransientFailureStore extends MemoryWorldSessionStore {
+  failNextWrite = false;
+
+  override write(document: Parameters<MemoryWorldSessionStore["write"]>[0]): void {
+    if (this.failNextWrite) {
+      this.failNextWrite = false;
+      throw new Error("simulated persistence outage");
+    }
+    super.write(document);
+  }
+}
+
 function mindOutput(agentId: string, revision: number) {
   return {
     beliefPatch: { agentId, baseRevision: revision, operations: [] },
@@ -32,7 +44,7 @@ function transition(context: {
   return {
     baseRevision: context.baseRevision,
     outcomes: context.jointActions.map((action) => ({
-      actionId: action.id,
+      proposalId: action.id,
       status: "succeeded",
       summary: "联合行动已被裁决。",
       causeRefs: [{ kind: "action", id: action.id }],
@@ -209,5 +221,31 @@ describe("WorldHost", () => {
     expect(host.session(session.id)).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
     expect(cancelled.events.map((event) => event.type)).toContain("step.committed");
     expect(cancelled.events.at(-1)?.type).toBe("run.cancelled");
+  });
+
+  it("rolls back an otherwise valid step when its atomic persistence fails", async () => {
+    const store = new TransientFailureStore();
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        jointActions: Array<{ id: string }>;
+        revision: number;
+        agent: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      store.failNextWrite = true;
+      return { kind: "transition", proposal: transition(context) };
+    });
+    const { host } = createHost(provider, store);
+    const session = await host.createSession({ scriptId: "open-world-fixture" });
+    const run = host.startRun(session.id, "执行一个会成功但无法持久化的步骤");
+
+    const failed = await host.waitForRun(session.id, run.id);
+
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toContain("simulated persistence outage");
+    expect(failed.events.map((event) => event.type)).toEqual(["run.started", "run.failed"]);
+    expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
   });
 });

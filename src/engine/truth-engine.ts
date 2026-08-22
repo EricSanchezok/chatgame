@@ -75,23 +75,24 @@ function validateTransitionEnvelope(
   proposal: TransitionProposal,
   checks: readonly D20CheckResult[],
 ): void {
-  const actionIds = input.actions.map((action) => action.id);
-  const outcomeIds = proposal.outcomes.map((outcome) => outcome.actionId);
+  const proposalIds = input.actions.map((action) => action.id);
+  const outcomeIds = proposal.outcomes.map((outcome) => outcome.proposalId);
   if (new Set(outcomeIds).size !== outcomeIds.length) throw new Error("transition has duplicate action outcomes");
-  if (actionIds.length !== outcomeIds.length || actionIds.some((id) => !outcomeIds.includes(id))) {
+  if (proposalIds.length !== outcomeIds.length || proposalIds.some((id) => !outcomeIds.includes(id))) {
     throw new Error("transition must contain exactly one outcome for every joint action");
   }
   if (proposal.baseRevision !== input.state.revision) throw new Error("transition has a stale base revision");
 
   const eventIds = new Set(input.state.events.map((event) => event.id));
+  const proposedEventIds = new Set<string>();
   for (const event of proposal.events) {
-    if (eventIds.has(event.id)) throw new Error(`duplicate event id ${event.id}`);
+    if (eventIds.has(event.id) || proposedEventIds.has(event.id)) throw new Error(`duplicate event id ${event.id}`);
     if (event.step !== input.state.step + 1) throw new Error(`event ${event.id} has invalid step`);
-    eventIds.add(event.id);
+    proposedEventIds.add(event.id);
   }
 
   const allowed: Record<CausalRef["kind"], Set<string>> = {
-    action: new Set(actionIds),
+    action: new Set(proposalIds),
     check: new Set(checks.map((check) => check.requestId)),
     event: eventIds,
     fact: new Set(Object.keys(input.state.truth.facts)),
@@ -99,6 +100,7 @@ function validateTransitionEnvelope(
   };
   for (const event of proposal.events) {
     for (const cause of event.causes) validateCausalReference(cause, allowed, `event ${event.id}`);
+    allowed.event.add(event.id);
   }
   for (const operation of proposal.operations) {
     for (const cause of operation.causes) validateCausalReference(cause, allowed, operation.kind);
@@ -108,11 +110,11 @@ function validateTransitionEnvelope(
     }
   }
   for (const outcome of proposal.outcomes) {
-    for (const cause of outcome.causeRefs) validateCausalReference(cause, allowed, `outcome ${outcome.actionId}`);
+    for (const cause of outcome.causeRefs) validateCausalReference(cause, allowed, `outcome ${outcome.proposalId}`);
   }
   for (const observation of proposal.observations) {
     for (const eventId of observation.sourceEventIds) {
-      if (!eventIds.has(eventId)) throw new Error(`observation ${observation.id} references unknown event ${eventId}`);
+      if (!allowed.event.has(eventId)) throw new Error(`observation ${observation.id} references unknown event ${eventId}`);
     }
   }
 }
@@ -126,9 +128,9 @@ export class TruthEngine {
 
   async resolve(input: TruthResolutionInput): Promise<TruthResolution> {
     const lawIds = new Set(input.definition.laws.map((law) => law.id));
-    const actionIds = new Set(input.actions.map((action) => action.id));
+    const proposalIds = new Set(input.actions.map((action) => action.id));
     const allowedForChecks: Record<CausalRef["kind"], Set<string>> = {
-      action: actionIds,
+      action: proposalIds,
       check: new Set(),
       event: new Set(input.state.events.map((event) => event.id)),
       fact: new Set(Object.keys(input.state.truth.facts)),
@@ -145,11 +147,17 @@ export class TruthEngine {
       baseRevision: input.state.revision,
       step: input.state.step,
       canonicalTruth: input.state.truth,
-      playerKnowledge: input.state.player.knowledge,
-      playerBindings: input.state.player.bindings,
+      playerEpistemics: {
+        knowledge: input.state.player.knowledge,
+        bindings: input.state.player.bindings,
+      },
       playerIntent: input.state.player.intent,
-      epistemicBindings: Object.fromEntries(
-        Object.values(input.state.agents).map((agent) => [agent.id, agent.bindings]),
+      agentEpistemics: Object.fromEntries(
+        Object.values(input.state.agents).map((agent) => [agent.id, {
+          entityId: agent.entityId,
+          belief: agent.belief,
+          bindings: agent.bindings,
+        }]),
       ),
       jointActions: input.actions,
     };

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
@@ -136,8 +136,32 @@ function entityFiles(scriptDir: string): string[] {
     .map((name) => path.join(directory, name));
 }
 
+export function validateWorldScriptLayout(scriptDir: string): void {
+  const root = path.resolve(scriptDir);
+  const rootFiles = new Set(["script.yaml", "laws.yaml", "mechanics.yaml", "player.yaml"]);
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const absolute = path.join(root, entry.name);
+    const stats = lstatSync(absolute);
+    if (stats.isSymbolicLink()) throw new WorldScriptError(absolute, "symbolic links are not allowed");
+    if (entry.isDirectory()) {
+      if (entry.name !== "entities") throw new WorldScriptError(absolute, "unexpected directory");
+      for (const entityEntry of readdirSync(absolute, { withFileTypes: true })) {
+        const entityFile = path.join(absolute, entityEntry.name);
+        if (!entityEntry.isFile() || !/\.ya?ml$/.test(entityEntry.name)) {
+          throw new WorldScriptError(entityFile, "entities may contain YAML files only");
+        }
+      }
+      continue;
+    }
+    if (!entry.isFile() || !rootFiles.has(entry.name)) {
+      throw new WorldScriptError(absolute, "unexpected world script file");
+    }
+  }
+}
+
 export function loadWorldScript(scriptDir: string, seed = 1): WorldDefinition {
   const root = path.resolve(scriptDir);
+  validateWorldScriptLayout(root);
   const manifest = parseDocument(path.join(root, "script.yaml"), scriptManifestSchema);
   const laws = parseDocument(path.join(root, "laws.yaml"), lawsFileSchema);
   const mechanicsDocument = parseDocument(path.join(root, "mechanics.yaml"), mechanicsFileSchema);

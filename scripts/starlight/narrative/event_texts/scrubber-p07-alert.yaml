@@ -1,5 +1,0 @@
-event_id: scrubber-p07-alert
-templates:
-  - tone: 工业现实
-    text: "[ALM/B-12] P-07 压差 2.81 kPa，超过 1.80 阈值。反相转速 78%，影响 H-12 至 H-18。工单等待维修二班签收。"
-    slot_vars: []

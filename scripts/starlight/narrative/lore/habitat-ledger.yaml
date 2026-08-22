@@ -1,5 +1,0 @@
-id: habitat-ledger
-keywords: [居民, 人数, 咳嗽, H-12]
-inject_when: on_npc
-npcs: [doctor-vera]
-content: "林小北的纸本问诊记录按舱门列出六十三名住户，其中二十二人没有灯塔登记权重；这是从居住端得出的第一条独立证据。"

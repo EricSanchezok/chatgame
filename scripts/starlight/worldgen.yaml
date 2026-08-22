@@ -1,4 +1,0 @@
-randomize:
-  - { target: starting_event, pool: [scrubber-p07-alert], distribution: uniform }
-fixed: [plot_commitments, world_rules, glossary, taboos, locations]
-seed: { policy: per_run }

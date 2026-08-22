@@ -1,7 +1,7 @@
 # Manus 风格游戏会话工作区与 UI API v6
 
 ## Status
-Accepted
+Superseded by [0033](0033-persistent-streaming-world-runs.md)
 Class: architecture
 
 ## Context and Problem Statement
@@ -64,4 +64,4 @@ UI API 直接升级为 v6。公开槽位是 `launcher`、`game-shell`、`scene`�
 - [0024](0024-frontend-workbench-and-ci.md) — 前端工作台、视觉矩阵和真实入口验证。
 - [表现层规格](../game-design/presentation.md) — 当前游戏工作区、UI API 和无障碍契约。
 - [会话层级复盘](../postmortems/0008-conversation-hierarchy-regressed-again.md) — 几何与快照门禁允许错误层级通过的原因和护栏。
-- [布局端到端测试](../../e2e/flows/layout.spec.ts) — 单滚动区、中心轴、媒体尺寸、活动滚动条与移动端几何断言。
+- [0034](0034-truth-engine-verification-matrix.md) — 当前前端与真实入口验证策略。

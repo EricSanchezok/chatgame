@@ -1,50 +1,8 @@
 # 游戏设计参考
 
-这里放游戏设计层面的参考文档——"世界如何运转"的规格，一个主题一页：
+- [script-format.md](script-format.md) — 世界包文件、字段与引用约束。
+- [engine-runtime.md](engine-runtime.md) — 自由行动、有限认知、联合裁决和事务语义。
+- [presentation.md](presentation.md) — WorldRun HTTP/SSE 和浏览器工作台。
+- [script-import.md](script-import.md) — ZIP 安装、替换与安全边界。
 
-| 文档 | 内容 |
-|---|---|
-| [script-format.md](script-format.md) | 剧本格式 v1.0：18 模块 + theme/assets 两个可选表现模块 + 附录 A-G |
-| [engine-runtime.md](engine-runtime.md) | 引擎运行时 v1：回合循环、判定、防作弊、双轨状态、LLM 桥、存档、表现层 |
-| [presentation.md](presentation.md) | 表现层 v3：玩家宿主、UI API、主题、可访问性与并发边界 |
-| [script-import.md](script-import.md) | 两阶段剧本导入、素材来源、安装所有权与失败语义 |
-| time.md | 时间机制：时间流逝、日程、事件调度 |
-| character.md | 角色机制：属性、记忆、关系 |
-| inventory.md | 背包机制 |
-| combat.md | 战斗机制：生命值、伤害结算 |
-
-## 剧本格式
-
-剧本格式 v1.0 已定稿：`script-format.md`（人类契约）+ `src/script/schemas/`（zod 机器契约）+ `scripts/emberfall/`、`scripts/starlight/`（示例剧本）。校验命令：
-
-```sh
-npm run script:validate -- scripts/emberfall
-npm run script:validate -- scripts/starlight
-```
-
-决策依据见 [决策记录 0005](../decisions/0005-script-format-v1.md)。
-
-## 引擎运行时
-
-引擎运行时 v1 已实现：`src/engine/`（回合循环 + 判定 + 防作弊 + 双轨状态 + LLM 桥 + 存档 + 表现层）。规格见 [engine-runtime.md](engine-runtime.md)；演示：
-
-```sh
-npm run play   # demo CLI（默认 Mock LLM，无 key 可跑）
-```
-
-决策依据见 [决策记录 0007](../decisions/0007-engine-runtime.md)。
-
-## 表现层
-
-表现层由 `src/app/` 的玩家宿主与 Route Handlers、`src/server/` 的会话托管与导入核心组成。规格见 [presentation.md](presentation.md) 与 [script-import.md](script-import.md)；演示：
-
-```sh
-npm run dev   # 开发服务器（启动器 + 游戏 UI）
-```
-
-决策依据见 [决策记录 0027](../decisions/0027-session-first-ui-api-v4.md) 与 [决策记录 0028](../decisions/0028-conversation-first-game-layout.md)。
-
-规则：
-
-- 这里写"当前如何运转"的规格；"为什么这么设计"写进 [决策记录](../decisions/README.md)。
-- 有第一份内容时再创建对应文件，避免空目录占位。
+这些文档描述当前可执行契约。历史方案与取舍只存在于 [决策日志](../decisions/README.md)。

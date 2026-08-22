@@ -24,7 +24,7 @@ export const lawsFileSchema = z.object({
     id: z.string().min(1),
     text: z.string().min(1),
     severity: z.enum(["hard", "soft"]),
-  }).strict()),
+  }).strict()).min(1),
 }).strict();
 
 const thresholdEffectSchema = z.discriminatedUnion("kind", [

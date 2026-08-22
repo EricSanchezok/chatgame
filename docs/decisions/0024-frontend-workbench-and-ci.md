@@ -1,7 +1,7 @@
 # 前端测试工作台与 CI
 
 ## Status
-Accepted
+Superseded by [0034](0034-truth-engine-verification-matrix.md)
 Class: testing
 
 ## Context and Problem Statement

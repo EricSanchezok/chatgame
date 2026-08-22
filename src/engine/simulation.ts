@@ -141,7 +141,8 @@ export class SimulationEngine {
     initialState: SimulationState = definition.initialState,
   ) {
     validateWorldDefinition(definition);
-    validateSimulationState(initialState, false);
+    if (initialState.worldId !== definition.id) throw new Error("simulation state belongs to another world");
+    validateSimulationState(initialState, false, true);
     this.state = structuredClone(initialState);
   }
 
@@ -158,7 +159,7 @@ export class SimulationEngine {
     for (let index = 0; index < agents.length; index += 1) {
       source.agents[agents[index].id] = applyMindOutput(agents[index], outputs[index]);
     }
-    validateSimulationState(source, true);
+    validateSimulationState(source, true, true);
     this.state = source;
     return this.snapshot;
   }
@@ -268,6 +269,7 @@ export class SimulationEngine {
       beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
     };
     candidate.history.push(committed);
+    validateSimulationState(candidate, true, true);
     this.state = candidate;
     return {
       committed: structuredClone(committed),

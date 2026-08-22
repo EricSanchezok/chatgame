@@ -1,7 +1,7 @@
 # 合并后审计——单一描述注入点、denied_action 回归与描述层 UI 消费补全
 
 ## Status
-Accepted
+Deprecated
 Class: simplification
 
 ## Context and Problem Statement

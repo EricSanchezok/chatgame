@@ -1,5 +1,0 @@
-id: cargo-ledger
-keywords: [配给, 登记册, REG-2178, 货运]
-inject_when: on_npc
-npcs: [night-cat]
-content: "阿岑保存的货运底单显示同一批耗材长期多出四十七人的实际消耗，灯塔把这部分归类为设备损耗；这是从物资端得出的第二条独立证据。"

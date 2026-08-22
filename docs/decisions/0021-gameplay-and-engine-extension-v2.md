@@ -1,7 +1,7 @@
 # 玩法与引擎扩展契约 v2
 
 ## Status
-Accepted
+Superseded by [0031](0031-epistemic-multi-agent-truth-engine.md)
 Class: architecture
 
 ## Context and Problem Statement

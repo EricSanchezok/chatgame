@@ -10,27 +10,26 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # AGENTS.md
 
-chatgame 是剧本驱动的 AI 聊天游戏框架。设计的第一性原理见 [决策记录 0004](docs/decisions/0004-game-first-principles.md)；改架构前先读 [docs/architecture.md](docs/architecture.md)。
+chatgame 是剧本驱动的开放世界 AI 游戏框架。设计的第一性原理见 [决策记录 0004](docs/decisions/0004-game-first-principles.md)；改架构前先读 [docs/architecture.md](docs/architecture.md)。
 
 ## Repository layout
 
 ```
-src/          应用与引擎：app/（Next.js UI + Route Handlers）、script/（剧本契约层）、engine/（引擎运行时）、server/（EngineHost 会话托管 + 剧本导入）
+src/          应用与引擎：app/（Next.js UI + Route Handlers）、script/（世界契约层）、engine/（Truth Engine 运行时）、server/（WorldHost + WorldRun 持久化/导入）
 docs/         参考文档：architecture、game-design（剧本格式/引擎运行时/表现层）、decisions（决策日志）、research（调研证据）
 .agents/      内嵌 skill：repo-review（评审政策）、repo-decisions（决策记录流程）
-scripts/      门禁与演示脚本（verify-* / validate-script / play-emberfall / import-script）
+scripts/      门禁与世界工具（verify-* / validate-world / import-world）
 ```
 
 ## Commands
 
 ```sh
-npm run dev      # 开发服务器（启动器 + 游戏 UI）
+npm run dev      # 开发服务器（开放世界工作台）
 npm run build    # 生产构建
 npm run lint     # ESLint
-npm run play     # 引擎 demo CLI（默认 Mock LLM）
 npm test         # vitest 测试
-npm run script:validate -- <剧本目录>   # 剧本校验
-npm run import-script -- <zip|目录>      # 剧本导入 CLI（与 web 共用导入核心）
+npm run world:validate -- <世界目录>       # schema v2 世界校验
+npm run world:import -- <zip> [--replace] # 世界导入 CLI（与 web 共用导入核心）
 ```
 
 Gates（pre-commit hook 强制执行，也可手动运行）：
@@ -57,14 +56,15 @@ node scripts/verify-decisions.mjs && node scripts/verify-doc-links.mjs && node s
 ## 约定
 
 - **剧本驱动**：世界观/人物/机制由剧本定义，框架保持通用。禁止为单个游戏写死逻辑而绕过剧本。
-- **引擎管规则，LLM 管叙事**：状态（时间/背包/血量/记忆）是引擎管理的真实数据，绝不放进对话文本。媒体线索同理：`MediaCue` 由引擎从状态差确定性推导，LLM 不参与媒体决策。
+- **开放语义、严格提交**：玩家与 Agent 可提出任意自然语言行动；Truth Engine 负责联合语义裁决，事务内核负责 schema、引用、数值、守恒、随机承诺、因果与原子性。玩家文本永远不是状态 delta。
+- **认知隔离**：canonical truth、每个 Agent belief 与玩家知识是独立状态；AgentMind 与客户端不得收到 canonical identity binding 或其他主体的隐藏认知。
 - **引擎只在服务端运行**：fs/YAML/API key 决定引擎不能进浏览器；客户端只通过 `src/app/api/**/route.ts` 访问，任何"引擎搬客户端"方案禁止。
 - **敏捷开发，不做向后兼容**：处于快速迭代期，任何破坏性变更（状态模型、存档 schema、行为语义）直接落地；旧存档、旧测试数据、旧兼容路径一律删除，不写迁移与兼容层。
 - **干净单一**：逻辑只有一个实现，拒绝冗余路径与屎山；旧路径被替代即删除，不留双轨。
 - **每个事实只有一个家**：决策 → docs/decisions；规格 → docs/game-design；指令 → 本文件；别处只放链接。
 - 文档只写当前状态，不写变更历史；交叉引用用相对 Markdown 链接。
 - 文档与决策记录用中文；代码标识符与注释用英文。
-- **前端硬编码颜色零容忍**：UI 只消费 `--cg-*` CSS 变量（主题由 `src/app/lib/theme.ts` 应用），禁止硬编码色值。
+- **前端硬编码颜色零容忍**：组件只消费 `--cg-*` CSS 变量；token 在根主题声明，禁止在组件规则中硬编码色值。
 
 ## Documentation
 

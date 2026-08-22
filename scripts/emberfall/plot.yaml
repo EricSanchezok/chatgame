@@ -1,7 +1,0 @@
-commitments:
-  - id: keep-public-ledger
-    description: 本班带回的煤与证据必须在公共熔炉旁公开结算。
-    type: duty
-    trigger: { time: { day: 7 } }
-    must_happen: true
-    related: { locations: [lamp-house], npcs: [wang-shulan, han-zhi] }

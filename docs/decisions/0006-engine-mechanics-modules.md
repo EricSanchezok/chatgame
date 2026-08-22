@@ -1,7 +1,7 @@
 # 引擎 mechanics 模块（背包/需求/状态/战斗/成长）
 
 ## Status
-Accepted
+Superseded by [0032](0032-open-world-facts-and-d20-kernel.md)
 Class: architecture
 
 ## Context and Problem Statement

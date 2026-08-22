@@ -1,7 +1,7 @@
 # 认知分叉的多智能体 Truth Engine
 
 ## Status
-Proposed
+Accepted
 Class: architecture
 
 ## Context and Problem Statement
@@ -28,7 +28,7 @@ Class: architecture
 
 运行时由 `CanonicalWorldState`、每个 Agent 的 `AgentBeliefState` 与人类玩家的 `PlayerKnowledgeState` 组成。信念图使用 Agent 私有局部实体身份，允许事实、描述和实体存在性与真相冲突；Truth Engine 不得用真相自动改写信念。
 
-自主实体拥有 `AgentMind`，普通物体只有 `Entity`。每个已提交世界步骤包含所有存活 Agent 基于同一 base revision 产生的自由 `AgentActionProposal`。玩家原文与 Agent 提案共同交给 Truth Engine；不存在 action kind、action id 或未知动作降级。
+自主实体拥有 `AgentMind`，普通物体只有 `Entity`。每个已提交世界步骤包含所有存活 Agent 基于同一 base revision 产生的自由 `AgentActionProposal`。玩家原文与 Agent 提案共同交给 Truth Engine；不存在预配置 action kind、目录 `actionId` 或未知动作降级，proposal 自身的 id 只用于本次因果审计。
 
 Truth Engine 负责联合语义裁决并提出检定、客观事件、状态 delta 和逐 Agent observation。非 LLM 事务内核只检查 schema、引用、数值、provenance、随机承诺和原子性。Truth Engine 与 AgentMind 的非法输出最多修复两次；失败步骤不提交。
 

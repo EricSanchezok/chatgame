@@ -25,5 +25,5 @@
 ## Guardrails
 
 - 所有启动器步骤始终使用同一 grid 居中布局，`inert` 与 `aria-hidden` 只负责交互和可访问树，不再改变几何。
-- [布局端到端测试](../../e2e/flows/layout.spec.ts) 在点击前读取下一步卡片顶部坐标，切换后要求误差小于一个 CSS 像素。
+- 该启动器与旧布局测试已随被取代的 UI 删除；当前浏览器门禁见[决策 0034](../decisions/0034-truth-engine-verification-matrix.md)。
 - 横向步骤过渡的人工验收同时观察动画首帧、进行中和结束位置；最终截图不能替代瞬时几何验证。

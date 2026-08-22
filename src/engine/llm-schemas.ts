@@ -116,7 +116,7 @@ const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
 ]);
 
 const actionOutcomeSchema = z.object({
-  actionId: z.string().min(1),
+  proposalId: z.string().min(1),
   status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
   summary: z.string(),
   causeRefs: z.array(causalRefSchema),

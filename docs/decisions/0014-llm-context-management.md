@@ -1,7 +1,7 @@
 # LLM 上下文管理——对话历史注入与滚动摘要
 
 ## Status
-Accepted
+Superseded by [0031](0031-epistemic-multi-agent-truth-engine.md)
 Class: feature
 
 ## Context and Problem Statement

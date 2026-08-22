@@ -1,7 +1,7 @@
 # 持久化流式 WorldRun 与无内置剧本工作台
 
 ## Status
-Proposed
+Accepted
 Class: architecture
 
 ## Context and Problem Statement
@@ -32,6 +32,8 @@ Class: architecture
 持续玩家目标在内部步骤间持久化。运行在目标完成、失败、需要玩家决定、取消或默认一百步骤安全上限时停止。客户端只接收玩家可知表面；完整联合行动和 delta 审计保留在服务端事件日志。
 
 同步 turn、action preview、manual advance 与 descriptor mutation API 删除。两个内置剧本及其代码、资产、测试和演示命令删除；旧存档按新 schema 版本拒绝。启动器在零剧本状态显示明确空态并保留新格式导入入口。
+
+世界 ZIP 导入只接受一个 schema v2 世界根目录，限制归档大小、条目数和展开体积，拒绝路径穿越、符号链接、额外文件与旧 `actions.yaml`。导入先在临时目录完整验证，再以 rename 原子安装；覆盖必须显式请求，失败时恢复原目录，暂存目录在所有结果下清理。
 
 ### Consequences
 

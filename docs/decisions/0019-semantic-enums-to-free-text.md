@@ -1,7 +1,7 @@
 # 数值系统描述化——语义枚举 → 自由文本 + description 全链路
 
 ## Status
-Accepted
+Superseded by [0032](0032-open-world-facts-and-d20-kernel.md)
 Class: architecture
 
 ## Context and Problem Statement

@@ -19,8 +19,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@chatgame/ui": ["./src/shared/ui-api.ts"]
+      "@/*": ["./src/*"]
     }
   },
   "include": [
