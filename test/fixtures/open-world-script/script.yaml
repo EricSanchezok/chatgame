@@ -1,0 +1,5 @@
+schema_version: 2
+id: open-world-fixture
+name: 开放世界测试夹具
+version: 1.0.0
+description: 只用于验证新世界契约的最小测试数据。

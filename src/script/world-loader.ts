@@ -1,0 +1,272 @@
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { parse as parseYaml } from "yaml";
+import type {
+  AgentBeliefState,
+  AgentState,
+  MechanicsCatalog,
+  PlayerKnowledgeState,
+  SimulationState,
+} from "../engine/model";
+import { createSeededRng } from "../engine/random";
+import { validateSimulationState } from "../engine/transaction";
+import type { WorldDefinition } from "../engine/world-definition";
+import { validateWorldDefinition } from "../engine/world-definition";
+import {
+  entityDocumentSchema,
+  lawsFileSchema,
+  mechanicsFileSchema,
+  playerDocumentSchema,
+  scriptManifestSchema,
+  type EntityDocument,
+  type MechanicsDocument,
+} from "./contract";
+
+export class WorldScriptError extends Error {
+  constructor(readonly file: string, message: string) {
+    super(`${file}: ${message}`);
+    this.name = "WorldScriptError";
+  }
+}
+
+function readYaml(file: string): unknown {
+  if (!existsSync(file) || !statSync(file).isFile()) {
+    throw new WorldScriptError(file, "required file is missing");
+  }
+  try {
+    return parseYaml(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new WorldScriptError(file, error instanceof Error ? error.message : String(error));
+  }
+}
+
+function parseDocument<T>(
+  file: string,
+  schema: { safeParse(value: unknown): { success: true; data: T } | { success: false; error: { message: string } } },
+): T {
+  const parsed = schema.safeParse(readYaml(file));
+  if (!parsed.success) throw new WorldScriptError(file, parsed.error.message);
+  return parsed.data;
+}
+
+function uniqueRecord<T extends { id: string }>(entries: T[], label: string): Record<string, T> {
+  const result: Record<string, T> = {};
+  for (const entry of entries) {
+    if (result[entry.id]) throw new Error(`duplicate ${label} id ${entry.id}`);
+    result[entry.id] = entry;
+  }
+  return result;
+}
+
+function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
+  for (const meter of document.meters) {
+    if (meter.max <= meter.min) throw new Error(`meter ${meter.id} requires max > min`);
+    for (const threshold of meter.thresholds) {
+      if (threshold.when.value < meter.min || threshold.when.value > meter.max) {
+        throw new Error(`meter threshold ${threshold.id} is outside ${meter.id} range`);
+      }
+    }
+  }
+  for (const rating of document.ratings) {
+    if (rating.max < rating.min) throw new Error(`rating ${rating.id} requires max >= min`);
+  }
+  return {
+    meters: uniqueRecord(document.meters, "meter"),
+    quantities: uniqueRecord(
+      document.quantities.map((quantity) => ({
+        id: quantity.id,
+        name: quantity.name,
+        unit: quantity.unit,
+        allowProduction: quantity.allow_production,
+        allowConsumption: quantity.allow_consumption,
+      })),
+      "quantity",
+    ),
+    ratings: uniqueRecord(document.ratings, "rating"),
+  };
+}
+
+function beliefFrom(document: EntityDocument["agent"]): AgentBeliefState {
+  if (!document) return { localEntities: {}, claims: {}, evidence: {} };
+  return {
+    localEntities: uniqueRecord(document.belief.local_entities, "local entity"),
+    claims: uniqueRecord(document.belief.claims, "belief claim"),
+    evidence: uniqueRecord(document.belief.evidence, "belief evidence"),
+  };
+}
+
+function agentFrom(document: EntityDocument): AgentState | undefined {
+  if (!document.agent) return undefined;
+  return {
+    id: document.agent.id,
+    entityId: document.id,
+    modelProfileId: document.agent.model_profile_id,
+    persona: document.agent.persona,
+    goals: document.agent.goals,
+    belief: beliefFrom(document.agent),
+    bindings: Object.fromEntries(
+      document.agent.belief.bindings.map((binding) => [
+        binding.local_entity_id,
+        {
+          localEntityId: binding.local_entity_id,
+          canonicalEntityIds: binding.canonical_entity_ids,
+        },
+      ]),
+    ),
+  };
+}
+
+function playerKnowledge(document: ReturnType<typeof playerDocumentSchema.parse>): PlayerKnowledgeState {
+  return {
+    localEntities: uniqueRecord(document.local_entities, "player local entity"),
+    evidence: uniqueRecord(document.evidence, "player evidence"),
+    claims: uniqueRecord(document.claims, "player claim"),
+    observationIds: [],
+  };
+}
+
+function entityFiles(scriptDir: string): string[] {
+  const directory = path.join(scriptDir, "entities");
+  if (!existsSync(directory) || !statSync(directory).isDirectory()) {
+    throw new WorldScriptError(directory, "entities directory is missing");
+  }
+  return readdirSync(directory)
+    .filter((name) => name.endsWith(".yaml") || name.endsWith(".yml"))
+    .sort()
+    .map((name) => path.join(directory, name));
+}
+
+export function loadWorldScript(scriptDir: string, seed = 1): WorldDefinition {
+  const root = path.resolve(scriptDir);
+  const manifest = parseDocument(path.join(root, "script.yaml"), scriptManifestSchema);
+  const laws = parseDocument(path.join(root, "laws.yaml"), lawsFileSchema);
+  const mechanicsDocument = parseDocument(path.join(root, "mechanics.yaml"), mechanicsFileSchema);
+  const player = parseDocument(path.join(root, "player.yaml"), playerDocumentSchema);
+  const documents = entityFiles(root).map((file) => parseDocument(file, entityDocumentSchema));
+  if (documents.length === 0) throw new WorldScriptError(path.join(root, "entities"), "at least one entity is required");
+
+  try {
+    const mechanics = mechanicsCatalog(mechanicsDocument);
+    const state: SimulationState = {
+      schemaVersion: 1,
+      worldId: manifest.id,
+      revision: 0,
+      step: 0,
+      truth: {
+        elapsedSeconds: 0,
+        entities: {},
+        placements: {},
+        facts: {},
+        mechanics,
+        meters: {},
+        quantities: {},
+        ratings: {},
+      },
+      agents: {},
+      player: {
+        entityId: player.entity_id,
+        knowledge: playerKnowledge(player),
+        bindings: Object.fromEntries(
+          player.bindings.map((binding) => [
+            binding.local_entity_id,
+            { localEntityId: binding.local_entity_id, canonicalEntityIds: binding.canonical_entity_ids },
+          ]),
+        ),
+      },
+      rng: createSeededRng(seed),
+      events: [],
+      history: [],
+    };
+
+    for (const document of documents) {
+      if (state.truth.entities[document.id]) throw new Error(`duplicate entity id ${document.id}`);
+      state.truth.entities[document.id] = {
+        id: document.id,
+        kind: document.kind,
+        name: document.name,
+        description: document.description,
+        lifecycle: "active",
+        createdAtStep: 0,
+      };
+      state.truth.placements[document.id] = document.placement;
+      for (const fact of document.facts) {
+        if (state.truth.facts[fact.id]) throw new Error(`duplicate fact id ${fact.id}`);
+        state.truth.facts[fact.id] = {
+          ...fact,
+          subjectId: document.id,
+          provenance: [{ kind: "event", id: "worldgen" }],
+        };
+      }
+      for (const meter of document.meters) {
+        if (state.truth.meters[meter.id]) throw new Error(`duplicate meter id ${meter.id}`);
+        state.truth.meters[meter.id] = {
+          id: meter.id,
+          definitionId: meter.definition_id,
+          entityId: document.id,
+          current: meter.current,
+          firedThresholdIds: [],
+        };
+      }
+      for (const quantity of document.quantities) {
+        const id = `${quantity.definition_id}:${document.id}`;
+        if (state.truth.quantities[id]) throw new Error(`duplicate quantity id ${id}`);
+        state.truth.quantities[id] = {
+          id,
+          definitionId: quantity.definition_id,
+          holderId: document.id,
+          amount: quantity.amount,
+        };
+      }
+      for (const rating of document.ratings) {
+        if (state.truth.ratings[rating.id]) throw new Error(`duplicate rating id ${rating.id}`);
+        state.truth.ratings[rating.id] = {
+          id: rating.id,
+          definitionId: rating.definition_id,
+          entityId: document.id,
+          value: rating.value,
+        };
+      }
+      const agent = agentFrom(document);
+      if (agent) {
+        if (state.agents[agent.id]) throw new Error(`duplicate agent id ${agent.id}`);
+        state.agents[agent.id] = agent;
+      }
+    }
+
+    const definition: WorldDefinition = {
+      id: manifest.id,
+      name: manifest.name,
+      description: manifest.description,
+      laws: laws.laws,
+      disclosure: { defaultCheckVisibility: laws.disclosure.default_check_visibility },
+      initialState: state,
+    };
+    validateWorldDefinition(definition);
+    validateSimulationState(state, false);
+    return definition;
+  } catch (error) {
+    throw new WorldScriptError(root, error instanceof Error ? error.message : String(error));
+  }
+}
+
+export interface WorldScriptSummary {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  directory: string;
+}
+
+export function listWorldScripts(root: string): WorldScriptSummary[] {
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .flatMap((entry) => {
+      const directory = path.join(root, entry.name);
+      const manifestFile = path.join(directory, "script.yaml");
+      if (!existsSync(manifestFile)) return [];
+      const manifest = parseDocument(manifestFile, scriptManifestSchema);
+      return [{ ...manifest, directory }];
+    });
+}

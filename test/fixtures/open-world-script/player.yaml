@@ -1,0 +1,28 @@
+entity_id: player
+local_entities:
+  - id: self
+    name: 我
+    description: 我所扮演的旅人。
+    status: observed
+  - id: copper-key
+    name: 铜钥匙
+    description: 商人声称能打开石门的钥匙。
+    status: reported
+evidence:
+  - id: merchant-testimony
+    kind: testimony
+    description: 昨日商人声称这是真钥匙。
+    sourceId: merchant
+    step: 0
+claims:
+  - id: key-is-authentic
+    subjectId: copper-key
+    predicate: authenticity
+    value: { kind: text, value: real }
+    description: 商人说它是真的。
+    evidenceIds: [merchant-testimony]
+bindings:
+  - local_entity_id: self
+    canonical_entity_ids: [player]
+  - local_entity_id: copper-key
+    canonical_entity_ids: [key]

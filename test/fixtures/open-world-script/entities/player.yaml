@@ -1,0 +1,12 @@
+id: player
+kind: person
+name: 旅人
+description: 一个刚来到石门前的旅人。
+placement: courtyard
+facts: []
+meters:
+  - { id: "health:player", definition_id: health, current: 12 }
+quantities:
+  - { definition_id: spirit-stone, amount: 3 }
+ratings:
+  - { id: "resolve:player", definition_id: resolve, value: 2 }

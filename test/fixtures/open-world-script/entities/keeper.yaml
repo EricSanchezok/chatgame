@@ -1,0 +1,34 @@
+id: keeper
+kind: person
+name: 守门人
+description: 负责看守石门的人。
+placement: courtyard
+facts: []
+meters:
+  - { id: "health:keeper", definition_id: health, current: 15 }
+quantities:
+  - { definition_id: spirit-stone, amount: 20 }
+ratings:
+  - { id: "resolve:keeper", definition_id: resolve, value: 3 }
+agent:
+  id: keeper
+  model_profile_id: agent-default
+  persona: 谨慎，重视职责，但会根据自己掌握的证据作判断。
+  goals: [守住石门, 弄清旅人的来意]
+  belief:
+    local_entities:
+      - id: self
+        name: 我
+        description: 石门守卫。
+        status: observed
+      - id: traveler
+        name: 旅人
+        description: 刚刚来到门前的陌生人。
+        status: observed
+    evidence: []
+    claims: []
+    bindings:
+      - local_entity_id: self
+        canonical_entity_ids: [keeper]
+      - local_entity_id: traveler
+        canonical_entity_ids: [player]
