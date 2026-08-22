@@ -43,6 +43,7 @@ test("desktop chat shell keeps one axis for messages, media and composer", async
       return { left: box.left, right: box.right, width: box.width };
     });
     const media = boxes('.cg-entry-media');
+    const mediaItems = boxes('.cg-entry-media__item');
     const scroll = document.querySelector('.cg-conversation-scroll');
     const scrolling = document.scrollingElement;
     return {
@@ -51,11 +52,17 @@ test("desktop chat shell keeps one axis for messages, media and composer", async
       transcript: rect('.cg-conversation-scroll'),
       inner: rect('.cg-conversation-lane'),
       composer: rect('.cg-composer'),
-      composerGroup: rect('.cg-composer__surface'),
+      composerForm: rect('.cg-composer__form'),
+      composerSurfaceCount: document.querySelectorAll('.cg-composer__surface').length,
+      visibleComposerHints: [...document.querySelectorAll('.cg-composer__hint')].filter((node) => getComputedStyle(node).display !== 'none').length,
       world,
       worldBodies,
       playerBodies,
       media,
+      mediaItems,
+      suggestionIcons: document.querySelectorAll('.cg-suggestions button svg').length,
+      worldGroups: document.querySelectorAll('.cg-message-group[data-role="world"]').length,
+      worldIdentities: document.querySelectorAll('.cg-world-identity, .cg-speaker').length,
       transcriptScroll: scroll ? { scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight, overflowY: getComputedStyle(scroll).overflowY, scrollbarWidth: getComputedStyle(scroll).scrollbarWidth } : null,
       documentScroll: scrolling ? { scrollHeight: scrolling.scrollHeight, clientHeight: scrolling.clientHeight } : null,
     };
@@ -73,14 +80,24 @@ test("desktop chat shell keeps one axis for messages, media and composer", async
   expect(Math.max(...worldLefts) - Math.min(...worldLefts)).toBeLessThan(1);
   const mediaLefts = geometry.media.map((box) => box.left);
   expect(mediaLefts.length).toBeGreaterThan(0);
-  expect(Math.max(...geometry.media.map((box) => box.width))).toBeLessThanOrEqual(720);
+  expect(Math.max(...geometry.media.map((box) => box.width))).toBeLessThanOrEqual(640);
   expect(Math.max(...mediaLefts) - Math.min(...mediaLefts)).toBeLessThan(1);
   expect(Math.abs(mediaLefts[0] - worldLefts[0])).toBeLessThan(1);
+  expect(geometry.mediaItems.length).toBeGreaterThan(1);
+  expect(geometry.mediaItems[1].width).toBeLessThan(geometry.mediaItems[0].width);
   expect(geometry.playerBodies.length).toBeGreaterThan(0);
   const playerRights = geometry.playerBodies.map((box) => box.right);
   expect(Math.max(...playerRights) - Math.min(...playerRights)).toBeLessThan(1);
+  const playerWidths = geometry.playerBodies.map((box) => box.width);
+  expect(Math.min(...playerWidths)).toBeLessThan(Math.max(...playerWidths));
   expect(Math.abs((geometry.composer?.left ?? 0) + (geometry.composer?.width ?? 0) / 2 - ((geometry.inner?.left ?? 0) + (geometry.inner?.width ?? 0) / 2))).toBeLessThan(1);
-  expect(Math.abs((geometry.composerGroup?.left ?? 0) + (geometry.composerGroup?.width ?? 0) / 2 - ((geometry.inner?.left ?? 0) + (geometry.inner?.width ?? 0) / 2))).toBeLessThan(1);
+  expect(Math.abs((geometry.composerForm?.left ?? 0) + (geometry.composerForm?.width ?? 0) / 2 - ((geometry.inner?.left ?? 0) + (geometry.inner?.width ?? 0) / 2))).toBeLessThan(1);
+  expect(geometry.composer?.height).toBeLessThanOrEqual(64);
+  expect(geometry.composerSurfaceCount).toBe(0);
+  expect(geometry.visibleComposerHints).toBe(0);
+  expect(geometry.suggestionIcons).toBe(0);
+  expect(geometry.worldIdentities).toBeLessThan(geometry.world.length);
+  expect(geometry.worldGroups).toBeLessThan(geometry.world.length);
 
   const transcript = page.locator(".cg-conversation-scroll");
   await transcript.evaluate((node) => node.dispatchEvent(new Event("scroll")));

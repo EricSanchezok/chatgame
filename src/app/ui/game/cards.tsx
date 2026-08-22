@@ -275,24 +275,27 @@ export function EntryCards({
     }
   }
   return cards.length > 0 ? (
-    <div className="cg-entry-media">
-      {cards.map((card) => state && catalog ? (
-        <SlotRenderer
-          key={card.key}
-          slot={`message-card:${card.kind}`}
-          fallback={DefaultMessageCard}
-          slotProps={{
-            scriptId,
-            state,
-            catalog,
-            assets: manifest ?? emptyAssets,
-            entry,
-            kind: card.kind,
-            payload: card.payload,
-            children: card.node,
-          }}
-        />
-      ) : <div key={card.key}>{card.node}</div>)}
+    <div className="cg-entry-media" data-card-count={cards.length}>
+      {cards.map((card, index) => (
+        <div className="cg-entry-media__item" data-primary={index === 0 ? "true" : "false"} key={card.key}>
+          {state && catalog ? (
+            <SlotRenderer
+              slot={`message-card:${card.kind}`}
+              fallback={DefaultMessageCard}
+              slotProps={{
+                scriptId,
+                state,
+                catalog,
+                assets: manifest ?? emptyAssets,
+                entry,
+                kind: card.kind,
+                payload: card.payload,
+                children: card.node,
+              }}
+            />
+          ) : card.node}
+        </div>
+      ))}
     </div>
   ) : null;
 }

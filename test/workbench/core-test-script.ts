@@ -154,22 +154,29 @@ function transcriptFor(fixture: ConversationFixture): TranscriptEntry[] {
       id: "opening-2",
       turn: 2,
       role: "world",
-      text: "中继室的指示灯依次熄灭，只剩最远端的一盏仍在闪烁。",
+      text: "中继室的指示灯依次熄灭，只剩最远端的一盏仍在闪烁。\n这里的故障没有写进上一班的摘要。",
       mediaCues: [
         { kind: "location_enter", locationId: "relay-room" },
         { kind: "event", eventId: "signal-loss" },
       ],
     },
     {
-      id: "opening-3",
+      id: "opening-2b",
       turn: 3,
+      role: "world",
+      text: "远端继电器没有回响。\n\n值班记录把这次异常单独列了出来。",
+      mediaCues: [],
+    },
+    {
+      id: "opening-3",
+      turn: 4,
       role: "player",
       text: "我先核对交班记录，再检查中继柜。",
       mediaCues: [],
     },
     {
       id: "opening-4",
-      turn: 4,
+      turn: 5,
       role: "world",
       text: "值班员把测试钥匙推到你面前，提醒你先确认备用线路。",
       mediaCues: [

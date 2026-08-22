@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { ArrowDown, ArrowUp, Sparkles, Target } from "lucide-react";
-import { Button, InputGroup, Textarea } from "@/shared/ui-runtime";
+import { Button, Textarea } from "@/shared/ui-runtime";
 import type {
   BubbleSlotProps,
   GameObjective,
@@ -34,6 +34,7 @@ import {
   ToolPickerDialog,
 } from "./toolbar";
 import { useScrollActivity } from "../use-scroll-activity";
+import { GameMessageContent } from "./message-content";
 
 function DefaultGameShell({ regions }: GameShellSlotProps) {
   return (
@@ -85,10 +86,28 @@ function NpcIdentity({
   );
 }
 
-function DefaultBubble({ entry, speaker, isFirstAppearance, scriptId, assets, children, openPerson }: BubbleSlotProps & { openPerson?(id: string): void }) {
+type DefaultBubbleProps = BubbleSlotProps & {
+  openPerson?(id: string): void;
+  showIdentity?: boolean;
+};
+
+function DefaultBubble({
+  entry,
+  speaker,
+  isFirstAppearance,
+  scriptId,
+  assets,
+  children,
+  openPerson,
+  showIdentity = true,
+}: DefaultBubbleProps) {
   return (
-    <article className="cg-message" data-role={entry.role}>
-      {entry.role === "world" ? (
+    <article
+      className="cg-message"
+      data-group-start={showIdentity ? "true" : "false"}
+      data-role={entry.role}
+    >
+      {entry.role === "world" && showIdentity ? (
         speaker ? (
           <NpcIdentity
             speaker={speaker}
@@ -109,7 +128,7 @@ function DefaultBubble({ entry, speaker, isFirstAppearance, scriptId, assets, ch
   );
 }
 
-function BubbleAdapter(props: ScriptHostModel & BubbleSlotProps & { openPerson(id: string): void }) {
+function BubbleAdapter(props: ScriptHostModel & DefaultBubbleProps & { openPerson(id: string): void }) {
   return (
     <SlotRenderer
       slot={`bubble:${props.entry.role}`}
@@ -154,7 +173,7 @@ export function actionPreviewDetails(preview: ActionPreview, catalog: Catalog): 
 export function ActionPreviewFeedback({ preview, catalog }: { preview: ActionPreview; catalog: Catalog }) {
   const reason = preview.reason ?? preview.reasonCode ?? "条件不足";
   return (
-    <div className="cg-action-preview" role="status" aria-live="polite" aria-atomic="true" data-executable={preview.executable ? "true" : "false"}>
+    <div className="cg-action-preview" data-executable={preview.executable ? "true" : "false"}>
       {!preview.executable ? <strong>当前不可执行：{reason}</strong> : null}
       <span>{actionPreviewDetails(preview, catalog).join(" · ")}</span>
     </div>
@@ -182,15 +201,14 @@ function SuggestionRows({ suggestions, disabled, onSelect }: {
 }) {
   if (suggestions.length === 0) return null;
   return (
-    <div className="cg-suggestions" aria-label="建议行动">
+    <section className="cg-suggestions" aria-label="建议行动">
       {suggestions.slice(0, 3).map((suggestion) => (
         <button key={suggestion.id} type="button" disabled={disabled} onClick={() => onSelect(suggestion)}>
           <span>{suggestion.label}</span>
           {suggestion.detail ? <small>{suggestion.detail}</small> : null}
-          <ArrowUp aria-hidden="true" />
         </button>
       ))}
-    </div>
+    </section>
   );
 }
 
@@ -215,41 +233,62 @@ const Transcript = memo(function Transcript({
     ?? model.catalog.tasks.find((task) => task.id === id)?.name
     ?? id;
 
+  const seenNpcIds = new Set<string>();
+  const items = transcript.map((entry, index) => {
+    const speech = entry.mediaCues.find((cue) => cue.kind === "npc_speech");
+    const npcId = speech?.kind === "npc_speech" ? speech.npcId : null;
+    const npc = npcId ? model.catalog.npcs.find((candidate) => candidate.id === npcId) : undefined;
+    const relation = npcId ? model.state.player.relations.find((candidate) => candidate.npcId === npcId) : undefined;
+    const isFirstAppearance = npcId !== null && !seenNpcIds.has(npcId);
+    if (npcId) seenNpcIds.add(npcId);
+    return {
+      entry,
+      index,
+      speakerKey: entry.role === "world" ? (npcId ? `npc:${npcId}` : "world") : entry.role,
+      speaker: npc ? { ...npc, relationLabel: relation ? `${relation.stance} · ${relation.value}` : undefined } : undefined,
+      isFirstAppearance,
+    };
+  });
+  const groups = items.reduce<Array<{ key: string; role: string; speakerKey: string; items: typeof items }>>((result, item) => {
+    const current = result.at(-1);
+    if (current?.speakerKey === item.speakerKey) current.items.push(item);
+    else result.push({ key: item.entry.id, role: item.entry.role, speakerKey: item.speakerKey, items: [item] });
+    return result;
+  }, []);
+
   return (
     <div role="log" className="cg-transcript" aria-label="游戏对话记录" aria-live="polite">
-      {transcript.map((entry, index) => {
-        const speech = entry.mediaCues.find((cue) => cue.kind === "npc_speech");
-        const npcId = speech?.kind === "npc_speech" ? speech.npcId : null;
-        const npc = npcId ? model.catalog.npcs.find((candidate) => candidate.id === npcId) : undefined;
-        const relation = npcId ? model.state.player.relations.find((candidate) => candidate.npcId === npcId) : undefined;
-        const isFirstAppearance = Boolean(npcId) && !transcript.slice(0, index).some((candidate) =>
-          candidate.mediaCues.some((cue) => cue.kind === "npc_speech" && cue.npcId === npcId));
-        const speaker = npc ? { ...npc, relationLabel: relation ? `${relation.stance} · ${relation.value}` : undefined } : undefined;
-        const isLatestWorld = index === latestWorldIndex;
-        return (
-          <BubbleAdapter
-            key={entry.id}
-            {...model}
-            entry={entry}
-            speaker={speaker}
-            isFirstAppearance={isFirstAppearance}
-            openPerson={onOpenPerson}
-          >
-            <p>{entry.text}</p>
-            {entry.role === "world" ? <EntryCards entry={entry} {...model} manifest={model.assets} /> : null}
-            {isLatestWorld && lastTurn?.resolution && lastTurn.resolution.actionId !== "talk" ? (
-              <ResolutionChip
-                actionName={actionName(lastTurn.resolution.actionId)}
-                grade={lastTurn.resolution.grade}
-                roll={lastTurn.resolution.roll}
-                dc={lastTurn.resolution.dc}
-              />
-            ) : null}
-            {isLatestWorld && lastTurn ? <SystemFeedbackBlock lastTurn={lastTurn} actionName={actionName} /> : null}
-            {isLatestWorld ? <SuggestionRows suggestions={suggestions} disabled={busy} onSelect={onSelectSuggestion} /> : null}
-          </BubbleAdapter>
-        );
-      })}
+      {groups.map((group) => (
+        <div className="cg-message-group" data-role={group.role} key={group.key}>
+          {group.items.map(({ entry, index, speaker, isFirstAppearance }, groupIndex) => {
+            const isLatestWorld = index === latestWorldIndex;
+            return (
+              <BubbleAdapter
+                key={entry.id}
+                {...model}
+                entry={entry}
+                speaker={speaker}
+                isFirstAppearance={isFirstAppearance}
+                openPerson={onOpenPerson}
+                showIdentity={groupIndex === 0}
+              >
+                {entry.role === "world" ? <GameMessageContent content={entry.text} /> : <p>{entry.text}</p>}
+                {entry.role === "world" ? <EntryCards entry={entry} {...model} manifest={model.assets} /> : null}
+                {isLatestWorld && lastTurn?.resolution && lastTurn.resolution.actionId !== "talk" ? (
+                  <ResolutionChip
+                    actionName={actionName(lastTurn.resolution.actionId)}
+                    grade={lastTurn.resolution.grade}
+                    roll={lastTurn.resolution.roll}
+                    dc={lastTurn.resolution.dc}
+                  />
+                ) : null}
+                {isLatestWorld && lastTurn ? <SystemFeedbackBlock lastTurn={lastTurn} actionName={actionName} /> : null}
+                {isLatestWorld ? <SuggestionRows suggestions={suggestions} disabled={busy} onSelect={onSelectSuggestion} /> : null}
+              </BubbleAdapter>
+            );
+          })}
+        </div>
+      ))}
       {busy ? <p className="cg-world-wait" role="status"><span aria-hidden="true" />世界正在回应</p> : null}
     </div>
   );
@@ -277,6 +316,14 @@ function Composer({
   onSubmit(): Promise<void>;
 }) {
   const cannotSubmit = busy || previewing || !input.trim() || preview?.executable === false;
+  const expanded = input.includes("\n") || input.trim().length > 88;
+  const feedback = previewing
+    ? <span>正在读取行动成本与风险……</span>
+    : preview
+      ? <ActionPreviewFeedback preview={preview} catalog={model.catalog} />
+      : previewError
+        ? <strong>{previewError}</strong>
+        : null;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!cannotSubmit) void onSubmit();
@@ -288,30 +335,40 @@ function Composer({
   };
   return (
     <div className="cg-composer-mask">
-      <footer className="cg-composer" data-busy={busy || previewing ? "true" : "false"}>
-        <form onSubmit={submit}>
+      <footer
+        className="cg-composer"
+        data-busy={busy || previewing ? "true" : "false"}
+        data-expanded={expanded || Boolean(feedback) ? "true" : "false"}
+      >
+        <form className="cg-composer__form" onSubmit={submit}>
           <label className="cg-sr-only" htmlFor="player-input">输入你的话或行动</label>
-          <InputGroup className="cg-composer__surface">
-            <Textarea
-              ref={textareaRef}
-              id="player-input"
-              value={input}
-              onChange={(event) => onInput(event.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="说点什么，或描述你的行动"
-              disabled={busy}
-              maxLength={2000}
-              rows={1}
-            />
-            <Button type="submit" variant="primary" size="icon" aria-label={busy ? "等待世界回应" : "发送"} disabled={cannotSubmit}>
-              <ArrowUp aria-hidden="true" />
-            </Button>
-          </InputGroup>
+          <Textarea
+            ref={textareaRef}
+            id="player-input"
+            aria-describedby="player-input-help player-input-feedback"
+            value={input}
+            onChange={(event) => onInput(event.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="说点什么，或描述你的行动"
+            disabled={busy}
+            maxLength={2000}
+            rows={1}
+          />
+          <Button type="submit" variant="primary" size="icon" aria-label={busy ? "等待世界回应" : "发送"} disabled={cannotSubmit}>
+            <ArrowUp aria-hidden="true" />
+          </Button>
         </form>
-        {previewing ? <div className="cg-action-preview" role="status">正在读取行动成本与风险……</div> : null}
-        {preview ? <ActionPreviewFeedback preview={preview} catalog={model.catalog} /> : null}
-        {previewError ? <div className="cg-action-preview" data-executable="false" role="alert">{previewError}</div> : null}
-        <p className="cg-composer__hint">Enter 发送 · Shift + Enter 换行</p>
+        <div
+          id="player-input-feedback"
+          className="cg-composer__feedback"
+          data-error={previewError ? "true" : "false"}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {feedback}
+        </div>
+        <p id="player-input-help" className="cg-sr-only">Enter 发送，Shift 加 Enter 换行。</p>
       </footer>
     </div>
   );
