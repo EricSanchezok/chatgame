@@ -6,6 +6,7 @@ import { defaultPlayerSettings, SETTINGS_STORAGE_KEY, writePlayerSettings } from
 import { clearSlots } from "@/app/lib/script-registry";
 import { applyTheme } from "@/app/lib/theme";
 import { GameScreen } from "@/app/ui/game/chat";
+import { ZoomableImage } from "@/app/ui/game/cards";
 import { GameProvider, useGameSelector } from "@/app/ui/game/state";
 import { Launcher } from "@/app/ui/launcher";
 import { fixturePresentation } from "./core-test-script";
@@ -54,6 +55,17 @@ export function GamePreviewHarness({ scenario = {} }: GamePreviewHarnessProps) {
           <PreviewRouter />
         </div>
       </GameProvider>
+    </div>
+  );
+}
+
+/** Uses the production media/lightbox interaction without requiring a script asset server. */
+export function MediaLightboxFixture() {
+  return (
+    <div className="flex h-dvh items-center justify-center p-8" style={{ background: "var(--cg-background)" }}>
+      <div className="w-full max-w-3xl overflow-hidden rounded-xl">
+        <ZoomableImage src="/file.svg" alt="工作台媒体预览" />
+      </div>
     </div>
   );
 }

@@ -5,9 +5,7 @@ import { useSyncExternalStore } from "react";
 import { Button, Select, SettingRow, Switch } from "@/shared/ui-runtime";
 import type { AssetManifest, Catalog, ThemeView, WorldState } from "../../lib/api";
 import { exitFullscreen, isFullscreen, subscribeFullscreen } from "../../lib/fullscreen";
-import type { PauseMenuSlotProps } from "../../lib/script-registry";
 import { Dialog } from "../dialog";
-import { SlotRenderer } from "./slots";
 import type { ThemeMode } from "./state";
 
 export interface PauseMenuProps {
@@ -40,7 +38,20 @@ function DefaultPauseMenu({
   save,
   exit,
   close,
-}: PauseMenuSlotProps) {
+}: {
+  themeMode: string;
+  themes: ThemeView[];
+  audioEnabled: boolean;
+  isFullscreen: boolean;
+  dirty: boolean;
+  busy: boolean;
+  setTheme(mode: string): void;
+  setAudio(enabled: boolean): void;
+  exitFullscreen(): Promise<void>;
+  save(): Promise<void>;
+  exit(saveFirst: boolean): Promise<void>;
+  close(): void;
+}) {
   return (
     <div className="cg-form-stack">
         <SettingRow controlId="pause-theme" label="主题" description="固定当前主题，或继续跟随剧本。"><Select id="pause-theme" value={themeMode} onValueChange={setTheme} options={[{ value: "follow", label: "跟随剧本" }, ...themes.map((theme) => ({ value: theme.id, label: theme.name }))]} /></SettingRow>
@@ -68,40 +79,22 @@ function DefaultPauseMenu({
 
 export function PauseMenu(props: PauseMenuProps) {
   const fullscreen = useSyncExternalStore(subscribeFullscreen, isFullscreen, () => false);
-  const slotProps: PauseMenuSlotProps = {
-    scriptId: props.scriptId ?? "",
-    state: props.state ?? emptyState,
-    catalog: props.catalog ?? emptyCatalog,
-    assets: props.assets ?? emptyAssets,
-    busy: props.busy,
-    dirty: props.dirty,
-    themeMode: props.themeMode,
-    themes: props.themes,
-    audioEnabled: props.audioEnabled,
-    isFullscreen: fullscreen,
-    setTheme: props.onTheme,
-    setAudio: props.onAudio,
-    exitFullscreen: async () => { await exitFullscreen(); },
-    save: props.onSave,
-    exit: props.onExit,
-    close: props.onClose,
-  };
   return (
-    <Dialog title="暂停菜单" description="世界已停在当前回合。" onClose={props.onClose}>
-      <SlotRenderer slot="pause-menu" fallback={DefaultPauseMenu} slotProps={slotProps} />
+    <Dialog title="游戏菜单" description="当前世界停在这一回合。" onClose={props.onClose} className="cg-game-dialog cg-game-menu-dialog">
+      <DefaultPauseMenu
+        busy={props.busy}
+        dirty={props.dirty}
+        themeMode={props.themeMode}
+        themes={props.themes}
+        audioEnabled={props.audioEnabled}
+        isFullscreen={fullscreen}
+        setTheme={props.onTheme}
+        setAudio={props.onAudio}
+        exitFullscreen={async () => { await exitFullscreen(); }}
+        save={props.onSave}
+        exit={props.onExit}
+        close={props.onClose}
+      />
     </Dialog>
   );
 }
-
-const emptyAssets: AssetManifest = {
-  portraits: {}, backgrounds: {}, illustrations: {}, icons: {}, sprites: {}, voices: {}, ambient: {}, effects: {}, ui: {},
-};
-const emptyCatalog = {
-  locations: [], items: [], npcs: [], events: [], actions: [], stats: [], skills: [], needs: [], factions: [], statusEffects: [], tasks: [], origins: [],
-  currency: { name: "", symbol: "" }, hpStat: "hp",
-} as Catalog;
-const emptyState = {
-  scriptId: "", clock: { totalHours: 0, day: 1, month: 1, year: 1, hour: 0, weekday: 0, weather: "", season: "" },
-  player: { originId: "", name: "", stats: {}, skills: {}, needs: {}, inventory: { stacks: [], currency: 0 }, locationId: "", flags: [], threatGauge: 0, statuses: [], memories: [], relations: [], reputation: [] },
-  npcs: {}, flags: [], facts: [], eventLog: [], commitments: [], tasks: [], playedEventIds: [], secretHolders: {}, locationInventories: {}, transcript: [], runtimeState: {},
-} as WorldState;

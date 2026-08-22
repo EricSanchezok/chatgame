@@ -8,7 +8,7 @@ import { MockProvider } from "../../../src/engine/narrative/mock";
 import type { SaveStore } from "../../../src/engine/save-store";
 import type { IntentHint } from "../../../src/shared/client-dto";
 import type { ScriptHostModel } from "../../../src/shared/ui-api";
-import { createPreviewRequestGate, emberfallActionChoices } from "../../../scripts/emberfall/ui";
+import { emberfallActionChoices } from "../../../scripts/emberfall/ui";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const SCRIPT_DIR = path.join(REPO_ROOT, "scripts/emberfall");
@@ -107,7 +107,7 @@ function contrastRatio(foreground: string, background: string): number {
 }
 
 function uiActionIds(engine: Engine): string[] {
-  return emberfallActionChoices({ state: engine.worldState } as unknown as ScriptHostModel).map((choice) => choice.hint.actionId);
+  return emberfallActionChoices({ state: engine.worldState } as unknown as ScriptHostModel).map((choice) => choice.intentHint.actionId);
 }
 
 describe("Emberfall flagship vertical slice", () => {
@@ -340,25 +340,17 @@ describe("Emberfall flagship vertical slice", () => {
     expect(results[2].hearthCoal).toBe(8);
   });
 
-  it("rejects stale preview generations and keeps the current selection authoritative", () => {
-    const gate = createPreviewRequestGate();
-    const first = gate.begin();
-    const second = gate.begin();
-    expect(gate.isCurrent(second)).toBe(true);
-    expect(gate.isCurrent(first)).toBe(false);
-  });
-
-  it("keeps the script UI host-driven, responsive, and removes legacy SVG presentation assets", () => {
+  it("keeps the script UI host-driven, data-only, and removes legacy SVG presentation assets", () => {
     const source = readFileSync(path.join(SCRIPT_DIR, "ui/index.tsx"), "utf8");
     expect(source).not.toMatch(/\bfetch\s*\(/);
     expect(source).not.toMatch(/createStore|useSyncExternalStore|localStorage/);
     expect(source).not.toContain('ctx.register("game-shell"');
     expect(source).not.toContain('ctx.register("scene"');
-    expect(source).toContain('ctx.register("objective-tracker"');
-    expect(source).toContain('ctx.register("composer"');
-    expect(source).toContain("previewAction(choice.hint)");
-    expect(source).toContain("isCurrent(generation)");
-    expect(source).toContain('className="cg-composer ef-chat-composer"');
+    expect(source).toContain("ctx.configureGame");
+    expect(source).not.toContain('ctx.register("objective-tracker"');
+    expect(source).not.toContain('ctx.register("composer"');
+    expect(source).not.toContain("previewAction");
+    expect(source).not.toContain("cg-composer");
     expect(source).not.toContain("ef-transcript");
     expect(source).not.toContain("记入班账");
     expect(readFileSync(path.join(SCRIPT_DIR, "assets.yaml"), "utf8")).not.toContain(".svg");

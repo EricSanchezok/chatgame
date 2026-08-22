@@ -24,9 +24,11 @@ async function selectScript(page: Page, scriptId: "emberfall" | "starlight"): Pr
 async function expectConversationFrame(page: Page): Promise<void> {
   await expect(page.getByRole("log", { name: "游戏对话记录" })).toBeVisible();
   await expect(page.locator(".cg-location-card img")).toBeVisible();
-  await expect(page.locator('[data-region="composer"]')).toBeVisible();
-  await expect(page.locator('[data-region="toolbar"]')).toBeVisible();
-  await expect(page.locator('[data-region="transcript"]')).toHaveCount(1);
+  await expect(page.locator(".cg-composer")).toBeVisible();
+  await expect(page.locator(".cg-game-tools")).toBeVisible();
+  await expect(page.locator(".cg-conversation-scroll")).toHaveCount(1);
+  await expect(page.locator(".cg-app-shell")).toHaveCount(0);
+  await expect(page.locator(".cg-sheet")).toHaveCount(0);
   expect(await page.evaluate(() => document.body.scrollHeight - document.body.clientHeight)).toBe(0);
 }
 
@@ -66,20 +68,22 @@ test("Emberfall uses one conversation stream for media, NPCs, actions, panels an
   await expectConversationFrame(page);
   await expectNoSeriousWcagViolations(page);
 
-  await page.getByRole("button", { name: "核问何桂 职责与支护欠账", exact: true }).click();
+  await page.getByRole("button", { name: /修整灰灯/ }).click();
+  await expect(page.getByRole("textbox", { name: "输入你的话或行动" })).toBeFocused();
   await expect(page.locator(".cg-action-preview")).toContainText("无需判定");
   await page.getByRole("button", { name: "发送" }).click();
-  const npc = page.getByRole("button", { name: "何桂 井下领班", exact: true });
-  await expect(npc).toBeVisible();
-  await npc.click();
-  await expect(page.locator(".cg-speaker__popover")).toContainText("井下领班");
+
+  await page.getByRole("button", { name: "人物", exact: true }).click();
+  const people = page.getByRole("dialog", { name: "人物" });
+  await expect(people).toContainText("认识的人");
+  await closePanel(page, "人物");
 
   const input = page.getByRole("textbox", { name: "输入你的话或行动" });
   await input.fill("我把炉煤申请按紧急程度重新排好。");
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.getByText("我把炉煤申请按紧急程度重新排好。", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: /本班要务/ }).click();
+  await page.locator(".cg-game-topbar__objective").click();
   await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
   await expectNoSeriousWcagViolations(page);
   await closePanel(page, "任务");
@@ -90,8 +94,8 @@ test("Emberfall uses one conversation stream for media, NPCs, actions, panels an
   await expect(page.getByRole("dialog", { name: "背包" })).toBeVisible();
   await closePanel(page, "背包");
 
-  await page.getByRole("button", { name: "暂停", exact: true }).click();
-  const pause = page.getByRole("dialog", { name: "暂停菜单" });
+  await page.getByRole("button", { name: "游戏菜单", exact: true }).click();
+  const pause = page.getByRole("dialog", { name: "游戏菜单" });
   await expect(pause).toBeVisible();
   await pause.getByRole("button", { name: "保存并返回" }).click();
   await page.getByRole("button", { name: "继续游戏" }).click();
@@ -106,37 +110,38 @@ test("Starlight uses one conversation stream for media, NPCs, previews, panels a
   await expectConversationFrame(page);
 
   await page.getByRole("button", { name: "询问老周 核对库存与交班责任", exact: true }).click();
-  await expect(page.locator(".cg-action-preview")).toContainText("可执行");
+  await expect(page.getByRole("textbox", { name: "输入你的话或行动" })).toBeFocused();
+  await expect(page.locator(".cg-action-preview")).toContainText("耗时 1 小时");
   await page.getByRole("button", { name: "发送" }).click();
-  const npc = page.getByRole("button", { name: "老周 维修一班机务长", exact: true });
+  const npc = page.getByRole("button", { name: "查看人物：老周", exact: true });
   await expect(npc).toBeVisible();
   await npc.click();
-  await expect(page.locator(".cg-speaker__popover")).toContainText("维修一班机务长");
+  await expect(page.getByRole("dialog", { name: "人物" })).toContainText("维修一班机务长");
+  await closePanel(page, "人物");
 
   await page.getByRole("button", { name: "检查 P-07 读取压差、阀体与住户影响", exact: true }).click();
-  await expect(page.locator(".cg-action-preview")).toContainText("成本已锁定");
+  await expect(page.locator(".cg-action-preview")).toContainText("耗时 1 小时");
   await page.getByRole("button", { name: "发送" }).click();
   const input = page.getByRole("textbox", { name: "输入你的话或行动" });
   await input.fill("我在交班纸上标出未登记住户的数量差。");
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.getByText("我在交班纸上标出未登记住户的数量差。", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "查看 P-07 当前工单" }).click();
+  await page.locator(".cg-game-topbar__objective").click();
   await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
   await expectNoSeriousWcagViolations(page);
   await closePanel(page, "任务");
-  await page.getByRole("button", { name: "站区", exact: true }).click();
+  await page.getByRole("button", { name: "地图", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "地图" })).toBeVisible();
   await closePanel(page, "地图");
-  await page.getByRole("button", { name: "工装", exact: true }).click();
+  await page.getByRole("button", { name: "背包", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "背包" })).toBeVisible();
   await closePanel(page, "背包");
 
-  await page.getByRole("button", { name: "暂停", exact: true }).click();
-  const pause = page.getByRole("dialog", { name: "暂停菜单" });
+  await page.getByRole("button", { name: "游戏菜单", exact: true }).click();
+  const pause = page.getByRole("dialog", { name: "游戏菜单" });
   await expect(pause).toBeVisible();
-  await pause.getByRole("button", { name: "保存交班记录" }).click();
-  await pause.getByRole("button", { name: "交班并返回启动器" }).click();
+  await pause.getByRole("button", { name: "保存并返回" }).click();
   await page.getByRole("button", { name: "选择存档" }).click();
   const saves = page.getByRole("dialog", { name: "选择存档" });
   await expect(saves).toBeVisible();

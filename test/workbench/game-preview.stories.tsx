@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { GamePreviewHarness } from "./game-preview-harness";
+import { GamePreviewHarness, MediaLightboxFixture } from "./game-preview-harness";
 
 const meta = {
   title: "Workbench/Game preview",
@@ -112,7 +112,7 @@ export const ConversationRolesAndMedia: Story = {
     await expect(canvas.findAllByText("中继室")).resolves.toHaveLength(2);
     await expect(canvas.findByText("信号中断")).resolves.toBeVisible();
     await userEvent.click(await canvas.findByRole("button", { name: /值班员/ }));
-    await expect(canvas.findByText("负责维护中继室的公开值班人员。")).resolves.toBeVisible();
+    await expect(within(document.body).findByText("负责维护中继室的公开值班人员。")).resolves.toBeVisible();
   },
 };
 
@@ -127,11 +127,53 @@ export const ConversationError: Story = {
   },
 };
 
+export const SuggestionPreview: Story = {
+  args: { scenario: { hostShell: true } },
+  play: async ({ canvasElement }) => {
+    await startGame(canvasElement);
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "检查" }));
+    await expect(canvas.getByRole("textbox", { name: "输入你的话或行动" })).toHaveValue("检查");
+    await waitFor(() => {
+      expect(canvas.getAllByRole("status").some((node) => node.textContent?.includes("耗时 0 小时"))).toBe(true);
+    });
+  },
+};
+
+function panelStory(name: "人物" | "背包" | "任务" | "地图" | "档案"): Story {
+  return {
+    args: { scenario: { hostShell: true } },
+    play: async ({ canvasElement }) => {
+      await startGame(canvasElement);
+      await userEvent.click(within(canvasElement).getByRole("button", { name }));
+      await expect(within(document.body).findByRole("dialog", { name })).resolves.toBeVisible();
+    },
+  };
+}
+
+export const PeopleDialog = panelStory("人物");
+export const InventoryDialog = panelStory("背包");
+export const TasksDialog = panelStory("任务");
+export const MapDialog = panelStory("地图");
+export const RecordsDialog = panelStory("档案");
+
+export const ImageLightbox: Story = {
+  render: () => <MediaLightboxFixture />,
+  play: async ({ canvasElement }) => {
+    const open = await within(canvasElement).findByRole("button", { name: /^查看原图：/ });
+    const dialogName = open.getAttribute("aria-label")?.replace("查看原图：", "");
+    if (!dialogName) throw new Error("lightbox trigger is missing its accessible image name");
+    await userEvent.click(open);
+    const dialog = await within(document.body).findByRole("dialog", { name: dialogName });
+    await waitFor(() => expect(dialog).toBeVisible());
+  },
+};
+
 export const PauseMenu: Story = {
   play: async ({ canvasElement }) => {
     await startGame(canvasElement);
     await userEvent.keyboard("{Escape}");
-    const dialog = await within(document.body).findByRole("dialog", { name: "暂停菜单" });
+    const dialog = await within(document.body).findByRole("dialog", { name: "游戏菜单" });
     await waitFor(() => expect(dialog).toBeVisible());
   },
 };

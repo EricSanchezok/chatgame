@@ -17,37 +17,35 @@ test.afterEach(async ({ request }) => {
 
 test("production host runs a complete script lifecycle through real routes", async ({ page, request }) => {
   await openRealLauncher(page);
-  await expect(page.locator('[data-slot="launcher"]')).toContainText("UI API v5");
+  await expect(page.locator('[data-slot="launcher"]')).toContainText("UI API v6");
 
   await startRealFixtureGame(page);
-  await expect(page.locator('[data-slot="hud"]')).toContainText("Engine API v2 已启动");
+  await expect(page.locator('[data-slot="game-shell"]')).toBeVisible();
+  await expect(page.locator(".cg-game-topbar")).toContainText("恢复信号");
   await expect(page.locator('[data-slot="scene"]')).toBeVisible();
-  await expect(page.locator('[data-slot="toolbar"]')).toBeVisible();
-  await expect(page.locator('[data-slot="composer"]')).toBeVisible();
+  await expect(page.locator(".cg-game-tools")).toBeVisible();
+  await expect(page.locator(".cg-composer")).toBeVisible();
   await expect(page.locator('[data-slot="bubble-world"]')).toBeVisible();
   await expect(activeSessionIds(request)).resolves.toHaveLength(1);
 
-  await page.getByRole("button", { name: "预检线路" }).click();
-  await expect(page.getByRole("status").filter({ hasText: /校验线路.*可执行/ })).toBeVisible();
-  await page.getByRole("textbox", { name: "输入验证指令" }).fill("复核一号中继线路");
-  await page.getByRole("button", { name: "提交验证" }).click();
+  await page.getByRole("button", { name: /检查备用线路/ }).click();
+  await expect(page.getByRole("textbox", { name: "输入你的话或行动" })).toHaveValue("检查备用线路");
+  await expect(page.getByRole("status").filter({ hasText: /耗时.*无需判定/ })).toBeVisible();
+  await page.getByRole("textbox", { name: "输入你的话或行动" }).fill("复核一号中继线路");
+  await page.getByRole("button", { name: "发送" }).click();
   await expect(page.locator('[data-slot="bubble-player"]').filter({ hasText: "复核一号中继线路" })).toBeVisible();
   await expect(page.locator('[data-slot="bubble-world"]')).toHaveCount(2);
   await expect(page.locator('[data-slot="message-card-location_enter"]').last()).toBeVisible();
   await expect(page.locator('[data-slot="message-card-event"]').last()).toBeVisible();
 
-  await page.getByRole("button", { name: "触发系统记录" }).click();
-  await expect(page.locator('[data-slot="bubble-system"]')).toContainText("世界记得你来过");
-
-  await page.getByRole("button", { name: "检查清单" }).click();
+  await page.getByRole("button", { name: "背包", exact: true }).click();
   await expect(page.locator('[data-slot="panel-inventory"]')).toBeVisible();
   await page.getByRole("button", { name: "关闭检查清单" }).click();
 
   await page.keyboard.press("Escape");
-  await expect(page.locator('[data-slot="pause-menu"]')).toBeVisible();
-  await page.getByRole("button", { name: "保存校准点" }).click();
-  await expect(page.locator('[data-slot="pause-menu"]')).toContainText("当前记录已保存");
-  await page.getByRole("button", { name: "返回剧目单" }).click();
+  const menu = page.getByRole("dialog", { name: "游戏菜单" });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("button", { name: "保存并返回" }).click();
   await expect(page.locator('[data-slot="launcher"]')).toBeVisible();
   await expect(activeSessionIds(request)).resolves.toHaveLength(0);
 
@@ -58,7 +56,7 @@ test("production host runs a complete script lifecycle through real routes", asy
   await expect(activeSessionIds(request)).resolves.toHaveLength(1);
 
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "返回剧目单" }).click();
+  await page.getByRole("dialog", { name: "游戏菜单" }).getByRole("button", { name: "不保存返回" }).click();
   await expect(activeSessionIds(request)).resolves.toHaveLength(0);
 
   await page.goto("/scripts");
@@ -72,19 +70,20 @@ test("production host runs a complete script lifecycle through real routes", asy
   await expect(page.locator('[data-slot="settings-fixture"]')).toBeVisible();
 });
 
-test("default AppShell expands and opens every system sheet", async ({ page }) => {
+test("game workspace has no AppShell and opens every centered data dialog", async ({ page }) => {
   await installMockGameRoutes(page, { hostShell: true });
   await openLauncher(page);
   await startFixtureGame(page);
 
-  await page.getByRole("button", { name: "展开侧栏", exact: true }).click();
-  await expect(page.getByRole("button", { name: "折叠侧栏", exact: true })).toBeVisible();
+  await expect(page.locator(".cg-app-shell")).toHaveCount(0);
+  await expect(page.locator(".cg-sheet")).toHaveCount(0);
+  await expect(page.locator(".cg-game-tools")).toBeVisible();
 
-  for (const title of ["背包", "角色", "关系", "任务", "地图", "日志"]) {
+  for (const title of ["人物", "背包", "任务", "地图", "档案"]) {
     await page.getByRole("button", { name: title, exact: true }).click();
-    const sheet = page.getByRole("dialog", { name: title });
-    await expect(sheet).toBeVisible();
-    await sheet.getByRole("button", { name: "关闭" }).click();
-    await expect(sheet).toBeHidden();
+    const dialog = page.getByRole("dialog", { name: title });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: `关闭${title}` }).click();
+    await expect(dialog).toBeHidden();
   }
 });

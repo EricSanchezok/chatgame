@@ -1,42 +1,51 @@
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Sparkles } from "lucide-react";
-import { ActionChoice, Button, InputGroup, Textarea } from "@/shared/ui-runtime";
-import type { BubbleSlotProps, ComposerSlotProps, GameShellSlotProps, SceneSlotProps, ScriptHostModel } from "../../lib/script-registry";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { ArrowDown, ArrowUp, Sparkles, Target } from "lucide-react";
+import { Button, InputGroup, Textarea } from "@/shared/ui-runtime";
+import type {
+  BubbleSlotProps,
+  GameObjective,
+  GamePresentation,
+  GameShellSlotProps,
+  GameSuggestion,
+  SceneSlotProps,
+  ScriptHostModel,
+} from "../../lib/script-registry";
 import type { ActionPreview, Catalog, IntentHint, TurnResultFull } from "../../lib/api";
 import { useScriptRegistry } from "../../lib/script-registry";
-import { assetSrc, EntryCards, ResolutionChip } from "./cards";
+import { EntryCards, ResolutionChip, assetSrc } from "./cards";
 import { ActivePanel } from "./panels";
-import { Hud } from "./hud";
-import { Toolbar } from "./toolbar";
-import { ObjectiveTracker } from "./objective-tracker";
 import { PauseMenu } from "./pause-menu";
-import { UiIcon } from "./ui-icon";
 import { SlotRenderer } from "./slots";
-import { useGameActions, useGamePort, useGameSelector } from "./state";
-import { HostAppShell } from "../host-app-shell";
+import { useGameActions, useGameSelector } from "./state";
+import {
+  GameToolRail,
+  MobileToolsButton,
+  ToolPickerDialog,
+} from "./toolbar";
+import { useScrollActivity } from "../use-scroll-activity";
 
-function DefaultGameShell({ regions, scriptId }: GameShellSlotProps) {
-  const port = useGamePort();
-  const [scriptName, setScriptName] = useState(scriptId);
-  useEffect(() => {
-    const controller = new AbortController();
-    void port.listScripts(controller.signal).then(({ scripts }) => {
-      const script = scripts.find((item) => item.id === scriptId);
-      if (script) setScriptName(script.name);
-    }).catch(() => {});
-    return () => controller.abort();
-  }, [port, scriptId]);
+function DefaultGameShell({ regions }: GameShellSlotProps) {
   return (
-    <HostAppShell active="play" mode="play" script={{ name: scriptName }} tools={regions.toolbar}>
-      <div className="cg-game-shell">
-        <div className="cg-game-chrome">{regions.hud}{regions.tracker}</div>
-        <section className="cg-game-main" aria-label="会话">{regions.scene}</section>
-        <div className="cg-game-compose-dock">{regions.composer}</div>
-        {regions.overlays}
-      </div>
-    </HostAppShell>
+    <div className="cg-game-workspace">
+      <a className="cg-skip-link" href="#cg-game-conversation">跳到游戏对话</a>
+      {regions.topbar}
+      <main id="cg-game-conversation" className="cg-game-main" aria-label="游戏会话">
+        {regions.conversation}
+      </main>
+      {regions.toolRail}
+      {regions.overlays}
+    </div>
   );
 }
 
@@ -44,50 +53,63 @@ function DefaultScene({ transcript }: SceneSlotProps) {
   return <>{transcript}</>;
 }
 
-function NpcIdentity({ speaker, first, scriptId, assets }: {
+function NpcIdentity({
+  speaker,
+  first,
+  scriptId,
+  assets,
+  onOpen,
+}: {
   speaker: NonNullable<BubbleSlotProps["speaker"]>;
   first: boolean;
   scriptId: string;
   assets: ScriptHostModel["assets"];
+  onOpen(id: string): void;
 }) {
   const portrait = assetSrc(scriptId, assets, "portraits", speaker.id);
   return (
-    <span className="cg-speaker">
-      <button type="button" className="cg-speaker__trigger" aria-describedby={`npc-${speaker.id}-profile`}>
-        <span className="cg-speaker__avatar" aria-hidden="true">
-          {speaker.name.slice(0, 1)}
-          {portrait ? (
-            // eslint-disable-next-line @next/next/no-img-element -- script portraits are runtime-addressed.
-            <img src={portrait} alt="" />
-          ) : null}
-        </span>
-        <span><strong>{speaker.name}</strong>{speaker.occupation ? <small>{speaker.occupation}</small> : null}</span>
-      </button>
-      <span className="cg-speaker__popover" id={`npc-${speaker.id}-profile`} role="tooltip">
+    <button type="button" className="cg-speaker" onClick={() => onOpen(speaker.id)} aria-label={`查看人物：${speaker.name}`}>
+      <span className="cg-speaker__avatar" aria-hidden="true">
+        {speaker.name.slice(0, 1)}
+        {portrait ? (
+          // eslint-disable-next-line @next/next/no-img-element -- script portraits are runtime-addressed.
+          <img src={portrait} alt="" />
+        ) : null}
+      </span>
+      <span className="cg-speaker__copy">
         <strong>{speaker.name}</strong>
-        {speaker.occupation ? <span>{speaker.occupation}</span> : null}
-        <span>{speaker.description}</span>
-        {speaker.relationLabel ? <span>{speaker.relationLabel}</span> : null}
+        {speaker.occupation ? <small>{speaker.occupation}</small> : null}
         {first ? <em>首次相遇</em> : null}
       </span>
-    </span>
+    </button>
   );
 }
 
-function DefaultBubble({ entry, speaker, isFirstAppearance, scriptId, assets, children }: BubbleSlotProps) {
+function DefaultBubble({ entry, speaker, isFirstAppearance, scriptId, assets, children, openPerson }: BubbleSlotProps & { openPerson?(id: string): void }) {
   return (
     <article className="cg-message" data-role={entry.role}>
       {entry.role === "world" ? (
-        <div className="cg-message__identity">
-          {speaker ? <NpcIdentity speaker={speaker} first={isFirstAppearance} scriptId={scriptId} assets={assets} /> : <span className="cg-message__avatar" aria-hidden="true"><Sparkles /></span>}
-        </div>
+        speaker ? (
+          <NpcIdentity
+            speaker={speaker}
+            first={isFirstAppearance}
+            scriptId={scriptId}
+            assets={assets}
+            onOpen={(id) => openPerson?.(id)}
+          />
+        ) : (
+          <div className="cg-world-identity">
+            <span className="cg-world-identity__mark" aria-hidden="true"><Sparkles /></span>
+            <strong>世界</strong>
+          </div>
+        )
       ) : null}
       <div className="cg-message__body">{children}</div>
     </article>
   );
 }
 
-function BubbleAdapter(props: ScriptHostModel & BubbleSlotProps) {
+function BubbleAdapter(props: ScriptHostModel & BubbleSlotProps & { openPerson(id: string): void }) {
   return (
     <SlotRenderer
       slot={`bubble:${props.entry.role}`}
@@ -96,81 +118,6 @@ function BubbleAdapter(props: ScriptHostModel & BubbleSlotProps) {
     />
   );
 }
-
-const Transcript = memo(function Transcript({
-  model,
-  lastTurn,
-  busy,
-}: {
-  model: ScriptHostModel;
-  lastTurn: TurnResultFull | null;
-  busy: boolean;
-}) {
-  const scrollRef = useRef<HTMLElement | null>(null);
-  const atBottomRef = useRef(true);
-  const transcript = model.state.transcript;
-  const transcriptLength = transcript.length;
-  const hasPlayerTurn = transcript.some((entry) => entry.role === "player");
-  const actionName = (id: string) => model.catalog.actions.find((action) => action.id === id)?.displayName ?? id;
-
-  useLayoutEffect(() => {
-    const element = scrollRef.current;
-    if (!element || !atBottomRef.current) return;
-    if (lastTurn === null && !hasPlayerTurn) {
-      element.scrollTop = 0;
-      return;
-    }
-    element.scrollTop = element.scrollHeight;
-  }, [transcriptLength, hasPlayerTurn, lastTurn]);
-
-  return (
-    <section
-      ref={scrollRef}
-      role="log"
-      data-region="transcript"
-      className="cg-transcript"
-      aria-label="游戏对话记录"
-      tabIndex={0}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        atBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
-      }}
-    >
-      <div className="cg-transcript__inner">
-        {transcript.map((entry, index) => {
-          const speech = entry.mediaCues.find((cue) => cue.kind === "npc_speech");
-          const npcId = speech?.kind === "npc_speech" ? speech.npcId : null;
-          const npc = npcId ? model.catalog.npcs.find((candidate) => candidate.id === npcId) : undefined;
-          const relation = npcId ? model.state.player.relations.find((candidate) => candidate.npcId === npcId) : undefined;
-          const isFirstAppearance = Boolean(npcId) && !transcript.slice(0, index).some((candidate) =>
-            candidate.mediaCues.some((cue) => cue.kind === "npc_speech" && cue.npcId === npcId));
-          const speaker = npc ? {
-            ...npc,
-            relationLabel: relation ? `${relation.stance} · ${relation.value}` : undefined,
-          } : undefined;
-          return (
-            <BubbleAdapter key={entry.id} {...model} entry={entry} speaker={speaker} isFirstAppearance={isFirstAppearance}>
-              <p>{entry.text}</p>
-              {entry.role === "world" ? <EntryCards entry={entry} {...model} manifest={model.assets} /> : null}
-            </BubbleAdapter>
-          );
-        })}
-        {lastTurn?.resolution && lastTurn.resolution.actionId !== "talk" ? (
-          <div className="cg-resolution-row">
-            <ResolutionChip
-              actionName={actionName(lastTurn.resolution.actionId)}
-              grade={lastTurn.resolution.grade}
-              roll={lastTurn.resolution.roll}
-              dc={lastTurn.resolution.dc}
-            />
-          </div>
-        ) : null}
-        {lastTurn ? <SystemFeedbackBlock lastTurn={lastTurn} actionName={actionName} /> : null}
-        {busy ? <p className="cg-world-wait" role="status">世界正在回应……</p> : null}
-      </div>
-    </section>
-  );
-});
 
 const RESOURCE_KIND_LABELS = {
   need: "需求",
@@ -187,23 +134,17 @@ const RISK_TYPE_LABELS = {
 } as const;
 
 export function actionPreviewDetails(preview: ActionPreview, catalog: Catalog): string[] {
-  const details = [`耗时：${preview.timeCost} 小时`];
-  if (preview.costs.currency > 0) {
-    details.push(`货币：${preview.costs.currency} ${catalog.currency.name}`);
-  }
+  const details = [`耗时 ${preview.timeCost} 小时`];
+  if (preview.costs.currency > 0) details.push(`${catalog.currency.name} ${preview.costs.currency}`);
   for (const item of preview.costs.items) {
     const name = catalog.items.find((candidate) => candidate.id === item.itemId)?.name ?? item.itemId;
-    details.push(`物品：${name} ×${item.quantity}`);
+    details.push(`${name} ×${item.quantity}`);
   }
   for (const resource of preview.costs.resources ?? []) {
-    details.push(`${RESOURCE_KIND_LABELS[resource.kind]} ${resource.id}：消耗 ${resource.amount}`);
+    details.push(`${RESOURCE_KIND_LABELS[resource.kind]} ${resource.id} −${resource.amount}`);
   }
-  if (preview.costs.currency <= 0 && preview.costs.items.length === 0 && (preview.costs.resources?.length ?? 0) === 0) {
-    details.push("无资源消耗");
-  }
-
   const risk = preview.risk;
-  const riskParts = [`判定：${RISK_TYPE_LABELS[risk.type]}`];
+  const riskParts: string[] = [RISK_TYPE_LABELS[risk.type]];
   if (risk.key) riskParts.push(risk.key);
   if (risk.dc !== undefined) riskParts.push(`DC ${risk.dc}`);
   details.push(riskParts.join(" · "));
@@ -213,85 +154,359 @@ export function actionPreviewDetails(preview: ActionPreview, catalog: Catalog): 
 export function ActionPreviewFeedback({ preview, catalog }: { preview: ActionPreview; catalog: Catalog }) {
   const reason = preview.reason ?? preview.reasonCode ?? "条件不足";
   return (
-    <div className="cg-action-preview" role="status" aria-live="polite" aria-atomic="true">
-      <strong>{preview.displayName}</strong>
-      {!preview.executable ? <span className="cg-action-preview__reason">当前不可执行：{reason}</span> : null}
-      <ul aria-label="行动成本与风险">
-        {actionPreviewDetails(preview, catalog).map((detail) => <li key={detail}>{detail}</li>)}
-      </ul>
+    <div className="cg-action-preview" role="status" aria-live="polite" aria-atomic="true" data-executable={preview.executable ? "true" : "false"}>
+      {!preview.executable ? <strong>当前不可执行：{reason}</strong> : null}
+      <span>{actionPreviewDetails(preview, catalog).join(" · ")}</span>
     </div>
   );
 }
 
-function DefaultComposer({ busy, submitTurn, previewAction, scriptId, assets, catalog }: ComposerSlotProps) {
-  const [input, setInput] = useState("");
-  const [intentHint, setIntentHint] = useState<IntentHint | undefined>();
-  const [preview, setPreview] = useState<ActionPreview | null>(null);
-
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput("");
-    await submitTurn(text, intentHint);
-    setIntentHint(undefined);
-    setPreview(null);
-  }
-
+function SystemFeedbackBlock({ lastTurn, actionName }: { lastTurn: TurnResultFull; actionName(id: string): string }) {
+  const { taskCompletions, deathFired, fellBackToTalk } = lastTurn;
+  const worldEvents = lastTurn.worldEvents.filter((event) => !/^event "[^"]+" played$/i.test(event));
+  if (worldEvents.length === 0 && taskCompletions.length === 0 && !deathFired && !fellBackToTalk) return null;
   return (
-    <footer data-region="composer" className="cg-composer">
-      {catalog.actions.length > 0 ? (
-        <div className="cg-action-shortcuts" aria-label="行动快捷方式">
-          {catalog.actions.slice(0, 4).map((action) => (
-            <ActionChoice
-              key={action.id}
-              selected={intentHint?.actionId === action.id}
-              disabled={busy}
-              onClick={() => {
-                const hint = { actionId: action.id };
-                void previewAction(hint).then((result) => {
-                  setPreview(result);
-                  setIntentHint(result?.executable ? hint : undefined);
-                });
-              }}
-            >{action.displayName}</ActionChoice>
-          ))}
-        </div>
-      ) : null}
-      {preview ? <ActionPreviewFeedback preview={preview} catalog={catalog} /> : null}
-      <form onSubmit={(event) => void onSubmit(event)}>
-        <label className="cg-sr-only" htmlFor="player-input">输入你的话或行动</label>
-        <InputGroup>
-          <Textarea
-            id="player-input"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="说点什么，或描述你的行动"
-            disabled={busy}
-            maxLength={2000}
-            rows={1}
-          />
-          <Button type="submit" variant="primary" size="icon" aria-label={busy ? "等待世界回应" : "发送"} disabled={busy || input.trim().length === 0}>
-            <UiIcon slot="send" scriptId={scriptId} manifest={assets} className="cg-icon" />
-          </Button>
-        </InputGroup>
-      </form>
-    </footer>
+    <section className="cg-system-feedback" aria-label="回合结果">
+      {worldEvents.map((event) => <p key={event}>{event}</p>)}
+      {taskCompletions.map((task) => <p key={task.taskId}>任务{task.status === "complete" ? "完成" : "失败"}：{actionName(task.taskId)}</p>)}
+      {deathFired ? <p>你遭遇了致命打击。</p> : null}
+      {fellBackToTalk ? <p>未能识别你的意图，已按交谈处理。</p> : null}
+    </section>
   );
 }
 
-function ComposerRegion({
+function SuggestionRows({ suggestions, disabled, onSelect }: {
+  suggestions: readonly GameSuggestion[];
+  disabled: boolean;
+  onSelect(suggestion: GameSuggestion): void;
+}) {
+  if (suggestions.length === 0) return null;
+  return (
+    <div className="cg-suggestions" aria-label="建议行动">
+      {suggestions.slice(0, 3).map((suggestion) => (
+        <button key={suggestion.id} type="button" disabled={disabled} onClick={() => onSelect(suggestion)}>
+          <span>{suggestion.label}</span>
+          {suggestion.detail ? <small>{suggestion.detail}</small> : null}
+          <ArrowUp aria-hidden="true" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const Transcript = memo(function Transcript({
+  model,
+  lastTurn,
+  busy,
+  suggestions,
+  onSelectSuggestion,
+  onOpenPerson,
+}: {
+  model: ScriptHostModel;
+  lastTurn: TurnResultFull | null;
+  busy: boolean;
+  suggestions: readonly GameSuggestion[];
+  onSelectSuggestion(suggestion: GameSuggestion): void;
+  onOpenPerson(id: string): void;
+}) {
+  const transcript = model.state.transcript;
+  const latestWorldIndex = transcript.findLastIndex((entry) => entry.role === "world");
+  const actionName = (id: string) => model.catalog.actions.find((action) => action.id === id)?.displayName
+    ?? model.catalog.tasks.find((task) => task.id === id)?.name
+    ?? id;
+
+  return (
+    <div role="log" className="cg-transcript" aria-label="游戏对话记录" aria-live="polite">
+      {transcript.map((entry, index) => {
+        const speech = entry.mediaCues.find((cue) => cue.kind === "npc_speech");
+        const npcId = speech?.kind === "npc_speech" ? speech.npcId : null;
+        const npc = npcId ? model.catalog.npcs.find((candidate) => candidate.id === npcId) : undefined;
+        const relation = npcId ? model.state.player.relations.find((candidate) => candidate.npcId === npcId) : undefined;
+        const isFirstAppearance = Boolean(npcId) && !transcript.slice(0, index).some((candidate) =>
+          candidate.mediaCues.some((cue) => cue.kind === "npc_speech" && cue.npcId === npcId));
+        const speaker = npc ? { ...npc, relationLabel: relation ? `${relation.stance} · ${relation.value}` : undefined } : undefined;
+        const isLatestWorld = index === latestWorldIndex;
+        return (
+          <BubbleAdapter
+            key={entry.id}
+            {...model}
+            entry={entry}
+            speaker={speaker}
+            isFirstAppearance={isFirstAppearance}
+            openPerson={onOpenPerson}
+          >
+            <p>{entry.text}</p>
+            {entry.role === "world" ? <EntryCards entry={entry} {...model} manifest={model.assets} /> : null}
+            {isLatestWorld && lastTurn?.resolution && lastTurn.resolution.actionId !== "talk" ? (
+              <ResolutionChip
+                actionName={actionName(lastTurn.resolution.actionId)}
+                grade={lastTurn.resolution.grade}
+                roll={lastTurn.resolution.roll}
+                dc={lastTurn.resolution.dc}
+              />
+            ) : null}
+            {isLatestWorld && lastTurn ? <SystemFeedbackBlock lastTurn={lastTurn} actionName={actionName} /> : null}
+            {isLatestWorld ? <SuggestionRows suggestions={suggestions} disabled={busy} onSelect={onSelectSuggestion} /> : null}
+          </BubbleAdapter>
+        );
+      })}
+      {busy ? <p className="cg-world-wait" role="status"><span aria-hidden="true" />世界正在回应</p> : null}
+    </div>
+  );
+});
+
+function Composer({
   model,
   busy,
-  submitTurn,
-  previewAction,
+  previewing,
+  input,
+  preview,
+  previewError,
+  textareaRef,
+  onInput,
+  onSubmit,
 }: {
   model: ScriptHostModel;
   busy: boolean;
+  previewing: boolean;
+  input: string;
+  preview: ActionPreview | null;
+  previewError: string;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onInput(value: string): void;
+  onSubmit(): Promise<void>;
+}) {
+  const cannotSubmit = busy || previewing || !input.trim() || preview?.executable === false;
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!cannotSubmit) void onSubmit();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    if (!cannotSubmit) event.currentTarget.form?.requestSubmit();
+  };
+  return (
+    <div className="cg-composer-mask">
+      <footer className="cg-composer" data-busy={busy || previewing ? "true" : "false"}>
+        <form onSubmit={submit}>
+          <label className="cg-sr-only" htmlFor="player-input">输入你的话或行动</label>
+          <InputGroup className="cg-composer__surface">
+            <Textarea
+              ref={textareaRef}
+              id="player-input"
+              value={input}
+              onChange={(event) => onInput(event.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="说点什么，或描述你的行动"
+              disabled={busy}
+              maxLength={2000}
+              rows={1}
+            />
+            <Button type="submit" variant="primary" size="icon" aria-label={busy ? "等待世界回应" : "发送"} disabled={cannotSubmit}>
+              <ArrowUp aria-hidden="true" />
+            </Button>
+          </InputGroup>
+        </form>
+        {previewing ? <div className="cg-action-preview" role="status">正在读取行动成本与风险……</div> : null}
+        {preview ? <ActionPreviewFeedback preview={preview} catalog={model.catalog} /> : null}
+        {previewError ? <div className="cg-action-preview" data-executable="false" role="alert">{previewError}</div> : null}
+        <p className="cg-composer__hint">Enter 发送 · Shift + Enter 换行</p>
+      </footer>
+    </div>
+  );
+}
+
+function Conversation({
+  model,
+  lastTurn,
+  operation,
+  suggestions,
+  submitTurn,
+  previewAction,
+  openPerson,
+}: {
+  model: ScriptHostModel;
+  lastTurn: TurnResultFull | null;
+  operation: string;
+  suggestions: readonly GameSuggestion[];
   submitTurn(text: string, intentHint?: IntentHint): Promise<void>;
   previewAction(intentHint: IntentHint): Promise<ActionPreview | null>;
+  openPerson(id: string): void;
 }) {
-  return <SlotRenderer slot="composer" fallback={DefaultComposer} slotProps={{ ...model, busy, submitTurn, previewAction }} />;
+  const [input, setInput] = useState("");
+  const [intentHint, setIntentHint] = useState<IntentHint | undefined>();
+  const [preview, setPreview] = useState<ActionPreview | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [atBottom, setAtBottom] = useState(true);
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const previewGeneration = useRef(0);
+  const scrollActivity = useScrollActivity();
+  const busy = operation !== "idle" && operation !== "preview";
+  const previewing = operation === "preview";
+  const transcriptLength = model.state.transcript.length;
+
+  const jumpToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const element = scrollRef.current;
+    if (!element) return;
+    if (typeof element.scrollTo === "function") element.scrollTo({ top: element.scrollHeight, behavior });
+    else element.scrollTop = element.scrollHeight;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (atBottom) jumpToLatest(lastTurn ? "smooth" : "auto");
+  }, [atBottom, jumpToLatest, lastTurn, transcriptLength]);
+
+  const clearSuggestion = useCallback(() => {
+    previewGeneration.current += 1;
+    setIntentHint(undefined);
+    setPreview(null);
+    setPreviewError("");
+  }, []);
+
+  const selectSuggestion = useCallback(async (suggestion: GameSuggestion) => {
+    const generation = ++previewGeneration.current;
+    setInput(suggestion.label);
+    setIntentHint(suggestion.intentHint);
+    setPreview(null);
+    setPreviewError("");
+    requestAnimationFrame(() => textareaRef.current?.focus());
+    const result = await previewAction(suggestion.intentHint);
+    if (generation !== previewGeneration.current) return;
+    if (!result) {
+      setPreviewError("暂时无法读取行动成本与风险，请重试。");
+      setIntentHint(undefined);
+      return;
+    }
+    setPreview(result);
+    if (!result.executable) setIntentHint(undefined);
+  }, [previewAction]);
+
+  const submit = useCallback(async () => {
+    const text = input.trim();
+    if (!text || busy || previewing || preview?.executable === false) return;
+    setInput("");
+    clearSuggestion();
+    await submitTurn(text, intentHint);
+  }, [busy, clearSuggestion, input, intentHint, preview?.executable, previewing, submitTurn]);
+
+  const transcript = (
+    <Transcript
+      model={model}
+      lastTurn={lastTurn}
+      busy={busy}
+      suggestions={suggestions}
+      onSelectSuggestion={(suggestion) => void selectSuggestion(suggestion)}
+      onOpenPerson={openPerson}
+    />
+  );
+  const scene = <SlotRenderer slot="scene" fallback={DefaultScene} slotProps={{ ...model, transcript }} />;
+  const { onScroll: markScrollActive, ...activityProps } = scrollActivity;
+
+  return (
+    <section
+      ref={scrollRef}
+      className="cg-conversation-scroll cg-scroll-surface"
+      tabIndex={0}
+      {...activityProps}
+      data-scroll-active={scrollActivity["data-scroll-active"]}
+      onScroll={(event) => {
+        markScrollActive();
+        const element = event.currentTarget;
+        setAtBottom(element.scrollHeight - element.scrollTop - element.clientHeight <= 64);
+      }}
+    >
+      <div className="cg-conversation-lane">
+        {scene}
+        <div className="cg-composer-anchor">
+          {!atBottom ? (
+            <button type="button" className="cg-jump-latest" onClick={() => jumpToLatest()} aria-label="跳到最新消息">
+              <ArrowDown aria-hidden="true" />
+            </button>
+          ) : null}
+          <Composer
+            model={model}
+            busy={busy}
+            previewing={previewing}
+            input={input}
+            preview={preview}
+            previewError={previewError}
+            textareaRef={textareaRef}
+            onInput={(value) => { setInput(value); clearSuggestion(); }}
+            onSubmit={submit}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function fallbackObjective(model: ScriptHostModel, trackedTaskId: string | null): GameObjective | null {
+  const active = model.state.tasks.filter((task) => task.status === "active");
+  const selected = active.find((task) => task.taskId === trackedTaskId) ?? active[0];
+  if (!selected) return null;
+  const task = model.catalog.tasks.find((candidate) => candidate.id === selected.taskId);
+  if (!task) return { title: selected.taskId };
+  return {
+    title: task.name,
+    detail: task.objectiveText,
+    progress: { value: selected.progress, max: task.quantity },
+  };
+}
+
+function fallbackSuggestions(model: ScriptHostModel): readonly GameSuggestion[] {
+  return model.catalog.actions.slice(0, 3).map((action) => ({
+    id: action.id,
+    label: action.displayName,
+    intentHint: { actionId: action.id },
+  }));
+}
+
+export function resolveGamePresentation(
+  model: ScriptHostModel,
+  trackedTaskId: string | null,
+  presentation: GamePresentation | null,
+): { objective: GameObjective | null; suggestions: readonly GameSuggestion[] } {
+  let objective = fallbackObjective(model, trackedTaskId);
+  let suggestions = fallbackSuggestions(model);
+  try {
+    objective = presentation?.objective(model) ?? objective;
+  } catch {
+    // Script presentation is optional decoration; host data remains usable.
+  }
+  try {
+    suggestions = presentation?.suggestions(model) ?? suggestions;
+  } catch {
+    // A failing provider never removes the host's generic actions.
+  }
+  return { objective, suggestions: suggestions.slice(0, 3) };
+}
+
+function GameTopbar({ model, objective, onOpenTasks, onOpenTools }: {
+  model: ScriptHostModel;
+  objective: GameObjective | null;
+  onOpenTasks(): void;
+  onOpenTools(): void;
+}) {
+  const location = model.catalog.locations.find((candidate) => candidate.id === model.state.player.locationId)?.name
+    ?? model.state.player.locationId;
+  const time = `第 ${model.state.clock.day} 天 · ${String(model.state.clock.hour).padStart(2, "0")}:00`;
+  const progress = objective?.progress ? ` · ${objective.progress.value}/${objective.progress.max}` : "";
+  return (
+    <header className="cg-game-topbar">
+      <div className="cg-game-topbar__inner">
+        <MobileToolsButton onClick={onOpenTools} />
+        <p className="cg-game-topbar__place"><strong>{location}</strong><span>·</span><span>{time}</span></p>
+        {objective ? (
+          <button type="button" className="cg-game-topbar__objective" onClick={onOpenTasks} title={objective.detail}>
+            <Target aria-hidden="true" />
+            <span>{objective.title}{progress}</span>
+          </button>
+        ) : <span className="cg-game-topbar__objective cg-game-topbar__objective--empty">暂无目标</span>}
+      </div>
+    </header>
+  );
 }
 
 export function GameScreen() {
@@ -307,22 +522,19 @@ export function GameScreen() {
   const audioEnabled = useGameSelector((state) => state.audioEnabled);
   const lastTurn = useGameSelector((state) => state.lastTurn);
   const trackedTaskId = useGameSelector((state) => state.trackedTaskId);
+  const [toolPickerOpen, setToolPickerOpen] = useState(false);
   const registry = useScriptRegistry();
   const { submitTurn, previewAction, save, exitGame, setTheme, setAudio, setPanel, setPause, setTrackedTask } = useGameActions();
   const busy = operation !== "idle";
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (panel) setPanel(null);
-      else setPause(!paused);
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || panel || paused || toolPickerOpen) return;
+      setPause(true);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [panel, paused, setPanel, setPause]);
-
-  const submit = useCallback((text: string, intentHint?: IntentHint) => submitTurn(text, intentHint), [submitTurn]);
-  const preview = useCallback((intentHint: IntentHint) => previewAction(intentHint), [previewAction]);
+  }, [panel, paused, setPause, toolPickerOpen]);
 
   if (!session || !detail) return null;
   if (registry.scriptId !== session.scriptId || registry.status === "loading") {
@@ -335,11 +547,44 @@ export function GameScreen() {
     catalog: detail.catalog,
     assets: detail.assets,
   };
-  const transcript = <Transcript model={model} lastTurn={lastTurn} busy={busy} />;
-  const scene = <SlotRenderer slot="scene" fallback={DefaultScene} slotProps={{ ...model, transcript }} />;
+  const { objective, suggestions } = resolveGamePresentation(model, trackedTaskId, registry.gamePresentation);
+
+  const conversation = (
+    <Conversation
+      model={model}
+      lastTurn={lastTurn}
+      operation={operation}
+      suggestions={suggestions}
+      submitTurn={submitTurn}
+      previewAction={previewAction}
+      openPerson={(id) => setPanel({ id: "people", focusId: id })}
+    />
+  );
+  const topbar = (
+    <GameTopbar
+      model={model}
+      objective={objective}
+      onOpenTasks={() => setPanel("tasks")}
+      onOpenTools={() => setToolPickerOpen(true)}
+    />
+  );
+  const toolRail = (
+    <GameToolRail
+      panel={panel}
+      onOpenPanel={setPanel}
+      onOpenPause={() => setPause(true)}
+    />
+  );
   const overlays = (
     <>
       <ActivePanel panel={panel} {...model} trackedTaskId={trackedTaskId} onTrackTask={setTrackedTask} onClose={() => setPanel(null)} />
+      {toolPickerOpen ? (
+        <ToolPickerDialog
+          onClose={() => setToolPickerOpen(false)}
+          onOpenPanel={setPanel}
+          onOpenPause={() => setPause(true)}
+        />
+      ) : null}
       {paused ? (
         <PauseMenu
           {...model}
@@ -362,33 +607,6 @@ export function GameScreen() {
       <p className="cg-sr-only" role="status" aria-live="polite">{announcement}</p>
     </>
   );
-  const regions: GameShellSlotProps["regions"] = {
-    hud: <Hud {...model} />,
-    tracker: <ObjectiveTracker {...model} trackedTaskId={trackedTaskId} openTasks={() => setPanel("tasks")} />,
-    scene,
-    toolbar: <Toolbar {...model} panel={panel} onOpenPanel={setPanel} onOpenPause={() => setPause(true)} />,
-    composer: <ComposerRegion model={model} busy={busy} submitTurn={submit} previewAction={preview} />,
-    overlays,
-  };
+  const regions: GameShellSlotProps["regions"] = { topbar, conversation, toolRail, overlays };
   return <SlotRenderer slot="game-shell" fallback={DefaultGameShell} slotProps={{ ...model, regions }} />;
-}
-
-function SystemFeedbackBlock({
-  lastTurn,
-  actionName,
-}: {
-  lastTurn: TurnResultFull;
-  actionName: (id: string) => string;
-}) {
-  const { taskCompletions, deathFired, fellBackToTalk } = lastTurn;
-  const worldEvents = lastTurn.worldEvents.filter((event) => !/^event \"[^\"]+\" played$/i.test(event));
-  if (worldEvents.length === 0 && taskCompletions.length === 0 && !deathFired && !fellBackToTalk) return null;
-  return (
-    <section className="cg-system-feedback" aria-label="回合结果">
-      {worldEvents.length > 0 ? <ul>{worldEvents.map((event, index) => <li key={`${index}-${event}`}>世界事件：{event}</li>)}</ul> : null}
-      {taskCompletions.length > 0 ? <ul>{taskCompletions.map((task) => <li key={task.taskId}>任务{task.status === "complete" ? "完成" : "失败"}：{actionName(task.taskId)}</li>)}</ul> : null}
-      {deathFired ? <p>你遭遇了致命打击。</p> : null}
-      {fellBackToTalk ? <p>未能识别你的意图，已按交谈处理。</p> : null}
-    </section>
-  );
 }

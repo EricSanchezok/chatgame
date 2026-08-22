@@ -24,7 +24,9 @@ function makeWorldState() {
       threatGauge: 0, statuses: [], memories: [], relations: [], reputation: [],
     },
     npcs: {}, flags: [], facts: [], eventLog: [], commitments: [], tasks: [],
-    playedEventIds: [], secretHolders: {}, locationInventories: {}, transcript: [], runtimeState: {},
+    playedEventIds: [], secretHolders: {}, locationInventories: {}, transcript: [{
+      id: "opening", turn: 1, role: "world", text: "酒馆刚刚开门。", mediaCues: [],
+    }], runtimeState: {},
   };
 }
 
@@ -90,6 +92,7 @@ vi.mock("../../../lib/script-registry", () => ({
     dependencyHash: null,
     status: "active",
     slots: new Map(),
+    gamePresentation: null,
     error: null,
   }),
   getSlot: () => undefined,
@@ -99,7 +102,7 @@ vi.mock("../../../lib/script-registry", () => ({
 }));
 
 import { GameProvider, useGameActions } from "../state";
-import { GameScreen } from "../chat";
+import { GameScreen, resolveGamePresentation } from "../chat";
 import { httpGamePort } from "../../../lib/api";
 
 function Harness({ children }: { children: ReactNode }) {
@@ -121,6 +124,21 @@ describe("Esc pause menu (behavioral)", () => {
     cleanup();
   });
 
+  it("uses host objective and suggestions when script providers throw", () => {
+    const model = {
+      scriptId: "fixture-script",
+      state: makeWorldState(),
+      catalog: makeCatalog(),
+      assets: makeAssets(),
+    };
+    const resolved = resolveGamePresentation(model as unknown as Parameters<typeof resolveGamePresentation>[0], null, {
+      objective: () => { throw new Error("objective failed"); },
+      suggestions: () => { throw new Error("suggestions failed"); },
+    });
+    expect(resolved.objective).toBeNull();
+    expect(resolved.suggestions).toEqual([{ id: "talk", label: "交谈", intentHint: { actionId: "talk" } }]);
+  });
+
   it("renders the pause menu on Escape and closes it on a second Escape", async () => {
     render(
       <GameProvider>
@@ -132,20 +150,21 @@ describe("Esc pause menu (behavioral)", () => {
 
     // Game screen visible (composer input rendered).
     expect(await screen.findByLabelText("输入你的话或行动")).toBeTruthy();
-    expect(screen.getByRole("log", { name: "游戏对话记录" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("log", { name: "游戏对话记录" })).toBeTruthy();
+    expect(document.querySelector(".cg-conversation-scroll")).toHaveAttribute("tabindex", "0");
 
     // Escape opens the pause menu dialog.
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
-    expect(await screen.findByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "游戏菜单" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "打开全局设置" })).toBeTruthy();
 
     // Second Escape closes it.
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "暂停菜单" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "游戏菜单" })).toBeNull());
   });
 
   it("Escape closes an open panel first, then opens the pause menu", async () => {
@@ -170,13 +189,13 @@ describe("Esc pause menu (behavioral)", () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "背包" })).toBeNull());
-    expect(screen.queryByRole("dialog", { name: "暂停菜单" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "游戏菜单" })).toBeNull();
 
     // Second Escape opens the pause menu.
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });
-    expect(await screen.findByRole("dialog", { name: "暂停菜单" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "游戏菜单" })).toBeTruthy();
   });
 
   it("renders dynamic currency, item, resource and risk costs from an action preview", async () => {
@@ -209,16 +228,20 @@ describe("Esc pause menu (behavioral)", () => {
       fireEvent.click(await screen.findByRole("button", { name: "交谈" }));
     });
 
-    const feedback = (await screen.findByText("强行交涉")).closest('[role="status"]');
+    const feedback = (await screen.findByText(/耗时 2 小时/)).closest('[role="status"]');
     if (!feedback) throw new Error("action preview feedback was not rendered");
-    expect(feedback.textContent).toContain("货币：4 金币");
-    expect(feedback.textContent).toContain("物品：灯油 ×1");
-    expect(feedback.textContent).toContain("需求 energy：消耗 20");
-    expect(feedback.textContent).toContain("属性 hp：消耗 2");
-    expect(feedback.textContent).toContain("技能 focus：消耗 1");
-    expect(feedback.textContent).toContain("剧本资源 oxygen：消耗 5");
-    expect(feedback.textContent).toContain("判定：技能判定 · focus · DC 12");
-    expect(feedback.textContent).not.toContain("无货币消耗");
+    const input = screen.getByRole("textbox", { name: "输入你的话或行动" });
+    expect(input).toHaveValue("交谈");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(feedback.textContent).toContain("金币 4");
+    expect(feedback.textContent).toContain("灯油 ×1");
+    expect(feedback.textContent).toContain("需求 energy −20");
+    expect(feedback.textContent).toContain("属性 hp −2");
+    expect(feedback.textContent).toContain("技能 focus −1");
+    expect(feedback.textContent).toContain("剧本资源 oxygen −5");
+    expect(feedback.textContent).toContain("技能判定 · focus · DC 12");
+    fireEvent.change(input, { target: { value: "我改写了这个行动" } });
+    expect(screen.queryByText(/耗时 2 小时/)).toBeNull();
 
     vi.mocked(httpGamePort.previewAction).mockResolvedValueOnce({
       actionId: "talk",
@@ -232,10 +255,24 @@ describe("Esc pause menu (behavioral)", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "交谈" }));
     });
-    const energyFeedback = (await screen.findByText("维持供氧")).closest('[role="status"]');
+    const energyFeedback = (await screen.findByText(/当前不可执行：energy 不足/)).closest('[role="status"]');
     expect(energyFeedback?.textContent).toContain("当前不可执行：energy 不足");
-    expect(energyFeedback?.textContent).toContain("需求 energy：消耗 30");
-    expect(energyFeedback?.textContent).not.toContain("无资源消耗");
-    expect(energyFeedback?.textContent).not.toContain("无货币消耗");
+    expect(energyFeedback?.textContent).toContain("需求 energy −30");
+  });
+
+  it("uses Enter to send while preserving Shift+Enter and IME composition", async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+    render(
+      <GameProvider>
+        <Harness><GameScreen /></Harness>
+      </GameProvider>,
+    );
+    const input = await screen.findByRole("textbox", { name: "输入你的话或行动" });
+    fireEvent.change(input, { target: { value: "测试输入" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(requestSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(requestSubmit).toHaveBeenCalledOnce();
   });
 });

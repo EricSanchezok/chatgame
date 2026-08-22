@@ -3,19 +3,16 @@
 import Link from "next/link";
 import { BookOpen, ChevronLeft, ChevronRight, Gamepad2, History, Library, Menu, Settings } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { Badge } from "@/shared/ui-runtime";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-type ShellSection = "home" | "scripts" | "settings" | "play";
+type ShellSection = "home" | "scripts" | "settings";
 
 export interface HostAppShellProps {
   active: ShellSection;
-  mode?: "app" | "play";
   script?: { name: string; description?: string } | null;
   status?: ReactNode;
   statusVisible?: boolean;
-  tools?: ReactNode;
   recentCount?: number;
   onOpenRecent?(): void;
   children: ReactNode;
@@ -27,13 +24,13 @@ const navigation = [
   { id: "settings", href: "/settings", label: "设置", icon: Settings },
 ] as const;
 
-interface ShellSidebarProps extends Pick<HostAppShellProps, "active" | "script" | "tools" | "recentCount" | "onOpenRecent"> {
+interface ShellSidebarProps extends Pick<HostAppShellProps, "active" | "script" | "recentCount" | "onOpenRecent"> {
   collapsed: boolean;
   onToggle(): void;
   onNavigate?(): void;
 }
 
-function ShellSidebar({ active, script, tools, recentCount = 0, onOpenRecent, collapsed, onToggle, onNavigate }: ShellSidebarProps) {
+function ShellSidebar({ active, script, recentCount = 0, onOpenRecent, collapsed, onToggle, onNavigate }: ShellSidebarProps) {
   return (
     <aside className="cg-shell-sidebar" data-collapsed={collapsed ? "true" : "false"} aria-label="主导航">
       <header className="cg-shell-sidebar__header">
@@ -50,7 +47,6 @@ function ShellSidebar({ active, script, tools, recentCount = 0, onOpenRecent, co
             <div className="cg-shell-script__card">
               <span className="cg-shell-script__mark" aria-hidden="true"><BookOpen /></span>
               <span className="cg-shell-script__copy"><strong>{script.name}</strong>{script.description ? <span>{script.description}</span> : null}</span>
-              {active === "play" ? <Badge tone="outline">进行中</Badge> : null}
             </div>
           </section>
         ) : null}
@@ -77,12 +73,6 @@ function ShellSidebar({ active, script, tools, recentCount = 0, onOpenRecent, co
           </nav>
         </section>
 
-        {tools ? (
-          <section className="cg-shell-tools" aria-label="游戏资料">
-            <div className="cg-shell-section-label">游戏资料</div>
-            {tools}
-          </section>
-        ) : null}
       </div>
 
       <footer className="cg-shell-sidebar__footer">
@@ -95,15 +85,15 @@ function ShellSidebar({ active, script, tools, recentCount = 0, onOpenRecent, co
   );
 }
 
-export function HostAppShell({ active, mode = "app", script, status, statusVisible = false, tools, recentCount, onOpenRecent, children }: HostAppShellProps) {
+export function HostAppShell({ active, script, status, statusVisible = false, recentCount, onOpenRecent, children }: HostAppShellProps) {
   const isMobile = useIsMobile();
-  const [collapsed, setCollapsed] = useState(mode === "play");
+  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const toggleCollapsed = () => setCollapsed((value) => !value);
-  const sidebarProps = { active, script, tools, recentCount, onOpenRecent };
+  const sidebarProps = { active, script, recentCount, onOpenRecent };
 
   return (
-    <div className="cg-app-shell" data-sidebar-state={collapsed ? "collapsed" : "expanded"} data-shell-mode={mode}>
+    <div className="cg-app-shell" data-sidebar-state={collapsed ? "collapsed" : "expanded"}>
       <a className="cg-skip-link" href="#cg-main">跳到主要内容</a>
       {isMobile ? (
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>

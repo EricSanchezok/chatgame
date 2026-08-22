@@ -49,6 +49,6 @@ test("real custom game shell and pause dialog have no serious axe failures", asy
   await expectNoSeriousWcagViolations(page);
 
   await page.keyboard.press("Escape");
-  await expect(page.locator('[data-slot="pause-menu"]')).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "游戏菜单" })).toBeVisible();
   await expectNoSeriousWcagViolations(page);
 });

@@ -1,7 +1,7 @@
 # ReUI AppShell 与 UI API v5
 
 ## Status
-Accepted
+Superseded by [0030](0030-manus-style-game-workspace-and-ui-api-v6.md)
 Class: architecture
 
 ## Context and Problem Statement

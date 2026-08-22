@@ -77,7 +77,7 @@ describe("reduceGameState", () => {
     const before: GameState = {
       ...initialGameState,
       dirty: true,
-      panel: "inventory",
+      panel: { id: "inventory" },
     };
     const after = reduceGameState(before, { type: "enter", session: makeSession(), detail, trackedTaskId: null, generation: 0 });
     expect(after.screen).toBe("game");
@@ -116,16 +116,18 @@ describe("reduceGameState", () => {
     expect(exited).toEqual(initialGameState);
   });
 
-  it("panel toggles the active overlay", () => {
+  it("maps all five game panel ids to the active overlay", () => {
     const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, trackedTaskId: null, generation: 0 });
-    const opened = reduceGameState(entered, { type: "panel", panel: "inventory" });
-    expect(opened.panel).toBe("inventory");
-    expect(reduceGameState(opened, { type: "panel", panel: null }).panel).toBeNull();
+    for (const id of ["people", "inventory", "tasks", "map", "records"] as const) {
+      const opened = reduceGameState(entered, { type: "panel", panel: { id } });
+      expect(opened.panel).toEqual({ id });
+      expect(reduceGameState(opened, { type: "panel", panel: null }).panel).toBeNull();
+    }
   });
 
   it("pause toggles the overlay and closes panels", () => {
     const entered = reduceGameState(initialGameState, { type: "enter", session: makeSession(), detail, trackedTaskId: null, generation: 0 });
-    const withPanel = reduceGameState(entered, { type: "panel", panel: "inventory" });
+    const withPanel = reduceGameState(entered, { type: "panel", panel: { id: "inventory" } });
     const paused = reduceGameState(withPanel, { type: "pause", on: true });
     expect(paused.paused).toBe(true);
     expect(paused.panel).toBeNull(); // opening pause closes any panel

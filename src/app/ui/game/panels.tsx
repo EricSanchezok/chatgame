@@ -1,27 +1,27 @@
 "use client";
 
-// System sheets: world data lives behind deliberate entry points instead of
-// occupying a permanent rail. Base UI owns dismissal, focus and backdrop
-// behavior; the sheets never participate in the game shell's layout tracks.
+// World data lives behind deliberate centered dialogs instead of occupying
+// permanent layout tracks. Base UI owns dismissal, focus and backdrop behavior.
 // Everything renders from WorldState + static Catalog; unknown ids degrade
 // to raw labels instead of crashing.
 
-import { useState } from "react";
-import { Button } from "@/shared/ui-runtime";
+import { useEffect, useRef, useState } from "react";
+import { Button, Input } from "@/shared/ui-runtime";
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
 import type { PanelSlotProps } from "../../lib/script-registry";
 import { ItemCard } from "./cards";
 import { useGameActions, type PanelId } from "./state";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SlotRenderer } from "./slots";
+import { Dialog } from "../dialog";
+import { useScrollActivity } from "../use-scroll-activity";
+import type { PanelSelection } from "./state";
 
 const PANEL_TITLES: Record<PanelId, string> = {
+  people: "人物",
   inventory: "背包",
-  character: "角色",
-  relations: "关系",
   tasks: "任务",
   map: "地图",
-  log: "日志",
+  records: "档案",
 };
 
 /** Advance control: +1h / +6h / +1d. Time moves forward irrevocably, so
@@ -78,20 +78,19 @@ function PanelFrame({
   panel: PanelId;
   title: string;
   scriptId: string;
-  assets?: AssetManifest;
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const scrollActivity = useScrollActivity();
   return (
-    <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent className="cg-system-sheet" side="right">
-        <SheetHeader>
-          <SheetTitle>{title}</SheetTitle>
-          <SheetDescription>查看当前世界状态与可用资料。</SheetDescription>
-        </SheetHeader>
-        <div data-panel={panel} data-script={scriptId} className="cg-panel-content">{children}</div>
-      </SheetContent>
-    </Sheet>
+    <Dialog
+      title={title}
+      description="查看当前世界状态与可用资料。"
+      onClose={onClose}
+      className={panel === "map" ? "cg-game-dialog cg-game-dialog--wide" : "cg-game-dialog"}
+    >
+      <div {...scrollActivity} data-panel={panel} data-script={scriptId} className="cg-panel-content cg-scroll-surface">{children}</div>
+    </Dialog>
   );
 }
 
@@ -124,7 +123,7 @@ function DescriptorEdit({
           setEditing(false);
         }}
       >
-        <input
+        <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           className="cg-chrome min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm"
@@ -173,7 +172,7 @@ function InventoryPanel({
 }) {
   const stacks = state.player.inventory.stacks;
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.inventory} scriptId={scriptId} assets={assets} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.inventory} scriptId={scriptId} onClose={onClose}>
       <p className="mb-3 text-sm" style={{ color: "var(--cg-text-dim)" }}>
         货币：{state.player.inventory.currency} {catalog.currency.symbol}
       </p>
@@ -201,26 +200,46 @@ function InventoryPanel({
   );
 }
 
-function CharacterPanel({
+function FocusedPersonRow({
+  focused,
+  children,
+}: {
+  focused: boolean;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (!focused) return;
+    ref.current?.scrollIntoView({ block: "nearest" });
+    ref.current?.focus({ preventScroll: true });
+  }, [focused]);
+  return <li ref={ref} tabIndex={-1} data-focused={focused ? "true" : "false"} className="cg-person-row">{children}</li>;
+}
+
+function PeoplePanel({
   state,
   catalog,
   scriptId,
-  assets,
   onClose,
   panel,
+  focusId,
 }: {
   state: WorldState;
   catalog: Catalog;
   scriptId: string;
-  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
+  focusId: string | null;
 }) {
   const { advance } = useGameActions();
   const hpMax = catalog.stats.find((s) => s.name === catalog.hpStat)?.max ?? 100;
   const hp = state.player.stats[catalog.hpStat] ?? 0;
+  const knownPeople = [...new Set([
+    ...state.player.relations.map((relation) => relation.npcId),
+    ...(focusId ? [focusId] : []),
+  ])];
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.character} scriptId={scriptId} assets={assets} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.people} scriptId={scriptId} onClose={onClose}>
       <AdvanceControls onAdvance={advance} disabled={false} />
       <h3 className="font-semibold" style={{ color: "var(--cg-text)" }}>{state.player.name}</h3>
       <p className="mb-3 text-sm" style={{ color: "var(--cg-text-dim)" }}>
@@ -241,12 +260,12 @@ function CharacterPanel({
           />
         </div>
       </div>
-      <dl className="space-y-2 text-sm">
+      <div className="space-y-2 text-sm">
         {catalog.stats.map((s) => (
           <div key={s.name}>
             <div className="flex justify-between">
-              <dt style={{ color: "var(--cg-text-dim)" }}>{s.name}</dt>
-              <dd style={{ color: "var(--cg-text)" }}>{state.player.stats[s.name] ?? 0}</dd>
+              <span style={{ color: "var(--cg-text-dim)" }}>{s.name}</span>
+              <span style={{ color: "var(--cg-text)" }}>{state.player.stats[s.name] ?? 0}</span>
             </div>
             {s.description ? (
               <p className="text-xs" style={{ color: "var(--cg-text-dim)" }}>{s.description}</p>
@@ -256,8 +275,8 @@ function CharacterPanel({
         {catalog.skills.map((s) => (
           <div key={s.name}>
             <div className="flex justify-between">
-              <dt style={{ color: "var(--cg-text-dim)" }}>{s.name}</dt>
-              <dd style={{ color: "var(--cg-text)" }}>{state.player.skills[s.name] ?? 0}</dd>
+              <span style={{ color: "var(--cg-text-dim)" }}>{s.name}</span>
+              <span style={{ color: "var(--cg-text)" }}>{state.player.skills[s.name] ?? 0}</span>
             </div>
             {s.description ? (
               <p className="text-xs" style={{ color: "var(--cg-text-dim)" }}>{s.description}</p>
@@ -269,10 +288,10 @@ function CharacterPanel({
           return (
             <div key={n.name}>
               <div className="flex justify-between">
-                <dt style={{ color: "var(--cg-text-dim)" }}>{n.name}</dt>
-                <dd style={{ color: "var(--cg-text)" }}>
+                <span style={{ color: "var(--cg-text-dim)" }}>{n.name}</span>
+                <span style={{ color: "var(--cg-text)" }}>
                   {need?.descriptor?.label ? `${need.descriptor.label} · ` : ""}{need?.value ?? 0}
-                </dd>
+                </span>
               </div>
               <DescriptorEdit
                 path={`player.needs.${n.name}`}
@@ -282,7 +301,7 @@ function CharacterPanel({
             </div>
           );
         })}
-      </dl>
+      </div>
       {state.player.reputation.length > 0 ? (
         <div className="mt-4">
           <h4 className="mb-2 text-sm font-semibold" style={{ color: "var(--cg-text)" }}>声望</h4>
@@ -327,53 +346,32 @@ function CharacterPanel({
           })}
         </div>
       ) : null}
-    </PanelFrame>
-  );
-}
-
-function RelationsPanel({
-  state,
-  catalog,
-  scriptId,
-  assets,
-  onClose,
-  panel,
-}: {
-  state: WorldState;
-  catalog: Catalog;
-  scriptId: string;
-  assets: AssetManifest | undefined;
-  onClose: () => void;
-  panel: PanelId;
-}) {
-  const rels = state.player.relations;
-  return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.relations} scriptId={scriptId} assets={assets} onClose={onClose}>
-      {rels.length === 0 ? (
+      <section className="cg-people-section" aria-labelledby="cg-known-people">
+        <h3 id="cg-known-people">认识的人</h3>
+      {knownPeople.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>还没有结识任何人。</p>
       ) : (
-        <ul className="space-y-3">
-          {rels.map((r) => {
-            const npcName = catalog.npcs.find((n) => n.id === r.npcId)?.name ?? r.npcId;
+        <ul className="cg-people-list">
+          {knownPeople.map((npcId) => {
+            const r = state.player.relations.find((relation) => relation.npcId === npcId);
+            const npc = catalog.npcs.find((candidate) => candidate.id === npcId);
+            const npcName = npc?.name ?? npcId;
             return (
-              <li key={r.npcId} className="cg-chrome rounded-lg border p-3"
-                style={{ borderColor: "var(--cg-border)", background: "var(--cg-surface-alt)" }}>
+              <FocusedPersonRow key={npcId} focused={focusId === npcId}>
                 <div className="flex items-center justify-between">
                   <span className="font-semibold" style={{ color: "var(--cg-text)" }}>{npcName}</span>
                   <span className="text-sm" style={{ color: "var(--cg-accent)" }}>
-                    {r.descriptor?.label ?? r.type}{r.value !== 0 ? ` ${r.value}` : ""}
+                    {r ? `${r.descriptor?.label ?? r.type}${r.value !== 0 ? ` ${r.value}` : ""}` : npc?.occupation ?? "人物"}
                   </span>
                 </div>
-                <DescriptorEdit
-                  path={`player.relations.${r.npcId}`}
-                  text={r.descriptor?.description || r.description || ""}
-                  label={`与${npcName}的关系`}
-                />
-              </li>
+                {r ? <DescriptorEdit path={`player.relations.${npcId}`} text={r.descriptor?.description || r.description || ""} label={`与${npcName}的关系`} /> : null}
+                {npc?.description ? <p className="cg-person-row__description">{npc.description}</p> : null}
+              </FocusedPersonRow>
             );
           })}
         </ul>
       )}
+      </section>
     </PanelFrame>
   );
 }
@@ -382,7 +380,6 @@ function TasksPanel({
   state,
   catalog,
   scriptId,
-  assets,
   onClose,
   panel,
   trackedTaskId,
@@ -391,7 +388,6 @@ function TasksPanel({
   state: WorldState;
   catalog: Catalog;
   scriptId: string;
-  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
   trackedTaskId: string | null;
@@ -399,7 +395,7 @@ function TasksPanel({
 }) {
   const { advance } = useGameActions();
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.tasks} scriptId={scriptId} assets={assets} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.tasks} scriptId={scriptId} onClose={onClose}>
       <AdvanceControls onAdvance={advance} disabled={false} />
       {state.tasks.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>暂无任务。</p>
@@ -437,19 +433,17 @@ function MapPanel({
   state,
   catalog,
   scriptId,
-  assets,
   onClose,
   panel,
 }: {
   state: WorldState;
   catalog: Catalog;
   scriptId: string;
-  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.map} scriptId={scriptId} assets={assets} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.map} scriptId={scriptId} onClose={onClose}>
       <ul className="space-y-2">
         {catalog.locations.map((l) => (
           <li key={l.id} className="cg-chrome rounded-lg border p-3"
@@ -476,35 +470,32 @@ function MapPanel({
   );
 }
 
-function LogPanel({
+function RecordsPanel({
   state,
   scriptId,
-  assets,
   onClose,
   panel,
 }: {
   state: WorldState;
   scriptId: string;
-  assets: AssetManifest | undefined;
   onClose: () => void;
   panel: PanelId;
 }) {
-  const entries = [...state.transcript].reverse().slice(0, 50);
+  const entries = [...state.eventLog].reverse().slice(0, 50);
   return (
-    <PanelFrame panel={panel} title={PANEL_TITLES.log} scriptId={scriptId} assets={assets} onClose={onClose}>
+    <PanelFrame panel={panel} title={PANEL_TITLES.records} scriptId={scriptId} onClose={onClose}>
       {entries.length === 0 ? (
-        <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>还没有记录。</p>
+        <p className="text-sm" style={{ color: "var(--cg-text-dim)" }}>还没有形成档案。</p>
       ) : (
-        <ul className="space-y-2">
+        <ol className="cg-record-list">
           {entries.map((e) => (
-            <li key={e.id} className="text-sm" style={{ color: "var(--cg-text-dim)" }}>
-              <span className="mr-2" style={{ color: "var(--cg-accent)" }}>
-                {e.role === "player" ? "你" : e.role === "system" ? "系统" : "世界"}
-              </span>
-              {e.text}
+            <li key={e.id}>
+              <time>第 {e.day} 日 · {String(e.hour).padStart(2, "0")}:00</time>
+              <strong>{e.actor}</strong>
+              <p>{e.summary}</p>
             </li>
           ))}
-        </ul>
+        </ol>
       )}
     </PanelFrame>
   );
@@ -521,7 +512,7 @@ export function ActivePanel({
   trackedTaskId,
   onTrackTask,
 }: {
-  panel: PanelId | null;
+  panel: PanelSelection | null;
   state: WorldState;
   catalog: Catalog | undefined;
   scriptId: string;
@@ -531,8 +522,10 @@ export function ActivePanel({
   onTrackTask: (taskId: string | null) => void;
 }) {
   if (!panel || !catalog) return null;
+  const panelId = panel.id;
   const slotProps: PanelSlotProps = {
-    panelId: panel,
+    panelId,
+    focusId: panel.focusId ?? null,
     state,
     catalog,
     scriptId,
@@ -543,11 +536,11 @@ export function ActivePanel({
   };
   return (
     <SlotRenderer
-      slot={`panel:${panel}`}
+      slot={`panel:${panelId}`}
       fallback={DefaultActivePanel}
       slotProps={slotProps}
       scriptWrapper={(node) => (
-        <PanelFrame panel={panel} title={PANEL_TITLES[panel] ?? panel} scriptId={scriptId} assets={assets} onClose={onClose}>
+        <PanelFrame panel={panelId} title={PANEL_TITLES[panelId]} scriptId={scriptId} onClose={onClose}>
           {node}
         </PanelFrame>
       )}
@@ -555,22 +548,20 @@ export function ActivePanel({
   );
 }
 
-function DefaultActivePanel({ panelId: panel, state, catalog, scriptId, assets, trackedTaskId, trackTask, close: onClose }: PanelSlotProps) {
+function DefaultActivePanel({ panelId: panel, focusId, state, catalog, scriptId, assets, trackedTaskId, trackTask, close: onClose }: PanelSlotProps) {
   switch (panel) {
     case "inventory":
       return (
         <InventoryPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />
       );
-    case "character":
-      return <CharacterPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
-    case "relations":
-      return <RelationsPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
+    case "people":
+      return <PeoplePanel state={state} catalog={catalog} scriptId={scriptId} onClose={onClose} panel={panel} focusId={focusId} />;
     case "tasks":
-      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} trackedTaskId={trackedTaskId} onTrackTask={trackTask} />;
+      return <TasksPanel state={state} catalog={catalog} scriptId={scriptId} onClose={onClose} panel={panel} trackedTaskId={trackedTaskId} onTrackTask={trackTask} />;
     case "map":
-      return <MapPanel state={state} catalog={catalog} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
-    case "log":
-      return <LogPanel state={state} scriptId={scriptId} assets={assets} onClose={onClose} panel={panel} />;
+      return <MapPanel state={state} catalog={catalog} scriptId={scriptId} onClose={onClose} panel={panel} />;
+    case "records":
+      return <RecordsPanel state={state} scriptId={scriptId} onClose={onClose} panel={panel} />;
   }
   return null;
 }

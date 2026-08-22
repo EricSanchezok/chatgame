@@ -3,17 +3,17 @@
 import { useSyncExternalStore } from "react";
 import type { ScriptUiBundleDescriptor } from "../../shared/client-dto";
 import { SCRIPT_UI_API_VERSION } from "../../shared/client-dto";
-import type { ScriptUiContext, SlotDef, SlotId } from "../../shared/ui-api";
+import type { GamePresentation, ScriptUiContext, SlotDef, SlotId } from "../../shared/ui-api";
 export type {
   BubbleSlotProps,
-  ComposerSlotProps,
+  GameObjective,
+  GamePanelId,
+  GamePresentation,
   GameShellSlotProps,
-  HudSlotProps,
+  GameSuggestion,
   LauncherSlotProps,
   MessageCardSlotProps,
-  ObjectiveTrackerSlotProps,
   PanelSlotProps,
-  PauseMenuSlotProps,
   SceneSlotProps,
   ScriptHostModel,
   ScriptUiContext,
@@ -21,7 +21,6 @@ export type {
   SlotDef,
   SlotId,
   SlotProps,
-  ToolbarSlotProps,
 } from "../../shared/ui-api";
 
 interface ScriptUiModule {
@@ -35,6 +34,7 @@ export interface RegistrySnapshot {
   readonly dependencyHash: string | null;
   readonly status: "idle" | "loading" | "active" | "error";
   readonly slots: ReadonlyMap<SlotId, SlotDef>;
+  readonly gamePresentation: GamePresentation | null;
   readonly error: string | null;
 }
 
@@ -46,6 +46,7 @@ let snapshot: RegistrySnapshot = {
   dependencyHash: null,
   status: "idle",
   slots: EMPTY_SLOTS,
+  gamePresentation: null,
   error: null,
 };
 let retainedActiveSnapshot: RegistrySnapshot | null = null;
@@ -102,6 +103,7 @@ export function clearSlots(): void {
     dependencyHash: null,
     status: "idle",
     slots: EMPTY_SLOTS,
+    gamePresentation: null,
     error: null,
   });
 }
@@ -111,18 +113,19 @@ function isSlotId(slot: string): slot is SlotId {
     "launcher",
     "game-shell",
     "scene",
-    "hud",
-    "objective-tracker",
-    "toolbar",
-    "composer",
-    "pause-menu",
-  ].includes(slot) || /^(panel|bubble|message-card|settings):[^:]+$/.test(slot);
+  ].includes(slot) || /^panel:(people|inventory|tasks|map|records)$/.test(slot) || /^(bubble|message-card|settings):[^:]+$/.test(slot);
 }
 
 function validateRegistration(slot: string, def: { component?: unknown }): asserts slot is SlotId {
   if (!isSlotId(slot)) throw new Error(`unknown script UI slot "${slot}"`);
   if (!def || (typeof def.component !== "function" && typeof def.component !== "object")) {
     throw new Error(`slot "${slot}" must register a React component`);
+  }
+}
+
+function validateGamePresentation(presentation: GamePresentation): void {
+  if (!presentation || typeof presentation.suggestions !== "function" || typeof presentation.objective !== "function") {
+    throw new Error("game presentation must provide suggestions() and objective()");
   }
 }
 
@@ -153,7 +156,7 @@ export async function loadScriptUi(
   const activation = ++generation;
   publish({ ...snapshot, generation: activation, status: "loading", error: null });
 
-  const commit = (slots: ReadonlyMap<SlotId, SlotDef>, error: string | null) => {
+  const commit = (slots: ReadonlyMap<SlotId, SlotDef>, gamePresentation: GamePresentation | null, error: string | null) => {
     if (activation !== generation) return false;
     options.beforeCommit?.();
     const next: RegistrySnapshot = {
@@ -162,6 +165,7 @@ export async function loadScriptUi(
       dependencyHash: bundle?.dependencyHash ?? null,
       status: error ? "error" : "active",
       slots,
+      gamePresentation,
       error,
     };
     if (!error) retainedActiveSnapshot = next;
@@ -170,7 +174,7 @@ export async function loadScriptUi(
   };
 
   if (!bundle) {
-    commit(EMPTY_SLOTS, null);
+    commit(EMPTY_SLOTS, null, null);
     return { ok: true, generation: activation };
   }
 
@@ -187,6 +191,7 @@ export async function loadScriptUi(
     if (typeof uiModule.default !== "function") throw new Error("剧本 UI bundle 缺少默认注册函数");
 
     const temporary = new Map<SlotId, SlotDef>();
+    let gamePresentation: GamePresentation | null = null;
     const context: ScriptUiContext = {
       apiVersion: SCRIPT_UI_API_VERSION,
       register(slot, def) {
@@ -194,16 +199,21 @@ export async function loadScriptUi(
         if (temporary.has(slot)) throw new Error(`slot "${slot}" was registered more than once`);
         temporary.set(slot, def as SlotDef);
       },
+      configureGame(presentation) {
+        validateGamePresentation(presentation);
+        if (gamePresentation) throw new Error("game presentation was configured more than once");
+        gamePresentation = presentation;
+      },
     };
     uiModule.default(context);
-    if (!commit(temporary, null)) return { ok: false, stale: true, generation: activation };
+    if (!commit(temporary, gamePresentation, null)) return { ok: false, stale: true, generation: activation };
     return { ok: true, generation: activation };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (activation !== generation) return { ok: false, stale: true, generation: activation };
     if (previousActive) {
       publish({ ...previousActive, generation: activation, error: message });
-    } else if (!commit(EMPTY_SLOTS, message)) {
+    } else if (!commit(EMPTY_SLOTS, null, message)) {
       return { ok: false, stale: true, generation: activation };
     }
     return { ok: false, error: message, generation: activation };

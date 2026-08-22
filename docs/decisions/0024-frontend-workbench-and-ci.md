@@ -26,7 +26,7 @@ Class: testing
 
 Storybook 使用 `@storybook/nextjs-vite` 和 `test/workbench/game-preview-harness.tsx`；Vitest/RTL 分别在 Node 与 jsdom 环境测试契约和组件，Storybook browser mode 覆盖交互和组件级 axe；Playwright 通过 `next start` 对生产构建执行真实路由 E2E、页面级 axe 和确定性视觉快照。生产玩家流程不拦截 `/api/**`，请求经 Route Handler、EngineHost 与引擎到 Mock LLM 这一非确定性边界。
 
-共享 `test/workbench/core-test-script.ts` 与 `MockGamePort` 提供 Storybook、单元和视觉状态；`MockGamePort` 不进入生产玩家流程。`test/fixtures/core-test-library/core-test-script/` 提供可由生产 loader 读取的独立严格 YAML、Engine API v2 与 UI API v4 fixture，Playwright 用隔离 scripts/data root 驱动它并在套件边界清空数据。
+共享 `test/workbench/core-test-script.ts` 与 `MockGamePort` 提供 Storybook、单元和视觉状态；`MockGamePort` 不进入生产玩家流程。`test/fixtures/core-test-library/core-test-script/` 提供可由生产 loader 读取的独立严格 YAML、Engine API v2 与 UI API v6 fixture，Playwright 用隔离 scripts/data root 驱动它并在套件边界清空数据。
 
 引擎、宿主和脚本契约的通用测试也必须从该独立 fixture 构造世界，不得把《灰烬镇》或《星港》当作平台夹具。只有验证某个内置剧本具体内容关系、素材清单或完整事件闭环的测试可以加载该剧本，并必须放在明确命名的内容回归分组中。
 

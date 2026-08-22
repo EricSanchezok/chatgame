@@ -16,11 +16,11 @@ const def: SlotDef = { component: () => null };
 const another: SlotDef = { component: () => null };
 
 function bundle(hash: string): ScriptUiBundleDescriptor {
-  return { apiVersion: 5, dependencyHash: hash, url: `/bundle/${hash}.mjs` };
+  return { apiVersion: 6, dependencyHash: hash, url: `/bundle/${hash}.mjs` };
 }
 
 function moduleWith(register: (context: ScriptUiContext) => void) {
-  return { apiVersion: 5, default: register };
+  return { apiVersion: 6, default: register };
 }
 
 beforeEach(clearSlots);
@@ -28,11 +28,11 @@ beforeEach(clearSlots);
 describe("slot registry", () => {
   it("publishes immutable direct registration snapshots", () => {
     const before = getScriptRegistrySnapshot();
-    registerSlot("hud", def);
-    expect(hasSlot("hud")).toBe(true);
-    expect(getSlot("hud")).toBe(def);
+    registerSlot("scene", def);
+    expect(hasSlot("scene")).toBe(true);
+    expect(getSlot("scene")).toBe(def);
     expect(getScriptRegistrySnapshot()).not.toBe(before);
-    expect(before.slots.has("hud")).toBe(false);
+    expect(before.slots.has("scene")).toBe(false);
   });
 
   it("commits a complete bundle in one registry snapshot", async () => {
@@ -40,8 +40,8 @@ describe("slot registry", () => {
     const unsubscribe = subscribeScriptRegistry(() => observed.push(getScriptRegistrySnapshot().slots.size));
     const result = await loadScriptUi("script-a", bundle("a"), {
       importer: async () => moduleWith((context) => {
-        context.register("hud", def);
-        context.register("toolbar", another);
+        context.register("scene", def);
+        context.register("launcher", another);
       }),
     });
     unsubscribe();
@@ -53,13 +53,13 @@ describe("slot registry", () => {
 
   it("rejects duplicate slot registrations without replacing the active version", async () => {
     await loadScriptUi("script-a", bundle("good"), {
-      importer: async () => moduleWith((context) => context.register("hud", def)),
+      importer: async () => moduleWith((context) => context.register("scene", def)),
     });
     const previousSlots = getScriptRegistrySnapshot().slots;
     const result = await loadScriptUi("script-a", bundle("bad"), {
       importer: async () => moduleWith((context) => {
-        context.register("hud", def);
-        context.register("hud", another);
+        context.register("scene", def);
+        context.register("scene", another);
       }),
     });
 
@@ -69,19 +69,19 @@ describe("slot registry", () => {
     expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-a", dependencyHash: "good", status: "active" });
   });
 
-  it("rejects a v4 bundle without a compatibility path", async () => {
-    const legacy = { apiVersion: 4, dependencyHash: "legacy", url: "/bundle/legacy.mjs" } as unknown as ScriptUiBundleDescriptor;
+  it("rejects a v5 bundle without a compatibility path", async () => {
+    const legacy = { apiVersion: 5, dependencyHash: "legacy", url: "/bundle/legacy.mjs" } as unknown as ScriptUiBundleDescriptor;
     const result = await loadScriptUi("script-a", legacy, {
-      importer: async () => ({ apiVersion: 4, default: () => {} }),
+      importer: async () => ({ apiVersion: 5, default: () => {} }),
     });
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("宿主需要 5");
+    expect(result.error).toContain("宿主需要 6");
     expect(getScriptRegistrySnapshot().slots.size).toBe(0);
   });
 
   it("keeps the prior same-script version on an import failure", async () => {
     await loadScriptUi("script-a", bundle("good"), {
-      importer: async () => moduleWith((context) => context.register("hud", def)),
+      importer: async () => moduleWith((context) => context.register("scene", def)),
     });
     const before = getScriptRegistrySnapshot();
     const result = await loadScriptUi("script-a", bundle("broken"), {
@@ -95,7 +95,7 @@ describe("slot registry", () => {
 
   it("keeps the last complete same-script version when overlapping activation fails", async () => {
     await loadScriptUi("script-a", bundle("good"), {
-      importer: async () => moduleWith((context) => context.register("hud", def)),
+      importer: async () => moduleWith((context) => context.register("scene", def)),
     });
     const previousSlots = getScriptRegistrySnapshot().slots;
     let finishFirst!: (value: ReturnType<typeof moduleWith>) => void;
@@ -105,7 +105,7 @@ describe("slot registry", () => {
     const second = await loadScriptUi("script-a", bundle("broken"), {
       importer: async () => { throw new Error("overlapping activation failed"); },
     });
-    finishFirst(moduleWith((context) => context.register("toolbar", another)));
+    finishFirst(moduleWith((context) => context.register("launcher", another)));
     const staleFirst = await first;
 
     expect(second).toMatchObject({ ok: false, error: "overlapping activation failed" });
@@ -121,7 +121,7 @@ describe("slot registry", () => {
 
   it("uses target-script host fallbacks after a cross-script failure", async () => {
     await loadScriptUi("script-a", bundle("a"), {
-      importer: async () => moduleWith((context) => context.register("hud", def)),
+      importer: async () => moduleWith((context) => context.register("scene", def)),
     });
     await loadScriptUi("script-b", bundle("b"), {
       importer: async () => { throw new Error("broken script-b bundle"); },
@@ -136,23 +136,42 @@ describe("slot registry", () => {
     const pendingA = new Promise<ReturnType<typeof moduleWith>>((resolve) => { resolveA = resolve; });
     const a = loadScriptUi("script-a", bundle("a"), { importer: async () => pendingA });
     const b = await loadScriptUi("script-b", bundle("b"), {
-      importer: async () => moduleWith((context) => context.register("toolbar", another)),
+      importer: async () => moduleWith((context) => context.register("launcher", another)),
     });
-    resolveA(moduleWith((context) => context.register("hud", def)));
+    resolveA(moduleWith((context) => context.register("scene", def)));
     const lateA = await a;
 
     expect(b.ok).toBe(true);
     expect(lateA.stale).toBe(true);
     expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-b", dependencyHash: "b" });
-    expect(hasSlot("toolbar")).toBe(true);
-    expect(hasSlot("hud")).toBe(false);
+    expect(hasSlot("launcher")).toBe(true);
+    expect(hasSlot("scene")).toBe(false);
   });
 
   it("activates an absent bundle as an empty host registry", async () => {
-    registerSlot("hud", def);
+    registerSlot("scene", def);
     const result = await loadScriptUi("declarative-only");
     expect(result.ok).toBe(true);
     expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "declarative-only", status: "active" });
     expect(getScriptRegistrySnapshot().slots.size).toBe(0);
+  });
+
+  it("registers one game presentation and rejects duplicate configuration", async () => {
+    const presentation = { objective: () => null, suggestions: () => [] };
+    const good = await loadScriptUi("script-a", bundle("presentation"), {
+      importer: async () => moduleWith((context) => context.configureGame(presentation)),
+    });
+    expect(good.ok).toBe(true);
+    expect(getScriptRegistrySnapshot().gamePresentation).toBe(presentation);
+
+    const duplicate = await loadScriptUi("script-b", bundle("duplicate"), {
+      importer: async () => moduleWith((context) => {
+        context.configureGame(presentation);
+        context.configureGame(presentation);
+      }),
+    });
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.error).toContain("more than once");
+    expect(getScriptRegistrySnapshot().gamePresentation).toBeNull();
   });
 });

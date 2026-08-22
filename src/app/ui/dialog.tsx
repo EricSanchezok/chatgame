@@ -14,15 +14,17 @@ export function Dialog({
   description,
   onClose,
   children,
+  className,
 }: {
   title: string;
   description?: string;
   onClose(): void;
   children: ReactNode;
+  className?: string;
 }) {
   return (
     <DialogRoot open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="cg-dialog" closeLabel={`关闭${title}`} aria-label={title}>
+      <DialogContent className={`cg-dialog${className ? ` ${className}` : ""}`} closeLabel={`关闭${title}`} aria-label={title}>
         <DialogHeader className="cg-dialog__header">
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}

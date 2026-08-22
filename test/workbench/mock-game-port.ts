@@ -157,7 +157,7 @@ export class MockGamePort implements GamePort {
       name: file.name,
       sourceName: file.name,
       schemaVersion: "1.1",
-      apiVersions: { hostUi: 5, engine: 2, scriptUi: null },
+      apiVersions: { hostUi: 6, engine: 2, scriptUi: null },
       conflicts: { installed: false, replaceAllowed: false },
       permissions: [],
       assetProvenance: { manifestPresent: false, coveredFiles: 0, totalFiles: 0, missingFiles: [], extraFiles: [], remoteReferences: [] },

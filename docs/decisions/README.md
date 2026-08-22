@@ -95,4 +95,5 @@
 - [0026 — 《星港》老站值班与资源事故重做](0026-starlight-shift-console.md)
 - [0027 — 会话优先 UI API v4（由 0029 取代）](0027-session-first-ui-api-v4.md)
 - [0028 — 会话优先游戏布局（由 0029 取代）](0028-conversation-first-game-layout.md)
-- [0029 — ReUI AppShell 与 UI API v5](0029-reui-app-shell-and-ui-api-v5.md)
+- [0029 — ReUI AppShell 与 UI API v5（由 0030 取代）](0029-reui-app-shell-and-ui-api-v5.md)
+- [0030 — Manus 风格游戏会话工作区与 UI API v6](0030-manus-style-game-workspace-and-ui-api-v6.md)

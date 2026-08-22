@@ -18,7 +18,7 @@ describe("ScriptsLibrary import preview", () => {
       name: "预检剧本",
       sourceName: "preview.zip",
       schemaVersion: "1.1",
-      apiVersions: { hostUi: 5, engine: null, scriptUi: null },
+      apiVersions: { hostUi: 6, engine: null, scriptUi: null },
       cover: { file: "assets/cover.svg", alt: "预检封面" },
       coverUrl: "/api/scripts/import/preview/00000000-0000-0000-0000-000000000001/cover",
       conflicts: { installed: false, replaceAllowed: false },

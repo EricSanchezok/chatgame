@@ -39,7 +39,7 @@ function RegistryStatePreview({ state }: { state: RegistryState }) {
         importer: async () => ({
           apiVersion: SCRIPT_UI_API_VERSION,
           default(context: ScriptUiContext) {
-            context.register("hud", { component: RegistryMarker });
+            context.register("scene", { component: RegistryMarker });
           },
         }),
       });

@@ -13,10 +13,17 @@ export default defineConfig({
     include: [
       "react-dom",
       "next/link",
+      "@base-ui/react/button",
       "@base-ui/react/checkbox",
+      "@base-ui/react/dialog",
+      "@base-ui/react/input",
+      "@base-ui/react/merge-props",
       "@base-ui/react/select",
+      "@base-ui/react/separator",
       "@base-ui/react/slider",
       "@base-ui/react/switch",
+      "@base-ui/react/tooltip",
+      "@base-ui/react/use-render",
     ],
   },
   test: {

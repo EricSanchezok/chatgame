@@ -8,8 +8,13 @@ import type {
   WorldStateView,
 } from "../../shared/client-dto";
 import type { GamePort } from "./api";
+import type { GamePanelId } from "../../shared/ui-api";
 
-export type PanelId = "inventory" | "character" | "relations" | "tasks" | "map" | "log" | string;
+export interface PanelSelection {
+  id: GamePanelId;
+  focusId?: string;
+}
+export type PanelId = GamePanelId;
 export type ThemeMode = "follow" | string;
 export type GameOperation = "idle" | "starting" | "turn" | "preview" | "saving" | "advancing" | "leaving";
 
@@ -31,7 +36,7 @@ export interface GameState {
   themeMode: ThemeMode;
   audioEnabled: boolean;
   dirty: boolean;
-  panel: PanelId | null;
+  panel: PanelSelection | null;
   paused: boolean;
   lastTurn: TurnResultFull | null;
   trackedTaskId: string | null;
@@ -65,7 +70,7 @@ export type GameAction =
   | { type: "previewed"; generation: number }
   | { type: "theme"; mode: ThemeMode }
   | { type: "audio"; on: boolean }
-  | { type: "panel"; panel: PanelId | null }
+  | { type: "panel"; panel: PanelSelection | null }
   | { type: "pause"; on: boolean }
   | { type: "trackTask"; taskId: string | null }
   | { type: "saved"; generation: number }
@@ -418,7 +423,10 @@ export class GameController {
     this.effects.onAudioEnabled(on);
     this.store.dispatch({ type: "audio", on });
   };
-  setPanel = (panel: PanelId | null) => this.store.dispatch({ type: "panel", panel });
+  setPanel = (panel: PanelId | PanelSelection | null) => this.store.dispatch({
+    type: "panel",
+    panel: typeof panel === "string" ? { id: panel } : panel,
+  });
   setPause = (on: boolean) => this.store.dispatch({ type: "pause", on });
   setTrackedTask = (taskId: string | null) => {
     const session = this.store.getSnapshot().session;

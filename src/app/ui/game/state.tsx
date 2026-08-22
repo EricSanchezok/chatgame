@@ -25,7 +25,7 @@ import { patchPlayerSettings, readPlayerSettings } from "../../lib/settings";
 import { loadScriptUi } from "../../lib/script-registry";
 import type { SessionPresentation } from "../../../shared/client-dto";
 
-export type { GameState, PanelId, ThemeMode } from "../../lib/game-store";
+export type { GameState, PanelId, PanelSelection, ThemeMode } from "../../lib/game-store";
 
 export function resolveActiveTheme(
   presentation: SessionPresentation | undefined,

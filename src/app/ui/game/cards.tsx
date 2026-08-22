@@ -4,11 +4,31 @@
 // resolution + mediaCues. Every card degrades gracefully — no portrait
 // -> initial-letter avatar, no background -> solid color card.
 
+import { useState } from "react";
 import type { AssetManifest, Catalog, MediaCue, TranscriptEntry, WorldState } from "../../lib/api";
 import { httpGamePort } from "../../lib/api";
 import { UiIcon } from "./ui-icon";
 import { SlotRenderer } from "./slots";
 import type { MessageCardSlotProps } from "../../lib/script-registry";
+import { Dialog } from "../dialog";
+
+export function ZoomableImage({ src, alt }: { src: string; alt: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="cg-media-open" onClick={() => setOpen(true)} aria-label={`查看原图：${alt}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- script media is runtime-addressed. */}
+        <img src={src} alt={alt} />
+      </button>
+      {open ? (
+        <Dialog title={alt} onClose={() => setOpen(false)} className="cg-lightbox-dialog">
+          {/* eslint-disable-next-line @next/next/no-img-element -- script media is runtime-addressed. */}
+          <img className="cg-lightbox-image" src={src} alt={alt} />
+        </Dialog>
+      ) : null}
+    </>
+  );
+}
 
 /** Resolution grade -> display label. */
 export function gradeLabel(grade: string): string {
@@ -111,10 +131,7 @@ export function LocationCard({
       className="cg-location-card"
       style={{ background: src ? undefined : "var(--cg-surface-alt)" }}
     >
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={manifest?.backgrounds[locationId]?.alt ?? name} />
-      ) : null}
+      {src ? <ZoomableImage src={src} alt={manifest?.backgrounds[locationId]?.alt ?? name} /> : null}
       <figcaption>
         <div className="cg-media-caption__title">
           <UiIcon slot="location" scriptId={scriptId} manifest={manifest} className="h-4 w-4" />
@@ -177,10 +194,7 @@ export function EventCard({ scriptId, eventId, name, manifest }: {
   const src = assetSrc(scriptId, manifest, "illustrations", eventId);
   return (
     <figure className="cg-event-card" style={{ background: "var(--cg-surface-alt)" }}>
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element -- script illustrations are runtime-addressed.
-        <img src={src} alt={manifest?.illustrations[eventId]?.alt ?? name} />
-      ) : null}
+      {src ? <ZoomableImage src={src} alt={manifest?.illustrations[eventId]?.alt ?? name} /> : null}
       <figcaption className="cg-event-card__caption">
         <UiIcon slot="warning" scriptId={scriptId} manifest={manifest} className="h-4 w-4" />
         {name}

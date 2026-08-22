@@ -30,7 +30,7 @@ function writeUi(scriptId: string, code: string): string {
 const SIMPLE_UI = [
   'import { useState } from "react";',
   "export default function register(ctx: any) {",
-  '  ctx.register("hud", {',
+  '  ctx.register("scene", {',
   "    component: function Hud() {",
   "      const [count] = useState(0);",
   "      return <div>{count}</div>;",
@@ -68,7 +68,7 @@ describe("buildScriptUi", () => {
     const scriptDir = writeUi("test-bundle", SIMPLE_UI);
     const result = await buildScriptUi(scriptDir);
     expect(result.ok).toBe(true);
-    expect(result.apiVersion).toBe(5);
+    expect(result.apiVersion).toBe(6);
     expect(result.dependencyHash).toMatch(/^[0-9a-f]{20}$/);
     expect(result.url).toBe(`/api/scripts/test-bundle/ui-bundle?v=${result.dependencyHash}`);
     expect(result.bundlePath).toBe(uiBundlePath("test-bundle", result.dependencyHash));
@@ -117,7 +117,7 @@ describe("buildScriptUi", () => {
         'import { label } from "./label";',
         "export const apiVersion = 3;",
         "export default function register(ctx: any) {",
-        '  ctx.register("hud", { component: () => <div>{label}</div> });',
+        '  ctx.register("scene", { component: () => <div>{label}</div> });',
         "}",
       ].join("\n"));
       writeFileSync(path.join(scriptDir, "ui", "label.ts"), 'export const label = "first";');

@@ -2,7 +2,6 @@
 import type { ComponentType, ReactNode } from "react";
 import type {
   AssetManifest,
-  ActionPreview,
   Catalog,
   ImportPreview,
   IntentHint,
@@ -11,10 +10,10 @@ import type {
   TranscriptEntry,
   WorldStateView,
 } from "./client-dto";
+import { SCRIPT_UI_API_VERSION } from "./client-dto";
 
-export { SCRIPT_UI_API_VERSION } from "./client-dto";
+export { SCRIPT_UI_API_VERSION };
 export {
-  ActionChoice,
   Badge,
   Button,
   Checkbox,
@@ -22,7 +21,6 @@ export {
   FramePanel,
   Input,
   InputGroup,
-  Metric,
   Select,
   SettingRow,
   Slider,
@@ -35,15 +33,30 @@ export type SlotId =
   | "launcher"
   | "game-shell"
   | "scene"
-  | "hud"
-  | "objective-tracker"
-  | "toolbar"
-  | "composer"
-  | "pause-menu"
-  | `panel:${string}`
+  | `panel:${GamePanelId}`
   | `bubble:${string}`
   | `message-card:${string}`
   | `settings:${string}`;
+
+export type GamePanelId = "people" | "inventory" | "tasks" | "map" | "records";
+
+export interface GameSuggestion {
+  id: string;
+  label: string;
+  detail?: string;
+  intentHint: IntentHint;
+}
+
+export interface GameObjective {
+  title: string;
+  detail?: string;
+  progress?: { value: number; max: number };
+}
+
+export interface GamePresentation {
+  suggestions(model: ScriptHostModel): readonly GameSuggestion[];
+  objective(model: ScriptHostModel): GameObjective | null;
+}
 
 export interface ScriptHostModel {
   scriptId: string;
@@ -84,52 +97,18 @@ export interface LauncherSlotProps {
 
 export interface GameShellSlotProps extends ScriptHostModel {
   regions: {
-    hud: ReactNode;
-    tracker: ReactNode;
-    scene: ReactNode;
-    toolbar: ReactNode;
-    composer: ReactNode;
+    topbar: ReactNode;
+    conversation: ReactNode;
+    toolRail: ReactNode;
     overlays: ReactNode;
   };
 }
 
 export interface SceneSlotProps extends ScriptHostModel { transcript: ReactNode }
-export type HudSlotProps = ScriptHostModel;
-
-export interface ToolbarSlotProps extends ScriptHostModel {
-  panel: string | null;
-  openPanel(panel: string): void;
-  openPause(): void;
-}
-
-export interface ObjectiveTrackerSlotProps extends ScriptHostModel {
-  trackedTaskId: string | null;
-  openTasks(): void;
-}
-
-export interface ComposerSlotProps extends ScriptHostModel {
-  busy: boolean;
-  submitTurn(text: string, intentHint?: IntentHint): Promise<void>;
-  previewAction(intentHint: IntentHint): Promise<ActionPreview | null>;
-}
-
-export interface PauseMenuSlotProps extends ScriptHostModel {
-  busy: boolean;
-  dirty: boolean;
-  themeMode: string;
-  themes: Array<{ id: string; name: string }>;
-  audioEnabled: boolean;
-  isFullscreen: boolean;
-  setTheme(mode: string): void;
-  setAudio(enabled: boolean): void;
-  exitFullscreen(): Promise<void>;
-  close(): void;
-  save(): Promise<void>;
-  exit(saveFirst: boolean): Promise<void>;
-}
 
 export interface PanelSlotProps extends ScriptHostModel {
-  panelId: string;
+  panelId: GamePanelId;
+  focusId: string | null;
   trackedTaskId: string | null;
   trackTask(taskId: string | null): void;
   close(): void;
@@ -182,20 +161,16 @@ export type SlotProps<K extends SlotId> =
   K extends "launcher" ? LauncherSlotProps
     : K extends "game-shell" ? GameShellSlotProps
       : K extends "scene" ? SceneSlotProps
-      : K extends "hud" ? HudSlotProps
-          : K extends "objective-tracker" ? ObjectiveTrackerSlotProps
-            : K extends "toolbar" ? ToolbarSlotProps
-            : K extends "composer" ? ComposerSlotProps
-              : K extends "pause-menu" ? PauseMenuSlotProps
-                : K extends `panel:${string}` ? PanelSlotProps
-                  : K extends `bubble:${string}` ? BubbleSlotProps
-                    : K extends `message-card:${string}` ? MessageCardSlotProps
-                      : K extends `settings:${string}` ? SettingsSlotProps
-                        : never;
+        : K extends `panel:${GamePanelId}` ? PanelSlotProps
+          : K extends `bubble:${string}` ? BubbleSlotProps
+            : K extends `message-card:${string}` ? MessageCardSlotProps
+              : K extends `settings:${string}` ? SettingsSlotProps
+                : never;
 
 export interface SlotDef<K extends SlotId = SlotId> { component: ComponentType<SlotProps<K>> }
 
 export interface ScriptUiContext {
-  readonly apiVersion: 5;
+  readonly apiVersion: typeof SCRIPT_UI_API_VERSION;
   register<K extends SlotId>(slot: K, def: SlotDef<K>): void;
+  configureGame(presentation: GamePresentation): void;
 }

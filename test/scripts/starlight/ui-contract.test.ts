@@ -17,24 +17,22 @@ function assetFiles(dir: string): string[] {
 describe("Starlight conversation-first UI contract", () => {
   it("inherits the host conversation shell and registers only script-specific surfaces", () => {
     const slots = new Map<SlotId, unknown>();
+    let configured = false;
     const context: ScriptUiContext = {
-      apiVersion: 5,
+      apiVersion: 6,
       register(slot, definition) {
         slots.set(slot, definition.component);
       },
+      configureGame() { configured = true; },
     };
     registerStarlightUi(context);
-    expect(apiVersion).toBe(5);
+    expect(apiVersion).toBe(6);
+    expect(configured).toBe(true);
     expect([...slots.keys()].sort()).toEqual([
-      "composer",
-      "hud",
-      "objective-tracker",
       "panel:inventory",
-      "panel:log",
       "panel:map",
+      "panel:records",
       "panel:tasks",
-      "pause-menu",
-      "toolbar",
     ]);
     expect(slots.has("game-shell")).toBe(false);
     expect(slots.has("scene")).toBe(false);
@@ -45,9 +43,11 @@ describe("Starlight conversation-first UI contract", () => {
     expect(source).not.toMatch(/\bfetch\s*\(/);
     expect(source).not.toMatch(/\b(?:localStorage|sessionStorage|createContext|useReducer)\b/);
     expect(source).toContain("runtimeState");
-    expect(source).toContain("previewAction(choice.hint)");
-    expect(source).toContain("submitTurn(messageText, hint)");
-    expect(source).toContain('className="cg-composer sl-chat-composer"');
+    expect(source).toContain("starlightSuggestions");
+    expect(source).toContain("ctx.configureGame");
+    expect(source).not.toContain("previewAction");
+    expect(source).not.toContain("submitTurn");
+    expect(source).not.toContain("cg-composer");
     expect(source).not.toContain('ctx.register("game-shell"');
     expect(source).not.toContain('ctx.register("scene"');
     expect(source).not.toContain("StarlightGameShell");
@@ -59,15 +59,12 @@ describe("Starlight conversation-first UI contract", () => {
     const css = readFileSync(path.join(SCRIPT_DIR, "ui/styles.ts"), "utf8");
     const source = readFileSync(path.join(SCRIPT_DIR, "ui/index.tsx"), "utf8");
     expect(css).toContain("@media (max-width: 720px)");
-    expect(css).toContain("@media (max-width: 980px)");
-    expect(css).toContain("@media (max-height: 600px) and (orientation: landscape)");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("@media (prefers-contrast: more)");
     expect(css).toContain("var(--cg-scale)");
     expect(css).not.toContain(".sl-button");
-    expect(source).toContain("ActionChoice");
-    expect(source).toContain("InputGroup");
-    expect(css).toContain(".sl-loading");
+    expect(source).not.toContain("ActionChoice");
+    expect(source).not.toContain("InputGroup");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(css).not.toMatch(/\b(?:rgb|hsl|oklch)a?\(/i);
   });

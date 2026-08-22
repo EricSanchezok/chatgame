@@ -118,7 +118,7 @@ test("conversation empty, long, error and pause states", async ({ page }) => {
   await expectStableScreenshot(page, "conversation-empty.png");
 
   await page.keyboard.press("Escape");
-  await page.getByRole("dialog", { name: "暂停菜单" }).waitFor();
+  await page.getByRole("dialog", { name: "游戏菜单" }).waitFor();
   await expectStableScreenshot(page, "pause-menu.png");
 
   await page.unrouteAll({ behavior: "wait" });

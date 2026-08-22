@@ -1,92 +1,114 @@
 "use client";
 
-import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
-import { UiIcon } from "./ui-icon";
-import type { PanelId } from "./state";
-import { SlotRenderer } from "./slots";
-import type { ToolbarSlotProps } from "../../lib/script-registry";
-import { Pause } from "lucide-react";
+import {
+  Backpack,
+  BookOpenText,
+  CirclePause,
+  LayoutGrid,
+  ListChecks,
+  Map,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Dialog } from "../dialog";
+import type { PanelId, PanelSelection } from "./state";
 
-export interface ToolbarProps {
-  state: WorldState;
-  catalog: Catalog;
-  scriptId: string;
-  assets: AssetManifest;
-  panel: PanelId | null;
-  onOpenPanel: (panel: PanelId) => void;
-  onOpenPause: () => void;
+interface GameTool {
+  id: PanelId;
+  label: string;
+  icon: LucideIcon;
 }
 
-const ENTRIES: Array<{
-  panel: PanelId;
-  label: string;
-  slot: "inventory" | "character" | "relations" | "tasks" | "map" | "log";
-}> = [
-  { panel: "inventory", label: "背包", slot: "inventory" },
-  { panel: "character", label: "角色", slot: "character" },
-  { panel: "relations", label: "关系", slot: "relations" },
-  { panel: "tasks", label: "任务", slot: "tasks" },
-  { panel: "map", label: "地图", slot: "map" },
-  { panel: "log", label: "日志", slot: "log" },
+export const GAME_TOOLS: readonly GameTool[] = [
+  { id: "people", label: "人物", icon: UsersRound },
+  { id: "inventory", label: "背包", icon: Backpack },
+  { id: "tasks", label: "任务", icon: ListChecks },
+  { id: "map", label: "地图", icon: Map },
+  { id: "records", label: "档案", icon: BookOpenText },
 ];
 
-function DefaultToolbar({ scriptId, assets, panel, onOpenPanel, onOpenPause }: ToolbarProps) {
+interface ToolProps {
+  panel: PanelSelection | null;
+  onOpenPanel(panel: PanelId): void;
+  onOpenPause(): void;
+}
+
+export function GameToolRail({ panel, onOpenPanel, onOpenPause }: ToolProps) {
   return (
-    <nav
-      data-region="toolbar"
-      aria-label="游戏面板"
-      className="cg-toolbar"
-    >
-      {ENTRIES.map(({ panel: id, label, slot }) => {
-        const active = panel === id;
-        return (
-          <button
-            key={id}
-            type="button"
-            title={label}
-            aria-label={label}
-            aria-pressed={active}
-            onClick={() => onOpenPanel(id)}
-            className="cg-toolbar__action"
+    <nav className="cg-game-tools" aria-label="游戏资料">
+      <div className="cg-game-tools__group">
+        {GAME_TOOLS.map(({ id, label, icon: Icon }) => (
+          <Tooltip key={id}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="cg-game-tools__button"
+                  aria-label={label}
+                  aria-pressed={panel?.id === id}
+                  onClick={() => onOpenPanel(id)}
+                />
+              }
+            >
+              <Icon aria-hidden="true" />
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={10}>{label}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+      <div className="cg-game-tools__footer">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className="cg-game-tools__button"
+                aria-label="游戏菜单"
+                onClick={onOpenPause}
+              />
+            }
           >
-            <UiIcon slot={slot} scriptId={scriptId} manifest={assets} className="cg-icon" />
-            <span>{label}</span>
-          </button>
-        );
-      })}
-      <button
-        type="button"
-        title="暂停"
-        aria-label="暂停"
-        onClick={onOpenPause}
-        className="cg-toolbar__action"
-      >
-        <Pause className="cg-icon" aria-hidden="true" />
-        <span>暂停</span>
-      </button>
+            <CirclePause aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={10}>游戏菜单</TooltipContent>
+        </Tooltip>
+      </div>
     </nav>
   );
 }
 
-function DefaultToolbarSlot(props: ToolbarSlotProps) {
-  return <DefaultToolbar {...props} onOpenPanel={props.openPanel} onOpenPause={props.openPause} />;
+export function MobileToolsButton({ onClick }: { onClick(): void }) {
+  return (
+    <button type="button" className="cg-mobile-tools-button" aria-label="打开游戏资料" onClick={onClick}>
+      <LayoutGrid aria-hidden="true" />
+    </button>
+  );
 }
 
-/** Slot-replaceable toolbar entry point. */
-export function Toolbar(props: ToolbarProps) {
+export function ToolPickerDialog({ onClose, onOpenPanel, onOpenPause }: {
+  onClose(): void;
+  onOpenPanel(panel: PanelId): void;
+  onOpenPause(): void;
+}) {
   return (
-    <SlotRenderer
-      slot="toolbar"
-      fallback={DefaultToolbarSlot}
-      slotProps={{
-        scriptId: props.scriptId,
-        state: props.state,
-        catalog: props.catalog,
-        assets: props.assets,
-        panel: props.panel,
-        openPanel: props.onOpenPanel,
-        openPause: props.onOpenPause,
-      }}
-    />
+    <Dialog title="游戏资料" description="选择要查看的资料。" onClose={onClose} className="cg-game-dialog cg-tool-picker-dialog">
+      <div className="cg-tool-picker">
+        {GAME_TOOLS.map(({ id, label, icon: Icon }) => (
+          <button key={id} type="button" onClick={() => { onClose(); onOpenPanel(id); }}>
+            <Icon aria-hidden="true" />
+            <span>{label}</span>
+          </button>
+        ))}
+        <button type="button" onClick={() => { onClose(); onOpenPause(); }}>
+          <CirclePause aria-hidden="true" />
+          <span>游戏菜单</span>
+        </button>
+      </div>
+    </Dialog>
   );
 }
