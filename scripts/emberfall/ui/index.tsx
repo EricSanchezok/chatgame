@@ -1,6 +1,10 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
+  ActionChoice as ActionChoiceControl,
+  Button,
+  InputGroup,
   SCRIPT_UI_API_VERSION,
+  Textarea,
   type ComposerSlotProps,
   type HudSlotProps,
   type ObjectiveTrackerSlotProps,
@@ -70,18 +74,18 @@ function EmberfallObjectiveTracker({ state, openTasks }: ObjectiveTrackerSlotPro
 }
 
 function EmberfallToolbar({ panel, openPanel, openPause }: ToolbarSlotProps) {
-  const tools = [["map", "地图"], ["tasks", "承诺"], ["log", "证据"], ["inventory", "背包"]] as const;
-  return <nav data-region="toolbar" data-emberfall="toolbar" className="cg-toolbar ef-chat-toolbar" aria-label="灰烬镇资料面板"><StyleSheet />{tools.map(([id, label]) => <button key={id} type="button" className="cg-button cg-button--quiet" aria-pressed={panel === id} onClick={() => openPanel(id)}>{label}</button>)}<button type="button" className="cg-button cg-button--quiet" onClick={openPause}>暂停</button></nav>;
+  const tools = [["map", "地图", "图"], ["tasks", "承诺", "诺"], ["log", "证据", "证"], ["inventory", "背包", "包"]] as const;
+  return <nav data-region="toolbar" data-emberfall="toolbar" className="cg-toolbar ef-chat-toolbar" aria-label="灰烬镇资料面板"><StyleSheet />{tools.map(([id, label, glyph]) => <Button key={id} type="button" variant="quiet" aria-label={label} aria-pressed={panel === id} onClick={() => openPanel(id)}><span className="ef-tool-glyph" aria-hidden="true">{glyph}</span><span className="ef-tool-label">{label}</span></Button>)}<Button type="button" variant="quiet" aria-label="暂停" onClick={openPause}><span className="ef-tool-glyph" aria-hidden="true">停</span><span className="ef-tool-label">暂停</span></Button></nav>;
 }
 
-interface ActionChoice { label: string; detail: string; hint: IntentHint }
+interface EmberfallChoice { label: string; detail: string; hint: IntentHint }
 
 export function createPreviewRequestGate() {
   let latest = 0;
   return { begin: () => { latest += 1; return latest; }, isCurrent: (generation: number) => generation === latest };
 }
 
-export function emberfallActionChoices(model: ScriptHostModel): ActionChoice[] {
+export function emberfallActionChoices(model: ScriptHostModel): EmberfallChoice[] {
   const phase = stringValue(model, "phase", "preparing");
   const location = model.state.player.locationId;
   if (phase === "preparing") return [
@@ -93,7 +97,7 @@ export function emberfallActionChoices(model: ScriptHostModel): ActionChoice[] {
   if (phase === "underground") {
     const count = numberValue(model, "undergroundActions");
     if (count >= 8 || numberValue(model, "ashExposure") >= 100) return [{ label: "紧急返镇", detail: "封口并保留下一班", hint: { actionId: "return-shift" } }];
-    const result: ActionChoice[] = [];
+    const result: EmberfallChoice[] = [];
     if (location === "upper-drift") result.push({ label: "测绘矿层", detail: "灯火 8 · 实物源", hint: { actionId: "survey-seam" } }, { label: "去回钟横巷", detail: "灯火 5 · 深度 2", hint: { actionId: "mine-move", params: { target: "bell-gallery" } } });
     if (location === "bell-gallery") result.push({ label: "听辨岩钟", detail: "灯火 6", hint: { actionId: "listen-strata" } }, { label: "去上层斜巷", detail: "灯火 5 · 深度 1", hint: { actionId: "mine-move", params: { target: "upper-drift" } } }, { label: "去青火煤层", detail: "灯火 5 · 深度 3", hint: { actionId: "mine-move", params: { target: "blue-seam" } } });
     if (location === "blue-seam") result.push({ label: "采集炉煤", detail: "灯火 10 · 带回 10", hint: { actionId: "collect-coal" } }, { label: "起取旧班签", detail: "灯火 7 · 辅证", hint: { actionId: "recover-token" } }, { label: "去回钟横巷", detail: "灯火 5 · 深度 2", hint: { actionId: "mine-move", params: { target: "bell-gallery" } } });
@@ -117,13 +121,13 @@ function previewText(preview: ActionPreview | null): ReactNode {
 }
 
 function EmberfallComposer(props: ComposerSlotProps) {
-  const [selected, setSelected] = useState<ActionChoice | null>(null);
+  const [selected, setSelected] = useState<EmberfallChoice | null>(null);
   const [preview, setPreview] = useState<ActionPreview | null>(null);
   const [checking, setChecking] = useState(false);
   const [text, setText] = useState("");
   const previewGate = useRef(createPreviewRequestGate());
   const actionChoices = emberfallActionChoices(props);
-  async function select(choice: ActionChoice) {
+  async function select(choice: EmberfallChoice) {
     const generation = previewGate.current.begin();
     setSelected(choice); setText(choice.label); setPreview(null); setChecking(true);
     try { const next = await props.previewAction(choice.hint); if (previewGate.current.isCurrent(generation)) setPreview(next); }
@@ -137,7 +141,7 @@ function EmberfallComposer(props: ComposerSlotProps) {
     await props.submitTurn(value, hint);
     setText(""); setSelected(null); setPreview(null);
   }
-  return <footer data-region="composer" data-emberfall="composer" className="cg-composer ef-chat-composer"><StyleSheet /><div className="cg-action-shortcuts" aria-label="建议行动">{actionChoices.slice(0, 5).map((choice) => <button key={`${choice.hint.actionId}-${choice.label}`} type="button" className="cg-button cg-button--quiet" aria-pressed={selected?.label === choice.label} onClick={() => void select(choice)} disabled={props.busy}><span>{choice.label}</span><small>{choice.detail}</small></button>)}</div><div className="cg-action-preview" aria-live="polite">{checking ? "正在核算行动成本…" : previewText(preview)}</div><form onSubmit={(event) => void submit(event)}><label className="ef-sr-only" htmlFor="ef-player-input">输入你的话或行动</label><textarea id="ef-player-input" value={text} onChange={(event) => setText(event.currentTarget.value)} placeholder="说点什么，或描述你的行动" disabled={props.busy} rows={1} maxLength={2000} /><button className="cg-button cg-button--primary" type="submit" aria-label={props.busy ? "等待世界回应" : "发送"} disabled={props.busy || !text.trim()}><span aria-hidden="true">↑</span><span className="ef-sr-only">{props.busy ? "等待世界回应" : "发送"}</span></button></form></footer>;
+  return <footer data-region="composer" data-emberfall="composer" className="cg-composer ef-chat-composer"><StyleSheet /><div className="cg-action-shortcuts" aria-label="建议行动">{actionChoices.slice(0, 5).map((choice) => <ActionChoiceControl key={`${choice.hint.actionId}-${choice.label}`} selected={selected?.label === choice.label} detail={choice.detail} onClick={() => void select(choice)} disabled={props.busy}>{choice.label}</ActionChoiceControl>)}</div><div className="cg-action-preview" aria-live="polite">{checking ? "正在核算行动成本…" : previewText(preview)}</div><form onSubmit={(event) => void submit(event)}><label className="ef-sr-only" htmlFor="ef-player-input">输入你的话或行动</label><InputGroup><Textarea id="ef-player-input" value={text} onChange={(event) => setText(event.currentTarget.value)} placeholder="说点什么，或描述你的行动" disabled={props.busy} rows={1} maxLength={2000} /><Button variant="primary" size="icon" type="submit" aria-label={props.busy ? "等待世界回应" : "发送"} disabled={props.busy || !text.trim()}><span aria-hidden="true">↑</span><span className="ef-sr-only">{props.busy ? "等待世界回应" : "发送"}</span></Button></InputGroup></form></footer>;
 }
 
 function MineMap({ model }: { model: ScriptHostModel }) {

@@ -93,5 +93,6 @@
 - [0024 — 前端测试工作台与 CI](0024-frontend-workbench-and-ci.md)
 - [0025 — 《灰烬镇》工业民俗悬疑重做](0025-emberfall-industrial-folk-mystery.md)
 - [0026 — 《星港》老站值班与资源事故重做](0026-starlight-shift-console.md)
-- [0027 — 会话优先 UI API v4](0027-session-first-ui-api-v4.md)
-- [0028 — 会话优先游戏布局](0028-conversation-first-game-layout.md)
+- [0027 — 会话优先 UI API v4（由 0029 取代）](0027-session-first-ui-api-v4.md)
+- [0028 — 会话优先游戏布局（由 0029 取代）](0028-conversation-first-game-layout.md)
+- [0029 — ReUI AppShell 与 UI API v5](0029-reui-app-shell-and-ui-api-v5.md)

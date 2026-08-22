@@ -8,6 +8,7 @@ import { SettingsScreen } from "@/app/settings/settings-screen";
 import { Dialog } from "@/app/ui/dialog";
 import { clearSlots } from "@/app/lib/script-registry";
 import { MockGamePort } from "./mock-game-port";
+import { Button } from "@/shared/ui-runtime";
 
 type Surface = "scripts" | "settings" | "dialog";
 
@@ -35,9 +36,9 @@ function HostSurfacePreview({ surface }: { surface: Surface }) {
   return dialogOpen ? (
     <Dialog title="工作台确认" description="验证焦点约束、关闭动作与长说明。" onClose={() => setDialogOpen(false)}>
       <p>这段内容用于确认宿主对话框在各尺寸下保持可读。</p>
-      <button data-autofocus type="button" className="cg-button cg-button--primary" onClick={() => setDialogOpen(false)}>
+      <Button data-autofocus type="button" variant="primary" onClick={() => setDialogOpen(false)}>
         确认
-      </button>
+      </Button>
     </Dialog>
   ) : <button type="button" onClick={() => setDialogOpen(true)}>重新打开</button>;
 }
@@ -67,6 +68,17 @@ export const SettingsRoute: Story = {
   args: { surface: "settings" },
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).findByRole("heading", { name: "设置" })).resolves.toBeVisible();
+  },
+};
+
+export const SettingsSelectOpen: Story = {
+  args: { surface: "settings" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByRole("heading", { name: "设置" })).resolves.toBeVisible();
+    await userEvent.click(canvas.getByRole("combobox", { name: "文字大小" }));
+    const listbox = await within(document.body).findByRole("listbox");
+    await waitFor(() => expect(listbox).toBeVisible());
   },
 };
 

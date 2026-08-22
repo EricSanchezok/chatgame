@@ -30,15 +30,15 @@ test("real launcher, dialog, script library and settings have no serious axe fai
   await expectNoSeriousWcagViolations(page);
 
   await page.getByRole("button", { name: "建立值班" }).click();
-  await expect(page.getByRole("dialog", { name: /开始《核心工作台》/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "选择校验身份" })).toBeVisible();
   await expectNoSeriousWcagViolations(page);
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "返回" }).click();
 
-  await page.getByRole("link", { name: "剧本", exact: true }).click();
+  await page.goto("/scripts");
   await expect(page.getByRole("heading", { name: "剧本库" })).toBeVisible();
   await expectNoSeriousWcagViolations(page);
 
-  await page.getByRole("link", { name: "设置", exact: true }).click();
+  await page.goto("/settings");
   await expect(page.locator('[data-slot="settings-fixture"]')).toBeVisible();
   await expectNoSeriousWcagViolations(page);
 });

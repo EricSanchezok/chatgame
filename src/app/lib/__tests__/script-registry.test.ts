@@ -16,11 +16,11 @@ const def: SlotDef = { component: () => null };
 const another: SlotDef = { component: () => null };
 
 function bundle(hash: string): ScriptUiBundleDescriptor {
-  return { apiVersion: 4, dependencyHash: hash, url: `/bundle/${hash}.mjs` };
+  return { apiVersion: 5, dependencyHash: hash, url: `/bundle/${hash}.mjs` };
 }
 
 function moduleWith(register: (context: ScriptUiContext) => void) {
-  return { apiVersion: 4, default: register };
+  return { apiVersion: 5, default: register };
 }
 
 beforeEach(clearSlots);
@@ -67,6 +67,16 @@ describe("slot registry", () => {
     expect(result.error).toContain("more than once");
     expect(getScriptRegistrySnapshot().slots).toBe(previousSlots);
     expect(getScriptRegistrySnapshot()).toMatchObject({ scriptId: "script-a", dependencyHash: "good", status: "active" });
+  });
+
+  it("rejects a v4 bundle without a compatibility path", async () => {
+    const legacy = { apiVersion: 4, dependencyHash: "legacy", url: "/bundle/legacy.mjs" } as unknown as ScriptUiBundleDescriptor;
+    const result = await loadScriptUi("script-a", legacy, {
+      importer: async () => ({ apiVersion: 4, default: () => {} }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("宿主需要 5");
+    expect(getScriptRegistrySnapshot().slots.size).toBe(0);
   });
 
   it("keeps the prior same-script version on an import failure", async () => {

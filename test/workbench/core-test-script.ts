@@ -352,7 +352,7 @@ export function fixturePresentation(
 
 function fixtureUiBundle(scriptId: string): NonNullable<SessionPresentation["uiBundle"]> {
   return {
-    apiVersion: 4,
+    apiVersion: 5,
     dependencyHash: `${scriptId}-workbench`,
     url: `/api/scripts/${scriptId}/ui-bundle`,
   };

@@ -1,7 +1,7 @@
 # 会话优先游戏布局
 
 ## Status
-Accepted
+Superseded by [0029](0029-reui-app-shell-and-ui-api-v5.md)
 Class: feature
 
 ## Context and Problem Statement

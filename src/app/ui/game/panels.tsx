@@ -1,18 +1,18 @@
 "use client";
 
-// Overlay panels: the world data lives behind entry points, not flat on
-// screen. A shared centered-modal frame (glass, shadow token, Esc/backdrop
-// close) hosts the six panels. Panels are position:fixed overlays — they
-// never participate in the shell's flex tracks, so the composer stays put.
+// System sheets: world data lives behind deliberate entry points instead of
+// occupying a permanent rail. Base UI owns dismissal, focus and backdrop
+// behavior; the sheets never participate in the game shell's layout tracks.
 // Everything renders from WorldState + static Catalog; unknown ids degrade
 // to raw labels instead of crashing.
 
 import { useState } from "react";
+import { Button } from "@/shared/ui-runtime";
 import type { Catalog, WorldState, AssetManifest } from "../../lib/api";
 import type { PanelSlotProps } from "../../lib/script-registry";
 import { ItemCard } from "./cards";
 import { useGameActions, type PanelId } from "./state";
-import { Dialog } from "../dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SlotRenderer } from "./slots";
 
 const PANEL_TITLES: Record<PanelId, string> = {
@@ -83,9 +83,15 @@ function PanelFrame({
   children: React.ReactNode;
 }) {
   return (
-    <Dialog title={title} onClose={onClose}>
-      <div data-panel={panel} data-script={scriptId} className="cg-panel-content">{children}</div>
-    </Dialog>
+    <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent className="cg-system-sheet" side="right">
+        <SheetHeader>
+          <SheetTitle>{title}</SheetTitle>
+          <SheetDescription>查看当前世界状态与可用资料。</SheetDescription>
+        </SheetHeader>
+        <div data-panel={panel} data-script={scriptId} className="cg-panel-content">{children}</div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -413,9 +419,9 @@ function TasksPanel({
                 {t.status === "active" && "progress" in t ? (
                   <>
                     <p className="mt-1 text-sm" style={{ color: "var(--cg-text-dim)" }}>{def?.objectiveText ?? "继续推进任务"} · {t.progress}/{def?.quantity ?? 1}</p>
-                    <button type="button" className="cg-button cg-button--quiet mt-2" aria-pressed={trackedTaskId === t.taskId} onClick={() => onTrackTask(trackedTaskId === t.taskId ? null : t.taskId)}>
+                    <Button type="button" variant="quiet" className="mt-2" aria-pressed={trackedTaskId === t.taskId} onClick={() => onTrackTask(trackedTaskId === t.taskId ? null : t.taskId)}>
                       {trackedTaskId === t.taskId ? "取消追踪" : "追踪任务"}
-                    </button>
+                    </Button>
                   </>
                 ) : null}
               </li>

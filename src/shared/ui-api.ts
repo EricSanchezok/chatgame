@@ -13,6 +13,23 @@ import type {
 } from "./client-dto";
 
 export { SCRIPT_UI_API_VERSION } from "./client-dto";
+export {
+  ActionChoice,
+  Badge,
+  Button,
+  Checkbox,
+  Frame,
+  FramePanel,
+  Input,
+  InputGroup,
+  Metric,
+  Select,
+  SettingRow,
+  Slider,
+  Switch,
+  Textarea,
+} from "./ui-runtime";
+export type { ButtonVariant, ControlSize, SelectOption } from "./ui-runtime";
 
 export type SlotId =
   | "launcher"
@@ -39,6 +56,24 @@ export interface LauncherSlotProps {
   script: ScriptSummary;
   detail: ScriptDetail;
   coverUrl: string;
+  resume: {
+    save: ScriptDetail["saves"][number] | null;
+    busy: boolean;
+    continueGame(): Promise<void>;
+  };
+  newGame: {
+    step: "overview" | "origin" | "identity";
+    status: "idle" | "loading" | "ready" | "error";
+    origins: Array<ScriptDetail["origins"][number] & { available: boolean }>;
+    selectedOriginId: string;
+    playerName: string;
+    error: string | null;
+    selectOrigin(originId: string): void;
+    setPlayerName(playerName: string): void;
+    next(): void;
+    back(): void;
+    retry(): void;
+  };
   actions: {
     openNewGame(): void;
     openSaves(): void;
@@ -132,7 +167,6 @@ export interface PlayerUiSettings {
   contrast: "system" | "more";
   motion: "system" | "reduce";
   activeScriptId: string | null;
-  lastRun: { scriptId: string; runId: string } | null;
   trackedTasks: Record<string, string>;
 }
 
@@ -162,6 +196,6 @@ export type SlotProps<K extends SlotId> =
 export interface SlotDef<K extends SlotId = SlotId> { component: ComponentType<SlotProps<K>> }
 
 export interface ScriptUiContext {
-  readonly apiVersion: 4;
+  readonly apiVersion: 5;
   register<K extends SlotId>(slot: K, def: SlotDef<K>): void;
 }

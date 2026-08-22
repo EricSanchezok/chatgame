@@ -174,9 +174,6 @@ export function createGameStore(initial: GameState = initialGameState): GameStor
 }
 
 export interface GameControllerEffects {
-  readLastRun(): { scriptId: string; runId: string } | null;
-  rememberLastRun(scriptId: string, runId: string): void;
-  clearLastRun(): void;
   onAudioEnabled(enabled: boolean): void;
   onThemeChanged?(mode: ThemeMode): void;
   onTurn(result: TurnResultFull, detail: ScriptDetail, scriptId: string): void;
@@ -187,9 +184,6 @@ export interface GameControllerEffects {
 }
 
 const noEffects: GameControllerEffects = {
-  readLastRun: () => null,
-  rememberLastRun: () => undefined,
-  clearLastRun: () => undefined,
   onAudioEnabled: () => undefined,
   onTurn: () => undefined,
   onSessionCleanupError: () => undefined,
@@ -208,7 +202,6 @@ export class GameController {
   ) {
     this.startNewGame = this.startNewGame.bind(this);
     this.continueGame = this.continueGame.bind(this);
-    this.resumeLast = this.resumeLast.bind(this);
     this.submitTurn = this.submitTurn.bind(this);
     this.previewAction = this.previewAction.bind(this);
     this.save = this.save.bind(this);
@@ -258,7 +251,6 @@ export class GameController {
   private async openSession(
     scriptId: string,
     input: Parameters<GamePort["createSession"]>[0],
-    rememberedRunId: string,
   ): Promise<void> {
     const request = this.begin("starting", true);
     let createdSessionId: string | null = null;
@@ -296,7 +288,6 @@ export class GameController {
 
       committed = true;
       this.committedSessionIds.add(session.id);
-      this.effects.rememberLastRun(scriptId, rememberedRunId);
     } catch (error) {
       this.fail(error, request.generation, request.signal);
     } finally {
@@ -319,21 +310,11 @@ export class GameController {
     await this.openSession(
       scriptId,
       { scriptId, originId, playerName },
-      "autosave.json",
     );
   }
 
   async continueGame(scriptId: string, runId: string): Promise<void> {
-    await this.openSession(scriptId, { scriptId, loadRunId: runId }, runId);
-  }
-
-  async resumeLast(): Promise<boolean> {
-    const last = this.effects.readLastRun();
-    if (!last) return false;
-    await this.continueGame(last.scriptId, last.runId);
-    const ok = this.store.getSnapshot().screen === "game";
-    if (!ok) this.effects.clearLastRun();
-    return ok;
+    await this.openSession(scriptId, { scriptId, loadRunId: runId });
   }
 
   async submitTurn(text: string, intentHint?: IntentHint): Promise<void> {
@@ -346,7 +327,6 @@ export class GameController {
       if (request.signal.aborted || request.generation !== this.generation) return;
       this.store.dispatch({ type: "turn", result, generation: request.generation });
       if (before.detail) this.effects.onTurn(result, before.detail, before.session.scriptId);
-      this.effects.rememberLastRun(before.session.scriptId, "autosave.json");
     } catch (error) {
       this.fail(error, request.generation, request.signal);
     }
@@ -423,7 +403,6 @@ export class GameController {
       this.finish(request.signal);
       if (request.signal.aborted || request.generation !== this.generation) return;
       this.committedSessionIds.delete(before.session.id);
-      this.effects.rememberLastRun(before.session.scriptId, "autosave.json");
       this.effects.onExit();
       this.store.dispatch({ type: "exit", generation: request.generation });
     } catch (error) {

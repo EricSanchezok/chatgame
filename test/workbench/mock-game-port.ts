@@ -27,6 +27,8 @@ export interface MockGameScenario {
   library?: "ready" | "empty" | "error";
   conversation?: ConversationFixture;
   session?: "ready" | "error";
+  meta?: "ready" | "error";
+  lockedOrigin?: boolean;
   turn?: "ready" | "error";
   destroySession?: "ready" | "error";
   detailErrorScriptId?: string;
@@ -35,6 +37,7 @@ export interface MockGameScenario {
   ignoreCreateAbortScriptIds?: string[];
   sessionLimit?: number;
   hostShell?: boolean;
+  saves?: Partial<Record<string, ScriptDetail["saves"]>>;
 }
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
@@ -72,7 +75,7 @@ export class MockGamePort implements GamePort {
   private readonly sessionWorlds = new Map<string, WorldState>();
   private readonly sessionPresentations = new Map<string, SessionPresentation>();
   readonly activeSessionScripts = new Map<string, string>();
-  readonly createdSessions: Array<{ id: string; scriptId: string }> = [];
+  readonly createdSessions: Array<{ id: string; scriptId: string; loadRunId?: string }> = [];
   readonly destroyedSessionIds: string[] = [];
 
   constructor(scenario: MockGameScenario = {}) {
@@ -80,6 +83,8 @@ export class MockGamePort implements GamePort {
       library: scenario.library ?? "ready",
       conversation: scenario.conversation ?? "short",
       session: scenario.session ?? "ready",
+      meta: scenario.meta ?? "ready",
+      lockedOrigin: scenario.lockedOrigin,
       turn: scenario.turn ?? "ready",
       destroySession: scenario.destroySession,
       detailErrorScriptId: scenario.detailErrorScriptId,
@@ -88,6 +93,7 @@ export class MockGamePort implements GamePort {
       ignoreCreateAbortScriptIds: scenario.ignoreCreateAbortScriptIds,
       sessionLimit: scenario.sessionLimit,
       hostShell: scenario.hostShell,
+      saves: scenario.saves,
     };
     this.currentWorld = createFixtureWorld(CORE_SCRIPT_ID, this.scenario.conversation);
     this.currentPresentation = fixturePresentation(CORE_SCRIPT_ID);
@@ -126,14 +132,17 @@ export class MockGamePort implements GamePort {
     if (scriptId === this.scenario.detailErrorScriptId) throw new Error("剧本详情载入失败");
     if (scriptId !== CORE_SCRIPT_ID && scriptId !== ALT_SCRIPT_ID) throw new Error("剧本不存在");
     const detail = fixtureDetail(scriptId);
+    const configured = { ...detail, saves: this.scenario.saves?.[scriptId] ?? detail.saves };
     return this.scenario.hostShell
-      ? { ...detail, presentation: { ...detail.presentation, uiBundle: undefined } }
-      : detail;
+      ? { ...configured, presentation: { ...configured.presentation, uiBundle: undefined } }
+      : configured;
   }
 
   async scriptMeta(scriptId: string, signal?: AbortSignal): Promise<ScriptMeta> {
     await this.wait(`/api/scripts/${scriptId}/meta`, signal);
-    return fixtureMeta(scriptId);
+    if (this.scenario.meta === "error") throw new Error("出身清单暂时不可用");
+    const meta = fixtureMeta(scriptId);
+    return this.scenario.lockedOrigin ? { ...meta, lockableOrigins: ["operator"] } : meta;
   }
 
   async deleteScript(scriptId: string, signal?: AbortSignal): Promise<void> {
@@ -148,7 +157,7 @@ export class MockGamePort implements GamePort {
       name: file.name,
       sourceName: file.name,
       schemaVersion: "1.1",
-      apiVersions: { hostUi: 4, engine: 2, scriptUi: null },
+      apiVersions: { hostUi: 5, engine: 2, scriptUi: null },
       conflicts: { installed: false, replaceAllowed: false },
       permissions: [],
       assetProvenance: { manifestPresent: false, coveredFiles: 0, totalFiles: 0, missingFiles: [], extraFiles: [], remoteReferences: [] },
@@ -185,7 +194,7 @@ export class MockGamePort implements GamePort {
     this.sessionWorlds.set(id, world);
     this.sessionPresentations.set(id, presentation);
     this.activeSessionScripts.set(id, input.scriptId);
-    this.createdSessions.push({ id, scriptId: input.scriptId });
+    this.createdSessions.push({ id, scriptId: input.scriptId, loadRunId: input.loadRunId });
     return {
       id,
       runId: input.loadRunId ?? "autosave.json",

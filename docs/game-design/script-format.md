@@ -96,7 +96,7 @@ scripts/<id>/
   - `registerRuleMechanism(id, checker)` — 自定义世界规则；checker 的 state/definition/params 是隔离的深度只读 Proxy，返回拒绝文本或 `null`。
   - `onSessionStart` / `onTurnResolved` / `onHour` / `onDayBoundary` — 纯生命周期；输入 state 与 context 全部深度只读，返回新状态与摘要，输出不得改变调用前捕获的 `scriptId`。
   - custom effect/condition、action planning、rule checker 与 lifecycle 写入 Map、数组或嵌套对象时即使在非 strict CJS 中也响亮失败。自定义持久状态写入返回值的 `WorldState.runtimeState`（引擎不解释内容，随存档 v5 持久化）。
-- **ui/index.tsx**（前端扩展）：默认导出 `(ctx: ScriptUiContext) => void`，并以 `ctx.register(slot, { component })` 注册 UI API v4 槽位；单例槽位不接受位置或排序参数，重复注册使整个 bundle 激活失败。槽位与只读 props 见表现层规格 [presentation.md](presentation.md) 的 UI 拓扑；未注册槽位回退宿主默认组件。
+- **ui/index.tsx**（前端扩展）：默认导出 `(ctx: ScriptUiContext) => void`，并以 `ctx.register(slot, { component })` 注册 UI API v5 槽位；单例槽位不接受位置或排序参数，重复注册使整个 bundle 激活失败。槽位、只读 props 与公共表现原语见 [presentation.md](presentation.md)；未注册槽位回退宿主默认组件。
 - **编译与缓存**：`engine/` 由 esbuild 编译为 CJS（`createRequire` 加载），`ui/` 编译为 ESM browser bundle（react 外部化，宿主单实例共享）；产物缓存于 `.chatgame/build/<id>/`（内容 hash 失效，gitignore）。
 ### 0.3 ID 契约
 

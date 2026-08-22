@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
+import { Button, Select, SettingRow, Switch } from "@/shared/ui-runtime";
 import type { AssetManifest, Catalog, ThemeView, WorldState } from "../../lib/api";
 import { exitFullscreen, isFullscreen, subscribeFullscreen } from "../../lib/fullscreen";
 import type { PauseMenuSlotProps } from "../../lib/script-registry";
@@ -42,32 +43,23 @@ function DefaultPauseMenu({
 }: PauseMenuSlotProps) {
   return (
     <div className="cg-form-stack">
-        <label htmlFor="pause-theme">主题</label>
-        <select id="pause-theme" value={themeMode} onChange={(event) => setTheme(event.target.value)}>
-          <option value="follow">跟随剧本</option>
-          {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-        </select>
-        <div className="cg-switch">
-          <span><strong>声音</strong><small>环境音、语音与事件音效</small></span>
-          <button type="button" className="cg-button cg-button--secondary" aria-pressed={audioEnabled} onClick={() => setAudio(!audioEnabled)}>
-            {audioEnabled ? "开" : "关"}
-          </button>
-        </div>
+        <SettingRow controlId="pause-theme" label="主题" description="固定当前主题，或继续跟随剧本。"><Select id="pause-theme" value={themeMode} onValueChange={setTheme} options={[{ value: "follow", label: "跟随剧本" }, ...themes.map((theme) => ({ value: theme.id, label: theme.name }))]} /></SettingRow>
+        <SettingRow controlId="pause-audio" label="声音" description="环境音、语音与事件音效。"><Switch id="pause-audio" checked={audioEnabled} onCheckedChange={setAudio} /></SettingRow>
         <div className="cg-pause-actions">
           {fullscreen ? (
-            <button type="button" className="cg-button cg-button--quiet cg-pause-actions__utility" onClick={() => void leaveFullscreen()}>
+            <Button type="button" variant="quiet" className="cg-pause-actions__utility" onClick={() => void leaveFullscreen()}>
               退出全屏
-            </button>
+            </Button>
           ) : null}
-          <button type="button" className="cg-button cg-button--quiet cg-pause-actions__utility" disabled={busy} onClick={() => void save().then(close)}>
+          <Button type="button" variant="quiet" className="cg-pause-actions__utility" disabled={busy} onClick={() => void save().then(close)}>
             {busy ? "正在保存……" : dirty ? "保存当前进度" : "再次保存"}
-          </button>
-          <button type="button" className="cg-button cg-button--quiet cg-pause-actions__exit" disabled={busy} onClick={() => void exit(false)}>
+          </Button>
+          <Button type="button" variant="quiet" className="cg-pause-actions__exit" disabled={busy} onClick={() => void exit(false)}>
             不保存返回
-          </button>
-          <button type="button" className="cg-button cg-button--primary cg-pause-actions__exit" disabled={busy} onClick={() => void exit(true)}>
+          </Button>
+          <Button type="button" variant="primary" className="cg-pause-actions__exit" disabled={busy} onClick={() => void exit(true)}>
             保存并返回
-          </button>
+          </Button>
         </div>
         <Link href="/settings" className="cg-text-link">打开全局设置</Link>
     </div>

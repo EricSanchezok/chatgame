@@ -16,7 +16,6 @@ async function selectScript(page: Page, scriptId: "emberfall" | "starlight"): Pr
       contrast: "system",
       motion: "system",
       activeScriptId,
-      lastRun: null,
       trackedTasks: {},
     }));
   }, scriptId);
@@ -31,8 +30,16 @@ async function expectConversationFrame(page: Page): Promise<void> {
   expect(await page.evaluate(() => document.body.scrollHeight - document.body.clientHeight)).toBe(0);
 }
 
+async function startBuiltinGame(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "开始新游戏" }).click();
+  await expect(page.getByRole("heading", { name: "你从哪里来" })).toBeVisible();
+  await page.getByRole("button", { name: "确认这个出身" }).click();
+  await expect(page.getByRole("heading", { name: "确认你的身份" })).toBeVisible();
+  await page.getByRole("button", { name: "进入世界" }).click();
+}
+
 async function closePanel(page: Page, name: string): Promise<void> {
-  await page.getByRole("button", { name: `关闭${name}` }).click();
+  await page.getByRole("dialog", { name }).getByRole("button", { name: "关闭" }).click();
 }
 
 async function expectNoSeriousWcagViolations(page: Page): Promise<void> {
@@ -55,8 +62,7 @@ test("Emberfall uses one conversation stream for media, NPCs, actions, panels an
   await selectScript(page, "emberfall");
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "灰烬镇", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "开始新游戏" }).click();
-  await page.getByRole("dialog", { name: /开始《灰烬镇》/ }).getByRole("button", { name: "进入世界" }).click();
+  await startBuiltinGame(page);
   await expectConversationFrame(page);
   await expectNoSeriousWcagViolations(page);
 
@@ -88,7 +94,7 @@ test("Emberfall uses one conversation stream for media, NPCs, actions, panels an
   const pause = page.getByRole("dialog", { name: "暂停菜单" });
   await expect(pause).toBeVisible();
   await pause.getByRole("button", { name: "保存并返回" }).click();
-  await page.getByRole("button", { name: "继续上次游戏" }).click();
+  await page.getByRole("button", { name: "继续游戏" }).click();
   await expect(page.getByText("我把炉煤申请按紧急程度重新排好。", { exact: true })).toBeVisible();
 });
 
@@ -96,8 +102,7 @@ test("Starlight uses one conversation stream for media, NPCs, previews, panels a
   await selectScript(page, "starlight");
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "星港", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "接下夜班" }).click();
-  await page.getByRole("dialog", { name: /开始《星港》/ }).getByRole("button", { name: "进入世界" }).click();
+  await startBuiltinGame(page);
   await expectConversationFrame(page);
 
   await page.getByRole("button", { name: "询问老周 核对库存与交班责任", exact: true }).click();
@@ -132,7 +137,7 @@ test("Starlight uses one conversation stream for media, NPCs, previews, panels a
   await expect(pause).toBeVisible();
   await pause.getByRole("button", { name: "保存交班记录" }).click();
   await pause.getByRole("button", { name: "交班并返回启动器" }).click();
-  await page.getByRole("button", { name: "读取交班存档" }).click();
+  await page.getByRole("button", { name: "选择存档" }).click();
   const saves = page.getByRole("dialog", { name: "选择存档" });
   await expect(saves).toBeVisible();
   await saves.locator(".cg-save-row").first().click();

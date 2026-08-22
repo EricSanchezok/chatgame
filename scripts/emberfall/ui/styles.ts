@@ -1,10 +1,8 @@
 export const EMBERFALL_STYLES = `
 [data-emberfall] { box-sizing: border-box; color: var(--cg-text); font-family: var(--cg-font-ui, var(--cg-font)); }
 [data-emberfall] *, [data-emberfall] *::before, [data-emberfall] *::after { box-sizing: inherit; }
-[data-emberfall] button, [data-emberfall] textarea, [data-emberfall] input { font: inherit; }
-[data-emberfall] :focus-visible { outline: 3px solid var(--cg-focus); outline-offset: 3px; }
 .ef-hud,.ef-panel { color: var(--cg-text); font-family: var(--cg-font-ui, var(--cg-font)); }
-.ef-hud { width: min(100%, 73.75rem); min-height: 3.75rem; margin: 0 auto; display: flex; align-items: center; gap: clamp(1.25rem, 3vw, 2.5rem); padding-block: .55rem; background: transparent; }
+.ef-hud { width: 100%; max-width: none; min-height: 3.75rem; margin: 0; display: flex; align-items: center; gap: clamp(1.25rem, 3vw, 2.5rem); padding: .55rem clamp(1rem, 3vw, 2rem); background: transparent; }
 .ef-brand { min-width: 12rem; display: grid; gap: .1rem; padding-left: .8rem; border-left: 2px solid var(--cg-accent); }
 .ef-brand strong { font-size: calc(.92rem * var(--cg-scale)); letter-spacing: .035em; }
 .ef-brand small { color: var(--cg-text-dim); font-size: calc(.68rem * var(--cg-scale)); }
@@ -18,13 +16,9 @@ export const EMBERFALL_STYLES = `
 .ef-meter { width: clamp(2.7rem, 5vw, 4.8rem); height: 1px; background: color-mix(in srgb, var(--cg-border) 72%, transparent); overflow: visible; }
 .ef-meter span { display: block; height: 2px; transform: translateY(-.5px); background: var(--cg-accent); }
 .ef-meter[data-warning=true] span { background: var(--cg-warning); }
-.ef-chat-composer .cg-action-shortcuts button { display: flex; align-items: baseline; gap: .38rem; text-align: left; }
 .ef-chat-composer .cg-action-shortcuts small { padding-left: .38rem; border-left: 1px solid color-mix(in srgb, var(--cg-border) 72%, transparent); color: var(--cg-text-dim); font-size: calc(.65rem * var(--cg-scale)); font-weight: 470; }
 .ef-chat-composer .cg-action-preview { min-height: 1.2rem; }
-.ef-chat-composer form { border-color: color-mix(in srgb, var(--cg-accent) 32%, var(--cg-border)); }
-.ef-chat-composer form .cg-button--primary { font-size: 1rem; }
-.ef-chat-toolbar button { width: auto; min-width: 2.5rem; padding-inline: .35rem; color: var(--cg-text-dim); font-size: .75rem; }
-.ef-chat-toolbar [aria-pressed=true] { color: var(--cg-accent); background: transparent; }
+.ef-chat-toolbar [aria-pressed=true] { color: var(--cg-accent); }
 .ef-panel { width: 100%; padding: .15rem 0 .5rem; }
 .ef-panel h2 { margin: .25rem 0 1.5rem; font-size: calc(1.45rem * var(--cg-scale)); font-weight: 650; }
 .ef-entry { padding: .95rem 0; border-top: 1px solid color-mix(in srgb, var(--cg-border) 68%, transparent); }

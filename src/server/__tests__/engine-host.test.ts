@@ -575,7 +575,7 @@ describe("persistence & autosave", () => {
     await host.destroySession(session.id); // the in-memory session is gone
 
     // A fresh host (server restart / reaped session) rebuilds from disk —
-    // the same path the launcher's "继续上次游戏" takes via
+    // the same path the launcher's current-script "继续游戏" takes via
     // createSession({ loadRunId: "autosave.json" }).
     const host2 = new EngineHost({ scriptsRoot, saveStore: createFsSaveStore(dataRoot) });
     const resumed = host2.createSession({ scriptId: TEST_SCRIPT_ID, loadRunId: "autosave.json" });

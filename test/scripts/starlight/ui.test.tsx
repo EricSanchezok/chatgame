@@ -16,7 +16,7 @@ import registerStarlightUi from "../../../scripts/starlight/ui/index";
 function fixture() {
   const slots = new Map<SlotId, ComponentType<never>>();
   const context: ScriptUiContext = {
-    apiVersion: 4,
+    apiVersion: 5,
     register(slot, definition) {
       slots.set(slot, definition.component as ComponentType<never>);
     },

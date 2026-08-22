@@ -27,6 +27,13 @@ export function rewriteReactImports(code: string): string {
     .replace(/from\s*'react'/g, "from '/api/runtime/react.mjs'");
 }
 
+/** Rewrites the public UI package to the single browser runtime owned by the host. */
+export function rewriteUiRuntimeImport(code: string): string {
+  return code
+    .replace(/from\s*"@chatgame\/ui"/g, 'from "/api/runtime/ui.mjs"')
+    .replace(/from\s*'@chatgame\/ui'/g, 'from "/api/runtime/ui.mjs"');
+}
+
 /** Path for an immutable bundle version. */
 export function uiBundlePath(scriptId: string, dependencyHash = "current"): string {
   return path.join(".chatgame", "build", scriptId, `ui-${dependencyHash}.mjs`);
@@ -70,13 +77,10 @@ function inside(root: string, target: string): boolean {
 
 function scriptUiBoundary(scriptDir: string): Plugin {
   const root = realpathSync(path.resolve(scriptDir));
-  const uiApi = realpathSync(path.resolve(process.cwd(), "src/shared/ui-api.ts"));
-  const clientDto = realpathSync(path.resolve(process.cwd(), "src/shared/client-dto.ts"));
-  const allowedShared = new Set([uiApi, clientDto, uiApi.slice(0, -3), clientDto.slice(0, -3)]);
   return {
     name: "chatgame-script-ui-boundary",
     setup(builder) {
-      builder.onResolve({ filter: /^@chatgame\/ui$/ }, () => ({ path: uiApi }));
+      builder.onResolve({ filter: /^@chatgame\/ui$/ }, () => ({ path: "@chatgame/ui", external: true }));
       builder.onResolve({ filter: /.*/ }, (args) => {
         if (args.kind === "entry-point") return undefined;
         if (args.path === "react" || args.path === "react/jsx-runtime") {
@@ -85,7 +89,7 @@ function scriptUiBoundary(scriptDir: string): Plugin {
         if (args.path.startsWith(".")) {
           const importerDir = realpathSync(path.dirname(args.importer));
           const target = path.resolve(importerDir, args.path);
-          if (inside(root, target) || allowedShared.has(target)) return undefined;
+          if (inside(root, target)) return undefined;
           return { errors: [{ text: `script UI import escapes its boundary: ${args.path}` }] };
         }
         return { errors: [{ text: `script UI import is not allowed: ${args.path}` }] };
@@ -112,7 +116,7 @@ export async function buildScriptUi(scriptDir: string): Promise<ScriptUiBuildRes
       format: "esm",
       jsx: "automatic",
       platform: "browser",
-      external: ["react", "react/jsx-runtime"],
+      external: ["react", "react/jsx-runtime", "@chatgame/ui"],
       plugins: [scriptUiBoundary(scriptDir)],
       logLevel: "silent",
       metafile: true,
@@ -125,7 +129,7 @@ export async function buildScriptUi(scriptDir: string): Promise<ScriptUiBuildRes
     const dependencyHash = dependencyGraphHash(result.metafile, path.resolve(scriptDir));
     const bundlePath = uiBundlePath(scriptId, dependencyHash);
     if (!existsSync(bundlePath)) {
-      const code = rewriteReactImports(output.text);
+      const code = rewriteUiRuntimeImport(rewriteReactImports(output.text));
       mkdirSync(path.dirname(bundlePath), { recursive: true });
       writeFileSync(bundlePath, code);
     }

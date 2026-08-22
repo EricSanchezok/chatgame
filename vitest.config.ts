@@ -10,7 +10,14 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [tsconfigPaths()],
   optimizeDeps: {
-    include: ["react-dom", "next/link"],
+    include: [
+      "react-dom",
+      "next/link",
+      "@base-ui/react/checkbox",
+      "@base-ui/react/select",
+      "@base-ui/react/slider",
+      "@base-ui/react/switch",
+    ],
   },
   test: {
     projects: [

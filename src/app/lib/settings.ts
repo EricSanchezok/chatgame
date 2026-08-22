@@ -17,7 +17,6 @@ export const defaultPlayerSettings: PlayerSettingsV3 = {
   contrast: "system",
   motion: "system",
   activeScriptId: null,
-  lastRun: null,
   trackedTasks: {},
 };
 
@@ -41,9 +40,6 @@ function parseSettings(raw: string | null): PlayerSettingsV3 {
     const textScale = [1, 1.25, 1.5, 2].includes(parsed.textScale ?? 0)
       ? parsed.textScale as PlayerSettingsV3["textScale"]
       : 1;
-    const lastRun = parsed.lastRun && typeof parsed.lastRun.scriptId === "string" && typeof parsed.lastRun.runId === "string"
-      ? parsed.lastRun
-      : null;
     return {
       version: 3,
       audioEnabled: parsed.audioEnabled === true,
@@ -57,7 +53,6 @@ function parseSettings(raw: string | null): PlayerSettingsV3 {
       contrast: parsed.contrast === "more" ? "more" : "system",
       motion: parsed.motion === "reduce" ? "reduce" : "system",
       activeScriptId: typeof parsed.activeScriptId === "string" ? parsed.activeScriptId : null,
-      lastRun,
       trackedTasks: Object.fromEntries(Object.entries(parsed.trackedTasks ?? {}).filter(
         (entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string",
       )),

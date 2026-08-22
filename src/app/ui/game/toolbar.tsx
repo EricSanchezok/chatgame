@@ -5,7 +5,7 @@ import { UiIcon } from "./ui-icon";
 import type { PanelId } from "./state";
 import { SlotRenderer } from "./slots";
 import type { ToolbarSlotProps } from "../../lib/script-registry";
-import { FallbackIcon } from "./icons";
+import { Pause } from "lucide-react";
 
 export interface ToolbarProps {
   state: WorldState;
@@ -48,11 +48,6 @@ function DefaultToolbar({ scriptId, assets, panel, onOpenPanel, onOpenPause }: T
             aria-pressed={active}
             onClick={() => onOpenPanel(id)}
             className="cg-toolbar__action"
-            style={
-              active
-                ? { background: "var(--cg-primary)", color: "var(--cg-surface)" }
-                : { color: "var(--cg-text)", background: "transparent" }
-            }
           >
             <UiIcon slot={slot} scriptId={scriptId} manifest={assets} className="cg-icon" />
             <span>{label}</span>
@@ -65,9 +60,8 @@ function DefaultToolbar({ scriptId, assets, panel, onOpenPanel, onOpenPause }: T
         aria-label="暂停"
         onClick={onOpenPause}
         className="cg-toolbar__action"
-        style={{ color: "var(--cg-text)", background: "transparent" }}
       >
-        <FallbackIcon slot="menu" className="cg-icon" />
+        <Pause className="cg-icon" aria-hidden="true" />
         <span>暂停</span>
       </button>
     </nav>

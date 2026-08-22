@@ -1,6 +1,8 @@
 "use client";
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { Sparkles } from "lucide-react";
+import { ActionChoice, Button, InputGroup, Textarea } from "@/shared/ui-runtime";
 import type { BubbleSlotProps, ComposerSlotProps, GameShellSlotProps, SceneSlotProps, ScriptHostModel } from "../../lib/script-registry";
 import type { ActionPreview, Catalog, IntentHint, TurnResultFull } from "../../lib/api";
 import { useScriptRegistry } from "../../lib/script-registry";
@@ -12,26 +14,29 @@ import { ObjectiveTracker } from "./objective-tracker";
 import { PauseMenu } from "./pause-menu";
 import { UiIcon } from "./ui-icon";
 import { SlotRenderer } from "./slots";
-import { useGameActions, useGameSelector } from "./state";
+import { useGameActions, useGamePort, useGameSelector } from "./state";
+import { HostAppShell } from "../host-app-shell";
 
-function DefaultGameShell({ regions }: GameShellSlotProps) {
+function DefaultGameShell({ regions, scriptId }: GameShellSlotProps) {
+  const port = useGamePort();
+  const [scriptName, setScriptName] = useState(scriptId);
+  useEffect(() => {
+    const controller = new AbortController();
+    void port.listScripts(controller.signal).then(({ scripts }) => {
+      const script = scripts.find((item) => item.id === scriptId);
+      if (script) setScriptName(script.name);
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [port, scriptId]);
   return (
-    <div className="cg-game-shell">
-      <div className="cg-game-chrome">{regions.hud}</div>
-      <div className="cg-game-stage">
-        <div className="cg-game-canvas">
-          <section className="cg-game-main" aria-label="会话">
-            {regions.scene}
-          </section>
-          <aside className="cg-game-rail" aria-label="当前目标与工具">
-            {regions.tracker}
-            {regions.toolbar}
-          </aside>
-        </div>
+    <HostAppShell active="play" mode="play" script={{ name: scriptName }} tools={regions.toolbar}>
+      <div className="cg-game-shell">
+        <div className="cg-game-chrome">{regions.hud}{regions.tracker}</div>
+        <section className="cg-game-main" aria-label="会话">{regions.scene}</section>
+        <div className="cg-game-compose-dock">{regions.composer}</div>
+        {regions.overlays}
       </div>
-      <div className="cg-game-compose-dock">{regions.composer}</div>
-      {regions.overlays}
-    </div>
+    </HostAppShell>
   );
 }
 
@@ -72,8 +77,12 @@ function NpcIdentity({ speaker, first, scriptId, assets }: {
 function DefaultBubble({ entry, speaker, isFirstAppearance, scriptId, assets, children }: BubbleSlotProps) {
   return (
     <article className="cg-message" data-role={entry.role}>
-      {speaker ? <NpcIdentity speaker={speaker} first={isFirstAppearance} scriptId={scriptId} assets={assets} /> : null}
-      {children}
+      {entry.role === "world" ? (
+        <div className="cg-message__identity">
+          {speaker ? <NpcIdentity speaker={speaker} first={isFirstAppearance} scriptId={scriptId} assets={assets} /> : <span className="cg-message__avatar" aria-hidden="true"><Sparkles /></span>}
+        </div>
+      ) : null}
+      <div className="cg-message__body">{children}</div>
     </article>
   );
 }
@@ -234,11 +243,9 @@ function DefaultComposer({ busy, submitTurn, previewAction, scriptId, assets, ca
       {catalog.actions.length > 0 ? (
         <div className="cg-action-shortcuts" aria-label="行动快捷方式">
           {catalog.actions.slice(0, 4).map((action) => (
-            <button
+            <ActionChoice
               key={action.id}
-              type="button"
-              className="cg-button cg-button--quiet"
-              aria-pressed={intentHint?.actionId === action.id}
+              selected={intentHint?.actionId === action.id}
               disabled={busy}
               onClick={() => {
                 const hint = { actionId: action.id };
@@ -247,28 +254,27 @@ function DefaultComposer({ busy, submitTurn, previewAction, scriptId, assets, ca
                   setIntentHint(result?.executable ? hint : undefined);
                 });
               }}
-            >
-              {action.displayName}
-            </button>
+            >{action.displayName}</ActionChoice>
           ))}
         </div>
       ) : null}
       {preview ? <ActionPreviewFeedback preview={preview} catalog={catalog} /> : null}
       <form onSubmit={(event) => void onSubmit(event)}>
         <label className="cg-sr-only" htmlFor="player-input">输入你的话或行动</label>
-        <textarea
-          id="player-input"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="说点什么，或描述你的行动"
-          disabled={busy}
-          maxLength={2000}
-          rows={1}
-        />
-        <button type="submit" className="cg-button cg-button--primary" disabled={busy || input.trim().length === 0}>
-          <UiIcon slot="send" scriptId={scriptId} manifest={assets} className="cg-icon" />
-          {busy ? "等待世界" : "发送"}
-        </button>
+        <InputGroup>
+          <Textarea
+            id="player-input"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder="说点什么，或描述你的行动"
+            disabled={busy}
+            maxLength={2000}
+            rows={1}
+          />
+          <Button type="submit" variant="primary" size="icon" aria-label={busy ? "等待世界回应" : "发送"} disabled={busy || input.trim().length === 0}>
+            <UiIcon slot="send" scriptId={scriptId} manifest={assets} className="cg-icon" />
+          </Button>
+        </InputGroup>
       </form>
     </footer>
   );

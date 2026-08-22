@@ -29,9 +29,9 @@ export default defineConfig({
     toHaveScreenshot: {
       animations: "disabled",
       caret: "hide",
-      // Five percent allowed the entire launcher composition to change while
-      // the dark background still made the snapshot pass.
-      maxDiffPixelRatio: 0.01,
+      // Even one percent can hide a displaced 1440px workspace inside a 5K
+      // canvas because the surrounding shell is intentionally quiet.
+      maxDiffPixelRatio: 0.002,
     },
   },
   webServer: {

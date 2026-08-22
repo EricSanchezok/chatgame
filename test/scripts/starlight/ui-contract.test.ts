@@ -18,24 +18,22 @@ describe("Starlight conversation-first UI contract", () => {
   it("inherits the host conversation shell and registers only script-specific surfaces", () => {
     const slots = new Map<SlotId, unknown>();
     const context: ScriptUiContext = {
-      apiVersion: 4,
+      apiVersion: 5,
       register(slot, definition) {
         slots.set(slot, definition.component);
       },
     };
     registerStarlightUi(context);
-    expect(apiVersion).toBe(4);
+    expect(apiVersion).toBe(5);
     expect([...slots.keys()].sort()).toEqual([
       "composer",
       "hud",
-      "launcher",
       "objective-tracker",
       "panel:inventory",
       "panel:log",
       "panel:map",
       "panel:tasks",
       "pause-menu",
-      "settings:starlight",
       "toolbar",
     ]);
     expect(slots.has("game-shell")).toBe(false);
@@ -59,15 +57,16 @@ describe("Starlight conversation-first UI contract", () => {
 
   it("covers compact phone, tablet, desktop, short landscape, 200% text, reduced motion and contrast", () => {
     const css = readFileSync(path.join(SCRIPT_DIR, "ui/styles.ts"), "utf8");
+    const source = readFileSync(path.join(SCRIPT_DIR, "ui/index.tsx"), "utf8");
     expect(css).toContain("@media (max-width: 720px)");
     expect(css).toContain("@media (max-width: 980px)");
     expect(css).toContain("@media (max-height: 600px) and (orientation: landscape)");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("@media (prefers-contrast: more)");
     expect(css).toContain("var(--cg-scale)");
-    expect(css).toContain(":focus-visible");
-    expect(css).toContain(":hover");
-    expect(css).toContain(":active");
+    expect(css).not.toContain(".sl-button");
+    expect(source).toContain("ActionChoice");
+    expect(source).toContain("InputGroup");
     expect(css).toContain(".sl-loading");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(css).not.toMatch(/\b(?:rgb|hsl|oklch)a?\(/i);

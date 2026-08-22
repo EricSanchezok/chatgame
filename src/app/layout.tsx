@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ReactBridge } from "./lib/react-bridge";
 import { PlayerPreferenceSync } from "./ui/preference-sync";
 import "./globals.css";
@@ -15,7 +16,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="flex h-dvh min-h-0 flex-col overflow-hidden">
         <ReactBridge />
         <PlayerPreferenceSync />
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>
   );

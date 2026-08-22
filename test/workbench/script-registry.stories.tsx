@@ -52,7 +52,7 @@ function RegistryStatePreview({ state }: { state: RegistryState }) {
   }, [state]);
 
   return (
-    <main className="cg-host-page" style={{ padding: "var(--cg-space-6)" }}>
+    <main style={{ minHeight: "100dvh", padding: "var(--cg-space-4)", background: "var(--cg-background)" }}>
       <h1>插槽注册表</h1>
       <dl>
         <div><dt>状态</dt><dd data-testid="registry-status">{registry.status}</dd></div>

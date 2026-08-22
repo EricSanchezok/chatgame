@@ -1,11 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { Badge, Button, Checkbox, Input } from "@/shared/ui-runtime";
 import { httpGamePort, type ImportPreview, type ScriptDetail, type ScriptSummary } from "../lib/api";
 import { patchPlayerSettings, readPlayerSettings } from "../lib/settings";
 import { applyHostTheme } from "../lib/theme";
 import { Dialog } from "../ui/dialog";
+import { HostAppShell } from "../ui/host-app-shell";
 
 function codeRisk(preview: ImportPreview): boolean {
   return preview.risks.some((risk) => risk.code === "engine-code" || risk.code === "ui-code");
@@ -22,6 +23,7 @@ export function ScriptsLibrary() {
   const [deleteTarget, setDeleteTarget] = useState<ScriptSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("正在读取剧本库……");
+  const [hasError, setHasError] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   async function refresh(preferId?: string) {
@@ -31,12 +33,16 @@ export function ScriptsLibrary() {
     const nextId = preferId ?? selectedId ?? stored ?? result.scripts[0]?.id ?? null;
     setSelectedId(result.scripts.some((script) => script.id === nextId) ? nextId : result.scripts[0]?.id ?? null);
     setStatus(result.scripts.length > 0 ? `已安装 ${result.scripts.length} 个剧本。` : "剧本库为空。可导入 zip 剧本。 ");
+    setHasError(false);
   }
 
   useEffect(() => {
     applyHostTheme();
     queueMicrotask(() => {
-      void refresh().catch((error) => setStatus(`读取失败：${error instanceof Error ? error.message : String(error)}。请重试。`));
+      void refresh().catch((error) => {
+        setStatus(`读取失败：${error instanceof Error ? error.message : String(error)}。请重试。`);
+        setHasError(true);
+      });
     });
     // The initial library fetch is intentionally mount-only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -50,7 +56,10 @@ export function ScriptsLibrary() {
     void httpGamePort.scriptDetail(selectedId, controller.signal)
       .then(setDetail)
       .catch((error) => {
-        if (!controller.signal.aborted) setStatus(`档案读取失败：${error instanceof Error ? error.message : String(error)}`);
+        if (!controller.signal.aborted) {
+          setStatus(`档案读取失败：${error instanceof Error ? error.message : String(error)}`);
+          setHasError(true);
+        }
       });
     return () => controller.abort();
   }, [selectedId]);
@@ -85,6 +94,7 @@ export function ScriptsLibrary() {
         : `已完成《${next.name}》的静态检查，尚未安装。`);
     } catch (error) {
       setStatus(`无法预览：${error instanceof Error ? error.message : String(error)}。请选择修正后的 zip。`);
+      setHasError(true);
     } finally {
       setBusy(false);
     }
@@ -101,6 +111,7 @@ export function ScriptsLibrary() {
       setStatus(`《${preview.name}》已安装并设为当前剧本。${result.warnings.length ? `仍有 ${result.warnings.length} 条提示。` : ""}`);
     } catch (error) {
       setStatus(`安装失败：${error instanceof Error ? error.message : String(error)}。请重新选择 zip 后再试。`);
+      setHasError(true);
       setPreview(null);
     } finally {
       setBusy(false);
@@ -118,31 +129,23 @@ export function ScriptsLibrary() {
       setStatus(`《${deleteTarget.name}》已删除；存档数据未删除。`);
     } catch (error) {
       setStatus(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+      setHasError(true);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="cg-host-page cg-library-page">
-      <header className="cg-host-header">
-        <Link className="cg-wordmark" href="/">Chatgame</Link>
-        <nav className="cg-host-nav" aria-label="全局">
-          <Link href="/">游戏</Link>
-          <span aria-current="page">剧本</span>
-          <Link href="/settings">设置</Link>
-        </nav>
-      </header>
-
-      <main className="cg-library">
+    <HostAppShell active="scripts" script={selected ? { name: selected.name, description: selected.description } : null} status={status} statusVisible={hasError}>
+      <div className="cg-library">
         <header className="cg-page-heading">
           <div>
             <h1>剧本库</h1>
             <p>浏览已安装剧目；导入前先检查内容、代码权限与替换风险。</p>
           </div>
-          <button type="button" className="cg-button cg-button--primary" disabled={busy} onClick={() => fileRef.current?.click()}>
+          <Button type="button" variant="primary" disabled={busy} onClick={() => fileRef.current?.click()}>
             {busy ? "正在检查……" : "导入 zip"}
-          </button>
+          </Button>
           <input
             ref={fileRef}
             className="cg-sr-only"
@@ -155,7 +158,7 @@ export function ScriptsLibrary() {
 
         <label className="cg-search" htmlFor="script-search">
           <span>搜索档案</span>
-          <input id="script-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名称、作者或题材" />
+          <Input id="script-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名称、作者或题材" />
         </label>
 
         <div className="cg-library__body">
@@ -192,7 +195,7 @@ export function ScriptsLibrary() {
                     <img src={httpGamePort.assetUrl(selected.id, selected.cover.file)} alt={selected.cover.alt ?? ""} />
                   ) : <span aria-hidden="true">{selected.name.slice(0, 1)}</span>}
                 </div>
-                <h2>{selected.name}</h2>
+                <div className="cg-dossier-detail__title"><h2>{selected.name}</h2>{selected.id === currentId ? <Badge tone="accent">当前剧本</Badge> : null}</div>
                 <p>{selected.description}</p>
                 <dl>
                   <div><dt>出身</dt><dd>{selectedDetail.origins.length}</dd></div>
@@ -202,30 +205,21 @@ export function ScriptsLibrary() {
                   <div><dt>规格版本</dt><dd>{selected.schemaVersion}</dd></div>
                   <div><dt>来源</dt><dd>{selected.source.label}</dd></div>
                 </dl>
-                <div className="cg-dialog-actions">
-                  <button
-                    type="button"
-                    className="cg-button cg-button--primary"
-                    disabled={selected.id === currentId}
-                    onClick={() => {
-                      patchPlayerSettings({ activeScriptId: selected.id });
-                      setStatus(`《${selected.name}》已设为当前剧本。返回游戏即可开始。`);
-                      setScripts((items) => [...items]);
-                    }}
-                  >
-                    {selected.id === currentId ? "当前剧本" : "设为当前剧本"}
-                  </button>
-                  {selected.source.kind === "imported" ? (
-                    <button type="button" className="cg-button cg-button--danger" onClick={() => setDeleteTarget(selected)}>删除剧本</button>
-                  ) : <p className="cg-help">内置剧本由应用管理，不能在剧本库中删除。</p>}
-                </div>
+                {selected.source.kind === "built-in" ? <p className="cg-dossier-detail__notice">内置剧本随应用更新，不能删除。</p> : <p className="cg-dossier-detail__notice">导入剧本由你管理；删除剧本不会同时删除存档。</p>}
+                <footer className="cg-dossier-detail__actions">
+                  {selected.id !== currentId ? <Button type="button" variant="primary" onClick={() => {
+                    patchPlayerSettings({ activeScriptId: selected.id });
+                    setStatus(`《${selected.name}》已设为当前剧本。返回游戏即可开始。`);
+                    setHasError(false);
+                    setScripts((items) => [...items]);
+                  }}>设为当前剧本</Button> : <span className="cg-help">游戏首页将使用此剧本。</span>}
+                  {selected.source.kind === "imported" ? <Button type="button" variant="danger" onClick={() => setDeleteTarget(selected)}>删除剧本</Button> : null}
+                </footer>
               </>
             ) : <p className="cg-help">选择左侧档案查看完整信息。</p>}
           </section>
         </div>
-      </main>
-
-      <p className="cg-status-line" role="status" aria-live="polite">{status}</p>
+      </div>
 
       {preview ? (
         <Dialog title="安装前检查" description={`${preview.sourceName} 已暂存；确认前不会安装或运行代码。`} onClose={() => setPreview(null)}>
@@ -263,20 +257,20 @@ export function ScriptsLibrary() {
               <details><summary>{preview.warnings.length} 条校验提示</summary><ul>{preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></details>
             ) : null}
             {codeRisk(preview) ? (
-              <label className="cg-check"><input type="checkbox" checked={riskConfirmed} onChange={(event) => setRiskConfirmed(event.target.checked)} /><span>我信任此来源，并理解剧本包含会运行的代码。</span></label>
+              <div className="cg-confirmation"><Checkbox id="risk-confirmed" checked={riskConfirmed} onCheckedChange={setRiskConfirmed} /><label htmlFor="risk-confirmed">我信任此来源，并理解剧本包含会运行的代码。</label></div>
             ) : null}
             {preview.conflicts.installed && preview.conflicts.replaceAllowed ? (
-              <label className="cg-check"><input type="checkbox" checked={replaceConfirmed} onChange={(event) => setReplaceConfirmed(event.target.checked)} /><span>替换已安装的《{preview.name}》；旧剧本目录会被完整替换。</span></label>
+              <div className="cg-confirmation"><Checkbox id="replace-confirmed" checked={replaceConfirmed} onCheckedChange={setReplaceConfirmed} /><label htmlFor="replace-confirmed">替换已安装的《{preview.name}》；旧剧本目录会被完整替换。</label></div>
             ) : null}
-            <button
+            <Button
               data-autofocus
               type="button"
-              className="cg-button cg-button--danger"
+              variant="danger"
               disabled={busy || preview.errors.length > 0 || (codeRisk(preview) && !riskConfirmed) || (preview.conflicts.replaceAllowed && !replaceConfirmed)}
               onClick={() => void commit()}
             >
               {busy ? "正在安装……" : preview.errors.length > 0 ? "无法安装" : preview.conflicts.replaceAllowed ? "确认替换" : "确认安装"}
-            </button>
+            </Button>
           </div>
         </Dialog>
       ) : null}
@@ -284,11 +278,11 @@ export function ScriptsLibrary() {
       {deleteTarget ? (
         <Dialog title={`删除《${deleteTarget.name}》`} description="剧本目录与已构建界面会被删除；存档保留。此操作无法在应用内撤销。" onClose={() => setDeleteTarget(null)}>
           <div className="cg-dialog-actions">
-            <button type="button" className="cg-button cg-button--secondary" onClick={() => setDeleteTarget(null)}>取消</button>
-            <button data-autofocus type="button" className="cg-button cg-button--danger" disabled={busy} onClick={() => void removeScript()}>{busy ? "正在删除……" : "确认删除剧本"}</button>
+            <Button type="button" variant="secondary" onClick={() => setDeleteTarget(null)}>取消</Button>
+            <Button data-autofocus type="button" variant="danger" disabled={busy} onClick={() => void removeScript()}>{busy ? "正在删除……" : "确认删除剧本"}</Button>
           </div>
         </Dialog>
       ) : null}
-    </div>
+    </HostAppShell>
   );
 }

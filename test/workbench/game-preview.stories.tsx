@@ -15,19 +15,20 @@ async function startGame(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
   await expect(canvas.findByRole("heading", { name: /工作台剧本/ })).resolves.toBeVisible();
   await userEvent.click(await canvas.findByRole("button", { name: "开始新游戏" }));
-  const dialog = await within(document.body).findByRole("dialog", { name: /开始《工作台剧本》/ });
-  await waitFor(() => expect(dialog).toBeVisible());
-  await expect(within(dialog).findByRole("combobox")).resolves.toBeEnabled();
-  await userEvent.click(within(dialog).getByRole("button", { name: "进入世界" }));
+  await expect(canvas.findByRole("heading", { name: "你从哪里来" })).resolves.toBeVisible();
+  await userEvent.click(canvas.getByRole("button", { name: "确认这个出身" }));
+  await userEvent.click(canvas.getByRole("button", { name: "进入世界" }));
   await expect(canvas.findByRole("textbox", { name: "输入你的话或行动" })).resolves.toBeVisible();
 }
 
-export const LauncherReady: Story = {};
+export const LauncherReady: Story = {
+  args: { scenario: { hostShell: true } },
+};
 
 export const LauncherLoading: Story = {
   args: { scenario: { latencyMs: { "/api/scripts": 10_000 } } },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).findAllByText("正在整理剧目单……")).resolves.toHaveLength(2);
+    await expect(within(canvasElement).findByText("正在整理剧目单……")).resolves.toBeVisible();
   },
 };
 
@@ -39,20 +40,49 @@ export const LauncherEmpty: Story = {
 };
 
 export const LauncherError: Story = {
-  args: { scenario: { session: "error" }, lastRun: true },
+  args: { scenario: { session: "error", hostShell: true } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByRole("button", { name: "继续上次游戏" }));
+    await userEvent.click(await canvas.findByRole("button", { name: "继续游戏" }));
     await expect(canvas.findByText("会话恢复失败")).resolves.toBeVisible();
   },
 };
 
-export const NewGameDialog: Story = {
+export const NewGameOrigin: Story = {
+  args: { scenario: { hostShell: true } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: "开始新游戏" }));
-    const dialog = await within(document.body).findByRole("dialog", { name: /开始《工作台剧本》/ });
-    await waitFor(() => expect(dialog).toBeVisible());
+    await expect(canvas.findByRole("heading", { name: "你从哪里来" })).resolves.toBeVisible();
+  },
+};
+
+export const NewGameIdentity: Story = {
+  args: { scenario: { hostShell: true } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: "开始新游戏" }));
+    await userEvent.click(await canvas.findByRole("button", { name: "确认这个出身" }));
+    await expect(canvas.findByRole("heading", { name: "确认你的身份" })).resolves.toBeVisible();
+  },
+};
+
+export const NewGameLockedOrigin: Story = {
+  args: { scenario: { hostShell: true, lockedOrigin: true } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: "开始新游戏" }));
+    await expect(canvas.findByText("未解锁")).resolves.toBeVisible();
+  },
+};
+
+export const NewGameOriginError: Story = {
+  args: { scenario: { hostShell: true, meta: "error" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: "开始新游戏" }));
+    await expect(canvas.findByRole("alert")).resolves.toHaveTextContent("出身清单暂时不可用");
+    await expect(canvas.findByRole("button", { name: "重新加载" })).resolves.toBeVisible();
   },
 };
 

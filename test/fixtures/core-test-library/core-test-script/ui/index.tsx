@@ -1,6 +1,10 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
 import {
+  Button,
+  Input,
   SCRIPT_UI_API_VERSION,
+  SettingRow,
+  Switch,
   type BubbleSlotProps,
   type ComposerSlotProps,
   type GameShellSlotProps,
@@ -25,30 +29,23 @@ const frame: CSSProperties = {
   color: "var(--cg-text)",
 };
 
-function WorkbenchLauncher({ script, detail, actions }: LauncherSlotProps) {
+function WorkbenchLauncher({ script, detail, resume, newGame, actions }: LauncherSlotProps) {
+  const selected = newGame.origins.find((origin) => origin.id === newGame.selectedOriginId);
   return (
-    <main data-slot="launcher" className="cg-programme" aria-labelledby="core-programme-title">
-      <section className="cg-programme__stage" style={frame}>
-        <div className="cg-programme__copy">
-          <p style={{ color: "var(--cg-accent)" }}>UI API v4 · deterministic fixture</p>
+    <main data-slot="launcher" className="cg-launcher-stage" aria-labelledby="core-programme-title">
+      <section className="cg-launcher-step" style={{ display: "grid", placeItems: "center" }}>
+        <div className="cg-launcher-card" style={frame}>
+        <div className="cg-launcher__copy">
+          <p style={{ color: "var(--cg-accent)" }}>UI API v5 · deterministic fixture</p>
           <h1 id="core-programme-title">{script.name}</h1>
           <p>{script.description}</p>
           <p>{detail.origins.length} 个出身 · {detail.catalog.locations.length} 个地点</p>
+          {newGame.step === "overview" ? <div className="cg-launcher-card__actions"><Button type="button" variant="primary" disabled={resume.busy} onClick={actions.openNewGame}>建立值班</Button>{resume.save ? <Button type="button" variant="secondary" disabled={resume.busy} onClick={() => void resume.continueGame()}>继续值班</Button> : null}<Button type="button" variant="secondary" disabled={resume.busy || detail.saves.length === 0} onClick={actions.openSaves}>读取存档</Button></div> : null}
+          {newGame.step === "origin" ? <div className="cg-form-stack"><h2>选择校验身份</h2>{newGame.status === "loading" ? <p role="status">读取出身……</p> : null}{newGame.status === "error" ? <><p role="alert">{newGame.error}</p><Button type="button" variant="secondary" onClick={newGame.retry}>重新加载</Button></> : null}{newGame.origins.map((origin) => <Button key={origin.id} type="button" variant={origin.id === newGame.selectedOriginId ? "primary" : "secondary"} disabled={!origin.available} onClick={() => newGame.selectOrigin(origin.id)}>{origin.name}{origin.available ? "" : " · 未解锁"}</Button>)}<div className="cg-dialog-actions"><Button type="button" variant="quiet" onClick={newGame.back}>返回</Button><Button type="button" variant="primary" disabled={!selected?.available} onClick={newGame.next}>确认出身</Button></div></div> : null}
+          {newGame.step === "identity" ? <form className="cg-form-stack" onSubmit={(event) => { event.preventDefault(); if (selected) void actions.start(selected.id, newGame.playerName || undefined); }}><h2>确认身份</h2><p>{selected?.name} · {selected?.description}</p><label htmlFor="fixture-player-name">名字（可选）</label><Input id="fixture-player-name" value={newGame.playerName} onChange={(event) => newGame.setPlayerName(event.target.value)} /><div className="cg-dialog-actions"><Button type="button" variant="quiet" onClick={newGame.back}>重选出身</Button><Button type="submit" variant="primary">进入世界</Button></div></form> : null}
+        </div>
         </div>
       </section>
-      <aside className="cg-programme__actions" aria-label={`${script.name} 玩家操作`}>
-        <button type="button" className="cg-button cg-button--primary" onClick={actions.openNewGame}>
-          建立值班
-        </button>
-        <button
-          type="button"
-          className="cg-button cg-button--secondary"
-          disabled={detail.saves.length === 0}
-          onClick={actions.openSaves}
-        >
-          读取存档
-        </button>
-      </aside>
     </main>
   );
 }
@@ -86,14 +83,14 @@ function WorkbenchHud({ state }: HudSlotProps) {
 function WorkbenchToolbar({ panel, openPanel }: ToolbarSlotProps) {
   return (
     <nav data-slot="toolbar" aria-label="工作台面板" className="cg-toolbar" style={frame}>
-      <button
+      <Button
         type="button"
-        className="cg-button cg-button--secondary"
+        variant="secondary"
         aria-pressed={panel === "inventory"}
         onClick={() => openPanel("inventory")}
       >
         检查清单
-      </button>
+      </Button>
     </nav>
   );
 }
@@ -121,17 +118,17 @@ function WorkbenchComposer({ busy, previewAction, submitTurn }: ComposerSlotProp
 
   return (
     <footer data-slot="composer" data-region="composer" className="cg-composer">
-      <button type="button" className="cg-button cg-button--quiet" disabled={busy} onClick={() => void inspect()}>
+      <Button type="button" variant="quiet" disabled={busy} onClick={() => void inspect()}>
         预检线路
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        className="cg-button cg-button--quiet"
+        variant="quiet"
         disabled={busy}
         onClick={() => void submitTurn("触发系统记录", { actionId: "wait" })}
       >
         触发系统记录
-      </button>
+      </Button>
       {preview ? <p role="status">{preview}</p> : null}
       <form onSubmit={(event) => void submit(event)}>
         <label className="cg-sr-only" htmlFor="core-player-input">输入验证指令</label>
@@ -144,9 +141,9 @@ function WorkbenchComposer({ busy, previewAction, submitTurn }: ComposerSlotProp
           maxLength={2000}
           onChange={(event) => setInput(event.target.value)}
         />
-        <button type="submit" className="cg-button cg-button--primary" disabled={busy || input.trim().length === 0}>
+        <Button type="submit" variant="primary" disabled={busy || input.trim().length === 0}>
           {busy ? "验证中" : "提交验证"}
-        </button>
+        </Button>
       </form>
     </footer>
   );
@@ -156,13 +153,13 @@ function WorkbenchPauseMenu({ busy, dirty, save, exit, close }: PauseMenuSlotPro
   return (
     <div data-slot="pause-menu" className="cg-form-stack">
       <p>{dirty ? "当前回合尚未保存。" : "当前记录已保存。"}</p>
-      <button type="button" className="cg-button cg-button--secondary" disabled={busy} onClick={() => void save()}>
+      <Button type="button" variant="secondary" disabled={busy} onClick={() => void save()}>
         {busy ? "保存中" : "保存校准点"}
-      </button>
-      <button type="button" className="cg-button cg-button--quiet" disabled={busy} onClick={close}>继续校验</button>
-      <button type="button" className="cg-button cg-button--primary" disabled={busy} onClick={() => void exit(false)}>
+      </Button>
+      <Button type="button" variant="quiet" disabled={busy} onClick={close}>继续校验</Button>
+      <Button type="button" variant="primary" disabled={busy} onClick={() => void exit(false)}>
         返回剧目单
-      </button>
+      </Button>
     </div>
   );
 }
@@ -172,7 +169,7 @@ function WorkbenchPanel({ state, close }: PanelSlotProps) {
     <section data-slot="panel-inventory" aria-label="自定义检查清单">
       <p>位置：{state.player.locationId}</p>
       <p>事件记录：{state.eventLog.length}</p>
-      <button type="button" className="cg-button cg-button--secondary" onClick={close}>关闭检查清单</button>
+      <Button type="button" variant="secondary" onClick={close}>关闭检查清单</Button>
     </section>
   );
 }
@@ -195,14 +192,18 @@ function WorkbenchMessageCard({ kind, children }: MessageCardSlotProps) {
 
 function WorkbenchSettings({ settings, update }: SettingsSlotProps) {
   return (
-    <label data-slot="settings-fixture" className="cg-switch">
-      <span><strong>工作台确认音</strong><small>验证 settings:* 插槽能够读写宿主设置。</small></span>
-      <input
-        type="checkbox"
+    <SettingRow
+      data-slot="settings-fixture"
+      controlId="fixture-effects"
+      label="工作台确认音"
+      description="验证 settings:* 插槽能够读写宿主设置。"
+    >
+      <Switch
+        id="fixture-effects"
         checked={settings.effectsVolume > 0}
-        onChange={(event) => update({ effectsVolume: event.target.checked ? 50 : 0 })}
+        onCheckedChange={(checked) => update({ effectsVolume: checked ? 50 : 0 })}
       />
-    </label>
+    </SettingRow>
   );
 }
 

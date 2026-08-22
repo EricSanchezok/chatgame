@@ -5,7 +5,7 @@
  */
 
 export const CLIENT_API_VERSION = 3 as const;
-export const SCRIPT_UI_API_VERSION = 4 as const;
+export const SCRIPT_UI_API_VERSION = 5 as const;
 
 export interface ThemeFontFile {
   file: string;

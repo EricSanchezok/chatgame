@@ -5,6 +5,11 @@ import {
   openRealLauncher,
   startRealFixtureGame,
 } from "../support/real-app";
+import {
+  installMockGameRoutes,
+  openLauncher,
+  startFixtureGame,
+} from "../support/mock-routes";
 
 test.afterEach(async ({ request }) => {
   await destroyActiveSessions(request);
@@ -12,7 +17,7 @@ test.afterEach(async ({ request }) => {
 
 test("production host runs a complete script lifecycle through real routes", async ({ page, request }) => {
   await openRealLauncher(page);
-  await expect(page.locator('[data-slot="launcher"]')).toContainText("UI API v4");
+  await expect(page.locator('[data-slot="launcher"]')).toContainText("UI API v5");
 
   await startRealFixtureGame(page);
   await expect(page.locator('[data-slot="hud"]')).toContainText("Engine API v2 已启动");
@@ -46,7 +51,8 @@ test("production host runs a complete script lifecycle through real routes", asy
   await expect(page.locator('[data-slot="launcher"]')).toBeVisible();
   await expect(activeSessionIds(request)).resolves.toHaveLength(0);
 
-  await page.getByRole("button", { name: "继续上次游戏" }).click();
+  await page.getByRole("button", { name: "读取存档" }).click();
+  await page.getByRole("dialog", { name: "选择存档" }).getByRole("button", { name: /自动存档/ }).click();
   await expect(page.locator('[data-slot="game-shell"]')).toBeVisible();
   await expect(page.locator('[data-slot="bubble-player"]').filter({ hasText: "复核一号中继线路" })).toBeVisible();
   await expect(activeSessionIds(request)).resolves.toHaveLength(1);
@@ -55,13 +61,30 @@ test("production host runs a complete script lifecycle through real routes", asy
   await page.getByRole("button", { name: "返回剧目单" }).click();
   await expect(activeSessionIds(request)).resolves.toHaveLength(0);
 
-  await page.getByRole("link", { name: "剧本", exact: true }).click();
+  await page.goto("/scripts");
   await expect(page).toHaveURL(/\/scripts$/);
   await expect(page.getByRole("heading", { name: "剧本库" })).toBeVisible();
   await expect(page.getByRole("button", { name: /核心工作台/ })).toBeVisible();
 
-  await page.getByRole("link", { name: "设置" }).click();
+  await page.goto("/settings");
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByRole("heading", { name: "设置", exact: true })).toBeVisible();
   await expect(page.locator('[data-slot="settings-fixture"]')).toBeVisible();
+});
+
+test("default AppShell expands and opens every system sheet", async ({ page }) => {
+  await installMockGameRoutes(page, { hostShell: true });
+  await openLauncher(page);
+  await startFixtureGame(page);
+
+  await page.getByRole("button", { name: "展开侧栏", exact: true }).click();
+  await expect(page.getByRole("button", { name: "折叠侧栏", exact: true })).toBeVisible();
+
+  for (const title of ["背包", "角色", "关系", "任务", "地图", "日志"]) {
+    await page.getByRole("button", { name: title, exact: true }).click();
+    const sheet = page.getByRole("dialog", { name: title });
+    await expect(sheet).toBeVisible();
+    await sheet.getByRole("button", { name: "关闭" }).click();
+    await expect(sheet).toBeHidden();
+  }
 });

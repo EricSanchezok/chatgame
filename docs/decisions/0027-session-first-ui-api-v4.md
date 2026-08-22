@@ -1,7 +1,7 @@
 # 会话优先 UI API v4
 
 ## Status
-Accepted
+Superseded by [0029](0029-reui-app-shell-and-ui-api-v5.md)
 Class: architecture
 
 ## Context and Problem Statement

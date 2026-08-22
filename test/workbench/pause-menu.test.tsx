@@ -61,7 +61,7 @@ describe("PauseMenu", () => {
 
     expect(screen.getByRole("dialog", { name: "暂停菜单" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "退出全屏" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "关" }));
+    fireEvent.click(screen.getByRole("switch", { name: "声音" }));
     expect(onAudio).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "关闭暂停菜单" }));
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());

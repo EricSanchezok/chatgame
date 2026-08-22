@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildScriptUi, rewriteReactImports, uiBundlePath } from "../script-ui-build";
+import { buildScriptUi, rewriteReactImports, rewriteUiRuntimeImport, uiBundlePath } from "../script-ui-build";
 
 let scriptsRoot: string;
 const buildRoot = path.join(".chatgame", "build");
@@ -57,12 +57,18 @@ describe("rewriteReactImports", () => {
   });
 });
 
+describe("rewriteUiRuntimeImport", () => {
+  it("routes the public UI package to the single host runtime", () => {
+    expect(rewriteUiRuntimeImport('import { Button } from "@chatgame/ui";')).toContain('/api/runtime/ui.mjs');
+  });
+});
+
 describe("buildScriptUi", () => {
   it("bundles a ui extension into browser ESM with shimmed react imports", async () => {
     const scriptDir = writeUi("test-bundle", SIMPLE_UI);
     const result = await buildScriptUi(scriptDir);
     expect(result.ok).toBe(true);
-    expect(result.apiVersion).toBe(4);
+    expect(result.apiVersion).toBe(5);
     expect(result.dependencyHash).toMatch(/^[0-9a-f]{20}$/);
     expect(result.url).toBe(`/api/scripts/test-bundle/ui-bundle?v=${result.dependencyHash}`);
     expect(result.bundlePath).toBe(uiBundlePath("test-bundle", result.dependencyHash));
@@ -101,6 +107,7 @@ describe("buildScriptUi", () => {
     ].join("\n"));
     const accepted = await buildScriptUi(safe);
     expect(accepted.ok).toBe(true);
+    expect(readFileSync(accepted.bundlePath!, "utf8")).toContain("/api/runtime/ui.mjs");
   });
 
   it("reuses immutable output when unchanged and invalidates on imported dependencies", async () => {

@@ -50,13 +50,6 @@ const GameRuntimeContext = createContext<GameRuntime | null>(null);
 
 function productionEffects(audio: AudioController, port: GamePort): GameControllerEffects {
   return {
-    readLastRun: () => readPlayerSettings().lastRun,
-    rememberLastRun: (scriptId, runId) => {
-      patchPlayerSettings({ lastRun: { scriptId, runId } });
-    },
-    clearLastRun: () => {
-      patchPlayerSettings({ lastRun: null });
-    },
     onAudioEnabled: (enabled) => {
       audio.setEnabled(enabled);
       patchPlayerSettings({ audioEnabled: enabled });

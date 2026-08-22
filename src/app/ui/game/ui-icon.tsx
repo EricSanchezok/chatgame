@@ -2,12 +2,46 @@
 
 // UiIcon: framework chrome icons driven by the script's assets.yaml `ui`
 // slots. A script may override any fixed slot with its own file (svg/png);
-// otherwise the framework fallback icon set renders (inline SVG, themed via
-// currentColor — replaces the old emoji fallback table).
+// otherwise the host's single Lucide fallback set renders.
 
+import {
+  Archive,
+  Backpack,
+  BookOpenText,
+  CircleUserRound,
+  Clock3,
+  HeartPulse,
+  ListChecks,
+  Map,
+  MapPin,
+  Send,
+  TriangleAlert,
+  UsersRound,
+  Volume2,
+  VolumeX,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { httpGamePort, type AssetManifest } from "../../lib/api";
 import type { UiIconSlot } from "../../../script/schemas/assets";
-import { FallbackIcon } from "./icons";
+
+const FALLBACKS: Record<UiIconSlot, LucideIcon> = {
+  inventory: Backpack,
+  character: CircleUserRound,
+  relations: UsersRound,
+  tasks: ListChecks,
+  map: Map,
+  log: BookOpenText,
+  save: Archive,
+  audio_on: Volume2,
+  audio_off: VolumeX,
+  close: X,
+  send: Send,
+  warning: TriangleAlert,
+  hp: HeartPulse,
+  location: MapPin,
+  time: Clock3,
+};
 
 export function UiIcon({
   slot,
@@ -34,23 +68,6 @@ export function UiIcon({
       />
     );
   }
-  return <FallbackIcon slot={slot as FallbackIconSlot} className={className} />;
+  const Icon = FALLBACKS[slot];
+  return <Icon aria-hidden="true" className={className} />;
 }
-
-/** Maps UiIconSlot onto the fallback icon set (same key space). */
-type FallbackIconSlot =
-  | "inventory"
-  | "character"
-  | "relations"
-  | "tasks"
-  | "map"
-  | "log"
-  | "save"
-  | "audio_on"
-  | "audio_off"
-  | "close"
-  | "send"
-  | "warning"
-  | "hp"
-  | "location"
-  | "time";

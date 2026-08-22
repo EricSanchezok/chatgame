@@ -38,9 +38,9 @@ export async function openLauncher(page: Page): Promise<void> {
 
 export async function startFixtureGame(page: Page): Promise<void> {
   await page.getByRole("button", { name: "开始新游戏" }).click();
-  const dialog = page.getByRole("dialog", { name: /开始《工作台剧本》/ });
-  await dialog.getByRole("combobox").waitFor();
-  await dialog.getByRole("button", { name: "进入世界" }).click();
+  await page.getByRole("heading", { name: "你从哪里来" }).waitFor();
+  await page.getByRole("button", { name: "确认这个出身" }).click();
+  await page.getByRole("button", { name: "进入世界" }).click();
   await page.getByRole("textbox", { name: "输入你的话或行动" }).waitFor();
 }
 

@@ -36,17 +36,17 @@ describe("core test script library", () => {
     expect(definition.extensions.lifecycle.sessionStart).toHaveLength(1);
   });
 
-  it("registers a reachable representative of every public UI API v4 slot", () => {
+  it("registers a reachable representative of every public UI API v5 slot", () => {
     const slots = new Map<SlotId, SlotDef>();
     const context: ScriptUiContext = {
-      apiVersion: 4,
+      apiVersion: 5,
       register<K extends SlotId>(slot: K, definition: SlotDef<K>) {
         slots.set(slot, definition as SlotDef);
       },
     };
     registerCoreTestUi(context);
 
-    expect(apiVersion).toBe(4);
+    expect(apiVersion).toBe(5);
     expect([...slots.keys()]).toEqual(expectedSlots);
     for (const slot of expectedSlots) expect(slots.get(slot)?.component).toBeTypeOf("function");
   });

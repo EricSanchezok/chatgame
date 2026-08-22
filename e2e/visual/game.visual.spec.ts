@@ -64,10 +64,21 @@ const matrix: VisualMatrixEntry[] = [
 for (const entry of matrix) {
   test(`launcher visual matrix: ${entry.name}`, async ({ page }) => {
     await page.setViewportSize(entry.viewport);
-    await installMockGameRoutes(page);
+    await installMockGameRoutes(page, { hostShell: true });
     await openLauncher(page);
     await entry.prepare?.(page);
     await expectStableScreenshot(page, `launcher-${entry.name}.png`);
+  });
+}
+
+for (const entry of matrix) {
+  test(`default game shell visual matrix: ${entry.name}`, async ({ page }) => {
+    await page.setViewportSize(entry.viewport);
+    await installMockGameRoutes(page, { conversation: "long", hostShell: true });
+    await openLauncher(page);
+    await entry.prepare?.(page);
+    await startFixtureGame(page);
+    await expectStableScreenshot(page, `game-shell-${entry.name}.png`);
   });
 }
 
@@ -91,17 +102,17 @@ test("launcher empty, loading, error and new-game states", async ({ page }) => {
   await expectStableScreenshot(page, "launcher-error.png");
 
   await page.unrouteAll({ behavior: "wait" });
-  await installMockGameRoutes(page);
+  await installMockGameRoutes(page, { hostShell: true });
   await page.reload();
   await page.getByRole("heading", { name: /工作台剧本/ }).waitFor();
   await page.getByRole("button", { name: "开始新游戏" }).click();
-  await page.getByRole("dialog", { name: /开始《工作台剧本》/ }).getByRole("combobox").waitFor();
-  await expectStableScreenshot(page, "launcher-new-game-dialog.png");
+  await page.getByRole("heading", { name: "你从哪里来" }).waitFor();
+  await expectStableScreenshot(page, "launcher-origin-step.png");
 });
 
 test("conversation empty, long, error and pause states", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await installMockGameRoutes(page, { conversation: "empty" });
+  await installMockGameRoutes(page, { conversation: "empty", hostShell: true });
   await openLauncher(page);
   await startFixtureGame(page);
   await expectStableScreenshot(page, "conversation-empty.png");
@@ -111,7 +122,7 @@ test("conversation empty, long, error and pause states", async ({ page }) => {
   await expectStableScreenshot(page, "pause-menu.png");
 
   await page.unrouteAll({ behavior: "wait" });
-  await installMockGameRoutes(page, { conversation: "long", turn: "error" });
+  await installMockGameRoutes(page, { conversation: "long", turn: "error", hostShell: true });
   await page.reload();
   await page.getByRole("heading", { name: /工作台剧本/ }).waitFor();
   await startFixtureGame(page);
@@ -124,19 +135,31 @@ test("conversation empty, long, error and pause states", async ({ page }) => {
   await expectStableScreenshot(page, "conversation-error.png");
 });
 
-test("script library and settings routes", async ({ page }) => {
+const hostPageMatrix = matrix.filter((entry) => ["phone-390x844", "tablet-768x1024", "desktop-1440x900", "desktop-2560x1440", "desktop-5120x2880"].includes(entry.name));
+
+for (const entry of hostPageMatrix) {
+  test(`script library visual matrix: ${entry.name}`, async ({ page }) => {
+    await page.setViewportSize(entry.viewport);
+    await installMockGameRoutes(page, { hostShell: true });
+    await page.goto("/scripts");
+    await page.getByRole("heading", { name: "剧本库" }).waitFor();
+    await expectStableScreenshot(page, `scripts-${entry.name}.png`);
+  });
+
+  test(`settings visual matrix: ${entry.name}`, async ({ page }) => {
+    await page.setViewportSize(entry.viewport);
+    await installMockGameRoutes(page, { hostShell: true });
+    await page.goto("/settings");
+    await page.getByRole("heading", { name: "设置", exact: true }).waitFor();
+    await expectStableScreenshot(page, `settings-${entry.name}.png`);
+  });
+}
+
+test("settings open Select popup", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await installMockGameRoutes(page);
-
-  await page.goto("/scripts");
-  await page.getByRole("heading", { name: "剧本库" }).waitFor();
-  await page.getByRole("button", { name: "备用测试剧本" }).click();
-  await page.getByRole("heading", { name: "备用测试剧本" }).waitFor();
-  await page.getByRole("button", { name: "工作台剧本" }).click();
-  await page.getByRole("heading", { name: "工作台剧本" }).waitFor();
-  await expectStableScreenshot(page, "scripts-route.png");
-
+  await installMockGameRoutes(page, { hostShell: true });
   await page.goto("/settings");
-  await page.getByRole("heading", { name: "设置", exact: true }).waitFor();
-  await expectStableScreenshot(page, "settings-route.png");
+  await page.getByRole("combobox", { name: "文字大小" }).click();
+  await page.getByRole("listbox").waitFor();
+  await expectStableScreenshot(page, "settings-select-open.png");
 });

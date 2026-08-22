@@ -19,9 +19,6 @@ function effectsWithCleanup(
   onSessionCleanupError: GameControllerEffects["onSessionCleanupError"] = () => undefined,
 ): GameControllerEffects {
   return {
-    readLastRun: () => null,
-    rememberLastRun: () => undefined,
-    clearLastRun: () => undefined,
     onAudioEnabled: () => undefined,
     onTurn: () => undefined,
     onSessionCleanupError,

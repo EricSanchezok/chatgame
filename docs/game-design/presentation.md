@@ -1,6 +1,6 @@
-# 表现层规格（Presentation & UI v4）
+# 表现层规格（Presentation & UI v5）
 
-> 本文是玩家宿主、主题、剧本 UI 扩展与可访问性边界的当前参考。导入协议见 [script-import.md](script-import.md)，剧本表现数据见 [script-format.md](script-format.md)，决策依据见 [0027](../decisions/0027-session-first-ui-api-v4.md) 与 [0028](../decisions/0028-conversation-first-game-layout.md)。
+> 本文是玩家宿主、主题、剧本 UI 扩展与可访问性边界的当前参考。导入协议见 [script-import.md](script-import.md)，剧本表现数据见 [script-format.md](script-format.md)，决策依据见 [0029](../decisions/0029-reui-app-shell-and-ui-api-v5.md)。
 
 ## 所有权
 
@@ -12,19 +12,27 @@
 
 ## 玩家宿主
 
-`/` 是“剧目单后台”启动器：首视口只突出当前剧本的静态封面、标题、说明和玩家动作。有效的最近存档才显示“继续上次游戏”；“开始新游戏”和“选择存档”分别打开受控 Dialog；“剧本”和“设置”是独立页面。普通网页不显示虚假的退出动作；进入全屏后，暂停菜单监听 `fullscreenchange` 并显示“退出全屏”。
+`HostAppShell` 是 `/`、`/scripts`、`/settings` 和默认游戏壳的唯一宿主结构。桌面应用页侧栏默认展开为 272px，游戏默认折叠为 72px 图标栏，移动端由 Sheet 承载；玩家可手动展开或折叠。侧栏呈现当前剧本、游戏首页、最近存档入口、剧本库、设置和会话资料。活跃会话期间当前剧本锁定，不提供跨剧本切换动作。
 
-`/scripts` 是纵向档案式剧本库，列表展示名称、作者、规格版本、来源和当前状态，详情、激活、导入、替换与删除互相分离。内置剧本不可替换或删除；导入剧本只有在没有活跃会话时才能替换或删除，失败提示玩家结束相关会话后重新预检，删除保留存档。导入预检和确认遵循 [script-import.md](script-import.md)。
+`/` 是启动器：最大约 96rem 的中央卡牌舞台把封面、标题、说明、剧本信息和玩家动作组成一张卡，不存在独立漂浮操作框或续玩条。卡内动作顺序是“开始新游戏 → 继续游戏 → 选择存档”；“继续游戏”仅在当前剧本存在存档时显示，并按 `updatedAt` 恢复该剧本最新的一份，不能跨剧本读取全局最后游玩指针。“开始新游戏”在舞台内横向推进“剧本介绍 → 选择出身 → 确认身份”，非活动步骤 inert；出身卡组使用 CSS scroll-snap，支持箭头、方向键和触摸滚动，邻卡保留约 24px 提示，锁定出身可见且标注“未解锁”。出身加载失败留在当前步骤并可重试；“选择存档”作为独立恢复任务使用 Dialog，且只列出当前剧本的全部存档。普通网页不显示虚假的退出动作；进入全屏后，暂停菜单监听 `fullscreenchange` 并显示“退出全屏”。
 
-`/settings` 保存版本化 `PlayerUiSettings v3`：声音总开关、主音量、环境音、语音、音效、进入游戏时全屏、主题模式、文字缩放、对比度、减少动效和按 `scriptId:runId` 隔离的追踪任务。设置使用 `chatgame:settings:v3` 本地键；无效或其他版本数据回退默认值，不维护旧设置迁移路径。开始或续玩不得擅自覆盖玩家声音选择；任务追踪只影响 UI，不进入世界状态。
+`/scripts` 是纵向档案式剧本库，列表展示名称、作者、规格版本、来源和当前状态。详情按“封面 → 标题与状态 Badge → 简介 → 元数据 → 管理说明 → 操作栏”排列；当前剧本不渲染禁用操作按钮，非当前剧本才在 footer 提供“设为当前剧本”。内置说明占独立信息行；导入剧本的切换与删除分组。内置剧本不可替换或删除；导入剧本只有在没有活跃会话时才能替换或删除，失败提示玩家结束相关会话后重新预检，删除保留存档。导入预检和确认遵循 [script-import.md](script-import.md)。
+
+`/settings` 保存版本化 `PlayerUiSettings v3`：声音总开关、主音量、环境音、语音、音效、进入游戏时全屏、主题模式、文字缩放、对比度、减少动效和按 `scriptId:runId` 隔离的追踪任务。页面收敛到约 68rem，分成“阅读、声音、显示与动效”，每行左侧是名称与说明，右侧是约 22rem 的统一控件区；窄屏改为上下排列。只有真正存在剧本专属偏好时才呈现剧本设置。普通保存状态只通过稳定 live region 播报，错误才显示可见提示。设置使用 `chatgame:settings:v3` 本地键；无效或其他版本数据回退默认值，不维护旧设置迁移路径。开始或续玩不得擅自覆盖玩家声音选择；任务追踪只影响 UI，不进入世界状态。
 
 ## 游戏壳与槽位
 
-客户端安全契约的唯一入口是 `@chatgame/ui`，其 UI API 版本为 4。公开槽位只有 `launcher`、`game-shell`、`scene`、`hud`、`objective-tracker`、`toolbar`、`composer`、`pause-menu`、`panel:<id>`、`bubble:<id>`、`message-card:<id>` 与 `settings:<id>`；每个槽位在宿主都有真实消费点和完整 fallback。单例槽位不接受位置或排序参数，同一 bundle 重复注册同一槽位使整个 bundle 注册失败。
+客户端安全契约的唯一入口是 `@chatgame/ui`，其 UI API 版本为 5。公开槽位只有 `launcher`、`game-shell`、`scene`、`hud`、`objective-tracker`、`toolbar`、`composer`、`pause-menu`、`panel:<id>`、`bubble:<id>`、`message-card:<id>` 与 `settings:<id>`；每个槽位在宿主都有真实消费点和完整 fallback。单例槽位不接受位置或排序参数，同一 bundle 重复注册同一槽位使整个 bundle 注册失败。v4 bundle 直接拒绝，不保留兼容层。
 
-`game-shell` 接收宿主提供的 scene、composer、hud、tracker、toolbar 与 panels renderer，剧本可以重排但不能绕开它们的语义和无障碍边界。默认壳以 760–860px 的居中转录为唯一长滚动区：世界叙述无气泡，NPC 显示可访问头像与公开资料，玩家使用右对齐紧凑气泡，系统反馈使用低调结果条。地点、事件和物品媒体作为消息卡进入转录，不使用固定场景背景。只有用户原本位于底部时，新消息才自动滚到底，输入变化不重绘整棵转录树。
+`game-shell` 接收宿主提供的 scene、composer、hud、tracker、toolbar 与 panels renderer，第三方剧本可以重排但不能绕开它们的语义和无障碍边界。默认壳以正文最大约 720px、媒体最大约 960px 的居中转录为唯一长滚动区：世界叙述无气泡，NPC 显示可访问头像与公开资料，玩家消息右对齐且最大约 560px，系统反馈使用低调结果条。地点、事件和物品媒体作为消息卡进入转录，不使用固定场景背景；标题、说明与事件状态必须位于同一媒体消息单元。只有用户原本位于底部时，新消息才自动滚到底，输入变化不重绘整棵转录树。
 
-顶部 HUD 只常驻剧本/位置/时间和三到四项关键资源；右上只显示一个 `objective-tracker`，点击进入任务浮层。地图、任务、背包、人物和证据通过宿主 Dialog 打开，桌面端居中并 dim + blur 背景，移动端为全屏面板。默认 composer 与转录同宽，提供三到五个建议行动，先调用 `previewAction(intentHint)` 展示时间、资源、风险和不可执行原因，再以唯一发送按钮提交建议行动或自由文本；不得提供相互竞争的第二个主提交按钮。
+转录、composer 与媒体共享同一中心网格；转录预留双侧滚动槽以避免滚动条出现时中心轴漂移。启动器、侧栏、行动预检、输入框、Sheet、Dialog、剧本库和设置的滚动表面统一使用 `--cg-scroll-track`、`--cg-scroll-thumb` 与 `--cg-scroll-thumb-hover`，在支持的平台提供标准和 WebKit 滚动条样式。
+
+顶部状态区高度约 60–64px，只常驻剧本/位置/时间、目标和三到四项关键资源。默认壳没有永久右轨；地图、任务、背包、人物、关系、日志和证据通过宿主 Sheet 打开，暂停使用居中 Dialog。默认 composer 与媒体最大宽度一致，提供三到五个 `ActionChoice`，先调用 `previewAction(intentHint)` 在一行内展示时间、资源、风险和不可执行原因，再以 `InputGroup` 中的唯一发送按钮提交建议行动或自由文本；不得提供相互竞争的第二个主提交按钮。
+
+`@chatgame/ui` 同时公开宿主与剧本共用的受控表现原语：`Button`、`Badge`、`Frame`、`FramePanel`、`Input`、`InputGroup`、`Select`、`Switch`、`Slider`、`Checkbox`、`SettingRow`、`Textarea`、`ActionChoice` 和 `Metric`。`Select` 接收受控 value、options 与 `onValueChange`；`Switch`、`Checkbox` 和单值 `Slider` 只暴露受控状态；`SettingRow` 统一名称、说明、控件关联及响应式布局。variant、尺寸和状态使用封闭枚举；宿主与内置剧本不得使用原生 select、checkbox 或 range，也不得重新实现基础按钮、输入框、composer、Dialog、Sheet 或页面网格。剧本 `styles.ts` 只描述该世界独有的读数、图示、资料结构与排版语法。
+
+`LauncherSlotProps.newGame` 是完整 launcher 覆盖的受控新游戏模型，包含 `step`、加载状态、带可用性的出身、当前选择、玩家名字、错误以及选择、前进、返回、重试能力。`LauncherSlotProps.resume` 是当前剧本的受控续玩模型，包含按更新时间选出的最新存档、忙碌状态与恢复 capability；宿主不再保存或公开跨剧本的全局 last-run 指针。第三方 launcher 可以形成不同构图，但不得建立另一套新游戏或续玩状态，也不得直接调用宿主内部接口。
 
 `BubbleSlotProps` 的 `speaker` 只包含公开 NPC id、姓名、简介、职业和关系显示，`isFirstAppearance` 支持首次相遇卡；`PanelSlotProps` 的 `trackedTaskId` 与 `trackTask` 只读写本地追踪偏好。剧本不得从秘密、holder 或任意运行态拼出额外公开档案。
 
@@ -32,7 +40,7 @@
 
 ## UI bundle 构建与激活
 
-剧本 `ui/index.ts` 或 `ui/index.tsx` 默认导出注册函数并从 `@chatgame/ui` 导入类型与 API。构建只允许剧本目录内的相对依赖、React 运行时和 `@chatgame/ui`；任何逃出剧本目录的路径或其他 bare import 都失败。依赖图内容和 UI API 版本共同生成 hash，bundle URL 带版本参数，响应提供对应 ETag 和 immutable 缓存。
+剧本 `ui/index.ts` 或 `ui/index.tsx` 默认导出注册函数并从 `@chatgame/ui` 导入类型与 API。构建只允许剧本目录内的相对依赖、React 运行时和 `@chatgame/ui`；任何逃出剧本目录的路径或其他 bare import 都失败。`@chatgame/ui` 不打入剧本 bundle，而是外部化到宿主持有的 `/api/runtime/ui.mjs`，确保宿主和所有剧本共享同一份 ReUI/Base UI 实现。依赖图内容和 UI API 版本共同生成 hash，bundle URL 带版本参数，响应提供对应 ETag 和 immutable 缓存。
 
 registry 是由 `useSyncExternalStore` 订阅的不可变快照，快照同时包含 scriptId、generation、依赖 hash、主题、slots 和可恢复错误。加载先写临时 registry，只有完整注册成功且 generation 仍为最新时才提交。同一剧本替换失败保留上一完整快照；跨剧本加载失败提交目标剧本的空 slots 并使用宿主 fallback，绝不把旧剧本组件传入新剧本 props。错误边界只隔离当前槽位渲染，提供宿主 fallback 和可恢复错误状态。
 
@@ -48,7 +56,7 @@ registry 是由 `useSyncExternalStore` 订阅的不可变快照，快照同时�
 
 ## 可访问性、响应式与动效
 
-Dialog 使用 `aria-modal`、标题/说明关联、背景 inert、焦点陷阱、Esc 关闭和焦点恢复；没有可用控件时焦点停在 dialog surface。状态通过 `aria-live` 和可见文字反馈，等待、成功、警告与错误不只靠颜色或 opacity。主要目标至少 44×44px，布局在 390px 宽、短横屏、安全区和 200% 文字下保留同一任务顺序。
+Dialog 与 Sheet 由 Base UI 持有 `aria-modal`、标题/说明关联、背景隔离、焦点陷阱、Esc 关闭和焦点恢复；宿主只保留业务 wrapper。状态通过 `aria-live` 和可见文字反馈，等待、成功、警告与错误不只靠颜色或 opacity。主要目标至少 44×44px，布局在 390px 宽、短横屏、安全区和 200% 文字下保留同一任务顺序。宿主 fallback 图标统一使用 Lucide，剧本 `assets.yaml` 中的 UI slot 素材仍优先。
 
 宿主动效克制表达因果：新消息约 160ms 轻微淡入，媒体卡约 360ms 展开，Dialog 约 220ms 淡入缩放。系统或玩家选择减少动效时移除位移、缩放、clip 展开与环境循环，并取消 Dialog 退出等待；按压、等待文案和结果反馈仍保留。
 
@@ -64,7 +72,7 @@ Dialog 使用 `aria-modal`、标题/说明关联、背景 inert、焦点陷阱�
 | `/api/scripts/:scriptId/assets/*` | GET | 读取白名单剧本素材 |
 | `/api/scripts/:scriptId/entity-assets/:kind/:entityId` | GET | 读取或生成实体素材 |
 | `/api/scripts/:scriptId/ui-bundle` | GET | 读取版本化 UI bundle |
-| `/api/runtime/react.mjs`、`jsx-runtime.mjs` | GET | bundle 与宿主共享的 React 运行时 |
+| `/api/runtime/react.mjs`、`jsx-runtime.mjs`、`ui.mjs` | GET | bundle 与宿主共享的 React 与 UI 运行时 |
 | `/api/sessions` | GET / POST | 会话列表与创建/续档 |
 | `/api/sessions/:id/state`、`presentation` | GET | 当前世界与表现快照 |
 | `/api/sessions/:id/action-preview` | POST | 无状态行动成本预览 |
@@ -76,7 +84,7 @@ Dialog 使用 `aria-modal`、标题/说明关联、背景 inert、焦点陷阱�
 
 ## 验证矩阵
 
-自动化至少覆盖 UI API 版本/重复 slot/失败保留/跨剧本隔离/A-B generation、objective tracker、NPC 公开资料、四类媒体提示、依赖图 hash/边界 import/ETag、快捷行动 preview 与 typed submit、controller 与 EngineHost 并发、Dialog focus/inert/reduced motion、全屏实时状态、设置持久化、两阶段导入和内置源码保护。真实入口分别验证两个剧本的地点卡、NPC 资料、建议行动、自由输入、追踪切换、任务/背包/地图浮层、保存退出与继续。布局覆盖 390×844、768×1024、1440×900、2560×1440、短横屏、200% 文字、键盘导航、高对比与减少动效，并断言转录是唯一主滚动、composer 始终可操作、内置剧本没有永久三栏或固定背景。
+自动化至少覆盖 UI runtime exports、受控 Select/Switch/Slider/Checkbox、UI API v5 版本/重复 slot/版本拒绝/失败保留/跨剧本隔离/A-B generation、三步 launcher、当前剧本最新存档续玩、锁定出身、加载失败重试、主题 token 映射、objective tracker、NPC 公开资料、四类媒体提示、依赖图 hash/边界 import/ETag、快捷行动 preview 与 typed submit、controller 与 EngineHost 并发、AppShell/Sidebar/Dialog/Sheet focus 与 reduced motion、全屏实时状态、设置持久化、两阶段导入和内置源码保护。真实入口分别验证两个剧本的地点卡、NPC 资料、建议行动、自由输入、侧栏展开、任务/背包/地图 Sheet、保存退出与继续。启动器、剧本库和设置覆盖 390×844、768×1024、1440×900、2560×1440、5120×2880，启动器和游戏额外覆盖 844×390、200% 文字、键盘导航、高对比与减少动效；几何断言先验证入口操作位于卡内、续玩不会跨剧本、设置行共享轴线、Slider 等长、当前剧本不是禁用按钮、宿主及内置 UI 没有原生 select/checkbox/range，再更新视觉基线。
 
 ```sh
 npm run typecheck

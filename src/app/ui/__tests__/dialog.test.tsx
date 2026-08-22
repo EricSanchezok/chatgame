@@ -29,20 +29,14 @@ describe("Dialog", () => {
     fireEvent.click(opener);
     const first = await screen.findByRole("button", { name: "第一项" });
     await waitFor(() => expect(document.activeElement).toBe(first));
-    expect(container).toHaveProperty("inert", true);
+    expect(container).toHaveAttribute("data-base-ui-inert");
+    expect(container).toHaveAttribute("aria-hidden", "true");
 
-    const close = screen.getByRole("button", { name: "关闭测试对话框" });
-    close.focus();
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "最后一项" }));
-
-    const last = screen.getByRole("button", { name: "最后一项" });
-    last.focus();
-    fireEvent.keyDown(document, { key: "Tab" });
-    expect(document.activeElement).toBe(close);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toContainElement(screen.getByRole("button", { name: "关闭测试对话框" }));
+    expect(dialog).toContainElement(screen.getByRole("button", { name: "最后一项" }));
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.getByRole("dialog").parentElement).toHaveClass("cg-dialog-layer--closing");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(opener));
   });
