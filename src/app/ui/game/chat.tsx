@@ -10,7 +10,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Sparkles, Target } from "lucide-react";
+import { ArrowDown, ArrowUp, Target } from "lucide-react";
 import { Button, Textarea } from "@/shared/ui-runtime";
 import type {
   BubbleSlotProps,
@@ -118,7 +118,6 @@ function DefaultBubble({
           />
         ) : (
           <div className="cg-world-identity">
-            <span className="cg-world-identity__mark" aria-hidden="true"><Sparkles /></span>
             <strong>世界</strong>
           </div>
         )

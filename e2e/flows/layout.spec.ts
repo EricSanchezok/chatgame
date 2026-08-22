@@ -63,6 +63,7 @@ test("desktop chat shell keeps one axis for messages, media and composer", async
       suggestionIcons: document.querySelectorAll('.cg-suggestions button svg').length,
       worldGroups: document.querySelectorAll('.cg-message-group[data-role="world"]').length,
       worldIdentities: document.querySelectorAll('.cg-world-identity, .cg-speaker').length,
+      worldIdentityIcons: document.querySelectorAll('.cg-world-identity svg').length,
       transcriptScroll: scroll ? { scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight, overflowY: getComputedStyle(scroll).overflowY, scrollbarWidth: getComputedStyle(scroll).scrollbarWidth } : null,
       documentScroll: scrolling ? { scrollHeight: scrolling.scrollHeight, clientHeight: scrolling.clientHeight } : null,
     };
@@ -96,6 +97,7 @@ test("desktop chat shell keeps one axis for messages, media and composer", async
   expect(geometry.composerSurfaceCount).toBe(0);
   expect(geometry.visibleComposerHints).toBe(0);
   expect(geometry.suggestionIcons).toBe(0);
+  expect(geometry.worldIdentityIcons).toBe(0);
   expect(geometry.worldIdentities).toBeLessThan(geometry.world.length);
   expect(geometry.worldGroups).toBeLessThan(geometry.world.length);
 

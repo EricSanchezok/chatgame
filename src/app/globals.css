@@ -357,8 +357,7 @@ button:disabled { cursor: not-allowed; }
 .cg-world-identity { min-height: 28px; }
 .cg-speaker { min-height: 44px; }
 .cg-world-identity { color: var(--cg-text-dim); }
-.cg-world-identity__mark, .cg-speaker__avatar { position: relative; width: 24px; height: 24px; flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--cg-surface-alt); color: var(--cg-accent); }
-.cg-world-identity__mark svg { width: 13px; height: 13px; }
+.cg-speaker__avatar { position: relative; width: 24px; height: 24px; flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--cg-surface-alt); color: var(--cg-accent); }
 .cg-speaker { width: fit-content; border: 0; border-radius: var(--cg-radius-chrome); background: transparent; color: var(--cg-text); padding: 0 .35rem 0 0; text-align: left; transition: background-color var(--cg-motion-quick), transform var(--cg-motion-quick); }
 .cg-speaker:hover { background: var(--cg-selected); }
 .cg-speaker:active { transform: scale(.96); }
