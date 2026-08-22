@@ -72,7 +72,7 @@ test("desktop chat shell keeps one axis for messages, media and composer", async
   expect(geometry.body.scrollWidth).toBe(geometry.body.width);
   expect(geometry.body.scrollHeight).toBe(geometry.body.height);
   expect(geometry.transcriptScroll?.overflowY).toBe("auto");
-  expect(geometry.transcriptScroll?.scrollbarWidth).toBe("none");
+  expect(geometry.transcriptScroll?.scrollbarWidth).toBe("thin");
   expect(geometry.transcriptScroll?.scrollHeight).toBeGreaterThan(geometry.transcriptScroll?.clientHeight ?? 0);
   expect(geometry.documentScroll?.scrollHeight).toBe(geometry.documentScroll?.clientHeight);
   expect(geometry.world.length).toBeGreaterThan(1);
@@ -107,6 +107,45 @@ test("desktop chat shell keeps one axis for messages, media and composer", async
   await expect(transcript).toHaveAttribute("data-scroll-active", "false", { timeout: 1_500 });
 });
 
+test("game status floats without a hard topbar and the objective can be repositioned", async ({ page }) => {
+  await startConversation(page, { width: 1440, height: 900 });
+
+  await expect(page.locator(".cg-game-topbar")).toHaveCount(0);
+  const context = page.locator(".cg-game-context");
+  const objective = page.locator(".cg-floating-objective");
+  await expect(context).toContainText("中继室");
+  await expect(context).toContainText("第 2 天 · 07:00");
+  await expect(objective).toContainText("恢复信号");
+
+  const contextBox = await context.boundingBox();
+  const before = await objective.boundingBox();
+  expect(contextBox?.x).toBeLessThanOrEqual(20);
+  expect(contextBox?.y).toBeLessThanOrEqual(20);
+  expect(before).not.toBeNull();
+
+  await page.mouse.move((before?.x ?? 0) + (before?.width ?? 0) / 2, (before?.y ?? 0) + (before?.height ?? 0) / 2);
+  await page.mouse.down();
+  await page.mouse.move((before?.x ?? 0) - 96, (before?.y ?? 0) + 72, { steps: 4 });
+  await page.mouse.up();
+  const afterPointer = await objective.boundingBox();
+  expect((afterPointer?.x ?? 0)).toBeLessThan((before?.x ?? 0) - 70);
+  expect((afterPointer?.y ?? 0)).toBeGreaterThan((before?.y ?? 0) + 50);
+  await expect(page.getByRole("dialog", { name: "任务" })).toHaveCount(0);
+
+  await objective.focus();
+  const beforeKeyboard = await objective.boundingBox();
+  await objective.press("Alt+ArrowLeft");
+  const afterKeyboard = await objective.boundingBox();
+  expect(afterKeyboard?.x).toBeLessThan(beforeKeyboard?.x ?? 0);
+  await objective.press("Alt+Home");
+  const reset = await objective.boundingBox();
+  expect(Math.abs((reset?.x ?? 0) - (before?.x ?? 0))).toBeLessThan(1);
+  expect(Math.abs((reset?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(1);
+
+  await objective.click();
+  await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
+});
+
 test("mobile chat shell keeps controls reachable without page overflow", async ({ page }) => {
   await startConversation(page, { width: 390, height: 844 });
   await page.mouse.move(195, 24);
@@ -131,6 +170,8 @@ test("mobile chat shell keeps controls reachable without page overflow", async (
       shell: box(".cg-game-workspace"),
       transcript: box(".cg-conversation-scroll"),
       composer: box(".cg-composer"),
+      context: box(".cg-game-context"),
+      objective: box(".cg-floating-objective"),
       transcriptScroll: transcript ? { scrollHeight: transcript.scrollHeight, clientHeight: transcript.clientHeight, scrollbarWidth: getComputedStyle(transcript).scrollbarWidth } : null,
       buttons,
     };
@@ -140,9 +181,12 @@ test("mobile chat shell keeps controls reachable without page overflow", async (
   expect(geometry.body.scrollHeight).toBe(geometry.body.height);
   expect(geometry.trigger?.width).toBeGreaterThanOrEqual(44);
   expect(geometry.trigger?.height).toBeGreaterThanOrEqual(44);
-  expect(geometry.transcriptScroll?.scrollbarWidth).toBe("none");
+  expect(geometry.transcriptScroll?.scrollbarWidth).toBe("thin");
   expect(geometry.transcriptScroll?.scrollHeight).toBeGreaterThan(geometry.transcriptScroll?.clientHeight ?? 0);
   expect(geometry.composer?.right).toBeLessThanOrEqual(geometry.viewport.width + 1);
+  expect(geometry.context?.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.objective?.right).toBeLessThanOrEqual(geometry.viewport.width);
+  expect(geometry.objective?.width).toBe(44);
   expect(geometry.buttons.filter((button) => button.width < 44 || button.height < 44)).toEqual([]);
 });
 

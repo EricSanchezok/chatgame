@@ -21,7 +21,7 @@ test("production host runs a complete script lifecycle through real routes", asy
 
   await startRealFixtureGame(page);
   await expect(page.locator('[data-slot="game-shell"]')).toBeVisible();
-  await expect(page.locator(".cg-game-topbar")).toContainText("恢复信号");
+  await expect(page.locator(".cg-game-chrome")).toContainText("恢复信号");
   await expect(page.locator('[data-slot="scene"]')).toBeVisible();
   await expect(page.locator(".cg-game-tools")).toBeVisible();
   await expect(page.locator(".cg-composer")).toBeVisible();

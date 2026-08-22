@@ -24,9 +24,9 @@
 
 客户端安全契约的唯一入口是 `@chatgame/ui`，其 UI API 版本为 6。公开槽位只有 `launcher`、`game-shell`、`scene`、`panel:people`、`panel:inventory`、`panel:tasks`、`panel:map`、`panel:records`、`bubble:<id>`、`message-card:<id>` 与 `settings:<id>`；每个槽位在宿主都有真实消费点和完整 fallback。单例槽位不接受位置或排序参数，同一 bundle 重复注册同一槽位使整个 bundle 注册失败。v5 bundle 直接拒绝，不保留兼容层。
 
-`game-shell` 接收宿主构造好的 `topbar`、`conversation`、`toolRail` 与 `overlays` regions。第三方剧本可以完整重排四个 region，但不能要求默认壳生成第二套 composer、工具栏、资料 portal 或暂停菜单。默认 `cg-game-workspace` 固定为视口高度，页面不滚动；`.cg-conversation-scroll` 是唯一纵向主滚动区，并禁止横向滚动。
+`game-shell` 接收宿主构造好的 `topbar`、`conversation`、`toolRail` 与 `overlays` regions。`topbar` 是 v6 保留的 region 名称，默认实现实际承载悬浮状态层，不渲染横向栏。第三方剧本可以完整重排四个 region，但不能要求默认壳生成第二套 composer、工具栏、资料 portal 或暂停菜单。默认 `cg-game-workspace` 固定为视口高度，页面不滚动；`.cg-conversation-scroll` 是唯一纵向主滚动区，并禁止横向滚动。
 
-顶部状态栏高度约 52px，只显示“地点 · 时间”和当前目标。目标入口打开任务 Dialog；小于 1024px 时资料入口收进顶部工具选择器。桌面左侧的 56px 悬浮工具栏不参与会话布局，依次提供人物、背包、任务、地图、档案和分隔后的游戏菜单；图标统一使用 Lucide、Tooltip 和完整可访问名称，目标至少 44×44px。资料由 Base UI 居中 Dialog 承载，普通资料最大约 720px，地图最大约 960px，移动端使用安全区内近全屏布局。人物合并玩家状态、声望、关系和已知 NPC；档案呈现世界事件与剧本记录，不复制聊天转录。游戏内没有 Sheet 或永久右轨。
+默认游戏壳没有横向顶部栏。地点与游戏时间以无边框文字固定在安全区左上角；当前目标是安全区右上角的独立悬浮按钮，点击打开任务 Dialog。桌面端允许指针拖拽，并提供 Alt 加方向键移动与 Alt 加 Home 复位；拖拽不得触发任务 Dialog，且始终把按钮限制在视口安全边距内。小于 1024px 时关闭自由拖拽，目标固定为 44px 图标，资料选择器入口与地点时间共同位于左上角。桌面左侧的 56px 悬浮工具栏不参与会话布局，依次提供人物、背包、任务、地图、档案和分隔后的游戏菜单；图标统一使用 Lucide、Tooltip 和完整可访问名称，目标至少 44×44px。资料由 Base UI 居中 Dialog 承载，普通资料最大约 720px，地图最大约 960px，移动端使用安全区内近全屏布局。人物合并玩家状态、声望、关系和已知 NPC；档案呈现世界事件与剧本记录，不复制聊天转录。游戏内没有 Sheet、永久右轨或占据内容高度的 title bar。
 
 会话与 composer 共享 `52rem / 832px` 中心轴。世界与 NPC 消息平铺；相邻且说话人相同的消息组成一个组，24px 头像、姓名和职业只在组首显示并保持可点击。世界正文使用 CommonMark/GFM 语义段落、列表、引用、代码和表格，模型输出的单个源换行按普通空白处理；玩家输入保留主动换行，消息按内容宽度右对齐且最大 34rem，只使用低对比填充。系统结果、判定和任务变化附着到对应世界回复。地点和事件媒体最大 40rem、16:9，并受视口高度限制；同一消息的第一张媒体是主卡，后续媒体以不超过约 28rem 的从属卡呈现。图片、标题、说明和事件状态属于同一紧凑媒体消息，点击图片打开居中 lightbox。只有用户原本位于底部时新消息自动滚到底，离开底部时出现“跳到最新消息”。
 
@@ -88,7 +88,7 @@ registry 是由 `useSyncExternalStore` 订阅的不可变快照，快照同时�
 
 ## 验证矩阵
 
-自动化至少覆盖 UI runtime exports、受控 Select/Switch/Slider/Checkbox、UI API v6 注册、重复 `configureGame`、v5 拒绝、provider 失败 fallback、跨剧本隔离、A-B generation、五种资料映射、三步 launcher、当前剧本最新存档续玩、锁定出身、加载失败重试、主题 token 映射、NPC 公开资料、四类媒体提示、Markdown 段落与 GFM 表格、依赖图 hash/边界 import/ETag、建议行动预检竞态、IME 与 typed submit、controller 与 EngineHost 并发、AppShell/Sidebar/Dialog focus、全屏实时状态、设置持久化、两阶段导入和内置源码保护。真实入口分别验证两个剧本的地点卡、NPC 人物资料、建议行动写入与聚焦、编辑后预检失效、自由输入、五个资料 Dialog、游戏菜单、保存退出与继续。游戏结构先断言没有 AppShell、Sheet 或横向溢出，只有一个主滚动区，会话与 composer 同轴，短玩家消息按内容收缩且保持右对齐，连续说话人只显示一个组首身份，composer 没有嵌套表面，主媒体不超过 640px且从属媒体更小，活动滚动条按时淡出；启动器、剧本库和设置覆盖 390×844、768×1024、1440×900、2560×1440、5120×2880，启动器和游戏额外覆盖 844×390、200% 文字、键盘导航、高对比与减少动效。结构和语义断言通过后才更新视觉基线。
+自动化至少覆盖 UI runtime exports、受控 Select/Switch/Slider/Checkbox、UI API v6 注册、重复 `configureGame`、v5 拒绝、provider 失败 fallback、跨剧本隔离、A-B generation、五种资料映射、三步 launcher、当前剧本最新存档续玩、锁定出身、加载失败重试、主题 token 映射、NPC 公开资料、四类媒体提示、Markdown 段落与 GFM 表格、依赖图 hash/边界 import/ETag、建议行动预检竞态、IME 与 typed submit、controller 与 EngineHost 并发、AppShell/Sidebar/Dialog focus、全屏实时状态、设置持久化、两阶段导入和内置源码保护。真实入口分别验证两个剧本的地点卡、NPC 人物资料、建议行动写入与聚焦、编辑后预检失效、自由输入、五个资料 Dialog、游戏菜单、保存退出与继续。游戏结构先断言没有 AppShell、Sheet、横向 title bar 或横向溢出，只有一个主滚动区；地点时间位于安全区左上角，任务悬浮按钮支持拖拽、键盘移动、复位、点击与视口约束；会话与 composer 同轴，短玩家消息按内容收缩且保持右对齐，连续说话人只显示一个组首身份，composer 没有嵌套表面，主媒体不超过 640px且从属媒体更小，活动滚动条按时淡出；启动器、剧本库和设置覆盖 390×844、768×1024、1440×900、2560×1440、5120×2880，启动器和游戏额外覆盖 844×390、200% 文字、键盘导航、高对比与减少动效。结构和语义断言通过后才更新视觉基线。
 
 ```sh
 npm run typecheck

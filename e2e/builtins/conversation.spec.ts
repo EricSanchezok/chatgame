@@ -83,7 +83,7 @@ test("Emberfall uses one conversation stream for media, NPCs, actions, panels an
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.getByText("我把炉煤申请按紧急程度重新排好。", { exact: true })).toBeVisible();
 
-  await page.locator(".cg-game-topbar__objective").click();
+  await page.locator(".cg-floating-objective").click();
   await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
   await expectNoSeriousWcagViolations(page);
   await closePanel(page, "任务");
@@ -127,7 +127,7 @@ test("Starlight uses one conversation stream for media, NPCs, previews, panels a
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.getByText("我在交班纸上标出未登记住户的数量差。", { exact: true })).toBeVisible();
 
-  await page.locator(".cg-game-topbar__objective").click();
+  await page.locator(".cg-floating-objective").click();
   await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
   await expectNoSeriousWcagViolations(page);
   await closePanel(page, "任务");

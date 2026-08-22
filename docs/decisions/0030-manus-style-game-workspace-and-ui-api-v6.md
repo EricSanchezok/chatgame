@@ -25,7 +25,7 @@ Class: architecture
 
 ## Decision Outcome
 
-`HostAppShell` 只服务启动器、剧本库和设置。默认游戏壳使用 `cg-game-workspace`：52px 顶部状态栏只显示“地点 · 时间”和当前目标；页面本身不滚动，`.cg-conversation-scroll` 是唯一纵向滚动容器。桌面左侧是脱离正文布局的 56px 悬浮工具栏，固定提供人物、背包、任务、地图、档案和分隔后的游戏菜单；每个入口使用 Lucide 图标、Tooltip、完整可访问名称和至少 44px 目标。小于 1024px 时工具栏隐藏，顶部按钮打开五项资料选择器。
+`HostAppShell` 只服务启动器、剧本库和设置。默认游戏壳使用占满视口的 `cg-game-workspace`，没有固定高度、分隔线或整条背景的顶部栏；页面本身不滚动，`.cg-conversation-scroll` 是唯一纵向滚动容器。地点与游戏时间作为无边框轻量信息固定在安全区左上角。当前目标是安全区右上角的独立悬浮按钮：桌面端可拖拽，键盘可用 Alt 加方向键移动并用 Alt 加 Home 复位，点击打开任务资料；小于 1024px 时固定为 44px 任务图标。桌面左侧是脱离正文布局的 56px 悬浮工具栏，固定提供人物、背包、任务、地图、档案和分隔后的游戏菜单；每个入口使用 Lucide 图标、Tooltip、完整可访问名称和至少 44px 目标。小于 1024px 时工具栏隐藏，左上角按钮打开五项资料选择器。
 
 人物、背包、任务、地图和档案都由 Base UI 居中 Dialog 承载；普通资料最大约 720px，地图最大约 960px，移动端进入安全区内近全屏布局。人物合并玩家状态、声望、关系和已知 NPC；档案只呈现世界事件与剧本记录，不复制聊天转录。NPC 身份行直接打开人物资料并定位对应角色。游戏内没有 Sheet 或永久右栏；Escape 关闭顶层 Dialog 并恢复触发点，没有覆盖层时才打开游戏菜单。
 
@@ -35,7 +35,7 @@ Class: architecture
 
 活动滚动表面使用共享 `useScrollActivity` 行为。WebKit 槽宽 4px、token 化 thumb 约 2px，Firefox 静止时隐藏并以 thin 活动态作为回退；滚动、hover 或 focus 时显示，停止约 500ms 后淡出。高对比模式保持滚动条可见。游戏会话强制 `overflow-x: hidden`，不得产生横向滚动条。
 
-UI API 直接升级为 v6。公开槽位是 `launcher`、`game-shell`、`scene`、`panel:people`、`panel:inventory`、`panel:tasks`、`panel:map`、`panel:records`、`bubble:<id>`、`message-card:<id>` 和 `settings:<id>`；v5 bundle 直接拒绝。`game-shell` 只接收宿主构造的 `topbar`、`conversation`、`toolRail` 和 `overlays` regions，完整覆盖可以重排这些区域，但不能要求默认壳生成第二套 composer 或 toolbar。
+UI API 直接升级为 v6。公开槽位是 `launcher`、`game-shell`、`scene`、`panel:people`、`panel:inventory`、`panel:tasks`、`panel:map`、`panel:records`、`bubble:<id>`、`message-card:<id>` 和 `settings:<id>`；v5 bundle 直接拒绝。`game-shell` 只接收宿主构造的 `topbar`、`conversation`、`toolRail` 和 `overlays` regions；为保持 v6 契约，`topbar` region 名称不变，但默认内容是悬浮状态层而非横向栏。完整覆盖可以重排这些区域，但不能要求默认壳生成第二套 composer 或 toolbar。
 
 `ScriptUiContext.configureGame(presentation)` 每个 bundle 最多调用一次。`GamePresentation` 用同步纯函数 `objective(model)` 和 `suggestions(model)` 返回 `GameObjective` 与最多三个 `GameSuggestion`；执行失败或未配置时使用宿主任务与动作 fallback。五类资料统一由 `GamePanelId` 表达。灰烬镇和星港只注册专属资料 panel，并通过 `configureGame` 提供动态目标与建议；剧本不注册 HUD、目标追踪器、工具栏、composer 或暂停菜单。
 

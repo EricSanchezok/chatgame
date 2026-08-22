@@ -9,8 +9,9 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Target } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, Target } from "lucide-react";
 import { Button, Textarea } from "@/shared/ui-runtime";
 import type {
   BubbleSlotProps,
@@ -539,7 +540,156 @@ export function resolveGamePresentation(
   return { objective, suggestions: suggestions.slice(0, 3) };
 }
 
-function GameTopbar({ model, objective, onOpenTasks, onOpenTools }: {
+type ObjectiveOffset = { x: number; y: number };
+
+type ObjectiveDrag = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startOffset: ObjectiveOffset;
+  moved: boolean;
+};
+
+const OBJECTIVE_VIEWPORT_MARGIN = 12;
+
+function clampObjectiveOffset(
+  node: HTMLButtonElement,
+  current: ObjectiveOffset,
+  next: ObjectiveOffset,
+): ObjectiveOffset {
+  const rect = node.getBoundingClientRect();
+  const baseLeft = rect.left - current.x;
+  const baseTop = rect.top - current.y;
+  return {
+    x: Math.min(
+      window.innerWidth - OBJECTIVE_VIEWPORT_MARGIN - rect.width - baseLeft,
+      Math.max(OBJECTIVE_VIEWPORT_MARGIN - baseLeft, next.x),
+    ),
+    y: Math.min(
+      window.innerHeight - OBJECTIVE_VIEWPORT_MARGIN - rect.height - baseTop,
+      Math.max(OBJECTIVE_VIEWPORT_MARGIN - baseTop, next.y),
+    ),
+  };
+}
+
+function FloatingObjective({ objective, onOpen }: {
+  objective: GameObjective;
+  onOpen(): void;
+}) {
+  const [offset, setOffset] = useState<ObjectiveOffset>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const dragRef = useRef<ObjectiveDrag | null>(null);
+  const suppressClickRef = useRef(false);
+  const progress = objective.progress ? ` · ${objective.progress.value}/${objective.progress.max}` : "";
+
+  useEffect(() => {
+    const keepInsideViewport = () => {
+      const node = buttonRef.current;
+      if (!node) return;
+      setOffset((current) => clampObjectiveOffset(node, current, current));
+    };
+    window.addEventListener("resize", keepInsideViewport);
+    return () => window.removeEventListener("resize", keepInsideViewport);
+  }, []);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !window.matchMedia("(min-width: 64rem)").matches) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startOffset: offset,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const node = event.currentTarget;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (Math.abs(deltaX) + Math.abs(deltaY) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    event.preventDefault();
+    const next = { x: drag.startOffset.x + deltaX, y: drag.startOffset.y + deltaY };
+    setOffset((current) => clampObjectiveOffset(node, current, next));
+  };
+  const finishPointerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+    setDragging(false);
+    if (drag.moved) {
+      suppressClickRef.current = true;
+      requestAnimationFrame(() => { suppressClickRef.current = false; });
+    }
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!event.altKey) return;
+    const step = event.shiftKey ? 32 : 12;
+    const delta = event.key === "ArrowLeft" ? { x: -step, y: 0 }
+      : event.key === "ArrowRight" ? { x: step, y: 0 }
+        : event.key === "ArrowUp" ? { x: 0, y: -step }
+          : event.key === "ArrowDown" ? { x: 0, y: step }
+            : null;
+    if (event.key === "Home") {
+      event.preventDefault();
+      setOffset({ x: 0, y: 0 });
+      return;
+    }
+    if (!delta) return;
+    const node = buttonRef.current;
+    if (!node) return;
+    event.preventDefault();
+    setOffset((current) => clampObjectiveOffset(node, current, {
+      x: current.x + delta.x,
+      y: current.y + delta.y,
+    }));
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="cg-floating-objective"
+        data-dragging={dragging ? "true" : "false"}
+        style={{ translate: `${offset.x}px ${offset.y}px` }}
+        aria-describedby="cg-floating-objective-help"
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight Alt+Home"
+        onClick={(event) => {
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            event.preventDefault();
+            return;
+          }
+          onOpen();
+        }}
+        onKeyDown={onKeyDown}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={finishPointerDrag}
+        onPointerCancel={finishPointerDrag}
+        title={objective.detail}
+      >
+        <GripVertical className="cg-floating-objective__drag" aria-hidden="true" />
+        <Target className="cg-floating-objective__target" aria-hidden="true" />
+        <span>{objective.title}{progress}</span>
+      </button>
+      <p id="cg-floating-objective-help" className="cg-sr-only">
+        点击查看任务。桌面端可拖动；聚焦后按 Alt 加方向键移动，按 Alt 加 Home 复位。
+      </p>
+    </>
+  );
+}
+
+function GameChrome({ model, objective, onOpenTasks, onOpenTools }: {
   model: ScriptHostModel;
   objective: GameObjective | null;
   onOpenTasks(): void;
@@ -548,19 +698,13 @@ function GameTopbar({ model, objective, onOpenTasks, onOpenTools }: {
   const location = model.catalog.locations.find((candidate) => candidate.id === model.state.player.locationId)?.name
     ?? model.state.player.locationId;
   const time = `第 ${model.state.clock.day} 天 · ${String(model.state.clock.hour).padStart(2, "0")}:00`;
-  const progress = objective?.progress ? ` · ${objective.progress.value}/${objective.progress.max}` : "";
   return (
-    <header className="cg-game-topbar">
-      <div className="cg-game-topbar__inner">
+    <header className="cg-game-chrome" aria-label="游戏状态">
+      <div className="cg-game-context">
         <MobileToolsButton onClick={onOpenTools} />
-        <p className="cg-game-topbar__place"><strong>{location}</strong><span>·</span><span>{time}</span></p>
-        {objective ? (
-          <button type="button" className="cg-game-topbar__objective" onClick={onOpenTasks} title={objective.detail}>
-            <Target aria-hidden="true" />
-            <span>{objective.title}{progress}</span>
-          </button>
-        ) : <span className="cg-game-topbar__objective cg-game-topbar__objective--empty">暂无目标</span>}
+        <p className="cg-game-context__copy"><strong>{location}</strong><span>{time}</span></p>
       </div>
+      {objective ? <FloatingObjective objective={objective} onOpen={onOpenTasks} /> : null}
     </header>
   );
 }
@@ -617,7 +761,7 @@ export function GameScreen() {
     />
   );
   const topbar = (
-    <GameTopbar
+    <GameChrome
       model={model}
       objective={objective}
       onOpenTasks={() => setPanel("tasks")}
