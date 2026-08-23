@@ -1,3 +1,5 @@
+import type { ModelInferenceConfig } from "./model-catalog";
+
 export type EntityId = string;
 export type AgentId = string;
 export type LocalEntityId = string;
@@ -133,7 +135,7 @@ export interface BeliefEvidence {
   id: string;
   kind: "observation" | "testimony" | "inference" | "assumption";
   description: string;
-  sourceId?: string;
+  sourceId: string | null;
   step: number;
 }
 
@@ -172,7 +174,7 @@ export interface AgentActionProposal {
   baseRevision: number;
   rawText: string;
   goal: string;
-  means?: string;
+  means: string | null;
   targetIds: LocalEntityId[];
 }
 
@@ -184,7 +186,7 @@ export interface AgentState {
   goals: string[];
   belief: AgentBeliefState;
   bindings: Record<LocalEntityId, EpistemicBinding>;
-  nextAction?: AgentActionProposal;
+  nextAction: AgentActionProposal | null;
 }
 
 export interface PlayerIntent {
@@ -209,7 +211,7 @@ export interface WorldEvent {
 }
 
 export interface SimulationState {
-  schemaVersion: 1;
+  schemaVersion: 2;
   worldId: string;
   lawIds: string[];
   revision: number;
@@ -231,8 +233,8 @@ export type CheckVisibility = "full" | "result_only" | "hidden";
 export interface D20CheckRequest {
   id: string;
   actorId: EntityId;
-  targetId?: EntityId;
-  ratingId?: string;
+  targetId: EntityId | null;
+  ratingId: string | null;
   modifier: number;
   modifierSources: Array<{ id: string; amount: number }>;
   dc: number;
@@ -279,7 +281,7 @@ export interface ApparentClaim {
 
 export interface ObservationIntroduction {
   localEntity: LocalEntity;
-  canonicalEntityId?: EntityId;
+  canonicalEntityId: EntityId | null;
 }
 
 export interface ObservationPacket {
@@ -305,8 +307,8 @@ export type BeliefPatchOperation =
       entities: LocalEntity[];
       assignments: Array<{
         claimId: string;
-        subjectId?: LocalEntityId;
-        valueId?: LocalEntityId;
+        subjectId: LocalEntityId | null;
+        valueId: LocalEntityId | null;
       }>;
     };
 
@@ -369,8 +371,25 @@ export interface ModelExecutionAudit {
   profileId: string;
   providerId: string;
   modelId: string;
+  catalogSchemaVersion: 1;
+  catalogHash: string;
+  promptVersion: string;
+  inference: ModelInferenceConfig;
+  structuredOutputMode: "json-schema-strict" | "json-object-zod" | "deterministic-test";
   attempts: number;
+  transportAttempts: number;
   repairAttempts: number;
+  queueWaitMs: number;
+  executionMs: number;
+  tokenUsage: {
+    input: number | null;
+    output: number | null;
+    reasoning: number | null;
+    cacheRead: number | null;
+    cacheWrite: number | null;
+  };
+  finishReasons: string[];
+  providerRequestIds: string[];
   requestHashes: string[];
   responseHashes: string[];
 }

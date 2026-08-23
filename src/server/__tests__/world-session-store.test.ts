@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentMind } from "../../engine/agent-mind";
-import { DeterministicModelProvider } from "../../engine/model-provider";
+import { DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { SimulationEngine } from "../../engine/simulation";
 import { TruthEngine } from "../../engine/truth-engine";
 import { loadWorldScript } from "../../script/world-loader";
@@ -24,8 +24,11 @@ function temporaryRoot(): string {
 }
 
 async function sessionDocument(id = "session-1"): Promise<WorldSessionDocument> {
-  const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), 17);
   const provider = new DeterministicModelProvider();
+  const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+    seed: 17,
+    modelCatalog: provider.catalog,
+  });
   const engine = new SimulationEngine(
     definition,
     new TruthEngine(provider),
@@ -33,7 +36,7 @@ async function sessionDocument(id = "session-1"): Promise<WorldSessionDocument> 
   );
   await engine.bootstrapAgents();
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id,
     scriptId: definition.id,
     createdAt: "2026-08-23T00:00:00.000Z",

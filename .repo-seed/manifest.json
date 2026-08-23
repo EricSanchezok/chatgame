@@ -25,23 +25,25 @@
     },
     {
       "path": "docs/architecture.md",
-      "sha256": "b1f788dcedc9af4fc1b97e6c5ff8424e87afdd787170904504f76cfe856f3efa",
+      "sha256": "892590464485d8ccf1ccdafc72a8da513ad72e97d139ce2f4b99e877c2e0af2e",
       "category": "docs",
       "userModified": true
     },
     {
       "path": "docs/development.md",
-      "sha256": "56e4cd227d352a2cbe9a027d18b279c764a1a86585cd9090ebfe6160759d7f3d",
-      "category": "docs"
+      "sha256": "af6296397468aa0715bfd52a982e20c8b17321d13b334acad0883d0e85977e34",
+      "category": "docs",
+      "userModified": true
     },
     {
       "path": "docs/testing.md",
-      "sha256": "6c768f2c2ac8e3d7a6edf753fb8f98c6eb0499d921c9ac6bcdb4d84debc50854",
-      "category": "docs"
+      "sha256": "b37fec20c490987481934f5d910c386ce4f9ae0ea9469c08e086b72c64296100",
+      "category": "docs",
+      "userModified": true
     },
     {
       "path": "docs/decisions/README.md",
-      "sha256": "4cb25e53dc6544adf41fe30656c782f7cc579d4726d69e9ab4940e1aeaac2a14",
+      "sha256": "1a980de1abedcd3f09396595c6aa4cc8b3c9457e404da5011f74fbc151f9dad5",
       "category": "docs",
       "userModified": true
     },

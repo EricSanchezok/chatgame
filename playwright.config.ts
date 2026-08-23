@@ -5,6 +5,8 @@ const port = Number(process.env.CHATGAME_E2E_PORT ?? 32127);
 const baseURL = `http://127.0.0.1:${port}`;
 const scriptsRoot = path.resolve("e2e/artifacts/runtime-worlds");
 const dataRoot = path.resolve("e2e/artifacts/runtime-data");
+const modelCatalog = path.resolve("e2e/support/models.yaml");
+const modelServerURL = "http://127.0.0.1:32128";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -24,18 +26,27 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  webServer: {
-    command: `npm run start -- --hostname 127.0.0.1 --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: false,
-    timeout: 120_000,
-    env: {
-      CHATGAME_SCRIPTS_ROOT: scriptsRoot,
-      CHATGAME_DATA_ROOT: dataRoot,
-      CHATGAME_LLM_PROVIDER: "mock",
-      NEXT_TELEMETRY_DISABLED: "1",
+  webServer: [
+    {
+      command: "tsx e2e/support/model-server.ts",
+      url: `${modelServerURL}/health`,
+      reuseExistingServer: false,
+      timeout: 30_000,
     },
-  },
+    {
+      command: `npm run start -- --hostname 127.0.0.1 --port ${port}`,
+      url: baseURL,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        CHATGAME_SCRIPTS_ROOT: scriptsRoot,
+        CHATGAME_DATA_ROOT: dataRoot,
+        CHATGAME_MODEL_CATALOG_PATH: modelCatalog,
+        E2E_MODEL_API_KEY: "e2e-test-key",
+        NEXT_TELEMETRY_DISABLED: "1",
+      },
+    },
+  ],
   projects: [
     {
       name: "e2e",

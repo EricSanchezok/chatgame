@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { loadModelCatalog } from "../src/engine/model-catalog";
 import { importWorldArchive } from "../src/server/world-import";
 
 const archive = process.argv[2];
@@ -12,6 +13,7 @@ if (!archive) {
     const result = importWorldArchive(
       readFileSync(path.resolve(archive)),
       path.resolve(process.env.CHATGAME_SCRIPTS_ROOT ?? "scripts"),
+      loadModelCatalog(path.resolve(process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml")),
       replace,
     );
     process.stdout.write(`${result.id}: ${result.replaced ? "replaced" : "imported"}\n`);

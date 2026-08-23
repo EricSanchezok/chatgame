@@ -35,7 +35,7 @@ export interface PlayerKnowledgeView {
     id: string;
     kind: "observation" | "testimony" | "inference" | "assumption";
     description: string;
-    sourceId?: string;
+    sourceId?: string | null;
     step: number;
   }>;
   observationIds: string[];

@@ -1,0 +1,68 @@
+schema_version: 1
+
+scheduler:
+  global_concurrency: 16
+  max_queued_requests: 1024
+  queue_timeout_ms: 300000
+
+providers:
+  deepseek:
+    kind: deepseek
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    max_concurrency: 16
+  openai:
+    kind: openai
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    max_concurrency: 16
+  xai:
+    kind: xai
+    base_url: https://api.x.ai/v1
+    api_key_env: XAI_API_KEY
+    max_concurrency: 16
+
+profiles:
+  truth-deepseek:
+    provider_id: deepseek
+    model: deepseek-v4-pro
+    description: 高强度世界真值裁决
+    allowed_roles: [truth-engine]
+    request_timeout_ms: 300000
+    max_output_tokens: 32768
+    inference:
+      kind: deepseek-thinking
+      effort: max
+  agent-deepseek:
+    provider_id: deepseek
+    model: deepseek-v4-flash
+    description: 高吞吐自主角色心智
+    allowed_roles: [agent-mind]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    inference:
+      kind: deepseek-thinking
+      effort: high
+  agent-openai:
+    provider_id: openai
+    model: gpt-5.6
+    description: OpenAI 通用自主角色心智
+    allowed_roles: [agent-mind]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    inference:
+      kind: openai-reasoning
+      effort: medium
+      summary: null
+      text_verbosity: medium
+  agent-xai:
+    provider_id: xai
+    model: grok-4.6
+    description: xAI 高强度自主角色心智
+    allowed_roles: [agent-mind]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    inference:
+      kind: xai-reasoning
+      effort: high
+      summary: null

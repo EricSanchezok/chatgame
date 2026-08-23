@@ -8,7 +8,7 @@ import type {
   TransitionProposal,
   WorldDeltaOperation,
 } from "../model";
-import { ScriptedModelProvider, type ScriptedModelHandler } from "../model-provider";
+import { ScriptedModelProvider, type ScriptedModelHandler } from "../testing/model-provider";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
@@ -41,6 +41,7 @@ function autonomousAgent(id: string): AgentState {
       baseRevision: 0,
       rawText: "观察局势并继续自己的目标",
       goal: "自主生活",
+      means: null,
       targetIds: [],
     },
   };
@@ -137,7 +138,7 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
     agents[id] = autonomousAgent(id);
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     worldId: "acceptance-world",
     lawIds: laws.map((law) => law.id),
     revision: 0,
@@ -255,12 +256,14 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
             id: "merchant-encounter",
             kind: "observation",
             description: "昨日遇见过出售灵石的商人。",
+            sourceId: null,
             step: 0,
           },
           "merchant-key-claim": {
             id: "merchant-key-claim",
             kind: "testimony",
             description: "商人声称铜钥匙是真的。",
+            sourceId: null,
             step: 0,
           },
         },
@@ -292,12 +295,14 @@ function definition(initialState: SimulationState): WorldDefinition {
     id: "acceptance-world",
     name: "开放行动验收世界",
     description: "只用于验证通用引擎契约。",
+    truthModelProfileId: "truth-engine",
     laws,
     disclosure: { defaultCheckVisibility: "full" },
     rulePackages: [{
       id: "core-d20",
       version: "1.0.0",
       config: { opposedChecks: true, damageUsesMeters: true },
+      adjudication: "使用 d20 检定。",
     }],
     initialState,
   };
@@ -312,6 +317,7 @@ function mindOutput(agentId: string, revision: number) {
       baseRevision: revision,
       rawText: "依据自己的认知继续行动",
       goal: "继续自主生活",
+      means: null,
       targetIds: [],
     },
   };
@@ -598,6 +604,7 @@ describe("open action acceptance", () => {
           requests: [{
             id: "repeatable-check",
             actorId: "player",
+            targetId: null,
             ratingId: "attack:player",
             modifier: 20,
             modifierSources: [{ id: "attack:player", amount: 20 }],

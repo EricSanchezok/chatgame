@@ -11,6 +11,7 @@ import type {
   WorldDeltaOperation,
 } from "./model";
 import { contentHash as contentHashForAudit, isSha256 } from "./model-audit";
+import { modelInferenceSchema } from "./model-catalog";
 import { resolveD20Checks } from "./random";
 
 export class TransitionValidationError extends Error {
@@ -448,13 +449,22 @@ function validateModelAudit(
   audit: SimulationState["bootstrapModelAudits"][number],
   label: string,
 ): void {
-  if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() || !audit.modelId.trim()) {
+  if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() ||
+    !audit.modelId.trim() || !audit.promptVersion.trim() || audit.catalogSchemaVersion !== 1 ||
+    !isSha256(audit.catalogHash) || !modelInferenceSchema.safeParse(audit.inference).success) {
     throw new Error(`${label} has an incomplete model audit identity`);
   }
   if (!Number.isSafeInteger(audit.attempts) || audit.attempts <= 0 ||
+    !Number.isSafeInteger(audit.transportAttempts) || audit.transportAttempts < audit.attempts ||
     !Number.isSafeInteger(audit.repairAttempts) || audit.repairAttempts < 0 ||
     audit.repairAttempts >= audit.attempts || audit.requestHashes.length !== audit.attempts ||
     audit.responseHashes.length === 0 || audit.responseHashes.length > audit.attempts ||
+    !Number.isSafeInteger(audit.queueWaitMs) || audit.queueWaitMs < 0 ||
+    !Number.isSafeInteger(audit.executionMs) || audit.executionMs < 0 ||
+    audit.finishReasons.length === 0 || audit.finishReasons.length > audit.attempts ||
+    audit.providerRequestIds.length > audit.attempts ||
+    Object.values(audit.tokenUsage).some((value) => value !== null &&
+      (!Number.isSafeInteger(value) || value < 0)) ||
     !audit.requestHashes.every(isSha256) || !audit.responseHashes.every(isSha256)) {
     throw new Error(`${label} has invalid model audit counters or hashes`);
   }
@@ -465,7 +475,7 @@ export function validateSimulationState(
   requireNextActions = false,
   requireHistoryAlignment = false,
 ): void {
-  if (state.schemaVersion !== 1 || !state.worldId.trim()) throw new Error("invalid simulation identity");
+  if (state.schemaVersion !== 2 || !state.worldId.trim()) throw new Error("invalid simulation identity");
   if (state.lawIds.length === 0 || new Set(state.lawIds).size !== state.lawIds.length ||
     state.lawIds.some((lawId) => !lawId.trim())) throw new Error("invalid world law ids");
   if (!Number.isSafeInteger(state.revision) || state.revision < 0) throw new Error("invalid revision");

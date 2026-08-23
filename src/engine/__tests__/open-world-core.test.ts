@@ -17,7 +17,7 @@ import {
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     worldId: "test-world",
     lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,
@@ -156,6 +156,7 @@ function worldState(): SimulationState {
           baseRevision: 0,
           rawText: "继续看守石门",
           goal: "不让陌生人通过",
+          means: null,
           targetIds: [],
         },
       },
@@ -201,6 +202,7 @@ describe("open world kernel", () => {
             id: "merchant-claim",
             kind: "testimony",
             description: "商人声称钥匙是真的。",
+            sourceId: null,
             step: 0,
           },
         },
@@ -260,7 +262,7 @@ describe("open world kernel", () => {
           { id: "masked-tall", name: "高个蒙面人", description: "较高的身影。", status: "hypothesized" },
           { id: "masked-short", name: "矮个蒙面人", description: "较矮的身影。", status: "hypothesized" },
         ],
-        assignments: [{ claimId: "identity", subjectId: "masked-tall" }],
+        assignments: [{ claimId: "identity", subjectId: "masked-tall", valueId: null }],
       }],
     };
 
@@ -366,6 +368,7 @@ describe("open world kernel", () => {
       goals: ["服从召唤者"],
       belief: createEmptyBelief(),
       bindings: {},
+      nextAction: null,
     };
     const next = applyTransitionProposal(
       worldState(),

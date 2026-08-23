@@ -1,4 +1,4 @@
-# 世界剧本格式 v2
+# 世界剧本格式 v3
 
 世界包是一个严格目录。它定义初始世界与法则，不定义玩家动作，不携带可执行代码或客户端 UI。
 
@@ -21,14 +21,15 @@ world-id/
 ## `script.yaml`
 
 ```yaml
-schema_version: 2
+schema_version: 3
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
 description: 横跨多个大陆与宗门的修行世界。
+truth_model_profile_id: truth-deepseek
 ```
 
-`id` 匹配 `[a-z0-9][a-z0-9-]*`；目录名不承担身份，安装目标使用 manifest ID。
+`id` 匹配 `[a-z0-9][a-z0-9-]*`；目录名不承担身份，安装目标使用 manifest ID。`truth_model_profile_id` 必须引用服务端模型目录中允许 `truth-engine` 角色的 Profile，不存在默认值。
 
 ## `laws.yaml`
 
@@ -104,7 +105,7 @@ ratings:
   - { id: "resolve:gatekeeper", definition_id: resolve, value: 3 }
 agent:
   id: gatekeeper
-  model_profile_id: agent-default
+  model_profile_id: agent-openai
   persona: 谨慎，重视职责。
   goals: [守住石门, 弄清旅人的来意]
   belief:
@@ -114,14 +115,14 @@ agent:
     bindings: []
 ```
 
-`placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。
+`placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。`model_profile_id` 必须引用允许 `agent-mind` 角色的 Profile；不同 Agent 可分别选择 DeepSeek、OpenAI、xAI 或目录中的其他 Provider。
 
 ## 信念种子
 
 Agent belief 包含：
 
 - `local_entities`：该 Agent 自己使用的身份与描述；
-- `evidence`：observation/testimony/inference/assumption，带 step；
+- `evidence`：observation/testimony/inference/assumption，带显式 nullable `sourceId` 与 step；
 - `claims`：subject local ID、开放 predicate/value、stance、0–1 confidence 和 evidence refs；
 - `bindings`：服务端初始化用的局部 ID 到一个或多个 canonical ID 映射。
 
@@ -147,8 +148,8 @@ bindings:
 
 ## 引用与状态校验
 
-loader 验证实体、placement、fact entity value、Agent entity、玩家实体、Meter/Quantity/Rating 定义、binding canonical IDs、claim subject/evidence、范围、数量、唯一 ID 与 placement 无环。初始 Agent 可以没有 `nextAction`；创建会话时 AgentMind 统一初始化。
+loader 验证实体、placement、fact entity value、Agent entity、玩家实体、Meter/Quantity/Rating 定义、binding canonical IDs、claim subject/evidence、Profile 存在性与角色、范围、数量、唯一 ID 与 placement 无环。loader 将初始 Agent `nextAction` 设为 null；创建会话时 AgentMind 统一初始化。
 
 ## 规模
 
-格式不限制地点层级、实体 kind、predicate、Agent 人格或目标。大陆、位面、宗门、城市和房间都可以是实体并由 placement 组织。当前 loader 一次加载完整包；超大内容的分片与按需加载尚未成为 v2 契约，作者在此之前应根据模型上下文与 Agent 成本控制初始活动规模。
+格式不限制地点层级、实体 kind、predicate、Agent 人格或目标。大陆、位面、宗门、城市和房间都可以是实体并由 placement 组织。当前 loader 一次加载完整包；超大内容的分片与按需加载尚未成为 v3 契约，作者在此之前应根据模型上下文与 Agent 成本控制初始活动规模。

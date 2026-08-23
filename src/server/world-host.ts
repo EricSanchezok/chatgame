@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { AgentMind } from "../engine/agent-mind";
-import { createStructuredModelProvider, type StructuredModelProvider } from "../engine/model-provider";
+import { loadModelCatalog } from "../engine/model-catalog";
+import { createModelGateway } from "../engine/model-gateway";
+import type { StructuredModelProvider } from "../engine/model-provider";
 import { SimulationEngine } from "../engine/simulation";
 import { TruthEngine } from "../engine/truth-engine";
 import type { WorldDefinition } from "../engine/world-definition";
 import { FileWorldRepository, type WorldRepository } from "../script/world-repository";
+import { importWorldArchive, type WorldImportResult } from "./world-import";
 import {
   FileWorldSessionStore,
   WorldSessionNotFoundError,
@@ -31,6 +34,11 @@ interface HostedSession {
   channels: Map<string, RunChannel>;
 }
 
+interface HostedExecution {
+  promise: Promise<void>;
+  controller: AbortController;
+}
+
 const terminalStatuses = new Set<WorldRunStatus>([
   "awaiting_player",
   "completed",
@@ -42,14 +50,20 @@ const terminalStatuses = new Set<WorldRunStatus>([
 
 class RunChannel {
   private readonly waiters = new Set<() => void>();
+  private version = 0;
+
+  get currentVersion(): number {
+    return this.version;
+  }
 
   notify(): void {
+    this.version += 1;
     for (const waiter of this.waiters) waiter();
     this.waiters.clear();
   }
 
-  async wait(signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) return;
+  async wait(afterVersion: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted || this.version !== afterVersion) return;
     await new Promise<void>((resolve) => {
       const done = () => {
         signal?.removeEventListener("abort", done);
@@ -101,7 +115,7 @@ function sanitizePlayerObservation(
 export class WorldHost {
   private static singleton: WorldHost | undefined;
   private readonly sessions = new Map<string, HostedSession>();
-  private readonly executions = new Map<string, Promise<void>>();
+  private readonly executions = new Map<string, HostedExecution>();
   private readonly now: () => Date;
   private readonly idFactory: () => string;
   private readonly maxStepsPerRun: number;
@@ -114,6 +128,9 @@ export class WorldHost {
 
   static get(): WorldHost {
     if (!this.singleton) {
+      const catalog = loadModelCatalog(path.resolve(
+        /* turbopackIgnore: true */ process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml",
+      ));
       const repository = new FileWorldRepository(
         path.resolve(/* turbopackIgnore: true */ process.env.CHATGAME_SCRIPTS_ROOT ?? "scripts"),
       );
@@ -123,7 +140,7 @@ export class WorldHost {
       this.singleton = new WorldHost({
         repository,
         store,
-        provider: createStructuredModelProvider(),
+        provider: createModelGateway(catalog),
       });
     }
     return this.singleton;
@@ -140,6 +157,18 @@ export class WorldHost {
       version: summary.version,
       description: summary.description,
     }));
+  }
+
+  importWorld(buffer: Buffer, replace = false): WorldImportResult {
+    if (!(this.options.repository instanceof FileWorldRepository)) {
+      throw new WorldHostError("world import requires a file repository", 501);
+    }
+    return importWorldArchive(
+      buffer,
+      this.options.repository.root,
+      this.options.provider.catalog,
+      replace,
+    );
   }
 
   private buildEngine(definition: WorldDefinition, state = definition.initialState): SimulationEngine {
@@ -201,7 +230,11 @@ export class WorldHost {
       if (!(error instanceof WorldSessionNotFoundError)) throw error;
       throw new WorldHostError(`world session not found: ${sessionId}`, 404);
     }
-    const definition = this.options.repository.load(document.scriptId, document.state.truth.rng.seed);
+    const definition = this.options.repository.load(
+      document.scriptId,
+      document.state.truth.rng.seed,
+      this.options.provider.catalog,
+    );
     const session: HostedSession = {
       definition,
       engine: this.buildEngine(definition, document.state),
@@ -215,13 +248,13 @@ export class WorldHost {
   }
 
   async createSession(input: { scriptId: string; seed?: number }): Promise<PublicSessionSnapshot> {
-    const definition = this.options.repository.load(input.scriptId, input.seed ?? 1);
+    const definition = this.options.repository.load(input.scriptId, input.seed ?? 1, this.options.provider.catalog);
     const engine = this.buildEngine(definition);
-    await engine.bootstrapAgents();
     const id = this.idFactory();
+    await engine.bootstrapAgents({ workloadId: id, batchId: `bootstrap:${id}` });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id,
       scriptId: definition.id,
       createdAt: now,
@@ -306,13 +339,14 @@ export class WorldHost {
 
   private scheduleExecution(session: HostedSession, runId: string): void {
     const key = `${session.document.id}:${runId}`;
-    const prior = this.executions.get(key);
-    const execution = (prior ?? Promise.resolve())
-      .then(() => this.executeRun(session, runId))
+    const prior = this.executions.get(key)?.promise;
+    const controller = new AbortController();
+    const promise = (prior ?? Promise.resolve())
+      .then(() => this.executeRun(session, runId, controller.signal))
       .finally(() => {
-        if (this.executions.get(key) === execution) this.executions.delete(key);
+        if (this.executions.get(key)?.promise === promise) this.executions.delete(key);
       });
-    this.executions.set(key, execution);
+    this.executions.set(key, { promise, controller });
   }
 
   private finishRun(
@@ -336,7 +370,7 @@ export class WorldHost {
     session.channels.get(run.id)?.notify();
   }
 
-  private async executeRun(session: HostedSession, runId: string): Promise<void> {
+  private async executeRun(session: HostedSession, runId: string, abortSignal: AbortSignal): Promise<void> {
     try {
       let document = structuredClone(session.document);
       let run = document.runs[runId];
@@ -353,7 +387,11 @@ export class WorldHost {
           return;
         }
         const engine = this.buildEngine(session.definition, session.engine.snapshot);
-        const result = await engine.step();
+        const result = await engine.step({
+          workloadId: session.document.id,
+          batchId: runId,
+          abortSignal,
+        });
         document = structuredClone(session.document);
         run = document.runs[runId];
         for (const [checkIndex, check] of result.committed.checks.entries()) {
@@ -429,6 +467,13 @@ export class WorldHost {
       }
       this.finishRun(session, runId, "step_limit");
     } catch (error) {
+      if (this.requireRun(session, runId).cancelRequested ||
+        (error instanceof Error && error.name === "AbortError")) {
+        const engine = this.buildEngine(session.definition, session.engine.snapshot);
+        engine.cancelPlayerIntent();
+        this.finishRun(session, runId, "cancelled", engine);
+        return;
+      }
       const document = structuredClone(session.document);
       const run = document.runs[runId];
       run.status = "failed";
@@ -468,6 +513,7 @@ export class WorldHost {
     const run = document.runs[runId];
     run.cancelRequested = true;
     this.commitCandidate(session, session.engine, document);
+    this.executions.get(`${sessionId}:${runId}`)?.controller.abort();
     session.channels.get(run.id)?.notify();
     return publicWorldRunSnapshot(session.document, run);
   }
@@ -484,6 +530,7 @@ export class WorldHost {
     session.channels.set(runId, channel);
     let cursor = afterSequence;
     while (!signal?.aborted) {
+      const channelVersion = channel.currentVersion;
       const run = this.requireRun(session, runId);
       const available = run.events.filter((event) => event.sequence > cursor);
       for (const event of available) {
@@ -491,7 +538,7 @@ export class WorldHost {
         yield structuredClone(event);
       }
       if (terminalStatuses.has(run.status) && cursor >= (run.events.at(-1)?.sequence ?? 0)) return;
-      await channel.wait(signal);
+      await channel.wait(channelVersion, signal);
     }
   }
 

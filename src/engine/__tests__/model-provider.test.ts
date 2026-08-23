@@ -1,59 +1,329 @@
 import { describe, expect, it } from "vitest";
-import { modelProviderOptionsFromEnv, VercelModelProvider } from "../model-provider";
+import { z } from "zod";
+import { ModelGateway } from "../model-gateway";
+import { parseModelCatalog } from "../model-catalog";
+import { ModelOutputError, ModelTransportError } from "../model-provider";
 
-describe("model provider profiles", () => {
-  it.each(["DEEPSEEK_API_KEY", "DEEPSEEKAPIKEY", "deepseekapikey"])(
-    "uses DeepSeek-compatible defaults for the %s key alias",
-    (key) => {
-      const options = modelProviderOptionsFromEnv({ [key]: "test-key" });
+const outputSchema = z.strictObject({ answer: z.string() });
 
-      expect(options).toMatchObject({
-        baseUrl: "https://api.deepseek.com/v1",
-        apiKey: "test-key",
-        defaultModel: "deepseek-chat",
-        profileModels: {
-          "truth-engine": "deepseek-chat",
-          "agent-default": "deepseek-chat",
-        },
-      });
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function catalog() {
+  return parseModelCatalog({
+    schema_version: 1,
+    scheduler: { global_concurrency: 16, max_queued_requests: 1024, queue_timeout_ms: 300_000 },
+    providers: {
+      deepseek: {
+        kind: "deepseek",
+        base_url: "https://deepseek.test",
+        api_key_env: "DEEPSEEK_API_KEY",
+        max_concurrency: 16,
+      },
+      openai: {
+        kind: "openai",
+        base_url: "https://openai.test/v1",
+        api_key_env: "OPENAI_API_KEY",
+        max_concurrency: 16,
+      },
+      xai: {
+        kind: "xai",
+        base_url: "https://xai.test/v1",
+        api_key_env: "XAI_API_KEY",
+        max_concurrency: 16,
+      },
     },
-  );
+    profiles: {
+      deep: {
+        provider_id: "deepseek",
+        model: "deepseek-v4-pro",
+        description: "DeepSeek adapter contract test",
+        allowed_roles: ["agent-mind"],
+        request_timeout_ms: 10_000,
+        max_output_tokens: 1_000,
+        inference: { kind: "deepseek-thinking", effort: "max" },
+      },
+      gpt: {
+        provider_id: "openai",
+        model: "gpt-5.6",
+        description: "OpenAI adapter contract test",
+        allowed_roles: ["agent-mind"],
+        request_timeout_ms: 10_000,
+        max_output_tokens: 1_000,
+        inference: {
+          kind: "openai-reasoning",
+          effort: "medium",
+          summary: "concise",
+          text_verbosity: "low",
+        },
+      },
+      grok: {
+        provider_id: "xai",
+        model: "grok-4.6",
+        description: "xAI adapter contract test",
+        allowed_roles: ["agent-mind"],
+        request_timeout_ms: 10_000,
+        max_output_tokens: 1_000,
+        inference: { kind: "xai-reasoning", effort: "xhigh", summary: "detailed" },
+      },
+    },
+  });
+}
 
-  it("ignores empty higher-priority key aliases instead of masking a usable DeepSeek key", () => {
-    expect(modelProviderOptionsFromEnv({
-      DEEPSEEK_API_KEY: " ",
-      deepseekapikey: "usable-key",
-      CHATGAME_LLM_API_KEY: "",
-      CHATGAME_LLM_BASE_URL: " ",
-    })).toMatchObject({
-      baseUrl: "https://api.deepseek.com/v1",
-      apiKey: "usable-key",
-      defaultModel: "deepseek-chat",
+const credentials = {
+  DEEPSEEK_API_KEY: "deepseek-key",
+  OPENAI_API_KEY: "openai-key",
+  XAI_API_KEY: "xai-key",
+};
+
+function deepSeekResponse(
+  content = JSON.stringify({ answer: "deepseek" }),
+  status = 200,
+  finishReason = "stop",
+): Response {
+  return Response.json({
+    id: "deepseek-response",
+    object: "chat.completion",
+    created: 1,
+    model: "deepseek-v4-pro",
+    choices: [{
+      index: 0,
+      message: { role: "assistant", content },
+      finish_reason: finishReason,
+    }],
+    usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+  }, { status });
+}
+
+function responsesApiResponse(answer: string, model: string, id: string): Response {
+  return Response.json({
+    id,
+    object: "response",
+    created_at: 1,
+    status: "completed",
+    model,
+    output: [{
+      id: `${id}-message`,
+      type: "message",
+      status: "completed",
+      role: "assistant",
+      content: [{ type: "output_text", text: JSON.stringify({ answer }), annotations: [] }],
+    }],
+    usage: {
+      input_tokens: 13,
+      input_tokens_details: { cached_tokens: 2 },
+      output_tokens: 8,
+      output_tokens_details: { reasoning_tokens: 3 },
+      total_tokens: 21,
+    },
+  });
+}
+
+function request(profileId: string) {
+  return {
+    profileId,
+    workloadId: "session-a",
+    batchId: "run-a",
+    role: "agent-mind" as const,
+    subjectId: "agent-a",
+    promptVersion: "test-v1",
+    schemaName: "answer_output",
+    system: "Return structured output.",
+    context: { question: "test" },
+    schema: outputSchema,
+  };
+}
+
+describe("model catalog and provider adapters", () => {
+  it("rejects missing credentials, unknown profiles and mismatched native inference settings", async () => {
+    expect(() => new ModelGateway(catalog(), { ...credentials, XAI_API_KEY: "" })).toThrow("requires XAI_API_KEY");
+    expect(() => parseModelCatalog({
+      schema_version: 1,
+      scheduler: { global_concurrency: 1, max_queued_requests: 1, queue_timeout_ms: 1 },
+      providers: {
+        openai: {
+          kind: "openai",
+          base_url: "https://openai.test/v1",
+          api_key_env: "OPENAI_API_KEY",
+          max_concurrency: 1,
+        },
+      },
+      profiles: {
+        invalid: {
+          provider_id: "openai",
+          model: "gpt-5.6",
+          description: "Invalid inference/provider pair",
+          allowed_roles: ["agent-mind"],
+          request_timeout_ms: 1_000,
+          max_output_tokens: 1,
+          inference: { kind: "deepseek-thinking", effort: "high" },
+        },
+      },
+    })).toThrow("uses deepseek-thinking with openai provider");
+
+    const gateway = new ModelGateway(catalog(), credentials, {
+      fetch: async () => deepSeekResponse(),
     });
+    await expect(gateway.generateStructured(request("missing"))).rejects.toThrow("unknown model profile missing");
   });
 
-  it("maps arbitrary Agent modelProfileId values to deployment-selected models", () => {
-    const options = modelProviderOptionsFromEnv({
-      CHATGAME_LLM_API_KEY: "test-key",
-      CHATGAME_LLM_MODEL: "default-model",
-      CHATGAME_LLM_PROFILE_MODELS: JSON.stringify({
-        "agent-scholar": "reasoning-model",
-        "agent-crowd": "fast-model",
-      }),
+  it("sends native structured-output and reasoning contracts to DeepSeek, OpenAI and xAI", async () => {
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const gateway = new ModelGateway(catalog(), credentials, {
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+        if (url.includes("deepseek")) return deepSeekResponse();
+        if (url.includes("openai")) return responsesApiResponse("openai", "gpt-5.6", "openai-response");
+        return responsesApiResponse("xai", "grok-4.6", "xai-response");
+      },
     });
-    const provider = new VercelModelProvider(options);
 
-    expect(provider.describe("agent-scholar")).toMatchObject({ modelId: "reasoning-model" });
-    expect(provider.describe("agent-crowd")).toMatchObject({ modelId: "fast-model" });
-    expect(provider.describe("unmapped-profile")).toMatchObject({ modelId: "default-model" });
+    const [deepseek, openai, xai] = await Promise.all([
+      gateway.generateStructured(request("deep")),
+      gateway.generateStructured(request("gpt")),
+      gateway.generateStructured(request("grok")),
+    ]);
+
+    expect(deepseek.value).toEqual({ answer: "deepseek" });
+    expect(openai.value).toEqual({ answer: "openai" });
+    expect(xai.value).toEqual({ answer: "xai" });
+
+    const deepBody = calls.find((call) => call.url.includes("deepseek"))!.body;
+    expect(deepBody).toMatchObject({
+      model: "deepseek-v4-pro",
+      response_format: { type: "json_object" },
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
+    });
+    expect(JSON.stringify(deepBody)).toContain("Example JSON output shape");
+
+    const openaiBody = calls.find((call) => call.url.includes("openai"))!.body;
+    expect(openaiBody).toMatchObject({
+      model: "gpt-5.6",
+      reasoning: { effort: "medium", summary: "concise" },
+      store: false,
+      text: { format: { type: "json_schema", strict: true } },
+    });
+
+    const xaiBody = calls.find((call) => call.url.includes("xai"))!.body;
+    expect(xaiBody).toMatchObject({
+      model: "grok-4.6",
+      reasoning: { effort: "xhigh", summary: "detailed" },
+      store: false,
+      text: { format: { type: "json_schema", strict: true } },
+    });
+    expect(openai.audit.tokenUsage).toMatchObject({ input: 13, output: 8, reasoning: 3, cacheRead: 2 });
   });
 
-  it("rejects malformed profile configuration instead of silently falling back", () => {
-    expect(() => modelProviderOptionsFromEnv({ CHATGAME_LLM_PROFILE_MODELS: "[]" }))
-      .toThrow("must be a JSON object");
-    expect(() => modelProviderOptionsFromEnv({ CHATGAME_LLM_PROFILE_MODELS: '{"agent":""}' }))
-      .toThrow("invalid profile mapping");
-    expect(() => modelProviderOptionsFromEnv({ CHATGAME_LLM_TIMEOUT_MS: "forever" }))
-      .toThrow("must be an integer");
+  it("retries 429 transport failures but never repairs auth errors or malformed structured output", async () => {
+    let rateLimitedCalls = 0;
+    const delays: number[] = [];
+    const retrying = new ModelGateway(catalog(), credentials, {
+      fetch: async () => {
+        rateLimitedCalls += 1;
+        if (rateLimitedCalls === 1) {
+          return Response.json({ error: { message: "slow down" } }, {
+            status: 429,
+            headers: { "retry-after": "2" },
+          });
+        }
+        return deepSeekResponse();
+      },
+      sleep: async (milliseconds) => { delays.push(milliseconds); },
+    });
+    const retried = await retrying.generateStructured(request("deep"));
+    expect(retried.audit.transportAttempts).toBe(2);
+    expect(delays).toEqual([2_000]);
+
+    let authCalls = 0;
+    const unauthorized = new ModelGateway(catalog(), credentials, {
+      fetch: async () => {
+        authCalls += 1;
+        return Response.json({ error: { message: "bad key" } }, { status: 401 });
+      },
+      sleep: async () => {},
+    });
+    await expect(unauthorized.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelTransportError);
+    expect(authCalls).toBe(1);
+
+    const malformed = new ModelGateway(catalog(), credentials, {
+      fetch: async () => deepSeekResponse("not-json"),
+      sleep: async () => {},
+    });
+    await expect(malformed.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelOutputError);
+  });
+
+  it("retries 5xx responses, never retries 400, and rejects every non-conforming DeepSeek payload", async () => {
+    let serverCalls = 0;
+    const retrying = new ModelGateway(catalog(), credentials, {
+      fetch: async () => {
+        serverCalls += 1;
+        if (serverCalls < 3) {
+          return Response.json({ error: { message: "temporary outage" } }, { status: 503 });
+        }
+        return deepSeekResponse();
+      },
+      random: () => 0,
+      sleep: async () => {},
+    });
+    const recovered = await retrying.generateStructured(request("deep"));
+    expect(serverCalls).toBe(3);
+    expect(recovered.audit).toMatchObject({ transportAttempts: 3, repairAttempts: 0 });
+
+    let badRequestCalls = 0;
+    const badRequest = new ModelGateway(catalog(), credentials, {
+      fetch: async () => {
+        badRequestCalls += 1;
+        return Response.json({ error: { message: "invalid parameter" } }, { status: 400 });
+      },
+      sleep: async () => {},
+    });
+    await expect(badRequest.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelTransportError);
+    expect(badRequestCalls).toBe(1);
+
+    for (const response of [
+      deepSeekResponse(""),
+      deepSeekResponse(JSON.stringify({ answer: "cut off" }), 200, "length"),
+      deepSeekResponse(JSON.stringify({ answer: "value", unexpected: true })),
+    ]) {
+      const invalid = new ModelGateway(catalog(), credentials, {
+        fetch: async () => response.clone(),
+        sleep: async () => {},
+      });
+      await expect(invalid.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelOutputError);
+    }
+  });
+
+  it("queues a 48-Agent gateway burst behind the global limit of 16", async () => {
+    const release = deferred<void>();
+    const capacityReached = deferred<void>();
+    let active = 0;
+    let peak = 0;
+    const gateway = new ModelGateway(catalog(), credentials, {
+      fetch: async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        if (active === 16) capacityReached.resolve();
+        await release.promise;
+        active -= 1;
+        return deepSeekResponse(JSON.stringify({ answer: "ready" }));
+      },
+    });
+    const batch = Array.from({ length: 48 }, (_, index) => gateway.generateStructured({
+      ...request("deep"),
+      workloadId: `session-${index % 6}`,
+      subjectId: `agent-${index}`,
+    }));
+
+    await capacityReached.promise;
+    expect(peak).toBe(16);
+    release.resolve();
+    const results = await Promise.all(batch);
+    expect(results).toHaveLength(48);
+    expect(peak).toBe(16);
   });
 });
