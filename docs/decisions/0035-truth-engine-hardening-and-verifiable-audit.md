@@ -30,7 +30,7 @@ Class: architecture
 
 联合行动在进入 Truth Engine 前按 actor 和 proposal identity 规范排序；事务仍把所有行动作为同一 revision 的整包处理。玩家失败替代方案携带玩家证据或本步 observation 依据，内核验证引用后才允许提交。
 
-`CommittedStep` 保存完整 `D20CheckRequest` 与 `D20CheckResult`，并保存 Truth Engine 和各 AgentMind 的 `ModelExecutionAudit`。审计包含 catalog/prompt 版本与 hash、provider/model/profile、原生推理配置、角色、主体、传输/语义尝试、队列/执行耗时、token、finish reason、provider request ID 及请求/响应 SHA-256，不持久化密钥、prompt、原始响应或思维链。
+`CommittedStep` 保存完整 `D20CheckRequest` 与 `D20CheckResult`，并保存 Truth Engine 和各 AgentMind 的 `ModelExecutionAudit`。WorldSession 审计以 invocation 明细包含 catalog/prompt 版本与 hash、provider/model/profile、原生推理配置、角色、主体、Context 计量、transport、token、finish reason、provider request ID、语义结论及请求/响应 SHA-256，不持久化密钥、prompt、原始响应或思维链。显式 full 运行日志是独立、有界的本地诊断表面，由 [0039](0039-end-to-end-runtime-observability.md) 定义。
 
 公开信息在提交前经过边界守卫，拒绝 canonical ID、未公开私密事实和其他 Agent 私密认知出现在玩家 observation/outcome 中。服务端失败详情只写入持久化内部记录；API 与 SSE 使用稳定的公开错误，不返回内部标识符。检定公开 ID 由宿主生成，不复用模型提供的内部 request ID。
 
@@ -77,4 +77,5 @@ WorldRun 保存对应 intent identity；启动和重试都验证会话没有其�
 - [0032](0032-open-world-facts-and-d20-kernel.md) — 开放事实与通用数值内核。
 - [0033](0033-persistent-streaming-world-runs.md) — WorldRun 与公开流式边界。
 - [0034](0034-truth-engine-verification-matrix.md) — 验证矩阵。
+- [0039](0039-end-to-end-runtime-observability.md) — 端到端运行事件与 invocation 审计。
 - [引擎运行时规格](../game-design/engine-runtime.md) — 当前运行时契约。

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentMind } from "../../engine/agent-mind";
 import { contentHash } from "../../engine/model-audit";
+import type { ModelInvocationAudit } from "../../engine/model";
 import { DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { SimulationEngine } from "../../engine/simulation";
 import { TruthEngine } from "../../engine/truth-engine";
@@ -37,7 +38,7 @@ async function sessionDocument(id = "session-1"): Promise<WorldSessionDocument> 
   );
   await engine.bootstrapAgents();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id,
     scriptId: definition.id,
     createdAt: "2026-08-23T00:00:00.000Z",
@@ -58,7 +59,7 @@ async function committedSessionDocument(id = "session-committed"): Promise<World
   engine.beginPlayerIntent("推进一个可审计步骤");
   await engine.step();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id,
     scriptId: definition.id,
     createdAt: "2026-08-23T00:00:00.000Z",
@@ -79,7 +80,7 @@ function resign(envelope: { checksum: string; document: unknown }): string {
 }
 
 describe("FileWorldSessionStore", () => {
-  it("rejects v1 session documents without a compatibility path", async () => {
+  it("rejects v3 session documents without a compatibility path", async () => {
     const root = temporaryRoot();
     const store = new FileWorldSessionStore(root);
     const document = await sessionDocument();
@@ -87,12 +88,57 @@ describe("FileWorldSessionStore", () => {
     const file = fileFor(root, document.id);
     const envelope = JSON.parse(readFileSync(file, "utf8")) as {
       checksum: string;
-      document: { schemaVersion: number };
+      document: { schemaVersion: number; state: { schemaVersion: number } };
     };
-    envelope.document.schemaVersion = 1;
+    envelope.document.schemaVersion = 3;
     writeFileSync(file, resign(envelope), "utf8");
 
     expect(() => store.read(document.id)).toThrow();
+
+    envelope.document.schemaVersion = 4;
+    envelope.document.state.schemaVersion = 3;
+    writeFileSync(file, resign(envelope), "utf8");
+    expect(() => store.read(document.id)).toThrow("invalid simulation identity");
+  });
+
+  it("rejects resigned mutation of invocation audit hashes", async () => {
+    const root = temporaryRoot();
+    const store = new FileWorldSessionStore(root);
+    const document = await committedSessionDocument();
+    store.write(document);
+    const file = fileFor(root, document.id);
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as {
+      checksum: string;
+      document: WorldSessionDocument;
+    };
+    envelope.document.state.history[0].modelAudits[0].invocations[0].requestHash = "tampered";
+    const step = envelope.document.state.history[0];
+    const payload = Object.fromEntries(Object.entries(step).filter(([key]) => key !== "contentHash"));
+    step.contentHash = contentHash(payload);
+    writeFileSync(file, resign(envelope), "utf8");
+
+    expect(() => store.read(document.id)).toThrow("model invocation identity");
+  });
+
+  it("rejects raw payload fields injected into a resigned invocation audit", async () => {
+    const root = temporaryRoot();
+    const store = new FileWorldSessionStore(root);
+    const document = await committedSessionDocument();
+    store.write(document);
+    const file = fileFor(root, document.id);
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as {
+      checksum: string;
+      document: WorldSessionDocument;
+    };
+    const invocation = envelope.document.state.history[0].modelAudits[0].invocations[0] as
+      ModelInvocationAudit & { payload?: unknown };
+    invocation.payload = { prompt: "must not persist" };
+    const step = envelope.document.state.history[0];
+    const payload = Object.fromEntries(Object.entries(step).filter(([key]) => key !== "contentHash"));
+    step.contentHash = contentHash(payload);
+    writeFileSync(file, resign(envelope), "utf8");
+
+    expect(() => store.read(document.id)).toThrow("model invocation identity");
   });
 
   it("rejects resigned corruption in CharacterPatch audit history", async () => {

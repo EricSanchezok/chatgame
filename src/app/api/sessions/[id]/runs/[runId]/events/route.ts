@@ -1,5 +1,11 @@
 import { WorldHost } from "../../../../../../../server/world-host";
-import { errorResponse } from "../../../../../h";
+import {
+  beginHttpRequest,
+  completeHttpRequest,
+  errorResponse,
+  failHttpRequest,
+} from "../../../../../h";
+import { serializeRuntimeError } from "../../../../../../../engine/observability";
 
 type Context = { params: Promise<{ id: string; runId: string }> };
 
@@ -13,36 +19,77 @@ function parseCursor(request: Request): number {
 }
 
 export async function GET(request: Request, context: Context): Promise<Response> {
+  const http = beginHttpRequest(request);
   try {
     const { id, runId } = await context.params;
+    const correlation = { ...http.correlation, sessionId: id, runId };
     const host = WorldHost.get();
-    host.run(id, runId);
+    host.run(id, runId, correlation);
     const abort = new AbortController();
-    request.signal.addEventListener("abort", () => abort.abort(), { once: true });
     const encoder = new TextEncoder();
-    const iterator = host.subscribeRunEvents(id, runId, parseCursor(request), abort.signal);
+    const cursor = parseCursor(request);
+    const iterator = host.subscribeRunEvents(id, runId, cursor, abort.signal);
+    let streamClosed = false;
+    http.observe?.({
+      event: "sse.connection.opened",
+      correlation,
+      measurements: { cursor },
+    });
+    function finishStream(event: "sse.connection.closed" | "sse.connection.cancelled"): void {
+      if (streamClosed) return;
+      streamClosed = true;
+      request.signal.removeEventListener("abort", onRequestAbort);
+      http.observe?.({ event, correlation });
+    }
+    function failStream(error: unknown): void {
+      if (streamClosed) return;
+      streamClosed = true;
+      request.signal.removeEventListener("abort", onRequestAbort);
+      http.observe?.({
+        event: "sse.connection.failed",
+        level: "error",
+        correlation,
+        error: serializeRuntimeError(error),
+      });
+    }
+    function onRequestAbort(): void {
+      abort.abort();
+      finishStream("sse.connection.cancelled");
+    }
+    if (request.signal.aborted) onRequestAbort();
+    else request.signal.addEventListener("abort", onRequestAbort, { once: true });
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
         try {
           const result = await iterator.next();
           if (result.done) {
             controller.close();
+            finishStream("sse.connection.closed");
             return;
           }
           const event = result.value;
-          controller.enqueue(encoder.encode(
+          const encoded = encoder.encode(
             `id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
-          ));
+          );
+          controller.enqueue(encoded);
+          http.observe?.({
+            event: "sse.event.sent",
+            correlation,
+            attributes: { publicEventType: event.type },
+            measurements: { publicEventSequence: event.sequence, bytes: encoded.byteLength },
+          });
         } catch (error) {
+          failStream(error);
           controller.error(error);
         }
       },
       async cancel() {
         abort.abort();
         await iterator.return(undefined);
+        finishStream("sse.connection.cancelled");
       },
     });
-    return new Response(stream, {
+    const response = new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
@@ -51,7 +98,12 @@ export async function GET(request: Request, context: Context): Promise<Response>
         "X-Content-Type-Options": "nosniff",
       },
     });
+    await completeHttpRequest(http, response, false);
+    return response;
   } catch (error) {
-    return errorResponse(error);
+    failHttpRequest(http, error);
+    const response = errorResponse(error);
+    await completeHttpRequest(http, response);
+    return response;
   }
 }

@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ModelGateway } from "../model-gateway";
 import { parseModelCatalog } from "../model-catalog";
-import { ModelOutputError, ModelTransportError } from "../model-provider";
+import {
+  ModelOutputError,
+  ModelTransportError,
+  summarizeModelExecutionAudit,
+} from "../model-provider";
+import { RecordingRuntimeObserver } from "../observability";
+import { FairModelScheduler, ModelOverloadedError } from "../model-scheduler";
 
 const outputSchema = z.strictObject({ answer: z.string() });
 
@@ -216,13 +222,53 @@ describe("model catalog and provider adapters", () => {
       store: false,
       text: { format: { type: "json_schema", strict: true } },
     });
-    expect(openai.audit.tokenUsage).toMatchObject({ input: 13, output: 8, reasoning: 3, cacheRead: 2 });
+    expect(summarizeModelExecutionAudit(openai.audit).tokenUsage)
+      .toMatchObject({ input: 13, output: 8, reasoning: 3, cacheRead: 2 });
+  });
+
+  it("records exact invocation metrics, full Context once per call, and deduplicated contracts", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "full" });
+    const gateway = new ModelGateway(catalog(), credentials, {
+      observer,
+      fetch: async () => responsesApiResponse("openai", "gpt-5.6", "observed"),
+    });
+    const first = await gateway.generateStructured({
+      ...request("gpt"),
+      context: { greeting: "你好", history: [{ id: "one" }] },
+      modelInvocationId: "invocation-1",
+      modelInvocation: 1,
+    });
+    await gateway.generateStructured({
+      ...request("gpt"),
+      context: { greeting: "再见", history: [{ id: "two" }] },
+      modelInvocationId: "invocation-2",
+      modelInvocation: 2,
+    });
+
+    const invocation = first.audit.invocations[0];
+    expect(invocation).toMatchObject({
+      id: "invocation-1",
+      ordinal: 1,
+      semanticOutcome: "accepted",
+      tokenUsage: { input: 13, output: 8, reasoning: 3, cacheRead: 2 },
+    });
+    expect(invocation.context.utf8Bytes).toBe(Buffer.byteLength(
+      JSON.stringify({ greeting: "你好", history: [{ id: "one" }] }, null, 2),
+      "utf8",
+    ));
+    expect(observer.events.filter((event) => event.event === "model.contract.registered")).toHaveLength(1);
+    expect(observer.events.filter((event) => event.event === "model.context.serialized"))
+      .toHaveLength(2);
+    expect(observer.events.find((event) => event.event === "model.context.serialized")?.payload)
+      .toHaveProperty("context.greeting", "你好");
   });
 
   it("retries 429 transport failures but never repairs auth errors or malformed structured output", async () => {
     let rateLimitedCalls = 0;
     const delays: number[] = [];
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
     const retrying = new ModelGateway(catalog(), credentials, {
+      observer,
       fetch: async () => {
         rateLimitedCalls += 1;
         if (rateLimitedCalls === 1) {
@@ -236,7 +282,12 @@ describe("model catalog and provider adapters", () => {
       sleep: async (milliseconds) => { delays.push(milliseconds); },
     });
     const retried = await retrying.generateStructured(request("deep"));
-    expect(retried.audit.transportAttempts).toBe(2);
+    expect(summarizeModelExecutionAudit(retried.audit).transportAttempts).toBe(2);
+    expect(retried.audit.invocations[0].transports).toMatchObject([
+      { attempt: 1, status: "retryable_error", retryDelayMs: 2_000, statusCode: 429 },
+      { attempt: 2, status: "succeeded", retryDelayMs: 0 },
+    ]);
+    expect(observer.events.some((event) => event.event === "model.transport.retry_wait")).toBe(true);
     expect(delays).toEqual([2_000]);
 
     let authCalls = 0;
@@ -272,7 +323,8 @@ describe("model catalog and provider adapters", () => {
     });
     const recovered = await retrying.generateStructured(request("deep"));
     expect(serverCalls).toBe(3);
-    expect(recovered.audit).toMatchObject({ transportAttempts: 3, repairAttempts: 0 });
+    expect(summarizeModelExecutionAudit(recovered.audit))
+      .toMatchObject({ transportAttempts: 3, repairAttempts: 0 });
 
     let badRequestCalls = 0;
     const badRequest = new ModelGateway(catalog(), credentials, {
@@ -325,5 +377,50 @@ describe("model catalog and provider adapters", () => {
     const results = await Promise.all(batch);
     expect(results).toHaveLength(48);
     expect(peak).toBe(16);
+  });
+
+  it("logs overload and cancellation as terminal invocation outcomes", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const scheduler = new FairModelScheduler({
+      globalConcurrency: 1,
+      maxQueuedRequests: 1,
+      queueTimeoutMs: 10_000,
+      providerConcurrency: { deepseek: 1, openai: 1, xai: 1 },
+    });
+    const gateway = new ModelGateway(catalog(), credentials, {
+      observer,
+      scheduler,
+      fetch: async () => {
+        entered.resolve();
+        await release.promise;
+        return deepSeekResponse();
+      },
+    });
+    const first = gateway.generateStructured({ ...request("deep"), modelInvocationId: "active" });
+    await entered.promise;
+    const queued = gateway.generateStructured({ ...request("deep"), modelInvocationId: "queued" });
+    await expect(gateway.generateStructured({
+      ...request("deep"),
+      modelInvocationId: "overloaded",
+    })).rejects.toBeInstanceOf(ModelOverloadedError);
+    release.resolve();
+    await Promise.all([first, queued]);
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(gateway.generateStructured({
+      ...request("deep"),
+      modelInvocationId: "cancelled",
+      abortSignal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(observer.events.find((event) =>
+      event.event === "model.invocation.failed" &&
+      event.correlation?.modelInvocationId === "overloaded")?.attributes?.result).toBe("overloaded");
+    expect(observer.events.find((event) =>
+      event.event === "model.invocation.failed" &&
+      event.correlation?.modelInvocationId === "cancelled")?.attributes?.result).toBe("cancelled");
   });
 });

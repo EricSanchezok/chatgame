@@ -1,10 +1,10 @@
 import { WorldHost } from "../../../server/world-host";
-import { errorResponse, json } from "../h";
+import { json, observedRoute } from "../h";
 
-export async function GET(): Promise<Response> {
-  try {
+export async function GET(
+  request = new Request("http://local/api/worlds"),
+): Promise<Response> {
+  return observedRoute(request, () => {
     return json({ worlds: WorldHost.get().listWorlds() });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  });
 }

@@ -4,7 +4,7 @@ import { createXai } from "@ai-sdk/xai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { ModelProviderConfig, ModelProfileConfig } from "./model-catalog";
-import type { ModelExecutionAudit } from "./model";
+import type { ModelExecutionAudit, ModelTokenUsage } from "./model";
 import type { StructuredModelRequest } from "./model-provider";
 import { ModelOutputError } from "./model-provider";
 
@@ -13,7 +13,7 @@ export interface ModelAdapterResult {
   responseId: string;
   responseModelId: string;
   finishReason: string;
-  tokenUsage: ModelExecutionAudit["tokenUsage"];
+  tokenUsage: ModelTokenUsage;
 }
 
 export interface ModelProviderAdapter {
@@ -69,7 +69,7 @@ function deepSeekPrompt<T>(request: StructuredModelRequest<T>, contextJson: stri
   ].join("\n");
 }
 
-function usageFrom(result: Awaited<ReturnType<typeof generateText>>): ModelExecutionAudit["tokenUsage"] {
+function usageFrom(result: Awaited<ReturnType<typeof generateText>>): ModelTokenUsage {
   return {
     input: result.usage.inputTokens ?? null,
     output: result.usage.outputTokens ?? null,

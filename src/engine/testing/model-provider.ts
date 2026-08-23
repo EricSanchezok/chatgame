@@ -1,4 +1,4 @@
-import { canonicalize, contentHash } from "../model-audit";
+import { canonicalize, contentHash, measureModelContext } from "../model-audit";
 import { parseModelCatalog, type ModelCatalog } from "../model-catalog";
 import type {
   StructuredModelProvider,
@@ -63,6 +63,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
   constructor(
     private readonly handler: ScriptedModelHandler,
     readonly catalog: ModelCatalog = createTestModelCatalog(),
+    private readonly captureRequests = true,
   ) {}
 
   async generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>> {
@@ -84,14 +85,24 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       context,
       prompt: JSON.stringify(context, null, 2),
       abortSignal: request.abortSignal,
+      correlation: request.correlation,
+      observer: request.observer,
+      modelInvocationId: request.modelInvocationId,
+      modelInvocation: request.modelInvocation,
     };
-    this.requests.push(captured);
+    if (this.captureRequests) this.requests.push(captured);
     if (request.abortSignal?.aborted) {
       const error = new Error("model request aborted");
       error.name = "AbortError";
       throw error;
     }
     const value = request.schema.parse(await this.handler(captured));
+    const modelInvocation = request.modelInvocation ?? 1;
+    const modelInvocationId = request.modelInvocationId ??
+      `${request.workloadId}:${request.batchId}:${request.role}:${request.subjectId}:${modelInvocation}`;
+    const contextJson = JSON.stringify(context, null, 2);
+    const requestDocument = { system: request.system, context };
+    const responseJson = JSON.stringify(canonicalize(value));
     return {
       value,
       audit: {
@@ -105,94 +116,116 @@ export class ScriptedModelProvider implements StructuredModelProvider {
         promptVersion: request.promptVersion,
         inference: structuredClone(profile.inference),
         structuredOutputMode: "deterministic-test",
-        attempts: 1,
-        transportAttempts: 1,
-        repairAttempts: 0,
-        queueWaitMs: 0,
-        executionMs: 0,
-        tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
-        finishReasons: ["stop"],
-        providerRequestIds: [],
-        requestHashes: [contentHash({ system: request.system, context })],
-        responseHashes: [contentHash(value)],
+        invocations: [{
+          id: modelInvocationId,
+          ordinal: modelInvocation,
+          requestHash: contentHash(requestDocument),
+          responseHash: contentHash(value),
+          requestUtf8Bytes: Buffer.byteLength(JSON.stringify(requestDocument, null, 2), "utf8"),
+          responseUtf8Bytes: Buffer.byteLength(responseJson, "utf8"),
+          context: measureModelContext(context, contextJson),
+          transports: [{
+            attempt: 1,
+            queueWaitMs: 0,
+            executionMs: 0,
+            retryDelayMs: 0,
+            status: "succeeded",
+            errorName: null,
+            statusCode: null,
+          }],
+          tokenUsage: {
+            input: null,
+            output: null,
+            reasoning: null,
+            cacheRead: null,
+            cacheWrite: null,
+          },
+          finishReason: "stop",
+          providerRequestId: null,
+          resultKind: null,
+          semanticOutcome: "accepted",
+          validationIssueCodes: [],
+        }],
       },
     };
   }
 }
 
+export function deterministicModelOutput(profileId: string, context: unknown): unknown {
+  const input = context as {
+    revision?: number;
+    step?: number;
+    baseRevision?: number;
+    agent?: { id: string };
+    world?: { laws: Array<{ id: string }> };
+    agentEpistemics?: Record<string, unknown>;
+    jointActions?: Array<{ id: string }>;
+  };
+  if (profileId === "truth-engine" || profileId === "truth-deepseek") {
+    const step = input.step;
+    const revision = input.baseRevision;
+    const lawId = input.world?.laws[0]?.id;
+    const actions = input.jointActions;
+    if (step === undefined || revision === undefined || !lawId || !actions) {
+      throw new Error("deterministic Truth Engine context is incomplete");
+    }
+    const nextStep = step + 1;
+    const eventId = `mock-event:${nextStep}`;
+    const observers = ["player", ...Object.keys(input.agentEpistemics ?? {})];
+    return {
+      kind: "transition",
+      proposal: {
+        baseRevision: revision,
+        outcomes: actions.map((action) => ({
+          proposalId: action.id,
+          status: "succeeded",
+          summary: "模拟 Truth Engine 已联合裁决行动。",
+          causeRefs: [{ kind: "action", id: action.id }],
+          knownAlternatives: [],
+        })),
+        operations: [{ kind: "advance_time", seconds: 1, causes: [{ kind: "law", id: lawId }] }],
+        events: [{
+          id: eventId,
+          step: nextStep,
+          description: "模拟世界推进了一秒。",
+          impact: "ordinary",
+          causes: [{ kind: "law", id: lawId }],
+        }],
+        observations: observers.map((observerId) => ({
+          id: `mock-observation:${observerId}:${nextStep}`,
+          observerId,
+          step: nextStep,
+          kind: "outcome",
+          summary: observerId === "player" ? "世界回应了你的自由行动。" : "世界继续变化。",
+          introductions: [],
+          apparentClaims: [],
+          sourceEventIds: [eventId],
+        })),
+        intentStatus: "completed",
+        requiresPlayerDecision: false,
+      },
+    };
+  }
+  const agentId = input.agent?.id;
+  const revision = input.revision;
+  if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
+  return {
+    beliefPatch: { agentId, baseRevision: revision, operations: [] },
+    characterPatch: { agentId, baseRevision: revision, operations: [] },
+    nextAction: {
+      id: `mock-action:${agentId}:${revision}`,
+      actorId: agentId,
+      baseRevision: revision,
+      rawText: "维持当前目标并观察世界",
+      goal: "继续自主行动",
+      means: null,
+      targetIds: [],
+    },
+  };
+}
+
 export class DeterministicModelProvider extends ScriptedModelProvider {
-  constructor(catalog = createTestModelCatalog()) {
-    super(({ profileId, context }) => {
-      const input = context as {
-        revision?: number;
-        step?: number;
-        baseRevision?: number;
-        agent?: { id: string };
-        world?: { laws: Array<{ id: string }> };
-        agentEpistemics?: Record<string, unknown>;
-        jointActions?: Array<{ id: string }>;
-      };
-      if (profileId === "truth-engine" || profileId === "truth-deepseek") {
-        const step = input.step;
-        const revision = input.baseRevision;
-        const lawId = input.world?.laws[0]?.id;
-        const actions = input.jointActions;
-        if (step === undefined || revision === undefined || !lawId || !actions) {
-          throw new Error("deterministic Truth Engine context is incomplete");
-        }
-        const nextStep = step + 1;
-        const eventId = `mock-event:${nextStep}`;
-        const observers = ["player", ...Object.keys(input.agentEpistemics ?? {})];
-        return {
-          kind: "transition",
-          proposal: {
-            baseRevision: revision,
-            outcomes: actions.map((action) => ({
-              proposalId: action.id,
-              status: "succeeded",
-              summary: "模拟 Truth Engine 已联合裁决行动。",
-              causeRefs: [{ kind: "action", id: action.id }],
-              knownAlternatives: [],
-            })),
-            operations: [{ kind: "advance_time", seconds: 1, causes: [{ kind: "law", id: lawId }] }],
-            events: [{
-              id: eventId,
-              step: nextStep,
-              description: "模拟世界推进了一秒。",
-              impact: "ordinary",
-              causes: [{ kind: "law", id: lawId }],
-            }],
-            observations: observers.map((observerId) => ({
-              id: `mock-observation:${observerId}:${nextStep}`,
-              observerId,
-              step: nextStep,
-              kind: "outcome",
-              summary: observerId === "player" ? "世界回应了你的自由行动。" : "世界继续变化。",
-              introductions: [],
-              apparentClaims: [],
-              sourceEventIds: [eventId],
-            })),
-            intentStatus: "completed",
-            requiresPlayerDecision: false,
-          },
-        };
-      }
-      const agentId = input.agent?.id;
-      const revision = input.revision;
-      if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
-      return {
-        beliefPatch: { agentId, baseRevision: revision, operations: [] },
-        characterPatch: { agentId, baseRevision: revision, operations: [] },
-        nextAction: {
-          id: `mock-action:${agentId}:${revision}`,
-          actorId: agentId,
-          baseRevision: revision,
-          rawText: "维持当前目标并观察世界",
-          goal: "继续自主行动",
-          means: null,
-          targetIds: [],
-        },
-      };
-    }, catalog);
+  constructor(catalog = createTestModelCatalog(), captureRequests = true) {
+    super(({ profileId, context }) => deterministicModelOutput(profileId, context), catalog, captureRequests);
   }
 }

@@ -4,6 +4,7 @@ import { loadModelCatalog } from "../src/engine/model-catalog";
 import { createModelGateway } from "../src/engine/model-gateway";
 import { SimulationEngine } from "../src/engine/simulation";
 import { TruthEngine } from "../src/engine/truth-engine";
+import { summarizeModelExecutionAudit } from "../src/engine/model-provider";
 import { loadWorldScript } from "../src/script/world-loader";
 
 async function main(): Promise<void> {
@@ -34,7 +35,7 @@ async function main(): Promise<void> {
       `step=${result.state.step}`,
       `provider=${truthAudit.providerId}`,
       `model=${truthAudit.modelId}`,
-      `truthAttempts=${truthAudit.attempts}`,
+      `truthAttempts=${summarizeModelExecutionAudit(truthAudit).invocations}`,
       `agentAudits=${mindAudits.length}`,
       `contentHash=${result.committed.contentHash}`,
     ].join(" ") + "\n");

@@ -6,9 +6,10 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 | 层 | 目录 | 唯一职责 |
 |---|---|---|
-| 世界契约 | `src/script/` | 严格读取 schema v4 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v3 |
+| 世界契约 | `src/script/` | 严格读取 schema v4 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v4 |
 | 仿真内核 | `src/engine/` | AgentMind、角色演化、自身状态投影、Truth Engine、有限反应、d20、观察隔离与状态事务 |
 | 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
+| 可观测性 | `src/instrumentation.ts`、`src/engine/observability.ts`、`src/server/runtime-observer.ts` | 服务启动初始化、跨层事件协议、相关性、NDJSON sink 与有界轮转 |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
 | HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表与导入 |
 | 浏览器 | `src/app/` | 只展示公开快照/事件并提交任意自然语言目标 |
@@ -30,11 +31,13 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 4. Truth Engine 基于最终行动集提出 outcome、世界 delta、带影响级别的事件、逐观察者 outcome observation 与玩家目标状态。
 5. 事务层在克隆前态上校验引用、阶段、因果、守恒、范围、包含关系、观察覆盖和正数时间推进；公开信息守卫拒绝 canonical identity、私密事实和其他主体私密信念进入玩家结果。
 6. 每个 AgentMind 只看自己的 belief、character、self view、私有 stimulus 和 outcome observation，按 `BeliefPatch → CharacterPatch → nextAction` 更新；新创建 Agent 也在本步初始化。
-7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。审计保存 initial/final actions、reaction、完整检定、角色 patch、模型尝试和内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
+7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。WorldSession 审计保存 initial/final actions、reaction、完整检定、角色 patch、模型 invocation 和内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
 
 ## 模型调用链
 
 `config/models.yaml` 显式声明 provider、profile、原生推理配置与并发限制。世界选择 Truth profile，每个 Agent 独立选择 Agent profile；角色、密钥和引用在运行前严格校验。`ModelGateway` 按 provider 调用 DeepSeek Chat Completions 或 OpenAI/xAI Responses API，返回 strict schema 结果与审计。所有 HTTP 请求经过进程级公平队列，不存在默认模型、供应商 fallback 或生产 mock。完整契约见 [模型目录与 Gateway](game-design/model-gateway.md)。
+
+服务端通过统一 observer 把 HTTP、SSE、WorldRun、世界事务、模型和存档阶段串成运行事件；失败与回滚不会进入已提交历史但保留关联日志。协议、payload 边界、模式与轮转见 [运行时可观测性](game-design/runtime-observability.md)。
 
 ## 规则扩展
 
@@ -64,4 +67,4 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md) 与 [0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md) 与 [0039](decisions/0039-end-to-end-runtime-observability.md)。

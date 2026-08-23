@@ -19,7 +19,7 @@ import {
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     worldId: "test-world",
     lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,

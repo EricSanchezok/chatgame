@@ -651,27 +651,130 @@ function validateModelAudit(
   audit: SimulationState["bootstrapModelAudits"][number],
   label: string,
 ): void {
+  const exactKeys = (value: object, keys: readonly string[]): boolean => {
+    const actual = Object.keys(value);
+    return actual.length === keys.length && actual.every((key) => keys.includes(key));
+  };
+  if (!exactKeys(audit, [
+    "role",
+    "subjectId",
+    "profileId",
+    "providerId",
+    "modelId",
+    "catalogSchemaVersion",
+    "catalogHash",
+    "promptVersion",
+    "inference",
+    "structuredOutputMode",
+    "invocations",
+  ])) {
+    throw new Error(`${label} has unexpected model audit fields`);
+  }
   if (!new Set(["truth-engine", "agent-mind", "agent-reaction"]).has(audit.role)) {
     throw new Error(`${label} has an invalid model audit role`);
   }
   if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() ||
     !audit.modelId.trim() || !audit.promptVersion.trim() || audit.catalogSchemaVersion !== 1 ||
-    !isSha256(audit.catalogHash) || !modelInferenceSchema.safeParse(audit.inference).success) {
+    !isSha256(audit.catalogHash) || !modelInferenceSchema.safeParse(audit.inference).success ||
+    !new Set(["json-schema-strict", "json-object-zod", "deterministic-test"])
+      .has(audit.structuredOutputMode)) {
     throw new Error(`${label} has an incomplete model audit identity`);
   }
-  if (!Number.isSafeInteger(audit.attempts) || audit.attempts <= 0 ||
-    !Number.isSafeInteger(audit.transportAttempts) || audit.transportAttempts < audit.attempts ||
-    !Number.isSafeInteger(audit.repairAttempts) || audit.repairAttempts < 0 ||
-    audit.repairAttempts >= audit.attempts || audit.requestHashes.length !== audit.attempts ||
-    audit.responseHashes.length === 0 || audit.responseHashes.length > audit.attempts ||
-    !Number.isSafeInteger(audit.queueWaitMs) || audit.queueWaitMs < 0 ||
-    !Number.isSafeInteger(audit.executionMs) || audit.executionMs < 0 ||
-    audit.finishReasons.length === 0 || audit.finishReasons.length > audit.attempts ||
-    audit.providerRequestIds.length > audit.attempts ||
-    Object.values(audit.tokenUsage).some((value) => value !== null &&
-      (!Number.isSafeInteger(value) || value < 0)) ||
-    !audit.requestHashes.every(isSha256) || !audit.responseHashes.every(isSha256)) {
-    throw new Error(`${label} has invalid model audit counters or hashes`);
+  if (audit.invocations.length === 0) {
+    throw new Error(`${label} has empty model invocation data`);
+  }
+  const invocationIds = new Set<string>();
+  const ordinals = new Set<number>();
+  for (const [invocationIndex, invocation] of audit.invocations.entries()) {
+    if (!exactKeys(invocation, [
+      "id",
+      "ordinal",
+      "requestHash",
+      "responseHash",
+      "requestUtf8Bytes",
+      "responseUtf8Bytes",
+      "context",
+      "transports",
+      "tokenUsage",
+      "finishReason",
+      "providerRequestId",
+      "resultKind",
+      "semanticOutcome",
+      "validationIssueCodes",
+    ]) || !exactKeys(invocation.context, ["utf8Bytes", "sections", "counts"]) ||
+      !exactKeys(invocation.context.counts, [
+        "history",
+        "events",
+        "agents",
+        "entities",
+        "facts",
+        "beliefs",
+        "evidence",
+        "observations",
+      ]) || !exactKeys(invocation.tokenUsage, [
+        "input",
+        "output",
+        "reasoning",
+        "cacheRead",
+        "cacheWrite",
+      ]) || !invocation.id.trim() || invocationIds.has(invocation.id) ||
+      !Number.isSafeInteger(invocation.ordinal) || invocation.ordinal !== invocationIndex + 1 ||
+      ordinals.has(invocation.ordinal) || !isSha256(invocation.requestHash) ||
+      (invocation.responseHash !== null && !isSha256(invocation.responseHash)) ||
+      !Number.isSafeInteger(invocation.requestUtf8Bytes) || invocation.requestUtf8Bytes <= 0 ||
+      (invocation.responseUtf8Bytes !== null &&
+        (!Number.isSafeInteger(invocation.responseUtf8Bytes) || invocation.responseUtf8Bytes < 0)) ||
+      !Number.isSafeInteger(invocation.context.utf8Bytes) || invocation.context.utf8Bytes <= 0 ||
+      invocation.transports.length === 0 ||
+      Object.values(invocation.tokenUsage).some((value) => value !== null &&
+        (!Number.isSafeInteger(value) || value < 0)) ||
+      (invocation.finishReason !== null && typeof invocation.finishReason !== "string") ||
+      (invocation.providerRequestId !== null && typeof invocation.providerRequestId !== "string") ||
+      (invocation.resultKind !== null && typeof invocation.resultKind !== "string") ||
+      !Array.isArray(invocation.validationIssueCodes) ||
+      invocation.validationIssueCodes.some((code) => typeof code !== "string" || !code.trim()) ||
+      new Set(invocation.validationIssueCodes).size !== invocation.validationIssueCodes.length ||
+      !new Set(["accepted", "rejected"]).has(invocation.semanticOutcome) ||
+      (invocation.semanticOutcome === "accepted" && invocation.validationIssueCodes.length > 0) ||
+      (invocation.semanticOutcome === "rejected" && invocation.validationIssueCodes.length === 0)) {
+      throw new Error(`${label} has invalid model invocation identity, bytes, or outcome`);
+    }
+    invocationIds.add(invocation.id);
+    ordinals.add(invocation.ordinal);
+    for (const section of Object.values(invocation.context.sections)) {
+      if (!exactKeys(section, ["utf8Bytes", "itemCount"]) ||
+        !Number.isSafeInteger(section.utf8Bytes) || section.utf8Bytes < 0 ||
+        (section.itemCount !== null &&
+          (!Number.isSafeInteger(section.itemCount) || section.itemCount < 0))) {
+        throw new Error(`${label} has invalid model context sections`);
+      }
+    }
+    if (Object.values(invocation.context.counts).some((count) =>
+      !Number.isSafeInteger(count) || count < 0)) {
+      throw new Error(`${label} has invalid model context counts`);
+    }
+    invocation.transports.forEach((transport, index) => {
+      if (!exactKeys(transport, [
+        "attempt",
+        "queueWaitMs",
+        "executionMs",
+        "retryDelayMs",
+        "status",
+        "errorName",
+        "statusCode",
+      ]) || transport.attempt !== index + 1 ||
+        !Number.isSafeInteger(transport.queueWaitMs) || transport.queueWaitMs < 0 ||
+        !Number.isSafeInteger(transport.executionMs) || transport.executionMs < 0 ||
+        !Number.isSafeInteger(transport.retryDelayMs) || transport.retryDelayMs < 0 ||
+        !new Set(["succeeded", "retryable_error", "failed"]).has(transport.status) ||
+        (transport.status === "succeeded" &&
+          (transport.errorName !== null || transport.statusCode !== null)) ||
+        (transport.status !== "succeeded" && !transport.errorName) ||
+        (transport.statusCode !== null &&
+          (!Number.isSafeInteger(transport.statusCode) || transport.statusCode < 100))) {
+        throw new Error(`${label} has invalid model transport attempts`);
+      }
+    });
   }
 }
 
@@ -680,7 +783,7 @@ export function validateSimulationState(
   requireNextActions = false,
   requireHistoryAlignment = false,
 ): void {
-  if (state.schemaVersion !== 3 || !state.worldId.trim()) throw new Error("invalid simulation identity");
+  if (state.schemaVersion !== 4 || !state.worldId.trim()) throw new Error("invalid simulation identity");
   assertSafeId(state.worldId, "world id");
   if (state.lawIds.length === 0 || new Set(state.lawIds).size !== state.lawIds.length ||
     state.lawIds.some((lawId) => !lawId.trim())) throw new Error("invalid world law ids");

@@ -124,11 +124,11 @@ AgentMind 只获得自身人格、目标、belief、去 canonical 的局部绑�
 
 ## 审计与重放
 
-每个 `CommittedStep` 保存 base/new revision、initial/final actions、reaction requests/decisions、完整分阶段检定请求与结果、RNG 前后态、outcomes、带影响级别的事件、stimulus/outcome observations、delta operations、belief/character patches 和模型审计。reaction 使用独立 `agent-reaction` 审计角色。模型审计包含 catalog/prompt 版本与 hash、role/subject/profile/provider/实际 model、原生推理配置、结构化输出模式、传输/语义尝试、队列/执行耗时、token、finish reason、provider request ID 和请求/响应 SHA-256；不保存密钥、prompt、原始响应或思维链。整个步骤另有 canonical JSON 内容 hash。
+每个 `CommittedStep` 保存 base/new revision、initial/final actions、reaction requests/decisions、完整分阶段检定请求与结果、RNG 前后态、outcomes、带影响级别的事件、stimulus/outcome observations、delta operations、belief/character patches 和模型审计。reaction 使用独立 `agent-reaction` 审计角色。WorldSession 模型审计以 invocation 明细保存调用身份、Context 计量、transport、token、供应商结果、语义结论与内容 hash，不保存密钥、prompt、原始响应或思维链；字段由 [运行时可观测性](runtime-observability.md#context-与模型调用计量) 定义。整个步骤另有 canonical JSON 内容 hash。
 
 完整状态校验会重放历史中的 d20、核对 phase 顺序、RNG 连续性、请求/结果一一对应、reaction 覆盖、未反应与 keep 行动的逐字段不变性、initial/final actor 集、全部因果引用、AgentMind/Agent reaction 审计覆盖、角色 observation 依据和每步内容 hash。历史是已发生事实的审计证据；重放不重新调用模型。
 
-世界运行态与会话文档使用 schema v3。旧版本会话直接拒绝，不执行迁移或兼容读取。公共会话快照、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis 或模型审计。
+世界运行态与会话文档使用 schema v4。旧版本会话直接拒绝，不执行迁移或兼容读取。公共会话快照、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis 或模型审计。
 
 ## 规则包
 

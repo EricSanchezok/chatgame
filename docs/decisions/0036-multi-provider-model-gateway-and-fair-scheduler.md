@@ -15,7 +15,7 @@ Truth Engine 与每个 AgentMind 需要独立选择 DeepSeek、OpenAI、xAI 或�
 - 思考强度、JSON 协议和 API 形状保持供应商原生语义。
 - 任何配置、密钥、结构化输出或供应商失败都显式失败，不切换模型或结构化结果。
 - 高并发请求使用有界、可取消、按会话公平的队列，且 AgentMind 批次只能整体提交。
-- 模型调用可审计，但不持久化密钥、原始 prompt、原始响应或思维链。
+- 模型调用可审计；WorldSession 不持久化密钥、原始 prompt、原始响应或思维链，显式 full 本地运行日志由 [0039](0039-end-to-end-runtime-observability.md) 约束。
 
 ## Considered Options
 
@@ -27,7 +27,7 @@ Truth Engine 与每个 AgentMind 需要独立选择 DeepSeek、OpenAI、xAI 或�
 
 ## Decision Outcome
 
-`config/models.yaml` 是服务端模型目录。目录以 strict schema 声明 scheduler、provider 和 profile；profile 包含不透明模型 ID、用途、允许角色、超时、输出上限和供应商原生推理判别联合。目录在服务初始化时读取、校验、冻结并计算 hash；所有已配置 provider 的环境密钥必须存在。世界 schema v3 必须声明 `truth_model_profile_id`，每个 Agent 必须声明 `model_profile_id`；加载、导入和动态 Agent 创建都校验 Profile 存在性与角色兼容性。
+`config/models.yaml` 是服务端模型目录。目录以 strict schema 声明 scheduler、provider 和 profile；profile 包含不透明模型 ID、用途、允许角色、超时、输出上限和供应商原生推理判别联合。目录在服务初始化时读取、校验、冻结并计算 hash；所有已配置 provider 的环境密钥必须存在。世界 schema v4 必须声明 `truth_model_profile_id`，每个 Agent 必须声明 `model_profile_id`；加载、导入和动态 Agent 创建都校验 Profile 存在性与角色兼容性。
 
 `ModelGateway` 是唯一生产模型入口。DeepSeek V4 使用 Chat Completions、`json_object`、原生 `thinking/reasoning_effort` 与本地 strict Zod；OpenAI 和 xAI 使用 Responses API 与 strict JSON Schema，各自传入原生推理参数。公共 LLM schema 只使用三家稳定支持的严格对象子集，nullable 字段必须显式输出 `null`。网关不抢救 Markdown 或自然语言中的 JSON，也不执行模型别名、降级或供应商切换。
 
@@ -35,7 +35,7 @@ Truth Engine 与每个 AgentMind 需要独立选择 DeepSeek、OpenAI、xAI 或�
 
 Prompt Builder 使用版本化 system prompt 与规范 JSON envelope。Truth Engine 获得世界、会话/run 身份、完整 canonical truth、完整语义历史、规则裁决语义、玩家与 Agent 认知、联合行动、检定和允许的 Agent Profile。AgentMind 只获得自身人格、目标、belief、去 canonical 的局部绑定、主观历史、自身行动/可感知结果和 observation。玩家文本与行动始终标记为不可信企图数据。
 
-`ModelExecutionAudit` 保存 catalog 版本/hash、prompt 版本、profile/provider/实际模型、原生推理配置、严格输出模式、队列/执行耗时、传输/语义尝试、token、finish reason、provider request ID 与规范请求/响应 hash。测试 provider 仅位于 `src/engine/testing/`；生产 E2E 通过本地 HTTP 服务走真实 Gateway 与 DeepSeek adapter。
+`ModelExecutionAudit.invocations[]` 保存 catalog 版本/hash、prompt 版本、profile/provider/实际模型、原生推理配置、严格输出模式，以及每次调用的 Context 计量、transport、token、finish reason、provider request ID、语义结论与规范请求/响应 hash；汇总不重复持久化。测试 provider 仅位于 `src/engine/testing/`；生产 E2E 通过本地 HTTP 服务走真实 Gateway 与 DeepSeek adapter。
 
 ### Consequences
 
@@ -75,6 +75,7 @@ Prompt Builder 使用版本化 system prompt 与规范 JSON envelope。Truth Eng
 - [0031](0031-epistemic-multi-agent-truth-engine.md) — 多 Agent 认知隔离与联合裁决。
 - [0034](0034-truth-engine-verification-matrix.md) — 真实入口与确定性验证矩阵。
 - [0035](0035-truth-engine-hardening-and-verifiable-audit.md) — 模型审计与公开信息边界。
+- [0039](0039-end-to-end-runtime-observability.md) — 运行事件、日志模式与 invocation 审计。
 - [模型目录与 Gateway 规格](../game-design/model-gateway.md) — 当前配置与运行契约。
 - [DeepSeek 模型](https://api-docs.deepseek.com/quick_start/pricing/) 与 [JSON Output](https://api-docs.deepseek.com/guides/json_mode/)。
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) 与 [Reasoning](https://developers.openai.com/api/docs/guides/reasoning)。

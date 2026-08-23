@@ -33,7 +33,7 @@ Class: architecture
 
 同步 turn、action preview、manual advance 与 descriptor mutation API 删除。两个内置剧本及其代码、资产、测试和演示命令删除；旧存档按新 schema 版本拒绝。启动器在零剧本状态显示明确空态并保留新格式导入入口。
 
-世界 ZIP 导入只接受一个 schema v3 世界根目录，限制归档大小、条目数和展开体积，拒绝路径穿越、符号链接、额外文件、未知模型 Profile 与旧 `actions.yaml`。导入先在临时目录完整验证，再以 rename 原子安装；覆盖必须显式请求，失败时恢复原目录，暂存目录在所有结果下清理。
+世界 ZIP 导入只接受一个 schema v4 世界根目录，限制归档大小、条目数和展开体积，拒绝路径穿越、符号链接、额外文件、未知模型 Profile 与旧 `actions.yaml`。导入先在临时目录完整验证，再以 rename 原子安装；覆盖必须显式请求，失败时恢复原目录，暂存目录在所有结果下清理。
 
 ### Consequences
 

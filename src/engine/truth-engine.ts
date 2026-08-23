@@ -15,13 +15,19 @@ import type {
 } from "./model";
 import {
   combineModelExecutionAudits,
+  modelInvocationCorrelation,
+  modelInvocationIdentity,
   ModelOutputError,
   ModelTransportError,
+  setModelInvocationOutcome,
+  setModelInvocationResultKind,
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "./model-provider";
+import { contentHash } from "./model-audit";
 import { ModelOverloadedError } from "./model-scheduler";
 import { validateObservations } from "./observation";
+import { runtimeEventEmitter, serializeRuntimeError } from "./observability";
 import {
   buildTruthContext,
   TRUTH_PROMPT_VERSION,
@@ -369,40 +375,70 @@ export class TruthEngine {
     let issues: PromptValidationIssue[] = [];
     let lastError = "unknown Truth Engine validation failure";
     const audits: ModelExecutionAudit[] = [];
+    const observe = runtimeEventEmitter(scope.observer);
 
     while (true) {
       try {
+        const invocationOrdinal = audits.reduce(
+          (total, audit) => total + audit.invocations.length,
+          0,
+        ) + 1;
+        const identity = modelInvocationIdentity(
+          scope,
+          "truth-engine",
+          input.definition.id,
+          invocationOrdinal,
+        );
+        const correlation = modelInvocationCorrelation(
+          scope,
+          "truth-engine",
+          input.definition.id,
+          identity,
+        );
+        const contextStartedAt = Date.now();
+        const context = buildTruthContext({
+          definition: input.definition,
+          state: input.state,
+          initialActions: input.initialActions,
+          actions,
+          reactionRequests,
+          reactionDecisions,
+          reactionWindow: reactionRequested || resolutionStarted ? "closed" : "open",
+          committedCheckRequests: requests,
+          checkResults: checks,
+          allowedAgentProfiles: this.provider.catalog.profileSummaries("agent-mind"),
+          sessionId: scope.workloadId,
+          runId: scope.batchId,
+          issues,
+        });
+        observe?.({
+          event: "model.context.built",
+          correlation,
+          durationMs: Math.max(0, Date.now() - contextStartedAt),
+          hashes: { context: contentHash(context) },
+        });
         const result = await this.provider.generateStructured({
           profileId: input.definition.truthModelProfileId,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
+          correlation: scope.correlation,
+          observer: scope.observer,
+          ...identity,
           role: "truth-engine",
           subjectId: input.definition.id,
           promptVersion: TRUTH_PROMPT_VERSION,
           schemaName: "truth_directive",
           system: TRUTH_SYSTEM,
-          context: buildTruthContext({
-            definition: input.definition,
-            state: input.state,
-            initialActions: input.initialActions,
-            actions,
-            reactionRequests,
-            reactionDecisions,
-            reactionWindow: reactionRequested || resolutionStarted ? "closed" : "open",
-            committedCheckRequests: requests,
-            checkResults: checks,
-            allowedAgentProfiles: this.provider.catalog.profileSummaries("agent-mind"),
-            sessionId: scope.workloadId,
-            runId: scope.batchId,
-            issues,
-          }),
+          context,
           schema: truthDirectiveSchema,
         });
         audits.push(result.audit);
         const directive = result.value;
+        setModelInvocationResultKind(result.audit, `truth_${directive.kind}`);
 
         if (directive.kind === "request_checks") {
+          const checkStartedAt = Date.now();
           if (checkRounds >= this.maxCheckRounds) throw new Error("maximum check rounds exceeded");
           const phases = new Set(directive.requests.map((request) => request.phase));
           if (phases.size !== 1) throw new Error("a check round cannot mix perception and resolution phases");
@@ -434,6 +470,24 @@ export class TruthEngine {
           if (phase === "resolution") resolutionStarted = true;
           checkRounds += 1;
           issues = [];
+          setModelInvocationOutcome(result.audit, "accepted");
+          observe?.({
+            event: "model.semantic.accepted",
+            correlation,
+            attributes: { resultKind: "truth_request_checks" },
+            counts: { checkRequests: directive.requests.length },
+          });
+          observe?.({
+            event: "step.check_round.resolved",
+            correlation: scope.correlation,
+            durationMs: Math.max(0, Date.now() - checkStartedAt),
+            attributes: { phase, round: checkRounds },
+            counts: { requests: directive.requests.length, results: resolved.results.length },
+            hashes: {
+              requests: contentHash(directive.requests),
+              results: contentHash(resolved.results),
+            },
+          });
           continue;
         }
 
@@ -441,14 +495,47 @@ export class TruthEngine {
           if (reactionRequested) throw new Error("a second reaction round is forbidden");
           if (resolutionStarted) throw new Error("reaction is forbidden after resolution checks begin");
           validateReactionRequests(input, directive.requests, requests, checks);
+          setModelInvocationOutcome(result.audit, "accepted");
+          observe?.({
+            event: "model.semantic.accepted",
+            correlation,
+            attributes: { resultKind: "truth_request_reactions" },
+            counts: { reactionRequests: directive.requests.length },
+          });
           reactionRequested = true;
           reactionRequests = structuredClone(directive.requests);
+          const reactionStartedAt = Date.now();
+          observe?.({
+            event: "step.reaction_batch.started",
+            correlation: scope.correlation,
+            counts: { requests: reactionRequests.length },
+            hashes: { requests: contentHash(reactionRequests) },
+          });
           try {
             const resolved = await input.resolveReactions(reactionRequests);
             reactionDecisions = structuredClone(resolved.decisions);
             reactionModelAudits = structuredClone(resolved.modelAudits);
             actions = applyReactionDecisions(input, reactionRequests, reactionDecisions);
+            observe?.({
+              event: "step.reaction_batch.completed",
+              correlation: scope.correlation,
+              durationMs: Math.max(0, Date.now() - reactionStartedAt),
+              counts: {
+                requests: reactionRequests.length,
+                decisions: reactionDecisions.length,
+                modelAudits: reactionModelAudits.length,
+              },
+              hashes: { decisions: contentHash(reactionDecisions) },
+            });
           } catch (error) {
+            observe?.({
+              event: "step.reaction_batch.failed",
+              level: "error",
+              correlation: scope.correlation,
+              durationMs: Math.max(0, Date.now() - reactionStartedAt),
+              counts: { requests: reactionRequests.length },
+              error: serializeRuntimeError(error),
+            });
             const message = error instanceof Error ? error.message : String(error);
             throw new ReactionExecutionError(`reaction execution failed: ${message}`, { cause: error });
           }
@@ -467,6 +554,18 @@ export class TruthEngine {
         const stimulusObservations = reactionRequests.map((request) => request.stimulus);
         validateTransitionEnvelope(input, actions, directive.proposal, checks);
         input.validateProposal(directive.proposal, checks, actions, stimulusObservations);
+        setModelInvocationOutcome(result.audit, "accepted");
+        observe?.({
+          event: "model.semantic.accepted",
+          correlation,
+          attributes: { resultKind: "truth_transition" },
+          counts: {
+            outcomes: directive.proposal.outcomes.length,
+            operations: directive.proposal.operations.length,
+            events: directive.proposal.events.length,
+            observations: directive.proposal.observations.length,
+          },
+        });
         return {
           proposal: directive.proposal,
           initialActions: structuredClone(input.initialActions),
@@ -477,7 +576,7 @@ export class TruthEngine {
           requests: structuredClone(requests),
           checks: structuredClone(checks),
           rng,
-          modelAudit: combineModelExecutionAudits(audits, repairCount),
+          modelAudit: combineModelExecutionAudits(audits),
           reactionModelAudits: structuredClone(reactionModelAudits),
         };
       } catch (error) {
@@ -491,6 +590,21 @@ export class TruthEngine {
         }
         lastError = error instanceof Error ? error.message : String(error);
         issues = validationIssues(error);
+        const audit = audits.at(-1);
+        if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
+        const invocation = audit?.invocations.at(-1);
+        observe?.({
+          event: "model.semantic.rejected",
+          level: "warn",
+          correlation: modelInvocationCorrelation(scope, "truth-engine", input.definition.id, {
+            modelInvocationId: invocation?.id,
+            modelInvocation: invocation?.ordinal,
+          }),
+          attributes: { resultKind: invocation?.resultKind ?? null },
+          counts: { validationIssues: issues.length },
+          hashes: invocation?.responseHash ? { response: invocation.responseHash } : undefined,
+          error: serializeRuntimeError(error),
+        });
         repairCount += 1;
         if (repairCount > this.repairAttempts) {
           throw new Error(`TruthEngine failed after repairs: ${lastError}`, { cause: error });

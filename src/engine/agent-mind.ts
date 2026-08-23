@@ -17,12 +17,22 @@ import type {
 } from "./model";
 import {
   combineModelExecutionAudits,
+  modelInvocationCorrelation,
+  modelInvocationIdentity,
   ModelOutputError,
   ModelTransportError,
+  setModelInvocationOutcome,
+  setModelInvocationResultKind,
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "./model-provider";
 import { ModelOverloadedError } from "./model-scheduler";
+import { contentHash } from "./model-audit";
+import {
+  fullRuntimePayload,
+  runtimeEventEmitter,
+  serializeRuntimeError,
+} from "./observability";
 import {
   AGENT_PROMPT_VERSION,
   AGENT_SYSTEM,
@@ -130,36 +140,58 @@ export class AgentMind {
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
     let lastError = "unknown AgentMind validation failure";
+    const observe = runtimeEventEmitter(scope.observer);
 
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
       try {
+        const contextStartedAt = Date.now();
+        const context = buildAgentContext({
+          state,
+          agent,
+          observations,
+          currentAction: currentResolution.action,
+          currentOutcome: currentResolution.outcome,
+          sessionId: scope.workloadId,
+          runId: scope.batchId,
+          issues,
+        });
+        const identity = modelInvocationIdentity(scope, "agent-mind", agent.id, attempt + 1);
+        const correlation = modelInvocationCorrelation(scope, "agent-mind", agent.id, identity);
+        observe?.({
+          event: "model.context.built",
+          correlation,
+          durationMs: Math.max(0, Date.now() - contextStartedAt),
+          hashes: { context: contentHash(context) },
+        });
         const result = await this.provider.generateStructured({
           profileId: agent.modelProfileId,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
+          correlation: scope.correlation,
+          observer: scope.observer,
+          ...identity,
           role: "agent-mind",
           subjectId: agent.id,
           promptVersion: AGENT_PROMPT_VERSION,
           schemaName: "agent_mind_output",
           system: AGENT_SYSTEM,
-          context: buildAgentContext({
-            state,
-            agent,
-            observations,
-            currentAction: currentResolution.action,
-            currentOutcome: currentResolution.outcome,
-            sessionId: scope.workloadId,
-            runId: scope.batchId,
-            issues,
-          }),
+          context,
           schema: agentMindOutputSchema,
         });
         audits.push(result.audit);
         const validated = validateMindOutput(agent, state.revision, state.step, observations, events, result.value);
+        setModelInvocationResultKind(result.audit, "agent_mind");
+        setModelInvocationOutcome(result.audit, "accepted");
+        observe?.({
+          event: "model.semantic.accepted",
+          correlation,
+          attributes: { resultKind: "agent_mind" },
+          hashes: { response: result.audit.invocations.at(-1)!.responseHash! },
+        });
         return {
           ...validated,
-          modelAudit: combineModelExecutionAudits(audits, attempt),
+          modelAudit: combineModelExecutionAudits(audits),
         };
       } catch (error) {
         if (isTerminalModelError(error)) throw error;
@@ -168,6 +200,21 @@ export class AgentMind {
           !(error instanceof Error)) throw error;
         lastError = error instanceof Error ? error.message : String(error);
         issues = validationIssues(error);
+        const audit = audits.at(-1);
+        if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
+        const invocation = audit?.invocations.at(-1);
+        observe?.({
+          event: "model.semantic.rejected",
+          level: "warn",
+          correlation: modelInvocationCorrelation(scope, "agent-mind", agent.id, {
+            modelInvocationId: invocation?.id,
+            modelInvocation: invocation?.ordinal,
+          }),
+          attributes: { resultKind: invocation?.resultKind ?? null },
+          counts: { validationIssues: issues.length },
+          payload: scope.observer ? fullRuntimePayload(scope.observer, { issues }) : undefined,
+          error: serializeRuntimeError(error),
+        });
       }
     }
     throw new Error(`AgentMind ${agent.id} failed after repairs: ${lastError}`);
@@ -183,35 +230,56 @@ export class AgentMind {
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
     let lastError = "unknown Agent reaction validation failure";
+    const observe = runtimeEventEmitter(scope.observer);
 
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
       try {
+        const contextStartedAt = Date.now();
+        const context = buildReactionContext({
+          state,
+          agent,
+          originalAction,
+          stimulus,
+          sessionId: scope.workloadId,
+          runId: scope.batchId,
+          issues,
+        });
+        const identity = modelInvocationIdentity(scope, "agent-reaction", agent.id, attempt + 1);
+        const correlation = modelInvocationCorrelation(scope, "agent-reaction", agent.id, identity);
+        observe?.({
+          event: "model.context.built",
+          correlation,
+          durationMs: Math.max(0, Date.now() - contextStartedAt),
+          hashes: { context: contentHash(context) },
+        });
         const result = await this.provider.generateStructured({
           profileId: agent.modelProfileId,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
+          correlation: scope.correlation,
+          observer: scope.observer,
+          ...identity,
           role: "agent-reaction",
           subjectId: agent.id,
           promptVersion: REACTION_PROMPT_VERSION,
           schemaName: "agent_reaction_decision",
           system: REACTION_SYSTEM,
-          context: buildReactionContext({
-            state,
-            agent,
-            originalAction,
-            stimulus,
-            sessionId: scope.workloadId,
-            runId: scope.batchId,
-            issues,
-          }),
+          context,
           schema: reactionDecisionSchema,
         });
         audits.push(result.audit);
         const validated = validateReactionDecision(agent, state.revision, originalAction, stimulus, result.value);
+        setModelInvocationResultKind(result.audit, `reaction_${validated.kind}`);
+        setModelInvocationOutcome(result.audit, "accepted");
+        observe?.({
+          event: "model.semantic.accepted",
+          correlation,
+          attributes: { resultKind: `reaction_${validated.kind}` },
+        });
         return {
           ...validated,
-          modelAudit: combineModelExecutionAudits(audits, attempt),
+          modelAudit: combineModelExecutionAudits(audits),
         };
       } catch (error) {
         if (isTerminalModelError(error)) throw error;
@@ -220,6 +288,21 @@ export class AgentMind {
           !(error instanceof Error)) throw error;
         lastError = error instanceof Error ? error.message : String(error);
         issues = validationIssues(error);
+        const audit = audits.at(-1);
+        if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
+        const invocation = audit?.invocations.at(-1);
+        observe?.({
+          event: "model.semantic.rejected",
+          level: "warn",
+          correlation: modelInvocationCorrelation(scope, "agent-reaction", agent.id, {
+            modelInvocationId: invocation?.id,
+            modelInvocation: invocation?.ordinal,
+          }),
+          attributes: { resultKind: invocation?.resultKind ?? null },
+          counts: { validationIssues: issues.length },
+          payload: scope.observer ? fullRuntimePayload(scope.observer, { issues }) : undefined,
+          error: serializeRuntimeError(error),
+        });
       }
     }
     throw new Error(`Agent reaction ${agent.id} failed after repairs: ${lastError}`);

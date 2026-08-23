@@ -15,6 +15,8 @@
     "test:unit": "vitest run --project unit",
     "world:validate": "tsx scripts/validate-world.ts",
     "world:import": "tsx scripts/import-world.ts",
+    "diagnose:runtime": "tsx scripts/diagnose-runtime.ts",
+    "diagnose:live": "tsx scripts/diagnose-live.ts",
     "test:e2e": "npm run build && playwright test --project=e2e",
     "test:a11y": "npm run build && playwright test --project=a11y",
     "test:live:deepseek": "tsx scripts/smoke-deepseek.ts",

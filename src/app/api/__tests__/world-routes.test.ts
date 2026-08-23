@@ -1,6 +1,7 @@
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DeterministicModelProvider } from "../../../engine/testing/model-provider";
+import { RecordingRuntimeObserver } from "../../../engine/observability";
 import { FileWorldRepository } from "../../../script/world-repository";
 import { WorldHost } from "../../../server/world-host";
 import { MemoryWorldSessionStore } from "../../../server/world-session-store";
@@ -13,14 +14,15 @@ import { errorResponse } from "../h";
 
 const fixtureRoot = path.resolve("test/fixtures");
 
-function installHost(): WorldHost {
+function installHost(observer?: RecordingRuntimeObserver): WorldHost {
   let id = 0;
   const host = new WorldHost({
     repository: new FileWorldRepository(fixtureRoot),
-    store: new MemoryWorldSessionStore(),
+    store: new MemoryWorldSessionStore(observer),
     provider: new DeterministicModelProvider(),
     idFactory: () => `route-${++id}`,
     now: () => new Date("2026-08-23T00:00:00.000Z"),
+    observer,
   });
   WorldHost.setForTests(host);
   return host;
@@ -120,5 +122,80 @@ describe("world API routes", () => {
     const headerReplay = await replayFromHeader.text();
     expect(headerReplay).not.toContain("id: 3\n");
     expect(headerReplay).toContain("id: 4\n");
+  });
+
+  it("correlates HTTP, run, step, model, persistence, and SSE without changing public payloads", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "full" });
+    const host = installHost(observer);
+    const sessionResponse = await createSession(new Request("http://local/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scriptId: "open-world-fixture", seed: 44 }),
+    }));
+    const session = await sessionResponse.json() as { id: string };
+    const input = "验证端到端关联";
+    const runResponse = await startRun(
+      new Request(`http://local/api/sessions/${session.id}/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: input, apiKey: "must-not-be-logged" }),
+      }),
+      { params: Promise.resolve({ id: session.id }) },
+    );
+    const run = await runResponse.json() as { runId: string };
+    await host.waitForRun(session.id, run.runId);
+    const runChain = observer.events.filter((event) => event.correlation?.runId === run.runId);
+    const runRequestId = runChain.find((event) => event.event === "run.queued")?.correlation?.requestId;
+
+    expect(runRequestId).toBeTruthy();
+    expect(runChain.filter((event) => event.correlation?.requestId === runRequestId)
+      .map((event) => event.event)).toEqual(expect.arrayContaining([
+      "run.queued",
+      "run.started",
+      "step.started",
+      "model.context.built",
+      "model.semantic.accepted",
+      "persistence.write.completed",
+      "step.committed",
+      "run.finished",
+    ]));
+    const requestBody = observer.events.find((event) =>
+      event.event === "http.request.body" && event.correlation?.requestId === runRequestId);
+    expect(requestBody?.payload).toEqual({ text: input, apiKey: "[REDACTED]" });
+    const modelEvent = runChain.find((event) => event.event === "model.semantic.accepted");
+    expect(modelEvent?.correlation).toMatchObject({
+      sessionId: session.id,
+      runId: run.runId,
+      runAttempt: 1,
+      revision: 0,
+      step: 1,
+    });
+    expect(modelEvent?.correlation?.modelInvocationId).toBeTruthy();
+
+    const eventResponse = await streamEvents(
+      new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}/events?after=0`),
+      { params: Promise.resolve({ id: session.id, runId: run.runId }) },
+    );
+    await eventResponse.text();
+    const sseEvents = observer.events.filter((event) =>
+      event.event.startsWith("sse.") && event.correlation?.runId === run.runId);
+    expect(sseEvents.map((event) => event.event)).toEqual(expect.arrayContaining([
+      "sse.connection.opened",
+      "sse.event.sent",
+      "sse.connection.closed",
+    ]));
+
+    const aborted = new AbortController();
+    aborted.abort();
+    const cancelledResponse = await streamEvents(
+      new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}/events`, {
+        signal: aborted.signal,
+      }),
+      { params: Promise.resolve({ id: session.id, runId: run.runId }) },
+    );
+    await cancelledResponse.text();
+    expect(observer.events.some((event) =>
+      event.event === "sse.connection.cancelled" && event.correlation?.runId === run.runId)).toBe(true);
+    expect(JSON.stringify(await host.run(session.id, run.runId))).not.toContain("modelAudits");
   });
 });

@@ -225,7 +225,7 @@ export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptio
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       worldId: manifest.id,
       lawIds: laws.laws.map((law) => law.id),
       revision: 0,

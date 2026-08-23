@@ -317,7 +317,7 @@ export interface WorldEvent {
 }
 
 export interface SimulationState {
-  schemaVersion: 3;
+  schemaVersion: 4;
   worldId: string;
   lawIds: string[];
   revision: number;
@@ -566,6 +566,61 @@ export interface TransitionProposal {
   requiresPlayerDecision: boolean;
 }
 
+export interface ModelTokenUsage {
+  input: number | null;
+  output: number | null;
+  reasoning: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+}
+
+export interface ModelContextSectionAudit {
+  utf8Bytes: number;
+  itemCount: number | null;
+}
+
+export interface ModelContextAudit {
+  utf8Bytes: number;
+  sections: Record<string, ModelContextSectionAudit>;
+  counts: {
+    history: number;
+    events: number;
+    agents: number;
+    entities: number;
+    facts: number;
+    beliefs: number;
+    evidence: number;
+    observations: number;
+  };
+}
+
+export interface ModelTransportAttemptAudit {
+  attempt: number;
+  queueWaitMs: number;
+  executionMs: number;
+  retryDelayMs: number;
+  status: "succeeded" | "retryable_error" | "failed";
+  errorName: string | null;
+  statusCode: number | null;
+}
+
+export interface ModelInvocationAudit {
+  id: string;
+  ordinal: number;
+  requestHash: string;
+  responseHash: string | null;
+  requestUtf8Bytes: number;
+  responseUtf8Bytes: number | null;
+  context: ModelContextAudit;
+  transports: ModelTransportAttemptAudit[];
+  tokenUsage: ModelTokenUsage;
+  finishReason: string | null;
+  providerRequestId: string | null;
+  resultKind: string | null;
+  semanticOutcome: "accepted" | "rejected";
+  validationIssueCodes: string[];
+}
+
 export interface ModelExecutionAudit {
   role: "truth-engine" | "agent-mind" | "agent-reaction";
   subjectId: string;
@@ -577,22 +632,7 @@ export interface ModelExecutionAudit {
   promptVersion: string;
   inference: ModelInferenceConfig;
   structuredOutputMode: "json-schema-strict" | "json-object-zod" | "deterministic-test";
-  attempts: number;
-  transportAttempts: number;
-  repairAttempts: number;
-  queueWaitMs: number;
-  executionMs: number;
-  tokenUsage: {
-    input: number | null;
-    output: number | null;
-    reasoning: number | null;
-    cacheRead: number | null;
-    cacheWrite: number | null;
-  };
-  finishReasons: string[];
-  providerRequestIds: string[];
-  requestHashes: string[];
-  responseHashes: string[];
+  invocations: ModelInvocationAudit[];
 }
 
 export interface CommittedStep {

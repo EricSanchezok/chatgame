@@ -5,6 +5,7 @@ import { ScriptedModelProvider } from "../testing/model-provider";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
+import { summarizeModelExecutionAudit } from "../model-provider";
 import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 
@@ -60,7 +61,7 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
     agents[id] = agent(id);
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     worldId: "simulation",
     lawIds: ["time-passes"],
     revision: 0,
@@ -378,7 +379,7 @@ describe("multi-agent simulation", () => {
 
     expect(truthCall).toBe(3);
     expect(result.committed.checkRequests[0].visibility).toBe("result_only");
-    expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
+    expect(summarizeModelExecutionAudit(result.committed.modelAudits[0]).repairAttempts).toBe(1);
   });
 
   it("rejects an invented law-based modifier and accepts only structured numeric sources", async () => {
@@ -429,7 +430,7 @@ describe("multi-agent simulation", () => {
 
     expect(truthCall).toBe(3);
     expect(result.committed.checkRequests[0].modifierSources).toEqual([{ id: "resolve:player", amount: 2 }]);
-    expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
+    expect(summarizeModelExecutionAudit(result.committed.modelAudits[0]).repairAttempts).toBe(1);
   });
 
   it("rejects repeated modifier sources and duplicate check ids before drawing RNG", async () => {
@@ -486,7 +487,7 @@ describe("multi-agent simulation", () => {
     expect(truthCall).toBe(4);
     expect(result.committed.checkRequests).toHaveLength(1);
     expect(result.state.truth.rng.draws).toBe(1);
-    expect(result.committed.modelAudits[0].repairAttempts).toBe(2);
+    expect(summarizeModelExecutionAudit(result.committed.modelAudits[0]).repairAttempts).toBe(2);
   });
 
   it("initializes a dynamically created agent before committing the step", async () => {

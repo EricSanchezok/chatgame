@@ -3,6 +3,7 @@ import { AgentMind } from "../agent-mind";
 import { applyCharacterPatch } from "../character";
 import { validatePublicInformationBoundary } from "../information-boundary";
 import { contentHash } from "../model-audit";
+import { RecordingRuntimeObserver } from "../observability";
 import type {
   AgentActionProposal,
   AgentBeliefState,
@@ -315,7 +316,7 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
     };
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     worldId: "reaction-world",
     lawIds: ["time"],
     revision: 0,
@@ -799,6 +800,7 @@ describe("Agent self state and reaction protocol", () => {
 
   it("uses a successful perception check as a remote reaction basis", async () => {
     const initial = reactionState(["keeper"], true);
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
     let truthCalls = 0;
     let reactionCalls = 0;
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
@@ -867,13 +869,27 @@ describe("Agent self state and reaction protocol", () => {
     );
     engine.beginPlayerIntent("使用世界允许的远距感知发送讯息");
 
-    const result = await engine.step();
+    const result = await engine.step({
+      workloadId: "reaction-observability",
+      batchId: "reaction-observability-run",
+      observer,
+      correlation: {
+        sessionId: "reaction-observability",
+        runId: "reaction-observability-run",
+        runAttempt: 1,
+        stepAttemptId: "reaction-observability-run:1:1",
+        revision: 0,
+        step: 1,
+      },
+    });
 
     expect(reactionCalls).toBe(1);
     expect(result.committed.checkRequests[0].phase).toBe("perception");
     expect(result.committed.reactionRequests[0].basis[0]).toEqual({
       kind: "perception_check", checkId: "hear-distant-message",
     });
+    expect(observer.events.some((event) => event.event === "step.check_round.resolved")).toBe(true);
+    expect(observer.events.some((event) => event.event === "step.reaction_batch.completed")).toBe(true);
   });
 
   it("keeps the reaction window closed after resolution starts and forbids a second round", async () => {

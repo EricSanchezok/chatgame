@@ -3,6 +3,13 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import path from "node:path";
 import { z } from "zod";
 import { validateSimulationState } from "../engine/transaction";
+import {
+  NOOP_RUNTIME_OBSERVER,
+  runtimeEventEmitter,
+  serializeRuntimeError,
+  type RuntimeCorrelation,
+  type RuntimeObserver,
+} from "../engine/observability";
 import type { WorldRunEvent, WorldSessionDocument } from "./world-run-types";
 
 const identifierPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -14,7 +21,7 @@ function assertIdentifier(value: string, label: string): void {
 const envelopeSchema = z.object({
   checksum: z.string().regex(/^[a-f0-9]{64}$/),
   document: z.object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     id: z.string().min(1),
     scriptId: z.string().min(1),
     createdAt: z.string().min(1),
@@ -180,29 +187,100 @@ function validateDocument(document: WorldSessionDocument, expectedSessionId?: st
   }
 }
 
-function serialize(document: WorldSessionDocument): string {
-  validateDocument(document);
-  const documentJson = JSON.stringify(document);
-  return JSON.stringify({ checksum: checksum(documentJson), document });
+function serialize(
+  document: WorldSessionDocument,
+  observer: RuntimeObserver,
+  correlation?: RuntimeCorrelation,
+): string {
+  const observe = runtimeEventEmitter(observer);
+  const validationStartedAt = Date.now();
+  try {
+    validateDocument(document);
+    observe?.({
+      event: "persistence.history_validation.completed",
+      correlation,
+      durationMs: Math.max(0, Date.now() - validationStartedAt),
+      counts: { history: document.state.history.length, runs: Object.keys(document.runs).length },
+      hashes: { state: checksum(JSON.stringify(document.state)) },
+    });
+  } catch (error) {
+    observe?.({
+      event: "persistence.history_validation.failed",
+      level: "error",
+      correlation,
+      durationMs: Math.max(0, Date.now() - validationStartedAt),
+      error: serializeRuntimeError(error),
+    });
+    throw error;
+  }
+  const serializationStartedAt = Date.now();
+  try {
+    const documentJson = JSON.stringify(document);
+    const documentChecksum = checksum(documentJson);
+    const serialized = JSON.stringify({ checksum: documentChecksum, document });
+    observe?.({
+      event: "persistence.document.serialized",
+      correlation,
+      durationMs: Math.max(0, Date.now() - serializationStartedAt),
+      measurements: {
+        documentUtf8Bytes: Buffer.byteLength(documentJson, "utf8"),
+        envelopeUtf8Bytes: Buffer.byteLength(serialized, "utf8"),
+      },
+      hashes: { checksum: documentChecksum },
+    });
+    return serialized;
+  } catch (error) {
+    observe?.({
+      event: "persistence.document.serialization_failed",
+      level: "error",
+      correlation,
+      durationMs: Math.max(0, Date.now() - serializationStartedAt),
+      error: serializeRuntimeError(error),
+    });
+    throw error;
+  }
 }
 
-function parse(serialized: string, expectedSessionId: string): WorldSessionDocument {
-  const envelope = envelopeSchema.parse(JSON.parse(serialized));
-  const documentJson = JSON.stringify(envelope.document);
-  if (checksum(documentJson) !== envelope.checksum) throw new Error("world session checksum mismatch");
-  const document = envelope.document as WorldSessionDocument;
+function parse(
+  serialized: string,
+  expectedSessionId: string,
+  observer: RuntimeObserver,
+  correlation?: RuntimeCorrelation,
+): WorldSessionDocument {
+  const observe = runtimeEventEmitter(observer);
+  const startedAt = Date.now();
   try {
+    const envelope = envelopeSchema.parse(JSON.parse(serialized));
+    const documentJson = JSON.stringify(envelope.document);
+    if (checksum(documentJson) !== envelope.checksum) throw new Error("world session checksum mismatch");
+    const document = envelope.document as WorldSessionDocument;
     validateDocument(document, expectedSessionId);
+    observe?.({
+      event: "persistence.read.completed",
+      correlation: { ...correlation, sessionId: expectedSessionId },
+      durationMs: Math.max(0, Date.now() - startedAt),
+      measurements: { envelopeUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+      counts: { history: document.state.history.length, runs: Object.keys(document.runs).length },
+      hashes: { checksum: envelope.checksum },
+    });
+    return document;
   } catch (error) {
+    observe?.({
+      event: "persistence.read.failed",
+      level: "error",
+      correlation: { ...correlation, sessionId: expectedSessionId },
+      durationMs: Math.max(0, Date.now() - startedAt),
+      measurements: { envelopeUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+      error: serializeRuntimeError(error),
+    });
     throw new Error(`invalid world session: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return document;
 }
 
 export interface WorldSessionStore {
-  write(document: WorldSessionDocument): void;
-  read(sessionId: string): WorldSessionDocument;
-  list(): string[];
+  write(document: WorldSessionDocument, correlation?: RuntimeCorrelation): void;
+  read(sessionId: string, correlation?: RuntimeCorrelation): WorldSessionDocument;
+  list(correlation?: RuntimeCorrelation): string[];
 }
 
 export class WorldSessionNotFoundError extends Error {
@@ -214,17 +292,54 @@ export class WorldSessionNotFoundError extends Error {
 
 export class MemoryWorldSessionStore implements WorldSessionStore {
   private readonly values = new Map<string, string>();
+  private readonly observe: ReturnType<typeof runtimeEventEmitter>;
   writeCount = 0;
 
-  write(document: WorldSessionDocument): void {
-    this.writeCount += 1;
-    this.values.set(document.id, serialize(document));
+  constructor(private readonly observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER) {
+    this.observe = runtimeEventEmitter(observer);
   }
 
-  read(sessionId: string): WorldSessionDocument {
+  write(document: WorldSessionDocument, correlation?: RuntimeCorrelation): void {
+    const startedAt = Date.now();
+    this.writeCount += 1;
+    let stage = "serialize";
+    try {
+      const serialized = serialize(document, this.observer, correlation);
+      stage = "commit";
+      this.values.set(document.id, serialized);
+      this.observe?.({
+        event: "persistence.write.completed",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        measurements: { envelopeUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+        attributes: { sink: "memory" },
+      });
+    } catch (error) {
+      this.observe?.({
+        event: "persistence.write.failed",
+        level: "error",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { sink: "memory", stage },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
+  }
+
+  read(sessionId: string, correlation?: RuntimeCorrelation): WorldSessionDocument {
     const serialized = this.values.get(sessionId);
-    if (!serialized) throw new WorldSessionNotFoundError(sessionId);
-    return parse(serialized, sessionId);
+    if (!serialized) {
+      const error = new WorldSessionNotFoundError(sessionId);
+      this.observe?.({
+        event: "persistence.read.failed",
+        level: "warn",
+        correlation: { ...correlation, sessionId },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
+    return parse(serialized, sessionId, this.observer, correlation);
   }
 
   list(): string[] {
@@ -233,29 +348,106 @@ export class MemoryWorldSessionStore implements WorldSessionStore {
 }
 
 export class FileWorldSessionStore implements WorldSessionStore {
-  constructor(readonly root: string) {}
+  private readonly observe: ReturnType<typeof runtimeEventEmitter>;
+
+  constructor(
+    readonly root: string,
+    private readonly observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER,
+  ) {
+    this.observe = runtimeEventEmitter(observer);
+  }
 
   private file(sessionId: string): string {
     assertIdentifier(sessionId, "session id");
     return path.join(this.root, "sessions", `${sessionId}.json`);
   }
 
-  write(document: WorldSessionDocument): void {
+  write(document: WorldSessionDocument, correlation?: RuntimeCorrelation): void {
+    const startedAt = Date.now();
     const file = this.file(document.id);
-    mkdirSync(path.dirname(file), { recursive: true });
     const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
+    let stage = "directory";
     try {
-      writeFileSync(temporary, serialize(document), "utf8");
+      mkdirSync(path.dirname(file), { recursive: true });
+      stage = "serialize";
+      const serialized = serialize(document, this.observer, correlation);
+      const temporaryStartedAt = Date.now();
+      stage = "temporary_write";
+      writeFileSync(temporary, serialized, "utf8");
+      this.observe?.({
+        event: "persistence.temporary_file.written",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - temporaryStartedAt),
+        measurements: { envelopeUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+        hashes: { envelope: checksum(serialized) },
+      });
+      const renameStartedAt = Date.now();
+      stage = "rename";
       renameSync(temporary, file);
+      this.observe?.({
+        event: "persistence.rename.completed",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - renameStartedAt),
+      });
+      this.observe?.({
+        event: "persistence.write.completed",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        measurements: { envelopeUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+        attributes: { sink: "file" },
+      });
+    } catch (error) {
+      this.observe?.({
+        event: "persistence.write.failed",
+        level: "error",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { sink: "file", stage },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
     } finally {
-      rmSync(temporary, { force: true });
+      try {
+        rmSync(temporary, { force: true });
+      } catch (error) {
+        this.observe?.({
+          event: "persistence.temporary_file.cleanup_failed",
+          level: "warn",
+          correlation: { ...correlation, sessionId: document.id },
+          error: serializeRuntimeError(error),
+        });
+      }
     }
   }
 
-  read(sessionId: string): WorldSessionDocument {
+  read(sessionId: string, correlation?: RuntimeCorrelation): WorldSessionDocument {
+    const startedAt = Date.now();
     const file = this.file(sessionId);
-    if (!existsSync(file)) throw new WorldSessionNotFoundError(sessionId);
-    return parse(readFileSync(file, "utf8"), sessionId);
+    if (!existsSync(file)) {
+      const error = new WorldSessionNotFoundError(sessionId);
+      this.observe?.({
+        event: "persistence.read.failed",
+        level: "warn",
+        correlation: { ...correlation, sessionId },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
+    let serialized: string;
+    try {
+      serialized = readFileSync(file, "utf8");
+    } catch (error) {
+      this.observe?.({
+        event: "persistence.read.failed",
+        level: "error",
+        correlation: { ...correlation, sessionId },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
+    return parse(serialized, sessionId, this.observer, correlation);
   }
 
   list(): string[] {
