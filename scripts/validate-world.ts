@@ -9,7 +9,7 @@ if (!directory) {
 } else {
   try {
     const modelCatalog = loadModelCatalog(path.resolve(
-      process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml",
+      process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
     ));
     const definition = loadWorldScript(path.resolve(directory), { seed: 1, modelCatalog });
     process.stdout.write(`${definition.id}: ${Object.keys(definition.initialState.truth.entities).length} entities, ${Object.keys(definition.initialState.agents).length} agents\n`);

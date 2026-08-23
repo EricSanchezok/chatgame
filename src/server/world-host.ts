@@ -130,13 +130,13 @@ export class WorldHost {
   static get(): WorldHost {
     if (!this.singleton) {
       const catalog = loadModelCatalog(path.resolve(
-        /* turbopackIgnore: true */ process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
       const repository = new FileWorldRepository(
-        path.resolve(/* turbopackIgnore: true */ process.env.CHATGAME_SCRIPTS_ROOT ?? "scripts"),
+        path.resolve(/* turbopackIgnore: true */ process.env.LIVINGWORLD_SCRIPTS_ROOT ?? "scripts"),
       );
       const store = new FileWorldSessionStore(
-        path.resolve(/* turbopackIgnore: true */ process.env.CHATGAME_DATA_ROOT ?? ".chatgame"),
+        path.resolve(/* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld"),
       );
       this.singleton = new WorldHost({
         repository,

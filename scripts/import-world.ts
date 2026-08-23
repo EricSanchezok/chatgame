@@ -12,8 +12,8 @@ if (!archive) {
   try {
     const result = importWorldArchive(
       readFileSync(path.resolve(archive)),
-      path.resolve(process.env.CHATGAME_SCRIPTS_ROOT ?? "scripts"),
-      loadModelCatalog(path.resolve(process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml")),
+      path.resolve(process.env.LIVINGWORLD_SCRIPTS_ROOT ?? "scripts"),
+      loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml")),
       replace,
     );
     process.stdout.write(`${result.id}: ${result.replaced ? "replaced" : "imported"}\n`);

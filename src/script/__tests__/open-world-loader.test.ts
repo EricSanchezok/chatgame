@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 function copiedFixture(): string {
-  const parent = mkdtempSync(path.join(tmpdir(), "chatgame-loader-"));
+  const parent = mkdtempSync(path.join(tmpdir(), "livingworld-loader-"));
   temporaryDirectories.push(parent);
   const target = path.join(parent, "world");
   cpSync(fixture, target, { recursive: true });

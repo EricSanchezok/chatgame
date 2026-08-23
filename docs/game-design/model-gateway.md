@@ -37,7 +37,7 @@ provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是�
 - `openai-reasoning` 配置 OpenAI 原生 `effort`、nullable summary 和 nullable text verbosity。
 - `xai-reasoning` 配置 xAI 原生 `low|medium|high|xhigh` 与 nullable summary。
 
-目录拒绝未知字段、空 provider/profile、无效引用、重复角色、非法并发/超时数值和 provider/inference 类型不匹配。可用 `CHATGAME_MODEL_CATALOG_PATH` 指向另一份完整目录；不支持按字段覆盖或热重载。
+目录拒绝未知字段、空 provider/profile、无效引用、重复角色、非法并发/超时数值和 provider/inference 类型不匹配。可用 `LIVINGWORLD_MODEL_CATALOG_PATH` 指向另一份完整目录；不支持按字段覆盖或热重载。
 
 ## 供应商调用
 

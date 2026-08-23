@@ -36,7 +36,7 @@ function zipDirectory(directory: string, prefix = "world"): AdmZip {
 }
 
 function scriptsRoot(): string {
-  const root = mkdtempSync(path.join(tmpdir(), "chatgame-import-test-"));
+  const root = mkdtempSync(path.join(tmpdir(), "livingworld-import-test-"));
   temporaryRoots.push(root);
   return root;
 }
@@ -92,7 +92,7 @@ describe("world import", () => {
   });
 
   it("rejects an archive whose world references an unknown model profile before installation", () => {
-    const source = mkdtempSync(path.join(tmpdir(), "chatgame-import-profile-"));
+    const source = mkdtempSync(path.join(tmpdir(), "livingworld-import-profile-"));
     temporaryRoots.push(source);
     const world = path.join(source, "world");
     cpSync(fixture, world, { recursive: true });
