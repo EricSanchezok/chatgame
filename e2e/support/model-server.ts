@@ -21,6 +21,7 @@ function agentOutput(context: Record<string, unknown>) {
   const revision = context.revision as number;
   return {
     beliefPatch: { agentId: agent.id, baseRevision: revision, operations: [] },
+    characterPatch: { agentId: agent.id, baseRevision: revision, operations: [] },
     nextAction: {
       id: `e2e-action:${agent.id}:${revision}`,
       actorId: agent.id,
@@ -58,12 +59,14 @@ function truthOutput(context: Record<string, unknown>) {
         id: eventId,
         step: nextStep,
         description: "世界在联合裁决后推进了一秒。",
+        impact: "ordinary",
         causes: [{ kind: "law", id: lawId }],
       }],
       observations: ["player", ...Object.keys(agentEpistemics)].map((observerId) => ({
         id: `e2e-observation:${observerId}:${nextStep}`,
         observerId,
         step: nextStep,
+        kind: "outcome",
         summary: observerId === "player" ? "世界回应了你的自由行动。" : "周围的世界继续变化。",
         introductions: [],
         apparentClaims: [],

@@ -103,3 +103,4 @@
 - [0034 — Truth Engine 验证矩阵](0034-truth-engine-verification-matrix.md)
 - [0035 — Truth Engine 硬化与可验证审计](0035-truth-engine-hardening-and-verifiable-audit.md)
 - [0036 — 多供应商模型目录、严格结构化输出与公平调度](0036-multi-provider-model-gateway-and-fair-scheduler.md)
+- [0037 — Agent 心智演化、自身状态投影与有限反应窗口](0037-agent-evolution-self-awareness-and-reaction-window.md)

@@ -1,5 +1,6 @@
 import { AgentMind } from "./agent-mind";
 import { applyBeliefPatch } from "./belief";
+import { applyCharacterPatch } from "./character";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { contentHash } from "./model-audit";
 import type { AgentMindOutput } from "./llm-schemas";
@@ -79,11 +80,26 @@ function mergeBindingsForPatch(agent: AgentState, patch: BeliefPatch): AgentStat
   return next;
 }
 
-function applyMindOutput(agent: AgentState, output: AgentMindOutput): AgentState {
+function applyMindOutput(
+  agent: AgentState,
+  output: AgentMindOutput,
+  step: number,
+  observations: readonly ObservationPacket[],
+  events: TransitionProposal["events"],
+): AgentState {
   const withBindings = mergeBindingsForPatch(agent, output.beliefPatch);
+  const belief = applyBeliefPatch(withBindings.belief, output.beliefPatch);
   return {
     ...withBindings,
-    belief: applyBeliefPatch(withBindings.belief, output.beliefPatch),
+    belief,
+    character: applyCharacterPatch(
+      withBindings.character,
+      belief,
+      output.characterPatch,
+      step,
+      observations,
+      events,
+    ),
     nextAction: structuredClone(output.nextAction),
   };
 }
@@ -185,7 +201,13 @@ export class SimulationEngine {
       "AgentMind bootstrap",
     );
     for (let index = 0; index < agents.length; index += 1) {
-      source.agents[agents[index].id] = applyMindOutput(agents[index], outputs[index]);
+      source.agents[agents[index].id] = applyMindOutput(
+        agents[index],
+        outputs[index],
+        source.step,
+        [],
+        [],
+      );
     }
     source.bootstrapModelAudits = outputs.map((output) => structuredClone(output.modelAudit));
     validateSimulationState(source, true, true);
@@ -248,17 +270,45 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `step:${source.revision}:${source.step + 1}`,
     };
-    const actions = this.jointActions();
+    const initialActions = this.jointActions();
     let transitionCandidate: SimulationState | undefined;
     const resolution = await this.truthEngine.resolve({
       definition: this.definition,
       state: source,
-      actions,
-      validateProposal: (proposal) => {
+      initialActions,
+      resolveReactions: async (requests) => {
+        const reactionOutputs = await settledValues(requests.map((request) => {
+          const sourceAgent = source.agents[request.agentId];
+          const agent = applyObservationBindings(sourceAgent, [request.stimulus]);
+          const originalAction = initialActions.find((action) => action.actorId === request.agentId);
+          if (!originalAction) throw new Error(`agent ${request.agentId} has no prepared action`);
+          return this.agentMind.react(source, agent, originalAction, request.stimulus, executionScope);
+        }), "Agent reaction");
+        return {
+          decisions: reactionOutputs.map((output) => output.kind === "keep" ? {
+            agentId: output.agentId,
+            baseRevision: output.baseRevision,
+            originalProposalId: output.originalProposalId,
+            kind: output.kind,
+          } : {
+            agentId: output.agentId,
+            baseRevision: output.baseRevision,
+            originalProposalId: output.originalProposalId,
+            kind: output.kind,
+            replacementAction: output.replacementAction,
+          }),
+          modelAudits: reactionOutputs.map((output) => output.modelAudit),
+        };
+      },
+      validateProposal: (proposal, _checks, finalActions, stimulusObservations) => {
         assertStepAdvancesTime(proposal);
-        validatePublicInformationBoundary(source, actions, proposal);
+        validatePublicInformationBoundary(source, finalActions, proposal);
         const candidate = applyTransitionProposal(source, proposal);
-        validateObservations(candidate, proposal.observations, candidate.step);
+        validateObservations(
+          candidate,
+          [...stimulusObservations, ...proposal.observations],
+          candidate.step,
+        );
         assertObservationCoverage(candidate, proposal.observations);
         transitionCandidate = candidate;
       },
@@ -267,35 +317,46 @@ export class SimulationEngine {
 
     const candidate = transitionCandidate as SimulationState;
     candidate.truth.rng = structuredClone(resolution.rng);
-    applyPlayerBindings(candidate, resolution.proposal.observations);
+    const observations = [
+      ...resolution.stimulusObservations,
+      ...resolution.proposal.observations,
+    ];
+    applyPlayerBindings(candidate, observations);
     candidate.player.knowledge = ingestPlayerObservations(
       candidate.player.knowledge,
-      observationsFor(resolution.proposal.observations, "player"),
+      observationsFor(observations, "player"),
     );
 
     const agents = Object.values(candidate.agents).map((agent) =>
       applyObservationBindings(
         agent,
-        observationsFor(resolution.proposal.observations, agent.id),
+        observationsFor(observations, agent.id),
       ));
     const outputs = await settledValues(
       agents.map((agent) => {
-        const action = actions.find((candidateAction) => candidateAction.actorId === agent.id) ?? null;
+        const action = resolution.actions.find((candidateAction) => candidateAction.actorId === agent.id) ?? null;
         const outcome = action
           ? resolution.proposal.outcomes.find((candidateOutcome) => candidateOutcome.proposalId === action.id) ?? null
           : null;
         return this.agentMind.think(
           candidate,
           agent,
-          observationsFor(resolution.proposal.observations, agent.id),
+          observationsFor(observations, agent.id),
           executionScope,
           { action, outcome: outcome ? { status: outcome.status, summary: outcome.summary } : null },
+          resolution.proposal.events,
         );
       }),
       "AgentMind",
     );
     for (let index = 0; index < agents.length; index += 1) {
-      candidate.agents[agents[index].id] = applyMindOutput(agents[index], outputs[index]);
+      candidate.agents[agents[index].id] = applyMindOutput(
+        agents[index],
+        outputs[index],
+        candidate.step,
+        observationsFor(observations, agents[index].id),
+        resolution.proposal.events,
+      );
     }
     validateSimulationState(candidate, true);
 
@@ -303,18 +364,23 @@ export class SimulationEngine {
       baseRevision: source.revision,
       revision: candidate.revision,
       step: candidate.step,
-      actions: structuredClone(actions),
+      initialActions: structuredClone(resolution.initialActions),
+      reactionRequests: structuredClone(resolution.reactionRequests),
+      reactionDecisions: structuredClone(resolution.reactionDecisions),
+      actions: structuredClone(resolution.actions),
       rngBefore: structuredClone(source.truth.rng),
       rngAfter: structuredClone(candidate.truth.rng),
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
       outcomes: structuredClone(resolution.proposal.outcomes),
       events: structuredClone(resolution.proposal.events),
-      observations: structuredClone(resolution.proposal.observations),
+      observations: structuredClone(observations),
       operations: structuredClone(resolution.proposal.operations),
       beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
+      characterPatches: outputs.map((output) => structuredClone(output.characterPatch)),
       modelAudits: [
         structuredClone(resolution.modelAudit),
+        ...resolution.reactionModelAudits.map((audit) => structuredClone(audit)),
         ...outputs.map((output) => structuredClone(output.modelAudit)),
       ],
     };

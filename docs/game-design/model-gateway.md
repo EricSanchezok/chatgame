@@ -29,7 +29,7 @@ profiles:
       effort: max
 ```
 
-provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；每个已配置 provider 在服务初始化时都必须解析到非空密钥。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 只允许 `truth-engine` 或 `agent-mind`，调用、世界加载和动态 Agent 创建都会校验角色。
+provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；每个已配置 provider 在服务初始化时都必须解析到非空密钥。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 只允许 `truth-engine` 或 `agent-mind`，调用、世界加载和动态 Agent 创建都会校验角色；一次性 reaction 复用该 Agent 的 `agent-mind` Profile，但在审计中记录为独立的 `agent-reaction` 调用。
 
 `inference` 是 provider 原生判别联合：
 

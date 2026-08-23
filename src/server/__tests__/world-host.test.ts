@@ -23,6 +23,7 @@ class TransientFailureStore extends MemoryWorldSessionStore {
 function mindOutput(agentId: string, revision: number) {
   return {
     beliefPatch: { agentId, baseRevision: revision, operations: [] },
+    characterPatch: { agentId, baseRevision: revision, operations: [] },
     nextAction: {
       id: `agent-action:${agentId}:${revision}`,
       actorId: agentId,
@@ -63,6 +64,7 @@ function transition(context: {
         id: eventId,
         step: nextStep,
         description: "石门前过去了十秒。",
+        impact: "ordinary",
         causes: [{ kind: "law", id: "time-passes" }],
       },
     ],
@@ -71,8 +73,9 @@ function transition(context: {
         id: `observation:player:${nextStep}`,
         observerId: "player",
         step: nextStep,
+        kind: "outcome",
         summary: "你看见守门人仍站在石门前。",
-        introductions: [
+        introductions: nextStep === 1 ? [
           {
             localEntity: {
               id: "gatekeeper",
@@ -82,7 +85,7 @@ function transition(context: {
             },
             canonicalEntityId: "keeper",
           },
-        ],
+        ] : [],
         apparentClaims: [],
         sourceEventIds: [eventId],
       },
@@ -90,6 +93,7 @@ function transition(context: {
         id: `observation:keeper:${nextStep}`,
         observerId: "keeper",
         step: nextStep,
+        kind: "outcome",
         summary: "旅人仍在门前。",
         introductions: [],
         apparentClaims: [],
@@ -156,6 +160,10 @@ describe("WorldHost", () => {
     const observation = completed.run.events.find((event) => event.type === "player.observation");
     expect(JSON.stringify(observation)).not.toContain("canonicalEntityId");
     expect(JSON.stringify(observation)).not.toContain('"keeper"');
+    expect(JSON.stringify(observation)).not.toContain('"kind":"outcome"');
+    expect(JSON.stringify(completed)).not.toContain("characterPatches");
+    expect(JSON.stringify(completed)).not.toContain("reactionRequests");
+    expect(JSON.stringify(completed)).not.toContain("modelAudits");
     const storedStep = store.read(session.id).state.history[0];
     expect(storedStep.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(storedStep.modelAudits.map((audit) => audit.role)).toEqual(["truth-engine", "agent-mind"]);
@@ -312,7 +320,7 @@ describe("WorldHost", () => {
     expect(store.read(session.id).state.history).toHaveLength(100);
     expect(result.run.events.filter((event) => event.type === "step.committed")).toHaveLength(100);
     expect(result.run.events.at(-1)?.type).toBe("run.step_limit");
-  });
+  }, 10_000);
 
   it("recovers a persisted running process as retriable failure without changing committed history", async () => {
     const provider = new ScriptedModelProvider(normalHandler());

@@ -38,6 +38,15 @@ describe("open world script loader", () => {
       value: "real",
     });
     expect(definition.initialState.agents.keeper.nextAction).toBeNull();
+    expect(definition.initialState.agents.keeper.character).toMatchObject({
+      persona: { summary: expect.stringContaining("谨慎"), voice: expect.stringContaining("简短") },
+      traits: { cautious: { strength: 0.8, status: "active", createdAtStep: 0 } },
+      values: { duty: { strength: 0.9, status: "active" } },
+      emotions: { alertness: { intensity: 0.4, status: "active" } },
+      attitudes: { "toward-traveler": { subjectId: "traveler", intensity: 0.5 } },
+      goals: { "guard-gate": { priority: 0.9, progress: 0 } },
+      commitments: { "dawn-watch": { subjectIds: ["self"], priority: 0.8 } },
+    });
     expect(definition.initialState.truth.quantities["spirit-stone:keeper"].amount).toBe(20);
     expect(definition.initialState.truth.rng.seed).toBe(91);
     expect(definition.rulePackages).toEqual([expect.objectContaining({
@@ -45,6 +54,49 @@ describe("open world script loader", () => {
       version: "1.0.0",
       config: { opposedChecks: true, damageUsesMeters: true },
     })]);
+  });
+
+  it("defaults every optional character layer from only persona.summary", () => {
+    const world = copiedFixture();
+    const keeperFile = path.join(world, "entities/keeper.yaml");
+    const keeper = readFileSync(keeperFile, "utf8").replace(
+      /  character:\n[\s\S]*?  belief:\n/,
+      "  character:\n    persona:\n      summary: 只保留最小人格摘要。\n  belief:\n",
+    );
+    writeFileSync(keeperFile, keeper, "utf8");
+
+    expect(loadWorldScript(world, { modelCatalog }).initialState.agents.keeper.character).toEqual({
+      persona: { summary: "只保留最小人格摘要。", voice: "", updatedAtStep: 0, evidenceIds: [] },
+      traits: {},
+      values: {},
+      emotions: {},
+      attitudes: {},
+      goals: {},
+      commitments: {},
+    });
+  });
+
+  it("rejects schema v3 worlds and missing or duplicate Agent self bindings", () => {
+    const oldWorld = copiedFixture();
+    const manifestFile = path.join(oldWorld, "script.yaml");
+    writeFileSync(
+      manifestFile,
+      readFileSync(manifestFile, "utf8").replace("schema_version: 4", "schema_version: 3"),
+      "utf8",
+    );
+    expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
+
+    const duplicateSelf = copiedFixture();
+    const keeperFile = path.join(duplicateSelf, "entities/keeper.yaml");
+    writeFileSync(
+      keeperFile,
+      readFileSync(keeperFile, "utf8").replace(
+        "canonical_entity_ids: [player]",
+        "canonical_entity_ids: [keeper]",
+      ),
+      "utf8",
+    );
+    expect(() => loadWorldScript(duplicateSelf, { modelCatalog })).toThrow("exactly one self binding");
   });
 
   it("loads only rule packages registered by the trusted server runtime", () => {

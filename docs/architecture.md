@@ -6,8 +6,8 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 | 层 | 目录 | 唯一职责 |
 |---|---|---|
-| 世界契约 | `src/script/` | 严格读取 schema v3 YAML，构造初始 `WorldDefinition` 与 `SimulationState` |
-| 仿真内核 | `src/engine/` | AgentMind、Truth Engine、d20、观察隔离、信念更新、状态事务 |
+| 世界契约 | `src/script/` | 严格读取 schema v4 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v3 |
+| 仿真内核 | `src/engine/` | AgentMind、角色演化、自身状态投影、Truth Engine、有限反应、d20、观察隔离与状态事务 |
 | 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
 | HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表与导入 |
@@ -18,19 +18,19 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 ## 三种现实
 
-`CanonicalWorldState` 是唯一客观现实，包含实体、位置、事实、数值、时间、生命周期、客观事件与 RNG 状态。每个 `AgentState` 拥有独立的稀疏 `AgentBeliefState`，用局部实体 ID 表达其相信、怀疑或否认的内容；它可以与真相冲突。`PlayerKnowledgeState` 只保存玩家已知信息，不记录或推断真人心理。
+`CanonicalWorldState` 是唯一客观现实，包含实体、位置、事实、数值、时间、生命周期、客观事件与 RNG 状态。每个 `AgentState` 拥有独立的稀疏 `AgentBeliefState` 和分层 `AgentCharacterState`：前者用局部实体 ID 表达可与真相冲突的主观认知，后者保存人格、特质、价值、情绪、态度、目标和承诺。`PlayerKnowledgeState` 只保存玩家已知信息，不记录或推断真人心理。
 
-`EpistemicBinding` 只在服务端把局部身份映射到 canonical entity。AgentMind prompt 与公共 API 都移除该映射，所以模型和浏览器不能靠 ID 绕过认知边界。
+`EpistemicBinding` 只在服务端把局部身份映射到 canonical entity。服务端以该映射派生去 canonical ID 的 `AgentSelfStateView`；AgentMind 能精确看到自身生命周期、时间、地点表象、数值与授权 Fact，却看不到底层 entity、placement、meter 或 rating identity。AgentMind prompt 与公共 API 都移除 binding，所以模型和浏览器不能靠 ID 绕过认知边界。
 
 ## 一个世界步骤
 
-1. 当前玩家目标和每个存活 Agent 已准备的自由行动都绑定同一 `baseRevision`，并按 actor/proposal identity 规范排序后形成联合输入。
-2. Truth Engine 一次看到完整 canonical truth、世界法典、认知映射与联合行动，先决定是否需要检定。
-3. 需要随机性时，它先提交 DC、修正来源、优势/劣势、风险和可见性；内核随后掷骰。
-4. Truth Engine 提出覆盖每个行动的 outcome、世界 delta、事件、逐观察者 observation 与玩家目标状态。
-5. 事务层在克隆前态上校验引用、因果、守恒、范围、包含关系、观察覆盖和正数时间推进；公开信息守卫同时拒绝 canonical identity、私密事实和其他主体私密信念进入玩家结果。
-6. 每个 AgentMind 只看自己的 belief 与 observation，更新 belief 并准备下一步骤行动；新创建 Agent 也必须在本步初始化。
-7. 全部结果有效后，revision、step、RNG、truth、belief、玩家知识和审计历史一次提交。审计保存完整检定请求/结果、模型配置与尝试次数、内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
+1. 当前玩家目标和每个存活 Agent 已准备的自由行动绑定同一 `baseRevision`，按 actor/proposal identity 规范排序形成初始联合输入。
+2. Truth Engine 可以先预承诺 perception checks，再至多一次请求有结构化感知依据的 Agent 对本步骤玩家行动 keep/replace；未被请求者保留预备行动。
+3. 最终行动集锁定后，Truth Engine 可以预承诺 resolution checks；resolution 开始后 reaction window 永久关闭。
+4. Truth Engine 基于最终行动集提出 outcome、世界 delta、带影响级别的事件、逐观察者 outcome observation 与玩家目标状态。
+5. 事务层在克隆前态上校验引用、阶段、因果、守恒、范围、包含关系、观察覆盖和正数时间推进；公开信息守卫拒绝 canonical identity、私密事实和其他主体私密信念进入玩家结果。
+6. 每个 AgentMind 只看自己的 belief、character、self view、私有 stimulus 和 outcome observation，按 `BeliefPatch → CharacterPatch → nextAction` 更新；新创建 Agent 也在本步初始化。
+7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。审计保存 initial/final actions、reaction、完整检定、角色 patch、模型尝试和内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
 
 ## 模型调用链
 
@@ -55,11 +55,13 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 - Quantity 转移守恒；生产/消耗必须由目录允许并引用世界法则。
 - Meter/Rating 必须在剧本定义范围内；threshold 只触发一次。
 - placement 不得形成循环；Agent 必须绑定活动实体。
-- Truth 输出、Observation、BeliefPatch 与下一行动全部通过 schema 与语义校验。
+- 每个 Agent 恰好有一个局部 self binding；自身状态投影不得泄漏 canonical identity 或其他实体状态。
+- 每步最多一轮玩家刺激 reaction；每个 actor 最终恰好一个行动，resolution 开始后不得反应。
+- Truth 输出、Observation、BeliefPatch、CharacterPatch、reaction 与下一行动全部通过 schema 与语义校验。
 - 客户端永远不接收 canonical bindings、其他 Agent 信念、内部模型 ID、内部错误或隐藏检定。
 
 ## 扩展到超大世界
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md) 与 [0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md) 与 [0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)。

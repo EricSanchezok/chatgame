@@ -27,6 +27,8 @@ export function validateObservations(
 ): void {
   const ids = new Set(state.history.flatMap((committed) =>
     committed.observations.map((observation) => observation.id)));
+  const localEntitiesByObserver = new Map<string, Record<string, unknown>>();
+  const claimIdsByObserver = new Map<string, Set<string>>();
   for (const packet of packets) {
     if (ids.has(packet.id)) throw new Error(`duplicate observation id ${packet.id}`);
     ids.add(packet.id);
@@ -36,11 +38,25 @@ export function validateObservations(
     if (packet.step !== expectedStep) {
       throw new Error(`observation ${packet.id} targets step ${packet.step}; expected ${expectedStep}`);
     }
-    const existing = packet.observerId === "player"
-      ? state.player.knowledge.localEntities
-      : state.agents[packet.observerId].belief.localEntities;
-    const localEntities: Record<string, unknown> = { ...existing };
+    let localEntities = localEntitiesByObserver.get(packet.observerId);
+    if (!localEntities) {
+      const existing = packet.observerId === "player"
+        ? state.player.knowledge.localEntities
+        : state.agents[packet.observerId].belief.localEntities;
+      localEntities = { ...existing };
+      localEntitiesByObserver.set(packet.observerId, localEntities);
+    }
+    let claimIds = claimIdsByObserver.get(packet.observerId);
+    if (!claimIds) {
+      claimIds = new Set(Object.keys(packet.observerId === "player"
+        ? state.player.knowledge.claims
+        : state.agents[packet.observerId].belief.claims));
+      claimIdsByObserver.set(packet.observerId, claimIds);
+    }
     for (const introduction of packet.introductions) {
+      if (localEntities[introduction.localEntity.id]) {
+        throw new Error(`observation ${packet.id} reintroduces local entity ${introduction.localEntity.id}`);
+      }
       if (state.truth.entities[introduction.localEntity.id]) {
         throw new Error(`observation ${packet.id} uses canonical id ${introduction.localEntity.id} as a local identity; rename localEntity.id while keeping canonicalEntityId private`);
       }
@@ -50,7 +66,12 @@ export function validateObservations(
       }
     }
     for (const claim of packet.apparentClaims) {
+      if (claimIds.has(claim.id)) throw new Error(`observation ${packet.id} repeats apparent claim ${claim.id}`);
+      claimIds.add(claim.id);
       assertLocalClaimReferences(localEntities, claim, packet.id);
+    }
+    if (new Set(packet.sourceEventIds).size !== packet.sourceEventIds.length) {
+      throw new Error(`observation ${packet.id} repeats a source event`);
     }
   }
 }
@@ -59,6 +80,7 @@ export function applyObservationBindings(agent: AgentState, packets: readonly Ob
   const next = structuredClone(agent);
   for (const packet of packets) {
     for (const introduction of packet.introductions) {
+      next.belief.localEntities[introduction.localEntity.id] = structuredClone(introduction.localEntity);
       if (!introduction.canonicalEntityId) continue;
       const current = next.bindings[introduction.localEntity.id];
       const canonicalEntityIds = new Set(current?.canonicalEntityIds ?? []);

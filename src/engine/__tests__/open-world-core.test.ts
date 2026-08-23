@@ -8,8 +8,10 @@ import type {
   TransitionProposal,
 } from "../model";
 import { createSeededRng, resolveD20Checks } from "../random";
+import { validateObservations } from "../observation";
 import {
   applyTransitionProposal,
+  createEmptyCharacter,
   createEmptyBelief,
   TransitionValidationError,
   validateSimulationState,
@@ -17,7 +19,7 @@ import {
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     worldId: "test-world",
     lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,
@@ -146,10 +148,15 @@ function worldState(): SimulationState {
         id: "keeper",
         entityId: "keeper",
         modelProfileId: "agent-default",
-        persona: "谨慎的守门人",
-        goals: ["守住石门"],
-        belief: createEmptyBelief(),
-        bindings: {},
+        character: createEmptyCharacter("谨慎的守门人"),
+        belief: {
+          localEntities: {
+            self: { id: "self", name: "我", description: "守门人自己", status: "observed" },
+          },
+          claims: {},
+          evidence: {},
+        },
+        bindings: { self: { localEntityId: "self", canonicalEntityIds: ["keeper"] } },
         nextAction: {
           id: "keeper-action-0",
           actorId: "keeper",
@@ -286,6 +293,7 @@ describe("open world kernel", () => {
       mode: "advantage",
       stakes: "推开石门，失败则发出巨响",
       visibility: "full",
+      phase: "resolution",
       causes: causalAction,
     };
 
@@ -359,15 +367,80 @@ describe("open world kernel", () => {
     });
   });
 
+  it("rejects prototype-polluting record identifiers before state mutation", () => {
+    const source = worldState();
+    expect(() => applyTransitionProposal(
+      source,
+      proposal([{
+        kind: "set_fact",
+        fact: {
+          id: "__proto__",
+          subjectId: "player",
+          predicate: "unsafe",
+          value: { kind: "text", value: "must-not-be-written" },
+          description: "恶意对象键不得进入状态字典。",
+          access: { kind: "public" },
+          provenance: [{ kind: "law", id: "worldgen" }],
+        },
+        causes: [{ kind: "law", id: "worldgen" }],
+      }]),
+    )).toThrow("reserved object key");
+    expect(Object.getPrototypeOf(source.truth.facts)).toBe(Object.prototype);
+    expect(Object.hasOwn(source.truth.facts, "__proto__")).toBe(false);
+  });
+
+  it("rejects identifiers inherited from Object.prototype before state mutation", () => {
+    const source = worldState();
+    expect(() => applyTransitionProposal(
+      source,
+      proposal([{
+        kind: "set_fact",
+        fact: {
+          id: "toString",
+          subjectId: "player",
+          predicate: "unsafe",
+          value: { kind: "boolean", value: true },
+          description: "不得覆盖对象原型成员。",
+          access: { kind: "public" },
+          provenance: [{ kind: "law", id: "worldgen" }],
+        },
+        causes: [{ kind: "law", id: "worldgen" }],
+      }]),
+    )).toThrow("reserved object key");
+    expect(Object.hasOwn(source.truth.facts, "toString")).toBe(false);
+  });
+
+  it("rejects observation introductions that overwrite an existing private identity", () => {
+    const source = worldState();
+    expect(() => validateObservations(source, [{
+      id: "observation:rebind-self",
+      observerId: "keeper",
+      step: 1,
+      kind: "outcome",
+      summary: "试图用 introduction 重写既有 self。",
+      introductions: [{
+        localEntity: { id: "self", name: "伪造身份", description: "覆盖既有局部身份", status: "observed" },
+        canonicalEntityId: "player",
+      }],
+      apparentClaims: [],
+      sourceEventIds: [],
+    }])).toThrow("reintroduces local entity self");
+  });
+
   it("creates a dynamic autonomous entity without special-case code", () => {
     const skeleton: AgentState = {
       id: "skeleton-agent",
       entityId: "skeleton",
       modelProfileId: "agent-default",
-      persona: "受召唤者命令的骷髅",
-      goals: ["服从召唤者"],
-      belief: createEmptyBelief(),
-      bindings: {},
+      character: createEmptyCharacter("受召唤者命令的骷髅"),
+      belief: {
+        localEntities: {
+          self: { id: "self", name: "我", description: "骷髅自己", status: "observed" },
+        },
+        claims: {},
+        evidence: {},
+      },
+      bindings: { self: { localEntityId: "self", canonicalEntityIds: ["skeleton"] } },
       nextAction: null,
     };
     const next = applyTransitionProposal(

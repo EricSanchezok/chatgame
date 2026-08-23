@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentMind } from "../../engine/agent-mind";
+import { contentHash } from "../../engine/model-audit";
 import { DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { SimulationEngine } from "../../engine/simulation";
 import { TruthEngine } from "../../engine/truth-engine";
@@ -36,11 +37,32 @@ async function sessionDocument(id = "session-1"): Promise<WorldSessionDocument> 
   );
   await engine.bootstrapAgents();
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id,
     scriptId: definition.id,
     createdAt: "2026-08-23T00:00:00.000Z",
     updatedAt: "2026-08-23T00:00:00.000Z",
+    state: engine.snapshot,
+    runs: {},
+  };
+}
+
+async function committedSessionDocument(id = "session-committed"): Promise<WorldSessionDocument> {
+  const provider = new DeterministicModelProvider();
+  const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+    seed: 17,
+    modelCatalog: provider.catalog,
+  });
+  const engine = new SimulationEngine(definition, new TruthEngine(provider), new AgentMind(provider));
+  await engine.bootstrapAgents();
+  engine.beginPlayerIntent("推进一个可审计步骤");
+  await engine.step();
+  return {
+    schemaVersion: 3,
+    id,
+    scriptId: definition.id,
+    createdAt: "2026-08-23T00:00:00.000Z",
+    updatedAt: "2026-08-23T00:00:01.000Z",
     state: engine.snapshot,
     runs: {},
   };
@@ -57,6 +79,64 @@ function resign(envelope: { checksum: string; document: unknown }): string {
 }
 
 describe("FileWorldSessionStore", () => {
+  it("rejects v1 session documents without a compatibility path", async () => {
+    const root = temporaryRoot();
+    const store = new FileWorldSessionStore(root);
+    const document = await sessionDocument();
+    store.write(document);
+    const file = fileFor(root, document.id);
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as {
+      checksum: string;
+      document: { schemaVersion: number };
+    };
+    envelope.document.schemaVersion = 1;
+    writeFileSync(file, resign(envelope), "utf8");
+
+    expect(() => store.read(document.id)).toThrow();
+  });
+
+  it("rejects resigned corruption in CharacterPatch audit history", async () => {
+    const root = temporaryRoot();
+    const store = new FileWorldSessionStore(root);
+    const document = await committedSessionDocument();
+    store.write(document);
+    const file = fileFor(root, document.id);
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as {
+      checksum: string;
+      document: WorldSessionDocument;
+    };
+    const step = envelope.document.state.history[0];
+    step.characterPatches[0].baseRevision = 99;
+    const payload = Object.fromEntries(
+      Object.entries(step).filter(([key]) => key !== "contentHash"),
+    );
+    step.contentHash = contentHash(payload);
+    writeFileSync(file, resign(envelope), "utf8");
+
+    expect(() => store.read(document.id)).toThrow("invalid AgentMind audit coverage");
+  });
+
+  it("rejects resigned mutation of an action that never entered the reaction window", async () => {
+    const root = temporaryRoot();
+    const store = new FileWorldSessionStore(root);
+    const document = await committedSessionDocument();
+    store.write(document);
+    const file = fileFor(root, document.id);
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as {
+      checksum: string;
+      document: WorldSessionDocument;
+    };
+    const step = envelope.document.state.history[0];
+    step.actions.find((action) => action.actorId === "keeper")!.goal = "被篡改的目标";
+    const payload = Object.fromEntries(
+      Object.entries(step).filter(([key]) => key !== "contentHash"),
+    );
+    step.contentHash = contentHash(payload);
+    writeFileSync(file, resign(envelope), "utf8");
+
+    expect(() => store.read(document.id)).toThrow("mutates action for non-reacting actor");
+  });
+
   it("detects checksum corruption and distinguishes a missing session", async () => {
     const root = temporaryRoot();
     const store = new FileWorldSessionStore(root);

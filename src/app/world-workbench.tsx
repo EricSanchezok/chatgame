@@ -216,7 +216,7 @@ export function WorldWorkbench() {
         <section className="cg-empty" aria-labelledby="empty-title">
           <p className="cg-eyebrow">NO WORLD INSTALLED</p>
           <h2 id="empty-title">暂无可玩世界</h2>
-          <p>导入符合 schema v3 的世界 ZIP，开始一段游戏。</p>
+          <p>导入符合 schema v4 的世界 ZIP，开始一段游戏。</p>
           <label className="cg-import-button">
             导入世界 ZIP
             <input

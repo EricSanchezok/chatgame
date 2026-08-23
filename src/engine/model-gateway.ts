@@ -137,7 +137,10 @@ export class ModelGateway implements StructuredModelProvider {
       !request.promptVersion.trim() || !request.schemaName.trim()) {
       throw new Error("structured model request identity is incomplete");
     }
-    this.catalog.assertProfile(request.profileId, request.role);
+    this.catalog.assertProfile(
+      request.profileId,
+      request.role === "agent-reaction" ? "agent-mind" : request.role,
+    );
     const profile = this.catalog.profile(request.profileId);
     const adapter = this.adapters.get(profile.provider_id);
     if (!adapter) throw new Error(`model provider adapter is missing: ${profile.provider_id}`);

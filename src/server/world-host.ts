@@ -97,9 +97,10 @@ function sanitizePlayerObservation(
   packetIndex: number,
 ): PublicObservationPacket {
   return {
-    ...structuredClone(packet),
     id: `observation:${packet.step}:${packetIndex + 1}`,
     observerId: "player",
+    step: packet.step,
+    summary: packet.summary,
     introductions: packet.introductions.map((introduction) => ({
       localEntity: structuredClone(introduction.localEntity),
     })),
@@ -254,7 +255,7 @@ export class WorldHost {
     await engine.bootstrapAgents({ workloadId: id, batchId: `bootstrap:${id}` });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       id,
       scriptId: definition.id,
       createdAt: now,

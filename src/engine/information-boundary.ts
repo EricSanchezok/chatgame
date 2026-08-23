@@ -35,6 +35,22 @@ function protectedTokens(state: SimulationState): Set<string> {
     if (fact.value.kind === "entity") protect(fact.value.entityId);
   }
   for (const agent of Object.values(state.agents)) {
+    protect(agent.modelProfileId);
+    protect(agent.character.persona.summary);
+    protect(agent.character.persona.voice);
+    for (const collection of [
+      agent.character.traits,
+      agent.character.values,
+      agent.character.emotions,
+      agent.character.attitudes,
+      agent.character.goals,
+      agent.character.commitments,
+    ]) {
+      for (const record of Object.values(collection)) {
+        protect(record.id);
+        protect(record.description);
+      }
+    }
     for (const entity of Object.values(agent.belief.localEntities)) {
       protect(entity.id);
       protect(entity.description);

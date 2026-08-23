@@ -1,4 +1,4 @@
-# 世界剧本格式 v3
+# 世界剧本格式 v4
 
 世界包是一个严格目录。它定义初始世界与法则，不定义玩家动作，不携带可执行代码或客户端 UI。
 
@@ -16,12 +16,12 @@ world-id/
 
 根目录只允许这四个文件和 `entities/`；实体目录只允许普通 `.yaml`/`.yml` 文件。额外目录、额外文件和符号链接都拒绝。至少需要一个实体。`actions.yaml`、`engine/`、`ui/` 与任何旧格式模块都是错误。
 
-所有对象使用 strict zod schema，未知字段拒绝。YAML ID 应稳定且在相应命名空间唯一。
+所有对象使用 strict zod schema，未知字段拒绝。YAML ID 应稳定且在相应命名空间唯一；`__proto__`、`prototype` 与 `constructor` 是保留对象键，不能用作 ID。
 
 ## `script.yaml`
 
 ```yaml
-schema_version: 3
+schema_version: 4
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
@@ -106,16 +106,60 @@ ratings:
 agent:
   id: gatekeeper
   model_profile_id: agent-openai
-  persona: 谨慎，重视职责。
-  goals: [守住石门, 弄清旅人的来意]
+  character:
+    persona:
+      summary: 谨慎，重视职责。
+      voice: 简短克制，先询问再判断。
+    traits:
+      - { id: cautious, description: 面对陌生人时谨慎求证。, strength: 0.8 }
+    values:
+      - { id: duty, description: 重视守门职责。, strength: 0.9 }
+    emotions:
+      - { id: alertness, description: 对陌生人保持警觉。, intensity: 0.4 }
+    attitudes:
+      - id: toward-traveler
+        subject_id: traveler
+        description: 尚未信任这名旅人。
+        intensity: 0.5
+    goals:
+      - id: guard-gate
+        description: 守住石门。
+        priority: 0.9
+        progress: 0
+        motivated_by_ids: [duty]
+      - id: understand-traveler
+        description: 弄清旅人的来意。
+        priority: 0.6
+        progress: 0
+        target_ids: [traveler]
+        motivated_by_ids: [cautious]
+    commitments:
+      - id: dawn-watch
+        description: 答应同伴值守到天亮。
+        priority: 0.8
+        subject_ids: [self]
   belief:
-    local_entities: []
+    local_entities:
+      - { id: self, name: 我, description: 石门守卫。, status: observed }
+      - { id: traveler, name: 旅人, description: 门前的陌生人。, status: observed }
     evidence: []
     claims: []
-    bindings: []
+    bindings:
+      - { local_entity_id: self, canonical_entity_ids: [gatekeeper] }
+      - { local_entity_id: traveler, canonical_entity_ids: [player] }
 ```
 
 `placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。`model_profile_id` 必须引用允许 `agent-mind` 角色的 Profile；不同 Agent 可分别选择 DeepSeek、OpenAI、xAI 或目录中的其他 Provider。
+
+## 角色种子
+
+`character.persona.summary` 是 Agent 角色配置中唯一必填的内容字段。`persona.voice` 默认为空字符串，traits、values、emotions、attitudes、goals 和 commitments 数组都默认为空。
+
+trait/value 使用开放 `description`、0–1 strength 和默认 active 的 status。emotion 使用开放描述、0–1 intensity 和 active/resolved；attitude 额外以 `subject_id` 指向本 Agent belief 中的局部实体，并使用 active/retired。
+
+goal 包含开放 description、0–1 priority/progress、局部 `target_ids`、可选 `parent_goal_id`、指向 trait/value/commitment 的 `motivated_by_ids`，状态默认为 active，也可为 suspended/completed/failed/abandoned。commitment 包含开放 description、0–1 priority、局部 `subject_ids`，状态默认为 active，也可为 fulfilled/broken/released。
+
+每层记录可用 `evidence_ids` 引用 belief seed evidence。剧本不填写 created/updated step；loader 在初始步骤写入 0，动态创建由事务内核写入创建步骤。运行时演化规则见 [引擎运行时规格](engine-runtime.md#agent-character)。
 
 ## 信念种子
 
@@ -127,6 +171,8 @@ Agent belief 包含：
 - `bindings`：服务端初始化用的局部 ID 到一个或多个 canonical ID 映射。
 
 claim 可以与 truth 冲突。作者可明确写“玩家相信钥匙是真的”，同时 canonical fact 写“钥匙是假的”；loader 不会替作者纠正认知。
+
+每个 Agent 必须恰好有一个局部实体 binding 包含自己的 entity ID。该局部实体是 `AgentSelfStateView` 的 self identity；缺失或多个 self binding 都会使世界拒绝加载。
 
 ## `player.yaml`
 
@@ -148,8 +194,10 @@ bindings:
 
 ## 引用与状态校验
 
-loader 验证实体、placement、fact entity value、Agent entity、玩家实体、Meter/Quantity/Rating 定义、binding canonical IDs、claim subject/evidence、Profile 存在性与角色、范围、数量、唯一 ID 与 placement 无环。loader 将初始 Agent `nextAction` 设为 null；创建会话时 AgentMind 统一初始化。
+loader 验证实体、placement、fact entity value、Agent entity、唯一 self binding、角色局部引用与 evidence、玩家实体、Meter/Quantity/Rating 定义、binding canonical IDs、claim subject/evidence、Profile 存在性与角色、范围、数量、唯一 ID 与 placement 无环。loader 将初始 Agent `nextAction` 设为 null；创建会话时 AgentMind 统一初始化。
 
 ## 规模
 
-格式不限制地点层级、实体 kind、predicate、Agent 人格或目标。大陆、位面、宗门、城市和房间都可以是实体并由 placement 组织。当前 loader 一次加载完整包；超大内容的分片与按需加载尚未成为 v3 契约，作者在此之前应根据模型上下文与 Agent 成本控制初始活动规模。
+格式不限制地点层级、实体 kind、predicate、Agent 人格或目标。大陆、位面、宗门、城市和房间都可以是实体并由 placement 组织。loader 一次加载完整包；作者应根据模型上下文与 Agent 成本控制初始活动规模。
+
+loader 只接受 `schema_version: 4`。旧世界包直接拒绝，不提供兼容字段或迁移路径。超大内容的分片与按需加载尚未成为 v4 契约。

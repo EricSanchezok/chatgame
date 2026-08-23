@@ -66,7 +66,10 @@ export class ScriptedModelProvider implements StructuredModelProvider {
   ) {}
 
   async generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>> {
-    this.catalog.assertProfile(request.profileId, request.role);
+    this.catalog.assertProfile(
+      request.profileId,
+      request.role === "agent-reaction" ? "agent-mind" : request.role,
+    );
     const profile = this.catalog.profile(request.profileId);
     const context = canonicalize(request.context);
     const captured: ScriptedModelHandlerRequest = {
@@ -156,12 +159,14 @@ export class DeterministicModelProvider extends ScriptedModelProvider {
               id: eventId,
               step: nextStep,
               description: "模拟世界推进了一秒。",
+              impact: "ordinary",
               causes: [{ kind: "law", id: lawId }],
             }],
             observations: observers.map((observerId) => ({
               id: `mock-observation:${observerId}:${nextStep}`,
               observerId,
               step: nextStep,
+              kind: "outcome",
               summary: observerId === "player" ? "世界回应了你的自由行动。" : "世界继续变化。",
               introductions: [],
               apparentClaims: [],
@@ -177,6 +182,7 @@ export class DeterministicModelProvider extends ScriptedModelProvider {
       if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
       return {
         beliefPatch: { agentId, baseRevision: revision, operations: [] },
+        characterPatch: { agentId, baseRevision: revision, operations: [] },
         nextAction: {
           id: `mock-action:${agentId}:${revision}`,
           actorId: agentId,
