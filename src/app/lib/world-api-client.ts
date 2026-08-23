@@ -1,5 +1,6 @@
 import type {
-  PublicSessionSnapshot,
+  PublicSessionDetail,
+  PublicSessionSummary,
   StartWorldRunResponse,
   WorldRunSnapshot,
   WorldSummary,
@@ -13,7 +14,10 @@ export class WorldApiError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, {
+    cache: init?.method ? undefined : "no-store",
+    ...init,
+  });
   if (!response.ok) {
     let message = response.statusText || `HTTP ${response.status}`;
     try {
@@ -24,6 +28,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     }
     throw new WorldApiError(response.status, message);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -37,11 +42,19 @@ function post<T>(url: string, body?: unknown): Promise<T> {
 
 export const worldApi = {
   worlds: () => request<{ worlds: WorldSummary[] }>("/api/worlds"),
-  sessions: () => request<{ sessions: PublicSessionSnapshot[] }>("/api/sessions"),
+  sessions: () => request<{ sessions: PublicSessionSummary[] }>("/api/sessions"),
   createSession: (scriptId: string, seed?: number) =>
-    post<PublicSessionSnapshot>("/api/sessions", { scriptId, seed }),
+    post<PublicSessionDetail>("/api/sessions", { scriptId, seed }),
   session: (sessionId: string) =>
-    request<PublicSessionSnapshot>(`/api/sessions/${encodeURIComponent(sessionId)}`),
+    request<PublicSessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`),
+  renameSession: (sessionId: string, title: string) =>
+    request<PublicSessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title }),
+    }),
+  deleteSession: (sessionId: string) =>
+    request<void>(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
   startRun: (sessionId: string, text: string) =>
     post<StartWorldRunResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { text }),
   run: (sessionId: string, runId: string) =>

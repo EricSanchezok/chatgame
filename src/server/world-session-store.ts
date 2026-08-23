@@ -14,9 +14,10 @@ function assertIdentifier(value: string, label: string): void {
 const envelopeSchema = z.object({
   checksum: z.string().regex(/^[a-f0-9]{64}$/),
   document: z.object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     id: z.string().min(1),
     scriptId: z.string().min(1),
+    title: z.string().trim().min(1).max(80),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
     state: z.unknown(),
@@ -162,6 +163,9 @@ function validateRunEvent(event: unknown, runId: string): WorldRunEvent {
 function validateDocument(document: WorldSessionDocument, expectedSessionId?: string): void {
   if (expectedSessionId && document.id !== expectedSessionId) throw new Error("session document id mismatch");
   if (document.state.worldId !== document.scriptId) throw new Error("session world id mismatch");
+  if (document.title !== document.title.trim() || document.title.length < 1 || document.title.length > 80) {
+    throw new Error("invalid session title");
+  }
   validateSimulationState(document.state, true, true);
   for (const [runId, run] of Object.entries(document.runs)) {
     if (!run || typeof run !== "object" || run.id !== runId || run.sessionId !== document.id ||
@@ -203,6 +207,7 @@ export interface WorldSessionStore {
   write(document: WorldSessionDocument): void;
   read(sessionId: string): WorldSessionDocument;
   list(): string[];
+  delete(sessionId: string): void;
 }
 
 export class WorldSessionNotFoundError extends Error {
@@ -229,6 +234,10 @@ export class MemoryWorldSessionStore implements WorldSessionStore {
 
   list(): string[] {
     return [...this.values.keys()].sort();
+  }
+
+  delete(sessionId: string): void {
+    if (!this.values.delete(sessionId)) throw new WorldSessionNotFoundError(sessionId);
   }
 }
 
@@ -265,5 +274,11 @@ export class FileWorldSessionStore implements WorldSessionStore {
       .filter((name) => name.endsWith(".json"))
       .map((name) => name.slice(0, -5))
       .sort();
+  }
+
+  delete(sessionId: string): void {
+    const file = this.file(sessionId);
+    if (!existsSync(file)) throw new WorldSessionNotFoundError(sessionId);
+    rmSync(file);
   }
 }

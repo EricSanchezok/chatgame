@@ -7,7 +7,12 @@ import { MemoryWorldSessionStore } from "../../../server/world-session-store";
 import { GET as streamEvents } from "../sessions/[id]/runs/[runId]/events/route";
 import { GET as getRun } from "../sessions/[id]/runs/[runId]/route";
 import { POST as startRun } from "../sessions/[id]/runs/route";
-import { POST as createSession } from "../sessions/route";
+import {
+  DELETE as deleteSession,
+  GET as getSession,
+  PATCH as renameSession,
+} from "../sessions/[id]/route";
+import { GET as listSessions, POST as createSession } from "../sessions/route";
 import { GET as listWorlds } from "../worlds/route";
 import { errorResponse } from "../h";
 
@@ -48,16 +53,49 @@ describe("world API routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ scriptId: "open-world-fixture", seed: 12 }),
     }));
-    const session = await sessionResponse.json() as { id: string };
+    const session = await sessionResponse.json() as { summary: { id: string } };
     const response = await startRun(
-      new Request(`http://local/api/sessions/${session.id}/runs`, {
+      new Request(`http://local/api/sessions/${session.summary.id}/runs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text: "   " }),
       }),
-      { params: Promise.resolve({ id: session.id }) },
+      { params: Promise.resolve({ id: session.summary.id }) },
     );
     expect(response.status).toBe(400);
+  });
+
+  it("lists, renames, reads, and deletes an explicitly addressed session", async () => {
+    installHost();
+    const createdResponse = await createSession(new Request("http://local/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scriptId: "open-world-fixture" }),
+    }));
+    const created = await createdResponse.json() as { summary: { id: string; title: string } };
+
+    expect(await (await listSessions()).json()).toMatchObject({
+      sessions: [{ id: created.summary.id, title: created.summary.title }],
+    });
+    const renamedResponse = await renameSession(
+      new Request(`http://local/api/sessions/${created.summary.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: " 石门之外 " }),
+      }),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    );
+    expect(await renamedResponse.json()).toMatchObject({ summary: { title: "石门之外" } });
+    expect(await (await getSession(
+      new Request(`http://local/api/sessions/${created.summary.id}`),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    )).json()).toMatchObject({ summary: { title: "石门之外" }, runs: [] });
+
+    expect((await deleteSession(
+      new Request(`http://local/api/sessions/${created.summary.id}`, { method: "DELETE" }),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    )).status).toBe(204);
+    expect(await (await listSessions()).json()).toEqual({ sessions: [] });
   });
 
   it("runs arbitrary text and exposes replayable SSE without canonical bindings", async () => {
@@ -67,23 +105,23 @@ describe("world API routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ scriptId: "open-world-fixture", seed: 33 }),
     }));
-    const session = await sessionResponse.json() as { id: string };
+    const session = await sessionResponse.json() as { summary: { id: string } };
     const runResponse = await startRun(
-      new Request(`http://local/api/sessions/${session.id}/runs`, {
+      new Request(`http://local/api/sessions/${session.summary.id}/runs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text: "我希望凭空获得一万灵石" }),
       }),
-      { params: Promise.resolve({ id: session.id }) },
+      { params: Promise.resolve({ id: session.summary.id }) },
     );
     expect(runResponse.status).toBe(202);
     const run = await runResponse.json() as { runId: string };
     expect(Object.keys(run)).toEqual(["runId"]);
-    await host.waitForRun(session.id, run.runId);
+    await host.waitForRun(session.summary.id, run.runId);
 
     const response = await getRun(
-      new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}`),
-      { params: Promise.resolve({ id: session.id, runId: run.runId }) },
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}`),
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
     );
     expect(await response.json()).toMatchObject({
       run: { status: "completed", text: "我希望凭空获得一万灵石" },
@@ -91,8 +129,8 @@ describe("world API routes", () => {
     });
 
     const eventResponse = await streamEvents(
-      new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}/events?after=0`),
-      { params: Promise.resolve({ id: session.id, runId: run.runId }) },
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}/events?after=0`),
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
     );
     const eventStream = await eventResponse.text();
     expect(eventResponse.headers.get("content-type")).toContain("text/event-stream");
@@ -103,8 +141,8 @@ describe("world API routes", () => {
     expect(eventStream).not.toContain("canonicalEntityIds");
 
     const replayAfterTwo = await streamEvents(
-      new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}/events?after=2`),
-      { params: Promise.resolve({ id: session.id, runId: run.runId }) },
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}/events?after=2`),
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
     );
     const replayed = await replayAfterTwo.text();
     expect(replayed).not.toContain("id: 1\n");
@@ -112,10 +150,10 @@ describe("world API routes", () => {
     expect(replayed).toContain("id: 3\n");
 
     const replayFromHeader = await streamEvents(
-      new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}/events`, {
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}/events`, {
         headers: { "Last-Event-ID": "3" },
       }),
-      { params: Promise.resolve({ id: session.id, runId: run.runId }) },
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
     );
     const headerReplay = await replayFromHeader.text();
     expect(headerReplay).not.toContain("id: 3\n");

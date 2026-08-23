@@ -15,20 +15,23 @@ import {
   type WorldSessionStore,
 } from "./world-session-store";
 import {
+  publicSessionDetail,
+  publicSessionSummary,
   publicWorldRunSnapshot,
-  publicSessionSnapshot,
   type PublicObservationPacket,
-  type PublicSessionSnapshot,
+  type PublicSessionDetail,
+  type PublicSessionSummary,
   type WorldRunEvent,
   type WorldRunEventInput,
   type WorldRunRecord,
   type WorldRunStatus,
   type WorldSessionDocument,
 } from "./world-run-types";
-import type { StartWorldRunResponse, WorldRunSnapshot } from "../shared/world-api";
+import type { StartWorldRunResponse, WorldRunSnapshot, WorldSummary } from "../shared/world-api";
 
 interface HostedSession {
   definition: WorldDefinition;
+  world: WorldSummary;
   engine: SimulationEngine;
   document: WorldSessionDocument;
   channels: Map<string, RunChannel>;
@@ -238,6 +241,7 @@ export class WorldHost {
     );
     const session: HostedSession = {
       definition,
+      world: this.worldSummary(definition),
       engine: this.buildEngine(definition, document.state),
       document,
       channels: new Map(),
@@ -248,33 +252,79 @@ export class WorldHost {
     return session;
   }
 
-  async createSession(input: { scriptId: string; seed?: number }): Promise<PublicSessionSnapshot> {
+  async createSession(input: { scriptId: string; seed?: number }): Promise<PublicSessionDetail> {
     const definition = this.options.repository.load(input.scriptId, input.seed ?? 1, this.options.provider.catalog);
     const engine = this.buildEngine(definition);
     const id = this.idFactory();
     await engine.bootstrapAgents({ workloadId: id, batchId: `bootstrap:${id}` });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       id,
       scriptId: definition.id,
+      title: definition.name,
       createdAt: now,
       updatedAt: now,
       state: engine.snapshot,
       runs: {},
     };
     this.options.store.write(document);
-    const session: HostedSession = { definition, engine, document, channels: new Map() };
+    const session: HostedSession = {
+      definition,
+      world: this.worldSummary(definition),
+      engine,
+      document,
+      channels: new Map(),
+    };
     this.sessions.set(id, session);
-    return publicSessionSnapshot(document);
+    return publicSessionDetail(document, this.worldSummary(definition));
   }
 
-  session(sessionId: string): PublicSessionSnapshot {
-    return publicSessionSnapshot(this.requireSession(sessionId).document);
+  private worldSummary(definition: WorldDefinition): WorldSummary {
+    const summary = this.options.repository.list().find((candidate) => candidate.id === definition.id);
+    if (!summary) throw new WorldHostError(`world script not found: ${definition.id}`, 404);
+    return {
+      id: definition.id,
+      name: definition.name,
+      version: summary.version,
+      description: definition.description,
+    };
   }
 
-  listSessions(): PublicSessionSnapshot[] {
-    return this.options.store.list().map((sessionId) => this.session(sessionId));
+  session(sessionId: string): PublicSessionDetail {
+    const session = this.requireSession(sessionId);
+    return publicSessionDetail(session.document, session.world);
+  }
+
+  listSessions(): PublicSessionSummary[] {
+    return this.options.store.list()
+      .map((sessionId) => {
+        const session = this.requireSession(sessionId);
+        return publicSessionSummary(session.document, session.world);
+      })
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
+  }
+
+  renameSession(sessionId: string, title: string): PublicSessionDetail {
+    const normalized = title.trim();
+    if (!normalized || normalized.length > 80) {
+      throw new WorldHostError("session title must be between 1 and 80 characters", 400);
+    }
+    const session = this.requireSession(sessionId);
+    const document = structuredClone(session.document);
+    document.title = normalized;
+    this.commitCandidate(session, session.engine, document);
+    return publicSessionDetail(session.document, session.world);
+  }
+
+  deleteSession(sessionId: string): void {
+    const session = this.requireSession(sessionId);
+    const active = Object.values(session.document.runs).find(
+      (run) => run.status === "queued" || run.status === "running",
+    );
+    if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
+    this.options.store.delete(sessionId);
+    this.sessions.delete(sessionId);
   }
 
   startRun(sessionId: string, text: string): StartWorldRunResponse {

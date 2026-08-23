@@ -9,9 +9,9 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 | 世界契约 | `src/script/` | 严格读取 schema v4 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v3 |
 | 仿真内核 | `src/engine/` | AgentMind、角色演化、自身状态投影、Truth Engine、有限反应、d20、观察隔离与状态事务 |
 | 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
-| 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
-| HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表与导入 |
-| 浏览器 | `src/app/` | 只展示公开快照/事件并提交任意自然语言目标 |
+| 会话宿主 | `src/server/` | 世界仓库、Session v4 存档资源、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
+| HTTP 表面 | `src/app/api/` | Session 摘要/detail/命名/删除、run、SSE、世界列表与导入 |
+| 浏览器 | `src/app/` | 本地主菜单与精确 Session 路由；把公开 WorldRun 投影为对话并提交自然语言目标 |
 | 公共契约 | `src/shared/world-api.ts` | 浏览器安全 DTO；不含 canonical identity 或完整 truth |
 
 依赖方向固定为：浏览器 → Route Handler → WorldHost → SimulationEngine → AgentMind/TruthEngine。`src/engine/` 与世界 YAML 不进入浏览器 bundle。
@@ -46,6 +46,14 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 取消会终止排队或在途模型请求，丢弃尚未完整提交的候选步骤，并在最后一个已提交步骤边界终止。进程重启时，磁盘中的 queued/running run 被标为可重试失败；已提交步骤不回滚。一个会话同时只允许一个活动 run。
 
+## 本地 Session 壳
+
+Session 是使用 schema v4 checksum envelope 持久化的独立存档，拥有标题、公开进度、玩家状态与 WorldRun 历史。列表 API 只返回轻量摘要；精确 Session 资源返回 detail，并提供重命名和无活动 run 时的删除。浏览器当前存档指针只用于主菜单导航，不从列表顺序推断状态所有权。
+
+assistant-ui External Store 只渲染由 runs 派生的单线程对话，不持久化第二份消息或调用模型。主菜单、游戏、存档、世界、设置和移动控制各有独立路由；详细契约见[表现层参考](game-design/presentation.md)。
+
+服务默认只监听 loopback，面向单机进程与本机文件系统，没有用户、认证或 owner。该信任边界不覆盖非 loopback 暴露、共享主机或远程访问；这些部署形态必须先定义身份、授权、CSRF、监听地址和数据隔离。
+
 ## 硬不变量
 
 - 玩家文本和 Agent action 都是企图，不是状态命令。
@@ -64,4 +72,4 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md) 与 [0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md) 与 [0039](decisions/0039-local-assistant-ui-immersive-session-shell.md)。

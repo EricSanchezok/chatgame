@@ -37,9 +37,10 @@ async function sessionDocument(id = "session-1"): Promise<WorldSessionDocument> 
   );
   await engine.bootstrapAgents();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id,
     scriptId: definition.id,
+    title: "测试存档",
     createdAt: "2026-08-23T00:00:00.000Z",
     updatedAt: "2026-08-23T00:00:00.000Z",
     state: engine.snapshot,
@@ -58,9 +59,10 @@ async function committedSessionDocument(id = "session-committed"): Promise<World
   engine.beginPlayerIntent("推进一个可审计步骤");
   await engine.step();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id,
     scriptId: definition.id,
+    title: "已提交测试存档",
     createdAt: "2026-08-23T00:00:00.000Z",
     updatedAt: "2026-08-23T00:00:01.000Z",
     state: engine.snapshot,
@@ -79,7 +81,21 @@ function resign(envelope: { checksum: string; document: unknown }): string {
 }
 
 describe("FileWorldSessionStore", () => {
-  it("rejects v1 session documents without a compatibility path", async () => {
+  it("deletes only the explicitly addressed session", async () => {
+    const root = temporaryRoot();
+    const store = new FileWorldSessionStore(root);
+    const first = await sessionDocument("session-1");
+    const second = await sessionDocument("session-2");
+    store.write(first);
+    store.write(second);
+
+    store.delete(first.id);
+
+    expect(store.list()).toEqual([second.id]);
+    expect(() => store.read(first.id)).toThrow(WorldSessionNotFoundError);
+  });
+
+  it("rejects v3 session documents without a compatibility path", async () => {
     const root = temporaryRoot();
     const store = new FileWorldSessionStore(root);
     const document = await sessionDocument();
@@ -89,7 +105,7 @@ describe("FileWorldSessionStore", () => {
       checksum: string;
       document: { schemaVersion: number };
     };
-    envelope.document.schemaVersion = 1;
+    envelope.document.schemaVersion = 3;
     writeFileSync(file, resign(envelope), "utf8");
 
     expect(() => store.read(document.id)).toThrow();

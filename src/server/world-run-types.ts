@@ -1,13 +1,18 @@
 import type { SimulationState } from "../engine/model";
 import type {
-  PublicSessionSnapshot,
+  PublicSessionDetail,
+  PublicSessionState,
+  PublicSessionSummary,
   WorldRunEvent,
   WorldRunRecordView,
   WorldRunSnapshot,
+  WorldSummary,
 } from "../shared/world-api";
 export type {
   PublicObservationPacket,
-  PublicSessionSnapshot,
+  PublicSessionDetail,
+  PublicSessionState,
+  PublicSessionSummary,
   WorldRunEvent,
   WorldRunStatus,
 } from "../shared/world-api";
@@ -25,16 +30,17 @@ export interface WorldRunRecord extends Omit<WorldRunRecordView, "error"> {
 }
 
 export interface WorldSessionDocument {
-  schemaVersion: 3;
+  schemaVersion: 4;
   id: string;
   scriptId: string;
+  title: string;
   createdAt: string;
   updatedAt: string;
   state: SimulationState;
   runs: Record<string, WorldRunRecord>;
 }
 
-export function publicSessionSnapshot(document: WorldSessionDocument): PublicSessionSnapshot {
+export function publicSessionState(document: WorldSessionDocument): PublicSessionState {
   return {
     id: document.id,
     scriptId: document.scriptId,
@@ -43,6 +49,30 @@ export function publicSessionSnapshot(document: WorldSessionDocument): PublicSes
     elapsedSeconds: document.state.truth.elapsedSeconds,
     player: structuredClone(document.state.player.knowledge),
     activeIntent: structuredClone(document.state.player.intent),
+  };
+}
+
+export function publicSessionSummary(
+  document: WorldSessionDocument,
+  world: WorldSummary,
+): PublicSessionSummary {
+  const activeRun = Object.values(document.runs).find(
+    (run) => run.status === "queued" || run.status === "running",
+  );
+  return {
+    id: document.id,
+    scriptId: document.scriptId,
+    title: document.title,
+    world: structuredClone(world),
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+    revision: document.state.revision,
+    step: document.state.step,
+    elapsedSeconds: document.state.truth.elapsedSeconds,
+    activeRun: activeRun ? {
+      id: activeRun.id,
+      status: activeRun.status === "queued" ? "queued" : "running",
+    } : undefined,
   };
 }
 
@@ -66,6 +96,20 @@ export function publicWorldRunSnapshot(
 ): WorldRunSnapshot {
   return {
     run: publicWorldRunRecord(run),
-    state: publicSessionSnapshot(document),
+    state: publicSessionState(document),
+  };
+}
+
+export function publicSessionDetail(
+  document: WorldSessionDocument,
+  world: WorldSummary,
+): PublicSessionDetail {
+  return {
+    summary: publicSessionSummary(document, world),
+    state: publicSessionState(document),
+    runs: Object.values(document.runs)
+      .map(publicWorldRunRecord)
+      .sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)),
   };
 }

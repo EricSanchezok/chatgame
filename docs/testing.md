@@ -3,8 +3,8 @@
 ## 层级
 
 - `npm test`：Vitest 契约、纯内核、仿真集成、持久化、导入、Route Handler 与 jsdom UI。
-- `npm run test:e2e`：对生产构建运行真实 Next 入口，并通过本地 HTTP 模型服务走生产 `ModelGateway`/DeepSeek adapter，验证空态、ZIP 导入、会话、自由输入、SSE、刷新持久化和窄屏布局。
-- `npm run test:a11y`：分别在空态、导入后的会话工作台和已完成 run 上运行 axe。
+- `npm run test:e2e`：对生产构建运行真实 Next 入口，并通过本地 HTTP 模型服务走生产 `ModelGateway`/DeepSeek adapter，验证主菜单、ZIP 导入、精确会话路由、自由输入、SSE、刷新持久化、存档管理、控制导航和窄屏布局。
+- `npm run test:a11y`：分别在本地主菜单、世界管理、空对话和已完成 run 上运行 axe。
 - `npm run test:live:deepseek`：使用环境中的真实 DeepSeek 密钥完成 AgentMind 初始化和一个 Truth Engine 步骤；它是手动兼容性烟雾测试，不作为确定性 CI 门禁。
 - `npm run check:fast`：lint、类型、单元/集成、世界夹具、workflow script 引用与治理门禁。
 - `npm run check:ui`：生产 E2E 与无障碍门禁，也是 CI 浏览器 job 的稳定入口。
@@ -18,6 +18,7 @@
 - 认知测试同时放置相互冲突的 truth 与 belief，证明它们不会互相覆盖。
 - 随机测试固定 seed，并证明 DC 与 stakes 在骰值生成前提交。
 - 公共表面测试搜索 canonical ID/binding 泄漏。
+- 对话层测试证明 WorldRun 到 assistant-ui 消息是纯投影，不存在独立消息状态或云端线程路径。
 - 远程模型测试不得打印密钥、prompt 或原始响应，也不能替代 seed 固定的确定性语义门禁。
 - 测试夹具位于 `test/fixtures/open-world-script/`，只证明通用契约，不是内置可玩内容。
 
