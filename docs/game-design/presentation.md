@@ -8,7 +8,7 @@
 
 | 方法与路径 | 语义 |
 |---|---|
-| `GET /api/worlds` | 列出已安装 schema v2 世界 |
+| `GET /api/worlds` | 列出已安装 schema v3 世界 |
 | `POST /api/worlds/import` | multipart 上传一个世界 ZIP；`replace=true` 显式替换 |
 | `GET /api/sessions` | 列出持久会话公开快照 |
 | `POST /api/sessions` | 以 `scriptId` 和可选非负 seed 创建会话 |
@@ -16,7 +16,7 @@
 | `POST /api/sessions/:id/runs` | 提交 1–4000 字符任意自然语言目标，返回 202 与精确形状 `{ runId }` |
 | `GET /api/sessions/:id/runs/:runId` | 返回 `{ run, state }` 公开组合快照 |
 | `POST /api/sessions/:id/runs/:runId` | 重试 failed/step_limit run，返回 `{ run, state }` |
-| `DELETE /api/sessions/:id/runs/:runId` | 请求在安全步骤边界取消，返回 `{ run, state }` |
+| `DELETE /api/sessions/:id/runs/:runId` | 取消排队/在途模型批次并回到最后已提交步骤，返回 `{ run, state }` |
 | `GET /api/sessions/:id/runs/:runId/events` | 从 `Last-Event-ID` 或 `after` 游标重放并订阅 SSE |
 
 ## SSE 事件

@@ -17,9 +17,10 @@
 
 - `CHATGAME_SCRIPTS_ROOT`：安装世界目录，默认 `scripts/`。
 - `CHATGAME_DATA_ROOT`：会话数据目录，默认 `.chatgame/`。
-- `CHATGAME_LLM_PROVIDER`：`vercel` 或仅测试用的 `mock`。
-- `CHATGAME_LLM_BASE_URL`、`CHATGAME_LLM_API_KEY`、`CHATGAME_LLM_MODEL`：OpenAI-compatible provider。
-- `CHATGAME_TRUTH_MODEL`、`CHATGAME_AGENT_MODEL`：分别覆盖裁判与 AgentMind 模型。
+- `CHATGAME_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
+- 每个 provider 的密钥环境变量由目录 `api_key_env` 指定；默认目录需要 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY` 与 `XAI_API_KEY`。
+
+模型、思考强度、超时、输出上限、角色与并发只在 [模型目录与 Gateway](game-design/model-gateway.md) 定义。环境变量不提供逐字段覆盖。
 
 ## 关键约束
 

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ScriptedModelProvider, type ScriptedModelHandler } from "../../engine/model-provider";
+import { ScriptedModelProvider, type ScriptedModelHandler } from "../../engine/testing/model-provider";
 import type { TransitionProposal } from "../../engine/model";
 import { FileWorldRepository } from "../../script/world-repository";
 import { WorldHost } from "../world-host";
@@ -29,6 +29,7 @@ function mindOutput(agentId: string, revision: number) {
       baseRevision: revision,
       rawText: "继续根据自己的认知看守石门",
       goal: "守住石门",
+      means: null,
       targetIds: [],
     },
   };
@@ -109,7 +110,7 @@ function normalHandler(): ScriptedModelHandler {
       revision: number;
       agent: { id: string };
     };
-    if (profileId === "truth-engine") return { kind: "transition", proposal: transition(context) };
+    if (profileId === "truth-deepseek") return { kind: "transition", proposal: transition(context) };
     return mindOutput(context.agent.id, context.revision);
   };
 }
@@ -177,7 +178,7 @@ describe("WorldHost", () => {
         revision: number;
         agent: { id: string };
       };
-      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
       const invalid = transition({ baseRevision: context.baseRevision, step: 0, jointActions: context.jointActions });
       invalid.operations = [];
       return { kind: "transition", proposal: invalid };
@@ -204,7 +205,7 @@ describe("WorldHost", () => {
         revision: number;
         agent: { id: string };
       };
-      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
       const invalid = transition(context);
       invalid.operations.unshift({
         kind: "place_entity",
@@ -224,7 +225,7 @@ describe("WorldHost", () => {
     expect(store.read(session.id).runs[started.runId].internalError).toContain("canonical-secret-entity");
   });
 
-  it("cancels at the first safe boundary and preserves the committed step", async () => {
+  it("aborts an in-flight model batch without committing a partial step", async () => {
     let releaseTruth!: () => void;
     const truthGate = new Promise<void>((resolve) => { releaseTruth = resolve; });
     let truthEntered!: () => void;
@@ -237,7 +238,7 @@ describe("WorldHost", () => {
         revision: number;
         agent: { id: string };
       };
-      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
       truthEntered();
       await truthGate;
       const result = transition(context);
@@ -254,8 +255,8 @@ describe("WorldHost", () => {
     const cancelled = await host.waitForRun(session.id, run.runId);
 
     expect(cancelled.run.status).toBe("cancelled");
-    expect(host.session(session.id)).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
-    expect(cancelled.run.events.map((event) => event.type)).toContain("step.committed");
+    expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
+    expect(cancelled.run.events.map((event) => event.type)).not.toContain("step.committed");
     expect(cancelled.run.events.at(-1)?.type).toBe("run.cancelled");
   });
 
@@ -269,7 +270,7 @@ describe("WorldHost", () => {
         revision: number;
         agent: { id: string };
       };
-      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
       store.failNextWrite = true;
       return { kind: "transition", proposal: transition(context) };
     });
@@ -295,7 +296,7 @@ describe("WorldHost", () => {
         revision: number;
         agent: { id: string };
       };
-      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
       const result = transition(context);
       result.intentStatus = "active";
       return { kind: "transition", proposal: result };
@@ -368,7 +369,7 @@ describe("WorldHost", () => {
         revision: number;
         agent: { id: string };
       };
-      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
       const result = transition(context);
       if (!valid) result.operations = [];
       return { kind: "transition", proposal: result };
@@ -401,7 +402,7 @@ describe("WorldHost", () => {
         revision: number;
         agent: { id: string };
       };
-      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
       if (mode === "invalid") {
         const invalid = transition(context);
         invalid.operations = [];

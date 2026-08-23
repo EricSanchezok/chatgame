@@ -1,4 +1,5 @@
 import type { SimulationState } from "./model";
+import type { ModelCatalog } from "./model-catalog";
 import type { RulePackageReference } from "./rule-package";
 
 export interface WorldLaw {
@@ -15,6 +16,7 @@ export interface WorldDefinition {
   id: string;
   name: string;
   description: string;
+  truthModelProfileId: string;
   laws: WorldLaw[];
   disclosure: MechanicalDisclosurePolicy;
   rulePackages: RulePackageReference[];
@@ -23,6 +25,7 @@ export interface WorldDefinition {
 
 export function validateWorldDefinition(definition: WorldDefinition): void {
   if (!definition.id.trim() || !definition.name.trim()) throw new Error("world id and name are required");
+  if (!definition.truthModelProfileId.trim()) throw new Error("world Truth Engine model profile is required");
   const ids = new Set<string>();
   for (const law of definition.laws) {
     if (!law.id.trim() || !law.text.trim()) throw new Error("world laws require id and text");
@@ -43,5 +46,12 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
       throw new Error(`invalid rule package reference ${rulePackage.id}`);
     }
     packageIds.add(rulePackage.id);
+  }
+}
+
+export function validateWorldModelProfiles(definition: WorldDefinition, catalog: ModelCatalog): void {
+  catalog.assertProfile(definition.truthModelProfileId, "truth-engine");
+  for (const agent of Object.values(definition.initialState.agents)) {
+    catalog.assertProfile(agent.modelProfileId, "agent-mind");
   }
 }

@@ -1,29 +1,31 @@
+import { z } from "zod";
 import { applyBeliefPatch } from "./belief";
 import { agentMindOutputSchema, type AgentMindOutput } from "./llm-schemas";
-import { canonicalize, contentHash } from "./model-audit";
-import type { StructuredModelProvider } from "./model-provider";
-import type { AgentState, ModelExecutionAudit, ObservationPacket } from "./model";
+import type {
+  AgentActionProposal,
+  AgentState,
+  ModelExecutionAudit,
+  ObservationPacket,
+  SimulationState,
+} from "./model";
+import {
+  combineModelExecutionAudits,
+  ModelOutputError,
+  ModelTransportError,
+  type ModelExecutionScope,
+  type StructuredModelProvider,
+} from "./model-provider";
+import { ModelOverloadedError } from "./model-scheduler";
+import {
+  AGENT_PROMPT_VERSION,
+  AGENT_SYSTEM,
+  buildAgentContext,
+  sanitizeObservationForAgent,
+  validationIssues,
+  type PromptValidationIssue,
+} from "./prompts";
 
-const AGENT_SYSTEM = `你是游戏世界中的一个有限认知 Agent，不是全知叙事者。
-你只能依据提供的信念图、人格、目标和 Observation 行动。
-Observation 是你感知到的表象，不保证等于真相；你可以相信、怀疑、误解或拒绝它。
-你可以形成现实中不存在的假设实体，但不得使用 canonical entity id，也不得声称知道未提供的信息。
-先用 BeliefPatch 更新自己的主观世界，再提出下一世界步骤要尝试的任意自然语言行动。
-行动不是固定菜单：rawText、goal 和 means 使用自然语言；targetIds 只能引用你的局部实体。
-不要输出思维链，只输出符合 schema 的 JSON 对象。`;
-
-function visibleObservation(packet: ObservationPacket): ObservationPacket {
-  return {
-    ...structuredClone(packet),
-    introductions: packet.introductions.map(({ localEntity }) => ({ localEntity: structuredClone(localEntity) })),
-  };
-}
-
-function validateMindOutput(
-  agent: AgentState,
-  revision: number,
-  output: AgentMindOutput,
-): AgentMindOutput {
+function validateMindOutput(agent: AgentState, revision: number, output: AgentMindOutput): AgentMindOutput {
   if (output.beliefPatch.agentId !== agent.id) {
     throw new Error(`AgentMind ${agent.id} returned patch for ${output.beliefPatch.agentId}`);
   }
@@ -45,6 +47,11 @@ function validateMindOutput(
   return output;
 }
 
+function isTerminalModelError(error: unknown): boolean {
+  return error instanceof ModelTransportError || error instanceof ModelOverloadedError ||
+    (error instanceof Error && error.name === "AbortError");
+}
+
 export class AgentMind {
   constructor(
     private readonly provider: StructuredModelProvider,
@@ -52,70 +59,63 @@ export class AgentMind {
   ) {}
 
   async think(
+    state: SimulationState,
     agent: AgentState,
-    revision: number,
-    step: number,
     observations: readonly ObservationPacket[],
+    scope: ModelExecutionScope,
+    currentResolution: {
+      action: AgentActionProposal | null;
+      outcome: {
+        status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
+        summary: string;
+      } | null;
+    } = { action: null, outcome: null },
   ): Promise<AgentMindOutput & { modelAudit: ModelExecutionAudit }> {
-    const safeAgent = {
-      id: agent.id,
-      localSelfId: Object.values(agent.bindings).find((binding) =>
-        binding.canonicalEntityIds.includes(agent.entityId))?.localEntityId,
-      persona: agent.persona,
-      goals: agent.goals,
-      belief: agent.belief,
-    };
-    const basePrompt = JSON.stringify(
-      canonicalize({
-        revision,
-        step,
-        agent: safeAgent,
-        observations: observations.map(visibleObservation),
-      }),
-      null,
-      2,
-    );
+    let issues: PromptValidationIssue[] = [];
+    const audits: ModelExecutionAudit[] = [];
+    let lastError = "unknown AgentMind validation failure";
 
-    let lastError = "";
-    const requestHashes: string[] = [];
-    const responseHashes: string[] = [];
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
-      const prompt = lastError
-        ? `${basePrompt}\n\n上一次输出无效，请修复但不要改变未被错误涉及的内容：\n${lastError}`
-        : basePrompt;
       try {
-        requestHashes.push(contentHash({ system: AGENT_SYSTEM, prompt }));
-        const output = await this.provider.generateObject({
+        const result = await this.provider.generateStructured({
           profileId: agent.modelProfileId,
+          workloadId: scope.workloadId,
+          batchId: scope.batchId,
+          abortSignal: scope.abortSignal,
+          role: "agent-mind",
+          subjectId: agent.id,
+          promptVersion: AGENT_PROMPT_VERSION,
+          schemaName: "agent_mind_output",
           system: AGENT_SYSTEM,
-          prompt,
+          context: buildAgentContext({
+            state,
+            agent,
+            observations,
+            currentAction: currentResolution.action,
+            currentOutcome: currentResolution.outcome,
+            sessionId: scope.workloadId,
+            runId: scope.batchId,
+            issues,
+          }),
           schema: agentMindOutputSchema,
         });
-        responseHashes.push(contentHash(output));
-        const validated = validateMindOutput(agent, revision, output);
-        const descriptor = this.provider.describe(agent.modelProfileId);
+        audits.push(result.audit);
+        const validated = validateMindOutput(agent, state.revision, result.value);
         return {
           ...validated,
-          modelAudit: {
-            role: "agent-mind",
-            subjectId: agent.id,
-            profileId: agent.modelProfileId,
-            providerId: descriptor.providerId,
-            modelId: descriptor.modelId,
-            attempts: attempt + 1,
-            repairAttempts: attempt,
-            requestHashes,
-            responseHashes,
-          },
+          modelAudit: combineModelExecutionAudits(audits, attempt),
         };
       } catch (error) {
+        if (isTerminalModelError(error)) throw error;
+        if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
+        if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) &&
+          !(error instanceof Error)) throw error;
         lastError = error instanceof Error ? error.message : String(error);
+        issues = validationIssues(error);
       }
     }
     throw new Error(`AgentMind ${agent.id} failed after repairs: ${lastError}`);
   }
 }
 
-export function sanitizeObservationForAgent(packet: ObservationPacket): ObservationPacket {
-  return visibleObservation(packet);
-}
+export { sanitizeObservationForAgent };

@@ -1,0 +1,35 @@
+schema_version: 1
+
+scheduler:
+  global_concurrency: 16
+  max_queued_requests: 1024
+  queue_timeout_ms: 300000
+
+providers:
+  deepseek-e2e:
+    kind: deepseek
+    base_url: http://127.0.0.1:32128
+    api_key_env: E2E_MODEL_API_KEY
+    max_concurrency: 16
+
+profiles:
+  truth-deepseek:
+    provider_id: deepseek-e2e
+    model: e2e-truth
+    description: E2E Truth Engine through the production DeepSeek adapter
+    allowed_roles: [truth-engine]
+    request_timeout_ms: 10000
+    max_output_tokens: 32768
+    inference:
+      kind: deepseek-thinking
+      effort: max
+  agent-deepseek:
+    provider_id: deepseek-e2e
+    model: e2e-agent
+    description: E2E AgentMind through the production DeepSeek adapter
+    allowed_roles: [agent-mind]
+    request_timeout_ms: 10000
+    max_output_tokens: 8192
+    inference:
+      kind: deepseek-thinking
+      effort: high

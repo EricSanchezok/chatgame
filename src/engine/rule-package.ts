@@ -4,12 +4,14 @@ export interface RulePackageReference {
   id: string;
   version: string;
   config: unknown;
+  adjudication: string;
 }
 
 export interface RulePackage<TConfig = unknown> {
   id: string;
   version: string;
   configSchema: z.ZodType<TConfig>;
+  adjudication: string;
 }
 
 export class RulePackageRegistry {
@@ -25,7 +27,7 @@ export class RulePackageRegistry {
     this.packages.set(rulePackage.id, rulePackage);
   }
 
-  validate(references: readonly RulePackageReference[]): RulePackageReference[] {
+  validate(references: readonly Omit<RulePackageReference, "adjudication">[]): RulePackageReference[] {
     const seen = new Set<string>();
     return references.map((reference) => {
       if (seen.has(reference.id)) throw new Error(`duplicate rule package reference ${reference.id}`);
@@ -39,6 +41,7 @@ export class RulePackageRegistry {
         id: reference.id,
         version: reference.version,
         config: rulePackage.configSchema.parse(reference.config),
+        adjudication: rulePackage.adjudication,
       };
     });
   }
@@ -47,6 +50,7 @@ export class RulePackageRegistry {
 export const coreD20RulePackage: RulePackage = {
   id: "core-d20",
   version: "1.0.0",
+  adjudication: "需要不确定性且结果有实质风险时使用 d20 检定。normal 掷 1d20；advantage/disadvantage 掷 2d20 并分别取高/低。总值为 kept + modifier，与 DC 比较；所有 modifier 必须来自结构化 rating 或 number fact。",
   configSchema: z.object({
     opposedChecks: z.boolean().default(true),
     damageUsesMeters: z.boolean().default(true),

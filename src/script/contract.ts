@@ -9,11 +9,12 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(2),
+  schema_version: z.literal(3),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string().min(1),
+  truth_model_profile_id: z.string().min(1),
 }).strict();
 
 export const lawsFileSchema = z.object({
@@ -117,7 +118,7 @@ export const entityDocumentSchema = z.object({
   }).strict()).default([]),
   agent: z.object({
     id: z.string().min(1),
-    model_profile_id: z.string().min(1).default("agent-default"),
+    model_profile_id: z.string().min(1),
     persona: z.string(),
     goals: z.array(z.string()),
     belief: beliefSeedSchema,

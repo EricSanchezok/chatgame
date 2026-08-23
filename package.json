@@ -23,7 +23,9 @@
     "check:all": "npm run check:fast && npm run check:ui"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.46",
     "@ai-sdk/openai-compatible": "^3.0.31",
+    "@ai-sdk/xai": "^4.0.43",
     "adm-zip": "^0.6.0",
     "ai": "^7.0.66",
     "next": "16.3.1",
