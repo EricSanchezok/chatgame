@@ -1,0 +1,32 @@
+id: jorvik-atacyl-network
+kind: clandestine-patronage-network
+name: Jorvik Atacyl Network
+description: 由 Atacyl 支持者后裔、Maracan 亲信与受益家系构成的隐蔽政治网络，借 Jorvik 市场和向导业务延续影响。
+placement: hex-1316-jorvik
+facts:
+  - id: jorvik-network-historical-continuity
+    predicate: historical-lineage
+    value: { kind: text, value: descendants-of-atacyl-supporters-and-veterans-of-last-counterattack }
+    description: 网络的核心家系来自 Atacyl 倒台后迁入 Jorvik 的支持者，其中部分家系参与过四十年前的最后一次公开进攻。
+    access: { kind: private }
+  - id: jorvik-network-public-cover
+    predicate: public-cover
+    value: { kind: text, value: market-guides-and-tribute-compliant-local-experts }
+    description: 对外成员以市场中介、地区向导和履行纳贡义务的 Jorvik 居民身份活动。
+    access: { kind: public }
+  - id: jorvik-network-maracan-strategy
+    predicate: influence-operation
+    value: { kind: text, value: court-grand-kingdom-while-amplifying-anti-elf-and-anti-ranger-grievances }
+    description: Maracan 的亲信向 Grand Kingdom 出售本地知识，并选择性放大反精灵与反 Ranger 情绪。
+    access: { kind: private }
+  - id: jorvik-network-command-boundary
+    predicate: command-status
+    value: { kind: text, value: no-proven-current-command-from-atacyl-autse-or-warlock-coven }
+    description: 网络与 Atacyl、Autse 和 1214 coven 共享历史链条，却没有已证实的现存指挥关系或即时情报共享。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 420 }
+  - { definition_id: provisions, amount: 150 }
+  - { definition_id: viz, amount: 2 }
+ratings: []

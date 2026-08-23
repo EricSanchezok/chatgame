@@ -1,0 +1,29 @@
+id: hex-1002-wedmor
+kind: settlement
+name: Wedmor
+description: Ostrobard 牧牛聚落，秋季赶拢牛群、淘汰牲畜并把盐肉沿 Rednut River 运往 Muncaester。
+placement: rednut-river
+facts:
+  - id: hex-1002-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1002" }
+    description: Wedmor 位于区域六角 1002，属于 Rednut River 流域。
+    access: { kind: public }
+  - id: hex-1002-population
+    predicate: population
+    value: { kind: number, value: 255 }
+    description: 常住人口约二百五十五，以 Ostrobard 人类为主。
+    access: { kind: public }
+  - id: hex-1002-cattle-economy
+    predicate: resource
+    value: { kind: text, value: cattle-roundup-salted-meat-and-river-export }
+    description: 每到秋季，牧人赶拢牛群并宰杀多数公牛与老牛，盐肉经 Muncaester 分销到黑沼各地。
+    access: { kind: public }
+  - id: hex-1002-roundup-labor-roles
+    predicate: seasonal-labor-market
+    value: { kind: text, value: autumn-roundup-hands-and-route-guards }
+    description: 秋季赶牛会形成牧工与沿途护卫两类季节岗位；具体招募政策只由 Lord Octa 记录。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

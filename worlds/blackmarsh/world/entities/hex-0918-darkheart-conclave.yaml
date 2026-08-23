@@ -1,0 +1,19 @@
+id: hex-0918-darkheart-conclave
+kind: ruin
+name: Darkheart 法师结社
+description: 湖畔高崖上的 Bright Empire 法师结社遗址，废弃厅室、坡道和防御位置适合改造成据点。
+placement: blackmarsh-region
+facts:
+  - id: hex-0918-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0918" }
+    description: 遗址位于区域六角 0918，在 Lanis River 以东、俯瞰湖泊的未命名高地。
+    access: { kind: public }
+  - id: hex-0918-origin
+    predicate: origin
+    value: { kind: text, value: bright-empire-wizard-conclave-about-one-thousand-years-old }
+    description: 法师结社在约千年前建立，帝国崩溃后不久被弃置并空置数百年。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,32 @@
+id: cruk-kobold-tribe
+kind: kobold-tribe
+name: Cruk's Sword Tribe
+description: 围绕发光秩序之剑形成的 kobold 宗教共同体，以氏族权威、禁触传统与林地仪式维系秩序。
+placement: hex-0413-sword-grove
+facts:
+  - id: cruk-tribe-government
+    predicate: government
+    value: { kind: text, value: high-chief-cruk-with-six-clan-chiefs }
+    description: Cruk 以 High Chief 和仪式权威居首，六名 chiefs 仍掌握各自氏族并参与重大选择。
+    access: { kind: public }
+  - id: cruk-tribe-population
+    predicate: population
+    value: { kind: number, value: 190 }
+    description: 开局约有一百九十名 kobold 控制湖泊北侧森林。
+    access: { kind: private }
+  - id: cruk-tribe-sacred-object
+    predicate: sacred-duty
+    value: { kind: text, value: guard-untakeable-glowing-sword-of-law }
+    description: 部族维护发光长剑周围圣林的守护与禁触仪式；守护不等于拥有或能够安全使用圣剑。
+    access: { kind: public }
+  - id: cruk-tribe-council-friction
+    predicate: internal-question
+    value: { kind: text, value: preserve-touch-taboo-or-seek-a-safe-worthy-bearer }
+    description: 六位 chiefs 对是否永久维持禁触或寻找安全使用者可能持不同立场，聚合实体没有预设统一答案。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 90 }
+  - { definition_id: provisions, amount: 520 }
+  - { definition_id: viz, amount: 1 }
+ratings: []

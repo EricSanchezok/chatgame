@@ -1,0 +1,19 @@
+id: sandstone-island
+kind: geographic-region
+name: Sandstone Island
+description: 面向 Sheltered Bay 的背风岸由撞击震裂的砂岩构成，向迎风岸逐渐过渡成沙丘海滩。
+placement: blackmarsh-region
+facts:
+  - id: sandstone-island-ravines
+    predicate: terrain
+    value: { kind: text, value: cracked-sandstone-ravines-gullies-and-chasms }
+    description: 纵贯岛身的沟谷与裂隙制造了大量隐蔽但容易迷失或坍塌的路径。
+    access: { kind: public }
+  - id: sandstone-island-caches
+    predicate: land-use
+    value: { kind: text, value: recurrent-viking-and-pirate-cache-sites }
+    description: 维京人与海盗长期利用裂谷藏匿财物；藏物会被取走或更换，不构成保证存在的宝箱。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,29 @@
+id: darkheart-undead-host
+kind: undead-garrison
+name: Darkheart 亡灵驻军
+description: Sir Autse Darkheart 建立的亡灵驻军，成员通过可传达的口令协同行动而不共享心智。
+placement: hex-0918-darkheart-conclave
+facts:
+  - id: darkheart-undead-host-commander
+    predicate: commanded-by
+    value: { kind: entity, entityId: sir-autse-darkheart }
+    description: Sir Autse Darkheart 以 wraith 形态维持对遗址内亡灵的现有指挥。
+    access: { kind: private }
+  - id: darkheart-undead-host-composition
+    predicate: composition
+    value: { kind: text, value: skeletons-zombies-wights-and-lesser-wraiths }
+    description: 原作明确驻军包含骷髅、僵尸、wight 和低阶 wraith，但没有给出各类或总数。
+    access: { kind: private }
+  - id: darkheart-undead-host-scale
+    predicate: population-state
+    value: { kind: text, value: numerous-throughout-ruins-without-canonical-headcount }
+    description: 亡灵遍布结社废墟内外；运行世界不为原作未枚举的兵力虚构人数。
+    access: { kind: private }
+  - id: darkheart-undead-host-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: distinct-undead-follow-reachable-orders-without-shared-mind }
+    description: 不同亡灵能服从可接收的命令，却分别占位、受损和感知；指挥官也不会自动读取每个单位的现场知识。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

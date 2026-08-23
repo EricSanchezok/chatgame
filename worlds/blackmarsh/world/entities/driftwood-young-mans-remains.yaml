@@ -1,0 +1,24 @@
+id: driftwood-young-mans-remains
+kind: human-remains
+name: 海藻下的青年遗体
+description: 在 Driftwood Isle 东南半岛发现、衣着符合 Grand Kingdom 高等贵族风格的青年遗体。
+placement: driftwood-isle
+facts:
+  - id: driftwood-remains-condition
+    predicate: physical-condition
+    value: { kind: text, value: deceased-young-man-partly-covered-by-seaweed-near-scattered-wreckage }
+    description: 遗体与散落船骸同处海岸，风暴和潮水会移动现场物证。
+    access: { kind: private }
+  - id: driftwood-remains-clothing
+    predicate: clothing-style
+    value: { kind: text, value: high-noble-fashion-of-the-grand-kingdom }
+    description: 服饰样式支持“来自 Grand Kingdom 上层”的推断，但不能单独证明姓名、爵位或王族身份。
+    access: { kind: private }
+  - id: driftwood-remains-held-object
+    predicate: holds
+    value: { kind: entity, entityId: driftwood-royal-seal-necklace }
+    description: 遗体一手仍握着带王室印记的项链。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

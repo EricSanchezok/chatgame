@@ -3,6 +3,33 @@ rule_packages:
     version: 1.1.0
     config:
       damageUsesMeters: true
+random_distributions:
+  - id: moon-shell-viz-yield
+    description: 每次满月的月贝 Viz 产量。
+    steps:
+      - { id: amount, count: 4, outcomes: [1, 2, 3, 4, 5, 6], aggregate: sum }
+  - id: oldan-current-visitors
+    description: Oldan Hold 当期外来商人数量；来源没有季节限定，护卫另计。
+    steps:
+      - { id: visitors, count: 5, outcomes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], aggregate: sum }
+  - id: white-mountain-boar-hour
+    description: 0318 每小时先判定是否遭遇，再确定野猪群体规模。
+    steps:
+      - { id: triggered, count: 1, outcomes: [false, false, false, true], aggregate: first }
+      - id: group-size
+        count: 4
+        outcomes: [1, 2, 3, 4]
+        aggregate: sum
+        when: { step_id: triggered, equals: true }
+  - id: rednut-snake-segment
+    description: 0302 每百码先判定是否触发，再区分蛇穴或活动巨蛇。
+    steps:
+      - { id: triggered, count: 1, outcomes: [false, false, false, true, true, true], aggregate: first }
+      - id: encounter-kind
+        count: 1
+        outcomes: [den, den, den, den, snake, snake]
+        aggregate: first
+        when: { step_id: triggered, equals: true }
 meters:
   - id: vitality
     name: 生命

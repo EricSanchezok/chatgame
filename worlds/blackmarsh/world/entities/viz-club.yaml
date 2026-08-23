@@ -1,0 +1,22 @@
+id: viz-club
+kind: private-club
+name: Viz Club
+description: 只接纳顶尖探索者与冒险者的高费会员宴会厅，垄断部分稀有情报并主持高价值魔法物品季度拍卖。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: viz-club-membership
+    predicate: membership
+    value: { kind: text, value: invitation-and-high-annual-fee }
+    description: 会员必须受邀并承担昂贵年费。
+    access: { kind: public }
+  - id: viz-club-auction
+    predicate: market
+    value: { kind: text, value: quarterly-high-value-magic-auction }
+    description: 高价值魔法物品在此季度拍卖，非会员入场需缴一千金币。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 2500 }
+  - { definition_id: provisions, amount: 30 }
+  - { definition_id: viz, amount: 15 }
+ratings: []

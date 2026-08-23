@@ -1,0 +1,24 @@
+id: tave-marshes
+kind: geographic-region
+name: The Tave Marshes
+description: 湖泊稀少、由河口汊道、小溪和泥沼交织而成的东部湿地，外界因月夜仪式与 weretiger 传闻而普遍绕行。
+placement: blackmarsh-region
+facts:
+  - id: tave-marshes-waterways
+    predicate: terrain
+    value: { kind: text, value: estuaries-small-streams-and-bogs }
+    description: 与 Black Marshes 不同，这里少有大湖，通行依赖不断分叉的河口、小溪和硬地岛。
+    access: { kind: public }
+  - id: tave-marshes-weretigers
+    predicate: inhabitants
+    value: { kind: text, value: secretive-weretiger-community }
+    description: 多族出身的 weretiger 在沼泽中活动并参与黑色独石仪式；其目的并非公开知识。
+    access: { kind: private }
+  - id: tave-marshes-reputation
+    predicate: reputation
+    value: { kind: text, value: widely-avoided-as-evil-and-cursed }
+    description: 周边居民普遍将湿地视为邪恶之地，这一名声是社会判断，不证明每个居民或现象的道德属性。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

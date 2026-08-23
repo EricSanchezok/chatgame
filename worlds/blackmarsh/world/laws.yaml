@@ -7,6 +7,12 @@ laws:
   - id: situated-causality
     text: 实体只能从当前地点或可到达地点行动；海湾、沼泽、山脉、道路、船只与天气会真实约束移动和接触。
     severity: hard
+  - id: deadline-integrity
+    text: deadline-seconds 是从 elapsedSeconds = 0 计算的绝对阈值；每个截止主体必须唯一持有 operation-state 与 operation-target。若时间推进达到或越过阈值，同一原子提交必须把 operation-state 更新为 implemented、blocked 或 cancelled 并移除截止，或以新的因果依据替换截止；禁止保留达到阈值的 preparing 或 in-progress 状态。
+    severity: hard
+  - id: lunar-calendar
+    text: 月相以黑沼地区的开局锚点和 lunar-cycle-seconds 随 elapsedSeconds 连续推进；时间达到或越过满月节点时，月贝转化、Tave 仪式与黑堡现象即使没有玩家在场也必须按各自条件原子结算，并更新唯一 lunar-last-settled-node。Tave 仪式圈更新 lunar-last-gathered-node，但共同体的常态 placement 仍表示成员分散所在的沼泽；黑堡每节点更新 lunar-last-evaluated-node，有占据者才产生伤亡。任何节点不得重复产出或重复结算。
+    severity: hard
   - id: mortal-consequence
     text: 暴力、坠落、火焰、溺水、毒物与怪物攻击会造成与情势相称的伤害；生命降至零的主体退出活动世界。
     severity: hard
@@ -15,6 +21,9 @@ laws:
     severity: hard
   - id: viz-cycle
     text: Viz 只能从已存在的 Viz 转移，或由陨山、灰种、瀑布、矿脉、月变贝壳、异常虫卵等明确魔法来源产生；施法、附魔与实验可以消耗 Viz。
+    severity: hard
+  - id: committed-source-randomness
+    text: 来源规定随机分布时，实际结果必须在 resolution 阶段调用 world runtime contract 中同名离散分布，并把请求、结果及引用结果的状态变更原子提交；条件步骤只能在前置结果满足 when 时执行，禁止事后挑选、重抽或用期望值代替承诺结果。
     severity: hard
   - id: coin-economy
     text: 钱币只能通过转移、明确收入、铸造或发现既存宝藏产生，并只能通过支付、税费、遗失或明确毁坏消耗。

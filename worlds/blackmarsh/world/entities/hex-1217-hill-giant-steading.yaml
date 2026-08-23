@@ -1,0 +1,14 @@
+id: hex-1217-hill-giant-steading
+kind: steading
+name: Westwall 巨人家园
+description: Westwall 北端最后几座山峰外侧的石木家园，邻接通往 Jorvik 与 Norbury 农地的山麓路线。
+placement: westwall
+facts:
+  - id: hex-1217-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1217" }
+    description: 巨人家园位于区域六角 1217，原作明确置于 Westwall 北端山麓。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

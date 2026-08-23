@@ -1,0 +1,29 @@
+id: hex-1506-ethanfeld
+kind: settlement
+name: Ethanfeld
+description: 以捕鱼和为 Dragonbone Peaks 探险者整备装备为生的 Ostrobard 村庄，Dragonbane Company 守卫上游山谷。
+placement: blackmarsh-region
+facts:
+  - id: hex-1506-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1506" }
+    description: Ethanfeld 位于区域六角 1506，在 Smoking Bay 东北岸上游的未命名陆地。
+    access: { kind: public }
+  - id: hex-1506-population
+    predicate: population
+    value: { kind: number, value: 145 }
+    description: 常住人口约一百四十五，以 Ostrobard 人类为主。
+    access: { kind: public }
+  - id: hex-1506-economy
+    predicate: resource
+    value: { kind: text, value: fishing-and-expedition-outfitting }
+    description: 捕鱼是主要生计，同时向东行 Dragonbone Peaks 的探险者出售补给与服务。
+    access: { kind: public }
+  - id: hex-1506-dragonbane-company
+    predicate: associated-force
+    value: { kind: entity, entityId: dragonbane-company }
+    description: Dragonbane Company 以此为基地；编成、命令与状态只由组织实体记录。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

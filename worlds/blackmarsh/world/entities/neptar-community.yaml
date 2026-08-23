@@ -1,0 +1,32 @@
+id: neptar-community
+kind: merman-community
+name: King Neptar's Grotto Community
+description: 以 Smoking Bay 海底石窟、亲族关系与共享储备维系的 merman 共同体。
+placement: hex-1107-neptars-grotto
+facts:
+  - id: neptar-community-ruler
+    predicate: ruler
+    value: { kind: entity, entityId: king-neptar }
+    description: King Neptar 承担共同体的王权与对外责任，具体居民仍只依据亲历、传话和各自承诺行动。
+    access: { kind: public }
+  - id: neptar-community-population
+    predicate: population
+    value: { kind: number, value: 86 }
+    description: 开局共有八十六名 merman 居于王窟。
+    access: { kind: private }
+  - id: neptar-community-mourning
+    predicate: current-condition
+    value: { kind: text, value: funeral-for-neptars-son }
+    description: 共同体正在为王子举行葬礼；哀悼会影响成员选择，但不会替任何人预先决定后续行动。
+    access: { kind: private }
+  - id: neptar-community-sovereignty-boundary
+    predicate: political-status
+    value: { kind: text, value: no-established-subordination-or-alliance-with-azure-court }
+    description: Neptar 共同体与 Azure Court 之间没有既定隶属、盟约、共享命令或自动情报交换。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 90 }
+  - { definition_id: provisions, amount: 260 }
+  - { definition_id: viz, amount: 3 }
+ratings: []

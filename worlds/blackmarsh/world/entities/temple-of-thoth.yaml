@@ -1,0 +1,22 @@
+id: temple-of-thoth
+kind: temple-library
+name: Thoth 神殿
+description: Bright Empire 之后持续服务法师与学者、以魔法、传说与历史馆藏著称的知识神殿。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: thoth-library-depth
+    predicate: collection
+    value: { kind: text, value: deep-magic-legend-and-history }
+    description: 馆藏在魔法、传说与地方历史方面十分深厚，深度超过 Scholar's Inn 的图书馆，但原作没有宣称它是全地区最完整者。
+    access: { kind: public }
+  - id: thoth-financial-condition
+    predicate: finances
+    value: { kind: text, value: precarious-and-fee-dependent }
+    description: Atacyl 对学者社会的摧毁使神殿缺少稳定捐助。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 180 }
+  - { definition_id: provisions, amount: 12 }
+  - { definition_id: viz, amount: 1 }
+ratings: []

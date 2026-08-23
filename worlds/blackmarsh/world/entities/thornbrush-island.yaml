@@ -1,0 +1,19 @@
+id: thornbrush-island
+kind: geographic-region
+name: Thornbrush Island
+description: 背风岸被带刺灌木和篱丛封锁的岛屿，野猪及其他动物踏出的路径构成会变化的天然迷宫。
+placement: blackmarsh-region
+facts:
+  - id: thornbrush-island-maze
+    predicate: terrain
+    value: { kind: text, value: thorn-hedges-with-shifting-game-trails }
+    description: 动物小径能穿过灌丛，却会随觅食和风暴改变；旧路线不能保证持续可通行。
+    access: { kind: public }
+  - id: thornbrush-island-boars
+    predicate: ecology
+    value: { kind: text, value: established-wild-boar-population }
+    description: 野猪及其他猎物把灌丛作为长期栖息地，会因食物、惊扰与繁殖季在岛内移动。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

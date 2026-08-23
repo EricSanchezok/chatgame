@@ -1,0 +1,29 @@
+id: hex-0702-caravan-killing-ground
+kind: wilderness
+name: 商队覆灭地
+description: Rednut River 北部道路旁的商队覆灭现场，位于 Muncaester 商路与周边荒野的交界。
+placement: rednut-river
+facts:
+  - id: hex-0702-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0702" }
+    description: 覆灭地位于区域六角 0702；Rednut River 北岸路网归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-0702-troll-traces
+    predicate: recent-presence
+    value: { kind: text, value: six-trolls-feeding-on-muncaester-caravan }
+    description: 六只 troll 曾在现场围食商队死者；t0 炊火余烟仍可从两英里外看见，足迹则向附近荒野延伸。
+    access: { kind: public }
+  - id: hex-0702-caravan-remains
+    predicate: current-evidence
+    value: { kind: text, value: recent-corpses-wagons-tracks-and-scattered-cargo }
+    description: 尸体、车辆、来路与散落货物形成可追查的现场，并已开始吸引其他食腐者。
+    access: { kind: private }
+  - id: hex-0702-scavenger-succession
+    predicate: ecology
+    value: { kind: text, value: carrion-draws-predators-and-erases-evidence-over-time }
+    description: troll 已离开固定现场，腐败、降雨与食腐动物会持续改变尸体和货物分布。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

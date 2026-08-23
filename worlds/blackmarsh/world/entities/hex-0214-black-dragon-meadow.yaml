@@ -1,0 +1,19 @@
+id: hex-0214-black-dragon-meadow
+kind: wilderness
+name: 黑龙进食草甸
+description: 黑沼西缘林地中的开阔草甸，鹿群会从周围林带进入这里觅食。
+placement: black-marshes
+facts:
+  - id: hex-0214-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0214" }
+    description: 草甸位于区域六角 0214；Black Marshes 西缘归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-0214-recent-kill
+    predicate: current-evidence
+    value: { kind: text, value: freshly-slaughtered-deer-herd-with-two-sized-dragon-tracks }
+    description: t0 草甸留有刚被屠杀并啃食的鹿群、大小不同的龙足印和拖拽痕迹；证据表明两头龙近期到访，但不冻结其当前位置。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

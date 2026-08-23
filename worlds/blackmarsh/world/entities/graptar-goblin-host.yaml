@@ -1,0 +1,27 @@
+id: graptar-goblin-host
+kind: goblin-host
+name: Graptar's Goblin Host
+description: King Graptar 在 Pendar Mountains 隐蔽山谷建立的 goblin 据点群体，以王权、亲卫与共同库存维系组织。
+placement: hex-0211-graptars-base
+facts:
+  - id: graptar-host-ruler
+    predicate: ruler
+    value: { kind: entity, entityId: king-graptar }
+    description: Graptar 以王号统领新据点，但统治稳定依赖亲卫和持续战利品。
+    access: { kind: public }
+  - id: graptar-host-population
+    predicate: population
+    value: { kind: number, value: 150 }
+    description: 开局约有一百五十名哥布林驻于 0211 山谷，不包括 Pendar Mountains 的其他独立部族。
+    access: { kind: private }
+  - id: graptar-host-royal-guard
+    predicate: internal-security
+    value: { kind: text, value: 12-elite-guards-watch-for-usurpers }
+    description: 十二名强力亲卫保护 Graptar，也专门监视可能夺位的内部挑战者。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 250 }
+  - { definition_id: provisions, amount: 430 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

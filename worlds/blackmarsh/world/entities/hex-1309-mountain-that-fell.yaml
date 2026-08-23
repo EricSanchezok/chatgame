@@ -1,0 +1,24 @@
+id: hex-1309-mountain-that-fell
+kind: island-massif
+name: The Mountain That Fell
+description: 天外坠山留在 Smoking Bay 的主要岛体，陡坡、无滩海岸和异常丰富的 Viz 使常规开采极为困难。
+placement: smoking-bay
+facts:
+  - id: hex-1309-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1309" }
+    description: 坠山主岛与西南小岛位于区域六角 1309，属于 Smoking Bay。
+    access: { kind: public }
+  - id: hex-1309-viz-reserve
+    predicate: resource
+    value: { kind: text, value: exceptionally-rich-viz-deposits }
+    description: 主岛拥有区域内最密集的已知 Viz，但陡坡、无滩海岸和守护者使采集极其困难。
+    access: { kind: public }
+  - id: hex-1309-flying-ecology
+    predicate: reported-fauna
+    value: { kind: text, value: reports-name-gargoyles-wyverns-griffons-hippogriffs-pegasi-chimerae-manticores-and-rocs-near-summit }
+    description: 幸存者与水手报告这些飞行生物在峰顶附近筑巢；报告本身是事实，但并不保证所有种类在 t0 都存在或处于同一地点。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

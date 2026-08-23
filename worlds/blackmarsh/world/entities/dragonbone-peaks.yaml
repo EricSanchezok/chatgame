@@ -1,0 +1,19 @@
+id: dragonbone-peaks
+kind: geographic-region
+name: Dragonbone Peaks
+description: 坠山喷射物覆盖西坡谷地的高峰带，碎岩与风化形成大量洞穴入口。
+placement: blackmarsh-region
+facts:
+  - id: dragonbone-peaks-debris
+    predicate: terrain
+    value: { kind: text, value: impact-debris-covered-western-slopes }
+    description: 西坡多数谷地被 Mountain That Fell 喷出的碎屑覆盖，地表不稳定且视线破碎。
+    access: { kind: public }
+  - id: dragonbone-peaks-caverns
+    predicate: reported-subterranean-extent
+    value: { kind: text, value: locally-believed-to-extend-for-miles-along-western-edge }
+    description: 当地普遍相信洞穴网沿山脉西缘延伸数英里，但完整连通范围尚未测绘，不能作为已证实拓扑。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

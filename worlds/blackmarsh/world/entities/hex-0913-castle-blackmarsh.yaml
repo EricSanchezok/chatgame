@@ -1,7 +1,7 @@
 id: hex-0913-castle-blackmarsh
 kind: city-state
 name: 黑沼堡
-description: Bright Empire 建立的旧港城，现由 Greywood 精灵驻守城堡并以总督和议会治理；人口约一千二百九十四。
+description: Bright Empire 建立、围绕旧城堡与港口发展起来的多族城邦。
 placement: smoking-bay
 facts:
   - id: castle-blackmarsh-hex

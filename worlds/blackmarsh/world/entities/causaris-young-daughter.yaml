@@ -1,0 +1,20 @@
+id: causaris-young-daughter
+kind: person
+name: Causari 的幼女
+description: Sir Causari 年幼的女儿；她最喜爱的宠物犬曾在 Witch Hill 附近野餐时与她失散。
+placement: hex-1113-inuacus-keep
+facts:
+  - id: causari-daughter-parent
+    predicate: child-of
+    value: { kind: entity, entityId: sir-causari }
+    description: 她是 Inuacus Keep 指挥官 Sir Causari 的女儿。
+    access: { kind: private }
+  - id: causari-daughter-lost-pet
+    predicate: owner-of
+    value: { kind: entity, entityId: causaris-lost-dog }
+    description: 她在 Witch Hill 野餐期间与最喜爱的宠物犬走散。
+    access: { kind: private }
+meters:
+  - { id: "vitality:causaris-young-daughter", definition_id: vitality, current: 8 }
+quantities: []
+ratings: []

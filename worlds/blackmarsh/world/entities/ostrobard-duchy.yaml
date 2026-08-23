@@ -1,0 +1,37 @@
+id: ostrobard-duchy
+kind: duchy
+name: Duchy of Ostrobard
+description: 以 Muncaester 为宫廷和市场中心、由多个领地相互供给的公国；Duke Caedwine 统治，但各领主保有本地兵力、账目与现场判断。
+placement: hex-1305-muncaester
+facts:
+  - id: ostrobard-cultural-transition
+    predicate: cultural-history
+    value: { kind: text, value: shed-former-barbarian-ways-within-the-last-century }
+    description: Ostrobards 在过去一世纪内才脱离更早的蛮族生活方式并进入现有公国文明；这段近史仍影响荣誉、宴饮与领主政治。
+    access: { kind: public }
+  - id: ostrobard-duchy-ruler
+    predicate: ruler
+    value: { kind: entity, entityId: duke-caedwine }
+    description: Duke Caedwine 坐镇 Muncaester，以公爵权威协调税收、市场、外交与诸领防务。
+    access: { kind: public }
+  - id: ostrobard-duchy-economic-network
+    predicate: economy
+    value: { kind: text, value: muncaester-market-wedmor-cattle-camden-iron-ethanfeld-fish }
+    description: Muncaester 市场、Wedmor 牛群、Camden 铁矿和 Ethanfeld 渔业形成相互依赖的领地经济。
+    access: { kind: public }
+  - id: ostrobard-duchy-defense-network
+    predicate: defense-structure
+    value: { kind: text, value: local-lords-wessex-garrison-and-dragonbane-patrols }
+    description: 各领主保卫本地，Wessex Keep 的五十人边军和 Ethanfeld 的 Dragonbane Company 承担专门边防；调集需要命令、路程与补给。
+    access: { kind: private }
+  - id: ostrobard-duchy-succession-strain
+    predicate: political-condition
+    value: { kind: text, value: caedwine-bedewald-generational-rift-without-open-civil-war }
+    description: Caedwine 的宴饮政治与 Bedewald 的边防纪律存在真实裂缝，但开局尚未形成公开继承战争。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 3200 }
+  - { definition_id: provisions, amount: 2200 }
+  - { definition_id: viz, amount: 3 }
+ratings: []

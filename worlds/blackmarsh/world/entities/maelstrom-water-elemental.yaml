@@ -1,0 +1,30 @@
+id: maelstrom-water-elemental
+kind: water-elemental
+name: 烟湾漩涡水元素
+description: 能够改变水流、制造漩涡并捕猎船只的强大水元素。
+placement: hex-0909-maelstrom
+facts:
+  - id: maelstrom-water-elemental-predation
+    predicate: recurring-behavior
+    value: { kind: text, value: selects-unwary-ships-and-pulls-them-into-a-maelstrom }
+    description: 水元素主动挑选领航失误或防备不足的船只，制造漩涡并把它们拖沉。
+    access: { kind: private }
+  - id: maelstrom-water-elemental-territory
+    predicate: established-territory
+    value: { kind: entity, entityId: hex-0909-maelstrom }
+    description: 它以半英里浅盆及周围水道为猎区，会在该海域内随水流和猎物改变位置。
+    access: { kind: private }
+  - id: maelstrom-water-elemental-neptar-killing
+    predicate: killed
+    value: { kind: text, value: king-neptars-son-before-t0 }
+    description: King Neptar 之子的死亡被 merman 宫廷归因于这名水元素；凶案已发生，当前复仇反应由相关主体决定。
+    access: { kind: private }
+meters:
+  - { id: "vitality:maelstrom-water-elemental", definition_id: vitality, current: 30 }
+quantities: []
+ratings:
+  - { id: "force:maelstrom-water-elemental", definition_id: force, value: 8 }
+  - { id: "finesse:maelstrom-water-elemental", definition_id: finesse, value: 5 }
+  - { id: "resolve:maelstrom-water-elemental", definition_id: resolve, value: 8 }
+  - { id: "magic:maelstrom-water-elemental", definition_id: magic, value: 7 }
+  - { id: "seamanship:maelstrom-water-elemental", definition_id: seamanship, value: 8 }

@@ -1,0 +1,22 @@
+id: company-honorable-men
+kind: clandestine-company
+name: Company of Honorable Men
+description: 起源于反抗 Atacyl 暴政的失势贵族网络，后来演变为借反精灵政治经营非法生意的地下会社。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: honorable-men-public-cover
+    predicate: public-cover
+    value: { kind: text, value: mutual-aid-for-dispossessed-families }
+    description: 组织公开自称帮助被暴政和精灵托管损害的旧家族。
+    access: { kind: public }
+  - id: honorable-men-illicit-network
+    predicate: actual-operation
+    value: { kind: text, value: organized-smuggling-extortion-and-political-agitation }
+    description: 后代成员已把抵抗网络发展成有组织的地下生意。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 1400 }
+  - { definition_id: provisions, amount: 80 }
+  - { definition_id: viz, amount: 4 }
+ratings: []

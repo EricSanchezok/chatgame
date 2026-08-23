@@ -1,0 +1,19 @@
+id: pendar-mountains
+kind: geographic-region
+name: Pendar Mountains
+description: White Mountains 向黑沼伸出的支脉，山谷狭窄且勘探不足，多支哥布林部族在此占据洞穴和高地。
+placement: blackmarsh-region
+facts:
+  - id: pendar-mountains-range
+    predicate: mountain-system
+    value: { kind: text, value: spur-of-white-mountains }
+    description: Pendar Mountains 在西北约一百英里外接入 White Mountains 主脉。
+    access: { kind: public }
+  - id: pendar-mountains-goblin-presence
+    predicate: inhabitants
+    value: { kind: text, value: numerous-independent-goblin-tribes }
+    description: 多个彼此独立的哥布林部族利用少有人知的山谷和洞穴生活，Graptar 的新据点只是其中之一。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

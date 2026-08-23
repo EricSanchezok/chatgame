@@ -1,0 +1,19 @@
+id: westwall
+kind: geographic-region
+name: The Westwall
+description: 向南构成 Grand Kingdom 的 Vasa Province 西界、向北伸入黑沼的漫长山脊。
+placement: blackmarsh-region
+facts:
+  - id: westwall-frontier
+    predicate: political-geography
+    value: { kind: text, value: western-boundary-of-vasa-province }
+    description: Westwall 在南方标定 Vasa Province 西界，黑沼地图覆盖其北端。
+    access: { kind: public }
+  - id: westwall-giant-clans
+    predicate: inhabitants
+    value: { kind: text, value: several-hill-giant-clans-at-northern-terminus }
+    description: 多支丘陵巨人氏族在北端山麓活动；1217 的八名巨人只是其中一处家园。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

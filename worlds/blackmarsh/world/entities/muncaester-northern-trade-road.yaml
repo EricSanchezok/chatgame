@@ -1,0 +1,19 @@
+id: muncaester-northern-trade-road
+kind: trade-route
+name: Muncaester 北方商路
+description: 连接 Ostrobard 市场、黑沼堡方向接应点与沿途支路的陆路商队走廊。
+placement: blackmarsh-region
+facts:
+  - id: muncaester-road-southern-node
+    predicate: route-endpoint
+    value: { kind: entity, entityId: hex-1305-muncaester }
+    description: Muncaester 是该商路的主要 Ostrobard 市场端点。
+    access: { kind: public }
+  - id: muncaester-road-northern-node
+    predicate: route-endpoint
+    value: { kind: entity, entityId: hex-0913-castle-blackmarsh }
+    description: 黑沼堡及其外围接应点构成北向贸易端；具体支路会随天气与安全状态改变。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

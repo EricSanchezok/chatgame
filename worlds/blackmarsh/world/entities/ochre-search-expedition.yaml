@@ -1,0 +1,47 @@
+id: ochre-search-expedition
+kind: imperial-search-expedition
+name: Ochre Empire Search Expedition
+description: Ochre Empire 的单船武装搜索远征。
+placement: hex-2618-ochre-scout-ship
+facts:
+  - id: ochre-expedition-observed-profile
+    predicate: observed-profile
+    value: { kind: text, value: one-armed-ochre-empire-vessel-approaching-blackmarsh }
+    description: 沿海观察者最多能确认一艘武装外国船正从东南接近，无法仅凭外观证明入侵目的。
+    access: { kind: public }
+  - id: ochre-expedition-command
+    predicate: command-structure
+    value: { kind: text, value: travvarn-controls-mission-devers-enforces-church-discipline }
+    description: Travvarn 决定外交与搜索手段，Devers 决定何种纪律和宗教义务不可交易；分歧必须由两位 Agent 处理。
+    access: { kind: private }
+  - id: ochre-expedition-mission
+    predicate: current-mission
+    value: { kind: text, value: find-expedition-lost-five-years-ago-not-launch-an-invasion }
+    description: 正式任务是查明失踪先遣队的命运，不是原作传闻中的既定入侵。
+    access: { kind: private }
+  - id: ochre-expedition-wreck-ignorance
+    predicate: information-boundary
+    value: { kind: text, value: exact-1816-wreck-location-unknown-to-current-expedition }
+    description: 当前船只知道先遣任务与失联，却尚未确认 1816 潟湖中的残骸和其中物资。
+    access: { kind: private }
+  - id: ochre-expedition-operation-state
+    predicate: operation-state
+    value: { kind: text, value: in-progress }
+    description: 搜索船正在驶向可被黑沼沿岸稳定发现的外海；该状态是抵达截止结算时必须更新的唯一行动状态。
+    access: { kind: private }
+  - id: ochre-expedition-operation-target
+    predicate: operation-target
+    value: { kind: entity, entityId: sheltered-bay }
+    description: 本次航段以进入 Sheltered Bay 外海观察范围为目标，不等于已经找到失踪远征或取得登陆许可。
+    access: { kind: private }
+  - id: ochre-expedition-arrival-deadline
+    predicate: deadline-seconds
+    value: { kind: number, value: 108000 }
+    description: 这是从世界 elapsedSeconds = 0 计算的绝对阈值 108,000；风暴、洋流、损伤与命令可在此前改变截止，达到或越过阈值时必须结算行动状态。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 1200 }
+  - { definition_id: provisions, amount: 650 }
+  - { definition_id: viz, amount: 2 }
+ratings: []

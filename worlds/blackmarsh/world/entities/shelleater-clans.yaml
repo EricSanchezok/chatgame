@@ -1,0 +1,32 @@
+id: shelleater-clans
+kind: defensive-clan-confederation
+name: Shelleater Clans
+description: 散布于海岸与 Tave Marshes 之间的 kobold 氏族共同体；各氏族保留独立资源与权威，只能通过实际沟通形成临时联盟。
+placement: hex-1609-shelleater-territory
+facts:
+  - id: shelleater-clans-population
+    predicate: population
+    value: { kind: number, value: 325 }
+    description: 各氏族合计约有三百二十五名 kobold，人数不表示存在常设统一军队。
+    access: { kind: private }
+  - id: shelleater-clans-political-structure
+    predicate: government
+    value: { kind: text, value: six-feuding-clans-with-no-standing-common-ruler }
+    description: 六个氏族长期争斗，开局没有单一首领、常设议会或可跨氏族即时下令的机关。
+    access: { kind: public }
+  - id: shelleater-clans-conditional-defense
+    predicate: conditional-cooperation
+    value: { kind: text, value: verified-outsider-invasion-can-trigger-temporary-union }
+    description: 只有可传播并获各氏族承认的外敌入侵，才会触发暂时联合和利用沼泽地形的骚扰战。
+    access: { kind: public }
+  - id: shelleater-clans-resource-boundary
+    predicate: resource-control
+    value: { kind: text, value: pooled-quantities-require-all-clan-representatives-to-release }
+    description: 本实体记录的公共库存只能经实际代表同意或紧急防御承诺调动，不属于虚构的共享心智。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 160 }
+  - { definition_id: provisions, amount: 900 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

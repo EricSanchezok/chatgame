@@ -1,0 +1,19 @@
+id: alhert-island
+kind: geographic-region
+name: Alhert Island
+description: 灰海中的狭长障壁岛，低矮灌木与沙地承受进入 Sheltered Bay 前的大部分风浪。
+placement: blackmarsh-region
+facts:
+  - id: alhert-island-terrain
+    predicate: terrain
+    value: { kind: text, value: scrub-and-sand-barrier-island }
+    description: 岛上主要是灌木、沙地与暴露海岸，缺乏固定聚落。
+    access: { kind: public }
+  - id: alhert-island-pyrocantha
+    predicate: seasonal-resource
+    value: { kind: text, value: abundant-autumn-pyrocantha-berries }
+    description: 初秋的 Pyrocantha 浆果已经成熟；制成并涂于护甲的药膏能在一次有限冲突中改善防护，重复涂抹不会叠加效果。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

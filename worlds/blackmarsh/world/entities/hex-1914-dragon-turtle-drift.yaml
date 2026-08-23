@@ -1,0 +1,14 @@
+id: hex-1914-dragon-turtle-drift
+kind: maritime-habitat
+name: Dragon Turtle 漂游水域
+description: Sheltered Bay 中深水与浅滩交界的漂流水域，洋流、风暴和航船扰动会在此交汇。
+placement: sheltered-bay
+facts:
+  - id: hex-1914-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1914" }
+    description: 漂游水域位于区域六角 1914，属于 Sheltered Bay。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

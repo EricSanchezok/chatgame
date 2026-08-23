@@ -1,0 +1,19 @@
+id: hex-1701-hydra-cave
+kind: lair
+name: 八首 Hydra 洞穴
+description: Dragonbone Peaks 岩脊下的洞穴，南侧山口处于 Wessex Keep 的周期巡逻范围内。
+placement: dragonbone-peaks
+facts:
+  - id: hex-1701-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1701" }
+    description: 洞穴位于区域六角 1701，属于 Dragonbone Peaks。
+    access: { kind: public }
+  - id: hex-1701-wessex-surveillance
+    predicate: recurring-activity
+    value: { kind: text, value: bedewalds-patrols-check-southward-movement }
+    description: Bedewald 派巡逻队周期性检查 hydra 是否南移；巡查只能提供当时证据，不永久锁定其位置。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

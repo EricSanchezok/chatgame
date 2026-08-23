@@ -1,0 +1,32 @@
+id: arcane-emporium
+kind: magic-market
+name: 奇异与奥秘商店
+description: Thil the Cowled 退休后建立的魔法物品收购与交易场所。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: emporium-low-value-stock
+    predicate: inventory-profile
+    value: { kind: text, value: items-valued-at-no-more-than-one-thousand-coin-have-eighty-percent-source-availability }
+    description: 对价值不高于一千 coin 等价的特定魔法物品，来源库存档位为八成；首次查询必须提交实际库存结果，不能把概率当作永恒现货。
+    access: { kind: public }
+  - id: emporium-mid-value-stock
+    predicate: inventory-profile
+    value: { kind: text, value: items-valued-above-one-thousand-and-at-most-five-thousand-coin-have-twenty-percent-source-availability }
+    description: 对价值高于一千且不高于五千 coin 等价的特定魔法物品，来源库存档位为两成；已提交的售出、收购和预留会持续改变库存。
+    access: { kind: public }
+  - id: emporium-high-value-auctions
+    predicate: market-policy
+    value: { kind: text, value: items-valued-above-five-thousand-coin-are-auctioned-quarterly-at-viz-club-with-one-thousand-coin-nonmember-entry-fee }
+    description: 更高价值物品进入 Viz Club 季度拍卖，非会员入场费为一千 coin 等价；拍卖必须有真实在库拍品。
+    access: { kind: public }
+  - id: thil-elven-trust
+    predicate: political-standing
+    value: { kind: text, value: trusted-by-elves-and-rangers }
+    description: Thil 因协助精灵与 Rangers 而获准经营敏感遗物。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 1800 }
+  - { definition_id: provisions, amount: 10 }
+  - { definition_id: viz, amount: 24 }
+ratings: []

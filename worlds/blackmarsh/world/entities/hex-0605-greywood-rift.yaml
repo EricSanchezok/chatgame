@@ -1,0 +1,24 @@
+id: hex-0605-greywood-rift
+kind: planar-rift
+name: 灰林位面裂口
+description: Greywoods 中世界壁垒薄弱、曾发生火焰位面越界与大规模交战的灼烧地带。
+placement: greywoods
+facts:
+  - id: hex-0605-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0605" }
+    description: 裂口位于区域六角 0605，属于 Greywoods。
+    access: { kind: public }
+  - id: hex-0605-recent-battle
+    predicate: recent-conflict
+    value: { kind: text, value: 48-elves-fought-12-flame-demons-while-dozens-more-contained-fire }
+    description: 四十八名精灵近期与十二名强大火焰恶魔交战，另有数十名精灵参与控火；t0 留下伤员、焦地与轮值封锁，而不是永不结束的并发战斗。
+    access: { kind: private }
+  - id: hex-0605-associated-incursion
+    predicate: associated-anomaly
+    value: { kind: entity, entityId: greywood-rift-incursion }
+    description: 裂口当前状态与升级条件由位面入侵实体唯一承载；本地点只保留坐标与近期战场证据。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

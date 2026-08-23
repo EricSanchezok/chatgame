@@ -1,0 +1,24 @@
+id: hex-2306-ravine-battlefield
+kind: contested-wilderness
+name: Crimson Ravine Battlefield
+description: Crimson Hills 中反复被 Vasan 与 Bloodcrusher 战团用作伏击和撤退路线的沟壑战场。
+placement: crimson-hills
+facts:
+  - id: hex-2306-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2306" }
+    description: 战场位于区域六角 2306，属于 Crimson Hills。
+    access: { kind: public }
+  - id: hex-2306-recent-engagement
+    predicate: recent-conflict
+    value: { kind: text, value: 15-taldane-berserkers-were-surrounded-by-30-bloodcrusher-orcs }
+    description: 十五名 Castle Taldane 狂战士近期在两道沟壑间的山脊上被三十名 Bloodcrusher 兽人包围；t0 留有血迹、遗失武器和分散撤退路线，不维持永恒战斗。
+    access: { kind: private }
+  - id: hex-2306-contested-route
+    predicate: recurring-pressure
+    value: { kind: text, value: vasan-and-bloodcrusher-war-parties-contest-ravines }
+    description: 双方战团继续利用沟壑侦察、伏击与撤退，下一次接触取决于真实移动和命令。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

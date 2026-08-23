@@ -1,0 +1,27 @@
+id: bateater-tribe
+kind: orc-tribe
+name: Bateater Tribe
+description: 以 Crimson Hills 洞网、亲族与狩猎领地维系的 Bateater 兽人共同体，长期处于 Brotherhood 贡赋体系的强制压力下。
+placement: hex-1911-bateater-caves
+facts:
+  - id: bateater-tribe-population
+    predicate: population
+    value: { kind: number, value: 105 }
+    description: 开局约有一百零五名 Bateater 兽人居住在洞穴网中。
+    access: { kind: private }
+  - id: bateater-tribe-tribute
+    predicate: political-obligation
+    value: { kind: text, value: annual-tribute-collected-by-kinkaris-for-raven }
+    description: 部族当前向 Brotherhood 支付年贡，Kinkaris 是已知征收者；这是一项受强制维持的义务而非平等盟约。
+    access: { kind: public }
+  - id: bateater-tribe-decision-boundary
+    predicate: decision-structure
+    value: { kind: text, value: tribute-representatives-must-negotiate-compliance-or-resistance }
+    description: 原作未给出单一部族领袖，交贡或抗缴必须由实际代表、亲族和资源压力形成，不能由聚合实体自行决定。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 140 }
+  - { definition_id: provisions, amount: 350 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

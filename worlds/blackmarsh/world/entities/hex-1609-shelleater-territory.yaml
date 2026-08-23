@@ -1,0 +1,19 @@
+id: hex-1609-shelleater-territory
+kind: tribal-territory
+name: Shelleater Territory
+description: 海岸与 Tave Marshes 之间由潮沟、硬地岛与泥沼通道构成的 kobold 领地。
+placement: blackmarsh-region
+facts:
+  - id: hex-1609-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1609" }
+    description: 领地位于区域六角 1609，处于 Tave Marshes 与海岸之间。
+    access: { kind: public }
+  - id: hex-1609-terrain
+    predicate: terrain
+    value: { kind: text, value: coastal-hard-ground-islands-tidal-channels-and-bog-paths }
+    description: 领地由海岸硬地、潮沟、小型硬地岛与穿过泥沼的狭窄通道交错构成。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

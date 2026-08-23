@@ -1,0 +1,37 @@
+id: blackmarsh-rangers
+kind: ranger-network
+name: Blackmarsh Rangers
+description: 以 Blackoak Castle 为总部、由多族成员组成的分散游侠网络；总部提供训练与补给，远方巡逻圈依据当地观察和可达命令行动。
+placement: hex-0407-blackoak-castle
+facts:
+  - id: blackmarsh-rangers-charter
+    predicate: charter
+    value: { kind: text, value: protect-the-land-and-its-inhabitants-across-ancestries }
+    description: Rangers 接纳愿意保护土地与居民的精灵、人类、矮人和半身人，并以跨族互助为公开准则。
+    access: { kind: public }
+  - id: blackmarsh-rangers-founding
+    predicate: political-history
+    value: { kind: text, value: founded-by-geran-blackoak-fifteen-centuries-ago }
+    description: Geran Blackoak 在约一千五百年前的 Ostrobard 入侵中促成跨族互助并创建 Rangers；他没有统一诸族，却留下互相支援的传统。
+    access: { kind: public }
+  - id: blackmarsh-rangers-headquarters-force
+    predicate: headquarters-composition
+    value: { kind: text, value: 50-elves-60-humans-40-dwarves-20-halflings }
+    description: Blackoak 常驻五十名精灵、六十名人类、四十名矮人和二十名半身人；这是总部人口，不是全地区巡逻者总数。
+    access: { kind: private }
+  - id: blackmarsh-rangers-command-boundary
+    predicate: command-structure
+    value: { kind: text, value: high-captain-sets-priorities-patrol-circles-retain-field-discretion }
+    description: Sinerian 能发布优先级并每年两次召集巡逻圈队长，远方成员仍须等待通信并保有现场判断权。
+    access: { kind: private }
+  - id: blackmarsh-rangers-established-allies
+    predicate: faction-relations
+    value: { kind: text, value: temple-of-thor-ally-ashdown-support-network-brotherhood-of-raven-mortal-enemy }
+    description: Temple of Thor 是明确的怪物清剿盟友，Ashdown 通过退休成员与现役者家属提供后方支持，Brotherhood of the Raven 则是长期死敌。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 900 }
+  - { definition_id: provisions, amount: 1300 }
+  - { definition_id: viz, amount: 10 }
+ratings: []

@@ -1,0 +1,32 @@
+id: bloodcrusher-tribe
+kind: orc-kingdom
+name: Bloodcrusher Tribe
+description: 以 Crimson Hills 洞网为根基的兽人王国。
+placement: hex-2207-bloodcrusher-caves
+facts:
+  - id: bloodcrusher-tribe-government
+    predicate: government
+    value: { kind: text, value: king-suduk-assisted-by-shaman-gmung }
+    description: Suduk 以战斗威望统治，G’mung 掌握仪式和风险判断；两人的权力来源与具体选择并不相同。
+    access: { kind: public }
+  - id: bloodcrusher-tribe-population
+    predicate: population
+    value: { kind: number, value: 243 }
+    description: 开局洞网约有二百四十三名 Bloodcrusher 兽人，外派战士计入总人口而非额外生成。
+    access: { kind: private }
+  - id: bloodcrusher-tribe-tribute-conflict
+    predicate: political-condition
+    value: { kind: text, value: tribute-compliance-contested-under-raven-pressure }
+    description: 年贡义务在部族内部受到公开质疑；拖延、谈判或反叛仍须由有权主体通过实际行动选择。
+    access: { kind: private }
+  - id: bloodcrusher-tribe-detachment
+    predicate: recent-deployment
+    value: { kind: text, value: 30-warriors-recently-fought-15-castle-taldane-berserkers-at-2306 }
+    description: 三十名族人近期在 2306 围攻十五名 Castle Taldane berserker；开局只确认战场痕迹，幸存者的去向与后续命令必须由新证据确定，且局部冲突不等于全族对 Vasan 宣战。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 300 }
+  - { definition_id: provisions, amount: 780 }
+  - { definition_id: viz, amount: 3 }
+ratings: []

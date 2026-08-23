@@ -1,0 +1,32 @@
+id: castle-blackmarsh-council
+kind: civic-council
+name: Castle Blackmarsh Reform Council
+description: Governor Tyrilas 主持的城邦议事机构，把城民、港商、施法者与神殿代表的具体意见转化为市场、港口和公共事务决定。
+placement: castle-blackmarsh-fortress
+facts:
+  - id: castle-council-chair
+    predicate: presiding-officer
+    value: { kind: entity, entityId: governor-tyrilas }
+    description: Tyrilas 主持议事并执行通过的行政安排，但各代表席位不是总督意志的延伸。
+    access: { kind: public }
+  - id: castle-council-jurisdiction
+    predicate: jurisdiction
+    value: { kind: text, value: port-market-civic-services-and-public-petitions }
+    description: 议会处理港口、市场、城市服务和公开请愿；Greywood 驻军仍控制城堡下层准入。
+    access: { kind: public }
+  - id: castle-council-dependency
+    predicate: institutional-dependency
+    value: { kind: text, value: greywood-seals-ranger-response-and-inuacus-defense }
+    description: 城邦安全分别依赖 Greywood 封锁、Rangers 的地区反应与 Inuacus Keep 南部防务，议会不能直接读取或随意调用三者全部资源。
+    access: { kind: private }
+  - id: castle-council-representation-friction
+    predicate: political-condition
+    value: { kind: text, value: trusteeship-transition-and-lower-level-access-remain-contested }
+    description: 精灵托管的终点与地下层共同监管仍有分歧，具体立场只能由到场代表、委托和表决形成。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 2100 }
+  - { definition_id: provisions, amount: 400 }
+  - { definition_id: viz, amount: 2 }
+ratings: []

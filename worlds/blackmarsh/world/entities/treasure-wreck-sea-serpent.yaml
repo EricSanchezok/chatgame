@@ -1,0 +1,25 @@
+id: treasure-wreck-sea-serpent
+kind: giant-sea-serpent
+name: 宝船墓场巨型海蛇
+description: 一条能在沉船结构与开阔海床间捕猎的巨型海蛇，独立选择巢位、猎物和退路。
+placement: hex-1112-treasure-fleet-wrecks
+facts:
+  - id: treasure-wreck-sea-serpent-habitat
+    predicate: established-territory
+    value: { kind: entity, entityId: hex-1112-treasure-fleet-wrecks }
+    description: 海蛇以十二艘朽坏桨帆船及相邻海床为藏身和捕猎区域。
+    access: { kind: private }
+  - id: treasure-wreck-sea-serpent-shark-relation
+    predicate: coexists-with
+    value: { kind: entity, entityId: treasure-wreck-shark-school }
+    description: 海蛇与鲨群并存，但既不指挥鲨群，也不共享它们的感知。
+    access: { kind: private }
+meters:
+  - { id: "vitality:treasure-wreck-sea-serpent", definition_id: vitality, current: 30 }
+quantities: []
+ratings:
+  - { id: "force:treasure-wreck-sea-serpent", definition_id: force, value: 8 }
+  - { id: "finesse:treasure-wreck-sea-serpent", definition_id: finesse, value: 4 }
+  - { id: "resolve:treasure-wreck-sea-serpent", definition_id: resolve, value: 5 }
+  - { id: "wilderness:treasure-wreck-sea-serpent", definition_id: wilderness, value: 7 }
+  - { id: "seamanship:treasure-wreck-sea-serpent", definition_id: seamanship, value: 7 }

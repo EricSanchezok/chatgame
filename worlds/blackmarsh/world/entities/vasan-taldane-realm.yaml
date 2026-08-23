@@ -1,0 +1,27 @@
+id: vasan-taldane-realm
+kind: exile-realm
+name: Vasan Realm of Castle Taldane
+description: 由 Castle Taldane 王号与 Gamla、Daretop、Ysby 三地关系维系的流亡 Vasan 政体；共同历史形成身份纽带，却未消除各首领的继承与生计选择。
+placement: hex-2505-castle-taldane
+facts:
+  - id: vasan-realm-ruler
+    predicate: nominal-ruler
+    value: { kind: entity, entityId: king-ragnar }
+    description: King Ragnar the Ringless 持有流亡王号并控制 Castle Taldane；其个人状况由 Ragnar 实体唯一承载。
+    access: { kind: public }
+  - id: vasan-realm-member-centers
+    predicate: political-network
+    value: { kind: text, value: castle-taldane-gamla-daretop-and-ysby }
+    description: 四个中心以王号、农地、粮运、渔业与旧难民网络相连；各地人数和资源由对应实体承载。
+    access: { kind: public }
+  - id: vasan-realm-exile-claim
+    predicate: historical-claim
+    value: { kind: text, value: descendants-of-vasa-exiles-retain-ideal-of-returning-home }
+    description: 政体源于 Grand Kingdom 征服 Vasa 后的流亡者，收复故土仍是公开身份理想，却未形成可立即执行的统一计划。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 1900 }
+  - { definition_id: provisions, amount: 1800 }
+  - { definition_id: viz, amount: 2 }
+ratings: []

@@ -1,0 +1,19 @@
+id: hex-0909-maelstrom
+kind: maritime-hazard
+name: 烟湾大漩涡
+description: Smoking Bay 中围绕半英里宽浅盆形成的危险海域，历代船骸与财货覆盖盆底。
+placement: smoking-bay
+facts:
+  - id: hex-0909-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0909" }
+    description: 漩涡海域位于区域六角 0909，属于 Smoking Bay。
+    access: { kind: public }
+  - id: hex-0909-seabed-basin
+    predicate: underwater-terrain
+    value: { kind: text, value: half-mile-shallow-basin-littered-with-wrecks }
+    description: 海底浅盆约半英里宽，历年被拖沉的船骸和财物散落其中。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

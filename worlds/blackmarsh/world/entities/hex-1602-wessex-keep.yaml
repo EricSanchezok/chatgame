@@ -1,0 +1,24 @@
+id: hex-1602-wessex-keep
+kind: stronghold
+name: Wessex Keep
+description: Ostrobards 最东端的石造要塞，是屏护西方农庄免受 Dragonbone Peaks 生物侵袭的边境节点。
+placement: blackmarsh-region
+facts:
+  - id: hex-1602-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1602" }
+    description: Wessex Keep 位于区域六角 1602，在 Dragonbone Peaks 以西的 Ostrobard 边防陆地。
+    access: { kind: public }
+  - id: hex-1602-frontier-role
+    predicate: strategic-purpose
+    value: { kind: text, value: shields-western-farms-from-mountain-creatures }
+    description: 据点是 Ostrobard 农区面对 Dragonbone Peaks 生物的最东防线。
+    access: { kind: public }
+  - id: hex-1602-resident-garrison
+    predicate: associated-force
+    value: { kind: entity, entityId: wessex-garrison }
+    description: 驻军实体唯一承载人数、命令与库存；本地点只保存要塞的空间与战略用途。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

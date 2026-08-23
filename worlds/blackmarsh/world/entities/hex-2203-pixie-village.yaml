@@ -1,0 +1,19 @@
+id: hex-2203-pixie-village
+kind: settlement
+name: 树台 Pixie 村
+description: 森林角落中由小型木台、树间通道与微型住屋组成的 pixie 村落。
+placement: blackmarsh-region
+facts:
+  - id: hex-2203-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2203" }
+    description: 村庄位于区域六角 2203，在 Dragonbone Peaks 以东的独立树林。
+    access: { kind: public }
+  - id: hex-2203-tree-platform-settlement
+    predicate: construction
+    value: { kind: text, value: miniature-wooden-houses-on-small-platforms-between-trees }
+    description: 微型木屋分布在林木间的小型木平台上，并由树间通道相连。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

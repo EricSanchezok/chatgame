@@ -1,0 +1,24 @@
+id: hex-1503-egberts-farm
+kind: farm
+name: Egbert's Farm
+description: 距 Rednut River 约两英里的 Ostrobard 农场，处于大型飞行捕食者可达的农牧带。
+placement: rednut-river
+facts:
+  - id: hex-1503-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1503" }
+    description: 农场位于区域六角 1503；Rednut River 东部流域归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-1503-recent-raid
+    predicate: recent-conflict
+    value: { kind: text, value: nine-hippogriffs-devoured-pigs-and-chickens }
+    description: 九只 hippogriff 近期在农场吞食猪鸡；Egbert 的损失、大片羽毛、爪痕和多名围观者的证词仍可核实。
+    access: { kind: public }
+  - id: hex-1503-hippogriff-pressure
+    predicate: ecology
+    value: { kind: text, value: flock-forages-between-rednut-groves-and-riverside-farms }
+    description: 兽群会在红果觅食点与农场之间迁移，何时再袭取决于食物、防护和惊扰，不由玩家抵达触发。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

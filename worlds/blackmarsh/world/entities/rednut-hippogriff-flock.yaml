@@ -1,0 +1,29 @@
+id: rednut-hippogriff-flock
+kind: hippogriff-flock
+name: 红果河 Hippogriff 群
+description: 栖居 Rednut River 林地、河岸与农地交界的 hippogriff 群落，以区域性觅食维持活动。
+placement: rednut-river
+facts:
+  - id: rednut-hippogriff-flock-count
+    predicate: composition
+    value: { kind: number, value: 9 }
+    description: 原作明确在 Egbert 农场落地的是九只 hippogriff。
+    access: { kind: public }
+  - id: rednut-hippogriff-flock-recent-loss
+    predicate: recent-presence
+    value: { kind: entity, entityId: hex-1503-egberts-farm }
+    description: 被吞食的猪鸡、羽毛、爪痕与当地目击者证明它们近期到访农场，但不证明 t0 仍在那里。
+    access: { kind: public }
+  - id: rednut-hippogriff-flock-current-range
+    predicate: current-location-state
+    value: { kind: text, value: foraging-across-rednut-river-region-exact-position-unknown-at-t0 }
+    description: 群体在红果觅食点和河岸农地间移动，新位置必须由飞行方向、巢迹或目击更新。
+    access: { kind: private }
+  - id: rednut-hippogriff-flock-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: flocking-behavior-without-shared-mind }
+    description: 九只个体会相互跟随和报警，但不共享统一认知或伤势。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

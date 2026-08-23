@@ -1,0 +1,29 @@
+id: eight-headed-hydra
+kind: hydra
+name: Dragonbone 八首 Hydra
+description: 一头八首 hydra，能够因猎物、伤害和外界惊扰改变追击与猎食选择。
+placement: hex-1701-hydra-cave
+facts:
+  - id: eight-headed-hydra-head-count
+    predicate: anatomy
+    value: { kind: number, value: 8 }
+    description: 这头 hydra 有八个头。
+    access: { kind: private }
+  - id: eight-headed-hydra-lair
+    predicate: established-lair
+    value: { kind: entity, entityId: hex-1701-hydra-cave }
+    description: 1701 岩脊下洞穴是其巢穴，离巢狩猎不改变这一关系。
+    access: { kind: private }
+  - id: eight-headed-hydra-southward-status
+    predicate: movement-status
+    value: { kind: text, value: recent-wessex-patrol-found-no-confirmed-crossing-of-southern-watch-line }
+    description: 最近巡查只支持它尚未越过南侧警戒线；这不是永久位置保证，也不代表 Raven 的驱赶计划已成功。
+    access: { kind: private }
+meters:
+  - { id: "vitality:eight-headed-hydra", definition_id: vitality, current: 27 }
+quantities: []
+ratings:
+  - { id: "force:eight-headed-hydra", definition_id: force, value: 7 }
+  - { id: "finesse:eight-headed-hydra", definition_id: finesse, value: 0 }
+  - { id: "resolve:eight-headed-hydra", definition_id: resolve, value: 6 }
+  - { id: "wilderness:eight-headed-hydra", definition_id: wilderness, value: 5 }

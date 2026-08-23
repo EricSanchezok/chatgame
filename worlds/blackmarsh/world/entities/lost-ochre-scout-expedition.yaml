@@ -1,0 +1,19 @@
+id: lost-ochre-scout-expedition
+kind: lost-expedition
+name: 五年前的 Ochre 侦察远征
+description: Ochre Empire 五年前派往黑沼、其侦察船后来沉入 Driftwood Isle 潟湖的失联远征。
+placement: hex-1816-ochre-wreck
+facts:
+  - id: lost-ochre-expedition-purpose
+    predicate: mission
+    value: { kind: text, value: scout-blackmarsh-and-fund-local-bribery-and-inland-expeditions }
+    description: 侦察船携带用于收买地方势力的黄金和组织内陆考察的补给。
+    access: { kind: private }
+  - id: lost-ochre-expedition-wreck
+    predicate: wreck-site
+    value: { kind: entity, entityId: hex-1816-ochre-wreck }
+    description: Truth 知道失联远征的船只位于 1816；当前搜索船没有自动获得这项身份和位置绑定。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

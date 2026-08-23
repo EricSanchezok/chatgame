@@ -1,0 +1,19 @@
+id: hex-0309-ruined-wizard-keep
+kind: ruin
+name: 崩毁法师堡
+description: Bright Empire 时代的法师堡遗址，崩毁建筑内保存着旧实验区、大礼堂和潮湿通道。
+placement: blackmarsh-region
+facts:
+  - id: hex-0309-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0309" }
+    description: 法师堡位于区域六角 0309，在 Pendar Mountains 标示范围外的未命名丘地。
+    access: { kind: public }
+  - id: hex-0309-age
+    predicate: origin
+    value: { kind: text, value: bright-empire-wizard-keep-about-one-thousand-years-old }
+    description: 建筑可追溯至 Bright Empire，已经严重崩毁。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,34 @@
+id: moon-shell-mermaids
+kind: mermaid-collective
+name: 月贝岛 Mermaid 采集者
+description: 长期利用 2114 溪流与清池、并向 Azure King 宫廷运送月变贝壳的 mermaid 采集共同体。
+placement: hex-2114-mermaid-island
+facts:
+  - id: moon-shell-mermaids-count
+    predicate: composition
+    value: { kind: number, value: 5 }
+    description: 原作明确月贝岛有五名 mermaid。
+    access: { kind: private }
+  - id: moon-shell-mermaids-cycle
+    predicate: recurring-activity
+    value: { kind: text, value: collect-shells-check-transformations-at-full-moon-and-carry-realized-viz-to-azure-court }
+    description: 她们平时采集贝壳，满月时只收取实际完成转化者，再启程前往 Azure King 宫廷；运行种子不预生成固定产量。
+    access: { kind: private }
+  - id: moon-shell-mermaids-viz-yield-distribution
+    predicate: random-distribution
+    value: { kind: text, value: moon-shell-viz-yield }
+    description: 每次满月的实际产量由同名运行分布唯一规定，并在转化发生时通过随机承诺原子提交。
+    access: { kind: private }
+  - id: moon-shell-mermaids-destination
+    predicate: delivers-to
+    value: { kind: entity, entityId: azure-king }
+    description: 成功转化并实际运抵的 Viz 才交给 Azure King，不因周期事实自动入库。
+    access: { kind: private }
+  - id: moon-shell-mermaids-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: five-individual-mermaids-without-shared-mind }
+    description: 她们可协作采集与护送，但各自拥有知识、风险判断和行动能力，聚合实体不代表统一心智。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

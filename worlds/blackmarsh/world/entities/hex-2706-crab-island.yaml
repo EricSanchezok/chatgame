@@ -1,0 +1,19 @@
+id: hex-2706-crab-island
+kind: island
+name: Giant Crab Hunting Isle
+description: Grey Sea 东缘一座潮池、沙滩和岩缝密布的小岛，也是 Vasan 危险捕猎传统的目的地。
+placement: grey-sea
+facts:
+  - id: hex-2706-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2706" }
+    description: 捕蟹岛位于区域六角 2706；原始地图显示它是 Grey Sea 东缘未命名小岛，并非 Sandstone Island。
+    access: { kind: public }
+  - id: hex-2706-vasan-hunts
+    predicate: recurring-activity
+    value: { kind: text, value: daretop-taldane-gamla-and-ysby-longships-hunt-crabs }
+    description: Daretop、Castle Taldane、Gamla 与 Ysby 的长船会周期性登岛捕猎；危险捕蟹也是 Vasan 竞技活动。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

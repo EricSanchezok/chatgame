@@ -1,0 +1,14 @@
+id: hex-1014-chimera-island
+kind: island
+name: Chimera 育幼岛
+description: Black Marshes 中央的一座大岛，内陆林地、饮水点和隐蔽高地适合大型飞行兽筑巢。
+placement: black-marshes
+facts:
+  - id: hex-1014-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1014" }
+    description: 育幼岛位于区域六角 1014，属于 Black Marshes。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

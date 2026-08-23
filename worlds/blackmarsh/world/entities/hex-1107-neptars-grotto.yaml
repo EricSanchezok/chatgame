@@ -1,0 +1,14 @@
+id: hex-1107-neptars-grotto
+kind: aquatic-settlement
+name: Neptar 王窟
+description: Smoking Bay 海底的石窟聚落，由居住洞室、仪式空间与防御水道组成。
+placement: smoking-bay
+facts:
+  - id: hex-1107-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1107" }
+    description: 王窟位于区域六角 1107，属于 Smoking Bay。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

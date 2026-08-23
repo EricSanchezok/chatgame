@@ -1,0 +1,29 @@
+id: hex-1306-fishing-isles
+kind: island-cluster
+name: Muncaester Fishing Isles
+description: 从 Muncaester 向西南伸展的五座小岛，捕鱼氏族与逃税走私者共享水道和亲缘网络。
+placement: smoking-bay
+facts:
+  - id: hex-1306-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1306" }
+    description: 五岛群位于区域六角 1306，属于 Smoking Bay 北岸水域。
+    access: { kind: public }
+  - id: hex-1306-island-count
+    predicate: structure
+    value: { kind: number, value: 5 }
+    description: 五座小岛由 Muncaester 向西南排列。
+    access: { kind: public }
+  - id: hex-1306-fishing-clans
+    predicate: inhabitants
+    value: { kind: text, value: dozens-of-fishing-clans }
+    description: 数十个捕鱼氏族利用 Grey Sea 的渔获维生。
+    access: { kind: public }
+  - id: hex-1306-smuggling
+    predicate: illicit-route
+    value: { kind: text, value: clans-move-goods-around-muncaester-taxmen }
+    description: 若干渔民同时属于走私氏族，熟悉绕过公爵税吏进出 Muncaester 的小水道。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

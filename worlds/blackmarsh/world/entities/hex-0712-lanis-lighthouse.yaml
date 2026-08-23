@@ -1,0 +1,29 @@
+id: hex-0712-lanis-lighthouse
+kind: ruin
+name: Lanis Lighthouse
+description: Bright Empire 建造的废弃灯塔，其地下被多代混乱势力扩成针对 Castle Blackmarsh 的基地。
+placement: lanis-river
+facts:
+  - id: hex-0712-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0712" }
+    description: 灯塔位于区域六角 0712，原作明确说明它曾引导船只进入 Lanis River 河口。
+    access: { kind: public }
+  - id: hex-0712-history
+    predicate: origin
+    value: { kind: text, value: bright-empire-lighthouse-later-expanded-underground }
+    description: 灯塔在 Bright Empire 时期建成，废弃后被一系列领袖扩建地下设施，用作对抗 Castle Blackmarsh 的基地。
+    access: { kind: public }
+  - id: hex-0712-cleared-reputation
+    predicate: reputation
+    value: { kind: text, value: believed-empty-since-atacyl-defeat-forty-years-ago }
+    description: 冒险者四十年前清剿此地；当年的战果叙述宣称他们杀死了化为吸血施法者的 Atacyl Oathbinder，此后公众相信遗址已经空置。
+    access: { kind: public }
+  - id: hex-0712-unverified-depths
+    predicate: uncertainty
+    value: { kind: text, value: underground-complex-not-continuously-observed }
+    description: “空置”只是长期未经复核的社会认知；地下层是否重新被利用没有持续监视证据。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

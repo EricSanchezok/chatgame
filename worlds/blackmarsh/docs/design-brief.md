@@ -8,7 +8,7 @@
 
 ## 初始时刻
 
-世界从初秋一场海上风暴到来前的傍晚开始。红果河进入收获季，海路仍可通行，Egil Longhair 的两艘长船准备在次日日出发动袭击，Ochre Empire 的侦察船正从东南海面接近，Brotherhood of the Raven 正推动九头蛇袭击 Ostrobard 农地，Castle Taldane 的继承危机尚未公开爆发。
+世界从初秋一场海上风暴到来前的傍晚开始。红果河进入收获季，海路仍可通行，Egil Longhair 的两艘长船准备在次日日出发动袭击，Ochre Empire 的搜索船正从东南海面接近，Brotherhood of the Raven 正推动八首 Hydra 袭击 Ostrobard 农地，Castle Taldane 的继承危机尚未公开爆发。
 
 所有原作地点都属于同一个初始世界，但“遭遇”不保证等待玩家：商队尸体会引来新的掠食者，袭击可能按计划发生，军队会移动，人物会改变联盟，未被玩家处理的危机也会产生后果。
 
@@ -16,20 +16,20 @@
 
 1. **黑沼堡主权**：Greywood 精灵占据城堡以封锁 Atacyl Oathbinder 留下的地下层；Sir Causari、Lord Maracan 与 Company of Honorable Men 以不同方式推动人类重新掌权。
 2. **维京继承与生存**：King Ragnar 因羞辱与酗酒失去威望；Chief Yngvar 权衡挑战或叛乱，Chief Kalfvald 仍忠诚，而 Hamdir 等待父亲退出权力中心。
-3. **Raven 与兽人贡赋**：Brotherhood of the Raven 把兽人当作附庸和奴隶来源；King Suduk 厌恶贡赋，Kinkaris 负责催缴，Rinisar 正试图把九头蛇赶向 Ostrobard 土地。
+3. **Raven 与兽人贡赋**：Brotherhood of the Raven 把兽人当作附庸和奴隶来源；King Suduk 厌恶贡赋，Kinkaris 负责催缴，Rinisar 正试图把八首 Hydra 赶向 Ostrobard 土地。
 4. **Viz 争夺**：Greywood、Oldan Hold、Wizard of the Isle、商人和遗迹探索者争夺可消耗的实体魔力；Mountain That Fell 同时是最大资源源与最大未知危险。
 5. **帝国回归**：Grand Kingdom 通过 Norbury Castle 向北扩张，Ochre Empire 则寻找失踪远征并携带贿赂资金；两个外部强权都依赖本地向导且可能被误导。
-6. **旧灾难复苏**：位面裂隙、黑色独石、正在复原的水下晶骸和 Atacyl 遗产共享 Mountain That Fell 的物质线索，但其共同原因在初始世界中仍未被任何主体完整理解。
+6. **旧灾难复苏**：位面裂隙、黑色独石、被较新潜水报告描述得更完整的水下晶骸和 Atacyl 遗产同时牵动当代局势；其中只有部分现象存在已证实的材料关联，晶骸是否真在自行复原以及其余现象的共同原因在初始世界中仍未被证明。
 
 ## Agent 选择原则
 
 自主 Agent 只授予能独立选择手段并改变世界走向的主体：统治者、继承人、指挥官、宗教与商业领袖、关键施法者、具长期目标的智慧怪物。普通居民、守军、奴隶、兽群和无明确长期意图的怪物作为聚合实体或地点事实存在。
 
-目标规模为 40–48 个初始 Agent。每个 Agent 至少具有可区分的声音、一个造成选择压力的价值、两个能发生冲突的目标、与相关主体的局部身份，以及至少一条不会从 canonical truth 自动获得的信念。Agent 不因玩家不在场而停止行动。
+初始名册固定为 47 个 Agent。每个 Agent 至少具有可区分的声音、一个造成选择压力的价值、两个能发生冲突的目标、与相关主体的局部身份，以及至少一条不会从 canonical truth 自动获得的信念。Agent 不因玩家不在场而停止行动。
 
 ## 玩家边界
 
-玩家角色是刚在黑沼堡港区下船的外来旅人。剧本只赋予当地公开常识、随身少量钱币和旅粮，不规定职业、种族、性别、道德立场或必须接受的任务。玩家不知道各派秘密、传闻真假和 canonical identity binding。
+玩家角色是刚在黑沼堡港区下船的外来旅人。剧本赋予其当地公开常识、随身少量钱币和旅粮，以及航程与下船时已经实际听到的三条转述：Rangers 招募、Mazardan 出价一千金币收购 Viz、Sarrath 军队入侵。这三条都只以 testimony 与未核实 claim 进入玩家认知，不附作者真假标签。剧本不规定职业、种族、性别、道德立场或必须接受的任务；玩家不知道各派秘密、传闻真假和 canonical identity binding。
 
 ## 改编纪律
 

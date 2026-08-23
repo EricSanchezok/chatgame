@@ -1,0 +1,24 @@
+id: white-mountains
+kind: geographic-region
+name: The White Mountains
+description: 向西北延伸的巨大雪峰体系，Bolzak 王国在南、Oldan Hold 在北缘，高谷富含猎物并栖居大型空中掠食者与漫游石巨人。
+placement: blackmarsh-region
+facts:
+  - id: white-mountains-regional-height
+    predicate: geographic-superlative
+    value: { kind: text, value: highest-known-mountains-in-the-surrounding-regions }
+    description: White Mountains 是周边已知地区最高的山系。
+    access: { kind: public }
+  - id: white-mountains-settlement-axis
+    predicate: political-geography
+    value: { kind: text, value: bolzak-south-oldan-hold-northern-outpost }
+    description: 矮人王国 Bolzak 位于山系南方，Oldan Hold 是其最北前哨。
+    access: { kind: public }
+  - id: white-mountains-game
+    predicate: ecology
+    value: { kind: text, value: abundant-game-griffons-hippogriffs-and-stone-giants }
+    description: 高山猎物丰富，狮鹫与鹰马筑巢；石巨人会游荡到山缘，通常避战但可能攻击人数较少的队伍。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

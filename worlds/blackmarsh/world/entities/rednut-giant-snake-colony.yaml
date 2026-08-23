@@ -1,0 +1,29 @@
+id: rednut-giant-snake-colony
+kind: dispersed-animal-population
+name: 红果河巨蛇种群
+description: 由多条独立巨蛇构成的分散动物种群；该实体记录共同生态，不表示个体共享心智或总在同一点行动。
+placement: hex-0302-rednut-snake-dens
+facts:
+  - id: rednut-giant-snake-colony-density
+    predicate: encounter-density
+    value: { kind: text, value: each-hundred-yard-segment-may-contain-no-sign-or-a-den-or-an-active-giant-snake }
+    description: 来源按每百码区段给出同等总机会“无遭遇”或“出现洞穴/巨蛇”；这表达高密度风险，不表示每百码必有固定蛇窟。
+    access: { kind: public }
+  - id: rednut-giant-snake-colony-distribution
+    predicate: random-distribution
+    value: { kind: text, value: rednut-snake-segment }
+    description: 每百码的触发与触发后蛇穴/巨蛇分支由同名运行分布唯一规定。
+    access: { kind: private }
+  - id: rednut-giant-snake-colony-count-boundary
+    predicate: population-state
+    value: { kind: text, value: numerous-but-not-canonically-enumerated }
+    description: 原作没有给出种群总数；运行世界不虚构精确数量，洞穴占用会随捕食、繁殖、水位和死亡变化。
+    access: { kind: private }
+  - id: rednut-giant-snake-colony-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: independent-snakes-without-shared-mind-or-central-command }
+    description: 各条巨蛇独立感知和捕猎，种群实体只承载共同生态事实。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

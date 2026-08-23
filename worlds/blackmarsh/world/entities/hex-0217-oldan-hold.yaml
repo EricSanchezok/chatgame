@@ -1,0 +1,39 @@
+id: hex-0217-oldan-hold
+kind: settlement
+name: Oldan Hold
+description: Bolzak 矮人王国最北端的 Viz 勘探前哨与跨族商埠，由探险家领主 Mazardan 统治。
+placement: white-mountains
+facts:
+  - id: hex-0217-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0217" }
+    description: Oldan Hold 位于区域六角 0217；White Mountains 归属来自原作地理描述与地图。
+    access: { kind: public }
+  - id: hex-0217-population
+    predicate: population
+    value: { kind: number, value: 342 }
+    description: 常住人口约三百四十二，以矮人为主。
+    access: { kind: public }
+  - id: hex-0217-market
+    predicate: resource
+    value: { kind: text, value: viz-exploration-entrepot-and-regional-market }
+    description: 聚落因 Ironmasters 搜寻 Viz 而建立，现已成为黑沼商人与矮人交易的市场。
+    access: { kind: public }
+  - id: hex-0217-foreign-merchant-distribution
+    predicate: random-distribution
+    value: { kind: text, value: oldan-current-visitors }
+    description: 当期外来商人数量由同名运行分布唯一规定；来源没有季节限定，护卫另计，真实到离事件会继续改变已提交人数。
+    access: { kind: public }
+  - id: hex-0217-northern-company
+    predicate: institution
+    value: { kind: text, value: northern-company-of-adventurers-led-by-lord-mazardan }
+    description: Mazardan 同时担任 Northern Company of Adventurers 的 High Captain，并每年主持成员分享发现的盛宴。
+    access: { kind: public }
+  - id: hex-0217-mazardan-tenure
+    predicate: political-history
+    value: { kind: text, value: lord-mazardan-appointed-two-decades-ago-after-successful-exploration }
+    description: Mazardan 因成功的探险经历在约二十年前获任 Oldan Hold 领主。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

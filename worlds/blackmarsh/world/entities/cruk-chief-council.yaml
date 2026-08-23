@@ -1,0 +1,24 @@
+id: cruk-chief-council
+kind: chief-council
+name: Cruk's Six Chiefs
+description: 协助 High Chief Cruk 治理圣剑部族、各自掌握亲族且不共享心智的 subordinate chief 议群。
+placement: hex-0413-sword-grove
+facts:
+  - id: cruk-chief-council-strength
+    predicate: composition
+    value: { kind: number, value: 6 }
+    description: Cruk 之外另有六名 chiefs 协助治理一百九十名 kobold。
+    access: { kind: private }
+  - id: cruk-chief-council-office
+    predicate: assists
+    value: { kind: entity, entityId: high-chief-cruk }
+    description: 六位 chiefs 以亲族承认为 Cruk 的统治与圣剑禁触规则提供实际执行力。
+    access: { kind: private }
+  - id: cruk-chief-council-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: six-independent-chiefs-negotiate-without-shared-mind }
+    description: 一位 chief 的野心、证词或承诺不会自动成为其余 chiefs 的立场。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

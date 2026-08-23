@@ -1,0 +1,32 @@
+id: tribute-place-garrison
+kind: tribute-garrison
+name: Tribute Place 兽人守卫
+description: 受 Kinkaris 指挥、负责保护 Raven 贡赋账册与交付现场的兽人驻军。
+placement: hex-2109-tribute-place
+facts:
+  - id: tribute-place-garrison-headcount
+    predicate: headcount
+    value: { kind: number, value: 20 }
+    description: 来源确定 Kinkaris 有二十名兽人守卫；伤亡、调动与补员只在本实体更新。
+    access: { kind: private }
+  - id: tribute-place-garrison-commander
+    predicate: commander
+    value: { kind: entity, entityId: kinkaris }
+    description: Kinkaris 通过可传达命令指挥守卫，总部不会因同属 Raven 自动提供即时支援。
+    access: { kind: private }
+  - id: tribute-place-garrison-role
+    predicate: standing-duty
+    value: { kind: text, value: secure-ledgers-tribute-deliveries-and-withdrawal-route }
+    description: 守卫保护账册与交付现场，并需要维持面对两族反抗时的撤离路线。
+    access: { kind: private }
+  - id: tribute-place-garrison-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: individual-guards-require-orders-and-communication }
+    description: 聚合驻军不共享全知心智，细粒度服从、伤势与决定属于具体守卫。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: provisions, amount: 150 }
+  - { definition_id: coin, amount: 80 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

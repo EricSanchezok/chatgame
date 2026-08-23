@@ -1,7 +1,7 @@
 id: player
 kind: person
 name: 外来旅人
-description: 刚抵达黑沼堡的旅人；其职业、出身、种族、性别与意图由玩家在行动中定义。
+description: 由玩家在行动中定义职业、出身、种族、性别与意图的外来旅人。
 placement: castle-blackmarsh-harbor
 facts:
   - id: player-newcomer-status

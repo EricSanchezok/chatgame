@@ -1,0 +1,24 @@
+id: glowing-sword-of-law
+kind: dangerous-relic
+name: 发光的秩序之剑
+description: 位于 0413 森林圣林中的发光古剑，被 Cruk 与六位 subordinate chiefs 率领的 kobold 部族敬拜。
+placement: hex-0413-sword-grove
+facts:
+  - id: glowing-sword-location-truth
+    predicate: canonical-location
+    value: { kind: text, value: hex-0413-not-strangeholms }
+    description: 圣剑实际位于六角 0413，而非传闻所说的 Strangeholms。
+    access: { kind: private }
+  - id: glowing-sword-contact-history
+    predicate: lethal-contact-history
+    value: { kind: text, value: killed-every-kobold-who-tried-to-move-it-a-century-ago }
+    description: kobold 初到此地时所有尝试移动圣剑者都被杀死，这段共同见证促成了禁触崇拜。
+    access: { kind: private }
+  - id: glowing-sword-guardians
+    predicate: guarded-by
+    value: { kind: entity, entityId: cruk-kobold-tribe }
+    description: Cruk 的部族守护圣林；守护关系不代表他们拥有或能够安全使用圣剑。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,24 @@
+id: hex-2015-egils-supply-camp
+kind: island-cache
+name: Egil's Supply Camp
+description: Alhert Island 上为 Egil 舰队返航设置的隐蔽补给营地。
+placement: alhert-island
+facts:
+  - id: hex-2015-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2015" }
+    description: 补给营位于区域六角 2015，属于 Alhert Island。
+    access: { kind: public }
+  - id: hex-2015-guards
+    predicate: associated-force
+    value: { kind: entity, entityId: egil-supply-guard }
+    description: 守卫小队唯一承载人数、命令与状态；本地点保存营地与补给用途。
+    access: { kind: private }
+  - id: hex-2015-cache-purpose
+    predicate: cache
+    value: { kind: text, value: return-voyage-supplies-for-egils-fleet }
+    description: 储备专供 Egil 的长船袭击后返航；守卫撤离、转移或销毁物资取决于舰队消息和具体命令，不另设地点时钟。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

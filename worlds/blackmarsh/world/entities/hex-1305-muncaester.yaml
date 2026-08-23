@@ -1,0 +1,29 @@
+id: hex-1305-muncaester
+kind: settlement
+name: Muncaester
+description: 位于 Rednut River 与 River Eamont 汇流湾中岛上的 Ostrobard 首府，农产、毛皮和异域药草市场连接整个 Grey Sea。
+placement: rednut-river
+facts:
+  - id: hex-1305-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1305" }
+    description: Muncaester 位于区域六角 1305，坐落在 Rednut River 与 River Eamont 汇流处。
+    access: { kind: public }
+  - id: hex-1305-population
+    predicate: population
+    value: { kind: number, value: 895 }
+    description: 常住人口约八百九十五，以 Ostrobard 人类为主，是其最大聚落。
+    access: { kind: public }
+  - id: hex-1305-market
+    predicate: resource
+    value: { kind: text, value: farm-produce-furs-and-exotic-herbs-market }
+    description: 市场吸引 Grey Sea 各地商人，是农产、毛皮和异域药草的集散地。
+    access: { kind: public }
+  - id: hex-1305-ducal-seat
+    predicate: government
+    value: { kind: text, value: seat-of-duke-caedwine }
+    description: Muncaester 是 Ostrobard 公爵的统治中心；Duke Caedwine 的宴会与邀请实践只由本人记录。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

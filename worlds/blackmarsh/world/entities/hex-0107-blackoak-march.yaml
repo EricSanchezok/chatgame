@@ -1,0 +1,19 @@
+id: hex-0107-blackoak-march
+kind: wilderness-route
+name: 复仇者行军道
+description: Greywoods 中通向 Blackoak Castle、可承载大队行军的林间路线。
+placement: greywoods
+facts:
+  - id: hex-0107-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0107" }
+    description: 行军队伍在 t0 位于区域六角 0107；Greywoods 归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-0107-brigand-column
+    predicate: associated-force
+    value: { kind: entity, entityId: sigrun-brigand-column }
+    description: 纵队编成、准备和行动截止由移动战团实体唯一承载；本六角只保存开局坐标与路线。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

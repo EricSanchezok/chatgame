@@ -1,0 +1,27 @@
+id: azure-court
+kind: underwater-court
+name: Azure Court
+description: 围绕 Grey Sea 海山石窟形成的 merman 王廷。
+placement: hex-2416-azure-kings-hall
+facts:
+  - id: azure-court-government
+    predicate: government
+    value: { kind: text, value: azure-king-advised-by-sapphire-enchantress }
+    description: Azure King 处理领地和族群事务，Sapphire Enchantress 处理魔法建议与自己的对外联系。
+    access: { kind: public }
+  - id: azure-court-population
+    predicate: population
+    value: { kind: number, value: 300 }
+    description: 开局海山 grotto 约有三百名 merman 居民。
+    access: { kind: private }
+  - id: azure-court-wizard-relationship
+    predicate: diplomatic-boundary
+    value: { kind: text, value: sapphires-romance-with-wizard-does-not-create-state-alliance }
+    description: Sapphire 与 Wizard of the Isle 保持恋爱关系，这是私人接触线，不等于王廷与守护域共享目标、命令或全部研究。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 600 }
+  - { definition_id: provisions, amount: 900 }
+  - { definition_id: viz, amount: 18 }
+ratings: []

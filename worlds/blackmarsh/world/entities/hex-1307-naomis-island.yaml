@@ -1,0 +1,14 @@
+id: hex-1307-naomis-island
+kind: island
+name: Naomi's Island
+description: Smoking Bay 中保持原始林貌的森林岛，也是 Naomi 与数名 dryad 的长期居所。
+placement: smoking-bay
+facts:
+  - id: hex-1307-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1307" }
+    description: Naomi's Island 位于区域六角 1307，属于 Smoking Bay。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

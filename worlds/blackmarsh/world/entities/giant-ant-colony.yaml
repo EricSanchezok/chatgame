@@ -1,0 +1,29 @@
+id: giant-ant-colony
+kind: giant-ant-colony
+name: Dragonbone 巨蚁群落
+description: 在 2401 河谷边坡筑巢的 giant ant 群落，以蚁后室、巢道和局部气味信号维持生态组织。
+placement: hex-2401-giant-ant-warrens
+facts:
+  - id: giant-ant-colony-population
+    predicate: population
+    value: { kind: number, value: 300 }
+    description: 原作明确巢道属于三百只 giant ant。
+    access: { kind: private }
+  - id: giant-ant-colony-cube-status
+    predicate: current-condition
+    value: { kind: text, value: colony-has-not-opened-queen-chamber-cube }
+    description: 开局时蚁群尚未打开蚁后室内立方体的门；立方体本身的结构由巢穴地点承载。
+    access: { kind: private }
+  - id: giant-ant-colony-viz-eggs
+    predicate: ecological-yield
+    value: { kind: text, value: approximately-one-of-every-twenty-eggs-can-provide-one-viz }
+    description: 约每二十枚蚁卵有一枚可提供一份 Viz；这是长期产率，单次成果需按真实采集和随机承诺结算。
+    access: { kind: private }
+  - id: giant-ant-colony-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: decentralized-pheromone-and-contact-coordination-without-shared-mind }
+    description: 蚂蚁会通过局部信号形成群体行为，但没有一个可读取全部感知的统一认知主体。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

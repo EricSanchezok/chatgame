@@ -1,0 +1,24 @@
+id: hex-2714-crystal-skeleton
+kind: underwater-anomaly
+name: 晶骸报告海域
+description: 灰海中持续出现异常水面泡沫、并有潜水者报告晶体骨片的定位海域。
+placement: grey-sea
+facts:
+  - id: hex-2714-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2714" }
+    description: 晶骸海域位于区域六角 2714，属于 Grey Sea。
+    access: { kind: public }
+  - id: hex-2714-surface-sign
+    predicate: current-condition
+    value: { kind: text, value: persistent-strange-bubbles-at-surface }
+    description: 异常气泡不断在水面聚集，是不下潜也能观察到的持续征兆。
+    access: { kind: public }
+  - id: hex-2714-associated-remains
+    predicate: associated-anomaly
+    value: { kind: entity, entityId: crystal-skeleton }
+    description: 深度、骨片身份与跨年报告由晶骸实体唯一承载；本地点只保存坐标与水面征兆。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

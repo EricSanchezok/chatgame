@@ -1,0 +1,14 @@
+id: hex-1214-warlock-island
+kind: island-stronghold
+name: Warlock Coven Island
+description: Atacyl 倒台后由幸存施法者建立、并曾用于保存遗体与进行吸血复生仪式的岛屿结社。
+placement: black-marshes
+facts:
+  - id: hex-1214-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1214" }
+    description: 结社岛位于区域六角 1214，属于 Black Marshes。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

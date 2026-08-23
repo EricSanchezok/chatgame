@@ -1,0 +1,27 @@
+id: grand-kingdom-norbury-command
+kind: frontier-command
+name: Grand Kingdom Norbury Command
+description: 驻于 Norbury Castle 的 Grand Kingdom 边境军政单位，承担堡垒守备、贸易门户与北方侦察职责。
+placement: hex-1518-norbury-castle
+facts:
+  - id: norbury-command-commander
+    predicate: commander
+    value: { kind: entity, entityId: sir-dennis-langre }
+    description: Sir Dennis Langre 代表 Grand Kingdom 的 Vasa Province 指挥驻军，并负责判断当地向导与扩张风险。
+    access: { kind: public }
+  - id: norbury-command-garrison
+    predicate: headcount
+    value: { kind: number, value: 120 }
+    description: Norbury Castle 开局有一百二十名正规士兵，调出远征会真实削弱堡垒守备。
+    access: { kind: private }
+  - id: norbury-command-charter
+    predicate: strategic-mission
+    value: { kind: text, value: secure-trade-and-exploration-gateway-into-blackmarsh }
+    description: 前哨服务国家商人和探索者北进，同时维护 Grand Kingdom 在 Grey Sea 北缘的存在。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 1700 }
+  - { definition_id: provisions, amount: 800 }
+  - { definition_id: viz, amount: 3 }
+ratings: []

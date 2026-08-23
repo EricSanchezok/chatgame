@@ -1,0 +1,29 @@
+id: troll-caravan-raiders
+kind: troll-band
+name: Muncaester 商路 Troll 群
+description: 曾在 0702 商队遗骸旁进食并留下炊火与足迹的 troll 群体，活动范围位于 Rednut River 一带。
+placement: rednut-river
+facts:
+  - id: troll-caravan-raiders-count
+    predicate: composition
+    value: { kind: number, value: 6 }
+    description: 原作明确在商队尸体旁进食的是六只 troll，未确认它们是袭击者。
+    access: { kind: private }
+  - id: troll-caravan-raiders-recent-site
+    predicate: recent-presence
+    value: { kind: entity, entityId: hex-0702-caravan-killing-ground }
+    description: 0702 的尸体、炊火和六组足迹证明它们近期在场；该事实不等于 t0 仍占据现场。
+    access: { kind: public }
+  - id: troll-caravan-raiders-current-location
+    predicate: current-location-state
+    value: { kind: text, value: somewhere-in-rednut-river-region-exact-position-unknown-at-t0 }
+    description: 它们的活动区域仍在红果河流域，但需沿离场足迹或取得新报告才能定位。
+    access: { kind: private }
+  - id: troll-caravan-raiders-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: individual-trolls-without-shared-mind }
+    description: 它们能结伴移动和进食，却各自感知、受伤和决定，不共享统一心智。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

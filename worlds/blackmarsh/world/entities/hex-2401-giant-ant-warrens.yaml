@@ -1,0 +1,24 @@
+id: hex-2401-giant-ant-warrens
+kind: lair
+name: 巨蚁河谷巢
+description: 半英里河谷边坡中的巨型蚁巢，由地表开口、地下巢道与蚁后室组成。
+placement: blackmarsh-region
+facts:
+  - id: hex-2401-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2401" }
+    description: 蚁巢位于区域六角 2401，在 Dragonbone Peaks 东北外侧的未命名河谷。
+    access: { kind: public }
+  - id: hex-2401-warren-terrain
+    predicate: terrain
+    value: { kind: text, value: half-mile-river-valley-slope-cut-by-giant-ant-tunnels }
+    description: 巢道贯穿约半英里河谷的边坡，并通过多个地表开口连接地下蚁后室。
+    access: { kind: public }
+  - id: hex-2401-cube
+    predicate: buried-structure
+    value: { kind: text, value: ten-foot-cube-with-one-door-in-queen-chamber }
+    description: 蚁后室环绕一件十乘十乘十英尺的立方体，立方体单侧有门。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

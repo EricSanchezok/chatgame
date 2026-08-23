@@ -1,0 +1,19 @@
+id: rednut-river
+kind: geographic-region
+name: Rednut River
+description: 两岸遍生红果树的北部河流，秋季落果覆盖水面并把商旅、野兽与空中掠食者吸引到同一条航道。
+placement: blackmarsh-region
+facts:
+  - id: rednut-river-autumn-fruit
+    predicate: seasonal-condition
+    value: { kind: text, value: floating-rednuts-cover-water }
+    description: t0 正值初秋，成熟红果不断落入河中，是居民与动物共同争夺的食物来源。
+    access: { kind: public }
+  - id: rednut-river-aerial-predators
+    predicate: ecological-hazard
+    value: { kind: text, value: griffons-and-hippogriffs-feed-over-river }
+    description: 狮鹫与鹰马周期性俯冲捞取红果，也会攻击无遮蔽的小船、牲畜或旅人；这是季节生态而非等待触发的固定遭遇。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

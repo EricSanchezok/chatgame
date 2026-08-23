@@ -1,0 +1,24 @@
+id: sheltered-bay
+kind: geographic-region
+name: Sheltered Bay
+description: 由群岛削弱灰海风暴的外湾，也是进入 Smoking Bay 与黑沼腹地的唯一海上入口。
+placement: blackmarsh-region
+facts:
+  - id: sheltered-bay-gateway
+    predicate: maritime-gateway
+    value: { kind: text, value: only-sea-entrance-to-smoking-bay }
+    description: 任何由 Grey Sea 进入 Smoking Bay 的深水船都必须经过这片外湾，岛间航道形成天然咽喉。
+    access: { kind: public }
+  - id: sheltered-bay-storm-buffer
+    predicate: weather-effect
+    value: { kind: text, value: island-chain-absorbs-open-sea-storms }
+    description: 岛链削弱直扑内湾的风浪，但狭窄水道在风向改变时仍会产生横流和碎浪。
+    access: { kind: public }
+  - id: sheltered-bay-traffic
+    predicate: typical-traffic
+    value: { kind: text, value: roughly-one-arrival-or-departure-every-three-days }
+    description: 原作的一日三分之一遇船概率被表达为长期交通密度，不保证某艘船等待旅人出现。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

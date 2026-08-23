@@ -1,0 +1,34 @@
+id: hex-0409-strangeholms
+kind: settlement
+name: Strangeholms
+description: 环绕 Holms Water 南侧大丘而建的半身人农庄村，以肥沃土地供应 Blackoak Castle。
+placement: blackmarsh-region
+facts:
+  - id: hex-0409-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0409" }
+    description: Strangeholms 位于区域六角 0409，在 Greywoods 树林边界外的 Newcombe 农地。
+    access: { kind: public }
+  - id: hex-0409-population
+    predicate: population
+    value: { kind: number, value: 292 }
+    description: 常住人口约二百九十二，以半身人为主。
+    access: { kind: public }
+  - id: hex-0409-farms
+    predicate: resource
+    value: { kind: text, value: fertile-farms-supplying-blackoak-castle }
+    description: 周围肥沃农田为 Blackoak Castle 提供大量粮食。
+    access: { kind: public }
+  - id: hex-0409-local-government
+    predicate: government
+    value: { kind: text, value: mayor-holbein-redleaf-and-constable }
+    description: Mayor Holbein Redleaf 与警役维持秩序；Holbein 也是受富人与贵族委托的熟练画家。
+    access: { kind: public }
+  - id: hex-0409-ooze-pressure
+    predicate: recurring-hazard
+    value: { kind: text, value: creatures-emerge-from-northwestern-wizard-keep }
+    description: 西北法师堡的生物偶尔越界，村庄的有限治安力量难以独自处理。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

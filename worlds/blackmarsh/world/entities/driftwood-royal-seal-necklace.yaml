@@ -1,0 +1,19 @@
+id: driftwood-royal-seal-necklace
+kind: evidence-object
+name: 王室印记项链
+description: 表面带有 Grand Kingdom 王室印记的项链。
+placement: driftwood-young-mans-remains
+facts:
+  - id: driftwood-necklace-mark
+    predicate: visible-mark
+    value: { kind: text, value: grand-kingdom-royal-seal }
+    description: 项链表面呈现 Grand Kingdom 王室印记，只有与制作档案和材质检测结合才能认证。
+    access: { kind: private }
+  - id: driftwood-necklace-authenticity
+    predicate: authenticated-identity
+    value: { kind: none }
+    description: 开局没有足够证据确认印记真伪、项链合法持有人或遗体身份；Truth Engine 不预造答案。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

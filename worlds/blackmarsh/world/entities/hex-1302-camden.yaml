@@ -1,0 +1,24 @@
+id: hex-1302-camden
+kind: settlement
+name: Camden
+description: 围绕西部数座分散矿井形成的 Ostrobard 铁矿聚落。
+placement: rednut-river
+facts:
+  - id: hex-1302-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1302" }
+    description: Camden 位于区域六角 1302；Rednut River 北部流域归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-1302-population
+    predicate: population
+    value: { kind: number, value: 214 }
+    description: 常住人口约二百一十四，以 Ostrobard 人类为主。
+    access: { kind: public }
+  - id: hex-1302-iron-mines
+    predicate: resource
+    value: { kind: text, value: several-iron-mines-in-western-hills }
+    description: 聚落西侧丘陵有数座铁矿，是 Camden 的主要资源。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,24 @@
+id: hex-1515-mannann-shrine
+kind: island-shrine
+name: Mannann 海神祠
+description: Sheltered Bay 岛上的 Mannann 海神祠与近海救援据点。
+placement: sheltered-bay
+facts:
+  - id: hex-1515-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1515" }
+    description: 神祠位于区域六角 1515，属于 Sheltered Bay。
+    access: { kind: public }
+  - id: hex-1515-caretaker
+    predicate: caretaker
+    value: { kind: entity, entityId: tavis }
+    description: Tavis 长期维护神祠并履行援助船难幸存者的宗教职责。
+    access: { kind: public }
+  - id: hex-1515-rescue-boat
+    predicate: associated-vessel
+    value: { kind: entity, entityId: tavis-rescue-sloop }
+    description: 船只实体唯一承载位置与状态；神龛只记录其常用停泊关系。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

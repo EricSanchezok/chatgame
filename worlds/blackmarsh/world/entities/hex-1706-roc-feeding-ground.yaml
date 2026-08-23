@@ -1,0 +1,29 @@
+id: hex-1706-roc-feeding-ground
+kind: wilderness
+name: Roc 与幼龙残骸地
+description: Dragonbone Peaks 西南外侧、被大型飞行捕食者用作取食与争斗场所的未命名岩坡。
+placement: blackmarsh-region
+facts:
+  - id: hex-1706-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1706" }
+    description: 残骸地位于区域六角 1706，在 Dragonbone Peaks 标示范围西南外侧。
+    access: { kind: public }
+  - id: hex-1706-dragon-remains
+    predicate: current-evidence
+    value: { kind: text, value: remains-of-scythebacks-missing-subadult-red-dragon }
+    description: 亚成年红龙残骸与 2105 巢穴中失踪的幼龙相符，尸体正受天气和食腐者持续破坏。
+    access: { kind: private }
+  - id: hex-1706-roc-traces
+    predicate: recent-presence
+    value: { kind: text, value: four-rocs-fed-here-and-a-fifth-lies-charred-eastward }
+    description: 四只来自 Mountain That Fell 的 roc 近期在此取食；东侧三百码处有第五只 roc 的焦黑遗体，活鸟当前位置不冻结在本六角。
+    access: { kind: private }
+  - id: hex-1706-aerial-conflict
+    predicate: ecology
+    value: { kind: text, value: overlapping-roc-and-red-dragon-hunting-ranges }
+    description: 两类顶级飞行生物的猎区在此重叠，残骸反映持续竞争而非一次性场景。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,24 @@
+id: ragnars-lost-ring
+kind: royal-relic
+name: 磨损的 Vasan 王戒
+description: 一枚磨损的 Vasan 风格金质印戒。
+placement: castle-blackmarsh-jeweler
+facts:
+  - id: ragnar-ring-visible-form
+    predicate: physical-description
+    value: { kind: text, value: heavy-gold-signet-with-worn-knotwork-and-a-damaged-inner-band }
+    description: 戒指是厚重金质印戒，结纹已磨损，内圈留有与手指被切断相符的旧损伤。
+    access: { kind: private }
+  - id: ragnar-ring-identity
+    predicate: canonical-identity
+    value: { kind: text, value: lost-royal-ring-of-king-ragnar }
+    description: 这正是 Ragnar 在袭击黑沼堡时连同手指一起失去的王室印戒。
+    access: { kind: private }
+  - id: ragnar-ring-authentication
+    predicate: authentication-evidence
+    value: { kind: text, value: vasan-royal-seal-cut-band-damage-and-old-harbor-ledger-date }
+    description: 王室印纹、内圈损伤、旧账日期与 Ragnar 的私人记忆必须形成证据链，才能可靠确认身份。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,32 @@
+id: egil-raiding-fleet
+kind: raiding-fleet
+name: Egil Longhair's Raiding Fleet
+description: 由 Vasan 长船、随船战士与返航补给链组成的海上远征单位，由 Egil Longhair 负责航行与行动决策。
+placement: hex-1406-egils-longships
+facts:
+  - id: egil-fleet-commander
+    predicate: commander
+    value: { kind: entity, entityId: egil-longhair }
+    description: Egil Longhair 决定袭击目标和是否继续远征，船上骨干仍需执行航行、警戒和战利品分配。
+    access: { kind: public }
+  - id: egil-fleet-strength
+    predicate: deployed-force
+    value: { kind: text, value: two-longships-with-75-warriors-each }
+    description: 两艘长船各载七十五名战士；随船编成只在本舰队实体更新。
+    access: { kind: private }
+  - id: egil-fleet-supply-detachment
+    predicate: detached-force
+    value: { kind: entity, entityId: egil-supply-guard }
+    description: 返航补给守卫是位于 2015 的独立小队，不能与随船战士同时出现在一处行动现场。
+    access: { kind: private }
+  - id: egil-fleet-readiness
+    predicate: current-condition
+    value: { kind: text, value: resting-after-hard-sailing-with-conditional-dawn-readiness }
+    description: 随船人员经历数日艰苦航行后正在轮班休整；天气、船况与人员疲劳将决定日出时的行动能力。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 860 }
+  - { definition_id: provisions, amount: 480 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

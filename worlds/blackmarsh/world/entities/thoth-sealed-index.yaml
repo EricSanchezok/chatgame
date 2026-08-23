@@ -1,0 +1,24 @@
+id: thoth-sealed-index
+kind: archival-fragment
+name: 密封的 Atacyl 索引残卷
+description: 记录若干 Atacyl 行政或研究编号、来源不完整的 Thoth 神殿残缺索引。
+placement: temple-of-thoth
+facts:
+  - id: thoth-sealed-index-custodian
+    predicate: held-by
+    value: { kind: entity, entityId: curator-iseult-vale }
+    description: Iseult 将残卷密封保存，并限制未经记录的查阅。
+    access: { kind: agents, agentIds: [curator-iseult-vale] }
+  - id: thoth-sealed-index-content
+    predicate: recorded-content
+    value: { kind: text, value: incomplete-numbers-handwriting-and-cross-references-associated-with-atacyl-era }
+    description: 残卷提供可核对的编号、笔迹和交叉引用，但没有完整说明对应地点、器物或实验。
+    access: { kind: agents, agentIds: [curator-iseult-vale] }
+  - id: thoth-sealed-index-authenticity
+    predicate: authenticity-status
+    value: { kind: text, value: unresolved-pending-independent-comparison }
+    description: 开局证据支持其可能真实，却不足以 canonical 定案为 Atacyl 本人或核心机构所制。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

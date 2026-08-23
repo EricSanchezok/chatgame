@@ -2,7 +2,7 @@ id: governor-tyrilas
 kind: person
 name: 总督 Tyrilas
 description: Greywood 精灵任命的黑沼堡总督，既要守住 Atacyl 遗产，也要维持人类占多数的港城合作。
-placement: hex-0913-castle-blackmarsh
+placement: castle-blackmarsh-fortress
 facts:
   - id: tyrilas-office
     predicate: office
@@ -131,7 +131,7 @@ agent:
       - local_entity_id: city
         canonical_entity_ids: [hex-0913-castle-blackmarsh]
       - local_entity_id: castle-depths
-        canonical_entity_ids: [hex-0913-castle-blackmarsh]
+        canonical_entity_ids: [castle-blackmarsh-depths]
       - local_entity_id: causari
         canonical_entity_ids: [sir-causari]
       - local_entity_id: newcomer

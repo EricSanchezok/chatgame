@@ -1,0 +1,24 @@
+id: black-marshes
+kind: geographic-region
+name: The Black Marshes
+description: 坠山冲击撕裂而成的黑水湖泊、泥炭沼泽与迷宫水道，南北约十五英里、东西超过五十英里。
+placement: blackmarsh-region
+facts:
+  - id: black-marshes-extent
+    predicate: extent
+    value: { kind: text, value: fifteen-miles-north-south-over-fifty-miles-east-west }
+    description: 黑沼主体南北约十五英里、东西超过五十英里，内部由多座大湖和互通水道组成。
+    access: { kind: public }
+  - id: black-marshes-dark-water
+    predicate: water-color
+    value: { kind: text, value: mineral-and-vegetation-stained-black }
+    description: 周围土壤与植被析出的矿物使水呈黑色；颜色本身不等同于毒性。
+    access: { kind: public }
+  - id: black-marshes-concealment
+    predicate: terrain-effect
+    value: { kind: text, value: waterways-and-bogs-conceal-movement-and-sites }
+    description: 缺少向导时，船只和徒步者容易错过可通行水道；逃亡者、施法者和怪物因而能长期隐藏活动。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

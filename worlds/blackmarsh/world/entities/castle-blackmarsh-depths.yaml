@@ -1,0 +1,24 @@
+id: castle-blackmarsh-depths
+kind: sealed-dungeon-complex
+name: 黑沼城堡下层
+description: Atacyl 为实验与魔法研究在黑沼城堡地下扩建的层系。
+placement: castle-blackmarsh-fortress
+facts:
+  - id: castle-depths-origin
+    predicate: construction-history
+    value: { kind: text, value: expanded-for-atacyls-experiments-and-magical-research }
+    description: Atacyl 统治时期把城堡下层用于实验与魔法研究，并新增多层设施。
+    access: { kind: public }
+  - id: castle-depths-clearance
+    predicate: exploration-status
+    value: { kind: text, value: substantial-sections-remain-unexplored-and-uncleared }
+    description: 即使经过一个世纪，仍有层级未被探索；具体危险必须由调查和已提交事件更新。
+    access: { kind: private }
+  - id: castle-depths-access
+    predicate: access-route
+    value: { kind: entity, entityId: castle-blackmarsh-fortress }
+    description: 已知入口受地表要塞控制；地下层不是整座城堡的同义词。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,24 @@
+id: greenton-constable-watch
+kind: constable-watch
+name: Greenton Constables
+description: Sheriff Barris Ironoak 指挥、负责 Greenton 市场、Sack 商人小村与装货道路秩序的公共治安队。
+placement: hex-0610-greenton
+facts:
+  - id: greenton-constable-watch-strength
+    predicate: composition
+    value: { kind: number, value: 20 }
+    description: Greenton 常备二十名 constables，由 Barris 编排轮值。
+    access: { kind: public }
+  - id: greenton-constable-watch-commander
+    predicate: commanded-by
+    value: { kind: entity, entityId: sheriff-barris-ironoak }
+    description: Barris 负责执行 Ealdorman 的公共命令并记录拘留、扣押与武力使用。
+    access: { kind: public }
+  - id: greenton-constable-watch-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: individual-constables-report-through-real-watch-rotations }
+    description: 二十人不是共享心智；贿赂、观察和命令必须通过具体成员与轮值传播。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

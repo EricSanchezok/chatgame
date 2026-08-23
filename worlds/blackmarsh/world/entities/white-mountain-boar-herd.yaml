@@ -1,0 +1,29 @@
+id: white-mountain-boar-herd
+kind: animal-herd
+name: White Mountains 恶脾野猪群
+description: 以山地觅食、护幼和群体警戒为典型行为的暴躁野猪群，各个体不共享心智。
+placement: hex-0318-boar-valley
+facts:
+  - id: white-mountain-boar-herd-disposition
+    predicate: recurring-behavior
+    value: { kind: text, value: mean-tempered-herd-roams-white-mountain-slopes }
+    description: 野猪会主动保卫幼兽和觅食地，并在谷地内随季节与惊扰改变路线。
+    access: { kind: public }
+  - id: white-mountain-boar-herd-scale
+    predicate: population-state
+    value: { kind: text, value: large-herd-without-fixed-canonical-total }
+    description: 原作给出随机遭遇规模而非稳定总数；运行世界只保留大型兽群事实，不预生成一个伪精确人口。
+    access: { kind: private }
+  - id: white-mountain-boar-herd-distribution
+    predicate: random-distribution
+    value: { kind: text, value: white-mountain-boar-hour }
+    description: 每小时是否遭遇及触发后的群体规模由同名运行分布唯一规定。
+    access: { kind: private }
+  - id: white-mountain-boar-herd-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: herd-instinct-without-shared-mind }
+    description: 个体会互相响应和跟随，但没有统一认知状态或永久共同位置。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

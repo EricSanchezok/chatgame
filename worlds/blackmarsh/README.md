@@ -7,6 +7,13 @@
 - [`world/`](world/)：可直接校验、打包和导入的 schema v5 世界目录。
 - [`docs/design-brief.md`](docs/design-brief.md)：玩家位置、创作边界、核心矛盾与动态世界原则。
 - [`docs/source-ledger.md`](docs/source-ledger.md)：原始版本、校验和、逐章提取范围和排除项。
+- [`docs/world-bible.md`](docs/world-bible.md)：统一历史、Viz、文明格局和超自然底层。
+- [`docs/geography.md`](docs/geography.md)：17 个命名地理区、旅行尺度与全部 75 个 keyed hex。
+- [`docs/factions.md`](docs/factions.md)：政权、组织、部族、机构的资源、盟敌与内部分裂。
+- [`docs/agents.md`](docs/agents.md)：47 个初始自主 Agent 的选择尺度与戏剧压力。
+- [`docs/knowledge-and-secrets.md`](docs/knowledge-and-secrets.md)：20 条原作传闻、秘密持有人与证据路径。
+- [`docs/mechanics.md`](docs/mechanics.md)：生命、能力、资源、时间和聚合实体的数值标尺。
+- [`docs/events.md`](docs/events.md)：静态遭遇分类、三个开局时钟和截止后的状态要求。
 - [`ATTRIBUTION.md`](ATTRIBUTION.md)：上游署名、许可链接和改编声明。
 
 ## 校验

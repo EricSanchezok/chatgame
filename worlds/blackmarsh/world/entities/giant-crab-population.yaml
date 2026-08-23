@@ -1,0 +1,24 @@
+id: giant-crab-population
+kind: dispersed-animal-population
+name: Vasan 捕猎岛 Giant Crab 种群
+description: 由独立个体构成的 giant crab 聚合种群，以潮池、沙滩和岩缝生态为生。
+placement: hex-2706-crab-island
+facts:
+  - id: giant-crab-population-scale
+    predicate: population-state
+    value: { kind: text, value: island-wide-dense-population-without-canonical-headcount }
+    description: 原作说全岛遍布 giant crab，却未提供稳定总数；运行世界不虚构精确人口。
+    access: { kind: public }
+  - id: giant-crab-population-dynamics
+    predicate: ecology
+    value: { kind: text, value: local-density-changes-with-tides-seasons-breeding-and-vasan-hunts }
+    description: 捕猎和季节会改变局部密度，具体遭遇须由当时地点与生态证据决定。
+    access: { kind: private }
+  - id: giant-crab-population-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: independent-crabs-without-shared-mind-or-central-command }
+    description: 聚合实体只记录岛上种群；每只螃蟹独立感知、受伤和移动。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

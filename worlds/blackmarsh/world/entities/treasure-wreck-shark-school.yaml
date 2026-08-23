@@ -1,0 +1,24 @@
+id: treasure-wreck-shark-school
+kind: shark-school
+name: 宝船墓场鲨群
+description: 会循血腥、猎物和水流聚散的鲨群，各条鲨鱼独立感知、受伤和游离。
+placement: hex-1112-treasure-fleet-wrecks
+facts:
+  - id: treasure-wreck-shark-school-scale
+    predicate: population-state
+    value: { kind: text, value: several-dozen-sharks }
+    description: 原作只给出数十条的量级，运行世界不伪造更精确的固定总数。
+    access: { kind: private }
+  - id: treasure-wreck-shark-school-habitat
+    predicate: hunting-ground
+    value: { kind: entity, entityId: hex-1112-treasure-fleet-wrecks }
+    description: 船骸的遮蔽物、鱼群和偶发打捞者使这片海床成为长期猎场。
+    access: { kind: private }
+  - id: treasure-wreck-shark-school-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: independent-sharks-converge-on-stimuli-without-shared-mind }
+    description: 鲨鱼会同时响应血腥和挣扎，却分别感知、受伤和游离。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

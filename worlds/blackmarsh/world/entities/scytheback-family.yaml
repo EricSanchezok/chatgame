@@ -1,0 +1,32 @@
+id: scytheback-family
+kind: dragon-family
+name: Scytheback's Dragon Family
+description: 以 Scytheback 为最强成员、包含伴侣与子代且不共享心智的红龙亲族共同体。
+placement: hex-2105-scythebacks-lair
+facts:
+  - id: scytheback-family-reputation
+    predicate: territorial-reputation
+    value: { kind: text, value: ancient-red-dragon-family-controls-the-lair-and-hunting-ground }
+    description: 周边势力知道极年老红龙及其亲族控制此处，接近巢穴会被视为高风险侵入。
+    access: { kind: public }
+  - id: scytheback-family-composition
+    predicate: current-composition
+    value: { kind: text, value: scytheback-dakack-and-two-subadult-offspring-present }
+    description: Scytheback、成年伴侣 Dakack 与两头亚成年子代仍在家族领地；第三头子代已经死于 1706。
+    access: { kind: private }
+  - id: scytheback-family-hoard
+    predicate: controlled-treasure
+    value: { kind: text, value: uncounted-bright-empire-plunder-and-later-accumulations }
+    description: 巢内保存 Bright Empire 覆亡时的掠夺物及后续积累，尚未可靠清点，因此不把未知宝藏虚构为精确可支配 coin。
+    access: { kind: private }
+  - id: scytheback-family-raven-boundary
+    predicate: alliance-condition
+    value: { kind: text, value: scytheback-uses-raven-to-deter-visitors-without-shared-command }
+    description: Scytheback 与 Brotherhood 结盟并把对方当作隔绝访客的棋子，Dakack 与子代不因此自动接受 Raven 指挥。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 0 }
+  - { definition_id: provisions, amount: 20 }
+  - { definition_id: viz, amount: 4 }
+ratings: []

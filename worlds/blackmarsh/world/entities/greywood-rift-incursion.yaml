@@ -1,0 +1,19 @@
+id: greywood-rift-incursion
+kind: planar-incursion
+name: Greywoods 裂口余波
+description: 0605 世界壁垒破裂后形成、可随封印与守备状态变化的位面入侵余波。
+placement: hex-0605-greywood-rift
+facts:
+  - id: greywood-rift-incursion-current-condition
+    predicate: planar-condition
+    value: { kind: text, value: weak-boundary-held-by-damaged-temporary-seal-and-elven-rotation }
+    description: t0 的主要现实是受损封印、余火和精灵轮值封锁，而不是双方继续保持同一战斗姿势。
+    access: { kind: private }
+  - id: greywood-rift-incursion-escalation
+    predicate: causal-risk
+    value: { kind: text, value: renewed-crossing-if-seal-fails-containment-withdraws-or-fire-spreads }
+    description: 只有封印继续破损、守卫撤离或火势失控等真实原因出现，新的越界事件才会发生。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

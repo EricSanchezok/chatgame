@@ -1,0 +1,24 @@
+id: hex-0407-blackoak-castle
+kind: stronghold
+name: Blackoak Castle
+description: Blackmarsh Rangers 的总部、训练场与跨族补给中心。
+placement: greywoods
+facts:
+  - id: hex-0407-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0407" }
+    description: Blackoak Castle 位于区域六角 0407，坐落于 Greywoods 西南缘。
+    access: { kind: public }
+  - id: hex-0407-ranger-mission
+    predicate: facilities
+    value: { kind: text, value: ranger-training-captain-muster-and-patrol-supply }
+    description: 堡内设施用于训练新人、举行半年一次的队长集会并供应巡游小队；组织使命由 Rangers 实体承载。
+    access: { kind: public }
+  - id: hex-0407-magic-school
+    predicate: institution
+    value: { kind: text, value: leading-practical-magic-school }
+    description: 精灵维持着黑沼最优秀的魔法学校之一，教学偏向实际应用；Silvanus 祭司也在堡内提供支援。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

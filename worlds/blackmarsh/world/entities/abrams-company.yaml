@@ -1,0 +1,22 @@
+id: abrams-company
+kind: shipping-company
+name: Abrams Company
+description: 经营单桅沿岸船与远洋帆船等多型船舶的黑沼航运企业。
+placement: castle-blackmarsh-harbor
+facts:
+  - id: abrams-fleet-size
+    predicate: minimum-owned-ships
+    value: { kind: number, value: 25 }
+    description: 来源只确定公司拥有超过二十四艘船，故总量至少二十五；世界种子不虚构精确上限或把可调度船数冒充总资产。
+    access: { kind: public }
+  - id: abrams-charter-policy
+    predicate: charter-policy
+    value: { kind: text, value: recommendation-required }
+    description: 有可靠推荐的探险队可以申请包租公司船只。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 4200 }
+  - { definition_id: provisions, amount: 380 }
+  - { definition_id: viz, amount: 1 }
+ratings: []

@@ -1,0 +1,22 @@
+id: tavis-rescue-sloop
+kind: small-sailing-vessel
+name: Tavis 的救援单桅船
+description: 为 Mannann 神龛近海搜救配置的小型单桅帆船。
+placement: hex-1515-mannann-shrine
+facts:
+  - id: tavis-rescue-sloop-caretaker
+    predicate: operated-by
+    value: { kind: entity, entityId: tavis }
+    description: Tavis 驾驶并维护该船；船只的位置、损伤和控制权属于独立实体状态。
+    access: { kind: public }
+  - id: tavis-rescue-sloop-profile
+    predicate: vessel-profile
+    value: { kind: text, value: small-single-mast-sailboat-equipped-for-nearshore-search-and-rescue }
+    description: 小船适合近岸搜索与少量幸存者转运，范围受风浪、载重、船况和船员体力约束。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: provisions, amount: 6 }
+  - { definition_id: coin, amount: 0 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

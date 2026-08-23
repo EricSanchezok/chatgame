@@ -1,0 +1,24 @@
+id: hex-1112-treasure-fleet-wrecks
+kind: underwater-ruin
+name: Bright Empire 宝船墓场
+description: Bright Empire 撤退前最后一批宝船沉没形成的海底遗址。
+placement: smoking-bay
+facts:
+  - id: hex-1112-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1112" }
+    description: 船骸群位于区域六角 1112，属于 Smoking Bay。
+    access: { kind: public }
+  - id: hex-1112-wreck-count
+    predicate: structure
+    value: { kind: number, value: 12 }
+    description: 海底约有十二艘 galleys 的残骸，木构正在持续朽坏。
+    access: { kind: private }
+  - id: hex-1112-cargo
+    predicate: treasure
+    value: { kind: text, value: gold-adamant-and-sealed-viz-crates }
+    description: 金币、adamant 与封装 Viz 的货箱仍在船体和周围海床间散落，具体数量未被公开清点。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

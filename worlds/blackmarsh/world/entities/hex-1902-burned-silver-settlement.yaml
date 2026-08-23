@@ -1,0 +1,24 @@
+id: hex-1902-burned-silver-settlement
+kind: ruin
+name: Scytheback 焚村
+description: 数十年前被红龙 Scytheback 烧毁的 Ostrobard 聚落，附近废弃银矿与烧蚀建筑仍记录当时袭击。
+placement: dragonbone-peaks
+facts:
+  - id: hex-1902-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1902" }
+    description: 焚村位于区域六角 1902；Dragonbone Peaks 西麓归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-1902-destruction
+    predicate: historical-event
+    value: { kind: text, value: settlement-burned-by-scytheback-decades-ago }
+    description: Scytheback 在数十年前烧毁这座 Ostrobard 聚落，遗址没有恢复定居。
+    access: { kind: public }
+  - id: hex-1902-silver-mines
+    predicate: resource
+    value: { kind: text, value: several-nearby-abandoned-silver-mines }
+    description: 聚落曾是周边多座银矿的中心，矿井现已废弃但矿脉状态未被完整复查。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []
