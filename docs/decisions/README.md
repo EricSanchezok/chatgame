@@ -110,3 +110,4 @@
 - [0041 — 纯本地单实例 SQLite 运行时](0041-local-sqlite-runtime.md)
 - [0042 — 通用因果断言、受信任规则钩子与分阶段模型 Profile](0042-causal-assurance-and-staged-model-profiles.md)
 - [0043 — 端到端运行时可观测性与 invocation 审计](0043-end-to-end-runtime-observability.md)
+- [0044 — 本地 assistant-ui 沉浸会话壳与存档资源](0044-local-assistant-ui-immersive-session-shell.md)

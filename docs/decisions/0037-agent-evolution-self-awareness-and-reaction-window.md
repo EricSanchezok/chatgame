@@ -37,7 +37,7 @@ ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时
 
 `CommittedStep` 保存 initial/final actions、reaction requests/decisions、character patches、分阶段检定与 `agent-reaction` 模型审计，并把它们纳入内容 hash、恢复校验和重放。任一 Truth Engine、reaction、AgentMind 或事务验证失败都连同本步 RNG 一起回滚。公共 API 与 SSE 只投影玩家 outcome、公开检定、玩家 observation 和公开会话状态。
 
-世界剧本使用 schema v5，SimulationState 与 WorldSessionDocument 使用 schema v6。所有会进入状态字典或引用图的 ID 拒绝 JavaScript 原型保留键，避免模型输出、世界包或持久化文档污染对象原型。旧版本直接拒绝，不提供迁移或双轨兼容。
+世界剧本使用 schema v5，SimulationState 使用 schema v6，WorldSessionDocument 使用 schema v7。所有会进入状态字典或引用图的 ID 拒绝 JavaScript 原型保留键，避免模型输出、世界包或持久化文档污染对象原型。旧版本直接拒绝，不提供迁移或双轨兼容。
 
 ### Consequences
 

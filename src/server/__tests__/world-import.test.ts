@@ -112,7 +112,7 @@ describe("world import", () => {
 
     const host = new WorldHost({ repository: database, store: database, provider });
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    expect(host.session(session.id).worldHash).toBe(session.worldHash);
+    expect(host.session(session.summary.id).state.worldHash).toBe(session.state.worldHash);
     database.close();
   });
 
@@ -195,16 +195,16 @@ describe("world import", () => {
       database.close();
       database = new LocalDatabase(databaseFile, { heartbeat: false });
       const restartedHost = createHost();
-      const restored = restartedHost.session(original.id);
+      const restored = restartedHost.session(original.summary.id);
       const current = await restartedHost.createSession({ worldId: "open-world-fixture" });
 
-      expect(restored).toMatchObject({
-        id: original.id,
+      expect(restored.state).toMatchObject({
+        id: original.summary.id,
         worldVersion: "1.0.0",
-        worldHash: original.worldHash,
+        worldHash: original.state.worldHash,
       });
-      expect(current.worldVersion).toBe("2.0.0");
-      expect(current.worldHash).not.toBe(original.worldHash);
+      expect(current.state.worldVersion).toBe("2.0.0");
+      expect(current.state.worldHash).not.toBe(original.state.worldHash);
     } finally {
       database.close();
     }

@@ -33,10 +33,12 @@ import {
   type WorldSessionStore,
 } from "./world-session-store";
 import {
-  publicSessionSnapshot,
+  publicSessionDetail,
+  publicSessionSummary,
   publicWorldRunSnapshot,
   type PublicObservationPacket,
-  type PublicSessionSnapshot,
+  type PublicSessionDetail,
+  type PublicSessionSummary,
   type WorldRunEvent,
   type WorldRunEventInput,
   type WorldRunRecord,
@@ -157,6 +159,7 @@ export class WorldHost {
       const catalog = loadModelCatalog(path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
+      const provider = createModelGateway(catalog, process.env, { observer });
       const dataRoot = path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld",
       );
@@ -165,7 +168,7 @@ export class WorldHost {
         repository: database,
         store: database,
         importer: database,
-        provider: createModelGateway(catalog, process.env, { observer }),
+        provider,
         observer,
       });
     }
@@ -348,7 +351,7 @@ export class WorldHost {
   async createSession(
     input: { worldId: string; seed?: number },
     correlation?: RuntimeCorrelation,
-  ): Promise<PublicSessionSnapshot> {
+  ): Promise<PublicSessionDetail> {
     const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
     const engine = this.buildEngine(definition);
     const id = this.idFactory();
@@ -361,9 +364,10 @@ export class WorldHost {
     });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 6,
+      schemaVersion: 7,
       id,
       world: toWorldRuntimeContract(definition),
+      title: definition.name,
       createdAt: now,
       updatedAt: now,
       state: engine.snapshot,
@@ -388,16 +392,57 @@ export class WorldHost {
       counts: { agents: Object.keys(document.state.agents).length },
       hashes: { state: contentHash(document.state) },
     });
-    return publicSessionSnapshot(document);
+    return publicSessionDetail(document);
   }
 
-  session(sessionId: string, correlation?: RuntimeCorrelation): PublicSessionSnapshot {
-    return publicSessionSnapshot(this.loadSession(sessionId, true, correlation).document);
+  session(sessionId: string, correlation?: RuntimeCorrelation): PublicSessionDetail {
+    return publicSessionDetail(this.loadSession(sessionId, true, correlation).document);
   }
 
-  listSessions(correlation?: RuntimeCorrelation): PublicSessionSnapshot[] {
+  listSessions(correlation?: RuntimeCorrelation): PublicSessionSummary[] {
     return this.options.store.listSessions(correlation)
-      .map(({ document }) => publicSessionSnapshot(document));
+      .map(({ document }) => publicSessionSummary(document))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
+  }
+
+  renameSession(
+    sessionId: string,
+    title: string,
+    correlation?: RuntimeCorrelation,
+  ): PublicSessionDetail {
+    const normalized = title.trim();
+    if (!normalized || normalized.length > 80) {
+      throw new WorldHostError("session title must be between 1 and 80 characters", 400);
+    }
+    const session = this.loadSession(sessionId, true, correlation);
+    const active = Object.values(session.document.runs).find(
+      (run) => run.status === "queued" || run.status === "running",
+    );
+    if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
+    const document = structuredClone(session.document);
+    document.title = normalized;
+    const committed = this.commitRequest(session, session.engine, document, correlation);
+    return publicSessionDetail(committed.document);
+  }
+
+  deleteSession(sessionId: string, correlation?: RuntimeCorrelation): void {
+    const session = this.loadSession(sessionId, true, correlation);
+    const active = Object.values(session.document.runs).find(
+      (run) => run.status === "queued" || run.status === "running",
+    );
+    if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
+    try {
+      this.options.store.delete(sessionId, session.generation, correlation);
+    } catch (error) {
+      if (error instanceof WorldSessionConflictError) {
+        throw new WorldHostError("world session changed concurrently; retry the request", 409);
+      }
+      throw error;
+    }
+    const prefix = `${sessionId}:`;
+    for (const key of this.channels.keys()) {
+      if (key.startsWith(prefix)) this.channels.delete(key);
+    }
   }
 
   startRun(sessionId: string, text: string, correlation?: RuntimeCorrelation): StartWorldRunResponse {

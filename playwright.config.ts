@@ -33,7 +33,7 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: `npm run start -- --hostname 127.0.0.1 --port ${port}`,
+      command: `npm run start -- --port ${port}`,
       url: baseURL,
       reuseExistingServer: false,
       timeout: 120_000,

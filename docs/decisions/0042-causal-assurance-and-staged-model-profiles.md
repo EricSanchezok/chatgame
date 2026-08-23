@@ -42,7 +42,7 @@ Truth Engine 使用只能前进的阶段状态机。`truth-perception` 可多轮
 
 独立因果复核器读取前态、行动、检定、规则结果、候选与断言结果，可以把 finding 精确指向 check、operation、mechanic、event、outcome 或 observation，并报告无关原因、缺失前提、不必要检定、检定矛盾、法则规避、效果不匹配、影响夸大或观察不一致。它的 schema 没有 operation 或 patch，只能否决并提供 repair hint。最终提交保存规则调用/结果、断言结果、accept 报告与全部阶段审计。
 
-世界剧本使用 schema v5，SimulationState 与 WorldSessionDocument 使用 schema v6，ModelCatalog 使用 schema v2。旧契约直接拒绝，无迁移、默认值或双轨读取。
+世界剧本使用 schema v5，SimulationState 使用 schema v6，WorldSessionDocument 使用 schema v7，ModelCatalog 使用 schema v2。旧契约直接拒绝，无迁移、默认值或双轨读取。
 
 ### Consequences
 

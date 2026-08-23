@@ -3,8 +3,8 @@
 ## 层级
 
 - `npm test`：Vitest 契约、纯内核、仿真集成、SQLite 持久化/租约/CAS、世界版本锁定、导入、Route Handler 与 jsdom UI。
-- `npm run test:e2e`：对生产构建运行真实 Next 入口，并通过本地 HTTP 模型服务走生产 `ModelGateway`/DeepSeek adapter，验证空态、ZIP 导入、会话、自由输入、SSE、刷新持久化和窄屏布局。
-- `npm run test:a11y`：分别在空态、导入后的会话工作台和已完成 run 上运行 axe。
+- `npm run test:e2e`：对生产构建运行真实 Next 入口，并通过本地 HTTP 模型服务走生产 `ModelGateway`/DeepSeek adapter，验证主菜单、ZIP 导入、精确 Session 路由、自由输入、SSE、刷新持久化、存档重命名、控制导航和 320px 布局。
+- `npm run test:a11y`：分别在主菜单、世界库、空对话和已完成 run 上运行 axe。
 - `npm run test:live:deepseek`：使用环境中的真实 DeepSeek 密钥完成 AgentMind 初始化和一个 Truth Engine 步骤；它是手动兼容性烟雾测试，不作为确定性 CI 门禁。
 - `npm run diagnose:runtime -- --agents 1,10,50 --steps 1,10,100`：手动运行确定性规模矩阵；CI 只执行 1 Agent × 1 step 的诊断核心测试。
 - `npm run diagnose:live -- --steps 3`：显式使用真实供应商采样 token、cache 与延迟，不进入 CI。

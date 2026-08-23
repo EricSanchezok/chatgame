@@ -24,11 +24,11 @@ Class: architecture
 
 ## Decision Outcome
 
-`LocalDatabase` 同时实现 `WorldRepository`、`WorldSessionStore` 和世界导入边界。数据库位于 `CHATGAME_DATA_ROOT/chatgame.sqlite`，启用 WAL、`synchronous=FULL`、foreign keys、busy timeout 和 strict tables。
+`LocalDatabase` 同时实现 `WorldRepository`、`WorldSessionStore` 和世界导入边界。数据库位于 `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`，启用 WAL、`synchronous=FULL`、foreign keys、busy timeout 和 strict tables。
 
 世界以规范模板和内容 hash 写入不可变 `world_versions`，`world_catalog` 只保存每个 world ID 的当前 hash。导入在事务外完成 ZIP 安全检查和世界校验，在单个写事务内插入版本并切换目录指针。会话把完整文档保存为严格验证的 JSON，同时抽取 world ID/hash 供索引；每次更新使用 generation compare-and-swap，冲突不覆盖。
 
-数据库维护带过期时间和心跳的单实例租约。活跃租约存在时，第二个宿主实例启动失败；每次写入再次核验所有权。queued/running run 在进程恢复且没有本地 execution 时转为可重试 failed。SQLite 是唯一权威状态，内存只保存正在执行的取消信号和 SSE 唤醒通道。
+数据库维护带过期时间和心跳的单实例租约。活跃租约存在时，第二个宿主实例启动失败，每次写入再次核验所有权；`WorldHost` 在打开数据库前完成模型目录与密钥校验，避免启动失败遗留租约。queued/running run 在进程恢复且没有本地 execution 时转为可重试 failed。SQLite 是唯一权威状态，内存只保存正在执行的取消信号和 SSE 唤醒通道。
 
 ### Consequences
 
@@ -66,3 +66,4 @@ Class: architecture
 - [0039](0039-pinned-world-runtime-contract.md) — SQLite 保存的世界内容身份与会话契约。
 - [0040](0040-resumable-player-intent.md) — 使用 CAS 的同 run 继续语义。
 - [事故复盘 0013](../postmortems/0013-file-host-concurrency-boundary.md) — 促成单实例租约和 SQLite 事务的失效机制。
+- [事故复盘 0014](../postmortems/0014-world-host-bootstrap-lease-leak.md) — 宿主部分初始化失败不得遗留数据库租约。

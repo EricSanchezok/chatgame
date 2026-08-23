@@ -280,9 +280,10 @@ export async function runDeterministicRuntimeDiagnostic(
       });
       const now = "2026-08-23T00:00:00.000Z";
       const document: WorldSessionDocument = {
-        schemaVersion: 6,
+        schemaVersion: 7,
         id: sessionId,
         world: toWorldRuntimeContract(definition),
+        title: definition.name,
         createdAt: now,
         updatedAt: now,
         state: engine.snapshot,

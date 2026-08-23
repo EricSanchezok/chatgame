@@ -400,6 +400,38 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     return ids.map(({ id }) => this.read(id, correlation));
   }
 
+  delete(sessionId: string, expectedGeneration: number, correlation?: RuntimeCorrelation): void {
+    const startedAt = Date.now();
+    try {
+      this.connection.transaction(() => {
+        this.assertInstanceLease();
+        const result = this.connection.prepare(
+          "DELETE FROM world_sessions WHERE id = ? AND generation = ?",
+        ).run(sessionId, expectedGeneration);
+        if (result.changes === 1) return;
+        const exists = this.connection.prepare("SELECT 1 FROM world_sessions WHERE id = ?").get(sessionId);
+        if (!exists) throw new WorldSessionNotFoundError(sessionId);
+        throw new WorldSessionConflictError(sessionId);
+      })();
+      this.observe?.({
+        event: "persistence.delete.completed",
+        correlation: { ...correlation, sessionId },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { sink: "sqlite" },
+      });
+    } catch (error) {
+      this.observe?.({
+        event: "persistence.delete.failed",
+        level: "error",
+        correlation: { ...correlation, sessionId },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { sink: "sqlite" },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;

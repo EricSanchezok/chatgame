@@ -1,14 +1,18 @@
 import type { SimulationState } from "../engine/model";
 import type { WorldRuntimeContract } from "../engine/world-definition";
 import type {
-  PublicSessionSnapshot,
+  PublicSessionDetail,
+  PublicSessionState,
+  PublicSessionSummary,
   WorldRunEvent,
   WorldRunRecordView,
   WorldRunSnapshot,
 } from "../shared/world-api";
 export type {
   PublicObservationPacket,
-  PublicSessionSnapshot,
+  PublicSessionDetail,
+  PublicSessionState,
+  PublicSessionSummary,
   WorldRunEvent,
   WorldRunStatus,
 } from "../shared/world-api";
@@ -26,16 +30,17 @@ export interface WorldRunRecord extends Omit<WorldRunRecordView, "error" | "inpu
 }
 
 export interface WorldSessionDocument {
-  schemaVersion: 6;
+  schemaVersion: 7;
   id: string;
   world: WorldRuntimeContract;
+  title: string;
   createdAt: string;
   updatedAt: string;
   state: SimulationState;
   runs: Record<string, WorldRunRecord>;
 }
 
-export function publicSessionSnapshot(document: WorldSessionDocument): PublicSessionSnapshot {
+export function publicSessionState(document: WorldSessionDocument): PublicSessionState {
   return {
     id: document.id,
     worldId: document.world.id,
@@ -46,6 +51,34 @@ export function publicSessionSnapshot(document: WorldSessionDocument): PublicSes
     elapsedSeconds: document.state.truth.elapsedSeconds,
     player: structuredClone(document.state.player.knowledge),
     activeIntent: structuredClone(document.state.player.intent),
+  };
+}
+
+function publicWorldSummary(document: WorldSessionDocument) {
+  return {
+    id: document.world.id,
+    name: document.world.name,
+    version: document.world.manifestVersion,
+    contentHash: document.world.contentHash,
+    description: document.world.description,
+  };
+}
+
+export function publicSessionSummary(document: WorldSessionDocument): PublicSessionSummary {
+  const activeRun = Object.values(document.runs).find(
+    (run) => run.status === "queued" || run.status === "running",
+  );
+  return {
+    id: document.id,
+    worldId: document.world.id,
+    title: document.title,
+    world: publicWorldSummary(document),
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+    revision: document.state.revision,
+    step: document.state.step,
+    elapsedSeconds: document.state.truth.elapsedSeconds,
+    activeRun: activeRun ? { id: activeRun.id, status: activeRun.status as "queued" | "running" } : undefined,
   };
 }
 
@@ -71,6 +104,16 @@ export function publicWorldRunSnapshot(
 ): WorldRunSnapshot {
   return {
     run: publicWorldRunRecord(run),
-    state: publicSessionSnapshot(document),
+    state: publicSessionState(document),
+  };
+}
+
+export function publicSessionDetail(document: WorldSessionDocument): PublicSessionDetail {
+  return {
+    summary: publicSessionSummary(document),
+    state: publicSessionState(document),
+    runs: Object.values(document.runs)
+      .map(publicWorldRunRecord)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)),
   };
 }

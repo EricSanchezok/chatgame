@@ -46,9 +46,10 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
   const intent = state.player.intent;
   const runId = "run-1";
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     id,
     world: toWorldRuntimeContract(definition),
+    title: definition.name,
     createdAt: "2026-08-23T00:00:00.000Z",
     updatedAt: committed ? "2026-08-23T00:00:01.000Z" : "2026-08-23T00:00:00.000Z",
     state,
@@ -93,7 +94,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
 }
 
 describe("WorldSessionStore", () => {
-  it("persists a strict v5 document and rejects missing sessions", async () => {
+  it("persists a strict v7 document and rejects missing sessions", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
 
@@ -114,12 +115,35 @@ describe("WorldSessionStore", () => {
       .toThrow(WorldSessionConflictError);
   });
 
-  it("rejects v4 documents without a compatibility path", async () => {
+  it("deletes only the addressed generation and rejects stale deletion", async () => {
+    const store = new MemoryWorldSessionStore();
+    const first = store.create(await sessionDocument("session-1"));
+    const second = store.create(await sessionDocument("session-2"));
+    const updated = structuredClone(first.document);
+    updated.title = "重命名后的存档";
+    const current = store.compareAndSwap(first.document.id, first.generation, updated);
+
+    expect(() => store.delete(first.document.id, first.generation)).toThrow(WorldSessionConflictError);
+    store.delete(first.document.id, current.generation);
+
+    expect(() => store.read(first.document.id)).toThrow(WorldSessionNotFoundError);
+    expect(store.read(second.document.id).document.id).toBe(second.document.id);
+  });
+
+  it("rejects v6 documents without a compatibility path", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
-    const legacy = { ...document, schemaVersion: 5 } as unknown as WorldSessionDocument;
+    const legacy = { ...document, schemaVersion: 6 } as unknown as WorldSessionDocument;
 
     expect(() => store.create(legacy)).toThrow();
+  });
+
+  it("rejects invalid titles as part of the persisted session contract", async () => {
+    const store = new MemoryWorldSessionStore();
+    const document = await sessionDocument();
+    document.title = "   ";
+
+    expect(() => store.create(document)).toThrow();
   });
 
   it("rejects a Fact that claims provenance from another world seed", async () => {
@@ -245,6 +269,20 @@ describe("WorldSessionStore", () => {
     const third = new LocalDatabase(file, { ownerId: "owner-3", heartbeat: false });
     expect(() => third.read(document.id)).toThrow();
     third.close();
+  });
+
+  it("deletes a SQLite session with generation fencing", async () => {
+    const database = new LocalDatabase(temporaryDatabase(), { ownerId: "owner-delete", heartbeat: false });
+    const first = database.create(await sessionDocument("sqlite-1"));
+    database.create(await sessionDocument("sqlite-2"));
+
+    expect(() => database.delete(first.document.id, first.generation + 1))
+      .toThrow(WorldSessionConflictError);
+    database.delete(first.document.id, first.generation);
+
+    expect(() => database.read(first.document.id)).toThrow(WorldSessionNotFoundError);
+    expect(database.listSessions().map(({ document }) => document.id)).toEqual(["sqlite-2"]);
+    database.close();
   });
 
   it("fences the old host when a second instance takes over an expired lease", async () => {

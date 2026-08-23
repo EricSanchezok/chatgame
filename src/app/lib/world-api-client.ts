@@ -1,5 +1,6 @@
 import type {
-  PublicSessionSnapshot,
+  PublicSessionDetail,
+  PublicSessionSummary,
   StartWorldRunResponse,
   WorldRunSnapshot,
   WorldSummary,
@@ -24,6 +25,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     }
     throw new WorldApiError(response.status, message);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -37,11 +39,19 @@ function post<T>(url: string, body?: unknown): Promise<T> {
 
 export const worldApi = {
   worlds: () => request<{ worlds: WorldSummary[] }>("/api/worlds"),
-  sessions: () => request<{ sessions: PublicSessionSnapshot[] }>("/api/sessions"),
+  sessions: () => request<{ sessions: PublicSessionSummary[] }>("/api/sessions"),
   createSession: (worldId: string, seed?: number) =>
-    post<PublicSessionSnapshot>("/api/sessions", { worldId, seed }),
+    post<PublicSessionDetail>("/api/sessions", { worldId, seed }),
   session: (sessionId: string) =>
-    request<PublicSessionSnapshot>(`/api/sessions/${encodeURIComponent(sessionId)}`),
+    request<PublicSessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`),
+  renameSession: (sessionId: string, title: string) =>
+    request<PublicSessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title }),
+    }),
+  deleteSession: (sessionId: string) =>
+    request<void>(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
   startRun: (sessionId: string, text: string) =>
     post<StartWorldRunResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { text }),
   continueRun: (sessionId: string, runId: string, id: string, text: string) =>

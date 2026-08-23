@@ -158,9 +158,10 @@ const worldContractSchema = z.strictObject({
 });
 
 const documentEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(6),
+  schemaVersion: z.literal(7),
   id: z.string().min(1),
   world: worldContractSchema,
+  title: z.string().trim().min(1).max(80),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   state: z.unknown(),
@@ -398,6 +399,7 @@ export interface WorldSessionStore {
     correlation?: RuntimeCorrelation,
   ): StoredWorldSession;
   listSessions(correlation?: RuntimeCorrelation): StoredWorldSession[];
+  delete(sessionId: string, expectedGeneration: number, correlation?: RuntimeCorrelation): void;
 }
 
 export class WorldSessionNotFoundError extends Error {
@@ -472,5 +474,17 @@ export class MemoryWorldSessionStore implements WorldSessionStore {
 
   listSessions(correlation?: RuntimeCorrelation): StoredWorldSession[] {
     return [...this.values.keys()].sort().map((id) => this.read(id, correlation));
+  }
+
+  delete(sessionId: string, expectedGeneration: number, correlation?: RuntimeCorrelation): void {
+    const stored = this.values.get(sessionId);
+    if (!stored) throw new WorldSessionNotFoundError(sessionId);
+    if (stored.generation !== expectedGeneration) throw new WorldSessionConflictError(sessionId);
+    this.values.delete(sessionId);
+    this.observe?.({
+      event: "persistence.delete.completed",
+      correlation: { ...correlation, sessionId },
+      attributes: { sink: "memory" },
+    });
   }
 }

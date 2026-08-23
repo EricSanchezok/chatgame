@@ -1,5 +1,5 @@
-import { WorldWorkbench } from "./world-workbench";
+import { MainMenu } from "./_components/main-menu";
 
 export default function Home() {
-  return <WorldWorkbench />;
+  return <MainMenu />;
 }

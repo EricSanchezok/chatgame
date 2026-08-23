@@ -1,4 +1,4 @@
-export const WORLD_API_VERSION = 2 as const;
+export const WORLD_API_VERSION = 3 as const;
 
 export interface WorldSummary {
   id: string;
@@ -55,7 +55,7 @@ export interface PlayerIntentView {
   startedAtStep: number;
 }
 
-export interface PublicSessionSnapshot {
+export interface PublicSessionState {
   id: string;
   worldId: string;
   worldHash: string;
@@ -65,6 +65,22 @@ export interface PublicSessionSnapshot {
   elapsedSeconds: number;
   player: PlayerKnowledgeView;
   activeIntent?: PlayerIntentView;
+}
+
+export interface PublicSessionSummary {
+  id: string;
+  worldId: string;
+  title: string;
+  world: WorldSummary;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+  step: number;
+  elapsedSeconds: number;
+  activeRun?: {
+    id: string;
+    status: "queued" | "running";
+  };
 }
 
 export type WorldRunStatus =
@@ -189,6 +205,12 @@ export interface WorldRunRecordView {
   events: WorldRunEvent[];
 }
 
+export interface PublicSessionDetail {
+  summary: PublicSessionSummary;
+  state: PublicSessionState;
+  runs: WorldRunRecordView[];
+}
+
 export interface StartWorldRunResponse {
   runId: string;
 }
@@ -200,5 +222,5 @@ export interface ContinueWorldRunInput {
 
 export interface WorldRunSnapshot {
   run: WorldRunRecordView;
-  state: PublicSessionSnapshot;
+  state: PublicSessionState;
 }

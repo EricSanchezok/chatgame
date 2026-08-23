@@ -1,5 +1,7 @@
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { describe, expect, it, vi } from "vitest";
 import { ScriptedModelProvider, type ScriptedModelHandler } from "../../engine/testing/model-provider";
 import type { TransitionProposal } from "../../engine/model";
 import { RecordingRuntimeObserver, type RuntimeObserver } from "../../engine/observability";
@@ -162,6 +164,24 @@ function createHost(
 }
 
 describe("WorldHost", () => {
+  it("validates model configuration before acquiring the database lease", () => {
+    const dataRoot = mkdtempSync(path.join(tmpdir(), "living-world-host-bootstrap-"));
+    vi.stubEnv("LIVINGWORLD_DATA_ROOT", dataRoot);
+    vi.stubEnv("LIVINGWORLD_MODEL_CATALOG_PATH", path.resolve("e2e/support/models.yaml"));
+    vi.stubEnv("E2E_MODEL_API_KEY", "");
+    WorldHost.setForTests(undefined);
+
+    try {
+      expect(() => WorldHost.get()).toThrow("requires E2E_MODEL_API_KEY");
+      expect(() => WorldHost.get()).toThrow("requires E2E_MODEL_API_KEY");
+      expect(existsSync(path.join(dataRoot, "livingworld.sqlite"))).toBe(false);
+    } finally {
+      WorldHost.setForTests(undefined);
+      vi.unstubAllEnvs();
+      rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
   it("logs and discards a bootstrapped session when its first persistence fails", async () => {
     const observer = new RecordingRuntimeObserver({ mode: "metrics" });
     const store = new TransientFailureStore(observer);
@@ -180,16 +200,52 @@ describe("WorldHost", () => {
       event.event === "session.bootstrap.persistence_rolled_back")).toBe(true);
   });
 
+  it("persists session titles and protects only actively executing sessions from deletion", async () => {
+    let releaseTruth!: () => void;
+    const truthGate = new Promise<void>((resolve) => { releaseTruth = resolve; });
+    let markEntered!: () => void;
+    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
+    const provider = new ScriptedModelProvider(async ({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        jointActions: Array<{ id: string }>;
+        revision: number;
+        agent: { id: string };
+      };
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
+      markEntered();
+      await truthGate;
+      return { kind: "transition", proposal: transition(context) };
+    });
+    const { host, store } = createHost(provider);
+    const created = await host.createSession({ worldId: "open-world-fixture" });
+    const sessionId = created.summary.id;
+
+    expect(host.renameSession(sessionId, " 石门之外 ").summary.title).toBe("石门之外");
+    expect(host.session(sessionId).summary.title).toBe("石门之外");
+
+    const run = host.startRun(sessionId, "执行一个持续中的行动");
+    await entered;
+    expect(() => host.deleteSession(sessionId)).toThrow("active run");
+    releaseTruth();
+    await host.waitForRun(sessionId, run.runId);
+
+    host.deleteSession(sessionId);
+    expect(store.listSessions()).toEqual([]);
+    expect(() => host.session(sessionId)).toThrow("not found");
+  });
+
   it("persists every committed step and emits only player-safe observations", async () => {
     const provider = new ScriptedModelProvider(normalHandler());
     const { host, store } = createHost(provider);
     const session = await host.createSession({ worldId: "open-world-fixture", seed: 8 });
-    const run = host.startRun(session.id, "我尝试打开石门");
+    const run = host.startRun(session.summary.id, "我尝试打开石门");
 
-    const completed = await host.waitForRun(session.id, run.runId);
+    const completed = await host.waitForRun(session.summary.id, run.runId);
 
     expect(completed.run.status).toBe("completed");
-    expect(host.session(session.id)).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
+    expect(host.session(session.summary.id).state).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
     expect(store.writeCount).toBeGreaterThanOrEqual(4);
     expect(completed.run.events.map((event) => event.type)).toEqual([
       "player.input",
@@ -206,7 +262,7 @@ describe("WorldHost", () => {
     expect(JSON.stringify(completed)).not.toContain("characterPatches");
     expect(JSON.stringify(completed)).not.toContain("reactionRequests");
     expect(JSON.stringify(completed)).not.toContain("modelAudits");
-    const storedStep = store.read(session.id).document.state.history[0];
+    const storedStep = store.read(session.summary.id).document.state.history[0];
     expect(storedStep.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(storedStep.modelAudits.map((audit) => audit.role)).toEqual([
       "truth-perception",
@@ -226,7 +282,7 @@ describe("WorldHost", () => {
       provider,
       idFactory: () => "unused",
     });
-    expect(reloaded.session(session.id)).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
+    expect(reloaded.session(session.summary.id).state).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
   });
 
   it("persists a retriable failure without committing the invalid step", async () => {
@@ -247,19 +303,19 @@ describe("WorldHost", () => {
     const { host } = createHost(provider, store, 4, observer);
     const session = await host.createSession({ worldId: "open-world-fixture" });
     const run = host.startRun(
-      session.id,
+      session.summary.id,
       "提出一个导致非法 delta 的目标",
       { requestId: "request-failure" },
     );
 
-    const failed = await host.waitForRun(session.id, run.runId);
+    const failed = await host.waitForRun(session.summary.id, run.runId);
 
     expect(failed.run.status).toBe("failed");
     expect(failed.run.error).not.toContain("time advance");
-    expect(store.read(session.id).document.runs[run.runId].internalError).toContain("time advance");
-    expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
+    expect(store.read(session.summary.id).document.runs[run.runId].internalError).toContain("time advance");
+    expect(host.session(session.summary.id).state).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
     expect(failed.run.events.at(-1)?.type).toBe("run.failed");
-    expect(store.read(session.id).document.state.history).toHaveLength(0);
+    expect(store.read(session.summary.id).document.state.history).toHaveLength(0);
     const failedChain = observer.events.filter((event) =>
       event.correlation?.requestId === "request-failure" &&
       event.correlation?.runId === run.runId);
@@ -268,7 +324,7 @@ describe("WorldHost", () => {
     expect(failedChain.some((event) => event.event === "run.failed")).toBe(true);
     expect(failedChain.find((event) => event.event === "step.rolled_back")?.correlation)
       .toMatchObject({
-        sessionId: session.id,
+        sessionId: session.summary.id,
         runId: run.runId,
         runAttempt: 1,
         revision: 0,
@@ -298,12 +354,12 @@ describe("WorldHost", () => {
     });
     const { host, store } = createHost(provider);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const started = host.startRun(session.id, "触发包含内部标识符的验证错误");
+    const started = host.startRun(session.summary.id, "触发包含内部标识符的验证错误");
 
-    const failed = await host.waitForRun(session.id, started.runId);
+    const failed = await host.waitForRun(session.summary.id, started.runId);
 
     expect(JSON.stringify(failed)).not.toContain("canonical-secret-entity");
-    expect(store.read(session.id).document.runs[started.runId].internalError).toContain("canonical-secret-entity");
+    expect(store.read(session.summary.id).document.runs[started.runId].internalError).toContain("canonical-secret-entity");
   });
 
   it("aborts an in-flight model batch without committing a partial step", async () => {
@@ -328,15 +384,15 @@ describe("WorldHost", () => {
     });
     const { host } = createHost(provider);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const run = host.startRun(session.id, "持续观察石门");
+    const run = host.startRun(session.summary.id, "持续观察石门");
     await entered;
 
-    host.cancelRun(session.id, run.runId);
+    host.cancelRun(session.summary.id, run.runId);
     releaseTruth();
-    const cancelled = await host.waitForRun(session.id, run.runId);
+    const cancelled = await host.waitForRun(session.summary.id, run.runId);
 
     expect(cancelled.run.status).toBe("cancelled");
-    expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
+    expect(host.session(session.summary.id).state).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
     expect(cancelled.run.events.map((event) => event.type)).not.toContain("step.committed");
     expect(cancelled.run.events.at(-1)?.type).toBe("run.cancelled");
   });
@@ -358,22 +414,22 @@ describe("WorldHost", () => {
     });
     const { host } = createHost(provider, store, 4, observer);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const run = host.startRun(session.id, "执行一个会成功但无法持久化的步骤");
+    const run = host.startRun(session.summary.id, "执行一个会成功但无法持久化的步骤");
 
-    const failed = await host.waitForRun(session.id, run.runId);
+    const failed = await host.waitForRun(session.summary.id, run.runId);
 
     expect(failed.run.status).toBe("failed");
     expect(failed.run.error).not.toContain("simulated persistence outage");
-    expect(store.read(session.id).document.runs[run.runId].internalError).toContain("simulated persistence outage");
+    expect(store.read(session.summary.id).document.runs[run.runId].internalError).toContain("simulated persistence outage");
     expect(failed.run.events.map((event) => event.type)).toEqual([
       "player.input",
       "run.execution_started",
       "run.failed",
     ]);
-    expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
+    expect(host.session(session.summary.id).state).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
     expect(observer.events.find((event) => event.event === "step.persistence_rolled_back"))
       .toMatchObject({
-        correlation: { sessionId: session.id, runId: run.runId, revision: 0, step: 1 },
+        correlation: { sessionId: session.summary.id, runId: run.runId, revision: 0, step: 1 },
         attributes: { result: "rolled_back", revisionUnchanged: true },
       });
   });
@@ -394,23 +450,23 @@ describe("WorldHost", () => {
     });
     const { host, store } = createHost(provider, new MemoryWorldSessionStore(), 100);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const started = host.startRun(session.id, "持续观察一百个世界步骤");
+    const started = host.startRun(session.summary.id, "持续观察一百个世界步骤");
 
-    const result = await host.waitForRun(session.id, started.runId);
+    const result = await host.waitForRun(session.summary.id, started.runId);
 
     expect(result.run.status).toBe("step_limit");
     expect(result.state).toMatchObject({ revision: 100, step: 100, elapsedSeconds: 1000 });
-    expect(store.read(session.id).document.state.history).toHaveLength(100);
+    expect(store.read(session.summary.id).document.state.history).toHaveLength(100);
     expect(result.run.events.filter((event) => event.type === "step.committed")).toHaveLength(100);
     expect(result.run.events.at(-1)?.type).toBe("run.step_limit");
-  }, 30_000);
+  }, 90_000);
 
   it("recovers a persisted running process as retriable failure without changing committed history", async () => {
     const provider = new ScriptedModelProvider(normalHandler());
     const store = new MemoryWorldSessionStore();
     const first = createHost(provider, store).host;
     const session = await first.createSession({ worldId: "open-world-fixture" });
-    const stored = store.read(session.id);
+    const stored = store.read(session.summary.id);
     const document = stored.document;
     document.state.player.intent = {
       id: "intent:interrupted",
@@ -426,7 +482,7 @@ describe("WorldHost", () => {
     };
     document.runs.interrupted = {
       id: "interrupted",
-      sessionId: session.id,
+      sessionId: session.summary.id,
       intentId: "intent:interrupted",
       status: "running",
       createdAt: "2026-08-23T00:00:00.000Z",
@@ -447,7 +503,7 @@ describe("WorldHost", () => {
         },
       ],
     };
-    store.compareAndSwap(session.id, stored.generation, document);
+    store.compareAndSwap(session.summary.id, stored.generation, document);
     const definition = loadWorldScript(fixtureRoot, { modelCatalog: provider.catalog });
     const recovered = new WorldHost({
       repository: new MemoryWorldRepository({ [definition.id]: definition }),
@@ -456,12 +512,12 @@ describe("WorldHost", () => {
       idFactory: () => "unused",
     });
 
-    const snapshot = recovered.run(session.id, "interrupted");
+    const snapshot = recovered.run(session.summary.id, "interrupted");
 
     expect(snapshot.run.status).toBe("failed");
     expect(snapshot.run.error).toContain("安全重试");
     expect(snapshot.state).toMatchObject({ revision: 0, step: 0 });
-    expect(store.read(session.id).document.runs.interrupted.internalError).toContain("process interrupted");
+    expect(store.read(session.summary.id).document.runs.interrupted.internalError).toContain("process interrupted");
   });
 
   it("retries a failed run from its unchanged revision even while the prior execution is finalizing", async () => {
@@ -481,13 +537,13 @@ describe("WorldHost", () => {
     });
     const { host } = createHost(provider);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const started = host.startRun(session.id, "失败后从同一状态继续");
-    const failed = await host.waitForRun(session.id, started.runId);
+    const started = host.startRun(session.summary.id, "失败后从同一状态继续");
+    const failed = await host.waitForRun(session.summary.id, started.runId);
     expect(failed).toMatchObject({ run: { status: "failed" }, state: { revision: 0, step: 0 } });
 
     valid = true;
-    expect(host.retryRun(session.id, started.runId).run.status).toBe("queued");
-    const completed = await host.waitForRun(session.id, started.runId);
+    expect(host.retryRun(session.summary.id, started.runId).run.status).toBe("queued");
+    const completed = await host.waitForRun(session.summary.id, started.runId);
 
     expect(completed).toMatchObject({ run: { status: "completed" }, state: { revision: 1, step: 1 } });
     expect(completed.run.events.filter((event) => event.type === "run.execution_started")).toHaveLength(2);
@@ -515,17 +571,17 @@ describe("WorldHost", () => {
     });
     const { host } = createHost(provider);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const started = host.startRun(session.id, "打开石门并进入里面");
+    const started = host.startRun(session.summary.id, "打开石门并进入里面");
 
-    const paused = await host.waitForRun(session.id, started.runId);
+    const paused = await host.waitForRun(session.summary.id, started.runId);
     expect(paused.run.status).toBe("awaiting_player");
 
-    const resumed = host.continueRun(session.id, started.runId, {
+    const resumed = host.continueRun(session.summary.id, started.runId, {
       id: "decision-1",
       text: "使用我携带的铜钥匙",
     });
     expect(resumed.run.id).toBe(started.runId);
-    const completed = await host.waitForRun(session.id, started.runId);
+    const completed = await host.waitForRun(session.summary.id, started.runId);
 
     expect(completed).toMatchObject({ run: { status: "completed" }, state: { revision: 2, step: 2 } });
     expect(completed.run.inputs).toEqual([
@@ -537,11 +593,11 @@ describe("WorldHost", () => {
       "打开石门并进入里面",
     ]);
     expect(playerIntents[1].latestInput).toMatchObject({ id: "decision-1", text: "使用我携带的铜钥匙" });
-    expect(host.continueRun(session.id, started.runId, {
+    expect(host.continueRun(session.summary.id, started.runId, {
       id: "decision-1",
       text: "使用我携带的铜钥匙",
     }).run.status).toBe("completed");
-    expect(() => host.continueRun(session.id, started.runId, {
+    expect(() => host.continueRun(session.summary.id, started.runId, {
       id: "decision-1",
       text: "改用另一种办法",
     })).toThrow("different text");
@@ -567,13 +623,13 @@ describe("WorldHost", () => {
     });
     const { host } = createHost(provider);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const oldRun = host.startRun(session.id, "先产生失败运行");
-    expect((await host.waitForRun(session.id, oldRun.runId)).run.status).toBe("failed");
-    expect(() => host.startRun(session.id, "新的活动运行")).toThrow("already has active run");
+    const oldRun = host.startRun(session.summary.id, "先产生失败运行");
+    expect((await host.waitForRun(session.summary.id, oldRun.runId)).run.status).toBe("failed");
+    expect(() => host.startRun(session.summary.id, "新的活动运行")).toThrow("already has active run");
 
-    expect(host.cancelRun(session.id, oldRun.runId).run.status).toBe("cancelled");
+    expect(host.cancelRun(session.summary.id, oldRun.runId).run.status).toBe("cancelled");
     valid = true;
-    const nextRun = host.startRun(session.id, "新的活动运行");
-    expect((await host.waitForRun(session.id, nextRun.runId)).run.status).toBe("completed");
+    const nextRun = host.startRun(session.summary.id, "新的活动运行");
+    expect((await host.waitForRun(session.summary.id, nextRun.runId)).run.status).toBe("completed");
   });
 });

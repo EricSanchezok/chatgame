@@ -32,7 +32,7 @@ Class: architecture
 
 运行日志覆盖成功、失败、取消和回滚。Full 日志是显式启用、有界轮转的本地诊断表面；WorldSession 审计不保存 raw/full payload。错误使用白名单投影，认证材料、任意环境变量、ZIP 内容和思维链不记录。
 
-`ModelExecutionAudit` 以 `invocations[]` 作为单一事实源，每个 invocation 保存请求/响应 hash 与字节、规范 Context 及顶层分区、对象计数、transport attempts、真实 usage、供应商结果与语义结论。汇总由 helper 派生。成功 bootstrap 和步骤持久化这些 invocation；失败步骤只保留运行日志。世界剧本保持 schema v5，`SimulationState` 与 `WorldSessionDocument` 使用 schema v6；旧运行态与会话直接拒绝且没有迁移路径。
+`ModelExecutionAudit` 以 `invocations[]` 作为单一事实源，每个 invocation 保存请求/响应 hash 与字节、规范 Context 及顶层分区、对象计数、transport attempts、真实 usage、供应商结果与语义结论。汇总由 helper 派生。成功 bootstrap 和步骤持久化这些 invocation；失败步骤只保留运行日志。世界剧本保持 schema v5，`SimulationState` 使用 schema v6，`WorldSessionDocument` 使用 schema v7；旧运行态与会话直接拒绝且没有迁移路径。
 
 启用日志同时写 stdout 与按启动时间/PID 命名的 NDJSON 段。单事件不拆分，超大事件独占段；目录按总字节删除最旧的 `livingworld` 日志段，不处理其他文件。初始化 sink 失败阻止启动；运行期文件 sink 失败进入 degraded 并继续 stdout，轮转与关闭输出健康统计。
 
@@ -71,7 +71,7 @@ Class: architecture
 ### 统一事件、双模式 NDJSON 与 invocation audit
 
 - 好：成功与失败拥有同一关联证据，性能基线和流程复盘分离，sink 可替换且不改变游戏语义。
-- 坏：需要跨服务端链路埋点、schema v6 破坏性升级和严格的本地日志保护策略。
+- 坏：需要跨服务端链路埋点、运行态/会话 schema 破坏性升级和严格的本地日志保护策略。
 
 ## Links
 

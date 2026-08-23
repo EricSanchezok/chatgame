@@ -1,8 +1,8 @@
-# 工作台与流式 API
+# 沉浸会话壳与流式 API
 
 ## 浏览器安全边界
 
-浏览器只使用 `src/shared/world-api.ts`。公开会话包含 world ID、world hash、manifest version、revision、step、elapsedSeconds、玩家知识和当前目标；不包含 canonical truth、bindings、Agent belief、隐藏检定或完整审计 delta。
+浏览器只使用 `src/shared/world-api.ts`。会话列表是含标题、世界摘要、更新时间、步数和 queued/running run 的 `PublicSessionSummary`；详情拆成 `{ summary, state, runs }`。公开状态包含 world ID、world hash、manifest version、revision、step、elapsedSeconds、玩家知识和当前目标；不包含 canonical truth、bindings、Agent belief、隐藏检定或完整审计 delta。
 
 ## HTTP 资源
 
@@ -10,9 +10,11 @@
 |---|---|
 | `GET /api/worlds` | 列出已安装 schema v5 世界 |
 | `POST /api/worlds/import` | multipart 上传一个世界 ZIP；`replace=true` 显式替换 |
-| `GET /api/sessions` | 列出持久会话公开快照 |
-| `POST /api/sessions` | 以 `worldId` 和可选非负 seed 创建会话 |
-| `GET /api/sessions/:id` | 读取公开会话快照 |
+| `GET /api/sessions` | 按更新时间列出持久 Session 摘要 |
+| `POST /api/sessions` | 以 `worldId` 和可选非负 seed 创建 Session，返回详情 |
+| `GET /api/sessions/:id` | 读取精确寻址的 Session 详情 |
+| `PATCH /api/sessions/:id` | 在无 queued/running run 时以 `{ title }` 重命名存档 |
+| `DELETE /api/sessions/:id` | 在无 queued/running run 时删除该存档 |
 | `POST /api/sessions/:id/runs` | 提交 1–4000 字符任意自然语言目标，返回 202 与精确形状 `{ runId }` |
 | `GET /api/sessions/:id/runs/:runId` | 返回 `{ run, state }` 公开组合快照 |
 | `POST /api/sessions/:id/runs/:runId` | 重试 failed/step_limit run，返回 `{ run, state }` |
@@ -28,8 +30,10 @@
 
 run 状态为 queued、running、awaiting_player、completed、goal_failed、step_limit、cancelled 或 failed。queued、running、awaiting_player、step_limit 和 failed 都可以拥有 active intent；一个 active intent 必须精确属于一个 run，新目标在该 run 完成或明确放弃前拒绝。failed 的公开错误为稳定、可重试消息，内部异常只保存在服务端记录；failed/step_limit 通过重试继续，awaiting_player 通过新输入继续，三者都保留原 goal。
 
-## 工作台
+## 浏览器路由与消息投影
 
-零世界时显示“暂无可玩世界”和 ZIP 导入控件。安装世界后可以创建会话。会话页显示 revision、step 与世界时间；时间线逐条展示公开检定、玩家观察和提交边界；textarea 是唯一行动入口，不展示或暗示固定动作集合。运行中可请求安全中断，失败和步骤上限可继续。
+`/` 是主菜单，只继续浏览器明确记录且仍存在的 Session；`/worlds` 安装世界并创建新存档，`/saves` 重命名、精确进入或确认删除存档，`/settings` 保存本机阅读偏好，`/play/:sessionId` 是精确寻址的游戏页，窄屏控制球进入 `/control`。开发与生产启动默认只监听 loopback；浏览器指针是导航偏好，不是状态权威或认证。
 
-所有颜色通过 `--cg-*` token；主要控件至少 44px，有可见键盘焦点。错误使用 alert，运行进度使用 live region，并支持减少动效与 forced colors。
+游戏页使用 `@assistant-ui/react` External Store。消息不是另一份存储：每个 WorldRun 按 `player.input` 边界投影玩家/世界消息段，clarification 继续同一 run；世界 data part 只展示公开 observation、outcome、检定、已知替代方向与终态。SSE 增量合并后再从 `PublicSessionDetail` 重建；刷新、重连和存档恢复不会产生第二条消息路径。运行中可安全中断，awaiting_player 可补充信息，failed/step_limit 可重试。
+
+所有组件颜色通过根主题的 `--cg-*` token；主要控件至少 44px，有可见键盘焦点。错误使用 alert，加载状态使用 live region，并支持 320px、减少动效、forced colors 与浏览器字体缩放。

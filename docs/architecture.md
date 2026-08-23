@@ -12,7 +12,7 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 | 运行观测 | `src/engine/observability.ts`、`src/server/runtime-observer.ts` | 关联 HTTP、SSE、WorldRun、步骤、模型与持久化事件，输出有界 NDJSON |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
 | HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表与导入 |
-| 浏览器 | `src/app/` | 只展示公开快照/事件并提交任意自然语言目标 |
+| 浏览器 | `src/app/` | 以 assistant-ui 纯投影公开 Session/WorldRun，提供主菜单、游戏、存档、世界、设置与移动控制路由 |
 | 公共契约 | `src/shared/world-api.ts` | 浏览器安全 DTO；不含 canonical identity 或完整 truth |
 
 依赖方向固定为：浏览器 → Route Handler → WorldHost → SimulationEngine → AgentMind/TruthEngine。`src/engine/` 与世界 YAML 不进入浏览器 bundle。
@@ -47,13 +47,15 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 `WorldHost` 把一次玩家目标作为后台 `WorldRun` 执行。`PlayerIntent.goal` 在整段 run 中保持不变，最新的 goal/clarification 作为独立输入记录；需要玩家决定时 run 进入 `awaiting_player`，后续输入恢复同一个 intent 与 run。每个已完成步骤与对应 run 终态在同一次 compare-and-swap 中写入 SQLite，并通过 SSE 发布公开检定、玩家观察和提交进度。
 
+浏览器不另存聊天消息；`PublicSessionDetail.runs` 按持久 `player.input` 边界投影成 assistant-ui 玩家/世界消息段。新目标、clarification、重试和取消都回写 WorldRun 资源，刷新后从同一持久事实重建界面。
+
 取消会终止排队或在途模型请求，持久化取消请求，并在候选步骤提交前重新读取 generation；并发取消使候选失效，因此只保留最后一个完整步骤。进程重启时，SQLite 中的 queued/running run 被标为可重试失败；已提交步骤不回滚。一个会话同时只允许一个拥有 active intent 的 run。
 
 ## 世界身份与本地持久化
 
 世界内容先规范化再计算 `sha256`；哈希覆盖 manifest、法则、机制、玩家和按实体 ID 排序的实体内容，不依赖 ZIP 条目顺序或实体文件名。会话同时保存 `worldId`、`worldHash` 和完整 `WorldRuntimeContract`，恢复只使用该不可变契约，不跟随目录中同 ID 世界的替换版本。初始 Fact 的 provenance 使用 `{ kind: "world_seed", id: worldHash }`，世界 Law 只有在确实提供运行时因果时才能作为来源。
 
-所有世界版本、当前版本指针、会话、run 与事件存放在 `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`。SQLite 使用 WAL、FULL synchronous、外键、严格表、写事务和 generation compare-and-swap；世界导入的验证在事务外完成，版本与当前指针在一个事务内切换。进程租约拒绝同一数据库被第二个宿主实例同时驱动；这是纯本地单实例契约，不提供多主或分布式协调。
+所有世界版本、当前版本指针、会话、run 与事件存放在 `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`。`WorldSessionDocument` schema v7 保存固定世界契约、1–80 字符存档标题、状态与 run；列表只返回公开摘要，读取与创建返回 `{ summary, state, runs }`。重命名与删除同样经过 generation fencing，queued/running 时均拒绝，避免元数据写入使在途步骤失效。SQLite 使用 WAL、FULL synchronous、外键、严格表、写事务和 generation compare-and-swap；世界导入的验证在事务外完成，版本与当前指针在一个事务内切换。进程租约拒绝同一数据库被第二个宿主实例同时驱动；这是纯本地单实例契约，不提供多主或分布式协调。
 
 ## 硬不变量
 
@@ -75,4 +77,4 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md)、[0042](decisions/0042-causal-assurance-and-staged-model-profiles.md) 与 [0043](decisions/0043-end-to-end-runtime-observability.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md)、[0042](decisions/0042-causal-assurance-and-staged-model-profiles.md)、[0043](decisions/0043-end-to-end-runtime-observability.md) 与 [0044](decisions/0044-local-assistant-ui-immersive-session-shell.md)。

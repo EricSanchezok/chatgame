@@ -135,7 +135,7 @@ AgentMind 只获得自身人格、目标、belief、去 canonical 的局部绑�
 
 完整状态校验会重放历史中的 d20、核对 phase 顺序、RNG 连续性、请求/结果一一对应、reaction 覆盖、未反应与 keep 行动的逐字段不变性、initial/final actor 集、全部因果引用、AgentMind/Agent reaction 审计覆盖、角色 observation 依据和每步内容 hash。历史是已发生事实的审计证据；重放不重新调用模型。
 
-世界运行态与会话文档使用 schema v6，并携带 `worldHash`。初始世界 Fact 以该哈希的 `world_seed` 为来源；完整校验要求 seed 引用精确匹配，其他 provenance 仍必须解析到 Law、Fact、Action、Check、Event 或 Mechanic。旧版本会话直接拒绝，不执行迁移或兼容读取。公共会话快照、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis、内部因果审计或模型审计。
+世界运行态使用 schema v6，会话文档使用 schema v7，并携带 `worldHash`。初始世界 Fact 以该哈希的 `world_seed` 为来源；完整校验要求 seed 引用精确匹配，其他 provenance 仍必须解析到 Law、Fact、Action、Check、Event 或 Mechanic。旧版本会话直接拒绝，不执行迁移或兼容读取。公共会话详情、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis、内部因果审计或模型审计。
 
 ## 规则包
 

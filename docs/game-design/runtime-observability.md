@@ -4,7 +4,7 @@
 
 ## 两条观测链路
 
-成功提交的 bootstrap 与世界步骤把 `ModelExecutionAudit.invocations[]` 写入 `WorldSessionDocument` schema v6。运行 NDJSON 覆盖 HTTP、SSE、session、WorldRun、世界步骤、模型、校验与存档；失败、取消和回滚调用只进入运行日志，不进入已提交步骤审计。
+成功提交的 bootstrap 与世界步骤把 `ModelExecutionAudit.invocations[]` 写入 `WorldSessionDocument` schema v7。运行 NDJSON 覆盖 HTTP、SSE、session、WorldRun、世界步骤、模型、校验与存档；失败、取消和回滚调用只进入运行日志，不进入已提交步骤审计。
 
 公共游戏 API、SSE payload 与浏览器 DTO 不包含运行事件、模型审计、canonical binding 或内部错误。运行日志是有界本地诊断表面，不是游戏历史或公开事件流。
 
