@@ -43,7 +43,9 @@ async function main(): Promise<void> {
   });
   const rows: Array<{ step: number; calls: number; input: number; output: number; latencyMs: number }> = [];
   for (let index = 0; index < steps[0]; index += 1) {
-    engine.beginPlayerIntent(`真实模型诊断步骤 ${index + 1}：观察周围并等待一秒。`);
+    if (engine.snapshot.player.intent?.status !== "active") {
+      engine.beginPlayerIntent(`真实模型诊断步骤 ${index + 1}：观察周围并等待一秒。`);
+    }
     const base = engine.snapshot;
     const startedAt = performance.now();
     const result = await engine.step({

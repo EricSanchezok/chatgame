@@ -27,7 +27,7 @@ Class: architecture
 
 ## Decision Outcome
 
-每个 Agent 使用分层 `AgentCharacterState`，包含 persona、traits、values、emotions、attitudes、goals 与 commitments。AgentMind 的常规输出按 `BeliefPatch → CharacterPatch → nextAction` 应用；角色操作必须引用本步骤属于该 Agent 的 observation 和有效 evidence。persona 只能由 transformative 事件替换，长期、短期与动机数值分别按 ordinary/significant/transformative 影响级别限制变化幅度；语义身份、目标、承诺与状态变化至少需要 significant 事件，retire/resolve 还必须通过对应数值归零的幅度校验。目标与承诺使用不可重新打开的终态。时间和 provenance 字段由内核写入，不提供物理删除操作。`modelProfileId` 保持部署配置身份，不属于角色演化。
+每个 Agent 使用分层 `AgentCharacterState`，包含 persona、traits、values、emotions、attitudes、goals 与 commitments。AgentMind 的常规输出按 `BeliefPatch → CharacterPatch → nextAction` 应用；角色操作必须引用本步骤属于该 Agent 的 observation 和有效 evidence。persona 只能由 transformative 事件替换，长期、短期与动机数值分别按 ordinary/significant/transformative 影响级别限制变化幅度；语义身份、目标、承诺与状态变化至少需要 significant 事件，retire/resolve 还必须通过对应数值归零的幅度校验。目标与承诺使用不可重新打开的终态。时间和 provenance 字段由内核写入，不提供物理删除操作。`modelProfiles.bootstrap/mind/reaction` 保持部署配置身份，不属于角色演化；精确角色契约见 [0042](0042-causal-assurance-and-staged-model-profiles.md)。
 
 服务端从 canonical truth 派生 `AgentSelfStateView`。视图包含局部 self identity、生命周期、世界时间、位置名称与描述、自身 Meter/Quantity/Rating 和有权读取的自身 Fact；canonical entity、placement、meter、rating identity、private Fact 和其他实体状态不进入视图。每个初始或动态 Agent 都必须恰好有一个局部实体绑定自身 canonical entity。
 
@@ -37,7 +37,7 @@ ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时
 
 `CommittedStep` 保存 initial/final actions、reaction requests/decisions、character patches、分阶段检定与 `agent-reaction` 模型审计，并把它们纳入内容 hash、恢复校验和重放。任一 Truth Engine、reaction、AgentMind 或事务验证失败都连同本步 RNG 一起回滚。公共 API 与 SSE 只投影玩家 outcome、公开检定、玩家 observation 和公开会话状态。
 
-世界剧本、SimulationState 与 WorldSessionDocument 使用 schema v4。所有会进入状态字典或引用图的 ID 拒绝 JavaScript 原型保留键，避免模型输出、世界包或持久化文档污染对象原型。旧版本直接拒绝，不提供迁移或双轨兼容。
+世界剧本使用 schema v5，SimulationState 与 WorldSessionDocument 使用 schema v6。所有会进入状态字典或引用图的 ID 拒绝 JavaScript 原型保留键，避免模型输出、世界包或持久化文档污染对象原型。旧版本直接拒绝，不提供迁移或双轨兼容。
 
 ### Consequences
 
@@ -74,5 +74,6 @@ ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时
 - [0031](0031-epistemic-multi-agent-truth-engine.md) — 独立信念图、预备行动与联合 Truth Engine。
 - [0035](0035-truth-engine-hardening-and-verifiable-audit.md) — 结构化验证、公开边界和可验证审计。
 - [0036](0036-multi-provider-model-gateway-and-fair-scheduler.md) — 模型 Profile、严格结构化输出、公平调度与审计。
+- [0042](0042-causal-assurance-and-staged-model-profiles.md) — 分阶段 Truth 与 Agent Profile、因果复核。
 - [引擎运行时规格](../game-design/engine-runtime.md) — 当前心智、反应和提交契约。
-- [世界剧本格式](../game-design/script-format.md) — schema v4 角色种子格式。
+- [世界剧本格式](../game-design/script-format.md) — schema v5 角色种子格式。

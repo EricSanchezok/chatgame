@@ -20,7 +20,7 @@ function deferred<T>() {
 
 function catalog() {
   return parseModelCatalog({
-    schema_version: 1,
+    schema_version: 2,
     scheduler: { global_concurrency: 16, max_queued_requests: 1024, queue_timeout_ms: 300_000 },
     providers: {
       deepseek: {
@@ -147,7 +147,7 @@ describe("model catalog and provider adapters", () => {
   it("rejects missing credentials, unknown profiles and mismatched native inference settings", async () => {
     expect(() => new ModelGateway(catalog(), { ...credentials, XAI_API_KEY: "" })).toThrow("requires XAI_API_KEY");
     expect(() => parseModelCatalog({
-      schema_version: 1,
+      schema_version: 2,
       scheduler: { global_concurrency: 1, max_queued_requests: 1, queue_timeout_ms: 1 },
       providers: {
         openai: {

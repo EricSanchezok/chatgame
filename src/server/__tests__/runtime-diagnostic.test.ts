@@ -10,7 +10,7 @@ describe("runtime diagnostic core", () => {
     expect(result.scenarios).toEqual([expect.objectContaining({
       agents: 1,
       steps: 1,
-      modelInvocations: 3,
+      modelInvocations: 7,
     })]);
     expect(result.records.at(-1)).toMatchObject({
       schemaVersion: 1,

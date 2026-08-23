@@ -15,8 +15,7 @@
 
 ## 配置
 
-- `LIVINGWORLD_SCRIPTS_ROOT`：安装世界目录，默认 `scripts/`。
-- `LIVINGWORLD_DATA_ROOT`：会话数据目录，默认 `.livingworld/`。
+- `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld/`；世界版本、会话与 WorldRun 统一存放在 `livingworld.sqlite`。
 - `LIVINGWORLD_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
 - 每个 provider 的密钥环境变量由目录 `api_key_env` 指定；默认目录需要 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY` 与 `XAI_API_KEY`。
 - 运行日志默认关闭；模式、目录、segment 与总量配置见 [运行时可观测性](game-design/runtime-observability.md#模式与-payload-所有权) 和 [文件 sink、轮转与健康](game-design/runtime-observability.md#文件-sink轮转与健康)。

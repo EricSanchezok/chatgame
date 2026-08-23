@@ -1,9 +1,15 @@
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import type { ModelCatalog } from "../engine/model-catalog";
-import { loadWorldScript, WorldScriptError } from "../script/world-loader";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
+import {
+  buildWorldDefinition,
+  loadWorldTemplate,
+  type NormalizedWorldTemplate,
+  WorldScriptError,
+} from "../script/world-loader";
 
 export const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 export const MAX_ENTRY_COUNT = 5_000;
@@ -68,19 +74,25 @@ function extractArchive(buffer: Buffer, staging: string): string {
     throw new WorldImportError("archive expands beyond 100 MiB");
   }
   let expandedBytes = 0;
-  const names = new Set<string>();
+  const portableNames = new Set<string>();
   for (const entry of entries) {
     const name = safeEntryName(entry.entryName);
     if (!name) continue;
-    if (names.has(name)) throw new WorldImportError(`duplicate archive entry: ${name}`);
-    names.add(name);
+    const portableName = name.normalize("NFC").toLowerCase();
+    if (portableNames.has(portableName)) throw new WorldImportError(`duplicate archive entry: ${name}`);
+    portableNames.add(portableName);
     if (isSymbolicLinkEntry(entry)) throw new WorldImportError(`symbolic links are not allowed: ${name}`);
     const target = path.join(staging, ...name.split("/"));
     if (entry.isDirectory) {
       mkdirSync(target, { recursive: true });
       continue;
     }
-    const data = entry.getData();
+    let data: Buffer;
+    try {
+      data = entry.getData();
+    } catch {
+      throw new WorldImportError(`invalid compressed data in archive entry: ${name}`);
+    }
     expandedBytes += data.byteLength;
     if (expandedBytes > MAX_EXPANDED_BYTES) throw new WorldImportError("archive expands beyond 100 MiB");
     mkdirSync(path.dirname(target), { recursive: true });
@@ -96,39 +108,37 @@ export interface WorldImportResult {
   replaced: boolean;
 }
 
-export function importWorldArchive(
+export interface ParsedWorldArchive {
+  template: NormalizedWorldTemplate;
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  contentHash: string;
+}
+
+export function parseWorldArchive(
   buffer: Buffer,
-  scriptsRoot: string,
   modelCatalog: ModelCatalog,
-  replace = false,
-): WorldImportResult {
-  const resolvedRoot = path.resolve(scriptsRoot);
-  mkdirSync(path.dirname(resolvedRoot), { recursive: true });
-  const staging = mkdtempSync(path.join(path.dirname(resolvedRoot), ".livingworld-world-import-"));
-  let backup: string | undefined;
+  rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
+): ParsedWorldArchive {
+  const staging = mkdtempSync(path.join(tmpdir(), "livingworld-world-import-"));
   try {
     const source = extractArchive(buffer, staging);
-    const definition = loadWorldScript(source, { seed: 1, modelCatalog });
-    mkdirSync(resolvedRoot, { recursive: true });
-    const destination = path.join(resolvedRoot, definition.id);
-    const exists = existsSync(destination);
-    if (exists && !replace) throw new WorldImportError(`world ${definition.id} already exists`, 409);
-    if (exists) {
-      backup = `${destination}.backup-${randomUUID()}`;
-      renameSync(destination, backup);
-    }
+    const template = loadWorldTemplate(source);
+    let definition;
     try {
-      renameSync(source, destination);
+      definition = buildWorldDefinition(template, { seed: 1, modelCatalog, rulePackages });
     } catch (error) {
-      if (backup && existsSync(/* turbopackIgnore: true */ backup)) renameSync(backup, destination);
-      throw error;
+      throw new WorldScriptError(source, error instanceof Error ? error.message : String(error));
     }
-    if (backup) rmSync(backup, { recursive: true, force: true });
     return {
+      template,
       id: definition.id,
       name: definition.name,
+      version: definition.manifestVersion,
       description: definition.description,
-      replaced: exists,
+      contentHash: definition.contentHash,
     };
   } catch (error) {
     if (error instanceof WorldImportError) throw error;

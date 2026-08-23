@@ -16,7 +16,7 @@ import {
   deterministicModelOutput,
 } from "../src/engine/testing/model-provider";
 import { TruthEngine } from "../src/engine/truth-engine";
-import type { WorldDefinition } from "../src/engine/world-definition";
+import { toWorldRuntimeContract, type WorldDefinition } from "../src/engine/world-definition";
 import { loadWorldScript } from "../src/script/world-loader";
 import { MemoryWorldSessionStore } from "../src/server/world-session-store";
 import type { WorldSessionDocument } from "../src/server/world-run-types";
@@ -49,8 +49,25 @@ const deterministicAdapter: ModelProviderAdapter = {
   kind: "deepseek",
   structuredOutputMode: "deterministic-test",
   async generate(profile, request, contextJson) {
+    const context = JSON.parse(contextJson);
+    let value: unknown;
+    if (request.role === "causal-verifier") {
+      value = { verdict: "accept", findings: [] };
+    } else if (request.role === "truth-perception" || request.role === "truth-resolution") {
+      value = { kind: "done" };
+    } else if (request.role === "truth-reaction-routing") {
+      value = { requests: [] };
+    } else if (request.role === "truth-transition") {
+      const generated = deterministicModelOutput(request.profileId, context) as {
+        kind: "transition";
+        proposal: unknown;
+      };
+      value = generated.proposal;
+    } else {
+      value = deterministicModelOutput(request.profileId, context);
+    }
     return {
-      value: deterministicModelOutput(request.profileId, JSON.parse(contextJson)),
+      value,
       responseId: request.modelInvocationId ?? "diagnostic-model-invocation",
       responseModelId: profile.model,
       finishReason: "stop",
@@ -263,15 +280,15 @@ export async function runDeterministicRuntimeDiagnostic(
       });
       const now = "2026-08-23T00:00:00.000Z";
       const document: WorldSessionDocument = {
-        schemaVersion: 4,
+        schemaVersion: 6,
         id: sessionId,
-        scriptId: definition.id,
+        world: toWorldRuntimeContract(definition),
         createdAt: now,
         updatedAt: now,
         state: engine.snapshot,
         runs: {},
       };
-      store.write(document, { sessionId, revision: 0, step: 0 });
+      let stored = store.create(document, { sessionId, revision: 0, step: 0 });
       const bootstrapSummary = invocationSummary(document.state.bootstrapModelAudits);
       let cumulativeInputBytes = bootstrapSummary.inputBytes;
       let modelInvocations = bootstrapSummary.invocations;
@@ -313,15 +330,18 @@ export async function runDeterministicRuntimeDiagnostic(
       }
 
       for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
-        engine.beginPlayerIntent(`诊断步骤 ${stepIndex + 1}：观察世界并等待一秒。`);
+        const runId = `run:${sessionId}:${stepIndex + 1}`;
+        const inputId = `input:${sessionId}:${stepIndex + 1}`;
+        const inputText = `诊断步骤 ${stepIndex + 1}：观察世界并等待一秒。`;
+        engine.beginPlayerIntent(inputText, inputId);
         const base = engine.snapshot;
         const stepStartedAt = performance.now();
         const result = await engine.step({
           workloadId: sessionId,
-          batchId: `run:${sessionId}`,
+          batchId: runId,
           correlation: {
             sessionId,
-            runId: `run:${sessionId}`,
+            runId,
             runAttempt: 1,
             stepAttemptId: `run:${sessionId}:1:${base.revision + 1}`,
             revision: base.revision,
@@ -331,11 +351,50 @@ export async function runDeterministicRuntimeDiagnostic(
         });
         const stepWallMs = performance.now() - stepStartedAt;
         document.state = result.state;
-        document.updatedAt = new Date(Date.parse(now) + (stepIndex + 1) * 1_000).toISOString();
-        const persistenceStartedAt = performance.now();
-        store.write(document, {
+        const stepAt = new Date(Date.parse(now) + (stepIndex + 1) * 1_000).toISOString();
+        document.updatedAt = stepAt;
+        const intent = result.state.player.intent;
+        if (!intent || intent.status !== "completed") {
+          throw new Error("deterministic diagnostic step did not complete its player intent");
+        }
+        document.runs[runId] = {
+          id: runId,
           sessionId,
-          runId: `run:${sessionId}`,
+          intentId: intent.id,
+          status: "completed",
+          createdAt: stepAt,
+          updatedAt: stepAt,
+          cancelRequested: false,
+          events: [
+            { sequence: 1, at: stepAt, type: "player.input", payload: { id: inputId, kind: "goal", text: inputText } },
+            {
+              sequence: 2,
+              at: stepAt,
+              type: "run.execution_started",
+              payload: { runId, inputId, reason: "initial" },
+            },
+            {
+              sequence: 3,
+              at: stepAt,
+              type: "step.committed",
+              payload: {
+                revision: result.state.revision,
+                step: result.state.step,
+                elapsedSeconds: result.state.truth.elapsedSeconds,
+              },
+            },
+            {
+              sequence: 4,
+              at: stepAt,
+              type: "run.completed",
+              payload: { runId, revision: result.state.revision, step: result.state.step },
+            },
+          ],
+        };
+        const persistenceStartedAt = performance.now();
+        stored = store.compareAndSwap(sessionId, stored.generation, document, {
+          sessionId,
+          runId,
           runAttempt: 1,
           revision: result.state.revision,
           step: result.state.step,

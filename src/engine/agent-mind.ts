@@ -26,13 +26,9 @@ import {
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "./model-provider";
-import { ModelOverloadedError } from "./model-scheduler";
 import { contentHash } from "./model-audit";
-import {
-  fullRuntimePayload,
-  runtimeEventEmitter,
-  serializeRuntimeError,
-} from "./observability";
+import { ModelOverloadedError } from "./model-scheduler";
+import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "./observability";
 import {
   AGENT_PROMPT_VERSION,
   AGENT_SYSTEM,
@@ -136,11 +132,13 @@ export class AgentMind {
       } | null;
     } = { action: null, outcome: null },
     events: readonly WorldEvent[] = [],
+    purpose: "bootstrap" | "mind" = "mind",
   ): Promise<AgentMindOutput & { modelAudit: ModelExecutionAudit }> {
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
     let lastError = "unknown AgentMind validation failure";
     const observe = runtimeEventEmitter(scope.observer);
+    const role = purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind";
 
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
       try {
@@ -155,8 +153,8 @@ export class AgentMind {
           runId: scope.batchId,
           issues,
         });
-        const identity = modelInvocationIdentity(scope, "agent-mind", agent.id, attempt + 1);
-        const correlation = modelInvocationCorrelation(scope, "agent-mind", agent.id, identity);
+        const identity = modelInvocationIdentity(scope, role, agent.id, attempt + 1);
+        const correlation = modelInvocationCorrelation(scope, role, agent.id, identity);
         observe?.({
           event: "model.context.built",
           correlation,
@@ -164,14 +162,14 @@ export class AgentMind {
           hashes: { context: contentHash(context) },
         });
         const result = await this.provider.generateStructured({
-          profileId: agent.modelProfileId,
+          profileId: agent.modelProfiles[purpose],
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
           correlation: scope.correlation,
           observer: scope.observer,
           ...identity,
-          role: "agent-mind",
+          role,
           subjectId: agent.id,
           promptVersion: AGENT_PROMPT_VERSION,
           schemaName: "agent_mind_output",
@@ -181,12 +179,12 @@ export class AgentMind {
         });
         audits.push(result.audit);
         const validated = validateMindOutput(agent, state.revision, state.step, observations, events, result.value);
-        setModelInvocationResultKind(result.audit, "agent_mind");
+        setModelInvocationResultKind(result.audit, purpose === "bootstrap" ? "agent_bootstrap" : "agent_mind");
         setModelInvocationOutcome(result.audit, "accepted");
         observe?.({
           event: "model.semantic.accepted",
           correlation,
-          attributes: { resultKind: "agent_mind" },
+          attributes: { resultKind: purpose === "bootstrap" ? "agent_bootstrap" : "agent_mind" },
           hashes: { response: result.audit.invocations.at(-1)!.responseHash! },
         });
         return {
@@ -206,7 +204,7 @@ export class AgentMind {
         observe?.({
           event: "model.semantic.rejected",
           level: "warn",
-          correlation: modelInvocationCorrelation(scope, "agent-mind", agent.id, {
+          correlation: modelInvocationCorrelation(scope, role, agent.id, {
             modelInvocationId: invocation?.id,
             modelInvocation: invocation?.ordinal,
           }),
@@ -253,7 +251,7 @@ export class AgentMind {
           hashes: { context: contentHash(context) },
         });
         const result = await this.provider.generateStructured({
-          profileId: agent.modelProfileId,
+          profileId: agent.modelProfiles.reaction,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,

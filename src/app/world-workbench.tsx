@@ -10,7 +10,8 @@ import type {
 import { worldApi } from "./lib/world-api-client";
 
 const eventTypes: WorldRunEvent["type"][] = [
-  "run.started",
+  "player.input",
+  "run.execution_started",
   "check.resolved",
   "player.outcome",
   "player.observation",
@@ -25,8 +26,18 @@ const eventTypes: WorldRunEvent["type"][] = [
 
 function eventText(event: WorldRunEvent): string {
   switch (event.type) {
-    case "run.started":
-      return `开始执行：${event.payload.text}`;
+    case "player.input":
+      return `${event.payload.kind === "goal" ? "玩家目标" : "补充信息"}：${event.payload.text}`;
+    case "run.execution_started": {
+      switch (event.payload.reason) {
+        case "initial":
+          return "开始推演当前目标。";
+        case "player_input":
+          return "根据补充信息继续推演。";
+        case "retry":
+          return "从最后一个已提交步骤重试。";
+      }
+    }
     case "check.resolved":
       return event.payload.visibility === "full"
         ? `检定 ${event.payload.total} 对 DC ${event.payload.dc}：${event.payload.succeeded ? "成功" : "失败"}`
@@ -55,7 +66,9 @@ function eventText(event: WorldRunEvent): string {
 }
 
 function isTerminal(event: WorldRunEvent): boolean {
-  return event.type.startsWith("run.") && event.type !== "run.started";
+  return event.type === "run.awaiting_player" || event.type === "run.completed" ||
+    event.type === "run.goal_failed" || event.type === "run.step_limit" ||
+    event.type === "run.cancelled" || event.type === "run.failed";
 }
 
 export function WorldWorkbench() {
@@ -147,14 +160,22 @@ export function WorldWorkbench() {
   async function submit(): Promise<void> {
     if (!session || run?.status === "queued" || run?.status === "running") return;
     if (!input.trim()) {
-      setInputError("请先描述你想做的事情。");
+      setInputError(run?.status === "awaiting_player" ? "请补充继续当前目标所需的信息。" : "请先描述你想做的事情。");
       inputRef.current?.focus();
       return;
     }
     setError("");
     setInputError("");
-    setEvents([]);
     try {
+      if (run?.status === "awaiting_player") {
+        const snapshot = await worldApi.continueRun(session.id, run.id, crypto.randomUUID(), input);
+        setRun(snapshot.run);
+        setSession(snapshot.state);
+        setInput("");
+        observeRun(session.id, run.id, events.at(-1)?.sequence ?? 0);
+        return;
+      }
+      setEvents([]);
       const started = await worldApi.startRun(session.id, input);
       const snapshot = await worldApi.run(session.id, started.runId);
       setRun(snapshot.run);
@@ -172,6 +193,7 @@ export function WorldWorkbench() {
       const snapshot = await worldApi.cancelRun(session.id, run.id);
       setRun(snapshot.run);
       setSession(snapshot.state);
+      if (snapshot.run.status === "cancelled") setEvents(snapshot.run.events);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -191,6 +213,10 @@ export function WorldWorkbench() {
   }
 
   const running = run?.status === "queued" || run?.status === "running";
+  const awaitingPlayer = run?.status === "awaiting_player";
+  const retriable = run?.status === "failed" || run?.status === "step_limit";
+  const canCancel = running || awaitingPlayer || retriable;
+  const canSubmit = !running && !retriable;
   return (
     <main className="cg-workbench">
       <header className="cg-workbench__header">
@@ -216,7 +242,7 @@ export function WorldWorkbench() {
         <section className="cg-empty" aria-labelledby="empty-title">
           <p className="cg-eyebrow">NO WORLD INSTALLED</p>
           <h2 id="empty-title">暂无可玩世界</h2>
-          <p>导入符合 schema v4 的世界 ZIP，开始一段游戏。</p>
+          <p>导入符合 schema v5 的世界 ZIP，开始一段游戏。</p>
           <label className="cg-import-button">
             导入世界 ZIP
             <input
@@ -258,7 +284,7 @@ export function WorldWorkbench() {
             ))}
           </div>
           <div className="cg-composer">
-            <label htmlFor="world-action">你的行动</label>
+            <label htmlFor="world-action">{awaitingPlayer ? "补充信息" : "你的行动"}</label>
             <textarea
               ref={inputRef}
               id="world-action"
@@ -273,22 +299,26 @@ export function WorldWorkbench() {
                   void submit();
                 }
               }}
-              placeholder="例如：我试着直接获得一万灵石；如果做不到，观察周围有什么合理途径。"
+              placeholder={awaitingPlayer
+                ? "补充你的选择、方法或缺失信息，继续原来的目标。"
+                : "例如：我试着直接获得一万灵石；如果做不到，观察周围有什么合理途径。"}
               maxLength={4000}
-              disabled={running}
+              disabled={!canSubmit}
               aria-invalid={inputError ? true : undefined}
               aria-describedby={inputError ? "world-action-error" : undefined}
             />
             <p id="world-action-error" className="cg-field-error">{inputError}</p>
             <div>
-              {running ? (
-                <button type="button" className="cg-button--secondary" onClick={() => void cancel()}>安全中断</button>
+              {canCancel ? (
+                <button type="button" className="cg-button--secondary" onClick={() => void cancel()}>
+                  {running ? "安全中断" : "放弃当前目标"}
+                </button>
               ) : null}
-              {run?.status === "failed" || run?.status === "step_limit" ? (
+              {retriable ? (
                 <button type="button" className="cg-button--secondary" onClick={() => void retry()}>继续运行</button>
               ) : null}
-              <button type="button" onClick={() => void submit()} disabled={running} aria-busy={running}>
-                {running ? "提交自由行动 · 运行中" : "提交自由行动"}
+              <button type="button" onClick={() => void submit()} disabled={!canSubmit} aria-busy={running}>
+                {running ? "提交自由行动 · 运行中" : awaitingPlayer ? "补充并继续" : "提交自由行动"}
               </button>
             </div>
           </div>

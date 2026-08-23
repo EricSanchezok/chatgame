@@ -17,6 +17,7 @@ import type {
   RatingState,
   WorldEntity,
   WorldFact,
+  CausalAssertion,
 } from "./model";
 
 const reservedRecordKeys = new Set([
@@ -34,9 +35,17 @@ export const safeIdSchema = z.string().min(1).refine(
 );
 
 export const causalRefSchema = z.strictObject({
-  kind: z.enum(["action", "check", "event", "fact", "law"]),
+  kind: z.enum(["action", "check", "event", "fact", "law", "mechanic"]),
   id: safeIdSchema,
 });
+
+export const factProvenanceRefSchema = z.union([
+  causalRefSchema,
+  z.strictObject({
+    kind: z.literal("world_seed"),
+    id: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  }),
+]);
 
 export const factValueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("text"), value: z.string() }),
@@ -45,6 +54,58 @@ export const factValueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("entity"), entityId: safeIdSchema }),
   z.strictObject({ kind: z.literal("none") }),
 ]) as z.ZodType<FactValue>;
+
+const numericComparisonSchema = z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]);
+
+export const causalAssertionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("check_result"),
+    checkId: safeIdSchema,
+    expected: z.enum(["succeeded", "failed"]),
+  }),
+  z.strictObject({ kind: z.literal("fact_matches"), factId: safeIdSchema, expected: factValueSchema }),
+  z.strictObject({ kind: z.literal("fact_absent"), factId: safeIdSchema }),
+  z.strictObject({ kind: z.literal("entity_absent"), entityId: safeIdSchema }),
+  z.strictObject({
+    kind: z.literal("entity_lifecycle"),
+    entityId: safeIdSchema,
+    expected: z.enum(["active", "retired"]),
+  }),
+  z.strictObject({
+    kind: z.literal("placement_equals"),
+    entityId: safeIdSchema,
+    placementId: safeIdSchema.nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal("shared_placement"),
+    leftEntityId: safeIdSchema,
+    rightEntityId: safeIdSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("meter_compare"),
+    meterId: safeIdSchema,
+    operator: numericComparisonSchema,
+    value: z.number().finite(),
+  }),
+  z.strictObject({
+    kind: z.literal("quantity_compare"),
+    definitionId: safeIdSchema,
+    holderId: safeIdSchema,
+    operator: numericComparisonSchema,
+    value: z.number().finite(),
+  }),
+  z.strictObject({
+    kind: z.literal("rating_compare"),
+    ratingId: safeIdSchema,
+    operator: numericComparisonSchema,
+    value: z.number().finite(),
+  }),
+  z.strictObject({
+    kind: z.literal("elapsed_seconds_compare"),
+    operator: numericComparisonSchema,
+    value: z.number().finite(),
+  }),
+]) as z.ZodType<CausalAssertion>;
 
 export const beliefValueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("text"), value: z.string() }),
@@ -112,7 +173,7 @@ export const factSchema = z.strictObject({
   value: factValueSchema,
   description: z.string(),
   access: accessSchema,
-  provenance: z.array(causalRefSchema),
+  provenance: z.array(factProvenanceRefSchema),
 }) as z.ZodType<WorldFact>;
 
 export const meterSchema = z.strictObject({
@@ -198,7 +259,11 @@ export const agentCharacterStateSchema = z.strictObject({
 export const agentStateSchema = z.strictObject({
   id: safeIdSchema,
   entityId: safeIdSchema,
-  modelProfileId: safeIdSchema,
+  modelProfiles: z.strictObject({
+    bootstrap: safeIdSchema,
+    mind: safeIdSchema,
+    reaction: safeIdSchema,
+  }),
   character: agentCharacterStateSchema,
   belief: beliefStateSchema,
   bindings: z.record(

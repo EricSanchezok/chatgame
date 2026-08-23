@@ -18,9 +18,40 @@ export type BeliefValue =
   | { kind: "local_entity"; localEntityId: LocalEntityId };
 
 export interface CausalRef {
-  kind: "action" | "check" | "event" | "fact" | "law";
+  kind: "action" | "check" | "event" | "fact" | "law" | "mechanic";
   id: string;
 }
+
+export type NumericComparison = "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
+
+export type CausalAssertion =
+  | { kind: "check_result"; checkId: string; expected: "succeeded" | "failed" }
+  | { kind: "fact_matches"; factId: FactId; expected: FactValue }
+  | { kind: "fact_absent"; factId: FactId }
+  | { kind: "entity_absent"; entityId: EntityId }
+  | { kind: "entity_lifecycle"; entityId: EntityId; expected: WorldEntity["lifecycle"] }
+  | { kind: "placement_equals"; entityId: EntityId; placementId: EntityId | null }
+  | { kind: "shared_placement"; leftEntityId: EntityId; rightEntityId: EntityId }
+  | { kind: "meter_compare"; meterId: string; operator: NumericComparison; value: number }
+  | {
+      kind: "quantity_compare";
+      definitionId: string;
+      holderId: EntityId;
+      operator: NumericComparison;
+      value: number;
+    }
+  | { kind: "rating_compare"; ratingId: string; operator: NumericComparison; value: number }
+  | { kind: "elapsed_seconds_compare"; operator: NumericComparison; value: number };
+
+export interface CausalSource {
+  causes: CausalRef[];
+  assertions: CausalAssertion[];
+}
+
+export type FactProvenanceRef = CausalRef | {
+  kind: "world_seed";
+  id: string;
+};
 
 export interface WorldEntity {
   id: EntityId;
@@ -41,7 +72,7 @@ export interface WorldFact {
     | { kind: "public" }
     | { kind: "private" }
     | { kind: "agents"; agentIds: AgentId[] };
-  provenance: CausalRef[];
+  provenance: FactProvenanceRef[];
 }
 
 export interface MeterDefinition {
@@ -72,8 +103,8 @@ export interface QuantityDefinition {
   id: string;
   name: string;
   unit: string;
-  allowProduction: boolean;
-  allowConsumption: boolean;
+  productionLawIds: string[];
+  consumptionLawIds: string[];
 }
 
 export interface RatingDefinition {
@@ -254,7 +285,11 @@ export interface AgentActionProposal {
 export interface AgentState {
   id: AgentId;
   entityId: EntityId;
-  modelProfileId: string;
+  modelProfiles: {
+    bootstrap: string;
+    mind: string;
+    reaction: string;
+  };
   character: AgentCharacterState;
   belief: AgentBeliefState;
   bindings: Record<LocalEntityId, EpistemicBinding>;
@@ -296,8 +331,13 @@ export interface AgentSelfStateView {
 
 export interface PlayerIntent {
   id: string;
-  rawText: string;
   goal: string;
+  latestInput: {
+    id: string;
+    text: string;
+    kind: "goal" | "clarification";
+    submittedAtStep: number;
+  };
   status: "active" | "completed" | "failed" | "cancelled";
   startedAtStep: number;
 }
@@ -314,11 +354,13 @@ export interface WorldEvent {
   description: string;
   impact: CharacterImpact;
   causes: CausalRef[];
+  assertions: CausalAssertion[];
 }
 
 export interface SimulationState {
-  schemaVersion: 4;
+  schemaVersion: 6;
   worldId: string;
+  worldHash: string;
   lawIds: string[];
   revision: number;
   step: number;
@@ -342,7 +384,7 @@ export interface D20CheckRequest {
   targetId: EntityId | null;
   ratingId: string | null;
   modifier: number;
-  modifierSources: Array<{ id: string; amount: number }>;
+  modifierSources: ModifierSource[];
   dc: number;
   mode: "normal" | "advantage" | "disadvantage";
   stakes: string;
@@ -350,6 +392,10 @@ export interface D20CheckRequest {
   phase: "perception" | "resolution";
   causes: CausalRef[];
 }
+
+export type ModifierSource =
+  | { kind: "rating"; id: string; amount: number }
+  | { kind: "fact"; id: string; amount: number };
 
 export interface D20CheckResult {
   requestId: string;
@@ -375,6 +421,7 @@ export interface ActionOutcome {
   status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
   summary: string;
   causeRefs: CausalRef[];
+  assertions: CausalAssertion[];
   knownAlternatives: KnownAlternative[];
 }
 
@@ -519,21 +566,20 @@ export type ReactionDecision =
       replacementAction: AgentActionProposal;
     };
 
-export type WorldDeltaOperation =
-  | { kind: "create_entity"; entity: WorldEntity; placementId: EntityId | null; causes: CausalRef[] }
-  | { kind: "retire_entity"; entityId: EntityId; causes: CausalRef[] }
-  | { kind: "place_entity"; entityId: EntityId; placementId: EntityId | null; causes: CausalRef[] }
-  | { kind: "set_fact"; fact: WorldFact; causes: CausalRef[] }
-  | { kind: "remove_fact"; factId: FactId; causes: CausalRef[] }
-  | { kind: "set_meter"; meter: MeterState; causes: CausalRef[] }
-  | { kind: "adjust_meter"; meterId: string; amount: number; causes: CausalRef[] }
+export type WorldDeltaOperation = CausalSource & (
+  | { kind: "create_entity"; entity: WorldEntity; placementId: EntityId | null }
+  | { kind: "retire_entity"; entityId: EntityId }
+  | { kind: "place_entity"; entityId: EntityId; placementId: EntityId | null }
+  | { kind: "set_fact"; fact: WorldFact }
+  | { kind: "remove_fact"; factId: FactId }
+  | { kind: "set_meter"; meter: MeterState }
+  | { kind: "adjust_meter"; meterId: string; amount: number }
   | {
       kind: "transfer_quantity";
       definitionId: string;
       fromHolderId: EntityId;
       toHolderId: EntityId;
       amount: number;
-      causes: CausalRef[];
     }
   | {
       kind: "produce_quantity";
@@ -541,7 +587,6 @@ export type WorldDeltaOperation =
       holderId: EntityId;
       amount: number;
       lawId: string;
-      causes: CausalRef[];
     }
   | {
       kind: "consume_quantity";
@@ -549,16 +594,66 @@ export type WorldDeltaOperation =
       holderId: EntityId;
       amount: number;
       lawId: string;
-      causes: CausalRef[];
     }
-  | { kind: "set_rating"; rating: RatingState; causes: CausalRef[] }
-  | { kind: "advance_time"; seconds: number; causes: CausalRef[] }
-  | { kind: "create_agent"; agent: AgentState; causes: CausalRef[] }
-  | { kind: "remove_agent"; agentId: AgentId; causes: CausalRef[] };
+  | { kind: "set_rating"; rating: RatingState }
+  | { kind: "advance_time"; seconds: number }
+  | { kind: "create_agent"; agent: AgentState }
+  | { kind: "remove_agent"; agentId: AgentId }
+);
+
+export interface MechanicInvocation extends CausalSource {
+  id: string;
+  packageId: string;
+  ruleId: string;
+  input: unknown;
+}
+
+export interface MechanicResult {
+  invocationId: string;
+  packageId: string;
+  ruleId: string;
+  code: string;
+  data: unknown;
+  operations: WorldDeltaOperation[];
+}
+
+export interface CausalTarget {
+  kind: "check" | "operation" | "mechanic" | "event" | "outcome" | "observation";
+  id: string;
+}
+
+export interface CausalAssertionResult {
+  target: CausalTarget;
+  assertion: CausalAssertion;
+  passed: boolean;
+  observed: unknown;
+}
+
+export type CausalFindingCode =
+  | "irrelevant-cause"
+  | "missing-precondition"
+  | "check-result-contradiction"
+  | "law-violation"
+  | "effect-mismatch"
+  | "impact-overstated"
+  | "observation-mismatch";
+
+export type CausalVerification =
+  | { verdict: "accept"; findings: [] }
+  | {
+      verdict: "reject";
+      findings: Array<{
+        target: CausalTarget;
+        code: CausalFindingCode;
+        message: string;
+        repairHint: string;
+      }>;
+    };
 
 export interface TransitionProposal {
   baseRevision: number;
   outcomes: ActionOutcome[];
+  mechanicInvocations: MechanicInvocation[];
   operations: WorldDeltaOperation[];
   events: WorldEvent[];
   observations: ObservationPacket[];
@@ -622,12 +717,12 @@ export interface ModelInvocationAudit {
 }
 
 export interface ModelExecutionAudit {
-  role: "truth-engine" | "agent-mind" | "agent-reaction";
+  role: import("./model-catalog").ModelRole;
   subjectId: string;
   profileId: string;
   providerId: string;
   modelId: string;
-  catalogSchemaVersion: 1;
+  catalogSchemaVersion: 2;
   catalogHash: string;
   promptVersion: string;
   inference: ModelInferenceConfig;
@@ -649,6 +744,10 @@ export interface CommittedStep {
   checkRequests: D20CheckRequest[];
   checks: D20CheckResult[];
   outcomes: ActionOutcome[];
+  mechanicInvocations: MechanicInvocation[];
+  mechanicResults: MechanicResult[];
+  causalAssertionResults: CausalAssertionResult[];
+  causalVerification: CausalVerification;
   events: WorldEvent[];
   observations: ObservationPacket[];
   operations: WorldDeltaOperation[];

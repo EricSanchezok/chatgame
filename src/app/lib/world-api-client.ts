@@ -38,12 +38,17 @@ function post<T>(url: string, body?: unknown): Promise<T> {
 export const worldApi = {
   worlds: () => request<{ worlds: WorldSummary[] }>("/api/worlds"),
   sessions: () => request<{ sessions: PublicSessionSnapshot[] }>("/api/sessions"),
-  createSession: (scriptId: string, seed?: number) =>
-    post<PublicSessionSnapshot>("/api/sessions", { scriptId, seed }),
+  createSession: (worldId: string, seed?: number) =>
+    post<PublicSessionSnapshot>("/api/sessions", { worldId, seed }),
   session: (sessionId: string) =>
     request<PublicSessionSnapshot>(`/api/sessions/${encodeURIComponent(sessionId)}`),
   startRun: (sessionId: string, text: string) =>
     post<StartWorldRunResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { text }),
+  continueRun: (sessionId: string, runId: string, id: string, text: string) =>
+    post<WorldRunSnapshot>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/inputs`,
+      { id, text },
+    ),
   run: (sessionId: string, runId: string) =>
     request<WorldRunSnapshot>(
       `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,

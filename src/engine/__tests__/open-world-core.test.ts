@@ -16,11 +16,13 @@ import {
   TransitionValidationError,
   validateSimulationState,
 } from "../transaction";
+import { TEST_WORLD_HASH } from "../testing/world";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 4,
+    schemaVersion: 6,
     worldId: "test-world",
+    worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,
     step: 0,
@@ -103,8 +105,8 @@ function worldState(): SimulationState {
             id: "spirit_stone",
             name: "灵石",
             unit: "枚",
-            allowProduction: false,
-            allowConsumption: true,
+            productionLawIds: [],
+            consumptionLawIds: ["necromancy"],
           },
         },
         ratings: {
@@ -147,7 +149,7 @@ function worldState(): SimulationState {
       keeper: {
         id: "keeper",
         entityId: "keeper",
-        modelProfileId: "agent-default",
+        modelProfiles: { bootstrap: "agent-default", mind: "agent-default", reaction: "agent-default" },
         character: createEmptyCharacter("谨慎的守门人"),
         belief: {
           localEntities: {
@@ -182,6 +184,7 @@ function proposal(operations: TransitionProposal["operations"]): TransitionPropo
   return {
     baseRevision: 0,
     outcomes: [],
+    mechanicInvocations: [],
     operations,
     events: [],
     observations: [],
@@ -288,7 +291,7 @@ describe("open world kernel", () => {
       targetId: "gate",
       ratingId: "force:player",
       modifier: 2,
-      modifierSources: [{ id: "force:player", amount: 2 }],
+      modifierSources: [{ kind: "rating", id: "force:player", amount: 2 }],
       dc: 15,
       mode: "advantage",
       stakes: "推开石门，失败则发出巨响",
@@ -317,6 +320,7 @@ describe("open world kernel", () => {
           toHolderId: "player",
           amount: 5,
           causes: causalAction,
+          assertions: [{ kind: "quantity_compare", definitionId: "spirit_stone", holderId: "keeper", operator: "gte", value: 5 }],
         },
       ]),
     );
@@ -339,6 +343,7 @@ describe("open world kernel", () => {
             amount: 10_000,
             lawId: "wish",
             causes: causalAction,
+            assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
           },
         ]),
       ),
@@ -356,6 +361,7 @@ describe("open world kernel", () => {
           meterId: "health:keeper",
           amount: -10,
           causes: [{ kind: "check", id: "attack-roll" }],
+          assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
         },
       ]),
     );
@@ -383,6 +389,7 @@ describe("open world kernel", () => {
           provenance: [{ kind: "law", id: "worldgen" }],
         },
         causes: [{ kind: "law", id: "worldgen" }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       }]),
     )).toThrow("reserved object key");
     expect(Object.getPrototypeOf(source.truth.facts)).toBe(Object.prototype);
@@ -405,6 +412,7 @@ describe("open world kernel", () => {
           provenance: [{ kind: "law", id: "worldgen" }],
         },
         causes: [{ kind: "law", id: "worldgen" }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       }]),
     )).toThrow("reserved object key");
     expect(Object.hasOwn(source.truth.facts, "toString")).toBe(false);
@@ -431,7 +439,7 @@ describe("open world kernel", () => {
     const skeleton: AgentState = {
       id: "skeleton-agent",
       entityId: "skeleton",
-      modelProfileId: "agent-default",
+      modelProfiles: { bootstrap: "agent-default", mind: "agent-default", reaction: "agent-default" },
       character: createEmptyCharacter("受召唤者命令的骷髅"),
       belief: {
         localEntities: {
@@ -458,8 +466,14 @@ describe("open world kernel", () => {
           },
           placementId: "keeper",
           causes: [{ kind: "law", id: "necromancy" }],
+          assertions: [{ kind: "entity_absent", entityId: "skeleton" }],
         },
-        { kind: "create_agent", agent: skeleton, causes: [{ kind: "law", id: "necromancy" }] },
+        {
+          kind: "create_agent",
+          agent: skeleton,
+          causes: [{ kind: "law", id: "necromancy" }],
+          assertions: [{ kind: "entity_lifecycle", entityId: "skeleton", expected: "active" }],
+        },
       ]),
     );
 
