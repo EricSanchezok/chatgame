@@ -1,7 +1,7 @@
 # 死契约接线与 UI 消费点补全（cooldown / llm_freedom / safety / zip 加固）
 
 ## Status
-Accepted
+Deprecated
 Class: feature
 
 ## Context and Problem Statement

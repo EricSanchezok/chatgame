@@ -25,5 +25,5 @@
 ## Guardrails
 
 - 出身 Carousel 使用 `scrollbar-width: none` 与 `::-webkit-scrollbar { display: none }`，可见导航只由邻卡、前后箭头和选中状态承担。
-- [布局端到端测试](../../e2e/flows/layout.spec.ts) 断言 Carousel 的计算 `scrollbar-width` 为 `none`，同时继续验证 listbox 与确认操作可用。
+- 该 Carousel 与旧布局测试已随被取代的 UI 删除；当前浏览器门禁见[决策 0034](../decisions/0034-truth-engine-verification-matrix.md)。
 - 本地验收在 macOS 实际入口中检查计算样式、前后箭头引起的 `scrollLeft` 变化以及选中项更新，不以非 macOS 视觉快照代替平台检查。

@@ -1,0 +1,27 @@
+rule_packages:
+  - id: core-d20
+    version: 1.0.0
+    config:
+      opposedChecks: true
+      damageUsesMeters: true
+meters:
+  - id: health
+    name: 生命
+    min: 0
+    max: 20
+    thresholds:
+      - id: death-at-zero
+        when: { operator: lte, value: 0 }
+        effects:
+          - { kind: set_lifecycle, lifecycle: retired }
+quantities:
+  - id: spirit-stone
+    name: 灵石
+    unit: 枚
+    allow_production: false
+    allow_consumption: true
+ratings:
+  - id: resolve
+    name: 决心
+    min: -5
+    max: 10

@@ -25,8 +25,5 @@
 ## Guardrails
 
 - [决策 0030](../decisions/0030-manus-style-game-workspace-and-ui-api-v6.md) 把默认游戏结构收敛为一个主滚动区、一个会话轴、一个 composer、一个脱离布局的工具栏和居中资料 Dialog，并删除可形成第二套 chrome 的 slot。
-- [布局端到端测试](../../e2e/flows/layout.spec.ts) 先断言游戏内没有 AppShell、Sheet 或横向溢出，短玩家消息按内容收缩、相邻说话人共享组首身份、主媒体不超过 640px且从属媒体更小、composer 不含嵌套表面、滚动条只在活动期间出现，再运行视觉基线。
-- [消息内容单元测试](../../src/app/ui/game/__tests__/message-content.test.tsx) 固定 CommonMark 段落边界、单换行语义与 GFM 表格的可键盘滚动容器，避免重新用 `white-space: pre-wrap` 渲染模型正文。
-- [真实流程测试](../../e2e/builtins/conversation.spec.ts) 验证五个语义图标入口、目标入口、建议行动写入和聚焦、编辑后预检失效、NPC 人物资料、保存退出与恢复。
-- [会话单元测试](../../src/app/ui/game/__tests__/chat-pause.test.tsx) 覆盖预检竞态、Enter、Shift+Enter、IME composing、焦点和 Escape 层级。
+- 对应旧布局、消息内容、内置剧本流程与会话单元测试已随被取代的 UI 删除；当前真实入口与无障碍门禁见[决策 0034](../decisions/0034-truth-engine-verification-matrix.md)。
 - 视觉快照只证明通过结构与语义门禁后的表面没有意外变化，不再作为信息架构正确性的首要证据。

@@ -1,46 +1,29 @@
-// Sessions API: create new sessions (or resume from a save) and list active ones.
-import { EngineHost } from "../../../server/engine-host";
-import { json, errorResponse, readJson } from "../h";
-import { completePresentation } from "../script-presentation";
-
-interface CreateBody {
-  scriptId: string;
-  originId?: string;
-  seed?: number;
-  playerName?: string;
-  /** Save filename (basename, .json) to resume instead of a new game. */
-  loadRunId?: string;
-}
+import { WorldHost } from "../../../server/world-host";
+import { errorResponse, json, readJson } from "../h";
 
 export async function GET(): Promise<Response> {
   try {
-    return json({ sessions: EngineHost.get().listSessions() });
-  } catch (err) {
-    return errorResponse(err);
+    return json({ sessions: WorldHost.get().listSessions() });
+  } catch (error) {
+    return errorResponse(error);
   }
 }
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const body = await readJson<CreateBody>(request);
-    if (!body || typeof body.scriptId !== "string") {
+    const body = await readJson<{ scriptId?: unknown; seed?: unknown }>(request);
+    if (!body || typeof body.scriptId !== "string" || !body.scriptId.trim()) {
       return json({ error: "scriptId is required" }, 400);
     }
-    if (!body.loadRunId && typeof body.originId !== "string") {
-      return json({ error: "originId is required for a new game (or pass loadRunId to resume)" }, 400);
+    if (body.seed !== undefined && (!Number.isSafeInteger(body.seed) || Number(body.seed) < 0)) {
+      return json({ error: "seed must be a non-negative safe integer" }, 400);
     }
-    const session = EngineHost.get().createSession({
+    const session = await WorldHost.get().createSession({
       scriptId: body.scriptId,
-      originId: body.originId,
-      seed: body.seed,
-      playerName: body.playerName,
-      loadRunId: body.loadRunId,
+      seed: body.seed as number | undefined,
     });
-    return json({
-      ...session,
-      presentation: await completePresentation(EngineHost.get(), session.state.scriptId, session.presentation),
-    }, 201);
-  } catch (err) {
-    return errorResponse(err);
+    return json(session, 201);
+  } catch (error) {
+    return errorResponse(error);
   }
 }

@@ -1,0 +1,14 @@
+id: key
+kind: key
+name: 铜钥匙
+description: 一把做工足以骗过外行的假钥匙。
+placement: player
+facts:
+  - id: key-authenticity
+    predicate: authenticity
+    value: { kind: text, value: fake }
+    description: 钥匙是仿制品，无法打开石门。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

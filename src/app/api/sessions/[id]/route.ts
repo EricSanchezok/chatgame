@@ -1,16 +1,14 @@
-// Session teardown API: destroy a session (unsaved changes are discarded).
-import { EngineHost } from "../../../../server/engine-host";
-import { json, errorResponse } from "../../h";
+import { WorldHost } from "../../../../server/world-host";
+import { errorResponse, json } from "../../h";
 
-export async function DELETE(
+export async function GET(
   _request: Request,
-  ctx: { params: Promise<{ id: string }> },
+  context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const { id } = await ctx.params;
-    await EngineHost.get().destroySession(id);
-    return json({ destroyed: true });
-  } catch (err) {
-    return errorResponse(err);
+    const { id } = await context.params;
+    return json(WorldHost.get().session(id));
+  } catch (error) {
+    return errorResponse(error);
   }
 }

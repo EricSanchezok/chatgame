@@ -1,0 +1,9 @@
+disclosure:
+  default_check_visibility: full
+laws:
+  - id: time-passes
+    text: 每个世界步骤都必须推进正数时间。
+    severity: hard
+  - id: no-free-spirit-stones
+    text: 灵石只能转移或在有明确生产来源时产生。
+    severity: hard

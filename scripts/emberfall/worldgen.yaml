@@ -1,4 +1,0 @@
-randomize:
-  - { target: starting_event, pool: [shift-handoff], distribution: uniform }
-fixed: [plot_commitments, world_rules, glossary, taboos]
-seed: { policy: per_run }

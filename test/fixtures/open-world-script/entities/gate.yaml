@@ -1,0 +1,14 @@
+id: gate
+kind: door
+name: 石门
+description: 一扇紧闭的厚重石门。
+placement: courtyard
+facts:
+  - id: gate-lock
+    predicate: lock
+    value: { kind: text, value: sealed }
+    description: 石门处于锁闭状态。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

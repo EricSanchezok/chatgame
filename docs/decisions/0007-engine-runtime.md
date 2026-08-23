@@ -1,7 +1,7 @@
 # 引擎运行时 v1——不可变快照 + 注入 RNG + PDVA 防作弊 + 双轨状态描述层
 
 ## Status
-Accepted
+Superseded by [0031](0031-epistemic-multi-agent-truth-engine.md)
 Class: architecture
 
 ## Context and Problem Statement

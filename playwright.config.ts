@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.CHATGAME_E2E_PORT ?? 32127);
 const baseURL = `http://127.0.0.1:${port}`;
-const scriptsRoot = path.resolve("test/fixtures/core-test-library");
+const scriptsRoot = path.resolve("e2e/artifacts/runtime-worlds");
 const dataRoot = path.resolve("e2e/artifacts/runtime-data");
 
 export default defineConfig({
@@ -14,7 +14,6 @@ export default defineConfig({
   workers: 1,
   globalSetup: "./e2e/support/global-setup.ts",
   outputDir: "e2e/artifacts/test-results",
-  snapshotPathTemplate: "{testDir}/__screenshots__/{testFilePath}/{arg}{ext}",
   reporter: process.env.CI
     ? [["github"], ["html", { outputFolder: "e2e/artifacts/report", open: "never" }]]
     : [["line"], ["html", { outputFolder: "e2e/artifacts/report", open: "never" }]],
@@ -25,15 +24,6 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  expect: {
-    toHaveScreenshot: {
-      animations: "disabled",
-      caret: "hide",
-      // Even one percent can hide a displaced 1440px workspace inside a 5K
-      // canvas because the surrounding shell is intentionally quiet.
-      maxDiffPixelRatio: 0.002,
-    },
-  },
   webServer: {
     command: `npm run start -- --hostname 127.0.0.1 --port ${port}`,
     url: baseURL,
@@ -43,7 +33,6 @@ export default defineConfig({
       CHATGAME_SCRIPTS_ROOT: scriptsRoot,
       CHATGAME_DATA_ROOT: dataRoot,
       CHATGAME_LLM_PROVIDER: "mock",
-      CHATGAME_MEDIA_PROVIDER: "off",
       NEXT_TELEMETRY_DISABLED: "1",
     },
   },
@@ -57,11 +46,6 @@ export default defineConfig({
       name: "a11y",
       testMatch: "a11y/**/*.spec.ts",
       use: { ...devices["Desktop Chrome"] },
-    },
-    {
-      name: "visual",
-      testMatch: "visual/**/*.spec.ts",
-      use: { browserName: "chromium" },
     },
   ],
 });

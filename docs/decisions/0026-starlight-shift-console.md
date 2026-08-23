@@ -1,7 +1,7 @@
 # 《星港》老站值班与资源事故重做
 
 ## Status
-Accepted
+Deprecated
 Class: feature
 
 ## Context and Problem Statement

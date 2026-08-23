@@ -3,4 +3,5 @@ import path from "node:path";
 
 export default function globalSetup(): void {
   rmSync(path.resolve("e2e/artifacts/runtime-data"), { recursive: true, force: true });
+  rmSync(path.resolve("e2e/artifacts/runtime-worlds"), { recursive: true, force: true });
 }

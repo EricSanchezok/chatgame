@@ -1,7 +1,7 @@
 # 记忆系统升级——相关性检索、连续遗忘与失效语义
 
 ## Status
-Accepted
+Superseded by [0031](0031-epistemic-multi-agent-truth-engine.md)
 Class: feature
 
 ## Context and Problem Statement

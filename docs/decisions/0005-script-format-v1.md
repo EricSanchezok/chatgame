@@ -1,7 +1,7 @@
 # 剧本格式 v1.0——声明式目录剧本 + zod 可执行契约
 
 ## Status
-Accepted
+Superseded by [0032](0032-open-world-facts-and-d20-kernel.md)
 Class: feature
 
 ## Context and Problem Statement

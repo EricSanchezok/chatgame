@@ -1,7 +1,7 @@
 # 会话持久化、刷新恢复与 meta 链路
 
 ## Status
-Accepted
+Superseded by [0033](0033-persistent-streaming-world-runs.md)
 Class: feature
 
 ## Context and Problem Statement
