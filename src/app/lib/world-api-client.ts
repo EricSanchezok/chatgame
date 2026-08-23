@@ -14,10 +14,7 @@ export class WorldApiError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    cache: init?.method ? undefined : "no-store",
-    ...init,
-  });
+  const response = await fetch(url, init);
   if (!response.ok) {
     let message = response.statusText || `HTTP ${response.status}`;
     try {
@@ -43,8 +40,8 @@ function post<T>(url: string, body?: unknown): Promise<T> {
 export const worldApi = {
   worlds: () => request<{ worlds: WorldSummary[] }>("/api/worlds"),
   sessions: () => request<{ sessions: PublicSessionSummary[] }>("/api/sessions"),
-  createSession: (scriptId: string, seed?: number) =>
-    post<PublicSessionDetail>("/api/sessions", { scriptId, seed }),
+  createSession: (worldId: string, seed?: number) =>
+    post<PublicSessionDetail>("/api/sessions", { worldId, seed }),
   session: (sessionId: string) =>
     request<PublicSessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`),
   renameSession: (sessionId: string, title: string) =>
@@ -57,6 +54,11 @@ export const worldApi = {
     request<void>(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
   startRun: (sessionId: string, text: string) =>
     post<StartWorldRunResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { text }),
+  continueRun: (sessionId: string, runId: string, id: string, text: string) =>
+    post<WorldRunSnapshot>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/inputs`,
+      { id, text },
+    ),
   run: (sessionId: string, runId: string) =>
     request<WorldRunSnapshot>(
       `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,

@@ -81,14 +81,14 @@ export function SavesScreen() {
               <Link href={`/play/${encodeURIComponent(session.id)}`} onClick={() => localStorage.setItem(CURRENT_SESSION_KEY, session.id)}>
                 进入世界 <ArrowRight aria-hidden="true" />
               </Link>
-              <button className="cg-icon-button" aria-label={`重命名 ${session.title}`} onClick={() => { setEditing(session.id); setTitle(session.title); }} type="button">
+              <button className="cg-icon-button" aria-label={`重命名 ${session.title}`} disabled={Boolean(session.activeRun)} onClick={() => { setEditing(session.id); setTitle(session.title); }} type="button">
                 <Pencil aria-hidden="true" />
               </button>
               <button className="cg-icon-button cg-icon-button--danger" aria-label={`删除 ${session.title}`} disabled={Boolean(session.activeRun)} onClick={() => void remove(session)} type="button">
                 <Trash2 aria-hidden="true" />
               </button>
             </div>
-            {session.activeRun ? <p className="cg-save__running">世界正在推演，结束后才能删除。</p> : null}
+            {session.activeRun ? <p className="cg-save__running">世界正在推演，结束后才能重命名或删除。</p> : null}
           </article>
         ))}
       </div>

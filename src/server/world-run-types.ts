@@ -1,4 +1,5 @@
 import type { SimulationState } from "../engine/model";
+import type { WorldRuntimeContract } from "../engine/world-definition";
 import type {
   PublicSessionDetail,
   PublicSessionState,
@@ -6,7 +7,6 @@ import type {
   WorldRunEvent,
   WorldRunRecordView,
   WorldRunSnapshot,
-  WorldSummary,
 } from "../shared/world-api";
 export type {
   PublicObservationPacket,
@@ -23,16 +23,16 @@ export type WorldRunEventInput = WorldRunEvent extends infer Event
     : never
   : never;
 
-export interface WorldRunRecord extends Omit<WorldRunRecordView, "error"> {
+export interface WorldRunRecord extends Omit<WorldRunRecordView, "error" | "inputs"> {
   intentId: string;
   error?: string;
   internalError?: string;
 }
 
 export interface WorldSessionDocument {
-  schemaVersion: 4;
+  schemaVersion: 7;
   id: string;
-  scriptId: string;
+  world: WorldRuntimeContract;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -43,7 +43,9 @@ export interface WorldSessionDocument {
 export function publicSessionState(document: WorldSessionDocument): PublicSessionState {
   return {
     id: document.id,
-    scriptId: document.scriptId,
+    worldId: document.world.id,
+    worldHash: document.world.contentHash,
+    worldVersion: document.world.manifestVersion,
     revision: document.state.revision,
     step: document.state.step,
     elapsedSeconds: document.state.truth.elapsedSeconds,
@@ -52,27 +54,31 @@ export function publicSessionState(document: WorldSessionDocument): PublicSessio
   };
 }
 
-export function publicSessionSummary(
-  document: WorldSessionDocument,
-  world: WorldSummary,
-): PublicSessionSummary {
+function publicWorldSummary(document: WorldSessionDocument) {
+  return {
+    id: document.world.id,
+    name: document.world.name,
+    version: document.world.manifestVersion,
+    contentHash: document.world.contentHash,
+    description: document.world.description,
+  };
+}
+
+export function publicSessionSummary(document: WorldSessionDocument): PublicSessionSummary {
   const activeRun = Object.values(document.runs).find(
     (run) => run.status === "queued" || run.status === "running",
   );
   return {
     id: document.id,
-    scriptId: document.scriptId,
+    worldId: document.world.id,
     title: document.title,
-    world: structuredClone(world),
+    world: publicWorldSummary(document),
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
     revision: document.state.revision,
     step: document.state.step,
     elapsedSeconds: document.state.truth.elapsedSeconds,
-    activeRun: activeRun ? {
-      id: activeRun.id,
-      status: activeRun.status === "queued" ? "queued" : "running",
-    } : undefined,
+    activeRun: activeRun ? { id: activeRun.id, status: activeRun.status as "queued" | "running" } : undefined,
   };
 }
 
@@ -80,7 +86,9 @@ export function publicWorldRunRecord(run: WorldRunRecord): WorldRunRecordView {
   return {
     id: run.id,
     sessionId: run.sessionId,
-    text: run.text,
+    inputs: run.events.flatMap((event) => event.type === "player.input"
+      ? [{ ...event.payload, at: event.at }]
+      : []),
     status: run.status,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
@@ -100,16 +108,12 @@ export function publicWorldRunSnapshot(
   };
 }
 
-export function publicSessionDetail(
-  document: WorldSessionDocument,
-  world: WorldSummary,
-): PublicSessionDetail {
+export function publicSessionDetail(document: WorldSessionDocument): PublicSessionDetail {
   return {
-    summary: publicSessionSummary(document, world),
+    summary: publicSessionSummary(document),
     state: publicSessionState(document),
     runs: Object.values(document.runs)
       .map(publicWorldRunRecord)
-      .sort((left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)),
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)),
   };
 }

@@ -23,6 +23,7 @@ import { applyTransitionProposal, validateSimulationState } from "./transaction"
 import { TruthEngine } from "./truth-engine";
 import type { WorldDefinition } from "./world-definition";
 import { validateWorldDefinition } from "./world-definition";
+import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "./observability";
 
 export interface WorldStepResult {
   committed: CommittedStep;
@@ -195,39 +196,105 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `bootstrap:${source.revision}`,
     };
-    const agents = Object.values(source.agents);
-    const outputs = await settledValues(
-      agents.map((agent) => this.agentMind.think(source, agent, [], executionScope)),
+    const startedAt = Date.now();
+    const observe = runtimeEventEmitter(executionScope.observer);
+    observe?.({
+      event: "session.bootstrap.started",
+      correlation: executionScope.correlation,
+      counts: { agents: Object.keys(source.agents).length },
+      hashes: { state: contentHash(source) },
+      payload: executionScope.observer
+        ? fullRuntimePayload(executionScope.observer, { state: source })
+        : undefined,
+    });
+    try {
+      const agents = Object.values(source.agents);
+      const outputs = await settledValues(
+      agents.map((agent) => this.agentMind.think(
+        source,
+        agent,
+        [],
+        executionScope,
+        { action: null, outcome: null },
+        [],
+        "bootstrap",
+      )),
       "AgentMind bootstrap",
-    );
-    for (let index = 0; index < agents.length; index += 1) {
-      source.agents[agents[index].id] = applyMindOutput(
+      );
+      observe?.({
+        event: "session.bootstrap.agent_batch.completed",
+        correlation: executionScope.correlation,
+        counts: { agents: agents.length, modelAudits: outputs.length },
+        hashes: { outputs: contentHash(outputs) },
+      });
+      for (let index = 0; index < agents.length; index += 1) {
+        source.agents[agents[index].id] = applyMindOutput(
         agents[index],
         outputs[index],
         source.step,
         [],
         [],
-      );
+        );
+      }
+      source.bootstrapModelAudits = outputs.map((output) => structuredClone(output.modelAudit));
+      validateSimulationState(source, true, true);
+      this.state = source;
+      observe?.({
+        event: "session.bootstrap.committed",
+        correlation: executionScope.correlation,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        counts: { agents: agents.length, modelAudits: source.bootstrapModelAudits.length },
+        hashes: { state: contentHash(source) },
+      });
+      return this.snapshot;
+    } catch (error) {
+      observe?.({
+        event: "session.bootstrap.rolled_back",
+        level: "error",
+        correlation: executionScope.correlation,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        hashes: { state: contentHash(this.state) },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
     }
-    source.bootstrapModelAudits = outputs.map((output) => structuredClone(output.modelAudit));
-    validateSimulationState(source, true, true);
-    this.state = source;
-    return this.snapshot;
   }
 
-  beginPlayerIntent(text: string): SimulationState {
+  beginPlayerIntent(text: string, inputId?: string): SimulationState {
     const normalized = text.trim();
     if (!normalized) throw new Error("player intent cannot be empty");
     if (this.state.player.intent?.status === "active") {
       throw new Error("a player intent is already active");
     }
     const next = structuredClone(this.state);
+    const intentId = inputId ? `intent:${inputId}` : `intent:${next.revision}:${next.step}`;
     next.player.intent = {
-      id: `intent:${next.revision}:${next.step}`,
-      rawText: normalized,
+      id: intentId,
       goal: normalized,
+      latestInput: {
+        id: inputId ?? `input:${intentId}:1`,
+        text: normalized,
+        kind: "goal",
+        submittedAtStep: next.step,
+      },
       status: "active",
       startedAtStep: next.step,
+    };
+    this.state = next;
+    return this.snapshot;
+  }
+
+  continuePlayerIntent(text: string, inputId: string): SimulationState {
+    const normalized = text.trim();
+    if (!normalized) throw new Error("player intent input cannot be empty");
+    const intent = this.state.player.intent;
+    if (!intent || intent.status !== "active") throw new Error("no active player intent");
+    const next = structuredClone(this.state);
+    next.player.intent!.latestInput = {
+      id: inputId,
+      text: normalized,
+      kind: "clarification",
+      submittedAtStep: next.step,
     };
     this.state = next;
     return this.snapshot;
@@ -248,9 +315,11 @@ export class SimulationEngine {
       id: `player-action:${intent.id}:${this.state.step + 1}`,
       actorId: "player",
       baseRevision: this.state.revision,
-      rawText: intent.rawText,
+      rawText: intent.latestInput.text,
       goal: intent.goal,
-      means: this.state.step === intent.startedAtStep ? null : "继续此前已经开始的目标",
+      means: intent.latestInput.kind === "goal" && this.state.step === intent.startedAtStep
+        ? null
+        : intent.latestInput.text,
       targetIds: [],
     };
     const actions = [playerAction];
@@ -270,7 +339,28 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `step:${source.revision}:${source.step + 1}`,
     };
+    const startedAt = Date.now();
+    const observe = runtimeEventEmitter(executionScope.observer);
+    observe?.({
+      event: "step.started",
+      correlation: executionScope.correlation,
+      attributes: { worldId: source.worldId },
+      hashes: { state: contentHash(source) },
+      payload: executionScope.observer
+        ? fullRuntimePayload(executionScope.observer, { state: source })
+        : undefined,
+    });
+    try {
     const initialActions = this.jointActions();
+    observe?.({
+      event: "step.joint_actions.generated",
+      correlation: executionScope.correlation,
+      counts: { actions: initialActions.length, agents: Object.keys(source.agents).length },
+      hashes: { jointActions: contentHash(initialActions) },
+      payload: executionScope.observer
+        ? fullRuntimePayload(executionScope.observer, { actions: initialActions })
+        : undefined,
+    });
     let transitionCandidate: SimulationState | undefined;
     const resolution = await this.truthEngine.resolve({
       definition: this.definition,
@@ -313,6 +403,16 @@ export class SimulationEngine {
         transitionCandidate = candidate;
       },
     }, executionScope);
+    observe?.({
+      event: "step.truth.completed",
+      correlation: executionScope.correlation,
+      counts: {
+        truthAudits: resolution.modelAudits.length,
+        reactionAudits: resolution.reactionModelAudits.length,
+        checks: resolution.checks.length,
+      },
+      hashes: { proposal: contentHash(resolution.proposal) },
+    });
     if (!transitionCandidate) throw new Error("TruthEngine returned without a validated transition");
 
     const candidate = transitionCandidate as SimulationState;
@@ -345,10 +445,20 @@ export class SimulationEngine {
           executionScope,
           { action, outcome: outcome ? { status: outcome.status, summary: outcome.summary } : null },
           resolution.proposal.events,
+          source.agents[agent.id] ? "mind" : "bootstrap",
         );
       }),
       "AgentMind",
     );
+    observe?.({
+      event: "step.agent_mind_batch.completed",
+      correlation: executionScope.correlation,
+      counts: { agents: agents.length, modelAudits: outputs.length },
+      hashes: { patches: contentHash(outputs.map((output) => ({
+        beliefPatch: output.beliefPatch,
+        characterPatch: output.characterPatch,
+      }))) },
+    });
     for (let index = 0; index < agents.length; index += 1) {
       candidate.agents[agents[index].id] = applyMindOutput(
         agents[index],
@@ -373,13 +483,17 @@ export class SimulationEngine {
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
       outcomes: structuredClone(resolution.proposal.outcomes),
+      mechanicInvocations: structuredClone(resolution.proposal.mechanicInvocations),
+      mechanicResults: structuredClone(resolution.mechanicResults),
+      causalAssertionResults: structuredClone(resolution.causalAssertionResults),
+      causalVerification: structuredClone(resolution.causalVerification),
       events: structuredClone(resolution.proposal.events),
       observations: structuredClone(observations),
       operations: structuredClone(resolution.proposal.operations),
       beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
       characterPatches: outputs.map((output) => structuredClone(output.characterPatch)),
       modelAudits: [
-        structuredClone(resolution.modelAudit),
+        ...resolution.modelAudits.map((audit) => structuredClone(audit)),
         ...resolution.reactionModelAudits.map((audit) => structuredClone(audit)),
         ...outputs.map((output) => structuredClone(output.modelAudit)),
       ],
@@ -391,11 +505,38 @@ export class SimulationEngine {
     candidate.history.push(committed);
     validateSimulationState(candidate, true, true);
     this.state = candidate;
-    return {
+    const result = {
       committed: structuredClone(committed),
       state: this.snapshot,
       requiresPlayerDecision: resolution.proposal.requiresPlayerDecision,
     };
+    observe?.({
+      event: "step.committed",
+      correlation: {
+        ...executionScope.correlation,
+        revision: candidate.revision,
+        step: candidate.step,
+      },
+      durationMs: Math.max(0, Date.now() - startedAt),
+      counts: { modelAudits: committed.modelAudits.length },
+      hashes: { committedStep: committed.contentHash, state: contentHash(candidate) },
+      payload: executionScope.observer
+        ? fullRuntimePayload(executionScope.observer, { state: candidate })
+        : undefined,
+    });
+    return result;
+    } catch (error) {
+      observe?.({
+        event: "step.rolled_back",
+        level: "error",
+        correlation: executionScope.correlation,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { result: "rolled_back" },
+        hashes: { state: contentHash(this.state) },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
   }
 
   async runUntilBoundary(

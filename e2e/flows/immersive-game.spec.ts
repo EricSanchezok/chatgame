@@ -57,7 +57,7 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
       replace: "true",
     },
   });
-  const created = await page.request.post("/api/sessions", { data: { scriptId: "open-world-fixture" } });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
   const detail = await created.json() as { summary: { id: string } };
 
   await page.goto(`/play/${detail.summary.id}`);

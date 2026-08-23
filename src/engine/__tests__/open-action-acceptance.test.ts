@@ -9,9 +9,11 @@ import type {
   WorldDeltaOperation,
 } from "../model";
 import { ScriptedModelProvider, type ScriptedModelHandler } from "../testing/model-provider";
+import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
+import { summarizeModelExecutionAudit } from "../model-provider";
 import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 
@@ -25,7 +27,7 @@ function autonomousAgent(id: string): AgentState {
   return {
     id,
     entityId: id,
-    modelProfileId: "agent-default",
+    modelProfiles: { bootstrap: "agent-default", mind: "agent-default", reaction: "agent-default" },
     character: createEmptyCharacter("独立行动的世界居民"),
     belief: {
       localEntities: {
@@ -138,8 +140,9 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
     agents[id] = autonomousAgent(id);
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 6,
     worldId: "acceptance-world",
+    worldHash: TEST_WORLD_HASH,
     lawIds: laws.map((law) => law.id),
     revision: 0,
     step: 0,
@@ -179,15 +182,15 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
             id: "spirit-stone",
             name: "灵石",
             unit: "枚",
-            allowProduction: false,
-            allowConsumption: true,
+            productionLawIds: [],
+            consumptionLawIds: ["world-law", "teleport-law"],
           },
           mana: {
             id: "mana",
             name: "灵力",
             unit: "点",
-            allowProduction: false,
-            allowConsumption: true,
+            productionLawIds: [],
+            consumptionLawIds: ["teleport-law"],
           },
         },
         ratings: {
@@ -294,15 +297,24 @@ function definition(initialState: SimulationState): WorldDefinition {
   return {
     id: "acceptance-world",
     name: "开放行动验收世界",
+    manifestVersion: "test",
     description: "只用于验证通用引擎契约。",
-    truthModelProfileId: "truth-engine",
+    contentHash: TEST_WORLD_HASH,
+    modelProfiles: {
+      perception: "truth-engine",
+      reactionRouting: "truth-engine",
+      resolution: "truth-engine",
+      transition: "truth-engine",
+      causalVerifier: "truth-engine",
+    },
     laws,
     disclosure: { defaultCheckVisibility: "full" },
     rulePackages: [{
       id: "core-d20",
-      version: "1.0.0",
-      config: { opposedChecks: true, damageUsesMeters: true },
+      version: "1.1.0",
+      config: { damageUsesMeters: true },
       adjudication: "使用 d20 检定。",
+      rules: [{ id: "apply-meter-impact", description: "检定驱动 Meter 变化。" }],
     }],
     initialState,
   };
@@ -336,6 +348,7 @@ function jointTransition(
   context: TruthContext,
   options: {
     operations?: WorldDeltaOperation[];
+    mechanicInvocations?: TransitionProposal["mechanicInvocations"];
     playerStatus?: TransitionProposal["outcomes"][number]["status"];
     playerSummary?: string;
     alternatives?: KnownAlternative[];
@@ -353,11 +366,18 @@ function jointTransition(
       status: action.actorId === "player" ? options.playerStatus ?? "succeeded" : "continuing",
       summary: action.actorId === "player" ? options.playerSummary ?? "你的行动得到世界回应。" : "自主行动得到联合裁决。",
       causeRefs: [{ kind: "action", id: action.id }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       knownAlternatives: action.actorId === "player" ? options.alternatives ?? [] : [],
     })),
+    mechanicInvocations: options.mechanicInvocations ?? [],
     operations: [
       ...(options.operations ?? []),
-      { kind: "advance_time", seconds: 1, causes: [{ kind: "law", id: "time-passes" }] },
+      {
+        kind: "advance_time",
+        seconds: 1,
+        causes: [{ kind: "law", id: "time-passes" }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+      },
     ],
     events: [{
       id: eventId,
@@ -365,6 +385,7 @@ function jointTransition(
       description: "联合世界步骤已经发生。",
       impact: "ordinary",
       causes: [{ kind: "law", id: "time-passes" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
     }],
     observations: ["player", ...(options.observerIds ?? Object.keys(context.agentEpistemics))].map((observerId) => ({
       id: `surface:${observerId}:${nextStep}`,
@@ -436,6 +457,7 @@ describe("open action acceptance", () => {
                 entityId: "token",
                 placementId: contender.actorId,
                 causes: [{ kind: "action", id: contender.id }],
+                assertions: [{ kind: "placement_equals", entityId: "token", placementId: "courtyard" }],
               }],
             }),
           };
@@ -520,12 +542,16 @@ describe("open action acceptance", () => {
               amount: 4,
               lawId: "teleport-law",
               causes: [{ kind: "action", id: playerAction.id }, { kind: "law", id: "teleport-law" }],
+              assertions: [{
+                kind: "quantity_compare", definitionId: "mana", holderId: "player", operator: "gte", value: 4,
+              }],
             },
             {
               kind: "place_entity",
               entityId: "player",
               placementId: "destination",
               causes: [{ kind: "action", id: playerAction.id }, { kind: "law", id: "teleport-law" }],
+              assertions: [{ kind: "fact_matches", factId: "teleport-capability", expected: { kind: "boolean", value: true } }],
             },
           ],
           playerSummary: "传送成功，灵力随之消耗。",
@@ -555,7 +581,7 @@ describe("open action acceptance", () => {
             targetId: "enemy",
             ratingId: "attack:player",
             modifier: 20,
-            modifierSources: [{ id: "attack:player", amount: 20 }],
+            modifierSources: [{ kind: "rating", id: "attack:player", amount: 20 }],
             dc: 15,
             mode: "normal",
             stakes: "成功则造成足以击败拦路者的伤害，失败则目标仍可行动。",
@@ -568,11 +594,19 @@ describe("open action acceptance", () => {
       return {
         kind: "transition",
         proposal: jointTransition(context, {
-          operations: [{
-            kind: "adjust_meter",
-            meterId: "health:enemy",
-            amount: -10,
+          mechanicInvocations: [{
+            id: "impact:decisive-attack",
+            packageId: "core-d20",
+            ruleId: "apply-meter-impact",
+            input: {
+              checkId: "decisive-attack",
+              expected: "succeeded",
+              recipient: "target",
+              meterId: "health:enemy",
+              amount: -10,
+            },
             causes: [{ kind: "check", id: "decisive-attack" }],
+            assertions: [{ kind: "check_result", checkId: "decisive-attack", expected: "succeeded" }],
           }],
           playerSummary: "攻击命中，拦路者失去战斗能力。",
           playerObservation: "你看见拦路者倒下，不再阻挡去路。",
@@ -594,7 +628,10 @@ describe("open action acceptance", () => {
     expect(result.state.truth.meters["health:enemy"].current).toBe(0);
     expect(result.state.truth.entities.enemy.lifecycle).toBe("retired");
     expect(result.state.agents.enemy).toBeUndefined();
-    expect(result.committed.modelAudits[0]).toMatchObject({ attempts: 2, repairAttempts: 0 });
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")!,
+    ))
+      .toMatchObject({ invocations: 2, repairAttempts: 0 });
   });
 
   it("produces identical committed checks, delta and hashes from identical seeded inputs", async () => {
@@ -611,7 +648,7 @@ describe("open action acceptance", () => {
             targetId: null,
             ratingId: "attack:player",
             modifier: 20,
-            modifierSources: [{ id: "attack:player", amount: 20 }],
+            modifierSources: [{ kind: "rating", id: "attack:player", amount: 20 }],
             dc: 18,
             mode: "advantage",
             stakes: "验证可复现世界提交。",
@@ -654,7 +691,9 @@ describe("open action acceptance", () => {
     const result = await engine.step();
 
     expect(truthCalls).toBe(2);
-    expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-transition")!,
+    ).repairAttempts).toBe(1);
     expect(result.state.player.knowledge.claims["key-is-real"].value).toEqual({ kind: "text", value: "real" });
     expect(JSON.stringify(result.committed.observations.filter((packet) => packet.observerId === "player")))
       .not.toContain("fake");
@@ -773,7 +812,7 @@ describe("open action acceptance", () => {
     });
     engine.beginPlayerIntent("先失败再重试");
 
-    await expect(engine.step()).rejects.toThrow("TruthEngine failed after repairs");
+    await expect(engine.step()).rejects.toThrow("truth-transition failed after repairs");
     expect(truthCalls).toBe(3);
     expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
     valid = true;

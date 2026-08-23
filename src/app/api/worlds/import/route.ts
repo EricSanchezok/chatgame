@@ -1,17 +1,27 @@
 import { WorldHost } from "../../../../server/world-host";
 import { MAX_ARCHIVE_BYTES } from "../../../../server/world-import";
-import { errorResponse, json } from "../../h";
+import { createHash } from "node:crypto";
+import { json, observeHttpArchiveBody, observedRoute } from "../../h";
 
 export async function POST(request: Request): Promise<Response> {
-  try {
+  return observedRoute(request, async (scope) => {
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return json({ error: "zip file is required" }, 400);
-    if (file.size > MAX_ARCHIVE_BYTES) return json({ error: "archive exceeds 50 MiB" }, 413);
     const replace = form.get("replace") === "true";
-    const result = WorldHost.get().importWorld(Buffer.from(await file.arrayBuffer()), replace);
+    let buffer: Buffer | undefined;
+    if (scope.observe) {
+      buffer = Buffer.from(await file.arrayBuffer());
+      observeHttpArchiveBody(scope, {
+        filename: file.name,
+        size: file.size,
+        hash: createHash("sha256").update(buffer).digest("hex"),
+        replace,
+      });
+    }
+    if (file.size > MAX_ARCHIVE_BYTES) return json({ error: "archive exceeds 50 MiB" }, 413);
+    buffer ??= Buffer.from(await file.arrayBuffer());
+    const result = WorldHost.get().importWorld(buffer, replace);
     return json(result, 201);
-  } catch (error) {
-    return errorResponse(error);
-  }
+  });
 }

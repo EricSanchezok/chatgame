@@ -35,6 +35,10 @@ function agentOutput(context: Record<string, unknown>) {
 }
 
 function truthOutput(context: Record<string, unknown>) {
+  if (context.promptVersion === "causal-verifier-v1") return { verdict: "accept", findings: [] };
+  if (context.stage === "perception" || context.stage === "resolution") return { kind: "done" };
+  if (context.stage === "reaction-routing") return { requests: [] };
+  if (context.stage !== "transition") throw new Error(`unexpected Truth stage ${String(context.stage)}`);
   const baseRevision = context.baseRevision as number;
   const step = context.step as number;
   const actions = context.jointActions as Array<{ id: string }>;
@@ -44,37 +48,42 @@ function truthOutput(context: Record<string, unknown>) {
   const eventId = `e2e-event:${nextStep}`;
   const lawId = world.laws[0].id;
   return {
-    kind: "transition",
-    proposal: {
-      baseRevision,
-      outcomes: actions.map((action) => ({
-        proposalId: action.id,
-        status: "succeeded",
-        summary: "模拟 Truth Engine 已联合裁决行动。",
-        causeRefs: [{ kind: "action", id: action.id }],
-        knownAlternatives: [],
-      })),
-      operations: [{ kind: "advance_time", seconds: 1, causes: [{ kind: "law", id: lawId }] }],
-      events: [{
-        id: eventId,
-        step: nextStep,
-        description: "世界在联合裁决后推进了一秒。",
-        impact: "ordinary",
-        causes: [{ kind: "law", id: lawId }],
-      }],
-      observations: ["player", ...Object.keys(agentEpistemics)].map((observerId) => ({
-        id: `e2e-observation:${observerId}:${nextStep}`,
-        observerId,
-        step: nextStep,
-        kind: "outcome",
-        summary: observerId === "player" ? "世界回应了你的自由行动。" : "周围的世界继续变化。",
-        introductions: [],
-        apparentClaims: [],
-        sourceEventIds: [eventId],
-      })),
-      intentStatus: "completed",
-      requiresPlayerDecision: false,
-    },
+    baseRevision,
+    outcomes: actions.map((action) => ({
+      proposalId: action.id,
+      status: "succeeded",
+      summary: "模拟 Truth Engine 已联合裁决行动。",
+      causeRefs: [{ kind: "action", id: action.id }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+      knownAlternatives: [],
+    })),
+    mechanicInvocations: [],
+    operations: [{
+      kind: "advance_time",
+      seconds: 1,
+      causes: [{ kind: "law", id: lawId }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+    }],
+    events: [{
+      id: eventId,
+      step: nextStep,
+      description: "世界在联合裁决后推进了一秒。",
+      impact: "ordinary",
+      causes: [{ kind: "law", id: lawId }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 1 }],
+    }],
+    observations: ["player", ...Object.keys(agentEpistemics)].map((observerId) => ({
+      id: `e2e-observation:${observerId}:${nextStep}`,
+      observerId,
+      step: nextStep,
+      kind: "outcome",
+      summary: observerId === "player" ? "世界回应了你的自由行动。" : "周围的世界继续变化。",
+      introductions: [],
+      apparentClaims: [],
+      sourceEventIds: [eventId],
+    })),
+    intentStatus: "completed",
+    requiresPlayerDecision: false,
   };
 }
 

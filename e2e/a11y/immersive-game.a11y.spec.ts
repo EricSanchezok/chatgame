@@ -24,7 +24,7 @@ test("the empty and completed conversation have no detectable accessibility viol
       replace: "false",
     },
   });
-  const created = await page.request.post("/api/sessions", { data: { scriptId: "open-world-fixture" } });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
   const detail = await created.json() as { summary: { id: string } };
   await page.goto(`/play/${detail.summary.id}`);
   await expect(page.getByLabel("你的行动")).toBeVisible();

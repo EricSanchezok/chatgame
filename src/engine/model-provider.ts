@@ -1,11 +1,18 @@
 import type { z } from "zod";
 import type { ModelCatalog } from "./model-catalog";
-import type { ModelExecutionAudit } from "./model";
+import type {
+  ModelExecutionAudit,
+  ModelInvocationAudit,
+  ModelTokenUsage,
+} from "./model";
+import type { RuntimeCorrelation, RuntimeObserver } from "./observability";
 
 export interface ModelExecutionScope {
   workloadId: string;
   batchId: string;
   abortSignal?: AbortSignal;
+  correlation?: RuntimeCorrelation;
+  observer?: RuntimeObserver;
 }
 
 export interface StructuredModelRequest<T> extends ModelExecutionScope {
@@ -17,6 +24,8 @@ export interface StructuredModelRequest<T> extends ModelExecutionScope {
   system: string;
   context: unknown;
   schema: z.ZodType<T>;
+  modelInvocationId?: string;
+  modelInvocation?: number;
 }
 
 export interface StructuredModelResult<T> {
@@ -50,7 +59,6 @@ function addNullable(left: number | null, right: number | null): number | null {
 
 export function combineModelExecutionAudits(
   audits: readonly ModelExecutionAudit[],
-  repairAttempts: number,
 ): ModelExecutionAudit {
   const first = audits[0];
   if (!first) throw new Error("cannot combine an empty model audit list");
@@ -58,28 +66,102 @@ export function combineModelExecutionAudits(
     if (audit.role !== first.role || audit.subjectId !== first.subjectId ||
       audit.profileId !== first.profileId || audit.providerId !== first.providerId ||
       audit.modelId !== first.modelId || audit.catalogHash !== first.catalogHash ||
+      audit.catalogSchemaVersion !== first.catalogSchemaVersion ||
       audit.promptVersion !== first.promptVersion ||
+      audit.structuredOutputMode !== first.structuredOutputMode ||
       JSON.stringify(audit.inference) !== JSON.stringify(first.inference)) {
       throw new Error("cannot combine model audits with different execution identities");
     }
   }
   return {
     ...structuredClone(first),
-    attempts: audits.reduce((total, audit) => total + audit.attempts, 0),
-    transportAttempts: audits.reduce((total, audit) => total + audit.transportAttempts, 0),
-    repairAttempts,
-    queueWaitMs: audits.reduce((total, audit) => total + audit.queueWaitMs, 0),
-    executionMs: audits.reduce((total, audit) => total + audit.executionMs, 0),
-    tokenUsage: audits.slice(1).reduce((usage, audit) => ({
-      input: addNullable(usage.input, audit.tokenUsage.input),
-      output: addNullable(usage.output, audit.tokenUsage.output),
-      reasoning: addNullable(usage.reasoning, audit.tokenUsage.reasoning),
-      cacheRead: addNullable(usage.cacheRead, audit.tokenUsage.cacheRead),
-      cacheWrite: addNullable(usage.cacheWrite, audit.tokenUsage.cacheWrite),
-    }), structuredClone(first.tokenUsage)),
-    finishReasons: audits.flatMap((audit) => audit.finishReasons),
-    providerRequestIds: audits.flatMap((audit) => audit.providerRequestIds),
-    requestHashes: audits.flatMap((audit) => audit.requestHashes),
-    responseHashes: audits.flatMap((audit) => audit.responseHashes),
+    invocations: audits.flatMap((audit) => structuredClone(audit.invocations)),
+  };
+}
+
+export interface ModelExecutionSummary {
+  invocations: number;
+  transportAttempts: number;
+  repairAttempts: number;
+  queueWaitMs: number;
+  executionMs: number;
+  retryDelayMs: number;
+  tokenUsage: ModelTokenUsage;
+}
+
+export function summarizeModelExecutionAudit(audit: ModelExecutionAudit): ModelExecutionSummary {
+  const invocations = audit.invocations;
+  const emptyUsage: ModelTokenUsage = {
+    input: null,
+    output: null,
+    reasoning: null,
+    cacheRead: null,
+    cacheWrite: null,
+  };
+  return {
+    invocations: invocations.length,
+    transportAttempts: invocations.reduce((sum, invocation) => sum + invocation.transports.length, 0),
+    repairAttempts: invocations.filter((invocation) => invocation.semanticOutcome === "rejected").length,
+    queueWaitMs: invocations.flatMap((invocation) => invocation.transports)
+      .reduce((sum, attempt) => sum + attempt.queueWaitMs, 0),
+    executionMs: invocations.flatMap((invocation) => invocation.transports)
+      .reduce((sum, attempt) => sum + attempt.executionMs, 0),
+    retryDelayMs: invocations.flatMap((invocation) => invocation.transports)
+      .reduce((sum, attempt) => sum + attempt.retryDelayMs, 0),
+    tokenUsage: invocations.reduce((usage, invocation) => ({
+      input: addNullable(usage.input, invocation.tokenUsage.input),
+      output: addNullable(usage.output, invocation.tokenUsage.output),
+      reasoning: addNullable(usage.reasoning, invocation.tokenUsage.reasoning),
+      cacheRead: addNullable(usage.cacheRead, invocation.tokenUsage.cacheRead),
+      cacheWrite: addNullable(usage.cacheWrite, invocation.tokenUsage.cacheWrite),
+    }), emptyUsage),
+  };
+}
+
+export function setModelInvocationOutcome(
+  audit: ModelExecutionAudit,
+  outcome: ModelInvocationAudit["semanticOutcome"],
+  validationIssueCodes: readonly string[] = [],
+): void {
+  const invocation = audit.invocations.at(-1);
+  if (!invocation) throw new Error("model audit has no invocation to classify");
+  invocation.semanticOutcome = outcome;
+  invocation.validationIssueCodes = [...new Set(validationIssueCodes)];
+}
+
+export function setModelInvocationResultKind(
+  audit: ModelExecutionAudit,
+  resultKind: string,
+): void {
+  const invocation = audit.invocations.at(-1);
+  if (!invocation) throw new Error("model audit has no invocation to classify");
+  invocation.resultKind = resultKind;
+}
+
+export function modelInvocationIdentity(
+  scope: ModelExecutionScope,
+  role: ModelExecutionAudit["role"],
+  subjectId: string,
+  ordinal: number,
+): { modelInvocationId: string; modelInvocation: number } {
+  const prefix = scope.correlation?.stepAttemptId ?? `${scope.workloadId}:${scope.batchId}`;
+  return {
+    modelInvocationId: `${prefix}:${role}:${subjectId}:${ordinal}`,
+    modelInvocation: ordinal,
+  };
+}
+
+export function modelInvocationCorrelation(
+  scope: ModelExecutionScope,
+  role: ModelExecutionAudit["role"],
+  subjectId: string,
+  identity?: { modelInvocationId?: string; modelInvocation?: number },
+): RuntimeCorrelation {
+  return {
+    ...scope.correlation,
+    modelInvocationId: identity?.modelInvocationId,
+    modelRole: role,
+    modelSubject: subjectId,
+    modelInvocation: identity?.modelInvocation,
   };
 }

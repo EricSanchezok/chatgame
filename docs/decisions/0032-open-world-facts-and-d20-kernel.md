@@ -29,7 +29,7 @@ canonical truth 以稳定实体和开放 `WorldFact` 图表达。位置、包含
 
 引擎提供 `Meter`、`Quantity`、`Rating` 与声明式 threshold。剧本定义生命、灵力、理智、修为、货币或其他数值的名称、范围、适用实体及阈值后果。硬内核执行范围、唯一包含、转移守恒以及带法则和 provenance 的生产、消耗。
 
-不确定行动使用通用 d20 检定：Truth Engine 在看到随机值前提交相关 rating、修正、熟练、DC、优势/劣势、风险和可见性；注入式种子随机源生成结果；Truth Engine 再按自然语言世界法典结算。连续依赖检定可以分阶段请求，但每一阶段都必须先承诺后掷骰。
+不确定行动使用通用 d20 检定：Truth Engine 在看到随机值前提交相关 rating、修正、熟练、DC、优势/劣势、风险和可见性；每项 modifier source 以 `rating` 或 `fact` 判别类型和 ID 共同标识，内核在对应命名空间核对精确数值；注入式种子随机源生成结果；Truth Engine 再按自然语言世界法典结算。连续依赖检定可以分阶段请求，但每一阶段都必须先承诺后掷骰。
 
 核心只提供 d20 内核，不捆绑完整 SRD 内容。世界通过受信任服务端注册表引用精确版本的规则包和严格配置，归档不能携带可执行代码；默认包用同轮多检定与 Meter delta/threshold 组合表达对抗和伤害。剧本格式包含世界法典、初始实体、开放事实、数值目录和 Agent profile，不包含 actions.yaml、effect 白名单或自定义 action handler。
 
@@ -68,4 +68,6 @@ canonical truth 以稳定实体和开放 `WorldFact` 图表达。位置、包含
 - [0006](0006-engine-mechanics-modules.md) — 被通用数值与事实图取代的 mechanics 模块。
 - [0021](0021-gameplay-and-engine-extension-v2.md) — 被开放事实和自由行动取代的扩展契约。
 - [0031](0031-epistemic-multi-agent-truth-engine.md) — 消费本状态模型的 Truth Engine。
+- [0039](0039-pinned-world-runtime-contract.md) — 世界内容身份与初始 Fact 来源。
+- [事故复盘 0012](../postmortems/0012-modifier-source-namespace-collision.md) — modifier source 歧义的逃逸机制。
 - [剧本格式规格](../game-design/script-format.md) — 当前剧本参考。

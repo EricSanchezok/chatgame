@@ -36,7 +36,8 @@ import { worldApi } from "../lib/world-api-client";
 import { ControlOrb } from "./control-orb";
 
 const runEventTypes: WorldRunEvent["type"][] = [
-  "run.started",
+  "player.input",
+  "run.execution_started",
   "check.resolved",
   "player.outcome",
   "player.observation",
@@ -53,13 +54,23 @@ function isActive(run: WorldRunRecordView | undefined): boolean {
   return run?.status === "queued" || run?.status === "running";
 }
 
+function isAwaitingPlayer(run: WorldRunRecordView | undefined): boolean {
+  return run?.status === "awaiting_player";
+}
+
+function isRetriable(run: WorldRunRecordView | undefined): boolean {
+  return run?.status === "failed" || run?.status === "step_limit";
+}
+
 function activeRunSummary(run: WorldRunRecordView): PublicSessionDetail["summary"]["activeRun"] {
   if (run.status !== "queued" && run.status !== "running") return undefined;
   return { id: run.id, status: run.status };
 }
 
 function isTerminalEvent(event: WorldRunEvent): boolean {
-  return event.type.startsWith("run.") && event.type !== "run.started";
+  return event.type === "run.awaiting_player" || event.type === "run.completed" ||
+    event.type === "run.goal_failed" || event.type === "run.step_limit" ||
+    event.type === "run.cancelled" || event.type === "run.failed";
 }
 
 type SessionAction =
@@ -78,7 +89,7 @@ function statusAfterEvent(
   event: WorldRunEvent,
 ): WorldRunRecordView["status"] {
   switch (event.type) {
-    case "run.started": return "running";
+    case "run.execution_started": return "running";
     case "run.awaiting_player": return "awaiting_player";
     case "run.completed": return "completed";
     case "run.goal_failed": return "goal_failed";
@@ -110,7 +121,11 @@ function sessionReducer(state: PublicSessionDetail | undefined, action: SessionA
   if (!current || current.events.some((event) => event.sequence === action.event.sequence)) return state;
   const events = [...current.events, action.event].sort((left, right) => left.sequence - right.sequence);
   const status = statusAfterEvent(current.status, action.event);
-  const run = { ...current, events, status, updatedAt: action.event.at };
+  const playerInput = action.event.type === "player.input" ? action.event : undefined;
+  const inputs = playerInput && !current.inputs.some((input) => input.id === playerInput.payload.id)
+    ? [...current.inputs, { ...playerInput.payload, at: playerInput.at }]
+    : current.inputs;
+  const run = { ...current, inputs, events, status, updatedAt: action.event.at };
   const committed = action.event.type === "step.committed" ? action.event.payload : undefined;
   return {
     ...state,
@@ -118,6 +133,7 @@ function sessionReducer(state: PublicSessionDetail | undefined, action: SessionA
     summary: {
       ...state.summary,
       ...(committed ?? {}),
+      updatedAt: action.event.at,
       activeRun: activeRunSummary(run),
     },
     runs: upsertRun(state.runs, run),
@@ -217,7 +233,7 @@ function AssistantMessage() {
   );
 }
 
-function GameThread({ children }: { children: ReactNode }) {
+function GameThread({ children, awaitingPlayer }: { children: ReactNode; awaitingPlayer: boolean }) {
   return (
     <ThreadPrimitive.Root className="cg-thread">
       <ThreadPrimitive.Viewport className="cg-thread__viewport" autoScroll turnAnchor="top">
@@ -235,9 +251,9 @@ function GameThread({ children }: { children: ReactNode }) {
         <div className="cg-composer-dock">
           <ComposerPrimitive.Root className="cg-chat-composer">
             <ComposerPrimitive.Input
-              aria-label="你的行动"
+              aria-label={awaitingPlayer ? "补充信息" : "你的行动"}
               maxLength={4000}
-              placeholder="说出你的行动…"
+              placeholder={awaitingPlayer ? "补充你的选择、方法或缺失信息…" : "说出你的行动…"}
               submitMode="enter"
               unstable_insertNewlineOnTouchEnter
               rows={1}
@@ -299,6 +315,8 @@ export function GameSession({ sessionId }: { sessionId: string }) {
   }, [observeRun, sessionId]);
 
   const activeRun = detail?.runs.find(isActive);
+  const awaitingRun = detail?.runs.find(isAwaitingPlayer);
+  const retriableRun = detail?.runs.find(isRetriable);
   const messages = useMemo(() => runsToMessages(detail?.runs ?? []), [detail?.runs]);
 
   const submit = useCallback(async (message: AppendMessage) => {
@@ -310,6 +328,17 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     if (!text) return;
     setError("");
     try {
+      if (awaitingRun) {
+        const snapshot = await worldApi.continueRun(
+          sessionId,
+          awaitingRun.id,
+          crypto.randomUUID(),
+          text,
+        );
+        dispatch({ type: "snapshot", snapshot });
+        observeRun(awaitingRun.id, snapshot.run.events.at(-1)?.sequence ?? 0);
+        return;
+      }
       const started = await worldApi.startRun(sessionId, text);
       const snapshot = await worldApi.run(sessionId, started.runId);
       dispatch({ type: "snapshot", snapshot });
@@ -318,7 +347,7 @@ export function GameSession({ sessionId }: { sessionId: string }) {
       setError(reason instanceof Error ? reason.message : String(reason));
       throw reason;
     }
-  }, [observeRun, sessionId]);
+  }, [awaitingRun, observeRun, sessionId]);
 
   const cancel = useCallback(async () => {
     if (!activeRun) return;
@@ -341,7 +370,7 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     messages,
     convertMessage: (message) => message,
     isRunning: Boolean(activeRun),
-    isSendDisabled: loading || Boolean(activeRun) || !detail,
+    isSendDisabled: loading || Boolean(activeRun) || Boolean(retriableRun) || !detail,
     onNew: submit,
     onCancel: cancel,
   });
@@ -386,7 +415,7 @@ export function GameSession({ sessionId }: { sessionId: string }) {
             </dl>
           </header>
           {error ? <p className="cg-game__alert" role="alert">{error}</p> : null}
-          <GameThread>
+          <GameThread awaitingPlayer={Boolean(awaitingRun)}>
             {activeRun ? (
               <ComposerPrimitive.Cancel className="cg-send-button" aria-label="停止推演">
                 <Square aria-hidden="true" />

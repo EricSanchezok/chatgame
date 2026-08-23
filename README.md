@@ -35,5 +35,5 @@ npm run check:all
 - [世界剧本格式](docs/game-design/script-format.md)
 - [Truth Engine 运行时](docs/game-design/engine-runtime.md)
 - [模型目录与 Gateway](docs/game-design/model-gateway.md)
-- [工作台与流式 API](docs/game-design/presentation.md)
+- [沉浸会话壳与流式 API](docs/game-design/presentation.md)
 - [决策日志](docs/decisions/README.md)

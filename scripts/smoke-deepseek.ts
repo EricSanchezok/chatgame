@@ -4,6 +4,7 @@ import { loadModelCatalog } from "../src/engine/model-catalog";
 import { createModelGateway } from "../src/engine/model-gateway";
 import { SimulationEngine } from "../src/engine/simulation";
 import { TruthEngine } from "../src/engine/truth-engine";
+import { summarizeModelExecutionAudit } from "../src/engine/model-provider";
 import { loadWorldScript } from "../src/script/world-loader";
 
 async function main(): Promise<void> {
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
     await engine.bootstrapAgents();
     engine.beginPlayerIntent("观察石门和庭院，然后在原地等待一秒，不尝试改变任何物品或人物。只依据可观察信息反馈。");
     const result = await engine.step();
-    const truthAudit = result.committed.modelAudits.find((audit) => audit.role === "truth-engine");
+    const truthAudit = result.committed.modelAudits.find((audit) => audit.role === "truth-transition");
     const mindAudits = result.committed.modelAudits.filter((audit) => audit.role === "agent-mind");
     if (!truthAudit || mindAudits.length !== Object.keys(result.state.agents).length) {
       throw new Error("committed step is missing model audit coverage");
@@ -34,7 +35,7 @@ async function main(): Promise<void> {
       `step=${result.state.step}`,
       `provider=${truthAudit.providerId}`,
       `model=${truthAudit.modelId}`,
-      `truthAttempts=${truthAudit.attempts}`,
+      `truthAttempts=${summarizeModelExecutionAudit(truthAudit).invocations}`,
       `agentAudits=${mindAudits.length}`,
       `contentHash=${result.committed.contentHash}`,
     ].join(" ") + "\n");

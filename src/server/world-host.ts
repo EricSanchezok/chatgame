@@ -3,15 +3,33 @@ import path from "node:path";
 import { AgentMind } from "../engine/agent-mind";
 import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
+import { canonicalize } from "../engine/model-audit";
 import type { StructuredModelProvider } from "../engine/model-provider";
 import { SimulationEngine } from "../engine/simulation";
 import { TruthEngine } from "../engine/truth-engine";
-import type { WorldDefinition } from "../engine/world-definition";
-import { FileWorldRepository, type WorldRepository } from "../script/world-repository";
-import { importWorldArchive, type WorldImportResult } from "./world-import";
 import {
-  FileWorldSessionStore,
+  validateWorldDefinition,
+  validateWorldModelProfiles,
+  toWorldRuntimeContract,
+  type WorldDefinition,
+} from "../engine/world-definition";
+import type { WorldRepository } from "../script/world-repository";
+import {
+  NOOP_RUNTIME_OBSERVER,
+  runtimeEventEmitter,
+  serializeRuntimeError,
+  type RuntimeCorrelation,
+  type RuntimeObserver,
+} from "../engine/observability";
+import { contentHash } from "../engine/model-audit";
+import type { ContinueWorldRunInput, StartWorldRunResponse, WorldRunSnapshot } from "../shared/world-api";
+import { LocalDatabase } from "./local-database";
+import type { WorldImportResult } from "./world-import";
+import { getRuntimeObserver } from "./runtime-observer";
+import {
+  WorldSessionConflictError,
   WorldSessionNotFoundError,
+  type StoredWorldSession,
   type WorldSessionStore,
 } from "./world-session-store";
 import {
@@ -27,14 +45,10 @@ import {
   type WorldRunStatus,
   type WorldSessionDocument,
 } from "./world-run-types";
-import type { StartWorldRunResponse, WorldRunSnapshot, WorldSummary } from "../shared/world-api";
 
-interface HostedSession {
+interface HostedSession extends StoredWorldSession {
   definition: WorldDefinition;
-  world: WorldSummary;
   engine: SimulationEngine;
-  document: WorldSessionDocument;
-  channels: Map<string, RunChannel>;
 }
 
 interface HostedExecution {
@@ -42,14 +56,17 @@ interface HostedExecution {
   controller: AbortController;
 }
 
-const terminalStatuses = new Set<WorldRunStatus>([
-  "awaiting_player",
-  "completed",
-  "goal_failed",
-  "step_limit",
-  "cancelled",
-  "failed",
+interface WorldImporter {
+  importWorld(buffer: Buffer, modelCatalog: StructuredModelProvider["catalog"], replace?: boolean): WorldImportResult;
+}
+
+type ExecutionReason = "initial" | "player_input" | "retry";
+
+const streamClosingStatuses = new Set<WorldRunStatus>([
+  "awaiting_player", "completed", "goal_failed", "step_limit", "cancelled", "failed",
 ]);
+const finalStatuses = new Set<WorldRunStatus>(["completed", "goal_failed", "cancelled"]);
+const inputIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/;
 
 class RunChannel {
   private readonly waiters = new Set<() => void>();
@@ -83,9 +100,11 @@ export interface WorldHostOptions {
   repository: WorldRepository;
   store: WorldSessionStore;
   provider: StructuredModelProvider;
+  importer?: WorldImporter;
   now?: () => Date;
   idFactory?: () => string;
   maxStepsPerRun?: number;
+  observer?: RuntimeObserver;
 }
 
 export class WorldHostError extends Error {
@@ -118,40 +137,67 @@ function sanitizePlayerObservation(
 
 export class WorldHost {
   private static singleton: WorldHost | undefined;
-  private readonly sessions = new Map<string, HostedSession>();
   private readonly executions = new Map<string, HostedExecution>();
+  private readonly channels = new Map<string, RunChannel>();
   private readonly now: () => Date;
   private readonly idFactory: () => string;
   private readonly maxStepsPerRun: number;
+  readonly runtimeObserver: RuntimeObserver;
+  private readonly observe: ReturnType<typeof runtimeEventEmitter>;
 
   constructor(private readonly options: WorldHostOptions) {
     this.now = options.now ?? (() => new Date());
     this.idFactory = options.idFactory ?? randomUUID;
     this.maxStepsPerRun = options.maxStepsPerRun ?? 100;
+    this.runtimeObserver = options.observer ?? NOOP_RUNTIME_OBSERVER;
+    this.observe = runtimeEventEmitter(this.runtimeObserver);
   }
 
   static get(): WorldHost {
     if (!this.singleton) {
+      const observer = getRuntimeObserver();
       const catalog = loadModelCatalog(path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
-      const repository = new FileWorldRepository(
-        path.resolve(/* turbopackIgnore: true */ process.env.LIVINGWORLD_SCRIPTS_ROOT ?? "scripts"),
+      const provider = createModelGateway(catalog, process.env, { observer });
+      const dataRoot = path.resolve(
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld",
       );
-      const store = new FileWorldSessionStore(
-        path.resolve(/* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld"),
-      );
+      const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"), { observer });
       this.singleton = new WorldHost({
-        repository,
-        store,
-        provider: createModelGateway(catalog),
+        repository: database,
+        store: database,
+        importer: database,
+        provider,
+        observer,
       });
     }
     return this.singleton;
   }
 
+  static observer(): RuntimeObserver {
+    return this.singleton?.runtimeObserver ?? getRuntimeObserver();
+  }
+
   static setForTests(host: WorldHost | undefined): void {
     this.singleton = host;
+  }
+
+  private executionKey(sessionId: string, runId: string): string {
+    return `${sessionId}:${runId}`;
+  }
+
+  private channel(sessionId: string, runId: string): RunChannel {
+    const key = this.executionKey(sessionId, runId);
+    const channel = this.channels.get(key) ?? new RunChannel();
+    this.channels.set(key, channel);
+    return channel;
+  }
+
+  private notifyRun(sessionId: string, runId: string, close = false): void {
+    const key = this.executionKey(sessionId, runId);
+    this.channels.get(key)?.notify();
+    if (close) this.channels.delete(key);
   }
 
   listWorlds() {
@@ -159,32 +205,49 @@ export class WorldHost {
       id: summary.id,
       name: summary.name,
       version: summary.version,
+      contentHash: summary.contentHash,
       description: summary.description,
     }));
   }
 
   importWorld(buffer: Buffer, replace = false): WorldImportResult {
-    if (!(this.options.repository instanceof FileWorldRepository)) {
-      throw new WorldHostError("world import requires a file repository", 501);
+    if (!this.options.importer) throw new WorldHostError("world import is unavailable", 501);
+    return this.options.importer.importWorld(buffer, this.options.provider.catalog, replace);
+  }
+
+  private definitionFrom(document: WorldSessionDocument): WorldDefinition {
+    const rulePackages = this.options.repository.rulePackages.validate(document.world.rulePackages.map((reference) => ({
+      id: reference.id,
+      version: reference.version,
+      config: reference.config,
+    })));
+    if (JSON.stringify(canonicalize(rulePackages)) !== JSON.stringify(canonicalize(document.world.rulePackages))) {
+      throw new Error("session rule package contract is incompatible with this runtime");
     }
-    return importWorldArchive(
-      buffer,
-      this.options.repository.root,
-      this.options.provider.catalog,
-      replace,
-    );
+    const definition: WorldDefinition = {
+      ...structuredClone(document.world),
+      rulePackages,
+      initialState: structuredClone(document.state),
+    };
+    validateWorldDefinition(definition);
+    validateWorldModelProfiles(definition, this.options.provider.catalog);
+    return definition;
   }
 
   private buildEngine(definition: WorldDefinition, state = definition.initialState): SimulationEngine {
     return new SimulationEngine(
       definition,
-      new TruthEngine(this.options.provider),
+      new TruthEngine(this.options.provider, { rulePackages: this.options.repository.rulePackages }),
       new AgentMind(this.options.provider),
       state,
     );
   }
 
-  private appendEvent(run: WorldRunRecord, input: WorldRunEventInput): WorldRunEvent {
+  private appendEvent(
+    run: WorldRunRecord,
+    input: WorldRunEventInput,
+    correlation?: RuntimeCorrelation,
+  ): WorldRunEvent {
     const event = {
       ...input,
       sequence: (run.events.at(-1)?.sequence ?? 0) + 1,
@@ -192,6 +255,13 @@ export class WorldHost {
     } as WorldRunEvent;
     run.events.push(event);
     run.updatedAt = event.at;
+    this.observe?.({
+      event: "run.public_event.appended",
+      correlation: { ...correlation, sessionId: run.sessionId, runId: run.id },
+      attributes: { publicEventType: event.type },
+      measurements: { eventUtf8Bytes: Buffer.byteLength(JSON.stringify(event), "utf8") },
+      hashes: { publicEvent: contentHash(event) },
+    });
     return event;
   }
 
@@ -199,180 +269,284 @@ export class WorldHost {
     session: HostedSession,
     engine: SimulationEngine,
     document: WorldSessionDocument,
-  ): void {
+    correlation?: RuntimeCorrelation,
+  ): HostedSession {
     document.state = engine.snapshot;
     document.updatedAt = this.now().toISOString();
-    this.options.store.write(document);
-    session.engine = engine;
-    session.document = document;
+    const stored = this.options.store.compareAndSwap(
+      session.document.id,
+      session.generation,
+      document,
+      correlation,
+    );
+    return { ...stored, definition: session.definition, engine };
   }
 
-  private recoverInterruptedRuns(session: HostedSession): void {
+  private commitRequest(
+    session: HostedSession,
+    engine: SimulationEngine,
+    document: WorldSessionDocument,
+    correlation?: RuntimeCorrelation,
+  ): HostedSession {
+    try {
+      return this.commitCandidate(session, engine, document, correlation);
+    } catch (error) {
+      if (error instanceof WorldSessionConflictError) {
+        throw new WorldHostError("world session changed concurrently; retry the request", 409);
+      }
+      throw error;
+    }
+  }
+
+  private loadSession(
+    sessionId: string,
+    recover = true,
+    correlation?: RuntimeCorrelation,
+  ): HostedSession {
+    let stored: StoredWorldSession;
+    try {
+      stored = this.options.store.read(sessionId, { ...correlation, sessionId });
+    } catch (error) {
+      if (!(error instanceof WorldSessionNotFoundError)) throw error;
+      throw new WorldHostError(`world session not found: ${sessionId}`, 404);
+    }
+    const definition = this.definitionFrom(stored.document);
+    let session: HostedSession = {
+      ...stored,
+      definition,
+      engine: this.buildEngine(definition, stored.document.state),
+    };
+    if (!recover) return session;
+
     const document = structuredClone(session.document);
     let changed = false;
+    const recoveredRunIds: string[] = [];
     for (const run of Object.values(document.runs)) {
       if (run.status !== "queued" && run.status !== "running") continue;
+      if (this.executions.has(this.executionKey(sessionId, run.id))) continue;
       run.status = "failed";
       run.error = "运行进程在世界步骤边界外中断，可安全重试。";
       run.internalError = "process interrupted while run was queued or running";
       this.appendEvent(run, {
         type: "run.failed",
         payload: { runId: run.id, message: run.error, retriable: true },
-      });
+      }, { ...correlation, sessionId, runId: run.id });
       changed = true;
+      recoveredRunIds.push(run.id);
     }
-    if (changed) this.commitCandidate(session, session.engine, document);
-  }
-
-  private requireSession(sessionId: string): HostedSession {
-    const current = this.sessions.get(sessionId);
-    if (current) return current;
-    let document: WorldSessionDocument;
-    try {
-      document = this.options.store.read(sessionId);
-    } catch (error) {
-      if (!(error instanceof WorldSessionNotFoundError)) throw error;
-      throw new WorldHostError(`world session not found: ${sessionId}`, 404);
+    if (changed) {
+      try {
+        session = this.commitCandidate(session, session.engine, document, correlation);
+      } catch (error) {
+        if (!(error instanceof WorldSessionConflictError)) throw error;
+        session = this.loadSession(sessionId, false, correlation);
+      }
+      for (const runId of recoveredRunIds) {
+        this.notifyRun(sessionId, runId, streamClosingStatuses.has(this.requireRun(session, runId).status));
+      }
     }
-    const definition = this.options.repository.load(
-      document.scriptId,
-      document.state.truth.rng.seed,
-      this.options.provider.catalog,
-    );
-    const session: HostedSession = {
-      definition,
-      world: this.worldSummary(definition),
-      engine: this.buildEngine(definition, document.state),
-      document,
-      channels: new Map(),
-    };
-    for (const runId of Object.keys(document.runs)) session.channels.set(runId, new RunChannel());
-    this.recoverInterruptedRuns(session);
-    this.sessions.set(sessionId, session);
     return session;
   }
 
-  async createSession(input: { scriptId: string; seed?: number }): Promise<PublicSessionDetail> {
-    const definition = this.options.repository.load(input.scriptId, input.seed ?? 1, this.options.provider.catalog);
+  async createSession(
+    input: { worldId: string; seed?: number },
+    correlation?: RuntimeCorrelation,
+  ): Promise<PublicSessionDetail> {
+    const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
     const engine = this.buildEngine(definition);
     const id = this.idFactory();
-    await engine.bootstrapAgents({ workloadId: id, batchId: `bootstrap:${id}` });
+    const sessionCorrelation = { ...correlation, sessionId: id, revision: 0, step: 0 };
+    await engine.bootstrapAgents({
+      workloadId: id,
+      batchId: `bootstrap:${id}`,
+      correlation: sessionCorrelation,
+      observer: this.runtimeObserver,
+    });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 4,
+      schemaVersion: 7,
       id,
-      scriptId: definition.id,
+      world: toWorldRuntimeContract(definition),
       title: definition.name,
       createdAt: now,
       updatedAt: now,
       state: engine.snapshot,
       runs: {},
     };
-    this.options.store.write(document);
-    const session: HostedSession = {
-      definition,
-      world: this.worldSummary(definition),
-      engine,
-      document,
-      channels: new Map(),
-    };
-    this.sessions.set(id, session);
-    return publicSessionDetail(document, this.worldSummary(definition));
+    try {
+      this.options.store.create(document, sessionCorrelation);
+    } catch (error) {
+      this.observe?.({
+        event: "session.bootstrap.persistence_rolled_back",
+        level: "error",
+        correlation: sessionCorrelation,
+        attributes: { result: "rolled_back" },
+        hashes: { state: contentHash(document.state) },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
+    this.observe?.({
+      event: "session.bootstrap.finished",
+      correlation: sessionCorrelation,
+      counts: { agents: Object.keys(document.state.agents).length },
+      hashes: { state: contentHash(document.state) },
+    });
+    return publicSessionDetail(document);
   }
 
-  private worldSummary(definition: WorldDefinition): WorldSummary {
-    const summary = this.options.repository.list().find((candidate) => candidate.id === definition.id);
-    if (!summary) throw new WorldHostError(`world script not found: ${definition.id}`, 404);
-    return {
-      id: definition.id,
-      name: definition.name,
-      version: summary.version,
-      description: definition.description,
-    };
+  session(sessionId: string, correlation?: RuntimeCorrelation): PublicSessionDetail {
+    return publicSessionDetail(this.loadSession(sessionId, true, correlation).document);
   }
 
-  session(sessionId: string): PublicSessionDetail {
-    const session = this.requireSession(sessionId);
-    return publicSessionDetail(session.document, session.world);
-  }
-
-  listSessions(): PublicSessionSummary[] {
-    return this.options.store.list()
-      .map((sessionId) => {
-        const session = this.requireSession(sessionId);
-        return publicSessionSummary(session.document, session.world);
-      })
+  listSessions(correlation?: RuntimeCorrelation): PublicSessionSummary[] {
+    return this.options.store.listSessions(correlation)
+      .map(({ document }) => publicSessionSummary(document))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
   }
 
-  renameSession(sessionId: string, title: string): PublicSessionDetail {
+  renameSession(
+    sessionId: string,
+    title: string,
+    correlation?: RuntimeCorrelation,
+  ): PublicSessionDetail {
     const normalized = title.trim();
     if (!normalized || normalized.length > 80) {
       throw new WorldHostError("session title must be between 1 and 80 characters", 400);
     }
-    const session = this.requireSession(sessionId);
-    const document = structuredClone(session.document);
-    document.title = normalized;
-    this.commitCandidate(session, session.engine, document);
-    return publicSessionDetail(session.document, session.world);
-  }
-
-  deleteSession(sessionId: string): void {
-    const session = this.requireSession(sessionId);
+    const session = this.loadSession(sessionId, true, correlation);
     const active = Object.values(session.document.runs).find(
       (run) => run.status === "queued" || run.status === "running",
     );
     if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
-    this.options.store.delete(sessionId);
-    this.sessions.delete(sessionId);
+    const document = structuredClone(session.document);
+    document.title = normalized;
+    const committed = this.commitRequest(session, session.engine, document, correlation);
+    return publicSessionDetail(committed.document);
   }
 
-  startRun(sessionId: string, text: string): StartWorldRunResponse {
-    const normalized = text.trim();
-    if (!normalized) throw new WorldHostError("run input cannot be empty", 400);
-    if (text.length > 4_000) throw new WorldHostError("run input must be 4000 characters or fewer", 400);
-    const session = this.requireSession(sessionId);
+  deleteSession(sessionId: string, correlation?: RuntimeCorrelation): void {
+    const session = this.loadSession(sessionId, true, correlation);
     const active = Object.values(session.document.runs).find(
       (run) => run.status === "queued" || run.status === "running",
     );
-    if (active) throw new WorldHostError(`session already has active run ${active.id}`, 409);
-
-    const engine = this.buildEngine(session.definition, session.engine.snapshot);
-    if (engine.snapshot.player.intent?.status === "active") {
-      engine.cancelPlayerIntent();
+    if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
+    try {
+      this.options.store.delete(sessionId, session.generation, correlation);
+    } catch (error) {
+      if (error instanceof WorldSessionConflictError) {
+        throw new WorldHostError("world session changed concurrently; retry the request", 409);
+      }
+      throw error;
     }
-    engine.beginPlayerIntent(normalized);
+    const prefix = `${sessionId}:`;
+    for (const key of this.channels.keys()) {
+      if (key.startsWith(prefix)) this.channels.delete(key);
+    }
+  }
+
+  startRun(sessionId: string, text: string, correlation?: RuntimeCorrelation): StartWorldRunResponse {
+    const normalized = text.trim();
+    if (!normalized) throw new WorldHostError("run input cannot be empty", 400);
+    if (text.length > 4_000) throw new WorldHostError("run input must be 4000 characters or fewer", 400);
+    let session = this.loadSession(sessionId, true, correlation);
+    const activeIntent = session.engine.snapshot.player.intent;
+    if (activeIntent?.status === "active") {
+      const owner = Object.values(session.document.runs).find((run) => run.intentId === activeIntent.id);
+      throw new WorldHostError(`session already has active run ${owner?.id ?? "unknown"}`, 409);
+    }
+
     const id = this.idFactory();
+    if (session.document.runs[id]) throw new Error(`world run id collision: ${id}`);
+    const inputId = `input:${id}:1`;
+    const engine = this.buildEngine(session.definition, session.engine.snapshot);
+    engine.beginPlayerIntent(normalized, inputId);
     const now = this.now().toISOString();
     const run: WorldRunRecord = {
       id,
       sessionId,
       intentId: engine.snapshot.player.intent!.id,
-      text: normalized,
       status: "queued",
       createdAt: now,
       updatedAt: now,
       cancelRequested: false,
       events: [],
     };
+    const runCorrelation = { ...correlation, sessionId, runId: id, revision: engine.snapshot.revision };
+    this.appendEvent(
+      run,
+      { type: "player.input", payload: { id: inputId, kind: "goal", text: normalized } },
+      runCorrelation,
+    );
     const document = structuredClone(session.document);
     document.runs[id] = run;
-    this.commitCandidate(session, engine, document);
-    session.channels.set(id, new RunChannel());
-    this.scheduleExecution(session, id);
+    session = this.commitRequest(session, engine, document, runCorrelation);
+    this.scheduleExecution(sessionId, id, "initial", runCorrelation);
     return { runId: id };
   }
 
-  retryRun(sessionId: string, runId: string): WorldRunSnapshot {
-    const session = this.requireSession(sessionId);
+  continueRun(
+    sessionId: string,
+    runId: string,
+    input: ContinueWorldRunInput,
+    correlation?: RuntimeCorrelation,
+  ): WorldRunSnapshot {
+    const normalized = input.text.trim();
+    if (!inputIdPattern.test(input.id)) throw new WorldHostError("player input id is invalid", 400);
+    if (!normalized) throw new WorldHostError("player input cannot be empty", 400);
+    if (input.text.length > 4_000) throw new WorldHostError("player input must be 4000 characters or fewer", 400);
+    let session = this.loadSession(sessionId, true, correlation);
+    const current = this.requireRun(session, runId);
+    const priorInput = current.events.find((event) =>
+      event.type === "player.input" && event.payload.id === input.id);
+    if (priorInput?.type === "player.input") {
+      if (priorInput.payload.text !== normalized) {
+        throw new WorldHostError(`player input ${input.id} already exists with different text`, 409);
+      }
+      return publicWorldRunSnapshot(session.document, current);
+    }
+    if (current.status !== "awaiting_player") {
+      throw new WorldHostError(`run ${runId} is not awaiting player input`, 409);
+    }
+    if (session.engine.snapshot.player.intent?.status !== "active" ||
+      session.engine.snapshot.player.intent.id !== current.intentId) {
+      throw new WorldHostError(`run ${runId} does not own the active player intent`, 409);
+    }
+    const engine = this.buildEngine(session.definition, session.engine.snapshot);
+    engine.continuePlayerIntent(normalized, input.id);
+    const document = structuredClone(session.document);
+    const run = document.runs[runId];
+    run.status = "queued";
+    run.error = undefined;
+    run.internalError = undefined;
+    run.cancelRequested = false;
+    this.appendEvent(run, {
+      type: "player.input",
+      payload: { id: input.id, kind: "clarification", text: normalized },
+    }, { ...correlation, sessionId, runId, revision: engine.snapshot.revision });
+    try {
+      session = this.commitCandidate(session, engine, document, correlation);
+    } catch (error) {
+      if (!(error instanceof WorldSessionConflictError)) throw error;
+      const latest = this.loadSession(sessionId, false, correlation);
+      const latestRun = this.requireRun(latest, runId);
+      const persistedInput = latestRun.events.find((event) =>
+        event.type === "player.input" && event.payload.id === input.id);
+      if (persistedInput?.type === "player.input" && persistedInput.payload.text === normalized) {
+        return publicWorldRunSnapshot(latest.document, latestRun);
+      }
+      throw new WorldHostError("world session changed concurrently; retry the request", 409);
+    }
+    this.scheduleExecution(sessionId, runId, "player_input", correlation);
+    return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
+  }
+
+  retryRun(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
+    let session = this.loadSession(sessionId, true, correlation);
     const current = this.requireRun(session, runId);
     if (current.status !== "failed" && current.status !== "step_limit") {
       throw new WorldHostError(`run ${runId} is not retriable`, 409);
     }
-    const active = Object.values(session.document.runs).find(
-      (run) => run.id !== runId && (run.status === "queued" || run.status === "running"),
-    );
-    if (active) throw new WorldHostError(`session already has active run ${active.id}`, 409);
     if (session.engine.snapshot.player.intent?.status !== "active" ||
       session.engine.snapshot.player.intent.id !== current.intentId) {
       throw new WorldHostError(`run ${runId} does not own the active player intent`, 409);
@@ -383,21 +557,41 @@ export class WorldHost {
     run.error = undefined;
     run.internalError = undefined;
     run.cancelRequested = false;
-    this.commitCandidate(session, session.engine, document);
-    this.scheduleExecution(session, runId);
+    session = this.commitRequest(session, session.engine, document, correlation);
+    this.scheduleExecution(sessionId, runId, "retry", correlation);
     return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
   }
 
-  private scheduleExecution(session: HostedSession, runId: string): void {
-    const key = `${session.document.id}:${runId}`;
+  private scheduleExecution(
+    sessionId: string,
+    runId: string,
+    reason: ExecutionReason,
+    correlation?: RuntimeCorrelation,
+  ): void {
+    const key = this.executionKey(sessionId, runId);
+    const run = this.loadSession(sessionId, false, correlation).document.runs[runId];
+    const runAttempt = run.events.filter((event) => event.type === "run.execution_started").length + 1;
+    const executionCorrelation = { ...correlation, sessionId, runId, runAttempt };
+    this.observe?.({
+      event: "run.queued",
+      correlation: executionCorrelation,
+      attributes: { reason },
+    });
     const prior = this.executions.get(key)?.promise;
     const controller = new AbortController();
     const promise = (prior ?? Promise.resolve())
-      .then(() => this.executeRun(session, runId, controller.signal))
+      .then(() => this.executeRun(sessionId, runId, reason, controller.signal, executionCorrelation))
       .finally(() => {
-        if (this.executions.get(key)?.promise === promise) this.executions.delete(key);
+        if (this.executions.get(key)?.promise !== promise) return;
+        this.executions.delete(key);
+        try {
+          this.loadSession(sessionId, true, executionCorrelation);
+        } catch {
+          // A later request retries durable recovery when storage becomes readable again.
+        }
       });
     this.executions.set(key, { promise, controller });
+    void promise.catch(() => undefined);
   }
 
   private finishRun(
@@ -405,44 +599,103 @@ export class WorldHost {
     runId: string,
     status: Extract<WorldRunStatus, "awaiting_player" | "completed" | "goal_failed" | "step_limit" | "cancelled">,
     engine = session.engine,
-  ): void {
+    correlation?: RuntimeCorrelation,
+    startedAt = Date.now(),
+  ): HostedSession {
     const document = structuredClone(session.document);
     const run = document.runs[runId];
     run.status = status;
+    run.cancelRequested = false;
+    if (status === "cancelled") {
+      run.error = undefined;
+      run.internalError = undefined;
+    }
     this.appendEvent(run, {
-      type: `run.${status}` as Exclude<WorldRunEvent["type"], "run.started" | "check.resolved" | "player.outcome" | "player.observation" | "step.committed" | "run.failed">,
-      payload: {
-        runId: run.id,
-        revision: engine.snapshot.revision,
-        step: engine.snapshot.step,
-      },
-    } as WorldRunEventInput);
-    this.commitCandidate(session, engine, document);
-    session.channels.get(run.id)?.notify();
+      type: `run.${status}` as "run.awaiting_player" | "run.completed" | "run.goal_failed" |
+        "run.step_limit" | "run.cancelled",
+      payload: { runId: run.id, revision: engine.snapshot.revision, step: engine.snapshot.step },
+    }, correlation);
+    const committed = this.commitCandidate(session, engine, document, correlation);
+    this.observe?.({
+      event: "run.finished",
+      correlation,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      attributes: { status },
+      measurements: { revision: engine.snapshot.revision, step: engine.snapshot.step },
+    });
+    this.notifyRun(document.id, run.id, true);
+    return committed;
   }
 
-  private async executeRun(session: HostedSession, runId: string, abortSignal: AbortSignal): Promise<void> {
+  private cancelExecution(
+    session: HostedSession,
+    runId: string,
+    correlation?: RuntimeCorrelation,
+    startedAt = Date.now(),
+  ): HostedSession {
+    const engine = this.buildEngine(session.definition, session.engine.snapshot);
+    engine.cancelPlayerIntent();
+    return this.finishRun(session, runId, "cancelled", engine, correlation, startedAt);
+  }
+
+  private async executeRun(
+    sessionId: string,
+    runId: string,
+    reason: ExecutionReason,
+    abortSignal: AbortSignal,
+    correlation: RuntimeCorrelation,
+  ): Promise<void> {
+    const startedAt = Date.now();
+    let pendingStepCorrelation: RuntimeCorrelation | undefined;
+    let rollbackStateHash: string | undefined;
     try {
+      let session = this.loadSession(sessionId, false, correlation);
       let document = structuredClone(session.document);
       let run = document.runs[runId];
+      if (!run || run.status !== "queued") return;
       run.status = "running";
-      this.appendEvent(run, { type: "run.started", payload: { runId: run.id, text: run.text } });
-      this.commitCandidate(session, session.engine, document);
-      session.channels.get(run.id)?.notify();
+      const input = [...run.events].reverse().find((event) => event.type === "player.input");
+      if (!input || input.type !== "player.input") throw new Error(`run ${runId} has no player input`);
+      this.appendEvent(run, {
+        type: "run.execution_started",
+        payload: { runId, inputId: input.payload.id, reason },
+      }, correlation);
+      this.observe?.({ event: "run.started", correlation, attributes: { reason } });
+      session = this.commitCandidate(session, session.engine, document, correlation);
+      this.notifyRun(sessionId, runId);
 
       for (let index = 0; index < this.maxStepsPerRun; index += 1) {
-        if (this.requireRun(session, runId).cancelRequested) {
-          const engine = this.buildEngine(session.definition, session.engine.snapshot);
-          engine.cancelPlayerIntent();
-          this.finishRun(session, runId, "cancelled", engine);
+        if (this.requireRun(session, runId).cancelRequested || abortSignal.aborted) {
+          this.cancelExecution(session, runId, correlation, startedAt);
           return;
         }
         const engine = this.buildEngine(session.definition, session.engine.snapshot);
+        const baseState = engine.snapshot;
+        rollbackStateHash = contentHash(baseState);
+        const stepCorrelation = {
+          ...correlation,
+          stepAttemptId: `${runId}:${correlation.runAttempt ?? 1}:${baseState.revision + 1}`,
+          revision: baseState.revision,
+          step: baseState.step + 1,
+        };
         const result = await engine.step({
-          workloadId: session.document.id,
+          workloadId: sessionId,
           batchId: runId,
           abortSignal,
+          correlation: stepCorrelation,
+          observer: this.runtimeObserver,
         });
+        pendingStepCorrelation = stepCorrelation;
+        const latest = this.loadSession(sessionId, false, stepCorrelation);
+        if (latest.generation !== session.generation) {
+          const latestRun = this.requireRun(latest, runId);
+          if (latestRun.cancelRequested || abortSignal.aborted) {
+            this.cancelExecution(latest, runId, correlation, startedAt);
+          }
+          else throw new WorldSessionConflictError(sessionId);
+          return;
+        }
+
         document = structuredClone(session.document);
         run = document.runs[runId];
         for (const [checkIndex, check] of result.committed.checks.entries()) {
@@ -466,7 +719,7 @@ export class WorldHost {
                   visibility: "result_only",
                   succeeded: check.succeeded,
                 },
-          });
+          }, stepCorrelation);
         }
         const playerAction = result.committed.actions.find((action) => action.actorId === "player")!;
         const playerOutcome = result.committed.outcomes.find((outcome) => outcome.proposalId === playerAction.id)!;
@@ -477,13 +730,13 @@ export class WorldHost {
             summary: playerOutcome.summary,
             knownAlternatives: playerOutcome.knownAlternatives.map((alternative) => alternative.description),
           },
-        });
+        }, stepCorrelation);
         const playerPackets = result.committed.observations.filter((packet) => packet.observerId === "player");
         for (const [packetIndex, packet] of playerPackets.entries()) {
           this.appendEvent(run, {
             type: "player.observation",
             payload: sanitizePlayerObservation(packet, packetIndex),
-          });
+          }, stepCorrelation);
         }
         this.appendEvent(run, {
           type: "step.committed",
@@ -492,56 +745,100 @@ export class WorldHost {
             step: result.state.step,
             elapsedSeconds: result.state.truth.elapsedSeconds,
           },
+        }, stepCorrelation);
+        let terminalStatus: Extract<
+          WorldRunStatus,
+          "awaiting_player" | "completed" | "goal_failed" | "step_limit"
+        > | undefined;
+        if (result.requiresPlayerDecision) terminalStatus = "awaiting_player";
+        else if (result.state.player.intent?.status === "completed") terminalStatus = "completed";
+        else if (result.state.player.intent?.status === "failed") terminalStatus = "goal_failed";
+        else if (index === this.maxStepsPerRun - 1) terminalStatus = "step_limit";
+        if (terminalStatus) {
+          run.status = terminalStatus;
+          run.cancelRequested = false;
+          this.appendEvent(run, {
+            type: `run.${terminalStatus}`,
+            payload: { runId, revision: result.state.revision, step: result.state.step },
+          }, stepCorrelation);
+        }
+        session = this.commitCandidate(session, engine, document, {
+          ...stepCorrelation,
+          revision: result.state.revision,
+          step: result.state.step,
         });
-        this.commitCandidate(session, engine, document);
-        session.channels.get(run.id)?.notify();
+        pendingStepCorrelation = undefined;
+        rollbackStateHash = undefined;
+        this.notifyRun(sessionId, runId, Boolean(terminalStatus));
 
-        if (this.requireRun(session, runId).cancelRequested) {
-          const cancelledEngine = this.buildEngine(session.definition, session.engine.snapshot);
-          cancelledEngine.cancelPlayerIntent();
-          this.finishRun(session, runId, "cancelled", cancelledEngine);
+        if (terminalStatus) {
+          this.observe?.({
+            event: "run.finished",
+            correlation: { ...correlation, revision: result.state.revision, step: result.state.step },
+            durationMs: Math.max(0, Date.now() - startedAt),
+            attributes: { status: terminalStatus },
+          });
           return;
         }
-        if (result.requiresPlayerDecision) {
-          this.finishRun(session, runId, "awaiting_player");
-          return;
-        }
-        const intentStatus = result.state.player.intent?.status;
-        if (intentStatus === "completed") {
-          this.finishRun(session, runId, "completed");
-          return;
-        }
-        if (intentStatus === "failed") {
-          this.finishRun(session, runId, "goal_failed");
+
+        if (this.requireRun(session, runId).cancelRequested || abortSignal.aborted) {
+          this.cancelExecution(session, runId, correlation, startedAt);
           return;
         }
       }
-      this.finishRun(session, runId, "step_limit");
+      this.finishRun(session, runId, "step_limit", session.engine, correlation, startedAt);
     } catch (error) {
-      if (this.requireRun(session, runId).cancelRequested ||
-        (error instanceof Error && error.name === "AbortError")) {
-        const engine = this.buildEngine(session.definition, session.engine.snapshot);
-        engine.cancelPlayerIntent();
-        this.finishRun(session, runId, "cancelled", engine);
+      if (pendingStepCorrelation) {
+        this.observe?.({
+          event: "step.persistence_rolled_back",
+          level: "error",
+          correlation: pendingStepCorrelation,
+          attributes: { result: "rolled_back", revisionUnchanged: true },
+          hashes: rollbackStateHash ? { state: rollbackStateHash } : undefined,
+          error: serializeRuntimeError(error),
+        });
+      }
+      let session: HostedSession;
+      try {
+        session = this.loadSession(sessionId, false, correlation);
+      } catch {
+        return;
+      }
+      const current = this.requireRun(session, runId);
+      if (current.cancelRequested || abortSignal.aborted || (error instanceof Error && error.name === "AbortError")) {
+        try {
+          this.cancelExecution(session, runId, correlation, startedAt);
+        } catch {
+          // A later request recovers the persisted queued/running run if storage is unavailable here.
+        }
         return;
       }
       const document = structuredClone(session.document);
       const run = document.runs[runId];
+      if (run.status !== "queued" && run.status !== "running") return;
       run.status = "failed";
       run.internalError = error instanceof Error ? error.message : String(error);
       run.error = "模型或世界验证失败；当前步骤未提交，可从同一世界状态重试。";
       this.appendEvent(run, {
         type: "run.failed",
         payload: { runId: run.id, message: run.error, retriable: true },
+      }, correlation);
+      this.observe?.({
+        event: "run.failed",
+        level: "error",
+        correlation,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { status: "failed", revisionUnchanged: true },
+        error: serializeRuntimeError(error),
       });
+      let persisted = false;
       try {
-        this.commitCandidate(session, session.engine, document);
-      } catch (persistenceError) {
-        run.internalError = `${run.internalError}; failed to persist run failure: ${persistenceError instanceof Error ? persistenceError.message : String(persistenceError)}`;
-        document.state = session.engine.snapshot;
-        session.document = document;
+        this.commitCandidate(session, session.engine, document, correlation);
+        persisted = true;
+      } catch {
+        // Recovery marks the still-running durable record as failed on the next request.
       }
-      session.channels.get(run.id)?.notify();
+      this.notifyRun(sessionId, runId, persisted);
     }
   }
 
@@ -551,22 +848,40 @@ export class WorldHost {
     return run;
   }
 
-  run(sessionId: string, runId: string): WorldRunSnapshot {
-    const session = this.requireSession(sessionId);
+  run(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
+    const session = this.loadSession(sessionId, true, correlation);
     return publicWorldRunSnapshot(session.document, this.requireRun(session, runId));
   }
 
-  cancelRun(sessionId: string, runId: string): WorldRunSnapshot {
-    const session = this.requireSession(sessionId);
-    const current = this.requireRun(session, runId);
-    if (terminalStatuses.has(current.status)) return publicWorldRunSnapshot(session.document, current);
-    const document = structuredClone(session.document);
-    const run = document.runs[runId];
-    run.cancelRequested = true;
-    this.commitCandidate(session, session.engine, document);
-    this.executions.get(`${sessionId}:${runId}`)?.controller.abort();
-    session.channels.get(run.id)?.notify();
-    return publicWorldRunSnapshot(session.document, run);
+  cancelRun(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let session = this.loadSession(sessionId, true, correlation);
+      const current = this.requireRun(session, runId);
+      if (finalStatuses.has(current.status) || current.cancelRequested) {
+        return publicWorldRunSnapshot(session.document, current);
+      }
+      try {
+        if (current.status === "awaiting_player" || current.status === "failed" || current.status === "step_limit") {
+          session = this.cancelExecution(session, runId, correlation);
+          return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
+        } else {
+          const document = structuredClone(session.document);
+          document.runs[runId].cancelRequested = true;
+          session = this.commitCandidate(session, session.engine, document, correlation);
+          this.executions.get(this.executionKey(sessionId, runId))?.controller.abort();
+          this.observe?.({
+            event: "run.cancel_requested",
+            correlation: { ...correlation, sessionId, runId, revision: session.engine.snapshot.revision },
+            attributes: { status: current.status },
+          });
+        }
+        this.notifyRun(sessionId, runId);
+        return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
+      } catch (error) {
+        if (!(error instanceof WorldSessionConflictError)) throw error;
+      }
+    }
+    throw new WorldHostError("world session kept changing while cancellation was requested", 409);
   }
 
   async *subscribeRunEvents(
@@ -575,29 +890,30 @@ export class WorldHost {
     afterSequence = 0,
     signal?: AbortSignal,
   ): AsyncGenerator<WorldRunEvent> {
-    const session = this.requireSession(sessionId);
-    this.requireRun(session, runId);
-    const channel = session.channels.get(runId) ?? new RunChannel();
-    session.channels.set(runId, channel);
+    if (signal?.aborted) return;
+    this.requireRun(this.loadSession(sessionId), runId);
+    const channel = this.channel(sessionId, runId);
     let cursor = afterSequence;
     while (!signal?.aborted) {
       const channelVersion = channel.currentVersion;
+      const session = this.loadSession(sessionId);
       const run = this.requireRun(session, runId);
       const available = run.events.filter((event) => event.sequence > cursor);
       for (const event of available) {
         cursor = event.sequence;
         yield structuredClone(event);
       }
-      if (terminalStatuses.has(run.status) && cursor >= (run.events.at(-1)?.sequence ?? 0)) return;
+      if (streamClosingStatuses.has(run.status) && cursor >= (run.events.at(-1)?.sequence ?? 0)) {
+        const key = this.executionKey(sessionId, runId);
+        if (this.channels.get(key) === channel) this.channels.delete(key);
+        return;
+      }
       await channel.wait(channelVersion, signal);
     }
   }
 
   async waitForRun(sessionId: string, runId: string): Promise<WorldRunSnapshot> {
-    for await (const event of this.subscribeRunEvents(sessionId, runId)) {
-      // Drain until the terminal event closes the iterator.
-      void event;
-    }
+    for await (const event of this.subscribeRunEvents(sessionId, runId)) void event;
     return this.run(sessionId, runId);
   }
 }

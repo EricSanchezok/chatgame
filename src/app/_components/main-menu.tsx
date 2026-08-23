@@ -38,7 +38,7 @@ export function MainMenu() {
         <span>TRUTH / PERSISTENT</span>
       </div>
       <section className="cg-menu__content" aria-labelledby="menu-title">
-        <p className="cg-eyebrow">CHATGAME</p>
+        <p className="cg-eyebrow">LIVING WORLD ENGINE</p>
         <h1 id="menu-title">世界在等待<br />你的下一句话。</h1>
         <p className="cg-menu__lede">剧本定义世界，语言推动命运。每一次行动都会被世界共同理解，并在本地持续生长。</p>
 

@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -28,11 +28,16 @@ describe("open world script loader", () => {
     const definition = loadWorldScript(fixture, { seed: 91, modelCatalog });
 
     expect(definition.id).toBe("open-world-fixture");
+    expect(definition.contentHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(definition.initialState.worldHash).toBe(definition.contentHash);
     expect(definition.initialState.truth.entities.key.description).toContain("假钥匙");
     expect(definition.initialState.truth.facts["key-authenticity"].value).toEqual({
       kind: "text",
       value: "fake",
     });
+    expect(definition.initialState.truth.facts["key-authenticity"].provenance).toEqual([
+      { kind: "world_seed", id: definition.contentHash },
+    ]);
     expect(definition.initialState.player.knowledge.claims["key-is-authentic"].value).toEqual({
       kind: "text",
       value: "real",
@@ -51,9 +56,18 @@ describe("open world script loader", () => {
     expect(definition.initialState.truth.rng.seed).toBe(91);
     expect(definition.rulePackages).toEqual([expect.objectContaining({
       id: "core-d20",
-      version: "1.0.0",
-      config: { opposedChecks: true, damageUsesMeters: true },
+      version: "1.1.0",
+      config: { damageUsesMeters: true },
     })]);
+  });
+
+  it("hashes normalized world content independently of entity file names", () => {
+    const renamed = copiedFixture();
+    renameSync(path.join(renamed, "entities/keeper.yaml"), path.join(renamed, "entities/z-keeper.yaml"));
+    renameSync(path.join(renamed, "entities/key.yaml"), path.join(renamed, "entities/a-key.yaml"));
+
+    expect(loadWorldScript(renamed, { modelCatalog }).contentHash)
+      .toBe(loadWorldScript(fixture, { modelCatalog }).contentHash);
   });
 
   it("defaults every optional character layer from only persona.summary", () => {
@@ -76,12 +90,12 @@ describe("open world script loader", () => {
     });
   });
 
-  it("rejects schema v3 worlds and missing or duplicate Agent self bindings", () => {
+  it("rejects schema v4 worlds and missing or duplicate Agent self bindings", () => {
     const oldWorld = copiedFixture();
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 4", "schema_version: 3"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 5", "schema_version: 4"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
@@ -104,7 +118,7 @@ describe("open world script loader", () => {
     const mechanicsFile = path.join(world, "mechanics.yaml");
     const mechanics = readFileSync(mechanicsFile, "utf8")
       .replace("core-d20", "cultivation-d20")
-      .replace("version: 1.0.0", "version: 2.0.0");
+      .replace("version: 1.1.0", "version: 2.0.0");
     writeFileSync(mechanicsFile, mechanics, "utf8");
 
     expect(() => loadWorldScript(world, { modelCatalog })).toThrow("unknown rule package cultivation-d20");
@@ -113,7 +127,8 @@ describe("open world script loader", () => {
       id: "cultivation-d20",
       version: "2.0.0",
       adjudication: "使用修仙世界检定。",
-      configSchema: z.object({ opposedChecks: z.boolean(), damageUsesMeters: z.boolean() }).strict(),
+      configSchema: z.object({ damageUsesMeters: z.boolean() }).strict(),
+      rules: [],
     }]);
     expect(loadWorldScript(world, { seed: 1, rulePackages: registry, modelCatalog }).rulePackages[0]).toMatchObject({
       id: "cultivation-d20",
@@ -138,7 +153,7 @@ describe("open world script loader", () => {
       readFileSync(wrongRoleManifest, "utf8").replace("truth-deepseek", "agent-deepseek"),
       "utf8",
     );
-    expect(() => loadWorldScript(wrongTruthRole, { modelCatalog })).toThrow("does not allow role truth-engine");
+    expect(() => loadWorldScript(wrongTruthRole, { modelCatalog })).toThrow("does not allow role truth-perception");
 
     const unknownAgent = copiedFixture();
     const keeper = path.join(unknownAgent, "entities/keeper.yaml");
