@@ -29,9 +29,9 @@ Class: architecture
 
 应用入口固定为主菜单，游戏使用 `/play/:sessionId` 精确寻址；`/saves`、`/worlds`、`/settings` 与移动端 `/control` 分别承载存档、世界、偏好和控制导航。主菜单只继续 `localStorage` 明确记录且仍存在的 Session，不回退到列表第一项。桌面游戏页提供可拖动并吸附四角的控制球，点击展开共享动作清单；移动端点击进入完整控制页。运行中离开先请求玩家确认并通过现有取消资源在安全步骤边界停止。
 
-对话层使用 MIT 许可的 `@assistant-ui/react` 原语和 `useExternalStoreRuntime`。每个持久 `WorldRun` 按其 `player.input` 边界纯投影为玩家/世界消息段；clarification 仍属于同一个 run，不创建第二份线程状态。世界消息使用 data part 展示公开 observation、outcome、可见检定、替代方向与运行终态。前端不启用 Assistant Cloud、线程列表、附件、分支、编辑、重新生成或第二套消息存储。新目标、补充信息、取消和重试仍只调用 [0033](0033-persistent-streaming-world-runs.md) 与 [0040](0040-resumable-player-intent.md) 定义的 WorldRun API，SSE 事件合并回唯一 `PublicSessionDetail`，消息数组始终由其派生。
+对话层使用 MIT 许可的 `@assistant-ui/react` 原语和 `useExternalStoreRuntime`。每个持久 `WorldRun` 按其 `player.input` 边界纯投影为玩家/世界消息段；clarification 仍属于同一个 run，不创建第二份线程状态。世界消息使用 data part 展示公开 observation、由玩家 outcome Observation 派生的 outcome、可见检定与运行终态；内部 ActionOutcome alternatives 不进入公共事件。前端不启用 Assistant Cloud、线程列表、附件、分支、编辑、重新生成或第二套消息存储。新目标、补充信息、取消和重试仍只调用 [0033](0033-persistent-streaming-world-runs.md) 与 [0040](0040-resumable-player-intent.md) 定义的 WorldRun API，SSE 事件合并回唯一 `PublicSessionDetail`，消息数组始终由其派生。
 
-Session 持久化文档使用 schema v7，在 [0039](0039-pinned-world-runtime-contract.md) 的固定世界契约上增加 1–80 字符标题；旧文档直接拒绝。公开 API 版本为 v3：列表返回含世界摘要、更新时间、步数和活动 run 的 `PublicSessionSummary`，单项读取与创建返回 `{ summary, state, runs }`，PATCH 通过 generation CAS 修改标题，DELETE 按目标 generation 永久删除；queued/running 时两者都拒绝，避免元数据写入使在途步骤失效。浏览器当前 Session 指针只是本机导航偏好，不是状态所有权或访问控制。
+Session 持久化文档使用 schema v8，在 [0039](0039-pinned-world-runtime-contract.md) 的固定世界契约上增加 1–80 字符标题；旧文档直接拒绝。公开 API 版本为 v3：列表返回含世界摘要、更新时间、步数和活动 run 的 `PublicSessionSummary`，单项读取与创建返回 `{ summary, state, runs }`，PATCH 通过 generation CAS 修改标题，DELETE 按目标 generation 永久删除；queued/running 时两者都拒绝，避免元数据写入使在途步骤失效。浏览器当前 Session 指针只是本机导航偏好，不是状态所有权或访问控制。
 
 运行边界是单机进程与本机文件系统，开发和生产启动命令默认只监听 loopback。应用不建立用户、登录、cookie 会话或 Session owner；所有能访问本地监听端口的调用者都被视为同一设备操作者。若部署形态出现非 loopback 暴露、共享主机或远程访问，必须新增安全决策并同时定义身份、授权、CSRF、监听地址和数据隔离，不能把本决策外推为公共网络安全模型。
 

@@ -89,7 +89,7 @@ describe("causal assurance", () => {
       requiresPlayerDecision: false,
     };
 
-    expect(() => evaluateProposalCausality(definition.initialState, [result], proposal))
+    expect(() => evaluateProposalCausality(definition.initialState, [result], [], proposal))
       .toThrow("without asserting its result");
   });
 
@@ -102,6 +102,8 @@ describe("causal assurance", () => {
       actions: [],
       checkRequests: [request],
       checkResults: [result],
+      randomRequests: [],
+      randomResults: [],
     };
     const assertions = [{
       kind: "check_result" as const,
@@ -182,6 +184,8 @@ describe("causal assurance", () => {
       actions: [],
       checkRequests: [],
       checkResults: [],
+      randomRequests: [],
+      randomResults: [],
     };
 
     expect(registry.resolve(references, context, [invocation(false)], []).operations[0])

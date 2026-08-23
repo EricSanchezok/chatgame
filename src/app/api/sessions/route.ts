@@ -13,8 +13,9 @@ export async function POST(request: Request): Promise<Response> {
     if (!body || typeof body.worldId !== "string" || !body.worldId.trim()) {
       return json({ error: "worldId is required" }, 400);
     }
-    if (body.seed !== undefined && (!Number.isSafeInteger(body.seed) || Number(body.seed) < 0)) {
-      return json({ error: "seed must be a non-negative safe integer" }, 400);
+    if (body.seed !== undefined &&
+      (!Number.isSafeInteger(body.seed) || Number(body.seed) < 0 || Number(body.seed) > 0xffffffff)) {
+      return json({ error: "seed must be a uint32" }, 400);
     }
     const session = await WorldHost.get().createSession({
       worldId: body.worldId,

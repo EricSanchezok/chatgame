@@ -1,0 +1,1 @@
+export const MAX_COMMITMENT_ROUNDS_PER_STEP = 4;

@@ -1,4 +1,4 @@
-import type { ActionOutcome, ObservationPacket, SimulationState, TransitionProposal } from "./model";
+import type { ObservationPacket, SimulationState, TransitionProposal } from "./model";
 
 function playerVisibleCorpus(state: SimulationState): string {
   const values: string[] = [];
@@ -65,8 +65,8 @@ function protectedTokens(state: SimulationState): Set<string> {
   return tokens;
 }
 
-function publicText(packet: ObservationPacket, outcome: ActionOutcome): string {
-  const values = [packet.summary, outcome.summary];
+function publicText(packet: ObservationPacket): string {
+  const values = [packet.summary];
   for (const introduction of packet.introductions) {
     values.push(introduction.localEntity.name, introduction.localEntity.description);
   }
@@ -74,7 +74,6 @@ function publicText(packet: ObservationPacket, outcome: ActionOutcome): string {
     values.push(claim.description);
     if (claim.value.kind === "text") values.push(claim.value.value);
   }
-  for (const alternative of outcome.knownAlternatives) values.push(alternative.description);
   return values.join("\n").toLocaleLowerCase();
 }
 
@@ -87,7 +86,7 @@ export function validatePublicInformationBoundary(
   const outcome = playerAction && proposal.outcomes.find((candidate) => candidate.proposalId === playerAction.id);
   const packets = proposal.observations.filter((packet) => packet.observerId === "player");
   if (!outcome || packets.length === 0) throw new Error("player public output is incomplete");
-  const text = packets.map((packet) => publicText(packet, outcome)).join("\n");
+  const text = packets.map(publicText).join("\n");
   for (const token of protectedTokens(state)) {
     if (text.includes(token)) throw new Error("player public output contains protected world information");
   }

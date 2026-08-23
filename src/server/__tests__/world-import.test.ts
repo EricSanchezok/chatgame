@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { RulePackageRegistry } from "../../engine/rule-package";
 import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
+import { loadWorldScript } from "../../script/world-loader";
 import { LocalDatabase } from "../local-database";
 import { WorldHost } from "../world-host";
 import {
@@ -80,10 +81,14 @@ describe("world import", () => {
     expect(database.list()).toEqual([
       expect.objectContaining({ id: "open-world-fixture", contentHash: expect.stringMatching(/^sha256:/) }),
     ]);
-    expect(database.load(result.id, 9, modelCatalog)).toMatchObject({
+    const imported = database.load(result.id, 9, modelCatalog);
+    expect(imported).toMatchObject({
       id: "open-world-fixture",
       initialState: { truth: { rng: { seed: 9 } } },
     });
+    expect(imported.randomDistributions).toEqual(
+      loadWorldScript(fixture, { modelCatalog }).randomDistributions,
+    );
     database.close();
   });
 

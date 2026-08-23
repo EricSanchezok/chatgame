@@ -6,11 +6,13 @@ import type {
   AgentBeliefState,
   AgentCharacterState,
   AgentState,
+  DiscreteRandomDefinition,
   MechanicsCatalog,
   PlayerKnowledgeState,
   SimulationState,
 } from "../engine/model";
-import { createSeededRng } from "../engine/random";
+import { historyReplayBaseHash } from "../engine/history-replay";
+import { createSeededRng, validateDiscreteRandomDefinitions } from "../engine/random";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { validateSimulationState } from "../engine/transaction";
 import type { WorldDefinition } from "../engine/world-definition";
@@ -92,6 +94,22 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
     ),
     ratings: uniqueRecord(document.ratings, "rating"),
   };
+}
+
+function randomDistributions(document: MechanicsDocument): DiscreteRandomDefinition[] {
+  const definitions = document.random_distributions.map((distribution) => ({
+    id: distribution.id,
+    description: distribution.description,
+    steps: distribution.steps.map((step) => ({
+      id: step.id,
+      count: step.count,
+      outcomes: structuredClone(step.outcomes),
+      aggregate: step.aggregate,
+      when: step.when ? { stepId: step.when.step_id, equals: structuredClone(step.when.equals) } : null,
+    })),
+  }));
+  validateDiscreteRandomDefinitions(definitions);
+  return definitions;
 }
 
 function beliefFrom(document: EntityDocument["agent"]): AgentBeliefState {
@@ -274,7 +292,7 @@ export function buildWorldDefinition(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 6,
+      schemaVersion: 7,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),
@@ -382,6 +400,8 @@ export function buildWorldDefinition(
         version: reference.version,
         config: reference.config,
       }))),
+      randomDistributions: randomDistributions(mechanicsDocument),
+      historyBaseHash: historyReplayBaseHash(state),
       initialState: state,
     };
     validateWorldDefinition(definition);

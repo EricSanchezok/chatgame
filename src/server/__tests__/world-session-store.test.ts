@@ -46,7 +46,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
   const intent = state.player.intent;
   const runId = "run-1";
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     id,
     world: toWorldRuntimeContract(definition),
     title: definition.name,
@@ -94,7 +94,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
 }
 
 describe("WorldSessionStore", () => {
-  it("persists a strict v7 document and rejects missing sessions", async () => {
+  it("persists a strict v8 document and rejects missing sessions", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
 
@@ -130,10 +130,10 @@ describe("WorldSessionStore", () => {
     expect(store.read(second.document.id).document.id).toBe(second.document.id);
   });
 
-  it("rejects v6 documents without a compatibility path", async () => {
+  it("rejects v7 documents without a compatibility path", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
-    const legacy = { ...document, schemaVersion: 6 } as unknown as WorldSessionDocument;
+    const legacy = { ...document, schemaVersion: 7 } as unknown as WorldSessionDocument;
 
     expect(() => store.create(legacy)).toThrow();
   });

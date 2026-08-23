@@ -7,6 +7,7 @@ import {
   factValueSchema,
   localEntitySchema,
   safeIdSchema,
+  discreteRandomValueSchema,
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
@@ -82,6 +83,20 @@ export const mechanicsFileSchema = z.object({
     min: z.number().finite(),
     max: z.number().finite(),
   }).strict()),
+  random_distributions: z.array(z.object({
+    id: safeIdSchema,
+    description: z.string().min(1),
+    steps: z.array(z.object({
+      id: safeIdSchema,
+      count: z.number().int().min(1).max(100),
+      outcomes: z.array(discreteRandomValueSchema).min(2).max(100),
+      aggregate: z.enum(["first", "sum", "values"]),
+      when: z.object({
+        step_id: safeIdSchema,
+        equals: discreteRandomValueSchema,
+      }).strict().nullable().default(null),
+    }).strict()).min(1).max(100),
+  }).strict()).default([]),
 }).strict();
 
 const bindingSchema = z.object({

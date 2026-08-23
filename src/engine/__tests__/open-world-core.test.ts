@@ -20,7 +20,7 @@ import { TEST_WORLD_HASH } from "../testing/world";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     worldId: "test-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],
@@ -433,6 +433,20 @@ describe("open world kernel", () => {
       apparentClaims: [],
       sourceEventIds: [],
     }])).toThrow("reintroduces local entity self");
+  });
+
+  it("rejects blank observation summaries", () => {
+    const source = worldState();
+    expect(() => validateObservations(source, [{
+      id: "observation:blank-summary",
+      observerId: "player",
+      step: 1,
+      kind: "outcome",
+      summary: " \t\n ",
+      introductions: [],
+      apparentClaims: [],
+      sourceEventIds: [],
+    }])).toThrow("blank summary");
   });
 
   it("creates a dynamic autonomous entity without special-case code", () => {

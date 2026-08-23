@@ -163,7 +163,6 @@ const WorldRunPart: DataMessagePartComponent = ({ data }) => {
   const observations = run.events.filter((event) => event.type === "player.observation");
   const outcomes = run.events.filter((event) => event.type === "player.outcome");
   const checks = run.events.filter((event) => event.type === "check.resolved");
-  const alternatives = outcomes.flatMap((event) => event.payload.knownAlternatives);
   const retriable = run.status === "failed" || run.status === "step_limit";
 
   return (
@@ -173,18 +172,6 @@ const WorldRunPart: DataMessagePartComponent = ({ data }) => {
       )) : outcomes.length > 0 ? outcomes.map((event) => (
         <p className="cg-narrative" key={event.sequence}>{event.payload.summary}</p>
       )) : <p className="cg-narrative cg-narrative--thinking">世界正在推演…</p>}
-
-      {observations.length > 0 && outcomes.length > 0 ? (
-        <div className="cg-outcomes">
-          {outcomes.map((event) => <p key={event.sequence}>{event.payload.summary}</p>)}
-        </div>
-      ) : null}
-      {alternatives.length > 0 ? (
-        <div className="cg-alternatives">
-          <strong>你察觉到的其他可能</strong>
-          <ul>{alternatives.map((alternative, index) => <li key={`${alternative}-${index}`}>{alternative}</li>)}</ul>
-        </div>
-      ) : null}
       {checks.length > 0 ? (
         <details className="cg-checks">
           <summary>{checks.length} 次可见检定</summary>

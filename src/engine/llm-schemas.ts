@@ -9,6 +9,7 @@ import type {
   ReactionRequest,
   TransitionProposal,
 } from "./model";
+import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import {
   actionProposalSchema,
   agentStateSchema,
@@ -252,6 +253,14 @@ const mechanicInvocationSchema = z.strictObject({
   ...causalSourceShape,
 });
 
+export const discreteRandomRequestProposalSchema = z.strictObject({
+  id: safeIdSchema,
+  distributionId: safeIdSchema,
+  causes: z.array(causalRefSchema).min(1).max(16),
+});
+
+export type DiscreteRandomRequestProposal = z.infer<typeof discreteRandomRequestProposalSchema>;
+
 const actionOutcomeSchema = z.strictObject({
   proposalId: safeIdSchema,
   status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
@@ -345,11 +354,18 @@ export const reactionRoutingOutputSchema = z.strictObject({
   requests: z.array(reactionRequestSchema),
 });
 
-export const resolutionDirectiveSchema = perceptionDirectiveSchema;
+export const resolutionDirectiveSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("request_checks"), requests: z.array(checkRequestSchema).min(1) }),
+  z.strictObject({
+    kind: z.literal("request_random"),
+    requests: z.array(discreteRandomRequestProposalSchema).min(1).max(MAX_RANDOM_REQUESTS_PER_ROUND),
+  }),
+  z.strictObject({ kind: z.literal("done") }),
+]);
 
 const causalFindingSchema = z.strictObject({
   target: z.strictObject({
-    kind: z.enum(["check", "operation", "mechanic", "event", "outcome", "observation"]),
+    kind: z.enum(["check", "random", "operation", "mechanic", "event", "outcome", "observation"]),
     id: safeIdSchema,
   }),
   code: z.enum([

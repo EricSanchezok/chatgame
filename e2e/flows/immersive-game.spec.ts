@@ -23,7 +23,8 @@ test("a player installs a world and continues a persistent conversation", async 
   const composer = page.getByLabel("你的行动");
   await composer.fill("我尝试一个剧本没有预配置的自由行动");
   await composer.press("Enter");
-  await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toBeVisible();
+  await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
+  await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toHaveCount(0);
   await expect(page.getByText("目标已经完成")).toBeVisible();
   await expect(page.getByLabel("当前世界状态").getByText("1", { exact: true })).toBeVisible();
 
@@ -36,7 +37,8 @@ test("a player installs a world and continues a persistent conversation", async 
   expect(JSON.stringify(sessions)).not.toContain("key-authenticity");
 
   await page.reload();
-  await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toBeVisible();
+  await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
+  await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toHaveCount(0);
   await page.goto("/");
   await expect(page.getByRole("link", { name: /继续当前世界/ })).toBeVisible();
 

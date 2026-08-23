@@ -4,7 +4,7 @@
 
 ## 两条观测链路
 
-成功提交的 bootstrap 与世界步骤把 `ModelExecutionAudit.invocations[]` 写入 `WorldSessionDocument` schema v7。运行 NDJSON 覆盖 HTTP、SSE、session、WorldRun、世界步骤、模型、校验与存档；失败、取消和回滚调用只进入运行日志，不进入已提交步骤审计。
+成功提交的 bootstrap 与世界步骤把 `ModelExecutionAudit.invocations[]` 写入 `WorldSessionDocument` schema v8。运行 NDJSON 覆盖 HTTP、SSE、session、WorldRun、世界步骤、模型、校验与存档；失败、取消和回滚调用只进入运行日志，不进入已提交步骤审计。
 
 公共游戏 API、SSE payload 与浏览器 DTO 不包含运行事件、模型审计、canonical binding 或内部错误。运行日志是有界本地诊断表面，不是游戏历史或公开事件流。
 
@@ -20,7 +20,7 @@ Correlation 按可用边界逐层增加：`requestId → sessionId → runId/run
 
 `LIVINGWORLD_OBSERVABILITY=off|metrics|full` 控制运行日志，默认 `off`。`metrics` 只记录 ID、大小、计数、耗时、状态、错误分类和 hash；`full` 在此基础上记录关键应用层 payload。显式启用的两种模式同时写 stdout 与文件。
 
-Full payload 只在拥有边界出现：HTTP 记录经过递归凭证字段脱敏的游戏 JSON body；世界导入只记录文件名、字节数、hash 与 replace；步骤记录初始状态、联合行动、检定与 reaction、transition、玩家知识、Agent patches 和提交后状态；模型记录三类规范 Context、结构化输出，以及每个唯一 system/schema 契约一次。后续事件只引用 hash，不能重复附加同一大对象。日志不包含不可见思维链。
+Full payload 只在拥有边界出现：HTTP 记录经过递归凭证字段脱敏的游戏 JSON body；世界导入只记录文件名、字节数、hash 与 replace；步骤记录初始状态、联合行动、检定、离散随机承诺与 reaction、transition、玩家知识、Agent patches 和提交后状态；模型记录三类规范 Context、结构化输出，以及每个唯一 system/schema 契约一次。后续事件只引用 hash，不能重复附加同一大对象。日志不包含不可见思维链。
 
 ## 事件阶段
 

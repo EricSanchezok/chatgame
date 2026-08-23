@@ -3,7 +3,8 @@ import path from "node:path";
 import { AgentMind } from "../engine/agent-mind";
 import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
-import { canonicalize } from "../engine/model-audit";
+import type { ObservationPacket } from "../engine/model";
+import { canonicalize, contentHash } from "../engine/model-audit";
 import type { StructuredModelProvider } from "../engine/model-provider";
 import { SimulationEngine } from "../engine/simulation";
 import { TruthEngine } from "../engine/truth-engine";
@@ -21,7 +22,6 @@ import {
   type RuntimeCorrelation,
   type RuntimeObserver,
 } from "../engine/observability";
-import { contentHash } from "../engine/model-audit";
 import type { ContinueWorldRunInput, StartWorldRunResponse, WorldRunSnapshot } from "../shared/world-api";
 import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
@@ -115,7 +115,7 @@ export class WorldHostError extends Error {
 }
 
 function sanitizePlayerObservation(
-  packet: import("../engine/model").ObservationPacket,
+  packet: ObservationPacket,
   packetIndex: number,
 ): PublicObservationPacket {
   return {
@@ -133,6 +133,18 @@ function sanitizePlayerObservation(
     sourceEventIds: packet.sourceEventIds.map((_eventId, eventIndex) =>
       `event:${packet.step}:${packetIndex + 1}:${eventIndex + 1}`),
   };
+}
+
+function summarizePlayerOutcome(
+  packets: readonly ObservationPacket[],
+): string {
+  const summaries = packets
+    .filter((packet) => packet.observerId === "player" && packet.kind === "outcome")
+    .map((packet) => packet.summary.trim());
+  if (summaries.length === 0 || summaries.some((summary) => !summary)) {
+    throw new Error("committed step is missing a non-blank player outcome observation");
+  }
+  return summaries.join("\n");
 }
 
 export class WorldHost {
@@ -364,7 +376,7 @@ export class WorldHost {
     });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 7,
+      schemaVersion: 8,
       id,
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -727,8 +739,7 @@ export class WorldHost {
           type: "player.outcome",
           payload: {
             status: playerOutcome.status,
-            summary: playerOutcome.summary,
-            knownAlternatives: playerOutcome.knownAlternatives.map((alternative) => alternative.description),
+            summary: summarizePlayerOutcome(result.committed.observations),
           },
         }, stepCorrelation);
         const playerPackets = result.committed.observations.filter((packet) => packet.observerId === "player");

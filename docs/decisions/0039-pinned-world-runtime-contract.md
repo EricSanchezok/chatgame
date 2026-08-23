@@ -26,16 +26,16 @@ Class: bug-fix
 
 loader 规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 entities，再计算 `sha256` 内容身份。`WorldDefinition.contentHash`、`SimulationState.worldHash` 和公共会话 `worldHash` 必须一致；文件名和归档条目顺序不参与身份。
 
-会话 schema v7 嵌入不可变 `WorldRuntimeContract`，包括世界元数据、分阶段 Truth profiles、完整法则、披露策略和已验证规则包裁决。恢复只从会话状态和该契约构造引擎，并重新验证本地受信任规则包与模型目录，不读取当前 world catalog。
+会话 schema v8 嵌入不可变 `WorldRuntimeContract`，包括世界元数据、分阶段 Truth profiles、完整法则、披露策略、已验证规则包裁决和离散随机分布。恢复只从会话状态和该契约构造引擎，并重新验证本地受信任规则包与模型目录，不读取当前 world catalog。
 
-初始 Fact provenance 使用判别引用 `{ kind: "world_seed", id: worldHash }`。完整状态校验只接受与状态哈希精确相等的 seed 引用；运行时 `law`、`fact`、`action`、`check` 与 `event` 来源继续要求解析到真实因果。
+初始 Fact provenance 使用判别引用 `{ kind: "world_seed", id: worldHash }`。完整状态校验只接受与状态哈希精确相等的 seed 引用；运行时 `law`、`fact`、`action`、`check`、`random`、`event` 与 `mechanic` 来源继续要求解析到真实因果。
 
 ### Consequences
 
 - 替换同 ID 世界只影响新会话，旧会话保持原版本。
 - 会话文档比只保存状态更大，但具备独立恢复所需的语义。
 - 运行时升级若不再支持会话锁定的规则包版本或模型 Profile，会响亮拒绝恢复。
-- schema v3 会话直接拒绝，不提供迁移或双轨读取。
+- 旧版本会话直接拒绝，不提供迁移或双轨读取。
 
 ## Pros and Cons of the Options
 

@@ -3,6 +3,7 @@ import { applyBeliefPatch } from "./belief";
 import { applyCharacterPatch } from "./character";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { contentHash } from "./model-audit";
+import { createHistoryReplayBase } from "./history-replay";
 import type { AgentMindOutput } from "./llm-schemas";
 import type { ModelExecutionScope } from "./model-provider";
 import type {
@@ -126,14 +127,18 @@ function applyPlayerBindings(
 }
 
 function assertObservationCoverage(state: SimulationState, packets: readonly ObservationPacket[]): void {
-  const observerIds = new Set(packets.map((packet) => packet.observerId));
-  if (!observerIds.has("player")) throw new Error("transition must observe the player");
+  const observerIds = new Set(packets
+    .filter((packet) => packet.kind === "outcome")
+    .map((packet) => packet.observerId));
+  if (!observerIds.has("player")) throw new Error("transition must provide an outcome observation for the player");
   for (const agentId of Object.keys(state.agents)) {
-    if (!observerIds.has(agentId)) throw new Error(`transition must observe agent ${agentId}`);
+    if (!observerIds.has(agentId)) {
+      throw new Error(`transition must provide an outcome observation for agent ${agentId}`);
+    }
   }
-  for (const observerId of observerIds) {
-    if (observerId !== "player" && !state.agents[observerId]) {
-      throw new Error(`transition observes inactive agent ${observerId}`);
+  for (const packet of packets) {
+    if (packet.observerId !== "player" && !state.agents[packet.observerId]) {
+      throw new Error(`transition observes inactive agent ${packet.observerId}`);
     }
   }
 }
@@ -390,7 +395,7 @@ export class SimulationEngine {
           modelAudits: reactionOutputs.map((output) => output.modelAudit),
         };
       },
-      validateProposal: (proposal, _checks, finalActions, stimulusObservations) => {
+      validateProposal: (proposal, _checks, _randomResults, finalActions, stimulusObservations) => {
         assertStepAdvancesTime(proposal);
         validatePublicInformationBoundary(source, finalActions, proposal);
         const candidate = applyTransitionProposal(source, proposal);
@@ -410,6 +415,7 @@ export class SimulationEngine {
         truthAudits: resolution.modelAudits.length,
         reactionAudits: resolution.reactionModelAudits.length,
         checks: resolution.checks.length,
+        randomResults: resolution.randomResults.length,
       },
       hashes: { proposal: contentHash(resolution.proposal) },
     });
@@ -443,7 +449,7 @@ export class SimulationEngine {
           agent,
           observationsFor(observations, agent.id),
           executionScope,
-          { action, outcome: outcome ? { status: outcome.status, summary: outcome.summary } : null },
+          { action, outcome: outcome ? { status: outcome.status } : null },
           resolution.proposal.events,
           source.agents[agent.id] ? "mind" : "bootstrap",
         );
@@ -468,6 +474,7 @@ export class SimulationEngine {
         resolution.proposal.events,
       );
     }
+    candidate.historyBase ??= createHistoryReplayBase(source);
     validateSimulationState(candidate, true);
 
     const committedPayload: Omit<CommittedStep, "contentHash"> = {
@@ -482,6 +489,9 @@ export class SimulationEngine {
       rngAfter: structuredClone(candidate.truth.rng),
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
+      randomRequests: structuredClone(resolution.randomRequests),
+      randomResults: structuredClone(resolution.randomResults),
+      commitmentRounds: structuredClone(resolution.commitmentRounds),
       outcomes: structuredClone(resolution.proposal.outcomes),
       mechanicInvocations: structuredClone(resolution.proposal.mechanicInvocations),
       mechanicResults: structuredClone(resolution.mechanicResults),
@@ -490,6 +500,8 @@ export class SimulationEngine {
       events: structuredClone(resolution.proposal.events),
       observations: structuredClone(observations),
       operations: structuredClone(resolution.proposal.operations),
+      intentStatus: resolution.proposal.intentStatus,
+      requiresPlayerDecision: resolution.proposal.requiresPlayerDecision,
       beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
       characterPatches: outputs.map((output) => structuredClone(output.characterPatch)),
       modelAudits: [

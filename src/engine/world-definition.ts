@@ -1,5 +1,7 @@
-import type { SimulationState } from "./model";
+import type { DiscreteRandomDefinition, SimulationState } from "./model";
+import { historyReplayBaseHash } from "./history-replay";
 import type { ModelCatalog } from "./model-catalog";
+import { validateDiscreteRandomDefinitions } from "./random";
 import type { RulePackageReference } from "./rule-package";
 
 export interface WorldLaw {
@@ -28,6 +30,8 @@ export interface WorldRuntimeContract {
   laws: WorldLaw[];
   disclosure: MechanicalDisclosurePolicy;
   rulePackages: RulePackageReference[];
+  randomDistributions: DiscreteRandomDefinition[];
+  historyBaseHash: string;
 }
 
 export interface WorldDefinition extends WorldRuntimeContract {
@@ -44,6 +48,10 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
   if (!definition.id.trim() || !definition.name.trim()) throw new Error("world id and name are required");
   if (!definition.manifestVersion.trim()) throw new Error("world manifest version is required");
   if (!/^sha256:[a-f0-9]{64}$/.test(definition.contentHash)) throw new Error("invalid world content hash");
+  if (!/^[a-f0-9]{64}$/.test(definition.historyBaseHash) ||
+    definition.historyBaseHash !== historyReplayBaseHash(definition.initialState)) {
+    throw new Error("world history replay base mismatch");
+  }
   if (Object.values(definition.modelProfiles).some((profileId) => !profileId.trim())) {
     throw new Error("world model profiles are required");
   }
@@ -71,6 +79,7 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
     }
     packageIds.add(rulePackage.id);
   }
+  validateDiscreteRandomDefinitions(definition.randomDistributions);
 }
 
 export function validateWorldModelProfiles(definition: WorldDefinition, catalog: ModelCatalog): void {
