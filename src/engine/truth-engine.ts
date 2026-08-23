@@ -196,20 +196,25 @@ function validateCheckRequest(
   }
   const modifierSourceIds = new Set<string>();
   for (const source of request.modifierSources) {
-    if (modifierSourceIds.has(source.id)) {
-      throw new Error(`check ${request.id} repeats modifier source ${source.id}`);
+    const sourceKey = `${source.kind}:${source.id}`;
+    if (modifierSourceIds.has(sourceKey)) {
+      throw new Error(`check ${request.id} repeats modifier source ${sourceKey}`);
     }
-    modifierSourceIds.add(source.id);
-    const rating = state.truth.ratings[source.id];
+    modifierSourceIds.add(sourceKey);
+    if (source.kind === "rating") {
+      const rating = state.truth.ratings[source.id];
+      if (!rating) throw new Error(`check ${request.id} has unknown rating modifier ${source.id}`);
+      if (rating.value !== source.amount) {
+        throw new Error(`check ${request.id} misstates rating modifier ${source.id}`);
+      }
+      continue;
+    }
     const fact = state.truth.facts[source.id];
-    if (!rating && !fact) throw new Error(`check ${request.id} has unknown modifier source ${source.id}`);
-    if (rating && rating.value !== source.amount) {
-      throw new Error(`check ${request.id} misstates rating modifier ${source.id}`);
-    }
-    if (fact && fact.value.kind !== "number") {
+    if (!fact) throw new Error(`check ${request.id} has unknown fact modifier ${source.id}`);
+    if (fact.value.kind !== "number") {
       throw new Error(`check ${request.id} uses non-numeric fact modifier ${source.id}`);
     }
-    if (fact?.value.kind === "number" && fact.value.value !== source.amount) {
+    if (fact.value.value !== source.amount) {
       throw new Error(`check ${request.id} misstates fact modifier ${source.id}`);
     }
   }

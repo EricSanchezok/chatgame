@@ -1,4 +1,5 @@
 import type { SimulationState } from "../engine/model";
+import type { WorldRuntimeContract } from "../engine/world-definition";
 import type {
   PublicSessionSnapshot,
   WorldRunEvent,
@@ -18,16 +19,16 @@ export type WorldRunEventInput = WorldRunEvent extends infer Event
     : never
   : never;
 
-export interface WorldRunRecord extends Omit<WorldRunRecordView, "error"> {
+export interface WorldRunRecord extends Omit<WorldRunRecordView, "error" | "inputs"> {
   intentId: string;
   error?: string;
   internalError?: string;
 }
 
 export interface WorldSessionDocument {
-  schemaVersion: 4;
+  schemaVersion: 5;
   id: string;
-  scriptId: string;
+  world: WorldRuntimeContract;
   createdAt: string;
   updatedAt: string;
   state: SimulationState;
@@ -37,7 +38,9 @@ export interface WorldSessionDocument {
 export function publicSessionSnapshot(document: WorldSessionDocument): PublicSessionSnapshot {
   return {
     id: document.id,
-    scriptId: document.scriptId,
+    worldId: document.world.id,
+    worldHash: document.world.contentHash,
+    worldVersion: document.world.manifestVersion,
     revision: document.state.revision,
     step: document.state.step,
     elapsedSeconds: document.state.truth.elapsedSeconds,
@@ -50,7 +53,9 @@ export function publicWorldRunRecord(run: WorldRunRecord): WorldRunRecordView {
   return {
     id: run.id,
     sessionId: run.sessionId,
-    text: run.text,
+    inputs: run.events.flatMap((event) => event.type === "player.input"
+      ? [{ ...event.payload, at: event.at }]
+      : []),
     status: run.status,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,

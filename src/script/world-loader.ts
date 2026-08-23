@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 import type {
   AgentBeliefState,
   AgentCharacterState,
@@ -15,6 +16,7 @@ import { validateSimulationState } from "../engine/transaction";
 import type { WorldDefinition } from "../engine/world-definition";
 import { validateWorldDefinition, validateWorldModelProfiles } from "../engine/world-definition";
 import type { ModelCatalog } from "../engine/model-catalog";
+import { canonicalize, contentHash } from "../engine/model-audit";
 import {
   entityDocumentSchema,
   lawsFileSchema,
@@ -22,7 +24,10 @@ import {
   playerDocumentSchema,
   scriptManifestSchema,
   type EntityDocument,
+  type LawsDocument,
   type MechanicsDocument,
+  type PlayerDocument,
+  type ScriptManifestDocument,
 } from "./contract";
 
 export class WorldScriptError extends Error {
@@ -214,23 +219,64 @@ export interface LoadWorldScriptOptions {
   rulePackages?: RulePackageRegistry;
 }
 
-export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptions): WorldDefinition {
-  const seed = options.seed ?? 1;
-  const rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
+export interface NormalizedWorldTemplate {
+  manifest: ScriptManifestDocument;
+  laws: LawsDocument;
+  mechanics: MechanicsDocument;
+  player: PlayerDocument;
+  entities: EntityDocument[];
+}
+
+const normalizedWorldTemplateSchema = z.strictObject({
+  manifest: scriptManifestSchema,
+  laws: lawsFileSchema,
+  mechanics: mechanicsFileSchema,
+  player: playerDocumentSchema,
+  entities: z.array(entityDocumentSchema).min(1),
+});
+
+export function parseWorldTemplate(value: unknown): NormalizedWorldTemplate {
+  const template = normalizedWorldTemplateSchema.parse(value);
+  template.entities.sort((left, right) => left.id.localeCompare(right.id));
+  return template;
+}
+
+export function hashWorldTemplate(template: NormalizedWorldTemplate): string {
+  return `sha256:${contentHash(canonicalize(template))}`;
+}
+
+export function loadWorldTemplate(scriptDir: string): NormalizedWorldTemplate {
   const root = path.resolve(scriptDir);
   validateWorldScriptLayout(root);
-  const manifest = parseDocument(path.join(root, "script.yaml"), scriptManifestSchema);
-  const laws = parseDocument(path.join(root, "laws.yaml"), lawsFileSchema);
-  const mechanicsDocument = parseDocument(path.join(root, "mechanics.yaml"), mechanicsFileSchema);
-  const player = parseDocument(path.join(root, "player.yaml"), playerDocumentSchema);
-  const documents = entityFiles(root).map((file) => parseDocument(file, entityDocumentSchema));
-  if (documents.length === 0) throw new WorldScriptError(path.join(root, "entities"), "at least one entity is required");
+  const entities = entityFiles(root)
+    .map((file) => parseDocument(file, entityDocumentSchema))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (entities.length === 0) {
+    throw new WorldScriptError(path.join(root, "entities"), "at least one entity is required");
+  }
+  return parseWorldTemplate({
+    manifest: parseDocument(path.join(root, "script.yaml"), scriptManifestSchema),
+    laws: parseDocument(path.join(root, "laws.yaml"), lawsFileSchema),
+    mechanics: parseDocument(path.join(root, "mechanics.yaml"), mechanicsFileSchema),
+    player: parseDocument(path.join(root, "player.yaml"), playerDocumentSchema),
+    entities,
+  });
+}
 
+export function buildWorldDefinition(
+  template: NormalizedWorldTemplate,
+  options: LoadWorldScriptOptions,
+): WorldDefinition {
+  const seed = options.seed ?? 1;
+  const rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
+  const { manifest, laws, mechanics: mechanicsDocument, player, entities: documents } = template;
+  const worldHash = hashWorldTemplate(template);
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       worldId: manifest.id,
+      worldHash,
       lawIds: laws.laws.map((law) => law.id),
       revision: 0,
       step: 0,
@@ -277,7 +323,7 @@ export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptio
         state.truth.facts[fact.id] = {
           ...fact,
           subjectId: document.id,
-          provenance: [{ kind: "law", id: laws.laws[0].id }],
+          provenance: [{ kind: "world_seed", id: worldHash }],
         };
       }
       for (const meter of document.meters) {
@@ -319,7 +365,9 @@ export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptio
     const definition: WorldDefinition = {
       id: manifest.id,
       name: manifest.name,
+      manifestVersion: manifest.version,
       description: manifest.description,
+      contentHash: worldHash,
       modelProfiles: {
         perception: manifest.model_profiles.perception,
         reactionRouting: manifest.model_profiles.reaction_routing,
@@ -341,28 +389,16 @@ export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptio
     validateSimulationState(state, false);
     return definition;
   } catch (error) {
-    throw new WorldScriptError(root, error instanceof Error ? error.message : String(error));
+    throw new Error(error instanceof Error ? error.message : String(error));
   }
 }
 
-export interface WorldScriptSummary {
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  directory: string;
-}
-
-export function listWorldScripts(root: string): WorldScriptSummary[] {
-  if (!existsSync(root)) return [];
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .flatMap((entry) => {
-      const directory = path.join(root, entry.name);
-      const manifestFile = path.join(directory, "script.yaml");
-      if (!existsSync(manifestFile)) return [];
-      const manifest = parseDocument(manifestFile, scriptManifestSchema);
-      return [{ ...manifest, directory }];
-    });
+export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptions): WorldDefinition {
+  const root = path.resolve(scriptDir);
+  try {
+    return buildWorldDefinition(loadWorldTemplate(root), options);
+  } catch (error) {
+    if (error instanceof WorldScriptError) throw error;
+    throw new WorldScriptError(root, error instanceof Error ? error.message : String(error));
+  }
 }

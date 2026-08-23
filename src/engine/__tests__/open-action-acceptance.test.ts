@@ -9,6 +9,7 @@ import type {
   WorldDeltaOperation,
 } from "../model";
 import { ScriptedModelProvider, type ScriptedModelHandler } from "../testing/model-provider";
+import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
@@ -138,8 +139,9 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
     agents[id] = autonomousAgent(id);
   }
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     worldId: "acceptance-world",
+    worldHash: TEST_WORLD_HASH,
     lawIds: laws.map((law) => law.id),
     revision: 0,
     step: 0,
@@ -294,7 +296,9 @@ function definition(initialState: SimulationState): WorldDefinition {
   return {
     id: "acceptance-world",
     name: "开放行动验收世界",
+    manifestVersion: "test",
     description: "只用于验证通用引擎契约。",
+    contentHash: TEST_WORLD_HASH,
     modelProfiles: {
       perception: "truth-engine",
       reactionRouting: "truth-engine",
@@ -576,7 +580,7 @@ describe("open action acceptance", () => {
             targetId: "enemy",
             ratingId: "attack:player",
             modifier: 20,
-            modifierSources: [{ id: "attack:player", amount: 20 }],
+            modifierSources: [{ kind: "rating", id: "attack:player", amount: 20 }],
             dc: 15,
             mode: "normal",
             stakes: "成功则造成足以击败拦路者的伤害，失败则目标仍可行动。",
@@ -641,7 +645,7 @@ describe("open action acceptance", () => {
             targetId: null,
             ratingId: "attack:player",
             modifier: 20,
-            modifierSources: [{ id: "attack:player", amount: 20 }],
+            modifierSources: [{ kind: "rating", id: "attack:player", amount: 20 }],
             dc: 18,
             mode: "advantage",
             stakes: "验证可复现世界提交。",

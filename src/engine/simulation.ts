@@ -223,19 +223,41 @@ export class SimulationEngine {
     return this.snapshot;
   }
 
-  beginPlayerIntent(text: string): SimulationState {
+  beginPlayerIntent(text: string, inputId?: string): SimulationState {
     const normalized = text.trim();
     if (!normalized) throw new Error("player intent cannot be empty");
     if (this.state.player.intent?.status === "active") {
       throw new Error("a player intent is already active");
     }
     const next = structuredClone(this.state);
+    const intentId = inputId ? `intent:${inputId}` : `intent:${next.revision}:${next.step}`;
     next.player.intent = {
-      id: `intent:${next.revision}:${next.step}`,
-      rawText: normalized,
+      id: intentId,
       goal: normalized,
+      latestInput: {
+        id: inputId ?? `input:${intentId}:1`,
+        text: normalized,
+        kind: "goal",
+        submittedAtStep: next.step,
+      },
       status: "active",
       startedAtStep: next.step,
+    };
+    this.state = next;
+    return this.snapshot;
+  }
+
+  continuePlayerIntent(text: string, inputId: string): SimulationState {
+    const normalized = text.trim();
+    if (!normalized) throw new Error("player intent input cannot be empty");
+    const intent = this.state.player.intent;
+    if (!intent || intent.status !== "active") throw new Error("no active player intent");
+    const next = structuredClone(this.state);
+    next.player.intent!.latestInput = {
+      id: inputId,
+      text: normalized,
+      kind: "clarification",
+      submittedAtStep: next.step,
     };
     this.state = next;
     return this.snapshot;
@@ -256,9 +278,11 @@ export class SimulationEngine {
       id: `player-action:${intent.id}:${this.state.step + 1}`,
       actorId: "player",
       baseRevision: this.state.revision,
-      rawText: intent.rawText,
+      rawText: intent.latestInput.text,
       goal: intent.goal,
-      means: this.state.step === intent.startedAtStep ? null : "继续此前已经开始的目标",
+      means: intent.latestInput.kind === "goal" && this.state.step === intent.startedAtStep
+        ? null
+        : intent.latestInput.text,
       targetIds: [],
     };
     const actions = [playerAction];

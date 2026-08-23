@@ -39,6 +39,14 @@ export const causalRefSchema = z.strictObject({
   id: safeIdSchema,
 });
 
+export const factProvenanceRefSchema = z.union([
+  causalRefSchema,
+  z.strictObject({
+    kind: z.literal("world_seed"),
+    id: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  }),
+]);
+
 export const factValueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("text"), value: z.string() }),
   z.strictObject({ kind: z.literal("number"), value: z.number().finite() }),
@@ -165,7 +173,7 @@ export const factSchema = z.strictObject({
   value: factValueSchema,
   description: z.string(),
   access: accessSchema,
-  provenance: z.array(causalRefSchema),
+  provenance: z.array(factProvenanceRefSchema),
 }) as z.ZodType<WorldFact>;
 
 export const meterSchema = z.strictObject({

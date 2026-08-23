@@ -176,10 +176,18 @@ export const checkRequestSchema = z.strictObject({
   targetId: safeIdSchema.nullable(),
   ratingId: safeIdSchema.nullable(),
   modifier: z.number().int(),
-  modifierSources: z.array(z.strictObject({
-    id: safeIdSchema,
-    amount: z.number().int().min(-100).max(100),
-  })),
+  modifierSources: z.array(z.discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("rating"),
+      id: safeIdSchema,
+      amount: z.number().int().min(-100).max(100),
+    }),
+    z.strictObject({
+      kind: z.literal("fact"),
+      id: safeIdSchema,
+      amount: z.number().int().min(-100).max(100),
+    }),
+  ])),
   dc: z.number().int().min(0).max(100),
   mode: z.enum(["normal", "advantage", "disadvantage"]),
   stakes: z.string().min(1),

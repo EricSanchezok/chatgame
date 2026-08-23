@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { loadModelCatalog } from "../src/engine/model-catalog";
-import { importWorldArchive } from "../src/server/world-import";
+import { LocalDatabase } from "../src/server/local-database";
 
 const archive = process.argv[2];
 const replace = process.argv.includes("--replace");
@@ -10,13 +10,18 @@ if (!archive) {
   process.exitCode = 2;
 } else {
   try {
-    const result = importWorldArchive(
-      readFileSync(path.resolve(archive)),
-      path.resolve(process.env.LIVINGWORLD_SCRIPTS_ROOT ?? "scripts"),
-      loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml")),
-      replace,
-    );
-    process.stdout.write(`${result.id}: ${result.replaced ? "replaced" : "imported"}\n`);
+    const dataRoot = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld");
+    const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
+    try {
+      const result = database.importWorld(
+        readFileSync(path.resolve(archive)),
+        loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml")),
+        replace,
+      );
+      process.stdout.write(`${result.id}: ${result.replaced ? "replaced" : "imported"}\n`);
+    } finally {
+      database.close();
+    }
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

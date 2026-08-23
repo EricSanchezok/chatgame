@@ -48,6 +48,11 @@ export interface CausalSource {
   assertions: CausalAssertion[];
 }
 
+export type FactProvenanceRef = CausalRef | {
+  kind: "world_seed";
+  id: string;
+};
+
 export interface WorldEntity {
   id: EntityId;
   kind: string;
@@ -67,7 +72,7 @@ export interface WorldFact {
     | { kind: "public" }
     | { kind: "private" }
     | { kind: "agents"; agentIds: AgentId[] };
-  provenance: CausalRef[];
+  provenance: FactProvenanceRef[];
 }
 
 export interface MeterDefinition {
@@ -326,8 +331,13 @@ export interface AgentSelfStateView {
 
 export interface PlayerIntent {
   id: string;
-  rawText: string;
   goal: string;
+  latestInput: {
+    id: string;
+    text: string;
+    kind: "goal" | "clarification";
+    submittedAtStep: number;
+  };
   status: "active" | "completed" | "failed" | "cancelled";
   startedAtStep: number;
 }
@@ -348,8 +358,9 @@ export interface WorldEvent {
 }
 
 export interface SimulationState {
-  schemaVersion: 4;
+  schemaVersion: 5;
   worldId: string;
+  worldHash: string;
   lawIds: string[];
   revision: number;
   step: number;
@@ -373,7 +384,7 @@ export interface D20CheckRequest {
   targetId: EntityId | null;
   ratingId: string | null;
   modifier: number;
-  modifierSources: Array<{ id: string; amount: number }>;
+  modifierSources: ModifierSource[];
   dc: number;
   mode: "normal" | "advantage" | "disadvantage";
   stakes: string;
@@ -381,6 +392,10 @@ export interface D20CheckRequest {
   phase: "perception" | "resolution";
   causes: CausalRef[];
 }
+
+export type ModifierSource =
+  | { kind: "rating"; id: string; amount: number }
+  | { kind: "fact"; id: string; amount: number };
 
 export interface D20CheckResult {
   requestId: string;

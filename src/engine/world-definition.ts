@@ -12,10 +12,12 @@ export interface MechanicalDisclosurePolicy {
   defaultCheckVisibility: "full" | "result_only" | "hidden";
 }
 
-export interface WorldDefinition {
+export interface WorldRuntimeContract {
   id: string;
   name: string;
+  manifestVersion: string;
   description: string;
+  contentHash: string;
   modelProfiles: {
     perception: string;
     reactionRouting: string;
@@ -26,11 +28,22 @@ export interface WorldDefinition {
   laws: WorldLaw[];
   disclosure: MechanicalDisclosurePolicy;
   rulePackages: RulePackageReference[];
+}
+
+export interface WorldDefinition extends WorldRuntimeContract {
   initialState: SimulationState;
+}
+
+export function toWorldRuntimeContract(definition: WorldDefinition): WorldRuntimeContract {
+  const contract = structuredClone(definition);
+  delete (contract as Partial<WorldDefinition>).initialState;
+  return contract;
 }
 
 export function validateWorldDefinition(definition: WorldDefinition): void {
   if (!definition.id.trim() || !definition.name.trim()) throw new Error("world id and name are required");
+  if (!definition.manifestVersion.trim()) throw new Error("world manifest version is required");
+  if (!/^sha256:[a-f0-9]{64}$/.test(definition.contentHash)) throw new Error("invalid world content hash");
   if (Object.values(definition.modelProfiles).some((profileId) => !profileId.trim())) {
     throw new Error("world model profiles are required");
   }
@@ -42,6 +55,9 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
   }
   if (definition.initialState.worldId !== definition.id) {
     throw new Error("initial state world id does not match definition");
+  }
+  if (definition.initialState.worldHash !== definition.contentHash) {
+    throw new Error("initial state world hash does not match definition");
   }
   if (definition.initialState.lawIds.length !== ids.size ||
     definition.initialState.lawIds.some((lawId) => !ids.has(lawId))) {

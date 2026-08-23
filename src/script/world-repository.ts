@@ -1,34 +1,20 @@
-import path from "node:path";
 import { validateWorldModelProfiles, type WorldDefinition } from "../engine/world-definition";
 import type { ModelCatalog } from "../engine/model-catalog";
+import { createSeededRng } from "../engine/random";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
-import { listWorldScripts, loadWorldScript, type WorldScriptSummary } from "./world-loader";
+
+export interface WorldCatalogEntry {
+  id: string;
+  name: string;
+  version: string;
+  contentHash: string;
+  description: string;
+}
 
 export interface WorldRepository {
   readonly rulePackages: RulePackageRegistry;
-  list(): WorldScriptSummary[];
-  load(scriptId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition;
-}
-
-export class FileWorldRepository implements WorldRepository {
-  constructor(
-    readonly root: string,
-    readonly rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
-  ) {}
-
-  list(): WorldScriptSummary[] {
-    return listWorldScripts(this.root);
-  }
-
-  load(scriptId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition {
-    const summary = this.list().find((candidate) => candidate.id === scriptId);
-    if (!summary) throw new Error(`world script not found: ${scriptId}`);
-    return loadWorldScript(path.resolve(summary.directory), {
-      seed,
-      rulePackages: this.rulePackages,
-      modelCatalog,
-    });
-  }
+  list(): WorldCatalogEntry[];
+  load(worldId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition;
 }
 
 export class MemoryWorldRepository implements WorldRepository {
@@ -37,22 +23,23 @@ export class MemoryWorldRepository implements WorldRepository {
     readonly rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
   ) {}
 
-  list(): WorldScriptSummary[] {
+  list(): WorldCatalogEntry[] {
     return Object.values(this.definitions)
       .map((definition) => ({
         id: definition.id,
         name: definition.name,
-        version: "test",
+        version: definition.manifestVersion,
+        contentHash: definition.contentHash,
         description: definition.description,
-        directory: "<memory>",
       }))
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  load(scriptId: string, _seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition {
-    const definition = this.definitions[scriptId];
-    if (!definition) throw new Error(`world script not found: ${scriptId}`);
+  load(worldId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition {
+    const definition = this.definitions[worldId];
+    if (!definition) throw new Error(`world not found: ${worldId}`);
     const cloned = structuredClone(definition);
+    if (seed !== undefined) cloned.initialState.truth.rng = createSeededRng(seed);
     validateWorldModelProfiles(cloned, modelCatalog);
     return cloned;
   }

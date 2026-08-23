@@ -158,6 +158,8 @@ agent:
 
 `placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。`model_profiles` 的三个必填字段分别引用允许 `agent-bootstrap`、`agent-mind` 与 `agent-reaction` 的 Profile；不同调用点和不同 Agent 都可独立选择 Provider/Profile。
 
+loader 对规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 entities 计算 `worldHash`。YAML 中的初始 Fact 不声明 provenance；运行态统一生成 `{ kind: "world_seed", id: worldHash }`，不得借用任意 Law 伪装世界种子来源。
+
 ## 角色种子
 
 `character.persona.summary` 是 Agent 角色配置中唯一必填的内容字段。`persona.voice` 默认为空字符串，traits、values、emotions、attitudes、goals 和 commitments 数组都默认为空。

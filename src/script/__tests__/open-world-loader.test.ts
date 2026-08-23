@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -28,11 +28,16 @@ describe("open world script loader", () => {
     const definition = loadWorldScript(fixture, { seed: 91, modelCatalog });
 
     expect(definition.id).toBe("open-world-fixture");
+    expect(definition.contentHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(definition.initialState.worldHash).toBe(definition.contentHash);
     expect(definition.initialState.truth.entities.key.description).toContain("假钥匙");
     expect(definition.initialState.truth.facts["key-authenticity"].value).toEqual({
       kind: "text",
       value: "fake",
     });
+    expect(definition.initialState.truth.facts["key-authenticity"].provenance).toEqual([
+      { kind: "world_seed", id: definition.contentHash },
+    ]);
     expect(definition.initialState.player.knowledge.claims["key-is-authentic"].value).toEqual({
       kind: "text",
       value: "real",
@@ -54,6 +59,15 @@ describe("open world script loader", () => {
       version: "1.1.0",
       config: { damageUsesMeters: true },
     })]);
+  });
+
+  it("hashes normalized world content independently of entity file names", () => {
+    const renamed = copiedFixture();
+    renameSync(path.join(renamed, "entities/keeper.yaml"), path.join(renamed, "entities/z-keeper.yaml"));
+    renameSync(path.join(renamed, "entities/key.yaml"), path.join(renamed, "entities/a-key.yaml"));
+
+    expect(loadWorldScript(renamed, { modelCatalog }).contentHash)
+      .toBe(loadWorldScript(fixture, { modelCatalog }).contentHash);
   });
 
   it("defaults every optional character layer from only persona.summary", () => {
