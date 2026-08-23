@@ -1,0 +1,43 @@
+entity_id: player
+local_entities:
+  - id: self
+    name: 我
+    description: 刚在黑沼堡港区下船的外来旅人。
+    status: observed
+  - id: castle
+    name: 黑沼堡
+    description: Smoking Bay 南岸最大的港城，精灵总督与多方势力共同维持脆弱秩序。
+    status: observed
+  - id: viz
+    name: Viz
+    description: 能被施法和附魔消耗的实体魔力，也是黑沼探险者争夺的主要财富。
+    status: reported
+evidence:
+  - id: harbor-arrival
+    kind: observation
+    description: 我在风暴将至的傍晚从客船踏上黑沼堡港区。
+    sourceId: null
+    step: 0
+  - id: public-viz-lore
+    kind: testimony
+    description: 船员们说黑沼各族都在寻找形态各异的 Viz。
+    sourceId: null
+    step: 0
+claims:
+  - id: castle-is-port
+    subjectId: castle
+    predicate: role
+    value: { kind: text, value: regional-port }
+    description: 黑沼堡是进入本地区最常用的港口与市场。
+    evidenceIds: [harbor-arrival]
+  - id: viz-is-valuable
+    subjectId: viz
+    predicate: value
+    value: { kind: text, value: highly-sought }
+    description: Viz 能用于魔法，因此受到施法者、商人与统治者追逐。
+    evidenceIds: [public-viz-lore]
+bindings:
+  - local_entity_id: self
+    canonical_entity_ids: [player]
+  - local_entity_id: castle
+    canonical_entity_ids: [hex-0913-castle-blackmarsh]

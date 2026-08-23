@@ -11,7 +11,7 @@ DEEPSEEK_API_KEY=... OPENAI_API_KEY=... XAI_API_KEY=... npm run dev
 
 打开 <http://localhost:3000>。默认 [模型目录](docs/game-design/model-gateway.md) 配置 DeepSeek、OpenAI 与 xAI，因此启动时三个密钥都必须存在。单供应商部署应通过 `LIVINGWORLD_MODEL_CATALOG_PATH` 指向只声明该 provider 与所需 profile 的完整目录。运行时没有默认模型、别名、环境字段覆盖、mock 或供应商 fallback。
 
-仓库不捆绑可玩世界；初次进入会看到导入入口。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
+仓库中的[参考世界工程](worlds/README.md)提供可审阅、可校验的可玩内容，但应用不会自动安装；初次进入会看到导入入口。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
 
 ## 常用命令
 

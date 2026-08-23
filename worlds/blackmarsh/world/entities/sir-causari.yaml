@@ -1,0 +1,21 @@
+id: sir-causari
+kind: person
+name: Sir Causari
+description: Inuacus Keep 指挥官与人类复权派领袖，公开主张结束精灵对黑沼堡的托管。
+placement: hex-1113-inuacus-keep
+facts:
+  - id: causari-command
+    predicate: office
+    value: { kind: text, value: commander-of-inuacus-keep }
+    description: Causari 指挥 Inuacus Keep 的守军。
+    access: { kind: public }
+meters:
+  - { id: "vitality:sir-causari", definition_id: vitality, current: 22 }
+quantities:
+  - { definition_id: coin, amount: 80 }
+  - { definition_id: provisions, amount: 8 }
+  - { definition_id: viz, amount: 0 }
+ratings:
+  - { id: "force:sir-causari", definition_id: force, value: 4 }
+  - { id: "command:sir-causari", definition_id: command, value: 5 }
+  - { id: "influence:sir-causari", definition_id: influence, value: 3 }

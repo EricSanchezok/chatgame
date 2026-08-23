@@ -1,0 +1,24 @@
+id: blackmarsh-region
+kind: region
+name: 黑沼地区
+description: 围绕 Smoking Bay 展开的五英里六角边境，北接 Wild North，南连 Southland，东向 Grey Sea。
+placement: null
+facts:
+  - id: blackmarsh-current-season
+    predicate: season
+    value: { kind: text, value: early-autumn }
+    description: 当前是初秋，红果成熟而海上风暴开始频繁。
+    access: { kind: public }
+  - id: blackmarsh-current-hour
+    predicate: opening-time
+    value: { kind: text, value: two-hours-before-sunset }
+    description: 初始时刻距离日落约两小时，一场海上风暴正在接近。
+    access: { kind: public }
+  - id: blackmarsh-hex-scale
+    predicate: map-scale
+    value: { kind: number, value: 5 }
+    description: 区域地图每个六角横跨五英里。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,42 @@
+rule_packages:
+  - id: core-d20
+    version: 1.1.0
+    config:
+      damageUsesMeters: true
+meters:
+  - id: vitality
+    name: 生命
+    min: 0
+    max: 30
+    thresholds:
+      - id: death-at-zero
+        when: { operator: lte, value: 0 }
+        effects:
+          - { kind: set_lifecycle, lifecycle: retired }
+quantities:
+  - id: viz
+    name: Viz
+    unit: 份
+    production_law_ids: [viz-cycle]
+    consumption_law_ids: [viz-cycle]
+  - id: coin
+    name: 钱币
+    unit: 金币
+    production_law_ids: [coin-economy]
+    consumption_law_ids: [coin-economy]
+  - id: provisions
+    name: 旅粮
+    unit: 日份
+    production_law_ids: [provisions-cycle]
+    consumption_law_ids: [provisions-cycle]
+ratings:
+  - { id: force, name: 强力, min: -3, max: 8 }
+  - { id: finesse, name: 灵巧, min: -3, max: 8 }
+  - { id: resolve, name: 意志, min: -3, max: 8 }
+  - { id: insight, name: 洞察, min: -3, max: 8 }
+  - { id: influence, name: 影响, min: -3, max: 8 }
+  - { id: craft, name: 技艺, min: -3, max: 8 }
+  - { id: wilderness, name: 荒野, min: -3, max: 8 }
+  - { id: command, name: 统率, min: -3, max: 8 }
+  - { id: magic, name: 魔法, min: -3, max: 8 }
+  - { id: seamanship, name: 航海, min: -3, max: 8 }

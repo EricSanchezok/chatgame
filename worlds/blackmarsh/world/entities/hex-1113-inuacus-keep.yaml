@@ -1,0 +1,19 @@
+id: hex-1113-inuacus-keep
+kind: keep
+name: Inuacus Keep
+description: 黑沼堡的南部前哨，五十名守军在此防备沼泽怪物与 Jorvik 的 Atacyl 余党。
+placement: blackmarsh-region
+facts:
+  - id: inuacus-keep-hex
+    predicate: hex-coordinate
+    value: { kind: text, value: "1113" }
+    description: Inuacus Keep 位于区域六角 1113。
+    access: { kind: public }
+  - id: inuacus-keep-garrison
+    predicate: garrison
+    value: { kind: number, value: 50 }
+    description: 要塞通常驻有五十名士兵。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []
