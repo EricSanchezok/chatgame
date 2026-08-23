@@ -415,6 +415,62 @@ describe("multi-agent simulation", () => {
     expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
   });
 
+  it("rejects repeated modifier sources and duplicate check ids before drawing RNG", async () => {
+    let truthCall = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        jointActions?: Array<{ id: string; actorId: string }>;
+        checkResults?: Array<{ requestId: string }>;
+        validationIssues?: Array<{ message: string }>;
+        revision?: number;
+        agent?: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent!.id, context.revision!);
+      truthCall += 1;
+      if (context.checkResults?.length) {
+        return {
+          kind: "transition",
+          proposal: simpleTransition(context.jointActions!.map((action) => action.id), ["agent-a", "agent-b"]),
+        };
+      }
+
+      const playerActionId = context.jointActions!.find((action) => action.actorId === "player")!.id;
+      const request = {
+        id: "unique-check",
+        actorId: "player",
+        targetId: null,
+        ratingId: "resolve:player",
+        modifier: 2,
+        modifierSources: [{ id: "resolve:player", amount: 2 }],
+        dc: 12,
+        mode: "normal" as const,
+        stakes: "重复来源或请求不得影响检定。",
+        visibility: "result_only" as const,
+        causes: [{ kind: "action" as const, id: playerActionId }],
+      };
+      if (truthCall === 1) {
+        request.modifier = 4;
+        request.modifierSources.push({ id: "resolve:player", amount: 2 });
+        return { kind: "request_checks", requests: [request] };
+      }
+      if (truthCall === 2) {
+        expect(context.validationIssues?.[0].message).toContain("repeats modifier source");
+        return { kind: "request_checks", requests: [request, structuredClone(request)] };
+      }
+      expect(context.validationIssues?.[0].message).toContain("duplicate check request");
+      return { kind: "request_checks", requests: [request] };
+    });
+    const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
+    engine.beginPlayerIntent("进行不可重复计数的检定");
+
+    const result = await engine.step();
+
+    expect(truthCall).toBe(4);
+    expect(result.committed.checkRequests).toHaveLength(1);
+    expect(result.state.truth.rng.draws).toBe(1);
+    expect(result.committed.modelAudits[0].repairAttempts).toBe(2);
+  });
+
   it("initializes a dynamically created agent before committing the step", async () => {
     const calledAgents: string[] = [];
     const initial = state();
@@ -491,6 +547,31 @@ describe("multi-agent simulation", () => {
     engine.beginPlayerIntent("尝试创造一个伪造配置的 Agent");
 
     await expect(engine.step()).rejects.toThrow("unknown model profile invented-profile");
+    expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
+  });
+
+  it("rejects a dynamically created Agent that bypasses AgentMind with a prepared action", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        jointActions?: Array<{ id: string }>;
+        baseRevision?: number;
+        step?: number;
+      };
+      if (profileId !== "truth-engine") throw new Error("AgentMind must not run for an invalid transition");
+      const proposal = simpleTransition(
+        context.jointActions!.map((action) => action.id),
+        ["agent-a", "agent-b"],
+        { spawn: true, baseRevision: context.baseRevision, step: context.step },
+      );
+      const createAgent = proposal.operations.find((operation) => operation.kind === "create_agent");
+      if (!createAgent || createAgent.kind !== "create_agent") throw new Error("test transition has no Agent");
+      createAgent.agent.nextAction = mindOutput("newborn", context.baseRevision!).nextAction;
+      return { kind: "transition", proposal };
+    });
+    const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
+    engine.beginPlayerIntent("尝试绕过新 Agent 初始化");
+
+    await expect(engine.step()).rejects.toThrow("must not provide a prepared action");
     expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
   });
 

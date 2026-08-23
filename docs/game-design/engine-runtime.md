@@ -32,7 +32,7 @@
 
 ## Agent 生命周期
 
-带 `agent` 配置的实体成为自主 Agent；普通物体没有 AgentMind。每个 Agent 保存自己的 `modelProfileId`，因此同一世界内可混合 DeepSeek、OpenAI、xAI 或其他目录 Profile。创建 Agent 的 world delta 必须同时引用已存在或本步创建的实体，并使用目录中允许 `agent-mind` 的 Profile。新 Agent 在创建步骤的 observation 后立即调用 AgentMind，只有它成功生成 belief patch 和下一行动，步骤才能提交。退休实体或 `remove_agent` 退出后续联合行动。
+带 `agent` 配置的实体成为自主 Agent；普通物体没有 AgentMind。每个 Agent 保存自己的 `modelProfileId`，因此同一世界内可混合 DeepSeek、OpenAI、xAI 或其他目录 Profile。创建 Agent 的 world delta 必须同时引用已存在或本步创建的实体，使用目录中允许 `agent-mind` 的 Profile，并把 `nextAction` 设为 `null`。新 Agent 在创建步骤的 observation 后立即调用 AgentMind，只有它成功生成 belief patch 和下一行动，步骤才能提交。退休实体或 `remove_agent` 退出后续联合行动。
 
 初始化会话时，所有初始 Agent 先以 revision 0、空 observation 运行 AgentMind，准备第一步行动。任一初始化失败则会话不创建。
 
@@ -51,7 +51,7 @@ Truth Engine schema 或语义错误会把验证信息送回模型修复，最多
 
 ## d20 协议
 
-不确定行动先返回 `request_checks`。每个请求声明 actor、可选 target/rating、整数 modifier、逐项 `{id, amount}` 修正来源、0–100 DC、normal/advantage/disadvantage、stakes、visibility 与 causes。修正项只能引用 Rating 或数值 Fact；内核要求逐项之和等于 modifier，并核对结构化真实值，因此熟练、境界和环境加成都可以由剧本命名且不可伪造。自然语言 Law 可以作为检定 cause，但不能凭文字直接提供未经结构化的数值。内核验证后使用会话 RNG：normal 掷一枚，advantage/disadvantage 掷两枚并取高/低；结果为 `kept + modifier`，`total >= dc` 成功。
+不确定行动先返回 `request_checks`。每个请求声明 actor、可选 target/rating、整数 modifier、逐项 `{id, amount}` 修正来源、0–100 DC、normal/advantage/disadvantage、stakes、visibility 与 causes。同一检定 ID 和同一修正来源都只能出现一次；修正项只能引用 Rating 或数值 Fact。内核要求逐项之和等于 modifier，并核对结构化真实值，因此熟练、境界和环境加成都可以由剧本命名且不可伪造。自然语言 Law 可以作为检定 cause，但不能凭文字直接提供未经结构化的数值。内核验证后使用会话 RNG：normal 掷一枚，advantage/disadvantage 掷两枚并取高/低；结果为 `kept + modifier`，`total >= dc` 成功。
 
 同一轮可预承诺多个请求以表达对抗检定；Truth Engine 只能在所有结果返回后联合解释胜负。伤害不是玩家动作类型：成功检定可作为 `adjust_meter` 的 cause，Meter threshold 由内核执行受伤、死亡或其他声明式后果。`core-d20` 配置明确声明是否启用这两种组合能力，但不固定属性名、伤害类型或 HP 名称。
 

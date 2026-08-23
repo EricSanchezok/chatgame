@@ -73,8 +73,13 @@ function validateCheckRequest(
   if (request.modifierSources.reduce((total, source) => total + source.amount, 0) !== request.modifier) {
     throw new Error(`check ${request.id} modifier does not equal its declared sources`);
   }
+  const modifierSourceIds = new Set<string>();
   for (const source of request.modifierSources) {
     const sourceId = source.id;
+    if (modifierSourceIds.has(sourceId)) {
+      throw new Error(`check ${request.id} repeats modifier source ${sourceId}`);
+    }
+    modifierSourceIds.add(sourceId);
     if (!state.truth.ratings[sourceId] && !state.truth.facts[sourceId]) {
       throw new Error(`check ${request.id} has unknown modifier source ${sourceId}`);
     }
@@ -225,8 +230,12 @@ export class TruthEngine {
         const directive = result.value;
         if (directive.kind === "request_checks") {
           if (checkRounds >= this.maxCheckRounds) throw new Error("maximum check rounds exceeded");
+          const roundRequestIds = new Set<string>();
           for (const request of directive.requests) {
-            if (requestIds.has(request.id)) throw new Error(`duplicate check request ${request.id}`);
+            if (requestIds.has(request.id) || roundRequestIds.has(request.id)) {
+              throw new Error(`duplicate check request ${request.id}`);
+            }
+            roundRequestIds.add(request.id);
             validateCheckRequest(
               input.state,
               request,
@@ -250,6 +259,9 @@ export class TruthEngine {
         for (const operation of directive.proposal.operations) {
           if (operation.kind === "create_agent") {
             this.provider.catalog.assertProfile(operation.agent.modelProfileId, "agent-mind");
+            if (operation.agent.nextAction !== null) {
+              throw new Error(`new agent ${operation.agent.id} must not provide a prepared action`);
+            }
           }
         }
         validateTransitionEnvelope(input, directive.proposal, checks);
