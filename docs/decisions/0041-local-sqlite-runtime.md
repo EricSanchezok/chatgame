@@ -63,6 +63,6 @@ Class: architecture
 ## Links
 
 - [0033](0033-persistent-streaming-world-runs.md) — 需要步骤级持久化的 WorldRun。
-- [0038](0038-pinned-world-runtime-contract.md) — SQLite 保存的世界内容身份与会话契约。
-- [0039](0039-resumable-player-intent.md) — 使用 CAS 的同 run 继续语义。
+- [0039](0039-pinned-world-runtime-contract.md) — SQLite 保存的世界内容身份与会话契约。
+- [0040](0040-resumable-player-intent.md) — 使用 CAS 的同 run 继续语义。
 - [事故复盘 0013](../postmortems/0013-file-host-concurrency-boundary.md) — 促成单实例租约和 SQLite 事务的失效机制。

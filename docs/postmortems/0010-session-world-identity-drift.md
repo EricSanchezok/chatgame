@@ -22,7 +22,7 @@
 
 ## Guardrails
 
-- [决策 0038](../decisions/0038-pinned-world-runtime-contract.md) 定义规范 hash、会话嵌入契约和 `world_seed`。
+- [决策 0039](../decisions/0039-pinned-world-runtime-contract.md) 定义规范 hash、会话嵌入契约和 `world_seed`。
 - [`open-world-loader.test.ts`](../../src/script/__tests__/open-world-loader.test.ts) 证明实体文件重命名不改变 hash，初始 Fact 精确引用本世界 hash。
 - [`world-import.test.ts`](../../src/server/__tests__/world-import.test.ts) 在替换同 ID 世界并重建宿主后，证明旧会话仍恢复旧 hash/version，新会话使用新版本。
 - [`world-session-store.ts`](../../src/server/world-session-store.ts) 拒绝 state 与嵌入 contract 的 world ID、hash 或 laws 不一致。

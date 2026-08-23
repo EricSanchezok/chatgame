@@ -141,12 +141,12 @@ export class WorldHost {
   static get(): WorldHost {
     if (!this.singleton) {
       const catalog = loadModelCatalog(path.resolve(
-        /* turbopackIgnore: true */ process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.CHATGAME_DATA_ROOT ?? ".chatgame",
+        path.resolve(/* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld"),
       );
-      const database = new LocalDatabase(path.join(dataRoot, "chatgame.sqlite"));
+      const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
         repository: database,
         store: database,

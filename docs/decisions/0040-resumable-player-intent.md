@@ -56,5 +56,5 @@ queued、running、awaiting_player、failed 和 step_limit 都由同一个 activ
 ## Links
 
 - [0033](0033-persistent-streaming-world-runs.md) — WorldRun 生命周期与 SSE。
-- [0040](0040-local-sqlite-runtime.md) — generation CAS 持久化。
+- [0041](0041-local-sqlite-runtime.md) — generation CAS 持久化。
 - [事故复盘 0011](../postmortems/0011-awaiting-player-lost-goal.md) — 促成此契约的失效机制。

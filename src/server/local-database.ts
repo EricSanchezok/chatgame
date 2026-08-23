@@ -47,7 +47,7 @@ interface LockRow {
 
 export class LocalDatabaseInUseError extends Error {
   constructor(file: string) {
-    super(`local database is already owned by another chatgame instance: ${file}`);
+    super(`local database is already owned by another Living World Engine instance: ${file}`);
     this.name = "LocalDatabaseInUseError";
   }
 }

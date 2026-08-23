@@ -1,6 +1,6 @@
-# chatgame
+# Living World Engine
 
-chatgame 是剧本驱动的开放世界 AI 游戏引擎。玩家提交的是任意自然语言目标，而不是动作菜单中的 `actionId`；所有自主 Agent 基于各自有限认知同时行动，唯一 Truth Engine 依据世界真相、法则与检定联合裁决，并在每个世界步骤原子持久化。
+Living World Engine（活世界引擎）是剧本驱动的开放世界 AI 游戏引擎。玩家提交的是任意自然语言目标，而不是动作菜单中的 `actionId`；所有自主 Agent 基于各自有限认知同时行动，唯一 Truth Engine 依据世界真相、法则与检定联合裁决，并在每个世界步骤原子持久化。
 
 ## 快速开始
 
@@ -9,7 +9,7 @@ npm install
 DEEPSEEK_API_KEY=... OPENAI_API_KEY=... XAI_API_KEY=... npm run dev
 ```
 
-打开 <http://localhost:3000>。默认 [模型目录](docs/game-design/model-gateway.md) 配置 DeepSeek、OpenAI 与 xAI，因此启动时三个密钥都必须存在。单供应商部署应通过 `CHATGAME_MODEL_CATALOG_PATH` 指向只声明该 provider 与所需 profile 的完整目录。运行时没有默认模型、别名、环境字段覆盖、mock 或供应商 fallback。
+打开 <http://localhost:3000>。默认 [模型目录](docs/game-design/model-gateway.md) 配置 DeepSeek、OpenAI 与 xAI，因此启动时三个密钥都必须存在。单供应商部署应通过 `LIVINGWORLD_MODEL_CATALOG_PATH` 指向只声明该 provider 与所需 profile 的完整目录。运行时没有默认模型、别名、环境字段覆盖、mock 或供应商 fallback。
 
 仓库不捆绑可玩世界；初次进入会看到导入入口。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
 

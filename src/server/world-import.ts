@@ -120,7 +120,7 @@ export function parseWorldArchive(
   buffer: Buffer,
   modelCatalog: ModelCatalog,
 ): ParsedWorldArchive {
-  const staging = mkdtempSync(path.join(tmpdir(), "chatgame-world-import-"));
+  const staging = mkdtempSync(path.join(tmpdir(), "livingworld-world-import-"));
   try {
     const source = extractArchive(buffer, staging);
     const template = loadWorldTemplate(source);

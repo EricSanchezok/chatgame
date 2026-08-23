@@ -15,8 +15,8 @@
 
 ## 配置
 
-- `CHATGAME_DATA_ROOT`：本地数据目录，默认 `.chatgame/`；世界版本、会话与 WorldRun 统一存放在 `chatgame.sqlite`。
-- `CHATGAME_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
+- `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld/`；世界版本、会话与 WorldRun 统一存放在 `livingworld.sqlite`。
+- `LIVINGWORLD_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
 - 每个 provider 的密钥环境变量由目录 `api_key_env` 指定；默认目录需要 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY` 与 `XAI_API_KEY`。
 
 模型、思考强度、超时、输出上限、角色与并发只在 [模型目录与 Gateway](game-design/model-gateway.md) 定义。环境变量不提供逐字段覆盖。

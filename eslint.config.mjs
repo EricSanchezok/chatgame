@@ -9,7 +9,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
-    ".chatgame/**",
+    ".livingworld/**",
     ".synergy/**",
     "out/**",
     "build/**",

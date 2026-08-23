@@ -10,12 +10,12 @@ if (!archive) {
   process.exitCode = 2;
 } else {
   try {
-    const dataRoot = path.resolve(process.env.CHATGAME_DATA_ROOT ?? ".chatgame");
-    const database = new LocalDatabase(path.join(dataRoot, "chatgame.sqlite"));
+    const dataRoot = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld");
+    const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
     try {
       const result = database.importWorld(
         readFileSync(path.resolve(archive)),
-        loadModelCatalog(path.resolve(process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml")),
+        loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml")),
         replace,
       );
       process.stdout.write(`${result.id}: ${result.replaced ? "replaced" : "imported"}\n`);

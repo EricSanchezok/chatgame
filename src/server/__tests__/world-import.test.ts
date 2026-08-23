@@ -37,7 +37,7 @@ function zipDirectory(directory: string, prefix = "world"): AdmZip {
 }
 
 function temporaryRoot(): string {
-  const root = mkdtempSync(path.join(tmpdir(), "chatgame-import-test-"));
+  const root = mkdtempSync(path.join(tmpdir(), "livingworld-import-test-"));
   temporaryRoots.push(root);
   return root;
 }
@@ -71,7 +71,7 @@ function oversizedDeclaredArchive(): Buffer {
 describe("world import", () => {
   it("atomically imports one validated schema v4 world", () => {
     const root = temporaryRoot();
-    const database = new LocalDatabase(path.join(root, "chatgame.sqlite"), { heartbeat: false });
+    const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     const result = database.importWorld(zipDirectory(fixture).toBuffer(), modelCatalog);
 
     expect(result).toMatchObject({ id: "open-world-fixture", replaced: false });
@@ -101,7 +101,7 @@ describe("world import", () => {
   });
 
   it("rejects an archive whose world references an unknown model profile before installation", () => {
-    const source = mkdtempSync(path.join(tmpdir(), "chatgame-import-profile-"));
+    const source = mkdtempSync(path.join(tmpdir(), "livingworld-import-profile-"));
     temporaryRoots.push(source);
     const world = path.join(source, "world");
     cpSync(fixture, world, { recursive: true });
@@ -122,7 +122,7 @@ describe("world import", () => {
   it("requires explicit replacement for an existing world", () => {
     const root = temporaryRoot();
     const archive = zipDirectory(fixture).toBuffer();
-    const database = new LocalDatabase(path.join(root, "chatgame.sqlite"), { heartbeat: false });
+    const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     database.importWorld(archive, modelCatalog);
 
     expect(() => database.importWorld(archive, modelCatalog)).toThrow("already exists");
@@ -132,7 +132,7 @@ describe("world import", () => {
 
   it("pins existing sessions to their embedded world contract after replacement and restart", async () => {
     const root = temporaryRoot();
-    const databaseFile = path.join(root, "chatgame.sqlite");
+    const databaseFile = path.join(root, "livingworld.sqlite");
     let database = new LocalDatabase(databaseFile, { heartbeat: false });
     const provider = new DeterministicModelProvider();
     let nextId = 0;

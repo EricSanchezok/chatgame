@@ -68,6 +68,6 @@ canonical truth 以稳定实体和开放 `WorldFact` 图表达。位置、包含
 - [0006](0006-engine-mechanics-modules.md) — 被通用数值与事实图取代的 mechanics 模块。
 - [0021](0021-gameplay-and-engine-extension-v2.md) — 被开放事实和自由行动取代的扩展契约。
 - [0031](0031-epistemic-multi-agent-truth-engine.md) — 消费本状态模型的 Truth Engine。
-- [0038](0038-pinned-world-runtime-contract.md) — 世界内容身份与初始 Fact 来源。
+- [0039](0039-pinned-world-runtime-contract.md) — 世界内容身份与初始 Fact 来源。
 - [事故复盘 0012](../postmortems/0012-modifier-source-namespace-collision.md) — modifier source 歧义的逃逸机制。
 - [剧本格式规格](../game-design/script-format.md) — 当前剧本参考。

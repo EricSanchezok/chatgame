@@ -25,9 +25,9 @@ afterEach(() => {
 });
 
 function temporaryDatabase(): string {
-  const root = mkdtempSync(path.join(tmpdir(), "chatgame-session-store-"));
+  const root = mkdtempSync(path.join(tmpdir(), "livingworld-session-store-"));
   roots.push(root);
-  return path.join(root, "chatgame.sqlite");
+  return path.join(root, "livingworld.sqlite");
 }
 
 async function sessionDocument(id = "session-1", committed = false): Promise<WorldSessionDocument> {

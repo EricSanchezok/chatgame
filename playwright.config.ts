@@ -1,7 +1,7 @@
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
-const port = Number(process.env.CHATGAME_E2E_PORT ?? 32127);
+const port = Number(process.env.LIVINGWORLD_E2E_PORT ?? 32127);
 const baseURL = `http://127.0.0.1:${port}`;
 const dataRoot = path.resolve("e2e/artifacts/runtime-data");
 const modelCatalog = path.resolve("e2e/support/models.yaml");
@@ -38,8 +38,8 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 120_000,
       env: {
-        CHATGAME_DATA_ROOT: dataRoot,
-        CHATGAME_MODEL_CATALOG_PATH: modelCatalog,
+        LIVINGWORLD_DATA_ROOT: dataRoot,
+        LIVINGWORLD_MODEL_CATALOG_PATH: modelCatalog,
         E2E_MODEL_API_KEY: "e2e-test-key",
         NEXT_TELEMETRY_DISABLED: "1",
       },

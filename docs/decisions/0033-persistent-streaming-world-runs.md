@@ -69,7 +69,7 @@ Class: architecture
 - [0017](0017-session-persistence-refresh-recovery-meta.md) — 被步骤级 WorldRun 持久化取代的会话模型。
 - [0030](0030-manus-style-game-workspace-and-ui-api-v6.md) — 被自由行动与流式运行 API 取代的游戏工作区契约。
 - [0031](0031-epistemic-multi-agent-truth-engine.md) — WorldRun 执行的联合世界步骤。
-- [0039](0039-resumable-player-intent.md) — awaiting_player 的同 run 恢复契约。
-- [0040](0040-local-sqlite-runtime.md) — WorldRun 和 world catalog 的本地事务存储。
+- [0040](0040-resumable-player-intent.md) — awaiting_player 的同 run 恢复契约。
+- [0041](0041-local-sqlite-runtime.md) — WorldRun 和 world catalog 的本地事务存储。
 - [0025](0025-emberfall-industrial-folk-mystery.md) — 删除内容对应的灰烬镇决策。
 - [0026](0026-starlight-shift-console.md) — 删除内容对应的星港决策。

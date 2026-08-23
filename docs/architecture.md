@@ -1,6 +1,6 @@
 # 系统架构
 
-chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯一联合裁判”。动作表达是开放的，状态提交是严格的。
+Living World Engine 的运行时是“单一客观世界 + 多个有限认知主体 + 唯一联合裁判”。动作表达是开放的，状态提交是严格的。
 
 ## 模块边界
 
@@ -50,7 +50,7 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 世界内容先规范化再计算 `sha256`；哈希覆盖 manifest、法则、机制、玩家和按实体 ID 排序的实体内容，不依赖 ZIP 条目顺序或实体文件名。会话同时保存 `worldId`、`worldHash` 和完整 `WorldRuntimeContract`，恢复只使用该不可变契约，不跟随目录中同 ID 世界的替换版本。初始 Fact 的 provenance 使用 `{ kind: "world_seed", id: worldHash }`，世界 Law 只有在确实提供运行时因果时才能作为来源。
 
-所有世界版本、当前版本指针、会话、run 与事件存放在 `CHATGAME_DATA_ROOT/chatgame.sqlite`。SQLite 使用 WAL、FULL synchronous、外键、严格表、写事务和 generation compare-and-swap；世界导入的验证在事务外完成，版本与当前指针在一个事务内切换。进程租约拒绝同一数据库被第二个宿主实例同时驱动；这是纯本地单实例契约，不提供多主或分布式协调。
+所有世界版本、当前版本指针、会话、run 与事件存放在 `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`。SQLite 使用 WAL、FULL synchronous、外键、严格表、写事务和 generation compare-and-swap；世界导入的验证在事务外完成，版本与当前指针在一个事务内切换。进程租约拒绝同一数据库被第二个宿主实例同时驱动；这是纯本地单实例契约，不提供多主或分布式协调。
 
 ## 硬不变量
 
@@ -72,4 +72,4 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0038](decisions/0038-pinned-world-runtime-contract.md)、[0039](decisions/0039-resumable-player-intent.md) 与 [0040](decisions/0040-local-sqlite-runtime.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md) 与 [0041](decisions/0041-local-sqlite-runtime.md)。

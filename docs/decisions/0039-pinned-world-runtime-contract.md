@@ -62,5 +62,5 @@ loader 规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 
 ## Links
 
 - [0032](0032-open-world-facts-and-d20-kernel.md) — 开放 Fact 与因果内核。
-- [0040](0040-local-sqlite-runtime.md) — 保存世界版本和会话的本地数据库。
+- [0041](0041-local-sqlite-runtime.md) — 保存世界版本和会话的本地数据库。
 - [事故复盘 0010](../postmortems/0010-session-world-identity-drift.md) — 促成此护栏的失效机制。

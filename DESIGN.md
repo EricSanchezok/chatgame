@@ -1,4 +1,4 @@
-# Chatgame Design System
+# Living World Engine Design System
 
 ## 方向
 
