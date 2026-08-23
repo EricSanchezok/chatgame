@@ -1,24 +1,28 @@
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DeterministicModelProvider } from "../../../engine/testing/model-provider";
-import { FileWorldRepository } from "../../../script/world-repository";
+import { loadWorldScript } from "../../../script/world-loader";
+import { MemoryWorldRepository } from "../../../script/world-repository";
 import { WorldHost } from "../../../server/world-host";
 import { MemoryWorldSessionStore } from "../../../server/world-session-store";
 import { GET as streamEvents } from "../sessions/[id]/runs/[runId]/events/route";
+import { POST as continueRun } from "../sessions/[id]/runs/[runId]/inputs/route";
 import { GET as getRun } from "../sessions/[id]/runs/[runId]/route";
 import { POST as startRun } from "../sessions/[id]/runs/route";
 import { POST as createSession } from "../sessions/route";
 import { GET as listWorlds } from "../worlds/route";
 import { errorResponse } from "../h";
 
-const fixtureRoot = path.resolve("test/fixtures");
+const fixtureRoot = path.resolve("test/fixtures/open-world-script");
 
 function installHost(): WorldHost {
   let id = 0;
+  const provider = new DeterministicModelProvider();
+  const definition = loadWorldScript(fixtureRoot, { modelCatalog: provider.catalog });
   const host = new WorldHost({
-    repository: new FileWorldRepository(fixtureRoot),
+    repository: new MemoryWorldRepository({ [definition.id]: definition }),
     store: new MemoryWorldSessionStore(),
-    provider: new DeterministicModelProvider(),
+    provider,
     idFactory: () => `route-${++id}`,
     now: () => new Date("2026-08-23T00:00:00.000Z"),
   });
@@ -46,7 +50,7 @@ describe("world API routes", () => {
     const sessionResponse = await createSession(new Request("http://local/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ scriptId: "open-world-fixture", seed: 12 }),
+      body: JSON.stringify({ worldId: "open-world-fixture", seed: 12 }),
     }));
     const session = await sessionResponse.json() as { id: string };
     const response = await startRun(
@@ -65,7 +69,7 @@ describe("world API routes", () => {
     const sessionResponse = await createSession(new Request("http://local/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ scriptId: "open-world-fixture", seed: 33 }),
+      body: JSON.stringify({ worldId: "open-world-fixture", seed: 33 }),
     }));
     const session = await sessionResponse.json() as { id: string };
     const runResponse = await startRun(
@@ -86,9 +90,22 @@ describe("world API routes", () => {
       { params: Promise.resolve({ id: session.id, runId: run.runId }) },
     );
     expect(await response.json()).toMatchObject({
-      run: { status: "completed", text: "我希望凭空获得一万灵石" },
+      run: {
+        status: "completed",
+        inputs: [{ kind: "goal", text: "我希望凭空获得一万灵石" }],
+      },
       state: { revision: 1, step: 1 },
     });
+
+    const invalidContinuation = await continueRun(
+      new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}/inputs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "input-after-completion", text: "继续" }),
+      }),
+      { params: Promise.resolve({ id: session.id, runId: run.runId }) },
+    );
+    expect(invalidContinuation.status).toBe(409);
 
     const eventResponse = await streamEvents(
       new Request(`http://local/api/sessions/${session.id}/runs/${run.runId}/events?after=0`),
@@ -96,7 +113,8 @@ describe("world API routes", () => {
     );
     const eventStream = await eventResponse.text();
     expect(eventResponse.headers.get("content-type")).toContain("text/event-stream");
-    expect(eventStream).toContain("event: run.started");
+    expect(eventStream).toContain("event: player.input");
+    expect(eventStream).toContain("event: run.execution_started");
     expect(eventStream).toContain("event: player.observation");
     expect(eventStream).toContain("event: player.outcome");
     expect(eventStream).toContain("event: run.completed");

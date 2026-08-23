@@ -14,6 +14,7 @@ import type {
   WorldEvent,
 } from "../model";
 import { ScriptedModelProvider } from "../testing/model-provider";
+import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { projectAgentSelfState } from "../self-state";
 import { SimulationEngine } from "../simulation";
@@ -315,8 +316,9 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
     };
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     worldId: "reaction-world",
+    worldHash: TEST_WORLD_HASH,
     lawIds: ["time"],
     revision: 0,
     step: 0,
@@ -357,7 +359,9 @@ function reactionDefinition(initialState: SimulationState): WorldDefinition {
   return {
     id: "reaction-world",
     name: "反应窗口世界",
+    manifestVersion: "test",
     description: "验证同一步感知与有限反应。",
+    contentHash: TEST_WORLD_HASH,
     truthModelProfileId: "truth-engine",
     laws: [{ id: "time", text: "每步推进时间。", severity: "hard" }],
     disclosure: { defaultCheckVisibility: "full" },
@@ -835,7 +839,7 @@ describe("Agent self state and reaction protocol", () => {
             targetId: null,
             ratingId: "reflex:keeper",
             modifier: 3,
-            modifierSources: [{ id: "reflex:keeper", amount: 3 }],
+            modifierSources: [{ kind: "rating", id: "reflex:keeper", amount: 3 }],
             dc: 0,
             mode: "normal",
             stakes: "成功则及时感知远方讯息。",

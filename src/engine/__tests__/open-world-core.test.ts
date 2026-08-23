@@ -16,11 +16,13 @@ import {
   TransitionValidationError,
   validateSimulationState,
 } from "../transaction";
+import { TEST_WORLD_HASH } from "../testing/world";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     worldId: "test-world",
+    worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,
     step: 0,
@@ -288,7 +290,7 @@ describe("open world kernel", () => {
       targetId: "gate",
       ratingId: "force:player",
       modifier: 2,
-      modifierSources: [{ id: "force:player", amount: 2 }],
+      modifierSources: [{ kind: "rating", id: "force:player", amount: 2 }],
       dc: 15,
       mode: "advantage",
       stakes: "推开石门，失败则发出巨响",

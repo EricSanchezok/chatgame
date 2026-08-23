@@ -29,11 +29,11 @@ Class: architecture
 
 每个步骤在 Truth transition、全部 Agent BeliefPatch、下一步行动、玩家知识、事件日志与 RNG 均验证成功后原子写入存档。模型或结构错误使当前步骤回滚并进入可重试失败状态。已提交步骤在后续失败、取消或进程恢复后保留。
 
-持续玩家目标在内部步骤间持久化。运行在目标完成、失败、需要玩家决定、取消或默认一百步骤安全上限时停止。客户端只接收玩家可知表面；完整联合行动和 delta 审计保留在服务端事件日志。
+持续玩家目标在内部步骤和玩家决定边界间持久化。需要玩家决定时 run 进入 `awaiting_player`；带幂等 ID 的 clarification 恢复同一 run 与 intent，稳定 goal 不被补充文本覆盖。运行在目标完成、失败、等待决定、取消或默认一百步骤安全上限时暂停或停止。客户端只接收玩家可知表面；完整联合行动和 delta 审计保留在服务端状态历史。
 
 同步 turn、action preview、manual advance 与 descriptor mutation API 删除。两个内置剧本及其代码、资产、测试和演示命令删除；旧存档按新 schema 版本拒绝。启动器在零剧本状态显示明确空态并保留新格式导入入口。
 
-世界 ZIP 导入只接受一个 schema v3 世界根目录，限制归档大小、条目数和展开体积，拒绝路径穿越、符号链接、额外文件、未知模型 Profile 与旧 `actions.yaml`。导入先在临时目录完整验证，再以 rename 原子安装；覆盖必须显式请求，失败时恢复原目录，暂存目录在所有结果下清理。
+世界 ZIP 导入只接受一个 schema v4 世界根目录，限制归档大小、条目数和展开体积，拒绝路径穿越、符号链接、额外文件、未知模型 Profile 与旧 `actions.yaml`。导入先在系统临时目录完整验证并规范化，再由 SQLite 事务写入不可变世界版本并切换当前指针；覆盖必须显式请求，暂存目录在所有结果下清理。
 
 ### Consequences
 
@@ -69,5 +69,7 @@ Class: architecture
 - [0017](0017-session-persistence-refresh-recovery-meta.md) — 被步骤级 WorldRun 持久化取代的会话模型。
 - [0030](0030-manus-style-game-workspace-and-ui-api-v6.md) — 被自由行动与流式运行 API 取代的游戏工作区契约。
 - [0031](0031-epistemic-multi-agent-truth-engine.md) — WorldRun 执行的联合世界步骤。
+- [0039](0039-resumable-player-intent.md) — awaiting_player 的同 run 恢复契约。
+- [0040](0040-local-sqlite-runtime.md) — WorldRun 和 world catalog 的本地事务存储。
 - [0025](0025-emberfall-industrial-folk-mystery.md) — 删除内容对应的灰烬镇决策。
 - [0026](0026-starlight-shift-console.md) — 删除内容对应的星港决策。
