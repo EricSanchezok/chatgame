@@ -6,8 +6,9 @@
 - `npm run test:e2e`：对生产构建运行真实 Next 入口，验证空态、ZIP 导入、会话、自由输入、SSE、刷新持久化和窄屏布局。
 - `npm run test:a11y`：分别在空态、导入后的会话工作台和已完成 run 上运行 axe。
 - `npm run test:live:deepseek`：使用环境中的真实 DeepSeek 密钥完成 AgentMind 初始化和一个 Truth Engine 步骤；它是手动兼容性烟雾测试，不作为确定性 CI 门禁。
-- `npm run check:fast`：lint、类型、单元/集成、世界夹具与治理门禁。
-- `npm run check:all`：快速门禁加生产 E2E 与无障碍。
+- `npm run check:fast`：lint、类型、单元/集成、世界夹具、workflow script 引用与治理门禁。
+- `npm run check:ui`：生产 E2E 与无障碍门禁，也是 CI 浏览器 job 的稳定入口。
+- `npm run check:all`：依次运行 `check:fast` 与 `check:ui`。
 
 ## 规则
 

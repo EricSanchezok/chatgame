@@ -31,7 +31,7 @@ Playwright 只对 `next build` 后的真实应用运行两类门禁：完整核�
 
 真实 DeepSeek 烟雾命令在开发者显式提供密钥时执行 AgentMind 初始化和完整 Truth Engine 步骤，用于捕获 OpenAI-compatible 方言差异；它不进入 CI，也不替代可重复门禁。
 
-`check:fast` 运行 lint、类型、Vitest、世界夹具校验与治理门禁；`check:all` 在此基础上增加生产构建的 E2E 和无障碍测试。
+`check:fast` 运行 lint、类型、Vitest、世界夹具校验、CI workflow 的 npm script 引用校验与治理门禁；`check:ui` 聚合生产构建的 E2E 和无障碍测试；`check:all` 依次运行 `check:fast` 与 `check:ui`。GitHub workflow 只调用这些公开聚合命令，workflow 中每个静态 `npm run` 引用都必须能在 `package.json` 中解析。
 
 ## Pros and Cons of the Options
 
