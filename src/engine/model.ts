@@ -1,3 +1,5 @@
+import type { ModelInferenceConfig } from "./model-catalog";
+
 export type EntityId = string;
 export type AgentId = string;
 export type LocalEntityId = string;
@@ -133,7 +135,7 @@ export interface BeliefEvidence {
   id: string;
   kind: "observation" | "testimony" | "inference" | "assumption";
   description: string;
-  sourceId?: string;
+  sourceId: string | null;
   step: number;
 }
 
@@ -245,7 +247,7 @@ export interface AgentActionProposal {
   baseRevision: number;
   rawText: string;
   goal: string;
-  means?: string;
+  means: string | null;
   targetIds: LocalEntityId[];
 }
 
@@ -256,7 +258,7 @@ export interface AgentState {
   character: AgentCharacterState;
   belief: AgentBeliefState;
   bindings: Record<LocalEntityId, EpistemicBinding>;
-  nextAction?: AgentActionProposal;
+  nextAction: AgentActionProposal | null;
 }
 
 export interface AgentSelfStateView {
@@ -315,7 +317,7 @@ export interface WorldEvent {
 }
 
 export interface SimulationState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   worldId: string;
   lawIds: string[];
   revision: number;
@@ -337,8 +339,8 @@ export type CheckVisibility = "full" | "result_only" | "hidden";
 export interface D20CheckRequest {
   id: string;
   actorId: EntityId;
-  targetId?: EntityId;
-  ratingId?: string;
+  targetId: EntityId | null;
+  ratingId: string | null;
   modifier: number;
   modifierSources: Array<{ id: string; amount: number }>;
   dc: number;
@@ -386,7 +388,7 @@ export interface ApparentClaim {
 
 export interface ObservationIntroduction {
   localEntity: LocalEntity;
-  canonicalEntityId?: EntityId;
+  canonicalEntityId: EntityId | null;
 }
 
 export interface ObservationPacket {
@@ -413,8 +415,8 @@ export type BeliefPatchOperation =
       entities: LocalEntity[];
       assignments: Array<{
         claimId: string;
-        subjectId?: LocalEntityId;
-        valueId?: LocalEntityId;
+        subjectId: LocalEntityId | null;
+        valueId: LocalEntityId | null;
       }>;
     };
 
@@ -435,8 +437,8 @@ export type CharacterPatchOperation =
   | (CharacterPatchSource & {
       kind: "update_trait" | "update_value";
       id: string;
-      description?: string;
-      strength?: number;
+      description: string | null;
+      strength: number | null;
     })
   | (CharacterPatchSource & { kind: "retire_trait" | "retire_value"; id: string })
   | (CharacterPatchSource & {
@@ -452,17 +454,20 @@ export type CharacterPatchOperation =
   | (CharacterPatchSource & {
       kind: "create_goal";
       goal: Pick<AgentGoal, "id" | "description" | "priority" | "progress" | "targetIds" | "motivatedByIds"> &
-        Pick<Partial<AgentGoal>, "parentGoalId">;
+        { parentGoalId: string | null };
     })
   | (CharacterPatchSource & {
       kind: "update_goal";
       id: string;
-      description?: string;
-      priority?: number;
-      progress?: number;
-      targetIds?: LocalEntityId[];
-      parentGoalId?: string | null;
-      motivatedByIds?: string[];
+      description: string | null;
+      priority: number | null;
+      progress: number | null;
+      targetIds: LocalEntityId[] | null;
+      parentGoal:
+        | { kind: "unchanged" }
+        | { kind: "none" }
+        | { kind: "goal"; goalId: string };
+      motivatedByIds: string[] | null;
     })
   | (CharacterPatchSource & { kind: "set_goal_status"; id: string; status: AgentGoal["status"] })
   | (CharacterPatchSource & {
@@ -472,9 +477,9 @@ export type CharacterPatchOperation =
   | (CharacterPatchSource & {
       kind: "update_commitment";
       id: string;
-      description?: string;
-      priority?: number;
-      subjectIds?: LocalEntityId[];
+      description: string | null;
+      priority: number | null;
+      subjectIds: LocalEntityId[] | null;
     })
   | (CharacterPatchSource & {
       kind: "set_commitment_status";
@@ -567,8 +572,25 @@ export interface ModelExecutionAudit {
   profileId: string;
   providerId: string;
   modelId: string;
+  catalogSchemaVersion: 1;
+  catalogHash: string;
+  promptVersion: string;
+  inference: ModelInferenceConfig;
+  structuredOutputMode: "json-schema-strict" | "json-object-zod" | "deterministic-test";
   attempts: number;
+  transportAttempts: number;
   repairAttempts: number;
+  queueWaitMs: number;
+  executionMs: number;
+  tokenUsage: {
+    input: number | null;
+    output: number | null;
+    reasoning: number | null;
+    cacheRead: number | null;
+    cacheWrite: number | null;
+  };
+  finishReasons: string[];
+  providerRequestIds: string[];
   requestHashes: string[];
   responseHashes: string[];
 }

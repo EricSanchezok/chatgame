@@ -1,31 +1,18 @@
 import path from "node:path";
 import { AgentMind } from "../src/engine/agent-mind";
-import { createStructuredModelProvider } from "../src/engine/model-provider";
+import { loadModelCatalog } from "../src/engine/model-catalog";
+import { createModelGateway } from "../src/engine/model-gateway";
 import { SimulationEngine } from "../src/engine/simulation";
 import { TruthEngine } from "../src/engine/truth-engine";
 import { loadWorldScript } from "../src/script/world-loader";
 
-const apiKey = process.env.DEEPSEEK_API_KEY
-  ?? process.env.DEEPSEEKAPIKEY
-  ?? process.env.deepseekapikey;
-
 async function main(): Promise<void> {
-  if (!apiKey) {
-    process.stderr.write("DeepSeek smoke test requires DEEPSEEK_API_KEY, DEEPSEEKAPIKEY, or deepseekapikey.\n");
-    process.exitCode = 2;
-    return;
-  }
-  const model = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
-  const provider = createStructuredModelProvider({
-    ...process.env,
-    CHATGAME_LLM_PROVIDER: "vercel",
-    CHATGAME_LLM_API_KEY: apiKey,
-    CHATGAME_LLM_BASE_URL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
-    CHATGAME_LLM_MODEL: model,
-    CHATGAME_TRUTH_MODEL: model,
-    CHATGAME_AGENT_MODEL: model,
+  const catalog = loadModelCatalog(path.resolve(process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml"));
+  const provider = createModelGateway(catalog);
+  const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+    seed: 20260823,
+    modelCatalog: catalog,
   });
-  const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), 20260823);
   const engine = new SimulationEngine(
     definition,
     new TruthEngine(provider),

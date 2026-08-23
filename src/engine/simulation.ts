@@ -4,6 +4,7 @@ import { applyCharacterPatch } from "./character";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { contentHash } from "./model-audit";
 import type { AgentMindOutput } from "./llm-schemas";
+import type { ModelExecutionScope } from "./model-provider";
 import type {
   AgentActionProposal,
   AgentState,
@@ -18,7 +19,6 @@ import {
   ingestPlayerObservations,
   validateObservations,
 } from "./observation";
-import { projectAgentSelfState } from "./self-state";
 import { applyTransitionProposal, validateSimulationState } from "./transaction";
 import { TruthEngine } from "./truth-engine";
 import type { WorldDefinition } from "./world-definition";
@@ -163,6 +163,13 @@ function assertStepAdvancesTime(proposal: TransitionProposal): void {
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
 }
 
+async function settledValues<T>(promises: readonly Promise<T>[], label: string): Promise<T[]> {
+  const settled = await Promise.allSettled(promises);
+  const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failures.length > 0) throw new AggregateError(failures.map((failure) => failure.reason), `${label} batch failed`);
+  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
+}
+
 export class SimulationEngine {
   private state: SimulationState;
 
@@ -182,18 +189,16 @@ export class SimulationEngine {
     return structuredClone(this.state);
   }
 
-  async bootstrapAgents(): Promise<SimulationState> {
+  async bootstrapAgents(scope?: ModelExecutionScope): Promise<SimulationState> {
     const source = structuredClone(this.state);
+    const executionScope = scope ?? {
+      workloadId: `simulation:${source.worldId}`,
+      batchId: `bootstrap:${source.revision}`,
+    };
     const agents = Object.values(source.agents);
-    const outputs = await Promise.all(
-      agents.map((agent) => this.agentMind.think(
-        agent,
-        source.revision,
-        source.step,
-        [],
-        projectAgentSelfState(source, agent),
-        [],
-      )),
+    const outputs = await settledValues(
+      agents.map((agent) => this.agentMind.think(source, agent, [], executionScope)),
+      "AgentMind bootstrap",
     );
     for (let index = 0; index < agents.length; index += 1) {
       source.agents[agents[index].id] = applyMindOutput(
@@ -245,7 +250,7 @@ export class SimulationEngine {
       baseRevision: this.state.revision,
       rawText: intent.rawText,
       goal: intent.goal,
-      means: this.state.step === intent.startedAtStep ? undefined : "继续此前已经开始的目标",
+      means: this.state.step === intent.startedAtStep ? null : "继续此前已经开始的目标",
       targetIds: [],
     };
     const actions = [playerAction];
@@ -259,8 +264,12 @@ export class SimulationEngine {
     return canonicalActions;
   }
 
-  async step(): Promise<WorldStepResult> {
+  async step(scope?: ModelExecutionScope): Promise<WorldStepResult> {
     const source = structuredClone(this.state);
+    const executionScope = scope ?? {
+      workloadId: `simulation:${source.worldId}`,
+      batchId: `step:${source.revision}:${source.step + 1}`,
+    };
     const initialActions = this.jointActions();
     let transitionCandidate: SimulationState | undefined;
     const resolution = await this.truthEngine.resolve({
@@ -268,20 +277,13 @@ export class SimulationEngine {
       state: source,
       initialActions,
       resolveReactions: async (requests) => {
-        const reactionOutputs = await Promise.all(requests.map((request) => {
+        const reactionOutputs = await settledValues(requests.map((request) => {
           const sourceAgent = source.agents[request.agentId];
           const agent = applyObservationBindings(sourceAgent, [request.stimulus]);
           const originalAction = initialActions.find((action) => action.actorId === request.agentId);
           if (!originalAction) throw new Error(`agent ${request.agentId} has no prepared action`);
-          return this.agentMind.react(
-            agent,
-            source.revision,
-            source.step + 1,
-            originalAction,
-            request.stimulus,
-            projectAgentSelfState(source, agent),
-          );
-        }));
+          return this.agentMind.react(source, agent, originalAction, request.stimulus, executionScope);
+        }), "Agent reaction");
         return {
           decisions: reactionOutputs.map((output) => output.kind === "keep" ? {
             agentId: output.agentId,
@@ -310,7 +312,7 @@ export class SimulationEngine {
         assertObservationCoverage(candidate, proposal.observations);
         transitionCandidate = candidate;
       },
-    });
+    }, executionScope);
     if (!transitionCandidate) throw new Error("TruthEngine returned without a validated transition");
 
     const candidate = transitionCandidate as SimulationState;
@@ -330,16 +332,22 @@ export class SimulationEngine {
         agent,
         observationsFor(observations, agent.id),
       ));
-    const outputs = await Promise.all(
-      agents.map((agent) =>
-        this.agentMind.think(
+    const outputs = await settledValues(
+      agents.map((agent) => {
+        const action = resolution.actions.find((candidateAction) => candidateAction.actorId === agent.id) ?? null;
+        const outcome = action
+          ? resolution.proposal.outcomes.find((candidateOutcome) => candidateOutcome.proposalId === action.id) ?? null
+          : null;
+        return this.agentMind.think(
+          candidate,
           agent,
-          candidate.revision,
-          candidate.step,
           observationsFor(observations, agent.id),
-          projectAgentSelfState(candidate, agent),
+          executionScope,
+          { action, outcome: outcome ? { status: outcome.status, summary: outcome.summary } : null },
           resolution.proposal.events,
-        )),
+        );
+      }),
+      "AgentMind",
     );
     for (let index = 0; index < agents.length; index += 1) {
       candidate.agents[agents[index].id] = applyMindOutput(
@@ -393,11 +401,12 @@ export class SimulationEngine {
   async runUntilBoundary(
     maxSteps = 100,
     onStep?: (result: WorldStepResult) => void | Promise<void>,
+    scope?: ModelExecutionScope,
   ): Promise<WorldRunResult> {
     if (!Number.isSafeInteger(maxSteps) || maxSteps <= 0) throw new Error("maxSteps must be positive");
     const steps: CommittedStep[] = [];
     for (let index = 0; index < maxSteps; index += 1) {
-      const result = await this.step();
+      const result = await this.step(scope);
       steps.push(result.committed);
       await onStep?.(result);
       const status = this.state.player.intent?.status;

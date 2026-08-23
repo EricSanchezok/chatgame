@@ -13,7 +13,8 @@ import { createSeededRng } from "../engine/random";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { validateSimulationState } from "../engine/transaction";
 import type { WorldDefinition } from "../engine/world-definition";
-import { validateWorldDefinition } from "../engine/world-definition";
+import { validateWorldDefinition, validateWorldModelProfiles } from "../engine/world-definition";
+import type { ModelCatalog } from "../engine/model-catalog";
 import {
   entityDocumentSchema,
   lawsFileSchema,
@@ -156,6 +157,7 @@ function agentFrom(document: EntityDocument): AgentState | undefined {
         },
       ]),
     ),
+    nextAction: null,
   };
 }
 
@@ -202,11 +204,15 @@ export function validateWorldScriptLayout(scriptDir: string): void {
   }
 }
 
-export function loadWorldScript(
-  scriptDir: string,
-  seed = 1,
-  rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
-): WorldDefinition {
+export interface LoadWorldScriptOptions {
+  modelCatalog: ModelCatalog;
+  seed?: number;
+  rulePackages?: RulePackageRegistry;
+}
+
+export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptions): WorldDefinition {
+  const seed = options.seed ?? 1;
+  const rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
   const root = path.resolve(scriptDir);
   validateWorldScriptLayout(root);
   const manifest = parseDocument(path.join(root, "script.yaml"), scriptManifestSchema);
@@ -219,7 +225,7 @@ export function loadWorldScript(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       worldId: manifest.id,
       lawIds: laws.laws.map((law) => law.id),
       revision: 0,
@@ -310,6 +316,7 @@ export function loadWorldScript(
       id: manifest.id,
       name: manifest.name,
       description: manifest.description,
+      truthModelProfileId: manifest.truth_model_profile_id,
       laws: laws.laws,
       disclosure: { defaultCheckVisibility: laws.disclosure.default_check_visibility },
       rulePackages: rulePackages.validate(mechanicsDocument.rule_packages.map((reference) => ({
@@ -320,6 +327,7 @@ export function loadWorldScript(
       initialState: state,
     };
     validateWorldDefinition(definition);
+    validateWorldModelProfiles(definition, options.modelCatalog);
     validateSimulationState(state, false);
     return definition;
   } catch (error) {

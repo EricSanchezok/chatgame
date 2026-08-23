@@ -1,11 +1,12 @@
 import path from "node:path";
-import type { WorldDefinition } from "../engine/world-definition";
+import { validateWorldModelProfiles, type WorldDefinition } from "../engine/world-definition";
+import type { ModelCatalog } from "../engine/model-catalog";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { listWorldScripts, loadWorldScript, type WorldScriptSummary } from "./world-loader";
 
 export interface WorldRepository {
   list(): WorldScriptSummary[];
-  load(scriptId: string, seed?: number): WorldDefinition;
+  load(scriptId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition;
 }
 
 export class FileWorldRepository implements WorldRepository {
@@ -18,10 +19,14 @@ export class FileWorldRepository implements WorldRepository {
     return listWorldScripts(this.root);
   }
 
-  load(scriptId: string, seed = 1): WorldDefinition {
+  load(scriptId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition {
     const summary = this.list().find((candidate) => candidate.id === scriptId);
     if (!summary) throw new Error(`world script not found: ${scriptId}`);
-    return loadWorldScript(path.resolve(summary.directory), seed, this.rulePackages);
+    return loadWorldScript(path.resolve(summary.directory), {
+      seed,
+      rulePackages: this.rulePackages,
+      modelCatalog,
+    });
   }
 }
 
@@ -40,9 +45,11 @@ export class MemoryWorldRepository implements WorldRepository {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  load(scriptId: string): WorldDefinition {
+  load(scriptId: string, _seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition {
     const definition = this.definitions[scriptId];
     if (!definition) throw new Error(`world script not found: ${scriptId}`);
-    return structuredClone(definition);
+    const cloned = structuredClone(definition);
+    validateWorldModelProfiles(cloned, modelCatalog);
+    return cloned;
   }
 }

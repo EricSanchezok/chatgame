@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadWorldScript } from "../../script/world-loader";
+import { createTestModelCatalog } from "../../engine/testing/model-provider";
 import {
   importWorldArchive,
   MAX_ARCHIVE_BYTES,
@@ -13,6 +14,7 @@ import {
 } from "../world-import";
 
 const fixture = path.resolve("test/fixtures/open-world-script");
+const modelCatalog = createTestModelCatalog();
 const temporaryRoots: string[] = [];
 
 afterEach(() => {
@@ -66,12 +68,12 @@ function oversizedDeclaredArchive(): Buffer {
 }
 
 describe("world import", () => {
-  it("atomically imports one validated schema v3 world", () => {
+  it("atomically imports one validated schema v4 world", () => {
     const root = scriptsRoot();
-    const result = importWorldArchive(zipDirectory(fixture).toBuffer(), root);
+    const result = importWorldArchive(zipDirectory(fixture).toBuffer(), root, modelCatalog);
 
     expect(result).toMatchObject({ id: "open-world-fixture", replaced: false });
-    expect(loadWorldScript(path.join(root, result.id)).id).toBe("open-world-fixture");
+    expect(loadWorldScript(path.join(root, result.id), { modelCatalog }).id).toBe("open-world-fixture");
   });
 
   it("rejects legacy action files instead of silently ignoring them", () => {
@@ -79,7 +81,7 @@ describe("world import", () => {
     zip.addFile("world/actions.yaml", Buffer.from("actions: []\n"));
 
     try {
-      importWorldArchive(zip.toBuffer(), scriptsRoot());
+      importWorldArchive(zip.toBuffer(), scriptsRoot(), modelCatalog);
       throw new Error("legacy archive unexpectedly imported");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -89,30 +91,48 @@ describe("world import", () => {
     }
   });
 
+  it("rejects an archive whose world references an unknown model profile before installation", () => {
+    const source = mkdtempSync(path.join(tmpdir(), "chatgame-import-profile-"));
+    temporaryRoots.push(source);
+    const world = path.join(source, "world");
+    cpSync(fixture, world, { recursive: true });
+    const manifest = path.join(world, "script.yaml");
+    writeFileSync(
+      manifest,
+      readFileSync(manifest, "utf8").replace("truth-deepseek", "missing-profile"),
+      "utf8",
+    );
+    const root = scriptsRoot();
+
+    expect(() => importWorldArchive(zipDirectory(world).toBuffer(), root, modelCatalog))
+      .toThrow("unknown model profile missing-profile");
+    expect(readdirSync(root)).toEqual([]);
+  });
+
   it("rejects traversal entries", () => {
-    expect(() => importWorldArchive(traversalArchive(), scriptsRoot())).toThrow(WorldImportError);
+    expect(() => importWorldArchive(traversalArchive(), scriptsRoot(), modelCatalog)).toThrow(WorldImportError);
   });
 
   it("requires explicit replacement for an existing world", () => {
     const root = scriptsRoot();
     const archive = zipDirectory(fixture).toBuffer();
-    importWorldArchive(archive, root);
+    importWorldArchive(archive, root, modelCatalog);
 
-    expect(() => importWorldArchive(archive, root)).toThrow("already exists");
-    expect(importWorldArchive(archive, root, true).replaced).toBe(true);
+    expect(() => importWorldArchive(archive, root, modelCatalog)).toThrow("already exists");
+    expect(importWorldArchive(archive, root, modelCatalog, true).replaced).toBe(true);
   });
 
   it("rejects compressed archives, declared expansion and entry counts above their exact limits", () => {
-    expect(() => importWorldArchive(Buffer.alloc(MAX_ARCHIVE_BYTES + 1), scriptsRoot()))
+    expect(() => importWorldArchive(Buffer.alloc(MAX_ARCHIVE_BYTES + 1), scriptsRoot(), modelCatalog))
       .toThrow("archive exceeds 50 MiB");
-    expect(() => importWorldArchive(oversizedDeclaredArchive(), scriptsRoot()))
+    expect(() => importWorldArchive(oversizedDeclaredArchive(), scriptsRoot(), modelCatalog))
       .toThrow("archive expands beyond 100 MiB");
 
     const zip = new AdmZip();
     for (let index = 0; index <= MAX_ENTRY_COUNT; index += 1) {
       zip.addFile(`world/entities/${index}.yaml`, Buffer.alloc(0));
     }
-    expect(() => importWorldArchive(zip.toBuffer(), scriptsRoot())).toThrow("too many entries");
+    expect(() => importWorldArchive(zip.toBuffer(), scriptsRoot(), modelCatalog)).toThrow("too many entries");
   });
 
   it("rejects symbolic links and files outside the single world root", () => {
@@ -121,10 +141,10 @@ describe("world import", () => {
     const link = linkZip.getEntry("world/link");
     if (!link) throw new Error("test archive did not contain link entry");
     link.header.attr = (0o120777 << 16) >>> 0;
-    expect(() => importWorldArchive(linkZip.toBuffer(), scriptsRoot())).toThrow("symbolic links");
+    expect(() => importWorldArchive(linkZip.toBuffer(), scriptsRoot(), modelCatalog)).toThrow("symbolic links");
 
     const extraZip = zipDirectory(fixture);
     extraZip.addFile("unrelated.txt", Buffer.from("not part of the world"));
-    expect(() => importWorldArchive(extraZip.toBuffer(), scriptsRoot())).toThrow("outside its single world root");
+    expect(() => importWorldArchive(extraZip.toBuffer(), scriptsRoot(), modelCatalog)).toThrow("outside its single world root");
   });
 });

@@ -18,7 +18,17 @@ import {
   reactionRequestSchema,
 } from "./llm-schemas";
 import { contentHash as contentHashForAudit, isSha256 } from "./model-audit";
+import { modelInferenceSchema } from "./model-catalog";
 import { resolveD20Checks } from "./random";
+import { isSafeId } from "./state-schemas";
+
+function assertSafeId(value: string, label: string): void {
+  if (!isSafeId(value)) throw new Error(`${label} uses a reserved object key`);
+}
+
+function assertUniqueIds(ids: readonly string[], label: string): void {
+  if (new Set(ids).size !== ids.length) throw new Error(`${label} contains duplicate ids`);
+}
 
 export class TransitionValidationError extends Error {
   constructor(readonly issues: string[]) {
@@ -31,6 +41,7 @@ function assertCauses(causes: CausalRef[], label: string): void {
   if (causes.length === 0) throw new Error(`${label} has no causal provenance`);
   for (const cause of causes) {
     if (!cause.id.trim()) throw new Error(`${label} has an empty causal reference`);
+    assertSafeId(cause.id, `${label} causal reference`);
   }
 }
 
@@ -38,6 +49,7 @@ function assertFactValueReferences(value: FactValue, state: SimulationState, lab
   if (value.kind === "entity" && !state.truth.entities[value.entityId]) {
     throw new Error(`${label} references unknown entity ${value.entityId}`);
   }
+  if (value.kind === "entity") assertSafeId(value.entityId, `${label} entity reference`);
   if (value.kind === "number" && !Number.isFinite(value.value)) {
     throw new Error(`${label} contains a non-finite number`);
   }
@@ -100,6 +112,7 @@ function validateMeter(state: SimulationState, meter: MeterState): void {
   for (const thresholdId of meter.firedThresholdIds) {
     if (!thresholdIds.has(thresholdId)) throw new Error(`meter ${meter.id} has unknown threshold ${thresholdId}`);
   }
+  assertUniqueIds(meter.firedThresholdIds, `meter ${meter.id} fired thresholds`);
 }
 
 function validateRating(state: SimulationState, id: string): void {
@@ -116,6 +129,8 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
   assertCauses(operation.causes, operation.kind);
   switch (operation.kind) {
     case "create_entity":
+      assertSafeId(operation.entity.id, "entity id");
+      if (operation.placementId) assertSafeId(operation.placementId, "entity placement id");
       if (state.truth.entities[operation.entity.id]) throw new Error(`entity already exists: ${operation.entity.id}`);
       if (operation.placementId && !state.truth.entities[operation.placementId]) {
         throw new Error(`unknown placement ${operation.placementId}`);
@@ -124,10 +139,13 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       state.truth.placements[operation.entity.id] = operation.placementId;
       return;
     case "retire_entity":
+      assertSafeId(operation.entityId, "retired entity id");
       if (!state.truth.entities[operation.entityId]) throw new Error(`unknown entity ${operation.entityId}`);
       state.truth.entities[operation.entityId].lifecycle = "retired";
       return;
     case "place_entity":
+      assertSafeId(operation.entityId, "placed entity id");
+      if (operation.placementId) assertSafeId(operation.placementId, "placement id");
       if (!state.truth.entities[operation.entityId]) throw new Error(`unknown entity ${operation.entityId}`);
       if (operation.placementId && !state.truth.entities[operation.placementId]) {
         throw new Error(`unknown placement ${operation.placementId}`);
@@ -136,6 +154,8 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       state.truth.placements[operation.entityId] = operation.placementId;
       return;
     case "set_fact":
+      assertSafeId(operation.fact.id, "fact id");
+      assertSafeId(operation.fact.subjectId, "fact subject id");
       if (!state.truth.entities[operation.fact.subjectId]) {
         throw new Error(`unknown fact subject ${operation.fact.subjectId}`);
       }
@@ -146,15 +166,20 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       };
       return;
     case "remove_fact":
+      assertSafeId(operation.factId, "removed fact id");
       if (!state.truth.facts[operation.factId]) throw new Error(`unknown fact ${operation.factId}`);
       delete state.truth.facts[operation.factId];
       return;
     case "set_meter":
+      assertSafeId(operation.meter.id, "meter id");
+      assertSafeId(operation.meter.definitionId, "meter definition id");
+      assertSafeId(operation.meter.entityId, "meter entity id");
       state.truth.meters[operation.meter.id] = structuredClone(operation.meter);
       validateMeter(state, state.truth.meters[operation.meter.id]);
       applyThresholds(state, state.truth.meters[operation.meter.id], operation.causes);
       return;
     case "adjust_meter": {
+      assertSafeId(operation.meterId, "adjusted meter id");
       const meter = state.truth.meters[operation.meterId];
       if (!meter) throw new Error(`unknown meter ${operation.meterId}`);
       meter.current += operation.amount;
@@ -163,6 +188,9 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       return;
     }
     case "transfer_quantity": {
+      assertSafeId(operation.definitionId, "quantity definition id");
+      assertSafeId(operation.fromHolderId, "source quantity holder id");
+      assertSafeId(operation.toHolderId, "target quantity holder id");
       const definition = state.truth.mechanics.quantities[operation.definitionId];
       if (!definition) throw new Error(`unknown quantity definition ${operation.definitionId}`);
       if (!Number.isFinite(operation.amount) || operation.amount <= 0) throw new Error("transfer amount must be positive");
@@ -177,6 +205,9 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       return;
     }
     case "produce_quantity": {
+      assertSafeId(operation.definitionId, "quantity definition id");
+      assertSafeId(operation.holderId, "quantity holder id");
+      assertSafeId(operation.lawId, "production law id");
       const definition = state.truth.mechanics.quantities[operation.definitionId];
       if (!definition?.allowProduction) throw new Error(`production is not allowed for ${operation.definitionId}`);
       if (!operation.lawId.trim()) throw new Error("production requires a law id");
@@ -186,6 +217,9 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       return;
     }
     case "consume_quantity": {
+      assertSafeId(operation.definitionId, "quantity definition id");
+      assertSafeId(operation.holderId, "quantity holder id");
+      assertSafeId(operation.lawId, "consumption law id");
       const definition = state.truth.mechanics.quantities[operation.definitionId];
       if (!definition?.allowConsumption) throw new Error(`consumption is not allowed for ${operation.definitionId}`);
       if (!operation.lawId.trim()) throw new Error("consumption requires a law id");
@@ -196,6 +230,9 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       return;
     }
     case "set_rating":
+      assertSafeId(operation.rating.id, "rating id");
+      assertSafeId(operation.rating.definitionId, "rating definition id");
+      assertSafeId(operation.rating.entityId, "rating entity id");
       state.truth.ratings[operation.rating.id] = structuredClone(operation.rating);
       validateRating(state, operation.rating.id);
       return;
@@ -206,8 +243,14 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       state.truth.elapsedSeconds += operation.seconds;
       return;
     case "create_agent":
+      assertSafeId(operation.agent.id, "agent id");
+      assertSafeId(operation.agent.entityId, "agent entity id");
+      assertSafeId(operation.agent.modelProfileId, "agent model profile id");
       if (state.agents[operation.agent.id]) throw new Error(`agent already exists: ${operation.agent.id}`);
       if (!state.truth.entities[operation.agent.entityId]) throw new Error(`unknown agent entity ${operation.agent.entityId}`);
+      if (operation.agent.nextAction !== null) {
+        throw new Error(`new agent ${operation.agent.id} must not provide a prepared action`);
+      }
       state.agents[operation.agent.id] = structuredClone(operation.agent);
       state.agents[operation.agent.id].character.persona.updatedAtStep = state.step + 1;
       for (const collection of [
@@ -225,6 +268,7 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       }
       return;
     case "remove_agent":
+      assertSafeId(operation.agentId, "removed agent id");
       if (!state.agents[operation.agentId]) throw new Error(`unknown agent ${operation.agentId}`);
       delete state.agents[operation.agentId];
       return;
@@ -233,6 +277,7 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
 
 function validatePlacementCycles(state: SimulationState): void {
   for (const placementId of Object.keys(state.truth.placements)) {
+    assertSafeId(placementId, "placement owner id");
     if (!state.truth.entities[placementId]) throw new Error(`placement belongs to unknown entity ${placementId}`);
   }
   for (const entityId of Object.keys(state.truth.entities)) {
@@ -240,6 +285,7 @@ function validatePlacementCycles(state: SimulationState): void {
     const visited = new Set<string>([entityId]);
     let current = state.truth.placements[entityId];
     while (current) {
+      assertSafeId(current, `placement for ${entityId}`);
       if (!state.truth.entities[current]) throw new Error(`unknown placement entity ${current}`);
       if (visited.has(current)) throw new Error(`placement cycle detected at ${current}`);
       visited.add(current);
@@ -255,16 +301,19 @@ function validateBelief(
   label: string,
 ): void {
   for (const [id, entity] of Object.entries(belief.localEntities)) {
+    assertSafeId(id, `${label} local entity id`);
     if (entity.id !== id) throw new Error(`${label} local entity key does not match ${entity.id}`);
     if (state.truth.entities[id]) throw new Error(`${label} local entity ${id} collides with canonical identity`);
   }
   for (const [id, evidence] of Object.entries(belief.evidence)) {
+    assertSafeId(id, `${label} evidence id`);
     if (evidence.id !== id) throw new Error(`${label} evidence key does not match ${evidence.id}`);
     if (!Number.isSafeInteger(evidence.step) || evidence.step < 0 || evidence.step > state.step) {
       throw new Error(`${label} evidence ${id} has invalid step`);
     }
   }
   const validateClaim = (id: string, claim: BeliefClaim): void => {
+    assertSafeId(id, `${label} claim id`);
     if (claim.id !== id) throw new Error(`${label} claim key does not match ${claim.id}`);
     if (!belief.localEntities[claim.subjectId]) throw new Error(`${label} claim ${id} has unknown subject`);
     if (claim.value.kind === "local_entity" && !belief.localEntities[claim.value.localEntityId]) {
@@ -276,31 +325,37 @@ function validateBelief(
     for (const evidenceId of claim.evidenceIds) {
       if (!belief.evidence[evidenceId]) throw new Error(`${label} claim ${id} has unknown evidence ${evidenceId}`);
     }
+    assertUniqueIds(claim.evidenceIds, `${label} claim ${id} evidence`);
   };
   for (const [id, claim] of Object.entries(belief.claims)) validateClaim(id, claim);
   for (const [id, binding] of Object.entries(bindings)) {
+    assertSafeId(id, `${label} binding id`);
     if (binding.localEntityId !== id || !belief.localEntities[id]) {
       throw new Error(`${label} has invalid binding ${id}`);
     }
     for (const canonicalId of binding.canonicalEntityIds) {
       if (!state.truth.entities[canonicalId]) throw new Error(`${label} binding ${id} has unknown canonical entity`);
     }
+    assertUniqueIds(binding.canonicalEntityIds, `${label} binding ${id}`);
   }
 }
 
 function validatePlayerKnowledge(state: SimulationState): void {
   const knowledge = state.player.knowledge;
   for (const [id, entity] of Object.entries(knowledge.localEntities)) {
+    assertSafeId(id, "player local entity id");
     if (entity.id !== id) throw new Error(`player local entity key does not match ${entity.id}`);
     if (state.truth.entities[id]) throw new Error(`player local entity ${id} collides with canonical identity`);
   }
   for (const [id, evidence] of Object.entries(knowledge.evidence)) {
+    assertSafeId(id, "player evidence id");
     if (evidence.id !== id) throw new Error(`player evidence key does not match ${evidence.id}`);
     if (!Number.isSafeInteger(evidence.step) || evidence.step < 0 || evidence.step > state.step) {
       throw new Error(`player evidence ${id} has invalid step`);
     }
   }
   for (const [id, claim] of Object.entries(knowledge.claims)) {
+    assertSafeId(id, "player claim id");
     if (claim.id !== id) throw new Error(`player claim key does not match ${claim.id}`);
     if (!knowledge.localEntities[claim.subjectId]) throw new Error(`player claim ${id} has unknown subject`);
     if (claim.value.kind === "local_entity" && !knowledge.localEntities[claim.value.localEntityId]) {
@@ -309,19 +364,23 @@ function validatePlayerKnowledge(state: SimulationState): void {
     for (const evidenceId of claim.evidenceIds) {
       if (!knowledge.evidence[evidenceId]) throw new Error(`player claim ${id} has unknown evidence ${evidenceId}`);
     }
+    assertUniqueIds(claim.evidenceIds, `player claim ${id} evidence`);
   }
   for (const observationId of knowledge.observationIds) {
     if (!knowledge.evidence[`observation:${observationId}`]) {
       throw new Error(`player observation ${observationId} has no evidence`);
     }
   }
+  assertUniqueIds(knowledge.observationIds, "player observations");
   for (const [id, binding] of Object.entries(state.player.bindings)) {
+    assertSafeId(id, "player binding id");
     if (binding.localEntityId !== id || !knowledge.localEntities[id]) {
       throw new Error(`player has invalid binding ${id}`);
     }
     for (const canonicalId of binding.canonicalEntityIds) {
       if (!state.truth.entities[canonicalId]) throw new Error(`player binding ${id} has unknown canonical entity`);
     }
+    assertUniqueIds(binding.canonicalEntityIds, `player binding ${id}`);
   }
 }
 
@@ -373,6 +432,9 @@ function validateHistory(state: SimulationState): void {
       .some((action) => action.baseRevision !== committed.baseRevision)) {
       throw new Error(`history step ${index + 1} contains a stale action`);
     }
+    for (const action of [...committed.initialActions, ...committed.actions]) {
+      assertUniqueIds(action.targetIds, `history action ${action.id} targets`);
+    }
     const initialActors = committed.initialActions.map((action) => action.actorId);
     const finalActors = committed.actions.map((action) => action.actorId);
     if (new Set(initialActors).size !== initialActors.length || new Set(finalActors).size !== finalActors.length ||
@@ -420,12 +482,19 @@ function validateHistory(state: SimulationState): void {
       const final = committed.actions.find((action) => action.actorId === decision.agentId);
       if (!initial || !final || decision.baseRevision !== committed.baseRevision ||
         decision.originalProposalId !== initial.id ||
-        (decision.kind === "keep" && final.id !== initial.id) ||
+        (decision.kind === "keep" && contentHashForAudit(final) !== contentHashForAudit(initial)) ||
         (decision.kind === "replace" &&
           (decision.replacementAction.actorId !== decision.agentId ||
             decision.replacementAction.baseRevision !== committed.baseRevision ||
-            JSON.stringify(final) !== JSON.stringify(decision.replacementAction)))) {
+            contentHashForAudit(final) !== contentHashForAudit(decision.replacementAction)))) {
         throw new Error(`history step ${index + 1} has invalid reaction decision for ${decision.agentId}`);
+      }
+    }
+    for (const initial of committed.initialActions) {
+      if (reactionAgents.includes(initial.actorId)) continue;
+      const final = committed.actions.find((action) => action.actorId === initial.actorId);
+      if (!final || contentHashForAudit(final) !== contentHashForAudit(initial)) {
+        throw new Error(`history step ${index + 1} mutates action for non-reacting actor ${initial.actorId}`);
       }
     }
     if (committed.operations.filter((operation) => operation.kind === "advance_time").length !== 1) {
@@ -438,6 +507,11 @@ function validateHistory(state: SimulationState): void {
       throw new Error(`history step ${index + 1} has invalid check audit coverage`);
     }
     for (const request of committed.checkRequests) {
+      const modifierSourceIds = request.modifierSources.map((source) => source.id);
+      if (new Set(modifierSourceIds).size !== modifierSourceIds.length ||
+        request.modifierSources.reduce((total, source) => total + source.amount, 0) !== request.modifier) {
+        throw new Error(`history step ${index + 1} has invalid modifier sources for ${request.id}`);
+      }
       const allowedChecks = new Set(historyCheckIds);
       for (const priorRequest of committed.checkRequests) {
         if (priorRequest.id === request.id) break;
@@ -524,6 +598,7 @@ function validateHistory(state: SimulationState): void {
         (observation.kind === "outcome" && stimulusIds.has(observation.id))) {
         throw new Error(`history step ${index + 1} has invalid observation ${observation.id}`);
       }
+      assertUniqueIds(observation.sourceEventIds, `history observation ${observation.id} source events`);
       observationIds.add(observation.id);
     }
     if (stimulusIds.size !== committed.reactionRequests.length ||
@@ -538,6 +613,8 @@ function validateHistory(state: SimulationState): void {
     }
     for (const patch of committed.characterPatches) {
       for (const operation of patch.operations) {
+        assertUniqueIds(operation.sourceObservationIds, `${operation.kind} source observations`);
+        assertUniqueIds(operation.evidenceIds, `${operation.kind} evidence`);
         if (operation.sourceObservationIds.length === 0 || operation.sourceObservationIds.some((observationId) => {
           const observation = committed.observations.find((candidate) => candidate.id === observationId);
           return !observation || observation.observerId !== patch.agentId || observation.step !== committed.step;
@@ -577,13 +654,22 @@ function validateModelAudit(
   if (!new Set(["truth-engine", "agent-mind", "agent-reaction"]).has(audit.role)) {
     throw new Error(`${label} has an invalid model audit role`);
   }
-  if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() || !audit.modelId.trim()) {
+  if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() ||
+    !audit.modelId.trim() || !audit.promptVersion.trim() || audit.catalogSchemaVersion !== 1 ||
+    !isSha256(audit.catalogHash) || !modelInferenceSchema.safeParse(audit.inference).success) {
     throw new Error(`${label} has an incomplete model audit identity`);
   }
   if (!Number.isSafeInteger(audit.attempts) || audit.attempts <= 0 ||
+    !Number.isSafeInteger(audit.transportAttempts) || audit.transportAttempts < audit.attempts ||
     !Number.isSafeInteger(audit.repairAttempts) || audit.repairAttempts < 0 ||
     audit.repairAttempts >= audit.attempts || audit.requestHashes.length !== audit.attempts ||
     audit.responseHashes.length === 0 || audit.responseHashes.length > audit.attempts ||
+    !Number.isSafeInteger(audit.queueWaitMs) || audit.queueWaitMs < 0 ||
+    !Number.isSafeInteger(audit.executionMs) || audit.executionMs < 0 ||
+    audit.finishReasons.length === 0 || audit.finishReasons.length > audit.attempts ||
+    audit.providerRequestIds.length > audit.attempts ||
+    Object.values(audit.tokenUsage).some((value) => value !== null &&
+      (!Number.isSafeInteger(value) || value < 0)) ||
     !audit.requestHashes.every(isSha256) || !audit.responseHashes.every(isSha256)) {
     throw new Error(`${label} has invalid model audit counters or hashes`);
   }
@@ -594,9 +680,11 @@ export function validateSimulationState(
   requireNextActions = false,
   requireHistoryAlignment = false,
 ): void {
-  if (state.schemaVersion !== 2 || !state.worldId.trim()) throw new Error("invalid simulation identity");
+  if (state.schemaVersion !== 3 || !state.worldId.trim()) throw new Error("invalid simulation identity");
+  assertSafeId(state.worldId, "world id");
   if (state.lawIds.length === 0 || new Set(state.lawIds).size !== state.lawIds.length ||
     state.lawIds.some((lawId) => !lawId.trim())) throw new Error("invalid world law ids");
+  for (const lawId of state.lawIds) assertSafeId(lawId, "world law id");
   if (!Number.isSafeInteger(state.revision) || state.revision < 0) throw new Error("invalid revision");
   if (!Number.isSafeInteger(state.step) || state.step < 0) throw new Error("invalid step");
   if (!Number.isSafeInteger(state.truth.elapsedSeconds) || state.truth.elapsedSeconds < 0) {
@@ -615,6 +703,7 @@ export function validateSimulationState(
 
   validatePlacementCycles(state);
   for (const [definitionId, definition] of Object.entries(state.truth.mechanics.meters)) {
+    assertSafeId(definitionId, "meter definition id");
     if (definition.id !== definitionId || !Number.isFinite(definition.min) ||
       !Number.isFinite(definition.max) || definition.max <= definition.min) {
       throw new Error(`invalid meter definition ${definitionId}`);
@@ -629,35 +718,49 @@ export function validateSimulationState(
     }
   }
   for (const [definitionId, definition] of Object.entries(state.truth.mechanics.quantities)) {
+    assertSafeId(definitionId, "quantity definition id");
     if (definition.id !== definitionId || !definition.name.trim() || !definition.unit.trim()) {
       throw new Error(`invalid quantity definition ${definitionId}`);
     }
   }
   for (const [definitionId, definition] of Object.entries(state.truth.mechanics.ratings)) {
+    assertSafeId(definitionId, "rating definition id");
     if (definition.id !== definitionId || !Number.isFinite(definition.min) ||
       !Number.isFinite(definition.max) || definition.max < definition.min) {
       throw new Error(`invalid rating definition ${definitionId}`);
     }
   }
   for (const [entityId, entity] of Object.entries(state.truth.entities)) {
+    assertSafeId(entityId, "entity id");
+    assertSafeId(entity.id, "entity embedded id");
     if (entity.id !== entityId) throw new Error(`entity key does not match ${entity.id}`);
   }
   for (const [factId, fact] of Object.entries(state.truth.facts)) {
+    assertSafeId(factId, "fact id");
+    assertSafeId(fact.id, "fact embedded id");
+    assertSafeId(fact.subjectId, `fact ${factId} subject`);
     if (fact.id !== factId) throw new Error(`fact key does not match ${fact.id}`);
     if (!state.truth.entities[fact.subjectId]) throw new Error(`unknown fact subject ${fact.subjectId}`);
     assertFactValueReferences(fact.value, state, `fact ${fact.id}`);
     if (fact.provenance.length === 0) throw new Error(`fact ${fact.id} has no provenance`);
     if (fact.access.kind === "agents") {
+      assertUniqueIds(fact.access.agentIds, `fact ${fact.id} access`);
       for (const agentId of fact.access.agentIds) {
         if (!state.agents[agentId]) throw new Error(`fact ${fact.id} grants access to unknown agent ${agentId}`);
       }
     }
   }
   for (const [meterId, meter] of Object.entries(state.truth.meters)) {
+    assertSafeId(meterId, "meter id");
+    assertSafeId(meter.definitionId, `meter ${meterId} definition`);
+    assertSafeId(meter.entityId, `meter ${meterId} entity`);
     if (meter.id !== meterId) throw new Error(`meter key does not match ${meter.id}`);
     validateMeter(state, meter);
   }
   for (const [quantityId, quantity] of Object.entries(state.truth.quantities)) {
+    assertSafeId(quantityId, "quantity id");
+    assertSafeId(quantity.definitionId, `quantity ${quantityId} definition`);
+    assertSafeId(quantity.holderId, `quantity ${quantityId} holder`);
     if (quantity.id !== quantityId || quantity.id !== quantityKey(quantity.definitionId, quantity.holderId)) {
       throw new Error(`invalid quantity identity ${quantityId}`);
     }
@@ -668,12 +771,18 @@ export function validateSimulationState(
     if (!Number.isFinite(quantity.amount) || quantity.amount < 0) throw new Error(`invalid quantity ${quantity.id}`);
   }
   for (const [id, rating] of Object.entries(state.truth.ratings)) {
+    assertSafeId(id, "rating id");
+    assertSafeId(rating.definitionId, `rating ${id} definition`);
+    assertSafeId(rating.entityId, `rating ${id} entity`);
     if (rating.id !== id) throw new Error(`rating key does not match ${rating.id}`);
     validateRating(state, id);
   }
 
   const agentEntities = new Set<string>();
   for (const [agentId, agent] of Object.entries(state.agents)) {
+    assertSafeId(agentId, "agent id");
+    assertSafeId(agent.entityId, `agent ${agentId} entity`);
+    assertSafeId(agent.modelProfileId, `agent ${agentId} model profile`);
     if (agent.id !== agentId) throw new Error(`agent key does not match ${agent.id}`);
     const entity = state.truth.entities[agent.entityId];
     if (!entity) throw new Error(`agent ${agent.id} has no entity`);
@@ -693,6 +802,7 @@ export function validateSimulationState(
       throw new Error(`agent ${agent.id} has an action for revision ${agent.nextAction.baseRevision}`);
     }
     if (requireNextActions && agent.nextAction) {
+      assertUniqueIds(agent.nextAction.targetIds, `agent ${agent.id} action targets`);
       for (const targetId of agent.nextAction.targetIds) {
         if (!agent.belief.localEntities[targetId]) {
           throw new Error(`agent ${agent.id} targets unknown local entity ${targetId}`);

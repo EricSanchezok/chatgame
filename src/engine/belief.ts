@@ -5,6 +5,11 @@ import type {
   BeliefValue,
   LocalEntityId,
 } from "./model";
+import { isSafeId } from "./state-schemas";
+
+function assertSafeId(value: string): void {
+  if (!isSafeId(value)) throw new Error(`belief id ${value} uses a reserved object key`);
+}
 
 function replaceLocalReference(value: BeliefValue, fromId: LocalEntityId, intoId: LocalEntityId): BeliefValue {
   return value.kind === "local_entity" && value.localEntityId === fromId
@@ -36,8 +41,13 @@ export function applyBeliefPatch(
   const next: AgentBeliefState = structuredClone(source);
 
   for (const operation of patch.operations) {
+    if ("localEntityId" in operation) assertSafeId(operation.localEntityId);
+    if ("claimId" in operation) assertSafeId(operation.claimId);
+    if ("fromId" in operation) assertSafeId(operation.fromId);
+    if ("intoId" in operation) assertSafeId(operation.intoId);
     switch (operation.kind) {
       case "upsert_local_entity":
+        assertSafeId(operation.entity.id);
         next.localEntities[operation.entity.id] = structuredClone(operation.entity);
         break;
       case "remove_local_entity": {
@@ -53,9 +63,11 @@ export function applyBeliefPatch(
         break;
       }
       case "upsert_evidence":
+        assertSafeId(operation.evidence.id);
         next.evidence[operation.evidence.id] = structuredClone(operation.evidence);
         break;
       case "upsert_claim":
+        assertSafeId(operation.claim.id);
         assertClaimReferencesExist(next, operation.claim);
         next.claims[operation.claim.id] = structuredClone(operation.claim);
         break;
@@ -80,10 +92,16 @@ export function applyBeliefPatch(
         }
         const replacementIds = new Set<string>();
         for (const entity of operation.entities) {
+          assertSafeId(entity.id);
           if (entity.id === operation.fromId || replacementIds.has(entity.id) || next.localEntities[entity.id]) {
             throw new Error(`split local entity has duplicate replacement ${entity.id}`);
           }
           replacementIds.add(entity.id);
+        }
+        for (const assignment of operation.assignments) {
+          assertSafeId(assignment.claimId);
+          if (assignment.subjectId) assertSafeId(assignment.subjectId);
+          if (assignment.valueId) assertSafeId(assignment.valueId);
         }
         const assignments = new Map(operation.assignments.map((assignment) => [assignment.claimId, assignment]));
         if (assignments.size !== operation.assignments.length) {

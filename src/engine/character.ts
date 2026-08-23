@@ -8,6 +8,7 @@ import type {
   ObservationPacket,
   WorldEvent,
 } from "./model";
+import { isSafeId } from "./state-schemas";
 
 const impactRank: Record<CharacterImpact, number> = {
   ordinary: 0,
@@ -68,6 +69,12 @@ function assertDelta(previous: number, next: number, limit: number, label: strin
   }
 }
 
+function requireSignificantChange(impact: CharacterImpact, changed: boolean, label: string): void {
+  if (changed && impactRank[impact] < impactRank.significant) {
+    throw new Error(`${label} requires a significant event`);
+  }
+}
+
 function evidenceFor(operation: CharacterPatchOperation): string[] {
   return [...new Set(operation.evidenceIds)];
 }
@@ -76,6 +83,14 @@ function assertLocalIds(belief: AgentBeliefState, ids: readonly string[], label:
   for (const id of ids) {
     if (!belief.localEntities[id]) throw new Error(`${label} references unknown local entity ${id}`);
   }
+}
+
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((id) => right.includes(id));
+}
+
+function assertUniqueIds(ids: readonly string[], label: string): void {
+  if (new Set(ids).size !== ids.length) throw new Error(`${label} contains duplicate ids`);
 }
 
 function assertMotivationsExist(character: AgentCharacterState, ids: readonly string[], label: string): void {
@@ -115,12 +130,14 @@ export function validateCharacterState(
     throw new Error(`${label} persona has an invalid update step`);
   }
   assertEvidenceExists(belief, character.persona.evidenceIds, `${label} persona`);
+  assertUniqueIds(character.persona.evidenceIds, `${label} persona evidence`);
 
   const validateBase = (
     key: string,
     record: { id: string; createdAtStep: number; updatedAtStep: number; evidenceIds: string[] },
     kind: string,
   ): void => {
+    if (!isSafeId(key)) throw new Error(`${label} ${kind} uses a reserved object key`);
     if (record.id !== key) throw new Error(`${label} ${kind} key does not match ${record.id}`);
     if (!record.id.trim()) throw new Error(`${label} ${kind} has an empty id`);
     if (!Number.isSafeInteger(record.createdAtStep) || !Number.isSafeInteger(record.updatedAtStep) ||
@@ -128,6 +145,7 @@ export function validateCharacterState(
       throw new Error(`${label} ${kind} ${key} has invalid timestamps`);
     }
     assertEvidenceExists(belief, record.evidenceIds, `${label} ${kind} ${key}`);
+    assertUniqueIds(record.evidenceIds, `${label} ${kind} ${key} evidence`);
   };
 
   for (const collection of [character.traits, character.values]) {
@@ -164,6 +182,8 @@ export function validateCharacterState(
     assertUnitInterval(goal.progress, `${label} goal ${id} progress`);
     assertLocalIds(belief, goal.targetIds, `${label} goal ${id}`);
     assertMotivationsExist(character, goal.motivatedByIds, `${label} goal ${id}`);
+    assertUniqueIds(goal.targetIds, `${label} goal ${id} targets`);
+    assertUniqueIds(goal.motivatedByIds, `${label} goal ${id} motivations`);
   }
   for (const [id, commitment] of Object.entries(character.commitments)) {
     validateBase(id, commitment, "commitment");
@@ -173,6 +193,7 @@ export function validateCharacterState(
     }
     assertUnitInterval(commitment.priority, `${label} commitment ${id} priority`);
     assertLocalIds(belief, commitment.subjectIds, `${label} commitment ${id}`);
+    assertUniqueIds(commitment.subjectIds, `${label} commitment ${id} subjects`);
   }
   assertGoalHierarchy(character);
 }
@@ -185,8 +206,28 @@ export function applyCharacterPatch(
   observations: readonly ObservationPacket[],
   events: readonly WorldEvent[],
 ): AgentCharacterState {
+  if (!isSafeId(patch.agentId)) throw new Error("character patch uses a reserved agent id");
   const next = structuredClone(source);
   for (const operation of patch.operations) {
+    const recordId = "id" in operation
+      ? operation.id
+      : "facet" in operation
+        ? operation.facet.id
+        : "emotion" in operation
+          ? operation.emotion.id
+          : "attitude" in operation
+            ? operation.attitude.id
+            : "goal" in operation
+              ? operation.goal.id
+              : "commitment" in operation
+                ? operation.commitment.id
+                : null;
+    if (recordId !== null && !isSafeId(recordId)) {
+      throw new Error(`${operation.kind} uses a reserved object key`);
+    }
+    if (operation.evidenceIds.length === 0) throw new Error(`${operation.kind} has no evidence`);
+    assertUniqueIds(operation.sourceObservationIds, `${operation.kind} source observations`);
+    assertUniqueIds(operation.evidenceIds, `${operation.kind} evidence`);
     assertEvidenceExists(belief, operation.evidenceIds, operation.kind);
     const evidenceIds = evidenceFor(operation);
     const impact = operationImpact(operation, patch.agentId, step, observations, events);
@@ -211,17 +252,25 @@ export function applyCharacterPatch(
       }
       case "update_trait":
       case "update_value": {
+        if (operation.description === null && operation.strength === null) {
+          throw new Error(`${operation.kind} must change description or strength`);
+        }
         const collection = operation.kind === "update_trait" ? next.traits : next.values;
         const facet = collection[operation.id];
         if (!facet || facet.status !== "active") throw new Error(`${operation.kind} references inactive ${operation.id}`);
-        if (operation.description !== undefined && operation.description !== facet.description && rank < impactRank.significant) {
-          throw new Error(`${operation.kind} description requires a significant event`);
-        }
-        if (operation.strength !== undefined) {
+        const descriptionChanged = operation.description !== null && operation.description !== facet.description;
+        const strengthChanged = operation.strength !== null && operation.strength !== facet.strength;
+        if (!descriptionChanged && !strengthChanged) throw new Error(`${operation.kind} does not change ${operation.id}`);
+        requireSignificantChange(
+          impact,
+          descriptionChanged,
+          `${operation.kind} description`,
+        );
+        if (operation.strength !== null) {
           assertDelta(facet.strength, operation.strength, numericLimits.longTerm[impact], `${operation.kind} strength`);
           facet.strength = operation.strength;
         }
-        if (operation.description !== undefined) facet.description = operation.description;
+        if (operation.description !== null) facet.description = operation.description;
         facet.updatedAtStep = step;
         facet.evidenceIds = evidenceIds;
         break;
@@ -232,6 +281,8 @@ export function applyCharacterPatch(
         const collection = operation.kind === "retire_trait" ? next.traits : next.values;
         const facet = collection[operation.id];
         if (!facet || facet.status !== "active") throw new Error(`${operation.kind} references inactive ${operation.id}`);
+        assertDelta(facet.strength, 0, numericLimits.longTerm[impact], `${operation.kind} strength`);
+        facet.strength = 0;
         facet.status = "retired";
         facet.updatedAtStep = step;
         facet.evidenceIds = evidenceIds;
@@ -240,6 +291,11 @@ export function applyCharacterPatch(
       case "set_emotion": {
         const current = next.emotions[operation.emotion.id];
         if (current?.status === "resolved") throw new Error(`cannot reopen resolved emotion ${current.id}`);
+        requireSignificantChange(
+          impact,
+          Boolean(current && current.description !== operation.emotion.description),
+          "emotion description",
+        );
         assertDelta(current?.intensity ?? 0, operation.emotion.intensity, numericLimits.shortTerm[impact], "emotion intensity");
         next.emotions[operation.emotion.id] = {
           ...structuredClone(operation.emotion), status: "active", createdAtStep: current?.createdAtStep ?? step,
@@ -250,6 +306,8 @@ export function applyCharacterPatch(
       case "resolve_emotion": {
         const emotion = next.emotions[operation.id];
         if (!emotion || emotion.status !== "active") throw new Error(`resolve_emotion references inactive ${operation.id}`);
+        assertDelta(emotion.intensity, 0, numericLimits.shortTerm[impact], "emotion resolution");
+        emotion.intensity = 0;
         emotion.status = "resolved";
         emotion.updatedAtStep = step;
         emotion.evidenceIds = evidenceIds;
@@ -259,6 +317,12 @@ export function applyCharacterPatch(
         assertLocalIds(belief, [operation.attitude.subjectId], "attitude");
         const current = next.attitudes[operation.attitude.id];
         if (current?.status === "retired") throw new Error(`cannot reopen retired attitude ${current.id}`);
+        requireSignificantChange(
+          impact,
+          Boolean(current && (current.subjectId !== operation.attitude.subjectId ||
+            current.description !== operation.attitude.description)),
+          "attitude identity",
+        );
         assertDelta(current?.intensity ?? 0, operation.attitude.intensity, numericLimits.shortTerm[impact], "attitude intensity");
         next.attitudes[operation.attitude.id] = {
           ...structuredClone(operation.attitude), status: "active", createdAtStep: current?.createdAtStep ?? step,
@@ -269,6 +333,8 @@ export function applyCharacterPatch(
       case "retire_attitude": {
         const attitude = next.attitudes[operation.id];
         if (!attitude || attitude.status !== "active") throw new Error(`retire_attitude references inactive ${operation.id}`);
+        assertDelta(attitude.intensity, 0, numericLimits.shortTerm[impact], "attitude retirement");
+        attitude.intensity = 0;
         attitude.status = "retired";
         attitude.updatedAtStep = step;
         attitude.evidenceIds = evidenceIds;
@@ -280,33 +346,58 @@ export function applyCharacterPatch(
         assertDelta(0, operation.goal.progress, numericLimits.motivation[impact], "goal progress");
         assertLocalIds(belief, operation.goal.targetIds, `goal ${operation.goal.id}`);
         assertMotivationsExist(next, operation.goal.motivatedByIds, `goal ${operation.goal.id}`);
+        const { parentGoalId, ...goal } = structuredClone(operation.goal);
         next.goals[operation.goal.id] = {
-          ...structuredClone(operation.goal), status: "active", createdAtStep: step, updatedAtStep: step, evidenceIds,
+          ...goal,
+          parentGoalId: parentGoalId ?? undefined,
+          status: "active",
+          createdAtStep: step,
+          updatedAtStep: step,
+          evidenceIds,
         };
         assertGoalHierarchy(next);
         break;
       }
       case "update_goal": {
+        if (operation.description === null && operation.priority === null && operation.progress === null &&
+          operation.targetIds === null && operation.parentGoal.kind === "unchanged" &&
+          operation.motivatedByIds === null) {
+          throw new Error("update_goal must change at least one field");
+        }
         const goal = next.goals[operation.id];
         if (!goal || terminalGoalStatuses.has(goal.status)) throw new Error(`update_goal references terminal ${operation.id}`);
-        if (operation.priority !== undefined) {
+        const meaningChanged = (operation.description !== null && operation.description !== goal.description) ||
+          (operation.targetIds !== null && !sameIds(operation.targetIds, goal.targetIds)) ||
+          (operation.motivatedByIds !== null && !sameIds(operation.motivatedByIds, goal.motivatedByIds)) ||
+          (operation.parentGoal.kind === "none" && goal.parentGoalId !== undefined) ||
+          (operation.parentGoal.kind === "goal" && operation.parentGoal.goalId !== goal.parentGoalId);
+        const numericChanged = (operation.priority !== null && operation.priority !== goal.priority) ||
+          (operation.progress !== null && operation.progress !== goal.progress);
+        if (!meaningChanged && !numericChanged) throw new Error(`update_goal does not change ${goal.id}`);
+        if (operation.priority !== null) {
           assertDelta(goal.priority, operation.priority, numericLimits.motivation[impact], "goal priority");
           goal.priority = operation.priority;
         }
-        if (operation.progress !== undefined) {
+        if (operation.progress !== null) {
           assertDelta(goal.progress, operation.progress, numericLimits.motivation[impact], "goal progress");
           goal.progress = operation.progress;
         }
-        if (operation.description !== undefined) goal.description = operation.description;
-        if (operation.targetIds !== undefined) {
+        requireSignificantChange(
+          impact,
+          meaningChanged,
+          "goal meaning",
+        );
+        if (operation.description !== null) goal.description = operation.description;
+        if (operation.targetIds !== null) {
           assertLocalIds(belief, operation.targetIds, `goal ${goal.id}`);
           goal.targetIds = [...operation.targetIds];
         }
-        if (operation.motivatedByIds !== undefined) {
+        if (operation.motivatedByIds !== null) {
           assertMotivationsExist(next, operation.motivatedByIds, `goal ${goal.id}`);
           goal.motivatedByIds = [...operation.motivatedByIds];
         }
-        if (operation.parentGoalId !== undefined) goal.parentGoalId = operation.parentGoalId ?? undefined;
+        if (operation.parentGoal.kind === "none") goal.parentGoalId = undefined;
+        if (operation.parentGoal.kind === "goal") goal.parentGoalId = operation.parentGoal.goalId;
         goal.updatedAtStep = step;
         goal.evidenceIds = evidenceIds;
         assertGoalHierarchy(next);
@@ -318,6 +409,8 @@ export function applyCharacterPatch(
         if (terminalGoalStatuses.has(goal.status) && operation.status !== goal.status) {
           throw new Error(`cannot reopen terminal goal ${goal.id}`);
         }
+        if (operation.status === goal.status) throw new Error(`goal ${goal.id} already has status ${goal.status}`);
+        requireSignificantChange(impact, operation.status !== goal.status, "goal status change");
         goal.status = operation.status;
         goal.updatedAtStep = step;
         goal.evidenceIds = evidenceIds;
@@ -333,16 +426,30 @@ export function applyCharacterPatch(
         break;
       }
       case "update_commitment": {
+        if (operation.description === null && operation.priority === null && operation.subjectIds === null) {
+          throw new Error("update_commitment must change at least one field");
+        }
         const commitment = next.commitments[operation.id];
         if (!commitment || commitment.status !== "active") {
           throw new Error(`update_commitment references terminal ${operation.id}`);
         }
-        if (operation.priority !== undefined) {
+        const meaningChanged = (operation.description !== null && operation.description !== commitment.description) ||
+          (operation.subjectIds !== null && !sameIds(operation.subjectIds, commitment.subjectIds));
+        const numericChanged = operation.priority !== null && operation.priority !== commitment.priority;
+        if (!meaningChanged && !numericChanged) {
+          throw new Error(`update_commitment does not change ${commitment.id}`);
+        }
+        if (operation.priority !== null) {
           assertDelta(commitment.priority, operation.priority, numericLimits.motivation[impact], "commitment priority");
           commitment.priority = operation.priority;
         }
-        if (operation.description !== undefined) commitment.description = operation.description;
-        if (operation.subjectIds !== undefined) {
+        requireSignificantChange(
+          impact,
+          meaningChanged,
+          "commitment meaning",
+        );
+        if (operation.description !== null) commitment.description = operation.description;
+        if (operation.subjectIds !== null) {
           assertLocalIds(belief, operation.subjectIds, `commitment ${commitment.id}`);
           commitment.subjectIds = [...operation.subjectIds];
         }
@@ -356,6 +463,10 @@ export function applyCharacterPatch(
         if (commitment.status !== "active" && operation.status !== commitment.status) {
           throw new Error(`cannot reopen terminal commitment ${commitment.id}`);
         }
+        if (operation.status === commitment.status) {
+          throw new Error(`commitment ${commitment.id} already has status ${commitment.status}`);
+        }
+        requireSignificantChange(impact, operation.status !== commitment.status, "commitment status change");
         commitment.status = operation.status;
         commitment.updatedAtStep = step;
         commitment.evidenceIds = evidenceIds;

@@ -12,7 +12,7 @@ ratings:
   - { id: "resolve:keeper", definition_id: resolve, value: 3 }
 agent:
   id: keeper
-  model_profile_id: agent-default
+  model_profile_id: agent-deepseek
   character:
     persona:
       summary: 谨慎，重视职责，但会根据自己掌握的证据作判断。

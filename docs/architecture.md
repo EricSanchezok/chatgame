@@ -6,8 +6,9 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 | 层 | 目录 | 唯一职责 |
 |---|---|---|
-| 世界契约 | `src/script/` | 严格读取 schema v3 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v2 |
+| 世界契约 | `src/script/` | 严格读取 schema v4 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v3 |
 | 仿真内核 | `src/engine/` | AgentMind、角色演化、自身状态投影、Truth Engine、有限反应、d20、观察隔离与状态事务 |
+| 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
 | HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表与导入 |
 | 浏览器 | `src/app/` | 只展示公开快照/事件并提交任意自然语言目标 |
@@ -31,6 +32,10 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 6. 每个 AgentMind 只看自己的 belief、character、self view、私有 stimulus 和 outcome observation，按 `BeliefPatch → CharacterPatch → nextAction` 更新；新创建 Agent 也在本步初始化。
 7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。审计保存 initial/final actions、reaction、完整检定、角色 patch、模型尝试和内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
 
+## 模型调用链
+
+`config/models.yaml` 显式声明 provider、profile、原生推理配置与并发限制。世界选择 Truth profile，每个 Agent 独立选择 Agent profile；角色、密钥和引用在运行前严格校验。`ModelGateway` 按 provider 调用 DeepSeek Chat Completions 或 OpenAI/xAI Responses API，返回 strict schema 结果与审计。所有 HTTP 请求经过进程级公平队列，不存在默认模型、供应商 fallback 或生产 mock。完整契约见 [模型目录与 Gateway](game-design/model-gateway.md)。
+
 ## 规则扩展
 
 世界通过 `rule_packages` 引用服务端受信任注册表中的规则包 ID、精确版本和严格配置。ZIP 不能携带可执行规则代码；未知包、版本不符或多余配置在加载时拒绝。核心只预装 `core-d20`，题材规则继续由世界法典、开放事实和通用数值表达，未来规则包通过同一注册接口加入而不产生动作白名单。
@@ -39,7 +44,7 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 `WorldHost` 把一次玩家目标作为后台 `WorldRun` 执行。每个已完成步骤立即以 checksum envelope 原子写盘，并通过 SSE 发布公开检定、玩家观察和提交进度。运行在目标完成、目标失败、需要玩家决定、取消、安全步骤上限或模型失败时停止。
 
-取消只在世界步骤边界生效。进程重启时，磁盘中的 queued/running run 被标为可重试失败；已提交步骤不回滚。一个会话同时只允许一个活动 run。
+取消会终止排队或在途模型请求，丢弃尚未完整提交的候选步骤，并在最后一个已提交步骤边界终止。进程重启时，磁盘中的 queued/running run 被标为可重试失败；已提交步骤不回滚。一个会话同时只允许一个活动 run。
 
 ## 硬不变量
 
@@ -59,4 +64,4 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md) 与 [0036](decisions/0036-agent-evolution-self-awareness-and-reaction-window.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md) 与 [0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)。

@@ -1,5 +1,5 @@
-import path from "node:path";
-import { importWorldArchive, MAX_ARCHIVE_BYTES } from "../../../../server/world-import";
+import { WorldHost } from "../../../../server/world-host";
+import { MAX_ARCHIVE_BYTES } from "../../../../server/world-import";
 import { errorResponse, json } from "../../h";
 
 export async function POST(request: Request): Promise<Response> {
@@ -9,11 +9,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!(file instanceof File)) return json({ error: "zip file is required" }, 400);
     if (file.size > MAX_ARCHIVE_BYTES) return json({ error: "archive exceeds 50 MiB" }, 413);
     const replace = form.get("replace") === "true";
-    const result = importWorldArchive(
-      Buffer.from(await file.arrayBuffer()),
-      path.resolve(/* turbopackIgnore: true */ process.env.CHATGAME_SCRIPTS_ROOT ?? "scripts"),
-      replace,
-    );
+    const result = WorldHost.get().importWorld(Buffer.from(await file.arrayBuffer()), replace);
     return json(result, 201);
   } catch (error) {
     return errorResponse(error);

@@ -27,17 +27,17 @@ Class: architecture
 
 ## Decision Outcome
 
-每个 Agent 使用分层 `AgentCharacterState`，包含 persona、traits、values、emotions、attitudes、goals 与 commitments。AgentMind 的常规输出按 `BeliefPatch → CharacterPatch → nextAction` 应用；角色操作必须引用本步骤属于该 Agent 的 observation 和有效 evidence。persona 只能由 transformative 事件替换，长期、短期与动机数值分别按 ordinary/significant/transformative 影响级别限制变化幅度；目标与承诺使用不可重新打开的终态。时间和 provenance 字段由内核写入，不提供物理删除操作。`modelProfileId` 保持部署配置身份，不属于角色演化。
+每个 Agent 使用分层 `AgentCharacterState`，包含 persona、traits、values、emotions、attitudes、goals 与 commitments。AgentMind 的常规输出按 `BeliefPatch → CharacterPatch → nextAction` 应用；角色操作必须引用本步骤属于该 Agent 的 observation 和有效 evidence。persona 只能由 transformative 事件替换，长期、短期与动机数值分别按 ordinary/significant/transformative 影响级别限制变化幅度；语义身份、目标、承诺与状态变化至少需要 significant 事件，retire/resolve 还必须通过对应数值归零的幅度校验。目标与承诺使用不可重新打开的终态。时间和 provenance 字段由内核写入，不提供物理删除操作。`modelProfileId` 保持部署配置身份，不属于角色演化。
 
 服务端从 canonical truth 派生 `AgentSelfStateView`。视图包含局部 self identity、生命周期、世界时间、位置名称与描述、自身 Meter/Quantity/Rating 和有权读取的自身 Fact；canonical entity、placement、meter、rating identity、private Fact 和其他实体状态不进入视图。每个初始或动态 Agent 都必须恰好有一个局部实体绑定自身 canonical entity。
 
 世界步骤保留同 revision 预提交和最终联合裁决，在两者之间加入至多一轮 reaction window。Truth Engine 可以先请求 perception checks，再为本步骤 player action 返回 `request_reactions`；被请求 Agent 并发返回 keep 或同 actor、同 revision 的 replacement action。任何 resolution check 开始后窗口永久关闭，窗口后不再允许 perception check、第二轮 reaction 或反应链。未被请求的 Agent 保留预备行动，最终每个 actor 仍只有一个行动。
 
-ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时局部身份；结构化 basis 必须证明玩家与 Agent 处于同一个非空直接 placement、存在该 Agent 可访问的通信/感知 Fact，或存在引用玩家行动及 Fact/Law 的成功 perception check。AgentMind reaction 不得更新 belief 或 character；stimulus 与最终 observation 一同进入原子提交，常规 AgentMind 随后才更新心智并准备下一行动。
+ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时局部身份；结构化 basis 必须证明玩家与 Agent 处于同一个非空直接 placement、存在该 Agent 可访问且以玩家或 Agent 为结构化端点的通信/感知 Fact，或存在引用玩家行动及 Fact/Law 的成功 perception check。AgentMind reaction 不得更新 belief 或 character；stimulus 与最终 observation 一同进入原子提交，常规 AgentMind 随后才更新心智并准备下一行动。
 
 `CommittedStep` 保存 initial/final actions、reaction requests/decisions、character patches、分阶段检定与 `agent-reaction` 模型审计，并把它们纳入内容 hash、恢复校验和重放。任一 Truth Engine、reaction、AgentMind 或事务验证失败都连同本步 RNG 一起回滚。公共 API 与 SSE 只投影玩家 outcome、公开检定、玩家 observation 和公开会话状态。
 
-世界剧本使用 schema v3，SimulationState 与 WorldSessionDocument 使用 schema v2。旧版本直接拒绝，不提供迁移或双轨兼容。
+世界剧本使用 schema v4，SimulationState 与 WorldSessionDocument 使用 schema v3。所有会进入状态字典或引用图的 ID 拒绝 JavaScript 原型保留键，避免模型输出、世界包或持久化文档污染对象原型。旧版本直接拒绝，不提供迁移或双轨兼容。
 
 ### Consequences
 
@@ -73,5 +73,6 @@ ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时
 
 - [0031](0031-epistemic-multi-agent-truth-engine.md) — 独立信念图、预备行动与联合 Truth Engine。
 - [0035](0035-truth-engine-hardening-and-verifiable-audit.md) — 结构化验证、公开边界和可验证审计。
+- [0036](0036-multi-provider-model-gateway-and-fair-scheduler.md) — 模型 Profile、严格结构化输出、公平调度与审计。
 - [引擎运行时规格](../game-design/engine-runtime.md) — 当前心智、反应和提交契约。
-- [世界剧本格式](../game-design/script-format.md) — schema v3 角色种子格式。
+- [世界剧本格式](../game-design/script-format.md) — schema v4 角色种子格式。

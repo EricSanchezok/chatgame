@@ -1,6 +1,6 @@
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DeterministicModelProvider } from "../../../engine/model-provider";
+import { DeterministicModelProvider } from "../../../engine/testing/model-provider";
 import { FileWorldRepository } from "../../../script/world-repository";
 import { WorldHost } from "../../../server/world-host";
 import { MemoryWorldSessionStore } from "../../../server/world-session-store";
@@ -36,7 +36,7 @@ describe("world API routes", () => {
     expect(await response.json()).toEqual({ error: "服务器无法完成请求。" });
   });
 
-  it("lists schema v3 worlds and rejects empty run text", async () => {
+  it("lists schema v4 worlds and rejects empty run text", async () => {
     installHost();
     const worlds = await listWorlds();
     expect(await worlds.json()).toMatchObject({

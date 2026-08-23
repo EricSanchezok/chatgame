@@ -8,6 +8,7 @@ import type {
   TransitionProposal,
 } from "../model";
 import { createSeededRng, resolveD20Checks } from "../random";
+import { validateObservations } from "../observation";
 import {
   applyTransitionProposal,
   createEmptyCharacter,
@@ -18,7 +19,7 @@ import {
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     worldId: "test-world",
     lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,
@@ -162,6 +163,7 @@ function worldState(): SimulationState {
           baseRevision: 0,
           rawText: "继续看守石门",
           goal: "不让陌生人通过",
+          means: null,
           targetIds: [],
         },
       },
@@ -207,6 +209,7 @@ describe("open world kernel", () => {
             id: "merchant-claim",
             kind: "testimony",
             description: "商人声称钥匙是真的。",
+            sourceId: null,
             step: 0,
           },
         },
@@ -266,7 +269,7 @@ describe("open world kernel", () => {
           { id: "masked-tall", name: "高个蒙面人", description: "较高的身影。", status: "hypothesized" },
           { id: "masked-short", name: "矮个蒙面人", description: "较矮的身影。", status: "hypothesized" },
         ],
-        assignments: [{ claimId: "identity", subjectId: "masked-tall" }],
+        assignments: [{ claimId: "identity", subjectId: "masked-tall", valueId: null }],
       }],
     };
 
@@ -364,6 +367,66 @@ describe("open world kernel", () => {
     });
   });
 
+  it("rejects prototype-polluting record identifiers before state mutation", () => {
+    const source = worldState();
+    expect(() => applyTransitionProposal(
+      source,
+      proposal([{
+        kind: "set_fact",
+        fact: {
+          id: "__proto__",
+          subjectId: "player",
+          predicate: "unsafe",
+          value: { kind: "text", value: "must-not-be-written" },
+          description: "恶意对象键不得进入状态字典。",
+          access: { kind: "public" },
+          provenance: [{ kind: "law", id: "worldgen" }],
+        },
+        causes: [{ kind: "law", id: "worldgen" }],
+      }]),
+    )).toThrow("reserved object key");
+    expect(Object.getPrototypeOf(source.truth.facts)).toBe(Object.prototype);
+    expect(Object.hasOwn(source.truth.facts, "__proto__")).toBe(false);
+  });
+
+  it("rejects identifiers inherited from Object.prototype before state mutation", () => {
+    const source = worldState();
+    expect(() => applyTransitionProposal(
+      source,
+      proposal([{
+        kind: "set_fact",
+        fact: {
+          id: "toString",
+          subjectId: "player",
+          predicate: "unsafe",
+          value: { kind: "boolean", value: true },
+          description: "不得覆盖对象原型成员。",
+          access: { kind: "public" },
+          provenance: [{ kind: "law", id: "worldgen" }],
+        },
+        causes: [{ kind: "law", id: "worldgen" }],
+      }]),
+    )).toThrow("reserved object key");
+    expect(Object.hasOwn(source.truth.facts, "toString")).toBe(false);
+  });
+
+  it("rejects observation introductions that overwrite an existing private identity", () => {
+    const source = worldState();
+    expect(() => validateObservations(source, [{
+      id: "observation:rebind-self",
+      observerId: "keeper",
+      step: 1,
+      kind: "outcome",
+      summary: "试图用 introduction 重写既有 self。",
+      introductions: [{
+        localEntity: { id: "self", name: "伪造身份", description: "覆盖既有局部身份", status: "observed" },
+        canonicalEntityId: "player",
+      }],
+      apparentClaims: [],
+      sourceEventIds: [],
+    }])).toThrow("reintroduces local entity self");
+  });
+
   it("creates a dynamic autonomous entity without special-case code", () => {
     const skeleton: AgentState = {
       id: "skeleton-agent",
@@ -378,6 +441,7 @@ describe("open world kernel", () => {
         evidence: {},
       },
       bindings: { self: { localEntityId: "self", canonicalEntityIds: ["skeleton"] } },
+      nextAction: null,
     };
     const next = applyTransitionProposal(
       worldState(),

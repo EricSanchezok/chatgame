@@ -20,128 +20,131 @@ import {
   localEntitySchema,
   meterSchema,
   ratingSchema,
+  safeIdSchema,
 } from "./state-schemas";
 
-const beliefPatchSchema = z.object({
-  agentId: z.string().min(1),
+const beliefPatchSchema = z.strictObject({
+  agentId: safeIdSchema,
   baseRevision: z.number().int().nonnegative(),
-  operations: z.array(
-    z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("upsert_local_entity"), entity: localEntitySchema }),
-      z.object({ kind: z.literal("remove_local_entity"), localEntityId: z.string().min(1) }),
-      z.object({ kind: z.literal("upsert_evidence"), evidence: evidenceSchema }),
-      z.object({ kind: z.literal("upsert_claim"), claim: beliefClaimSchema }),
-      z.object({ kind: z.literal("remove_claim"), claimId: z.string().min(1) }),
-      z.object({
-        kind: z.literal("merge_local_entities"),
-        fromId: z.string().min(1),
-        intoId: z.string().min(1),
-      }),
-      z.object({
-        kind: z.literal("split_local_entity"),
-        fromId: z.string().min(1),
-        entities: z.array(localEntitySchema).min(2),
-        assignments: z.array(z.object({
-          claimId: z.string().min(1),
-          subjectId: z.string().min(1).optional(),
-          valueId: z.string().min(1).optional(),
-        })),
-      }),
-    ]),
-  ),
+  operations: z.array(z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("upsert_local_entity"), entity: localEntitySchema }),
+    z.strictObject({ kind: z.literal("remove_local_entity"), localEntityId: safeIdSchema }),
+    z.strictObject({ kind: z.literal("upsert_evidence"), evidence: evidenceSchema }),
+    z.strictObject({ kind: z.literal("upsert_claim"), claim: beliefClaimSchema }),
+    z.strictObject({ kind: z.literal("remove_claim"), claimId: safeIdSchema }),
+    z.strictObject({
+      kind: z.literal("merge_local_entities"),
+      fromId: safeIdSchema,
+      intoId: safeIdSchema,
+    }),
+    z.strictObject({
+      kind: z.literal("split_local_entity"),
+      fromId: safeIdSchema,
+      entities: z.array(localEntitySchema).min(2),
+      assignments: z.array(z.strictObject({
+        claimId: safeIdSchema,
+        subjectId: safeIdSchema.nullable(),
+        valueId: safeIdSchema.nullable(),
+      })),
+    }),
+  ])),
 }) as z.ZodType<BeliefPatch>;
 
 const characterPatchSource = {
-  sourceObservationIds: z.array(z.string().min(1)).min(1),
-  evidenceIds: z.array(z.string().min(1)),
+  sourceObservationIds: z.array(safeIdSchema).min(1),
+  evidenceIds: z.array(safeIdSchema).min(1),
 };
 
-export const characterPatchSchema = z.object({
-  agentId: z.string().min(1),
+export const characterPatchSchema = z.strictObject({
+  agentId: safeIdSchema,
   baseRevision: z.number().int().nonnegative(),
   operations: z.array(z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("replace_persona"), summary: z.string().min(1), voice: z.string(), ...characterPatchSource }),
-    z.object({
+    z.strictObject({ kind: z.literal("replace_persona"), summary: z.string().min(1), voice: z.string(), ...characterPatchSource }),
+    z.strictObject({
       kind: z.enum(["create_trait", "create_value"]),
-      facet: z.object({ id: z.string().min(1), description: z.string().min(1), strength: z.number().min(0).max(1) }),
+      facet: z.strictObject({ id: safeIdSchema, description: z.string().min(1), strength: z.number().min(0).max(1) }),
       ...characterPatchSource,
     }),
-    z.object({
+    z.strictObject({
       kind: z.enum(["update_trait", "update_value"]),
-      id: z.string().min(1),
-      description: z.string().min(1).optional(),
-      strength: z.number().min(0).max(1).optional(),
+      id: safeIdSchema,
+      description: z.string().min(1).nullable(),
+      strength: z.number().min(0).max(1).nullable(),
       ...characterPatchSource,
     }),
-    z.object({ kind: z.enum(["retire_trait", "retire_value"]), id: z.string().min(1), ...characterPatchSource }),
-    z.object({
+    z.strictObject({ kind: z.enum(["retire_trait", "retire_value"]), id: safeIdSchema, ...characterPatchSource }),
+    z.strictObject({
       kind: z.literal("set_emotion"),
-      emotion: z.object({ id: z.string().min(1), description: z.string().min(1), intensity: z.number().min(0).max(1) }),
+      emotion: z.strictObject({ id: safeIdSchema, description: z.string().min(1), intensity: z.number().min(0).max(1) }),
       ...characterPatchSource,
     }),
-    z.object({ kind: z.literal("resolve_emotion"), id: z.string().min(1), ...characterPatchSource }),
-    z.object({
+    z.strictObject({ kind: z.literal("resolve_emotion"), id: safeIdSchema, ...characterPatchSource }),
+    z.strictObject({
       kind: z.literal("set_attitude"),
-      attitude: z.object({
-        id: z.string().min(1),
-        subjectId: z.string().min(1),
+      attitude: z.strictObject({
+        id: safeIdSchema,
+        subjectId: safeIdSchema,
         description: z.string().min(1),
         intensity: z.number().min(0).max(1),
       }),
       ...characterPatchSource,
     }),
-    z.object({ kind: z.literal("retire_attitude"), id: z.string().min(1), ...characterPatchSource }),
-    z.object({
+    z.strictObject({ kind: z.literal("retire_attitude"), id: safeIdSchema, ...characterPatchSource }),
+    z.strictObject({
       kind: z.literal("create_goal"),
-      goal: z.object({
-        id: z.string().min(1),
+      goal: z.strictObject({
+        id: safeIdSchema,
         description: z.string().min(1),
         priority: z.number().min(0).max(1),
         progress: z.number().min(0).max(1),
-        targetIds: z.array(z.string().min(1)),
-        parentGoalId: z.string().min(1).optional(),
-        motivatedByIds: z.array(z.string().min(1)),
+        targetIds: z.array(safeIdSchema),
+        parentGoalId: safeIdSchema.nullable(),
+        motivatedByIds: z.array(safeIdSchema),
       }),
       ...characterPatchSource,
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("update_goal"),
-      id: z.string().min(1),
-      description: z.string().min(1).optional(),
-      priority: z.number().min(0).max(1).optional(),
-      progress: z.number().min(0).max(1).optional(),
-      targetIds: z.array(z.string().min(1)).optional(),
-      parentGoalId: z.string().min(1).nullable().optional(),
-      motivatedByIds: z.array(z.string().min(1)).optional(),
+      id: safeIdSchema,
+      description: z.string().min(1).nullable(),
+      priority: z.number().min(0).max(1).nullable(),
+      progress: z.number().min(0).max(1).nullable(),
+      targetIds: z.array(safeIdSchema).nullable(),
+      parentGoal: z.discriminatedUnion("kind", [
+        z.strictObject({ kind: z.literal("unchanged") }),
+        z.strictObject({ kind: z.literal("none") }),
+        z.strictObject({ kind: z.literal("goal"), goalId: safeIdSchema }),
+      ]),
+      motivatedByIds: z.array(safeIdSchema).nullable(),
       ...characterPatchSource,
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("set_goal_status"),
-      id: z.string().min(1),
+      id: safeIdSchema,
       status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]),
       ...characterPatchSource,
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("create_commitment"),
-      commitment: z.object({
-        id: z.string().min(1),
+      commitment: z.strictObject({
+        id: safeIdSchema,
         description: z.string().min(1),
         priority: z.number().min(0).max(1),
-        subjectIds: z.array(z.string().min(1)),
+        subjectIds: z.array(safeIdSchema),
       }),
       ...characterPatchSource,
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("update_commitment"),
-      id: z.string().min(1),
-      description: z.string().min(1).optional(),
-      priority: z.number().min(0).max(1).optional(),
-      subjectIds: z.array(z.string().min(1)).optional(),
+      id: safeIdSchema,
+      description: z.string().min(1).nullable(),
+      priority: z.number().min(0).max(1).nullable(),
+      subjectIds: z.array(safeIdSchema).nullable(),
       ...characterPatchSource,
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("set_commitment_status"),
-      id: z.string().min(1),
+      id: safeIdSchema,
       status: z.enum(["active", "fulfilled", "broken", "released"]),
       ...characterPatchSource,
     }),
@@ -154,20 +157,20 @@ export interface AgentMindOutput {
   nextAction: AgentActionProposal;
 }
 
-export const agentMindOutputSchema = z.object({
+export const agentMindOutputSchema = z.strictObject({
   beliefPatch: beliefPatchSchema,
   characterPatch: characterPatchSchema,
   nextAction: actionProposalSchema,
 }) as z.ZodType<AgentMindOutput>;
 
-export const checkRequestSchema = z.object({
-  id: z.string().min(1),
-  actorId: z.string().min(1),
-  targetId: z.string().min(1).optional(),
-  ratingId: z.string().min(1).optional(),
+export const checkRequestSchema = z.strictObject({
+  id: safeIdSchema,
+  actorId: safeIdSchema,
+  targetId: safeIdSchema.nullable(),
+  ratingId: safeIdSchema.nullable(),
   modifier: z.number().int(),
-  modifierSources: z.array(z.object({
-    id: z.string().min(1),
+  modifierSources: z.array(z.strictObject({
+    id: safeIdSchema,
     amount: z.number().int().min(-100).max(100),
   })),
   dc: z.number().int().min(0).max(100),
@@ -179,138 +182,125 @@ export const checkRequestSchema = z.object({
 }) as z.ZodType<D20CheckRequest>;
 
 const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
-  z.object({
+  z.strictObject({
     kind: z.literal("create_entity"),
     entity: entitySchema,
-    placementId: z.string().min(1).nullable(),
+    placementId: safeIdSchema.nullable(),
     causes: z.array(causalRefSchema).min(1),
   }),
-  z.object({ kind: z.literal("retire_entity"), entityId: z.string().min(1), causes: z.array(causalRefSchema).min(1) }),
-  z.object({
+  z.strictObject({ kind: z.literal("retire_entity"), entityId: safeIdSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({
     kind: z.literal("place_entity"),
-    entityId: z.string().min(1),
-    placementId: z.string().min(1).nullable(),
+    entityId: safeIdSchema,
+    placementId: safeIdSchema.nullable(),
     causes: z.array(causalRefSchema).min(1),
   }),
-  z.object({ kind: z.literal("set_fact"), fact: factSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.object({ kind: z.literal("remove_fact"), factId: z.string().min(1), causes: z.array(causalRefSchema).min(1) }),
-  z.object({ kind: z.literal("set_meter"), meter: meterSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.object({
-    kind: z.literal("adjust_meter"),
-    meterId: z.string().min(1),
-    amount: z.number().finite(),
-    causes: z.array(causalRefSchema).min(1),
-  }),
-  z.object({
+  z.strictObject({ kind: z.literal("set_fact"), fact: factSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("remove_fact"), factId: safeIdSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("set_meter"), meter: meterSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("adjust_meter"), meterId: safeIdSchema, amount: z.number().finite(), causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({
     kind: z.literal("transfer_quantity"),
-    definitionId: z.string().min(1),
-    fromHolderId: z.string().min(1),
-    toHolderId: z.string().min(1),
+    definitionId: safeIdSchema,
+    fromHolderId: safeIdSchema,
+    toHolderId: safeIdSchema,
     amount: z.number().positive(),
     causes: z.array(causalRefSchema).min(1),
   }),
-  z.object({
+  z.strictObject({
     kind: z.literal("produce_quantity"),
-    definitionId: z.string().min(1),
-    holderId: z.string().min(1),
+    definitionId: safeIdSchema,
+    holderId: safeIdSchema,
     amount: z.number().positive(),
-    lawId: z.string().min(1),
+    lawId: safeIdSchema,
     causes: z.array(causalRefSchema).min(1),
   }),
-  z.object({
+  z.strictObject({
     kind: z.literal("consume_quantity"),
-    definitionId: z.string().min(1),
-    holderId: z.string().min(1),
+    definitionId: safeIdSchema,
+    holderId: safeIdSchema,
     amount: z.number().positive(),
-    lawId: z.string().min(1),
+    lawId: safeIdSchema,
     causes: z.array(causalRefSchema).min(1),
   }),
-  z.object({ kind: z.literal("set_rating"), rating: ratingSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.object({ kind: z.literal("advance_time"), seconds: z.number().int().positive(), causes: z.array(causalRefSchema).min(1) }),
-  z.object({ kind: z.literal("create_agent"), agent: agentStateSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.object({ kind: z.literal("remove_agent"), agentId: z.string().min(1), causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("set_rating"), rating: ratingSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("advance_time"), seconds: z.number().int().positive(), causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("create_agent"), agent: agentStateSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("remove_agent"), agentId: safeIdSchema, causes: z.array(causalRefSchema).min(1) }),
 ]);
 
-const actionOutcomeSchema = z.object({
-  proposalId: z.string().min(1),
+const actionOutcomeSchema = z.strictObject({
+  proposalId: safeIdSchema,
   status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
   summary: z.string(),
   causeRefs: z.array(causalRefSchema),
-  knownAlternatives: z.array(z.object({
+  knownAlternatives: z.array(z.strictObject({
     description: z.string().min(1),
     basis: z.discriminatedUnion("kind", [
-      z.object({
-        kind: z.literal("knowledge"),
-        evidenceIds: z.array(z.string().min(1)).min(1),
-      }),
-      z.object({
-        kind: z.literal("observation"),
-        observationId: z.string().min(1),
-      }),
+      z.strictObject({ kind: z.literal("knowledge"), evidenceIds: z.array(safeIdSchema).min(1) }),
+      z.strictObject({ kind: z.literal("observation"), observationId: safeIdSchema }),
     ]),
   })),
 });
 
-const worldEventSchema = z.object({
-  id: z.string().min(1),
+const worldEventSchema = z.strictObject({
+  id: safeIdSchema,
   step: z.number().int().nonnegative(),
   description: z.string(),
   impact: z.enum(["ordinary", "significant", "transformative"]),
   causes: z.array(causalRefSchema).min(1),
 });
 
-const introductionSchema = z.object({
+const introductionSchema = z.strictObject({
   localEntity: localEntitySchema,
-  canonicalEntityId: z.string().min(1).optional(),
+  canonicalEntityId: safeIdSchema.nullable(),
 });
 
-const observationSchema = z.object({
-  id: z.string().min(1),
-  observerId: z.string().min(1),
+const observationSchema = z.strictObject({
+  id: safeIdSchema,
+  observerId: safeIdSchema,
   step: z.number().int().nonnegative(),
   kind: z.enum(["stimulus", "outcome"]),
   summary: z.string(),
   introductions: z.array(introductionSchema),
-  apparentClaims: z.array(
-    z.object({
-      id: z.string().min(1),
-      subjectId: z.string().min(1),
-      predicate: z.string().min(1),
-      value: beliefValueSchema,
-      description: z.string(),
-    }),
-  ),
-  sourceEventIds: z.array(z.string().min(1)),
+  apparentClaims: z.array(z.strictObject({
+    id: safeIdSchema,
+    subjectId: safeIdSchema,
+    predicate: z.string().min(1),
+    value: beliefValueSchema,
+    description: z.string(),
+  })),
+  sourceEventIds: z.array(safeIdSchema),
 });
 
-export const reactionRequestSchema = z.object({
-  agentId: z.string().min(1),
-  sourceActionId: z.string().min(1),
+export const reactionRequestSchema = z.strictObject({
+  agentId: safeIdSchema,
+  sourceActionId: safeIdSchema,
   stimulus: observationSchema,
   basis: z.array(z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("shared_placement"), placementId: z.string().min(1) }),
-    z.object({ kind: z.literal("fact"), factId: z.string().min(1) }),
-    z.object({ kind: z.literal("perception_check"), checkId: z.string().min(1) }),
+    z.strictObject({ kind: z.literal("shared_placement"), placementId: safeIdSchema }),
+    z.strictObject({ kind: z.literal("fact"), factId: safeIdSchema }),
+    z.strictObject({ kind: z.literal("perception_check"), checkId: safeIdSchema }),
   ])).min(1),
 }) as z.ZodType<ReactionRequest>;
 
 export const reactionDecisionSchema = z.discriminatedUnion("kind", [
-  z.object({
-    agentId: z.string().min(1),
+  z.strictObject({
+    agentId: safeIdSchema,
     baseRevision: z.number().int().nonnegative(),
-    originalProposalId: z.string().min(1),
+    originalProposalId: safeIdSchema,
     kind: z.literal("keep"),
   }),
-  z.object({
-    agentId: z.string().min(1),
+  z.strictObject({
+    agentId: safeIdSchema,
     baseRevision: z.number().int().nonnegative(),
-    originalProposalId: z.string().min(1),
+    originalProposalId: safeIdSchema,
     kind: z.literal("replace"),
     replacementAction: actionProposalSchema,
   }),
 ]) as z.ZodType<ReactionDecision>;
 
-export const transitionProposalSchema = z.object({
+export const transitionProposalSchema = z.strictObject({
   baseRevision: z.number().int().nonnegative(),
   outcomes: z.array(actionOutcomeSchema),
   operations: z.array(worldDeltaOperationSchema),
@@ -326,7 +316,7 @@ export type TruthDirective =
   | { kind: "transition"; proposal: TransitionProposal };
 
 export const truthDirectiveSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("request_checks"), requests: z.array(checkRequestSchema).min(1) }),
-  z.object({ kind: z.literal("request_reactions"), requests: z.array(reactionRequestSchema).min(1) }),
-  z.object({ kind: z.literal("transition"), proposal: transitionProposalSchema }),
+  z.strictObject({ kind: z.literal("request_checks"), requests: z.array(checkRequestSchema).min(1) }),
+  z.strictObject({ kind: z.literal("request_reactions"), requests: z.array(reactionRequestSchema).min(1) }),
+  z.strictObject({ kind: z.literal("transition"), proposal: transitionProposalSchema }),
 ]) as z.ZodType<TruthDirective>;

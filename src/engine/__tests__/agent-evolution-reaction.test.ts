@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AgentMind } from "../agent-mind";
 import { applyCharacterPatch } from "../character";
 import { validatePublicInformationBoundary } from "../information-boundary";
+import { contentHash } from "../model-audit";
 import type {
   AgentActionProposal,
   AgentBeliefState,
@@ -12,7 +13,7 @@ import type {
   TransitionProposal,
   WorldEvent,
 } from "../model";
-import { ScriptedModelProvider } from "../model-provider";
+import { ScriptedModelProvider } from "../testing/model-provider";
 import { createSeededRng } from "../random";
 import { projectAgentSelfState } from "../self-state";
 import { SimulationEngine } from "../simulation";
@@ -104,7 +105,7 @@ describe("Agent character evolution", () => {
     const changed = applyCharacterPatch(
       ordinary.character,
       ordinary.belief,
-      characterPatch({ ...source, kind: "update_trait", id: "cautious", strength: 0.55 }),
+      characterPatch({ ...source, kind: "update_trait", id: "cautious", description: null, strength: 0.55 }),
       1,
       [ordinary.observation],
       [ordinary.event],
@@ -113,11 +114,29 @@ describe("Agent character evolution", () => {
     expect(() => applyCharacterPatch(
       ordinary.character,
       ordinary.belief,
-      characterPatch({ ...source, kind: "update_trait", id: "cautious", strength: 0.551 }),
+      characterPatch({ ...source, kind: "update_trait", id: "cautious", description: null, strength: 0.551 }),
       1,
       [ordinary.observation],
       [ordinary.event],
     )).toThrow("more than 0.05");
+    expect(() => applyCharacterPatch(
+      ordinary.character,
+      ordinary.belief,
+      characterPatch({
+        ...source,
+        kind: "update_goal",
+        id: "guard",
+        description: "放弃守门，转而环游世界",
+        priority: null,
+        progress: null,
+        targetIds: null,
+        parentGoal: { kind: "unchanged" },
+        motivatedByIds: null,
+      }),
+      1,
+      [ordinary.observation],
+      [ordinary.event],
+    )).toThrow("goal meaning requires a significant event");
 
     const significant = characterBasis("significant");
     expect(applyCharacterPatch(
@@ -140,6 +159,14 @@ describe("Agent character evolution", () => {
         kind: "create_value",
         facet: { id: "mercy", description: "突然极端重视宽恕", strength: 0.26 },
       }),
+      1,
+      [significant.observation],
+      [significant.event],
+    )).toThrow("more than 0.25");
+    expect(() => applyCharacterPatch(
+      significant.character,
+      significant.belief,
+      characterPatch({ ...source, kind: "retire_trait", id: "cautious" }),
       1,
       [significant.observation],
       [significant.event],
@@ -179,8 +206,8 @@ describe("Agent character evolution", () => {
     });
   });
 
-  it("allows terminal transitions at any impact but never reopens goals or commitments", () => {
-    const basis = characterBasis("ordinary");
+  it("requires significant terminal transitions and never reopens goals or commitments", () => {
+    const basis = characterBasis("significant");
     const completed = applyCharacterPatch(
       basis.character,
       basis.belief,
@@ -282,12 +309,13 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
         baseRevision: 0,
         rawText: "继续站岗",
         goal: "履行原计划",
+        means: null,
         targetIds: [],
       },
     };
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     worldId: "reaction-world",
     lawIds: ["time"],
     revision: 0,
@@ -330,9 +358,15 @@ function reactionDefinition(initialState: SimulationState): WorldDefinition {
     id: "reaction-world",
     name: "反应窗口世界",
     description: "验证同一步感知与有限反应。",
+    truthModelProfileId: "truth-engine",
     laws: [{ id: "time", text: "每步推进时间。", severity: "hard" }],
     disclosure: { defaultCheckVisibility: "full" },
-    rulePackages: [{ id: "core-d20", version: "1.0.0", config: { opposedChecks: true, damageUsesMeters: true } }],
+    rulePackages: [{
+      id: "core-d20",
+      version: "1.0.0",
+      config: { opposedChecks: true, damageUsesMeters: true },
+      adjudication: "使用 d20 检定。",
+    }],
     initialState,
   };
 }
@@ -381,6 +415,7 @@ function emptyMindOutput(agentId: string, revision: number) {
       baseRevision: revision,
       rawText: "等待下一步",
       goal: "继续观察",
+      means: null,
       targetIds: [],
     },
   };
@@ -418,6 +453,7 @@ describe("Agent self state and reaction protocol", () => {
         baseRevision: 0,
         rawText: "观察守门人",
         goal: "观察",
+        means: null,
         targetIds: [],
       },
       state.agents.keeper.nextAction!,
@@ -534,6 +570,7 @@ describe("Agent self state and reaction protocol", () => {
             baseRevision: context.revision,
             rawText: `${context.agent.id} 当场回答旅人`,
             goal: "回应刚刚听见的话",
+            means: null,
             targetIds: ["speaker"],
           },
         };
@@ -574,7 +611,7 @@ describe("Agent self state and reaction protocol", () => {
         revision: number;
         jointActions: AgentActionProposal[];
         agentEpistemics: Record<string, unknown>;
-        validationError?: string;
+        validationIssues: Array<{ message: string }>;
         agent: { id: string };
         originalAction?: AgentActionProposal;
       };
@@ -583,7 +620,7 @@ describe("Agent self state and reaction protocol", () => {
         return emptyMindOutput(context.agent.id, context.revision);
       }
       truthCalls += 1;
-      if (!context.validationError) {
+      if (context.validationIssues.length === 0) {
         const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
         return {
           kind: "request_reactions",
@@ -595,7 +632,7 @@ describe("Agent self state and reaction protocol", () => {
           }],
         };
       }
-      expect(context.validationError).toContain("shared direct placement");
+      expect(context.validationIssues[0].message).toContain("shared direct placement");
       return { kind: "transition", proposal: outcomeTransition(context) };
     });
     const engine = new SimulationEngine(
@@ -669,6 +706,66 @@ describe("Agent self state and reaction protocol", () => {
     expect(result.committed.reactionRequests[0].basis).toEqual([{ kind: "fact", factId: "pigeon-channel" }]);
     expect(result.committed.reactionDecisions[0].kind).toBe("keep");
     expect(result.committed.actions.find((action) => action.actorId === "keeper")?.id).toBe("prepared:keeper:0");
+    const corrupted = structuredClone(result.state);
+    corrupted.history[0].actions.find((action) => action.actorId === "keeper")!.rawText = "被篡改的 keep 行动";
+    const payload = Object.fromEntries(
+      Object.entries(corrupted.history[0]).filter(([key]) => key !== "contentHash"),
+    );
+    corrupted.history[0].contentHash = contentHash(payload);
+    expect(() => validateSimulationState(corrupted, true, true)).toThrow("invalid reaction decision");
+  });
+
+  it("rejects an accessible public fact that is unrelated to either reaction participant", async () => {
+    const initial = reactionState(["keeper"], true);
+    initial.truth.facts.weather = {
+      id: "weather",
+      subjectId: "room",
+      predicate: "weather",
+      value: { kind: "text", value: "clear" },
+      description: "庭院天气晴朗。",
+      access: { kind: "public" },
+      provenance: [{ kind: "law", id: "time" }],
+    };
+    let reactionCalls = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        validationIssues: Array<{ message: string }>;
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (profileId !== "truth-engine") {
+        if (context.originalAction) reactionCalls += 1;
+        return emptyMindOutput(context.agent.id, context.revision);
+      }
+      if (context.validationIssues.length > 0) {
+        expect(context.validationIssues[0].message).toContain("unrelated to either participant");
+        return { kind: "transition", proposal: outcomeTransition(context) };
+      }
+      const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+      return {
+        kind: "request_reactions",
+        requests: [{
+          agentId: "keeper",
+          sourceActionId: playerAction.id,
+          stimulus: stimulus("keeper", playerAction.id),
+          basis: [{ kind: "fact", factId: "weather" }],
+        }],
+      };
+    });
+    const engine = new SimulationEngine(
+      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+    );
+    engine.beginPlayerIntent("把晴朗天气当成远程喊话渠道");
+
+    const result = await engine.step();
+
+    expect(reactionCalls).toBe(0);
+    expect(result.committed.reactionRequests).toEqual([]);
   });
 
   it("never calls AgentMind.react when Truth Engine does not request a reaction", async () => {
@@ -735,6 +832,7 @@ describe("Agent self state and reaction protocol", () => {
           requests: [{
             id: "hear-distant-message",
             actorId: "keeper",
+            targetId: null,
             ratingId: "reflex:keeper",
             modifier: 3,
             modifierSources: [{ id: "reflex:keeper", amount: 3 }],
@@ -790,7 +888,7 @@ describe("Agent self state and reaction protocol", () => {
           revision: number;
           jointActions: AgentActionProposal[];
           agentEpistemics: Record<string, unknown>;
-          validationError?: string;
+          validationIssues: Array<{ message: string }>;
           checkResults: unknown[];
           agent: { id: string };
           originalAction?: AgentActionProposal;
@@ -815,6 +913,8 @@ describe("Agent self state and reaction protocol", () => {
             requests: [{
               id: "already-resolving",
               actorId: "player",
+              targetId: null,
+              ratingId: null,
               modifier: 0,
               modifierSources: [],
               dc: 0,
@@ -826,7 +926,7 @@ describe("Agent self state and reaction protocol", () => {
             }],
           };
         }
-        if (!context.validationError && (truthCalls === 1 || truthCalls === 2)) {
+        if (context.validationIssues.length === 0 && (truthCalls === 1 || truthCalls === 2)) {
           return {
             kind: "request_reactions",
             requests: [{
@@ -837,7 +937,8 @@ describe("Agent self state and reaction protocol", () => {
             }],
           };
         }
-        expect(context.validationError).toContain(resolutionFirst ? "after resolution" : "second reaction round");
+        expect(context.validationIssues[0].message)
+          .toContain(resolutionFirst ? "after resolution" : "second reaction round");
         return { kind: "transition", proposal: outcomeTransition(context) };
       });
       const engine = new SimulationEngine(
@@ -891,6 +992,7 @@ describe("Agent self state and reaction protocol", () => {
             baseRevision: context.revision,
             rawText: "越权替玩家行动",
             goal: "非法替换",
+            means: null,
             targetIds: [],
           },
         };
@@ -917,7 +1019,7 @@ describe("Agent self state and reaction protocol", () => {
       evidenceIds: [],
     };
     invalidCharacterState.agents.keeper.belief.evidence.existing = {
-      id: "existing", kind: "observation", description: "旧证据", step: 0,
+      id: "existing", kind: "observation", description: "旧证据", sourceId: null, step: 0,
     };
     const invalidCharacterProvider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
