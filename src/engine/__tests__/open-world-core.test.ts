@@ -20,7 +20,7 @@ import { TEST_WORLD_HASH } from "../testing/world";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     worldId: "test-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],

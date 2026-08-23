@@ -25,12 +25,18 @@ import type {
 } from "./model";
 import {
   combineModelExecutionAudits,
+  modelInvocationCorrelation,
+  modelInvocationIdentity,
   ModelOutputError,
   ModelTransportError,
+  setModelInvocationOutcome,
+  setModelInvocationResultKind,
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "./model-provider";
+import { contentHash } from "./model-audit";
 import { ModelOverloadedError } from "./model-scheduler";
+import { runtimeEventEmitter, serializeRuntimeError } from "./observability";
 import { validateObservations } from "./observation";
 import {
   CAUSAL_VERIFIER_PROMPT_VERSION,
@@ -115,6 +121,7 @@ interface ValidatedCallInput<T> {
   buildContext: (issues: readonly PromptValidationIssue[]) => unknown;
   validate?: (value: T) => void;
   repairAttempts: number;
+  invocationOffset?: number;
 }
 
 async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
@@ -124,27 +131,56 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
   const audits: ModelExecutionAudit[] = [];
   let issues: PromptValidationIssue[] = [];
   let repairCount = 0;
+  const observe = runtimeEventEmitter(input.scope.observer);
   while (true) {
     const auditCountBeforeAttempt = audits.length;
     try {
+      const contextStartedAt = Date.now();
+      const context = input.buildContext(issues);
+      const invocation = (input.invocationOffset ?? 0) +
+        audits.reduce((count, audit) => count + audit.invocations.length, 0) + 1;
+      const identity = modelInvocationIdentity(input.scope, input.role, input.subjectId, invocation);
+      const correlation = modelInvocationCorrelation(input.scope, input.role, input.subjectId, identity);
+      observe?.({
+        event: "model.context.built",
+        correlation,
+        durationMs: Math.max(0, Date.now() - contextStartedAt),
+        hashes: { context: contentHash(context) },
+      });
       const result = await input.provider.generateStructured({
         profileId: input.profileId,
         workloadId: input.scope.workloadId,
         batchId: input.scope.batchId,
         abortSignal: input.scope.abortSignal,
+        correlation: input.scope.correlation,
+        observer: input.scope.observer,
+        ...identity,
         role: input.role,
         subjectId: input.subjectId,
         promptVersion: input.promptVersion,
         schemaName: input.schemaName,
         system: input.system,
-        context: input.buildContext(issues),
+        context,
         schema: input.schema,
       });
       audits.push(result.audit);
       input.validate?.(result.value);
+      const value = result.value as { kind?: unknown; verdict?: unknown };
+      const resultKind = typeof value.kind === "string"
+        ? `${input.role}_${value.kind}`
+        : typeof value.verdict === "string"
+          ? `${input.role}_${value.verdict}`
+          : input.role;
+      setModelInvocationResultKind(result.audit, resultKind);
+      setModelInvocationOutcome(result.audit, "accepted");
+      observe?.({
+        event: "model.semantic.accepted",
+        correlation,
+        attributes: { resultKind },
+      });
       return {
         value: result.value,
-        audit: combineModelExecutionAudits(audits, repairCount),
+        audit: combineModelExecutionAudits(audits),
       };
     } catch (error) {
       if (error instanceof ModelTransportError || error instanceof ModelOverloadedError ||
@@ -155,6 +191,21 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
         throw error;
       }
       issues = validationIssues(error);
+      const audit = audits.at(-1);
+      if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
+      const invocation = audit?.invocations.at(-1);
+      observe?.({
+        event: "model.semantic.rejected",
+        level: "warn",
+        correlation: modelInvocationCorrelation(input.scope, input.role, input.subjectId, {
+          modelInvocationId: invocation?.id,
+          modelInvocation: invocation?.ordinal,
+        }),
+        attributes: { resultKind: invocation?.resultKind ?? null },
+        counts: { validationIssues: issues.length },
+        hashes: invocation?.responseHash ? { response: invocation.responseHash } : undefined,
+        error: serializeRuntimeError(error),
+      });
       repairCount += 1;
       if (repairCount > input.repairAttempts) {
         const message = error instanceof Error ? error.message : String(error);
@@ -476,10 +527,7 @@ export class TruthEngine {
     const modelAudits: ModelExecutionAudit[] = [];
     let checkRounds = 0;
     const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
-      combineModelExecutionAudits(
-        audits,
-        audits.reduce((total, audit) => total + audit.repairAttempts, 0),
-      );
+      combineModelExecutionAudits(audits);
 
     const truthContext = (
       stage: "perception" | "reaction-routing" | "resolution" | "transition",
@@ -552,6 +600,7 @@ export class TruthEngine {
           }
         },
         repairAttempts: this.repairAttempts,
+        invocationOffset: perceptionAudits.reduce((count, audit) => count + audit.invocations.length, 0),
       });
       perceptionAudits.push(call.audit);
       if (call.value.kind === "done") break;
@@ -607,6 +656,7 @@ export class TruthEngine {
           }
         },
         repairAttempts: this.repairAttempts,
+        invocationOffset: resolutionAudits.reduce((count, audit) => count + audit.invocations.length, 0),
       });
       resolutionAudits.push(call.audit);
       if (call.value.kind === "done") break;
@@ -620,24 +670,50 @@ export class TruthEngine {
     let previousReport: CausalVerification | null = null;
     const transitionAudits: ModelExecutionAudit[] = [];
     const verifierAudits: ModelExecutionAudit[] = [];
+    const observe = runtimeEventEmitter(scope.observer);
 
     while (true) {
       const auditCountBeforeAttempt = transitionAudits.length;
       try {
+        const contextStartedAt = Date.now();
+        const context = truthContext("transition", transitionIssues);
+        const invocation = transitionAudits.reduce((count, audit) => count + audit.invocations.length, 0) + 1;
+        const identity = modelInvocationIdentity(
+          scope,
+          "truth-transition",
+          input.definition.id,
+          invocation,
+        );
+        const correlation = modelInvocationCorrelation(
+          scope,
+          "truth-transition",
+          input.definition.id,
+          identity,
+        );
+        observe?.({
+          event: "model.context.built",
+          correlation,
+          durationMs: Math.max(0, Date.now() - contextStartedAt),
+          hashes: { context: contentHash(context) },
+        });
         const generated = await this.provider.generateStructured({
           profileId: input.definition.modelProfiles.transition,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
+          correlation: scope.correlation,
+          observer: scope.observer,
+          ...identity,
           role: "truth-transition",
           subjectId: input.definition.id,
           promptVersion: TRUTH_PROMPT_VERSION,
           schemaName: "truth_transition",
           system: TRUTH_SYSTEM,
-          context: truthContext("transition", transitionIssues),
+          context,
           schema: transitionProposalSchema,
         });
         transitionAudits.push(generated.audit);
+        setModelInvocationResultKind(generated.audit, "truth-transition_transition");
         const directProposal = generated.value;
         const mechanics = this.rulePackages.resolve(input.definition.rulePackages, {
           state: input.state,
@@ -705,6 +781,7 @@ export class TruthEngine {
             }
           },
           repairAttempts: this.repairAttempts,
+          invocationOffset: verifierAudits.reduce((count, audit) => count + audit.invocations.length, 0),
         });
         verifierAudits.push(verification.audit);
         if (verification.value.verdict === "reject") {
@@ -714,7 +791,13 @@ export class TruthEngine {
             .join(" | ")}`);
         }
 
-        modelAudits.push(combineModelExecutionAudits(transitionAudits, transitionRepairs));
+        setModelInvocationOutcome(generated.audit, "accepted");
+        observe?.({
+          event: "model.semantic.accepted",
+          correlation,
+          attributes: { resultKind: "truth-transition_transition" },
+        });
+        modelAudits.push(combineModelExecutionAudits(transitionAudits));
         modelAudits.push(combineStageAudits(verifierAudits));
         return {
           proposal,
@@ -744,6 +827,21 @@ export class TruthEngine {
           throw error;
         }
         transitionIssues = validationIssues(error);
+        const audit = transitionAudits.at(-1);
+        if (audit) setModelInvocationOutcome(audit, "rejected", transitionIssues.map((issue) => issue.code));
+        const invocation = audit?.invocations.at(-1);
+        observe?.({
+          event: "model.semantic.rejected",
+          level: "warn",
+          correlation: modelInvocationCorrelation(scope, "truth-transition", input.definition.id, {
+            modelInvocationId: invocation?.id,
+            modelInvocation: invocation?.ordinal,
+          }),
+          attributes: { resultKind: invocation?.resultKind ?? null },
+          counts: { validationIssues: transitionIssues.length },
+          hashes: invocation?.responseHash ? { response: invocation.responseHash } : undefined,
+          error: serializeRuntimeError(error),
+        });
         transitionRepairs += 1;
         if (transitionRepairs > this.repairAttempts) {
           const message = error instanceof Error ? error.message : String(error);

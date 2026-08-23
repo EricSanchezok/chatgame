@@ -4,6 +4,13 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { canonicalize } from "../engine/model-audit";
 import type { ModelCatalog } from "../engine/model-catalog";
+import {
+  NOOP_RUNTIME_OBSERVER,
+  runtimeEventEmitter,
+  serializeRuntimeError,
+  type RuntimeCorrelation,
+  type RuntimeObserver,
+} from "../engine/observability";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { buildWorldDefinition, hashWorldTemplate, parseWorldTemplate } from "../script/world-loader";
 import type { WorldCatalogEntry, WorldRepository } from "../script/world-repository";
@@ -26,6 +33,7 @@ interface LocalDatabaseOptions {
   now?: () => number;
   heartbeat?: boolean;
   rulePackages?: RulePackageRegistry;
+  observer?: RuntimeObserver;
 }
 
 interface WorldRow {
@@ -60,6 +68,8 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
   private readonly ownerId: string;
   private readonly now: () => number;
   private readonly heartbeatTimer?: NodeJS.Timeout;
+  private readonly observer: RuntimeObserver;
+  private readonly observe: ReturnType<typeof runtimeEventEmitter>;
   private closed = false;
 
   constructor(readonly file: string, options: LocalDatabaseOptions = {}) {
@@ -68,6 +78,8 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     this.ownerId = options.ownerId ?? `${process.pid}:${randomUUID()}`;
     this.now = options.now ?? Date.now;
     this.rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
+    this.observer = options.observer ?? NOOP_RUNTIME_OBSERVER;
+    this.observe = runtimeEventEmitter(this.observer);
     try {
       this.connection.pragma("journal_mode = WAL");
       this.connection.pragma("synchronous = FULL");
@@ -262,9 +274,11 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     })();
   }
 
-  create(document: WorldSessionDocument): StoredWorldSession {
-    const serialized = serializeWorldSessionDocument(document);
-    return this.connection.transaction(() => {
+  create(document: WorldSessionDocument, correlation?: RuntimeCorrelation): StoredWorldSession {
+    const startedAt = Date.now();
+    const serialized = serializeWorldSessionDocument(document, this.observer, correlation);
+    try {
+      const stored = this.connection.transaction(() => {
       this.assertInstanceLease();
       try {
         this.connection.prepare(`
@@ -285,26 +299,54 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
         }
         throw error;
       }
-      return { generation: 1, document: parseWorldSessionDocument(serialized, document.id) };
-    })();
+        return {
+          generation: 1,
+          document: parseWorldSessionDocument(serialized, document.id, this.observer, correlation),
+        };
+      })();
+      this.observe?.({
+        event: "persistence.write.completed",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+        attributes: { sink: "sqlite", operation: "create" },
+      });
+      return stored;
+    } catch (error) {
+      this.observe?.({
+        event: "persistence.write.failed",
+        level: "error",
+        correlation: { ...correlation, sessionId: document.id },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { sink: "sqlite", operation: "create" },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
   }
 
-  read(sessionId: string): StoredWorldSession {
+  read(sessionId: string, correlation?: RuntimeCorrelation): StoredWorldSession {
     const row = this.connection.prepare(
       "SELECT generation, document_json FROM world_sessions WHERE id = ?",
     ).get(sessionId) as SessionRow | undefined;
     if (!row) throw new WorldSessionNotFoundError(sessionId);
-    return { generation: row.generation, document: parseWorldSessionDocument(row.document_json, sessionId) };
+    return {
+      generation: row.generation,
+      document: parseWorldSessionDocument(row.document_json, sessionId, this.observer, correlation),
+    };
   }
 
   compareAndSwap(
     sessionId: string,
     expectedGeneration: number,
     document: WorldSessionDocument,
+    correlation?: RuntimeCorrelation,
   ): StoredWorldSession {
     if (document.id !== sessionId) throw new Error("session document id mismatch");
-    const serialized = serializeWorldSessionDocument(document);
-    return this.connection.transaction(() => {
+    const startedAt = Date.now();
+    const serialized = serializeWorldSessionDocument(document, this.observer, correlation);
+    try {
+      const stored = this.connection.transaction(() => {
       this.assertInstanceLease();
       const result = this.connection.prepare(`
         UPDATE world_sessions
@@ -327,13 +369,35 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
         if (!exists) throw new WorldSessionNotFoundError(sessionId);
         throw new WorldSessionConflictError(sessionId);
       }
-      return { generation: expectedGeneration + 1, document: parseWorldSessionDocument(serialized, sessionId) };
-    })();
+        return {
+          generation: expectedGeneration + 1,
+          document: parseWorldSessionDocument(serialized, sessionId, this.observer, correlation),
+        };
+      })();
+      this.observe?.({
+        event: "persistence.write.completed",
+        correlation: { ...correlation, sessionId },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+        attributes: { sink: "sqlite", operation: "compare_and_swap" },
+      });
+      return stored;
+    } catch (error) {
+      this.observe?.({
+        event: "persistence.write.failed",
+        level: "error",
+        correlation: { ...correlation, sessionId },
+        durationMs: Math.max(0, Date.now() - startedAt),
+        attributes: { sink: "sqlite", operation: "compare_and_swap" },
+        error: serializeRuntimeError(error),
+      });
+      throw error;
+    }
   }
 
-  listSessions(): StoredWorldSession[] {
+  listSessions(correlation?: RuntimeCorrelation): StoredWorldSession[] {
     const ids = this.connection.prepare("SELECT id FROM world_sessions ORDER BY id").all() as Array<{ id: string }>;
-    return ids.map(({ id }) => this.read(id));
+    return ids.map(({ id }) => this.read(id, correlation));
   }
 
   close(): void {

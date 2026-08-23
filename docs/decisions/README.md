@@ -109,3 +109,4 @@
 - [0040 — 可恢复的玩家目标与同一 WorldRun](0040-resumable-player-intent.md)
 - [0041 — 纯本地单实例 SQLite 运行时](0041-local-sqlite-runtime.md)
 - [0042 — 通用因果断言、受信任规则钩子与分阶段模型 Profile](0042-causal-assurance-and-staged-model-profiles.md)
+- [0043 — 端到端运行时可观测性与 invocation 审计](0043-end-to-end-runtime-observability.md)

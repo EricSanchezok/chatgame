@@ -46,7 +46,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
   const intent = state.player.intent;
   const runId = "run-1";
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     id,
     world: toWorldRuntimeContract(definition),
     createdAt: "2026-08-23T00:00:00.000Z",
@@ -117,7 +117,7 @@ describe("WorldSessionStore", () => {
   it("rejects v4 documents without a compatibility path", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
-    const legacy = { ...document, schemaVersion: 4 } as unknown as WorldSessionDocument;
+    const legacy = { ...document, schemaVersion: 5 } as unknown as WorldSessionDocument;
 
     expect(() => store.create(legacy)).toThrow();
   });
@@ -144,6 +144,35 @@ describe("WorldSessionStore", () => {
 
     expect(() => store.compareAndSwap(document.id, created.generation, document))
       .toThrow("invalid AgentMind audit coverage");
+  });
+
+  it("rejects mutation of invocation audit hashes even when the step hash is recomputed", async () => {
+    const store = new MemoryWorldSessionStore();
+    const created = store.create(await sessionDocument("invocation-hash", true));
+    const document = created.document;
+    const step = document.state.history[0];
+    step.modelAudits[0].invocations[0].requestHash = "tampered";
+    const payload = Object.fromEntries(Object.entries(step).filter(([key]) => key !== "contentHash"));
+    step.contentHash = contentHash(payload);
+
+    expect(() => store.compareAndSwap(document.id, created.generation, document))
+      .toThrow("model invocation identity");
+  });
+
+  it("rejects raw payload fields injected into an invocation audit", async () => {
+    const store = new MemoryWorldSessionStore();
+    const created = store.create(await sessionDocument("invocation-payload", true));
+    const document = created.document;
+    const step = document.state.history[0];
+    const invocation = step.modelAudits[0].invocations[0] as typeof step.modelAudits[0]["invocations"][0] & {
+      payload?: unknown;
+    };
+    invocation.payload = { prompt: "must not persist" };
+    const payload = Object.fromEntries(Object.entries(step).filter(([key]) => key !== "contentHash"));
+    step.contentHash = contentHash(payload);
+
+    expect(() => store.compareAndSwap(document.id, created.generation, document))
+      .toThrow("model invocation identity");
   });
 
   it("rejects canonical identity fields in public run events", async () => {

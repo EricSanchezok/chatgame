@@ -6,9 +6,10 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 | 层 | 目录 | 唯一职责 |
 |---|---|---|
-| 世界契约 | `src/script/` | 严格读取 schema v5 YAML，规范化内容并构造带内容身份的 `WorldDefinition` 与 `SimulationState` v5 |
+| 世界契约 | `src/script/` | 严格读取 schema v5 YAML，规范化内容并构造带内容身份的 `WorldDefinition` 与 `SimulationState` v6 |
 | 仿真内核 | `src/engine/` | AgentMind、角色演化、自身状态投影、分阶段 Truth Engine、因果断言、规则钩子、独立因果复核、有限反应、d20、观察隔离与状态事务 |
 | 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
+| 运行观测 | `src/engine/observability.ts`、`src/server/runtime-observer.ts` | 关联 HTTP、SSE、WorldRun、步骤、模型与持久化事件，输出有界 NDJSON |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
 | HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表与导入 |
 | 浏览器 | `src/app/` | 只展示公开快照/事件并提交任意自然语言目标 |
@@ -30,11 +31,13 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 4. `truth-transition` 基于最终行动集提出 outcome、规则调用、直接世界 delta、带影响级别的事件、逐观察者 observation 与玩家目标状态。每个 operation、规则调用、event 和 outcome 同时声明可解析原因与机器可求值的前置断言。
 5. 受信任规则包校验规则调用并由代码派生 delta；事务层按顺序求值断言，校验引用、法则授权、守恒、范围、包含关系、观察覆盖和正数时间推进。`causal-verifier` 对有效候选做独立开放语义复核，只能接受或否决；否决只重试 transition，不重开早期阶段。
 6. 每个 AgentMind 只看自己的 belief、character、self view、私有 stimulus 和 outcome observation，按 `BeliefPatch → CharacterPatch → nextAction` 更新；新创建 Agent 也在本步初始化。
-7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。审计保存分阶段模型调用、规则调用与结果、断言结果、因果复核和内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
+7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。审计以 invocation 明细保存分阶段模型调用，并保存规则调用与结果、断言结果、因果复核和内容 hash；prompt、原始响应与思维链不进入存档。任一失败则整个步骤回滚。
 
 ## 模型调用链
 
 `config/models.yaml` 显式声明 provider、profile、原生推理配置与并发限制。世界分别选择 perception、reaction routing、resolution、transition 与 causal verifier Profile；每个 Agent 分别选择 bootstrap、mind 与 reaction Profile。每个调用点都按精确角色校验，因此同一 Profile 可以复用，也可以把强推理模型只配置给需要它的阶段。`ModelGateway` 按 provider 调用 DeepSeek Chat Completions 或 OpenAI/xAI Responses API，返回 strict schema 结果与审计。所有 HTTP 请求经过进程级公平队列，不存在默认模型、供应商 fallback 或生产 mock。完整契约见 [模型目录与 Gateway](game-design/model-gateway.md)。
+
+服务端统一 observer 以 correlation 串联 HTTP、SSE、WorldRun、世界步骤、模型 transport 与 SQLite 持久化；失败和回滚进入运行日志但不进入已提交历史。事件、payload 边界和有界文件 sink 见 [运行时可观测性](game-design/runtime-observability.md)。
 
 ## 规则扩展
 
@@ -72,4 +75,4 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md) 与 [0042](decisions/0042-causal-assurance-and-staged-model-profiles.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md)、[0042](decisions/0042-causal-assurance-and-staged-model-profiles.md) 与 [0043](decisions/0043-end-to-end-runtime-observability.md)。

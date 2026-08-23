@@ -13,6 +13,7 @@ import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
+import { summarizeModelExecutionAudit } from "../model-provider";
 import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 
@@ -139,7 +140,7 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
     agents[id] = autonomousAgent(id);
   }
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     worldId: "acceptance-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: laws.map((law) => law.id),
@@ -627,8 +628,10 @@ describe("open action acceptance", () => {
     expect(result.state.truth.meters["health:enemy"].current).toBe(0);
     expect(result.state.truth.entities.enemy.lifecycle).toBe("retired");
     expect(result.state.agents.enemy).toBeUndefined();
-    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-resolution"))
-      .toMatchObject({ attempts: 2, repairAttempts: 0 });
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")!,
+    ))
+      .toMatchObject({ invocations: 2, repairAttempts: 0 });
   });
 
   it("produces identical committed checks, delta and hashes from identical seeded inputs", async () => {
@@ -688,7 +691,9 @@ describe("open action acceptance", () => {
     const result = await engine.step();
 
     expect(truthCalls).toBe(2);
-    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-transition")?.repairAttempts).toBe(1);
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-transition")!,
+    ).repairAttempts).toBe(1);
     expect(result.state.player.knowledge.claims["key-is-real"].value).toEqual({ kind: "text", value: "real" });
     expect(JSON.stringify(result.committed.observations.filter((packet) => packet.observerId === "player")))
       .not.toContain("fake");

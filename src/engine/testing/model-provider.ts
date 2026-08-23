@@ -1,4 +1,4 @@
-import { canonicalize, contentHash } from "../model-audit";
+import { canonicalize, contentHash, measureModelContext } from "../model-audit";
 import { parseModelCatalog, type ModelCatalog } from "../model-catalog";
 import type {
   StructuredModelProvider,
@@ -68,6 +68,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
     private readonly handler: ScriptedModelHandler,
     readonly catalog: ModelCatalog = createTestModelCatalog(),
     private readonly adaptTruthScenario = true,
+    private readonly captureRequests = true,
   ) {}
 
   private async handlerValue(request: ScriptedModelHandlerRequest): Promise<unknown> {
@@ -143,15 +144,25 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       context,
       prompt: JSON.stringify(context, null, 2),
       abortSignal: request.abortSignal,
+      correlation: request.correlation,
+      observer: request.observer,
+      modelInvocationId: request.modelInvocationId,
+      modelInvocation: request.modelInvocation,
     };
-    this.requests.push(captured);
+    if (this.captureRequests) this.requests.push(captured);
     if (request.abortSignal?.aborted) {
       const error = new Error("model request aborted");
       error.name = "AbortError";
       throw error;
     }
     const raw = await this.handlerValue(captured);
-    const audit = {
+    const modelInvocation = request.modelInvocation ?? 1;
+    const modelInvocationId = request.modelInvocationId ??
+      `${request.workloadId}:${request.batchId}:${request.role}:${request.subjectId}:${modelInvocation}`;
+    const contextJson = JSON.stringify(context, null, 2);
+    const requestDocument = { system: request.system, context };
+    const responseJson = JSON.stringify(canonicalize(raw));
+    const audit: StructuredModelResult<T>["audit"] = {
       role: request.role,
       subjectId: request.subjectId,
       profileId: request.profileId,
@@ -162,28 +173,42 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       promptVersion: request.promptVersion,
       inference: structuredClone(profile.inference),
       structuredOutputMode: "deterministic-test",
-      attempts: 1,
-      transportAttempts: 1,
-      repairAttempts: 0,
-      queueWaitMs: 0,
-      executionMs: 0,
-      tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
-      finishReasons: ["stop"],
-      providerRequestIds: [],
-      requestHashes: [contentHash({ system: request.system, context })],
-      responseHashes: [contentHash(raw)],
-    } satisfies StructuredModelResult<T>["audit"];
+      invocations: [{
+        id: modelInvocationId,
+        ordinal: modelInvocation,
+        requestHash: contentHash(requestDocument),
+        responseHash: contentHash(raw),
+        requestUtf8Bytes: Buffer.byteLength(JSON.stringify(requestDocument, null, 2), "utf8"),
+        responseUtf8Bytes: Buffer.byteLength(responseJson, "utf8"),
+        context: measureModelContext(context, contextJson),
+        transports: [{
+          attempt: 1,
+          queueWaitMs: 0,
+          executionMs: 0,
+          retryDelayMs: 0,
+          status: "succeeded",
+          errorName: null,
+          statusCode: null,
+        }],
+        tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
+        finishReason: "stop",
+        providerRequestId: null,
+        resultKind: null,
+        semanticOutcome: "accepted",
+        validationIssueCodes: [],
+      }],
+    };
     try {
       return { value: request.schema.parse(raw), audit };
     } catch (error) {
+      audit.invocations[0]!.semanticOutcome = "rejected";
+      audit.invocations[0]!.validationIssueCodes = ["schema_validation"];
       throw new ModelOutputError("scripted model output failed schema validation", audit, { cause: error });
     }
   }
 }
 
-export class DeterministicModelProvider extends ScriptedModelProvider {
-  constructor(catalog = createTestModelCatalog()) {
-    super(({ profileId, context }) => {
+export function deterministicModelOutput(profileId: string, context: unknown): unknown {
       const input = context as {
         revision?: number;
         step?: number;
@@ -262,6 +287,15 @@ export class DeterministicModelProvider extends ScriptedModelProvider {
           targetIds: [],
         },
       };
-    }, catalog);
+}
+
+export class DeterministicModelProvider extends ScriptedModelProvider {
+  constructor(catalog = createTestModelCatalog(), captureRequests = true) {
+    super(
+      ({ profileId, context }) => deterministicModelOutput(profileId, context),
+      catalog,
+      true,
+      captureRequests,
+    );
   }
 }

@@ -15,6 +15,7 @@ import { createCoreRulePackageRegistry, RulePackageRegistry } from "../rule-pack
 import { SimulationEngine } from "../simulation";
 import { ScriptedModelProvider, createTestModelCatalog } from "../testing/model-provider";
 import { TruthEngine } from "../truth-engine";
+import { summarizeModelExecutionAudit } from "../model-provider";
 
 const fixture = path.resolve("test/fixtures/open-world-script");
 
@@ -302,7 +303,9 @@ describe("causal assurance", () => {
       "truth-deepseek",
       "truth-deepseek",
     ]);
-    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-transition"))
-      .toMatchObject({ attempts: 2, repairAttempts: 1 });
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-transition")!,
+    ))
+      .toMatchObject({ invocations: 2, repairAttempts: 1 });
   });
 });

@@ -317,7 +317,7 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
     };
   }
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     worldId: "reaction-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["time"],

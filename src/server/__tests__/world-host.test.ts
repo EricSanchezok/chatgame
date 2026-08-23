@@ -2,6 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ScriptedModelProvider, type ScriptedModelHandler } from "../../engine/testing/model-provider";
 import type { TransitionProposal } from "../../engine/model";
+import { RecordingRuntimeObserver, type RuntimeObserver } from "../../engine/observability";
 import { loadWorldScript } from "../../script/world-loader";
 import { MemoryWorldRepository } from "../../script/world-repository";
 import { WorldHost } from "../world-host";
@@ -11,6 +12,16 @@ const fixtureRoot = path.resolve("test/fixtures/open-world-script");
 
 class TransientFailureStore extends MemoryWorldSessionStore {
   failNextWrite = false;
+
+  override create(
+    document: Parameters<MemoryWorldSessionStore["create"]>[0],
+  ): StoredWorldSession {
+    if (this.failNextWrite) {
+      this.failNextWrite = false;
+      throw new Error("simulated persistence outage");
+    }
+    return super.create(document);
+  }
 
   override compareAndSwap(
     sessionId: string,
@@ -132,6 +143,7 @@ function createHost(
   provider: ScriptedModelProvider,
   store = new MemoryWorldSessionStore(),
   maxStepsPerRun = 4,
+  observer?: RuntimeObserver,
 ): { host: WorldHost; store: MemoryWorldSessionStore } {
   let id = 0;
   const definition = loadWorldScript(fixtureRoot, { modelCatalog: provider.catalog });
@@ -143,12 +155,31 @@ function createHost(
       idFactory: () => `test-${++id}`,
       now: () => new Date("2026-08-23T00:00:00.000Z"),
       maxStepsPerRun,
+      observer,
     }),
     store,
   };
 }
 
 describe("WorldHost", () => {
+  it("logs and discards a bootstrapped session when its first persistence fails", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
+    const store = new TransientFailureStore(observer);
+    store.failNextWrite = true;
+    const { host } = createHost(
+      new ScriptedModelProvider(normalHandler()),
+      store,
+      4,
+      observer,
+    );
+
+    await expect(host.createSession({ worldId: "open-world-fixture" }))
+      .rejects.toThrow("simulated persistence outage");
+    expect(store.listSessions()).toEqual([]);
+    expect(observer.events.some((event) =>
+      event.event === "session.bootstrap.persistence_rolled_back")).toBe(true);
+  });
+
   it("persists every committed step and emits only player-safe observations", async () => {
     const provider = new ScriptedModelProvider(normalHandler());
     const { host, store } = createHost(provider);
@@ -199,6 +230,7 @@ describe("WorldHost", () => {
   });
 
   it("persists a retriable failure without committing the invalid step", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "full" });
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
         baseRevision: number;
@@ -211,9 +243,14 @@ describe("WorldHost", () => {
       invalid.operations = [];
       return { kind: "transition", proposal: invalid };
     });
-    const { host, store } = createHost(provider);
+    const store = new MemoryWorldSessionStore(observer);
+    const { host } = createHost(provider, store, 4, observer);
     const session = await host.createSession({ worldId: "open-world-fixture" });
-    const run = host.startRun(session.id, "提出一个导致非法 delta 的目标");
+    const run = host.startRun(
+      session.id,
+      "提出一个导致非法 delta 的目标",
+      { requestId: "request-failure" },
+    );
 
     const failed = await host.waitForRun(session.id, run.runId);
 
@@ -222,6 +259,21 @@ describe("WorldHost", () => {
     expect(store.read(session.id).document.runs[run.runId].internalError).toContain("time advance");
     expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
     expect(failed.run.events.at(-1)?.type).toBe("run.failed");
+    expect(store.read(session.id).document.state.history).toHaveLength(0);
+    const failedChain = observer.events.filter((event) =>
+      event.correlation?.requestId === "request-failure" &&
+      event.correlation?.runId === run.runId);
+    expect(failedChain.some((event) => event.event === "model.semantic.rejected")).toBe(true);
+    expect(failedChain.some((event) => event.event === "step.rolled_back")).toBe(true);
+    expect(failedChain.some((event) => event.event === "run.failed")).toBe(true);
+    expect(failedChain.find((event) => event.event === "step.rolled_back")?.correlation)
+      .toMatchObject({
+        sessionId: session.id,
+        runId: run.runId,
+        runAttempt: 1,
+        revision: 0,
+        step: 1,
+      });
   });
 
   it("keeps canonical identifiers in internal diagnostics only", async () => {
@@ -290,7 +342,8 @@ describe("WorldHost", () => {
   });
 
   it("rolls back an otherwise valid step when its atomic persistence fails", async () => {
-    const store = new TransientFailureStore();
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
+    const store = new TransientFailureStore(observer);
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
         baseRevision: number;
@@ -303,7 +356,7 @@ describe("WorldHost", () => {
       store.failNextWrite = true;
       return { kind: "transition", proposal: transition(context) };
     });
-    const { host } = createHost(provider, store);
+    const { host } = createHost(provider, store, 4, observer);
     const session = await host.createSession({ worldId: "open-world-fixture" });
     const run = host.startRun(session.id, "执行一个会成功但无法持久化的步骤");
 
@@ -318,6 +371,11 @@ describe("WorldHost", () => {
       "run.failed",
     ]);
     expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
+    expect(observer.events.find((event) => event.event === "step.persistence_rolled_back"))
+      .toMatchObject({
+        correlation: { sessionId: session.id, runId: run.runId, revision: 0, step: 1 },
+        attributes: { result: "rolled_back", revisionUnchanged: true },
+      });
   });
 
   it("stops exactly at the 100-step safety boundary and preserves every committed step", async () => {

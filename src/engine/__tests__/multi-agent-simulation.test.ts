@@ -6,6 +6,7 @@ import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
+import { summarizeModelExecutionAudit } from "../model-provider";
 import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 
@@ -61,7 +62,7 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
     agents[id] = agent(id);
   }
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     worldId: "simulation",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["time-passes"],
@@ -419,7 +420,9 @@ describe("multi-agent simulation", () => {
 
     expect(truthCall).toBe(3);
     expect(result.committed.checkRequests[0].visibility).toBe("result_only");
-    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")?.repairAttempts).toBe(1);
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")!,
+    ).repairAttempts).toBe(1);
   });
 
   it("rejects an invented law-based modifier and accepts only structured numeric sources", async () => {
@@ -472,7 +475,9 @@ describe("multi-agent simulation", () => {
     expect(result.committed.checkRequests[0].modifierSources).toEqual([
       { kind: "rating", id: "resolve:player", amount: 2 },
     ]);
-    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")?.repairAttempts).toBe(1);
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")!,
+    ).repairAttempts).toBe(1);
   });
 
   it("rejects repeated modifier sources and duplicate check ids before drawing RNG", async () => {
@@ -529,7 +534,9 @@ describe("multi-agent simulation", () => {
     expect(truthCall).toBe(4);
     expect(result.committed.checkRequests).toHaveLength(1);
     expect(result.state.truth.rng.draws).toBe(1);
-    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")?.repairAttempts).toBe(2);
+    expect(summarizeModelExecutionAudit(
+      result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")!,
+    ).repairAttempts).toBe(2);
   });
 
   it("initializes a dynamically created agent before committing the step", async () => {

@@ -1,4 +1,12 @@
 import { z } from "zod";
+import { contentHash } from "../engine/model-audit";
+import {
+  NOOP_RUNTIME_OBSERVER,
+  runtimeEventEmitter,
+  serializeRuntimeError,
+  type RuntimeCorrelation,
+  type RuntimeObserver,
+} from "../engine/observability";
 import { validateSimulationState } from "../engine/transaction";
 import type { WorldRunEvent, WorldSessionDocument } from "./world-run-types";
 
@@ -150,7 +158,7 @@ const worldContractSchema = z.strictObject({
 });
 
 const documentEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(6),
   id: z.string().min(1),
   world: worldContractSchema,
   createdAt: z.string().datetime(),
@@ -293,15 +301,86 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
   }
 }
 
-export function serializeWorldSessionDocument(document: WorldSessionDocument): string {
-  validateWorldSessionDocument(document);
-  return JSON.stringify(document);
+export function serializeWorldSessionDocument(
+  document: WorldSessionDocument,
+  observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER,
+  correlation?: RuntimeCorrelation,
+): string {
+  const observe = runtimeEventEmitter(observer);
+  const validationStartedAt = Date.now();
+  try {
+    validateWorldSessionDocument(document);
+    observe?.({
+      event: "persistence.history_validation.completed",
+      correlation,
+      durationMs: Math.max(0, Date.now() - validationStartedAt),
+      counts: { history: document.state.history.length, runs: Object.keys(document.runs).length },
+      hashes: { state: contentHash(document.state) },
+    });
+  } catch (error) {
+    observe?.({
+      event: "persistence.history_validation.failed",
+      level: "error",
+      correlation,
+      durationMs: Math.max(0, Date.now() - validationStartedAt),
+      error: serializeRuntimeError(error),
+    });
+    throw error;
+  }
+  const startedAt = Date.now();
+  try {
+    const serialized = JSON.stringify(document);
+    observe?.({
+      event: "persistence.document.serialized",
+      correlation,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+      hashes: { document: contentHash(document) },
+    });
+    return serialized;
+  } catch (error) {
+    observe?.({
+      event: "persistence.document.serialization_failed",
+      level: "error",
+      correlation,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      error: serializeRuntimeError(error),
+    });
+    throw error;
+  }
 }
 
-export function parseWorldSessionDocument(serialized: string, expectedSessionId?: string): WorldSessionDocument {
-  const document = documentEnvelopeSchema.parse(JSON.parse(serialized)) as WorldSessionDocument;
-  validateWorldSessionDocument(document, expectedSessionId);
-  return document;
+export function parseWorldSessionDocument(
+  serialized: string,
+  expectedSessionId?: string,
+  observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER,
+  correlation?: RuntimeCorrelation,
+): WorldSessionDocument {
+  const observe = runtimeEventEmitter(observer);
+  const startedAt = Date.now();
+  try {
+    const document = documentEnvelopeSchema.parse(JSON.parse(serialized)) as WorldSessionDocument;
+    validateWorldSessionDocument(document, expectedSessionId);
+    observe?.({
+      event: "persistence.read.completed",
+      correlation: { ...correlation, sessionId: expectedSessionId ?? document.id },
+      durationMs: Math.max(0, Date.now() - startedAt),
+      measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+      counts: { history: document.state.history.length, runs: Object.keys(document.runs).length },
+      hashes: { document: contentHash(document) },
+    });
+    return document;
+  } catch (error) {
+    observe?.({
+      event: "persistence.read.failed",
+      level: "error",
+      correlation: { ...correlation, sessionId: expectedSessionId },
+      durationMs: Math.max(0, Date.now() - startedAt),
+      measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
+      error: serializeRuntimeError(error),
+    });
+    throw error;
+  }
 }
 
 export interface StoredWorldSession {
@@ -310,10 +389,15 @@ export interface StoredWorldSession {
 }
 
 export interface WorldSessionStore {
-  create(document: WorldSessionDocument): StoredWorldSession;
-  read(sessionId: string): StoredWorldSession;
-  compareAndSwap(sessionId: string, expectedGeneration: number, document: WorldSessionDocument): StoredWorldSession;
-  listSessions(): StoredWorldSession[];
+  create(document: WorldSessionDocument, correlation?: RuntimeCorrelation): StoredWorldSession;
+  read(sessionId: string, correlation?: RuntimeCorrelation): StoredWorldSession;
+  compareAndSwap(
+    sessionId: string,
+    expectedGeneration: number,
+    document: WorldSessionDocument,
+    correlation?: RuntimeCorrelation,
+  ): StoredWorldSession;
+  listSessions(correlation?: RuntimeCorrelation): StoredWorldSession[];
 }
 
 export class WorldSessionNotFoundError extends Error {
@@ -332,25 +416,42 @@ export class WorldSessionConflictError extends Error {
 
 export class MemoryWorldSessionStore implements WorldSessionStore {
   private readonly values = new Map<string, { generation: number; serialized: string }>();
+  private readonly observe: ReturnType<typeof runtimeEventEmitter>;
   writeCount = 0;
 
-  create(document: WorldSessionDocument): StoredWorldSession {
-    if (this.values.has(document.id)) throw new WorldSessionConflictError(document.id);
-    this.writeCount += 1;
-    this.values.set(document.id, { generation: 1, serialized: serializeWorldSessionDocument(document) });
-    return this.read(document.id);
+  constructor(private readonly observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER) {
+    this.observe = runtimeEventEmitter(observer);
   }
 
-  read(sessionId: string): StoredWorldSession {
+  create(document: WorldSessionDocument, correlation?: RuntimeCorrelation): StoredWorldSession {
+    if (this.values.has(document.id)) throw new WorldSessionConflictError(document.id);
+    this.writeCount += 1;
+    this.values.set(document.id, {
+      generation: 1,
+      serialized: serializeWorldSessionDocument(document, this.observer, correlation),
+    });
+    this.observe?.({
+      event: "persistence.write.completed",
+      correlation: { ...correlation, sessionId: document.id },
+      attributes: { sink: "memory", operation: "create" },
+    });
+    return this.read(document.id, correlation);
+  }
+
+  read(sessionId: string, correlation?: RuntimeCorrelation): StoredWorldSession {
     const stored = this.values.get(sessionId);
     if (!stored) throw new WorldSessionNotFoundError(sessionId);
-    return { generation: stored.generation, document: parseWorldSessionDocument(stored.serialized, sessionId) };
+    return {
+      generation: stored.generation,
+      document: parseWorldSessionDocument(stored.serialized, sessionId, this.observer, correlation),
+    };
   }
 
   compareAndSwap(
     sessionId: string,
     expectedGeneration: number,
     document: WorldSessionDocument,
+    correlation?: RuntimeCorrelation,
   ): StoredWorldSession {
     const stored = this.values.get(sessionId);
     if (!stored) throw new WorldSessionNotFoundError(sessionId);
@@ -359,12 +460,17 @@ export class MemoryWorldSessionStore implements WorldSessionStore {
     this.writeCount += 1;
     this.values.set(sessionId, {
       generation: expectedGeneration + 1,
-      serialized: serializeWorldSessionDocument(document),
+      serialized: serializeWorldSessionDocument(document, this.observer, correlation),
     });
-    return this.read(sessionId);
+    this.observe?.({
+      event: "persistence.write.completed",
+      correlation: { ...correlation, sessionId },
+      attributes: { sink: "memory", operation: "compare_and_swap" },
+    });
+    return this.read(sessionId, correlation);
   }
 
-  listSessions(): StoredWorldSession[] {
-    return [...this.values.keys()].sort().map((id) => this.read(id));
+  listSessions(correlation?: RuntimeCorrelation): StoredWorldSession[] {
+    return [...this.values.keys()].sort().map((id) => this.read(id, correlation));
   }
 }
