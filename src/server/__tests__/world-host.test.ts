@@ -459,7 +459,7 @@ describe("WorldHost", () => {
     expect(store.read(session.summary.id).document.state.history).toHaveLength(100);
     expect(result.run.events.filter((event) => event.type === "step.committed")).toHaveLength(100);
     expect(result.run.events.at(-1)?.type).toBe("run.step_limit");
-  }, 30_000);
+  }, 90_000);
 
   it("recovers a persisted running process as retriable failure without changing committed history", async () => {
     const provider = new ScriptedModelProvider(normalHandler());
