@@ -23,7 +23,7 @@ describe("WorldWorkbench", () => {
     render(<WorldWorkbench />);
 
     expect(await screen.findByRole("heading", { name: "暂无可玩世界" })).toBeInTheDocument();
-    expect(screen.getByText(/仓库不再捆绑旧演示剧本/)).toBeInTheDocument();
+    expect(screen.getByText(/schema v3 格式的世界 ZIP/)).toBeInTheDocument();
     expect(screen.getByText("导入世界 ZIP")).toBeInTheDocument();
   });
 

@@ -10,6 +10,7 @@ import type {
 import { createSeededRng, resolveD20Checks } from "../random";
 import {
   applyTransitionProposal,
+  createEmptyCharacter,
   createEmptyBelief,
   TransitionValidationError,
   validateSimulationState,
@@ -17,7 +18,7 @@ import {
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     worldId: "test-world",
     lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,
@@ -146,10 +147,15 @@ function worldState(): SimulationState {
         id: "keeper",
         entityId: "keeper",
         modelProfileId: "agent-default",
-        persona: "谨慎的守门人",
-        goals: ["守住石门"],
-        belief: createEmptyBelief(),
-        bindings: {},
+        character: createEmptyCharacter("谨慎的守门人"),
+        belief: {
+          localEntities: {
+            self: { id: "self", name: "我", description: "守门人自己", status: "observed" },
+          },
+          claims: {},
+          evidence: {},
+        },
+        bindings: { self: { localEntityId: "self", canonicalEntityIds: ["keeper"] } },
         nextAction: {
           id: "keeper-action-0",
           actorId: "keeper",
@@ -284,6 +290,7 @@ describe("open world kernel", () => {
       mode: "advantage",
       stakes: "推开石门，失败则发出巨响",
       visibility: "full",
+      phase: "resolution",
       causes: causalAction,
     };
 
@@ -362,10 +369,15 @@ describe("open world kernel", () => {
       id: "skeleton-agent",
       entityId: "skeleton",
       modelProfileId: "agent-default",
-      persona: "受召唤者命令的骷髅",
-      goals: ["服从召唤者"],
-      belief: createEmptyBelief(),
-      bindings: {},
+      character: createEmptyCharacter("受召唤者命令的骷髅"),
+      belief: {
+        localEntities: {
+          self: { id: "self", name: "我", description: "骷髅自己", status: "observed" },
+        },
+        claims: {},
+        evidence: {},
+      },
+      bindings: { self: { localEntityId: "self", canonicalEntityIds: ["skeleton"] } },
     };
     const next = applyTransitionProposal(
       worldState(),

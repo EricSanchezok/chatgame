@@ -154,6 +154,79 @@ export interface AgentBeliefState {
   evidence: Record<string, BeliefEvidence>;
 }
 
+export type CharacterImpact = "ordinary" | "significant" | "transformative";
+
+export interface CharacterFacet {
+  id: string;
+  description: string;
+  strength: number;
+  status: "active" | "retired";
+  createdAtStep: number;
+  updatedAtStep: number;
+  evidenceIds: string[];
+}
+
+export interface EmotionState {
+  id: string;
+  description: string;
+  intensity: number;
+  status: "active" | "resolved";
+  createdAtStep: number;
+  updatedAtStep: number;
+  evidenceIds: string[];
+}
+
+export interface AttitudeState {
+  id: string;
+  subjectId: LocalEntityId;
+  description: string;
+  intensity: number;
+  status: "active" | "retired";
+  createdAtStep: number;
+  updatedAtStep: number;
+  evidenceIds: string[];
+}
+
+export interface AgentGoal {
+  id: string;
+  description: string;
+  priority: number;
+  progress: number;
+  targetIds: LocalEntityId[];
+  parentGoalId?: string;
+  motivatedByIds: string[];
+  status: "active" | "suspended" | "completed" | "failed" | "abandoned";
+  createdAtStep: number;
+  updatedAtStep: number;
+  evidenceIds: string[];
+}
+
+export interface AgentCommitment {
+  id: string;
+  description: string;
+  priority: number;
+  subjectIds: LocalEntityId[];
+  status: "active" | "fulfilled" | "broken" | "released";
+  createdAtStep: number;
+  updatedAtStep: number;
+  evidenceIds: string[];
+}
+
+export interface AgentCharacterState {
+  persona: {
+    summary: string;
+    voice: string;
+    updatedAtStep: number;
+    evidenceIds: string[];
+  };
+  traits: Record<string, CharacterFacet>;
+  values: Record<string, CharacterFacet>;
+  emotions: Record<string, EmotionState>;
+  attitudes: Record<string, AttitudeState>;
+  goals: Record<string, AgentGoal>;
+  commitments: Record<string, AgentCommitment>;
+}
+
 export interface EpistemicBinding {
   localEntityId: LocalEntityId;
   canonicalEntityIds: EntityId[];
@@ -180,11 +253,43 @@ export interface AgentState {
   id: AgentId;
   entityId: EntityId;
   modelProfileId: string;
-  persona: string;
-  goals: string[];
+  character: AgentCharacterState;
   belief: AgentBeliefState;
   bindings: Record<LocalEntityId, EpistemicBinding>;
   nextAction?: AgentActionProposal;
+}
+
+export interface AgentSelfStateView {
+  selfLocalEntityId: LocalEntityId;
+  lifecycle: WorldEntity["lifecycle"];
+  elapsedSeconds: number;
+  location?: {
+    localEntityId?: LocalEntityId;
+    name: string;
+    description: string;
+  };
+  meters: Array<{
+    name: string;
+    current: number;
+    min: number;
+    max: number;
+  }>;
+  quantities: Array<{
+    name: string;
+    unit: string;
+    amount: number;
+  }>;
+  ratings: Array<{
+    name: string;
+    value: number;
+    min: number;
+    max: number;
+  }>;
+  facts: Array<{
+    predicate: string;
+    value: BeliefValue;
+    description: string;
+  }>;
 }
 
 export interface PlayerIntent {
@@ -205,11 +310,12 @@ export interface WorldEvent {
   id: EventId;
   step: number;
   description: string;
+  impact: CharacterImpact;
   causes: CausalRef[];
 }
 
 export interface SimulationState {
-  schemaVersion: 1;
+  schemaVersion: 2;
   worldId: string;
   lawIds: string[];
   revision: number;
@@ -239,6 +345,7 @@ export interface D20CheckRequest {
   mode: "normal" | "advantage" | "disadvantage";
   stakes: string;
   visibility: CheckVisibility;
+  phase: "perception" | "resolution";
   causes: CausalRef[];
 }
 
@@ -286,6 +393,7 @@ export interface ObservationPacket {
   id: string;
   observerId: AgentId | "player";
   step: number;
+  kind: "stimulus" | "outcome";
   summary: string;
   introductions: ObservationIntroduction[];
   apparentClaims: ApparentClaim[];
@@ -315,6 +423,96 @@ export interface BeliefPatch {
   baseRevision: number;
   operations: BeliefPatchOperation[];
 }
+
+type CharacterPatchSource = { sourceObservationIds: string[]; evidenceIds: string[] };
+
+export type CharacterPatchOperation =
+  | (CharacterPatchSource & { kind: "replace_persona"; summary: string; voice: string })
+  | (CharacterPatchSource & {
+      kind: "create_trait" | "create_value";
+      facet: Pick<CharacterFacet, "id" | "description" | "strength">;
+    })
+  | (CharacterPatchSource & {
+      kind: "update_trait" | "update_value";
+      id: string;
+      description?: string;
+      strength?: number;
+    })
+  | (CharacterPatchSource & { kind: "retire_trait" | "retire_value"; id: string })
+  | (CharacterPatchSource & {
+      kind: "set_emotion";
+      emotion: Pick<EmotionState, "id" | "description" | "intensity">;
+    })
+  | (CharacterPatchSource & { kind: "resolve_emotion"; id: string })
+  | (CharacterPatchSource & {
+      kind: "set_attitude";
+      attitude: Pick<AttitudeState, "id" | "subjectId" | "description" | "intensity">;
+    })
+  | (CharacterPatchSource & { kind: "retire_attitude"; id: string })
+  | (CharacterPatchSource & {
+      kind: "create_goal";
+      goal: Pick<AgentGoal, "id" | "description" | "priority" | "progress" | "targetIds" | "motivatedByIds"> &
+        Pick<Partial<AgentGoal>, "parentGoalId">;
+    })
+  | (CharacterPatchSource & {
+      kind: "update_goal";
+      id: string;
+      description?: string;
+      priority?: number;
+      progress?: number;
+      targetIds?: LocalEntityId[];
+      parentGoalId?: string | null;
+      motivatedByIds?: string[];
+    })
+  | (CharacterPatchSource & { kind: "set_goal_status"; id: string; status: AgentGoal["status"] })
+  | (CharacterPatchSource & {
+      kind: "create_commitment";
+      commitment: Pick<AgentCommitment, "id" | "description" | "priority" | "subjectIds">;
+    })
+  | (CharacterPatchSource & {
+      kind: "update_commitment";
+      id: string;
+      description?: string;
+      priority?: number;
+      subjectIds?: LocalEntityId[];
+    })
+  | (CharacterPatchSource & {
+      kind: "set_commitment_status";
+      id: string;
+      status: AgentCommitment["status"];
+    });
+
+export interface CharacterPatch {
+  agentId: AgentId;
+  baseRevision: number;
+  operations: CharacterPatchOperation[];
+}
+
+export interface ReactionRequest {
+  agentId: AgentId;
+  sourceActionId: string;
+  stimulus: ObservationPacket;
+  basis: Array<
+    | { kind: "shared_placement"; placementId: EntityId }
+    | { kind: "fact"; factId: FactId }
+    | { kind: "perception_check"; checkId: string }
+  >;
+}
+
+export type ReactionDecision =
+  | {
+      agentId: AgentId;
+      baseRevision: number;
+      originalProposalId: string;
+      kind: "keep";
+    }
+  | {
+      agentId: AgentId;
+      baseRevision: number;
+      originalProposalId: string;
+      kind: "replace";
+      replacementAction: AgentActionProposal;
+    };
 
 export type WorldDeltaOperation =
   | { kind: "create_entity"; entity: WorldEntity; placementId: EntityId | null; causes: CausalRef[] }
@@ -364,7 +562,7 @@ export interface TransitionProposal {
 }
 
 export interface ModelExecutionAudit {
-  role: "truth-engine" | "agent-mind";
+  role: "truth-engine" | "agent-mind" | "agent-reaction";
   subjectId: string;
   profileId: string;
   providerId: string;
@@ -380,6 +578,9 @@ export interface CommittedStep {
   baseRevision: number;
   revision: number;
   step: number;
+  initialActions: AgentActionProposal[];
+  reactionRequests: ReactionRequest[];
+  reactionDecisions: ReactionDecision[];
   actions: AgentActionProposal[];
   rngBefore: SeededRngState;
   rngAfter: SeededRngState;
@@ -390,5 +591,6 @@ export interface CommittedStep {
   observations: ObservationPacket[];
   operations: WorldDeltaOperation[];
   beliefPatches: BeliefPatch[];
+  characterPatches: CharacterPatch[];
   modelAudits: ModelExecutionAudit[];
 }

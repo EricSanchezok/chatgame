@@ -9,7 +9,7 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(2),
+  schema_version: z.literal(3),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
@@ -88,6 +88,70 @@ const beliefSeedSchema = z.object({
   bindings: z.array(bindingSchema),
 }).strict();
 
+const characterEvidence = {
+  evidence_ids: z.array(z.string().min(1)).default([]),
+};
+
+const characterFacetSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  strength: z.number().min(0).max(1),
+  status: z.enum(["active", "retired"]).default("active"),
+  ...characterEvidence,
+}).strict();
+
+const emotionSeedSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  intensity: z.number().min(0).max(1),
+  status: z.enum(["active", "resolved"]).default("active"),
+  ...characterEvidence,
+}).strict();
+
+const attitudeSeedSchema = z.object({
+  id: z.string().min(1),
+  subject_id: z.string().min(1),
+  description: z.string().min(1),
+  intensity: z.number().min(0).max(1),
+  status: z.enum(["active", "retired"]).default("active"),
+  ...characterEvidence,
+}).strict();
+
+const goalSeedSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  priority: z.number().min(0).max(1),
+  progress: z.number().min(0).max(1),
+  target_ids: z.array(z.string().min(1)).default([]),
+  parent_goal_id: z.string().min(1).optional(),
+  motivated_by_ids: z.array(z.string().min(1)).default([]),
+  status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]).default("active"),
+  ...characterEvidence,
+}).strict();
+
+const commitmentSeedSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  priority: z.number().min(0).max(1),
+  subject_ids: z.array(z.string().min(1)).default([]),
+  status: z.enum(["active", "fulfilled", "broken", "released"]).default("active"),
+  ...characterEvidence,
+}).strict();
+
+const characterSeedSchema = z.object({
+  persona: z.object({
+    summary: z.string().min(1),
+    voice: z.string().default(""),
+    ...characterEvidence,
+  }).strict(),
+  traits: z.array(characterFacetSchema).default([]),
+  values: z.array(characterFacetSchema).default([]),
+  emotions: z.array(emotionSeedSchema).default([]),
+  attitudes: z.array(attitudeSeedSchema).default([]),
+  goals: z.array(goalSeedSchema).default([]),
+  commitments: z.array(commitmentSeedSchema).default([]),
+}).strict();
+
 export const entityDocumentSchema = z.object({
   id: z.string().min(1),
   kind: z.string().min(1),
@@ -118,8 +182,7 @@ export const entityDocumentSchema = z.object({
   agent: z.object({
     id: z.string().min(1),
     model_profile_id: z.string().min(1).default("agent-default"),
-    persona: z.string(),
-    goals: z.array(z.string()),
+    character: characterSeedSchema,
     belief: beliefSeedSchema,
   }).strict().optional(),
 }).strict();

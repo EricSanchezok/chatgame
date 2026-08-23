@@ -59,6 +59,7 @@ export function applyObservationBindings(agent: AgentState, packets: readonly Ob
   const next = structuredClone(agent);
   for (const packet of packets) {
     for (const introduction of packet.introductions) {
+      next.belief.localEntities[introduction.localEntity.id] = structuredClone(introduction.localEntity);
       if (!introduction.canonicalEntityId) continue;
       const current = next.bindings[introduction.localEntity.id];
       const canonicalEntityIds = new Set(current?.canonicalEntityIds ?? []);

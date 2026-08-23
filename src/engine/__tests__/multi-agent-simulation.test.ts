@@ -5,6 +5,7 @@ import { ScriptedModelProvider } from "../model-provider";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
+import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 
 function agent(id: string): AgentState {
@@ -12,10 +13,15 @@ function agent(id: string): AgentState {
     id,
     entityId: id,
     modelProfileId: "agent-default",
-    persona: `${id} 的人格`,
-    goals: ["继续生活"],
-    belief: { localEntities: {}, claims: {}, evidence: {} },
-    bindings: {},
+    character: createEmptyCharacter(`${id} 的人格`),
+    belief: {
+      localEntities: {
+        self: { id: "self", name: "我", description: `${id} 自己`, status: "observed" },
+      },
+      claims: {},
+      evidence: {},
+    },
+    bindings: { self: { localEntityId: "self", canonicalEntityIds: [id] } },
     nextAction: {
       id: `action:${id}:0`,
       actorId: id,
@@ -53,7 +59,7 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
     agents[id] = agent(id);
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     worldId: "simulation",
     lawIds: ["time-passes"],
     revision: 0,
@@ -115,6 +121,7 @@ function observations(agentIds: string[], step: number, eventId: string) {
     id: `observation:${observerId}:${step}`,
     observerId,
     step,
+    kind: "outcome" as const,
     summary: observerId === "player" ? "你感知到时间流逝。" : `${observerId} 感知到时间流逝。`,
     introductions: [],
     apparentClaims: [],
@@ -164,10 +171,15 @@ function simpleTransition(
           id: "newborn",
           entityId: "newborn",
           modelProfileId: "agent-default",
-          persona: "刚刚开始感知世界",
-          goals: ["理解自身"],
-          belief: { localEntities: {}, claims: {}, evidence: {} },
-          bindings: {},
+          character: createEmptyCharacter("刚刚开始感知世界"),
+          belief: {
+            localEntities: {
+              self: { id: "self", name: "我", description: "新生者自己", status: "observed" },
+            },
+            claims: {},
+            evidence: {},
+          },
+          bindings: { self: { localEntityId: "self", canonicalEntityIds: ["newborn"] } },
         },
         causes: [{ kind: "event", id: eventId }],
       },
@@ -189,6 +201,7 @@ function simpleTransition(
         id: eventId,
         step: nextStep,
         description: "世界共同向前推进。",
+        impact: "ordinary",
         causes: [{ kind: "law", id: "time-passes" }],
       },
     ],
@@ -201,6 +214,7 @@ function simpleTransition(
 function mindOutput(agentId: string, revision: number) {
   return {
     beliefPatch: { agentId, baseRevision: revision, operations: [] },
+    characterPatch: { agentId, baseRevision: revision, operations: [] },
     nextAction: {
       id: `action:${agentId}:${revision}`,
       actorId: agentId,
@@ -275,6 +289,7 @@ describe("multi-agent simulation", () => {
               mode: "normal",
               stakes: "成功则推进未知行动，失败则留下可观察后果",
               visibility: "full",
+              phase: "resolution",
               causes: [{
                 kind: "action",
                 id: context.jointActions!.find((action) => action.actorId === "player")!.id,
@@ -326,6 +341,7 @@ describe("multi-agent simulation", () => {
             mode: "normal",
             stakes: "只公开检定结果。",
             visibility: truthCall === 1 ? "full" : "result_only",
+            phase: "resolution",
             causes: [{
               kind: "action",
               id: context.jointActions!.find((action) => action.actorId === "player")!.id,
@@ -377,6 +393,7 @@ describe("multi-agent simulation", () => {
             mode: "normal",
             stakes: "只有结构化数值可以影响结果。",
             visibility: "result_only",
+            phase: "resolution",
             causes: [{
               kind: "action",
               id: context.jointActions!.find((action) => action.actorId === "player")!.id,
@@ -580,12 +597,14 @@ describe("multi-agent simulation", () => {
           id: "event:first",
           step: 1,
           description: "第一个事件错误地依赖未来事件。",
+          impact: "ordinary",
           causes: [{ kind: "event", id: "event:future" }],
         },
         {
           id: "event:future",
           step: 1,
           description: "未来事件。",
+          impact: "ordinary",
           causes: [{ kind: "law", id: "time-passes" }],
         },
       ];

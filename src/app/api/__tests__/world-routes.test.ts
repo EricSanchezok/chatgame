@@ -36,7 +36,7 @@ describe("world API routes", () => {
     expect(await response.json()).toEqual({ error: "服务器无法完成请求。" });
   });
 
-  it("lists schema v2 worlds and rejects empty run text", async () => {
+  it("lists schema v3 worlds and rejects empty run text", async () => {
     installHost();
     const worlds = await listWorlds();
     expect(await worlds.json()).toMatchObject({

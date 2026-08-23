@@ -10,6 +10,13 @@ import type {
   TransitionProposal,
   WorldDeltaOperation,
 } from "./model";
+import { validateCharacterState } from "./character";
+import {
+  characterPatchSchema,
+  checkRequestSchema,
+  reactionDecisionSchema,
+  reactionRequestSchema,
+} from "./llm-schemas";
 import { contentHash as contentHashForAudit, isSha256 } from "./model-audit";
 import { resolveD20Checks } from "./random";
 
@@ -202,6 +209,20 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       if (state.agents[operation.agent.id]) throw new Error(`agent already exists: ${operation.agent.id}`);
       if (!state.truth.entities[operation.agent.entityId]) throw new Error(`unknown agent entity ${operation.agent.entityId}`);
       state.agents[operation.agent.id] = structuredClone(operation.agent);
+      state.agents[operation.agent.id].character.persona.updatedAtStep = state.step + 1;
+      for (const collection of [
+        state.agents[operation.agent.id].character.traits,
+        state.agents[operation.agent.id].character.values,
+        state.agents[operation.agent.id].character.emotions,
+        state.agents[operation.agent.id].character.attitudes,
+        state.agents[operation.agent.id].character.goals,
+        state.agents[operation.agent.id].character.commitments,
+      ]) {
+        for (const record of Object.values(collection)) {
+          record.createdAtStep = state.step + 1;
+          record.updatedAtStep = state.step + 1;
+        }
+      }
       return;
     case "remove_agent":
       if (!state.agents[operation.agentId]) throw new Error(`unknown agent ${operation.agentId}`);
@@ -338,16 +359,74 @@ function validateHistory(state: SimulationState): void {
     if (committed.baseRevision !== index || committed.revision !== index + 1 || committed.step !== index + 1) {
       throw new Error(`history step ${index + 1} has invalid revision metadata`);
     }
+    const initialProposalIds = committed.initialActions.map((action) => action.id);
     const proposalIds = committed.actions.map((action) => action.id);
     const outcomeIds = committed.outcomes.map((outcome) => outcome.proposalId);
-    if (new Set(proposalIds).size !== proposalIds.length || new Set(outcomeIds).size !== outcomeIds.length) {
+    if (new Set(initialProposalIds).size !== initialProposalIds.length ||
+      new Set(proposalIds).size !== proposalIds.length || new Set(outcomeIds).size !== outcomeIds.length) {
       throw new Error(`history step ${index + 1} has duplicate actions or outcomes`);
     }
     if (proposalIds.length !== outcomeIds.length || proposalIds.some((id) => !outcomeIds.includes(id))) {
       throw new Error(`history step ${index + 1} does not cover every action`);
     }
-    if (committed.actions.some((action) => action.baseRevision !== committed.baseRevision)) {
+    if ([...committed.initialActions, ...committed.actions]
+      .some((action) => action.baseRevision !== committed.baseRevision)) {
       throw new Error(`history step ${index + 1} contains a stale action`);
+    }
+    const initialActors = committed.initialActions.map((action) => action.actorId);
+    const finalActors = committed.actions.map((action) => action.actorId);
+    if (new Set(initialActors).size !== initialActors.length || new Set(finalActors).size !== finalActors.length ||
+      initialActors.length !== finalActors.length || initialActors.some((actorId) => !finalActors.includes(actorId))) {
+      throw new Error(`history step ${index + 1} changes the joint actor set`);
+    }
+    const reactionAgents = committed.reactionRequests.map((request) => request.agentId);
+    const decisionAgents = committed.reactionDecisions.map((decision) => decision.agentId);
+    for (const request of committed.reactionRequests) reactionRequestSchema.parse(request);
+    for (const decision of committed.reactionDecisions) reactionDecisionSchema.parse(decision);
+    for (const request of committed.checkRequests) checkRequestSchema.parse(request);
+    for (const patch of committed.characterPatches) characterPatchSchema.parse(patch);
+    if (new Set(reactionAgents).size !== reactionAgents.length ||
+      new Set(decisionAgents).size !== decisionAgents.length ||
+      reactionAgents.length !== decisionAgents.length ||
+      reactionAgents.some((agentId) => !decisionAgents.includes(agentId))) {
+      throw new Error(`history step ${index + 1} has invalid reaction coverage`);
+    }
+    const playerInitialAction = committed.initialActions.find((action) => action.actorId === "player");
+    for (const request of committed.reactionRequests) {
+      if (!playerInitialAction || request.sourceActionId !== playerInitialAction.id ||
+        request.stimulus.observerId !== request.agentId || request.stimulus.kind !== "stimulus" ||
+        request.stimulus.step !== committed.step || request.stimulus.sourceEventIds.length !== 0 ||
+        request.basis.length === 0) {
+        throw new Error(`history step ${index + 1} has invalid reaction request for ${request.agentId}`);
+      }
+      for (const basis of request.basis) {
+        if (basis.kind === "shared_placement" && !state.truth.entities[basis.placementId]) {
+          throw new Error(`history step ${index + 1} has unknown reaction placement ${basis.placementId}`);
+        }
+        if (basis.kind === "fact" && !allFactIds.has(basis.factId)) {
+          throw new Error(`history step ${index + 1} has unknown reaction fact ${basis.factId}`);
+        }
+        if (basis.kind === "perception_check") {
+          const checkRequest = committed.checkRequests.find((candidate) => candidate.id === basis.checkId);
+          const checkResult = committed.checks.find((candidate) => candidate.requestId === basis.checkId);
+          if (checkRequest?.phase !== "perception" || !checkResult?.succeeded) {
+            throw new Error(`history step ${index + 1} has invalid perception basis ${basis.checkId}`);
+          }
+        }
+      }
+    }
+    for (const decision of committed.reactionDecisions) {
+      const initial = committed.initialActions.find((action) => action.actorId === decision.agentId);
+      const final = committed.actions.find((action) => action.actorId === decision.agentId);
+      if (!initial || !final || decision.baseRevision !== committed.baseRevision ||
+        decision.originalProposalId !== initial.id ||
+        (decision.kind === "keep" && final.id !== initial.id) ||
+        (decision.kind === "replace" &&
+          (decision.replacementAction.actorId !== decision.agentId ||
+            decision.replacementAction.baseRevision !== committed.baseRevision ||
+            JSON.stringify(final) !== JSON.stringify(decision.replacementAction)))) {
+        throw new Error(`history step ${index + 1} has invalid reaction decision for ${decision.agentId}`);
+      }
     }
     if (committed.operations.filter((operation) => operation.kind === "advance_time").length !== 1) {
       throw new Error(`history step ${index + 1} has invalid time advancement`);
@@ -365,7 +444,7 @@ function validateHistory(state: SimulationState): void {
         allowedChecks.add(priorRequest.id);
       }
       assertResolved(request.causes, {
-        action: new Set(proposalIds),
+        action: new Set([...initialProposalIds, ...proposalIds]),
         check: allowedChecks,
         event: priorEventIds,
         fact: allFactIds,
@@ -381,6 +460,11 @@ function validateHistory(state: SimulationState): void {
         throw new Error(`history step ${index + 1} has inconsistent check result ${request.id}`);
       }
     }
+    const firstResolutionCheck = committed.checkRequests.findIndex((request) => request.phase === "resolution");
+    if (firstResolutionCheck >= 0 && committed.checkRequests
+      .slice(firstResolutionCheck + 1).some((request) => request.phase === "perception")) {
+      throw new Error(`history step ${index + 1} reopens perception after resolution`);
+    }
     const replayed = resolveD20Checks(committed.rngBefore, committed.checkRequests);
     if (JSON.stringify(replayed.results) !== JSON.stringify(committed.checks) ||
       JSON.stringify(replayed.rng) !== JSON.stringify(committed.rngAfter)) {
@@ -392,13 +476,25 @@ function validateHistory(state: SimulationState): void {
     const truthAudits = committed.modelAudits.filter((audit) => audit.role === "truth-engine");
     if (truthAudits.length !== 1) throw new Error(`history step ${index + 1} must have one Truth Engine audit`);
     const patchAgentIds = committed.beliefPatches.map((patch) => patch.agentId);
+    const characterPatchAgentIds = committed.characterPatches.map((patch) => patch.agentId);
     const auditAgentIds = committed.modelAudits
       .filter((audit) => audit.role === "agent-mind")
       .map((audit) => audit.subjectId);
     if (new Set(patchAgentIds).size !== patchAgentIds.length || new Set(auditAgentIds).size !== auditAgentIds.length ||
       patchAgentIds.length !== auditAgentIds.length || patchAgentIds.some((agentId) => !auditAgentIds.includes(agentId)) ||
-      committed.beliefPatches.some((patch) => patch.baseRevision !== committed.revision)) {
+      characterPatchAgentIds.length !== patchAgentIds.length ||
+      patchAgentIds.some((agentId) => !characterPatchAgentIds.includes(agentId)) ||
+      committed.beliefPatches.some((patch) => patch.baseRevision !== committed.revision) ||
+      committed.characterPatches.some((patch) => patch.baseRevision !== committed.revision)) {
       throw new Error(`history step ${index + 1} has invalid AgentMind audit coverage`);
+    }
+    const reactionAuditAgentIds = committed.modelAudits
+      .filter((audit) => audit.role === "agent-reaction")
+      .map((audit) => audit.subjectId);
+    if (new Set(reactionAuditAgentIds).size !== reactionAuditAgentIds.length ||
+      reactionAuditAgentIds.length !== reactionAgents.length ||
+      reactionAgents.some((agentId) => !reactionAuditAgentIds.includes(agentId))) {
+      throw new Error(`history step ${index + 1} has invalid Agent reaction audit coverage`);
     }
     for (const audit of committed.modelAudits) validateModelAudit(audit, `history step ${index + 1}`);
     const allowedForEvents: Record<CausalRef["kind"], Set<string>> = {
@@ -419,6 +515,36 @@ function validateHistory(state: SimulationState): void {
     }
     for (const outcome of committed.outcomes) {
       assertResolved(outcome.causeRefs, allowedForEvents, `history outcome ${outcome.proposalId}`);
+    }
+    const stimulusIds = new Set(committed.reactionRequests.map((request) => request.stimulus.id));
+    const observationIds = new Set<string>();
+    for (const observation of committed.observations) {
+      if (observationIds.has(observation.id) || observation.step !== committed.step ||
+        (observation.kind === "stimulus" && !stimulusIds.has(observation.id)) ||
+        (observation.kind === "outcome" && stimulusIds.has(observation.id))) {
+        throw new Error(`history step ${index + 1} has invalid observation ${observation.id}`);
+      }
+      observationIds.add(observation.id);
+    }
+    if (stimulusIds.size !== committed.reactionRequests.length ||
+      [...stimulusIds].some((id) => !observationIds.has(id))) {
+      throw new Error(`history step ${index + 1} does not preserve reaction stimuli`);
+    }
+    for (const request of committed.reactionRequests) {
+      const preserved = committed.observations.find((observation) => observation.id === request.stimulus.id);
+      if (JSON.stringify(preserved) !== JSON.stringify(request.stimulus)) {
+        throw new Error(`history step ${index + 1} mutates reaction stimulus ${request.stimulus.id}`);
+      }
+    }
+    for (const patch of committed.characterPatches) {
+      for (const operation of patch.operations) {
+        if (operation.sourceObservationIds.length === 0 || operation.sourceObservationIds.some((observationId) => {
+          const observation = committed.observations.find((candidate) => candidate.id === observationId);
+          return !observation || observation.observerId !== patch.agentId || observation.step !== committed.step;
+        })) {
+          throw new Error(`history step ${index + 1} has an invalid character observation basis`);
+        }
+      }
     }
     for (const proposalId of proposalIds) historyActionIds.add(proposalId);
     for (const checkId of requestIds) historyCheckIds.add(checkId);
@@ -448,6 +574,9 @@ function validateModelAudit(
   audit: SimulationState["bootstrapModelAudits"][number],
   label: string,
 ): void {
+  if (!new Set(["truth-engine", "agent-mind", "agent-reaction"]).has(audit.role)) {
+    throw new Error(`${label} has an invalid model audit role`);
+  }
   if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() || !audit.modelId.trim()) {
     throw new Error(`${label} has an incomplete model audit identity`);
   }
@@ -465,7 +594,7 @@ export function validateSimulationState(
   requireNextActions = false,
   requireHistoryAlignment = false,
 ): void {
-  if (state.schemaVersion !== 1 || !state.worldId.trim()) throw new Error("invalid simulation identity");
+  if (state.schemaVersion !== 2 || !state.worldId.trim()) throw new Error("invalid simulation identity");
   if (state.lawIds.length === 0 || new Set(state.lawIds).size !== state.lawIds.length ||
     state.lawIds.some((lawId) => !lawId.trim())) throw new Error("invalid world law ids");
   if (!Number.isSafeInteger(state.revision) || state.revision < 0) throw new Error("invalid revision");
@@ -474,7 +603,10 @@ export function validateSimulationState(
     throw new Error("invalid elapsed time");
   }
   if (!state.truth.entities[state.player.entityId]) throw new Error("player entity is missing");
-  for (const audit of state.bootstrapModelAudits) validateModelAudit(audit, "bootstrap");
+  for (const audit of state.bootstrapModelAudits) {
+    validateModelAudit(audit, "bootstrap");
+    if (audit.role !== "agent-mind") throw new Error("bootstrap has a non-AgentMind audit");
+  }
   if (!Number.isSafeInteger(state.truth.rng.seed) || !Number.isSafeInteger(state.truth.rng.state) ||
     !Number.isSafeInteger(state.truth.rng.draws) || state.truth.rng.seed < 0 || state.truth.rng.state < 0 ||
     state.truth.rng.draws < 0 || state.truth.rng.seed > 0xffffffff || state.truth.rng.state > 0xffffffff) {
@@ -549,6 +681,10 @@ export function validateSimulationState(
     if (agentEntities.has(agent.entityId)) throw new Error(`multiple agents own entity ${agent.entityId}`);
     agentEntities.add(agent.entityId);
     validateBelief(agent.belief, agent.bindings, state, `agent ${agent.id}`);
+    const selfBindings = Object.values(agent.bindings)
+      .filter((binding) => binding.canonicalEntityIds.includes(agent.entityId));
+    if (selfBindings.length !== 1) throw new Error(`agent ${agent.id} must have exactly one self binding`);
+    validateCharacterState(agent.character, agent.belief, state.step, `agent ${agent.id}`);
     if (requireNextActions && !agent.nextAction) throw new Error(`agent ${agent.id} has no next action`);
     if (agent.nextAction && agent.nextAction.actorId !== agent.id) {
       throw new Error(`agent ${agent.id} owns action for ${agent.nextAction.actorId}`);
@@ -570,6 +706,9 @@ export function validateSimulationState(
     if (eventIds.has(event.id)) throw new Error(`duplicate world event ${event.id}`);
     if (!Number.isSafeInteger(event.step) || event.step < 1 || event.step > state.step) {
       throw new Error(`world event ${event.id} has invalid step`);
+    }
+    if (!new Set(["ordinary", "significant", "transformative"]).has(event.impact)) {
+      throw new Error(`world event ${event.id} has invalid impact`);
     }
     assertCauses(event.causes, `event ${event.id}`);
     eventIds.add(event.id);
@@ -616,4 +755,17 @@ export function applyTransitionProposal(
 
 export function createEmptyBelief(): AgentState["belief"] {
   return { localEntities: {}, claims: {}, evidence: {} };
+}
+
+export function createEmptyCharacter(summary: string, voice = ""): AgentState["character"] {
+  if (!summary.trim()) throw new Error("character persona summary cannot be empty");
+  return {
+    persona: { summary, voice, updatedAtStep: 0, evidenceIds: [] },
+    traits: {},
+    values: {},
+    emotions: {},
+    attitudes: {},
+    goals: {},
+    commitments: {},
+  };
 }

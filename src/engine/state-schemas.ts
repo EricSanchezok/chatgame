@@ -1,10 +1,16 @@
 import { z } from "zod";
 import type {
   AgentActionProposal,
+  AgentCharacterState,
+  AgentCommitment,
+  AgentGoal,
   AgentState,
+  AttitudeState,
   BeliefClaim,
   BeliefEvidence,
   BeliefValue,
+  CharacterFacet,
+  EmotionState,
   FactValue,
   LocalEntity,
   MeterState,
@@ -116,12 +122,70 @@ export const beliefStateSchema = z.object({
   evidence: z.record(z.string(), evidenceSchema),
 });
 
+const characterRecordBase = {
+  id: z.string().min(1),
+  description: z.string().min(1),
+  createdAtStep: z.number().int().nonnegative(),
+  updatedAtStep: z.number().int().nonnegative(),
+  evidenceIds: z.array(z.string().min(1)),
+};
+
+export const characterFacetSchema = z.object({
+  ...characterRecordBase,
+  strength: z.number().min(0).max(1),
+  status: z.enum(["active", "retired"]),
+}) as z.ZodType<CharacterFacet>;
+
+export const emotionStateSchema = z.object({
+  ...characterRecordBase,
+  intensity: z.number().min(0).max(1),
+  status: z.enum(["active", "resolved"]),
+}) as z.ZodType<EmotionState>;
+
+export const attitudeStateSchema = z.object({
+  ...characterRecordBase,
+  subjectId: z.string().min(1),
+  intensity: z.number().min(0).max(1),
+  status: z.enum(["active", "retired"]),
+}) as z.ZodType<AttitudeState>;
+
+export const agentGoalSchema = z.object({
+  ...characterRecordBase,
+  priority: z.number().min(0).max(1),
+  progress: z.number().min(0).max(1),
+  targetIds: z.array(z.string().min(1)),
+  parentGoalId: z.string().min(1).optional(),
+  motivatedByIds: z.array(z.string().min(1)),
+  status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]),
+}) as z.ZodType<AgentGoal>;
+
+export const agentCommitmentSchema = z.object({
+  ...characterRecordBase,
+  priority: z.number().min(0).max(1),
+  subjectIds: z.array(z.string().min(1)),
+  status: z.enum(["active", "fulfilled", "broken", "released"]),
+}) as z.ZodType<AgentCommitment>;
+
+export const agentCharacterStateSchema = z.object({
+  persona: z.object({
+    summary: z.string().min(1),
+    voice: z.string(),
+    updatedAtStep: z.number().int().nonnegative(),
+    evidenceIds: z.array(z.string().min(1)),
+  }),
+  traits: z.record(z.string(), characterFacetSchema),
+  values: z.record(z.string(), characterFacetSchema),
+  emotions: z.record(z.string(), emotionStateSchema),
+  attitudes: z.record(z.string(), attitudeStateSchema),
+  goals: z.record(z.string(), agentGoalSchema),
+  commitments: z.record(z.string(), agentCommitmentSchema),
+}) as z.ZodType<AgentCharacterState>;
+
 export const agentStateSchema = z.object({
   id: z.string().min(1),
   entityId: z.string().min(1),
   modelProfileId: z.string().min(1),
-  persona: z.string(),
-  goals: z.array(z.string()),
+  character: agentCharacterStateSchema,
   belief: beliefStateSchema,
   bindings: z.record(
     z.string(),

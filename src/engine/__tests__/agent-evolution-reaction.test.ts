@@ -1,0 +1,958 @@
+import { describe, expect, it } from "vitest";
+import { AgentMind } from "../agent-mind";
+import { applyCharacterPatch } from "../character";
+import { validatePublicInformationBoundary } from "../information-boundary";
+import type {
+  AgentActionProposal,
+  AgentBeliefState,
+  CharacterImpact,
+  CharacterPatch,
+  ObservationPacket,
+  SimulationState,
+  TransitionProposal,
+  WorldEvent,
+} from "../model";
+import { ScriptedModelProvider } from "../model-provider";
+import { createSeededRng } from "../random";
+import { projectAgentSelfState } from "../self-state";
+import { SimulationEngine } from "../simulation";
+import { createEmptyCharacter, validateSimulationState } from "../transaction";
+import { TruthEngine } from "../truth-engine";
+import type { WorldDefinition } from "../world-definition";
+
+function characterBasis(impact: CharacterImpact = "ordinary") {
+  const belief: AgentBeliefState = {
+    localEntities: {
+      self: { id: "self", name: "我", description: "我自己", status: "observed" },
+      traveler: { id: "traveler", name: "旅人", description: "面前的旅人", status: "observed" },
+    },
+    claims: {},
+    evidence: {
+      "evidence:now": {
+        id: "evidence:now",
+        kind: "observation",
+        description: "本步骤的亲身经历",
+        sourceId: "observation:now",
+        step: 1,
+      },
+    },
+  };
+  const observation: ObservationPacket = {
+    id: "observation:now",
+    observerId: "keeper",
+    step: 1,
+    kind: "outcome",
+    summary: "发生了一件足以影响我的事。",
+    introductions: [],
+    apparentClaims: [],
+    sourceEventIds: ["event:now"],
+  };
+  const event: WorldEvent = {
+    id: "event:now",
+    step: 1,
+    description: "角色经历了世界事件。",
+    impact,
+    causes: [{ kind: "law", id: "time" }],
+  };
+  const character = createEmptyCharacter("谨慎的守门人", "说话简短");
+  character.traits.cautious = {
+    id: "cautious",
+    description: "做事谨慎",
+    strength: 0.5,
+    status: "active",
+    createdAtStep: 0,
+    updatedAtStep: 0,
+    evidenceIds: [],
+  };
+  character.goals.guard = {
+    id: "guard",
+    description: "守住入口",
+    priority: 0.8,
+    progress: 0,
+    targetIds: [],
+    motivatedByIds: ["cautious"],
+    status: "active",
+    createdAtStep: 0,
+    updatedAtStep: 0,
+    evidenceIds: [],
+  };
+  character.commitments.promise = {
+    id: "promise",
+    description: "答应守到天亮",
+    priority: 0.7,
+    subjectIds: ["traveler"],
+    status: "active",
+    createdAtStep: 0,
+    updatedAtStep: 0,
+    evidenceIds: [],
+  };
+  return { belief, observation, event, character };
+}
+
+function characterPatch(operation: CharacterPatch["operations"][number]): CharacterPatch {
+  return { agentId: "keeper", baseRevision: 1, operations: [operation] };
+}
+
+const source = {
+  sourceObservationIds: ["observation:now"],
+  evidenceIds: ["evidence:now"],
+};
+
+describe("Agent character evolution", () => {
+  it("enforces impact-scaled numeric limits and engine-owned timestamps", () => {
+    const ordinary = characterBasis("ordinary");
+    const changed = applyCharacterPatch(
+      ordinary.character,
+      ordinary.belief,
+      characterPatch({ ...source, kind: "update_trait", id: "cautious", strength: 0.55 }),
+      1,
+      [ordinary.observation],
+      [ordinary.event],
+    );
+    expect(changed.traits.cautious).toMatchObject({ strength: 0.55, createdAtStep: 0, updatedAtStep: 1 });
+    expect(() => applyCharacterPatch(
+      ordinary.character,
+      ordinary.belief,
+      characterPatch({ ...source, kind: "update_trait", id: "cautious", strength: 0.551 }),
+      1,
+      [ordinary.observation],
+      [ordinary.event],
+    )).toThrow("more than 0.05");
+
+    const significant = characterBasis("significant");
+    expect(applyCharacterPatch(
+      significant.character,
+      significant.belief,
+      characterPatch({
+        ...source,
+        kind: "create_value",
+        facet: { id: "mercy", description: "开始重视宽恕", strength: 0.25 },
+      }),
+      1,
+      [significant.observation],
+      [significant.event],
+    ).values.mercy.createdAtStep).toBe(1);
+    expect(() => applyCharacterPatch(
+      significant.character,
+      significant.belief,
+      characterPatch({
+        ...source,
+        kind: "create_value",
+        facet: { id: "mercy", description: "突然极端重视宽恕", strength: 0.26 },
+      }),
+      1,
+      [significant.observation],
+      [significant.event],
+    )).toThrow("more than 0.25");
+  });
+
+  it("allows persona replacement only for transformative events", () => {
+    const significant = characterBasis("significant");
+    const replace = characterPatch({
+      ...source,
+      kind: "replace_persona",
+      summary: "不再相信旧秩序的流浪者",
+      voice: "坦率而激烈",
+    });
+    expect(() => applyCharacterPatch(
+      significant.character,
+      significant.belief,
+      replace,
+      1,
+      [significant.observation],
+      [significant.event],
+    )).toThrow("transformative");
+
+    const transformative = characterBasis("transformative");
+    expect(applyCharacterPatch(
+      transformative.character,
+      transformative.belief,
+      replace,
+      1,
+      [transformative.observation],
+      [transformative.event],
+    ).persona).toEqual({
+      summary: "不再相信旧秩序的流浪者",
+      voice: "坦率而激烈",
+      updatedAtStep: 1,
+      evidenceIds: ["evidence:now"],
+    });
+  });
+
+  it("allows terminal transitions at any impact but never reopens goals or commitments", () => {
+    const basis = characterBasis("ordinary");
+    const completed = applyCharacterPatch(
+      basis.character,
+      basis.belief,
+      characterPatch({ ...source, kind: "set_goal_status", id: "guard", status: "completed" }),
+      1,
+      [basis.observation],
+      [basis.event],
+    );
+    expect(completed.goals.guard.status).toBe("completed");
+    expect(() => applyCharacterPatch(
+      completed,
+      basis.belief,
+      characterPatch({ ...source, kind: "set_goal_status", id: "guard", status: "active" }),
+      1,
+      [basis.observation],
+      [basis.event],
+    )).toThrow("cannot reopen terminal goal");
+
+    const fulfilled = applyCharacterPatch(
+      basis.character,
+      basis.belief,
+      characterPatch({ ...source, kind: "set_commitment_status", id: "promise", status: "fulfilled" }),
+      1,
+      [basis.observation],
+      [basis.event],
+    );
+    expect(() => applyCharacterPatch(
+      fulfilled,
+      basis.belief,
+      characterPatch({ ...source, kind: "set_commitment_status", id: "promise", status: "active" }),
+      1,
+      [basis.observation],
+      [basis.event],
+    )).toThrow("cannot reopen terminal commitment");
+  });
+
+  it("rejects character evolution without a current private observation and evidence", () => {
+    const basis = characterBasis("transformative");
+    expect(() => applyCharacterPatch(
+      basis.character,
+      basis.belief,
+      characterPatch({
+        sourceObservationIds: ["observation:other"],
+        evidenceIds: ["evidence:now"],
+        kind: "replace_persona",
+        summary: "无依据的新人格",
+        voice: "",
+      }),
+      1,
+      [basis.observation],
+      [basis.event],
+    )).toThrow("unavailable observation");
+    expect(() => applyCharacterPatch(
+      basis.character,
+      basis.belief,
+      characterPatch({
+        sourceObservationIds: ["observation:now"],
+        evidenceIds: ["missing"],
+        kind: "replace_persona",
+        summary: "无证据的新人格",
+        voice: "",
+      }),
+      1,
+      [basis.observation],
+      [basis.event],
+    )).toThrow("unknown evidence missing");
+  });
+});
+
+function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
+  const entities: SimulationState["truth"]["entities"] = {
+    player: { id: "player", kind: "person", name: "旅人", description: "玩家角色", lifecycle: "active", createdAtStep: 0 },
+    room: { id: "room", kind: "location", name: "门厅", description: "可以当面交谈的门厅", lifecycle: "active", createdAtStep: 0 },
+    tower: { id: "tower", kind: "location", name: "远塔", description: "相距遥远的塔楼", lifecycle: "active", createdAtStep: 0 },
+  };
+  const placements: SimulationState["truth"]["placements"] = {
+    player: "room",
+    room: null,
+    tower: null,
+  };
+  const agents: SimulationState["agents"] = {};
+  for (const id of agentIds) {
+    entities[id] = { id, kind: "person", name: id, description: `${id} 的身体`, lifecycle: "active", createdAtStep: 0 };
+    placements[id] = remote ? "tower" : "room";
+    agents[id] = {
+      id,
+      entityId: id,
+      modelProfileId: "agent-default",
+      character: createEmptyCharacter(`${id} 的人格`),
+      belief: {
+        localEntities: { self: { id: "self", name: "我", description: `${id} 自己`, status: "observed" } },
+        claims: {},
+        evidence: {},
+      },
+      bindings: { self: { localEntityId: "self", canonicalEntityIds: [id] } },
+      nextAction: {
+        id: `prepared:${id}:0`,
+        actorId: id,
+        baseRevision: 0,
+        rawText: "继续站岗",
+        goal: "履行原计划",
+        targetIds: [],
+      },
+    };
+  }
+  return {
+    schemaVersion: 2,
+    worldId: "reaction-world",
+    lawIds: ["time"],
+    revision: 0,
+    step: 0,
+    truth: {
+      elapsedSeconds: 0,
+      rng: createSeededRng(9),
+      events: [],
+      entities,
+      placements,
+      facts: {},
+      mechanics: {
+        meters: { health: { id: "health", name: "生命", min: 0, max: 20, thresholds: [] } },
+        quantities: { arrows: { id: "arrows", name: "箭", unit: "支", allowProduction: false, allowConsumption: true } },
+        ratings: { reflex: { id: "reflex", name: "反应", min: -5, max: 10 } },
+      },
+      meters: Object.fromEntries(agentIds.map((id) => [`health:${id}`, {
+        id: `health:${id}`, definitionId: "health", entityId: id, current: 13, firedThresholdIds: [],
+      }])),
+      quantities: Object.fromEntries(agentIds.map((id) => [`arrows:${id}`, {
+        id: `arrows:${id}`, definitionId: "arrows", holderId: id, amount: 4,
+      }])),
+      ratings: Object.fromEntries(agentIds.map((id) => [`reflex:${id}`, {
+        id: `reflex:${id}`, definitionId: "reflex", entityId: id, value: 3,
+      }])),
+    },
+    agents,
+    player: {
+      entityId: "player",
+      knowledge: { localEntities: {}, claims: {}, evidence: {}, observationIds: [] },
+      bindings: {},
+    },
+    history: [],
+    bootstrapModelAudits: [],
+  };
+}
+
+function reactionDefinition(initialState: SimulationState): WorldDefinition {
+  return {
+    id: "reaction-world",
+    name: "反应窗口世界",
+    description: "验证同一步感知与有限反应。",
+    laws: [{ id: "time", text: "每步推进时间。", severity: "hard" }],
+    disclosure: { defaultCheckVisibility: "full" },
+    rulePackages: [{ id: "core-d20", version: "1.0.0", config: { opposedChecks: true, damageUsesMeters: true } }],
+    initialState,
+  };
+}
+
+function outcomeTransition(context: {
+  baseRevision: number;
+  step: number;
+  jointActions: AgentActionProposal[];
+  agentEpistemics: Record<string, unknown>;
+}): TransitionProposal {
+  const step = context.step + 1;
+  const eventId = `event:${step}`;
+  return {
+    baseRevision: context.baseRevision,
+    outcomes: context.jointActions.map((action) => ({
+      proposalId: action.id,
+      status: "succeeded",
+      summary: "该行动已被联合裁决。",
+      causeRefs: [{ kind: "action", id: action.id }],
+      knownAlternatives: [],
+    })),
+    operations: [{ kind: "advance_time", seconds: 1, causes: [{ kind: "law", id: "time" }] }],
+    events: [{ id: eventId, step, description: "对话与其他行动被联合裁决。", impact: "ordinary", causes: [{ kind: "law", id: "time" }] }],
+    observations: ["player", ...Object.keys(context.agentEpistemics)].map((observerId) => ({
+      id: `outcome:${observerId}:${step}`,
+      observerId,
+      step,
+      kind: "outcome" as const,
+      summary: "你感知到联合行动的结果。",
+      introductions: [],
+      apparentClaims: [],
+      sourceEventIds: [eventId],
+    })),
+    intentStatus: "completed",
+    requiresPlayerDecision: false,
+  };
+}
+
+function emptyMindOutput(agentId: string, revision: number) {
+  return {
+    beliefPatch: { agentId, baseRevision: revision, operations: [] },
+    characterPatch: { agentId, baseRevision: revision, operations: [] },
+    nextAction: {
+      id: `next:${agentId}:${revision}`,
+      actorId: agentId,
+      baseRevision: revision,
+      rawText: "等待下一步",
+      goal: "继续观察",
+      targetIds: [],
+    },
+  };
+}
+
+function stimulus(agentId: string, sourceActionId: string): ObservationPacket {
+  return {
+    id: `stimulus:${agentId}:1`,
+    observerId: agentId,
+    step: 1,
+    kind: "stimulus",
+    summary: "旅人正在对你说：请回答我。",
+    introductions: [{
+      localEntity: { id: "speaker", name: "说话的旅人", description: "正在和我说话的人", status: "observed" },
+      canonicalEntityId: "player",
+    }],
+    apparentClaims: [{
+      id: `claim:${agentId}:speech`,
+      subjectId: "speaker",
+      predicate: "utterance",
+      value: { kind: "text", value: sourceActionId },
+      description: "对方正在等待回答。",
+    }],
+    sourceEventIds: [],
+  };
+}
+
+describe("Agent self state and reaction protocol", () => {
+  it("treats private character and model profile text as protected player information", () => {
+    const state = reactionState();
+    const actions: AgentActionProposal[] = [
+      {
+        id: "player-action",
+        actorId: "player",
+        baseRevision: 0,
+        rawText: "观察守门人",
+        goal: "观察",
+        targetIds: [],
+      },
+      state.agents.keeper.nextAction!,
+    ];
+    const proposal = outcomeTransition({
+      baseRevision: 0,
+      step: 0,
+      jointActions: actions,
+      agentEpistemics: { keeper: {} },
+    });
+    proposal.outcomes.find((outcome) => outcome.proposalId === "player-action")!.summary =
+      state.agents.keeper.character.persona.summary;
+
+    expect(() => validatePublicInformationBoundary(state, actions, proposal))
+      .toThrow("protected world information");
+  });
+
+  it("projects exact self mechanics and authorized facts without canonical state ids", () => {
+    const state = reactionState();
+    state.truth.facts.public = {
+      id: "public",
+      subjectId: "keeper",
+      predicate: "condition",
+      value: { kind: "text", value: "alert" },
+      description: "正保持警戒。",
+      access: { kind: "public" },
+      provenance: [{ kind: "law", id: "time" }],
+    };
+    state.truth.facts.secret = {
+      id: "secret",
+      subjectId: "keeper",
+      predicate: "secret",
+      value: { kind: "text", value: "hidden" },
+      description: "不应进入自身视图。",
+      access: { kind: "private" },
+      provenance: [{ kind: "law", id: "time" }],
+    };
+    state.truth.facts.authorized = {
+      id: "authorized",
+      subjectId: "keeper",
+      predicate: "owner",
+      value: { kind: "entity", entityId: "player" },
+      description: "只有建立局部映射后才能投影实体值。",
+      access: { kind: "agents", agentIds: ["keeper"] },
+      provenance: [{ kind: "law", id: "time" }],
+    };
+    const viewBeforeBinding = projectAgentSelfState(state, state.agents.keeper);
+    expect(viewBeforeBinding).toMatchObject({
+      selfLocalEntityId: "self",
+      lifecycle: "active",
+      elapsedSeconds: 0,
+      location: { name: "门厅", description: "可以当面交谈的门厅" },
+      meters: [{ name: "生命", current: 13, min: 0, max: 20 }],
+      quantities: [{ name: "箭", unit: "支", amount: 4 }],
+      ratings: [{ name: "反应", value: 3, min: -5, max: 10 }],
+    });
+    expect(viewBeforeBinding.facts.map((fact) => fact.predicate)).toEqual(["condition"]);
+    expect(JSON.stringify(viewBeforeBinding)).not.toContain("health:keeper");
+    expect(JSON.stringify(viewBeforeBinding)).not.toContain("secret");
+
+    state.agents.keeper.belief.localEntities.speaker = {
+      id: "speaker", name: "旅人", description: "我认识的旅人", status: "observed",
+    };
+    state.agents.keeper.bindings.speaker = {
+      localEntityId: "speaker", canonicalEntityIds: ["player"],
+    };
+    expect(projectAgentSelfState(state, state.agents.keeper).facts).toContainEqual({
+      predicate: "owner",
+      value: { kind: "local_entity", localEntityId: "speaker" },
+      description: "只有建立局部映射后才能投影实体值。",
+    });
+  });
+
+  it("lets multiple colocated Agents replace prepared actions with same-step replies", async () => {
+    const initial = reactionState(["keeper", "scribe"]);
+    let truthCalls = 0;
+    let reactionCalls = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (profileId === "truth-engine") {
+        truthCalls += 1;
+        if (truthCalls === 1) {
+          const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+          return {
+            kind: "request_reactions",
+            requests: ["keeper", "scribe"].map((agentId) => ({
+              agentId,
+              sourceActionId: playerAction.id,
+              stimulus: stimulus(agentId, playerAction.id),
+              basis: [{ kind: "shared_placement", placementId: "room" }],
+            })),
+          };
+        }
+        return { kind: "transition", proposal: outcomeTransition(context) };
+      }
+      if (context.originalAction) {
+        reactionCalls += 1;
+        return {
+          kind: "replace",
+          agentId: context.agent.id,
+          baseRevision: context.revision,
+          originalProposalId: context.originalAction.id,
+          replacementAction: {
+            id: `reply:${context.agent.id}:0`,
+            actorId: context.agent.id,
+            baseRevision: context.revision,
+            rawText: `${context.agent.id} 当场回答旅人`,
+            goal: "回应刚刚听见的话",
+            targetIds: ["speaker"],
+          },
+        };
+      }
+      return emptyMindOutput(context.agent.id, context.revision);
+    });
+    const engine = new SimulationEngine(
+      reactionDefinition(initial),
+      new TruthEngine(provider),
+      new AgentMind(provider),
+    );
+    engine.beginPlayerIntent("请 keeper 和 scribe 回答我");
+
+    const result = await engine.step();
+
+    expect(reactionCalls).toBe(2);
+    expect(result.committed.initialActions.filter((action) => action.actorId !== "player")
+      .every((action) => action.id.startsWith("prepared:"))).toBe(true);
+    expect(result.committed.actions.filter((action) => action.actorId !== "player")
+      .every((action) => action.id.startsWith("reply:"))).toBe(true);
+    expect(result.committed.reactionRequests).toHaveLength(2);
+    expect(result.committed.modelAudits.filter((audit) => audit.role === "agent-reaction")).toHaveLength(2);
+    expect(result.committed.observations.filter((packet) => packet.kind === "stimulus")).toHaveLength(2);
+    expect(result.committed.outcomes.map((outcome) => outcome.proposalId))
+      .toEqual(expect.arrayContaining(["reply:keeper:0", "reply:scribe:0"]));
+    expect(result.state.agents.keeper.belief.localEntities.speaker).toBeDefined();
+    validateSimulationState(result.state, true, true);
+  });
+
+  it("rejects remote shouting without a channel and makes no reaction model call", async () => {
+    const initial = reactionState(["keeper"], true);
+    let truthCalls = 0;
+    let reactionCalls = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        validationError?: string;
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (profileId !== "truth-engine") {
+        if (context.originalAction) reactionCalls += 1;
+        return emptyMindOutput(context.agent.id, context.revision);
+      }
+      truthCalls += 1;
+      if (!context.validationError) {
+        const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+        return {
+          kind: "request_reactions",
+          requests: [{
+            agentId: "keeper",
+            sourceActionId: playerAction.id,
+            stimulus: stimulus("keeper", playerAction.id),
+            basis: [{ kind: "shared_placement", placementId: "room" }],
+          }],
+        };
+      }
+      expect(context.validationError).toContain("shared direct placement");
+      return { kind: "transition", proposal: outcomeTransition(context) };
+    });
+    const engine = new SimulationEngine(
+      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+    );
+    engine.beginPlayerIntent("隔着十万八千里直接喊 keeper");
+
+    const result = await engine.step();
+
+    expect(truthCalls).toBe(2);
+    expect(reactionCalls).toBe(0);
+    expect(result.committed.reactionRequests).toEqual([]);
+    expect(result.committed.initialActions).toEqual(result.committed.actions);
+  });
+
+  it("opens a remote reaction only when an Agent-accessible communication fact exists", async () => {
+    const initial = reactionState(["keeper"], true);
+    initial.truth.facts["pigeon-channel"] = {
+      id: "pigeon-channel",
+      subjectId: "keeper",
+      predicate: "communication_channel",
+      value: { kind: "text", value: "carrier-pigeon-from-player" },
+      description: "守门人能收到旅人的飞鸽传书。",
+      access: { kind: "agents", agentIds: ["keeper"] },
+      provenance: [{ kind: "law", id: "time" }],
+    };
+    let truthCalls = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (profileId === "truth-engine") {
+        truthCalls += 1;
+        if (truthCalls === 1) {
+          const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+          return {
+            kind: "request_reactions",
+            requests: [{
+              agentId: "keeper",
+              sourceActionId: playerAction.id,
+              stimulus: stimulus("keeper", playerAction.id),
+              basis: [{ kind: "fact", factId: "pigeon-channel" }],
+            }],
+          };
+        }
+        return { kind: "transition", proposal: outcomeTransition(context) };
+      }
+      if (context.originalAction) {
+        return {
+          kind: "keep",
+          agentId: "keeper",
+          baseRevision: context.revision,
+          originalProposalId: context.originalAction.id,
+        };
+      }
+      return emptyMindOutput(context.agent.id, context.revision);
+    });
+    const engine = new SimulationEngine(
+      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+    );
+    engine.beginPlayerIntent("飞鸽传书给 keeper：请回信");
+
+    const result = await engine.step();
+
+    expect(result.committed.reactionRequests[0].basis).toEqual([{ kind: "fact", factId: "pigeon-channel" }]);
+    expect(result.committed.reactionDecisions[0].kind).toBe("keep");
+    expect(result.committed.actions.find((action) => action.actorId === "keeper")?.id).toBe("prepared:keeper:0");
+  });
+
+  it("never calls AgentMind.react when Truth Engine does not request a reaction", async () => {
+    const initial = reactionState();
+    let agentCalls = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (profileId === "truth-engine") return { kind: "transition", proposal: outcomeTransition(context) };
+      agentCalls += 1;
+      expect(context.originalAction).toBeUndefined();
+      return emptyMindOutput(context.agent.id, context.revision);
+    });
+    const engine = new SimulationEngine(
+      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+    );
+    engine.beginPlayerIntent("安静地等待");
+
+    const result = await engine.step();
+
+    expect(agentCalls).toBe(1);
+    expect(result.committed.reactionRequests).toEqual([]);
+  });
+
+  it("uses a successful perception check as a remote reaction basis", async () => {
+    const initial = reactionState(["keeper"], true);
+    let truthCalls = 0;
+    let reactionCalls = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        checkResults: Array<{ requestId: string; succeeded: boolean }>;
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (profileId !== "truth-engine") {
+        if (context.originalAction) {
+          reactionCalls += 1;
+          return {
+            kind: "keep",
+            agentId: "keeper",
+            baseRevision: context.revision,
+            originalProposalId: context.originalAction.id,
+          };
+        }
+        return emptyMindOutput(context.agent.id, context.revision);
+      }
+      truthCalls += 1;
+      const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+      if (truthCalls === 1) {
+        return {
+          kind: "request_checks",
+          requests: [{
+            id: "hear-distant-message",
+            actorId: "keeper",
+            ratingId: "reflex:keeper",
+            modifier: 3,
+            modifierSources: [{ id: "reflex:keeper", amount: 3 }],
+            dc: 0,
+            mode: "normal",
+            stakes: "成功则及时感知远方讯息。",
+            visibility: "hidden",
+            phase: "perception",
+            causes: [
+              { kind: "action", id: playerAction.id },
+              { kind: "law", id: "time" },
+            ],
+          }],
+        };
+      }
+      if (truthCalls === 2) {
+        expect(context.checkResults[0].succeeded).toBe(true);
+        return {
+          kind: "request_reactions",
+          requests: [{
+            agentId: "keeper",
+            sourceActionId: playerAction.id,
+            stimulus: stimulus("keeper", playerAction.id),
+            basis: [{ kind: "perception_check", checkId: "hear-distant-message" }],
+          }],
+        };
+      }
+      return { kind: "transition", proposal: outcomeTransition(context) };
+    });
+    const engine = new SimulationEngine(
+      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+    );
+    engine.beginPlayerIntent("使用世界允许的远距感知发送讯息");
+
+    const result = await engine.step();
+
+    expect(reactionCalls).toBe(1);
+    expect(result.committed.checkRequests[0].phase).toBe("perception");
+    expect(result.committed.reactionRequests[0].basis[0]).toEqual({
+      kind: "perception_check", checkId: "hear-distant-message",
+    });
+  });
+
+  it("keeps the reaction window closed after resolution starts and forbids a second round", async () => {
+    const run = async (resolutionFirst: boolean) => {
+      const initial = reactionState();
+      let truthCalls = 0;
+      let reactionCalls = 0;
+      const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+        const context = JSON.parse(prompt) as {
+          baseRevision: number;
+          step: number;
+          revision: number;
+          jointActions: AgentActionProposal[];
+          agentEpistemics: Record<string, unknown>;
+          validationError?: string;
+          checkResults: unknown[];
+          agent: { id: string };
+          originalAction?: AgentActionProposal;
+        };
+        if (profileId !== "truth-engine") {
+          if (context.originalAction) {
+            reactionCalls += 1;
+            return {
+              kind: "keep",
+              agentId: "keeper",
+              baseRevision: context.revision,
+              originalProposalId: context.originalAction.id,
+            };
+          }
+          return emptyMindOutput(context.agent.id, context.revision);
+        }
+        truthCalls += 1;
+        const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+        if (resolutionFirst && truthCalls === 1) {
+          return {
+            kind: "request_checks",
+            requests: [{
+              id: "already-resolving",
+              actorId: "player",
+              modifier: 0,
+              modifierSources: [],
+              dc: 0,
+              mode: "normal",
+              stakes: "结算已经开始。",
+              visibility: "hidden",
+              phase: "resolution",
+              causes: [{ kind: "action", id: playerAction.id }],
+            }],
+          };
+        }
+        if (!context.validationError && (truthCalls === 1 || truthCalls === 2)) {
+          return {
+            kind: "request_reactions",
+            requests: [{
+              agentId: "keeper",
+              sourceActionId: playerAction.id,
+              stimulus: stimulus("keeper", playerAction.id),
+              basis: [{ kind: "shared_placement", placementId: "room" }],
+            }],
+          };
+        }
+        expect(context.validationError).toContain(resolutionFirst ? "after resolution" : "second reaction round");
+        return { kind: "transition", proposal: outcomeTransition(context) };
+      });
+      const engine = new SimulationEngine(
+        reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+      );
+      engine.beginPlayerIntent("测试反应窗口阶段门禁");
+      return { result: await engine.step(), reactionCalls };
+    };
+
+    const afterResolution = await run(true);
+    expect(afterResolution.reactionCalls).toBe(0);
+    expect(afterResolution.result.committed.reactionRequests).toEqual([]);
+    const secondRound = await run(false);
+    expect(secondRound.reactionCalls).toBe(1);
+    expect(secondRound.result.committed.reactionRequests).toHaveLength(1);
+  });
+
+  it("rolls back state and RNG when a replacement action or CharacterPatch stays invalid", async () => {
+    const invalidReplacementState = reactionState();
+    const invalidReplacementProvider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (profileId === "truth-engine") {
+        const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+        return {
+          kind: "request_reactions",
+          requests: [{
+            agentId: "keeper",
+            sourceActionId: playerAction.id,
+            stimulus: stimulus("keeper", playerAction.id),
+            basis: [{ kind: "shared_placement", placementId: "room" }],
+          }],
+        };
+      }
+      if (context.originalAction) {
+        return {
+          kind: "replace",
+          agentId: "keeper",
+          baseRevision: context.revision,
+          originalProposalId: context.originalAction.id,
+          replacementAction: {
+            id: "illegal-player-replacement",
+            actorId: "player",
+            baseRevision: context.revision,
+            rawText: "越权替玩家行动",
+            goal: "非法替换",
+            targetIds: [],
+          },
+        };
+      }
+      return emptyMindOutput(context.agent.id, context.revision);
+    });
+    const replacementEngine = new SimulationEngine(
+      reactionDefinition(invalidReplacementState),
+      new TruthEngine(invalidReplacementProvider),
+      new AgentMind(invalidReplacementProvider),
+    );
+    replacementEngine.beginPlayerIntent("触发非法 replacement");
+    await expect(replacementEngine.step()).rejects.toThrow("reaction execution failed");
+    expect(replacementEngine.snapshot).toMatchObject({ revision: 0, step: 0, truth: { rng: { draws: 0 } } });
+
+    const invalidCharacterState = reactionState();
+    invalidCharacterState.agents.keeper.character.traits.cautious = {
+      id: "cautious",
+      description: "谨慎",
+      strength: 0.5,
+      status: "active",
+      createdAtStep: 0,
+      updatedAtStep: 0,
+      evidenceIds: [],
+    };
+    invalidCharacterState.agents.keeper.belief.evidence.existing = {
+      id: "existing", kind: "observation", description: "旧证据", step: 0,
+    };
+    const invalidCharacterProvider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        observations: ObservationPacket[];
+        agent: { id: string };
+      };
+      if (profileId === "truth-engine") return { kind: "transition", proposal: outcomeTransition(context) };
+      return {
+        ...emptyMindOutput(context.agent.id, context.revision),
+        characterPatch: {
+          agentId: context.agent.id,
+          baseRevision: context.revision,
+          operations: [{
+            kind: "update_trait",
+            id: "cautious",
+            strength: 0.9,
+            sourceObservationIds: [context.observations[0].id],
+            evidenceIds: ["existing"],
+          }],
+        },
+      };
+    });
+    const characterEngine = new SimulationEngine(
+      reactionDefinition(invalidCharacterState),
+      new TruthEngine(invalidCharacterProvider),
+      new AgentMind(invalidCharacterProvider),
+    );
+    characterEngine.beginPlayerIntent("触发非法 CharacterPatch");
+    await expect(characterEngine.step()).rejects.toThrow("AgentMind");
+    expect(characterEngine.snapshot).toMatchObject({ revision: 0, step: 0, truth: { rng: { draws: 0 } } });
+    expect(characterEngine.snapshot.agents.keeper.character.traits.cautious.strength).toBe(0.5);
+  });
+});

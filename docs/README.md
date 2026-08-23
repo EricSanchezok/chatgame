@@ -3,7 +3,7 @@
 ## 当前参考
 
 - [architecture.md](architecture.md) — 模块边界、数据流与硬不变量。
-- [game-design/script-format.md](game-design/script-format.md) — schema v2 世界包格式。
+- [game-design/script-format.md](game-design/script-format.md) — schema v3 世界包格式。
 - [game-design/engine-runtime.md](game-design/engine-runtime.md) — 多 Agent 联合仿真、检定与事务语义。
 - [game-design/presentation.md](game-design/presentation.md) — WorldRun API、SSE 与工作台。
 - [game-design/script-import.md](game-design/script-import.md) — ZIP 导入安全和原子替换。

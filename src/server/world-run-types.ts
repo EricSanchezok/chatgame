@@ -25,7 +25,7 @@ export interface WorldRunRecord extends Omit<WorldRunRecordView, "error"> {
 }
 
 export interface WorldSessionDocument {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
   scriptId: string;
   createdAt: string;

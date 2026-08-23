@@ -62,10 +62,13 @@ export class DeterministicModelProvider implements StructuredModelProvider {
       world?: { laws: Array<{ id: string }> };
       agentEpistemics?: Record<string, unknown>;
       jointActions?: Array<{ id: string }>;
+      originalAction?: { id: string; actorId: string; baseRevision: number };
     };
     const output = request.profileId === "truth-engine"
       ? this.truthOutput(context)
-      : this.agentOutput(context);
+      : context.originalAction
+        ? this.reactionOutput(context)
+        : this.agentOutput(context);
     return request.schema.parse(output);
   }
 
@@ -75,6 +78,7 @@ export class DeterministicModelProvider implements StructuredModelProvider {
     if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
     return {
       beliefPatch: { agentId, baseRevision: revision, operations: [] },
+      characterPatch: { agentId, baseRevision: revision, operations: [] },
       nextAction: {
         id: `mock-action:${agentId}:${revision}`,
         actorId: agentId,
@@ -84,6 +88,20 @@ export class DeterministicModelProvider implements StructuredModelProvider {
         targetIds: [],
       },
     };
+  }
+
+  private reactionOutput(context: {
+    revision?: number;
+    agent?: { id: string };
+    originalAction?: { id: string };
+  }): unknown {
+    const agentId = context.agent?.id;
+    const revision = context.revision;
+    const originalProposalId = context.originalAction?.id;
+    if (!agentId || revision === undefined || !originalProposalId) {
+      throw new Error("deterministic Agent reaction context is incomplete");
+    }
+    return { kind: "keep", agentId, baseRevision: revision, originalProposalId };
   }
 
   private truthOutput(context: {
@@ -126,6 +144,7 @@ export class DeterministicModelProvider implements StructuredModelProvider {
             id: eventId,
             step: nextStep,
             description: "模拟世界推进了一秒。",
+            impact: "ordinary",
             causes: [{ kind: "law", id: lawId }],
           },
         ],
@@ -133,6 +152,7 @@ export class DeterministicModelProvider implements StructuredModelProvider {
           id: `mock-observation:${observerId}:${nextStep}`,
           observerId,
           step: nextStep,
+          kind: "outcome",
           summary: observerId === "player" ? "世界回应了你的自由行动。" : "世界继续变化。",
           introductions: [],
           apparentClaims: [],

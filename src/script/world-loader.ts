@@ -3,6 +3,7 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   AgentBeliefState,
+  AgentCharacterState,
   AgentState,
   MechanicsCatalog,
   PlayerKnowledgeState,
@@ -96,14 +97,55 @@ function beliefFrom(document: EntityDocument["agent"]): AgentBeliefState {
   };
 }
 
+function characterFrom(document: NonNullable<EntityDocument["agent"]>): AgentCharacterState {
+  const atStepZero = <T extends { id: string; evidence_ids: string[] }>({ evidence_ids, ...entry }: T) => ({
+    ...entry,
+    evidenceIds: evidence_ids,
+    createdAtStep: 0,
+    updatedAtStep: 0,
+  });
+  return {
+    persona: {
+      summary: document.character.persona.summary,
+      voice: document.character.persona.voice,
+      updatedAtStep: 0,
+      evidenceIds: document.character.persona.evidence_ids,
+    },
+    traits: uniqueRecord(document.character.traits.map(atStepZero), "trait"),
+    values: uniqueRecord(document.character.values.map(atStepZero), "value"),
+    emotions: uniqueRecord(document.character.emotions.map(atStepZero), "emotion"),
+    attitudes: uniqueRecord(document.character.attitudes.map((entry) => {
+      const { subject_id, ...attitude } = atStepZero(entry);
+      return { ...attitude, subjectId: subject_id };
+    }), "attitude"),
+    goals: uniqueRecord(document.character.goals.map((entry) => {
+      const {
+        target_ids,
+        parent_goal_id,
+        motivated_by_ids,
+        ...goal
+      } = atStepZero(entry);
+      return {
+        ...goal,
+        targetIds: target_ids,
+        parentGoalId: parent_goal_id,
+        motivatedByIds: motivated_by_ids,
+      };
+    }), "goal"),
+    commitments: uniqueRecord(document.character.commitments.map((entry) => {
+      const { subject_ids, ...commitment } = atStepZero(entry);
+      return { ...commitment, subjectIds: subject_ids };
+    }), "commitment"),
+  };
+}
+
 function agentFrom(document: EntityDocument): AgentState | undefined {
   if (!document.agent) return undefined;
   return {
     id: document.agent.id,
     entityId: document.id,
     modelProfileId: document.agent.model_profile_id,
-    persona: document.agent.persona,
-    goals: document.agent.goals,
+    character: characterFrom(document.agent),
     belief: beliefFrom(document.agent),
     bindings: Object.fromEntries(
       document.agent.belief.bindings.map((binding) => [
@@ -177,7 +219,7 @@ export function loadWorldScript(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       worldId: manifest.id,
       lawIds: laws.laws.map((law) => law.id),
       revision: 0,

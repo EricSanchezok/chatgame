@@ -83,9 +83,10 @@ function sanitizePlayerObservation(
   packetIndex: number,
 ): PublicObservationPacket {
   return {
-    ...structuredClone(packet),
     id: `observation:${packet.step}:${packetIndex + 1}`,
     observerId: "player",
+    step: packet.step,
+    summary: packet.summary,
     introductions: packet.introductions.map((introduction) => ({
       localEntity: structuredClone(introduction.localEntity),
     })),
@@ -221,7 +222,7 @@ export class WorldHost {
     const id = this.idFactory();
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id,
       scriptId: definition.id,
       createdAt: now,

@@ -12,6 +12,7 @@ import { ScriptedModelProvider, type ScriptedModelHandler } from "../model-provi
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
+import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 
 const laws = [
@@ -25,8 +26,7 @@ function autonomousAgent(id: string): AgentState {
     id,
     entityId: id,
     modelProfileId: "agent-default",
-    persona: "独立行动的世界居民",
-    goals: ["根据自己的认知继续生活"],
+    character: createEmptyCharacter("独立行动的世界居民"),
     belief: {
       localEntities: {
         self: { id: "self", name: "我", description: "我自己。", status: "observed" },
@@ -137,7 +137,7 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
     agents[id] = autonomousAgent(id);
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     worldId: "acceptance-world",
     lawIds: laws.map((law) => law.id),
     revision: 0,
@@ -306,6 +306,7 @@ function definition(initialState: SimulationState): WorldDefinition {
 function mindOutput(agentId: string, revision: number) {
   return {
     beliefPatch: { agentId, baseRevision: revision, operations: [] },
+    characterPatch: { agentId, baseRevision: revision, operations: [] },
     nextAction: {
       id: `proposal:${agentId}:${revision}`,
       actorId: agentId,
@@ -356,12 +357,14 @@ function jointTransition(
       id: eventId,
       step: nextStep,
       description: "联合世界步骤已经发生。",
+      impact: "ordinary",
       causes: [{ kind: "law", id: "time-passes" }],
     }],
     observations: ["player", ...(options.observerIds ?? Object.keys(context.agentEpistemics))].map((observerId) => ({
       id: `surface:${observerId}:${nextStep}`,
       observerId,
       step: nextStep,
+      kind: "outcome" as const,
       summary: observerId === "player" ? options.playerObservation ?? "你观察到世界继续变化。" : "周围世界继续变化。",
       introductions: [],
       apparentClaims: [],
@@ -551,6 +554,7 @@ describe("open action acceptance", () => {
             mode: "normal",
             stakes: "成功则造成足以击败拦路者的伤害，失败则目标仍可行动。",
             visibility: "full",
+            phase: "resolution",
             causes: [{ kind: "action", id: playerAction.id }],
           }],
         };
@@ -605,6 +609,7 @@ describe("open action acceptance", () => {
             mode: "advantage",
             stakes: "验证可复现世界提交。",
             visibility: "result_only",
+            phase: "resolution",
             causes: [{ kind: "action", id: playerAction.id }],
           }],
         };
