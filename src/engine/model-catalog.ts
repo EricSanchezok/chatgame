@@ -6,7 +6,18 @@ import { canonicalize, contentHash } from "./model-audit";
 
 const identifierSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
 const positiveIntegerSchema = z.number().int().positive();
-export type ModelRole = "truth-engine" | "agent-mind";
+export const modelRoles = [
+  "truth-perception",
+  "truth-reaction-routing",
+  "truth-resolution",
+  "truth-transition",
+  "causal-verifier",
+  "agent-bootstrap",
+  "agent-mind",
+  "agent-reaction",
+] as const;
+
+export type ModelRole = typeof modelRoles[number];
 
 const providerSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -71,14 +82,14 @@ const profileSchema = z.object({
   provider_id: identifierSchema,
   model: z.string().min(1),
   description: z.string().min(1),
-  allowed_roles: z.array(z.enum(["truth-engine", "agent-mind"])).min(1),
+  allowed_roles: z.array(z.enum(modelRoles)).min(1),
   request_timeout_ms: z.number().int().min(1_000).max(3_600_000),
   max_output_tokens: positiveIntegerSchema,
   inference: modelInferenceSchema,
 }).strict();
 
 const catalogDocumentSchema = z.object({
-  schema_version: z.literal(1),
+  schema_version: z.literal(2),
   scheduler: z.object({
     global_concurrency: positiveIntegerSchema,
     max_queued_requests: positiveIntegerSchema,
@@ -117,7 +128,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 export class ModelCatalog {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly hash: string;
   readonly scheduler: Readonly<ModelCatalogDocument["scheduler"]>;
   readonly providers: Readonly<Record<string, Readonly<ModelProviderConfig>>>;

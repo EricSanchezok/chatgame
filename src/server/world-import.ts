@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, wr
 import path from "node:path";
 import AdmZip from "adm-zip";
 import type { ModelCatalog } from "../engine/model-catalog";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { loadWorldScript, WorldScriptError } from "../script/world-loader";
 
 export const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
@@ -101,6 +102,7 @@ export function importWorldArchive(
   scriptsRoot: string,
   modelCatalog: ModelCatalog,
   replace = false,
+  rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
 ): WorldImportResult {
   const resolvedRoot = path.resolve(scriptsRoot);
   mkdirSync(path.dirname(resolvedRoot), { recursive: true });
@@ -108,7 +110,7 @@ export function importWorldArchive(
   let backup: string | undefined;
   try {
     const source = extractArchive(buffer, staging);
-    const definition = loadWorldScript(source, { seed: 1, modelCatalog });
+    const definition = loadWorldScript(source, { seed: 1, modelCatalog, rulePackages });
     mkdirSync(resolvedRoot, { recursive: true });
     const destination = path.join(resolvedRoot, definition.id);
     const exists = existsSync(destination);

@@ -37,7 +37,7 @@ async function sessionDocument(id = "session-1"): Promise<WorldSessionDocument> 
   );
   await engine.bootstrapAgents();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id,
     scriptId: definition.id,
     createdAt: "2026-08-23T00:00:00.000Z",
@@ -58,7 +58,7 @@ async function committedSessionDocument(id = "session-committed"): Promise<World
   engine.beginPlayerIntent("推进一个可审计步骤");
   await engine.step();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id,
     scriptId: definition.id,
     createdAt: "2026-08-23T00:00:00.000Z",

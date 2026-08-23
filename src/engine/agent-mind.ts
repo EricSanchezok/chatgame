@@ -126,6 +126,7 @@ export class AgentMind {
       } | null;
     } = { action: null, outcome: null },
     events: readonly WorldEvent[] = [],
+    purpose: "bootstrap" | "mind" = "mind",
   ): Promise<AgentMindOutput & { modelAudit: ModelExecutionAudit }> {
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
@@ -134,11 +135,11 @@ export class AgentMind {
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
       try {
         const result = await this.provider.generateStructured({
-          profileId: agent.modelProfileId,
+          profileId: agent.modelProfiles[purpose],
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
-          role: "agent-mind",
+          role: purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind",
           subjectId: agent.id,
           promptVersion: AGENT_PROMPT_VERSION,
           schemaName: "agent_mind_output",
@@ -187,7 +188,7 @@ export class AgentMind {
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
       try {
         const result = await this.provider.generateStructured({
-          profileId: agent.modelProfileId,
+          profileId: agent.modelProfiles.reaction,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,

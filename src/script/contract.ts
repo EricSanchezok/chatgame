@@ -10,12 +10,18 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(4),
+  schema_version: z.literal(5),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string().min(1),
-  truth_model_profile_id: safeIdSchema,
+  model_profiles: z.object({
+    perception: safeIdSchema,
+    reaction_routing: safeIdSchema,
+    resolution: safeIdSchema,
+    transition: safeIdSchema,
+    causal_verifier: safeIdSchema,
+  }).strict(),
 }).strict();
 
 export const lawsFileSchema = z.object({
@@ -67,8 +73,8 @@ export const mechanicsFileSchema = z.object({
     id: safeIdSchema,
     name: z.string().min(1),
     unit: z.string().min(1),
-    allow_production: z.boolean(),
-    allow_consumption: z.boolean(),
+    production_law_ids: z.array(safeIdSchema),
+    consumption_law_ids: z.array(safeIdSchema),
   }).strict()),
   ratings: z.array(z.object({
     id: safeIdSchema,
@@ -183,7 +189,11 @@ export const entityDocumentSchema = z.object({
   }).strict()).default([]),
   agent: z.object({
     id: safeIdSchema,
-    model_profile_id: safeIdSchema,
+    model_profiles: z.object({
+      bootstrap: safeIdSchema,
+      mind: safeIdSchema,
+      reaction: safeIdSchema,
+    }).strict(),
     character: characterSeedSchema,
     belief: beliefSeedSchema,
   }).strict().optional(),

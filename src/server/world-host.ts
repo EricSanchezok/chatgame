@@ -169,13 +169,14 @@ export class WorldHost {
       this.options.repository.root,
       this.options.provider.catalog,
       replace,
+      this.options.repository.rulePackages,
     );
   }
 
   private buildEngine(definition: WorldDefinition, state = definition.initialState): SimulationEngine {
     return new SimulationEngine(
       definition,
-      new TruthEngine(this.options.provider),
+      new TruthEngine(this.options.provider, { rulePackages: this.options.repository.rulePackages }),
       new AgentMind(this.options.provider),
       state,
     );
@@ -255,7 +256,7 @@ export class WorldHost {
     await engine.bootstrapAgents({ workloadId: id, batchId: `bootstrap:${id}` });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       id,
       scriptId: definition.id,
       createdAt: now,

@@ -68,7 +68,7 @@ function oversizedDeclaredArchive(): Buffer {
 }
 
 describe("world import", () => {
-  it("atomically imports one validated schema v4 world", () => {
+  it("atomically imports one validated schema v5 world", () => {
     const root = scriptsRoot();
     const result = importWorldArchive(zipDirectory(fixture).toBuffer(), root, modelCatalog);
 

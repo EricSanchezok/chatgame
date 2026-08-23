@@ -1,4 +1,4 @@
-# 世界剧本格式 v4
+# 世界剧本格式 v5
 
 世界包是一个严格目录。它定义初始世界与法则，不定义玩家动作，不携带可执行代码或客户端 UI。
 
@@ -21,15 +21,20 @@ world-id/
 ## `script.yaml`
 
 ```yaml
-schema_version: 4
+schema_version: 5
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
 description: 横跨多个大陆与宗门的修行世界。
-truth_model_profile_id: truth-deepseek
+model_profiles:
+  perception: truth-fast
+  reaction_routing: truth-fast
+  resolution: truth-strong
+  transition: truth-strong
+  causal_verifier: verifier-strong
 ```
 
-`id` 匹配 `[a-z0-9][a-z0-9-]*`；目录名不承担身份，安装目标使用 manifest ID。`truth_model_profile_id` 必须引用服务端模型目录中允许 `truth-engine` 角色的 Profile，不存在默认值。
+`id` 匹配 `[a-z0-9][a-z0-9-]*`；目录名不承担身份，安装目标使用 manifest ID。五个 `model_profiles` 字段分别引用允许 `truth-perception`、`truth-reaction-routing`、`truth-resolution`、`truth-transition` 与 `causal-verifier` 的 Profile。每个字段都必填，可以指向同一 Profile，也可以按推理强度和成本拆分，不存在默认值。
 
 ## `laws.yaml`
 
@@ -52,9 +57,8 @@ laws:
 ```yaml
 rule_packages:
   - id: core-d20
-    version: 1.0.0
+    version: 1.1.0
     config:
-      opposedChecks: true
       damageUsesMeters: true
 meters:
   - id: health
@@ -70,8 +74,8 @@ quantities:
   - id: spirit-stone
     name: 灵石
     unit: 枚
-    allow_production: false
-    allow_consumption: true
+    production_law_ids: []
+    consumption_law_ids: [spirit-stone-conservation]
 ratings:
   - id: resolve
     name: 决心
@@ -79,9 +83,9 @@ ratings:
     max: 10
 ```
 
-`rule_packages` 至少包含一个服务端已注册包。引用由包 ID、精确版本和严格 JSON 配置组成；世界目录不能提供代码。默认注册表提供 `core-d20@1.0.0`，其两个布尔配置声明对抗检定组合与 Meter 伤害组合。未知包、版本不符、重复引用和多余配置拒绝加载。
+`rule_packages` 至少包含一个服务端已注册包。引用由包 ID、精确版本和严格 JSON 配置组成；世界目录不能提供代码。默认注册表提供 `core-d20@1.1.0`，其中 `apply-meter-impact` 根据已提交 resolution check 确定性派生 Meter 变化，并拒绝直接 `adjust_meter` 绕过。未知包、规则、版本不符、重复引用和多余配置拒绝。
 
-Meter 的 `max` 必须大于 `min`，阈值位于范围内；threshold effect 为 `set_lifecycle` 或 `set_fact`。Quantity 明确是否允许生产/消耗；转移始终守恒。Rating 是剧本命名的通用检定修正，`max >= min`。
+Meter 的 `max` 必须大于 `min`，阈值位于范围内；threshold effect 为 `set_lifecycle` 或 `set_fact`。Quantity 通过 `production_law_ids` 与 `consumption_law_ids` 分别列出授权法则；空列表表示禁止相应操作，转移始终守恒。Rating 是剧本命名的通用检定修正，`max >= min`。
 
 ## `entities/*.yaml`
 
@@ -105,7 +109,10 @@ ratings:
   - { id: "resolve:gatekeeper", definition_id: resolve, value: 3 }
 agent:
   id: gatekeeper
-  model_profile_id: agent-openai
+  model_profiles:
+    bootstrap: agent-strong
+    mind: agent-fast
+    reaction: agent-fast
   character:
     persona:
       summary: 谨慎，重视职责。
@@ -149,7 +156,7 @@ agent:
       - { local_entity_id: traveler, canonical_entity_ids: [player] }
 ```
 
-`placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。`model_profile_id` 必须引用允许 `agent-mind` 角色的 Profile；不同 Agent 可分别选择 DeepSeek、OpenAI、xAI 或目录中的其他 Provider。
+`placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。`model_profiles` 的三个必填字段分别引用允许 `agent-bootstrap`、`agent-mind` 与 `agent-reaction` 的 Profile；不同调用点和不同 Agent 都可独立选择 Provider/Profile。
 
 ## 角色种子
 
@@ -200,4 +207,4 @@ loader 验证实体、placement、fact entity value、Agent entity、唯一 self
 
 格式不限制地点层级、实体 kind、predicate、Agent 人格或目标。大陆、位面、宗门、城市和房间都可以是实体并由 placement 组织。loader 一次加载完整包；作者应根据模型上下文与 Agent 成本控制初始活动规模。
 
-loader 只接受 `schema_version: 4`。旧世界包直接拒绝，不提供兼容字段或迁移路径。超大内容的分片与按需加载尚未成为 v4 契约。
+loader 只接受 `schema_version: 5`。旧世界包直接拒绝，不提供兼容字段或迁移路径。超大内容的分片与按需加载尚未成为 v5 契约。

@@ -54,6 +54,7 @@ function characterBasis(impact: CharacterImpact = "ordinary") {
     description: "角色经历了世界事件。",
     impact,
     causes: [{ kind: "law", id: "time" }],
+    assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
   };
   const character = createEmptyCharacter("谨慎的守门人", "说话简短");
   character.traits.cautious = {
@@ -295,7 +296,7 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
     agents[id] = {
       id,
       entityId: id,
-      modelProfileId: "agent-default",
+      modelProfiles: { bootstrap: "agent-default", mind: "agent-default", reaction: "agent-default" },
       character: createEmptyCharacter(`${id} 的人格`),
       belief: {
         localEntities: { self: { id: "self", name: "我", description: `${id} 自己`, status: "observed" } },
@@ -315,7 +316,7 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
     };
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     worldId: "reaction-world",
     lawIds: ["time"],
     revision: 0,
@@ -329,7 +330,9 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
       facts: {},
       mechanics: {
         meters: { health: { id: "health", name: "生命", min: 0, max: 20, thresholds: [] } },
-        quantities: { arrows: { id: "arrows", name: "箭", unit: "支", allowProduction: false, allowConsumption: true } },
+        quantities: {
+          arrows: { id: "arrows", name: "箭", unit: "支", productionLawIds: [], consumptionLawIds: ["time"] },
+        },
         ratings: { reflex: { id: "reflex", name: "反应", min: -5, max: 10 } },
       },
       meters: Object.fromEntries(agentIds.map((id) => [`health:${id}`, {
@@ -358,14 +361,21 @@ function reactionDefinition(initialState: SimulationState): WorldDefinition {
     id: "reaction-world",
     name: "反应窗口世界",
     description: "验证同一步感知与有限反应。",
-    truthModelProfileId: "truth-engine",
+    modelProfiles: {
+      perception: "truth-engine",
+      reactionRouting: "truth-engine",
+      resolution: "truth-engine",
+      transition: "truth-engine",
+      causalVerifier: "truth-engine",
+    },
     laws: [{ id: "time", text: "每步推进时间。", severity: "hard" }],
     disclosure: { defaultCheckVisibility: "full" },
     rulePackages: [{
       id: "core-d20",
-      version: "1.0.0",
-      config: { opposedChecks: true, damageUsesMeters: true },
+      version: "1.1.0",
+      config: { damageUsesMeters: true },
       adjudication: "使用 d20 检定。",
+      rules: [{ id: "apply-meter-impact", description: "检定驱动 Meter 变化。" }],
     }],
     initialState,
   };
@@ -386,10 +396,24 @@ function outcomeTransition(context: {
       status: "succeeded",
       summary: "该行动已被联合裁决。",
       causeRefs: [{ kind: "action", id: action.id }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       knownAlternatives: [],
     })),
-    operations: [{ kind: "advance_time", seconds: 1, causes: [{ kind: "law", id: "time" }] }],
-    events: [{ id: eventId, step, description: "对话与其他行动被联合裁决。", impact: "ordinary", causes: [{ kind: "law", id: "time" }] }],
+    mechanicInvocations: [],
+    operations: [{
+      kind: "advance_time",
+      seconds: 1,
+      causes: [{ kind: "law", id: "time" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+    }],
+    events: [{
+      id: eventId,
+      step,
+      description: "对话与其他行动被联合裁决。",
+      impact: "ordinary",
+      causes: [{ kind: "law", id: "time" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+    }],
     observations: ["player", ...Object.keys(context.agentEpistemics)].map((observerId) => ({
       id: `outcome:${observerId}:${step}`,
       observerId,
@@ -877,83 +901,82 @@ describe("Agent self state and reaction protocol", () => {
   });
 
   it("keeps the reaction window closed after resolution starts and forbids a second round", async () => {
-    const run = async (resolutionFirst: boolean) => {
-      const initial = reactionState();
-      let truthCalls = 0;
-      let reactionCalls = 0;
-      const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
-        const context = JSON.parse(prompt) as {
-          baseRevision: number;
-          step: number;
-          revision: number;
-          jointActions: AgentActionProposal[];
-          agentEpistemics: Record<string, unknown>;
-          validationIssues: Array<{ message: string }>;
-          checkResults: unknown[];
-          agent: { id: string };
-          originalAction?: AgentActionProposal;
-        };
-        if (profileId !== "truth-engine") {
-          if (context.originalAction) {
-            reactionCalls += 1;
-            return {
-              kind: "keep",
-              agentId: "keeper",
-              baseRevision: context.revision,
-              originalProposalId: context.originalAction.id,
-            };
-          }
-          return emptyMindOutput(context.agent.id, context.revision);
-        }
-        truthCalls += 1;
+    const roles: string[] = [];
+    let routingCalls = 0;
+    let reactionCalls = 0;
+    const provider = new ScriptedModelProvider(({ role, prompt }) => {
+      roles.push(role);
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        revision: number;
+        jointActions: AgentActionProposal[];
+        agentEpistemics: Record<string, unknown>;
+        checkResults: unknown[];
+        agent: { id: string };
+        originalAction?: AgentActionProposal;
+      };
+      if (role === "truth-perception") return { kind: "done" };
+      if (role === "truth-reaction-routing") {
+        routingCalls += 1;
         const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
-        if (resolutionFirst && truthCalls === 1) {
-          return {
-            kind: "request_checks",
-            requests: [{
-              id: "already-resolving",
-              actorId: "player",
-              targetId: null,
-              ratingId: null,
-              modifier: 0,
-              modifierSources: [],
-              dc: 0,
-              mode: "normal",
-              stakes: "结算已经开始。",
-              visibility: "hidden",
-              phase: "resolution",
-              causes: [{ kind: "action", id: playerAction.id }],
-            }],
-          };
-        }
-        if (context.validationIssues.length === 0 && (truthCalls === 1 || truthCalls === 2)) {
-          return {
-            kind: "request_reactions",
-            requests: [{
-              agentId: "keeper",
-              sourceActionId: playerAction.id,
-              stimulus: stimulus("keeper", playerAction.id),
-              basis: [{ kind: "shared_placement", placementId: "room" }],
-            }],
-          };
-        }
-        expect(context.validationIssues[0].message)
-          .toContain(resolutionFirst ? "after resolution" : "second reaction round");
-        return { kind: "transition", proposal: outcomeTransition(context) };
-      });
-      const engine = new SimulationEngine(
-        reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
-      );
-      engine.beginPlayerIntent("测试反应窗口阶段门禁");
-      return { result: await engine.step(), reactionCalls };
-    };
+        return {
+          requests: [{
+            agentId: "keeper",
+            sourceActionId: playerAction.id,
+            stimulus: stimulus("keeper", playerAction.id),
+            basis: [{ kind: "shared_placement", placementId: "room" }],
+          }],
+        };
+      }
+      if (role === "truth-resolution") {
+        if (context.checkResults.length > 0) return { kind: "done" };
+        const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+        return {
+          kind: "request_checks",
+          requests: [{
+            id: "resolution-only",
+            actorId: "player",
+            targetId: null,
+            ratingId: null,
+            modifier: 0,
+            modifierSources: [],
+            dc: 0,
+            mode: "normal",
+            stakes: "反应阶段已经永久结束。",
+            visibility: "hidden",
+            phase: "resolution",
+            causes: [{ kind: "action", id: playerAction.id }],
+          }],
+        };
+      }
+      if (role === "truth-transition") return outcomeTransition(context);
+      if (role === "causal-verifier") return { verdict: "accept", findings: [] };
+      if (role === "agent-reaction") {
+        reactionCalls += 1;
+        return {
+          kind: "keep",
+          agentId: "keeper",
+          baseRevision: context.revision,
+          originalProposalId: context.originalAction!.id,
+        };
+      }
+      return emptyMindOutput(context.agent.id, context.revision);
+    }, undefined, false);
+    const engine = new SimulationEngine(
+      reactionDefinition(reactionState()), new TruthEngine(provider), new AgentMind(provider),
+    );
+    engine.beginPlayerIntent("测试反应窗口阶段门禁");
+    const result = await engine.step();
 
-    const afterResolution = await run(true);
-    expect(afterResolution.reactionCalls).toBe(0);
-    expect(afterResolution.result.committed.reactionRequests).toEqual([]);
-    const secondRound = await run(false);
-    expect(secondRound.reactionCalls).toBe(1);
-    expect(secondRound.result.committed.reactionRequests).toHaveLength(1);
+    expect(routingCalls).toBe(1);
+    expect(reactionCalls).toBe(1);
+    expect(result.committed.reactionRequests).toHaveLength(1);
+    expect(result.committed.checkRequests).toEqual([
+      expect.objectContaining({ id: "resolution-only", phase: "resolution" }),
+    ]);
+    expect(roles.indexOf("truth-reaction-routing")).toBeLessThan(roles.indexOf("truth-resolution"));
+    expect(roles.filter((role) => role === "truth-reaction-routing")).toHaveLength(1);
   });
 
   it("rolls back state and RNG when a replacement action or CharacterPatch stays invalid", async () => {

@@ -5,6 +5,7 @@ import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engi
 import { listWorldScripts, loadWorldScript, type WorldScriptSummary } from "./world-loader";
 
 export interface WorldRepository {
+  readonly rulePackages: RulePackageRegistry;
   list(): WorldScriptSummary[];
   load(scriptId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition;
 }
@@ -12,7 +13,7 @@ export interface WorldRepository {
 export class FileWorldRepository implements WorldRepository {
   constructor(
     readonly root: string,
-    private readonly rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
+    readonly rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
   ) {}
 
   list(): WorldScriptSummary[] {
@@ -31,7 +32,10 @@ export class FileWorldRepository implements WorldRepository {
 }
 
 export class MemoryWorldRepository implements WorldRepository {
-  constructor(private readonly definitions: Record<string, WorldDefinition>) {}
+  constructor(
+    private readonly definitions: Record<string, WorldDefinition>,
+    readonly rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
+  ) {}
 
   list(): WorldScriptSummary[] {
     return Object.values(this.definitions)

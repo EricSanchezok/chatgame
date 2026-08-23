@@ -6,8 +6,8 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 | 层 | 目录 | 唯一职责 |
 |---|---|---|
-| 世界契约 | `src/script/` | 严格读取 schema v4 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v3 |
-| 仿真内核 | `src/engine/` | AgentMind、角色演化、自身状态投影、Truth Engine、有限反应、d20、观察隔离与状态事务 |
+| 世界契约 | `src/script/` | 严格读取 schema v5 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v4 |
+| 仿真内核 | `src/engine/` | AgentMind、分阶段 Truth Engine、因果断言、规则钩子、独立因果复核、观察隔离与状态事务 |
 | 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
 | HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表与导入 |
@@ -25,20 +25,20 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 ## 一个世界步骤
 
 1. 当前玩家目标和每个存活 Agent 已准备的自由行动绑定同一 `baseRevision`，按 actor/proposal identity 规范排序形成初始联合输入。
-2. Truth Engine 可以先预承诺 perception checks，再至多一次请求有结构化感知依据的 Agent 对本步骤玩家行动 keep/replace；未被请求者保留预备行动。
-3. 最终行动集锁定后，Truth Engine 可以预承诺 resolution checks；resolution 开始后 reaction window 永久关闭。
-4. Truth Engine 基于最终行动集提出 outcome、世界 delta、带影响级别的事件、逐观察者 outcome observation 与玩家目标状态。
-5. 事务层在克隆前态上校验引用、阶段、因果、守恒、范围、包含关系、观察覆盖和正数时间推进；公开信息守卫拒绝 canonical identity、私密事实和其他主体私密信念进入玩家结果。
+2. `truth-perception` 只决定并预承诺 perception checks；`truth-reaction-routing` 随后恰好调用一次，至多为有结构化感知依据的 Agent 打开一轮 keep/replace。
+3. 最终行动集锁定后，`truth-resolution` 只决定并预承诺 resolution checks；阶段只能前进，不能重新打开 perception 或 reaction。
+4. `truth-transition` 基于最终行动集提出 outcome、规则调用、直接世界 delta、带影响级别的事件、逐观察者 observation 与玩家目标状态。每个 operation、规则调用、event 和 outcome 同时声明可解析原因与机器可求值的前置断言。
+5. 受信任规则包校验规则调用并由代码派生 delta；事务层按顺序求值断言，校验引用、法则授权、守恒、范围、包含关系、观察覆盖和正数时间推进。`causal-verifier` 对有效候选做独立开放语义复核，只能接受或否决；否决只重试 transition，不重开早期阶段。
 6. 每个 AgentMind 只看自己的 belief、character、self view、私有 stimulus 和 outcome observation，按 `BeliefPatch → CharacterPatch → nextAction` 更新；新创建 Agent 也在本步初始化。
-7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。审计保存 initial/final actions、reaction、完整检定、角色 patch、模型尝试和内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
+7. 全部结果有效后，revision、step、RNG、truth、belief、character、玩家知识和审计历史一次提交。审计保存分阶段模型调用、规则调用与结果、断言结果、因果复核和内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
 
 ## 模型调用链
 
-`config/models.yaml` 显式声明 provider、profile、原生推理配置与并发限制。世界选择 Truth profile，每个 Agent 独立选择 Agent profile；角色、密钥和引用在运行前严格校验。`ModelGateway` 按 provider 调用 DeepSeek Chat Completions 或 OpenAI/xAI Responses API，返回 strict schema 结果与审计。所有 HTTP 请求经过进程级公平队列，不存在默认模型、供应商 fallback 或生产 mock。完整契约见 [模型目录与 Gateway](game-design/model-gateway.md)。
+`config/models.yaml` 显式声明 provider、profile、原生推理配置与并发限制。世界分别选择 perception、reaction routing、resolution、transition 与 causal verifier Profile；每个 Agent 分别选择 bootstrap、mind 与 reaction Profile。每个调用点都按精确角色校验，因此同一 Profile 可以复用，也可以把强推理模型只配置给需要它的阶段。`ModelGateway` 按 provider 调用 DeepSeek Chat Completions 或 OpenAI/xAI Responses API，返回 strict schema 结果与审计。所有 HTTP 请求经过进程级公平队列，不存在默认模型、供应商 fallback 或生产 mock。完整契约见 [模型目录与 Gateway](game-design/model-gateway.md)。
 
 ## 规则扩展
 
-世界通过 `rule_packages` 引用服务端受信任注册表中的规则包 ID、精确版本和严格配置。ZIP 不能携带可执行规则代码；未知包、版本不符或多余配置在加载时拒绝。核心只预装 `core-d20`，题材规则继续由世界法典、开放事实和通用数值表达，未来规则包通过同一注册接口加入而不产生动作白名单。
+世界通过 `rule_packages` 引用服务端受信任注册表中的规则包 ID、精确版本和严格配置。ZIP 不能携带可执行规则代码；未知包、规则、版本不符或多余配置在加载/调用时拒绝。同一 `WorldRepository` 持有导入、加载和运行共用的 Registry；resolver 只接收隔离快照，其返回值重新通过严格 operation schema。规则包公开可调用规则的 ID、说明和严格输入 schema，代码统一添加 `mechanic` provenance 并可拒绝模型直接绕过。核心预装 `core-d20@1.1.0` 与 `apply-meter-impact`；它不定义动作白名单，只把检定驱动的 Meter 变化变成可复核的确定性机制。
 
 ## 长程 WorldRun
 
@@ -51,17 +51,17 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 - 玩家文本和 Agent action 都是企图，不是状态命令。
 - 每个步骤恰好包含一次正数时间推进。
 - 每个联合行动恰好有一个 outcome。
-- 所有 delta 与事件都有可解析 causal provenance。
-- Quantity 转移守恒；生产/消耗必须由目录允许并引用世界法则。
+- 所有 delta、规则调用、事件与 outcome 都有可解析 causal provenance 和至少一个可求值断言；引用 check 时必须断言同一 check 的结果。
+- Quantity 转移守恒；生产/消耗必须引用该 Quantity 明确列入相应授权列表的世界法则。
 - Meter/Rating 必须在剧本定义范围内；threshold 只触发一次。
 - placement 不得形成循环；Agent 必须绑定活动实体。
 - 每个 Agent 恰好有一个局部 self binding；自身状态投影不得泄漏 canonical identity 或其他实体状态。
 - 每步最多一轮玩家刺激 reaction；每个 actor 最终恰好一个行动，resolution 开始后不得反应。
-- Truth 输出、Observation、BeliefPatch、CharacterPatch、reaction 与下一行动全部通过 schema 与语义校验。
+- Truth 各阶段、独立因果复核、Observation、BeliefPatch、CharacterPatch、reaction 与下一行动全部通过各自 Profile、schema 与语义校验。
 - 客户端永远不接收 canonical bindings、其他 Agent 信念、内部模型 ID、内部错误或隐藏检定。
 
 ## 扩展到超大世界
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md) 与 [0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md) 与 [0039](decisions/0039-causal-assurance-and-staged-model-profiles.md)。

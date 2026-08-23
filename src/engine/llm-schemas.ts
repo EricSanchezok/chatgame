@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   AgentActionProposal,
   BeliefPatch,
+  CausalVerification,
   CharacterPatch,
   D20CheckRequest,
   ReactionDecision,
@@ -13,6 +14,7 @@ import {
   agentStateSchema,
   beliefClaimSchema,
   beliefValueSchema,
+  causalAssertionSchema,
   causalRefSchema,
   entitySchema,
   evidenceSchema,
@@ -22,6 +24,11 @@ import {
   ratingSchema,
   safeIdSchema,
 } from "./state-schemas";
+
+const causalSourceShape = {
+  causes: z.array(causalRefSchema).min(1),
+  assertions: z.array(causalAssertionSchema).min(1),
+};
 
 const beliefPatchSchema = z.strictObject({
   agentId: safeIdSchema,
@@ -181,31 +188,31 @@ export const checkRequestSchema = z.strictObject({
   causes: z.array(causalRefSchema).min(1),
 }) as z.ZodType<D20CheckRequest>;
 
-const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
+export const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("create_entity"),
     entity: entitySchema,
     placementId: safeIdSchema.nullable(),
-    causes: z.array(causalRefSchema).min(1),
+    ...causalSourceShape,
   }),
-  z.strictObject({ kind: z.literal("retire_entity"), entityId: safeIdSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("retire_entity"), entityId: safeIdSchema, ...causalSourceShape }),
   z.strictObject({
     kind: z.literal("place_entity"),
     entityId: safeIdSchema,
     placementId: safeIdSchema.nullable(),
-    causes: z.array(causalRefSchema).min(1),
+    ...causalSourceShape,
   }),
-  z.strictObject({ kind: z.literal("set_fact"), fact: factSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.strictObject({ kind: z.literal("remove_fact"), factId: safeIdSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.strictObject({ kind: z.literal("set_meter"), meter: meterSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.strictObject({ kind: z.literal("adjust_meter"), meterId: safeIdSchema, amount: z.number().finite(), causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("set_fact"), fact: factSchema, ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("remove_fact"), factId: safeIdSchema, ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("set_meter"), meter: meterSchema, ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("adjust_meter"), meterId: safeIdSchema, amount: z.number().finite(), ...causalSourceShape }),
   z.strictObject({
     kind: z.literal("transfer_quantity"),
     definitionId: safeIdSchema,
     fromHolderId: safeIdSchema,
     toHolderId: safeIdSchema,
     amount: z.number().positive(),
-    causes: z.array(causalRefSchema).min(1),
+    ...causalSourceShape,
   }),
   z.strictObject({
     kind: z.literal("produce_quantity"),
@@ -213,7 +220,7 @@ const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
     holderId: safeIdSchema,
     amount: z.number().positive(),
     lawId: safeIdSchema,
-    causes: z.array(causalRefSchema).min(1),
+    ...causalSourceShape,
   }),
   z.strictObject({
     kind: z.literal("consume_quantity"),
@@ -221,19 +228,28 @@ const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
     holderId: safeIdSchema,
     amount: z.number().positive(),
     lawId: safeIdSchema,
-    causes: z.array(causalRefSchema).min(1),
+    ...causalSourceShape,
   }),
-  z.strictObject({ kind: z.literal("set_rating"), rating: ratingSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.strictObject({ kind: z.literal("advance_time"), seconds: z.number().int().positive(), causes: z.array(causalRefSchema).min(1) }),
-  z.strictObject({ kind: z.literal("create_agent"), agent: agentStateSchema, causes: z.array(causalRefSchema).min(1) }),
-  z.strictObject({ kind: z.literal("remove_agent"), agentId: safeIdSchema, causes: z.array(causalRefSchema).min(1) }),
+  z.strictObject({ kind: z.literal("set_rating"), rating: ratingSchema, ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("advance_time"), seconds: z.number().int().positive(), ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("create_agent"), agent: agentStateSchema, ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("remove_agent"), agentId: safeIdSchema, ...causalSourceShape }),
 ]);
+
+const mechanicInvocationSchema = z.strictObject({
+  id: safeIdSchema,
+  packageId: safeIdSchema,
+  ruleId: safeIdSchema,
+  input: z.json(),
+  ...causalSourceShape,
+});
 
 const actionOutcomeSchema = z.strictObject({
   proposalId: safeIdSchema,
   status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
   summary: z.string(),
   causeRefs: z.array(causalRefSchema),
+  assertions: z.array(causalAssertionSchema).min(1),
   knownAlternatives: z.array(z.strictObject({
     description: z.string().min(1),
     basis: z.discriminatedUnion("kind", [
@@ -249,6 +265,7 @@ const worldEventSchema = z.strictObject({
   description: z.string(),
   impact: z.enum(["ordinary", "significant", "transformative"]),
   causes: z.array(causalRefSchema).min(1),
+  assertions: z.array(causalAssertionSchema).min(1),
 });
 
 const introductionSchema = z.strictObject({
@@ -303,6 +320,7 @@ export const reactionDecisionSchema = z.discriminatedUnion("kind", [
 export const transitionProposalSchema = z.strictObject({
   baseRevision: z.number().int().nonnegative(),
   outcomes: z.array(actionOutcomeSchema),
+  mechanicInvocations: z.array(mechanicInvocationSchema),
   operations: z.array(worldDeltaOperationSchema),
   events: z.array(worldEventSchema),
   observations: z.array(observationSchema),
@@ -310,13 +328,36 @@ export const transitionProposalSchema = z.strictObject({
   requiresPlayerDecision: z.boolean(),
 }) as z.ZodType<TransitionProposal>;
 
-export type TruthDirective =
-  | { kind: "request_checks"; requests: D20CheckRequest[] }
-  | { kind: "request_reactions"; requests: ReactionRequest[] }
-  | { kind: "transition"; proposal: TransitionProposal };
-
-export const truthDirectiveSchema = z.discriminatedUnion("kind", [
+export const perceptionDirectiveSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("request_checks"), requests: z.array(checkRequestSchema).min(1) }),
-  z.strictObject({ kind: z.literal("request_reactions"), requests: z.array(reactionRequestSchema).min(1) }),
-  z.strictObject({ kind: z.literal("transition"), proposal: transitionProposalSchema }),
-]) as z.ZodType<TruthDirective>;
+  z.strictObject({ kind: z.literal("done") }),
+]);
+
+export const reactionRoutingOutputSchema = z.strictObject({
+  requests: z.array(reactionRequestSchema),
+});
+
+export const resolutionDirectiveSchema = perceptionDirectiveSchema;
+
+const causalFindingSchema = z.strictObject({
+  target: z.strictObject({
+    kind: z.enum(["check", "operation", "mechanic", "event", "outcome", "observation"]),
+    id: safeIdSchema,
+  }),
+  code: z.enum([
+    "irrelevant-cause",
+    "missing-precondition",
+    "check-result-contradiction",
+    "law-violation",
+    "effect-mismatch",
+    "impact-overstated",
+    "observation-mismatch",
+  ]),
+  message: z.string().min(1),
+  repairHint: z.string().min(1),
+});
+
+export const causalVerificationSchema = z.discriminatedUnion("verdict", [
+  z.strictObject({ verdict: z.literal("accept"), findings: z.tuple([]) }),
+  z.strictObject({ verdict: z.literal("reject"), findings: z.array(causalFindingSchema).min(1) }),
+]) as z.ZodType<CausalVerification>;

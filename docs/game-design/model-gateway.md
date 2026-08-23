@@ -5,7 +5,7 @@
 ## 目录契约
 
 ```yaml
-schema_version: 1
+schema_version: 2
 scheduler:
   global_concurrency: 16
   max_queued_requests: 1024
@@ -21,7 +21,7 @@ profiles:
     provider_id: deepseek
     model: deepseek-v4-pro
     description: 高强度世界真值裁决
-    allowed_roles: [truth-engine]
+    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, causal-verifier]
     request_timeout_ms: 300000
     max_output_tokens: 32768
     inference:
@@ -29,7 +29,7 @@ profiles:
       effort: max
 ```
 
-provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；每个已配置 provider 在服务初始化时都必须解析到非空密钥。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 只允许 `truth-engine` 或 `agent-mind`，调用、世界加载和动态 Agent 创建都会校验角色；一次性 reaction 复用该 Agent 的 `agent-mind` Profile，但在审计中记录为独立的 `agent-reaction` 调用。
+provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；每个已配置 provider 在服务初始化时都必须解析到非空密钥。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 只允许 `truth-perception`、`truth-reaction-routing`、`truth-resolution`、`truth-transition`、`causal-verifier`、`agent-bootstrap`、`agent-mind` 与 `agent-reaction`。世界、初始 Agent、动态 Agent 和每次调用都按精确角色校验，不再复用或映射另一角色；多个角色仍可显式引用同一 Profile。
 
 `inference` 是 provider 原生判别联合：
 
@@ -53,7 +53,7 @@ DeepSeek 调用 Chat Completions，启用稳定 `json_object` 模式，在用户
 
 `FairModelScheduler` 是 WorldHost 进程内的唯一调度器。它将实际 HTTP 执行限制在 `global_concurrency` 与对应 provider `max_concurrency` 的交集内。每个 session/workload 是 FIFO lane，lane 之间公平轮转；Truth 不获得隐藏优先级。队列满或超过等待上限会返回 `ModelOverloadedError`。取消会移除尚未执行的任务，并将同一 `AbortSignal` 传递到在途 provider 请求。
 
-每个世界步先完成 Truth 裁决，再并发请求全部存活 AgentMind。AgentMind 批次使用完整 settlement：所有结果成功后才统一应用 belief patch 和下一行动；任一请求最终失败都丢弃整批候选并保持世界 revision 不变。
+每个世界步依序完成 perception、reaction routing、resolution、transition 与 causal verifier，再并发请求全部存活 AgentMind。早期阶段一旦完成不会因后续修复而重开；因果复核否决只重试 transition。AgentMind 批次使用完整 settlement：所有结果成功后才统一应用 belief patch 和下一行动；任一请求最终失败都丢弃整批候选并保持世界 revision 不变。
 
 ## 审计
 

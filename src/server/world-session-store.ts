@@ -14,7 +14,7 @@ function assertIdentifier(value: string, label: string): void {
 const envelopeSchema = z.object({
   checksum: z.string().regex(/^[a-f0-9]{64}$/),
   document: z.object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     id: z.string().min(1),
     scriptId: z.string().min(1),
     createdAt: z.string().min(1),

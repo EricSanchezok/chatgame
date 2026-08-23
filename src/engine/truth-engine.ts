@@ -1,11 +1,21 @@
 import { z } from "zod";
-import { truthDirectiveSchema } from "./llm-schemas";
+import { evaluateProposalCausality } from "./causality";
+import {
+  causalVerificationSchema,
+  perceptionDirectiveSchema,
+  reactionRoutingOutputSchema,
+  resolutionDirectiveSchema,
+  transitionProposalSchema,
+} from "./llm-schemas";
 import type {
   AgentActionProposal,
+  CausalAssertionResult,
   CausalRef,
+  CausalVerification,
   D20CheckRequest,
   D20CheckResult,
   ModelExecutionAudit,
+  MechanicResult,
   ObservationPacket,
   ReactionDecision,
   ReactionRequest,
@@ -23,6 +33,9 @@ import {
 import { ModelOverloadedError } from "./model-scheduler";
 import { validateObservations } from "./observation";
 import {
+  CAUSAL_VERIFIER_PROMPT_VERSION,
+  CAUSAL_VERIFIER_SYSTEM,
+  buildCausalVerificationContext,
   buildTruthContext,
   TRUTH_PROMPT_VERSION,
   TRUTH_SYSTEM,
@@ -30,7 +43,9 @@ import {
   type PromptValidationIssue,
 } from "./prompts";
 import { resolveD20Checks } from "./random";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "./rule-package";
 import type { WorldDefinition } from "./world-definition";
+import type { ModelRole } from "./model-catalog";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
@@ -47,7 +62,10 @@ export interface TruthResolution {
   requests: D20CheckRequest[];
   checks: D20CheckResult[];
   rng: SeededRngState;
-  modelAudit: ModelExecutionAudit;
+  mechanicResults: MechanicResult[];
+  causalAssertionResults: CausalAssertionResult[];
+  causalVerification: CausalVerification;
+  modelAudits: ModelExecutionAudit[];
   reactionModelAudits: ModelExecutionAudit[];
 }
 
@@ -64,10 +82,85 @@ export interface TruthResolutionInput {
   ) => void;
 }
 
+export interface TruthEngineOptions {
+  repairAttempts?: number;
+  maxCheckRounds?: number;
+  rulePackages?: RulePackageRegistry;
+}
+
 class ReactionExecutionError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "ReactionExecutionError";
+  }
+}
+
+class ModelStageError extends Error {
+  constructor(readonly role: ModelRole, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ModelStageError";
+  }
+}
+
+interface ValidatedCallInput<T> {
+  provider: StructuredModelProvider;
+  profileId: string;
+  role: ModelRole;
+  subjectId: string;
+  promptVersion: string;
+  schemaName: string;
+  system: string;
+  schema: z.ZodType<T>;
+  scope: ModelExecutionScope;
+  buildContext: (issues: readonly PromptValidationIssue[]) => unknown;
+  validate?: (value: T) => void;
+  repairAttempts: number;
+}
+
+async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
+  value: T;
+  audit: ModelExecutionAudit;
+}> {
+  const audits: ModelExecutionAudit[] = [];
+  let issues: PromptValidationIssue[] = [];
+  let repairCount = 0;
+  while (true) {
+    const auditCountBeforeAttempt = audits.length;
+    try {
+      const result = await input.provider.generateStructured({
+        profileId: input.profileId,
+        workloadId: input.scope.workloadId,
+        batchId: input.scope.batchId,
+        abortSignal: input.scope.abortSignal,
+        role: input.role,
+        subjectId: input.subjectId,
+        promptVersion: input.promptVersion,
+        schemaName: input.schemaName,
+        system: input.system,
+        context: input.buildContext(issues),
+        schema: input.schema,
+      });
+      audits.push(result.audit);
+      input.validate?.(result.value);
+      return {
+        value: result.value,
+        audit: combineModelExecutionAudits(audits, repairCount),
+      };
+    } catch (error) {
+      if (error instanceof ModelTransportError || error instanceof ModelOverloadedError ||
+        (error instanceof Error && error.name === "AbortError")) throw error;
+      if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
+      if (audits.length === auditCountBeforeAttempt) throw error;
+      if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) && !(error instanceof Error)) {
+        throw error;
+      }
+      issues = validationIssues(error);
+      repairCount += 1;
+      if (repairCount > input.repairAttempts) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new ModelStageError(input.role, `${input.role} failed after repairs: ${message}`, { cause: error });
+      }
+    }
   }
 }
 
@@ -293,7 +386,12 @@ function validateTransitionEnvelope(
     event: eventIds,
     fact: new Set(Object.keys(input.state.truth.facts)),
     law: new Set(input.definition.laws.map((law) => law.id)),
+    mechanic: new Set(),
   };
+  for (const invocation of proposal.mechanicInvocations) {
+    for (const cause of invocation.causes) validateCausalReference(cause, allowed, `mechanic ${invocation.id}`);
+    allowed.mechanic.add(invocation.id);
+  }
   for (const event of proposal.events) {
     for (const cause of event.causes) validateCausalReference(cause, allowed, `event ${event.id}`);
     allowed.event.add(event.id);
@@ -340,11 +438,18 @@ function validateTransitionEnvelope(
 }
 
 export class TruthEngine {
+  private readonly repairAttempts: number;
+  private readonly maxCheckRounds: number;
+  private readonly rulePackages: RulePackageRegistry;
+
   constructor(
     private readonly provider: StructuredModelProvider,
-    private readonly repairAttempts = 2,
-    private readonly maxCheckRounds = 4,
-  ) {}
+    options: TruthEngineOptions = {},
+  ) {
+    this.repairAttempts = options.repairAttempts ?? 2;
+    this.maxCheckRounds = options.maxCheckRounds ?? 4;
+    this.rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
+  }
 
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
     let actions = input.initialActions.map((action) => structuredClone(action));
@@ -354,6 +459,7 @@ export class TruthEngine {
       event: new Set(input.state.truth.events.map((event) => event.id)),
       fact: new Set(Object.keys(input.state.truth.facts)),
       law: new Set(input.definition.laws.map((law) => law.id)),
+      mechanic: new Set(),
     };
     let rng = structuredClone(input.state.truth.rng);
     const checks: D20CheckResult[] = [];
@@ -362,113 +468,251 @@ export class TruthEngine {
     let reactionRequests: ReactionRequest[] = [];
     let reactionDecisions: ReactionDecision[] = [];
     let reactionModelAudits: ModelExecutionAudit[] = [];
-    let reactionRequested = false;
-    let resolutionStarted = false;
+    const modelAudits: ModelExecutionAudit[] = [];
     let checkRounds = 0;
-    let repairCount = 0;
-    let issues: PromptValidationIssue[] = [];
-    let lastError = "unknown Truth Engine validation failure";
-    const audits: ModelExecutionAudit[] = [];
+    const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
+      combineModelExecutionAudits(
+        audits,
+        audits.reduce((total, audit) => total + audit.repairAttempts, 0),
+      );
+
+    const truthContext = (
+      stage: "perception" | "reaction-routing" | "resolution" | "transition",
+      issues: readonly PromptValidationIssue[],
+    ) => buildTruthContext({
+      definition: input.definition,
+      state: input.state,
+      initialActions: input.initialActions,
+      actions,
+      reactionRequests,
+      reactionDecisions,
+      reactionWindow: stage === "perception" || stage === "reaction-routing" ? "open" : "closed",
+      committedCheckRequests: requests,
+      checkResults: checks,
+      allowedAgentProfiles: {
+        bootstrap: this.provider.catalog.profileSummaries("agent-bootstrap"),
+        mind: this.provider.catalog.profileSummaries("agent-mind"),
+        reaction: this.provider.catalog.profileSummaries("agent-reaction"),
+      },
+      sessionId: scope.workloadId,
+      runId: scope.batchId,
+      issues,
+      stage,
+    });
+
+    const validateCheckRound = (round: readonly D20CheckRequest[], phase: "perception" | "resolution") => {
+      if (checkRounds >= this.maxCheckRounds) throw new Error("maximum check rounds exceeded");
+      const roundIds = new Set<string>();
+      for (const request of round) {
+        if (request.phase !== phase) throw new Error(`${phase} stage emitted ${request.phase} check`);
+        if (requestIds.has(request.id) || roundIds.has(request.id)) throw new Error(`duplicate check request ${request.id}`);
+        roundIds.add(request.id);
+        validateCheckRequest(
+          input.state,
+          request,
+          allowedForChecks,
+          input.definition.disclosure.defaultCheckVisibility,
+        );
+      }
+    };
+
+    const commitCheckRound = (round: readonly D20CheckRequest[]) => {
+      const resolved = resolveD20Checks(rng, round);
+      rng = resolved.rng;
+      requests.push(...structuredClone(round));
+      checks.push(...resolved.results);
+      for (const request of round) {
+        requestIds.add(request.id);
+        allowedForChecks.check.add(request.id);
+      }
+      checkRounds += 1;
+    };
+
+    const perceptionAudits: ModelExecutionAudit[] = [];
+    while (true) {
+      const call = await generateValidated({
+        provider: this.provider,
+        profileId: input.definition.modelProfiles.perception,
+        role: "truth-perception",
+        subjectId: input.definition.id,
+        promptVersion: TRUTH_PROMPT_VERSION,
+        schemaName: "truth_perception_directive",
+        system: TRUTH_SYSTEM,
+        schema: perceptionDirectiveSchema,
+        scope,
+        buildContext: (issues) => truthContext("perception", issues),
+        validate: (directive) => {
+          if (directive.kind === "request_checks") {
+            validateCheckRound(directive.requests, "perception");
+          }
+        },
+        repairAttempts: this.repairAttempts,
+      });
+      perceptionAudits.push(call.audit);
+      if (call.value.kind === "done") break;
+      commitCheckRound(call.value.requests);
+    }
+    modelAudits.push(combineStageAudits(perceptionAudits));
+
+    const routing = await generateValidated({
+      provider: this.provider,
+      profileId: input.definition.modelProfiles.reactionRouting,
+      role: "truth-reaction-routing",
+      subjectId: input.definition.id,
+      promptVersion: TRUTH_PROMPT_VERSION,
+      schemaName: "truth_reaction_routing",
+      system: TRUTH_SYSTEM,
+      schema: reactionRoutingOutputSchema,
+      scope,
+      buildContext: (issues) => truthContext("reaction-routing", issues),
+      validate: (output) => validateReactionRequests(input, output.requests, requests, checks),
+      repairAttempts: this.repairAttempts,
+    });
+    modelAudits.push(routing.audit);
+    reactionRequests = structuredClone(routing.value.requests);
+    if (reactionRequests.length > 0) {
+      try {
+        const resolved = await input.resolveReactions(reactionRequests);
+        reactionDecisions = structuredClone(resolved.decisions);
+        reactionModelAudits = structuredClone(resolved.modelAudits);
+        actions = applyReactionDecisions(input, reactionRequests, reactionDecisions);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new ReactionExecutionError(`reaction execution failed: ${message}`, { cause: error });
+      }
+      allowedForChecks.action = new Set(actions.map((action) => action.id));
+    }
+
+    const resolutionAudits: ModelExecutionAudit[] = [];
+    while (true) {
+      const call = await generateValidated({
+        provider: this.provider,
+        profileId: input.definition.modelProfiles.resolution,
+        role: "truth-resolution",
+        subjectId: input.definition.id,
+        promptVersion: TRUTH_PROMPT_VERSION,
+        schemaName: "truth_resolution_directive",
+        system: TRUTH_SYSTEM,
+        schema: resolutionDirectiveSchema,
+        scope,
+        buildContext: (issues) => truthContext("resolution", issues),
+        validate: (directive) => {
+          if (directive.kind === "request_checks") {
+            validateCheckRound(directive.requests, "resolution");
+          }
+        },
+        repairAttempts: this.repairAttempts,
+      });
+      resolutionAudits.push(call.audit);
+      if (call.value.kind === "done") break;
+      commitCheckRound(call.value.requests);
+    }
+    modelAudits.push(combineStageAudits(resolutionAudits));
+
+    const stimulusObservations = reactionRequests.map((request) => request.stimulus);
+    let transitionIssues: PromptValidationIssue[] = [];
+    let transitionRepairs = 0;
+    let previousReport: CausalVerification | null = null;
+    const transitionAudits: ModelExecutionAudit[] = [];
+    const verifierAudits: ModelExecutionAudit[] = [];
 
     while (true) {
+      const auditCountBeforeAttempt = transitionAudits.length;
       try {
-        const result = await this.provider.generateStructured({
-          profileId: input.definition.truthModelProfileId,
+        const generated = await this.provider.generateStructured({
+          profileId: input.definition.modelProfiles.transition,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
-          role: "truth-engine",
+          role: "truth-transition",
           subjectId: input.definition.id,
           promptVersion: TRUTH_PROMPT_VERSION,
-          schemaName: "truth_directive",
+          schemaName: "truth_transition",
           system: TRUTH_SYSTEM,
-          context: buildTruthContext({
-            definition: input.definition,
-            state: input.state,
-            initialActions: input.initialActions,
-            actions,
-            reactionRequests,
-            reactionDecisions,
-            reactionWindow: reactionRequested || resolutionStarted ? "closed" : "open",
-            committedCheckRequests: requests,
-            checkResults: checks,
-            allowedAgentProfiles: this.provider.catalog.profileSummaries("agent-mind"),
-            sessionId: scope.workloadId,
-            runId: scope.batchId,
-            issues,
-          }),
-          schema: truthDirectiveSchema,
+          context: truthContext("transition", transitionIssues),
+          schema: transitionProposalSchema,
         });
-        audits.push(result.audit);
-        const directive = result.value;
+        transitionAudits.push(generated.audit);
+        const directProposal = generated.value;
+        const mechanics = this.rulePackages.resolve(input.definition.rulePackages, {
+          state: input.state,
+          actions,
+          checkRequests: requests,
+          checkResults: checks,
+        }, directProposal.mechanicInvocations, directProposal.operations);
+        const proposal: TransitionProposal = {
+          ...structuredClone(directProposal),
+          mechanicInvocations: mechanics.invocations,
+          operations: [...structuredClone(directProposal.operations), ...mechanics.operations],
+        };
 
-        if (directive.kind === "request_checks") {
-          if (checkRounds >= this.maxCheckRounds) throw new Error("maximum check rounds exceeded");
-          const phases = new Set(directive.requests.map((request) => request.phase));
-          if (phases.size !== 1) throw new Error("a check round cannot mix perception and resolution phases");
-          const phase = directive.requests[0].phase;
-          if (phase === "perception" && (reactionRequested || resolutionStarted)) {
-            throw new Error("perception checks are forbidden after the reaction window closes");
-          }
-          const roundRequestIds = new Set<string>();
-          for (const request of directive.requests) {
-            if (requestIds.has(request.id) || roundRequestIds.has(request.id)) {
-              throw new Error(`duplicate check request ${request.id}`);
-            }
-            roundRequestIds.add(request.id);
-            validateCheckRequest(
-              input.state,
-              request,
-              allowedForChecks,
-              input.definition.disclosure.defaultCheckVisibility,
-            );
-          }
-          const resolved = resolveD20Checks(rng, directive.requests);
-          rng = resolved.rng;
-          requests.push(...structuredClone(directive.requests));
-          checks.push(...resolved.results);
-          for (const request of directive.requests) {
-            requestIds.add(request.id);
-            allowedForChecks.check.add(request.id);
-          }
-          if (phase === "resolution") resolutionStarted = true;
-          checkRounds += 1;
-          issues = [];
-          continue;
-        }
-
-        if (directive.kind === "request_reactions") {
-          if (reactionRequested) throw new Error("a second reaction round is forbidden");
-          if (resolutionStarted) throw new Error("reaction is forbidden after resolution checks begin");
-          validateReactionRequests(input, directive.requests, requests, checks);
-          reactionRequested = true;
-          reactionRequests = structuredClone(directive.requests);
-          try {
-            const resolved = await input.resolveReactions(reactionRequests);
-            reactionDecisions = structuredClone(resolved.decisions);
-            reactionModelAudits = structuredClone(resolved.modelAudits);
-            actions = applyReactionDecisions(input, reactionRequests, reactionDecisions);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            throw new ReactionExecutionError(`reaction execution failed: ${message}`, { cause: error });
-          }
-          allowedForChecks.action = new Set(actions.map((action) => action.id));
-          issues = [];
-          continue;
-        }
-
-        for (const operation of directive.proposal.operations) {
+        for (const operation of proposal.operations) {
           if (operation.kind !== "create_agent") continue;
-          this.provider.catalog.assertProfile(operation.agent.modelProfileId, "agent-mind");
+          this.provider.catalog.assertProfile(operation.agent.modelProfiles.bootstrap, "agent-bootstrap");
+          this.provider.catalog.assertProfile(operation.agent.modelProfiles.mind, "agent-mind");
+          this.provider.catalog.assertProfile(operation.agent.modelProfiles.reaction, "agent-reaction");
           if (operation.agent.nextAction !== null) {
             throw new Error(`new agent ${operation.agent.id} must not provide a prepared action`);
           }
         }
-        const stimulusObservations = reactionRequests.map((request) => request.stimulus);
-        validateTransitionEnvelope(input, actions, directive.proposal, checks);
-        input.validateProposal(directive.proposal, checks, actions, stimulusObservations);
+        validateTransitionEnvelope(input, actions, proposal, checks);
+        const causalAssertionResults = evaluateProposalCausality(input.state, checks, proposal);
+        input.validateProposal(proposal, checks, actions, stimulusObservations);
+
+        const verification = await generateValidated({
+          provider: this.provider,
+          profileId: input.definition.modelProfiles.causalVerifier,
+          role: "causal-verifier",
+          subjectId: input.definition.id,
+          promptVersion: CAUSAL_VERIFIER_PROMPT_VERSION,
+          schemaName: "causal_verification",
+          system: CAUSAL_VERIFIER_SYSTEM,
+          schema: causalVerificationSchema,
+          scope,
+          buildContext: (issues) => buildCausalVerificationContext({
+            definition: input.definition,
+            state: input.state,
+            actions,
+            checkRequests: requests,
+            checkResults: checks,
+            proposal,
+            assertionResults: causalAssertionResults,
+            mechanicResults: mechanics.results,
+            previousReport,
+            sessionId: scope.workloadId,
+            runId: scope.batchId,
+            issues,
+          }),
+          validate: (report) => {
+            if (report.verdict !== "reject") return;
+            const targets = new Set([
+              ...requests.map((request) => `check:${request.id}`),
+              ...proposal.operations.map((operation, index) => `operation:${index}:${operation.kind}`),
+              ...proposal.mechanicInvocations.map((invocation) => `mechanic:${invocation.id}`),
+              ...proposal.events.map((event) => `event:${event.id}`),
+              ...proposal.outcomes.map((outcome) => `outcome:${outcome.proposalId}`),
+              ...proposal.observations.map((observation) => `observation:${observation.id}`),
+            ]);
+            for (const finding of report.findings) {
+              if (!targets.has(`${finding.target.kind}:${finding.target.id}`)) {
+                throw new Error(`causal verifier references unknown target ${finding.target.kind}:${finding.target.id}`);
+              }
+            }
+          },
+          repairAttempts: this.repairAttempts,
+        });
+        verifierAudits.push(verification.audit);
+        if (verification.value.verdict === "reject") {
+          previousReport = structuredClone(verification.value);
+          throw new Error(`causal verifier rejected transition: ${verification.value.findings
+            .map((finding) => `${finding.code}: ${finding.message}; ${finding.repairHint}`)
+            .join(" | ")}`);
+        }
+
+        modelAudits.push(combineModelExecutionAudits(transitionAudits, transitionRepairs));
+        modelAudits.push(combineStageAudits(verifierAudits));
         return {
-          proposal: directive.proposal,
+          proposal,
           initialActions: structuredClone(input.initialActions),
           actions: structuredClone(actions),
           reactionRequests: structuredClone(reactionRequests),
@@ -477,23 +721,28 @@ export class TruthEngine {
           requests: structuredClone(requests),
           checks: structuredClone(checks),
           rng,
-          modelAudit: combineModelExecutionAudits(audits, repairCount),
+          mechanicResults: structuredClone(mechanics.results),
+          causalAssertionResults: structuredClone(causalAssertionResults),
+          causalVerification: structuredClone(verification.value),
+          modelAudits,
           reactionModelAudits: structuredClone(reactionModelAudits),
         };
       } catch (error) {
-        if (error instanceof ReactionExecutionError || error instanceof ModelTransportError ||
+        if (error instanceof ModelStageError && error.role === "causal-verifier") throw error;
+        if (error instanceof ModelTransportError ||
           error instanceof ModelOverloadedError || (error instanceof Error && error.name === "AbortError")) {
           throw error;
         }
-        if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
+        if (error instanceof ModelOutputError && error.audit) transitionAudits.push(error.audit);
+        if (transitionAudits.length === auditCountBeforeAttempt) throw error;
         if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) && !(error instanceof Error)) {
           throw error;
         }
-        lastError = error instanceof Error ? error.message : String(error);
-        issues = validationIssues(error);
-        repairCount += 1;
-        if (repairCount > this.repairAttempts) {
-          throw new Error(`TruthEngine failed after repairs: ${lastError}`, { cause: error });
+        transitionIssues = validationIssues(error);
+        transitionRepairs += 1;
+        if (transitionRepairs > this.repairAttempts) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`truth-transition failed after repairs: ${message}`, { cause: error });
         }
       }
     }

@@ -80,8 +80,8 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
         id: quantity.id,
         name: quantity.name,
         unit: quantity.unit,
-        allowProduction: quantity.allow_production,
-        allowConsumption: quantity.allow_consumption,
+        productionLawIds: quantity.production_law_ids,
+        consumptionLawIds: quantity.consumption_law_ids,
       })),
       "quantity",
     ),
@@ -145,7 +145,11 @@ function agentFrom(document: EntityDocument): AgentState | undefined {
   return {
     id: document.agent.id,
     entityId: document.id,
-    modelProfileId: document.agent.model_profile_id,
+    modelProfiles: {
+      bootstrap: document.agent.model_profiles.bootstrap,
+      mind: document.agent.model_profiles.mind,
+      reaction: document.agent.model_profiles.reaction,
+    },
     character: characterFrom(document.agent),
     belief: beliefFrom(document.agent),
     bindings: Object.fromEntries(
@@ -225,7 +229,7 @@ export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptio
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       worldId: manifest.id,
       lawIds: laws.laws.map((law) => law.id),
       revision: 0,
@@ -316,7 +320,13 @@ export function loadWorldScript(scriptDir: string, options: LoadWorldScriptOptio
       id: manifest.id,
       name: manifest.name,
       description: manifest.description,
-      truthModelProfileId: manifest.truth_model_profile_id,
+      modelProfiles: {
+        perception: manifest.model_profiles.perception,
+        reactionRouting: manifest.model_profiles.reaction_routing,
+        resolution: manifest.model_profiles.resolution,
+        transition: manifest.model_profiles.transition,
+        causalVerifier: manifest.model_profiles.causal_verifier,
+      },
       laws: laws.laws,
       disclosure: { defaultCheckVisibility: laws.disclosure.default_check_visibility },
       rulePackages: rulePackages.validate(mechanicsDocument.rule_packages.map((reference) => ({
