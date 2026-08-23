@@ -13,8 +13,7 @@ export function errorResponse(error: unknown): NextResponse {
   if (error instanceof WorldImportError) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
-  const message = error instanceof Error ? error.message : String(error);
-  return NextResponse.json({ error: message }, { status: 500 });
+  return NextResponse.json({ error: "服务器无法完成请求。" }, { status: 500 });
 }
 
 export async function readJson<T>(request: Request): Promise<T | undefined> {

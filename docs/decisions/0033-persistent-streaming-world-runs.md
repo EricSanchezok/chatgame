@@ -25,7 +25,7 @@ Class: architecture
 
 ## Decision Outcome
 
-会话每次只运行一个 `WorldRun`。客户端通过 `POST /api/sessions/:id/runs` 提交原始玩家文本并获得 run id；`GET /api/sessions/:id/runs/:runId/events` 使用 SSE 发送运行状态、公开检定、玩家观察和已提交步骤；run 资源 GET 返回快照，DELETE 请求在世界步骤边界取消。
+会话每次只运行一个 `WorldRun`。客户端通过 `POST /api/sessions/:id/runs` 提交原始玩家文本并只获得 run id；`GET /api/sessions/:id/runs/:runId/events` 使用 SSE 发送运行状态、公开检定、玩家 outcome、玩家观察和已提交步骤；run 资源 GET 返回 run 与公开会话状态的组合快照，DELETE 请求在世界步骤边界取消。
 
 每个步骤在 Truth transition、全部 Agent BeliefPatch、下一步行动、玩家知识、事件日志与 RNG 均验证成功后原子写入存档。模型或结构错误使当前步骤回滚并进入可重试失败状态。已提交步骤在后续失败、取消或进程恢复后保留。
 

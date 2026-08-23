@@ -34,6 +34,16 @@ const beliefPatchSchema = z.object({
         fromId: z.string().min(1),
         intoId: z.string().min(1),
       }),
+      z.object({
+        kind: z.literal("split_local_entity"),
+        fromId: z.string().min(1),
+        entities: z.array(localEntitySchema).min(2),
+        assignments: z.array(z.object({
+          claimId: z.string().min(1),
+          subjectId: z.string().min(1).optional(),
+          valueId: z.string().min(1).optional(),
+        })),
+      }),
     ]),
   ),
 }) as z.ZodType<BeliefPatch>;
@@ -54,7 +64,10 @@ const checkRequestSchema = z.object({
   targetId: z.string().min(1).optional(),
   ratingId: z.string().min(1).optional(),
   modifier: z.number().int(),
-  modifierSourceIds: z.array(z.string().min(1)),
+  modifierSources: z.array(z.object({
+    id: z.string().min(1),
+    amount: z.number().int().min(-100).max(100),
+  })),
   dc: z.number().int().min(0).max(100),
   mode: z.enum(["normal", "advantage", "disadvantage"]),
   stakes: z.string().min(1),
@@ -120,7 +133,19 @@ const actionOutcomeSchema = z.object({
   status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
   summary: z.string(),
   causeRefs: z.array(causalRefSchema),
-  knownAlternatives: z.array(z.string()),
+  knownAlternatives: z.array(z.object({
+    description: z.string().min(1),
+    basis: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("knowledge"),
+        evidenceIds: z.array(z.string().min(1)).min(1),
+      }),
+      z.object({
+        kind: z.literal("observation"),
+        observationId: z.string().min(1),
+      }),
+    ]),
+  })),
 });
 
 const worldEventSchema = z.object({

@@ -85,12 +85,24 @@ export interface PublicObservationPacket {
   sourceEventIds: string[];
 }
 
+export interface PublicActionOutcome {
+  status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
+  summary: string;
+  knownAlternatives: string[];
+}
+
 export type WorldRunEvent =
   | {
       sequence: number;
       type: "run.started";
       at: string;
       payload: { runId: string; text: string };
+    }
+  | {
+      sequence: number;
+      type: "player.outcome";
+      at: string;
+      payload: PublicActionOutcome;
     }
   | {
       sequence: number;
@@ -148,4 +160,13 @@ export interface WorldRunRecordView {
   cancelRequested: boolean;
   error?: string;
   events: WorldRunEvent[];
+}
+
+export interface StartWorldRunResponse {
+  runId: string;
+}
+
+export interface WorldRunSnapshot {
+  run: WorldRunRecordView;
+  state: PublicSessionSnapshot;
 }

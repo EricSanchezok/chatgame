@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import AdmZip from "adm-zip";
-import { loadWorldScript } from "../script/world-loader";
+import { loadWorldScript, WorldScriptError } from "../script/world-loader";
 
 export const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 export const MAX_ENTRY_COUNT = 5_000;
@@ -17,6 +17,10 @@ export class WorldImportError extends Error {
 
 function safeEntryName(name: string): string {
   if (name.includes("\\") || name.includes("\0")) throw new WorldImportError(`unsafe archive entry: ${name}`);
+  const segments = name.replace(/\/$/, "").split("/");
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new WorldImportError(`unsafe archive entry: ${name}`);
+  }
   const normalized = path.posix.normalize(name);
   if (normalized.startsWith("/") || normalized === ".." || normalized.startsWith("../")) {
     throw new WorldImportError(`unsafe archive entry: ${name}`);
@@ -26,8 +30,9 @@ function safeEntryName(name: string): string {
 
 function locateRoot(staging: string): string {
   if (existsSync(path.join(staging, "script.yaml"))) return staging;
+  const topLevelEntries = readdirSync(staging, { withFileTypes: true });
   const candidates = new Set<string>();
-  for (const entry of readdirSync(staging, { withFileTypes: true })) {
+  for (const entry of topLevelEntries) {
     if (entry.isDirectory() && existsSync(path.join(staging, entry.name, "script.yaml"))) {
       candidates.add(path.join(staging, entry.name));
     }
@@ -35,7 +40,16 @@ function locateRoot(staging: string): string {
   if (candidates.size !== 1) {
     throw new WorldImportError("archive must contain one world root with script.yaml");
   }
-  return [...candidates][0];
+  const root = [...candidates][0];
+  if (topLevelEntries.length !== 1 || path.join(staging, topLevelEntries[0].name) !== root) {
+    throw new WorldImportError("archive contains files outside its single world root");
+  }
+  return root;
+}
+
+function isSymbolicLinkEntry(entry: AdmZip.IZipEntry): boolean {
+  const unixMode = (entry.header.attr >>> 16) & 0o170000;
+  return unixMode === 0o120000;
 }
 
 function extractArchive(buffer: Buffer, staging: string): string {
@@ -48,10 +62,18 @@ function extractArchive(buffer: Buffer, staging: string): string {
   }
   const entries = zip.getEntries();
   if (entries.length > MAX_ENTRY_COUNT) throw new WorldImportError("archive contains too many entries");
+  const declaredExpandedBytes = entries.reduce((total, entry) => total + Number(entry.header.size), 0);
+  if (!Number.isSafeInteger(declaredExpandedBytes) || declaredExpandedBytes > MAX_EXPANDED_BYTES) {
+    throw new WorldImportError("archive expands beyond 100 MiB");
+  }
   let expandedBytes = 0;
+  const names = new Set<string>();
   for (const entry of entries) {
     const name = safeEntryName(entry.entryName);
     if (!name) continue;
+    if (names.has(name)) throw new WorldImportError(`duplicate archive entry: ${name}`);
+    names.add(name);
+    if (isSymbolicLinkEntry(entry)) throw new WorldImportError(`symbolic links are not allowed: ${name}`);
     const target = path.join(staging, ...name.split("/"));
     if (entry.isDirectory) {
       mkdirSync(target, { recursive: true });
@@ -108,7 +130,10 @@ export function importWorldArchive(
     };
   } catch (error) {
     if (error instanceof WorldImportError) throw error;
-    throw new WorldImportError(error instanceof Error ? error.message : String(error));
+    if (error instanceof WorldScriptError) {
+      throw new WorldImportError(error.message.replaceAll(staging, "<world>"));
+    }
+    throw new WorldImportError("world archive could not be installed", 500);
   } finally {
     rmSync(staging, { recursive: true, force: true });
   }

@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { WorldDefinition } from "../engine/world-definition";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { listWorldScripts, loadWorldScript, type WorldScriptSummary } from "./world-loader";
 
 export interface WorldRepository {
@@ -8,7 +9,10 @@ export interface WorldRepository {
 }
 
 export class FileWorldRepository implements WorldRepository {
-  constructor(readonly root: string) {}
+  constructor(
+    readonly root: string,
+    private readonly rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
+  ) {}
 
   list(): WorldScriptSummary[] {
     return listWorldScripts(this.root);
@@ -17,7 +21,7 @@ export class FileWorldRepository implements WorldRepository {
   load(scriptId: string, seed = 1): WorldDefinition {
     const summary = this.list().find((candidate) => candidate.id === scriptId);
     if (!summary) throw new Error(`world script not found: ${scriptId}`);
-    return loadWorldScript(path.resolve(summary.directory), seed);
+    return loadWorldScript(path.resolve(summary.directory), seed, this.rulePackages);
   }
 }
 

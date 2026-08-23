@@ -13,19 +13,19 @@
 | `GET /api/sessions` | 列出持久会话公开快照 |
 | `POST /api/sessions` | 以 `scriptId` 和可选非负 seed 创建会话 |
 | `GET /api/sessions/:id` | 读取公开会话快照 |
-| `POST /api/sessions/:id/runs` | 提交 1–4000 字符任意自然语言目标，返回 202 与 run |
-| `GET /api/sessions/:id/runs/:runId` | 读取 run 快照 |
-| `POST /api/sessions/:id/runs/:runId` | 重试 failed/step_limit run |
-| `DELETE /api/sessions/:id/runs/:runId` | 请求在安全步骤边界取消 |
+| `POST /api/sessions/:id/runs` | 提交 1–4000 字符任意自然语言目标，返回 202 与精确形状 `{ runId }` |
+| `GET /api/sessions/:id/runs/:runId` | 返回 `{ run, state }` 公开组合快照 |
+| `POST /api/sessions/:id/runs/:runId` | 重试 failed/step_limit run，返回 `{ run, state }` |
+| `DELETE /api/sessions/:id/runs/:runId` | 请求在安全步骤边界取消，返回 `{ run, state }` |
 | `GET /api/sessions/:id/runs/:runId/events` | 从 `Last-Event-ID` 或 `after` 游标重放并订阅 SSE |
 
 ## SSE 事件
 
-事件有单调 `sequence`、`type`、时间与 payload。类型包括 `run.started`、`check.resolved`、`player.observation`、`step.committed` 以及各终止状态。终止后流在发送最后事件后关闭；断线客户端携带最后 sequence 重连即可补齐，不需要重新运行世界步骤。
+事件有单调 `sequence`、`type`、时间与 payload。类型包括 `run.started`、`check.resolved`、`player.outcome`、`player.observation`、`step.committed` 以及各终止状态。公开检定使用宿主生成的不透明 ID；outcome 只包含玩家可知的结论和已验证替代方向。终止后流在发送最后事件后关闭；断线客户端携带最后 sequence 重连即可补齐，不需要重新运行世界步骤。
 
 ## 运行状态
 
-run 状态为 queued、running、awaiting_player、completed、goal_failed、step_limit、cancelled 或 failed。只有 queued/running 属于活动状态；一个会话同时至多一个活动 run。failed 带可重试错误，step_limit 保留 active intent 供继续。
+run 状态为 queued、running、awaiting_player、completed、goal_failed、step_limit、cancelled 或 failed。只有 queued/running 属于活动状态；一个会话同时至多一个活动 run。failed 的公开错误为稳定、可重试消息，内部异常只保存在服务端记录；step_limit 保留 active intent 供继续。重试只能继续该 run 自己的 intent，并在存在其他活动 run 时拒绝。
 
 ## 工作台
 

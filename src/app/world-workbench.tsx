@@ -12,6 +12,7 @@ import { worldApi } from "./lib/world-api-client";
 const eventTypes: WorldRunEvent["type"][] = [
   "run.started",
   "check.resolved",
+  "player.outcome",
   "player.observation",
   "step.committed",
   "run.awaiting_player",
@@ -30,6 +31,10 @@ function eventText(event: WorldRunEvent): string {
       return event.payload.visibility === "full"
         ? `检定 ${event.payload.total} 对 DC ${event.payload.dc}：${event.payload.succeeded ? "成功" : "失败"}`
         : `检定结果：${event.payload.succeeded ? "成功" : "失败"}`;
+    case "player.outcome":
+      return event.payload.knownAlternatives.length > 0
+        ? `${event.payload.summary} 可尝试：${event.payload.knownAlternatives.join("；")}`
+        : event.payload.summary;
     case "player.observation":
       return event.payload.summary;
     case "step.committed":
@@ -77,10 +82,10 @@ export function WorldWorkbench() {
           : [...current, event]);
         if (isTerminal(event)) {
           source.close();
-          void Promise.all([worldApi.run(sessionId, runId), worldApi.session(sessionId)])
-            .then(([nextRun, nextSession]) => {
-              setRun(nextRun);
-              setSession(nextSession);
+          void worldApi.run(sessionId, runId)
+            .then((snapshot) => {
+              setRun(snapshot.run);
+              setSession(snapshot.state);
             })
             .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
         }
@@ -150,10 +155,12 @@ export function WorldWorkbench() {
     setInputError("");
     setEvents([]);
     try {
-      const nextRun = await worldApi.startRun(session.id, input);
-      setRun(nextRun);
+      const started = await worldApi.startRun(session.id, input);
+      const snapshot = await worldApi.run(session.id, started.runId);
+      setRun(snapshot.run);
+      setSession(snapshot.state);
       setInput("");
-      observeRun(session.id, nextRun.id);
+      observeRun(session.id, started.runId);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -162,7 +169,9 @@ export function WorldWorkbench() {
   async function cancel(): Promise<void> {
     if (!session || !run) return;
     try {
-      setRun(await worldApi.cancelRun(session.id, run.id));
+      const snapshot = await worldApi.cancelRun(session.id, run.id);
+      setRun(snapshot.run);
+      setSession(snapshot.state);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -172,9 +181,10 @@ export function WorldWorkbench() {
     if (!session || !run) return;
     setError("");
     try {
-      const nextRun = await worldApi.retryRun(session.id, run.id);
-      setRun(nextRun);
-      observeRun(session.id, nextRun.id, events.at(-1)?.sequence ?? 0);
+      const snapshot = await worldApi.retryRun(session.id, run.id);
+      setRun(snapshot.run);
+      setSession(snapshot.state);
+      observeRun(session.id, snapshot.run.id, events.at(-1)?.sequence ?? 0);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }

@@ -25,9 +25,11 @@ Class: testing
 
 ## Decision Outcome
 
-Vitest 直接覆盖事实与信念分离、d20 预承诺和种子复现、数值守恒、阈值、动态 Agent、全体同 revision 联合行动、模型修复失败回滚、脚本严格加载、ZIP 安全、会话逐步持久化、崩溃恢复、取消边界、Route Handler 和 SSE 重放。前端用 jsdom 验证零世界空态和导入入口。
+Vitest 直接覆盖事实与信念分离、d20 预承诺和种子复现、数值守恒、阈值、动态 Agent、五十 Agent 连续同 revision 联合行动、联合冲突排列无关性、自由行动验收、模型修复失败回滚、审计重放、脚本与规则包严格加载、ZIP 安全、会话逐步持久化、崩溃恢复、取消边界、百步上限、Route Handler 和 SSE 游标重放。前端用 jsdom 验证零世界空态和导入入口。
 
-Playwright 只对 `next build` 后的真实应用运行两类门禁：核心玩家入口和页面级 axe。测试使用不含世界包的独立根目录与隔离数据目录，启动真实 Route Handler；`CHATGAME_LLM_PROVIDER=mock` 只在模型边界提供符合正式 schema 的确定性输出。Storybook、浏览器组件模式、旧内置剧本 E2E 和像素基线不再属于当前测试栈。
+Playwright 只对 `next build` 后的真实应用运行两类门禁：完整核心玩家流程和页面级 axe。测试从零世界启动，在隔离目录导入运行时生成的 schema v2 ZIP，经真实 Route Handler 创建会话、提交自由文本、接收 SSE、刷新并验证持久状态，同时检查窄屏无横向溢出；`CHATGAME_LLM_PROVIDER=mock` 只在模型边界提供符合正式 schema 的确定性输出。Storybook、浏览器组件模式、旧内置剧本 E2E 和像素基线不属于测试栈。
+
+真实 DeepSeek 烟雾命令在开发者显式提供密钥时执行 AgentMind 初始化和完整 Truth Engine 步骤，用于捕获 OpenAI-compatible 方言差异；它不进入 CI，也不替代可重复门禁。
 
 `check:fast` 运行 lint、类型、Vitest、世界夹具校验与治理门禁；`check:all` 在此基础上增加生产构建的 E2E 和无障碍测试。
 

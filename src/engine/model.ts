@@ -111,6 +111,8 @@ export interface RatingState {
 
 export interface CanonicalWorldState {
   elapsedSeconds: number;
+  rng: SeededRngState;
+  events: WorldEvent[];
   entities: Record<EntityId, WorldEntity>;
   placements: Record<EntityId, EntityId | null>;
   facts: Record<FactId, WorldFact>;
@@ -209,6 +211,7 @@ export interface WorldEvent {
 export interface SimulationState {
   schemaVersion: 1;
   worldId: string;
+  lawIds: string[];
   revision: number;
   step: number;
   truth: CanonicalWorldState;
@@ -219,9 +222,8 @@ export interface SimulationState {
     bindings: Record<LocalEntityId, EpistemicBinding>;
     intent?: PlayerIntent;
   };
-  rng: SeededRngState;
-  events: WorldEvent[];
   history: CommittedStep[];
+  bootstrapModelAudits: ModelExecutionAudit[];
 }
 
 export type CheckVisibility = "full" | "result_only" | "hidden";
@@ -232,7 +234,7 @@ export interface D20CheckRequest {
   targetId?: EntityId;
   ratingId?: string;
   modifier: number;
-  modifierSourceIds: string[];
+  modifierSources: Array<{ id: string; amount: number }>;
   dc: number;
   mode: "normal" | "advantage" | "disadvantage";
   stakes: string;
@@ -252,12 +254,19 @@ export interface D20CheckResult {
   visibility: CheckVisibility;
 }
 
+export interface KnownAlternative {
+  description: string;
+  basis:
+    | { kind: "knowledge"; evidenceIds: string[] }
+    | { kind: "observation"; observationId: string };
+}
+
 export interface ActionOutcome {
   proposalId: string;
   status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
   summary: string;
   causeRefs: CausalRef[];
-  knownAlternatives: string[];
+  knownAlternatives: KnownAlternative[];
 }
 
 export interface ApparentClaim {
@@ -289,7 +298,17 @@ export type BeliefPatchOperation =
   | { kind: "upsert_evidence"; evidence: BeliefEvidence }
   | { kind: "upsert_claim"; claim: BeliefClaim }
   | { kind: "remove_claim"; claimId: string }
-  | { kind: "merge_local_entities"; fromId: LocalEntityId; intoId: LocalEntityId };
+  | { kind: "merge_local_entities"; fromId: LocalEntityId; intoId: LocalEntityId }
+  | {
+      kind: "split_local_entity";
+      fromId: LocalEntityId;
+      entities: LocalEntity[];
+      assignments: Array<{
+        claimId: string;
+        subjectId?: LocalEntityId;
+        valueId?: LocalEntityId;
+      }>;
+    };
 
 export interface BeliefPatch {
   agentId: AgentId;
@@ -344,15 +363,32 @@ export interface TransitionProposal {
   requiresPlayerDecision: boolean;
 }
 
+export interface ModelExecutionAudit {
+  role: "truth-engine" | "agent-mind";
+  subjectId: string;
+  profileId: string;
+  providerId: string;
+  modelId: string;
+  attempts: number;
+  repairAttempts: number;
+  requestHashes: string[];
+  responseHashes: string[];
+}
+
 export interface CommittedStep {
+  contentHash: string;
   baseRevision: number;
   revision: number;
   step: number;
   actions: AgentActionProposal[];
+  rngBefore: SeededRngState;
+  rngAfter: SeededRngState;
+  checkRequests: D20CheckRequest[];
   checks: D20CheckResult[];
   outcomes: ActionOutcome[];
   events: WorldEvent[];
   observations: ObservationPacket[];
   operations: WorldDeltaOperation[];
   beliefPatches: BeliefPatch[];
+  modelAudits: ModelExecutionAudit[];
 }

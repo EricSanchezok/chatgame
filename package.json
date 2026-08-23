@@ -17,6 +17,7 @@
     "world:import": "tsx scripts/import-world.ts",
     "test:e2e": "npm run build && playwright test --project=e2e",
     "test:a11y": "npm run build && playwright test --project=a11y",
+    "test:live:deepseek": "tsx scripts/smoke-deepseek.ts",
     "check:fast": "npm run lint && npm run typecheck && npm run test && npm run world:validate -- test/fixtures/open-world-script && node scripts/verify-decisions.mjs && node scripts/verify-doc-links.mjs && node scripts/verify-placeholders.mjs && node scripts/verify-manifest.mjs",
     "check:all": "npm run check:fast && npm run test:e2e && npm run test:a11y"
   },

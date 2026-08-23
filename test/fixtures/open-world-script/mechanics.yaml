@@ -1,3 +1,9 @@
+rule_packages:
+  - id: core-d20
+    version: 1.0.0
+    config:
+      opposedChecks: true
+      damageUsesMeters: true
 meters:
   - id: health
     name: 生命

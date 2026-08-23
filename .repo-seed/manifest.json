@@ -25,7 +25,7 @@
     },
     {
       "path": "docs/architecture.md",
-      "sha256": "1288e2e11fae8b157c49d5c7468761fca629034ed5cdaf4f4a68b77879164fa1",
+      "sha256": "b1f788dcedc9af4fc1b97e6c5ff8424e87afdd787170904504f76cfe856f3efa",
       "category": "docs",
       "userModified": true
     },
@@ -36,12 +36,12 @@
     },
     {
       "path": "docs/testing.md",
-      "sha256": "ff86a8da2edef11c37bf763abfd90ef4315a95474e19a2ab4009542265e78174",
+      "sha256": "575a755792e61c1c399885a7e00b6b53f6742b354d9a59f08145e5e8e6fdc351",
       "category": "docs"
     },
     {
       "path": "docs/decisions/README.md",
-      "sha256": "1dd84778153da8690091394a68148574498de397c7dd67707211e437d60866ea",
+      "sha256": "4cb25e53dc6544adf41fe30656c782f7cc579d4726d69e9ab4940e1aeaac2a14",
       "category": "docs",
       "userModified": true
     },

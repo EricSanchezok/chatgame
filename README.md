@@ -17,7 +17,7 @@ npm run dev
 CHATGAME_LLM_API_KEY=... npm run dev
 ```
 
-可选变量为 `CHATGAME_LLM_BASE_URL`、`CHATGAME_LLM_MODEL`、`CHATGAME_TRUTH_MODEL` 与 `CHATGAME_AGENT_MODEL`。`CHATGAME_LLM_PROVIDER=mock` 只用于测试与本地管线验证，不提供真实游戏裁决质量。
+若环境只提供 `DEEPSEEK_API_KEY`、`DEEPSEEKAPIKEY` 或 `deepseekapikey`，运行时自动使用 `https://api.deepseek.com/v1` 与 `deepseek-chat`。可选变量为 `CHATGAME_LLM_BASE_URL`、`CHATGAME_LLM_MODEL`、`CHATGAME_TRUTH_MODEL`、`CHATGAME_AGENT_MODEL`、`CHATGAME_LLM_TIMEOUT_MS` 与 JSON 对象 `CHATGAME_LLM_PROFILE_MODELS`；最后一项可把任意 `modelProfileId` 映射到不同模型，单次远程请求默认在 120 秒中止。`CHATGAME_LLM_PROVIDER=mock` 只用于确定性测试，不提供真实游戏裁决质量。
 
 ## 常用命令
 
@@ -28,9 +28,12 @@ npm run typecheck
 npm run build
 npm run world:validate -- <world-directory>
 npm run world:import -- <world.zip> [--replace]
+npm run test:live:deepseek
 npm run check:fast
 npm run check:all
 ```
+
+`test:live:deepseek` 使用测试 fixture 实际执行 AgentMind 初始化和一个 Truth Engine 世界步骤；它需要上述任一 DeepSeek 密钥变量，不打印或持久化密钥。
 
 ## 从哪里开始读
 

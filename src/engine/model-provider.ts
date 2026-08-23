@@ -1,6 +1,6 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateObject } from "ai";
-import type { z } from "zod";
+import { z } from "zod";
 
 export interface StructuredModelRequest<T> {
   profileId: string;
@@ -11,6 +11,12 @@ export interface StructuredModelRequest<T> {
 
 export interface StructuredModelProvider {
   generateObject<T>(request: StructuredModelRequest<T>): Promise<T>;
+  describe(profileId: string): ModelProfileDescriptor;
+}
+
+export interface ModelProfileDescriptor {
+  providerId: string;
+  modelId: string;
 }
 
 export type ScriptedModelHandler = (request: Omit<StructuredModelRequest<unknown>, "schema">) => unknown | Promise<unknown>;
@@ -18,7 +24,17 @@ export type ScriptedModelHandler = (request: Omit<StructuredModelRequest<unknown
 export class ScriptedModelProvider implements StructuredModelProvider {
   readonly requests: Array<Omit<StructuredModelRequest<unknown>, "schema">> = [];
 
-  constructor(private readonly handler: ScriptedModelHandler) {}
+  constructor(
+    private readonly handler: ScriptedModelHandler,
+    private readonly descriptor: ModelProfileDescriptor = {
+      providerId: "scripted",
+      modelId: "scripted-structured-output",
+    },
+  ) {}
+
+  describe(): ModelProfileDescriptor {
+    return { ...this.descriptor };
+  }
 
   async generateObject<T>(request: StructuredModelRequest<T>): Promise<T> {
     const captured = {
@@ -33,6 +49,10 @@ export class ScriptedModelProvider implements StructuredModelProvider {
 }
 
 export class DeterministicModelProvider implements StructuredModelProvider {
+  describe(profileId: string): ModelProfileDescriptor {
+    return { providerId: "deterministic", modelId: `deterministic:${profileId}` };
+  }
+
   async generateObject<T>(request: StructuredModelRequest<T>): Promise<T> {
     const context = JSON.parse(request.prompt) as {
       revision?: number;
@@ -130,17 +150,58 @@ export interface VercelModelProviderOptions {
   apiKey?: string;
   defaultModel: string;
   profileModels: Record<string, string>;
+  timeoutMs: number;
 }
 
-export function modelProviderOptionsFromEnv(env: NodeJS.ProcessEnv): VercelModelProviderOptions {
-  const defaultModel = env.CHATGAME_LLM_MODEL ?? "gpt-4o-mini";
+function parseProfileModels(value: string | undefined): Record<string, string> {
+  if (!value) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("CHATGAME_LLM_PROFILE_MODELS must be a JSON object");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("CHATGAME_LLM_PROFILE_MODELS must be a JSON object");
+  }
+  const result: Record<string, string> = {};
+  for (const [profileId, modelId] of Object.entries(parsed)) {
+    if (!profileId.trim() || typeof modelId !== "string" || !modelId.trim()) {
+      throw new Error("CHATGAME_LLM_PROFILE_MODELS contains an invalid profile mapping");
+    }
+    result[profileId] = modelId;
+  }
+  return result;
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized || undefined;
+}
+
+export function modelProviderOptionsFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): VercelModelProviderOptions {
+  const deepseekApiKey = nonEmpty(env.DEEPSEEK_API_KEY)
+    ?? nonEmpty(env.DEEPSEEKAPIKEY)
+    ?? nonEmpty(env.deepseekapikey);
+  const configuredApiKey = nonEmpty(env.CHATGAME_LLM_API_KEY);
+  const configuredBaseUrl = nonEmpty(env.CHATGAME_LLM_BASE_URL);
+  const useDeepseekDefaults = !configuredApiKey && !configuredBaseUrl && Boolean(deepseekApiKey);
+  const defaultModel = nonEmpty(env.CHATGAME_LLM_MODEL) ?? (useDeepseekDefaults ? "deepseek-chat" : "gpt-4o-mini");
+  const timeoutMs = Number(nonEmpty(env.CHATGAME_LLM_TIMEOUT_MS) ?? "120000");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 600_000) {
+    throw new Error("CHATGAME_LLM_TIMEOUT_MS must be an integer from 1000 to 600000");
+  }
   return {
-    baseUrl: env.CHATGAME_LLM_BASE_URL ?? "https://api.openai.com/v1",
-    apiKey: env.CHATGAME_LLM_API_KEY,
+    baseUrl: configuredBaseUrl ?? (useDeepseekDefaults ? "https://api.deepseek.com/v1" : "https://api.openai.com/v1"),
+    apiKey: configuredApiKey ?? deepseekApiKey,
     defaultModel,
+    timeoutMs,
     profileModels: {
-      "truth-engine": env.CHATGAME_TRUTH_MODEL ?? defaultModel,
-      "agent-default": env.CHATGAME_AGENT_MODEL ?? defaultModel,
+      "truth-engine": nonEmpty(env.CHATGAME_TRUTH_MODEL) ?? defaultModel,
+      "agent-default": nonEmpty(env.CHATGAME_AGENT_MODEL) ?? defaultModel,
+      ...parseProfileModels(env.CHATGAME_LLM_PROFILE_MODELS),
     },
   };
 }
@@ -156,13 +217,23 @@ export class VercelModelProvider implements StructuredModelProvider {
     });
   }
 
+  describe(profileId: string): ModelProfileDescriptor {
+    return {
+      providerId: `openai-compatible:${new URL(this.options.baseUrl).host}`,
+      modelId: this.options.profileModels[profileId] ?? this.options.defaultModel,
+    };
+  }
+
   async generateObject<T>(request: StructuredModelRequest<T>): Promise<T> {
     const modelName = this.options.profileModels[request.profileId] ?? this.options.defaultModel;
+    const schema = z.toJSONSchema(request.schema, { target: "draft-07" });
+    const prompt = `${request.prompt}\n\n只返回一个 JSON 对象，不要使用 Markdown 代码块。该对象必须严格满足以下 JSON Schema，不得增加未声明字段：\n${JSON.stringify(schema)}`;
     const result = await generateObject({
       model: this.provider(modelName),
       system: request.system,
-      prompt: request.prompt,
+      prompt,
       schema: request.schema,
+      abortSignal: AbortSignal.timeout(this.options.timeoutMs),
     });
     return result.object as T;
   }

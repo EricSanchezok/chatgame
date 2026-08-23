@@ -1,5 +1,7 @@
 import { AgentMind } from "./agent-mind";
 import { applyBeliefPatch } from "./belief";
+import { validatePublicInformationBoundary } from "./information-boundary";
+import { contentHash } from "./model-audit";
 import type { AgentMindOutput } from "./llm-schemas";
 import type {
   AgentActionProposal,
@@ -44,6 +46,19 @@ function mergeBindingsForPatch(agent: AgentState, patch: BeliefPatch): AgentStat
   for (const operation of patch.operations) {
     if (operation.kind === "remove_local_entity") {
       delete next.bindings[operation.localEntityId];
+      continue;
+    }
+    if (operation.kind === "split_local_entity") {
+      const source = next.bindings[operation.fromId];
+      if (source) {
+        for (const entity of operation.entities) {
+          next.bindings[entity.id] = {
+            localEntityId: entity.id,
+            canonicalEntityIds: [...source.canonicalEntityIds],
+          };
+        }
+      }
+      delete next.bindings[operation.fromId];
       continue;
     }
     if (operation.kind !== "merge_local_entities" || operation.fromId === operation.intoId) continue;
@@ -159,6 +174,7 @@ export class SimulationEngine {
     for (let index = 0; index < agents.length; index += 1) {
       source.agents[agents[index].id] = applyMindOutput(agents[index], outputs[index]);
     }
+    source.bootstrapModelAudits = outputs.map((output) => structuredClone(output.modelAudit));
     validateSimulationState(source, true, true);
     this.state = source;
     return this.snapshot;
@@ -207,8 +223,10 @@ export class SimulationEngine {
       if (!agent.nextAction) throw new Error(`agent ${agent.id} has not prepared an action`);
       actions.push(structuredClone(agent.nextAction));
     }
-    assertActionSnapshot(this.state, actions);
-    return actions;
+    const canonicalActions = actions.sort((left, right) =>
+      left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
+    assertActionSnapshot(this.state, canonicalActions);
+    return canonicalActions;
   }
 
   async step(): Promise<WorldStepResult> {
@@ -221,6 +239,7 @@ export class SimulationEngine {
       actions,
       validateProposal: (proposal) => {
         assertStepAdvancesTime(proposal);
+        validatePublicInformationBoundary(source, actions, proposal);
         const candidate = applyTransitionProposal(source, proposal);
         validateObservations(candidate, proposal.observations, candidate.step);
         assertObservationCoverage(candidate, proposal.observations);
@@ -230,7 +249,7 @@ export class SimulationEngine {
     if (!transitionCandidate) throw new Error("TruthEngine returned without a validated transition");
 
     const candidate = transitionCandidate as SimulationState;
-    candidate.rng = structuredClone(resolution.rng);
+    candidate.truth.rng = structuredClone(resolution.rng);
     applyPlayerBindings(candidate, resolution.proposal.observations);
     candidate.player.knowledge = ingestPlayerObservations(
       candidate.player.knowledge,
@@ -256,17 +275,28 @@ export class SimulationEngine {
     }
     validateSimulationState(candidate, true);
 
-    const committed: CommittedStep = {
+    const committedPayload: Omit<CommittedStep, "contentHash"> = {
       baseRevision: source.revision,
       revision: candidate.revision,
       step: candidate.step,
       actions: structuredClone(actions),
+      rngBefore: structuredClone(source.truth.rng),
+      rngAfter: structuredClone(candidate.truth.rng),
+      checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
       outcomes: structuredClone(resolution.proposal.outcomes),
       events: structuredClone(resolution.proposal.events),
       observations: structuredClone(resolution.proposal.observations),
       operations: structuredClone(resolution.proposal.operations),
       beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
+      modelAudits: [
+        structuredClone(resolution.modelAudit),
+        ...outputs.map((output) => structuredClone(output.modelAudit)),
+      ],
+    };
+    const committed: CommittedStep = {
+      contentHash: contentHash(committedPayload),
+      ...committedPayload,
     };
     candidate.history.push(committed);
     validateSimulationState(candidate, true, true);

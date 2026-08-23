@@ -55,10 +55,13 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
   return {
     schemaVersion: 1,
     worldId: "simulation",
+    lawIds: ["time-passes"],
     revision: 0,
     step: 0,
     truth: {
       elapsedSeconds: 0,
+      rng: createSeededRng(123),
+      events: [],
       entities,
       placements,
       facts: {},
@@ -86,9 +89,8 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
       knowledge: { localEntities: {}, claims: {}, evidence: {}, observationIds: [] },
       bindings: {},
     },
-    rng: createSeededRng(123),
-    events: [],
     history: [],
+    bootstrapModelAudits: [],
   };
 }
 
@@ -99,6 +101,11 @@ function definition(initialState = state()): WorldDefinition {
     description: "验证多 Agent 同时行动的测试世界。",
     laws: [{ id: "time-passes", text: "每个世界步骤必须推进时间。", severity: "hard" }],
     disclosure: { defaultCheckVisibility: "full" },
+    rulePackages: [{
+      id: "core-d20",
+      version: "1.0.0",
+      config: { opposedChecks: true, damageUsesMeters: true },
+    }],
     initialState,
   };
 }
@@ -108,7 +115,7 @@ function observations(agentIds: string[], step: number, eventId: string) {
     id: `observation:${observerId}:${step}`,
     observerId,
     step,
-    summary: `${observerId} 感知到时间流逝。`,
+    summary: observerId === "player" ? "你感知到时间流逝。" : `${observerId} 感知到时间流逝。`,
     introductions: [],
     apparentClaims: [],
     sourceEventIds: [eventId],
@@ -118,9 +125,16 @@ function observations(agentIds: string[], step: number, eventId: string) {
 function simpleTransition(
   jointActionIds: string[],
   agentIds: string[],
-  options: { spawn?: boolean; intentStatus?: "active" | "completed" } = {},
+  options: {
+    spawn?: boolean;
+    intentStatus?: "active" | "completed";
+    baseRevision?: number;
+    step?: number;
+  } = {},
 ): TransitionProposal {
-  const eventId = "event:step:1";
+  const baseRevision = options.baseRevision ?? 0;
+  const nextStep = (options.step ?? 0) + 1;
+  const eventId = `event:step:${nextStep}`;
   const operations: TransitionProposal["operations"] = [
     {
       kind: "advance_time",
@@ -139,7 +153,7 @@ function simpleTransition(
           name: "新生者",
           description: "在世界步骤中出生的自主实体。",
           lifecycle: "active",
-          createdAtStep: 1,
+          createdAtStep: nextStep,
         },
         placementId: null,
         causes: [{ kind: "event", id: eventId }],
@@ -161,7 +175,7 @@ function simpleTransition(
     targetAgentIds.push("newborn");
   }
   return {
-    baseRevision: 0,
+    baseRevision,
     outcomes: jointActionIds.map((proposalId) => ({
       proposalId,
       status: "succeeded",
@@ -173,12 +187,12 @@ function simpleTransition(
     events: [
       {
         id: eventId,
-        step: 1,
+        step: nextStep,
         description: "世界共同向前推进。",
         causes: [{ kind: "law", id: "time-passes" }],
       },
     ],
-    observations: observations(targetAgentIds, 1, eventId),
+    observations: observations(targetAgentIds, nextStep, eventId),
     intentStatus: options.intentStatus ?? "completed",
     requiresPlayerDecision: false,
   };
@@ -203,7 +217,7 @@ describe("multi-agent simulation", () => {
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
         baseRevision?: number;
-        jointActions?: Array<{ id: string }>;
+        jointActions?: Array<{ id: string; actorId: string }>;
         revision?: number;
         agent?: { id: string };
       };
@@ -240,7 +254,7 @@ describe("multi-agent simulation", () => {
     let truthCall = 0;
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
-        jointActions?: Array<{ id: string }>;
+        jointActions?: Array<{ id: string; actorId: string }>;
         checkResults?: Array<{ requestId: string; total: number }>;
         revision?: number;
         agent?: { id: string };
@@ -256,12 +270,15 @@ describe("multi-agent simulation", () => {
               actorId: "player",
               ratingId: "resolve:player",
               modifier: 2,
-              modifierSourceIds: ["resolve:player"],
+              modifierSources: [{ id: "resolve:player", amount: 2 }],
               dc: 15,
               mode: "normal",
               stakes: "成功则推进未知行动，失败则留下可观察后果",
               visibility: "full",
-              causes: [{ kind: "action", id: context.jointActions![0].id }],
+              causes: [{
+                kind: "action",
+                id: context.jointActions!.find((action) => action.actorId === "player")!.id,
+              }],
             },
           ],
         };
@@ -282,14 +299,123 @@ describe("multi-agent simulation", () => {
     expect(truthCall).toBe(2);
     expect(result.committed.checks).toHaveLength(1);
     expect(result.committed.checks[0].dc).toBe(15);
-    expect(result.state.rng.draws).toBe(1);
+    expect(result.state.truth.rng.draws).toBe(1);
+  });
+
+  it("repairs checks that exceed the world's maximum disclosure policy", async () => {
+    let truthCall = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        jointActions?: Array<{ id: string; actorId: string }>;
+        checkResults?: Array<{ requestId: string }>;
+        revision?: number;
+        agent?: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent!.id, context.revision!);
+      truthCall += 1;
+      if (!context.checkResults?.length) {
+        return {
+          kind: "request_checks",
+          requests: [{
+            id: "disclosure-check",
+            actorId: "player",
+            ratingId: "resolve:player",
+            modifier: 2,
+            modifierSources: [{ id: "resolve:player", amount: 2 }],
+            dc: 12,
+            mode: "normal",
+            stakes: "只公开检定结果。",
+            visibility: truthCall === 1 ? "full" : "result_only",
+            causes: [{
+              kind: "action",
+              id: context.jointActions!.find((action) => action.actorId === "player")!.id,
+            }],
+          }],
+        };
+      }
+      return {
+        kind: "transition",
+        proposal: simpleTransition(context.jointActions!.map((action) => action.id), ["agent-a", "agent-b"]),
+      };
+    });
+    const world = definition();
+    world.disclosure.defaultCheckVisibility = "result_only";
+    const engine = new SimulationEngine(world, new TruthEngine(provider), new AgentMind(provider));
+    engine.beginPlayerIntent("进行只公开结果的检定");
+
+    const result = await engine.step();
+
+    expect(truthCall).toBe(3);
+    expect(result.committed.checkRequests[0].visibility).toBe("result_only");
+    expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
+  });
+
+  it("rejects an invented law-based modifier and accepts only structured numeric sources", async () => {
+    let truthCall = 0;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        jointActions?: Array<{ id: string; actorId: string }>;
+        checkResults?: Array<{ requestId: string }>;
+        revision?: number;
+        agent?: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent!.id, context.revision!);
+      truthCall += 1;
+      if (!context.checkResults?.length) {
+        const repaired = truthCall > 1;
+        return {
+          kind: "request_checks",
+          requests: [{
+            id: "verified-modifier-check",
+            actorId: "player",
+            ratingId: "resolve:player",
+            modifier: repaired ? 2 : 99,
+            modifierSources: repaired
+              ? [{ id: "resolve:player", amount: 2 }]
+              : [{ id: "time-passes", amount: 99 }],
+            dc: 12,
+            mode: "normal",
+            stakes: "只有结构化数值可以影响结果。",
+            visibility: "result_only",
+            causes: [{
+              kind: "action",
+              id: context.jointActions!.find((action) => action.actorId === "player")!.id,
+            }],
+          }],
+        };
+      }
+      return {
+        kind: "transition",
+        proposal: simpleTransition(context.jointActions!.map((action) => action.id), ["agent-a", "agent-b"]),
+      };
+    });
+    const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
+    engine.beginPlayerIntent("尝试夸大检定加值");
+
+    const result = await engine.step();
+
+    expect(truthCall).toBe(3);
+    expect(result.committed.checkRequests[0].modifierSources).toEqual([{ id: "resolve:player", amount: 2 }]);
+    expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
   });
 
   it("initializes a dynamically created agent before committing the step", async () => {
     const calledAgents: string[] = [];
+    const initial = state();
+    initial.truth.entities["ordinary-item"] = {
+      id: "ordinary-item",
+      kind: "item",
+      name: "普通物品",
+      description: "没有自主心智的物品。",
+      lifecycle: "active",
+      createdAtStep: 0,
+    };
+    initial.truth.placements["ordinary-item"] = null;
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
         jointActions?: Array<{ id: string }>;
+        baseRevision?: number;
+        step?: number;
         revision?: number;
         agent?: { id: string };
       };
@@ -298,15 +424,19 @@ describe("multi-agent simulation", () => {
           kind: "transition",
           proposal: simpleTransition(
             context.jointActions!.map((action) => action.id),
-            ["agent-a", "agent-b"],
-            { spawn: true },
+            context.baseRevision === 0 ? ["agent-a", "agent-b"] : ["agent-a", "agent-b", "newborn"],
+            {
+              spawn: context.baseRevision === 0,
+              baseRevision: context.baseRevision,
+              step: context.step,
+            },
           ),
         };
       }
       calledAgents.push(context.agent!.id);
       return mindOutput(context.agent!.id, context.revision!);
     });
-    const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
+    const engine = new SimulationEngine(definition(initial), new TruthEngine(provider), new AgentMind(provider));
     engine.beginPlayerIntent("见证一个新生命诞生");
 
     const result = await engine.step();
@@ -314,6 +444,13 @@ describe("multi-agent simulation", () => {
     expect(calledAgents.sort()).toEqual(["agent-a", "agent-b", "newborn"]);
     expect(result.state.agents.newborn.nextAction?.baseRevision).toBe(1);
     expect(result.committed.beliefPatches).toHaveLength(3);
+    expect(result.committed.actions.some((action) => action.actorId === "newborn")).toBe(false);
+
+    engine.beginPlayerIntent("观察新生者下一步行动");
+    const next = await engine.step();
+    expect(next.committed.actions.some((action) => action.actorId === "newborn")).toBe(true);
+    expect(calledAgents.filter((agentId) => agentId === "newborn")).toHaveLength(2);
+    expect(calledAgents).not.toContain("ordinary-item");
   });
 
   it("does not expose canonical identity bindings to AgentMind", async () => {
@@ -358,7 +495,7 @@ describe("multi-agent simulation", () => {
       value: { kind: "text", value: "traveler" },
       description: "此人的真实身份是旅人。",
       access: { kind: "private" },
-      provenance: [{ kind: "event", id: "worldgen" }],
+      provenance: [{ kind: "law", id: "time-passes" }],
     };
     initial.agents["agent-a"].belief.localEntities.masked = {
       id: "masked",

@@ -10,6 +10,8 @@ import type {
   TransitionProposal,
   WorldDeltaOperation,
 } from "./model";
+import { contentHash as contentHashForAudit, isSha256 } from "./model-audit";
+import { resolveD20Checks } from "./random";
 
 export class TransitionValidationError extends Error {
   constructor(readonly issues: string[]) {
@@ -74,7 +76,7 @@ function applyThresholds(state: SimulationState, meter: MeterState, causes: Caus
         value: structuredClone(effect.value),
         description: effect.description,
         access: structuredClone(effect.access ?? { kind: "public" }),
-        provenance: [...causes, { kind: "law", id: threshold.id }],
+        provenance: [...causes],
       };
     }
   }
@@ -233,6 +235,7 @@ function validateBelief(
 ): void {
   for (const [id, entity] of Object.entries(belief.localEntities)) {
     if (entity.id !== id) throw new Error(`${label} local entity key does not match ${entity.id}`);
+    if (state.truth.entities[id]) throw new Error(`${label} local entity ${id} collides with canonical identity`);
   }
   for (const [id, evidence] of Object.entries(belief.evidence)) {
     if (evidence.id !== id) throw new Error(`${label} evidence key does not match ${evidence.id}`);
@@ -268,6 +271,7 @@ function validatePlayerKnowledge(state: SimulationState): void {
   const knowledge = state.player.knowledge;
   for (const [id, entity] of Object.entries(knowledge.localEntities)) {
     if (entity.id !== id) throw new Error(`player local entity key does not match ${entity.id}`);
+    if (state.truth.entities[id]) throw new Error(`player local entity ${id} collides with canonical identity`);
   }
   for (const [id, evidence] of Object.entries(knowledge.evidence)) {
     if (evidence.id !== id) throw new Error(`player evidence key does not match ${evidence.id}`);
@@ -304,8 +308,33 @@ function validateHistory(state: SimulationState): void {
   if (state.history.length !== state.revision || state.step !== state.revision) {
     throw new Error("history, revision and step are not aligned");
   }
+  const priorEventIds = new Set<string>();
+  const allFactIds = new Set(Object.keys(state.truth.facts));
+  for (const committed of state.history) {
+    for (const operation of committed.operations) {
+      if (operation.kind === "set_fact") allFactIds.add(operation.fact.id);
+      if (operation.kind === "remove_fact") allFactIds.add(operation.factId);
+    }
+  }
+  const lawIds = new Set(state.lawIds);
+  const historyActionIds = new Set<string>();
+  const historyCheckIds = new Set<string>();
+  const assertResolved = (
+    causes: CausalRef[],
+    allowed: Record<CausalRef["kind"], Set<string>>,
+    label: string,
+  ): void => {
+    assertCauses(causes, label);
+    for (const cause of causes) {
+      if (!allowed[cause.kind].has(cause.id)) throw new Error(`${label} references unknown ${cause.kind} ${cause.id}`);
+    }
+  };
   for (let index = 0; index < state.history.length; index += 1) {
     const committed = state.history[index];
+    const { contentHash: committedHash, ...committedPayload } = committed;
+    if (!isSha256(committedHash) || contentHashForAudit(committedPayload) !== committedHash) {
+      throw new Error(`history step ${index + 1} has an invalid content hash`);
+    }
     if (committed.baseRevision !== index || committed.revision !== index + 1 || committed.step !== index + 1) {
       throw new Error(`history step ${index + 1} has invalid revision metadata`);
     }
@@ -323,6 +352,111 @@ function validateHistory(state: SimulationState): void {
     if (committed.operations.filter((operation) => operation.kind === "advance_time").length !== 1) {
       throw new Error(`history step ${index + 1} has invalid time advancement`);
     }
+    const requestIds = committed.checkRequests.map((request) => request.id);
+    const resultIds = committed.checks.map((result) => result.requestId);
+    if (new Set(requestIds).size !== requestIds.length || new Set(resultIds).size !== resultIds.length ||
+      requestIds.length !== resultIds.length || requestIds.some((id) => !resultIds.includes(id))) {
+      throw new Error(`history step ${index + 1} has invalid check audit coverage`);
+    }
+    for (const request of committed.checkRequests) {
+      const allowedChecks = new Set(historyCheckIds);
+      for (const priorRequest of committed.checkRequests) {
+        if (priorRequest.id === request.id) break;
+        allowedChecks.add(priorRequest.id);
+      }
+      assertResolved(request.causes, {
+        action: new Set(proposalIds),
+        check: allowedChecks,
+        event: priorEventIds,
+        fact: allFactIds,
+        law: lawIds,
+      }, `history check ${request.id}`);
+      const result = committed.checks.find((candidate) => candidate.requestId === request.id)!;
+      const expectedDice = request.mode === "normal" ? 1 : 2;
+      const expectedKept = request.mode === "disadvantage" ? Math.min(...result.dice) : Math.max(...result.dice);
+      if (result.dice.length !== expectedDice || result.kept !== expectedKept ||
+        result.modifier !== request.modifier || result.dc !== request.dc ||
+        result.visibility !== request.visibility || result.total !== result.kept + result.modifier ||
+        result.succeeded !== (result.total >= result.dc) || result.margin !== result.total - result.dc) {
+        throw new Error(`history step ${index + 1} has inconsistent check result ${request.id}`);
+      }
+    }
+    const replayed = resolveD20Checks(committed.rngBefore, committed.checkRequests);
+    if (JSON.stringify(replayed.results) !== JSON.stringify(committed.checks) ||
+      JSON.stringify(replayed.rng) !== JSON.stringify(committed.rngAfter)) {
+      throw new Error(`history step ${index + 1} has non-reproducible RNG audit`);
+    }
+    if (index > 0 && JSON.stringify(state.history[index - 1].rngAfter) !== JSON.stringify(committed.rngBefore)) {
+      throw new Error(`history step ${index + 1} has discontinuous RNG state`);
+    }
+    const truthAudits = committed.modelAudits.filter((audit) => audit.role === "truth-engine");
+    if (truthAudits.length !== 1) throw new Error(`history step ${index + 1} must have one Truth Engine audit`);
+    const patchAgentIds = committed.beliefPatches.map((patch) => patch.agentId);
+    const auditAgentIds = committed.modelAudits
+      .filter((audit) => audit.role === "agent-mind")
+      .map((audit) => audit.subjectId);
+    if (new Set(patchAgentIds).size !== patchAgentIds.length || new Set(auditAgentIds).size !== auditAgentIds.length ||
+      patchAgentIds.length !== auditAgentIds.length || patchAgentIds.some((agentId) => !auditAgentIds.includes(agentId)) ||
+      committed.beliefPatches.some((patch) => patch.baseRevision !== committed.revision)) {
+      throw new Error(`history step ${index + 1} has invalid AgentMind audit coverage`);
+    }
+    for (const audit of committed.modelAudits) validateModelAudit(audit, `history step ${index + 1}`);
+    const allowedForEvents: Record<CausalRef["kind"], Set<string>> = {
+      action: new Set(proposalIds),
+      check: new Set(requestIds),
+      event: new Set(priorEventIds),
+      fact: allFactIds,
+      law: lawIds,
+    };
+    for (const event of committed.events) {
+      assertResolved(event.causes, allowedForEvents, `history event ${event.id}`);
+      allowedForEvents.event.add(event.id);
+    }
+    for (const operation of committed.operations) {
+      assertResolved(operation.causes, allowedForEvents, `history operation ${operation.kind}`);
+      if ((operation.kind === "produce_quantity" || operation.kind === "consume_quantity") &&
+        !lawIds.has(operation.lawId)) throw new Error(`history operation references unknown law ${operation.lawId}`);
+    }
+    for (const outcome of committed.outcomes) {
+      assertResolved(outcome.causeRefs, allowedForEvents, `history outcome ${outcome.proposalId}`);
+    }
+    for (const proposalId of proposalIds) historyActionIds.add(proposalId);
+    for (const checkId of requestIds) historyCheckIds.add(checkId);
+    for (const event of committed.events) priorEventIds.add(event.id);
+  }
+  if (state.truth.events.length !== priorEventIds.size ||
+    state.truth.events.some((event) => !priorEventIds.has(event.id))) {
+    throw new Error("world events do not match committed history");
+  }
+  if (state.history.length > 0 &&
+    JSON.stringify(state.history.at(-1)!.rngAfter) !== JSON.stringify(state.truth.rng)) {
+    throw new Error("canonical RNG does not match committed history");
+  }
+  const allowedFinal: Record<CausalRef["kind"], Set<string>> = {
+    action: historyActionIds,
+    check: historyCheckIds,
+    event: priorEventIds,
+    fact: allFactIds,
+    law: lawIds,
+  };
+  for (const fact of Object.values(state.truth.facts)) {
+    assertResolved(fact.provenance, allowedFinal, `fact ${fact.id}`);
+  }
+}
+
+function validateModelAudit(
+  audit: SimulationState["bootstrapModelAudits"][number],
+  label: string,
+): void {
+  if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() || !audit.modelId.trim()) {
+    throw new Error(`${label} has an incomplete model audit identity`);
+  }
+  if (!Number.isSafeInteger(audit.attempts) || audit.attempts <= 0 ||
+    !Number.isSafeInteger(audit.repairAttempts) || audit.repairAttempts < 0 ||
+    audit.repairAttempts >= audit.attempts || audit.requestHashes.length !== audit.attempts ||
+    audit.responseHashes.length === 0 || audit.responseHashes.length > audit.attempts ||
+    !audit.requestHashes.every(isSha256) || !audit.responseHashes.every(isSha256)) {
+    throw new Error(`${label} has invalid model audit counters or hashes`);
   }
 }
 
@@ -332,15 +466,18 @@ export function validateSimulationState(
   requireHistoryAlignment = false,
 ): void {
   if (state.schemaVersion !== 1 || !state.worldId.trim()) throw new Error("invalid simulation identity");
+  if (state.lawIds.length === 0 || new Set(state.lawIds).size !== state.lawIds.length ||
+    state.lawIds.some((lawId) => !lawId.trim())) throw new Error("invalid world law ids");
   if (!Number.isSafeInteger(state.revision) || state.revision < 0) throw new Error("invalid revision");
   if (!Number.isSafeInteger(state.step) || state.step < 0) throw new Error("invalid step");
   if (!Number.isSafeInteger(state.truth.elapsedSeconds) || state.truth.elapsedSeconds < 0) {
     throw new Error("invalid elapsed time");
   }
   if (!state.truth.entities[state.player.entityId]) throw new Error("player entity is missing");
-  if (!Number.isSafeInteger(state.rng.seed) || !Number.isSafeInteger(state.rng.state) ||
-    !Number.isSafeInteger(state.rng.draws) || state.rng.seed < 0 || state.rng.state < 0 || state.rng.draws < 0 ||
-    state.rng.seed > 0xffffffff || state.rng.state > 0xffffffff) {
+  for (const audit of state.bootstrapModelAudits) validateModelAudit(audit, "bootstrap");
+  if (!Number.isSafeInteger(state.truth.rng.seed) || !Number.isSafeInteger(state.truth.rng.state) ||
+    !Number.isSafeInteger(state.truth.rng.draws) || state.truth.rng.seed < 0 || state.truth.rng.state < 0 ||
+    state.truth.rng.draws < 0 || state.truth.rng.seed > 0xffffffff || state.truth.rng.state > 0xffffffff) {
     throw new Error("invalid RNG state");
   }
 
@@ -378,6 +515,11 @@ export function validateSimulationState(
     if (!state.truth.entities[fact.subjectId]) throw new Error(`unknown fact subject ${fact.subjectId}`);
     assertFactValueReferences(fact.value, state, `fact ${fact.id}`);
     if (fact.provenance.length === 0) throw new Error(`fact ${fact.id} has no provenance`);
+    if (fact.access.kind === "agents") {
+      for (const agentId of fact.access.agentIds) {
+        if (!state.agents[agentId]) throw new Error(`fact ${fact.id} grants access to unknown agent ${agentId}`);
+      }
+    }
   }
   for (const [meterId, meter] of Object.entries(state.truth.meters)) {
     if (meter.id !== meterId) throw new Error(`meter key does not match ${meter.id}`);
@@ -424,7 +566,7 @@ export function validateSimulationState(
   }
   validatePlayerKnowledge(state);
   const eventIds = new Set<string>();
-  for (const event of state.events) {
+  for (const event of state.truth.events) {
     if (eventIds.has(event.id)) throw new Error(`duplicate world event ${event.id}`);
     if (!Number.isSafeInteger(event.step) || event.step < 1 || event.step > state.step) {
       throw new Error(`world event ${event.id} has invalid step`);
@@ -459,7 +601,7 @@ export function applyTransitionProposal(
       next.revision += 1;
       next.step += 1;
       if (next.player.intent) next.player.intent.status = proposal.intentStatus;
-      next.events.push(...structuredClone(proposal.events));
+      next.truth.events.push(...structuredClone(proposal.events));
       for (const [agentId, agent] of Object.entries(next.agents)) {
         if (next.truth.entities[agent.entityId]?.lifecycle !== "active") delete next.agents[agentId];
       }

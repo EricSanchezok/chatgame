@@ -12,6 +12,7 @@ import {
   type WorldSessionStore,
 } from "./world-session-store";
 import {
+  publicWorldRunSnapshot,
   publicSessionSnapshot,
   type PublicObservationPacket,
   type PublicSessionSnapshot,
@@ -21,6 +22,7 @@ import {
   type WorldRunStatus,
   type WorldSessionDocument,
 } from "./world-run-types";
+import type { StartWorldRunResponse, WorldRunSnapshot } from "../shared/world-api";
 
 interface HostedSession {
   definition: WorldDefinition;
@@ -78,13 +80,21 @@ export class WorldHostError extends Error {
 
 function sanitizePlayerObservation(
   packet: import("../engine/model").ObservationPacket,
+  packetIndex: number,
 ): PublicObservationPacket {
   return {
     ...structuredClone(packet),
+    id: `observation:${packet.step}:${packetIndex + 1}`,
     observerId: "player",
     introductions: packet.introductions.map((introduction) => ({
       localEntity: structuredClone(introduction.localEntity),
     })),
+    apparentClaims: packet.apparentClaims.map((claim, claimIndex) => ({
+      ...structuredClone(claim),
+      id: `claim:${packet.step}:${packetIndex + 1}:${claimIndex + 1}`,
+    })),
+    sourceEventIds: packet.sourceEventIds.map((_eventId, eventIndex) =>
+      `event:${packet.step}:${packetIndex + 1}:${eventIndex + 1}`),
   };
 }
 
@@ -171,6 +181,7 @@ export class WorldHost {
       if (run.status !== "queued" && run.status !== "running") continue;
       run.status = "failed";
       run.error = "运行进程在世界步骤边界外中断，可安全重试。";
+      run.internalError = "process interrupted while run was queued or running";
       this.appendEvent(run, {
         type: "run.failed",
         payload: { runId: run.id, message: run.error, retriable: true },
@@ -190,7 +201,7 @@ export class WorldHost {
       if (!(error instanceof WorldSessionNotFoundError)) throw error;
       throw new WorldHostError(`world session not found: ${sessionId}`, 404);
     }
-    const definition = this.options.repository.load(document.scriptId, document.state.rng.seed);
+    const definition = this.options.repository.load(document.scriptId, document.state.truth.rng.seed);
     const session: HostedSession = {
       definition,
       engine: this.buildEngine(definition, document.state),
@@ -232,9 +243,10 @@ export class WorldHost {
     return this.options.store.list().map((sessionId) => this.session(sessionId));
   }
 
-  startRun(sessionId: string, text: string): WorldRunRecord {
+  startRun(sessionId: string, text: string): StartWorldRunResponse {
     const normalized = text.trim();
     if (!normalized) throw new WorldHostError("run input cannot be empty", 400);
+    if (text.length > 4_000) throw new WorldHostError("run input must be 4000 characters or fewer", 400);
     const session = this.requireSession(sessionId);
     const active = Object.values(session.document.runs).find(
       (run) => run.status === "queued" || run.status === "running",
@@ -251,6 +263,7 @@ export class WorldHost {
     const run: WorldRunRecord = {
       id,
       sessionId,
+      intentId: engine.snapshot.player.intent!.id,
       text: normalized,
       status: "queued",
       createdAt: now,
@@ -262,34 +275,43 @@ export class WorldHost {
     document.runs[id] = run;
     this.commitCandidate(session, engine, document);
     session.channels.set(id, new RunChannel());
-    const response = structuredClone(session.document.runs[id]);
     this.scheduleExecution(session, id);
-    return response;
+    return { runId: id };
   }
 
-  retryRun(sessionId: string, runId: string): WorldRunRecord {
+  retryRun(sessionId: string, runId: string): WorldRunSnapshot {
     const session = this.requireSession(sessionId);
     const current = this.requireRun(session, runId);
     if (current.status !== "failed" && current.status !== "step_limit") {
       throw new WorldHostError(`run ${runId} is not retriable`, 409);
     }
-    if (session.engine.snapshot.player.intent?.status !== "active") {
-      throw new WorldHostError(`run ${runId} has no active player intent`, 409);
+    const active = Object.values(session.document.runs).find(
+      (run) => run.id !== runId && (run.status === "queued" || run.status === "running"),
+    );
+    if (active) throw new WorldHostError(`session already has active run ${active.id}`, 409);
+    if (session.engine.snapshot.player.intent?.status !== "active" ||
+      session.engine.snapshot.player.intent.id !== current.intentId) {
+      throw new WorldHostError(`run ${runId} does not own the active player intent`, 409);
     }
     const document = structuredClone(session.document);
     const run = document.runs[runId];
     run.status = "queued";
     run.error = undefined;
+    run.internalError = undefined;
     run.cancelRequested = false;
     this.commitCandidate(session, session.engine, document);
-    const response = structuredClone(session.document.runs[runId]);
     this.scheduleExecution(session, runId);
-    return response;
+    return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
   }
 
   private scheduleExecution(session: HostedSession, runId: string): void {
     const key = `${session.document.id}:${runId}`;
-    const execution = this.executeRun(session, runId).finally(() => this.executions.delete(key));
+    const prior = this.executions.get(key);
+    const execution = (prior ?? Promise.resolve())
+      .then(() => this.executeRun(session, runId))
+      .finally(() => {
+        if (this.executions.get(key) === execution) this.executions.delete(key);
+      });
     this.executions.set(key, execution);
   }
 
@@ -303,7 +325,7 @@ export class WorldHost {
     const run = document.runs[runId];
     run.status = status;
     this.appendEvent(run, {
-      type: `run.${status}` as Exclude<WorldRunEvent["type"], "run.started" | "check.resolved" | "player.observation" | "step.committed" | "run.failed">,
+      type: `run.${status}` as Exclude<WorldRunEvent["type"], "run.started" | "check.resolved" | "player.outcome" | "player.observation" | "step.committed" | "run.failed">,
       payload: {
         runId: run.id,
         revision: engine.snapshot.revision,
@@ -334,13 +356,13 @@ export class WorldHost {
         const result = await engine.step();
         document = structuredClone(session.document);
         run = document.runs[runId];
-        for (const check of result.committed.checks) {
+        for (const [checkIndex, check] of result.committed.checks.entries()) {
           if (check.visibility === "hidden") continue;
           this.appendEvent(run, {
             type: "check.resolved",
             payload: check.visibility === "full"
               ? {
-                  requestId: check.requestId,
+                  requestId: `check:${result.state.step}:${checkIndex + 1}`,
                   visibility: "full",
                   dice: check.dice,
                   kept: check.kept,
@@ -351,15 +373,28 @@ export class WorldHost {
                   margin: check.margin,
                 }
               : {
-                  requestId: check.requestId,
+                  requestId: `check:${result.state.step}:${checkIndex + 1}`,
                   visibility: "result_only",
                   succeeded: check.succeeded,
                 },
           });
         }
-        for (const packet of result.committed.observations) {
-          if (packet.observerId !== "player") continue;
-          this.appendEvent(run, { type: "player.observation", payload: sanitizePlayerObservation(packet) });
+        const playerAction = result.committed.actions.find((action) => action.actorId === "player")!;
+        const playerOutcome = result.committed.outcomes.find((outcome) => outcome.proposalId === playerAction.id)!;
+        this.appendEvent(run, {
+          type: "player.outcome",
+          payload: {
+            status: playerOutcome.status,
+            summary: playerOutcome.summary,
+            knownAlternatives: playerOutcome.knownAlternatives.map((alternative) => alternative.description),
+          },
+        });
+        const playerPackets = result.committed.observations.filter((packet) => packet.observerId === "player");
+        for (const [packetIndex, packet] of playerPackets.entries()) {
+          this.appendEvent(run, {
+            type: "player.observation",
+            payload: sanitizePlayerObservation(packet, packetIndex),
+          });
         }
         this.appendEvent(run, {
           type: "step.committed",
@@ -397,7 +432,8 @@ export class WorldHost {
       const document = structuredClone(session.document);
       const run = document.runs[runId];
       run.status = "failed";
-      run.error = error instanceof Error ? error.message : String(error);
+      run.internalError = error instanceof Error ? error.message : String(error);
+      run.error = "模型或世界验证失败；当前步骤未提交，可从同一世界状态重试。";
       this.appendEvent(run, {
         type: "run.failed",
         payload: { runId: run.id, message: run.error, retriable: true },
@@ -405,7 +441,7 @@ export class WorldHost {
       try {
         this.commitCandidate(session, session.engine, document);
       } catch (persistenceError) {
-        run.error = `${run.error}; failed to persist run failure: ${persistenceError instanceof Error ? persistenceError.message : String(persistenceError)}`;
+        run.internalError = `${run.internalError}; failed to persist run failure: ${persistenceError instanceof Error ? persistenceError.message : String(persistenceError)}`;
         document.state = session.engine.snapshot;
         session.document = document;
       }
@@ -419,20 +455,21 @@ export class WorldHost {
     return run;
   }
 
-  run(sessionId: string, runId: string): WorldRunRecord {
-    return structuredClone(this.requireRun(this.requireSession(sessionId), runId));
+  run(sessionId: string, runId: string): WorldRunSnapshot {
+    const session = this.requireSession(sessionId);
+    return publicWorldRunSnapshot(session.document, this.requireRun(session, runId));
   }
 
-  cancelRun(sessionId: string, runId: string): WorldRunRecord {
+  cancelRun(sessionId: string, runId: string): WorldRunSnapshot {
     const session = this.requireSession(sessionId);
     const current = this.requireRun(session, runId);
-    if (terminalStatuses.has(current.status)) return structuredClone(current);
+    if (terminalStatuses.has(current.status)) return publicWorldRunSnapshot(session.document, current);
     const document = structuredClone(session.document);
     const run = document.runs[runId];
     run.cancelRequested = true;
     this.commitCandidate(session, session.engine, document);
     session.channels.get(run.id)?.notify();
-    return structuredClone(run);
+    return publicWorldRunSnapshot(session.document, run);
   }
 
   async *subscribeRunEvents(
@@ -458,7 +495,7 @@ export class WorldHost {
     }
   }
 
-  async waitForRun(sessionId: string, runId: string): Promise<WorldRunRecord> {
+  async waitForRun(sessionId: string, runId: string): Promise<WorldRunSnapshot> {
     for await (const event of this.subscribeRunEvents(sessionId, runId)) {
       // Drain until the terminal event closes the iterator.
       void event;

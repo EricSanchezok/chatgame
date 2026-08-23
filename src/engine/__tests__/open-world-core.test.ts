@@ -19,10 +19,13 @@ function worldState(): SimulationState {
   return {
     schemaVersion: 1,
     worldId: "test-world",
+    lawIds: ["worldgen", "time-passes", "necromancy"],
     revision: 0,
     step: 0,
     truth: {
       elapsedSeconds: 0,
+      rng: createSeededRng(42),
+      events: [],
       entities: {
         player: {
           id: "player",
@@ -66,7 +69,7 @@ function worldState(): SimulationState {
           value: { kind: "text", value: "fake" },
           description: "这把钥匙是仿制品。",
           access: { kind: "private" },
-          provenance: [{ kind: "event", id: "worldgen" }],
+          provenance: [{ kind: "law", id: "worldgen" }],
         },
       },
       mechanics: {
@@ -162,9 +165,8 @@ function worldState(): SimulationState {
       knowledge: { localEntities: {}, claims: {}, evidence: {}, observationIds: [] },
       bindings: {},
     },
-    rng: createSeededRng(42),
-    events: [],
     history: [],
+    bootstrapModelAudits: [],
   };
 }
 
@@ -224,6 +226,52 @@ describe("open world kernel", () => {
     expect(truth.truth.facts["key-authenticity"].value).toEqual({ kind: "text", value: "fake" });
   });
 
+  it("splits one uncertain local identity without creating canonical entities", () => {
+    const source = createEmptyBelief();
+    source.localEntities.masked = {
+      id: "masked",
+      name: "蒙面人",
+      description: "可能是两个人中的任意一个。",
+      status: "observed",
+    };
+    source.localEntities.letter = {
+      id: "letter",
+      name: "信件",
+      description: "署名不清的信件。",
+      status: "observed",
+    };
+    source.claims.identity = {
+      id: "identity",
+      subjectId: "masked",
+      predicate: "carried",
+      value: { kind: "local_entity", localEntityId: "letter" },
+      description: "蒙面人携带信件。",
+      stance: "suspected",
+      confidence: 0.5,
+      evidenceIds: [],
+    };
+    const patch: BeliefPatch = {
+      agentId: "keeper",
+      baseRevision: 0,
+      operations: [{
+        kind: "split_local_entity",
+        fromId: "masked",
+        entities: [
+          { id: "masked-tall", name: "高个蒙面人", description: "较高的身影。", status: "hypothesized" },
+          { id: "masked-short", name: "矮个蒙面人", description: "较矮的身影。", status: "hypothesized" },
+        ],
+        assignments: [{ claimId: "identity", subjectId: "masked-tall" }],
+      }],
+    };
+
+    const result = applyBeliefPatch(source, patch);
+
+    expect(result.localEntities.masked).toBeUndefined();
+    expect(result.claims.identity.subjectId).toBe("masked-tall");
+    expect(result.localEntities["masked-short"]).toBeDefined();
+    expect(worldState().truth.entities["masked-tall"]).toBeUndefined();
+  });
+
   it("produces reproducible d20 results and applies advantage", () => {
     const request: D20CheckRequest = {
       id: "open-gate",
@@ -231,7 +279,7 @@ describe("open world kernel", () => {
       targetId: "gate",
       ratingId: "force:player",
       modifier: 2,
-      modifierSourceIds: ["force:player"],
+      modifierSources: [{ id: "force:player", amount: 2 }],
       dc: 15,
       mode: "advantage",
       stakes: "推开石门，失败则发出巨响",

@@ -117,6 +117,7 @@ function normalHandler(): ScriptedModelHandler {
 function createHost(
   provider: ScriptedModelProvider,
   store = new MemoryWorldSessionStore(),
+  maxStepsPerRun = 4,
 ): { host: WorldHost; store: MemoryWorldSessionStore } {
   let id = 0;
   return {
@@ -126,7 +127,7 @@ function createHost(
       provider,
       idFactory: () => `test-${++id}`,
       now: () => new Date("2026-08-23T00:00:00.000Z"),
-      maxStepsPerRun: 4,
+      maxStepsPerRun,
     }),
     store,
   };
@@ -139,20 +140,25 @@ describe("WorldHost", () => {
     const session = await host.createSession({ scriptId: "open-world-fixture", seed: 8 });
     const run = host.startRun(session.id, "我尝试打开石门");
 
-    const completed = await host.waitForRun(session.id, run.id);
+    const completed = await host.waitForRun(session.id, run.runId);
 
-    expect(completed.status).toBe("completed");
+    expect(completed.run.status).toBe("completed");
     expect(host.session(session.id)).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
     expect(store.writeCount).toBeGreaterThanOrEqual(4);
-    expect(completed.events.map((event) => event.type)).toEqual([
+    expect(completed.run.events.map((event) => event.type)).toEqual([
       "run.started",
+      "player.outcome",
       "player.observation",
       "step.committed",
       "run.completed",
     ]);
-    const observation = completed.events.find((event) => event.type === "player.observation");
+    const observation = completed.run.events.find((event) => event.type === "player.observation");
     expect(JSON.stringify(observation)).not.toContain("canonicalEntityId");
     expect(JSON.stringify(observation)).not.toContain('"keeper"');
+    const storedStep = store.read(session.id).state.history[0];
+    expect(storedStep.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(storedStep.modelAudits.map((audit) => audit.role)).toEqual(["truth-engine", "agent-mind"]);
+    expect(storedStep.checkRequests).toEqual([]);
 
     const reloaded = new WorldHost({
       repository: new FileWorldRepository(fixtureRoot),
@@ -176,16 +182,46 @@ describe("WorldHost", () => {
       invalid.operations = [];
       return { kind: "transition", proposal: invalid };
     });
-    const { host } = createHost(provider);
+    const { host, store } = createHost(provider);
     const session = await host.createSession({ scriptId: "open-world-fixture" });
     const run = host.startRun(session.id, "提出一个导致非法 delta 的目标");
 
-    const failed = await host.waitForRun(session.id, run.id);
+    const failed = await host.waitForRun(session.id, run.runId);
 
-    expect(failed.status).toBe("failed");
-    expect(failed.error).toContain("time advance");
+    expect(failed.run.status).toBe("failed");
+    expect(failed.run.error).not.toContain("time advance");
+    expect(store.read(session.id).runs[run.runId].internalError).toContain("time advance");
     expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
-    expect(failed.events.at(-1)?.type).toBe("run.failed");
+    expect(failed.run.events.at(-1)?.type).toBe("run.failed");
+  });
+
+  it("keeps canonical identifiers in internal diagnostics only", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        jointActions: Array<{ id: string }>;
+        revision: number;
+        agent: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      const invalid = transition(context);
+      invalid.operations.unshift({
+        kind: "place_entity",
+        entityId: "canonical-secret-entity",
+        placementId: null,
+        causes: [{ kind: "action", id: context.jointActions[0].id }],
+      });
+      return { kind: "transition", proposal: invalid };
+    });
+    const { host, store } = createHost(provider);
+    const session = await host.createSession({ scriptId: "open-world-fixture" });
+    const started = host.startRun(session.id, "触发包含内部标识符的验证错误");
+
+    const failed = await host.waitForRun(session.id, started.runId);
+
+    expect(JSON.stringify(failed)).not.toContain("canonical-secret-entity");
+    expect(store.read(session.id).runs[started.runId].internalError).toContain("canonical-secret-entity");
   });
 
   it("cancels at the first safe boundary and preserves the committed step", async () => {
@@ -213,14 +249,14 @@ describe("WorldHost", () => {
     const run = host.startRun(session.id, "持续观察石门");
     await entered;
 
-    host.cancelRun(session.id, run.id);
+    host.cancelRun(session.id, run.runId);
     releaseTruth();
-    const cancelled = await host.waitForRun(session.id, run.id);
+    const cancelled = await host.waitForRun(session.id, run.runId);
 
-    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.run.status).toBe("cancelled");
     expect(host.session(session.id)).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
-    expect(cancelled.events.map((event) => event.type)).toContain("step.committed");
-    expect(cancelled.events.at(-1)?.type).toBe("run.cancelled");
+    expect(cancelled.run.events.map((event) => event.type)).toContain("step.committed");
+    expect(cancelled.run.events.at(-1)?.type).toBe("run.cancelled");
   });
 
   it("rolls back an otherwise valid step when its atomic persistence fails", async () => {
@@ -241,11 +277,150 @@ describe("WorldHost", () => {
     const session = await host.createSession({ scriptId: "open-world-fixture" });
     const run = host.startRun(session.id, "执行一个会成功但无法持久化的步骤");
 
-    const failed = await host.waitForRun(session.id, run.id);
+    const failed = await host.waitForRun(session.id, run.runId);
 
-    expect(failed.status).toBe("failed");
-    expect(failed.error).toContain("simulated persistence outage");
-    expect(failed.events.map((event) => event.type)).toEqual(["run.started", "run.failed"]);
+    expect(failed.run.status).toBe("failed");
+    expect(failed.run.error).not.toContain("simulated persistence outage");
+    expect(store.read(session.id).runs[run.runId].internalError).toContain("simulated persistence outage");
+    expect(failed.run.events.map((event) => event.type)).toEqual(["run.started", "run.failed"]);
     expect(host.session(session.id)).toMatchObject({ revision: 0, step: 0, elapsedSeconds: 0 });
+  });
+
+  it("stops exactly at the 100-step safety boundary and preserves every committed step", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        jointActions: Array<{ id: string }>;
+        revision: number;
+        agent: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      const result = transition(context);
+      result.intentStatus = "active";
+      return { kind: "transition", proposal: result };
+    });
+    const { host, store } = createHost(provider, new MemoryWorldSessionStore(), 100);
+    const session = await host.createSession({ scriptId: "open-world-fixture" });
+    const started = host.startRun(session.id, "持续观察一百个世界步骤");
+
+    const result = await host.waitForRun(session.id, started.runId);
+
+    expect(result.run.status).toBe("step_limit");
+    expect(result.state).toMatchObject({ revision: 100, step: 100, elapsedSeconds: 1000 });
+    expect(store.read(session.id).state.history).toHaveLength(100);
+    expect(result.run.events.filter((event) => event.type === "step.committed")).toHaveLength(100);
+    expect(result.run.events.at(-1)?.type).toBe("run.step_limit");
+  });
+
+  it("recovers a persisted running process as retriable failure without changing committed history", async () => {
+    const provider = new ScriptedModelProvider(normalHandler());
+    const store = new MemoryWorldSessionStore();
+    const first = createHost(provider, store).host;
+    const session = await first.createSession({ scriptId: "open-world-fixture" });
+    const document = store.read(session.id);
+    document.state.player.intent = {
+      id: "intent:interrupted",
+      rawText: "尚未完成的长程目标",
+      goal: "尚未完成的长程目标",
+      status: "active",
+      startedAtStep: document.state.step,
+    };
+    document.runs.interrupted = {
+      id: "interrupted",
+      sessionId: session.id,
+      intentId: "intent:interrupted",
+      text: "尚未完成的长程目标",
+      status: "running",
+      createdAt: "2026-08-23T00:00:00.000Z",
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      cancelRequested: false,
+      events: [{
+        sequence: 1,
+        type: "run.started",
+        at: "2026-08-23T00:00:00.000Z",
+        payload: { runId: "interrupted", text: "尚未完成的长程目标" },
+      }],
+    };
+    store.write(document);
+    const recovered = new WorldHost({
+      repository: new FileWorldRepository(fixtureRoot),
+      store,
+      provider,
+      idFactory: () => "unused",
+    });
+
+    const snapshot = recovered.run(session.id, "interrupted");
+
+    expect(snapshot.run.status).toBe("failed");
+    expect(snapshot.run.error).toContain("安全重试");
+    expect(snapshot.state).toMatchObject({ revision: 0, step: 0 });
+    expect(store.read(session.id).runs.interrupted.internalError).toContain("process interrupted");
+  });
+
+  it("retries a failed run from its unchanged revision even while the prior execution is finalizing", async () => {
+    let valid = false;
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        jointActions: Array<{ id: string }>;
+        revision: number;
+        agent: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      const result = transition(context);
+      if (!valid) result.operations = [];
+      return { kind: "transition", proposal: result };
+    });
+    const { host } = createHost(provider);
+    const session = await host.createSession({ scriptId: "open-world-fixture" });
+    const started = host.startRun(session.id, "失败后从同一状态继续");
+    const failed = await host.waitForRun(session.id, started.runId);
+    expect(failed).toMatchObject({ run: { status: "failed" }, state: { revision: 0, step: 0 } });
+
+    valid = true;
+    expect(host.retryRun(session.id, started.runId).run.status).toBe("queued");
+    const completed = await host.waitForRun(session.id, started.runId);
+
+    expect(completed).toMatchObject({ run: { status: "completed" }, state: { revision: 1, step: 1 } });
+    expect(completed.run.events.filter((event) => event.type === "run.started")).toHaveLength(2);
+  });
+
+  it("rejects retrying an old failed run while another run is active", async () => {
+    let mode: "invalid" | "gated" = "invalid";
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const truthEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const provider = new ScriptedModelProvider(async ({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        jointActions: Array<{ id: string }>;
+        revision: number;
+        agent: { id: string };
+      };
+      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      if (mode === "invalid") {
+        const invalid = transition(context);
+        invalid.operations = [];
+        return { kind: "transition", proposal: invalid };
+      }
+      entered();
+      await gate;
+      return { kind: "transition", proposal: transition(context) };
+    });
+    const { host } = createHost(provider);
+    const session = await host.createSession({ scriptId: "open-world-fixture" });
+    const oldRun = host.startRun(session.id, "先产生失败运行");
+    expect((await host.waitForRun(session.id, oldRun.runId)).run.status).toBe("failed");
+    mode = "gated";
+    const activeRun = host.startRun(session.id, "新的活动运行");
+    await truthEntered;
+
+    expect(() => host.retryRun(session.id, oldRun.runId)).toThrow("already has active run");
+    release();
+    expect((await host.waitForRun(session.id, activeRun.runId)).run.status).toBe("completed");
   });
 });

@@ -3,6 +3,7 @@ import type {
   PublicSessionSnapshot,
   WorldRunEvent,
   WorldRunRecordView,
+  WorldRunSnapshot,
 } from "../shared/world-api";
 export type {
   PublicObservationPacket,
@@ -17,7 +18,11 @@ export type WorldRunEventInput = WorldRunEvent extends infer Event
     : never
   : never;
 
-export type WorldRunRecord = WorldRunRecordView;
+export interface WorldRunRecord extends Omit<WorldRunRecordView, "error"> {
+  intentId: string;
+  error?: string;
+  internalError?: string;
+}
 
 export interface WorldSessionDocument {
   schemaVersion: 1;
@@ -38,5 +43,29 @@ export function publicSessionSnapshot(document: WorldSessionDocument): PublicSes
     elapsedSeconds: document.state.truth.elapsedSeconds,
     player: structuredClone(document.state.player.knowledge),
     activeIntent: structuredClone(document.state.player.intent),
+  };
+}
+
+export function publicWorldRunRecord(run: WorldRunRecord): WorldRunRecordView {
+  return {
+    id: run.id,
+    sessionId: run.sessionId,
+    text: run.text,
+    status: run.status,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    cancelRequested: run.cancelRequested,
+    error: run.error,
+    events: structuredClone(run.events),
+  };
+}
+
+export function publicWorldRunSnapshot(
+  document: WorldSessionDocument,
+  run: WorldRunRecord,
+): WorldRunSnapshot {
+  return {
+    run: publicWorldRunRecord(run),
+    state: publicSessionSnapshot(document),
   };
 }

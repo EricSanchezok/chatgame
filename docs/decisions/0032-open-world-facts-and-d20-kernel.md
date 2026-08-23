@@ -31,7 +31,7 @@ canonical truth 以稳定实体和开放 `WorldFact` 图表达。位置、包含
 
 不确定行动使用通用 d20 检定：Truth Engine 在看到随机值前提交相关 rating、修正、熟练、DC、优势/劣势、风险和可见性；注入式种子随机源生成结果；Truth Engine 再按自然语言世界法典结算。连续依赖检定可以分阶段请求，但每一阶段都必须先承诺后掷骰。
 
-首期只实现 d20 内核，不捆绑完整 SRD 内容。剧本格式包含世界法典、初始实体、开放事实、数值目录和 Agent profile，不包含 actions.yaml、effect 白名单或自定义 action handler。
+核心只提供 d20 内核，不捆绑完整 SRD 内容。世界通过受信任服务端注册表引用精确版本的规则包和严格配置，归档不能携带可执行代码；默认包用同轮多检定与 Meter delta/threshold 组合表达对抗和伤害。剧本格式包含世界法典、初始实体、开放事实、数值目录和 Agent profile，不包含 actions.yaml、effect 白名单或自定义 action handler。
 
 ### Consequences
 

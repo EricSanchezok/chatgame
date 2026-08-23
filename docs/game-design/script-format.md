@@ -49,6 +49,12 @@ laws:
 ## `mechanics.yaml`
 
 ```yaml
+rule_packages:
+  - id: core-d20
+    version: 1.0.0
+    config:
+      opposedChecks: true
+      damageUsesMeters: true
 meters:
   - id: health
     name: 生命
@@ -71,6 +77,8 @@ ratings:
     min: -5
     max: 10
 ```
+
+`rule_packages` 至少包含一个服务端已注册包。引用由包 ID、精确版本和严格 JSON 配置组成；世界目录不能提供代码。默认注册表提供 `core-d20@1.0.0`，其两个布尔配置声明对抗检定组合与 Meter 伤害组合。未知包、版本不符、重复引用和多余配置拒绝加载。
 
 Meter 的 `max` 必须大于 `min`，阈值位于范围内；threshold effect 为 `set_lifecycle` 或 `set_fact`。Quantity 明确是否允许生产/消耗；转移始终守恒。Rating 是剧本命名的通用检定修正，`max >= min`。
 

@@ -17,19 +17,23 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 
 ## 三种现实
 
-`CanonicalWorldState` 是唯一客观现实，包含实体、位置、事实、数值、时间与生命周期。每个 `AgentState` 拥有独立的稀疏 `AgentBeliefState`，用局部实体 ID 表达其相信、怀疑或否认的内容；它可以与真相冲突。`PlayerKnowledgeState` 只保存玩家已知信息，不记录或推断真人心理。
+`CanonicalWorldState` 是唯一客观现实，包含实体、位置、事实、数值、时间、生命周期、客观事件与 RNG 状态。每个 `AgentState` 拥有独立的稀疏 `AgentBeliefState`，用局部实体 ID 表达其相信、怀疑或否认的内容；它可以与真相冲突。`PlayerKnowledgeState` 只保存玩家已知信息，不记录或推断真人心理。
 
 `EpistemicBinding` 只在服务端把局部身份映射到 canonical entity。AgentMind prompt 与公共 API 都移除该映射，所以模型和浏览器不能靠 ID 绕过认知边界。
 
 ## 一个世界步骤
 
-1. 当前玩家目标和每个存活 Agent 已准备的自由行动都绑定同一 `baseRevision`。
+1. 当前玩家目标和每个存活 Agent 已准备的自由行动都绑定同一 `baseRevision`，并按 actor/proposal identity 规范排序后形成联合输入。
 2. Truth Engine 一次看到完整 canonical truth、世界法典、认知映射与联合行动，先决定是否需要检定。
 3. 需要随机性时，它先提交 DC、修正来源、优势/劣势、风险和可见性；内核随后掷骰。
 4. Truth Engine 提出覆盖每个行动的 outcome、世界 delta、事件、逐观察者 observation 与玩家目标状态。
-5. 事务层在克隆前态上校验引用、因果、守恒、范围、包含关系、观察覆盖和正数时间推进。
+5. 事务层在克隆前态上校验引用、因果、守恒、范围、包含关系、观察覆盖和正数时间推进；公开信息守卫同时拒绝 canonical identity、私密事实和其他主体私密信念进入玩家结果。
 6. 每个 AgentMind 只看自己的 belief 与 observation，更新 belief 并准备下一步骤行动；新创建 Agent 也必须在本步初始化。
-7. 全部结果有效后，revision、step、RNG、truth、belief、玩家知识和审计历史一次提交。任一失败则整个步骤回滚。
+7. 全部结果有效后，revision、step、RNG、truth、belief、玩家知识和审计历史一次提交。审计保存完整检定请求/结果、模型配置与尝试次数、内容 hash，不保存 prompt、原始响应或思维链。任一失败则整个步骤回滚。
+
+## 规则扩展
+
+世界通过 `rule_packages` 引用服务端受信任注册表中的规则包 ID、精确版本和严格配置。ZIP 不能携带可执行规则代码；未知包、版本不符或多余配置在加载时拒绝。核心只预装 `core-d20`，题材规则继续由世界法典、开放事实和通用数值表达，未来规则包通过同一注册接口加入而不产生动作白名单。
 
 ## 长程 WorldRun
 
@@ -47,7 +51,7 @@ chatgame 的运行时是“单一客观世界 + 多个有限认知主体 + 唯�
 - Meter/Rating 必须在剧本定义范围内；threshold 只触发一次。
 - placement 不得形成循环；Agent 必须绑定活动实体。
 - Truth 输出、Observation、BeliefPatch 与下一行动全部通过 schema 与语义校验。
-- 客户端永远不接收 canonical bindings、其他 Agent 信念或隐藏检定。
+- 客户端永远不接收 canonical bindings、其他 Agent 信念、内部模型 ID、内部错误或隐藏检定。
 
 ## 扩展到超大世界
 

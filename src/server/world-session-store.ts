@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import path from "node:path";
 import { z } from "zod";
 import { validateSimulationState } from "../engine/transaction";
-import type { WorldSessionDocument } from "./world-run-types";
+import type { WorldRunEvent, WorldSessionDocument } from "./world-run-types";
 
 const identifierPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
@@ -38,18 +38,126 @@ const runStatuses = new Set([
   "cancelled",
   "failed",
 ]);
-const runEventTypes = new Set([
-  "run.started",
-  "check.resolved",
-  "player.observation",
-  "step.committed",
-  "run.awaiting_player",
-  "run.completed",
-  "run.goal_failed",
-  "run.step_limit",
-  "run.cancelled",
-  "run.failed",
+const beliefValueViewSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("text"), value: z.string() }).strict(),
+  z.object({ kind: z.literal("number"), value: z.number().finite() }).strict(),
+  z.object({ kind: z.literal("boolean"), value: z.boolean() }).strict(),
+  z.object({ kind: z.literal("local_entity"), localEntityId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("none") }).strict(),
 ]);
+const localEntityViewSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  status: z.enum(["observed", "reported", "hypothesized"]),
+}).strict();
+const eventBase = {
+  sequence: z.number().int().positive(),
+  at: z.string().min(1),
+};
+const checkPayloadSchema = z.discriminatedUnion("visibility", [
+  z.object({
+    requestId: z.string().min(1),
+    visibility: z.literal("full"),
+    dice: z.array(z.number().int().min(1).max(20)).min(1).max(2),
+    kept: z.number().int().min(1).max(20),
+    modifier: z.number().int(),
+    total: z.number().int(),
+    dc: z.number().int().min(0).max(100),
+    succeeded: z.boolean(),
+    margin: z.number().int(),
+  }).strict(),
+  z.object({
+    requestId: z.string().min(1),
+    visibility: z.literal("result_only"),
+    succeeded: z.boolean(),
+  }).strict(),
+]);
+const runEventSchema = z.union([
+  z.object({
+    ...eventBase,
+    type: z.literal("run.started"),
+    payload: z.object({ runId: z.string().min(1), text: z.string() }).strict(),
+  }).strict(),
+  z.object({
+    ...eventBase,
+    type: z.literal("check.resolved"),
+    payload: checkPayloadSchema,
+  }).strict(),
+  z.object({
+    ...eventBase,
+    type: z.literal("player.outcome"),
+    payload: z.object({
+      status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
+      summary: z.string(),
+      knownAlternatives: z.array(z.string()),
+    }).strict(),
+  }).strict(),
+  z.object({
+    ...eventBase,
+    type: z.literal("player.observation"),
+    payload: z.object({
+      id: z.string().min(1),
+      observerId: z.literal("player"),
+      step: z.number().int().nonnegative(),
+      summary: z.string(),
+      introductions: z.array(z.object({ localEntity: localEntityViewSchema }).strict()),
+      apparentClaims: z.array(z.object({
+        id: z.string().min(1),
+        subjectId: z.string().min(1),
+        predicate: z.string().min(1),
+        value: beliefValueViewSchema,
+        description: z.string(),
+      }).strict()),
+      sourceEventIds: z.array(z.string().min(1)),
+    }).strict(),
+  }).strict(),
+  z.object({
+    ...eventBase,
+    type: z.literal("step.committed"),
+    payload: z.object({
+      revision: z.number().int().nonnegative(),
+      step: z.number().int().nonnegative(),
+      elapsedSeconds: z.number().int().nonnegative(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    ...eventBase,
+    type: z.enum([
+      "run.awaiting_player",
+      "run.completed",
+      "run.goal_failed",
+      "run.step_limit",
+      "run.cancelled",
+    ]),
+    payload: z.object({
+      runId: z.string().min(1),
+      revision: z.number().int().nonnegative(),
+      step: z.number().int().nonnegative(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    ...eventBase,
+    type: z.literal("run.failed"),
+    payload: z.object({
+      runId: z.string().min(1),
+      message: z.string(),
+      retriable: z.literal(true),
+    }).strict(),
+  }).strict(),
+]) as z.ZodType<WorldRunEvent>;
+
+function validateRunEvent(event: unknown, runId: string): WorldRunEvent {
+  const parsed = runEventSchema.safeParse(event);
+  if (!parsed.success) {
+    const type = event && typeof event === "object" && "type" in event ? String(event.type) : "event";
+    throw new Error(`invalid ${type} in ${runId}`);
+  }
+  if ("runId" in parsed.data.payload && parsed.data.payload.runId !== runId) {
+    throw new Error(`event run id mismatch in ${runId}`);
+  }
+  return parsed.data;
+}
 
 function validateDocument(document: WorldSessionDocument, expectedSessionId?: string): void {
   if (expectedSessionId && document.id !== expectedSessionId) throw new Error("session document id mismatch");
@@ -57,13 +165,15 @@ function validateDocument(document: WorldSessionDocument, expectedSessionId?: st
   validateSimulationState(document.state, true, true);
   for (const [runId, run] of Object.entries(document.runs)) {
     if (!run || typeof run !== "object" || run.id !== runId || run.sessionId !== document.id ||
-      !run.text.trim() || !runStatuses.has(run.status) || typeof run.cancelRequested !== "boolean" ||
+      !run.intentId?.trim() || !run.text.trim() || !runStatuses.has(run.status) || typeof run.cancelRequested !== "boolean" ||
+      (run.error !== undefined && typeof run.error !== "string") ||
+      (run.internalError !== undefined && typeof run.internalError !== "string") ||
       !Array.isArray(run.events)) {
       throw new Error(`invalid run ${runId}`);
     }
     for (let index = 0; index < run.events.length; index += 1) {
-      const event = run.events[index];
-      if (event.sequence !== index + 1 || !event.at || !runEventTypes.has(event.type)) {
+      const event = validateRunEvent(run.events[index], runId);
+      if (event.sequence !== index + 1) {
         throw new Error(`invalid event sequence in run ${runId}`);
       }
     }

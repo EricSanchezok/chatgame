@@ -3,8 +3,9 @@
 ## 层级
 
 - `npm test`：Vitest 契约、纯内核、仿真集成、持久化、导入、Route Handler 与 jsdom UI。
-- `npm run test:e2e`：对生产构建运行真实 Next 入口，验证空世界工作台。
-- `npm run test:a11y`：对同一生产入口运行 axe。
+- `npm run test:e2e`：对生产构建运行真实 Next 入口，验证空态、ZIP 导入、会话、自由输入、SSE、刷新持久化和窄屏布局。
+- `npm run test:a11y`：分别在空态、导入后的会话工作台和已完成 run 上运行 axe。
+- `npm run test:live:deepseek`：使用环境中的真实 DeepSeek 密钥完成 AgentMind 初始化和一个 Truth Engine 步骤；它是手动兼容性烟雾测试，不作为确定性 CI 门禁。
 - `npm run check:fast`：lint、类型、单元/集成、世界夹具与治理门禁。
 - `npm run check:all`：快速门禁加生产 E2E 与无障碍。
 
@@ -16,6 +17,7 @@
 - 认知测试同时放置相互冲突的 truth 与 belief，证明它们不会互相覆盖。
 - 随机测试固定 seed，并证明 DC 与 stakes 在骰值生成前提交。
 - 公共表面测试搜索 canonical ID/binding 泄漏。
+- 远程模型测试不得打印密钥、prompt 或原始响应，也不能替代 seed 固定的确定性语义门禁。
 - 测试夹具位于 `test/fixtures/open-world-script/`，只证明通用契约，不是内置可玩内容。
 
 测试矩阵的决策依据见 [0034](decisions/0034-truth-engine-verification-matrix.md)。

@@ -1,6 +1,7 @@
 import type {
   PublicSessionSnapshot,
-  WorldRunRecordView,
+  StartWorldRunResponse,
+  WorldRunSnapshot,
   WorldSummary,
 } from "../../shared/world-api";
 
@@ -42,17 +43,17 @@ export const worldApi = {
   session: (sessionId: string) =>
     request<PublicSessionSnapshot>(`/api/sessions/${encodeURIComponent(sessionId)}`),
   startRun: (sessionId: string, text: string) =>
-    post<WorldRunRecordView>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { text }),
+    post<StartWorldRunResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { text }),
   run: (sessionId: string, runId: string) =>
-    request<WorldRunRecordView>(
+    request<WorldRunSnapshot>(
       `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,
     ),
   retryRun: (sessionId: string, runId: string) =>
-    post<WorldRunRecordView>(
+    post<WorldRunSnapshot>(
       `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,
     ),
   cancelRun: (sessionId: string, runId: string) =>
-    request<WorldRunRecordView>(
+    request<WorldRunSnapshot>(
       `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,
       { method: "DELETE" },
     ),

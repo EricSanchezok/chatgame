@@ -9,6 +9,7 @@ import type {
   SimulationState,
 } from "../engine/model";
 import { createSeededRng } from "../engine/random";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { validateSimulationState } from "../engine/transaction";
 import type { WorldDefinition } from "../engine/world-definition";
 import { validateWorldDefinition } from "../engine/world-definition";
@@ -159,7 +160,11 @@ export function validateWorldScriptLayout(scriptDir: string): void {
   }
 }
 
-export function loadWorldScript(scriptDir: string, seed = 1): WorldDefinition {
+export function loadWorldScript(
+  scriptDir: string,
+  seed = 1,
+  rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
+): WorldDefinition {
   const root = path.resolve(scriptDir);
   validateWorldScriptLayout(root);
   const manifest = parseDocument(path.join(root, "script.yaml"), scriptManifestSchema);
@@ -174,10 +179,13 @@ export function loadWorldScript(scriptDir: string, seed = 1): WorldDefinition {
     const state: SimulationState = {
       schemaVersion: 1,
       worldId: manifest.id,
+      lawIds: laws.laws.map((law) => law.id),
       revision: 0,
       step: 0,
       truth: {
         elapsedSeconds: 0,
+        rng: createSeededRng(seed),
+        events: [],
         entities: {},
         placements: {},
         facts: {},
@@ -197,9 +205,8 @@ export function loadWorldScript(scriptDir: string, seed = 1): WorldDefinition {
           ]),
         ),
       },
-      rng: createSeededRng(seed),
-      events: [],
       history: [],
+      bootstrapModelAudits: [],
     };
 
     for (const document of documents) {
@@ -218,7 +225,7 @@ export function loadWorldScript(scriptDir: string, seed = 1): WorldDefinition {
         state.truth.facts[fact.id] = {
           ...fact,
           subjectId: document.id,
-          provenance: [{ kind: "event", id: "worldgen" }],
+          provenance: [{ kind: "law", id: laws.laws[0].id }],
         };
       }
       for (const meter of document.meters) {
@@ -263,6 +270,11 @@ export function loadWorldScript(scriptDir: string, seed = 1): WorldDefinition {
       description: manifest.description,
       laws: laws.laws,
       disclosure: { defaultCheckVisibility: laws.disclosure.default_check_visibility },
+      rulePackages: rulePackages.validate(mechanicsDocument.rule_packages.map((reference) => ({
+        id: reference.id,
+        version: reference.version,
+        config: reference.config,
+      }))),
       initialState: state,
     };
     validateWorldDefinition(definition);

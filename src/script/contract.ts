@@ -42,6 +42,11 @@ const thresholdEffectSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const mechanicsFileSchema = z.object({
+  rule_packages: z.array(z.object({
+    id: z.string().min(1),
+    version: z.string().min(1),
+    config: z.unknown(),
+  }).strict()).min(1),
   meters: z.array(z.object({
     id: z.string().min(1),
     name: z.string().min(1),

@@ -74,6 +74,48 @@ export function applyBeliefPatch(
         delete next.localEntities[operation.fromId];
         break;
       }
+      case "split_local_entity": {
+        if (!next.localEntities[operation.fromId]) {
+          throw new Error(`cannot split unknown local entity ${operation.fromId}`);
+        }
+        const replacementIds = new Set<string>();
+        for (const entity of operation.entities) {
+          if (entity.id === operation.fromId || replacementIds.has(entity.id) || next.localEntities[entity.id]) {
+            throw new Error(`split local entity has duplicate replacement ${entity.id}`);
+          }
+          replacementIds.add(entity.id);
+        }
+        const assignments = new Map(operation.assignments.map((assignment) => [assignment.claimId, assignment]));
+        if (assignments.size !== operation.assignments.length) {
+          throw new Error(`split local entity ${operation.fromId} has duplicate claim assignments`);
+        }
+        for (const entity of operation.entities) next.localEntities[entity.id] = structuredClone(entity);
+        for (const claim of Object.values(next.claims)) {
+          const replacesSubject = claim.subjectId === operation.fromId;
+          const replacesValue = claim.value.kind === "local_entity" && claim.value.localEntityId === operation.fromId;
+          if (!replacesSubject && !replacesValue) continue;
+          const assignment = assignments.get(claim.id);
+          if (!assignment) throw new Error(`split local entity ${operation.fromId} does not assign claim ${claim.id}`);
+          if (replacesSubject) {
+            if (!assignment.subjectId || !replacementIds.has(assignment.subjectId)) {
+              throw new Error(`split claim ${claim.id} has an invalid subject assignment`);
+            }
+            claim.subjectId = assignment.subjectId;
+          }
+          if (replacesValue) {
+            if (!assignment.valueId || !replacementIds.has(assignment.valueId)) {
+              throw new Error(`split claim ${claim.id} has an invalid value assignment`);
+            }
+            claim.value = { kind: "local_entity", localEntityId: assignment.valueId };
+          }
+        }
+        for (const assignment of operation.assignments) {
+          const claim = next.claims[assignment.claimId];
+          if (!claim) throw new Error(`split references unknown claim ${assignment.claimId}`);
+        }
+        delete next.localEntities[operation.fromId];
+        break;
+      }
     }
   }
 

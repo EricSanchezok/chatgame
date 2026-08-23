@@ -13,10 +13,10 @@ function assertLocalClaimReferences(
   packetId: string,
 ): void {
   if (!localEntities[claim.subjectId]) {
-    throw new Error(`observation ${packetId} references unknown local subject ${claim.subjectId}`);
+    throw new Error(`observation ${packetId} references unknown local subject ${claim.subjectId}; introduce that private local id in the same packet or use an existing observer-local id`);
   }
   if (claim.value.kind === "local_entity" && !localEntities[claim.value.localEntityId]) {
-    throw new Error(`observation ${packetId} references unknown local value ${claim.value.localEntityId}`);
+    throw new Error(`observation ${packetId} references unknown local value ${claim.value.localEntityId}; introduce that private local id in the same packet or use an existing observer-local id`);
   }
 }
 
@@ -25,7 +25,8 @@ export function validateObservations(
   packets: readonly ObservationPacket[],
   expectedStep = state.step + 1,
 ): void {
-  const ids = new Set<string>();
+  const ids = new Set(state.history.flatMap((committed) =>
+    committed.observations.map((observation) => observation.id)));
   for (const packet of packets) {
     if (ids.has(packet.id)) throw new Error(`duplicate observation id ${packet.id}`);
     ids.add(packet.id);
@@ -40,6 +41,9 @@ export function validateObservations(
       : state.agents[packet.observerId].belief.localEntities;
     const localEntities: Record<string, unknown> = { ...existing };
     for (const introduction of packet.introductions) {
+      if (state.truth.entities[introduction.localEntity.id]) {
+        throw new Error(`observation ${packet.id} uses canonical id ${introduction.localEntity.id} as a local identity; rename localEntity.id while keeping canonicalEntityId private`);
+      }
       localEntities[introduction.localEntity.id] = introduction.localEntity;
       if (introduction.canonicalEntityId && !state.truth.entities[introduction.canonicalEntityId]) {
         throw new Error(`observation ${packet.id} introduces unknown canonical entity`);
