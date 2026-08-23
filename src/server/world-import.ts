@@ -104,7 +104,7 @@ export function importWorldArchive(
 ): WorldImportResult {
   const resolvedRoot = path.resolve(scriptsRoot);
   mkdirSync(path.dirname(resolvedRoot), { recursive: true });
-  const staging = mkdtempSync(path.join(path.dirname(resolvedRoot), ".chatgame-world-import-"));
+  const staging = mkdtempSync(path.join(path.dirname(resolvedRoot), ".livingworld-world-import-"));
   let backup: string | undefined;
   try {
     const source = extractArchive(buffer, staging);

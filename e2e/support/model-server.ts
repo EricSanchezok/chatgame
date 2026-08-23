@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-const port = Number(process.env.CHATGAME_E2E_MODEL_PORT ?? 32128);
+const port = Number(process.env.LIVINGWORLD_E2E_MODEL_PORT ?? 32128);
 
 async function readBody(request: import("node:http").IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];

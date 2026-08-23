@@ -10,7 +10,7 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "sha256": "027bc0589d25cb668dc08509ca83a34796783a75a2dbca30f9f587d8dc8cf5d4",
+      "sha256": "cd91bbaf8b9c6f881a1a341969188105b6ce36358b429922b7318e86c0ca1ebd",
       "category": "instruction"
     },
     {
@@ -117,7 +117,7 @@
     },
     {
       "path": "LICENSE",
-      "sha256": "a693dd53fee308157ecadf98fd4df08378dddb384ed6c0b612bccd111ca361f4",
+      "sha256": "8aa74caf40a821da1e46aaf79d6b4baf761eacf17c2ac2e15b7fda310261627b",
       "category": "meta"
     },
     {

@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 function temporaryRoot(): string {
-  const root = mkdtempSync(path.join(tmpdir(), "chatgame-session-store-"));
+  const root = mkdtempSync(path.join(tmpdir(), "livingworld-session-store-"));
   roots.push(root);
   return root;
 }

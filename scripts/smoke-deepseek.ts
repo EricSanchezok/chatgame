@@ -7,7 +7,7 @@ import { TruthEngine } from "../src/engine/truth-engine";
 import { loadWorldScript } from "../src/script/world-loader";
 
 async function main(): Promise<void> {
-  const catalog = loadModelCatalog(path.resolve(process.env.CHATGAME_MODEL_CATALOG_PATH ?? "config/models.yaml"));
+  const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
   const provider = createModelGateway(catalog);
   const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
     seed: 20260823,

@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # AGENTS.md
 
-chatgame 是剧本驱动的开放世界 AI 游戏框架。设计的第一性原理见 [决策记录 0004](docs/decisions/0004-game-first-principles.md)；改架构前先读 [docs/architecture.md](docs/architecture.md)。
+Living World Engine 是剧本驱动的开放世界 AI 游戏框架。设计的第一性原理见 [决策记录 0004](docs/decisions/0004-game-first-principles.md)；改架构前先读 [docs/architecture.md](docs/architecture.md)。
 
 ## Repository layout
 
@@ -69,6 +69,10 @@ node scripts/verify-decisions.mjs && node scripts/verify-doc-links.mjs && node s
 ## Documentation
 
 遵循 [docs/AGENTS.md](docs/AGENTS.md)：每个事实只有一个家、教程 vs 参考、卫生清单。
+
+## Research
+
+论文与文献调研通过 Scholens 管理：Project **Living World Engine / 活世界引擎**（ID `26668cf0-6489-4657-9b33-c1aba2b14a1b`，资源 `scholens://projects/26668cf0-6489-4657-9b33-c1aba2b14a1b`）。新增调研成果与论文入库到该 Project，检索既有文献用 `search_scholens_knowledge`（scope `{"kind": "project", "project_id": "26668cf0-6489-4657-9b33-c1aba2b14a1b"}`）。
 
 ## Decisions
 
