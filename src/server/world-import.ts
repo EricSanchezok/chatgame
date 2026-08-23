@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import type { ModelCatalog } from "../engine/model-catalog";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import {
   buildWorldDefinition,
   loadWorldTemplate,
@@ -119,6 +120,7 @@ export interface ParsedWorldArchive {
 export function parseWorldArchive(
   buffer: Buffer,
   modelCatalog: ModelCatalog,
+  rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
 ): ParsedWorldArchive {
   const staging = mkdtempSync(path.join(tmpdir(), "livingworld-world-import-"));
   try {
@@ -126,7 +128,7 @@ export function parseWorldArchive(
     const template = loadWorldTemplate(source);
     let definition;
     try {
-      definition = buildWorldDefinition(template, { seed: 1, modelCatalog });
+      definition = buildWorldDefinition(template, { seed: 1, modelCatalog, rulePackages });
     } catch (error) {
       throw new WorldScriptError(source, error instanceof Error ? error.message : String(error));
     }

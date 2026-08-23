@@ -6,7 +6,7 @@ test("a fresh installation exposes the truthful empty world workbench", async ({
 
   await expect(page.getByRole("heading", { name: "开放世界引擎" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "暂无可玩世界" })).toBeVisible();
-  await expect(page.getByText("导入符合 schema v4 的世界 ZIP，开始一段游戏。")).toBeVisible();
+  await expect(page.getByText("导入符合 schema v5 的世界 ZIP，开始一段游戏。")).toBeVisible();
   await expect(page.getByText("导入世界 ZIP")).toBeVisible();
 
   await page.locator('input[type="file"]').setInputFiles({

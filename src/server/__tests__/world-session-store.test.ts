@@ -46,7 +46,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
   const intent = state.player.intent;
   const runId = "run-1";
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     id,
     world: toWorldRuntimeContract(definition),
     createdAt: "2026-08-23T00:00:00.000Z",
@@ -93,7 +93,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
 }
 
 describe("WorldSessionStore", () => {
-  it("persists a strict v4 document and rejects missing sessions", async () => {
+  it("persists a strict v5 document and rejects missing sessions", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
 
@@ -114,10 +114,10 @@ describe("WorldSessionStore", () => {
       .toThrow(WorldSessionConflictError);
   });
 
-  it("rejects v3 documents without a compatibility path", async () => {
+  it("rejects v4 documents without a compatibility path", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
-    const legacy = { ...document, schemaVersion: 3 } as unknown as WorldSessionDocument;
+    const legacy = { ...document, schemaVersion: 4 } as unknown as WorldSessionDocument;
 
     expect(() => store.create(legacy)).toThrow();
   });
@@ -210,7 +210,7 @@ describe("WorldSessionStore", () => {
 
     const tamper = new Database(file);
     tamper.prepare("UPDATE world_sessions SET document_json = ? WHERE id = ?")
-      .run('{"schemaVersion":3}', document.id);
+      .run('{"schemaVersion":4}', document.id);
     tamper.close();
 
     const third = new LocalDatabase(file, { ownerId: "owner-3", heartbeat: false });

@@ -4,6 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { canonicalize } from "../engine/model-audit";
 import type { ModelCatalog } from "../engine/model-catalog";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { buildWorldDefinition, hashWorldTemplate, parseWorldTemplate } from "../script/world-loader";
 import type { WorldCatalogEntry, WorldRepository } from "../script/world-repository";
 import { parseWorldArchive, WorldImportError, type WorldImportResult } from "./world-import";
@@ -24,6 +25,7 @@ interface LocalDatabaseOptions {
   ownerId?: string;
   now?: () => number;
   heartbeat?: boolean;
+  rulePackages?: RulePackageRegistry;
 }
 
 interface WorldRow {
@@ -53,6 +55,7 @@ export class LocalDatabaseInUseError extends Error {
 }
 
 export class LocalDatabase implements WorldRepository, WorldSessionStore {
+  readonly rulePackages: RulePackageRegistry;
   private readonly connection: Database.Database;
   private readonly ownerId: string;
   private readonly now: () => number;
@@ -64,6 +67,7 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     this.connection = new Database(file, { timeout: 5_000 });
     this.ownerId = options.ownerId ?? `${process.pid}:${randomUUID()}`;
     this.now = options.now ?? Date.now;
+    this.rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
     try {
       this.connection.pragma("journal_mode = WAL");
       this.connection.pragma("synchronous = FULL");
@@ -219,11 +223,11 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     if (!row) throw new Error(`world not found: ${worldId}`);
     const template = parseWorldTemplate(JSON.parse(row.template_json));
     if (hashWorldTemplate(template) !== row.content_hash) throw new Error(`world ${worldId} content hash mismatch`);
-    return buildWorldDefinition(template, { seed, modelCatalog });
+    return buildWorldDefinition(template, { seed, modelCatalog, rulePackages: this.rulePackages });
   }
 
   importWorld(buffer: Buffer, modelCatalog: ModelCatalog, replace = false): WorldImportResult {
-    const archive = parseWorldArchive(buffer, modelCatalog);
+    const archive = parseWorldArchive(buffer, modelCatalog, this.rulePackages);
     return this.connection.transaction(() => {
       this.assertInstanceLease();
       const current = this.connection.prepare("SELECT current_content_hash FROM world_catalog WHERE world_id = ?")

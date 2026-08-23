@@ -197,7 +197,15 @@ export class SimulationEngine {
     };
     const agents = Object.values(source.agents);
     const outputs = await settledValues(
-      agents.map((agent) => this.agentMind.think(source, agent, [], executionScope)),
+      agents.map((agent) => this.agentMind.think(
+        source,
+        agent,
+        [],
+        executionScope,
+        { action: null, outcome: null },
+        [],
+        "bootstrap",
+      )),
       "AgentMind bootstrap",
     );
     for (let index = 0; index < agents.length; index += 1) {
@@ -369,6 +377,7 @@ export class SimulationEngine {
           executionScope,
           { action, outcome: outcome ? { status: outcome.status, summary: outcome.summary } : null },
           resolution.proposal.events,
+          source.agents[agent.id] ? "mind" : "bootstrap",
         );
       }),
       "AgentMind",
@@ -397,13 +406,17 @@ export class SimulationEngine {
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
       outcomes: structuredClone(resolution.proposal.outcomes),
+      mechanicInvocations: structuredClone(resolution.proposal.mechanicInvocations),
+      mechanicResults: structuredClone(resolution.mechanicResults),
+      causalAssertionResults: structuredClone(resolution.causalAssertionResults),
+      causalVerification: structuredClone(resolution.causalVerification),
       events: structuredClone(resolution.proposal.events),
       observations: structuredClone(observations),
       operations: structuredClone(resolution.proposal.operations),
       beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
       characterPatches: outputs.map((output) => structuredClone(output.characterPatch)),
       modelAudits: [
-        structuredClone(resolution.modelAudit),
+        ...resolution.modelAudits.map((audit) => structuredClone(audit)),
         ...resolution.reactionModelAudits.map((audit) => structuredClone(audit)),
         ...outputs.map((output) => structuredClone(output.modelAudit)),
       ],

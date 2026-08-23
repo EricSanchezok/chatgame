@@ -8,7 +8,7 @@
 
 | 方法与路径 | 语义 |
 |---|---|
-| `GET /api/worlds` | 列出已安装 schema v4 世界 |
+| `GET /api/worlds` | 列出已安装 schema v5 世界 |
 | `POST /api/worlds/import` | multipart 上传一个世界 ZIP；`replace=true` 显式替换 |
 | `GET /api/sessions` | 列出持久会话公开快照 |
 | `POST /api/sessions` | 以 `worldId` 和可选非负 seed 创建会话 |

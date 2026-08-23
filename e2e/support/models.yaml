@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 
 scheduler:
   global_concurrency: 16
@@ -17,7 +17,7 @@ profiles:
     provider_id: deepseek-e2e
     model: e2e-truth
     description: E2E Truth Engine through the production DeepSeek adapter
-    allowed_roles: [truth-engine]
+    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, causal-verifier]
     request_timeout_ms: 10000
     max_output_tokens: 32768
     inference:
@@ -27,7 +27,7 @@ profiles:
     provider_id: deepseek-e2e
     model: e2e-agent
     description: E2E AgentMind through the production DeepSeek adapter
-    allowed_roles: [agent-mind]
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
     request_timeout_ms: 10000
     max_output_tokens: 8192
     inference:

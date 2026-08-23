@@ -35,7 +35,7 @@ function protectedTokens(state: SimulationState): Set<string> {
     if (fact.value.kind === "entity") protect(fact.value.entityId);
   }
   for (const agent of Object.values(state.agents)) {
-    protect(agent.modelProfileId);
+    for (const profileId of Object.values(agent.modelProfiles)) protect(profileId);
     protect(agent.character.persona.summary);
     protect(agent.character.persona.voice);
     for (const collection of [

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { RulePackageRegistry } from "../../engine/rule-package";
 import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { LocalDatabase } from "../local-database";
 import { WorldHost } from "../world-host";
@@ -69,7 +71,7 @@ function oversizedDeclaredArchive(): Buffer {
 }
 
 describe("world import", () => {
-  it("atomically imports one validated schema v4 world", () => {
+  it("atomically imports one validated schema v5 world", () => {
     const root = temporaryRoot();
     const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     const result = database.importWorld(zipDirectory(fixture).toBuffer(), modelCatalog);
@@ -82,6 +84,35 @@ describe("world import", () => {
       id: "open-world-fixture",
       initialState: { truth: { rng: { seed: 9 } } },
     });
+    database.close();
+  });
+
+  it("uses one injected rule registry for import, catalog load, and session recovery", async () => {
+    const root = temporaryRoot();
+    const archive = zipDirectory(fixture);
+    const mechanics = readFileSync(path.join(fixture, "mechanics.yaml"), "utf8")
+      .replace("core-d20", "test-rules")
+      .replace("version: 1.1.0", "version: 1.0.0");
+    archive.updateFile("world/mechanics.yaml", Buffer.from(mechanics));
+    const rulePackages = new RulePackageRegistry([{
+      id: "test-rules",
+      version: "1.0.0",
+      configSchema: z.strictObject({ damageUsesMeters: z.boolean() }),
+      adjudication: "测试规则目录。",
+      rules: [],
+    }]);
+    const provider = new DeterministicModelProvider();
+    const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), {
+      heartbeat: false,
+      rulePackages,
+    });
+    database.importWorld(archive.toBuffer(), provider.catalog);
+    expect(database.load("open-world-fixture", 9, provider.catalog).rulePackages[0])
+      .toMatchObject({ id: "test-rules", rules: [] });
+
+    const host = new WorldHost({ repository: database, store: database, provider });
+    const session = await host.createSession({ worldId: "open-world-fixture" });
+    expect(host.session(session.id).worldHash).toBe(session.worldHash);
     database.close();
   });
 

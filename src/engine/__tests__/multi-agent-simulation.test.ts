@@ -13,7 +13,7 @@ function agent(id: string): AgentState {
   return {
     id,
     entityId: id,
-    modelProfileId: "agent-default",
+    modelProfiles: { bootstrap: "agent-default", mind: "agent-default", reaction: "agent-default" },
     character: createEmptyCharacter(`${id} 的人格`),
     belief: {
       localEntities: {
@@ -61,7 +61,7 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
     agents[id] = agent(id);
   }
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     worldId: "simulation",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["time-passes"],
@@ -120,14 +120,21 @@ function definition(initialState = state()): WorldDefinition {
     manifestVersion: "test",
     description: "验证多 Agent 同时行动的测试世界。",
     contentHash: TEST_WORLD_HASH,
-    truthModelProfileId: "truth-engine",
+    modelProfiles: {
+      perception: "truth-engine",
+      reactionRouting: "truth-engine",
+      resolution: "truth-engine",
+      transition: "truth-engine",
+      causalVerifier: "truth-engine",
+    },
     laws: [{ id: "time-passes", text: "每个世界步骤必须推进时间。", severity: "hard" }],
     disclosure: { defaultCheckVisibility: "full" },
     rulePackages: [{
       id: "core-d20",
-      version: "1.0.0",
-      config: { opposedChecks: true, damageUsesMeters: true },
+      version: "1.1.0",
+      config: { damageUsesMeters: true },
       adjudication: "使用 d20 检定。",
+      rules: [{ id: "apply-meter-impact", description: "检定驱动 Meter 变化。" }],
     }],
     initialState,
   };
@@ -164,6 +171,7 @@ function simpleTransition(
       kind: "advance_time",
       seconds: 6,
       causes: [{ kind: "law", id: "time-passes" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
     },
   ];
   const targetAgentIds = [...agentIds];
@@ -181,13 +189,14 @@ function simpleTransition(
         },
         placementId: null,
         causes: [{ kind: "event", id: eventId }],
+        assertions: [{ kind: "entity_absent", entityId: "newborn" }],
       },
       {
         kind: "create_agent",
         agent: {
           id: "newborn",
           entityId: "newborn",
-          modelProfileId: "agent-default",
+          modelProfiles: { bootstrap: "agent-default", mind: "agent-default", reaction: "agent-default" },
           character: createEmptyCharacter("刚刚开始感知世界"),
           belief: {
             localEntities: {
@@ -200,6 +209,7 @@ function simpleTransition(
           nextAction: null,
         },
         causes: [{ kind: "event", id: eventId }],
+        assertions: [{ kind: "entity_lifecycle", entityId: "newborn", expected: "active" }],
       },
     );
     targetAgentIds.push("newborn");
@@ -211,8 +221,10 @@ function simpleTransition(
       status: "succeeded",
       summary: "行动得到联合裁决。",
       causeRefs: [{ kind: "action", id: proposalId }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       knownAlternatives: [],
     })),
+    mechanicInvocations: [],
     operations,
     events: [
       {
@@ -221,6 +233,7 @@ function simpleTransition(
         description: "世界共同向前推进。",
         impact: "ordinary",
         causes: [{ kind: "law", id: "time-passes" }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       },
     ],
     observations: observations(targetAgentIds, nextStep, eventId),
@@ -326,7 +339,14 @@ describe("multi-agent simulation", () => {
         context.jointActions!.map((action) => action.id),
         ["agent-a", "agent-b"],
       );
-      transition.outcomes[0].causeRefs.push({ kind: "check", id: "unknown-action-check" });
+      const playerOutcome = transition.outcomes.find((outcome) =>
+        outcome.proposalId === context.jointActions!.find((action) => action.actorId === "player")!.id)!;
+      playerOutcome.causeRefs.push({ kind: "check", id: "unknown-action-check" });
+      playerOutcome.assertions.push({
+        kind: "check_result",
+        checkId: "unknown-action-check",
+        expected: context.checkResults![0].total >= 15 ? "succeeded" : "failed",
+      });
       return { kind: "transition", proposal: transition };
     });
     const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
@@ -399,7 +419,7 @@ describe("multi-agent simulation", () => {
 
     expect(truthCall).toBe(3);
     expect(result.committed.checkRequests[0].visibility).toBe("result_only");
-    expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
+    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")?.repairAttempts).toBe(1);
   });
 
   it("rejects an invented law-based modifier and accepts only structured numeric sources", async () => {
@@ -452,7 +472,7 @@ describe("multi-agent simulation", () => {
     expect(result.committed.checkRequests[0].modifierSources).toEqual([
       { kind: "rating", id: "resolve:player", amount: 2 },
     ]);
-    expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
+    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")?.repairAttempts).toBe(1);
   });
 
   it("rejects repeated modifier sources and duplicate check ids before drawing RNG", async () => {
@@ -509,7 +529,7 @@ describe("multi-agent simulation", () => {
     expect(truthCall).toBe(4);
     expect(result.committed.checkRequests).toHaveLength(1);
     expect(result.state.truth.rng.draws).toBe(1);
-    expect(result.committed.modelAudits[0].repairAttempts).toBe(2);
+    expect(result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")?.repairAttempts).toBe(2);
   });
 
   it("initializes a dynamically created agent before committing the step", async () => {
@@ -581,7 +601,7 @@ describe("multi-agent simulation", () => {
       );
       const createAgent = proposal.operations.find((operation) => operation.kind === "create_agent");
       if (!createAgent || createAgent.kind !== "create_agent") throw new Error("test transition has no Agent");
-      createAgent.agent.modelProfileId = "invented-profile";
+      createAgent.agent.modelProfiles.mind = "invented-profile";
       return { kind: "transition", proposal };
     });
     const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
@@ -618,9 +638,15 @@ describe("multi-agent simulation", () => {
 
   it("dispatches three Agents through three independent profiles and commits them as one batch", async () => {
     const initial = state(["deep-agent", "openai-agent", "xai-agent"]);
-    initial.agents["deep-agent"].modelProfileId = "agent-deepseek";
-    initial.agents["openai-agent"].modelProfileId = "agent-openai";
-    initial.agents["xai-agent"].modelProfileId = "agent-xai";
+    initial.agents["deep-agent"].modelProfiles = {
+      bootstrap: "agent-deepseek", mind: "agent-deepseek", reaction: "agent-deepseek",
+    };
+    initial.agents["openai-agent"].modelProfiles = {
+      bootstrap: "agent-openai", mind: "agent-openai", reaction: "agent-openai",
+    };
+    initial.agents["xai-agent"].modelProfiles = {
+      bootstrap: "agent-xai", mind: "agent-xai", reaction: "agent-xai",
+    };
     const calls: Array<{ profileId: string; subjectId: string }> = [];
     const provider = new ScriptedModelProvider(({ profileId, subjectId, prompt }) => {
       const context = JSON.parse(prompt) as {
@@ -742,13 +768,13 @@ describe("multi-agent simulation", () => {
     engine.beginPlayerIntent("继续观察");
     await engine.step({ workloadId: "session-context", batchId: "run-context-2" });
 
-    const truthRequests = provider.requests.filter((request) => request.role === "truth-engine");
+    const truthRequests = provider.requests.filter((request) => request.role === "truth-transition");
     const secondTruth = truthRequests.at(-1)!;
     const truthContext = secondTruth.context as Record<string, unknown>;
     expect(secondTruth.system).toContain("不可信的行动企图");
     expect(truthContext).toMatchObject({
       contractVersion: 2,
-      promptVersion: "truth-engine-v3",
+      promptVersion: "truth-engine-v4",
       execution: { worldId: "simulation", sessionId: "session-context", runId: "run-context-2" },
       trustBoundary: { playerIntent: "untrusted-action-attempt" },
       baseRevision: 1,
@@ -764,9 +790,12 @@ describe("multi-agent simulation", () => {
       committedCheckRequests: [],
       checkResults: [],
     });
-    const allowedProfiles = truthContext.allowedAgentProfiles as Array<{ id: string; allowedRoles: string[] }>;
-    expect(allowedProfiles.every((profile) => profile.allowedRoles.includes("agent-mind"))).toBe(true);
-    expect(allowedProfiles.some((profile) => profile.id === "truth-engine")).toBe(false);
+    const allowedProfiles = truthContext.allowedAgentProfiles as Record<
+      "bootstrap" | "mind" | "reaction",
+      Array<{ id: string; allowedRoles: string[] }>
+    >;
+    expect(allowedProfiles.mind.every((profile) => profile.allowedRoles.includes("agent-mind"))).toBe(true);
+    expect(Object.values(allowedProfiles).flat().some((profile) => profile.id === "truth-engine")).toBe(false);
 
     const agentRequest = provider.requests.findLast((request) =>
       request.role === "agent-mind" && request.subjectId === "agent-a" &&
@@ -885,6 +914,7 @@ describe("multi-agent simulation", () => {
           description: "第一个事件错误地依赖未来事件。",
           impact: "ordinary",
           causes: [{ kind: "event", id: "event:future" }],
+          assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
         },
         {
           id: "event:future",
@@ -892,6 +922,7 @@ describe("multi-agent simulation", () => {
           description: "未来事件。",
           impact: "ordinary",
           causes: [{ kind: "law", id: "time-passes" }],
+          assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
         },
       ];
       transition.observations = transition.observations.map((observation) => ({

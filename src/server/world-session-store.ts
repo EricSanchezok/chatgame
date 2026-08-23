@@ -127,7 +127,13 @@ const worldContractSchema = z.strictObject({
   manifestVersion: z.string().min(1),
   description: z.string(),
   contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-  truthModelProfileId: z.string().min(1),
+  modelProfiles: z.strictObject({
+    perception: z.string().min(1),
+    reactionRouting: z.string().min(1),
+    resolution: z.string().min(1),
+    transition: z.string().min(1),
+    causalVerifier: z.string().min(1),
+  }),
   laws: z.array(z.strictObject({
     id: z.string().min(1),
     text: z.string().min(1),
@@ -139,11 +145,12 @@ const worldContractSchema = z.strictObject({
     version: z.string().min(1),
     config: z.unknown(),
     adjudication: z.string().min(1),
+    rules: z.array(z.strictObject({ id: z.string().min(1), description: z.string().min(1) })),
   })).min(1),
 });
 
 const documentEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   id: z.string().min(1),
   world: worldContractSchema,
   createdAt: z.string().datetime(),

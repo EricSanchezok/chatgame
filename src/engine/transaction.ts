@@ -128,8 +128,9 @@ function validateRating(state: SimulationState, id: string): void {
   }
 }
 
-function applyOperation(state: SimulationState, operation: WorldDeltaOperation): void {
+export function applyWorldDeltaOperation(state: SimulationState, operation: WorldDeltaOperation): void {
   assertCauses(operation.causes, operation.kind);
+  if (operation.assertions.length === 0) throw new Error(`${operation.kind} has no causal assertions`);
   switch (operation.kind) {
     case "create_entity":
       assertSafeId(operation.entity.id, "entity id");
@@ -212,8 +213,12 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       assertSafeId(operation.holderId, "quantity holder id");
       assertSafeId(operation.lawId, "production law id");
       const definition = state.truth.mechanics.quantities[operation.definitionId];
-      if (!definition?.allowProduction) throw new Error(`production is not allowed for ${operation.definitionId}`);
-      if (!operation.lawId.trim()) throw new Error("production requires a law id");
+      if (!definition?.productionLawIds.includes(operation.lawId)) {
+        throw new Error(`law ${operation.lawId} cannot produce ${operation.definitionId}`);
+      }
+      if (!operation.causes.some((cause) => cause.kind === "law" && cause.id === operation.lawId)) {
+        throw new Error(`production must cite authorizing law ${operation.lawId}`);
+      }
       if (!state.truth.entities[operation.holderId]) throw new Error(`unknown holder ${operation.holderId}`);
       if (!Number.isFinite(operation.amount) || operation.amount <= 0) throw new Error("production amount must be positive");
       getOrCreateQuantity(state, operation.definitionId, operation.holderId).amount += operation.amount;
@@ -224,8 +229,12 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
       assertSafeId(operation.holderId, "quantity holder id");
       assertSafeId(operation.lawId, "consumption law id");
       const definition = state.truth.mechanics.quantities[operation.definitionId];
-      if (!definition?.allowConsumption) throw new Error(`consumption is not allowed for ${operation.definitionId}`);
-      if (!operation.lawId.trim()) throw new Error("consumption requires a law id");
+      if (!definition?.consumptionLawIds.includes(operation.lawId)) {
+        throw new Error(`law ${operation.lawId} cannot consume ${operation.definitionId}`);
+      }
+      if (!operation.causes.some((cause) => cause.kind === "law" && cause.id === operation.lawId)) {
+        throw new Error(`consumption must cite authorizing law ${operation.lawId}`);
+      }
       if (!Number.isFinite(operation.amount) || operation.amount <= 0) throw new Error("consumption amount must be positive");
       const quantity = getOrCreateQuantity(state, operation.definitionId, operation.holderId);
       if (quantity.amount < operation.amount) throw new Error(`insufficient ${definition.name}`);
@@ -248,7 +257,9 @@ function applyOperation(state: SimulationState, operation: WorldDeltaOperation):
     case "create_agent":
       assertSafeId(operation.agent.id, "agent id");
       assertSafeId(operation.agent.entityId, "agent entity id");
-      assertSafeId(operation.agent.modelProfileId, "agent model profile id");
+      for (const profileId of Object.values(operation.agent.modelProfiles)) {
+        assertSafeId(profileId, "agent model profile id");
+      }
       if (state.agents[operation.agent.id]) throw new Error(`agent already exists: ${operation.agent.id}`);
       if (!state.truth.entities[operation.agent.entityId]) throw new Error(`unknown agent entity ${operation.agent.entityId}`);
       if (operation.agent.nextAction !== null) {
@@ -526,6 +537,7 @@ function validateHistory(state: SimulationState): void {
         event: priorEventIds,
         fact: allFactIds,
         law: lawIds,
+        mechanic: new Set(),
       }, `history check ${request.id}`);
       const result = committed.checks.find((candidate) => candidate.requestId === request.id)!;
       const expectedDice = request.mode === "normal" ? 1 : 2;
@@ -550,12 +562,21 @@ function validateHistory(state: SimulationState): void {
     if (index > 0 && JSON.stringify(state.history[index - 1].rngAfter) !== JSON.stringify(committed.rngBefore)) {
       throw new Error(`history step ${index + 1} has discontinuous RNG state`);
     }
-    const truthAudits = committed.modelAudits.filter((audit) => audit.role === "truth-engine");
-    if (truthAudits.length !== 1) throw new Error(`history step ${index + 1} must have one Truth Engine audit`);
+    for (const role of [
+      "truth-perception",
+      "truth-reaction-routing",
+      "truth-resolution",
+      "truth-transition",
+      "causal-verifier",
+    ] as const) {
+      if (!committed.modelAudits.some((audit) => audit.role === role)) {
+        throw new Error(`history step ${index + 1} has no ${role} audit`);
+      }
+    }
     const patchAgentIds = committed.beliefPatches.map((patch) => patch.agentId);
     const characterPatchAgentIds = committed.characterPatches.map((patch) => patch.agentId);
     const auditAgentIds = committed.modelAudits
-      .filter((audit) => audit.role === "agent-mind")
+      .filter((audit) => audit.role === "agent-mind" || audit.role === "agent-bootstrap")
       .map((audit) => audit.subjectId);
     if (new Set(patchAgentIds).size !== patchAgentIds.length || new Set(auditAgentIds).size !== auditAgentIds.length ||
       patchAgentIds.length !== auditAgentIds.length || patchAgentIds.some((agentId) => !auditAgentIds.includes(agentId)) ||
@@ -564,6 +585,16 @@ function validateHistory(state: SimulationState): void {
       committed.beliefPatches.some((patch) => patch.baseRevision !== committed.revision) ||
       committed.characterPatches.some((patch) => patch.baseRevision !== committed.revision)) {
       throw new Error(`history step ${index + 1} has invalid AgentMind audit coverage`);
+    }
+    const createdAgentIds = new Set(committed.operations
+      .filter((operation) => operation.kind === "create_agent")
+      .map((operation) => operation.agent.id));
+    for (const audit of committed.modelAudits.filter((candidate) =>
+      candidate.role === "agent-mind" || candidate.role === "agent-bootstrap")) {
+      const expectedRole = createdAgentIds.has(audit.subjectId) ? "agent-bootstrap" : "agent-mind";
+      if (audit.role !== expectedRole) {
+        throw new Error(`history step ${index + 1} uses ${audit.role} for ${audit.subjectId}; expected ${expectedRole}`);
+      }
     }
     const reactionAuditAgentIds = committed.modelAudits
       .filter((audit) => audit.role === "agent-reaction")
@@ -580,7 +611,12 @@ function validateHistory(state: SimulationState): void {
       event: new Set(priorEventIds),
       fact: allFactIds,
       law: lawIds,
+      mechanic: new Set(),
     };
+    for (const invocation of committed.mechanicInvocations) {
+      assertResolved(invocation.causes, allowedForEvents, `history mechanic ${invocation.id}`);
+      allowedForEvents.mechanic.add(invocation.id);
+    }
     for (const event of committed.events) {
       assertResolved(event.causes, allowedForEvents, `history event ${event.id}`);
       allowedForEvents.event.add(event.id);
@@ -592,6 +628,50 @@ function validateHistory(state: SimulationState): void {
     }
     for (const outcome of committed.outcomes) {
       assertResolved(outcome.causeRefs, allowedForEvents, `history outcome ${outcome.proposalId}`);
+    }
+    const expectedAssertions = [
+      ...committed.operations.flatMap((operation, operationIndex) => operation.assertions.map((assertion) => ({
+        target: { kind: "operation" as const, id: `${operationIndex}:${operation.kind}` },
+        assertion,
+      }))),
+      ...committed.mechanicInvocations.flatMap((invocation) => invocation.assertions.map((assertion) => ({
+        target: { kind: "mechanic" as const, id: invocation.id },
+        assertion,
+      }))),
+      ...committed.events.flatMap((event) => event.assertions.map((assertion) => ({
+        target: { kind: "event" as const, id: event.id },
+        assertion,
+      }))),
+      ...committed.outcomes.flatMap((outcome) => outcome.assertions.map((assertion) => ({
+        target: { kind: "outcome" as const, id: outcome.proposalId },
+        assertion,
+      }))),
+    ];
+    if (committed.causalVerification.verdict !== "accept" ||
+      committed.causalAssertionResults.length !== expectedAssertions.length ||
+      committed.causalAssertionResults.some((result, resultIndex) => !result.passed ||
+        contentHashForAudit({ target: result.target, assertion: result.assertion }) !==
+        contentHashForAudit(expectedAssertions[resultIndex]))) {
+      throw new Error(`history step ${index + 1} has invalid causal assurance`);
+    }
+    const resultInvocationIds = committed.mechanicResults.map((result) => result.invocationId);
+    const invocationIds = committed.mechanicInvocations.map((invocation) => invocation.id);
+    if (new Set(invocationIds).size !== invocationIds.length ||
+      new Set(resultInvocationIds).size !== resultInvocationIds.length ||
+      invocationIds.length !== resultInvocationIds.length ||
+      invocationIds.some((id) => !resultInvocationIds.includes(id))) {
+      throw new Error(`history step ${index + 1} has invalid mechanic result coverage`);
+    }
+    for (const invocation of committed.mechanicInvocations) {
+      const result = committed.mechanicResults.find((candidate) => candidate.invocationId === invocation.id)!;
+      if (result.packageId !== invocation.packageId || result.ruleId !== invocation.ruleId) {
+        throw new Error(`history mechanic ${invocation.id} has mismatched package or rule`);
+      }
+      const derived = committed.operations.filter((operation) => operation.causes.some((cause) =>
+        cause.kind === "mechanic" && cause.id === invocation.id));
+      if (contentHashForAudit(derived) !== contentHashForAudit(result.operations)) {
+        throw new Error(`history mechanic ${invocation.id} does not match committed operations`);
+      }
     }
     const stimulusIds = new Set(committed.reactionRequests.map((request) => request.stimulus.id));
     const observationIds = new Set<string>();
@@ -644,6 +724,7 @@ function validateHistory(state: SimulationState): void {
     event: priorEventIds,
     fact: allFactIds,
     law: lawIds,
+    mechanic: new Set(state.history.flatMap((step) => step.mechanicInvocations.map((invocation) => invocation.id))),
   };
   for (const fact of Object.values(state.truth.facts)) {
     const runtimeCauses: CausalRef[] = [];
@@ -662,11 +743,20 @@ function validateModelAudit(
   audit: SimulationState["bootstrapModelAudits"][number],
   label: string,
 ): void {
-  if (!new Set(["truth-engine", "agent-mind", "agent-reaction"]).has(audit.role)) {
+  if (!new Set([
+    "truth-perception",
+    "truth-reaction-routing",
+    "truth-resolution",
+    "truth-transition",
+    "causal-verifier",
+    "agent-bootstrap",
+    "agent-mind",
+    "agent-reaction",
+  ]).has(audit.role)) {
     throw new Error(`${label} has an invalid model audit role`);
   }
   if (!audit.subjectId.trim() || !audit.profileId.trim() || !audit.providerId.trim() ||
-    !audit.modelId.trim() || !audit.promptVersion.trim() || audit.catalogSchemaVersion !== 1 ||
+    !audit.modelId.trim() || !audit.promptVersion.trim() || audit.catalogSchemaVersion !== 2 ||
     !isSha256(audit.catalogHash) || !modelInferenceSchema.safeParse(audit.inference).success) {
     throw new Error(`${label} has an incomplete model audit identity`);
   }
@@ -682,7 +772,9 @@ function validateModelAudit(
     Object.values(audit.tokenUsage).some((value) => value !== null &&
       (!Number.isSafeInteger(value) || value < 0)) ||
     !audit.requestHashes.every(isSha256) || !audit.responseHashes.every(isSha256)) {
-    throw new Error(`${label} has invalid model audit counters or hashes`);
+    throw new Error(`${label} has invalid ${audit.role} audit counters or hashes ` +
+      `(attempts=${audit.attempts}, transport=${audit.transportAttempts}, repairs=${audit.repairAttempts}, ` +
+      `requests=${audit.requestHashes.length}, responses=${audit.responseHashes.length})`);
   }
 }
 
@@ -691,7 +783,7 @@ export function validateSimulationState(
   requireNextActions = false,
   requireHistoryAlignment = false,
 ): void {
-  if (state.schemaVersion !== 4 || !state.worldId.trim() || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 5 || !state.worldId.trim() || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   assertSafeId(state.worldId, "world id");
@@ -720,7 +812,7 @@ export function validateSimulationState(
   }
   for (const audit of state.bootstrapModelAudits) {
     validateModelAudit(audit, "bootstrap");
-    if (audit.role !== "agent-mind") throw new Error("bootstrap has a non-AgentMind audit");
+    if (audit.role !== "agent-bootstrap") throw new Error("bootstrap has a non-bootstrap audit");
   }
   if (!Number.isSafeInteger(state.truth.rng.seed) || !Number.isSafeInteger(state.truth.rng.state) ||
     !Number.isSafeInteger(state.truth.rng.draws) || state.truth.rng.seed < 0 || state.truth.rng.state < 0 ||
@@ -748,6 +840,11 @@ export function validateSimulationState(
     assertSafeId(definitionId, "quantity definition id");
     if (definition.id !== definitionId || !definition.name.trim() || !definition.unit.trim()) {
       throw new Error(`invalid quantity definition ${definitionId}`);
+    }
+    assertUniqueIds(definition.productionLawIds, `quantity ${definitionId} production laws`);
+    assertUniqueIds(definition.consumptionLawIds, `quantity ${definitionId} consumption laws`);
+    for (const lawId of [...definition.productionLawIds, ...definition.consumptionLawIds]) {
+      if (!state.lawIds.includes(lawId)) throw new Error(`quantity ${definitionId} references unknown law ${lawId}`);
     }
   }
   for (const [definitionId, definition] of Object.entries(state.truth.mechanics.ratings)) {
@@ -809,7 +906,9 @@ export function validateSimulationState(
   for (const [agentId, agent] of Object.entries(state.agents)) {
     assertSafeId(agentId, "agent id");
     assertSafeId(agent.entityId, `agent ${agentId} entity`);
-    assertSafeId(agent.modelProfileId, `agent ${agentId} model profile`);
+    for (const profileId of Object.values(agent.modelProfiles)) {
+      assertSafeId(profileId, `agent ${agentId} model profile`);
+    }
     if (agent.id !== agentId) throw new Error(`agent key does not match ${agent.id}`);
     const entity = state.truth.entities[agent.entityId];
     if (!entity) throw new Error(`agent ${agent.id} has no entity`);
@@ -848,6 +947,7 @@ export function validateSimulationState(
       throw new Error(`world event ${event.id} has invalid impact`);
     }
     assertCauses(event.causes, `event ${event.id}`);
+    if (event.assertions.length === 0) throw new Error(`event ${event.id} has no causal assertions`);
     eventIds.add(event.id);
   }
   if (requireHistoryAlignment) validateHistory(state);
@@ -865,7 +965,7 @@ export function applyTransitionProposal(
   if (issues.length === 0) {
     for (const operation of proposal.operations) {
       try {
-        applyOperation(next, operation);
+        applyWorldDeltaOperation(next, operation);
       } catch (error) {
         issues.push(error instanceof Error ? error.message : String(error));
         break;

@@ -85,8 +85,8 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
         id: quantity.id,
         name: quantity.name,
         unit: quantity.unit,
-        allowProduction: quantity.allow_production,
-        allowConsumption: quantity.allow_consumption,
+        productionLawIds: quantity.production_law_ids,
+        consumptionLawIds: quantity.consumption_law_ids,
       })),
       "quantity",
     ),
@@ -150,7 +150,11 @@ function agentFrom(document: EntityDocument): AgentState | undefined {
   return {
     id: document.agent.id,
     entityId: document.id,
-    modelProfileId: document.agent.model_profile_id,
+    modelProfiles: {
+      bootstrap: document.agent.model_profiles.bootstrap,
+      mind: document.agent.model_profiles.mind,
+      reaction: document.agent.model_profiles.reaction,
+    },
     character: characterFrom(document.agent),
     belief: beliefFrom(document.agent),
     bindings: Object.fromEntries(
@@ -270,7 +274,7 @@ export function buildWorldDefinition(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),
@@ -364,7 +368,13 @@ export function buildWorldDefinition(
       manifestVersion: manifest.version,
       description: manifest.description,
       contentHash: worldHash,
-      truthModelProfileId: manifest.truth_model_profile_id,
+      modelProfiles: {
+        perception: manifest.model_profiles.perception,
+        reactionRouting: manifest.model_profiles.reaction_routing,
+        resolution: manifest.model_profiles.resolution,
+        transition: manifest.model_profiles.transition,
+        causalVerifier: manifest.model_profiles.causal_verifier,
+      },
       laws: laws.laws,
       disclosure: { defaultCheckVisibility: laws.disclosure.default_check_visibility },
       rulePackages: rulePackages.validate(mechanicsDocument.rule_packages.map((reference) => ({

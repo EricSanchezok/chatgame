@@ -5,7 +5,6 @@ import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
 import { canonicalize } from "../engine/model-audit";
 import type { StructuredModelProvider } from "../engine/model-provider";
-import { createCoreRulePackageRegistry } from "../engine/rule-package";
 import { SimulationEngine } from "../engine/simulation";
 import { TruthEngine } from "../engine/truth-engine";
 import {
@@ -144,7 +143,7 @@ export class WorldHost {
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
       const dataRoot = path.resolve(
-        path.resolve(/* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld"),
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld",
       );
       const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
@@ -194,7 +193,7 @@ export class WorldHost {
   }
 
   private definitionFrom(document: WorldSessionDocument): WorldDefinition {
-    const rulePackages = createCoreRulePackageRegistry().validate(document.world.rulePackages.map((reference) => ({
+    const rulePackages = this.options.repository.rulePackages.validate(document.world.rulePackages.map((reference) => ({
       id: reference.id,
       version: reference.version,
       config: reference.config,
@@ -215,7 +214,7 @@ export class WorldHost {
   private buildEngine(definition: WorldDefinition, state = definition.initialState): SimulationEngine {
     return new SimulationEngine(
       definition,
-      new TruthEngine(this.options.provider),
+      new TruthEngine(this.options.provider, { rulePackages: this.options.repository.rulePackages }),
       new AgentMind(this.options.provider),
       state,
     );
@@ -311,7 +310,7 @@ export class WorldHost {
     await engine.bootstrapAgents({ workloadId: id, batchId: `bootstrap:${id}` });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       id,
       world: toWorldRuntimeContract(definition),
       createdAt: now,

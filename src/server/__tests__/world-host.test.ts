@@ -55,13 +55,16 @@ function transition(context: {
       status: "succeeded",
       summary: "联合行动已被裁决。",
       causeRefs: [{ kind: "action", id: action.id }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       knownAlternatives: [],
     })),
+    mechanicInvocations: [],
     operations: [
       {
         kind: "advance_time",
         seconds: 10,
         causes: [{ kind: "law", id: "time-passes" }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       },
     ],
     events: [
@@ -71,6 +74,7 @@ function transition(context: {
         description: "石门前过去了十秒。",
         impact: "ordinary",
         causes: [{ kind: "law", id: "time-passes" }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       },
     ],
     observations: [
@@ -173,7 +177,14 @@ describe("WorldHost", () => {
     expect(JSON.stringify(completed)).not.toContain("modelAudits");
     const storedStep = store.read(session.id).document.state.history[0];
     expect(storedStep.contentHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(storedStep.modelAudits.map((audit) => audit.role)).toEqual(["truth-engine", "agent-mind"]);
+    expect(storedStep.modelAudits.map((audit) => audit.role)).toEqual([
+      "truth-perception",
+      "truth-reaction-routing",
+      "truth-resolution",
+      "truth-transition",
+      "causal-verifier",
+      "agent-mind",
+    ]);
     expect(storedStep.checkRequests).toEqual([]);
 
     const reloaded = new WorldHost({
@@ -229,6 +240,7 @@ describe("WorldHost", () => {
         entityId: "canonical-secret-entity",
         placementId: null,
         causes: [{ kind: "action", id: context.jointActions[0].id }],
+        assertions: [{ kind: "entity_absent", entityId: "canonical-secret-entity" }],
       });
       return { kind: "transition", proposal: invalid };
     });

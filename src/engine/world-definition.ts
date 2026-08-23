@@ -18,7 +18,13 @@ export interface WorldRuntimeContract {
   manifestVersion: string;
   description: string;
   contentHash: string;
-  truthModelProfileId: string;
+  modelProfiles: {
+    perception: string;
+    reactionRouting: string;
+    resolution: string;
+    transition: string;
+    causalVerifier: string;
+  };
   laws: WorldLaw[];
   disclosure: MechanicalDisclosurePolicy;
   rulePackages: RulePackageReference[];
@@ -38,7 +44,9 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
   if (!definition.id.trim() || !definition.name.trim()) throw new Error("world id and name are required");
   if (!definition.manifestVersion.trim()) throw new Error("world manifest version is required");
   if (!/^sha256:[a-f0-9]{64}$/.test(definition.contentHash)) throw new Error("invalid world content hash");
-  if (!definition.truthModelProfileId.trim()) throw new Error("world Truth Engine model profile is required");
+  if (Object.values(definition.modelProfiles).some((profileId) => !profileId.trim())) {
+    throw new Error("world model profiles are required");
+  }
   const ids = new Set<string>();
   for (const law of definition.laws) {
     if (!law.id.trim() || !law.text.trim()) throw new Error("world laws require id and text");
@@ -66,8 +74,14 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
 }
 
 export function validateWorldModelProfiles(definition: WorldDefinition, catalog: ModelCatalog): void {
-  catalog.assertProfile(definition.truthModelProfileId, "truth-engine");
+  catalog.assertProfile(definition.modelProfiles.perception, "truth-perception");
+  catalog.assertProfile(definition.modelProfiles.reactionRouting, "truth-reaction-routing");
+  catalog.assertProfile(definition.modelProfiles.resolution, "truth-resolution");
+  catalog.assertProfile(definition.modelProfiles.transition, "truth-transition");
+  catalog.assertProfile(definition.modelProfiles.causalVerifier, "causal-verifier");
   for (const agent of Object.values(definition.initialState.agents)) {
-    catalog.assertProfile(agent.modelProfileId, "agent-mind");
+    catalog.assertProfile(agent.modelProfiles.bootstrap, "agent-bootstrap");
+    catalog.assertProfile(agent.modelProfiles.mind, "agent-mind");
+    catalog.assertProfile(agent.modelProfiles.reaction, "agent-reaction");
   }
 }

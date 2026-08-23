@@ -5,6 +5,7 @@ import type {
   StructuredModelRequest,
   StructuredModelResult,
 } from "../model-provider";
+import { ModelOutputError } from "../model-provider";
 
 const TEST_PROFILE_IDS = [
   "truth-engine",
@@ -17,7 +18,7 @@ const TEST_PROFILE_IDS = [
 
 export function createTestModelCatalog(profileIds: readonly string[] = TEST_PROFILE_IDS): ModelCatalog {
   return parseModelCatalog({
-    schema_version: 1,
+    schema_version: 2,
     scheduler: {
       global_concurrency: 16,
       max_queued_requests: 1024,
@@ -35,9 +36,9 @@ export function createTestModelCatalog(profileIds: readonly string[] = TEST_PROF
       provider_id: "scripted-test",
       model: `scripted:${profileId}`,
       description: `Deterministic test profile ${profileId}`,
-      allowed_roles: [profileId.startsWith("truth-") || profileId === "truth-engine"
-        ? "truth-engine"
-        : "agent-mind"],
+      allowed_roles: profileId.startsWith("truth-") || profileId === "truth-engine"
+        ? ["truth-perception", "truth-reaction-routing", "truth-resolution", "truth-transition", "causal-verifier"]
+        : ["agent-bootstrap", "agent-mind", "agent-reaction"],
       request_timeout_ms: 10_000,
       max_output_tokens: 32_768,
       inference: {
@@ -59,17 +60,75 @@ export type ScriptedModelHandler = (
 
 export class ScriptedModelProvider implements StructuredModelProvider {
   readonly requests: ScriptedModelHandlerRequest[] = [];
+  private pendingTransition: unknown;
+  private pendingResolution: unknown;
+  private pendingRouting: unknown;
 
   constructor(
     private readonly handler: ScriptedModelHandler,
     readonly catalog: ModelCatalog = createTestModelCatalog(),
+    private readonly adaptTruthScenario = true,
   ) {}
 
+  private async handlerValue(request: ScriptedModelHandlerRequest): Promise<unknown> {
+    if (!this.adaptTruthScenario || !request.role.startsWith("truth-") && request.role !== "causal-verifier") {
+      return this.handler(request);
+    }
+    if (request.role === "causal-verifier") return { verdict: "accept", findings: [] };
+    if (request.role === "truth-transition" && this.pendingTransition !== undefined) {
+      const value = this.pendingTransition;
+      this.pendingTransition = undefined;
+      return value;
+    }
+    if (request.role === "truth-resolution" && this.pendingResolution !== undefined) {
+      const value = this.pendingResolution;
+      this.pendingResolution = undefined;
+      return value;
+    }
+    if (request.role === "truth-reaction-routing" && this.pendingRouting !== undefined) {
+      const value = this.pendingRouting;
+      this.pendingRouting = undefined;
+      return value;
+    }
+    if (request.role === "truth-reaction-routing" &&
+      (this.pendingResolution !== undefined || this.pendingTransition !== undefined)) {
+      return { requests: [] };
+    }
+    if (request.role === "truth-resolution" && this.pendingTransition !== undefined) {
+      return { kind: "done" };
+    }
+
+    const value = await this.handler(request) as {
+      kind?: string;
+      requests?: Array<{ phase?: string }>;
+      proposal?: unknown;
+    };
+    if (request.role === "truth-perception") {
+      if (value.kind === "request_checks" && value.requests?.every((check) => check.phase === "perception")) {
+        return value;
+      }
+      if (value.kind === "request_checks") this.pendingResolution = value;
+      if (value.kind === "request_reactions") this.pendingRouting = { requests: value.requests ?? [] };
+      if (value.kind === "transition") this.pendingTransition = value.proposal;
+      return { kind: "done" };
+    }
+    if (request.role === "truth-reaction-routing") {
+      if (value.kind === "request_reactions") return { requests: value.requests ?? [] };
+      if (value.kind === "request_checks") this.pendingResolution = value;
+      if (value.kind === "transition") this.pendingTransition = value.proposal;
+      return { requests: [] };
+    }
+    if (request.role === "truth-resolution") {
+      if (value.kind === "request_checks") return value;
+      if (value.kind === "transition") this.pendingTransition = value.proposal;
+      return { kind: "done" };
+    }
+    if (value.kind === "transition") return value.proposal;
+    return value;
+  }
+
   async generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>> {
-    this.catalog.assertProfile(
-      request.profileId,
-      request.role === "agent-reaction" ? "agent-mind" : request.role,
-    );
+    this.catalog.assertProfile(request.profileId, request.role);
     const profile = this.catalog.profile(request.profileId);
     const context = canonicalize(request.context);
     const captured: ScriptedModelHandlerRequest = {
@@ -91,32 +150,34 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       error.name = "AbortError";
       throw error;
     }
-    const value = request.schema.parse(await this.handler(captured));
-    return {
-      value,
-      audit: {
-        role: request.role,
-        subjectId: request.subjectId,
-        profileId: request.profileId,
-        providerId: profile.provider_id,
-        modelId: profile.model,
-        catalogSchemaVersion: this.catalog.schemaVersion,
-        catalogHash: this.catalog.hash,
-        promptVersion: request.promptVersion,
-        inference: structuredClone(profile.inference),
-        structuredOutputMode: "deterministic-test",
-        attempts: 1,
-        transportAttempts: 1,
-        repairAttempts: 0,
-        queueWaitMs: 0,
-        executionMs: 0,
-        tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
-        finishReasons: ["stop"],
-        providerRequestIds: [],
-        requestHashes: [contentHash({ system: request.system, context })],
-        responseHashes: [contentHash(value)],
-      },
-    };
+    const raw = await this.handlerValue(captured);
+    const audit = {
+      role: request.role,
+      subjectId: request.subjectId,
+      profileId: request.profileId,
+      providerId: profile.provider_id,
+      modelId: profile.model,
+      catalogSchemaVersion: this.catalog.schemaVersion,
+      catalogHash: this.catalog.hash,
+      promptVersion: request.promptVersion,
+      inference: structuredClone(profile.inference),
+      structuredOutputMode: "deterministic-test",
+      attempts: 1,
+      transportAttempts: 1,
+      repairAttempts: 0,
+      queueWaitMs: 0,
+      executionMs: 0,
+      tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
+      finishReasons: ["stop"],
+      providerRequestIds: [],
+      requestHashes: [contentHash({ system: request.system, context })],
+      responseHashes: [contentHash(raw)],
+    } satisfies StructuredModelResult<T>["audit"];
+    try {
+      return { value: request.schema.parse(raw), audit };
+    } catch (error) {
+      throw new ModelOutputError("scripted model output failed schema validation", audit, { cause: error });
+    }
   }
 }
 
@@ -152,15 +213,23 @@ export class DeterministicModelProvider extends ScriptedModelProvider {
               status: "succeeded",
               summary: "模拟 Truth Engine 已联合裁决行动。",
               causeRefs: [{ kind: "action", id: action.id }],
+              assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
               knownAlternatives: [],
             })),
-            operations: [{ kind: "advance_time", seconds: 1, causes: [{ kind: "law", id: lawId }] }],
+            mechanicInvocations: [],
+            operations: [{
+              kind: "advance_time",
+              seconds: 1,
+              causes: [{ kind: "law", id: lawId }],
+              assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+            }],
             events: [{
               id: eventId,
               step: nextStep,
               description: "模拟世界推进了一秒。",
               impact: "ordinary",
               causes: [{ kind: "law", id: lawId }],
+              assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
             }],
             observations: observers.map((observerId) => ({
               id: `mock-observation:${observerId}:${nextStep}`,

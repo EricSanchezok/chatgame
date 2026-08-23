@@ -1,6 +1,7 @@
 import { validateWorldModelProfiles, type WorldDefinition } from "../engine/world-definition";
 import type { ModelCatalog } from "../engine/model-catalog";
 import { createSeededRng } from "../engine/random";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 
 export interface WorldCatalogEntry {
   id: string;
@@ -11,12 +12,16 @@ export interface WorldCatalogEntry {
 }
 
 export interface WorldRepository {
+  readonly rulePackages: RulePackageRegistry;
   list(): WorldCatalogEntry[];
   load(worldId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition;
 }
 
 export class MemoryWorldRepository implements WorldRepository {
-  constructor(private readonly definitions: Record<string, WorldDefinition>) {}
+  constructor(
+    private readonly definitions: Record<string, WorldDefinition>,
+    readonly rulePackages: RulePackageRegistry = createCoreRulePackageRegistry(),
+  ) {}
 
   list(): WorldCatalogEntry[] {
     return Object.values(this.definitions)
