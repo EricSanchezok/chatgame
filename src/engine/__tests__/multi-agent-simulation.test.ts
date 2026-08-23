@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AgentMind } from "../agent-mind";
 import type { AgentState, SimulationState, TransitionProposal } from "../model";
 import { ScriptedModelProvider } from "../testing/model-provider";
+import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
@@ -60,8 +61,9 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
     agents[id] = agent(id);
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     worldId: "simulation",
+    worldHash: TEST_WORLD_HASH,
     lawIds: ["time-passes"],
     revision: 0,
     step: 0,
@@ -71,7 +73,17 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
       events: [],
       entities,
       placements,
-      facts: {},
+      facts: {
+        "resolve:player": {
+          id: "resolve:player",
+          subjectId: "player",
+          predicate: "situational_resolve",
+          value: { kind: "number", value: 3 },
+          description: "当前局势额外提供三点决心。",
+          access: { kind: "public" },
+          provenance: [{ kind: "world_seed", id: TEST_WORLD_HASH }],
+        },
+      },
       mechanics: {
         meters: {},
         quantities: {},
@@ -105,7 +117,9 @@ function definition(initialState = state()): WorldDefinition {
   return {
     id: "simulation",
     name: "联合仿真",
+    manifestVersion: "test",
     description: "验证多 Agent 同时行动的测试世界。",
+    contentHash: TEST_WORLD_HASH,
     truthModelProfileId: "truth-engine",
     laws: [{ id: "time-passes", text: "每个世界步骤必须推进时间。", severity: "hard" }],
     disclosure: { defaultCheckVisibility: "full" },
@@ -269,7 +283,7 @@ describe("multi-agent simulation", () => {
     expect(result.state.agents["agent-a"].nextAction?.baseRevision).toBe(1);
   });
 
-  it("commits a check only after its DC and stakes were requested", async () => {
+  it("commits a check only after its DC and namespaced modifier sources were requested", async () => {
     let truthCall = 0;
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
@@ -289,8 +303,11 @@ describe("multi-agent simulation", () => {
               actorId: "player",
               targetId: null,
               ratingId: "resolve:player",
-              modifier: 2,
-              modifierSources: [{ id: "resolve:player", amount: 2 }],
+              modifier: 5,
+              modifierSources: [
+                { kind: "rating", id: "resolve:player", amount: 2 },
+                { kind: "fact", id: "resolve:player", amount: 3 },
+              ],
               dc: 15,
               mode: "normal",
               stakes: "成功则推进未知行动，失败则留下可观察后果",
@@ -320,6 +337,10 @@ describe("multi-agent simulation", () => {
     expect(truthCall).toBe(2);
     expect(result.committed.checks).toHaveLength(1);
     expect(result.committed.checks[0].dc).toBe(15);
+    expect(result.committed.checkRequests[0].modifierSources).toEqual([
+      { kind: "rating", id: "resolve:player", amount: 2 },
+      { kind: "fact", id: "resolve:player", amount: 3 },
+    ]);
     expect(result.state.truth.rng.draws).toBe(1);
   });
 
@@ -351,7 +372,7 @@ describe("multi-agent simulation", () => {
             targetId: null,
             ratingId: "resolve:player",
             modifier: 2,
-            modifierSources: [{ id: "resolve:player", amount: 2 }],
+            modifierSources: [{ kind: "rating", id: "resolve:player", amount: 2 }],
             dc: 12,
             mode: "normal",
             stakes: "只公开检定结果。",
@@ -403,8 +424,8 @@ describe("multi-agent simulation", () => {
             ratingId: "resolve:player",
             modifier: repaired ? 2 : 99,
             modifierSources: repaired
-              ? [{ id: "resolve:player", amount: 2 }]
-              : [{ id: "time-passes", amount: 99 }],
+              ? [{ kind: "rating", id: "resolve:player", amount: 2 }]
+              : [{ kind: "fact", id: "time-passes", amount: 99 }],
             dc: 12,
             mode: "normal",
             stakes: "只有结构化数值可以影响结果。",
@@ -428,7 +449,9 @@ describe("multi-agent simulation", () => {
     const result = await engine.step();
 
     expect(truthCall).toBe(3);
-    expect(result.committed.checkRequests[0].modifierSources).toEqual([{ id: "resolve:player", amount: 2 }]);
+    expect(result.committed.checkRequests[0].modifierSources).toEqual([
+      { kind: "rating", id: "resolve:player", amount: 2 },
+    ]);
     expect(result.committed.modelAudits[0].repairAttempts).toBe(1);
   });
 
@@ -458,7 +481,7 @@ describe("multi-agent simulation", () => {
         targetId: null,
         ratingId: "resolve:player",
         modifier: 2,
-        modifierSources: [{ id: "resolve:player", amount: 2 }],
+        modifierSources: [{ kind: "rating", id: "resolve:player", amount: 2 }],
         dc: 12,
         mode: "normal" as const,
         stakes: "重复来源或请求不得影响检定。",
@@ -468,7 +491,7 @@ describe("multi-agent simulation", () => {
       };
       if (truthCall === 1) {
         request.modifier = 4;
-        request.modifierSources.push({ id: "resolve:player", amount: 2 });
+        request.modifierSources.push({ kind: "rating", id: "resolve:player", amount: 2 });
         return { kind: "request_checks", requests: [request] };
       }
       if (truthCall === 2) {

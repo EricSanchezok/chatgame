@@ -1,9 +1,10 @@
-export const WORLD_API_VERSION = 1 as const;
+export const WORLD_API_VERSION = 2 as const;
 
 export interface WorldSummary {
   id: string;
   name: string;
   version: string;
+  contentHash: string;
   description: string;
 }
 
@@ -43,15 +44,22 @@ export interface PlayerKnowledgeView {
 
 export interface PlayerIntentView {
   id: string;
-  rawText: string;
   goal: string;
+  latestInput: {
+    id: string;
+    text: string;
+    kind: "goal" | "clarification";
+    submittedAtStep: number;
+  };
   status: "active" | "completed" | "failed" | "cancelled";
   startedAtStep: number;
 }
 
 export interface PublicSessionSnapshot {
   id: string;
-  scriptId: string;
+  worldId: string;
+  worldHash: string;
+  worldVersion: string;
   revision: number;
   step: number;
   elapsedSeconds: number;
@@ -94,9 +102,23 @@ export interface PublicActionOutcome {
 export type WorldRunEvent =
   | {
       sequence: number;
-      type: "run.started";
+      type: "player.input";
       at: string;
-      payload: { runId: string; text: string };
+      payload: {
+        id: string;
+        kind: "goal" | "clarification";
+        text: string;
+      };
+    }
+  | {
+      sequence: number;
+      type: "run.execution_started";
+      at: string;
+      payload: {
+        runId: string;
+        inputId: string;
+        reason: "initial" | "player_input" | "retry";
+      };
     }
   | {
       sequence: number;
@@ -153,7 +175,12 @@ export type WorldRunEvent =
 export interface WorldRunRecordView {
   id: string;
   sessionId: string;
-  text: string;
+  inputs: Array<{
+    id: string;
+    kind: "goal" | "clarification";
+    text: string;
+    at: string;
+  }>;
   status: WorldRunStatus;
   createdAt: string;
   updatedAt: string;
@@ -164,6 +191,11 @@ export interface WorldRunRecordView {
 
 export interface StartWorldRunResponse {
   runId: string;
+}
+
+export interface ContinueWorldRunInput {
+  id: string;
+  text: string;
 }
 
 export interface WorldRunSnapshot {

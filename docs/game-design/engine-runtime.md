@@ -6,6 +6,8 @@
 
 玩家说“我获得一万灵石”时，Truth Engine 必须把它理解为企图。若世界没有生产来源、转移来源或相应能力，结果应为 blocked/failed，并通过玩家可知 observation 解释可理解的阻力；每条 `knownAlternatives` 必须以玩家已有 evidence ID 或本步玩家 observation ID 作为结构化依据。玩家句子本身绝不能生成数量 delta。
 
+宿主把首次输入保存为 `PlayerIntent.goal` 和 `latestInput(kind=goal)`。后续玩家决定只替换 `latestInput(kind=clarification)`，不改写 goal、intent ID 或 run ID；下一步 player action 以稳定 goal 表达目的，以最新输入表达本次补充的方法或选择。每个输入都有客户端幂等 ID，同一 ID 重发相同文本返回既有状态，重发不同文本拒绝。
+
 ## 状态分层
 
 ### Canonical truth
@@ -82,7 +84,7 @@ Truth Engine schema 或语义错误会把验证信息送回模型修复，最多
 
 ## d20 协议
 
-不确定行动先返回 `request_checks`。每个请求声明 actor、可选 target/rating、整数 modifier、逐项 `{id, amount}` 修正来源、0–100 DC、normal/advantage/disadvantage、stakes、visibility、`phase` 与 causes。phase 为 perception 或 resolution；同一请求轮不能混合 phase，reaction 后不得再请求 perception，任一 resolution 请求都会永久关闭本步 reaction window。同一检定 ID 和同一修正来源都只能出现一次；修正项只能引用 Rating 或数值 Fact。内核要求逐项之和等于 modifier，并核对结构化真实值，因此熟练、境界和环境加成都可以由剧本命名且不可伪造。自然语言 Law 可以作为检定 cause，但不能凭文字直接提供未经结构化的数值。内核验证后使用会话 RNG：normal 掷一枚，advantage/disadvantage 掷两枚并取高/低；结果为 `kept + modifier`，`total >= dc` 成功。
+不确定行动先返回 `request_checks`。每个请求声明 actor、可选 target/rating、整数 modifier、逐项 `{kind: "rating" | "fact", id, amount}` 修正来源、0–100 DC、normal/advantage/disadvantage、stakes、visibility、`phase` 与 causes。phase 为 perception 或 resolution；同一请求轮不能混合 phase，reaction 后不得再请求 perception，任一 resolution 请求都会永久关闭本步 reaction window。同一检定 ID 和同一 `(kind, id)` 修正来源都只能出现一次；Rating 与数值 Fact 即使同 ID 也属于不同命名空间。内核要求逐项之和等于 modifier，并按 kind 在精确状态表中核对真实值，因此熟练、境界和环境加成都可以由剧本命名且不可伪造。自然语言 Law 可以作为检定 cause，但不能凭文字直接提供未经结构化的数值。内核验证后使用会话 RNG：normal 掷一枚，advantage/disadvantage 掷两枚并取高/低；结果为 `kept + modifier`，`total >= dc` 成功。
 
 同一轮可预承诺多个请求以表达对抗检定；Truth Engine 只能在所有结果返回后联合解释胜负。伤害不是玩家动作类型：成功检定可作为 `adjust_meter` 的 cause，Meter threshold 由内核执行受伤、死亡或其他声明式后果。`core-d20` 配置明确声明是否启用这两种组合能力，但不固定属性名、伤害类型或 HP 名称。
 
@@ -128,7 +130,7 @@ AgentMind 只获得自身人格、目标、belief、去 canonical 的局部绑�
 
 完整状态校验会重放历史中的 d20、核对 phase 顺序、RNG 连续性、请求/结果一一对应、reaction 覆盖、未反应与 keep 行动的逐字段不变性、initial/final actor 集、全部因果引用、AgentMind/Agent reaction 审计覆盖、角色 observation 依据和每步内容 hash。历史是已发生事实的审计证据；重放不重新调用模型。
 
-世界运行态与会话文档使用 schema v3。旧版本会话直接拒绝，不执行迁移或兼容读取。公共会话快照、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis 或模型审计。
+世界运行态与会话文档使用 schema v4，并携带 `worldHash`。初始世界 Fact 以该哈希的 `world_seed` 为来源；完整校验要求 seed 引用精确匹配，其他 provenance 仍必须解析到 Law、Fact、Action、Check 或 Event。旧版本会话直接拒绝，不执行迁移或兼容读取。公共会话快照、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis 或模型审计。
 
 ## 规则包
 
@@ -136,4 +138,4 @@ AgentMind 只获得自身人格、目标、belief、去 canonical 的局部绑�
 
 ## WorldRun 边界
 
-玩家目标可以跨多个步骤保持 active。宿主循环到 `completed`、`failed`、`requiresPlayerDecision`、取消或步骤上限。取消会中止排队/在途模型批次并丢弃当前未提交候选步骤。模型失败把 run 标为 retriable failed，但不回滚早先已持久化步骤。
+玩家目标可以跨多个步骤和多次玩家补充保持 active。宿主循环到 `completed`、`failed`、`requiresPlayerDecision`、取消或步骤上限；`requiresPlayerDecision` 关闭事件流但保留同一 run，`POST .../inputs` 追加 clarification 后继续。取消会中止排队/在途模型批次并丢弃当前未提交候选步骤。模型失败把 run 标为 retriable failed，但不回滚早先已持久化步骤。

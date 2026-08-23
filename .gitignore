@@ -40,5 +40,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# engine runtime saves (demo CLI output)
+# local world catalog and runtime database
 /.livingworld/

@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadWorldScript } from "../../script/world-loader";
-import { createTestModelCatalog } from "../../engine/testing/model-provider";
+import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
+import { LocalDatabase } from "../local-database";
+import { WorldHost } from "../world-host";
 import {
-  importWorldArchive,
+  parseWorldArchive,
   MAX_ARCHIVE_BYTES,
   MAX_ENTRY_COUNT,
   MAX_EXPANDED_BYTES,
@@ -35,7 +36,7 @@ function zipDirectory(directory: string, prefix = "world"): AdmZip {
   return zip;
 }
 
-function scriptsRoot(): string {
+function temporaryRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), "livingworld-import-test-"));
   temporaryRoots.push(root);
   return root;
@@ -69,11 +70,19 @@ function oversizedDeclaredArchive(): Buffer {
 
 describe("world import", () => {
   it("atomically imports one validated schema v4 world", () => {
-    const root = scriptsRoot();
-    const result = importWorldArchive(zipDirectory(fixture).toBuffer(), root, modelCatalog);
+    const root = temporaryRoot();
+    const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
+    const result = database.importWorld(zipDirectory(fixture).toBuffer(), modelCatalog);
 
     expect(result).toMatchObject({ id: "open-world-fixture", replaced: false });
-    expect(loadWorldScript(path.join(root, result.id), { modelCatalog }).id).toBe("open-world-fixture");
+    expect(database.list()).toEqual([
+      expect.objectContaining({ id: "open-world-fixture", contentHash: expect.stringMatching(/^sha256:/) }),
+    ]);
+    expect(database.load(result.id, 9, modelCatalog)).toMatchObject({
+      id: "open-world-fixture",
+      initialState: { truth: { rng: { seed: 9 } } },
+    });
+    database.close();
   });
 
   it("rejects legacy action files instead of silently ignoring them", () => {
@@ -81,7 +90,7 @@ describe("world import", () => {
     zip.addFile("world/actions.yaml", Buffer.from("actions: []\n"));
 
     try {
-      importWorldArchive(zip.toBuffer(), scriptsRoot(), modelCatalog);
+      parseWorldArchive(zip.toBuffer(), modelCatalog);
       throw new Error("legacy archive unexpectedly imported");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -102,37 +111,85 @@ describe("world import", () => {
       readFileSync(manifest, "utf8").replace("truth-deepseek", "missing-profile"),
       "utf8",
     );
-    const root = scriptsRoot();
-
-    expect(() => importWorldArchive(zipDirectory(world).toBuffer(), root, modelCatalog))
+    expect(() => parseWorldArchive(zipDirectory(world).toBuffer(), modelCatalog))
       .toThrow("unknown model profile missing-profile");
-    expect(readdirSync(root)).toEqual([]);
   });
 
   it("rejects traversal entries", () => {
-    expect(() => importWorldArchive(traversalArchive(), scriptsRoot(), modelCatalog)).toThrow(WorldImportError);
+    expect(() => parseWorldArchive(traversalArchive(), modelCatalog)).toThrow(WorldImportError);
   });
 
   it("requires explicit replacement for an existing world", () => {
-    const root = scriptsRoot();
+    const root = temporaryRoot();
     const archive = zipDirectory(fixture).toBuffer();
-    importWorldArchive(archive, root, modelCatalog);
+    const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
+    database.importWorld(archive, modelCatalog);
 
-    expect(() => importWorldArchive(archive, root, modelCatalog)).toThrow("already exists");
-    expect(importWorldArchive(archive, root, modelCatalog, true).replaced).toBe(true);
+    expect(() => database.importWorld(archive, modelCatalog)).toThrow("already exists");
+    expect(database.importWorld(archive, modelCatalog, true).replaced).toBe(true);
+    database.close();
+  });
+
+  it("pins existing sessions to their embedded world contract after replacement and restart", async () => {
+    const root = temporaryRoot();
+    const databaseFile = path.join(root, "livingworld.sqlite");
+    let database = new LocalDatabase(databaseFile, { heartbeat: false });
+    const provider = new DeterministicModelProvider();
+    let nextId = 0;
+    const createHost = () => new WorldHost({
+      repository: database,
+      store: database,
+      importer: database,
+      provider,
+      idFactory: () => `id-${++nextId}`,
+    });
+
+    try {
+      database.importWorld(zipDirectory(fixture).toBuffer(), provider.catalog);
+      const firstHost = createHost();
+      const original = await firstHost.createSession({ worldId: "open-world-fixture" });
+
+      const replacement = path.join(root, "replacement");
+      cpSync(fixture, replacement, { recursive: true });
+      const manifest = path.join(replacement, "script.yaml");
+      writeFileSync(
+        manifest,
+        readFileSync(manifest, "utf8")
+          .replace("version: 1.0.0", "version: 2.0.0")
+          .replace("最小测试数据", "替换后的测试数据"),
+        "utf8",
+      );
+      database.importWorld(zipDirectory(replacement).toBuffer(), provider.catalog, true);
+
+      database.close();
+      database = new LocalDatabase(databaseFile, { heartbeat: false });
+      const restartedHost = createHost();
+      const restored = restartedHost.session(original.id);
+      const current = await restartedHost.createSession({ worldId: "open-world-fixture" });
+
+      expect(restored).toMatchObject({
+        id: original.id,
+        worldVersion: "1.0.0",
+        worldHash: original.worldHash,
+      });
+      expect(current.worldVersion).toBe("2.0.0");
+      expect(current.worldHash).not.toBe(original.worldHash);
+    } finally {
+      database.close();
+    }
   });
 
   it("rejects compressed archives, declared expansion and entry counts above their exact limits", () => {
-    expect(() => importWorldArchive(Buffer.alloc(MAX_ARCHIVE_BYTES + 1), scriptsRoot(), modelCatalog))
+    expect(() => parseWorldArchive(Buffer.alloc(MAX_ARCHIVE_BYTES + 1), modelCatalog))
       .toThrow("archive exceeds 50 MiB");
-    expect(() => importWorldArchive(oversizedDeclaredArchive(), scriptsRoot(), modelCatalog))
+    expect(() => parseWorldArchive(oversizedDeclaredArchive(), modelCatalog))
       .toThrow("archive expands beyond 100 MiB");
 
     const zip = new AdmZip();
     for (let index = 0; index <= MAX_ENTRY_COUNT; index += 1) {
       zip.addFile(`world/entities/${index}.yaml`, Buffer.alloc(0));
     }
-    expect(() => importWorldArchive(zip.toBuffer(), scriptsRoot(), modelCatalog)).toThrow("too many entries");
+    expect(() => parseWorldArchive(zip.toBuffer(), modelCatalog)).toThrow("too many entries");
   });
 
   it("rejects symbolic links and files outside the single world root", () => {
@@ -141,10 +198,17 @@ describe("world import", () => {
     const link = linkZip.getEntry("world/link");
     if (!link) throw new Error("test archive did not contain link entry");
     link.header.attr = (0o120777 << 16) >>> 0;
-    expect(() => importWorldArchive(linkZip.toBuffer(), scriptsRoot(), modelCatalog)).toThrow("symbolic links");
+    expect(() => parseWorldArchive(linkZip.toBuffer(), modelCatalog)).toThrow("symbolic links");
 
     const extraZip = zipDirectory(fixture);
     extraZip.addFile("unrelated.txt", Buffer.from("not part of the world"));
-    expect(() => importWorldArchive(extraZip.toBuffer(), scriptsRoot(), modelCatalog)).toThrow("outside its single world root");
+    expect(() => parseWorldArchive(extraZip.toBuffer(), modelCatalog)).toThrow("outside its single world root");
+  });
+
+  it("rejects archive names that collide on case-insensitive filesystems", () => {
+    const zip = zipDirectory(fixture);
+    zip.addFile("world/entities/KEY.yaml", readFileSync(path.join(fixture, "entities/key.yaml")));
+
+    expect(() => parseWorldArchive(zip.toBuffer(), modelCatalog)).toThrow("duplicate archive entry");
   });
 });

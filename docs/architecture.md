@@ -6,7 +6,7 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 | 层 | 目录 | 唯一职责 |
 |---|---|---|
-| 世界契约 | `src/script/` | 严格读取 schema v4 YAML，构造初始 `WorldDefinition` 与 `SimulationState` v3 |
+| 世界契约 | `src/script/` | 严格读取 schema v4 YAML，规范化内容并构造带内容身份的 `WorldDefinition` 与 `SimulationState` v4 |
 | 仿真内核 | `src/engine/` | AgentMind、角色演化、自身状态投影、Truth Engine、有限反应、d20、观察隔离与状态事务 |
 | 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
@@ -42,9 +42,15 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 ## 长程 WorldRun
 
-`WorldHost` 把一次玩家目标作为后台 `WorldRun` 执行。每个已完成步骤立即以 checksum envelope 原子写盘，并通过 SSE 发布公开检定、玩家观察和提交进度。运行在目标完成、目标失败、需要玩家决定、取消、安全步骤上限或模型失败时停止。
+`WorldHost` 把一次玩家目标作为后台 `WorldRun` 执行。`PlayerIntent.goal` 在整段 run 中保持不变，最新的 goal/clarification 作为独立输入记录；需要玩家决定时 run 进入 `awaiting_player`，后续输入恢复同一个 intent 与 run。每个已完成步骤与对应 run 终态在同一次 compare-and-swap 中写入 SQLite，并通过 SSE 发布公开检定、玩家观察和提交进度。
 
-取消会终止排队或在途模型请求，丢弃尚未完整提交的候选步骤，并在最后一个已提交步骤边界终止。进程重启时，磁盘中的 queued/running run 被标为可重试失败；已提交步骤不回滚。一个会话同时只允许一个活动 run。
+取消会终止排队或在途模型请求，持久化取消请求，并在候选步骤提交前重新读取 generation；并发取消使候选失效，因此只保留最后一个完整步骤。进程重启时，SQLite 中的 queued/running run 被标为可重试失败；已提交步骤不回滚。一个会话同时只允许一个拥有 active intent 的 run。
+
+## 世界身份与本地持久化
+
+世界内容先规范化再计算 `sha256`；哈希覆盖 manifest、法则、机制、玩家和按实体 ID 排序的实体内容，不依赖 ZIP 条目顺序或实体文件名。会话同时保存 `worldId`、`worldHash` 和完整 `WorldRuntimeContract`，恢复只使用该不可变契约，不跟随目录中同 ID 世界的替换版本。初始 Fact 的 provenance 使用 `{ kind: "world_seed", id: worldHash }`，世界 Law 只有在确实提供运行时因果时才能作为来源。
+
+所有世界版本、当前版本指针、会话、run 与事件存放在 `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`。SQLite 使用 WAL、FULL synchronous、外键、严格表、写事务和 generation compare-and-swap；世界导入的验证在事务外完成，版本与当前指针在一个事务内切换。进程租约拒绝同一数据库被第二个宿主实例同时驱动；这是纯本地单实例契约，不提供多主或分布式协调。
 
 ## 硬不变量
 
@@ -52,8 +58,10 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 - 每个步骤恰好包含一次正数时间推进。
 - 每个联合行动恰好有一个 outcome。
 - 所有 delta 与事件都有可解析 causal provenance。
+- 初始 Fact 只能引用本会话 `worldHash` 对应的 `world_seed`；运行时 Fact 来源必须解析到已提交因果。
 - Quantity 转移守恒；生产/消耗必须由目录允许并引用世界法则。
 - Meter/Rating 必须在剧本定义范围内；threshold 只触发一次。
+- 检定修正来源以 `(kind, id)` 标识；同名 Rating 与数值 Fact 是两个不同来源，值与总和都由内核核验。
 - placement 不得形成循环；Agent 必须绑定活动实体。
 - 每个 Agent 恰好有一个局部 self binding；自身状态投影不得泄漏 canonical identity 或其他实体状态。
 - 每步最多一轮玩家刺激 reaction；每个 actor 最终恰好一个行动，resolution 开始后不得反应。
@@ -64,4 +72,4 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md) 与 [0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md) 与 [0041](decisions/0041-local-sqlite-runtime.md)。

@@ -32,7 +32,9 @@ describe("WorldWorkbench", () => {
   it("keeps the free-action submit discoverable and reports an empty input at the field", async () => {
     const session = {
       id: "session-1",
-      scriptId: "world-1",
+      worldId: "world-1",
+      worldHash: `sha256:${"1".repeat(64)}`,
+      worldVersion: "1",
       revision: 0,
       step: 0,
       elapsedSeconds: 0,
@@ -41,7 +43,13 @@ describe("WorldWorkbench", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const body = url.endsWith("/api/worlds")
-        ? { worlds: [{ id: "world-1", name: "世界", version: "1", description: "测试世界" }] }
+        ? { worlds: [{
+            id: "world-1",
+            name: "世界",
+            version: "1",
+            contentHash: `sha256:${"1".repeat(64)}`,
+            description: "测试世界",
+          }] }
         : { sessions: [session] };
       return new Response(JSON.stringify(body), {
         status: 200,

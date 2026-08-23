@@ -27,7 +27,7 @@ Truth Engine 与每个 AgentMind 需要独立选择 DeepSeek、OpenAI、xAI 或�
 
 ## Decision Outcome
 
-`config/models.yaml` 是服务端模型目录。目录以 strict schema 声明 scheduler、provider 和 profile；profile 包含不透明模型 ID、用途、允许角色、超时、输出上限和供应商原生推理判别联合。目录在服务初始化时读取、校验、冻结并计算 hash；所有已配置 provider 的环境密钥必须存在。世界 schema v3 必须声明 `truth_model_profile_id`，每个 Agent 必须声明 `model_profile_id`；加载、导入和动态 Agent 创建都校验 Profile 存在性与角色兼容性。
+`config/models.yaml` 是服务端模型目录。目录以 strict schema 声明 scheduler、provider 和 profile；profile 包含不透明模型 ID、用途、允许角色、超时、输出上限和供应商原生推理判别联合。目录在服务初始化时读取、校验、冻结并计算 hash；所有已配置 provider 的环境密钥必须存在。世界 schema v4 必须声明 `truth_model_profile_id`，每个 Agent 必须声明 `model_profile_id`；加载、导入、会话恢复和动态 Agent 创建都校验 Profile 存在性与角色兼容性。
 
 `ModelGateway` 是唯一生产模型入口。DeepSeek V4 使用 Chat Completions、`json_object`、原生 `thinking/reasoning_effort` 与本地 strict Zod；OpenAI 和 xAI 使用 Responses API 与 strict JSON Schema，各自传入原生推理参数。公共 LLM schema 只使用三家稳定支持的严格对象子集，nullable 字段必须显式输出 `null`。网关不抢救 Markdown 或自然语言中的 JSON，也不执行模型别名、降级或供应商切换。
 

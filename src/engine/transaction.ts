@@ -22,6 +22,9 @@ import { modelInferenceSchema } from "./model-catalog";
 import { resolveD20Checks } from "./random";
 import { isSafeId } from "./state-schemas";
 
+const playerIntentStatuses = new Set(["active", "completed", "failed", "cancelled"]);
+const playerInputKinds = new Set(["goal", "clarification"]);
+
 function assertSafeId(value: string, label: string): void {
   if (!isSafeId(value)) throw new Error(`${label} uses a reserved object key`);
 }
@@ -507,7 +510,7 @@ function validateHistory(state: SimulationState): void {
       throw new Error(`history step ${index + 1} has invalid check audit coverage`);
     }
     for (const request of committed.checkRequests) {
-      const modifierSourceIds = request.modifierSources.map((source) => source.id);
+      const modifierSourceIds = request.modifierSources.map((source) => `${source.kind}:${source.id}`);
       if (new Set(modifierSourceIds).size !== modifierSourceIds.length ||
         request.modifierSources.reduce((total, source) => total + source.amount, 0) !== request.modifier) {
         throw new Error(`history step ${index + 1} has invalid modifier sources for ${request.id}`);
@@ -643,7 +646,15 @@ function validateHistory(state: SimulationState): void {
     law: lawIds,
   };
   for (const fact of Object.values(state.truth.facts)) {
-    assertResolved(fact.provenance, allowedFinal, `fact ${fact.id}`);
+    const runtimeCauses: CausalRef[] = [];
+    for (const reference of fact.provenance) {
+      if (reference.kind !== "world_seed") {
+        runtimeCauses.push(reference);
+        continue;
+      }
+      if (reference.id !== state.worldHash) throw new Error(`fact ${fact.id} references a different world seed`);
+    }
+    if (runtimeCauses.length > 0) assertResolved(runtimeCauses, allowedFinal, `fact ${fact.id}`);
   }
 }
 
@@ -680,7 +691,9 @@ export function validateSimulationState(
   requireNextActions = false,
   requireHistoryAlignment = false,
 ): void {
-  if (state.schemaVersion !== 3 || !state.worldId.trim()) throw new Error("invalid simulation identity");
+  if (state.schemaVersion !== 4 || !state.worldId.trim() || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+    throw new Error("invalid simulation identity");
+  }
   assertSafeId(state.worldId, "world id");
   if (state.lawIds.length === 0 || new Set(state.lawIds).size !== state.lawIds.length ||
     state.lawIds.some((lawId) => !lawId.trim())) throw new Error("invalid world law ids");
@@ -691,6 +704,20 @@ export function validateSimulationState(
     throw new Error("invalid elapsed time");
   }
   if (!state.truth.entities[state.player.entityId]) throw new Error("player entity is missing");
+  if (state.player.intent) {
+    const { intent } = state.player;
+    if (!intent.id.trim() || !intent.goal.trim() || !intent.latestInput.id.trim() ||
+      !intent.latestInput.text.trim() || !Number.isSafeInteger(intent.latestInput.submittedAtStep) ||
+      intent.latestInput.submittedAtStep < intent.startedAtStep || intent.latestInput.submittedAtStep > state.step ||
+      !Number.isSafeInteger(intent.startedAtStep) || intent.startedAtStep < 0 || intent.startedAtStep > state.step ||
+      !playerIntentStatuses.has(intent.status) || !playerInputKinds.has(intent.latestInput.kind) ||
+      (intent.latestInput.kind === "goal" &&
+        (intent.latestInput.text !== intent.goal || intent.latestInput.submittedAtStep !== intent.startedAtStep))) {
+      throw new Error("invalid player intent");
+    }
+    assertSafeId(intent.id, "player intent id");
+    assertSafeId(intent.latestInput.id, "player intent input id");
+  }
   for (const audit of state.bootstrapModelAudits) {
     validateModelAudit(audit, "bootstrap");
     if (audit.role !== "agent-mind") throw new Error("bootstrap has a non-AgentMind audit");

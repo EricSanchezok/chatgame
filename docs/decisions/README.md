@@ -104,3 +104,7 @@
 - [0035 — Truth Engine 硬化与可验证审计](0035-truth-engine-hardening-and-verifiable-audit.md)
 - [0036 — 多供应商模型目录、严格结构化输出与公平调度](0036-multi-provider-model-gateway-and-fair-scheduler.md)
 - [0037 — Agent 心智演化、自身状态投影与有限反应窗口](0037-agent-evolution-self-awareness-and-reaction-window.md)
+- [0038 — 项目改名 Living World Engine（活世界引擎）](0038-project-rename-to-living-world-engine.md)
+- [0039 — 会话锁定世界运行时契约](0039-pinned-world-runtime-contract.md)
+- [0040 — 可恢复的玩家目标与同一 WorldRun](0040-resumable-player-intent.md)
+- [0041 — 纯本地单实例 SQLite 运行时](0041-local-sqlite-runtime.md)
