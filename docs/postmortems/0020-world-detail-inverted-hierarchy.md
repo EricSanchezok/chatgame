@@ -28,7 +28,7 @@
 
 ## Guardrails
 
-- [决策 0052](../decisions/0052-persistent-game-context-and-world-library.md) 将存档列表定义为世界详情首屏主体，并把世界包管理降到列表之后。
+- [决策 0053](../decisions/0053-context-local-settings-overlays.md) 继承并固定存档列表是世界详情首屏主体、世界包管理位于列表之后。
 - [表现层参考](../game-design/presentation.md) 固定世界详情的阅读顺序和新游戏工具位。
 - `WorldDetail` 的 DOM 顺序保持为世界摘要、存档区、包管理区，不用 CSS 重排制造视觉与辅助技术阅读顺序差异。
 - 存档数量使用专用类，不用后代元素类型选择器表达局部角色；主操作标签的计算颜色必须与按钮前景色一致。

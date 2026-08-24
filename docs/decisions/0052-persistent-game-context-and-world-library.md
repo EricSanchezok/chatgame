@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0053](0053-context-local-settings-overlays.md)
 Class: architecture
 
 ## Context and Problem Statement

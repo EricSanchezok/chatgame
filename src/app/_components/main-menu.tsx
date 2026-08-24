@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Settings, Waypoints } from "lucide-react";
+import { ArrowRight, Waypoints } from "lucide-react";
+import { SettingsDialog } from "./settings-dialog";
 import { useWorldLibrary } from "./use-world-library";
 
 export function MainMenu() {
@@ -20,8 +21,8 @@ export function MainMenu() {
         <h1 id="launcher-title">从哪里开始？</h1>
         <p>选择一个世界继续旅程，或调整这台设备上的阅读体验。</p>
         {error ? <p className="cg-alert" role="alert">无法读取本地内容。进入世界包后可以重试。</p> : null}
-        <nav className="cg-launcher__actions" aria-label="主菜单">
-          <Link href="/worlds">
+        <div className="cg-launcher__actions">
+          <Link className="cg-launcher__action" href="/worlds">
             <Waypoints aria-hidden="true" />
             <span>
               <strong>世界包</strong>
@@ -29,12 +30,8 @@ export function MainMenu() {
             </span>
             <ArrowRight aria-hidden="true" />
           </Link>
-          <Link href="/settings">
-            <Settings aria-hidden="true" />
-            <span><strong>设置</strong><small>外观、文字大小与动态效果</small></span>
-            <ArrowRight aria-hidden="true" />
-          </Link>
-        </nav>
+          <SettingsDialog />
+        </div>
       </section>
       <footer className="cg-launcher__footer">
         <span>仅在这台设备运行</span>

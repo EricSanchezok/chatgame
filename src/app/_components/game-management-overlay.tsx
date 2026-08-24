@@ -27,10 +27,10 @@ export function GameManagementOverlay({
   return (
     <Dialog.Root open onOpenChange={(next) => { if (!next) router.replace(gameHref); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="cg-game-manage__overlay" />
+        <Dialog.Overlay className="cg-modal-overlay" />
         <Dialog.Content
           aria-describedby="cg-game-manage-description"
-          className="cg-game-manage"
+          className="cg-game-manage cg-modal-surface"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             window.setTimeout(() => {
@@ -57,12 +57,9 @@ export function GameManagementOverlay({
                 );
               })}
             </nav>
-            <Dialog.Close asChild>
-              <button className="cg-game-manage__return" type="button">返回对话</button>
-            </Dialog.Close>
           </aside>
-          <div className="cg-game-manage__content">{children}</div>
-          <Dialog.Close aria-label="关闭游戏管理" className="cg-game-manage__close">
+          <div className="cg-game-manage__content cg-modal-scroll">{children}</div>
+          <Dialog.Close aria-label="关闭游戏管理" className="cg-modal-close">
             <X aria-hidden="true" />
           </Dialog.Close>
         </Dialog.Content>

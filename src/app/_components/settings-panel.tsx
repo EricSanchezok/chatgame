@@ -55,20 +55,24 @@ export function SettingsPanel() {
       </fieldset>
       <div className="cg-setting-row">
         <span><strong>减少动态效果</strong><small>关闭不必要的位移和过渡。</small></span>
-        <button
-          aria-checked={preferences.reduceMotion}
-          aria-label="减少动态效果"
-          className="cg-switch"
-          onClick={() => writePreferences({ ...preferences, reduceMotion: !preferences.reduceMotion })}
-          role="switch"
-          type="button"
-        >
-          <span aria-hidden="true" />
-        </button>
+        <div className="cg-setting-row__control">
+          <button
+            aria-checked={preferences.reduceMotion}
+            aria-label="减少动态效果"
+            className="cg-switch"
+            onClick={() => writePreferences({ ...preferences, reduceMotion: !preferences.reduceMotion })}
+            role="switch"
+            type="button"
+          >
+            <span aria-hidden="true" />
+          </button>
+        </div>
       </div>
       <div className="cg-setting-row">
         <span><strong>重置控制球位置</strong><small>恢复到页面右侧的默认位置。</small></span>
-        <button className="cg-button--quiet" onClick={resetControlPosition} type="button">重置位置</button>
+        <div className="cg-setting-row__control">
+          <button className="cg-button--quiet" onClick={resetControlPosition} type="button">重置位置</button>
+        </div>
       </div>
     </div>
   );

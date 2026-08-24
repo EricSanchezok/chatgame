@@ -11,6 +11,14 @@ test("the local menu and world library have no detectable accessibility violatio
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "从哪里开始？" })).toBeVisible();
   await expectNoViolations(page);
+  const settingsTrigger = page.getByRole("button", { name: /设置.*外观/ });
+  await settingsTrigger.click();
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await page.waitForTimeout(300);
+  await expectNoViolations(page);
+  await page.keyboard.press("Escape");
+  await expect(settingsTrigger).toBeFocused();
 
   await page.goto("/worlds");
   await expect(page.getByRole("heading", { name: "世界包", exact: true, level: 2 })).toBeVisible();

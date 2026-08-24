@@ -33,9 +33,9 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 ## 浏览器路由与消息投影
 
-`/` 是只含“世界包”和“设置”的游戏外入口。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位且主文案必须继承主操作前景色；版本和内容标识在列表之后以无卡片的紧凑单行元数据呈现，更新和卸载属于同一区域的管理动作；窄屏以两个可寻址页面逐级进入。`/settings` 保存本机阅读偏好；不存在独立 `/saves` 和当前存档浏览器指针。
+`/` 是只含“世界包”和“设置”的游戏外入口。设置是当前主菜单上的模态任务，打开后 URL 保持 `/`，关闭后焦点回到触发按钮；不存在独立 `/settings`。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位且主文案必须继承主操作前景色；版本和内容标识在列表之后以无卡片的紧凑单行元数据呈现，更新和卸载属于同一区域的管理动作；窄屏以两个可寻址页面逐级进入。不存在独立 `/saves` 和当前存档浏览器指针。
 
-`/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。游戏内只列出当前世界存档，不创建游戏或切换世界；当前存档只通过不参与盒模型的背景和“当前游戏”标签高亮，正文与操作区必须和其他存档保持同一对齐线。设置中的减少动态效果使用可由点击、Enter 和 Space 操作并公开开关状态的 switch。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
+`/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。每个模态表面只有右上角一个视觉关闭动作，可滚动内容使用透明轨道与窄拇指。游戏内只列出当前世界存档，不创建游戏或切换世界；当前存档只通过不参与盒模型的背景和“当前游戏”标签高亮，正文与操作区必须和其他存档保持同一对齐线。设置中的减少动态效果使用可由点击、Enter 和 Space 操作并公开开关状态的 switch，所有尾部设置控件在固定宽度列中共享水平中心线。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
 
 游戏页使用 `@assistant-ui/react` 0.15.16 External Store，并固定官方 `ThreadPrimitive.Root → flex Viewport → 44rem message group → ThreadPrimitive.ViewportFooter` 单轴结构。空会话在轴中间只显示“你想做什么？”和圆角 composer；出现消息后 footer 以 `mt-auto + sticky bottom-0` 固定到底部并适配安全区，消息数量、等待或失败状态不能改变底部锚点。玩家消息是右侧自适应低对比气泡，世界消息是平铺正文，检定、运行状态和恢复动作属于从属 footer。ActionBar 只提供真实可用的复制；复制文本由同一 WorldRun 的公开叙事、可见检定和人类可读状态纯投影，不序列化 data part、客户端状态或内部 JSON。
 

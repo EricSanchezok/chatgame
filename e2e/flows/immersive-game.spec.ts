@@ -62,7 +62,10 @@ test("a player installs a world and continues a persistent conversation", async 
 
   await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
   await page.goto(`/play/${activeSessionId}/manage/saves`);
-  await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
+  const managementDialog = page.getByRole("dialog", { name: "游戏管理" });
+  await expect(managementDialog).toBeVisible();
+  await expect(managementDialog.getByRole("button", { name: "关闭游戏管理" })).toHaveCount(1);
+  await expect(managementDialog.getByRole("button", { name: "返回对话" })).toHaveCount(0);
   const currentSave = page.locator('.cg-library-save[data-current="true"]');
   const otherSave = page.locator('.cg-library-save:not([data-current="true"])').first();
   await expect(otherSave).toBeVisible();
@@ -248,6 +251,18 @@ test("in-game management preserves an active world run", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
   const reduceMotion = page.getByRole("switch", { name: "减少动态效果" });
+  const resetPosition = page.getByRole("button", { name: "重置位置" });
+  await resetPosition.scrollIntoViewIfNeeded();
+  const [switchBox, resetBox] = await Promise.all([
+    reduceMotion.boundingBox(),
+    resetPosition.boundingBox(),
+  ]);
+  expect(switchBox).not.toBeNull();
+  expect(resetBox).not.toBeNull();
+  expect(switchBox!.x + switchBox!.width / 2).toBeCloseTo(
+    resetBox!.x + resetBox!.width / 2,
+    1,
+  );
   await expect(reduceMotion).toHaveAttribute("aria-checked", "false");
   await reduceMotion.click();
   await expect(reduceMotion).toHaveAttribute("aria-checked", "true");
@@ -439,17 +454,33 @@ test("a terminal snapshot never opens an EventSource", async ({ page }) => {
 });
 
 test("the global theme preference persists across product routes", async ({ page }) => {
-  await page.goto("/settings");
-  await page.getByRole("button", { name: "浅色" }).click();
+  const obsoleteSettingsPage = await page.request.get("/settings");
+  expect(obsoleteSettingsPage.status()).toBe(404);
+  await page.goto("/");
+  const settingsTrigger = page.getByRole("button", { name: /设置.*外观/ });
+  await settingsTrigger.click();
+  const settingsDialog = page.getByRole("dialog", { name: "设置" });
+  await expect(settingsDialog).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  const scrollTrackColor = await page.locator(".cg-settings-dialog__content").evaluate(
+    (element) => getComputedStyle(element, "::-webkit-scrollbar-track").backgroundColor,
+  );
+  expect(["rgba(0, 0, 0, 0)", "transparent"]).toContain(scrollTrackColor);
+  await settingsDialog.getByRole("button", { name: "浅色" }).click();
   await expect(page.locator("html")).not.toHaveClass(/dark/);
 
-  await page.getByRole("button", { name: "深色" }).click();
+  await settingsDialog.getByRole("button", { name: "深色" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.keyboard.press("Escape");
+  await expect(settingsDialog).toHaveCount(0);
+  await expect(settingsTrigger).toBeFocused();
   await page.reload();
-  await expect(page.getByRole("button", { name: "深色" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByRole("button", { name: /设置.*外观/ }).click();
+  await expect(page.getByRole("dialog", { name: "设置" }).getByRole("button", { name: "深色" })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
 
   await page.goto("/worlds");
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await expect(page.getByRole("heading", { name: "世界包" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "世界包", exact: true, level: 2 })).toBeVisible();
 });

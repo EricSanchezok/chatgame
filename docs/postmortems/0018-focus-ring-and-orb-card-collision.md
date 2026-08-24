@@ -27,7 +27,7 @@ assistant-ui 会话表面重建后，输入框和共享控件的聚焦指示复�
 
 ## Guardrails
 
-- [决策 0052](../decisions/0052-persistent-game-context-and-world-library.md) 固定非包围式焦点几何、composer 静态轮廓和状态卡包络间距。
+- [决策 0053](../decisions/0053-context-local-settings-overlays.md) 继承并固定非包围式焦点几何、composer 静态轮廓和状态卡包络间距。
 - [全局样式](../../src/app/globals.css)统一普通主题的 `:focus-visible` 底部标记，文件选择器用 `:has(input:focus-visible)`，composer 使用固定宽度的短标记；forced-colors 使用系统 `Highlight` 完整 outline。
 - `radialCardOffset` 从当前 edge/zone 的全部按钮坐标、按钮尺寸与 inset 计算卡片位移，单元测试覆盖左右边缘和 top/middle/bottom 六种组合的 32px 间距。
 - Playwright 对状态卡与全部按钮逐一计算矩形相交，并验证 composer 聚焦前后边框及阴影不变、焦点标记只有 2px 高且宽度小于输入面的四分之一。
