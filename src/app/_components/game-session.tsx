@@ -14,6 +14,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
   isWorldRunActiveIntentOwner,
@@ -21,6 +22,7 @@ import {
   isWorldRunRetriable,
   isWorldRunStreamBoundary,
   type PublicSessionDetail,
+  type PublicSessionSummary,
   type WorldRunEvent,
   type WorldRunRecordView,
   type WorldRunSnapshot,
@@ -28,6 +30,7 @@ import {
 import { runsToMessages } from "../_lib/run-messages";
 import { WorldApiError, worldApi } from "../lib/world-api-client";
 import { ControlOrb } from "./control-orb";
+import { GameSessionProvider } from "./game-session-context";
 import { GameThread } from "./game-thread";
 
 const runEventTypes: WorldRunEvent["type"][] = [
@@ -87,6 +90,7 @@ function isTerminalEvent(event: WorldRunEvent): boolean {
 
 type SessionAction =
   | { type: "load"; detail: PublicSessionDetail }
+  | { type: "summary"; summary: PublicSessionSummary }
   | { type: "snapshot"; snapshot: WorldRunSnapshot }
   | { type: "event"; runId: string; event: WorldRunEvent };
 
@@ -186,6 +190,9 @@ function statusAfterEvent(
 }
 
 function sessionReducer(state: PublicSessionDetail | undefined, action: SessionAction): PublicSessionDetail | undefined {
+  if (action.type === "summary") {
+    return state ? { ...state, summary: action.summary } : state;
+  }
   if (action.type === "load") {
     if (!state) return withDerivedActiveRun(action.detail);
     const runs = mergeRuns(state.runs, action.detail.runs);
@@ -240,7 +247,7 @@ function sessionReducer(state: PublicSessionDetail | undefined, action: SessionA
   };
 }
 
-export function GameSession({ sessionId }: { sessionId: string }) {
+export function GameSession({ children, sessionId }: { children?: ReactNode; sessionId: string }) {
   const router = useRouter();
   const [detail, dispatch] = useReducer(sessionReducer, undefined);
   const [loading, setLoading] = useState(true);
@@ -282,6 +289,10 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     pendingObservationRunIdRef.current = undefined;
     if (mountedRef.current) setPendingObservationRunId(undefined);
   }, []);
+
+  const updateSession = useCallback((summary: PublicSessionSummary) => {
+    applySessionAction({ type: "summary", summary });
+  }, [applySessionAction]);
 
   const rememberPendingStart = useCallback((pending: PendingStartMatcher) => {
     pendingStartRef.current = pending;
@@ -758,17 +769,8 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     onCancel: cancel,
   });
 
-  async function navigate(href: string): Promise<void> {
-    try {
-      if (activeRun) {
-        const approved = window.confirm("世界仍在推演。离开前要安全取消当前行动吗？");
-        if (!approved) return;
-        await cancel();
-      }
-      router.push(href);
-    } catch (reason) {
-      if (!actionErrorOwnerRef.current) reportActionError(reason);
-    }
+  function navigate(href: string): void {
+    router.push(href);
   }
 
   if (loading) return <main className="cg-game-loading" aria-live="polite">正在唤醒世界…</main>;
@@ -784,34 +786,38 @@ export function GameSession({ sessionId }: { sessionId: string }) {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <main className="cg-game">
-        <h1 className="cg-sr-only">{detail.summary.title}</h1>
-        <GameThread
-          actionError={actionError}
-          awaitingPlayer={Boolean(awaitingRun)}
-          cancelPending={Boolean(activeRun?.cancelRequested || pendingAction?.kind === "cancel")}
-          confirmationPending={hasPendingObservation}
-          runActions={{
-            retry,
-            abandon,
-            actionableInputId: ownerRun?.inputs.at(-1)?.id,
-            actionableRunId: ownerRun?.id,
-            pendingRunId: pendingAction?.runId,
-          }}
-          streamWarning={streamWarning}
-        />
-        <ControlOrb
-          composerDocked={messages.length > 0}
-          onNavigate={navigate}
-          status={{
-            elapsedSeconds: detail.summary.elapsedSeconds,
-            phase: activeRun ? "running" : hasPendingObservation ? "confirming" : "saved",
-            sessionTitle: detail.summary.title,
-            step: detail.summary.step,
-            worldName: detail.summary.world.name,
-          }}
-        />
-      </main>
+      <GameSessionProvider value={{ interactionPending: Boolean(activeRun) || hasPendingObservation, session: detail.summary, updateSession }}>
+        <main className="cg-game">
+          <h1 className="cg-sr-only">{detail.summary.title}</h1>
+          <GameThread
+            actionError={actionError}
+            awaitingPlayer={Boolean(awaitingRun)}
+            cancelPending={Boolean(activeRun?.cancelRequested || pendingAction?.kind === "cancel")}
+            confirmationPending={hasPendingObservation}
+            runActions={{
+              retry,
+              abandon,
+              actionableInputId: ownerRun?.inputs.at(-1)?.id,
+              actionableRunId: ownerRun?.id,
+              pendingRunId: pendingAction?.runId,
+            }}
+            streamWarning={streamWarning}
+          />
+          <ControlOrb
+            composerDocked={messages.length > 0}
+            onNavigate={navigate}
+            sessionId={sessionId}
+            status={{
+              elapsedSeconds: detail.summary.elapsedSeconds,
+              phase: activeRun ? "running" : hasPendingObservation ? "confirming" : "saved",
+              sessionTitle: detail.summary.title,
+              step: detail.summary.step,
+              worldName: detail.summary.world.name,
+            }}
+          />
+          {children}
+        </main>
+      </GameSessionProvider>
     </AssistantRuntimeProvider>
   );
 }

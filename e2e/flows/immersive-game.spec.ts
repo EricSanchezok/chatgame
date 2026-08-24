@@ -4,9 +4,9 @@ import { fixtureArchive } from "../support/world-fixture";
 test("a player installs a world and continues a persistent conversation", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: /世界在等待.*你的下一句话/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: /开始新游戏/ })).toBeVisible();
-  await page.getByRole("link", { name: /开始新游戏/ }).click();
+  await expect(page.getByRole("heading", { name: "从哪里开始？" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /世界包/ })).toBeVisible();
+  await page.getByRole("link", { name: /世界包/ }).click();
   await expect(page).toHaveURL(/\/worlds$/);
 
   await page.locator('input[type="file"]').setInputFiles({
@@ -15,7 +15,7 @@ test("a player installs a world and continues a persistent conversation", async 
     buffer: fixtureArchive(),
   });
   await expect(page.getByRole("heading", { name: "开放世界测试夹具" })).toBeVisible();
-  await page.getByRole("button", { name: /开始旅程/ }).click();
+  await page.getByRole("button", { name: /开始新游戏/ }).click();
   await expect(page).toHaveURL(/\/play\/[^/]+$/);
   const activeSessionId = new URL(page.url()).pathname.split("/").at(-1);
   if (!activeSessionId) throw new Error("new session URL does not contain an id");
@@ -52,16 +52,20 @@ test("a player installs a world and continues a persistent conversation", async 
   await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
   await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toHaveCount(0);
   await page.goto("/");
-  await expect(page.getByRole("link", { name: /继续当前世界/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /1 个世界 · 1 份存档/ })).toBeVisible();
 
-  await page.goto("/saves");
+  await page.goto(`/play/${activeSessionId}/manage/saves`);
+  await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
   await page.getByRole("article").filter({
     has: page.locator(`a[href="/play/${activeSessionId}"]`),
   })
     .getByRole("button", { name: /重命名/ }).click();
   await page.getByLabel("存档名称").fill("石门之外");
   await page.getByRole("button", { name: "保存名称" }).click();
-  await expect(page.getByRole("heading", { name: "石门之外" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "石门之外", level: 3 })).toBeVisible();
+  await page.getByRole("button", { name: "关闭游戏管理" }).click();
+  await expect(page).toHaveURL(`/play/${activeSessionId}`);
+  await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
 
   await page.setViewportSize({ width: 320, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -129,6 +133,38 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
+});
+
+test("in-game management preserves an active world run", async ({ page }) => {
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  const detail = await created.json() as { summary: { id: string } };
+  const playURL = `/play/${detail.summary.id}`;
+
+  await page.goto(playURL);
+  await page.getByLabel("你的行动").fill("触发 E2E 流式失败");
+  await page.getByLabel("你的行动").press("Enter");
+  const orb = page.getByRole("button", { name: /打开游戏控制；世界正在推演/ });
+  await expect(orb).toBeVisible();
+  await orb.click();
+  await page.getByRole("button", { name: "设置" }).click();
+  await expect(page).toHaveURL(`${playURL}/manage/settings`);
+  await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
+
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/sessions/${detail.summary.id}`);
+    const session = await response.json() as { runs: Array<{ status: string }> };
+    return session.runs.at(-1)?.status;
+  }).toBe("failed");
+  await page.getByRole("button", { name: "关闭游戏管理" }).click();
+  await expect(page).toHaveURL(playURL);
+  await expect(page.getByText("这一步未能完成")).toBeVisible();
 });
 
 test("the official thread axis keeps the composer anchored after every message", async ({ page }) => {
@@ -310,5 +346,5 @@ test("the global theme preference persists across product routes", async ({ page
 
   await page.goto("/worlds");
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await expect(page.getByRole("heading", { name: "选择世界" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "世界包" })).toBeVisible();
 });

@@ -116,17 +116,15 @@ export function radialOffsets(
   const vertical = zone === "bottom" ? -1 : 1;
   if (zone === "middle") {
     return [
-      [horizontal * 78, -64],
-      [horizontal * 96, -22],
-      [horizontal * 96, 22],
-      [horizontal * 78, 64],
+      [horizontal * 78, -50],
+      [horizontal * 96, 0],
+      [horizontal * 78, 50],
     ];
   }
   return [
-    [horizontal * 76, 0],
-    [horizontal * 70, vertical * 48],
-    [horizontal * 50, vertical * 82],
-    [0, vertical * 96],
+    [horizontal * 78, 0],
+    [horizontal * 68, vertical * 54],
+    [horizontal * 38, vertical * 92],
   ];
 }
 

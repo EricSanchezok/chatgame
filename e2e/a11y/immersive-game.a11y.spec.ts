@@ -9,11 +9,11 @@ async function expectNoViolations(page: import("@playwright/test").Page): Promis
 
 test("the local menu and world library have no detectable accessibility violations", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /世界在等待.*你的下一句话/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "从哪里开始？" })).toBeVisible();
   await expectNoViolations(page);
 
   await page.goto("/worlds");
-  await expect(page.getByRole("heading", { name: "选择世界" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "世界包" })).toBeVisible();
   await expectNoViolations(page);
 });
 
@@ -39,6 +39,13 @@ test("the empty and completed conversation have no detectable accessibility viol
   await orb.click();
   await expect(page.getByRole("button", { name: "存档" })).toBeVisible();
   await page.waitForTimeout(300);
+  await expectNoViolations(page);
+  await page.keyboard.press("Escape");
+  await expect(orb).toBeFocused();
+
+  await orb.click();
+  await page.getByRole("button", { name: "存档" }).click();
+  await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
   await expectNoViolations(page);
   await page.keyboard.press("Escape");
   await expect(orb).toBeFocused();

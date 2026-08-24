@@ -54,6 +54,7 @@ describe("control orb position", () => {
     expect(verticalZone(0.9)).toBe("bottom");
     expect(radialOffsets("right", "bottom").every(([x, y]) => x <= 0 && y <= 0)).toBe(true);
     expect(radialOffsets("left", "top").every(([x, y]) => x >= 0 && y >= 0)).toBe(true);
+    expect(radialOffsets("left", "middle")).toHaveLength(3);
   });
 
   it("places the status card beyond the complete radial action envelope", () => {

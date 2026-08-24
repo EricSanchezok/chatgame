@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 Class: architecture
 
 ## Context and Problem Statement
@@ -28,6 +28,8 @@ Class: architecture
 - 使用持久 `/play/:sessionId` 布局承载嵌套管理层，并以世界包工作台统一游戏外管理——所选路线。
 
 ## Decision Outcome
+
+本记录继承 [0051](0051-assistant-ui-upstream-session-surface.md) 固定的 assistant-ui 版本、官方 Thread 拓扑、主题、消息投影和控制球拖动契约，并取代其中的四动作导航与独立管理路由。会话视觉上游和 WorldRun External Store 数据路径保持不变。
 
 游戏外由 `/`、`/worlds`、`/worlds/:worldId` 与 `/settings` 组成。`/` 只提供“世界包”和“设置”两个入口；世界工作台在桌面使用世界列表与所选世界详情双栏，在窄屏使用列表到详情的路由钻取。所选世界详情的首要动作是创建新游戏，其后展示该世界的全部存档。独立 `/saves` 路由和当前存档浏览器指针不存在。
 
@@ -68,7 +70,8 @@ Class: architecture
 
 ## Links
 
-- [0051](0051-assistant-ui-upstream-session-surface.md) — 被本记录取代的会话表面与四动作导航契约。
+- [0051](0051-assistant-ui-upstream-session-surface.md) — 本记录继承的 Thread、主题、消息投影与控制球基础，以及被取代的四动作导航契约。
 - [0033](0033-persistent-streaming-world-runs.md) — 保持不变的持久 WorldRun 与 SSE 权威。
 - [0039](0039-pinned-world-runtime-contract.md) — 存档锁定世界版本的契约。
 - [表现层参考](../game-design/presentation.md) — 浏览器信息架构与交互规格。
+- [事故复盘 0019](../postmortems/0019-game-management-unmounted-session.md) — 独立管理路由为何破坏游戏心流并逃过测试。
