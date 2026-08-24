@@ -71,6 +71,14 @@ export class ScriptedModelProvider implements StructuredModelProvider {
     private readonly captureRequests = true,
   ) {}
 
+  availableProfileSummaries(role?: Parameters<ModelCatalog["profileSummaries"]>[0]) {
+    return this.catalog.profileSummaries(role);
+  }
+
+  assertProfilesAvailable(profileIds: readonly string[]): void {
+    for (const profileId of profileIds) this.catalog.profile(profileId);
+  }
+
   private async handlerValue(request: ScriptedModelHandlerRequest): Promise<unknown> {
     if (!this.adaptTruthScenario || !request.role.startsWith("truth-") && request.role !== "causal-verifier") {
       return this.handler(request);

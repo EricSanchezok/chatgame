@@ -30,6 +30,7 @@ import type {
 import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import {
   combineModelExecutionAudits,
+  ModelConfigurationError,
   modelInvocationCorrelation,
   modelInvocationIdentity,
   ModelOutputError,
@@ -197,7 +198,8 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
         audit: combineModelExecutionAudits(audits),
       };
     } catch (error) {
-      if (error instanceof ModelTransportError || error instanceof ModelOverloadedError ||
+      if (error instanceof ModelConfigurationError || error instanceof ModelTransportError ||
+        error instanceof ModelOverloadedError ||
         (error instanceof Error && error.name === "AbortError")) throw error;
       if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
       if (audits.length === auditCountBeforeAttempt) throw error;
@@ -573,9 +575,9 @@ export class TruthEngine {
       randomResults,
       commitmentRounds,
       allowedAgentProfiles: {
-        bootstrap: this.provider.catalog.profileSummaries("agent-bootstrap"),
-        mind: this.provider.catalog.profileSummaries("agent-mind"),
-        reaction: this.provider.catalog.profileSummaries("agent-reaction"),
+        bootstrap: this.provider.availableProfileSummaries("agent-bootstrap"),
+        mind: this.provider.availableProfileSummaries("agent-mind"),
+        reaction: this.provider.availableProfileSummaries("agent-reaction"),
       },
       sessionId: scope.workloadId,
       runId: scope.batchId,
@@ -826,6 +828,7 @@ export class TruthEngine {
           this.provider.catalog.assertProfile(operation.agent.modelProfiles.bootstrap, "agent-bootstrap");
           this.provider.catalog.assertProfile(operation.agent.modelProfiles.mind, "agent-mind");
           this.provider.catalog.assertProfile(operation.agent.modelProfiles.reaction, "agent-reaction");
+          this.provider.assertProfilesAvailable(Object.values(operation.agent.modelProfiles));
           if (operation.agent.nextAction !== null) {
             throw new Error(`new agent ${operation.agent.id} must not provide a prepared action`);
           }
@@ -918,7 +921,7 @@ export class TruthEngine {
         };
       } catch (error) {
         if (error instanceof ModelStageError && error.role === "causal-verifier") throw error;
-        if (error instanceof ModelTransportError ||
+        if (error instanceof ModelConfigurationError || error instanceof ModelTransportError ||
           error instanceof ModelOverloadedError || (error instanceof Error && error.name === "AbortError")) {
           throw error;
         }

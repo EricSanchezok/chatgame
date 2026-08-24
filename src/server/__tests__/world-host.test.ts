@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { ScriptedModelProvider, type ScriptedModelHandler } from "../../engine/testing/model-provider";
 import type { TransitionProposal } from "../../engine/model";
+import { ModelConfigurationError } from "../../engine/model-provider";
 import { RecordingRuntimeObserver, type RuntimeObserver } from "../../engine/observability";
 import { loadWorldScript } from "../../script/world-loader";
 import { MemoryWorldRepository } from "../../script/world-repository";
@@ -164,22 +165,35 @@ function createHost(
 }
 
 describe("WorldHost", () => {
-  it("validates model configuration before acquiring the database lease", () => {
+  it("validates the model catalog before acquiring the database lease", () => {
     const dataRoot = mkdtempSync(path.join(tmpdir(), "living-world-host-bootstrap-"));
     vi.stubEnv("LIVINGWORLD_DATA_ROOT", dataRoot);
-    vi.stubEnv("LIVINGWORLD_MODEL_CATALOG_PATH", path.resolve("e2e/support/models.yaml"));
-    vi.stubEnv("E2E_MODEL_API_KEY", "");
+    vi.stubEnv("LIVINGWORLD_MODEL_CATALOG_PATH", path.join(dataRoot, "missing-model-catalog.yaml"));
     WorldHost.setForTests(undefined);
 
     try {
-      expect(() => WorldHost.get()).toThrow("requires E2E_MODEL_API_KEY");
-      expect(() => WorldHost.get()).toThrow("requires E2E_MODEL_API_KEY");
+      expect(() => WorldHost.get()).toThrow("cannot read model catalog");
+      expect(() => WorldHost.get()).toThrow("cannot read model catalog");
       expect(existsSync(path.join(dataRoot, "livingworld.sqlite"))).toBe(false);
     } finally {
       WorldHost.setForTests(undefined);
       vi.unstubAllEnvs();
       rmSync(dataRoot, { recursive: true, force: true });
     }
+  });
+
+  it("preflights every world profile before Agent bootstrap or persistence", async () => {
+    const provider = new ScriptedModelProvider(normalHandler());
+    const check = vi.spyOn(provider, "assertProfilesAvailable").mockImplementation(() => {
+      throw new ModelConfigurationError("model provider deepseek requires DEEPSEEK_API_KEY");
+    });
+    const { host, store } = createHost(provider);
+
+    await expect(host.createSession({ worldId: "open-world-fixture" }))
+      .rejects.toThrow("model provider deepseek requires DEEPSEEK_API_KEY");
+    expect(check).toHaveBeenCalledWith(["agent-deepseek", "truth-deepseek"]);
+    expect(provider.requests).toEqual([]);
+    expect(store.listSessions()).toEqual([]);
   });
 
   it("logs and discards a bootstrapped session when its first persistence fails", async () => {
@@ -558,6 +572,26 @@ describe("WorldHost", () => {
     };
     store.compareAndSwap(session.summary.id, stored.generation, document);
     const definition = loadWorldScript(fixtureRoot, { modelCatalog: provider.catalog });
+    const unavailableProvider = new ScriptedModelProvider(normalHandler());
+    const availabilityCheck = vi.spyOn(unavailableProvider, "assertProfilesAvailable")
+      .mockImplementation(() => {
+        throw new ModelConfigurationError("model provider deepseek requires DEEPSEEK_API_KEY");
+      });
+    const blocked = new WorldHost({
+      repository: new MemoryWorldRepository({ [definition.id]: definition }),
+      store,
+      provider: unavailableProvider,
+      idFactory: () => "unused",
+    });
+    const writeCountBeforePreflight = store.writeCount;
+
+    expect(() => blocked.run(session.summary.id, "interrupted"))
+      .toThrow("model provider deepseek requires DEEPSEEK_API_KEY");
+    expect(availabilityCheck).toHaveBeenCalledWith(["agent-deepseek", "truth-deepseek"]);
+    expect(unavailableProvider.requests).toEqual([]);
+    expect(store.writeCount).toBe(writeCountBeforePreflight);
+    expect(store.read(session.summary.id).document.runs.interrupted.status).toBe("running");
+
     const recovered = new WorldHost({
       repository: new MemoryWorldRepository({ [definition.id]: definition }),
       store,

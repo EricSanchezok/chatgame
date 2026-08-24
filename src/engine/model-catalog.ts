@@ -194,15 +194,6 @@ export class ModelCatalog {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  resolveApiKeys(env: Readonly<Record<string, string | undefined>>): ReadonlyMap<string, string> {
-    const keys = new Map<string, string>();
-    for (const [providerId, provider] of Object.entries(this.providers)) {
-      const value = env[provider.api_key_env]?.trim();
-      if (!value) throw new Error(`model provider ${providerId} requires ${provider.api_key_env}`);
-      keys.set(providerId, value);
-    }
-    return keys;
-  }
 }
 
 export function parseModelCatalog(value: unknown): ModelCatalog {

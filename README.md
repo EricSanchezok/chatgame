@@ -6,10 +6,10 @@ Living World Engine（活世界引擎）是剧本驱动的开放世界 AI 游戏
 
 ```sh
 npm install
-DEEPSEEK_API_KEY=... OPENAI_API_KEY=... XAI_API_KEY=... npm run dev
+DEEPSEEK_API_KEY=... npm run dev
 ```
 
-打开 <http://localhost:3000>。默认 [模型目录](docs/game-design/model-gateway.md) 配置 DeepSeek、OpenAI 与 xAI，因此启动时三个密钥都必须存在。单供应商部署应通过 `LIVINGWORLD_MODEL_CATALOG_PATH` 指向只声明该 provider 与所需 profile 的完整目录。运行时没有默认模型、别名、环境字段覆盖、mock 或供应商 fallback。
+打开 <http://localhost:3000>。默认[模型目录](docs/game-design/model-gateway.md)注册 DeepSeek、OpenAI 与 xAI；只有世界或 Agent 实际选择某家供应商的 Profile 时才要求对应密钥，缺失时显式失败且不 fallback。仓库参考世界使用 DeepSeek；默认 Truth Engine 与 Agent Profile 均为 `deepseek-v4-flash` 非思考模式。运行时没有默认模型、别名、环境字段覆盖或生产 mock。
 
 仓库中的[参考世界工程](worlds/README.md)提供可审阅、可校验的可玩内容，但应用不会自动安装；初次进入会看到导入入口。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
 
@@ -27,7 +27,7 @@ npm run check:fast
 npm run check:all
 ```
 
-`test:live:deepseek` 使用测试 fixture 实际执行 AgentMind 初始化和一个 Truth Engine 世界步骤；它读取同一模型目录，因此需要该目录声明的全部密钥，不打印或持久化密钥。
+`test:live:deepseek` 使用测试 fixture 实际执行 AgentMind 初始化和一个 Truth Engine 世界步骤；它只要求 fixture 实际引用的 `DEEPSEEK_API_KEY`，不打印或持久化密钥。
 
 ## 从哪里开始读
 

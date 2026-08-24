@@ -1,6 +1,6 @@
 # 模型目录与 Gateway
 
-`config/models.yaml` 是生产运行时的模型配置入口。它只保存 provider 元数据与环境变量名，不保存密钥。运行时在首次初始化 WorldHost 时严格读取、校验和冻结目录；配置修改需要重启服务。
+`config/models.yaml` 是生产运行时的模型配置入口。它只保存 provider 元数据与环境变量名，不保存密钥。运行时在首次初始化 WorldHost 时严格读取、校验和冻结目录，并只为当前存在凭据的 provider 构造 Adapter；目录或凭据修改需要重启服务。
 
 ## 目录契约
 
@@ -19,17 +19,18 @@ providers:
 profiles:
   truth-deepseek:
     provider_id: deepseek
-    model: deepseek-v4-pro
-    description: 高强度世界真值裁决
+    model: deepseek-v4-flash
+    description: 高吞吐世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, causal-verifier]
     request_timeout_ms: 300000
     max_output_tokens: 32768
     inference:
-      kind: deepseek-thinking
-      effort: max
+      kind: deepseek-non-thinking
+      temperature: null
+      top_p: null
 ```
 
-provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；每个已配置 provider 在服务初始化时都必须解析到非空密钥。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 只允许 `truth-perception`、`truth-reaction-routing`、`truth-resolution`、`truth-transition`、`causal-verifier`、`agent-bootstrap`、`agent-mind` 与 `agent-reaction`。世界、初始 Agent、动态 Agent 和每次调用都按精确角色校验，不再复用或映射另一角色；多个角色仍可显式引用同一 Profile。
+provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；目录中的 provider 是可选能力注册项，未被当前世界引用时允许没有密钥。创建或加载会话会在任何模型调用前预检五个 Truth Profile 与全部现有 Agent Profile；缺少实际引用 provider 的密钥会显式失败。动态 Agent 只会看到当前凭据可用的 Profile，其提交前仍再次预检；每次模型调用也保留最终防线。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 只允许 `truth-perception`、`truth-reaction-routing`、`truth-resolution`、`truth-transition`、`causal-verifier`、`agent-bootstrap`、`agent-mind` 与 `agent-reaction`。世界、初始 Agent、动态 Agent 和每次调用都按精确角色校验，不复用或映射另一角色；多个角色仍可显式引用同一 Profile。
 
 `inference` 是 provider 原生判别联合：
 
@@ -43,7 +44,7 @@ provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是�
 
 `StructuredModelProvider.generateStructured` 一次返回已验证值和 `ModelExecutionAudit`。请求显式携带 profile、workload/session lane、batch/run、角色、主体、prompt 版本、schema 名、system prompt、JSON 上下文、Zod schema 和可选 `AbortSignal`。
 
-`ModelGateway` 只处理 Profile 解析、调度、重试、本地校验和审计；`ModelProviderAdapter` 隔离供应商客户端、API 形状与原生参数。新增供应商时增加目录判别分支、一个 Adapter 和对应契约测试，Gateway、Scheduler、Truth Engine 与 AgentMind 接口保持不变。
+`ModelGateway` 处理 Profile 解析、可用性预检、调度、重试、本地校验和审计；`ModelProviderAdapter` 隔离供应商客户端、API 形状与原生参数。新增供应商时增加目录判别分支、一个 Adapter 和对应契约测试，Gateway、Scheduler、Truth Engine 与 AgentMind 接口保持不变。
 
 DeepSeek 调用 Chat Completions，启用稳定 `json_object` 模式，在用户 prompt 中附加 JSON Schema 与合法形状示例，并在本地解析 JSON 与执行 strict Zod。OpenAI 与 xAI 调用 Responses API，由 provider 原生 strict JSON Schema 限制输出，本地仍再执行同一 Zod schema。共享输出契约只使用 strict object、必填字段和显式 nullable；不从 Markdown、前后缀文字或截断响应中抢救结果。
 

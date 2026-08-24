@@ -16,7 +16,7 @@ import type {
   StructuredModelRequest,
   StructuredModelResult,
 } from "./model-provider";
-import { ModelOutputError, ModelTransportError } from "./model-provider";
+import { ModelConfigurationError, ModelOutputError, ModelTransportError } from "./model-provider";
 import {
   FairModelScheduler,
   ModelOverloadedError,
@@ -129,12 +129,11 @@ export class ModelGateway implements StructuredModelProvider {
     options: ModelGatewayOptions = {},
   ) {
     this.catalog = catalog;
-    const keys = catalog.resolveApiKeys(env);
     for (const [providerId, provider] of Object.entries(catalog.providers)) {
-      const apiKey = keys.get(providerId);
-      if (!apiKey) throw new Error(`model provider ${providerId} has no resolved credential`);
-      const adapter = options.adapters?.get(providerId) ??
-        createModelProviderAdapter(provider, apiKey, options.fetch);
+      const configuredAdapter = options.adapters?.get(providerId);
+      const apiKey = env[provider.api_key_env]?.trim();
+      if (!configuredAdapter && !apiKey) continue;
+      const adapter = configuredAdapter ?? createModelProviderAdapter(provider, apiKey!, options.fetch);
       if (adapter.kind !== provider.kind) {
         throw new Error(`model provider adapter kind mismatch: ${providerId}`);
       }
@@ -158,6 +157,24 @@ export class ModelGateway implements StructuredModelProvider {
     this.observer = options.observer ?? NOOP_RUNTIME_OBSERVER;
   }
 
+  private requireAdapter(providerId: string): ModelProviderAdapter {
+    const adapter = this.adapters.get(providerId);
+    if (adapter) return adapter;
+    const provider = this.catalog.provider(providerId);
+    throw new ModelConfigurationError(`model provider ${providerId} requires ${provider.api_key_env}`);
+  }
+
+  availableProfileSummaries(role?: Parameters<ModelCatalog["profileSummaries"]>[0]) {
+    return this.catalog.profileSummaries(role)
+      .filter((profile) => this.adapters.has(profile.providerId));
+  }
+
+  assertProfilesAvailable(profileIds: readonly string[]): void {
+    const providerIds = new Set(profileIds.map((profileId) =>
+      this.catalog.profile(profileId).provider_id));
+    for (const providerId of [...providerIds].sort()) this.requireAdapter(providerId);
+  }
+
   async generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>> {
     if (!request.workloadId.trim() || !request.batchId.trim() || !request.subjectId.trim() ||
       !request.promptVersion.trim() || !request.schemaName.trim()) {
@@ -165,8 +182,7 @@ export class ModelGateway implements StructuredModelProvider {
     }
     this.catalog.assertProfile(request.profileId, request.role);
     const profile = this.catalog.profile(request.profileId);
-    const adapter = this.adapters.get(profile.provider_id);
-    if (!adapter) throw new Error(`model provider adapter is missing: ${profile.provider_id}`);
+    const adapter = this.requireAdapter(profile.provider_id);
     const observer = request.observer ?? this.observer;
     const observe = runtimeEventEmitter(observer);
     const modelInvocation = request.modelInvocation ?? 1;

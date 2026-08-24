@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0047](0047-on-demand-model-provider-credentials.md)
 Class: architecture
 
 ## Context and Problem Statement

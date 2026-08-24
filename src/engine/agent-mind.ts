@@ -19,6 +19,7 @@ import {
   combineModelExecutionAudits,
   modelInvocationCorrelation,
   modelInvocationIdentity,
+  ModelConfigurationError,
   ModelOutputError,
   ModelTransportError,
   setModelInvocationOutcome,
@@ -109,7 +110,8 @@ function validateReactionDecision(
 }
 
 function isTerminalModelError(error: unknown): boolean {
-  return error instanceof ModelTransportError || error instanceof ModelOverloadedError ||
+  return error instanceof ModelConfigurationError || error instanceof ModelTransportError ||
+    error instanceof ModelOverloadedError ||
     (error instanceof Error && error.name === "AbortError");
 }
 

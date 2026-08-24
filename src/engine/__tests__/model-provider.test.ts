@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ModelGateway } from "../model-gateway";
 import { parseModelCatalog } from "../model-catalog";
 import {
+  ModelConfigurationError,
   ModelOutputError,
   ModelTransportError,
   summarizeModelExecutionAudit,
@@ -52,6 +53,15 @@ function catalog() {
         max_output_tokens: 1_000,
         inference: { kind: "deepseek-thinking", effort: "max" },
       },
+      flash: {
+        provider_id: "deepseek",
+        model: "deepseek-v4-flash",
+        description: "DeepSeek non-thinking adapter contract test",
+        allowed_roles: ["agent-mind"],
+        request_timeout_ms: 10_000,
+        max_output_tokens: 1_000,
+        inference: { kind: "deepseek-non-thinking", temperature: null, top_p: null },
+      },
       gpt: {
         provider_id: "openai",
         model: "gpt-5.6",
@@ -89,12 +99,13 @@ function deepSeekResponse(
   content = JSON.stringify({ answer: "deepseek" }),
   status = 200,
   finishReason = "stop",
+  model = "deepseek-v4-pro",
 ): Response {
   return Response.json({
     id: "deepseek-response",
     object: "chat.completion",
     created: 1,
-    model: "deepseek-v4-pro",
+    model,
     choices: [{
       index: 0,
       message: { role: "assistant", content },
@@ -144,8 +155,7 @@ function request(profileId: string) {
 }
 
 describe("model catalog and provider adapters", () => {
-  it("rejects missing credentials, unknown profiles and mismatched native inference settings", async () => {
-    expect(() => new ModelGateway(catalog(), { ...credentials, XAI_API_KEY: "" })).toThrow("requires XAI_API_KEY");
+  it("rejects unknown profiles and mismatched native inference settings", async () => {
     expect(() => parseModelCatalog({
       schema_version: 2,
       scheduler: { global_concurrency: 1, max_queued_requests: 1, queue_timeout_ms: 1 },
@@ -174,6 +184,52 @@ describe("model catalog and provider adapters", () => {
       fetch: async () => deepSeekResponse(),
     });
     await expect(gateway.generateStructured(request("missing"))).rejects.toThrow("unknown model profile missing");
+  });
+
+  it("requires credentials only for selected profiles and hides unavailable profiles", async () => {
+    let fetchCalls = 0;
+    const gateway = new ModelGateway(catalog(), { DEEPSEEK_API_KEY: "deepseek-key" }, {
+      fetch: async () => {
+        fetchCalls += 1;
+        return deepSeekResponse();
+      },
+    });
+
+    expect(gateway.availableProfileSummaries("agent-mind").map((profile) => profile.id))
+      .toEqual(["deep", "flash"]);
+    expect(() => gateway.assertProfilesAvailable(["deep", "flash"])).not.toThrow();
+    expect(() => gateway.assertProfilesAvailable(["gpt"])).toThrow(ModelConfigurationError);
+    expect(() => gateway.assertProfilesAvailable(["gpt"])).toThrow(
+      "model provider openai requires OPENAI_API_KEY",
+    );
+
+    await expect(gateway.generateStructured(request("deep"))).resolves.toMatchObject({
+      value: { answer: "deepseek" },
+    });
+    await expect(gateway.generateStructured(request("gpt"))).rejects.toBeInstanceOf(ModelConfigurationError);
+    expect(fetchCalls).toBe(1);
+  });
+
+  it("sends Flash requests with thinking disabled and no reasoning controls", async () => {
+    let body: Record<string, unknown> | undefined;
+    const gateway = new ModelGateway(catalog(), credentials, {
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return deepSeekResponse(JSON.stringify({ answer: "flash" }), 200, "stop", "deepseek-v4-flash");
+      },
+    });
+
+    await expect(gateway.generateStructured(request("flash"))).resolves.toMatchObject({
+      value: { answer: "flash" },
+    });
+    expect(body).toMatchObject({
+      model: "deepseek-v4-flash",
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+    });
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).not.toHaveProperty("temperature");
+    expect(body).not.toHaveProperty("top_p");
   });
 
   it("sends native structured-output and reasoning contracts to DeepSeek, OpenAI and xAI", async () => {

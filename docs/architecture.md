@@ -35,7 +35,7 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 ## 模型调用链
 
-`config/models.yaml` 显式声明 provider、profile、原生推理配置与并发限制。世界分别选择 perception、reaction routing、resolution、transition 与 causal verifier Profile；每个 Agent 分别选择 bootstrap、mind 与 reaction Profile。每个调用点都按精确角色校验，因此同一 Profile 可以复用，也可以把强推理模型只配置给需要它的阶段。`ModelGateway` 按 provider 调用 DeepSeek Chat Completions 或 OpenAI/xAI Responses API，返回 strict schema 结果与审计。所有 HTTP 请求经过进程级公平队列，不存在默认模型、供应商 fallback 或生产 mock。完整契约见 [模型目录与 Gateway](game-design/model-gateway.md)。
+`config/models.yaml` 显式声明 provider、profile、原生推理配置与并发限制。世界分别选择 perception、reaction routing、resolution、transition 与 causal verifier Profile；每个 Agent 分别选择 bootstrap、mind 与 reaction Profile。每个调用点都按精确角色校验；Gateway 只要求实际引用 Profile 对应的 provider 凭据，缺失时在调用前失败。`ModelGateway` 按 provider 调用 DeepSeek Chat Completions 或 OpenAI/xAI Responses API，返回 strict schema 结果与审计。所有 HTTP 请求经过进程级公平队列，不存在默认模型、供应商 fallback 或生产 mock。完整契约见 [模型目录与 Gateway](game-design/model-gateway.md)。
 
 服务端统一 observer 以 correlation 串联 HTTP、SSE、WorldRun、世界步骤、模型 transport 与 SQLite 持久化；失败和回滚进入运行日志但不进入已提交历史。事件、payload 边界和有界文件 sink 见 [运行时可观测性](game-design/runtime-observability.md)。
 
@@ -77,4 +77,4 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0036](decisions/0036-multi-provider-model-gateway-and-fair-scheduler.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md)、[0042](decisions/0042-causal-assurance-and-staged-model-profiles.md)、[0043](decisions/0043-end-to-end-runtime-observability.md)、[0044](decisions/0044-local-assistant-ui-immersive-session-shell.md) 与 [0046](decisions/0046-committed-discrete-random-distributions.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md)、[0042](decisions/0042-causal-assurance-and-staged-model-profiles.md)、[0043](decisions/0043-end-to-end-runtime-observability.md)、[0044](decisions/0044-local-assistant-ui-immersive-session-shell.md)、[0046](decisions/0046-committed-discrete-random-distributions.md) 与 [0047](decisions/0047-on-demand-model-provider-credentials.md)。

@@ -7,7 +7,7 @@ import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
-import { summarizeModelExecutionAudit } from "../model-provider";
+import { ModelConfigurationError, summarizeModelExecutionAudit } from "../model-provider";
 import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 
@@ -263,6 +263,20 @@ function mindOutput(agentId: string, revision: number) {
 }
 
 describe("multi-agent simulation", () => {
+  it("does not retry AgentMind when a selected provider is not configured", async () => {
+    let calls = 0;
+    const provider = new ScriptedModelProvider(() => {
+      calls += 1;
+      throw new ModelConfigurationError("model provider xai requires XAI_API_KEY");
+    });
+    const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
+
+    await expect(engine.bootstrapAgents()).rejects.toThrow("AgentMind bootstrap batch failed");
+    expect(calls).toBe(2);
+    expect(provider.requests).toHaveLength(2);
+    expect(engine.snapshot).toMatchObject({ revision: 0, step: 0, bootstrapModelAudits: [] });
+  });
+
   it("resolves every agent and the player from one shared snapshot", async () => {
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
       const context = JSON.parse(prompt) as {
@@ -618,6 +632,46 @@ describe("multi-agent simulation", () => {
     engine.beginPlayerIntent("尝试创造一个伪造配置的 Agent");
 
     await expect(engine.step()).rejects.toThrow("unknown model profile invented-profile");
+    expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
+  });
+
+  it("rejects an unavailable dynamic Agent profile without transition repair", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        jointActions?: Array<{ id: string }>;
+        baseRevision?: number;
+        step?: number;
+      };
+      if (profileId !== "truth-engine") throw new Error("AgentMind must not run for an invalid transition");
+      const proposal = simpleTransition(
+        context.jointActions!.map((action) => action.id),
+        ["agent-a", "agent-b"],
+        { spawn: true, baseRevision: context.baseRevision, step: context.step },
+      );
+      const createAgent = proposal.operations.find((operation) => operation.kind === "create_agent");
+      if (!createAgent || createAgent.kind !== "create_agent") throw new Error("test transition has no Agent");
+      createAgent.agent.modelProfiles = {
+        bootstrap: "agent-xai",
+        mind: "agent-xai",
+        reaction: "agent-xai",
+      };
+      return { kind: "transition", proposal };
+    });
+    const allAvailableProfiles = provider.availableProfileSummaries.bind(provider);
+    provider.availableProfileSummaries = (role) =>
+      allAvailableProfiles(role).filter((profile) => profile.id !== "agent-xai");
+    const assertCatalogProfiles = provider.assertProfilesAvailable.bind(provider);
+    provider.assertProfilesAvailable = (profileIds) => {
+      assertCatalogProfiles(profileIds);
+      if (profileIds.includes("agent-xai")) {
+        throw new ModelConfigurationError("model provider xai requires XAI_API_KEY");
+      }
+    };
+    const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
+    engine.beginPlayerIntent("尝试创造一个没有部署凭据的 Agent");
+
+    await expect(engine.step()).rejects.toBeInstanceOf(ModelConfigurationError);
+    expect(provider.requests.filter((request) => request.role === "truth-transition")).toHaveLength(1);
     expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
   });
 

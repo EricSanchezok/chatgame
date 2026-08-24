@@ -94,3 +94,11 @@ export function validateWorldModelProfiles(definition: WorldDefinition, catalog:
     catalog.assertProfile(agent.modelProfiles.reaction, "agent-reaction");
   }
 }
+
+export function worldModelProfileIds(definition: WorldDefinition): string[] {
+  return [...new Set([
+    ...Object.values(definition.modelProfiles),
+    ...Object.values(definition.initialState.agents)
+      .flatMap((agent) => Object.values(agent.modelProfiles)),
+  ])].sort();
+}

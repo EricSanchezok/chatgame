@@ -12,6 +12,7 @@ import {
   validateWorldDefinition,
   validateWorldModelProfiles,
   toWorldRuntimeContract,
+  worldModelProfileIds,
   type WorldDefinition,
 } from "../engine/world-definition";
 import type { WorldRepository } from "../script/world-repository";
@@ -243,6 +244,7 @@ export class WorldHost {
     };
     validateWorldDefinition(definition);
     validateWorldModelProfiles(definition, this.options.provider.catalog);
+    this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     return definition;
   }
 
@@ -365,6 +367,7 @@ export class WorldHost {
     correlation?: RuntimeCorrelation,
   ): Promise<PublicSessionDetail> {
     const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
+    this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     const engine = this.buildEngine(definition);
     const id = this.idFactory();
     const sessionCorrelation = { ...correlation, sessionId: id, revision: 0, step: 0 };

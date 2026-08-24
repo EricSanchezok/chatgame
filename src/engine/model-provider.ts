@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { ModelCatalog } from "./model-catalog";
+import type { ModelCatalog, ModelProfileSummary, ModelRole } from "./model-catalog";
 import type {
   ModelExecutionAudit,
   ModelInvocationAudit,
@@ -47,8 +47,17 @@ export class ModelTransportError extends Error {
   }
 }
 
+export class ModelConfigurationError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ModelConfigurationError";
+  }
+}
+
 export interface StructuredModelProvider {
   readonly catalog: ModelCatalog;
+  availableProfileSummaries(role?: ModelRole): ModelProfileSummary[];
+  assertProfilesAvailable(profileIds: readonly string[]): void;
   generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>>;
 }
 

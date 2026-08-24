@@ -102,7 +102,7 @@
 - [0033 — 持久化流式 WorldRun 与无内置剧本工作台](0033-persistent-streaming-world-runs.md)
 - [0034 — Truth Engine 验证矩阵](0034-truth-engine-verification-matrix.md)
 - [0035 — Truth Engine 硬化与可验证审计](0035-truth-engine-hardening-and-verifiable-audit.md)
-- [0036 — 多供应商模型目录、严格结构化输出与公平调度](0036-multi-provider-model-gateway-and-fair-scheduler.md)
+- [0036 — 多供应商模型目录、严格结构化输出与公平调度（由 0047 取代）](0036-multi-provider-model-gateway-and-fair-scheduler.md)
 - [0037 — Agent 心智演化、自身状态投影与有限反应窗口](0037-agent-evolution-self-awareness-and-reaction-window.md)
 - [0038 — 项目改名 Living World Engine（活世界引擎）](0038-project-rename-to-living-world-engine.md)
 - [0039 — 会话锁定世界运行时契约](0039-pinned-world-runtime-contract.md)
@@ -113,3 +113,4 @@
 - [0044 — 本地 assistant-ui 沉浸会话壳与存档资源](0044-local-assistant-ui-immersive-session-shell.md)
 - [0045 — 版本化参考世界采用作者工程与严格运行目录分层](0045-versioned-reference-world-projects.md)
 - [0046 — 剧本声明、预承诺并可重放的通用离散随机分布](0046-committed-discrete-random-distributions.md)
+- [0047 — 按实际 Profile 激活模型供应商凭据](0047-on-demand-model-provider-credentials.md)

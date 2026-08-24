@@ -25,14 +25,15 @@ providers:
 profiles:
   truth-deepseek:
     provider_id: deepseek
-    model: deepseek-v4-pro
-    description: 高强度世界真值裁决
+    model: deepseek-v4-flash
+    description: 高吞吐世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, causal-verifier]
     request_timeout_ms: 300000
     max_output_tokens: 32768
     inference:
-      kind: deepseek-thinking
-      effort: max
+      kind: deepseek-non-thinking
+      temperature: null
+      top_p: null
   agent-deepseek:
     provider_id: deepseek
     model: deepseek-v4-flash
@@ -41,8 +42,9 @@ profiles:
     request_timeout_ms: 180000
     max_output_tokens: 8192
     inference:
-      kind: deepseek-thinking
-      effort: high
+      kind: deepseek-non-thinking
+      temperature: null
+      top_p: null
   agent-openai:
     provider_id: openai
     model: gpt-5.6
