@@ -73,6 +73,9 @@ test("the world evolution workspace matches light/dark desktop/mobile baselines"
     const inspector = page.getByRole("dialog", { name: "世界演化" });
     await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
     await expect(inspector.getByRole("button", { name: /世界，Revision 1/ })).toBeVisible();
+    await expect.poll(async () => inspector.locator(".react-flow__edge-path").evaluateAll((paths) => (
+      paths.some((path) => (path as SVGPathElement).getTotalLength() > 0)
+    ))).toBe(true);
     await page.waitForTimeout(200);
     await expect(page).toHaveScreenshot(`world-inspector-${colorScheme}-desktop.png`, {
       ...screenshotOptions,
@@ -83,6 +86,10 @@ test("the world evolution workspace matches light/dark desktop/mobile baselines"
     await inspector.getByRole("button", { name: "聚焦此 Agent" }).click();
     await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
     await expect(inspector.getByText("守门人本轮实际行动")).toBeVisible();
+    await expect.poll(async () => inspector.locator(".react-flow__edge-path").evaluateAll((paths) => (
+      paths.some((path) => (path as SVGPathElement).getTotalLength() > 0)
+    ))).toBe(true);
+    await page.waitForTimeout(200);
     await expect(page).toHaveScreenshot(`world-inspector-${colorScheme}-agent-desktop.png`, {
       ...screenshotOptions,
       maxDiffPixelRatio: 0.003,

@@ -54,6 +54,6 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 Agent 选择只高亮相关泳道并保留世界上下文，“聚焦此 Agent”才过滤其他主体；激活后同一按钮变为“显示全部主体”。搜索同时匹配 Agent、节点说明和 revision。手动平移或缩放会暂停自动居中，事件仍实时进入；“回到最新”恢复追随。移动端默认时间线，Agent 列表收进带遮罩和 Escape 行为的侧滑抽屉，详情成为下方连续面板。
 
-图谱节点只消费服务端语义与边，不接收画布坐标。首帧以确定性拓扑布局立即显示，Web Worker 内的 ELK Layered 完成后精排；worker 错误保留首帧布局。节点类型覆盖 commit、行动、反应、检定、随机、机制、operation、世界事件、observation、心智更新和 attempt；状态同时使用文字、图标、颜色和线型。缩远时节点收敛为主体、阶段和计数，居中尺度显示主链，近距离才展示完整说明；方向键顺序漫游节点，Home/End 到达图首尾。React Flow 只渲染可视节点并提供缩放和 fit view；minimap 在精排坐标可用后挂载，按节点语义着色并以描边保证浅色、深色和遮罩区域内均可辨认。时间线承担完整的窄屏与线性阅读替代。
+图谱节点只消费服务端语义与边，不接收画布坐标。首帧以确定性拓扑布局立即显示，Web Worker 内的 ELK Layered 完成后精排；worker 错误保留首帧布局。节点类型覆盖 commit、行动、反应、检定、随机、机制、operation、世界事件、observation、心智更新和 attempt；状态同时使用文字、图标、颜色和线型。缩远时节点收敛为主体、阶段和计数，居中尺度显示主链，近距离才展示完整说明；方向键顺序漫游节点，Home/End 到达图首尾。React Flow 只渲染可视节点并提供缩放和 fit view；布局完成状态必须对应当前可见节点与边的拓扑签名，minimap 在该拓扑的精排坐标可用后挂载，按节点语义着色并以描边保证浅色、深色和遮罩区域内均可辨认。时间线承担完整的窄屏与线性阅读替代。
 
 首屏读取最近 24 个 revision，旧历史用 `beforeRevision` 向前分页，step 与 attempt 详情按需请求。面板只读，不提供回滚、重跑、分叉或编辑。`off` 模式只有 committed history，`metrics` 增加阶段与数值，`full` 才展示已经记录的模型上下文和结构化输出；任何模式都不展示或推断隐藏思维链。设置开关只负责沉浸与剧透控制，不是 inspector API 的认证边界。

@@ -168,6 +168,7 @@ export function WorldInspectorGraph({
   const instanceRef = useRef<ReactFlowInstance<InspectorFlowNode, Edge> | null>(null);
   const [flowReady, setFlowReady] = useState(false);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
+  const [settledLayoutSignature, setSettledLayoutSignature] = useState<string>();
   const [semanticZoom, setSemanticZoom] = useState<SemanticZoom>("mid");
   const actorNames = useMemo(() => new Map([
     ["world", "世界"],
@@ -180,6 +181,10 @@ export function WorldInspectorGraph({
   const visibleIds = useMemo(() => new Set(visibleSummaries.map((node) => node.id)), [visibleSummaries]);
   const visibleEdges = useMemo(() => sourceEdges.filter((edge) =>
     visibleIds.has(edge.source) && visibleIds.has(edge.target)), [sourceEdges, visibleIds]);
+  const layoutSignature = useMemo(() => [
+    visibleSummaries.map((node) => node.id).join("|"),
+    visibleEdges.map((edge) => edge.id).join("|"),
+  ].join("::"), [visibleEdges, visibleSummaries]);
   const provisionalPositions = useMemo(() => worldInspectorFallbackPositions(visibleSummaries, visibleEdges),
     [visibleEdges, visibleSummaries]);
 
@@ -199,6 +204,7 @@ export function WorldInspectorGraph({
     const elk = elkRef.current;
     if (!elk || visibleSummaries.length === 0) {
       setPositions({});
+      setSettledLayoutSignature(undefined);
       return;
     }
     const id = ++requestIdRef.current;
@@ -228,13 +234,15 @@ export function WorldInspectorGraph({
         node.id,
         { x: node.x ?? 0, y: node.y ?? 0 },
       ])));
+      setSettledLayoutSignature(layoutSignature);
     }).catch((error: unknown) => {
       if (cancelled || id !== requestIdRef.current) return;
       console.warn("World inspector ELK layout failed; using deterministic fallback.", error);
       setPositions(provisionalPositions);
+      setSettledLayoutSignature(layoutSignature);
     });
     return () => { cancelled = true; };
-  }, [provisionalPositions, visibleEdges, visibleSummaries]);
+  }, [layoutSignature, provisionalPositions, visibleEdges, visibleSummaries]);
 
   const nodes = useMemo<InspectorFlowNode[]>(() => visibleSummaries.map((summary) => {
     const matchesQuery = !normalizedQuery || `${summary.label} ${summary.description} ${actorNames.get(summary.laneId) ?? summary.laneId}`
@@ -293,7 +301,7 @@ export function WorldInspectorGraph({
     return () => cancelAnimationFrame(frame);
   }, [flowReady, followLatest, nodes, reduceMotion]);
 
-  const layoutReady = visibleSummaries.length > 0 &&
+  const layoutReady = visibleSummaries.length > 0 && settledLayoutSignature === layoutSignature &&
     visibleSummaries.every((summary) => positions[summary.id] !== undefined);
   const minimapLayoutKey = visibleSummaries.map((summary) => {
     const position = positions[summary.id] ?? provisionalPositions[summary.id] ?? { x: 0, y: 0 };

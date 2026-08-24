@@ -31,7 +31,7 @@ Living World Engine 的已提交历史、每个 Agent 的独立认知和运行�
 
 已提交图谱和任意 revision 前后状态通过事务校验器共用的 `replayCommittedHistory` 生成。WorldHost 使用以 session、world hash、当前 revision 和查询窗口为身份的 64 项有界 LRU 缓存 committed 图谱与 step 快照；缓存只保存可重建派生值，不进入 SQLite。RuntimeEvent 使用现有 observer 的进程内订阅和 NDJSON 文件；增量索引按文件、mtime、offset 与完整换行读取，损坏、半行和轮转只减少可见 trace。独立 SSE 使用进程 epoch 与全局 sequence；旧 epoch、过期或超前游标收到 resync。
 
-控制球工具区打开接近全屏的 Radix `WorkspaceDialog`。工作台提供 React Flow 因果图、Git 风格时间线、Agent 透镜、搜索、隔离、追随最新、minimap 与按需详情。图谱首帧使用确定性拓扑排布，随后由 Web Worker 内的 ELK Layered 精排；worker 失败时保留首帧排布，minimap 在精排坐标可用后挂载。详情先把世界提交归纳为结果链，把 Agent 提交归纳为行动、观察、认知变化与尚未执行的后续计划；非空技术阶段按需展开，完整对象只进入原始记录。移动端默认时间线，详情在同一全屏工作台下方展开。所有交互只查询数据，不提供回滚、重跑、分叉或状态写入。
+控制球工具区打开接近全屏的 Radix `WorkspaceDialog`。工作台提供 React Flow 因果图、Git 风格时间线、Agent 透镜、搜索、隔离、追随最新、minimap 与按需详情。图谱首帧使用确定性拓扑排布，随后由 Web Worker 内的 ELK Layered 精排；worker 失败时保留首帧排布。布局完成状态绑定当前可见节点与边的拓扑签名，切换 Agent 聚焦后不得复用旧图的完成状态；minimap 在当前拓扑的精排坐标可用后挂载。详情先把世界提交归纳为结果链，把 Agent 提交归纳为行动、观察、认知变化与尚未执行的后续计划；非空技术阶段按需展开，完整对象只进入原始记录。移动端默认时间线，详情在同一全屏工作台下方展开。所有交互只查询数据，不提供回滚、重跑、分叉或状态写入。
 
 ### Consequences
 
