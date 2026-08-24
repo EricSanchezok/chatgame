@@ -1,5 +1,5 @@
-import { WorldsScreen } from "../_components/worlds-screen";
+import { WorldWorkspace } from "../_components/world-workspace";
 
 export default function WorldsPage() {
-  return <WorldsScreen />;
+  return <WorldWorkspace />;
 }

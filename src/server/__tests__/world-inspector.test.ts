@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { AgentMind } from "../../engine/agent-mind";
 import type { SimulationState } from "../../engine/model";
 import { RecordingRuntimeObserver } from "../../engine/observability";
-import { DeterministicModelProvider } from "../../engine/testing/model-provider";
+import {
+  createTestModelCatalog,
+  DeterministicModelProvider,
+} from "../../engine/testing/model-provider";
 import { SimulationEngine } from "../../engine/simulation";
 import { replayCommittedHistory } from "../../engine/transaction";
 import { TruthEngine } from "../../engine/truth-engine";
@@ -16,6 +19,7 @@ import {
   summarizeRuntimeAttempts,
 } from "../world-inspector";
 import type { WorldSessionDocument } from "../world-run-types";
+import { settleBlackmarshOpeningDeadlines } from "./blackmarsh-test-support";
 
 function snapshot(state: Readonly<SimulationState>): WorldInspectorStateSnapshot {
   return {
@@ -97,5 +101,45 @@ describe("world inspector committed projection", () => {
     expect(latest.committed.characterPatches.some((patch) => patch.agentId === agentId)).toBe(true);
     expect(latest.committed.nextActions.some((action) => action.actorId === agentId)).toBe(true);
     expect(projection.nodes.some((node) => node.laneId === agentId && node.kind === "mind")).toBe(true);
+
+    const page = buildWorldInspectorCommittedProjection(document, { limit: 2 });
+    const pageNodeIds = new Set(page.nodes.map((node) => node.id));
+    expect(page.steps.map((step) => step.revision)).toEqual([2, 3]);
+    expect(page.edges.every((edge) =>
+      pageNodeIds.has(edge.source) && pageNodeIds.has(edge.target))).toBe(true);
+    expect(page.edges.some((edge) => edge.source === "commit:1")).toBe(false);
+  });
+
+  it("connects causes to reference nodes declared later in the committed step", async () => {
+    const catalog = createTestModelCatalog(["truth-deepseek", "agent-deepseek"]);
+    const definition = loadWorldScript(path.resolve("worlds/blackmarsh/world"), {
+      seed: 47,
+      modelCatalog: catalog,
+    });
+    const { state } = await settleBlackmarshOpeningDeadlines(definition, catalog);
+    const document: WorldSessionDocument = {
+      schemaVersion: 9,
+      id: "inspector-causal-session",
+      world: toWorldRuntimeContract(definition),
+      title: definition.name,
+      createdAt: "2026-08-24T00:00:00.000Z",
+      updatedAt: "2026-08-24T00:00:01.000Z",
+      state,
+      runs: {},
+    };
+
+    const projection = buildWorldInspectorCommittedProjection(document, { limit: 24 });
+    const eventCauses = state.history.flatMap((committed) => committed.outcomes.flatMap((outcome) =>
+      outcome.causeRefs
+        .filter((cause) => cause.kind === "event")
+        .map((cause) => ({ source: `event:${cause.id}`, target: `action:${outcome.proposalId}` }))));
+
+    expect(eventCauses.length).toBeGreaterThan(0);
+    for (const cause of eventCauses) {
+      expect(projection.edges).toContainEqual(expect.objectContaining({
+        ...cause,
+        kind: "causal",
+      }));
+    }
   });
 });

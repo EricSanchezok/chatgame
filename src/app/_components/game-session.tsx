@@ -6,7 +6,6 @@ import {
   type AppendMessage,
 } from "@assistant-ui/react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -15,257 +14,39 @@ import {
   useReducer,
   useRef,
   useState,
-  useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import {
   isWorldRunActiveIntentOwner,
   isWorldRunExecuting,
-  isWorldRunRetriable,
-  isWorldRunStreamBoundary,
   type PublicSessionDetail,
+  type PublicSessionSummary,
   type WorldRunEvent,
   type WorldRunRecordView,
   type WorldRunSnapshot,
 } from "../../shared/world-api";
 import {
-  CURRENT_SESSION_KEY,
-  parsePreferences,
-  preferencesSnapshot,
-  serverPreferencesSnapshot,
-  subscribePreferences,
-} from "../_lib/browser-state";
+  executingRun,
+  intentOwnerRun,
+  isAwaitingPlayer,
+  isTerminalEvent,
+  isUncertainStartError,
+  matchesPendingStart,
+  pendingStartConfirmationDelayMs,
+  runEventTypes,
+  runTailSequence,
+  sessionReducer,
+  type ClientOperation,
+  type ClientOperationRequest,
+  type PendingStartMatcher,
+  type SessionAction,
+} from "../_lib/game-session-state";
 import { runsToMessages } from "../_lib/run-messages";
-import { WorldApiError, worldApi } from "../lib/world-api-client";
-import { ControlOrb } from "./control-orb";
-import { GameThread } from "./game-thread";
+import { worldApi } from "../lib/world-api-client";
+import { GameSessionSurface } from "./game-session-surface";
 
-const WorldInspectorDialog = dynamic(() => import("./world-inspector-dialog"), {
-  ssr: false,
-});
-
-const runEventTypes: WorldRunEvent["type"][] = [
-  "player.input",
-  "run.execution_started",
-  "check.resolved",
-  "player.outcome",
-  "player.observation",
-  "step.committed",
-  "run.awaiting_player",
-  "run.completed",
-  "run.goal_failed",
-  "run.step_limit",
-  "run.cancelled",
-  "run.failed",
-];
-
-function isAwaitingPlayer(run: WorldRunRecordView | undefined): boolean {
-  return run?.status === "awaiting_player";
-}
-
-function activeRunSummary(run: WorldRunRecordView | undefined): PublicSessionDetail["summary"]["activeRun"] {
-  if (!run || !isWorldRunExecuting(run.status)) return undefined;
-  return { id: run.id, status: run.status };
-}
-
-function latestRun(
-  runs: WorldRunRecordView[],
-  predicate: (run: WorldRunRecordView) => boolean,
-): WorldRunRecordView | undefined {
-  return [...runs].reverse().find(predicate);
-}
-
-function executingRun(runs: WorldRunRecordView[]): WorldRunRecordView | undefined {
-  return latestRun(runs, (run) => isWorldRunExecuting(run.status));
-}
-
-function intentOwnerRun(runs: WorldRunRecordView[]): WorldRunRecordView | undefined {
-  return latestRun(runs, (run) => isWorldRunActiveIntentOwner(run.status));
-}
-
-function withDerivedActiveRun(detail: PublicSessionDetail): PublicSessionDetail {
-  return {
-    ...detail,
-    summary: {
-      ...detail.summary,
-      activeRun: activeRunSummary(executingRun(detail.runs)),
-    },
-  };
-}
-
-function isTerminalEvent(event: WorldRunEvent): boolean {
-  return event.type === "run.awaiting_player" || event.type === "run.completed" ||
-    event.type === "run.goal_failed" || event.type === "run.step_limit" ||
-    event.type === "run.cancelled" || event.type === "run.failed";
-}
-
-type SessionAction =
-  | { type: "load"; detail: PublicSessionDetail }
-  | { type: "snapshot"; snapshot: WorldRunSnapshot }
-  | { type: "event"; runId: string; event: WorldRunEvent };
-
-interface PendingStartMatcher {
-  attemptId: string;
-  existingRunIds: string[];
-  goal: string;
-  originalError: unknown;
-  confirmAfter: number;
-  absenceCount: number;
-}
-
-type ClientOperationKind = "start" | "continue" | "cancel" | "retry" | "abandon";
-
-interface ClientOperation {
-  token: number;
-  kind: ClientOperationKind;
-  runId?: string;
-}
-
-type ClientOperationRequest = Omit<ClientOperation, "token">;
-
-const pendingStartConfirmationDelayMs = 1_000;
-const definitiveStartFailureStatuses = new Set([400, 401, 403, 404, 422]);
-
-function matchesPendingStart(run: WorldRunRecordView, pending: PendingStartMatcher): boolean {
-  return !pending.existingRunIds.includes(run.id) &&
-    run.inputs.some((input) => input.kind === "goal" && input.text === pending.goal);
-}
-
-function isUncertainStartError(error: unknown): boolean {
-  if (!(error instanceof WorldApiError)) return true;
-  return !definitiveStartFailureStatuses.has(error.status);
-}
-
-function upsertRun(runs: WorldRunRecordView[], run: WorldRunRecordView): WorldRunRecordView[] {
-  const index = runs.findIndex((candidate) => candidate.id === run.id);
-  if (index < 0) return [...runs, run];
-  return runs.map((candidate) => candidate.id === run.id ? run : candidate);
-}
-
-function runTailSequence(run: WorldRunRecordView): number {
-  return run.events.at(-1)?.sequence ?? 0;
-}
-
-function compareRunFreshness(left: WorldRunRecordView, right: WorldRunRecordView): number {
-  const sequenceDifference = runTailSequence(left) - runTailSequence(right);
-  if (sequenceDifference !== 0) return sequenceDifference;
-  const leftIsRetryBoundary = isWorldRunRetriable(left);
-  const rightIsRetryBoundary = isWorldRunRetriable(right);
-  if (left.status === "queued" && rightIsRetryBoundary) return 1;
-  if (leftIsRetryBoundary && right.status === "queued") return -1;
-  if (left.status === right.status && left.cancelRequested !== right.cancelRequested) {
-    if (isWorldRunExecuting(left.status)) return left.cancelRequested ? 1 : -1;
-    if (isWorldRunStreamBoundary(left.status)) return left.cancelRequested ? -1 : 1;
-  }
-  const updatedDifference = left.updatedAt.localeCompare(right.updatedAt);
-  if (updatedDifference !== 0) return updatedDifference;
-  return left.inputs.length - right.inputs.length;
-}
-
-function mergeRuns(
-  current: WorldRunRecordView[],
-  incoming: WorldRunRecordView[],
-): WorldRunRecordView[] {
-  const merged = new Map(current.map((run) => [run.id, run]));
-  for (const run of incoming) {
-    const existing = merged.get(run.id);
-    if (!existing || compareRunFreshness(run, existing) >= 0) merged.set(run.id, run);
-  }
-  return [...merged.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-}
-
-function compareSessionFreshness(left: PublicSessionDetail, right: PublicSessionDetail): number {
-  const revisionDifference = left.state.revision - right.state.revision;
-  if (revisionDifference !== 0) return revisionDifference;
-  const eventDifference = left.runs.reduce((total, run) => total + runTailSequence(run), 0) -
-    right.runs.reduce((total, run) => total + runTailSequence(run), 0);
-  if (eventDifference !== 0) return eventDifference;
-  return left.summary.updatedAt.localeCompare(right.summary.updatedAt);
-}
-
-function statusAfterEvent(
-  current: WorldRunRecordView["status"],
-  event: WorldRunEvent,
-): WorldRunRecordView["status"] {
-  switch (event.type) {
-    case "run.execution_started": return "running";
-    case "run.awaiting_player": return "awaiting_player";
-    case "run.completed": return "completed";
-    case "run.goal_failed": return "goal_failed";
-    case "run.step_limit": return "step_limit";
-    case "run.cancelled": return "cancelled";
-    case "run.failed": return "failed";
-    default: return current;
-  }
-}
-
-function sessionReducer(state: PublicSessionDetail | undefined, action: SessionAction): PublicSessionDetail | undefined {
-  if (action.type === "load") {
-    if (!state) return withDerivedActiveRun(action.detail);
-    const runs = mergeRuns(state.runs, action.detail.runs);
-    const freshest = compareSessionFreshness(action.detail, state) >= 0 ? action.detail : state;
-    return withDerivedActiveRun({ ...freshest, runs });
-  }
-  if (!state) return state;
-  if (action.type === "snapshot") {
-    const current = state.runs.find((run) => run.id === action.snapshot.run.id);
-    if (current && compareRunFreshness(action.snapshot.run, current) < 0) return state;
-    const runs = upsertRun(state.runs, action.snapshot.run);
-    const nextState = action.snapshot.state.revision >= state.state.revision
-      ? action.snapshot.state
-      : state.state;
-    return {
-      ...state,
-      state: nextState,
-      summary: {
-        ...state.summary,
-        revision: nextState.revision,
-        step: nextState.step,
-        elapsedSeconds: nextState.elapsedSeconds,
-        updatedAt: state.summary.updatedAt.localeCompare(action.snapshot.run.updatedAt) >= 0
-          ? state.summary.updatedAt
-          : action.snapshot.run.updatedAt,
-        activeRun: activeRunSummary(executingRun(runs)),
-      },
-      runs,
-    };
-  }
-  const current = state.runs.find((run) => run.id === action.runId);
-  if (!current || action.event.sequence <= runTailSequence(current)) return state;
-  const events = [...current.events, action.event].sort((left, right) => left.sequence - right.sequence);
-  const status = statusAfterEvent(current.status, action.event);
-  const playerInput = action.event.type === "player.input" ? action.event : undefined;
-  const inputs = playerInput && !current.inputs.some((input) => input.id === playerInput.payload.id)
-    ? [...current.inputs, { ...playerInput.payload, at: playerInput.at }]
-    : current.inputs;
-  const run = { ...current, inputs, events, status, updatedAt: action.event.at };
-  const runs = upsertRun(state.runs, run);
-  const committed = action.event.type === "step.committed" ? action.event.payload : undefined;
-  return {
-    ...state,
-    state: committed ? { ...state.state, ...committed } : state.state,
-    summary: {
-      ...state.summary,
-      ...(committed ?? {}),
-      updatedAt: action.event.at,
-      activeRun: activeRunSummary(executingRun(runs)),
-    },
-    runs,
-  };
-}
-
-export function GameSession({ sessionId }: { sessionId: string }) {
+export function GameSession({ children, sessionId }: { children?: ReactNode; sessionId: string }) {
   const router = useRouter();
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const subscribeGamePreferences = useCallback((notify: () => void) => subscribePreferences(() => {
-    if (!parsePreferences(preferencesSnapshot()).showWorldInspector) setInspectorOpen(false);
-    notify();
-  }), []);
-  const serializedPreferences = useSyncExternalStore(
-    subscribeGamePreferences,
-    preferencesSnapshot,
-    serverPreferencesSnapshot,
-  );
-  const preferences = useMemo(() => parsePreferences(serializedPreferences), [serializedPreferences]);
   const [detail, dispatch] = useReducer(sessionReducer, undefined);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState("");
@@ -306,6 +87,10 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     pendingObservationRunIdRef.current = undefined;
     if (mountedRef.current) setPendingObservationRunId(undefined);
   }, []);
+
+  const updateSession = useCallback((summary: PublicSessionSummary) => {
+    applySessionAction({ type: "summary", summary });
+  }, [applySessionAction]);
 
   const rememberPendingStart = useCallback((pending: PendingStartMatcher) => {
     pendingStartRef.current = pending;
@@ -483,10 +268,6 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     document.addEventListener("visibilitychange", refreshWhenVisible);
     const initialLoad = window.setTimeout(() => {
       void reconcileAndObserve()
-        .then((result) => {
-          if (!active || !result) return;
-          localStorage.setItem(CURRENT_SESSION_KEY, sessionId);
-        })
         .catch((reason: unknown) => {
           if (active) reportActionError(reason);
         })
@@ -786,17 +567,8 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     onCancel: cancel,
   });
 
-  async function navigate(href: string): Promise<void> {
-    try {
-      if (activeRun) {
-        const approved = window.confirm("世界仍在推演。离开前要安全取消当前行动吗？");
-        if (!approved) return;
-        await cancel();
-      }
-      router.push(href);
-    } catch (reason) {
-      if (!actionErrorOwnerRef.current) reportActionError(reason);
-    }
+  function navigate(href: string): void {
+    router.push(href);
   }
 
   if (loading) return <main className="cg-game-loading" aria-live="polite">正在唤醒世界…</main>;
@@ -805,52 +577,36 @@ export function GameSession({ sessionId }: { sessionId: string }) {
       <main className="cg-game-loading">
         <h1>无法进入这个世界</h1>
         <p className="cg-alert" role="alert">{actionError || "存档不存在或已经损坏。"}</p>
-        <Link className="cg-text-link" href="/saves">返回存档</Link>
+        <Link className="cg-text-link" href="/worlds">返回世界包</Link>
       </main>
     );
   }
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <main className="cg-game">
-        <h1 className="cg-sr-only">{detail.summary.title}</h1>
-        <GameThread
-          actionError={actionError}
-          awaitingPlayer={Boolean(awaitingRun)}
-          cancelPending={Boolean(activeRun?.cancelRequested || pendingAction?.kind === "cancel")}
-          confirmationPending={hasPendingObservation}
-          runActions={{
-            retry,
-            abandon,
-            actionableInputId: ownerRun?.inputs.at(-1)?.id,
-            actionableRunId: ownerRun?.id,
-            pendingRunId: pendingAction?.runId,
-          }}
-          streamWarning={streamWarning}
-        />
-        <ControlOrb
-          composerDocked={messages.length > 0}
-          inspectorEnabled={preferences.showWorldInspector}
-          onNavigate={navigate}
-          onOpenInspector={() => setInspectorOpen(true)}
-          status={{
-            elapsedSeconds: detail.summary.elapsedSeconds,
-            phase: activeRun ? "running" : hasPendingObservation ? "confirming" : "saved",
-            sessionTitle: detail.summary.title,
-            step: detail.summary.step,
-            worldName: detail.summary.world.name,
-          }}
-        />
-        {preferences.showWorldInspector && inspectorOpen && (
-          <WorldInspectorDialog
-            key={sessionId}
-            onOpenChange={setInspectorOpen}
-            open={inspectorOpen}
-            reduceMotion={preferences.reduceMotion}
-            sessionId={sessionId}
-          />
-        )}
-      </main>
+      <GameSessionSurface
+        actionError={actionError}
+        awaitingPlayer={Boolean(awaitingRun)}
+        cancelPending={Boolean(activeRun?.cancelRequested || pendingAction?.kind === "cancel")}
+        composerDocked={messages.length > 0}
+        confirmationPending={hasPendingObservation}
+        interactionPending={Boolean(activeRun) || hasPendingObservation}
+        onNavigate={navigate}
+        orbPhase={activeRun ? "running" : hasPendingObservation ? "confirming" : "saved"}
+        runActions={{
+          retry,
+          abandon,
+          actionableInputId: ownerRun?.inputs.at(-1)?.id,
+          actionableRunId: ownerRun?.id,
+          pendingRunId: pendingAction?.runId,
+        }}
+        session={detail.summary}
+        sessionId={sessionId}
+        streamWarning={streamWarning}
+        updateSession={updateSession}
+      >
+        {children}
+      </GameSessionSurface>
     </AssistantRuntimeProvider>
   );
 }

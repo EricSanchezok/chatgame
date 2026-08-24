@@ -31,6 +31,7 @@ import type {
   WorldInspectorStreamEvent,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
+import { mergeWorldInspectorWindows } from "../_lib/world-inspector-window";
 import { worldInspectorApi } from "../lib/world-inspector-api-client";
 import { WorldInspectorDetail } from "./world-inspector-detail";
 import { WorldInspectorGraph } from "./world-inspector-graph";
@@ -54,31 +55,6 @@ function useNarrowViewport(): boolean {
     () => window.matchMedia(narrowQuery).matches,
     () => false,
   );
-}
-
-function mergeWindows(current: WorldInspectorWindow | undefined, incoming: WorldInspectorWindow): WorldInspectorWindow {
-  if (!current || current.session.worldHash !== incoming.session.worldHash) return incoming;
-  const byRevision = new Map(current.steps.map((step) => [step.revision, step]));
-  for (const step of incoming.steps) byRevision.set(step.revision, step);
-  const byNode = new Map(current.nodes
-    .filter((node) => node.kind !== "attempt")
-    .map((node) => [node.id, node]));
-  for (const node of incoming.nodes) byNode.set(node.id, node);
-  const byEdge = new Map(current.edges
-    .filter((edge) => !edge.source.startsWith("attempt:") && !edge.target.startsWith("attempt:"))
-    .map((edge) => [edge.id, edge]));
-  for (const edge of incoming.edges) byEdge.set(edge.id, edge);
-  return {
-    ...incoming,
-    actors: incoming.actors,
-    steps: [...byRevision.values()].sort((left, right) => left.revision - right.revision),
-    nodes: [...byNode.values()],
-    edges: [...byEdge.values()],
-    pagination: incoming.pagination.oldestRevision !== undefined &&
-      (current.pagination.oldestRevision ?? Number.POSITIVE_INFINITY) < incoming.pagination.oldestRevision
-      ? current.pagination
-      : incoming.pagination,
-  };
 }
 
 function actorActivity(actorId: string, steps: readonly WorldInspectorStepSummary[]): number {
@@ -161,7 +137,7 @@ export default function WorldInspectorDialog({
     try {
       const incoming = await worldInspectorApi.window(sessionId);
       if (request !== requestRef.current) return;
-      setData((current) => preserveHistory ? mergeWindows(current, incoming) : incoming);
+      setData((current) => preserveHistory ? mergeWorldInspectorWindows(current, incoming) : incoming);
       setError("");
       const latest = incoming.steps.at(-1);
       if (!preserveHistory && latest) void selectStep(latest);
@@ -236,8 +212,8 @@ export default function WorldInspectorDialog({
     if (!beforeRevision || loadingOlder) return;
     setLoadingOlder(true);
     try {
-      const older = await worldInspectorApi.window(sessionId, { beforeRevision });
-      setData((current) => mergeWindows(current, older));
+      const older = await worldInspectorApi.window(sessionId, { beforeRevision: beforeRevision + 1 });
+      setData((current) => mergeWorldInspectorWindows(current, older));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法读取更早的推演记录。");
     } finally {

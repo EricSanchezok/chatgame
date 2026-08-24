@@ -29,7 +29,7 @@ export function WorkspaceDialog({
           className="cg-workspace"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            document.getElementById("cg-orb-trigger")?.focus();
+            document.querySelector<HTMLElement>("[data-cg-orb-trigger]")?.focus();
           }}
         >
           <header className="cg-workspace__header">

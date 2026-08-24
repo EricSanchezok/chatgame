@@ -57,7 +57,7 @@ node scripts/verify-decisions.mjs && node scripts/verify-doc-links.mjs && node s
 
 - **剧本驱动**：世界观/人物/机制由剧本定义，框架保持通用。禁止为单个游戏写死逻辑而绕过剧本。
 - **开放语义、严格提交**：玩家与 Agent 可提出任意自然语言行动；Truth Engine 负责联合语义裁决，事务内核负责 schema、引用、数值、守恒、随机承诺、因果与原子性。玩家文本永远不是状态 delta。
-- **认知隔离**：canonical truth、每个 Agent belief 与玩家知识是独立状态；AgentMind 与普通游戏客户端不得收到 canonical identity binding 或其他主体的隐藏认知，唯一例外是 [0052](docs/decisions/0052-trusted-world-evolution-inspector.md) 定义的本地受信任只读 inspector 路由。
+- **认知隔离**：canonical truth、每个 Agent belief 与玩家知识是独立状态；AgentMind 与普通游戏客户端不得收到 canonical identity binding 或其他主体的隐藏认知，唯一例外是 [0055](docs/decisions/0055-trusted-world-evolution-inspector.md) 定义的本地受信任只读 inspector 路由。
 - **引擎只在服务端运行**：fs/YAML/API key 决定引擎不能进浏览器；客户端只通过 `src/app/api/**/route.ts` 访问，任何"引擎搬客户端"方案禁止。
 - **敏捷开发，不做向后兼容**：处于快速迭代期，任何破坏性变更（状态模型、存档 schema、行为语义）直接落地；旧存档、旧测试数据、旧兼容路径一律删除，不写迁移与兼容层。
 - **干净单一**：逻辑只有一个实现，拒绝冗余路径与屎山；旧路径被替代即删除，不留双轨。

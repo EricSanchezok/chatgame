@@ -70,4 +70,4 @@ Gateway 先递归按键规范化 Context，再以两空格 JSON 序列化；`con
 
 `npm run diagnose:live -- --steps 3` 显式使用模型目录和现有密钥，报告真实 token、cache、provider request ID、transport 与延迟。它是手动采样，不进入 CI；stdout 同样以 `diagnostic.summary` 收尾，stderr 只输出简表。
 
-决策理由见 [0043](../decisions/0043-end-to-end-runtime-observability.md) 与 [0052](../decisions/0052-trusted-world-evolution-inspector.md)。
+决策理由见 [0043](../decisions/0043-end-to-end-runtime-observability.md) 与 [0055](../decisions/0055-trusted-world-evolution-inspector.md)。

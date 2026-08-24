@@ -9,7 +9,8 @@
 | 方法与路径 | 语义 |
 |---|---|
 | `GET /api/worlds` | 列出已安装 schema v6 世界 |
-| `POST /api/worlds/import` | multipart 上传一个世界 ZIP；`replace=true` 显式替换 |
+| `POST /api/worlds/import` | multipart 上传一个世界 ZIP；安装使用 `replace=false`，目标明确的更新同时提供 `replace=true` 与 `expectedWorldId` |
+| `DELETE /api/worlds/:id` | 仅在不存在关联存档时卸载世界目录项和无引用版本 |
 | `GET /api/sessions` | 按更新时间列出持久 Session 摘要 |
 | `POST /api/sessions` | 以 `worldId` 和可选 uint32 seed 创建 Session，返回详情 |
 | `GET /api/sessions/:id` | 读取精确寻址的 Session 详情 |
@@ -36,19 +37,21 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 ## 浏览器路由与消息投影
 
-`/` 是主菜单，只继续浏览器明确记录且仍存在的 Session；`/worlds` 安装世界并创建新存档，`/saves` 重命名、精确进入或确认删除存档，`/settings` 保存本机阅读偏好，`/play/:sessionId` 是精确寻址的游戏页。游戏页没有 sidebar、可见 header 或工作台 chrome；窄屏控制球在当前游戏页内打开底部 Sheet，不存在独立控制路由。开发与生产启动默认只监听 loopback；浏览器指针是导航偏好，不是状态权威或认证。
+`/` 是只含“世界包”和“设置”的游戏外入口。设置是当前主菜单上的模态任务，打开后 URL 保持 `/`，关闭后焦点回到触发按钮；不存在独立 `/settings`。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位且主文案必须继承主操作前景色；版本和内容标识在列表之后以无卡片的紧凑单行元数据呈现，更新和卸载属于同一区域的管理动作；窄屏以两个可寻址页面逐级进入。不存在独立 `/saves` 和当前存档浏览器指针。
 
-游戏页使用 `@assistant-ui/react` 0.15.16 External Store，并固定官方 `ThreadPrimitive.Root → flex Viewport → 44rem message group → ThreadPrimitive.ViewportFooter` 单轴结构。空会话在轴中间只显示“你想做什么？”和圆角 composer；出现消息后 footer 以 `mt-auto + sticky bottom-0` 固定到底部并适配安全区，消息数量、等待或失败状态不能改变底部锚点。玩家消息是右侧自适应低对比气泡，世界消息是平铺正文，检定、运行状态和恢复动作属于从属 footer。ActionBar 只提供真实可用的复制；复制文本由同一 WorldRun 的公开叙事、可见检定和人类可读状态纯投影，不序列化 data part、客户端状态或内部 JSON。
+`/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。每个模态表面只有右上角一个视觉关闭动作，可滚动内容使用透明轨道与窄拇指。游戏内只列出当前世界存档，不创建游戏或切换世界；当前存档只通过不参与盒模型的背景和“当前游戏”标签高亮，正文与操作区必须和其他存档保持同一对齐线。设置中的减少动态效果使用可由点击、Enter 和 Space 操作并公开开关状态的 switch，所有尾部设置控件在固定宽度列中共享水平中心线。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
+
+游戏页使用 `@assistant-ui/react` 0.15.16 External Store，并固定官方 `ThreadPrimitive.Root → flex Viewport → 44rem message group → ThreadPrimitive.ViewportFooter` 单轴结构。空会话在轴中间只显示“你想做什么？”和圆角 composer；出现消息后 footer 以 `mt-auto + sticky bottom-0` 固定到底部并适配安全区，消息数量、等待或失败状态不能改变底部锚点。玩家消息是右侧低对比气泡：先按短句 max-content 内在宽度收缩，再以会话轴 85% 或 34rem 为上限，空间充足时短中文不得逐字换行；世界消息是平铺正文，检定、运行状态和恢复动作属于从属 footer。ActionBar 只提供真实可用的复制；复制文本由同一 WorldRun 的公开叙事、可见检定和人类可读状态纯投影，不序列化 data part、客户端状态或内部 JSON。
 
 消息不是另一份存储：每个 WorldRun 按 `player.input` 边界投影玩家/世界消息段，clarification 继续同一 run；世界 data part 只展示公开 observation、observation 派生的 outcome、检定与边界状态。SSE 增量合并后再从 `PublicSessionDetail` 重建；刷新、重连和存档恢复不会产生第二条消息路径。客户端只为 queued/running 建立带 epoch/identity 的连接，另以请求序号和卸载状态隔离旧 refresh。start/continue/retry/cancel/abandon 的成功与响应不确定分支、页面重新聚焦和跨标签页变化都调用同一 reconcile-and-observe 路径，使 EventSource 只跟随服务端当前 executing run；状态合并后再决定连接，旧快照不能关闭新 run 的 source。若 start 响应在返回 `runId` 前丢失，客户端以提交前 run 集合、规范化 goal 和本次 attempt 匹配服务端新 run，在两次跨越确认窗口的权威“确实不存在”之前保持操作锁，避免重复创建。网络错误以及 408、429、5xx 和其他不能证明请求未提交的 HTTP 响应都进入这条不确定恢复；只有明确的永久 400、401、403、404、422 直接失败。取消或放弃的 API/reconcile 错误与 SSE 终态无论谁先到，服务端已确认的终态都撤销该操作的失效错误；旧终态不能清除后来独立操作的错误。运行中可安全中断，awaiting_player 可补充信息，可重试失败/step_limit 可继续，所有未完成边界都可明确放弃。提交尚未确认出 run 时输入保持锁定并显示确认状态，不提供实际无法执行的停止动作。
 
-桌面控制球是 56px 状态表盘，接收世界名、存档名、step、elapsedSeconds 与 running/confirming/saved。拖动以 Pointer Events、`requestAnimationFrame` 和 `translate3d` 跟随指针，松手吸附最近左右边缘；位置以 `{ edge, y }` 写入 `livingworld:control-position:v2`，`y` 是归一化坐标，视口变化后限制在安全区和 composer 排除区。桌面点击向页面内侧展开四个导航动作和状态卡，方位按边缘及上下空间翻转；状态卡从当前方位的完整按钮包络向页面内侧再让出 32px，任何按钮实体都不能与卡片相交。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home。小于 48rem 时点击打开当前页面内具备焦点约束、Escape/遮罩关闭和安全区适配的底部 Sheet。
+桌面控制球是 56px 状态表盘，接收世界名、存档名、step、elapsedSeconds 与 running/confirming/saved。拖动以 Pointer Events、`requestAnimationFrame` 和 `translate3d` 跟随指针，松手吸附最近左右边缘；位置以 `{ edge, y }` 写入 `livingworld:control-position:v2`，`y` 是归一化坐标，视口变化后限制在安全区和 composer 排除区。桌面点击向页面内侧展开存档、设置、主菜单三个动作和状态卡；三个动作中心位于同一个 84px 半径上，并在可用四分之一圆弧或中部圆弧内等角分布，方位按边缘及上下空间镜像。状态卡从当前方位的完整按钮包络向页面内侧再让出 32px，任何按钮实体都不能与卡片相交。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home。小于 48rem 时点击打开当前页面内具备焦点约束、Escape/遮罩关闭和安全区适配的底部 Sheet。
 
-全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。普通控件仅在 `:focus-visible` 使用主题蓝色 `--cg-ring`，composer 聚焦时不改变静态边框，只显示同色柔光，forced-colors 改用系统 `Highlight`。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。
+全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。普通非文本控件仅在 `:focus-visible` 使用主题蓝色 `--cg-ring` 绘制非包围式底部标记；composer 普通主题不绘制附加焦点线且静态边框与外部阴影不变化，编辑位置由文本插入光标表达；forced-colors 改用系统 `Highlight` 完整 outline。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。
 
 ## 世界演化调试器
 
-设置页的“显示世界调试器”默认关闭，并明确提示会暴露客观真相、隐藏检定和所有角色认知。关闭时控制球没有相关入口；开启后，桌面状态卡和移动 Sheet 的“开发者工具”区提供“世界演化”。入口打开页面内 Radix `WorkspaceDialog`，桌面使用 `16px` 外边距的近全屏工作台与背景虚化，移动端占满安全区；Escape、遮罩、关闭按钮统一关闭并把焦点还给控制球。
+统一设置中的“显示世界调试器”默认关闭，并明确提示会暴露客观真相、隐藏检定和所有角色认知。关闭时控制球没有相关入口；开启后，桌面状态卡和移动 Sheet 的“开发者工具”区提供“世界演化”。入口打开页面内 Radix `WorkspaceDialog`，桌面使用 `16px` 外边距的近全屏工作台与背景虚化，移动端占满安全区；Escape、遮罩、关闭按钮统一关闭并把焦点还给控制球。
 
 工作台左侧按“整个世界 / 玩家 / Agent”选择主体，中间在 React Flow 图谱和 Git 风格时间线之间切换，右侧按“概要 / 变更 / 因果 / 模型 / 原始”查看选中记录。整个世界的概要先展示“联合行动 → 状态变更 → 世界事件”结果链，再解释认知传播、额外裁决和模型开销；个体概要直接展示本轮实际行动、结果、所见信息和认知变化，只有存在后续计划时才显示并标注“尚未执行”。变更、因果与模型页签先归纳非空阶段，完整结构化对象按需展开，原始页签保留未经归纳的审计记录。
 

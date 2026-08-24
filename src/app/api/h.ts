@@ -97,7 +97,7 @@ export function observeHttpJsonBody(scope: HttpObservationScope, body: unknown):
 
 export function observeHttpArchiveBody(
   scope: HttpObservationScope,
-  input: { filename: string; size: number; hash: string; replace: boolean },
+  input: { filename: string; size: number; hash: string; replace: boolean; expectedWorldId?: string },
 ): void {
   scope.observe?.({
     event: "http.request.body",

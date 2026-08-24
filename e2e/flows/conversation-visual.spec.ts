@@ -23,7 +23,7 @@ test("the conversation and controls match light/dark desktop/mobile baselines", 
     await page.getByLabel("你的行动").focus();
     await expect(page.locator(".aui-composer-shell")).toHaveScreenshot(
       `conversation-${colorScheme}-composer-focus.png`,
-      { animations: "disabled", maxDiffPixelRatio: 0.005 },
+      { animations: "disabled", maxDiffPixels: 160 },
     );
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -61,10 +61,16 @@ test("the world evolution workspace matches light/dark desktop/mobile baselines"
     });
     const detail = await created.json() as { summary: { id: string } };
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
-    await page.goto("/settings");
-    await page.getByRole("checkbox", { name: /显示世界调试器/ }).check();
+    const playURL = `/play/${detail.summary.id}`;
+    await page.goto(`${playURL}/manage/settings`);
+    const inspectorToggle = page.getByRole("switch", { name: /显示世界调试器/ });
+    if (await inspectorToggle.getAttribute("aria-checked") !== "true") {
+      await inspectorToggle.click();
+    }
+    await expect(inspectorToggle).toHaveAttribute("aria-checked", "true");
+    await page.getByRole("button", { name: "关闭游戏管理" }).click();
     await page.setViewportSize({ width: 1_440, height: 900 });
-    await page.goto(`/play/${detail.summary.id}`);
+    await expect(page).toHaveURL(playURL);
     await page.getByLabel("你的行动").fill("观察石门，并留意守门人的反应");
     await page.getByRole("button", { name: "发送行动" }).click();
     await expect(page.getByText("目标已经完成")).toBeVisible();

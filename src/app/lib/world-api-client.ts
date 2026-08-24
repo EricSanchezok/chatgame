@@ -56,13 +56,16 @@ export const worldApi = {
     const base = `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/events`;
     return afterSequence > 0 ? `${base}?after=${afterSequence}` : base;
   },
-  importWorld: (file: File, replace = false) => {
+  importWorld: (file: File, options: { replace?: boolean; expectedWorldId?: string } = {}) => {
     const form = new FormData();
     form.set("file", file);
-    form.set("replace", String(replace));
+    form.set("replace", String(options.replace === true));
+    if (options.expectedWorldId) form.set("expectedWorldId", options.expectedWorldId);
     return requestJson<{ id: string; name: string; description: string; replaced: boolean }>(
       "/api/worlds/import",
       { method: "POST", body: form },
     );
   },
+  deleteWorld: (worldId: string) =>
+    requestJson<void>(`/api/worlds/${encodeURIComponent(worldId)}`, { method: "DELETE" }),
 };

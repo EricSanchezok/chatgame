@@ -117,11 +117,12 @@ function projectStep(
   committed: CommittedStep,
   elapsedSeconds: number,
   entityActors: ReadonlyMap<string, string>,
+  selectedEventNodes: ReadonlyMap<string, string> = new Map(),
 ): ProjectedStep {
   const nodes: WorldInspectorNodeSummary[] = [];
   const edges: WorldInspectorEdgeSummary[] = [];
   const edgeIds = new Set<string>();
-  const referenceNodes = new Map<string, string>();
+  const referenceNodes = new Map(selectedEventNodes);
   const revision = committed.revision;
   const commitId = `commit:${revision}`;
   const addNode = (node: WorldInspectorNodeSummary): void => {
@@ -148,6 +149,22 @@ function projectStep(
     }
   };
 
+  for (const action of committed.actions) {
+    registerReference("action", action.id, `action:${action.id}`);
+  }
+  for (const request of committed.checkRequests) {
+    registerReference("check", request.id, `check:${request.id}`);
+  }
+  for (const request of committed.randomRequests) {
+    registerReference("random", request.id, `random:${request.id}`);
+  }
+  for (const invocation of committed.mechanicInvocations) {
+    registerReference("mechanic", invocation.id, `mechanic:${invocation.id}`);
+  }
+  for (const event of committed.events) {
+    registerReference("event", event.id, `event:${event.id}`);
+  }
+
   addNode({
     id: commitId,
     revision,
@@ -171,7 +188,6 @@ function projectStep(
       description: outcome?.summary ?? action.goal,
       ...(outcome ? { status: outcome.status } : {}),
     });
-    registerReference("action", action.id, nodeId);
     if (revision > 1) addEdge(`commit:${revision - 1}`, nodeId, "temporal", "准备行动");
     if (outcome) connectCauses(outcome.causeRefs, nodeId);
     addEdge(nodeId, commitId, "commits", "行动结果");
@@ -207,7 +223,6 @@ function projectStep(
         : request.stakes,
       status: result?.succeeded ? "succeeded" : "failed",
     });
-    registerReference("check", request.id, nodeId);
     connectCauses(request.causes, nodeId);
     addEdge(nodeId, commitId, "commits", "检定结果");
   }
@@ -225,7 +240,6 @@ function projectStep(
         ? `${request.distribution.description} · ${result.steps.filter((step) => !step.skipped).length} 轮`
         : request.distribution.description,
     });
-    registerReference("random", request.id, nodeId);
     connectCauses(request.causes, nodeId);
     addEdge(nodeId, commitId, "commits", "随机结果");
   }
@@ -240,7 +254,6 @@ function projectStep(
       label: `机制 · ${invocation.ruleId}`,
       description: invocation.packageId,
     });
-    registerReference("mechanic", invocation.id, nodeId);
     connectCauses(invocation.causes, nodeId);
     addEdge(nodeId, commitId, "commits", "机制结果");
   }
@@ -271,7 +284,6 @@ function projectStep(
       label: "世界事件",
       description: event.description,
     });
-    registerReference("event", event.id, nodeId);
     connectCauses(event.causes, nodeId);
     addEdge(nodeId, commitId, "commits", "事件写入");
   }
@@ -425,16 +437,23 @@ export function buildWorldInspectorCommittedProjection(
   const selected = eligible.slice(-input.limit);
   const actors = actorsFor(document);
   const entityActors = new Map(actors.map((actor) => [actor.entityId, actor.id]));
+  const selectedEventNodes = new Map(selected.flatMap((committed) =>
+    committed.events.map((event) => [`event:${event.id}`, `event:${event.id}`] as const)));
   const projected = selected.map((committed) => projectStep(
     committed,
     elapsedByRevision.get(committed.revision) ?? document.state.truth.elapsedSeconds,
     entityActors,
+    selectedEventNodes,
   ));
+  const nodes = projected.flatMap((item) => item.nodes);
+  const nodeIds = new Set(nodes.map((node) => node.id));
   return {
     actors,
     steps: projected.map((item) => item.summary),
-    nodes: projected.flatMap((item) => item.nodes),
-    edges: projected.flatMap((item) => item.edges),
+    nodes,
+    edges: projected
+      .flatMap((item) => item.edges)
+      .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)),
     pagination: {
       limit: input.limit,
       hasOlder: eligible.length > selected.length,

@@ -4,7 +4,6 @@ import {
   type ControlPosition,
 } from "./control-orb-position";
 
-export const CURRENT_SESSION_KEY = "livingworld:current-session";
 export const CONTROL_POSITION_KEY = "livingworld:control-position:v2";
 export const PREFERENCES_KEY = "livingworld:preferences:v2";
 export const PREFERENCES_EVENT = "livingworld:preferences-changed";

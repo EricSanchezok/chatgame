@@ -11,8 +11,8 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 | 模型网关 | `src/engine/model-*` | 模型目录、供应商适配、严格输出、公平队列与调用审计 |
 | 运行观测 | `src/engine/observability.ts`、`src/server/runtime-observer.ts` | 关联 HTTP、SSE、WorldRun、步骤、模型与持久化事件，输出有界 NDJSON |
 | 会话宿主 | `src/server/` | 世界仓库、WorldRun 生命周期、逐步原子持久化、恢复、导入 |
-| HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界列表、导入，以及独立只读 inspector 路由 |
-| 浏览器 | `src/app/` | 以 assistant-ui 官方 Thread 基线纯投影公开 Session/WorldRun；默认隐藏的本地调试工作台独立消费 inspector 契约 |
+| HTTP 表面 | `src/app/api/` | 会话与 run 资源、SSE、世界目录管理，以及独立只读 inspector 路由 |
+| 浏览器 | `src/app/` | 以 assistant-ui 官方 Thread 基线纯投影公开 Session/WorldRun，以持久游戏布局承载嵌套管理层，提供游戏外世界包工作台与统一设置；默认隐藏的本地调试工作台独立消费 inspector 契约 |
 | 公共契约 | `src/shared/world-api.ts` | 普通游戏浏览器安全 DTO；不含 canonical identity 或完整 truth |
 | 调试契约 | `src/shared/world-inspector-api.ts` | 本地受信任的只读全真图谱、step/attempt 详情与实时事件 |
 
@@ -22,7 +22,7 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 `CanonicalWorldState` 是唯一客观现实，包含实体、位置、事实、数值、时间、生命周期、客观事件与 RNG 状态。每个 `AgentState` 拥有独立的稀疏 `AgentBeliefState` 和分层 `AgentCharacterState`：前者用局部实体 ID 表达可与真相冲突的主观认知，后者保存人格、特质、价值、情绪、态度、目标和承诺。`PlayerKnowledgeState` 只保存玩家已知信息，不记录或推断真人心理。
 
-`EpistemicBinding` 只在服务端把局部身份映射到 canonical entity。服务端以该映射派生去 canonical ID 的 `AgentSelfStateView`；AgentMind 能精确看到自身生命周期、时间、地点表象、数值与授权 Fact，却看不到底层 entity、placement、meter 或 rating identity。AgentMind prompt 与普通游戏 API 都移除 binding，所以玩家和模型不能靠 ID 绕过认知边界。唯一例外是 [0052](decisions/0052-trusted-world-evolution-inspector.md) 定义的本地受信任、只读 inspector 路由；其类型和消费点不得复用到公开会话或 AgentMind。
+`EpistemicBinding` 只在服务端把局部身份映射到 canonical entity。服务端以该映射派生去 canonical ID 的 `AgentSelfStateView`；AgentMind 能精确看到自身生命周期、时间、地点表象、数值与授权 Fact，却看不到底层 entity、placement、meter 或 rating identity。AgentMind prompt 与普通游戏 API 都移除 binding，所以玩家和模型不能靠 ID 绕过认知边界。唯一例外是 [0055](decisions/0055-trusted-world-evolution-inspector.md) 定义的本地受信任、只读 inspector 路由；其类型和消费点不得复用到公开会话或 AgentMind。
 
 模型只生成开放语义 draft 和候选内 alias。action、check、random、mechanic、event、outcome、observation 与派生 evidence 等发生记录由引擎按 world hash、revision、阶段、所有者、轮次和稳定序号确定性分配 `rt:<kind>:<sha256>` 身份，再统一重写候选引用。语义 ID 仍由剧本或模型命名，但不能占用运行时命名空间、重绑 identity tuple 或在删除后复用；完整 pre-bootstrap truth/Agent/player base、bootstrap commit 与逐步 history ledger 共同重放并验证 ID、玩家输入、认知内容、下一行动和引用时间作用域。
 
@@ -52,7 +52,7 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 `WorldHost` 把一次玩家目标作为后台 `WorldRun` 执行。`PlayerIntent.goal` 在整段 run 中保持不变，最新的 goal/clarification 作为独立输入记录；需要玩家决定时 run 进入 `awaiting_player`，后续输入恢复同一个 intent 与 run。每个已完成步骤与对应 run 边界在同一次 compare-and-swap 中写入 SQLite，并通过 SSE 发布公开检定、玩家观察和提交进度。queued/running 表示模型仍在执行；awaiting_player/completed/goal_failed/step_limit/cancelled/failed 都是必须有同名末事件的流边界；其中 awaiting_player/step_limit/failed 仍拥有可恢复或可放弃的 active intent。
 
-浏览器不另存聊天消息；`PublicSessionDetail.runs` 按持久 `player.input` 边界投影成 assistant-ui 玩家/世界消息段和仅含公开叙事的复制文本。游戏页固定使用官方 `Root → Viewport → 44rem message group → ViewportFooter` 单轴结构，不显示 sidebar 或 session header。新目标、clarification、重试、取消和放弃都回写 WorldRun 资源；所有成功或响应不确定的操作、跨标签页恢复和重新获得焦点都通过同一服务端对齐路径重建界面并只观察当前 executing run。
+浏览器不另存聊天消息；`PublicSessionDetail.runs` 按持久 `player.input` 边界投影成 assistant-ui 玩家/世界消息段和仅含公开叙事的复制文本。游戏页固定使用官方 `Root → Viewport → 44rem message group → ViewportFooter` 单轴结构，不显示 sidebar 或 session header；`/play/:sessionId` 持久布局拥有运行时与 SSE，存档和设置子路由只替换其上的模态管理层。新目标、clarification、重试、取消和放弃都回写 WorldRun 资源；所有成功或响应不确定的操作、跨标签页恢复和重新获得焦点都通过同一服务端对齐路径重建界面并只观察当前 executing run。
 
 取消会终止排队或在途模型请求，持久化取消请求，并在候选步骤提交前重新读取 generation；并发取消使候选失效，因此只保留最后一个完整步骤。进程重启时，无取消请求的 queued/running run 变成可重试 failed；已写入取消请求的 run 则原子恢复为 cancelled 并取消 intent。失败是否可重试由类型化内部错误映射到持久 `run.failed.retriable`，永久失败只能放弃。一个会话同时只允许一个拥有 active intent 的 run。
 
@@ -60,7 +60,7 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 
 世界内容先规范化再计算 `sha256`；哈希覆盖 manifest、法则、机制、玩家和按实体 ID 排序的实体内容，不依赖 ZIP 条目顺序或实体文件名。会话同时保存 `worldId`、`worldHash` 和完整 `WorldRuntimeContract`；每次读取先用原始 seed 加载保留的 content-addressed 世界版本，再逐字段验证内嵌契约，既不跟随当前版本指针，也不信任会话自身声明的同 hash 内容。初始 Fact 的 provenance 使用 `{ kind: "world_seed", id: worldHash }`，世界 Law 只有在确实提供运行时因果时才能作为来源。
 
-所有世界版本、当前版本指针、会话、run 与事件存放在 `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`。`WorldSessionDocument` schema v9 保存固定世界契约、1–80 字符存档标题、状态与 run；列表只返回公开摘要，读取与创建返回 `{ summary, state, runs }`。重命名与删除同样经过 generation fencing，queued/running 时均拒绝，避免元数据写入使在途步骤失效。SQLite 使用 WAL、FULL synchronous、外键、严格表、写事务和 generation compare-and-swap；世界导入的验证在事务外完成，版本与当前指针在一个事务内切换。进程租约拒绝同一数据库被第二个宿主实例同时驱动；这是纯本地单实例契约，不提供多主或分布式协调。
+所有世界版本、当前版本指针、会话、run 与事件存放在 `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`。`WorldSessionDocument` schema v9 保存固定世界契约、1–80 字符存档标题、状态与 run；列表只返回公开摘要，读取与创建返回 `{ summary, state, runs }`。重命名与删除同样经过 generation fencing，queued/running 时均拒绝，避免元数据写入使在途步骤失效。世界包更新在写入前校验目标 ID，卸载在同一事务内拒绝关联存档并清除目录项和无引用版本。SQLite 使用 WAL、FULL synchronous、外键、严格表、写事务和 generation compare-and-swap；世界导入的验证在事务外完成，版本与当前指针在一个事务内切换。进程租约拒绝同一数据库被第二个宿主实例同时驱动；这是纯本地单实例契约，不提供多主或分布式协调。
 
 ## 硬不变量
 
@@ -76,10 +76,10 @@ Living World Engine 的运行时是“单一客观世界 + 多个有限认知主
 - 每个 Agent 恰好有一个局部 self binding；自身状态投影不得泄漏 canonical identity 或其他实体状态。
 - 每步最多一轮玩家刺激 reaction；每个 actor 最终恰好一个行动，resolution 开始后不得反应。
 - Truth 各阶段、独立因果复核、Observation、BeliefPatch、CharacterPatch、reaction 与下一行动全部通过各自 Profile、schema 与语义校验。
-- 普通游戏客户端永远不接收 canonical bindings、其他 Agent 信念、内部模型 ID、内部错误或隐藏检定；只有 [0052](decisions/0052-trusted-world-evolution-inspector.md) 的本地受信任 inspector 路由可以只读返回这些调试数据。
+- 普通游戏客户端永远不接收 canonical bindings、其他 Agent 信念、内部模型 ID、内部错误或隐藏检定；只有 [0055](decisions/0055-trusted-world-evolution-inspector.md) 的本地受信任 inspector 路由可以只读返回这些调试数据。
 
 ## 扩展到超大世界
 
 当前状态模型没有地图格数量或动作种类上限；地点只是实体，移动只是带因果的 placement 变化。真正的大世界瓶颈是内容量、上下文选择、Agent 数量、存储和模型成本，而不是动作表达。首版故意让全部 Agent 每步行动以验证语义；未来可以加入区域分片、分层时间和 Agent 调度，但它们必须保留同 revision 联合语义和唯一 truth 提交点。
 
-架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md)、[0042](decisions/0042-causal-assurance-and-staged-model-profiles.md)、[0043](decisions/0043-end-to-end-runtime-observability.md)、[0046](decisions/0046-committed-discrete-random-distributions.md)、[0047](decisions/0047-on-demand-model-provider-credentials.md)、[0048](decisions/0048-engine-owned-runtime-identities.md)、[0049](decisions/0049-world-run-failure-and-stream-boundaries.md)、[0051](decisions/0051-assistant-ui-upstream-session-surface.md) 与 [0052](decisions/0052-trusted-world-evolution-inspector.md)。
+架构理由见 [0031](decisions/0031-epistemic-multi-agent-truth-engine.md)、[0032](decisions/0032-open-world-facts-and-d20-kernel.md)、[0033](decisions/0033-persistent-streaming-world-runs.md)、[0037](decisions/0037-agent-evolution-self-awareness-and-reaction-window.md)、[0039](decisions/0039-pinned-world-runtime-contract.md)、[0040](decisions/0040-resumable-player-intent.md)、[0041](decisions/0041-local-sqlite-runtime.md)、[0042](decisions/0042-causal-assurance-and-staged-model-profiles.md)、[0043](decisions/0043-end-to-end-runtime-observability.md)、[0046](decisions/0046-committed-discrete-random-distributions.md)、[0047](decisions/0047-on-demand-model-provider-credentials.md)、[0048](decisions/0048-engine-owned-runtime-identities.md)、[0049](decisions/0049-world-run-failure-and-stream-boundaries.md)、[0054](decisions/0054-composer-focus-and-intrinsic-player-bubbles.md) 与 [0055](decisions/0055-trusted-world-evolution-inspector.md)。

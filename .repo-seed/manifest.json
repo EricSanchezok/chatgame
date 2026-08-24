@@ -10,7 +10,7 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "sha256": "dc6cbe8e404c5f209f459dcf97a640127c14c78a0ac39ad751409b16001d1637",
+      "sha256": "435466d58ff41b0a1c83abe6722311eaa6e64e068b8061a3b9143c4a9a038a78",
       "category": "instruction"
     },
     {
@@ -25,7 +25,7 @@
     },
     {
       "path": "docs/architecture.md",
-      "sha256": "0c5bf70223143a06b84ed56b8e5078e6f6f1c2efb06cdc4a6ef351f58e8944f5",
+      "sha256": "17ef6cc457011432aa28c9ee43cd1b2c9d1b780f904222b039ae9822b7c798f0",
       "category": "docs",
       "userModified": true
     },
@@ -43,7 +43,7 @@
     },
     {
       "path": "docs/decisions/README.md",
-      "sha256": "53cf9264b15f2e860d6438e84c7e2a9208e66e6378b8a05e0e2c4c12c13e5a7d",
+      "sha256": "ce1c13f858d73c09e8f2f14472b6f6865c4ff0aba91c532208da723869a6211a",
       "category": "docs",
       "userModified": true
     },

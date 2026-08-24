@@ -39,7 +39,7 @@ import {
   readControlPosition,
   writeControlPosition,
 } from "../_lib/browser-state";
-import { controlActions } from "../_lib/control-actions";
+import { controlActions, type ControlAction } from "../_lib/control-actions";
 
 export type ControlOrbPhase = "running" | "confirming" | "saved";
 
@@ -163,16 +163,18 @@ function StatusMetrics({ status }: { status: ControlOrbStatus }) {
 
 export function ControlOrb({
   composerDocked,
-  status,
-  onNavigate,
   inspectorEnabled,
   onOpenInspector,
+  sessionId,
+  status,
+  onNavigate,
 }: {
   composerDocked: boolean;
-  status: ControlOrbStatus;
-  onNavigate: (href: string) => Promise<void>;
   inspectorEnabled: boolean;
   onOpenInspector: () => void;
+  sessionId: string;
+  status: ControlOrbStatus;
+  onNavigate: (href: string) => Promise<void> | void;
 }) {
   const desktop = useDesktop();
   const reservedBottom = useComposerReservedSpace(composerDocked);
@@ -198,6 +200,9 @@ export function ControlOrb({
   const [dragging, setDragging] = useState(false);
   const [open, setOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [exitConfirmation, setExitConfirmation] = useState(false);
+  const actions = controlActions(sessionId);
+  const exitAction = actions.find((action) => action.kind === "exit")!;
 
   const applyPoint = useCallback((next: PixelPosition) => {
     pixelRef.current = next;
@@ -233,11 +238,15 @@ export function ControlOrb({
   useEffect(() => {
     if (!open) return;
     const closeFromOutside = (event: globalThis.PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setExitConfirmation(false);
+      }
     };
     const closeFromEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setOpen(false);
+      setExitConfirmation(false);
       triggerRef.current?.focus();
     };
     document.addEventListener("pointerdown", closeFromOutside);
@@ -317,15 +326,18 @@ export function ControlOrb({
       return;
     }
     if (!desktop) {
+      setExitConfirmation(false);
       setMobileOpen(true);
       return;
     }
+    if (open) setExitConfirmation(false);
     setOpen((value) => !value);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
     if (event.key === "Escape") {
       setOpen(false);
+      setExitConfirmation(false);
       return;
     }
     if (!event.altKey || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
@@ -334,15 +346,21 @@ export function ControlOrb({
     setOpen(false);
   }
 
-  async function navigate(href: string): Promise<void> {
+  async function navigate(action: ControlAction, confirmed = false): Promise<void> {
+    if (action.kind === "exit" && status.phase !== "saved" && !confirmed) {
+      setExitConfirmation(true);
+      return;
+    }
     setOpen(false);
     setMobileOpen(false);
-    await onNavigate(href);
+    setExitConfirmation(false);
+    await onNavigate(action.href);
   }
 
   function openInspector(): void {
     setOpen(false);
     setMobileOpen(false);
+    setExitConfirmation(false);
     queueMicrotask(onOpenInspector);
   }
 
@@ -371,7 +389,6 @@ export function ControlOrb({
           aria-expanded={desktop ? open : mobileOpen}
           aria-label={`${open || mobileOpen ? "关闭" : "打开"}游戏控制；${label}`}
           className="cg-orb__trigger"
-          id="cg-orb-trigger"
           onClick={activate}
           onKeyDown={onKeyDown}
           onPointerCancel={finishDrag}
@@ -379,6 +396,7 @@ export function ControlOrb({
           onPointerMove={onPointerMove}
           onPointerUp={finishDrag}
           ref={triggerRef}
+          data-cg-orb-trigger
           title="拖动改变位置；Alt 加方向键移动；Alt 加 Home 复位"
           type="button"
         >
@@ -396,7 +414,7 @@ export function ControlOrb({
           className="cg-orb__menu"
           id="cg-orb-actions"
         >
-          {controlActions.map((action, index) => {
+          {actions.map((action, index) => {
             const [x, y] = offsets[index];
             const Icon = action.icon;
             const style: OrbStyle = {
@@ -408,7 +426,7 @@ export function ControlOrb({
               <TooltipIconButton
                 className="cg-orb__action"
                 key={action.href}
-                onClick={() => void navigate(action.href)}
+                onClick={() => void navigate(action)}
                 style={style}
                 tabIndex={open ? 0 : -1}
                 tooltip={action.label}
@@ -429,7 +447,16 @@ export function ControlOrb({
           <h2>{status.worldName}</h2>
           <p>{status.sessionTitle}</p>
           <StatusMetrics status={status} />
-          {inspectorEnabled && (
+          {exitConfirmation ? (
+            <div className="cg-orb__exit-confirm" role="group" aria-label="确认返回主菜单">
+              <p>当前行动会在后台继续推演。确定返回主菜单？</p>
+              <div>
+                <button onClick={() => void navigate(exitAction, true)} type="button">继续离开</button>
+                <button onClick={() => setExitConfirmation(false)} type="button">留在游戏</button>
+              </div>
+            </div>
+          ) : null}
+          {inspectorEnabled && !exitConfirmation ? (
             <div className="cg-orb__tools">
               <span>工具</span>
               <button onClick={openInspector} tabIndex={open ? 0 : -1} type="button">
@@ -437,11 +464,11 @@ export function ControlOrb({
                 <span><strong>世界演化</strong><small>查看完整推演与 Agent 认知</small></span>
               </button>
             </div>
-          )}
+          ) : null}
         </section>
       </div>
 
-      <Sheet onOpenChange={setMobileOpen} open={mobileOpen}>
+      <Sheet onOpenChange={(next) => { setMobileOpen(next); if (!next) setExitConfirmation(false); }} open={mobileOpen}>
         <SheetContent
           aria-describedby="cg-control-description"
           onCloseAutoFocus={(event) => {
@@ -460,17 +487,17 @@ export function ControlOrb({
             </div>
           </dl>
           <nav aria-label="游戏控制" className="cg-sheet-actions">
-            {controlActions.map((action) => {
+            {actions.map((action) => {
               const Icon = action.icon;
               return (
-                <button key={action.href} onClick={() => void navigate(action.href)} type="button">
+                <button key={action.href} onClick={() => void navigate(action)} type="button">
                   <Icon aria-hidden="true" className="size-5" />
                   <span><strong>{action.label}</strong><small>{action.description}</small></span>
                 </button>
               );
             })}
           </nav>
-          {inspectorEnabled && (
+          {inspectorEnabled && !exitConfirmation ? (
             <section className="cg-sheet-tools" aria-label="开发者工具">
               <h3>开发者工具</h3>
               <button onClick={openInspector} type="button">
@@ -478,7 +505,14 @@ export function ControlOrb({
                 <span><strong>打开世界演化</strong><small>查看完整推演、隐藏检定和 Agent 认知</small></span>
               </button>
             </section>
-          )}
+          ) : null}
+          {exitConfirmation ? (
+            <div className="cg-sheet-exit" role="group" aria-label="确认返回主菜单">
+              <p>当前行动会在后台继续推演。确定返回主菜单？</p>
+              <button onClick={() => void navigate(exitAction, true)} type="button">继续离开</button>
+              <button className="cg-button--quiet" onClick={() => setExitConfirmation(false)} type="button">留在游戏</button>
+            </div>
+          ) : null}
         </SheetContent>
       </Sheet>
     </>
