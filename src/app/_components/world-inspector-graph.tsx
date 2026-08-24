@@ -51,6 +51,28 @@ interface InspectorNodeData extends Record<string, unknown> {
 
 type InspectorFlowNode = Node<InspectorNodeData, "inspector">;
 
+const inspectorNodeWidth = 238;
+const inspectorNodeHeight = 86;
+const inspectorHandleSize = 6;
+const inspectorNodeHandles: NonNullable<InspectorFlowNode["handles"]> = [
+  {
+    type: "target",
+    position: Position.Left,
+    x: -inspectorHandleSize / 2,
+    y: (inspectorNodeHeight - inspectorHandleSize) / 2,
+    width: inspectorHandleSize,
+    height: inspectorHandleSize,
+  },
+  {
+    type: "source",
+    position: Position.Right,
+    x: inspectorNodeWidth - inspectorHandleSize / 2,
+    y: (inspectorNodeHeight - inspectorHandleSize) / 2,
+    width: inspectorHandleSize,
+    height: inspectorHandleSize,
+  },
+];
+
 const iconByKind: Record<WorldInspectorNodeKind, typeof Orbit> = {
   commit: GitCommitHorizontal,
   action: Activity,
@@ -222,7 +244,11 @@ export function WorldInspectorGraph({
         "elk.layered.spacing.nodeNodeBetweenLayers": "96",
         "elk.padding": "[top=48,left=48,bottom=48,right=48]",
       },
-      children: visibleSummaries.map((node) => ({ id: node.id, height: 86, width: 238 })),
+      children: visibleSummaries.map((node) => ({
+        id: node.id,
+        height: inspectorNodeHeight,
+        width: inspectorNodeWidth,
+      })),
       edges: visibleEdges.map((edge) => ({
         id: edge.id,
         sources: [edge.source],
@@ -252,8 +278,9 @@ export function WorldInspectorGraph({
       id: summary.id,
       type: "inspector",
       position: positions[summary.id] ?? provisionalPositions[summary.id] ?? { x: 0, y: 0 },
-      initialHeight: 86,
-      initialWidth: 238,
+      initialHeight: inspectorNodeHeight,
+      initialWidth: inspectorNodeWidth,
+      handles: inspectorNodeHandles,
       draggable: false,
       selectable: false,
       ariaLabel: `${summary.label}：${summary.description}`,
@@ -285,8 +312,8 @@ export function WorldInspectorGraph({
     if (!followLatest || !flowReady || !graph || !instance || nodes.length === 0) return;
     const minX = Math.min(...nodes.map((node) => node.position.x));
     const minY = Math.min(...nodes.map((node) => node.position.y));
-    const maxX = Math.max(...nodes.map((node) => node.position.x + 238));
-    const maxY = Math.max(...nodes.map((node) => node.position.y + 86));
+    const maxX = Math.max(...nodes.map((node) => node.position.x + inspectorNodeWidth));
+    const maxY = Math.max(...nodes.map((node) => node.position.y + inspectorNodeHeight));
     const viewport = getViewportForBounds(
       { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
       graph.clientWidth,
