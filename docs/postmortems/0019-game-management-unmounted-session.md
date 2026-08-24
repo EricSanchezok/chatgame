@@ -27,7 +27,7 @@
 
 ## Guardrails
 
-- [决策 0053](../decisions/0053-context-local-settings-overlays.md) 把游戏外世界工作台、持久游戏布局、嵌套管理路由、三动作控制球和世界包生命周期定义为同一契约。
+- [决策 0054](../decisions/0054-composer-focus-and-intrinsic-player-bubbles.md) 继承并固定游戏外世界工作台、持久游戏布局、嵌套管理路由、三动作控制球和世界包生命周期契约。
 - `GameSession` 由 `/play/:sessionId` layout 持有，`manage/saves` 与 `manage/settings` 只替换其 children；直接访问管理 URL 也必须先重建同一游戏背景。
 - 世界、存档与设置分别复用 `useWorldLibrary`、`SaveList` 和 `SettingsPanel`；外部与游戏内只组合范围不同的容器，不复制 CRUD。
 - Playwright 在 active WorldRun 中打开设置，等待服务端终态后关闭管理层，并验证失败消息仍由原会话呈现；另验证管理层关闭后焦点回到控制球。

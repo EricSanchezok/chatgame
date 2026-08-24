@@ -119,4 +119,5 @@
 - [0050 — 本地开发默认完整运行时日志](0050-development-default-full-observability.md)
 - [0051 — 以 assistant-ui 上游为会话表面基线（由 0052 取代）](0051-assistant-ui-upstream-session-surface.md)
 - [0052 — 持久游戏上下文与世界包工作台（由 0053 取代）](0052-persistent-game-context-and-world-library.md)
-- [0053 — 上下文内设置弹层与单一模态壳](0053-context-local-settings-overlays.md)
+- [0053 — 上下文内设置弹层与单一模态壳（由 0054 取代）](0053-context-local-settings-overlays.md)
+- [0054 — Composer 聚焦静默与玩家气泡内在尺寸](0054-composer-focus-and-intrinsic-player-bubbles.md)

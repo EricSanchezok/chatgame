@@ -83,7 +83,15 @@ test("the failed conversation and forced-color controls remain accessible", asyn
   const detail = await created.json() as { summary: { id: string } };
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
   await page.goto(`/play/${detail.summary.id}`);
-  await page.getByLabel("你的行动").fill("触发 E2E 快速失败");
+  const composer = page.getByLabel("你的行动");
+  await composer.focus();
+  const forcedFocus = await composer.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: Number.parseFloat(style.outlineWidth) };
+  });
+  expect(forcedFocus.outlineStyle).not.toBe("none");
+  expect(forcedFocus.outlineWidth).toBeGreaterThanOrEqual(2);
+  await composer.fill("触发 E2E 快速失败");
   await page.getByRole("button", { name: "发送行动" }).click();
   await expect(page.getByText("这一步未能完成")).toBeVisible();
   await expect(page.getByRole("button", { name: "放弃目标" })).toBeVisible();

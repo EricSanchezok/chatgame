@@ -339,8 +339,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-run-status .cg-button--quiet { min-height: 36px; font-size: 0.75rem; }
 .cg-run-status .cg-button--quiet:first-of-type { margin-inline-start: auto; }
 .cg-run-status .cg-button--quiet:disabled { cursor: wait; opacity: 0.45; }
-.aui-composer-shell::after { content: ""; position: absolute; inset-inline-start: 1.25rem; inset-block-end: -1px; width: 2.5rem; height: 2px; border-radius: 999px; background: var(--cg-ring); opacity: 0; pointer-events: none; transition: opacity 120ms ease-out; }
-.aui-composer-shell:has(textarea:focus-visible)::after { opacity: 1; }
+.aui-user-message-bubble { inline-size: max-content; max-inline-size: min(85%, 34rem); overflow-wrap: anywhere; }
 .aui-composer-shell textarea:focus-visible { box-shadow: none; }
 
 /* Control orb */
@@ -456,5 +455,4 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
     outline-color: Highlight;
     box-shadow: none;
   }
-  .aui-composer-shell::after { display: none; }
 }

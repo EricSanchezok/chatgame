@@ -296,7 +296,7 @@ test("the official thread axis keeps the composer anchored after every message",
   const shell = page.locator(".aui-composer-shell");
   await composer.blur();
   const restingShadow = await shell.evaluate((element) => getComputedStyle(element).boxShadow);
-  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element, "::after").opacity)).toBe("0");
+  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element, "::after").content)).toBe("none");
   const restingBorderColor = await shell.evaluate((element) => {
     const context = document.createElement("canvas").getContext("2d")!;
     context.fillStyle = getComputedStyle(element).borderColor;
@@ -304,7 +304,6 @@ test("the official thread axis keeps the composer anchored after every message",
     return [...context.getImageData(0, 0, 1, 1).data];
   });
   await composer.focus();
-  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element, "::after").opacity)).toBe("1");
   const focusedStyle = await shell.evaluate((element) => ({
     borderColor: (() => {
       const context = document.createElement("canvas").getContext("2d")!;
@@ -313,16 +312,13 @@ test("the official thread axis keeps the composer anchored after every message",
       return [...context.getImageData(0, 0, 1, 1).data];
     })(),
     boxShadow: getComputedStyle(element).boxShadow,
-    focusMarkerHeight: Number.parseFloat(getComputedStyle(element, "::after").height),
-    focusMarkerWidth: Number.parseFloat(getComputedStyle(element, "::after").width),
-    shellWidth: element.getBoundingClientRect().width,
+    focusMarkerContent: getComputedStyle(element, "::after").content,
     textareaBoxShadow: getComputedStyle(element.querySelector("textarea")!).boxShadow,
     textareaOutline: getComputedStyle(element.querySelector("textarea")!).outlineStyle,
   }));
   expect(focusedStyle.boxShadow).toBe(restingShadow);
   expect(focusedStyle.borderColor).toEqual(restingBorderColor);
-  expect(focusedStyle.focusMarkerHeight).toBe(2);
-  expect(focusedStyle.focusMarkerWidth).toBeLessThan(focusedStyle.shellWidth / 4);
+  expect(focusedStyle.focusMarkerContent).toBe("none");
   expect(focusedStyle.textareaBoxShadow).toBe("none");
   expect(focusedStyle.textareaOutline).toBe("none");
   const emptyBox = await shell.boundingBox();
@@ -345,6 +341,18 @@ test("the official thread axis keeps the composer anchored after every message",
   await composer.fill("先观察石门");
   await composer.press("Enter");
   await expect(page.getByRole("button", { name: /第 1 步/ })).toBeVisible();
+  const userBubble = page.locator(".aui-user-message-bubble").last();
+  const shortMessageGeometry = await userBubble.evaluate((element) => {
+    const paragraph = element.querySelector("p")!;
+    const style = getComputedStyle(paragraph);
+    return {
+      bubbleWidth: element.getBoundingClientRect().width,
+      lineHeight: Number.parseFloat(style.lineHeight),
+      textHeight: paragraph.getBoundingClientRect().height,
+    };
+  });
+  expect(shortMessageGeometry.textHeight).toBeLessThanOrEqual(shortMessageGeometry.lineHeight * 1.25);
+  expect(shortMessageGeometry.bubbleWidth).toBeGreaterThan(shortMessageGeometry.lineHeight * 2.5);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: new URL(page.url()).origin,
   });

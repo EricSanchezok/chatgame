@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0054](0054-composer-focus-and-intrinsic-player-bubbles.md)
 Class: simplification
 
 ## Context and Problem Statement

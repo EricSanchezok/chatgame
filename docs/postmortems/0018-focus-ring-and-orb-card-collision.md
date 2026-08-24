@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-assistant-ui 会话表面重建后，输入框和共享控件的聚焦指示复用了中性深灰 `--cg-ring`，composer 还在 `focus-within` 时把自身边框直接替换成该颜色，导致浅色主题点击输入后出现一整圈近黑边框。第一次修复改用蓝色 token 和外层柔光，却保留了相同的包围式几何，因此大尺寸 composer 聚焦后仍像被整框选中。控制球展开算法同时只为状态卡与部分径向按钮坐标预留静态距离，卡片边缘与按钮及阴影在右下展开时视觉相撞。首轮 axe、几何测试和整页视觉快照分别只验证“焦点存在”“元素没有越界”和占整页比例较大的变化，均没有约束焦点的视觉几何或卡片与按钮之间的相交关系。持久修复是让普通主题使用非包围式底部焦点标记、只在 forced-colors 恢复系统完整轮廓，并直接测试 composer 焦点标记尺寸及状态卡与每个按钮的 bounding box 零相交。
+assistant-ui 会话表面重建后，输入框和共享控件的聚焦指示复用了中性深灰 `--cg-ring`，composer 还在 `focus-within` 时把自身边框直接替换成该颜色，导致浅色主题点击输入后出现一整圈近黑边框。第一次修复改用蓝色 token 和外层柔光，却保留了相同的包围式几何，因此大尺寸 composer 聚焦后仍像被整框选中。控制球展开算法同时只为状态卡与部分径向按钮坐标预留静态距离，卡片边缘与按钮及阴影在右下展开时视觉相撞。首轮 axe、几何测试和整页视觉快照分别只验证“焦点存在”“元素没有越界”和占整页比例较大的变化，均没有约束焦点的视觉几何或卡片与按钮之间的相交关系。持久修复是让普通控件使用非包围式底部焦点标记、composer 普通主题不绘制附加装饰且只在 forced-colors 恢复系统完整轮廓，并直接测试 composer 聚焦前后几何不变及状态卡与每个按钮的 bounding box 零相交。
 
 ## Summary
 
@@ -18,6 +18,7 @@ assistant-ui 会话表面重建后，输入框和共享控件的聚焦指示复�
 4. 用户在 5120px 浅色会话中直接观察到黑色聚焦框，并在展开控制球的局部放大图中确认状态卡与按钮视觉重叠。
 5. 焦点系统先改为主题蓝色 `--cg-ring`；composer 保留静态边框并显示柔和光晕；状态卡位移改为由全部径向按钮外包络加 32px 间距计算。
 6. 用户复核确认蓝色外层柔光仍是整圈聚焦框，普通主题焦点最终改为局部底部标记，完整 outline 只在 forced-colors 出现。
+7. 用户再次复核指出 composer 的局部蓝线仍是无语义的首屏装饰；composer 最终删除自绘标记，保留插入光标与 forced-colors 系统 outline。
 
 ## Root cause
 
@@ -27,8 +28,8 @@ assistant-ui 会话表面重建后，输入框和共享控件的聚焦指示复�
 
 ## Guardrails
 
-- [决策 0053](../decisions/0053-context-local-settings-overlays.md) 继承并固定非包围式焦点几何、composer 静态轮廓和状态卡包络间距。
-- [全局样式](../../src/app/globals.css)统一普通主题的 `:focus-visible` 底部标记，文件选择器用 `:has(input:focus-visible)`，composer 使用固定宽度的短标记；forced-colors 使用系统 `Highlight` 完整 outline。
+- [决策 0054](../decisions/0054-composer-focus-and-intrinsic-player-bubbles.md) 继承并固定非包围式焦点几何、composer 静态轮廓和状态卡包络间距。
+- [全局样式](../../src/app/globals.css)统一普通非文本控件的 `:focus-visible` 底部标记，文件选择器用 `:has(input:focus-visible)`；composer 普通主题不增加装饰，forced-colors 使用系统 `Highlight` 完整 outline。
 - `radialCardOffset` 从当前 edge/zone 的全部按钮坐标、按钮尺寸与 inset 计算卡片位移，单元测试覆盖左右边缘和 top/middle/bottom 六种组合的 32px 间距。
-- Playwright 对状态卡与全部按钮逐一计算矩形相交，并验证 composer 聚焦前后边框及阴影不变、焦点标记只有 2px 高且宽度小于输入面的四分之一。
-- composer 焦点增加组件级 light/dark 视觉快照，避免整页像素容差吞掉小面积焦点退化。
+- Playwright 对状态卡与全部按钮逐一计算矩形相交，并验证 composer 聚焦前后边框及阴影不变、textarea 不产生普通主题 box-shadow。
+- composer 增加组件级 light/dark 视觉快照，避免整页像素容差吞掉小面积焦点退化。

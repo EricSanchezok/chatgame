@@ -27,7 +27,7 @@
 
 ## Guardrails
 
-- [决策 0053](../decisions/0053-context-local-settings-overlays.md) 固定主菜单本地设置 Dialog、游戏内嵌套设置路由、单一 `SettingsPanel` 和共享模态基础设施。
+- [决策 0054](../decisions/0054-composer-focus-and-intrinsic-player-bubbles.md) 继承并固定主菜单本地设置 Dialog、游戏内嵌套设置路由、单一 `SettingsPanel` 和共享模态基础设施。
 - Playwright 从 `/` 点击设置后验证 URL 不变、Dialog 可见、Escape 关闭并把焦点恢复给触发按钮；主题跨路由持久化仍从真实主菜单入口验证。
 - 游戏管理测试要求弹层内精确存在一个关闭按钮且不存在“返回对话”。
 - Playwright 比较 switch 与复位按钮的水平中心坐标；固定尾部控件列保证宽度变化不破坏中心线。

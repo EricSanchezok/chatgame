@@ -27,7 +27,7 @@
 
 ## Guardrails
 
-- [决策 0053](../decisions/0053-context-local-settings-overlays.md) 继承并固定三个动作的等半径等角圆弧、减少动态效果的 switch 语义和当前存档的非布局高亮。
+- [决策 0054](../decisions/0054-composer-focus-and-intrinsic-player-bubbles.md) 继承并固定三个动作的等半径等角圆弧、减少动态效果的 switch 语义和当前存档的非布局高亮。
 - `radialOffsets` 从单一 `radialActionRadius` 推导所有坐标；单元测试遍历左右边缘和三个垂直区域，要求每个动作中心的半径一致。
 - Playwright 在真实控制球展开后比较三个按钮中心到球心的距离，同时继续验证视口边界与状态卡碰撞。
 - Playwright 通过角色和 `aria-checked` 操作减少动态效果，并使用 Space 验证键盘路径和根节点偏好应用。
