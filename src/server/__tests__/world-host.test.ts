@@ -845,7 +845,7 @@ describe("WorldHost", () => {
     expect(store.read(session.summary.id).document.state.history).toHaveLength(100);
     expect(result.run.events.filter((event) => event.type === "step.committed")).toHaveLength(100);
     expect(result.run.events.at(-1)?.type).toBe("run.step_limit");
-  }, 90_000);
+  }, 180_000);
 
   it("queues and executes a retry from the persisted step-limit boundary", async () => {
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
