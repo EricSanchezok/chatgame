@@ -121,3 +121,4 @@
 - [0052 — 持久游戏上下文与世界包工作台（由 0053 取代）](0052-persistent-game-context-and-world-library.md)
 - [0053 — 上下文内设置弹层与单一模态壳（由 0054 取代）](0053-context-local-settings-overlays.md)
 - [0054 — Composer 聚焦静默与玩家气泡内在尺寸](0054-composer-focus-and-intrinsic-player-bubbles.md)
+- [0055 — 本地受信任的世界演化调试器](0055-trusted-world-evolution-inspector.md)

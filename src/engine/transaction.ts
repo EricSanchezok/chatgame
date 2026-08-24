@@ -4,6 +4,7 @@ import type {
   AgentState,
   BeliefClaim,
   CausalRef,
+  CommittedStep,
   FactValue,
   MeterState,
   QuantityState,
@@ -551,7 +552,15 @@ function validatePlayerKnowledge(state: SimulationState): void {
   }
 }
 
-function validateHistory(state: SimulationState): void {
+export interface HistoryReplayVisitor {
+  base?(replayedState: Readonly<SimulationState>): void;
+  commit?(replayedState: Readonly<SimulationState>, committed: Readonly<CommittedStep>): void;
+}
+
+export function replayCommittedHistory(
+  state: SimulationState,
+  visit?: HistoryReplayVisitor,
+): void {
   if (state.history.length !== state.revision || state.step !== state.revision) {
     throw new Error("history, revision and step are not aligned");
   }
@@ -728,6 +737,7 @@ function validateHistory(state: SimulationState): void {
       [],
     );
   }
+  visit?.base?.(replayState);
   const usedPlayerIntentIds = new Set<string>();
   const usedPlayerInputIds = new Set<string>();
   if (historyBase.player.intent) {
@@ -1429,6 +1439,7 @@ function validateHistory(state: SimulationState): void {
       );
     }
     replayState.history.push(structuredClone(committed));
+    visit?.commit?.(replayState, committed);
   }
   if (state.truth.events.length !== priorEventIds.size ||
     state.truth.events.some((event) => !priorEventIds.has(event.id))) {
@@ -1952,7 +1963,7 @@ export function validateSimulationState(
     if (event.assertions.length === 0) throw new Error(`event ${event.id} has no causal assertions`);
     eventIds.add(event.id);
   }
-  if (requireHistoryAlignment) validateHistory(state);
+  if (requireHistoryAlignment) replayCommittedHistory(state);
 }
 
 /** Strict persisted-state entry point: structural strictness and every ledger invariant share one validator. */

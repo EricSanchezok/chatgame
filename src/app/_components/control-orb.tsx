@@ -13,6 +13,7 @@ import {
 import {
   Check,
   LoaderCircle,
+  Network,
 } from "lucide-react";
 import {
   Sheet,
@@ -162,11 +163,15 @@ function StatusMetrics({ status }: { status: ControlOrbStatus }) {
 
 export function ControlOrb({
   composerDocked,
+  inspectorEnabled,
+  onOpenInspector,
   sessionId,
   status,
   onNavigate,
 }: {
   composerDocked: boolean;
+  inspectorEnabled: boolean;
+  onOpenInspector: () => void;
   sessionId: string;
   status: ControlOrbStatus;
   onNavigate: (href: string) => Promise<void> | void;
@@ -352,6 +357,13 @@ export function ControlOrb({
     await onNavigate(action.href);
   }
 
+  function openInspector(): void {
+    setOpen(false);
+    setMobileOpen(false);
+    setExitConfirmation(false);
+    queueMicrotask(onOpenInspector);
+  }
+
   const zone = verticalZone(position.y);
   const offsets = radialOffsets(position.edge, zone);
   const cardOffset = radialCardOffset(position.edge, offsets);
@@ -444,6 +456,15 @@ export function ControlOrb({
               </div>
             </div>
           ) : null}
+          {inspectorEnabled && !exitConfirmation ? (
+            <div className="cg-orb__tools">
+              <span>工具</span>
+              <button onClick={openInspector} tabIndex={open ? 0 : -1} type="button">
+                <Network aria-hidden="true" />
+                <span><strong>世界演化</strong><small>查看完整推演与 Agent 认知</small></span>
+              </button>
+            </div>
+          ) : null}
         </section>
       </div>
 
@@ -476,6 +497,15 @@ export function ControlOrb({
               );
             })}
           </nav>
+          {inspectorEnabled && !exitConfirmation ? (
+            <section className="cg-sheet-tools" aria-label="开发者工具">
+              <h3>开发者工具</h3>
+              <button onClick={openInspector} type="button">
+                <Network aria-hidden="true" className="size-5" />
+                <span><strong>打开世界演化</strong><small>查看完整推演、隐藏检定和 Agent 认知</small></span>
+              </button>
+            </section>
+          ) : null}
           {exitConfirmation ? (
             <div className="cg-sheet-exit" role="group" aria-label="确认返回主菜单">
               <p>当前行动会在后台继续推演。确定返回主菜单？</p>

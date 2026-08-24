@@ -20,6 +20,7 @@ import {
   runtimeEventEmitter,
   serializeRuntimeError,
   type RuntimeCorrelation,
+  type RuntimeEvent,
   type RuntimeObserver,
 } from "../engine/observability";
 import {
@@ -31,9 +32,24 @@ import {
   type StartWorldRunResponse,
   type WorldRunSnapshot,
 } from "../shared/world-api";
+import type {
+  WorldInspectorAttemptDetail,
+  WorldInspectorStepDetail,
+  WorldInspectorWindow,
+} from "../shared/world-inspector-api";
 import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
-import { getRuntimeObserver } from "./runtime-observer";
+import { getRuntimeObserver, readRuntimeObservabilityConfig } from "./runtime-observer";
+import { RuntimeTraceIndex } from "./runtime-trace-index";
+import {
+  buildWorldInspectorAttemptDetail,
+  buildWorldInspectorCommittedProjection,
+  buildWorldInspectorCommittedStepDetail,
+  buildWorldInspectorStepDetail,
+  buildWorldInspectorWindow,
+  type WorldInspectorCommittedProjection,
+  type WorldInspectorCommittedStepDetail,
+} from "./world-inspector";
 import { classifyRunFailure, type RunFailureClassification } from "./run-failure";
 import {
   WorldSessionConflictError,
@@ -130,6 +146,7 @@ export interface WorldHostOptions {
   idFactory?: () => string;
   maxStepsPerRun?: number;
   observer?: RuntimeObserver;
+  traceIndex?: RuntimeTraceIndex;
 }
 
 export class WorldHostError extends Error {
@@ -145,6 +162,11 @@ export class WorldHost {
   private readonly pendingRunFailures = new Map<string, PendingRunFailure>();
   private readonly pendingRunCancellations = new Set<string>();
   private readonly channels = new Map<string, RunChannel>();
+  private readonly inspectorChannel = new RunChannel();
+  private readonly liveRuntimeEvents: RuntimeEvent[] = [];
+  private readonly inspectorProjectionCache = new Map<string, WorldInspectorCommittedProjection>();
+  private readonly inspectorStepCache = new Map<string, WorldInspectorCommittedStepDetail>();
+  private readonly inspectorEpoch = randomUUID();
   private readonly pinnedWorldContracts = new Map<string, ReturnType<typeof toWorldRuntimeContract>>();
   private readonly now: () => Date;
   private readonly idFactory: () => string;
@@ -158,11 +180,17 @@ export class WorldHost {
     this.maxStepsPerRun = options.maxStepsPerRun ?? 100;
     this.runtimeObserver = options.observer ?? NOOP_RUNTIME_OBSERVER;
     this.observe = runtimeEventEmitter(this.runtimeObserver);
+    this.runtimeObserver.subscribe?.((event) => {
+      this.liveRuntimeEvents.push(structuredClone(event));
+      if (this.liveRuntimeEvents.length > 10_000) this.liveRuntimeEvents.splice(0, this.liveRuntimeEvents.length - 10_000);
+      this.inspectorChannel.notify();
+    });
   }
 
   static get(): WorldHost {
     if (!this.singleton) {
       const observer = getRuntimeObserver();
+      const observability = readRuntimeObservabilityConfig();
       const catalog = loadModelCatalog(path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
@@ -177,6 +205,7 @@ export class WorldHost {
         catalogManager: database,
         provider,
         observer,
+        traceIndex: new RuntimeTraceIndex(observability.directory),
       });
     }
     return this.singleton;
@@ -192,6 +221,26 @@ export class WorldHost {
 
   private executionKey(sessionId: string, runId: string): string {
     return `${sessionId}:${runId}`;
+  }
+
+  private inspectorCacheValue<T>(cache: Map<string, T>, key: string, create: () => T): T {
+    const existing = cache.get(key);
+    if (existing !== undefined) {
+      cache.delete(key);
+      cache.set(key, existing);
+      return existing;
+    }
+    const value = create();
+    cache.set(key, value);
+    if (cache.size > 64) {
+      const oldest = cache.keys().next().value as string | undefined;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+    return value;
+  }
+
+  private inspectorCachePrefix(document: WorldSessionDocument): string {
+    return `${document.id}:${document.world.contentHash}:${document.state.revision}`;
   }
 
   private channel(sessionId: string, runId: string): RunChannel {
@@ -477,6 +526,126 @@ export class WorldHost {
 
   session(sessionId: string, correlation?: RuntimeCorrelation): PublicSessionDetail {
     return publicSessionDetail(this.loadSession(sessionId, true, correlation).document);
+  }
+
+  private inspectorRuntimeTrace(sessionId: string): { degraded: boolean; events: RuntimeEvent[] } {
+    if (this.runtimeObserver.mode === "off") {
+      return { degraded: this.runtimeObserver.degraded, events: [] };
+    }
+    let persisted: RuntimeEvent[] = [];
+    let degraded = this.runtimeObserver.degraded;
+    try {
+      persisted = this.options.traceIndex?.events(sessionId) ?? [];
+      degraded ||= this.options.traceIndex?.degraded ?? false;
+    } catch {
+      // Trace inspection is best-effort and cannot affect the world host.
+      degraded = true;
+    }
+    const recorded = this.runtimeObserver.snapshot?.().filter((event) =>
+      event.correlation?.sessionId === sessionId) ?? [];
+    const live = this.liveRuntimeEvents.filter((event) => event.correlation?.sessionId === sessionId);
+    const unique = new Map<string, RuntimeEvent>();
+    for (const event of [...persisted, ...recorded, ...live]) {
+      unique.set(`${event.timestamp}\u0000${event.sequence}\u0000${event.event}`, event);
+    }
+    return {
+      degraded,
+      events: [...unique.values()].sort((left, right) =>
+        left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence),
+    };
+  }
+
+  inspectorWindow(
+    sessionId: string,
+    input: { beforeRevision?: number; limit: number },
+    correlation?: RuntimeCorrelation,
+  ): WorldInspectorWindow {
+    const document = this.loadSession(sessionId, true, correlation).document;
+    const projection = this.inspectorCacheValue(
+      this.inspectorProjectionCache,
+      `${this.inspectorCachePrefix(document)}:window:${input.beforeRevision ?? "latest"}:${input.limit}`,
+      () => buildWorldInspectorCommittedProjection(document, input),
+    );
+    const trace = this.inspectorRuntimeTrace(sessionId);
+    return buildWorldInspectorWindow(
+      document,
+      this.runtimeObserver,
+      trace.events,
+      input,
+      projection,
+      trace.degraded,
+    );
+  }
+
+  inspectorStep(
+    sessionId: string,
+    revision: number,
+    correlation?: RuntimeCorrelation,
+  ): WorldInspectorStepDetail {
+    const document = this.loadSession(sessionId, true, correlation).document;
+    const cacheKey = `${this.inspectorCachePrefix(document)}:step:${revision}`;
+    const committedDetail = this.inspectorCacheValue(this.inspectorStepCache, cacheKey, () => {
+      const built = buildWorldInspectorCommittedStepDetail(document, revision);
+      if (!built) throw new WorldHostError(`world revision not found: ${revision}`, 404);
+      return built;
+    });
+    const trace = this.inspectorRuntimeTrace(sessionId);
+    const detail = buildWorldInspectorStepDetail(
+      document,
+      revision,
+      this.runtimeObserver,
+      trace.events,
+      committedDetail,
+      trace.degraded,
+    );
+    if (!detail) throw new WorldHostError(`world revision not found: ${revision}`, 404);
+    return detail;
+  }
+
+  inspectorAttempt(
+    sessionId: string,
+    attemptId: string,
+    correlation?: RuntimeCorrelation,
+  ): WorldInspectorAttemptDetail {
+    this.loadSession(sessionId, true, correlation);
+    const trace = this.inspectorRuntimeTrace(sessionId);
+    const detail = buildWorldInspectorAttemptDetail(
+      attemptId,
+      this.runtimeObserver,
+      trace.events,
+      trace.degraded,
+    );
+    if (!detail) throw new WorldHostError(`runtime attempt not found or expired: ${attemptId}`, 404);
+    return detail;
+  }
+
+  inspectorStreamState(): { epoch: string; earliest: number; latest: number } {
+    return {
+      epoch: this.inspectorEpoch,
+      earliest: this.liveRuntimeEvents[0]?.sequence ?? 0,
+      latest: this.liveRuntimeEvents.at(-1)?.sequence ?? 0,
+    };
+  }
+
+  async *subscribeInspectorEvents(
+    sessionId: string,
+    afterSequence: number,
+    signal?: AbortSignal,
+  ): AsyncGenerator<RuntimeEvent> {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+      throw new WorldHostError("inspector event cursor must be a non-negative safe integer", 400);
+    }
+    let cursor = afterSequence;
+    while (!signal?.aborted) {
+      const channelVersion = this.inspectorChannel.currentVersion;
+      const available = this.liveRuntimeEvents.filter((event) =>
+        event.sequence > cursor && event.correlation?.sessionId === sessionId);
+      for (const event of available) {
+        cursor = event.sequence;
+        yield structuredClone(event);
+      }
+      await this.inspectorChannel.wait(channelVersion, signal);
+    }
   }
 
   listSessions(correlation?: RuntimeCorrelation): PublicSessionSummary[] {

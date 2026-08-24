@@ -68,6 +68,31 @@ export function SettingsPanel() {
           </button>
         </div>
       </div>
+      <fieldset className="cg-settings__developer">
+        <legend>开发者工具</legend>
+        <p>这些工具会揭示玩家通常无法知道的世界信息。</p>
+        <div className="cg-setting-row">
+          <span>
+            <strong>显示世界调试器</strong>
+            <small>在控制球中显示“世界演化”入口。调试器会暴露客观真相、隐藏检定和所有角色认知。</small>
+          </span>
+          <div className="cg-setting-row__control">
+            <button
+              aria-checked={preferences.showWorldInspector}
+              aria-label="显示世界调试器"
+              className="cg-switch"
+              onClick={() => writePreferences({
+                ...preferences,
+                showWorldInspector: !preferences.showWorldInspector,
+              })}
+              role="switch"
+              type="button"
+            >
+              <span aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </fieldset>
       <div className="cg-setting-row">
         <span><strong>重置控制球位置</strong><small>恢复到页面右侧的默认位置。</small></span>
         <div className="cg-setting-row__control">

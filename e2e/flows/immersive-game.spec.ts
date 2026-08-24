@@ -229,6 +229,126 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
   await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
 });
 
+test("the opt-in world inspector reveals the committed world and individual agent history", async ({ page }) => {
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  const detail = await created.json() as { summary: { id: string } };
+  const playURL = `/play/${detail.summary.id}`;
+
+  await page.goto(playURL);
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await expect(page.getByRole("button", { name: /世界演化/ })).toHaveCount(0);
+  await page.getByRole("button", { name: /关闭游戏控制/ }).click();
+
+  await page.goto(`${playURL}/manage/settings`);
+  const inspectorToggle = page.getByRole("switch", { name: /显示世界调试器/ });
+  await expect(inspectorToggle).toHaveAttribute("aria-checked", "false");
+  await inspectorToggle.click();
+  await expect(inspectorToggle).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "关闭游戏管理" }).click();
+  await expect(page).toHaveURL(playURL);
+
+  const composer = page.getByLabel("你的行动");
+  await composer.fill("观察石门，并留意守门人的反应");
+  await composer.press("Enter");
+  await expect(page.getByText("目标已经完成")).toBeVisible();
+
+  const orb = page.getByRole("button", { name: /打开游戏控制/ });
+  await orb.click();
+  await page.getByRole("button", { name: /世界演化/ }).click();
+  const inspector = page.getByRole("dialog", { name: "世界演化" });
+  await expect(inspector).toBeVisible();
+  await expect(inspector.getByText("WORLD EVOLUTION / READ ONLY")).toBeVisible();
+  await expect(inspector.getByRole("region", { name: "世界演化因果图" })).toBeVisible();
+  await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
+  await expect(inspector.getByRole("button", { name: /世界，Revision 1/ })).toBeVisible();
+  await expect(inspector.getByRole("heading", { name: "Revision 1" })).toBeVisible();
+  await expect(inspector.getByText("个联合行动")).toBeVisible();
+  await expect(inspector.getByText("认知传播")).toBeVisible();
+  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
+  await expect(inspector.getByText(/full · healthy/)).toBeVisible();
+
+  await inspector.getByRole("complementary", { name: "主体选择" })
+    .getByRole("button", { name: /守门人/ }).click();
+  await expect(inspector.getByText("守门人本轮实际行动")).toBeVisible();
+  await expect(inspector.getByText("下一轮计划")).toBeVisible();
+  await expect(inspector.getByText("尚未执行")).toBeVisible();
+  await expect(inspector.getByText("本步最终行动")).toHaveCount(0);
+  await inspector.getByRole("button", { name: "聚焦此 Agent" }).click();
+  await expect(inspector.getByRole("button", { name: "显示全部主体" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
+  const changesTab = inspector.getByRole("tab", { name: "变更" });
+  await changesTab.click();
+  await expect(inspector.getByText("对比提交前后的完整 Agent 状态")).toBeVisible();
+  await changesTab.press("ArrowRight");
+  await expect(inspector.getByRole("tab", { name: "因果" })).toHaveAttribute("aria-selected", "true");
+  await inspector.getByRole("tab", { name: "模型" }).click();
+  await expect(inspector.getByText(/次模型调用/).first()).toBeVisible();
+  await page.setViewportSize({ width: 1_088, height: 988 });
+  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
+
+  const publicResponse = await page.request.get(`/api/sessions/${detail.summary.id}`);
+  const publicBody = JSON.stringify(await publicResponse.json());
+  expect(publicBody).not.toContain("canonicalEntityIds");
+  const inspectorResponse = await page.request.get(`/api/sessions/${detail.summary.id}/inspector/steps/1`);
+  expect(inspectorResponse.ok()).toBe(true);
+  const inspectorBody = JSON.stringify(await inspectorResponse.json());
+  expect(inspectorBody).toContain("canonicalEntityIds");
+  expect(inspectorBody).toContain("modelAudits");
+
+  await page.keyboard.press("Escape");
+  await expect(inspector).toHaveCount(0);
+  await expect(orb).toBeFocused();
+
+  await orb.click();
+  await page.getByRole("button", { name: /世界演化/ }).click();
+  await page.getByRole("button", { name: "关闭世界演化调试器" }).click();
+  await expect(inspector).toHaveCount(0);
+  await expect(orb).toBeFocused();
+
+  await orb.click();
+  await page.getByRole("button", { name: /世界演化/ }).click();
+  await page.locator(".cg-workspace__overlay").click({ position: { x: 2, y: 2 } });
+  await expect(inspector).toHaveCount(0);
+  await expect(orb).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await orb.click();
+  await page.getByRole("button", { name: /打开世界演化/ }).click();
+  const mobileInspector = page.getByRole("dialog", { name: "世界演化" });
+  await expect(mobileInspector).toBeVisible();
+  await expect(mobileInspector.getByRole("feed", { name: "世界提交时间线" })).toBeVisible();
+  const actorToggle = mobileInspector.locator(".cg-inspector-actor-toggle");
+  await expect(actorToggle).toHaveAttribute("aria-expanded", "false");
+  await actorToggle.click();
+  await expect(actorToggle).toHaveAttribute("aria-expanded", "true");
+  await mobileInspector.getByRole("complementary", { name: "主体选择" })
+    .getByRole("button", { name: /守门人/ }).click();
+  await expect(actorToggle).toHaveAttribute("aria-expanded", "false");
+  await page.locator("html").evaluate((element) => { element.style.fontSize = "200%"; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.evaluate(() => {
+    localStorage.setItem("livingworld:preferences:v2", JSON.stringify({
+      fontScale: "standard",
+      reduceMotion: false,
+      showWorldInspector: false,
+    }));
+    window.dispatchEvent(new CustomEvent("livingworld:preferences-changed"));
+  });
+  await expect(mobileInspector).toHaveCount(0);
+  await expect(orb).toBeFocused();
+  await orb.click();
+  await expect(page.getByRole("button", { name: /世界演化/ })).toHaveCount(0);
+});
+
 test("in-game management preserves an active world run", async ({ page }) => {
   await page.request.post("/api/worlds/import", {
     multipart: {

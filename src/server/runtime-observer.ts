@@ -16,13 +16,14 @@ import {
   materializeRuntimeEvent,
   type RuntimeEvent,
   type RuntimeEventInput,
+  type RuntimeEventListener,
   type RuntimeObservabilityMode,
   type RuntimeObserver,
 } from "../engine/observability";
 
 const DEFAULT_SEGMENT_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024;
-const LOG_FILE_PATTERN = /^livingworld-\d{8}T\d{6}\.\d{3}Z-\d+-\d{4,}\.ndjson$/;
+export const RUNTIME_LOG_FILE_PATTERN = /^livingworld-\d{8}T\d{6}\.\d{3}Z-\d+-\d{4,}\.ndjson$/;
 
 export interface RuntimeObservabilityConfig {
   mode: RuntimeObservabilityMode;
@@ -105,6 +106,7 @@ export class NdjsonRuntimeObserver implements RuntimeObserver {
   private sinkErrors = 0;
   private closed = false;
   private isWritingHealth = false;
+  private readonly listeners = new Set<RuntimeEventListener>();
   degraded = false;
 
   constructor(options: NdjsonRuntimeObserverOptions) {
@@ -156,6 +158,13 @@ export class NdjsonRuntimeObserver implements RuntimeObserver {
     this.writeLine(line, bytes);
     this.eventCount += 1;
     this.logBytes += bytes;
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch {
+        // Inspector subscribers are observational and cannot fail the sink.
+      }
+    }
     if (!this.degraded && bytes > this.segmentBytes) {
       this.rotate();
       rotated = true;
@@ -164,11 +173,17 @@ export class NdjsonRuntimeObserver implements RuntimeObserver {
     return event;
   }
 
+  subscribe(listener: RuntimeEventListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   close(): void {
     if (this.closed) return;
     const priorSinkErrors = this.sinkErrors;
     this.emitHealth("shutdown");
     this.flushAndClose();
+    this.listeners.clear();
     if (this.sinkErrors > priorSinkErrors) this.emitHealth("shutdown");
     this.closed = true;
   }
@@ -282,7 +297,7 @@ export class NdjsonRuntimeObserver implements RuntimeObserver {
 
   private pruneOldSegments(): void {
     const entries = readdirSync(this.directory)
-      .filter((name) => LOG_FILE_PATTERN.test(name))
+      .filter((name) => RUNTIME_LOG_FILE_PATTERN.test(name))
       .map((name) => {
         const target = path.join(this.directory, name);
         return { target, name, stat: statSync(target) };

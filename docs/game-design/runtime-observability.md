@@ -8,6 +8,16 @@
 
 公共游戏 API、SSE payload 与浏览器 DTO 不包含运行事件、模型审计、canonical binding 或内部错误。运行日志是有界本地诊断表面，不是游戏历史或公开事件流。
 
+## 调试查询与实时订阅
+
+本地受信任的世界演化调试器是运行日志的只读消费者，不是第三条观测链路。已提交图谱与状态差异来自 canonical history；失败、取消、回滚和进行中 attempt 来自同一 RuntimeEvent。`RuntimeObserver.subscribe` 在事件写入现有 sink 后通知进程内订阅者，监听器异常被隔离，不能改变 emit、WorldRun 或持久化结果。
+
+`RuntimeTraceIndex` 只索引符合日志命名规则的现存 NDJSON 段。每段记录 mtime、已读取 offset、尚未换行的尾部字节，以及完整行的文件偏移与 session 归属；payload 不常驻索引，查询时只按需读取匹配 session 的行。文件缩短时从头重建，轮转删除时同步移除该段索引，坏行只形成 trace 缺口并把可用性标为 degraded。查询合并持久事件、observer snapshot 与 10,000 条进程内 live buffer，并按 timestamp、sequence 排序去重。`off` 不读取 trace，`metrics` 不提供 payload，`full` 只返回 sink 已记录的 payload。
+
+`/api/sessions/:id/inspector/events` 使用独立进程 epoch 和 RuntimeEvent sequence 作为 SSE ID。合法同 epoch 游标只接收更大 sequence；epoch 变化、游标被 live buffer 淘汰或游标超前时先发 `resync`，客户端重新读取窗口。15 秒 heartbeat 携带最新已发送游标，不使游标倒退。连接、索引和序列化失败只使面板重连或显示记录不可用，不进入游戏事务。
+
+WorldHost 对 committed 图谱窗口和 revision 前后快照使用 64 项有界 LRU。键包含 session ID、world content hash、当前 revision 与查询身份；revision 变化自然失效。缓存不包含 RuntimeEvent、trace 可用性或进行中 attempt，每次响应仍从当前日志派生这些字段；缓存不是持久状态。
+
 ## 事件信封
 
 每条 `RuntimeEvent` 是一行完整 JSON，包含 `schemaVersion=1`、进程内递增 `sequence`、ISO `timestamp`、`level` 与 `event`。可选字段只有 correlation、`durationMs`、标量 attributes、数值 measurements、对象 counts、SHA-256 hashes、full payload 和白名单错误。
@@ -60,4 +70,4 @@ Gateway 先递归按键规范化 Context，再以两空格 JSON 序列化；`con
 
 `npm run diagnose:live -- --steps 3` 显式使用模型目录和现有密钥，报告真实 token、cache、provider request ID、transport 与延迟。它是手动采样，不进入 CI；stdout 同样以 `diagnostic.summary` 收尾，stderr 只输出简表。
 
-决策理由见 [0043](../decisions/0043-end-to-end-runtime-observability.md)。
+决策理由见 [0043](../decisions/0043-end-to-end-runtime-observability.md) 与 [0055](../decisions/0055-trusted-world-evolution-inspector.md)。
