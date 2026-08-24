@@ -169,16 +169,29 @@ test("the opt-in world inspector reveals the committed world and individual agen
   await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
   await expect(inspector.getByRole("button", { name: /世界，Revision 1/ })).toBeVisible();
   await expect(inspector.getByRole("heading", { name: "Revision 1" })).toBeVisible();
+  await expect(inspector.getByText("个联合行动")).toBeVisible();
+  await expect(inspector.getByText("认知传播")).toBeVisible();
+  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
   await expect(inspector.getByText(/full · healthy/)).toBeVisible();
 
   await inspector.getByRole("complementary", { name: "主体选择" })
     .getByRole("button", { name: /守门人/ }).click();
-  await inspector.getByRole("button", { name: "仅看此 Agent" }).click();
-  await expect(inspector.getByRole("button", { name: "仅看此 Agent" })).toHaveAttribute("aria-pressed", "true");
-  await inspector.getByRole("button", { name: "变更" }).click();
-  await expect(inspector.getByText("提交前 Agent 状态")).toBeVisible();
-  await inspector.getByRole("button", { name: "模型" }).click();
-  await expect(inspector.getByText("完整日志模式：可查看已记录的上下文和结构化输出。")).toBeVisible();
+  await expect(inspector.getByText("守门人本轮实际行动")).toBeVisible();
+  await expect(inspector.getByText("下一轮计划")).toBeVisible();
+  await expect(inspector.getByText("尚未执行")).toBeVisible();
+  await expect(inspector.getByText("本步最终行动")).toHaveCount(0);
+  await inspector.getByRole("button", { name: "聚焦此 Agent" }).click();
+  await expect(inspector.getByRole("button", { name: "显示全部主体" })).toHaveAttribute("aria-pressed", "true");
+  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
+  const changesTab = inspector.getByRole("tab", { name: "变更" });
+  await changesTab.click();
+  await expect(inspector.getByText("对比提交前后的完整 Agent 状态")).toBeVisible();
+  await changesTab.press("ArrowRight");
+  await expect(inspector.getByRole("tab", { name: "因果" })).toHaveAttribute("aria-selected", "true");
+  await inspector.getByRole("tab", { name: "模型" }).click();
+  await expect(inspector.getByText(/次模型调用/).first()).toBeVisible();
+  await page.setViewportSize({ width: 1_088, height: 988 });
+  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
 
   const publicResponse = await page.request.get(`/api/sessions/${detail.summary.id}`);
   const publicBody = JSON.stringify(await publicResponse.json());

@@ -78,6 +78,18 @@ test("the world evolution workspace matches light/dark desktop/mobile baselines"
       ...screenshotOptions,
       maxDiffPixelRatio: 0.003,
     });
+    await inspector.getByRole("complementary", { name: "主体选择" })
+      .getByRole("button", { name: /守门人/ }).click();
+    await inspector.getByRole("button", { name: "聚焦此 Agent" }).click();
+    await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
+    await expect(inspector.getByText("守门人本轮实际行动")).toBeVisible();
+    await expect(page).toHaveScreenshot(`world-inspector-${colorScheme}-agent-desktop.png`, {
+      ...screenshotOptions,
+      maxDiffPixelRatio: 0.003,
+    });
+    await inspector.getByRole("button", { name: "显示全部主体" }).click();
+    await inspector.getByRole("complementary", { name: "主体选择" })
+      .getByRole("button", { name: /整个世界/ }).click();
     await page.keyboard.press("Escape");
 
     await page.setViewportSize({ width: 390, height: 844 });

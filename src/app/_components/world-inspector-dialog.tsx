@@ -4,12 +4,11 @@ import {
   ArrowDownToLine,
   Binoculars,
   CircleDot,
+  Focus,
   GitBranch,
   ListTree,
   LocateFixed,
   Network,
-  PanelLeftClose,
-  PanelLeftOpen,
   RefreshCw,
   Search,
   Users,
@@ -298,8 +297,8 @@ export default function WorldInspectorDialog({
           onClick={() => setIsolateActor((value) => !value)}
           type="button"
         >
-          {isolateActor ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
-          仅看此 Agent
+          {isolateActor ? <Users aria-hidden="true" /> : <Focus aria-hidden="true" />}
+          {isolateActor ? "显示全部主体" : "聚焦此 Agent"}
         </button>
         <button
           aria-pressed={followLatest}
@@ -419,6 +418,7 @@ export default function WorldInspectorDialog({
 
           <WorldInspectorDetail
             actorId={selectedActorId}
+            actorName={selectedActor?.name ?? (selectedActorId === "world" ? "整个世界" : selectedActorId)}
             detail={detail}
             error={detailError}
             key={selectedNodeId ?? "empty"}

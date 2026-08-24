@@ -114,6 +114,20 @@ function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
 
 const nodeTypes = { inspector: InspectorNode };
 
+const minimapColorByKind: Record<WorldInspectorNodeKind, string> = {
+  commit: "var(--cg-inspector-world)",
+  action: "var(--cg-inspector-action)",
+  reaction: "var(--cg-inspector-action)",
+  check: "var(--cg-inspector-check)",
+  random: "var(--cg-inspector-check)",
+  mechanic: "var(--cg-inspector-check)",
+  operation: "var(--cg-inspector-world)",
+  event: "var(--cg-inspector-world)",
+  observation: "var(--cg-inspector-mind)",
+  mind: "var(--cg-inspector-mind)",
+  attempt: "var(--cg-inspector-attempt)",
+};
+
 type SemanticZoom = "far" | "mid" | "near";
 
 function semanticZoomLevel(zoom: number): SemanticZoom {
@@ -281,6 +295,10 @@ export function WorldInspectorGraph({
 
   const layoutReady = visibleSummaries.length > 0 &&
     visibleSummaries.every((summary) => positions[summary.id] !== undefined);
+  const minimapLayoutKey = visibleSummaries.map((summary) => {
+    const position = positions[summary.id] ?? provisionalPositions[summary.id] ?? { x: 0, y: 0 };
+    return `${summary.id}:${position.x}:${position.y}`;
+  }).join("|");
 
   return (
     <div
@@ -317,14 +335,20 @@ export function WorldInspectorGraph({
         proOptions={{ hideAttribution: true }}
       >
         <Background color="var(--cg-inspector-grid)" gap={28} size={1} variant={BackgroundVariant.Dots} />
-        <MiniMap
-          ariaLabel="世界演化图缩略导航"
-          className="cg-inspector-minimap"
-          maskColor="var(--cg-inspector-minimap-mask)"
-          nodeColor="var(--cg-inspector-minimap-node)"
-          pannable
-          zoomable
-        />
+        {layoutReady && (
+          <MiniMap<InspectorFlowNode>
+            ariaLabel="世界演化图缩略导航"
+            className="cg-inspector-minimap"
+            key={minimapLayoutKey}
+            maskColor="var(--cg-inspector-minimap-mask)"
+            nodeBorderRadius={8}
+            nodeColor={(node) => minimapColorByKind[node.data.summary.kind]}
+            nodeStrokeColor="var(--cg-background)"
+            nodeStrokeWidth={2}
+            pannable
+            zoomable
+          />
+        )}
         <Controls className="cg-inspector-controls" position="bottom-left" showInteractive={false} />
         <Panel className="cg-inspector-legend" position="top-left">
           <span><i data-kind="commit" />提交</span>
