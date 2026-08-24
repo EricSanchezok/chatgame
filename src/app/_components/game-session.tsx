@@ -25,7 +25,6 @@ import {
   type WorldRunRecordView,
   type WorldRunSnapshot,
 } from "../../shared/world-api";
-import { CURRENT_SESSION_KEY } from "../_lib/browser-state";
 import { runsToMessages } from "../_lib/run-messages";
 import { WorldApiError, worldApi } from "../lib/world-api-client";
 import { ControlOrb } from "./control-orb";
@@ -460,10 +459,6 @@ export function GameSession({ sessionId }: { sessionId: string }) {
     document.addEventListener("visibilitychange", refreshWhenVisible);
     const initialLoad = window.setTimeout(() => {
       void reconcileAndObserve()
-        .then((result) => {
-          if (!active || !result) return;
-          localStorage.setItem(CURRENT_SESSION_KEY, sessionId);
-        })
         .catch((reason: unknown) => {
           if (active) reportActionError(reason);
         })
@@ -782,7 +777,7 @@ export function GameSession({ sessionId }: { sessionId: string }) {
       <main className="cg-game-loading">
         <h1>无法进入这个世界</h1>
         <p className="cg-alert" role="alert">{actionError || "存档不存在或已经损坏。"}</p>
-        <Link className="cg-text-link" href="/saves">返回存档</Link>
+        <Link className="cg-text-link" href="/worlds">返回世界包</Link>
       </main>
     );
   }
