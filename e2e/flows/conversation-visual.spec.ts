@@ -18,6 +18,10 @@ test("the conversation and controls match light/dark desktop/mobile baselines", 
     await page.goto(`/play/${detail.summary.id}`);
     await expect(page.getByRole("heading", { name: "你想做什么？" })).toBeVisible();
     await expect(page).toHaveScreenshot(`conversation-${colorScheme}-desktop.png`, screenshotOptions);
+    await expect(page.locator(".aui-composer-shell")).toHaveScreenshot(
+      `conversation-${colorScheme}-composer-focus.png`,
+      { animations: "disabled", maxDiffPixelRatio: 0.005 },
+    );
 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page).toHaveScreenshot(`conversation-${colorScheme}-mobile.png`, screenshotOptions);

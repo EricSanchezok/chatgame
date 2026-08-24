@@ -36,9 +36,9 @@ Class: architecture
 
 `GameSession` 只负责 API、SSE、重连、并发操作和 External Store；WorldRun 公开表现与 `Thread` 视图独立。运行中只出现真实可执行的停止操作；请求已提交但尚未确认 run 时保持发送锁并显示确认状态，不伪造可取消能力。网络与连接异常进入会话轴 live region，不恢复可见 session header。
 
-全产品以 `next-themes` 作为主题偏好的唯一来源，支持 `system | light | dark`，默认 `system`。根布局用 `.dark` 切换 assistant-ui 明暗 OKLCH 语义色，并映射为唯一 `--cg-*` token；Tailwind 颜色也只能消费这些 token。正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。设置页只写 next-themes 偏好；原文字缩放和减少动效偏好继续独立存在。
+全产品以 `next-themes` 作为主题偏好的唯一来源，支持 `system | light | dark`，默认 `system`。根布局用 `.dark` 切换 assistant-ui 明暗 OKLCH 语义色，并映射为唯一 `--cg-*` token；Tailwind 颜色也只能消费这些 token。键盘焦点统一使用明暗主题分别验证的蓝色 `--cg-ring`，普通组件只在 `:focus-visible` 绘制指示，composer 保持静态边框并用同一 token 的柔和外层光晕表示输入焦点，forced-colors 使用系统 `Highlight`。正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。设置页只写 next-themes 偏好；原文字缩放和减少动效偏好继续独立存在。
 
-桌面控制球为 56px 圆形表盘，接收世界名、存档名、step、elapsedSeconds 和 `running | confirming | saved` 公开状态。Pointer Events 拖动只通过 `requestAnimationFrame + translate3d` 更新，松手吸附最近左右边缘并持久化 `{ edge, y }` 到 `livingworld:control-position:v2`；`y` 为归一化坐标，视口变化后重新限制在安全区与 composer 排除区。旧四角键直接废弃。桌面点击向页面内侧径向展开四个真实导航动作和状态卡，方位随边缘及垂直空间翻转；移动端点击在当前 `/play/:sessionId` 内打开有焦点约束的底部 Sheet，独立 `/control` 路由删除。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home，关闭后焦点返回球体。
+桌面控制球为 56px 圆形表盘，接收世界名、存档名、step、elapsedSeconds 和 `running | confirming | saved` 公开状态。Pointer Events 拖动只通过 `requestAnimationFrame + translate3d` 更新，松手吸附最近左右边缘并持久化 `{ edge, y }` 到 `livingworld:control-position:v2`；`y` 为归一化坐标，视口变化后重新限制在安全区与 composer 排除区。旧四角键直接废弃。桌面点击向页面内侧径向展开四个真实导航动作和状态卡，方位随边缘及垂直空间翻转；状态卡位置由当前方位的完整按钮包络计算，并在按钮实体边缘外保留 32px 间距。移动端点击在当前 `/play/:sessionId` 内打开有焦点约束的底部 Sheet，独立 `/control` 路由删除。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home，关闭后焦点返回球体。
 
 ### Consequences
 
@@ -78,3 +78,4 @@ Class: architecture
 - [0049](0049-world-run-failure-and-stream-boundaries.md) — 失败、重试、放弃和流边界。
 - [表现层参考](../game-design/presentation.md) — 当前会话布局、主题、控制球和消息投影规格。
 - [事故复盘 0017](../postmortems/0017-assistant-ui-visual-baseline-drift.md) — 旧实现为何逃过评审和测试。
+- [事故复盘 0018](../postmortems/0018-focus-ring-and-orb-card-collision.md) — 焦点边框和状态卡碰撞为何逃过首轮重建验证。

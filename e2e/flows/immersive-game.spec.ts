@@ -102,6 +102,9 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
 
   await orb.click();
   await expect(page.getByRole("button", { name: "存档" })).toBeVisible();
+  const statusCard = page.locator(".cg-orb__card");
+  const cardBox = await statusCard.boundingBox();
+  expect(cardBox).not.toBeNull();
   for (const action of await page.locator(".cg-orb__action").all()) {
     const box = await action.boundingBox();
     expect(box).not.toBeNull();
@@ -109,6 +112,11 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
     expect(box!.y).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(1_440);
     expect(box!.y + box!.height).toBeLessThanOrEqual(900);
+    const overlapsCard = box!.x < cardBox!.x + cardBox!.width &&
+      box!.x + box!.width > cardBox!.x &&
+      box!.y < cardBox!.y + cardBox!.height &&
+      box!.y + box!.height > cardBox!.y;
+    expect(overlapsCard).toBe(false);
   }
   await page.getByRole("button", { name: /关闭游戏控制/ }).click();
 
@@ -137,6 +145,30 @@ test("the official thread axis keeps the composer anchored after every message",
 
   const composer = page.getByLabel("你的行动");
   const shell = page.locator(".aui-composer-shell");
+  await composer.blur();
+  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element).boxShadow)).toBe("none");
+  const restingBorderColor = await shell.evaluate((element) => {
+    const context = document.createElement("canvas").getContext("2d")!;
+    context.fillStyle = getComputedStyle(element).borderColor;
+    context.fillRect(0, 0, 1, 1);
+    return [...context.getImageData(0, 0, 1, 1).data];
+  });
+  await composer.focus();
+  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+  const focusedStyle = await shell.evaluate((element) => ({
+    borderColor: (() => {
+      const context = document.createElement("canvas").getContext("2d")!;
+      context.fillStyle = getComputedStyle(element).borderColor;
+      context.fillRect(0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data];
+    })(),
+    boxShadow: getComputedStyle(element).boxShadow,
+    ringColor: getComputedStyle(document.documentElement).getPropertyValue("--cg-ring").trim(),
+    foregroundColor: getComputedStyle(document.documentElement).getPropertyValue("--cg-foreground").trim(),
+  }));
+  expect(focusedStyle.boxShadow).not.toBe("none");
+  expect(focusedStyle.ringColor).not.toBe(focusedStyle.foregroundColor);
+  expect(focusedStyle.borderColor).toEqual(restingBorderColor);
   const emptyBox = await shell.boundingBox();
   expect(emptyBox).not.toBeNull();
   expect(Math.abs((emptyBox!.y + emptyBox!.height / 2) - 450)).toBeLessThan(80);

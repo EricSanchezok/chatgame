@@ -27,6 +27,7 @@ import {
   moveControlPosition,
   positionFromPixels,
   positionToPixels,
+  radialCardOffset,
   radialOffsets,
   verticalZone,
   type ControlPosition,
@@ -53,6 +54,10 @@ type OrbStyle = CSSProperties & {
   "--cg-action-index"?: number;
   "--cg-action-x"?: string;
   "--cg-action-y"?: string;
+};
+
+type OrbCardStyle = CSSProperties & {
+  "--cg-card-target-x"?: string;
 };
 
 interface DragState {
@@ -332,6 +337,12 @@ export function ControlOrb({
 
   const zone = verticalZone(position.y);
   const offsets = radialOffsets(position.edge, zone);
+  const cardOffset = radialCardOffset(position.edge, offsets);
+  const cardStyle: OrbCardStyle = {
+    "--cg-card-target-x": position.edge === "left"
+      ? `${cardOffset}px`
+      : `calc(-100% - ${cardOffset}px)`,
+  };
   const label = `${phaseLabel(status.phase)}；第 ${status.step} 步；世界时间 ${fullTime(status.elapsedSeconds)}`;
 
   return (
@@ -401,6 +412,7 @@ export function ControlOrb({
           className="cg-orb__card"
           data-edge={position.edge}
           data-zone={zone}
+          style={cardStyle}
         >
           <h2>{status.worldName}</h2>
           <p>{status.sessionTitle}</p>

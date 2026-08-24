@@ -6,6 +6,10 @@ import {
   parseControlPosition,
   positionFromPixels,
   positionToPixels,
+  radialActionInset,
+  radialActionSize,
+  radialCardGap,
+  radialCardOffset,
   radialOffsets,
   verticalZone,
 } from "../control-orb-position";
@@ -50,5 +54,21 @@ describe("control orb position", () => {
     expect(verticalZone(0.9)).toBe("bottom");
     expect(radialOffsets("right", "bottom").every(([x, y]) => x <= 0 && y <= 0)).toBe(true);
     expect(radialOffsets("left", "top").every(([x, y]) => x >= 0 && y >= 0)).toBe(true);
+  });
+
+  it("places the status card beyond the complete radial action envelope", () => {
+    for (const edge of ["left", "right"] as const) {
+      for (const zone of ["top", "middle", "bottom"] as const) {
+        const offsets = radialOffsets(edge, zone);
+        const cardOffset = radialCardOffset(edge, offsets);
+        if (edge === "left") {
+          const actionRight = Math.max(...offsets.map(([x]) => radialActionInset + x + radialActionSize));
+          expect(cardOffset - actionRight).toBe(radialCardGap);
+        } else {
+          const actionLeft = Math.min(...offsets.map(([x]) => radialActionInset + x));
+          expect(actionLeft - (-cardOffset)).toBe(radialCardGap);
+        }
+      }
+    }
   });
 });
