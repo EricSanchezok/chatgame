@@ -4,7 +4,7 @@ import { RecordingRuntimeObserver } from "../../../engine/observability";
 import { DeterministicModelProvider } from "../../../engine/testing/model-provider";
 import { loadWorldScript } from "../../../script/world-loader";
 import { MemoryWorldRepository } from "../../../script/world-repository";
-import { WorldHost } from "../../../server/world-host";
+import { WorldHost, type WorldHostOptions } from "../../../server/world-host";
 import { MemoryWorldSessionStore } from "../../../server/world-session-store";
 import { GET as streamEvents } from "../sessions/[id]/runs/[runId]/events/route";
 import { POST as continueRun } from "../sessions/[id]/runs/[runId]/inputs/route";
@@ -17,17 +17,22 @@ import {
 } from "../sessions/[id]/route";
 import { GET as listSessions, POST as createSession } from "../sessions/route";
 import { GET as listWorlds } from "../worlds/route";
+import { DELETE as deleteWorld } from "../worlds/[id]/route";
 import { errorResponse } from "../h";
 
 const fixtureRoot = path.resolve("test/fixtures/open-world-script");
 
-function installHost(observer?: RecordingRuntimeObserver): WorldHost {
+function installHost(
+  observer?: RecordingRuntimeObserver,
+  importer?: WorldHostOptions["importer"],
+): WorldHost {
   let id = 0;
   const provider = new DeterministicModelProvider();
   const definition = loadWorldScript(fixtureRoot, { modelCatalog: provider.catalog });
   const host = new WorldHost({
     repository: new MemoryWorldRepository({ [definition.id]: definition }),
     store: new MemoryWorldSessionStore(observer),
+    importer,
     provider,
     idFactory: () => `route-${++id}`,
     now: () => new Date("2026-08-23T00:00:00.000Z"),
@@ -80,6 +85,22 @@ describe("world API routes", () => {
       { params: Promise.resolve({ id: session.summary.id }) },
     );
     expect(response.status).toBe(400);
+  });
+
+  it("deletes an explicitly addressed installed world", async () => {
+    const deleted: string[] = [];
+    installHost(undefined, {
+      importWorld: () => { throw new Error("unused"); },
+      deleteWorld: (worldId) => { deleted.push(worldId); },
+    });
+
+    const response = await deleteWorld(
+      new Request("http://local/api/worlds/open-world-fixture", { method: "DELETE" }),
+      { params: Promise.resolve({ id: "open-world-fixture" }) },
+    );
+
+    expect(response.status).toBe(204);
+    expect(deleted).toEqual(["open-world-fixture"]);
   });
 
   it("lists, renames, reads, and deletes an explicitly addressed session", async () => {

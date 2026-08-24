@@ -337,10 +337,21 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     return buildWorldDefinition(template, { seed, modelCatalog, rulePackages: this.rulePackages });
   }
 
-  importWorld(buffer: Buffer, modelCatalog: ModelCatalog, replace = false): WorldImportResult {
+  importWorld(
+    buffer: Buffer,
+    modelCatalog: ModelCatalog,
+    replace = false,
+    expectedWorldId?: string,
+  ): WorldImportResult {
     const archive = parseWorldArchive(buffer, modelCatalog, this.rulePackages);
     return this.connection.transaction(() => {
       this.assertInstanceLease();
+      if (expectedWorldId !== undefined && archive.id !== expectedWorldId) {
+        throw new WorldImportError(
+          `archive world ${archive.id} does not match expected world ${expectedWorldId}`,
+          409,
+        );
+      }
       const current = this.connection.prepare("SELECT current_content_hash FROM world_catalog WHERE world_id = ?")
         .get(archive.id) as { current_content_hash: string } | undefined;
       if (current && !replace) throw new WorldImportError(`world ${archive.id} already exists`, 409);
@@ -370,6 +381,20 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
         description: archive.description,
         replaced: Boolean(current),
       };
+    })();
+  }
+
+  deleteWorld(worldId: string): void {
+    this.connection.transaction(() => {
+      this.assertInstanceLease();
+      const installed = this.connection.prepare("SELECT 1 FROM world_catalog WHERE world_id = ?")
+        .get(worldId) as { 1: number } | undefined;
+      if (!installed) throw new WorldImportError(`world ${worldId} not found`, 404);
+      const session = this.connection.prepare("SELECT 1 FROM world_sessions WHERE world_id = ? LIMIT 1")
+        .get(worldId) as { 1: number } | undefined;
+      if (session) throw new WorldImportError(`world ${worldId} still has saved sessions`, 409);
+      this.connection.prepare("DELETE FROM world_catalog WHERE world_id = ?").run(worldId);
+      this.connection.prepare("DELETE FROM world_versions WHERE world_id = ?").run(worldId);
     })();
   }
 

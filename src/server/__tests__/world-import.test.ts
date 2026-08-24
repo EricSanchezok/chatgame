@@ -166,6 +166,37 @@ describe("world import", () => {
     database.close();
   });
 
+  it("rejects an update archive for a different world before mutating the catalog", () => {
+    const root = temporaryRoot();
+    const archive = zipDirectory(fixture).toBuffer();
+    const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
+    database.importWorld(archive, modelCatalog);
+
+    expect(() => database.importWorld(archive, modelCatalog, true, "another-world"))
+      .toThrow("does not match expected world");
+    expect(database.list()).toEqual([expect.objectContaining({ id: "open-world-fixture", version: "1.0.0" })]);
+    database.close();
+  });
+
+  it("uninstalls only worlds with no saved sessions", async () => {
+    const root = temporaryRoot();
+    const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
+    const provider = new DeterministicModelProvider();
+    const archive = zipDirectory(fixture).toBuffer();
+    database.importWorld(archive, provider.catalog);
+    const host = new WorldHost({ repository: database, store: database, importer: database, provider });
+    const session = await host.createSession({ worldId: "open-world-fixture" });
+
+    expect(() => host.deleteWorld("open-world-fixture")).toThrow("still has saved sessions");
+    expect(host.listWorlds()).toEqual([expect.objectContaining({ id: "open-world-fixture" })]);
+    host.deleteSession(session.summary.id);
+    host.deleteWorld("open-world-fixture");
+
+    expect(host.listWorlds()).toEqual([]);
+    expect(() => host.deleteWorld("open-world-fixture")).toThrow("not found");
+    database.close();
+  });
+
   it("pins existing sessions to their embedded world contract after replacement and restart", async () => {
     const root = temporaryRoot();
     const databaseFile = path.join(root, "livingworld.sqlite");
