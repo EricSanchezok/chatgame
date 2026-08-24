@@ -20,7 +20,7 @@ test("the conversation and controls match light/dark desktop/mobile baselines", 
     await expect(page).toHaveScreenshot(`conversation-${colorScheme}-desktop.png`, screenshotOptions);
     await expect(page.locator(".aui-composer-shell")).toHaveScreenshot(
       `conversation-${colorScheme}-composer-focus.png`,
-      { animations: "disabled", maxDiffPixelRatio: 0.005 },
+      { animations: "disabled", maxDiffPixels: 160 },
     );
 
     await page.setViewportSize({ width: 390, height: 844 });

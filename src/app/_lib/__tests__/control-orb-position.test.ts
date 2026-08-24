@@ -7,6 +7,7 @@ import {
   positionFromPixels,
   positionToPixels,
   radialActionInset,
+  radialActionRadius,
   radialActionSize,
   radialCardGap,
   radialCardOffset,
@@ -54,6 +55,24 @@ describe("control orb position", () => {
     expect(verticalZone(0.9)).toBe("bottom");
     expect(radialOffsets("right", "bottom").every(([x, y]) => x <= 0 && y <= 0)).toBe(true);
     expect(radialOffsets("left", "top").every(([x, y]) => x >= 0 && y >= 0)).toBe(true);
+    expect(radialOffsets("left", "middle")).toHaveLength(3);
+  });
+
+  it("places every radial action on one symmetric arc", () => {
+    for (const edge of ["left", "right"] as const) {
+      for (const zone of ["top", "middle", "bottom"] as const) {
+        const offsets = radialOffsets(edge, zone);
+        for (const [x, y] of offsets) {
+          expect(Math.hypot(x, y)).toBeCloseTo(radialActionRadius, 8);
+        }
+      }
+    }
+
+    const [horizontal, diagonal, vertical] = radialOffsets("right", "bottom");
+    expect(horizontal).toEqual([-radialActionRadius, 0]);
+    expect(diagonal[0]).toBeCloseTo(-radialActionRadius / Math.SQRT2, 8);
+    expect(diagonal[1]).toBeCloseTo(-radialActionRadius / Math.SQRT2, 8);
+    expect(vertical).toEqual([0, -radialActionRadius]);
   });
 
   it("places the status card beyond the complete radial action envelope", () => {

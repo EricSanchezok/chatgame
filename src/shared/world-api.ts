@@ -1,4 +1,4 @@
-export const WORLD_API_VERSION = 4 as const;
+export const WORLD_API_VERSION = 5 as const;
 
 export interface WorldSummary {
   id: string;

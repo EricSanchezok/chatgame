@@ -127,13 +127,11 @@ const CopyOnlyText: TextMessagePartComponent = () => null;
 function UserMessage() {
   return (
     <MessagePrimitive.Root
-      className="animate-in fade-in slide-in-from-bottom-1 grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 motion-reduce:animate-none [&:where(>*)]:col-start-2"
+      className="animate-in fade-in slide-in-from-bottom-1 flex w-full justify-end px-2 duration-150 motion-reduce:animate-none"
       data-role="user"
     >
-      <div className="col-start-2 min-w-0">
-        <div className="max-w-[min(85%,34rem)] rounded-xl bg-muted px-4 py-2 text-foreground wrap-break-word">
-          <MessagePrimitive.Parts components={{ Text: UserText }} />
-        </div>
+      <div className="aui-user-message-bubble rounded-xl bg-muted px-4 py-2 text-foreground">
+        <MessagePrimitive.Parts components={{ Text: UserText }} />
       </div>
     </MessagePrimitive.Root>
   );
@@ -206,7 +204,7 @@ function Composer({
   const autoFocus = useDesktopAutoFocus();
   return (
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
-      <div className="aui-composer-shell flex w-full cursor-text flex-col gap-2 rounded-3xl border border-border bg-card p-2 transition-[box-shadow]">
+      <div className="aui-composer-shell flex w-full cursor-text flex-col gap-2 rounded-3xl border border-border bg-card p-2">
         <ComposerPrimitive.Input
           aria-label={awaitingPlayer ? "补充信息" : "你的行动"}
           autoFocus={autoFocus}

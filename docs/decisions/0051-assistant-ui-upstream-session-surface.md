@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0052](0052-persistent-game-context-and-world-library.md)
 Class: architecture
 
 ## Context and Problem Statement
