@@ -1,4 +1,4 @@
-# 世界剧本格式 v5
+# 世界剧本格式 v6
 
 世界包是一个严格目录。它定义初始世界与法则，不定义玩家动作，不携带可执行代码或客户端 UI。
 
@@ -16,12 +16,12 @@ world-id/
 
 根目录只允许这四个文件和 `entities/`；实体目录只允许普通 `.yaml`/`.yml` 文件。额外目录、额外文件和符号链接都拒绝。至少需要一个实体。`actions.yaml`、`engine/`、`ui/` 与任何旧格式模块都是错误。
 
-所有对象使用 strict zod schema，未知字段拒绝。YAML ID 应稳定且在相应命名空间唯一；`__proto__`、`prototype` 与 `constructor` 是保留对象键，不能用作 ID。
+所有对象使用 strict zod schema，未知字段拒绝。语义 ID 必须是 NFC，不能带首尾空白或控制字符，规范 UTF-8 最多 128 字节，并在相应命名空间永久单义；`__proto__`、`prototype`、`constructor`、`player` Agent ID 与 `rt:` 前缀是保留身份，不能由世界内容占用。运行时发生记录使用引擎专有的 `rt:<kind>:<sha256>` 命名空间。
 
 ## `script.yaml`
 
 ```yaml
-schema_version: 5
+schema_version: 6
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
@@ -182,7 +182,7 @@ agent:
       - { local_entity_id: traveler, canonical_entity_ids: [player] }
 ```
 
-`placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。`model_profiles` 的三个必填字段分别引用允许 `agent-bootstrap`、`agent-mind` 与 `agent-reaction` 的 Profile；不同调用点和不同 Agent 都可独立选择 Provider/Profile。
+`placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。Agent ID 不能是 `player`，Agent 不能绑定玩家实体，不同 Agent 也不能共享 canonical entity；删除后的 Agent ID 在世界历史中不能重新创建。`model_profiles` 的三个必填字段分别引用允许 `agent-bootstrap`、`agent-mind` 与 `agent-reaction` 的 Profile；不同调用点和不同 Agent 都可独立选择 Provider/Profile。
 
 loader 对规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 entities 计算 `worldHash`；random distribution 的有序 steps 和 outcome 槽位因此参与内容身份。YAML 中的初始 Fact 不声明 provenance；运行态统一生成 `{ kind: "world_seed", id: worldHash }`，不得借用任意 Law 伪装世界种子来源。
 
@@ -192,7 +192,7 @@ loader 对规范化 manifest、laws、mechanics、player 与按实体 ID 排序�
 
 trait/value 使用开放 `description`、0–1 strength 和默认 active 的 status。emotion 使用开放描述、0–1 intensity 和 active/resolved；attitude 额外以 `subject_id` 指向本 Agent belief 中的局部实体，并使用 active/retired。
 
-goal 包含开放 description、0–1 priority/progress、局部 `target_ids`、可选 `parent_goal_id`、指向 trait/value/commitment 的 `motivated_by_ids`，状态默认为 active，也可为 suspended/completed/failed/abandoned。commitment 包含开放 description、0–1 priority、局部 `subject_ids`，状态默认为 active，也可为 fulfilled/broken/released。
+goal 包含开放 description、0–1 priority/progress、局部 `target_ids`、可选 `parent_goal_id`、指向 trait/value/commitment 的 `motivated_by_ids`，状态默认为 active，也可为 suspended/completed/failed/abandoned。trait、value 与 commitment 在同一 Agent 内共享 ID 命名空间，使未带 kind 的动机引用保持单义。commitment 包含开放 description、0–1 priority、局部 `subject_ids`，状态默认为 active，也可为 fulfilled/broken/released。
 
 每层记录可用 `evidence_ids` 引用 belief seed evidence。剧本不填写 created/updated step；loader 在初始步骤写入 0，动态创建由事务内核写入创建步骤。运行时演化规则见 [引擎运行时规格](engine-runtime.md#agent-character)。
 
@@ -235,4 +235,4 @@ loader 验证实体、placement、fact entity value、Agent entity、唯一 self
 
 格式不限制地点层级、实体 kind、predicate、Agent 人格或目标。大陆、位面、宗门、城市和房间都可以是实体并由 placement 组织。loader 一次加载完整包；作者应根据模型上下文与 Agent 成本控制初始活动规模。
 
-loader 只接受 `schema_version: 5`。旧世界包直接拒绝，不提供兼容字段或迁移路径。超大内容的分片与按需加载尚未成为 v5 契约。
+loader 只接受 `schema_version: 6`。旧世界包直接拒绝，不提供兼容字段或迁移路径。超大内容的分片与按需加载尚未成为 v6 契约。

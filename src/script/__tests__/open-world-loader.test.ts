@@ -11,6 +11,7 @@ import {
 } from "../../engine/random-limits";
 import type { DiscreteRandomDefinition } from "../../engine/model";
 import { createTestModelCatalog } from "../../engine/testing/model-provider";
+import { quantityId } from "../../engine/runtime-id";
 import { loadWorldScript } from "../world-loader";
 
 const fixture = path.resolve("test/fixtures/open-world-script");
@@ -58,7 +59,9 @@ describe("open world script loader", () => {
       goals: { "guard-gate": { priority: 0.9, progress: 0 } },
       commitments: { "dawn-watch": { subjectIds: ["self"], priority: 0.8 } },
     });
-    expect(definition.initialState.truth.quantities["spirit-stone:keeper"].amount).toBe(20);
+    expect(definition.initialState.truth.quantities[
+      quantityId(definition.contentHash, "spirit-stone", "keeper")
+    ].amount).toBe(20);
     expect(definition.initialState.truth.rng.seed).toBe(91);
     expect(definition.rulePackages).toEqual([expect.objectContaining({
       id: "core-d20",
@@ -127,12 +130,12 @@ describe("open world script loader", () => {
     });
   });
 
-  it("rejects schema v4 worlds and missing or duplicate Agent self bindings", () => {
+  it("rejects schema v5 worlds and missing or duplicate Agent self bindings", () => {
     const oldWorld = copiedFixture();
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 5", "schema_version: 4"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 6", "schema_version: 5"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();

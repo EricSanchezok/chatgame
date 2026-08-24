@@ -27,7 +27,7 @@ Truth Engine 可以声明需要玩家决定，但单字段玩家 intent 无法�
 
 每个输入 ID 在 run 内幂等：相同 ID 与相同规范文本返回现有快照，不启动第二次执行；相同 ID 与不同文本返回冲突。`player.input` 与 `run.execution_started` 是分离事件，后者明确引用本次执行使用的 input ID 和 initial/player_input/retry 原因。
 
-queued、running、awaiting_player、failed 和 step_limit 都由同一个 active intent 拥有。存在 active intent 时拒绝新目标；failed/step_limit 通过 retry 继续，awaiting_player 通过输入继续，明确取消把 intent 和 run 一起终止。状态、run 终态和终态事件在同一 generation compare-and-swap 中提交。
+queued、running、awaiting_player、failed 和 step_limit 都由同一个 active intent 拥有。存在 active intent 时拒绝新目标；只有 `retriable=true` 的 failed 和 step_limit 通过 retry 继续，awaiting_player 通过输入继续，三种暂停边界都能通过 DELETE 明确放弃并把 intent 与 run 一起终止。状态、run 边界和同名末事件在同一 generation compare-and-swap 中提交。
 
 ### Consequences
 
@@ -57,4 +57,5 @@ queued、running、awaiting_player、failed 和 step_limit 都由同一个 activ
 
 - [0033](0033-persistent-streaming-world-runs.md) — WorldRun 生命周期与 SSE。
 - [0041](0041-local-sqlite-runtime.md) — generation CAS 持久化。
+- [0049](0049-world-run-failure-and-stream-boundaries.md) — 可重试失败、放弃与 SSE 边界的完整状态机。
 - [事故复盘 0011](../postmortems/0011-awaiting-player-lost-goal.md) — 促成此契约的失效机制。

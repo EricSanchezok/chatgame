@@ -1,9 +1,11 @@
 import { AgentMind } from "../../engine/agent-mind";
 import type { ModelCatalog } from "../../engine/model-catalog";
 import type {
+  AgentActionDraft,
   AgentActionProposal,
   CausalAssertion,
   TransitionProposal,
+  TransitionProposalDraft,
 } from "../../engine/model";
 import { SimulationEngine } from "../../engine/simulation";
 import { ScriptedModelProvider } from "../../engine/testing/model-provider";
@@ -13,12 +15,9 @@ import type { WorldDefinition } from "../../engine/world-definition";
 
 export const openingDeadlineSettlementSeconds = 108_000;
 
-function nextAgentAction(agentId: string, revision: number): AgentActionProposal {
+function nextAgentAction(agentId: string, revision: number): AgentActionDraft {
   if (revision === 0 && agentId === "sigrun-the-boneless") {
     return {
-      id: `deadline:${agentId}:${revision}`,
-      actorId: agentId,
-      baseRevision: revision,
       rawText: "前哨回报补给车无法继续，我命令纵队停止本轮进军并保存骨干。",
       goal: "取消无法维持的本轮进军",
       means: "向两级指挥链发布停止命令",
@@ -27,9 +26,6 @@ function nextAgentAction(agentId: string, revision: number): AgentActionProposal
   }
   if (revision === 0 && agentId === "rinisar-anothil") {
     return {
-      id: `deadline:${agentId}:${revision}`,
-      actorId: agentId,
-      baseRevision: revision,
       rawText: "撤离条件未成立，我取消本轮 Hydra 诱导并命令小队撤回营地。",
       goal: "取消缺少安全撤离条件的诱导行动",
       means: "通过分段信号召回十五人小队",
@@ -38,9 +34,6 @@ function nextAgentAction(agentId: string, revision: number): AgentActionProposal
   }
   if (revision === 0 && agentId === "lord-travvarn") {
     return {
-      id: `deadline:${agentId}:${revision}`,
-      actorId: agentId,
-      baseRevision: revision,
       rawText: "依照航迹和海况继续航行，完成进入沿岸观察范围的航段。",
       goal: "完成搜索远征的当前抵达航段",
       means: "按既定航线航行并由瞭望确认海岸",
@@ -48,9 +41,6 @@ function nextAgentAction(agentId: string, revision: number): AgentActionProposal
     };
   }
   return {
-    id: `next:${agentId}:${revision}`,
-    actorId: agentId,
-    baseRevision: revision,
     rawText: "继续处理自己能够观察和抵达的事务。",
     goal: "根据本地证据继续履行职责",
     means: null,
@@ -60,8 +50,8 @@ function nextAgentAction(agentId: string, revision: number): AgentActionProposal
 
 function mindOutput(agentId: string, revision: number) {
   return {
-    beliefPatch: { agentId, baseRevision: revision, operations: [] },
-    characterPatch: { agentId, baseRevision: revision, operations: [] },
+    beliefPatch: { operations: [] },
+    characterPatch: { operations: [] },
     nextAction: nextAgentAction(agentId, revision),
   };
 }
@@ -187,10 +177,10 @@ export async function settleBlackmarshOpeningDeadlines(
           ),
           intentStatus: "active",
           requiresPlayerDecision: false,
-        } satisfies TransitionProposal;
+        } satisfies TransitionProposalDraft;
       }
 
-      const operations: TransitionProposal["operations"] = [{
+      const operations: TransitionProposalDraft["operations"] = [{
         kind: "place_entity",
         entityId: "ochre-search-expedition",
         placementId: "sheltered-bay",
@@ -291,7 +281,7 @@ export async function settleBlackmarshOpeningDeadlines(
         ),
         intentStatus: "completed",
         requiresPlayerDecision: false,
-      } satisfies TransitionProposal;
+      } satisfies TransitionProposalDraft;
     }
     if (role === "causal-verifier") {
       verifierCalls += 1;

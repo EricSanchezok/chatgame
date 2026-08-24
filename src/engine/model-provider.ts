@@ -6,6 +6,7 @@ import type {
   ModelTokenUsage,
 } from "./model";
 import type { RuntimeCorrelation, RuntimeObserver } from "./observability";
+import { runtimeId } from "./runtime-id";
 
 export interface ModelExecutionScope {
   workloadId: string;
@@ -13,6 +14,7 @@ export interface ModelExecutionScope {
   abortSignal?: AbortSignal;
   correlation?: RuntimeCorrelation;
   observer?: RuntimeObserver;
+  runtimeIdentity?: { worldHash: string; revision: number };
 }
 
 export interface StructuredModelRequest<T> extends ModelExecutionScope {
@@ -40,10 +42,20 @@ export class ModelOutputError extends Error {
   }
 }
 
+export interface ModelTransportErrorOptions extends ErrorOptions {
+  retriable?: boolean;
+  statusCode?: number | null;
+}
+
 export class ModelTransportError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
+  readonly retriable: boolean;
+  readonly statusCode: number | null;
+
+  constructor(message: string, options: ModelTransportErrorOptions = {}) {
+    super(message, { cause: options.cause });
     this.name = "ModelTransportError";
+    this.retriable = options.retriable ?? false;
+    this.statusCode = options.statusCode ?? null;
   }
 }
 
@@ -51,6 +63,13 @@ export class ModelConfigurationError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "ModelConfigurationError";
+  }
+}
+
+export class ModelSemanticRepairError extends Error {
+  constructor(readonly role: ModelRole, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ModelSemanticRepairError";
   }
 }
 
@@ -153,9 +172,23 @@ export function modelInvocationIdentity(
   subjectId: string,
   ordinal: number,
 ): { modelInvocationId: string; modelInvocation: number } {
-  const prefix = scope.correlation?.stepAttemptId ?? `${scope.workloadId}:${scope.batchId}`;
+  if (!scope.runtimeIdentity) {
+    throw new ModelConfigurationError("canonical model invocation identity requires worldHash and revision");
+  }
+  const { worldHash, revision } = scope.runtimeIdentity;
   return {
-    modelInvocationId: `${prefix}:${role}:${subjectId}:${ordinal}`,
+    modelInvocationId: runtimeId({
+      worldHash,
+      revision,
+      kind: "model-audit",
+      stage: role,
+      // workloadId/batchId are transport correlation (often session/run UUIDs),
+      // never persisted identity coordinates. A retry of the same semantic
+      // model stage must receive the same engine-owned id.
+      owner: subjectId,
+      round: 0,
+      ordinal,
+    }),
     modelInvocation: ordinal,
   };
 }

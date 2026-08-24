@@ -11,10 +11,10 @@ import type {
   CharacterPatch,
   ObservationPacket,
   SimulationState,
-  TransitionProposal,
+  TransitionProposalDraft,
   WorldEvent,
 } from "../model";
-import { ScriptedModelProvider } from "../testing/model-provider";
+import { createTestModelAudit, ScriptedModelProvider } from "../testing/model-provider";
 import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { projectAgentSelfState } from "../self-state";
@@ -22,6 +22,7 @@ import { SimulationEngine } from "../simulation";
 import { createEmptyCharacter, validateSimulationState } from "../transaction";
 import { TruthEngine } from "../truth-engine";
 import type { WorldDefinition } from "../world-definition";
+import { quantityId, runtimeId } from "../runtime-id";
 
 function characterBasis(impact: CharacterImpact = "ordinary") {
   const belief: AgentBeliefState = {
@@ -307,7 +308,10 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
       },
       bindings: { self: { localEntityId: "self", canonicalEntityIds: [id] } },
       nextAction: {
-        id: `prepared:${id}:0`,
+        id: runtimeId({
+          worldHash: TEST_WORLD_HASH, revision: 0, kind: "action", stage: "prepared",
+          owner: id, round: 0, ordinal: 0,
+        }),
         actorId: id,
         baseRevision: 0,
         rawText: "继续站岗",
@@ -318,7 +322,7 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
     };
   }
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     worldId: "reaction-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["time"],
@@ -331,6 +335,7 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
       entities,
       placements,
       facts: {},
+      factTombstones: [],
       mechanics: {
         meters: { health: { id: "health", name: "生命", min: 0, max: 20, thresholds: [] } },
         quantities: {
@@ -341,8 +346,8 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
       meters: Object.fromEntries(agentIds.map((id) => [`health:${id}`, {
         id: `health:${id}`, definitionId: "health", entityId: id, current: 13, firedThresholdIds: [],
       }])),
-      quantities: Object.fromEntries(agentIds.map((id) => [`arrows:${id}`, {
-        id: `arrows:${id}`, definitionId: "arrows", holderId: id, amount: 4,
+      quantities: Object.fromEntries(agentIds.map((id) => [quantityId(TEST_WORLD_HASH, "arrows", id), {
+        id: quantityId(TEST_WORLD_HASH, "arrows", id), definitionId: "arrows", holderId: id, amount: 4,
       }])),
       ratings: Object.fromEntries(agentIds.map((id) => [`reflex:${id}`, {
         id: `reflex:${id}`, definitionId: "reflex", entityId: id, value: 3,
@@ -355,7 +360,14 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
       bindings: {},
     },
     history: [],
-    bootstrapModelAudits: [],
+    bootstrapAgentCommits: agentIds.map((id) => ({
+      agentId: id,
+      beliefPatch: { agentId: id, baseRevision: 0, operations: [] },
+      characterPatch: { agentId: id, baseRevision: 0, operations: [] },
+      nextAction: structuredClone(agents[id].nextAction!),
+    })),
+    bootstrapModelAudits: agentIds.map((id) =>
+      createTestModelAudit("agent-bootstrap", id, TEST_WORLD_HASH)),
   };
 }
 
@@ -393,7 +405,7 @@ function outcomeTransition(context: {
   step: number;
   jointActions: AgentActionProposal[];
   agentEpistemics: Record<string, unknown>;
-}): TransitionProposal {
+}): TransitionProposalDraft {
   const step = context.step + 1;
   const eventId = `event:${step}`;
   return {
@@ -436,14 +448,13 @@ function outcomeTransition(context: {
   };
 }
 
-function emptyMindOutput(agentId: string, revision: number) {
+function emptyMindOutput(_agentId: string, _revision: number) {
+  void _agentId;
+  void _revision;
   return {
-    beliefPatch: { agentId, baseRevision: revision, operations: [] },
-    characterPatch: { agentId, baseRevision: revision, operations: [] },
+    beliefPatch: { operations: [] },
+    characterPatch: { operations: [] },
     nextAction: {
-      id: `next:${agentId}:${revision}`,
-      actorId: agentId,
-      baseRevision: revision,
       rawText: "等待下一步",
       goal: "继续观察",
       means: null,
@@ -452,12 +463,9 @@ function emptyMindOutput(agentId: string, revision: number) {
   };
 }
 
-function stimulus(agentId: string, sourceActionId: string): ObservationPacket {
+function stimulus(agentId: string, sourceActionId: string) {
   return {
     id: `stimulus:${agentId}:1`,
-    observerId: agentId,
-    step: 1,
-    kind: "stimulus",
     summary: "旅人正在对你说：请回答我。",
     introductions: [{
       localEntity: { id: "speaker", name: "说话的旅人", description: "正在和我说话的人", status: "observed" },
@@ -470,7 +478,6 @@ function stimulus(agentId: string, sourceActionId: string): ObservationPacket {
       value: { kind: "text", value: sourceActionId },
       description: "对方正在等待回答。",
     }],
-    sourceEventIds: [],
   };
 }
 
@@ -581,7 +588,6 @@ describe("Agent self state and reaction protocol", () => {
             kind: "request_reactions",
             requests: ["keeper", "scribe"].map((agentId) => ({
               agentId,
-              sourceActionId: playerAction.id,
               stimulus: stimulus(agentId, playerAction.id),
               basis: [{ kind: "shared_placement", placementId: "room" }],
             })),
@@ -613,13 +619,7 @@ describe("Agent self state and reaction protocol", () => {
         reactionCalls += 1;
         return {
           kind: "replace",
-          agentId: context.agent.id,
-          baseRevision: context.revision,
-          originalProposalId: context.originalAction.id,
           replacementAction: {
-            id: `reply:${context.agent.id}:0`,
-            actorId: context.agent.id,
-            baseRevision: context.revision,
             rawText: `${context.agent.id} 当场回答旅人`,
             goal: "回应刚刚听见的话",
             means: null,
@@ -640,31 +640,122 @@ describe("Agent self state and reaction protocol", () => {
 
     expect(reactionCalls).toBe(2);
     expect(result.committed.initialActions.filter((action) => action.actorId !== "player")
-      .every((action) => action.id.startsWith("prepared:"))).toBe(true);
+      .every((action) => action.id.startsWith("rt:action:"))).toBe(true);
     expect(result.committed.actions.filter((action) => action.actorId !== "player")
-      .every((action) => action.id.startsWith("reply:"))).toBe(true);
+      .every((action) => action.id.startsWith("rt:action:") &&
+        !result.committed.initialActions.some((initial) => initial.id === action.id))).toBe(true);
     expect(result.committed.reactionRequests).toHaveLength(2);
     expect(result.committed.modelAudits.filter((audit) => audit.role === "agent-reaction")).toHaveLength(2);
     expect(result.committed.observations.filter((packet) => packet.kind === "stimulus")).toHaveLength(2);
     expect(result.committed.outcomes.map((outcome) => outcome.proposalId))
-      .toEqual(expect.arrayContaining(["reply:keeper:0", "reply:scribe:0"]));
+      .toEqual(expect.arrayContaining(result.committed.actions.map((action) => action.id)));
     expect(result.committed.commitmentRounds).toEqual([{
       kind: "check",
       phase: "resolution",
-      requestIds: ["reply-resolution-check"],
+      requestIds: [result.committed.checkRequests[0].id],
     }]);
     expect(result.state.agents.keeper.belief.localEntities.speaker).toBeDefined();
     validateSimulationState(result.state, true, true);
 
+    const forgedAuditId = structuredClone(result.state);
+    const forgedAuditStep = forgedAuditId.history[0];
+    forgedAuditStep.modelAudits.find((audit) => audit.role === "agent-mind")!
+      .invocations[0].id = `rt:model-audit:${"0".repeat(64)}`;
+    forgedAuditStep.contentHash = contentHash(Object.fromEntries(
+      Object.entries(forgedAuditStep).filter(([key]) => key !== "contentHash"),
+    ));
+    expect(() => validateSimulationState(forgedAuditId, true, true))
+      .toThrow("invalid model invocation identity");
+
+    const nextActionTampered = structuredClone(result.state);
+    nextActionTampered.agents.keeper.nextAction!.rawText = "被篡改的下一行动";
+    expect(() => validateSimulationState(nextActionTampered, true, true))
+      .toThrow("does not match replayed committed cognition");
+
+    const committedNextActionTampered = structuredClone(result.state);
+    const committedNextStep = committedNextActionTampered.history[0];
+    committedNextStep.nextActions.find((action) => action.actorId === "keeper")!.rawText = "伪造提交";
+    committedNextStep.contentHash = contentHash(Object.fromEntries(
+      Object.entries(committedNextStep).filter(([key]) => key !== "contentHash"),
+    ));
+    expect(() => validateSimulationState(committedNextActionTampered, true, true))
+      .toThrow("does not match replayed committed cognition");
+
+    const cognitionTampered = structuredClone(result.state);
+    cognitionTampered.agents.keeper.character.persona.summary = "伪造人格";
+    cognitionTampered.agents.keeper.belief.evidence.forged = {
+      id: "forged",
+      kind: "assumption",
+      description: "没有进入提交账本的伪造证据。",
+      sourceId: null,
+      step: cognitionTampered.step,
+    };
+    cognitionTampered.agents.keeper.belief.claims.forged = {
+      id: "forged",
+      subjectId: "self",
+      predicate: "forged_claim",
+      value: { kind: "boolean", value: true },
+      description: "没有进入提交账本的伪造认知。",
+      stance: "believed",
+      confidence: 1,
+      evidenceIds: ["forged"],
+    };
+    expect(() => validateSimulationState(cognitionTampered, true, true))
+      .toThrow("does not match replayed committed cognition");
+
+    const playerInputTampered = structuredClone(result.state);
+    playerInputTampered.player.intent!.goal = "伪造目标";
+    playerInputTampered.player.intent!.inputs[0].text = "伪造目标";
+    playerInputTampered.player.intent!.latestInput.text = "伪造目标";
+    expect(() => validateSimulationState(playerInputTampered, true, true))
+      .toThrow("does not match replayed committed cognition and input ledger");
+
     const initialActionDependent = structuredClone(result.state);
     const initialActionStep = initialActionDependent.history[0];
-    initialActionStep.checkRequests[0].causes = [{ kind: "action", id: "prepared:keeper:0" }];
+    initialActionStep.checkRequests[0].causes = [{
+      kind: "action",
+      id: initialActionStep.initialActions.find((action) => action.actorId === "keeper")!.id,
+    }];
     const initialActionPayload = Object.fromEntries(
       Object.entries(initialActionStep).filter(([key]) => key !== "contentHash"),
     );
     initialActionStep.contentHash = contentHash(initialActionPayload);
     expect(() => validateSimulationState(initialActionDependent, true, true))
-      .toThrow("history check reply-resolution-check references unknown action prepared:keeper:0");
+      .toThrow("references unknown action");
+
+    const claimRebound = structuredClone(result.state);
+    const apparent = claimRebound.history[0].reactionRequests[0].stimulus.apparentClaims[0];
+    claimRebound.agents.keeper.belief.claims[apparent.id] = {
+      id: apparent.id,
+      subjectId: "self",
+      predicate: "forged-binding",
+      value: { kind: "text", value: "篡改" },
+      description: "试图把历史 claim id 绑定到不同语义。",
+      stance: "believed",
+      confidence: 1,
+      evidenceIds: [],
+    };
+    expect(() => validateSimulationState(claimRebound, true, true))
+      .toThrow("does not match replayed committed cognition");
+
+    const localIdentityReused = structuredClone(result.state);
+    const localReuseStep = localIdentityReused.history[0];
+    localReuseStep.observations.find((observation) =>
+      observation.kind === "outcome" && observation.observerId === "keeper")!.introductions.push({
+      localEntity: {
+        id: "speaker",
+        name: "重复说话者",
+        description: "试图在同一历史中重新绑定已引入的局部身份。",
+        status: "observed",
+      },
+      canonicalEntityId: "player",
+    });
+    const localReusePayload = Object.fromEntries(
+      Object.entries(localReuseStep).filter(([key]) => key !== "contentHash"),
+    );
+    localReuseStep.contentHash = contentHash(localReusePayload);
+    expect(() => validateSimulationState(localIdentityReused, true, true))
+      .toThrow("reuses local identity speaker");
   });
 
   it("rejects remote shouting without a channel and makes no reaction model call", async () => {
@@ -693,7 +784,6 @@ describe("Agent self state and reaction protocol", () => {
           kind: "request_reactions",
           requests: [{
             agentId: "keeper",
-            sourceActionId: playerAction.id,
             stimulus: stimulus("keeper", playerAction.id),
             basis: [{ kind: "shared_placement", placementId: "room" }],
           }],
@@ -745,7 +835,6 @@ describe("Agent self state and reaction protocol", () => {
             kind: "request_reactions",
             requests: [{
               agentId: "keeper",
-              sourceActionId: playerAction.id,
               stimulus: stimulus("keeper", playerAction.id),
               basis: [{ kind: "fact", factId: "pigeon-channel" }],
             }],
@@ -754,12 +843,7 @@ describe("Agent self state and reaction protocol", () => {
         return { kind: "transition", proposal: outcomeTransition(context) };
       }
       if (context.originalAction) {
-        return {
-          kind: "keep",
-          agentId: "keeper",
-          baseRevision: context.revision,
-          originalProposalId: context.originalAction.id,
-        };
+        return { kind: "keep" };
       }
       return emptyMindOutput(context.agent.id, context.revision);
     });
@@ -772,7 +856,8 @@ describe("Agent self state and reaction protocol", () => {
 
     expect(result.committed.reactionRequests[0].basis).toEqual([{ kind: "fact", factId: "pigeon-channel" }]);
     expect(result.committed.reactionDecisions[0].kind).toBe("keep");
-    expect(result.committed.actions.find((action) => action.actorId === "keeper")?.id).toBe("prepared:keeper:0");
+    expect(result.committed.actions.find((action) => action.actorId === "keeper")?.id)
+      .toBe(result.committed.initialActions.find((action) => action.actorId === "keeper")?.id);
     const corrupted = structuredClone(result.state);
     corrupted.history[0].actions.find((action) => action.actorId === "keeper")!.rawText = "被篡改的 keep 行动";
     const payload = Object.fromEntries(
@@ -818,7 +903,6 @@ describe("Agent self state and reaction protocol", () => {
         kind: "request_reactions",
         requests: [{
           agentId: "keeper",
-          sourceActionId: playerAction.id,
           stimulus: stimulus("keeper", playerAction.id),
           basis: [{ kind: "fact", factId: "weather" }],
         }],
@@ -884,13 +968,7 @@ describe("Agent self state and reaction protocol", () => {
           reactionCalls += 1;
           return {
             kind: "replace",
-            agentId: "keeper",
-            baseRevision: context.revision,
-            originalProposalId: context.originalAction.id,
             replacementAction: {
-              id: "heard-reply:keeper:0",
-              actorId: "keeper",
-              baseRevision: context.revision,
               rawText: "守门人回应刚感知到的远方讯息",
               goal: "回应远方讯息",
               means: null,
@@ -930,9 +1008,8 @@ describe("Agent self state and reaction protocol", () => {
           kind: "request_reactions",
           requests: [{
             agentId: "keeper",
-            sourceActionId: playerAction.id,
             stimulus: stimulus("keeper", playerAction.id),
-            basis: [{ kind: "perception_check", checkId: "hear-distant-message" }],
+            basis: [{ kind: "perception_check", checkId: context.checkResults[0].requestId }],
           }],
         };
       }
@@ -948,22 +1025,25 @@ describe("Agent self state and reaction protocol", () => {
     expect(reactionCalls).toBe(1);
     expect(result.committed.checkRequests[0].phase).toBe("perception");
     expect(result.committed.reactionRequests[0].basis[0]).toEqual({
-      kind: "perception_check", checkId: "hear-distant-message",
+      kind: "perception_check", checkId: result.committed.checkRequests[0].id,
     });
     expect(result.committed.initialActions.find((action) => action.actorId === "keeper")?.id)
-      .toBe("prepared:keeper:0");
+      .toMatch(/^rt:action:[a-f0-9]{64}$/);
     expect(result.committed.actions.find((action) => action.actorId === "keeper")?.id)
-      .toBe("heard-reply:keeper:0");
+      .toMatch(/^rt:action:[a-f0-9]{64}$/);
 
     const finalActionDependent = structuredClone(result.state);
     const finalActionStep = finalActionDependent.history[0];
-    finalActionStep.checkRequests[0].causes = [{ kind: "action", id: "heard-reply:keeper:0" }];
+    finalActionStep.checkRequests[0].causes = [{
+      kind: "action",
+      id: finalActionStep.actions.find((action) => action.actorId === "keeper")!.id,
+    }];
     const finalActionPayload = Object.fromEntries(
       Object.entries(finalActionStep).filter(([key]) => key !== "contentHash"),
     );
     finalActionStep.contentHash = contentHash(finalActionPayload);
     expect(() => validateSimulationState(finalActionDependent, true, true))
-      .toThrow("history check hear-distant-message references unknown action heard-reply:keeper:0");
+      .toThrow("references unknown action");
   });
 
   it("keeps the reaction window closed after resolution starts and forbids a second round", async () => {
@@ -989,7 +1069,6 @@ describe("Agent self state and reaction protocol", () => {
         return {
           requests: [{
             agentId: "keeper",
-            sourceActionId: playerAction.id,
             stimulus: stimulus("keeper", playerAction.id),
             basis: [{ kind: "shared_placement", placementId: "room" }],
           }],
@@ -1020,12 +1099,7 @@ describe("Agent self state and reaction protocol", () => {
       if (role === "causal-verifier") return { verdict: "accept", findings: [] };
       if (role === "agent-reaction") {
         reactionCalls += 1;
-        return {
-          kind: "keep",
-          agentId: "keeper",
-          baseRevision: context.revision,
-          originalProposalId: context.originalAction!.id,
-        };
+        return { kind: "keep" };
       }
       return emptyMindOutput(context.agent.id, context.revision);
     }, undefined, false);
@@ -1039,7 +1113,7 @@ describe("Agent self state and reaction protocol", () => {
     expect(reactionCalls).toBe(1);
     expect(result.committed.reactionRequests).toHaveLength(1);
     expect(result.committed.checkRequests).toEqual([
-      expect.objectContaining({ id: "resolution-only", phase: "resolution" }),
+      expect.objectContaining({ id: expect.stringMatching(/^rt:check:[a-f0-9]{64}$/), phase: "resolution" }),
     ]);
     expect(roles.indexOf("truth-reaction-routing")).toBeLessThan(roles.indexOf("truth-resolution"));
     expect(roles.filter((role) => role === "truth-reaction-routing")).toHaveLength(1);
@@ -1063,7 +1137,6 @@ describe("Agent self state and reaction protocol", () => {
           kind: "request_reactions",
           requests: [{
             agentId: "keeper",
-            sourceActionId: playerAction.id,
             stimulus: stimulus("keeper", playerAction.id),
             basis: [{ kind: "shared_placement", placementId: "room" }],
           }],
@@ -1072,17 +1145,11 @@ describe("Agent self state and reaction protocol", () => {
       if (context.originalAction) {
         return {
           kind: "replace",
-          agentId: "keeper",
-          baseRevision: context.revision,
-          originalProposalId: context.originalAction.id,
           replacementAction: {
-            id: "illegal-player-replacement",
-            actorId: "player",
-            baseRevision: context.revision,
             rawText: "越权替玩家行动",
             goal: "非法替换",
             means: null,
-            targetIds: [],
+            targetIds: ["unknown-target"],
           },
         };
       }

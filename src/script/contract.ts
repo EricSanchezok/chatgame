@@ -6,12 +6,12 @@ import {
   evidenceSchema,
   factValueSchema,
   localEntitySchema,
-  safeIdSchema,
+  semanticIdSchema as safeIdSchema,
   discreteRandomValueSchema,
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(5),
+  schema_version: z.literal(6),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),

@@ -9,6 +9,7 @@ import type {
   D20CheckResult,
   SimulationState,
   TransitionProposal,
+  TransitionProposalDraft,
   WorldDeltaOperation,
 } from "../model";
 import { createCoreRulePackageRegistry, RulePackageRegistry } from "../rule-package";
@@ -59,7 +60,7 @@ describe("causal assurance", () => {
   it("requires a check-result assertion wherever a check is cited", () => {
     const { definition } = loadedWorld();
     const { result } = resolutionCheck(definition.initialState);
-    const proposal: TransitionProposal = {
+    const proposal: TransitionProposalDraft = {
       baseRevision: 0,
       outcomes: [{
         proposalId: "attempt",
@@ -211,14 +212,10 @@ describe("causal assurance", () => {
         candidate?: TransitionProposal;
       };
       if (role === "agent-bootstrap" || role === "agent-mind") {
-        const agentId = context.agent!.id;
         return {
-          beliefPatch: { agentId, baseRevision: context.revision, operations: [] },
-          characterPatch: { agentId, baseRevision: context.revision, operations: [] },
+          beliefPatch: { operations: [] },
+          characterPatch: { operations: [] },
           nextAction: {
-            id: `next:${agentId}:${context.revision}`,
-            actorId: agentId,
-            baseRevision: context.revision,
             rawText: "继续守门",
             goal: "履行职责",
             means: null,

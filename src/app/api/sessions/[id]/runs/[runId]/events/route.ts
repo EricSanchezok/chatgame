@@ -1,4 +1,5 @@
-import { WorldHost } from "../../../../../../../server/world-host";
+import { isWorldRunStreamBoundary } from "../../../../../../../shared/world-api";
+import { WorldHost, WorldHostError } from "../../../../../../../server/world-host";
 import {
   beginHttpRequest,
   completeHttpRequest,
@@ -14,8 +15,14 @@ export const dynamic = "force-dynamic";
 function parseCursor(request: Request): number {
   const url = new URL(request.url);
   const value = request.headers.get("last-event-id") ?? url.searchParams.get("after") ?? "0";
+  if (!/^(0|[1-9]\d*)$/.test(value)) {
+    throw new WorldHostError("event cursor must be a non-negative safe integer", 400);
+  }
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+  if (!Number.isSafeInteger(parsed)) {
+    throw new WorldHostError("event cursor must be a non-negative safe integer", 400);
+  }
+  return parsed;
 }
 
 export async function GET(request: Request, context: Context): Promise<Response> {
@@ -24,10 +31,25 @@ export async function GET(request: Request, context: Context): Promise<Response>
     const { id, runId } = await context.params;
     const correlation = { ...http.correlation, sessionId: id, runId };
     const host = WorldHost.get();
-    host.run(id, runId, correlation);
+    const cursor = parseCursor(request);
+    const snapshot = host.run(id, runId, correlation);
+    const tail = snapshot.run.events.at(-1)?.sequence ?? 0;
+    if (cursor > tail) {
+      throw new WorldHostError(`event cursor ${cursor} is ahead of run ${runId}`, 409);
+    }
+    if (isWorldRunStreamBoundary(snapshot.run.status) && cursor === tail) {
+      const response = new Response(null, {
+        status: 204,
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+      await completeHttpRequest(http, response);
+      return response;
+    }
     const abort = new AbortController();
     const encoder = new TextEncoder();
-    const cursor = parseCursor(request);
     const iterator = host.subscribeRunEvents(id, runId, cursor, abort.signal);
     let streamClosed = false;
     http.observe?.({

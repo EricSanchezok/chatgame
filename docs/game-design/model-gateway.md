@@ -46,7 +46,7 @@ provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是�
 
 `ModelGateway` 处理 Profile 解析、可用性预检、调度、重试、本地校验和审计；`ModelProviderAdapter` 隔离供应商客户端、API 形状与原生参数。新增供应商时增加目录判别分支、一个 Adapter 和对应契约测试，Gateway、Scheduler、Truth Engine 与 AgentMind 接口保持不变。
 
-DeepSeek 调用 Chat Completions，启用稳定 `json_object` 模式，在用户 prompt 中附加 JSON Schema 与合法形状示例，并在本地解析 JSON 与执行 strict Zod。OpenAI 与 xAI 调用 Responses API，由 provider 原生 strict JSON Schema 限制输出，本地仍再执行同一 Zod schema。共享输出契约只使用 strict object、必填字段和显式 nullable；不从 Markdown、前后缀文字或截断响应中抢救结果。
+DeepSeek 调用 Chat Completions，启用稳定 `json_object` 模式，在用户 prompt 中附加 JSON Schema 与最小 schema-valid 形状示例：可选数组示例为空，只有 `minItems` 才生成必要元素，避免示例凭空诱导 belief/character/world operation。响应在本地解析 JSON 并执行 strict Zod。OpenAI 与 xAI 调用 Responses API，由 provider 原生 strict JSON Schema 限制输出，本地仍再执行同一 Zod schema。共享输出契约只使用 strict object、必填字段和显式 nullable；不从 Markdown、前后缀文字或截断响应中抢救结果。
 
 任何 provider 失败都留在原 profile，不切换供应商或模型。网络错误、408、429 与 5xx 最多三次传输尝试，遵循 `Retry-After` 或使用最大十秒的指数抖动。400/401、严格输出失败与引擎语义验证不做传输重试。后两者可由 Truth/AgentMind 以结构化问题最多修复两次。
 

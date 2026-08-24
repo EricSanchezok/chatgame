@@ -131,6 +131,14 @@ export function validateCharacterState(
   }
   assertEvidenceExists(belief, character.persona.evidenceIds, `${label} persona`);
   assertUniqueIds(character.persona.evidenceIds, `${label} persona evidence`);
+  for (const id of Object.keys(character.traits)) {
+    if (character.values[id] || character.commitments[id]) {
+      throw new Error(`${label} reuses motivation id ${id}`);
+    }
+  }
+  for (const id of Object.keys(character.values)) {
+    if (character.commitments[id]) throw new Error(`${label} reuses motivation id ${id}`);
+  }
 
   const validateBase = (
     key: string,
@@ -243,7 +251,10 @@ export function applyCharacterPatch(
       case "create_value": {
         if (rank < impactRank.significant) throw new Error(`${operation.kind} requires a significant event`);
         const collection = operation.kind === "create_trait" ? next.traits : next.values;
-        if (collection[operation.facet.id]) throw new Error(`${operation.kind} duplicates ${operation.facet.id}`);
+        if (collection[operation.facet.id] || next.traits[operation.facet.id] ||
+          next.values[operation.facet.id] || next.commitments[operation.facet.id]) {
+          throw new Error(`${operation.kind} duplicates motivation ${operation.facet.id}`);
+        }
         assertDelta(0, operation.facet.strength, numericLimits.longTerm[impact], `${operation.kind} strength`);
         collection[operation.facet.id] = {
           ...structuredClone(operation.facet), status: "active", createdAtStep: step, updatedAtStep: step, evidenceIds,
@@ -417,7 +428,10 @@ export function applyCharacterPatch(
         break;
       }
       case "create_commitment": {
-        if (next.commitments[operation.commitment.id]) throw new Error(`duplicate commitment ${operation.commitment.id}`);
+        if (next.traits[operation.commitment.id] || next.values[operation.commitment.id] ||
+          next.commitments[operation.commitment.id]) {
+          throw new Error(`create_commitment duplicates motivation ${operation.commitment.id}`);
+        }
         assertDelta(0, operation.commitment.priority, numericLimits.motivation[impact], "commitment priority");
         assertLocalIds(belief, operation.commitment.subjectIds, `commitment ${operation.commitment.id}`);
         next.commitments[operation.commitment.id] = {

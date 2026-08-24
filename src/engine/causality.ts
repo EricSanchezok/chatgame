@@ -9,8 +9,10 @@ import type {
   NumericComparison,
   SimulationState,
   TransitionProposal,
+  TransitionProposalDraft,
 } from "./model";
 import { applyWorldDeltaOperation } from "./transaction";
+import { quantityId } from "./runtime-id";
 
 function compare(actual: number, operator: NumericComparison, expected: number): boolean {
   switch (operator) {
@@ -84,7 +86,7 @@ function evaluate(
       };
     }
     case "quantity_compare": {
-      const id = `${assertion.definitionId}:${assertion.holderId}`;
+      const id = quantityId(state.worldHash, assertion.definitionId, assertion.holderId);
       const definition = state.truth.mechanics.quantities[assertion.definitionId];
       const holder = state.truth.entities[assertion.holderId];
       const actual = state.truth.quantities[id]?.amount ?? 0;
@@ -146,7 +148,7 @@ export function evaluateProposalCausality(
   state: SimulationState,
   checkResults: readonly D20CheckResult[],
   discreteRandomResults: readonly DiscreteRandomResult[],
-  proposal: TransitionProposal,
+  proposal: TransitionProposal | TransitionProposalDraft,
 ): CausalAssertionResult[] {
   const consumedRandomIds = new Set([
     ...proposal.mechanicInvocations.flatMap((invocation) => invocation.causes),
@@ -192,7 +194,10 @@ export function evaluateProposalCausality(
       working,
       checks,
       randomResults,
-      { kind: "outcome", id: outcome.proposalId },
+      // Draft-only callers have no engine identity yet; persisted proposals do.
+      // Once materialized, causal targets must bind to the outcome itself rather
+      // than reusing the source action identity.
+      { kind: "outcome", id: "id" in outcome ? outcome.id : outcome.proposalId },
       { causes: outcome.causeRefs, assertions: outcome.assertions },
     ));
   }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AgentMind } from "../agent-mind";
 import { historyReplayBaseHash } from "../history-replay";
-import type { AgentState, SimulationState, TransitionProposal } from "../model";
-import { ScriptedModelProvider } from "../testing/model-provider";
+import type { AgentState, SimulationState, TransitionProposal, TransitionProposalDraft } from "../model";
+import { createTestModelAudit, ScriptedModelProvider } from "../testing/model-provider";
 import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
@@ -10,6 +10,7 @@ import { TruthEngine } from "../truth-engine";
 import { ModelConfigurationError, summarizeModelExecutionAudit } from "../model-provider";
 import { createEmptyCharacter } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
+import { runtimeId } from "../runtime-id";
 
 function agent(id: string): AgentState {
   return {
@@ -26,7 +27,10 @@ function agent(id: string): AgentState {
     },
     bindings: { self: { localEntityId: "self", canonicalEntityIds: [id] } },
     nextAction: {
-      id: `action:${id}:0`,
+      id: runtimeId({
+        worldHash: TEST_WORLD_HASH, revision: 0, kind: "action", stage: "prepared",
+        owner: id, round: 0, ordinal: 0,
+      }),
       actorId: id,
       baseRevision: 0,
       rawText: `${id} 自由地观察周围`,
@@ -63,7 +67,7 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
     agents[id] = agent(id);
   }
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     worldId: "simulation",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["time-passes"],
@@ -75,6 +79,7 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
       events: [],
       entities,
       placements,
+      factTombstones: [],
       facts: {
         "resolve:player": {
           id: "resolve:player",
@@ -111,7 +116,14 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
       bindings: {},
     },
     history: [],
-    bootstrapModelAudits: [],
+    bootstrapAgentCommits: agentIds.map((id) => ({
+      agentId: id,
+      beliefPatch: { agentId: id, baseRevision: 0, operations: [] },
+      characterPatch: { agentId: id, baseRevision: 0, operations: [] },
+      nextAction: structuredClone(agents[id].nextAction!),
+    })),
+    bootstrapModelAudits: agentIds.map((id) =>
+      createTestModelAudit("agent-bootstrap", id, TEST_WORLD_HASH)),
   };
 }
 
@@ -166,7 +178,7 @@ function simpleTransition(
     baseRevision?: number;
     step?: number;
   } = {},
-): TransitionProposal {
+): TransitionProposalDraft {
   const baseRevision = options.baseRevision ?? 0;
   const nextStep = (options.step ?? 0) + 1;
   const eventId = `event:step:${nextStep}`;
@@ -246,14 +258,12 @@ function simpleTransition(
   };
 }
 
-function mindOutput(agentId: string, revision: number) {
+function mindOutput(agentId: string, _revision: number) {
+  void _revision;
   return {
-    beliefPatch: { agentId, baseRevision: revision, operations: [] },
-    characterPatch: { agentId, baseRevision: revision, operations: [] },
+    beliefPatch: { operations: [] },
+    characterPatch: { operations: [] },
     nextAction: {
-      id: `action:${agentId}:${revision}`,
-      actorId: agentId,
-      baseRevision: revision,
       rawText: `${agentId} 在新世界状态中继续自由行动`,
       goal: "持续理解世界",
       means: null,
@@ -263,6 +273,62 @@ function mindOutput(agentId: string, revision: number) {
 }
 
 describe("multi-agent simulation", () => {
+  it("materializes identical bootstrap drafts for 2 and 50 Agents independent of completion order", async () => {
+    const identicalDraft = () => ({
+      beliefPatch: {
+        operations: [{
+          kind: "upsert_evidence" as const,
+          evidence: {
+            id: "shared-local-evidence",
+            kind: "assumption" as const,
+            description: "每个 Agent 自己的同名局部证据。",
+            sourceId: null,
+            step: 0,
+          },
+        }],
+      },
+      characterPatch: { operations: [] },
+      nextAction: {
+        rawText: "观察周围",
+        goal: "理解环境",
+        means: null,
+        targetIds: [],
+      },
+    });
+
+    for (const size of [2, 50]) {
+      const agentIds = Array.from({ length: size }, (_, index) => `agent-${String(index).padStart(2, "0")}`);
+      const run = async (reverse: boolean) => {
+        const provider = new ScriptedModelProvider(async ({ role, prompt }) => {
+          if (role !== "agent-bootstrap") throw new Error(`unexpected role ${role}`);
+          const context = JSON.parse(prompt) as { agent: { id: string } };
+          const ordinal = Number(context.agent.id.slice(-2));
+          await new Promise((resolve) => setTimeout(resolve, reverse ? ordinal % 3 : (size - ordinal) % 3));
+          return identicalDraft();
+        });
+        const initial = state(agentIds);
+        const engine = new SimulationEngine(
+          definition(initial),
+          new TruthEngine(provider),
+          new AgentMind(provider),
+        );
+        const snapshot = await engine.bootstrapAgents();
+        return Object.fromEntries(Object.values(snapshot.agents).map((agent) => [agent.id, {
+          actionId: agent.nextAction!.id,
+          evidenceIds: Object.keys(agent.belief.evidence),
+        }]));
+      };
+
+      const [forward, reverse] = await Promise.all([run(false), run(true)]);
+      expect(reverse).toEqual(forward);
+      const actionIds = Object.values(forward).map((entry) => entry.actionId);
+      expect(new Set(actionIds).size).toBe(size);
+      expect(actionIds.every((id) => id.startsWith("rt:action:"))).toBe(true);
+      expect(Object.values(forward).every((entry) =>
+        entry.evidenceIds.join(",") === "shared-local-evidence")).toBe(true);
+    }
+  });
+
   it("does not retry AgentMind when a selected provider is not configured", async () => {
     let calls = 0;
     const provider = new ScriptedModelProvider(() => {
@@ -274,7 +340,7 @@ describe("multi-agent simulation", () => {
     await expect(engine.bootstrapAgents()).rejects.toThrow("AgentMind bootstrap batch failed");
     expect(calls).toBe(2);
     expect(provider.requests).toHaveLength(2);
-    expect(engine.snapshot).toMatchObject({ revision: 0, step: 0, bootstrapModelAudits: [] });
+    expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
   });
 
   it("resolves every agent and the player from one shared snapshot", async () => {
@@ -352,17 +418,18 @@ describe("multi-agent simulation", () => {
           ],
         };
       }
-      expect(context.checkResults?.[0].requestId).toBe("unknown-action-check");
+      expect(context.checkResults?.[0].requestId).toMatch(/^rt:check:[a-f0-9]{64}$/);
+      const checkId = context.checkResults![0].requestId;
       const transition = simpleTransition(
         context.jointActions!.map((action) => action.id),
         ["agent-a", "agent-b"],
       );
       const playerOutcome = transition.outcomes.find((outcome) =>
         outcome.proposalId === context.jointActions!.find((action) => action.actorId === "player")!.id)!;
-      playerOutcome.causeRefs.push({ kind: "check", id: "unknown-action-check" });
+      playerOutcome.causeRefs.push({ kind: "check", id: checkId });
       playerOutcome.assertions.push({
         kind: "check_result",
-        checkId: "unknown-action-check",
+        checkId,
         expected: context.checkResults![0].total >= 15 ? "succeeded" : "failed",
       });
       return { kind: "transition", proposal: transition };
@@ -690,13 +757,26 @@ describe("multi-agent simulation", () => {
       );
       const createAgent = proposal.operations.find((operation) => operation.kind === "create_agent");
       if (!createAgent || createAgent.kind !== "create_agent") throw new Error("test transition has no Agent");
-      createAgent.agent.nextAction = mindOutput("newborn", context.baseRevision!).nextAction;
+      createAgent.agent.nextAction = {
+        ...mindOutput("newborn", context.baseRevision!).nextAction,
+        id: runtimeId({
+          worldHash: TEST_WORLD_HASH,
+          revision: context.baseRevision!,
+          kind: "action",
+          stage: "prepared",
+          owner: "newborn",
+          round: 0,
+          ordinal: 0,
+        }),
+        actorId: "newborn",
+        baseRevision: context.baseRevision!,
+      };
       return { kind: "transition", proposal };
     });
     const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
     engine.beginPlayerIntent("尝试绕过新 Agent 初始化");
 
-    await expect(engine.step()).rejects.toThrow("must not provide a prepared action");
+    await expect(engine.step()).rejects.toThrow("truth-transition failed after repairs");
     expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
   });
 
@@ -846,8 +926,8 @@ describe("multi-agent simulation", () => {
     const truthContext = secondTruth.context as Record<string, unknown>;
     expect(secondTruth.system).toContain("不可信的行动企图");
     expect(truthContext).toMatchObject({
-      contractVersion: 4,
-      promptVersion: "truth-engine-v5",
+      contractVersion: 5,
+      promptVersion: "truth-engine-v6",
       execution: { worldId: "simulation", sessionId: "session-context", runId: "run-context-2" },
       trustBoundary: { playerIntent: "untrusted-action-attempt" },
       baseRevision: 1,
@@ -877,8 +957,8 @@ describe("multi-agent simulation", () => {
       (request.context as { revision?: number }).revision === 2)!;
     const agentText = JSON.stringify(agentRequest.context);
     expect(agentRequest.context).toMatchObject({
-      contractVersion: 4,
-      promptVersion: "agent-mind-v4",
+      contractVersion: 5,
+      promptVersion: "agent-mind-v5",
       execution: { worldId: "simulation", sessionId: "session-context", runId: "run-context-2" },
       agent: {
         id: "agent-a",
@@ -893,7 +973,7 @@ describe("multi-agent simulation", () => {
     }).subjectiveHistory).toEqual([
       expect.objectContaining({ perceivedOutcome: { status: "succeeded" } }),
     ]);
-    expect(agentRequest).toMatchObject({ promptVersion: "agent-mind-v4" });
+    expect(agentRequest).toMatchObject({ promptVersion: "agent-mind-v5" });
     expect(agentText).not.toContain("canonicalTruth");
     expect(agentText).not.toContain("canonicalEntityIds");
     expect(agentText).not.toContain("canonical-secret-marker");
@@ -1018,7 +1098,7 @@ describe("multi-agent simulation", () => {
     const engine = new SimulationEngine(definition(), new TruthEngine(provider), new AgentMind(provider));
     engine.beginPlayerIntent("制造循环因果");
 
-    await expect(engine.step()).rejects.toThrow("unknown event event:future");
+    await expect(engine.step()).rejects.toThrow("references unknown event");
     expect(engine.snapshot).toMatchObject({ revision: 0, step: 0 });
   });
 });

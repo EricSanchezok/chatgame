@@ -3,7 +3,6 @@ import path from "node:path";
 import { AgentMind } from "../engine/agent-mind";
 import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
-import type { ObservationPacket } from "../engine/model";
 import { canonicalize, contentHash } from "../engine/model-audit";
 import type { StructuredModelProvider } from "../engine/model-provider";
 import { SimulationEngine } from "../engine/simulation";
@@ -23,10 +22,19 @@ import {
   type RuntimeCorrelation,
   type RuntimeObserver,
 } from "../engine/observability";
-import type { ContinueWorldRunInput, StartWorldRunResponse, WorldRunSnapshot } from "../shared/world-api";
+import {
+  isWorldRunActiveIntentOwner,
+  isWorldRunExecuting,
+  isWorldRunRetriable,
+  isWorldRunStreamBoundary,
+  type ContinueWorldRunInput,
+  type StartWorldRunResponse,
+  type WorldRunSnapshot,
+} from "../shared/world-api";
 import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
 import { getRuntimeObserver } from "./runtime-observer";
+import { classifyRunFailure, type RunFailureClassification } from "./run-failure";
 import {
   WorldSessionConflictError,
   WorldSessionNotFoundError,
@@ -35,9 +43,9 @@ import {
 } from "./world-session-store";
 import {
   publicSessionDetail,
+  publicCommittedStepEvents,
   publicSessionSummary,
   publicWorldRunSnapshot,
-  type PublicObservationPacket,
   type PublicSessionDetail,
   type PublicSessionSummary,
   type WorldRunEvent,
@@ -57,17 +65,27 @@ interface HostedExecution {
   controller: AbortController;
 }
 
+interface PendingRunFailure {
+  classification: RunFailureClassification;
+  internalError: string;
+}
+
 interface WorldImporter {
   importWorld(buffer: Buffer, modelCatalog: StructuredModelProvider["catalog"], replace?: boolean): WorldImportResult;
 }
 
 type ExecutionReason = "initial" | "player_input" | "retry";
 
-const streamClosingStatuses = new Set<WorldRunStatus>([
-  "awaiting_player", "completed", "goal_failed", "step_limit", "cancelled", "failed",
-]);
-const finalStatuses = new Set<WorldRunStatus>(["completed", "goal_failed", "cancelled"]);
 const inputIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/;
+const PINNED_WORLD_CONTRACT_CACHE_LIMIT = 8;
+const streamBoundaryEventTypes = new Set<WorldRunEvent["type"]>([
+  "run.awaiting_player",
+  "run.completed",
+  "run.goal_failed",
+  "run.step_limit",
+  "run.cancelled",
+  "run.failed",
+]);
 
 class RunChannel {
   private readonly waiters = new Set<() => void>();
@@ -115,43 +133,13 @@ export class WorldHostError extends Error {
   }
 }
 
-function sanitizePlayerObservation(
-  packet: ObservationPacket,
-  packetIndex: number,
-): PublicObservationPacket {
-  return {
-    id: `observation:${packet.step}:${packetIndex + 1}`,
-    observerId: "player",
-    step: packet.step,
-    summary: packet.summary,
-    introductions: packet.introductions.map((introduction) => ({
-      localEntity: structuredClone(introduction.localEntity),
-    })),
-    apparentClaims: packet.apparentClaims.map((claim, claimIndex) => ({
-      ...structuredClone(claim),
-      id: `claim:${packet.step}:${packetIndex + 1}:${claimIndex + 1}`,
-    })),
-    sourceEventIds: packet.sourceEventIds.map((_eventId, eventIndex) =>
-      `event:${packet.step}:${packetIndex + 1}:${eventIndex + 1}`),
-  };
-}
-
-function summarizePlayerOutcome(
-  packets: readonly ObservationPacket[],
-): string {
-  const summaries = packets
-    .filter((packet) => packet.observerId === "player" && packet.kind === "outcome")
-    .map((packet) => packet.summary.trim());
-  if (summaries.length === 0 || summaries.some((summary) => !summary)) {
-    throw new Error("committed step is missing a non-blank player outcome observation");
-  }
-  return summaries.join("\n");
-}
-
 export class WorldHost {
   private static singleton: WorldHost | undefined;
   private readonly executions = new Map<string, HostedExecution>();
+  private readonly pendingRunFailures = new Map<string, PendingRunFailure>();
+  private readonly pendingRunCancellations = new Set<string>();
   private readonly channels = new Map<string, RunChannel>();
+  private readonly pinnedWorldContracts = new Map<string, ReturnType<typeof toWorldRuntimeContract>>();
   private readonly now: () => Date;
   private readonly idFactory: () => string;
   private readonly maxStepsPerRun: number;
@@ -228,18 +216,43 @@ export class WorldHost {
     return this.options.importer.importWorld(buffer, this.options.provider.catalog, replace);
   }
 
-  private definitionFrom(document: WorldSessionDocument): WorldDefinition {
-    const rulePackages = this.options.repository.rulePackages.validate(document.world.rulePackages.map((reference) => ({
-      id: reference.id,
-      version: reference.version,
-      config: reference.config,
-    })));
-    if (JSON.stringify(canonicalize(rulePackages)) !== JSON.stringify(canonicalize(document.world.rulePackages))) {
-      throw new Error("session rule package contract is incompatible with this runtime");
+  private pinnedWorldContractIdentity(document: WorldSessionDocument): { key: string; seed: number } {
+    const seed = document.state.historyBase?.truth.rng.seed;
+    if (seed === undefined) throw new Error("session state has no pinned pre-bootstrap world seed");
+    return { key: `${document.world.id}\u0000${document.world.contentHash}\u0000${seed}`, seed };
+  }
+
+  private verifyPinnedWorld(document: WorldSessionDocument): ReturnType<typeof toWorldRuntimeContract> {
+    const { key, seed } = this.pinnedWorldContractIdentity(document);
+    let trusted = this.pinnedWorldContracts.get(key);
+    if (trusted) {
+      this.pinnedWorldContracts.delete(key);
+      this.pinnedWorldContracts.set(key, trusted);
+    } else {
+      const definition = this.options.repository.loadVersion(
+        document.world.id,
+        document.world.contentHash,
+        seed,
+        this.options.provider.catalog,
+      );
+      trusted = toWorldRuntimeContract(definition);
+      this.pinnedWorldContracts.set(key, trusted);
+      while (this.pinnedWorldContracts.size > PINNED_WORLD_CONTRACT_CACHE_LIMIT) {
+        const oldestKey = this.pinnedWorldContracts.keys().next().value;
+        if (oldestKey === undefined) break;
+        this.pinnedWorldContracts.delete(oldestKey);
+      }
     }
+    if (JSON.stringify(canonicalize(document.world)) !== JSON.stringify(canonicalize(trusted))) {
+      throw new Error(`session world contract does not match pinned version ${document.world.contentHash}`);
+    }
+    return structuredClone(trusted);
+  }
+
+  private definitionFrom(document: WorldSessionDocument): WorldDefinition {
+    const trusted = this.verifyPinnedWorld(document);
     const definition: WorldDefinition = {
-      ...structuredClone(document.world),
-      rulePackages,
+      ...trusted,
       initialState: structuredClone(document.state),
     };
     validateWorldDefinition(definition);
@@ -312,18 +325,26 @@ export class WorldHost {
     }
   }
 
+  private readStoredSession(
+    sessionId: string,
+    correlation?: RuntimeCorrelation,
+  ): StoredWorldSession {
+    try {
+      const stored = this.options.store.read(sessionId, { ...correlation, sessionId });
+      this.verifyPinnedWorld(stored.document);
+      return stored;
+    } catch (error) {
+      if (!(error instanceof WorldSessionNotFoundError)) throw error;
+      throw new WorldHostError(`world session not found: ${sessionId}`, 404);
+    }
+  }
+
   private loadSession(
     sessionId: string,
     recover = true,
     correlation?: RuntimeCorrelation,
   ): HostedSession {
-    let stored: StoredWorldSession;
-    try {
-      stored = this.options.store.read(sessionId, { ...correlation, sessionId });
-    } catch (error) {
-      if (!(error instanceof WorldSessionNotFoundError)) throw error;
-      throw new WorldHostError(`world session not found: ${sessionId}`, 404);
-    }
+    const stored = this.readStoredSession(sessionId, correlation);
     const definition = this.definitionFrom(stored.document);
     let session: HostedSession = {
       ...stored,
@@ -333,30 +354,63 @@ export class WorldHost {
     if (!recover) return session;
 
     const document = structuredClone(session.document);
+    let recoveredEngine = session.engine;
     let changed = false;
     const recoveredRunIds: string[] = [];
     for (const run of Object.values(document.runs)) {
-      if (run.status !== "queued" && run.status !== "running") continue;
-      if (this.executions.has(this.executionKey(sessionId, run.id))) continue;
-      run.status = "failed";
-      run.error = "运行进程在世界步骤边界外中断，可安全重试。";
-      run.internalError = "process interrupted while run was queued or running";
-      this.appendEvent(run, {
-        type: "run.failed",
-        payload: { runId: run.id, message: run.error, retriable: true },
-      }, { ...correlation, sessionId, runId: run.id });
+      const executionKey = this.executionKey(sessionId, run.id);
+      const pendingCancellation = this.pendingRunCancellations.has(executionKey) &&
+        isWorldRunActiveIntentOwner(run.status);
+      if (!isWorldRunExecuting(run.status) && !pendingCancellation) {
+        this.pendingRunFailures.delete(executionKey);
+        this.pendingRunCancellations.delete(executionKey);
+        continue;
+      }
+      if (isWorldRunExecuting(run.status) && this.executions.has(executionKey)) continue;
+      if (run.cancelRequested || pendingCancellation) {
+        recoveredEngine = this.buildEngine(session.definition, document.state);
+        recoveredEngine.cancelPlayerIntent();
+        document.state = recoveredEngine.snapshot;
+        run.status = "cancelled";
+        run.cancelRequested = false;
+        run.error = undefined;
+        run.internalError = undefined;
+        this.appendEvent(run, {
+          type: "run.cancelled",
+          payload: { runId: run.id, revision: document.state.revision, step: document.state.step },
+        }, { ...correlation, sessionId, runId: run.id });
+      } else {
+        const pendingFailure = this.pendingRunFailures.get(executionKey);
+        run.status = "failed";
+        run.error = pendingFailure?.classification.publicMessage ??
+          "运行进程在世界步骤边界外中断，可安全重试。";
+        run.internalError = pendingFailure?.internalError ??
+          "process interrupted while run was queued or running";
+        this.appendEvent(run, {
+          type: "run.failed",
+          payload: {
+            runId: run.id,
+            message: run.error,
+            retriable: pendingFailure?.classification.retriable ?? true,
+          },
+        }, { ...correlation, sessionId, runId: run.id });
+      }
       changed = true;
       recoveredRunIds.push(run.id);
     }
     if (changed) {
       try {
-        session = this.commitCandidate(session, session.engine, document, correlation);
+        session = this.commitCandidate(session, recoveredEngine, document, correlation);
       } catch (error) {
         if (!(error instanceof WorldSessionConflictError)) throw error;
         session = this.loadSession(sessionId, false, correlation);
       }
       for (const runId of recoveredRunIds) {
-        this.notifyRun(sessionId, runId, streamClosingStatuses.has(this.requireRun(session, runId).status));
+        if (!isWorldRunExecuting(this.requireRun(session, runId).status)) {
+          this.pendingRunFailures.delete(this.executionKey(sessionId, runId));
+          this.pendingRunCancellations.delete(this.executionKey(sessionId, runId));
+        }
+        this.notifyRun(sessionId, runId, isWorldRunStreamBoundary(this.requireRun(session, runId).status));
       }
     }
     return session;
@@ -379,7 +433,7 @@ export class WorldHost {
     });
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 8,
+      schemaVersion: 9,
       id,
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -415,7 +469,17 @@ export class WorldHost {
   }
 
   listSessions(correlation?: RuntimeCorrelation): PublicSessionSummary[] {
-    return this.options.store.listSessions(correlation)
+    const stored = this.options.store.listSessions(correlation);
+    const cached: StoredWorldSession[] = [];
+    const cold: StoredWorldSession[] = [];
+    for (const session of stored) {
+      const destination = this.pinnedWorldContracts.has(this.pinnedWorldContractIdentity(session.document).key)
+        ? cached
+        : cold;
+      destination.push(session);
+    }
+    for (const { document } of [...cached, ...cold]) this.verifyPinnedWorld(document);
+    return stored
       .map(({ document }) => publicSessionSummary(document))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
   }
@@ -430,9 +494,7 @@ export class WorldHost {
       throw new WorldHostError("session title must be between 1 and 80 characters", 400);
     }
     const session = this.loadSession(sessionId, true, correlation);
-    const active = Object.values(session.document.runs).find(
-      (run) => run.status === "queued" || run.status === "running",
-    );
+    const active = Object.values(session.document.runs).find((run) => isWorldRunExecuting(run.status));
     if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
     const document = structuredClone(session.document);
     document.title = normalized;
@@ -442,9 +504,7 @@ export class WorldHost {
 
   deleteSession(sessionId: string, correlation?: RuntimeCorrelation): void {
     const session = this.loadSession(sessionId, true, correlation);
-    const active = Object.values(session.document.runs).find(
-      (run) => run.status === "queued" || run.status === "running",
-    );
+    const active = Object.values(session.document.runs).find((run) => isWorldRunExecuting(run.status));
     if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
     try {
       this.options.store.delete(sessionId, session.generation, correlation);
@@ -457,6 +517,12 @@ export class WorldHost {
     const prefix = `${sessionId}:`;
     for (const key of this.channels.keys()) {
       if (key.startsWith(prefix)) this.channels.delete(key);
+    }
+    for (const key of this.pendingRunFailures.keys()) {
+      if (key.startsWith(prefix)) this.pendingRunFailures.delete(key);
+    }
+    for (const key of this.pendingRunCancellations) {
+      if (key.startsWith(prefix)) this.pendingRunCancellations.delete(key);
     }
   }
 
@@ -559,7 +625,7 @@ export class WorldHost {
   retryRun(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
     let session = this.loadSession(sessionId, true, correlation);
     const current = this.requireRun(session, runId);
-    if (current.status !== "failed" && current.status !== "step_limit") {
+    if (!isWorldRunRetriable(current)) {
       throw new WorldHostError(`run ${runId} is not retriable`, 409);
     }
     if (session.engine.snapshot.player.intent?.status !== "active" ||
@@ -584,7 +650,7 @@ export class WorldHost {
     correlation?: RuntimeCorrelation,
   ): void {
     const key = this.executionKey(sessionId, runId);
-    const run = this.loadSession(sessionId, false, correlation).document.runs[runId];
+    const run = this.readStoredSession(sessionId, correlation).document.runs[runId];
     const runAttempt = run.events.filter((event) => event.type === "run.execution_started").length + 1;
     const executionCorrelation = { ...correlation, sessionId, runId, runAttempt };
     this.observe?.({
@@ -600,7 +666,10 @@ export class WorldHost {
         if (this.executions.get(key)?.promise !== promise) return;
         this.executions.delete(key);
         try {
-          this.loadSession(sessionId, true, executionCorrelation);
+          const stored = this.readStoredSession(sessionId, executionCorrelation);
+          if (isWorldRunExecuting(this.requireRun(stored, runId).status)) {
+            this.loadSession(sessionId, true, executionCorrelation);
+          }
         } catch {
           // A later request retries durable recovery when storage becomes readable again.
         }
@@ -648,9 +717,13 @@ export class WorldHost {
     correlation?: RuntimeCorrelation,
     startedAt = Date.now(),
   ): HostedSession {
+    const cancellationKey = this.executionKey(session.document.id, runId);
+    this.pendingRunCancellations.add(cancellationKey);
     const engine = this.buildEngine(session.definition, session.engine.snapshot);
     engine.cancelPlayerIntent();
-    return this.finishRun(session, runId, "cancelled", engine, correlation, startedAt);
+    const committed = this.finishRun(session, runId, "cancelled", engine, correlation, startedAt);
+    this.pendingRunCancellations.delete(cancellationKey);
+    return committed;
   }
 
   private async executeRun(
@@ -684,7 +757,7 @@ export class WorldHost {
           this.cancelExecution(session, runId, correlation, startedAt);
           return;
         }
-        const engine = this.buildEngine(session.definition, session.engine.snapshot);
+        const engine = session.engine;
         const baseState = engine.snapshot;
         rollbackStateHash = contentHash(baseState);
         const stepCorrelation = {
@@ -701,11 +774,16 @@ export class WorldHost {
           observer: this.runtimeObserver,
         });
         pendingStepCorrelation = stepCorrelation;
-        const latest = this.loadSession(sessionId, false, stepCorrelation);
+        const latest = this.readStoredSession(sessionId, stepCorrelation);
         if (latest.generation !== session.generation) {
           const latestRun = this.requireRun(latest, runId);
           if (latestRun.cancelRequested || abortSignal.aborted) {
-            this.cancelExecution(latest, runId, correlation, startedAt);
+            this.cancelExecution(
+              this.loadSession(sessionId, false, correlation),
+              runId,
+              correlation,
+              startedAt,
+            );
           }
           else throw new WorldSessionConflictError(sessionId);
           return;
@@ -713,53 +791,9 @@ export class WorldHost {
 
         document = structuredClone(session.document);
         run = document.runs[runId];
-        for (const [checkIndex, check] of result.committed.checks.entries()) {
-          if (check.visibility === "hidden") continue;
-          this.appendEvent(run, {
-            type: "check.resolved",
-            payload: check.visibility === "full"
-              ? {
-                  requestId: `check:${result.state.step}:${checkIndex + 1}`,
-                  visibility: "full",
-                  dice: check.dice,
-                  kept: check.kept,
-                  modifier: check.modifier,
-                  total: check.total,
-                  dc: check.dc,
-                  succeeded: check.succeeded,
-                  margin: check.margin,
-                }
-              : {
-                  requestId: `check:${result.state.step}:${checkIndex + 1}`,
-                  visibility: "result_only",
-                  succeeded: check.succeeded,
-                },
-          }, stepCorrelation);
+        for (const event of publicCommittedStepEvents(result.committed, result.state.truth.elapsedSeconds)) {
+          this.appendEvent(run, event, stepCorrelation);
         }
-        const playerAction = result.committed.actions.find((action) => action.actorId === "player")!;
-        const playerOutcome = result.committed.outcomes.find((outcome) => outcome.proposalId === playerAction.id)!;
-        this.appendEvent(run, {
-          type: "player.outcome",
-          payload: {
-            status: playerOutcome.status,
-            summary: summarizePlayerOutcome(result.committed.observations),
-          },
-        }, stepCorrelation);
-        const playerPackets = result.committed.observations.filter((packet) => packet.observerId === "player");
-        for (const [packetIndex, packet] of playerPackets.entries()) {
-          this.appendEvent(run, {
-            type: "player.observation",
-            payload: sanitizePlayerObservation(packet, packetIndex),
-          }, stepCorrelation);
-        }
-        this.appendEvent(run, {
-          type: "step.committed",
-          payload: {
-            revision: result.state.revision,
-            step: result.state.step,
-            elapsedSeconds: result.state.truth.elapsedSeconds,
-          },
-        }, stepCorrelation);
         let terminalStatus: Extract<
           WorldRunStatus,
           "awaiting_player" | "completed" | "goal_failed" | "step_limit"
@@ -802,6 +836,17 @@ export class WorldHost {
       }
       this.finishRun(session, runId, "step_limit", session.engine, correlation, startedAt);
     } catch (error) {
+      const failure = classifyRunFailure(error);
+      const failureKey = this.executionKey(sessionId, runId);
+      if (failure.kind === "cancelled" || abortSignal.aborted) {
+        this.pendingRunCancellations.add(failureKey);
+        this.pendingRunFailures.delete(failureKey);
+      } else {
+        this.pendingRunFailures.set(failureKey, {
+          classification: failure,
+          internalError: error instanceof Error ? error.message : String(error),
+        });
+      }
       if (pendingStepCorrelation) {
         this.observe?.({
           event: "step.persistence_rolled_back",
@@ -819,7 +864,8 @@ export class WorldHost {
         return;
       }
       const current = this.requireRun(session, runId);
-      if (current.cancelRequested || abortSignal.aborted || (error instanceof Error && error.name === "AbortError")) {
+      if (current.cancelRequested || abortSignal.aborted || failure.kind === "cancelled") {
+        this.pendingRunFailures.delete(failureKey);
         try {
           this.cancelExecution(session, runId, correlation, startedAt);
         } catch {
@@ -829,26 +875,35 @@ export class WorldHost {
       }
       const document = structuredClone(session.document);
       const run = document.runs[runId];
-      if (run.status !== "queued" && run.status !== "running") return;
+      if (run.status !== "queued" && run.status !== "running") {
+        this.pendingRunFailures.delete(failureKey);
+        return;
+      }
       run.status = "failed";
       run.internalError = error instanceof Error ? error.message : String(error);
-      run.error = "模型或世界验证失败；当前步骤未提交，可从同一世界状态重试。";
+      run.error = failure.publicMessage;
       this.appendEvent(run, {
         type: "run.failed",
-        payload: { runId: run.id, message: run.error, retriable: true },
+        payload: { runId: run.id, message: run.error, retriable: failure.retriable },
       }, correlation);
       this.observe?.({
         event: "run.failed",
         level: "error",
         correlation,
         durationMs: Math.max(0, Date.now() - startedAt),
-        attributes: { status: "failed", revisionUnchanged: true },
+        attributes: {
+          status: "failed",
+          revisionUnchanged: true,
+          retriable: failure.retriable,
+          failureKind: failure.kind,
+        },
         error: serializeRuntimeError(error),
       });
       let persisted = false;
       try {
         this.commitCandidate(session, session.engine, document, correlation);
         persisted = true;
+        this.pendingRunFailures.delete(failureKey);
       } catch {
         // Recovery marks the still-running durable record as failed on the next request.
       }
@@ -856,14 +911,27 @@ export class WorldHost {
     }
   }
 
-  private requireRun(session: HostedSession, runId: string): WorldRunRecord {
+  private requireRun(session: Pick<StoredWorldSession, "document">, runId: string): WorldRunRecord {
     const run = session.document.runs[runId];
     if (!run) throw new WorldHostError(`world run not found: ${runId}`, 404);
     return run;
   }
 
+  private readRunSession(
+    sessionId: string,
+    runId: string,
+    correlation?: RuntimeCorrelation,
+  ): StoredWorldSession {
+    const stored = this.readStoredSession(sessionId, correlation);
+    const run = this.requireRun(stored, runId);
+    if (isWorldRunExecuting(run.status) && !this.executions.has(this.executionKey(sessionId, runId))) {
+      return this.loadSession(sessionId, true, correlation);
+    }
+    return stored;
+  }
+
   run(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
-    const session = this.loadSession(sessionId, true, correlation);
+    const session = this.readRunSession(sessionId, runId, correlation);
     return publicWorldRunSnapshot(session.document, this.requireRun(session, runId));
   }
 
@@ -871,7 +939,7 @@ export class WorldHost {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       let session = this.loadSession(sessionId, true, correlation);
       const current = this.requireRun(session, runId);
-      if (finalStatuses.has(current.status) || current.cancelRequested) {
+      if (!isWorldRunActiveIntentOwner(current.status) || current.cancelRequested) {
         return publicWorldRunSnapshot(session.document, current);
       }
       try {
@@ -904,20 +972,32 @@ export class WorldHost {
     afterSequence = 0,
     signal?: AbortSignal,
   ): AsyncGenerator<WorldRunEvent> {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+      throw new WorldHostError("event cursor must be a non-negative safe integer", 400);
+    }
     if (signal?.aborted) return;
-    this.requireRun(this.loadSession(sessionId), runId);
+    const initialRun = this.requireRun(this.readRunSession(sessionId, runId), runId);
+    const initialTail = initialRun.events.at(-1)?.sequence ?? 0;
+    if (afterSequence > initialTail) {
+      throw new WorldHostError(`event cursor ${afterSequence} is ahead of run ${runId}`, 409);
+    }
     const channel = this.channel(sessionId, runId);
     let cursor = afterSequence;
     while (!signal?.aborted) {
       const channelVersion = channel.currentVersion;
-      const session = this.loadSession(sessionId);
+      const session = this.readRunSession(sessionId, runId);
       const run = this.requireRun(session, runId);
       const available = run.events.filter((event) => event.sequence > cursor);
       for (const event of available) {
         cursor = event.sequence;
         yield structuredClone(event);
+        if (streamBoundaryEventTypes.has(event.type)) {
+          const key = this.executionKey(sessionId, runId);
+          if (this.channels.get(key) === channel) this.channels.delete(key);
+          return;
+        }
       }
-      if (streamClosingStatuses.has(run.status) && cursor >= (run.events.at(-1)?.sequence ?? 0)) {
+      if (isWorldRunStreamBoundary(run.status) && cursor >= (run.events.at(-1)?.sequence ?? 0)) {
         const key = this.executionKey(sessionId, runId);
         if (this.channels.get(key) === channel) this.channels.delete(key);
         return;
@@ -927,6 +1007,11 @@ export class WorldHost {
   }
 
   async waitForRun(sessionId: string, runId: string): Promise<WorldRunSnapshot> {
+    const execution = this.executions.get(this.executionKey(sessionId, runId));
+    if (execution) {
+      await execution.promise.catch(() => undefined);
+      return this.run(sessionId, runId);
+    }
     for await (const event of this.subscribeRunEvents(sessionId, runId)) void event;
     return this.run(sessionId, runId);
   }

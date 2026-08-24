@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PlayerIntent } from "../engine/model";
 import { contentHash } from "../engine/model-audit";
 import { createHistoryReplayBase } from "../engine/history-replay";
 import {
@@ -6,17 +7,27 @@ import {
   runtimeEventEmitter,
   serializeRuntimeError,
   type RuntimeCorrelation,
+  type RuntimeEventInput,
   type RuntimeObserver,
 } from "../engine/observability";
 import { validateDiscreteRandomDefinitions } from "../engine/random";
 import { validateSimulationState } from "../engine/transaction";
-import { discreteRandomDefinitionSchema } from "../engine/state-schemas";
-import type { WorldRunEvent, WorldSessionDocument } from "./world-run-types";
+import { discreteRandomDefinitionSchema, semanticIdSchema } from "../engine/state-schemas";
+import {
+  isWorldRunActiveIntentOwner,
+  isWorldRunExecuting,
+  isWorldRunStreamBoundary,
+} from "../shared/world-api";
+import {
+  publicCommittedStepEvents,
+  type WorldRunEvent,
+  type WorldRunEventInput,
+  type WorldSessionDocument,
+} from "./world-run-types";
 
 const runStatusSchema = z.enum([
   "queued", "running", "awaiting_player", "completed", "goal_failed", "step_limit", "cancelled", "failed",
 ]);
-const activeRunStatuses = new Set(["queued", "running", "awaiting_player", "step_limit", "failed"]);
 
 const beliefValueViewSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("text"), value: z.string() }),
@@ -34,6 +45,9 @@ const localEntityViewSchema = z.strictObject({
 });
 
 const eventBase = { sequence: z.number().int().positive(), at: z.string().datetime() };
+const preservedNonBlankStringSchema = z.string().refine((value) => value.trim().length > 0, {
+  message: "string must contain non-whitespace text",
+});
 const checkPayloadSchema = z.discriminatedUnion("visibility", [
   z.strictObject({
     requestId: z.string().min(1),
@@ -78,7 +92,7 @@ const runEventSchema = z.union([
     type: z.literal("player.outcome"),
     payload: z.strictObject({
       status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
-      summary: z.string().trim().min(1),
+      summary: preservedNonBlankStringSchema,
     }),
   }),
   z.strictObject({
@@ -88,7 +102,7 @@ const runEventSchema = z.union([
       id: z.string().min(1),
       observerId: z.literal("player"),
       step: z.number().int().nonnegative(),
-      summary: z.string().trim().min(1),
+      summary: preservedNonBlankStringSchema,
       introductions: z.array(z.strictObject({ localEntity: localEntityViewSchema })),
       apparentClaims: z.array(z.strictObject({
         id: z.string().min(1),
@@ -125,47 +139,63 @@ const runEventSchema = z.union([
     type: z.literal("run.failed"),
     payload: z.strictObject({
       runId: z.string().min(1),
-      message: z.string(),
-      retriable: z.literal(true),
+      message: preservedNonBlankStringSchema,
+      retriable: z.boolean(),
     }),
   }),
 ]) as z.ZodType<WorldRunEvent>;
 
+const persistedRandomDefinitionSchema = discreteRandomDefinitionSchema.superRefine((definition, context) => {
+  const ids: Array<{ value: string; path: Array<string | number> }> = [
+    { value: definition.id, path: ["id"] },
+    ...definition.steps.flatMap((step, index) => [
+      { value: step.id, path: ["steps", index, "id"] },
+      ...(step.when ? [{ value: step.when.stepId, path: ["steps", index, "when", "stepId"] }] : []),
+    ]),
+  ];
+  for (const { value, path } of ids) {
+    const parsed = semanticIdSchema.safeParse(value);
+    if (!parsed.success) {
+      context.addIssue({ code: "custom", message: parsed.error.issues[0].message, path });
+    }
+  }
+});
+
 const worldContractSchema = z.strictObject({
-  id: z.string().min(1),
+  id: semanticIdSchema,
   name: z.string().min(1),
   manifestVersion: z.string().min(1),
   description: z.string(),
   contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   modelProfiles: z.strictObject({
-    perception: z.string().min(1),
-    reactionRouting: z.string().min(1),
-    resolution: z.string().min(1),
-    transition: z.string().min(1),
-    causalVerifier: z.string().min(1),
+    perception: semanticIdSchema,
+    reactionRouting: semanticIdSchema,
+    resolution: semanticIdSchema,
+    transition: semanticIdSchema,
+    causalVerifier: semanticIdSchema,
   }),
   laws: z.array(z.strictObject({
-    id: z.string().min(1),
+    id: semanticIdSchema,
     text: z.string().min(1),
     severity: z.enum(["hard", "soft"]),
   })).min(1),
   disclosure: z.strictObject({ defaultCheckVisibility: z.enum(["full", "result_only", "hidden"]) }),
   rulePackages: z.array(z.strictObject({
-    id: z.string().min(1),
+    id: semanticIdSchema,
     version: z.string().min(1),
     config: z.unknown(),
     adjudication: z.string().min(1),
-    rules: z.array(z.strictObject({ id: z.string().min(1), description: z.string().min(1) })),
+    rules: z.array(z.strictObject({ id: semanticIdSchema, description: z.string().min(1) })),
   })).min(1),
-  randomDistributions: z.array(discreteRandomDefinitionSchema),
+  randomDistributions: z.array(persistedRandomDefinitionSchema),
   historyBaseHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
 const documentEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(8),
+  schemaVersion: z.literal(9),
   id: z.string().min(1),
   world: worldContractSchema,
-  title: z.string().trim().min(1).max(80),
+  title: preservedNonBlankStringSchema.max(80),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   state: z.unknown(),
@@ -180,8 +210,8 @@ const runRecordSchema = z.strictObject({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   cancelRequested: z.boolean(),
-  error: z.string().optional(),
-  internalError: z.string().optional(),
+  error: preservedNonBlankStringSchema.optional(),
+  internalError: preservedNonBlankStringSchema.optional(),
   events: z.array(z.unknown()).min(1),
 });
 
@@ -195,6 +225,159 @@ function validateRunEvent(event: unknown, runId: string): WorldRunEvent {
     throw new Error(`event run id mismatch in ${runId}`);
   }
   return parsed.data;
+}
+
+type RunEventPhase =
+  | "start"
+  | "queued_initial"
+  | "queued_player_input"
+  | "executing"
+  | "awaiting_player"
+  | "failed_retriable"
+  | "failed_permanent"
+  | "step_limit"
+  | "completed"
+  | "goal_failed"
+  | "cancelled";
+
+function advanceRunEventPhase(
+  phase: RunEventPhase,
+  event: WorldRunEvent,
+  previous: WorldRunEvent | undefined,
+  runId: string,
+): RunEventPhase {
+  if (phase === "start") {
+    if (event.type === "player.input" && event.payload.kind === "goal") return "queued_initial";
+  } else if (phase === "queued_initial" || phase === "queued_player_input") {
+    if (event.type === "run.execution_started" &&
+      event.payload.reason === (phase === "queued_initial" ? "initial" : "player_input")) {
+      return "executing";
+    }
+    if (event.type === "run.failed") {
+      return event.payload.retriable ? "failed_retriable" : "failed_permanent";
+    }
+    if (event.type === "run.cancelled") return "cancelled";
+  } else if (phase === "executing") {
+    if (event.type === "check.resolved" || event.type === "player.outcome" ||
+      event.type === "player.observation" || event.type === "step.committed") {
+      return "executing";
+    }
+    if (event.type === "run.failed") {
+      return event.payload.retriable ? "failed_retriable" : "failed_permanent";
+    }
+    if (event.type === "run.cancelled") return "cancelled";
+    if (previous?.type === "step.committed") {
+      if (event.type === "run.awaiting_player") return "awaiting_player";
+      if (event.type === "run.completed") return "completed";
+      if (event.type === "run.goal_failed") return "goal_failed";
+      if (event.type === "run.step_limit") return "step_limit";
+    }
+  } else if (phase === "awaiting_player") {
+    if (event.type === "player.input" && event.payload.kind === "clarification") {
+      return "queued_player_input";
+    }
+    if (event.type === "run.cancelled") return "cancelled";
+  } else if (phase === "failed_retriable") {
+    if (event.type === "run.execution_started" && event.payload.reason === "retry") return "executing";
+    if (event.type === "run.failed" && event.payload.retriable) return "failed_retriable";
+    if (event.type === "run.cancelled") return "cancelled";
+  } else if (phase === "step_limit") {
+    if (event.type === "run.execution_started" && event.payload.reason === "retry") return "executing";
+    if (event.type === "run.failed" && event.payload.retriable) return "failed_retriable";
+    if (event.type === "run.cancelled") return "cancelled";
+  } else if (phase === "failed_permanent") {
+    if (event.type === "run.cancelled") return "cancelled";
+  }
+  throw new Error(`invalid event transition after ${phase} in run ${runId}: ${event.type}`);
+}
+
+function phaseMatchesRunStatus(phase: RunEventPhase, status: WorldSessionDocument["runs"][string]["status"]): boolean {
+  if (status === "queued") {
+    return phase === "queued_initial" || phase === "queued_player_input" ||
+      phase === "failed_retriable" || phase === "step_limit";
+  }
+  if (status === "running") return phase === "executing";
+  if (status === "failed") return phase === "failed_retriable" || phase === "failed_permanent";
+  return phase === status;
+}
+
+interface PublicStepLedgerEntry {
+  revision: number;
+  step: number;
+  elapsedSeconds: number;
+  events: WorldRunEventInput[];
+  playerIntent: PlayerIntent;
+}
+
+interface PublicStepPosition {
+  revision: number;
+  step: number;
+}
+
+function buildPublicStepLedger(document: WorldSessionDocument): Map<number, PublicStepLedgerEntry> {
+  const ledger = new Map<number, PublicStepLedgerEntry>();
+  let elapsedSeconds = createHistoryReplayBase(document.state).truth.elapsedSeconds;
+  for (const committed of document.state.history) {
+    const advances = committed.operations.filter((operation) => operation.kind === "advance_time");
+    if (advances.length !== 1) {
+      throw new Error(`history step ${committed.step} has no unique elapsed-time projection`);
+    }
+    elapsedSeconds += advances[0].seconds;
+    ledger.set(committed.revision, {
+      revision: committed.revision,
+      step: committed.step,
+      elapsedSeconds,
+      events: publicCommittedStepEvents(committed, elapsedSeconds),
+      playerIntent: committed.playerIntent,
+    });
+  }
+  return ledger;
+}
+
+interface PublicPlayerInput {
+  id: string;
+  text: string;
+  kind: "goal" | "clarification";
+}
+
+function validateRunIntentLedger(
+  runId: string,
+  runIntentId: string,
+  publicInputs: readonly PublicPlayerInput[],
+  canonicalIntent: PlayerIntent,
+  canonicalSource: string,
+): void {
+  if (runIntentId !== canonicalIntent.id) {
+    throw new Error(`run ${runId} intent id does not match ${canonicalSource}`);
+  }
+  if (publicInputs.length !== canonicalIntent.inputs.length || publicInputs.some((input, index) =>
+    input.id !== canonicalIntent.inputs[index].id || input.text !== canonicalIntent.inputs[index].text ||
+    input.kind !== canonicalIntent.inputs[index].kind)) {
+    throw new Error(`run ${runId} input history does not match ${canonicalSource}`);
+  }
+}
+
+function sameStepPosition(left: PublicStepPosition, right: PublicStepPosition): boolean {
+  return left.revision === right.revision && left.step === right.step;
+}
+
+function validatePositionedBoundary(
+  document: WorldSessionDocument,
+  runId: string,
+  position: PublicStepPosition,
+  latestCommitted: PublicStepPosition | undefined,
+): void {
+  if (position.revision !== position.step || position.revision > document.state.revision) {
+    throw new Error(`run ${runId} has an impossible stream boundary position`);
+  }
+  if (latestCommitted && !sameStepPosition(position, latestCommitted)) {
+    throw new Error(`run ${runId} stream boundary does not match its latest committed step`);
+  }
+  const currentIntent = document.state.player.intent;
+  if (!latestCommitted && currentIntent?.id === document.runs[runId].intentId &&
+    position.revision !== currentIntent.startedAtStep) {
+    throw new Error(`run ${runId} zero-step boundary does not match its intent start`);
+  }
 }
 
 function validateWorldSessionDocument(document: WorldSessionDocument, expectedSessionId?: string): void {
@@ -216,6 +399,8 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
   if (contentHash(createHistoryReplayBase(document.state)) !== document.world.historyBaseHash) {
     throw new Error("session history replay base mismatch");
   }
+  const publicStepLedger = buildPublicStepLedger(document);
+  const publicCommittedRevisions = new Set<number>();
   const randomDistributions = new Map(document.world.randomDistributions.map((definition) => [
     definition.id,
     definition,
@@ -241,11 +426,16 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
     intentIds.add(run.intentId);
     const events = run.events.map((event) => validateRunEvent(event, runId));
     if (Date.parse(run.createdAt) < Date.parse(document.createdAt) ||
-      Date.parse(run.updatedAt) < Date.parse(run.createdAt) || run.updatedAt !== events.at(-1)!.at) {
+      Date.parse(run.updatedAt) < Date.parse(run.createdAt) ||
+      Date.parse(run.updatedAt) > Date.parse(document.updatedAt) || run.updatedAt !== events.at(-1)!.at) {
       throw new Error(`invalid run timestamps ${runId}`);
     }
     const inputIds = new Set<string>();
+    const publicInputs: PublicPlayerInput[] = [];
     let latestInputId: string | undefined;
+    let phase: RunEventPhase = "start";
+    let latestCommitted: PublicStepPosition | undefined;
+    let pendingStepEvents: WorldRunEventInput[] = [];
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
       if (event.sequence !== index + 1) throw new Error(`invalid event sequence in run ${runId}`);
@@ -259,7 +449,46 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
           throw new Error(`run ${runId} repeats its goal input`);
         }
         inputIds.add(event.payload.id);
+        publicInputs.push(event.payload);
         latestInputId = event.payload.id;
+      }
+      const isPublicStepEvent = event.type === "check.resolved" || event.type === "player.outcome" ||
+        event.type === "player.observation" || event.type === "step.committed";
+      if (isPublicStepEvent) {
+        pendingStepEvents.push(structuredClone({ type: event.type, payload: event.payload }) as WorldRunEventInput);
+      }
+      if (event.type === "step.committed") {
+        const expected = publicStepLedger.get(event.payload.revision);
+        if (!expected || event.payload.step !== expected.step ||
+          event.payload.elapsedSeconds !== expected.elapsedSeconds) {
+          throw new Error(`run ${runId} committed step does not match canonical history`);
+        }
+        if (publicCommittedRevisions.has(event.payload.revision)) {
+          throw new Error(`canonical history revision ${event.payload.revision} has multiple public commits`);
+        }
+        if (latestCommitted && event.payload.revision !== latestCommitted.revision + 1) {
+          throw new Error(`run ${runId} public commits are not contiguous`);
+        }
+        if (contentHash(pendingStepEvents) !== contentHash(expected.events)) {
+          throw new Error(`run ${runId} public step events do not match canonical history step ${expected.step}`);
+        }
+        validateRunIntentLedger(
+          runId,
+          run.intentId,
+          publicInputs,
+          expected.playerIntent,
+          `canonical history revision ${expected.revision}`,
+        );
+        pendingStepEvents = [];
+        latestCommitted = { revision: expected.revision, step: expected.step };
+        publicCommittedRevisions.add(expected.revision);
+      }
+      const closesPendingStep = event.type === "player.input" || event.type === "run.execution_started" ||
+        event.type === "run.failed" || event.type === "run.awaiting_player" ||
+        event.type === "run.completed" || event.type === "run.goal_failed" ||
+        event.type === "run.step_limit" || event.type === "run.cancelled";
+      if (closesPendingStep && pendingStepEvents.length > 0) {
+        throw new Error(`run ${runId} has public step events outside a committed step`);
       }
       if (event.type === "run.execution_started") {
         const previous = events[index - 1];
@@ -274,34 +503,62 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
           (inputIds.size < 2 || previous?.type !== "player.input" || previous.payload.kind !== "clarification")) {
           throw new Error(`run ${runId} continues without clarification`);
         }
-        if (event.payload.reason === "retry" && previous?.type !== "run.failed" &&
-          previous?.type !== "run.step_limit") {
-          throw new Error(`run ${runId} retries without a retriable boundary`);
+        if (event.payload.reason === "retry" && previous?.type !== "run.step_limit" &&
+          (previous?.type !== "run.failed" || !previous.payload.retriable)) {
+          throw new Error(`run ${runId} retries a non-retriable failure`);
         }
       }
+      if (event.type === "run.awaiting_player" || event.type === "run.completed" ||
+        event.type === "run.goal_failed" || event.type === "run.step_limit" ||
+        event.type === "run.cancelled") {
+        validatePositionedBoundary(document, runId, event.payload, latestCommitted);
+      }
+      phase = advanceRunEventPhase(phase, event, events[index - 1], runId);
+    }
+    if (pendingStepEvents.length > 0) {
+      throw new Error(`run ${runId} has public step events outside a committed step`);
     }
     if (inputIds.size === 0) throw new Error(`run ${runId} has no player input`);
     const lastEvent = events.at(-1)!;
-    if (!activeRunStatuses.has(run.status) && lastEvent.type !== `run.${run.status}`) {
-      throw new Error(`run ${runId} terminal status has no matching event`);
+    if (isWorldRunStreamBoundary(run.status) && lastEvent.type !== `run.${run.status}`) {
+      throw new Error(`run ${runId} stream boundary has no matching final event`);
     }
-    if (run.cancelRequested && run.status !== "queued" && run.status !== "running") {
+    if (run.status === "running" && lastEvent.type !== "run.execution_started" &&
+      lastEvent.type !== "step.committed") {
+      throw new Error(`running run ${runId} has no matching final event`);
+    }
+    if (run.status === "queued" && lastEvent.type !== "player.input" &&
+      lastEvent.type !== "run.step_limit" &&
+      (lastEvent.type !== "run.failed" || !lastEvent.payload.retriable)) {
+      throw new Error(`queued run ${runId} has no resumable final event`);
+    }
+    if (!phaseMatchesRunStatus(phase, run.status)) {
+      throw new Error(`run ${runId} status ${run.status} does not match event phase ${phase}`);
+    }
+    if (run.cancelRequested && !isWorldRunExecuting(run.status)) {
       throw new Error(`run ${runId} has a stale cancellation request`);
     }
     if (run.status === "failed" ? !run.error || !run.internalError : run.error || run.internalError) {
       throw new Error(`run ${runId} has inconsistent failure details`);
     }
+    if (run.status === "failed" &&
+      (lastEvent.type !== "run.failed" || lastEvent.payload.message !== run.error)) {
+      throw new Error(`run ${runId} failure details do not match its final event`);
+    }
+    if (document.state.player.intent?.id === run.intentId &&
+      (lastEvent.type === "run.awaiting_player" || lastEvent.type === "run.completed" ||
+        lastEvent.type === "run.goal_failed" || lastEvent.type === "run.step_limit" ||
+        lastEvent.type === "run.cancelled") &&
+      !sameStepPosition(lastEvent.payload, document.state)) {
+      throw new Error(`current run ${runId} boundary does not match the canonical state`);
+    }
     if (document.state.player.intent && run.intentId === document.state.player.intent.id) {
       currentIntentRuns.push(runId);
-      const latestInput = [...events].reverse().find((event) => event.type === "player.input");
-      if (!latestInput || latestInput.type !== "player.input" ||
-        latestInput.payload.id !== document.state.player.intent.latestInput.id ||
-        latestInput.payload.text !== document.state.player.intent.latestInput.text ||
-        latestInput.payload.kind !== document.state.player.intent.latestInput.kind) {
-        throw new Error(`run ${runId} input does not match current intent`);
-      }
+      validateRunIntentLedger(runId, run.intentId, publicInputs, document.state.player.intent, "current intent");
       if (document.state.player.intent.status === "active") {
-        if (!activeRunStatuses.has(run.status)) throw new Error(`active intent belongs to terminal run ${runId}`);
+        if (!isWorldRunActiveIntentOwner(run.status)) {
+          throw new Error(`active intent belongs to closed run ${runId}`);
+        }
       } else {
         const expectedStatus = {
           completed: "completed",
@@ -310,9 +567,13 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
         }[document.state.player.intent.status];
         if (run.status !== expectedStatus) throw new Error(`terminal intent does not match run ${runId}`);
       }
-    } else if (activeRunStatuses.has(run.status)) {
+    } else if (isWorldRunActiveIntentOwner(run.status)) {
       throw new Error(`run ${runId} has no matching active intent`);
     }
+  }
+  if (publicCommittedRevisions.size !== publicStepLedger.size ||
+    [...publicStepLedger.keys()].some((revision) => !publicCommittedRevisions.has(revision))) {
+    throw new Error("public step ledger does not cover canonical history");
   }
   if (document.state.player.intent && currentIntentRuns.length !== 1) {
     throw new Error("current player intent must belong to exactly one run");
@@ -322,32 +583,27 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
   }
 }
 
-export function serializeWorldSessionDocument(
+function observeDocumentValidation(
   document: WorldSessionDocument,
-  observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER,
+  observer: RuntimeObserver,
+  correlation: RuntimeCorrelation | undefined,
+  startedAt: number,
+): void {
+  runtimeEventEmitter(observer)?.({
+    event: "persistence.history_validation.completed",
+    correlation,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    counts: { history: document.state.history.length, runs: Object.keys(document.runs).length },
+    hashes: { state: contentHash(document.state) },
+  });
+}
+
+function serializeValidatedWorldSessionDocument(
+  document: WorldSessionDocument,
+  observer: RuntimeObserver,
   correlation?: RuntimeCorrelation,
 ): string {
   const observe = runtimeEventEmitter(observer);
-  const validationStartedAt = Date.now();
-  try {
-    validateWorldSessionDocument(document);
-    observe?.({
-      event: "persistence.history_validation.completed",
-      correlation,
-      durationMs: Math.max(0, Date.now() - validationStartedAt),
-      counts: { history: document.state.history.length, runs: Object.keys(document.runs).length },
-      hashes: { state: contentHash(document.state) },
-    });
-  } catch (error) {
-    observe?.({
-      event: "persistence.history_validation.failed",
-      level: "error",
-      correlation,
-      durationMs: Math.max(0, Date.now() - validationStartedAt),
-      error: serializeRuntimeError(error),
-    });
-    throw error;
-  }
   const startedAt = Date.now();
   try {
     const serialized = JSON.stringify(document);
@@ -371,11 +627,35 @@ export function serializeWorldSessionDocument(
   }
 }
 
+export function serializeWorldSessionDocument(
+  document: WorldSessionDocument,
+  observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER,
+  correlation?: RuntimeCorrelation,
+): string {
+  const observe = runtimeEventEmitter(observer);
+  const validationStartedAt = Date.now();
+  try {
+    validateWorldSessionDocument(document);
+    observeDocumentValidation(document, observer, correlation, validationStartedAt);
+  } catch (error) {
+    observe?.({
+      event: "persistence.history_validation.failed",
+      level: "error",
+      correlation,
+      durationMs: Math.max(0, Date.now() - validationStartedAt),
+      error: serializeRuntimeError(error),
+    });
+    throw error;
+  }
+  return serializeValidatedWorldSessionDocument(document, observer, correlation);
+}
+
 export function parseWorldSessionDocument(
   serialized: string,
   expectedSessionId?: string,
   observer: RuntimeObserver = NOOP_RUNTIME_OBSERVER,
   correlation?: RuntimeCorrelation,
+  attributes?: RuntimeEventInput["attributes"],
 ): WorldSessionDocument {
   const observe = runtimeEventEmitter(observer);
   const startedAt = Date.now();
@@ -386,6 +666,7 @@ export function parseWorldSessionDocument(
       event: "persistence.read.completed",
       correlation: { ...correlation, sessionId: expectedSessionId ?? document.id },
       durationMs: Math.max(0, Date.now() - startedAt),
+      ...(attributes ? { attributes } : {}),
       measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
       counts: { history: document.state.history.length, runs: Object.keys(document.runs).length },
       hashes: { document: contentHash(document) },
@@ -397,6 +678,7 @@ export function parseWorldSessionDocument(
       level: "error",
       correlation: { ...correlation, sessionId: expectedSessionId },
       durationMs: Math.max(0, Date.now() - startedAt),
+      ...(attributes ? { attributes } : {}),
       measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
       error: serializeRuntimeError(error),
     });
@@ -437,7 +719,11 @@ export class WorldSessionConflictError extends Error {
 }
 
 export class MemoryWorldSessionStore implements WorldSessionStore {
-  private readonly values = new Map<string, { generation: number; serialized: string }>();
+  private readonly values = new Map<string, {
+    generation: number;
+    serialized: string;
+    document: WorldSessionDocument;
+  }>();
   private readonly observe: ReturnType<typeof runtimeEventEmitter>;
   writeCount = 0;
 
@@ -448,24 +734,32 @@ export class MemoryWorldSessionStore implements WorldSessionStore {
   create(document: WorldSessionDocument, correlation?: RuntimeCorrelation): StoredWorldSession {
     if (this.values.has(document.id)) throw new WorldSessionConflictError(document.id);
     this.writeCount += 1;
+    const serialized = serializeWorldSessionDocument(document, this.observer, correlation);
+    const validated = structuredClone(document);
     this.values.set(document.id, {
       generation: 1,
-      serialized: serializeWorldSessionDocument(document, this.observer, correlation),
+      serialized,
+      document: validated,
     });
     this.observe?.({
       event: "persistence.write.completed",
       correlation: { ...correlation, sessionId: document.id },
       attributes: { sink: "memory", operation: "create" },
     });
-    return this.read(document.id, correlation);
+    return { generation: 1, document: structuredClone(validated) };
   }
 
   read(sessionId: string, correlation?: RuntimeCorrelation): StoredWorldSession {
     const stored = this.values.get(sessionId);
     if (!stored) throw new WorldSessionNotFoundError(sessionId);
+    this.observe?.({
+      event: "persistence.read.completed",
+      correlation: { ...correlation, sessionId },
+      attributes: { sink: "memory", validation: "cached" },
+    });
     return {
       generation: stored.generation,
-      document: parseWorldSessionDocument(stored.serialized, sessionId, this.observer, correlation),
+      document: structuredClone(stored.document),
     };
   }
 
@@ -480,16 +774,19 @@ export class MemoryWorldSessionStore implements WorldSessionStore {
     if (stored.generation !== expectedGeneration) throw new WorldSessionConflictError(sessionId);
     if (document.id !== sessionId) throw new Error("session document id mismatch");
     this.writeCount += 1;
+    const serialized = serializeWorldSessionDocument(document, this.observer, correlation);
+    const validated = structuredClone(document);
     this.values.set(sessionId, {
       generation: expectedGeneration + 1,
-      serialized: serializeWorldSessionDocument(document, this.observer, correlation),
+      serialized,
+      document: validated,
     });
     this.observe?.({
       event: "persistence.write.completed",
       correlation: { ...correlation, sessionId },
       attributes: { sink: "memory", operation: "compare_and_swap" },
     });
-    return this.read(sessionId, correlation);
+    return { generation: expectedGeneration + 1, document: structuredClone(validated) };
   }
 
   listSessions(correlation?: RuntimeCorrelation): StoredWorldSession[] {

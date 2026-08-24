@@ -114,3 +114,5 @@
 - [0045 — 版本化参考世界采用作者工程与严格运行目录分层](0045-versioned-reference-world-projects.md)
 - [0046 — 剧本声明、预承诺并可重放的通用离散随机分布](0046-committed-discrete-random-distributions.md)
 - [0047 — 按实际 Profile 激活模型供应商凭据](0047-on-demand-model-provider-credentials.md)
+- [0048 — 引擎拥有运行时身份与语义身份不可重绑](0048-engine-owned-runtime-identities.md)
+- [0049 — WorldRun 失败分类、取消恢复与流边界](0049-world-run-failure-and-stream-boundaries.md)

@@ -5,7 +5,8 @@ import type {
   StructuredModelRequest,
   StructuredModelResult,
 } from "../model-provider";
-import { ModelOutputError } from "../model-provider";
+import type { ModelExecutionAudit } from "../model";
+import { modelInvocationIdentity, ModelOutputError } from "../model-provider";
 
 const TEST_PROFILE_IDS = [
   "truth-engine",
@@ -48,6 +49,62 @@ export function createTestModelCatalog(profileIds: readonly string[] = TEST_PROF
       },
     }])),
   });
+}
+
+export function createTestModelAudit(
+  role: ModelExecutionAudit["role"],
+  subjectId: string,
+  worldHash: string,
+  revision = 0,
+): ModelExecutionAudit {
+  const catalog = createTestModelCatalog();
+  const profileId = role.startsWith("agent-") ? "agent-default" : "truth-engine";
+  const profile = catalog.profile(profileId);
+  const identity = modelInvocationIdentity({
+    workloadId: "test-only-correlation",
+    batchId: "test-only-correlation",
+    runtimeIdentity: { worldHash, revision },
+  }, role, subjectId, 1);
+  return {
+    role,
+    subjectId,
+    profileId,
+    providerId: profile.provider_id,
+    modelId: profile.model,
+    catalogSchemaVersion: catalog.schemaVersion,
+    catalogHash: catalog.hash,
+    promptVersion: "test-v1",
+    inference: structuredClone(profile.inference),
+    structuredOutputMode: "deterministic-test",
+    invocations: [{
+      id: identity.modelInvocationId,
+      ordinal: 1,
+      requestHash: contentHash({ role, subjectId, revision, request: true }),
+      responseHash: contentHash({ role, subjectId, revision, response: true }),
+      requestUtf8Bytes: 1,
+      responseUtf8Bytes: 1,
+      context: {
+        utf8Bytes: 1,
+        sections: {},
+        counts: { history: 0, events: 0, agents: 0, entities: 0, facts: 0, beliefs: 0, evidence: 0, observations: 0 },
+      },
+      transports: [{
+        attempt: 1,
+        queueWaitMs: 0,
+        executionMs: 0,
+        retryDelayMs: 0,
+        status: "succeeded",
+        errorName: null,
+        statusCode: null,
+      }],
+      tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
+      finishReason: "stop",
+      providerRequestId: null,
+      resultKind: "test-fixture",
+      semanticOutcome: "accepted",
+      validationIssueCodes: [],
+    }],
+  };
 }
 
 export type ScriptedModelHandlerRequest = Omit<StructuredModelRequest<unknown>, "schema"> & {
@@ -165,8 +222,12 @@ export class ScriptedModelProvider implements StructuredModelProvider {
     }
     const raw = await this.handlerValue(captured);
     const modelInvocation = request.modelInvocation ?? 1;
-    const modelInvocationId = request.modelInvocationId ??
-      `${request.workloadId}:${request.batchId}:${request.role}:${request.subjectId}:${modelInvocation}`;
+    const modelInvocationId = request.modelInvocationId ?? modelInvocationIdentity(
+      request,
+      request.role,
+      request.subjectId,
+      modelInvocation,
+    ).modelInvocationId;
     const contextJson = JSON.stringify(context, null, 2);
     const requestDocument = { system: request.system, context };
     const responseJson = JSON.stringify(canonicalize(raw));
@@ -283,12 +344,9 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
       const revision = input.revision;
       if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
       return {
-        beliefPatch: { agentId, baseRevision: revision, operations: [] },
-        characterPatch: { agentId, baseRevision: revision, operations: [] },
+        beliefPatch: { operations: [] },
+        characterPatch: { operations: [] },
         nextAction: {
-          id: `mock-action:${agentId}:${revision}`,
-          actorId: agentId,
-          baseRevision: revision,
           rawText: "维持当前目标并观察世界",
           goal: "继续自主行动",
           means: null,

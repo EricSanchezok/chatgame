@@ -3,8 +3,10 @@ import { applyBeliefPatch } from "./belief";
 import { applyCharacterPatch } from "./character";
 import {
   agentMindOutputSchema,
-  reactionDecisionSchema,
+  reactionDecisionDraftSchema,
+  type AgentMindDraftOutput,
   type AgentMindOutput,
+  type ReactionDecisionDraft,
 } from "./llm-schemas";
 import type {
   AgentActionProposal,
@@ -21,6 +23,7 @@ import {
   modelInvocationIdentity,
   ModelConfigurationError,
   ModelOutputError,
+  ModelSemanticRepairError,
   ModelTransportError,
   setModelInvocationOutcome,
   setModelInvocationResultKind,
@@ -41,62 +44,151 @@ import {
   validationIssues,
   type PromptValidationIssue,
 } from "./prompts";
+import { runtimeId } from "./runtime-id";
+
+function assertBeliefIdentityHistory(
+  state: SimulationState,
+  agent: AgentState,
+  output: AgentMindDraftOutput,
+): void {
+  const usedLocalIds = new Set([
+    ...Object.keys(state.historyBase?.agents[agent.id]?.belief.localEntities ?? {}),
+    ...Object.keys(agent.belief.localEntities),
+  ]);
+  const claimBindings = new Map(Object.values(state.historyBase?.agents[agent.id]?.belief.claims ?? {})
+    .map((claim) => [claim.id, `${claim.subjectId}\u0000${claim.predicate}`]));
+  for (const claim of Object.values(agent.belief.claims))
+    claimBindings.set(claim.id, `${claim.subjectId}\u0000${claim.predicate}`);
+  for (const commit of state.bootstrapAgentCommits) {
+    if (commit.agentId !== agent.id) continue;
+    for (const operation of commit.beliefPatch.operations) {
+      if (operation.kind === "upsert_local_entity") usedLocalIds.add(operation.entity.id);
+      if (operation.kind === "split_local_entity") {
+        for (const entity of operation.entities) usedLocalIds.add(entity.id);
+      }
+      if (operation.kind === "upsert_claim") {
+        claimBindings.set(operation.claim.id, `${operation.claim.subjectId}\u0000${operation.claim.predicate}`);
+      }
+    }
+  }
+  for (const step of state.history) {
+    for (const operation of step.operations) {
+      if (operation.kind === "create_agent" && operation.agent.id === agent.id) {
+        for (const id of Object.keys(operation.agent.belief.localEntities)) usedLocalIds.add(id);
+      }
+    }
+    for (const observation of step.observations) {
+      if (observation.observerId !== agent.id) continue;
+      for (const introduction of observation.introductions) usedLocalIds.add(introduction.localEntity.id);
+    }
+    for (const patch of step.beliefPatches) {
+      if (patch.agentId !== agent.id) continue;
+      for (const operation of patch.operations) {
+        if (operation.kind === "upsert_local_entity") usedLocalIds.add(operation.entity.id);
+        if (operation.kind === "split_local_entity") {
+          for (const entity of operation.entities) usedLocalIds.add(entity.id);
+        }
+        if (operation.kind === "upsert_claim") {
+          claimBindings.set(operation.claim.id, `${operation.claim.subjectId}\u0000${operation.claim.predicate}`);
+        }
+      }
+    }
+  }
+  const activeLocalIds = new Set(Object.keys(agent.belief.localEntities));
+  for (const operation of output.beliefPatch.operations) {
+    if (operation.kind === "upsert_local_entity") {
+      if (!activeLocalIds.has(operation.entity.id) && usedLocalIds.has(operation.entity.id)) {
+        throw new Error(`AgentMind ${agent.id} reuses retired local identity ${operation.entity.id}`);
+      }
+      activeLocalIds.add(operation.entity.id);
+      usedLocalIds.add(operation.entity.id);
+    } else if (operation.kind === "remove_local_entity") {
+      activeLocalIds.delete(operation.localEntityId);
+    } else if (operation.kind === "merge_local_entities") {
+      activeLocalIds.delete(operation.fromId);
+    } else if (operation.kind === "split_local_entity") {
+      activeLocalIds.delete(operation.fromId);
+      for (const entity of operation.entities) {
+        if (usedLocalIds.has(entity.id)) {
+          throw new Error(`AgentMind ${agent.id} reuses retired local identity ${entity.id}`);
+        }
+        activeLocalIds.add(entity.id);
+        usedLocalIds.add(entity.id);
+      }
+    } else if (operation.kind === "upsert_claim") {
+      const binding = `${operation.claim.subjectId}\u0000${operation.claim.predicate}`;
+      if (claimBindings.has(operation.claim.id) && claimBindings.get(operation.claim.id) !== binding) {
+        throw new Error(`AgentMind ${agent.id} rebinds claim ${operation.claim.id}`);
+      }
+      claimBindings.set(operation.claim.id, binding);
+    }
+  }
+}
 
 function validateMindOutput(
   agent: AgentState,
-  revision: number,
-  step: number,
+  state: SimulationState,
   observations: readonly ObservationPacket[],
   events: readonly WorldEvent[],
-  output: AgentMindOutput,
+  output: AgentMindDraftOutput,
 ): AgentMindOutput {
-  if (output.beliefPatch.agentId !== agent.id) {
-    throw new Error(`AgentMind ${agent.id} returned patch for ${output.beliefPatch.agentId}`);
-  }
-  if (output.beliefPatch.baseRevision !== revision) {
-    throw new Error(`AgentMind ${agent.id} returned stale belief patch`);
-  }
-  if (output.characterPatch.agentId !== agent.id) {
-    throw new Error(`AgentMind ${agent.id} returned character patch for ${output.characterPatch.agentId}`);
-  }
-  if (output.characterPatch.baseRevision !== revision) {
-    throw new Error(`AgentMind ${agent.id} returned stale character patch`);
-  }
-  if (output.nextAction.actorId !== agent.id) {
-    throw new Error(`AgentMind ${agent.id} returned action for ${output.nextAction.actorId}`);
-  }
-  if (output.nextAction.baseRevision !== revision) {
-    throw new Error(`AgentMind ${agent.id} returned action for revision ${output.nextAction.baseRevision}`);
-  }
-  const belief = applyBeliefPatch(agent.belief, output.beliefPatch);
-  applyCharacterPatch(agent.character, belief, output.characterPatch, step, observations, events);
+  const { revision, step, worldHash } = state;
+  assertBeliefIdentityHistory(state, agent, output);
+  const beliefPatch = {
+    agentId: agent.id,
+    baseRevision: revision,
+    operations: structuredClone(output.beliefPatch.operations),
+  };
+  const characterPatch = {
+    agentId: agent.id,
+    baseRevision: revision,
+    operations: structuredClone(output.characterPatch.operations),
+  };
+  const belief = applyBeliefPatch(agent.belief, beliefPatch);
+  applyCharacterPatch(agent.character, belief, characterPatch, step, observations, events);
   for (const targetId of output.nextAction.targetIds) {
     if (!belief.localEntities[targetId]) {
       throw new Error(`AgentMind ${agent.id} targeted unknown local entity ${targetId}`);
     }
   }
-  return output;
+  return {
+    beliefPatch,
+    characterPatch,
+    nextAction: {
+      ...output.nextAction,
+      id: runtimeId({
+        worldHash,
+        revision,
+        kind: "action",
+        stage: "prepared",
+        owner: agent.id,
+        round: 0,
+        ordinal: 0,
+      }),
+      actorId: agent.id,
+      baseRevision: revision,
+    },
+  };
 }
 
 function validateReactionDecision(
+  worldHash: string,
   agent: AgentState,
   revision: number,
   originalAction: AgentActionProposal,
   stimulus: ObservationPacket,
-  decision: ReactionDecision,
+  decision: ReactionDecisionDraft,
 ): ReactionDecision {
-  if (decision.agentId !== agent.id) {
-    throw new Error(`Agent reaction ${agent.id} returned decision for ${decision.agentId}`);
+  if (decision.kind === "keep") {
+    return {
+      agentId: agent.id,
+      baseRevision: revision,
+      originalProposalId: originalAction.id,
+      kind: "keep",
+    };
   }
-  if (decision.baseRevision !== revision) throw new Error(`Agent reaction ${agent.id} used a stale revision`);
-  if (decision.originalProposalId !== originalAction.id) {
-    throw new Error(`Agent reaction ${agent.id} replaced an unknown proposal`);
-  }
-  if (decision.kind === "keep") return decision;
 
   const replacement = decision.replacementAction;
-  if (replacement.actorId !== agent.id) throw new Error(`Agent reaction ${agent.id} changed actor`);
-  if (replacement.baseRevision !== revision) throw new Error(`Agent reaction ${agent.id} changed revision`);
   const allowedTargets = new Set([
     ...Object.keys(agent.belief.localEntities),
     ...stimulus.introductions.map((introduction) => introduction.localEntity.id),
@@ -106,7 +198,26 @@ function validateReactionDecision(
       throw new Error(`Agent reaction ${agent.id} targeted unknown local entity ${targetId}`);
     }
   }
-  return decision;
+  return {
+    agentId: agent.id,
+    baseRevision: revision,
+    originalProposalId: originalAction.id,
+    kind: "replace",
+    replacementAction: {
+      ...replacement,
+      id: runtimeId({
+        worldHash,
+        revision,
+        kind: "action",
+        stage: "reaction",
+        owner: agent.id,
+        round: 0,
+        ordinal: 0,
+      }),
+      actorId: agent.id,
+      baseRevision: revision,
+    },
+  };
 }
 
 function isTerminalModelError(error: unknown): boolean {
@@ -138,6 +249,7 @@ export class AgentMind {
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
     let lastError = "unknown AgentMind validation failure";
+    let lastCause: unknown;
     const observe = runtimeEventEmitter(scope.observer);
     const role = purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind";
 
@@ -179,7 +291,13 @@ export class AgentMind {
           schema: agentMindOutputSchema,
         });
         audits.push(result.audit);
-        const validated = validateMindOutput(agent, state.revision, state.step, observations, events, result.value);
+        const validated = validateMindOutput(
+          agent,
+          state,
+          observations,
+          events,
+          result.value,
+        );
         setModelInvocationResultKind(result.audit, purpose === "bootstrap" ? "agent_bootstrap" : "agent_mind");
         setModelInvocationOutcome(result.audit, "accepted");
         observe?.({
@@ -198,6 +316,7 @@ export class AgentMind {
         if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) &&
           !(error instanceof Error)) throw error;
         lastError = error instanceof Error ? error.message : String(error);
+        lastCause = error;
         issues = validationIssues(error);
         const audit = audits.at(-1);
         if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
@@ -216,7 +335,11 @@ export class AgentMind {
         });
       }
     }
-    throw new Error(`AgentMind ${agent.id} failed after repairs: ${lastError}`);
+    throw new ModelSemanticRepairError(
+      role,
+      `AgentMind ${agent.id} failed after repairs: ${lastError}`,
+      { cause: lastCause },
+    );
   }
 
   async react(
@@ -229,6 +352,7 @@ export class AgentMind {
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
     let lastError = "unknown Agent reaction validation failure";
+    let lastCause: unknown;
     const observe = runtimeEventEmitter(scope.observer);
 
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
@@ -265,10 +389,17 @@ export class AgentMind {
           schemaName: "agent_reaction_decision",
           system: REACTION_SYSTEM,
           context,
-          schema: reactionDecisionSchema,
+          schema: reactionDecisionDraftSchema,
         });
         audits.push(result.audit);
-        const validated = validateReactionDecision(agent, state.revision, originalAction, stimulus, result.value);
+        const validated = validateReactionDecision(
+          state.worldHash,
+          agent,
+          state.revision,
+          originalAction,
+          stimulus,
+          result.value,
+        );
         setModelInvocationResultKind(result.audit, `reaction_${validated.kind}`);
         setModelInvocationOutcome(result.audit, "accepted");
         observe?.({
@@ -286,6 +417,7 @@ export class AgentMind {
         if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) &&
           !(error instanceof Error)) throw error;
         lastError = error instanceof Error ? error.message : String(error);
+        lastCause = error;
         issues = validationIssues(error);
         const audit = audits.at(-1);
         if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
@@ -304,7 +436,11 @@ export class AgentMind {
         });
       }
     }
-    throw new Error(`Agent reaction ${agent.id} failed after repairs: ${lastError}`);
+    throw new ModelSemanticRepairError(
+      "agent-reaction",
+      `Agent reaction ${agent.id} failed after repairs: ${lastError}`,
+      { cause: lastCause },
+    );
   }
 }
 

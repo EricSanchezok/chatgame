@@ -5,11 +5,12 @@ import { parseModelCatalog } from "../model-catalog";
 import {
   ModelConfigurationError,
   ModelOutputError,
-  ModelTransportError,
+  modelInvocationIdentity,
   summarizeModelExecutionAudit,
 } from "../model-provider";
 import { RecordingRuntimeObserver } from "../observability";
 import { FairModelScheduler, ModelOverloadedError } from "../model-scheduler";
+import { TEST_WORLD_HASH } from "../testing/world";
 
 const outputSchema = z.strictObject({ answer: z.string() });
 
@@ -151,10 +152,27 @@ function request(profileId: string) {
     system: "Return structured output.",
     context: { question: "test" },
     schema: outputSchema,
+    runtimeIdentity: { worldHash: TEST_WORLD_HASH, revision: 0 },
   };
 }
 
 describe("model catalog and provider adapters", () => {
+  it("keeps canonical audit identity independent of workload and batch correlation", () => {
+    const first = modelInvocationIdentity({
+      workloadId: "session-uuid-a",
+      batchId: "run-uuid-a",
+      runtimeIdentity: { worldHash: TEST_WORLD_HASH, revision: 7 },
+    }, "agent-mind", "keeper", 2);
+    const second = modelInvocationIdentity({
+      workloadId: "session-uuid-b",
+      batchId: "run-uuid-b",
+      runtimeIdentity: { worldHash: TEST_WORLD_HASH, revision: 7 },
+    }, "agent-mind", "keeper", 2);
+    expect(first).toEqual(second);
+    expect(() => modelInvocationIdentity({ workloadId: "a", batchId: "b" }, "agent-mind", "keeper", 1))
+      .toThrow("requires worldHash and revision");
+  });
+
   it("rejects unknown profiles and mismatched native inference settings", async () => {
     expect(() => parseModelCatalog({
       schema_version: 2,
@@ -282,6 +300,30 @@ describe("model catalog and provider adapters", () => {
       .toMatchObject({ input: 13, output: 8, reasoning: 3, cacheRead: 2 });
   });
 
+  it("uses the smallest schema-valid DeepSeek example instead of inventing optional operations", async () => {
+    let body: Record<string, unknown> | undefined;
+    const schema = z.strictObject({
+      operations: z.array(z.strictObject({ kind: z.literal("change") })),
+      required: z.array(z.string()).min(1),
+    });
+    const gateway = new ModelGateway(catalog(), credentials, {
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return deepSeekResponse(JSON.stringify({ operations: [], required: ["ok"] }));
+      },
+    });
+
+    await gateway.generateStructured({
+      ...request("flash"),
+      schemaName: "minimal_array_output",
+      schema,
+    });
+
+    expect(JSON.stringify(body)).toContain(
+      'Example JSON output shape: {\\"operations\\":[],\\"required\\":[\\"string\\"]}',
+    );
+  });
+
   it("records exact invocation metrics, full Context once per call, and deduplicated contracts", async () => {
     const observer = new RecordingRuntimeObserver({ mode: "full" });
     const gateway = new ModelGateway(catalog(), credentials, {
@@ -354,7 +396,11 @@ describe("model catalog and provider adapters", () => {
       },
       sleep: async () => {},
     });
-    await expect(unauthorized.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelTransportError);
+    await expect(unauthorized.generateStructured(request("deep"))).rejects.toMatchObject({
+      name: "ModelTransportError",
+      retriable: false,
+      statusCode: 401,
+    });
     expect(authCalls).toBe(1);
 
     const malformed = new ModelGateway(catalog(), credentials, {
@@ -390,7 +436,11 @@ describe("model catalog and provider adapters", () => {
       },
       sleep: async () => {},
     });
-    await expect(badRequest.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelTransportError);
+    await expect(badRequest.generateStructured(request("deep"))).rejects.toMatchObject({
+      name: "ModelTransportError",
+      retriable: false,
+      statusCode: 400,
+    });
     expect(badRequestCalls).toBe(1);
 
     for (const response of [
@@ -404,6 +454,20 @@ describe("model catalog and provider adapters", () => {
       });
       await expect(invalid.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelOutputError);
     }
+  });
+
+  it.each([429, 500])("preserves retryability after exhausting a %i response", async (status) => {
+    const exhausted = new ModelGateway(catalog(), credentials, {
+      maxTransportAttempts: 1,
+      fetch: async () => Response.json({ error: { message: "temporary outage" } }, { status }),
+      sleep: async () => {},
+    });
+
+    await expect(exhausted.generateStructured(request("deep"))).rejects.toMatchObject({
+      name: "ModelTransportError",
+      retriable: true,
+      statusCode: status,
+    });
   });
 
   it("queues a 48-Agent gateway burst behind the global limit of 16", async () => {

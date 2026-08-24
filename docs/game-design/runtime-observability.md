@@ -4,7 +4,7 @@
 
 ## 两条观测链路
 
-成功提交的 bootstrap 与世界步骤把 `ModelExecutionAudit.invocations[]` 写入 `WorldSessionDocument` schema v8。运行 NDJSON 覆盖 HTTP、SSE、session、WorldRun、世界步骤、模型、校验与存档；失败、取消和回滚调用只进入运行日志，不进入已提交步骤审计。
+成功提交的 bootstrap 与世界步骤把 `ModelExecutionAudit.invocations[]` 写入 `WorldSessionDocument` schema v9。运行 NDJSON 覆盖 HTTP、SSE、session、WorldRun、世界步骤、模型、校验与存档；失败、取消和回滚调用只进入运行日志，不进入已提交步骤审计。
 
 公共游戏 API、SSE payload 与浏览器 DTO 不包含运行事件、模型审计、canonical binding 或内部错误。运行日志是有界本地诊断表面，不是游戏历史或公开事件流。
 
@@ -31,10 +31,12 @@ Full payload 只在拥有边界出现：HTTP 记录经过递归凭证字段脱�
 | Session 与 run | `session.bootstrap.*`、`run.queued/started/cancel_requested/finished/failed`、公开事件追加 |
 | 世界步骤 | `step.started`、联合行动、Truth、`step.check_round.*`、`step.reaction_batch.*`、transition 校验/应用、玩家知识、AgentMind 批次、候选与历史校验、`step.committed/rolled_back` |
 | 模型 | Context 构建/规范化/序列化、契约注册、invocation、queue、transport、retry wait、结构化解析、语义接受/拒绝 |
-| 持久化 | 完整历史校验、document 序列化、临时文件写入、rename、读取、写入与失败 |
+| 持久化 | 完整历史校验、document 序列化、临时文件写入、rename、读取、写入与失败；SQLite 读取完成事件标记 `cacheHit` |
 | Sink | `observability.health` |
 
 事件名是稳定的阶段标识；调用方依靠 correlation 串联，不依靠相邻行或时间戳猜测父子关系。
+
+SQLite 可以缓存已经通过完整验证且 generation 与原始文档字节均未改变的会话，但缓存固定为最近使用的 8 项；创建、CAS 与读取都会更新次序，删除和关闭会释放对应项。批量列表先读取仍在缓存中的会话，再补齐未命中项，返回顺序仍按会话 ID，避免容量刚好少于会话数时每轮顺序扫描都把下一项逐出。命中和未命中都恰好产生一次 `persistence.read.completed`，只报告 `cacheHit` 等边界元数据，不把会话 payload 复制进事件。按 world/hash/seed 重建的可信世界契约同样使用 8 项 LRU，批量列表也先验证 resident；任何读取优化都不能成为随存档数量增长的第二份永久状态。
 
 ## Context 与模型调用计量
 

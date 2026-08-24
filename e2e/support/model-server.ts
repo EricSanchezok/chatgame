@@ -16,16 +16,11 @@ function contextFrom(body: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(json) as Record<string, unknown>;
 }
 
-function agentOutput(context: Record<string, unknown>) {
-  const agent = context.agent as { id: string };
-  const revision = context.revision as number;
+function agentOutput() {
   return {
-    beliefPatch: { agentId: agent.id, baseRevision: revision, operations: [] },
-    characterPatch: { agentId: agent.id, baseRevision: revision, operations: [] },
+    beliefPatch: { operations: [] },
+    characterPatch: { operations: [] },
     nextAction: {
-      id: `e2e-action:${agent.id}:${revision}`,
-      actorId: agent.id,
-      baseRevision: revision,
       rawText: "根据当前认知继续观察世界",
       goal: "继续自主行动",
       means: null,
@@ -35,7 +30,7 @@ function agentOutput(context: Record<string, unknown>) {
 }
 
 function truthOutput(context: Record<string, unknown>) {
-  if (context.promptVersion === "causal-verifier-v2") return { verdict: "accept", findings: [] };
+  if (context.promptVersion === "causal-verifier-v3") return { verdict: "accept", findings: [] };
   if (context.stage === "perception" || context.stage === "resolution") return { kind: "done" };
   if (context.stage === "reaction-routing") return { requests: [] };
   if (context.stage !== "transition") throw new Error(`unexpected Truth stage ${String(context.stage)}`);
@@ -100,8 +95,17 @@ const server = createServer(async (request, response) => {
     }
     const body = await readBody(request);
     const context = contextFrom(body);
+    const playerIntent = context.playerIntent as { goal?: string } | null;
+    if (playerIntent?.goal === "触发 E2E 流式失败" || playerIntent?.goal === "触发 E2E 快速失败") {
+      if (playerIntent.goal === "触发 E2E 流式失败") {
+        await new Promise<void>((resolve) => setTimeout(resolve, 200));
+      }
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "forced e2e authentication failure" } }));
+      return;
+    }
     const model = String(body.model);
-    const output = model === "e2e-truth" ? truthOutput(context) : agentOutput(context);
+    const output = model === "e2e-truth" ? truthOutput(context) : agentOutput();
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       id: `e2e-response:${model}:${Date.now()}`,

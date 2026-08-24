@@ -7,16 +7,23 @@ import type {
   KnownAlternative,
   SimulationState,
   TransitionProposal,
+  TransitionProposalDraft,
   WorldDeltaOperation,
 } from "../model";
-import { ScriptedModelProvider, type ScriptedModelHandler } from "../testing/model-provider";
+import {
+  createTestModelAudit,
+  ScriptedModelProvider,
+  type ScriptedModelHandler,
+} from "../testing/model-provider";
 import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
 import { TruthEngine } from "../truth-engine";
 import { summarizeModelExecutionAudit } from "../model-provider";
-import { createEmptyCharacter } from "../transaction";
+import { createEmptyCharacter, validateSimulationState } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
+import { quantityId, runtimeId } from "../runtime-id";
+import { contentHash } from "../model-audit";
 
 const laws = [
   { id: "world-law", text: "物质、能力与因果必须来自世界状态。", severity: "hard" as const },
@@ -39,7 +46,10 @@ function autonomousAgent(id: string): AgentState {
     },
     bindings: { self: { localEntityId: "self", canonicalEntityIds: [id] } },
     nextAction: {
-      id: `proposal:${id}:0`,
+      id: runtimeId({
+        worldHash: TEST_WORLD_HASH, revision: 0, kind: "action", stage: "prepared",
+        owner: id, round: 0, ordinal: 0,
+      }),
       actorId: id,
       baseRevision: 0,
       rawText: "观察局势并继续自己的目标",
@@ -141,7 +151,7 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
     agents[id] = autonomousAgent(id);
   }
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     worldId: "acceptance-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: laws.map((law) => law.id),
@@ -153,6 +163,7 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
       events: [],
       entities,
       placements,
+      factTombstones: [],
       facts: {
         "key-authenticity": {
           id: "key-authenticity",
@@ -208,20 +219,20 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
         },
       },
       quantities: {
-        "spirit-stone:player": {
-          id: "spirit-stone:player",
+        [quantityId(TEST_WORLD_HASH, "spirit-stone", "player")]: {
+          id: quantityId(TEST_WORLD_HASH, "spirit-stone", "player"),
           definitionId: "spirit-stone",
           holderId: "player",
           amount: 3,
         },
-        "spirit-stone:merchant": {
-          id: "spirit-stone:merchant",
+        [quantityId(TEST_WORLD_HASH, "spirit-stone", "merchant")]: {
+          id: quantityId(TEST_WORLD_HASH, "spirit-stone", "merchant"),
           definitionId: "spirit-stone",
           holderId: "merchant",
           amount: 20_000,
         },
-        "mana:player": {
-          id: "mana:player",
+        [quantityId(TEST_WORLD_HASH, "mana", "player")]: {
+          id: quantityId(TEST_WORLD_HASH, "mana", "player"),
           definitionId: "mana",
           holderId: "player",
           amount: 10,
@@ -290,7 +301,14 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
       },
     },
     history: [],
-    bootstrapModelAudits: [],
+    bootstrapAgentCommits: agentIds.map((id) => ({
+      agentId: id,
+      beliefPatch: { agentId: id, baseRevision: 0, operations: [] },
+      characterPatch: { agentId: id, baseRevision: 0, operations: [] },
+      nextAction: structuredClone(agents[id].nextAction!),
+    })),
+    bootstrapModelAudits: agentIds.map((id) =>
+      createTestModelAudit("agent-bootstrap", id, TEST_WORLD_HASH)),
   };
 }
 
@@ -323,14 +341,13 @@ function definition(initialState: SimulationState): WorldDefinition {
   };
 }
 
-function mindOutput(agentId: string, revision: number) {
+function mindOutput(_agentId: string, _revision: number) {
+  void _agentId;
+  void _revision;
   return {
-    beliefPatch: { agentId, baseRevision: revision, operations: [] },
-    characterPatch: { agentId, baseRevision: revision, operations: [] },
+    beliefPatch: { operations: [] },
+    characterPatch: { operations: [] },
     nextAction: {
-      id: `proposal:${agentId}:${revision}`,
-      actorId: agentId,
-      baseRevision: revision,
       rawText: "依据自己的认知继续行动",
       goal: "继续自主生活",
       means: null,
@@ -359,7 +376,7 @@ function jointTransition(
     playerObservation?: string;
     observerIds?: string[];
   } = {},
-): TransitionProposal {
+): TransitionProposalDraft {
   const nextStep = context.step + 1;
   const eventId = `world-event:${nextStep}`;
   return {
@@ -440,6 +457,121 @@ describe("open action acceptance", () => {
       expect(step.modelAudits.filter((audit) => audit.role === "agent-mind")).toHaveLength(50);
       expect(mindCalls.get(index + 1)?.size).toBe(50);
     }
+    const reboundPreparedAction = structuredClone(result.state);
+    const secondStep = reboundPreparedAction.history[1];
+    const rebound = secondStep.initialActions.find((action) => action.actorId === agentIds[0])!;
+    rebound.rawText = "篡改跨步已承诺行动";
+    secondStep.actions.find((action) => action.id === rebound.id)!.rawText = rebound.rawText;
+    secondStep.contentHash = contentHash(Object.fromEntries(
+      Object.entries(secondStep).filter(([key]) => key !== "contentHash"),
+    ));
+    expect(() => validateSimulationState(reboundPreparedAction, true, true))
+      .toThrow("rebinds prepared action");
+  });
+
+  it("keeps pending clarification inputs immutable when an awaiting intent is cancelled", async () => {
+    const handler: ScriptedModelHandler = ({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as TruthContext & { revision: number; agent: { id: string } };
+      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      return { kind: "transition", proposal: jointTransition(context, { intentStatus: "active" }) };
+    };
+    const engine = engineWith(acceptanceState(["resident"]), handler);
+    engine.beginPlayerIntent("调查庭院", "goal-input");
+    await engine.step();
+    engine.continuePlayerIntent("先询问守卫", "clarification-committed");
+    await engine.step();
+    engine.continuePlayerIntent("再检查门锁", "clarification-pending-1");
+    engine.continuePlayerIntent("最后查看脚印", "clarification-pending-2");
+    engine.cancelPlayerIntent();
+
+    const cancelled = engine.snapshot;
+    expect(cancelled.player.intent).toMatchObject({
+      status: "cancelled",
+      latestInput: { id: "clarification-pending-2" },
+    });
+    expect(() => validateSimulationState(cancelled, true, true)).not.toThrow();
+
+    const prefixTampered = structuredClone(cancelled);
+    prefixTampered.player.intent!.inputs[1].text = "篡改已提交 clarification";
+    expect(() => validateSimulationState(prefixTampered, true, true))
+      .toThrow("does not match replayed committed cognition and input ledger");
+
+    const identityTampered = structuredClone(cancelled);
+    identityTampered.player.intent!.id = "different-intent";
+    expect(() => validateSimulationState(identityTampered, true, true))
+      .toThrow("does not match replayed committed cognition and input ledger");
+
+    const stalePendingInput = structuredClone(cancelled);
+    stalePendingInput.player.intent!.inputs[2].submittedAtStep -= 1;
+    expect(() => validateSimulationState(stalePendingInput, true, true))
+      .toThrow("does not match replayed committed cognition and input ledger");
+
+    const nonClarificationSuffix = structuredClone(cancelled);
+    nonClarificationSuffix.player.intent!.inputs[2].kind = "goal";
+    expect(() => validateSimulationState(nonClarificationSuffix, true, true))
+      .toThrow("invalid player intent input ledger");
+
+    const reloaded = engineWith(cancelled, handler);
+    reloaded.beginPlayerIntent("取消后建立全新目标", "goal-after-cancel");
+    expect(() => validateSimulationState(reloaded.snapshot, true, true)).not.toThrow();
+    const committedAfterCancel = await reloaded.step();
+    expect(committedAfterCancel.state).toMatchObject({
+      revision: 3,
+      player: { intent: { status: "active", goal: "取消后建立全新目标" } },
+    });
+    expect(() => validateSimulationState(committedAfterCancel.state, true, true)).not.toThrow();
+  });
+
+  it("accepts one canonical queued goal after a committed terminal intent", async () => {
+    const handler: ScriptedModelHandler = ({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as TruthContext & { revision: number; agent: { id: string } };
+      if (profileId !== "truth-engine") return mindOutput(context.agent.id, context.revision);
+      return { kind: "transition", proposal: jointTransition(context, { intentStatus: "completed" }) };
+    };
+    const first = engineWith(acceptanceState(["resident"]), handler);
+    first.beginPlayerIntent("完成第一个目标", "first-goal-input");
+    const completed = await first.step();
+    expect(completed.state.player.intent?.status).toBe("completed");
+
+    const reloaded = engineWith(completed.state, handler);
+    reloaded.beginPlayerIntent("排队第二个目标", "second-goal-input");
+    const queued = reloaded.snapshot;
+    expect(() => validateSimulationState(queued, true, true)).not.toThrow();
+
+    const reusedIntent = structuredClone(queued);
+    reusedIntent.player.intent!.id = completed.state.player.intent!.id;
+    expect(() => validateSimulationState(reusedIntent, true, true))
+      .toThrow("does not match replayed committed cognition and input ledger");
+
+    const invalidStart = structuredClone(queued);
+    invalidStart.player.intent!.startedAtStep -= 1;
+    invalidStart.player.intent!.inputs[0].submittedAtStep -= 1;
+    invalidStart.player.intent!.latestInput.submittedAtStep -= 1;
+    expect(() => validateSimulationState(invalidStart, true, true))
+      .toThrow("does not match replayed committed cognition and input ledger");
+
+    const reboundGoal = structuredClone(queued);
+    reboundGoal.player.intent!.goal = "改绑后的第二目标";
+    expect(() => validateSimulationState(reboundGoal, true, true))
+      .toThrow("invalid player intent input ledger");
+
+    const oldIntentTampered = structuredClone(queued);
+    const oldStep = oldIntentTampered.history[0];
+    oldStep.playerIntent.goal = "伪造旧目标";
+    oldStep.playerIntent.inputs[0].text = "伪造旧目标";
+    oldStep.playerIntent.latestInput.text = "伪造旧目标";
+    oldStep.contentHash = contentHash(Object.fromEntries(
+      Object.entries(oldStep).filter(([key]) => key !== "contentHash"),
+    ));
+    expect(() => validateSimulationState(oldIntentTampered, true, true))
+      .toThrow("player action does not match its committed input");
+
+    const secondCommitted = await reloaded.step();
+    expect(secondCommitted.state).toMatchObject({
+      revision: 2,
+      player: { intent: { status: "completed", goal: "排队第二个目标" } },
+    });
+    expect(() => validateSimulationState(secondCommitted.state, true, true)).not.toThrow();
   });
 
   it.each(["同时争夺同一物品", "同时互相攻击", "同时逃跑与阻挡"])(
@@ -494,7 +626,7 @@ describe("open action acceptance", () => {
 
     const result = await engine.step();
 
-    expect(result.state.truth.quantities["spirit-stone:player"].amount).toBe(3);
+    expect(result.state.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit-stone", "player")].amount).toBe(3);
     const outcome = result.committed.outcomes.find((candidate) =>
       candidate.proposalId === result.committed.actions.find((action) => action.actorId === "player")!.id)!;
     expect(outcome.status).toBe("blocked");
@@ -519,7 +651,7 @@ describe("open action acceptance", () => {
     failed.beginPlayerIntent("我瞬移到遥远大陆");
     const failedResult = await failed.step();
     expect(failedResult.state.truth.placements.player).toBe("courtyard");
-    expect(failedResult.state.truth.quantities["mana:player"].amount).toBe(10);
+    expect(failedResult.state.truth.quantities[quantityId(TEST_WORLD_HASH, "mana", "player")].amount).toBe(10);
 
     const capableState = acceptanceState();
     capableState.truth.facts["teleport-capability"] = {
@@ -564,7 +696,7 @@ describe("open action acceptance", () => {
     capable.beginPlayerIntent("我瞬移到遥远大陆");
     const capableResult = await capable.step();
     expect(capableResult.state.truth.placements.player).toBe("destination");
-    expect(capableResult.state.truth.quantities["mana:player"].amount).toBe(6);
+    expect(capableResult.state.truth.quantities[quantityId(TEST_WORLD_HASH, "mana", "player")].amount).toBe(6);
   });
 
   it("resolves direct defeat through a precommitted d20 check, damage and death threshold", async () => {
@@ -623,7 +755,7 @@ describe("open action acceptance", () => {
 
     expect(truthCalls).toBe(2);
     expect(result.committed.checkRequests[0]).toMatchObject({
-      id: "decisive-attack",
+      id: expect.stringMatching(/^rt:check:[a-f0-9]{64}$/),
       dc: 15,
       stakes: expect.stringContaining("伤害"),
     });

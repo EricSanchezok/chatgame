@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadWorldScript } from "../../script/world-loader";
-import type { WorldSessionDocument } from "../../server/world-run-types";
+import { publicCommittedStepEvents, type WorldSessionDocument } from "../../server/world-run-types";
 import { MemoryWorldSessionStore } from "../../server/world-session-store";
 import { AgentMind } from "../agent-mind";
 import { evaluateProposalCausality } from "../causality";
@@ -11,6 +11,7 @@ import type {
   DiscreteRandomRequest,
   DiscreteRandomResult,
   TransitionProposal,
+  TransitionProposalDraft,
 } from "../model";
 import { contentHash } from "../model-audit";
 import {
@@ -29,6 +30,7 @@ import { ScriptedModelProvider, createTestModelCatalog } from "../testing/model-
 import { validateSimulationState } from "../transaction";
 import { TruthEngine } from "../truth-engine";
 import { toWorldRuntimeContract } from "../world-definition";
+import { runtimeId } from "../runtime-id";
 
 const fixture = path.resolve("test/fixtures/open-world-script");
 const catalog = createTestModelCatalog(["truth-deepseek", "agent-deepseek"]);
@@ -212,16 +214,13 @@ describe("committed discrete random", () => {
         canonicalTruth?: { elapsedSeconds: number };
         checkResults?: Array<{ requestId: string; succeeded: boolean }>;
         randomResults?: DiscreteRandomResult[];
+        validationIssues?: Array<{ message: string }>;
       };
       if (role === "agent-bootstrap" || role === "agent-mind") {
-        const agentId = context.agent!.id;
         return {
-          beliefPatch: { agentId, baseRevision: context.revision, operations: [] },
-          characterPatch: { agentId, baseRevision: context.revision, operations: [] },
+          beliefPatch: { operations: [] },
+          characterPatch: { operations: [] },
           nextAction: {
-            id: `next:${agentId}:${context.revision}`,
-            actorId: agentId,
-            baseRevision: context.revision,
             rawText: "继续履行自己的职责",
             goal: "履行职责",
             means: null,
@@ -240,7 +239,7 @@ describe("committed discrete random", () => {
             id: checkId,
             actorId: "player",
             targetId: null,
-            ratingId: null,
+            ratingId: context.validationIssues?.length ? null : "missing-repair-rating",
             modifier: 0,
             modifierSources: [],
             dc: 0,
@@ -267,10 +266,15 @@ describe("committed discrete random", () => {
 
       const playerAction = context.jointActions!.find((action) => action.actorId === "player")!;
       const amount = resultStep(context.randomResults[0], "amount").aggregate;
+      // Accepted round-local aliases are rewritten exactly once during
+      // materialization. The rejected first check draft above must not poison
+      // this alias, while committed context still exposes canonical rt ids.
+      const committedCheckId = checkId;
+      const committedRandomId = randomId;
       const nextStep = context.step + 1;
       const elapsedSeconds = context.canonicalTruth!.elapsedSeconds;
       const eventId = `event:random:${nextStep}`;
-      const proposal: TransitionProposal = {
+      const proposal: TransitionProposalDraft = {
         baseRevision: context.baseRevision,
         outcomes: context.jointActions!.map((action) => ({
           proposalId: action.id,
@@ -279,20 +283,20 @@ describe("committed discrete random", () => {
           causeRefs: action.actorId === "player"
             ? [
                 { kind: "action", id: playerAction.id },
-                { kind: "check", id: checkId },
-                { kind: "random", id: randomId },
+                { kind: "check", id: committedCheckId },
+                { kind: "random", id: committedRandomId },
               ]
             : [{ kind: "action", id: action.id }],
           assertions: action.actorId === "player"
             ? [
                 {
                   kind: "check_result",
-                  checkId,
+                  checkId: committedCheckId,
                   expected: context.checkResults![0].succeeded ? "succeeded" : "failed",
                 },
                 {
                   kind: "random_result",
-                  requestId: randomId,
+                  requestId: committedRandomId,
                   stepId: "amount",
                   expected: amount!,
                 },
@@ -342,8 +346,8 @@ describe("committed discrete random", () => {
     expect(committedRequest.distribution).toEqual(distribution("four-six-sum"));
     expect(result.committed.rngAfter.draws - result.committed.rngBefore.draws).toBe(5);
     expect(result.committed.commitmentRounds).toEqual([
-      { kind: "check", phase: "resolution", requestIds: ["committed-check"] },
-      { kind: "random", requestIds: ["committed-yield"] },
+      { kind: "check", phase: "resolution", requestIds: [result.committed.checkRequests[0].id] },
+      { kind: "random", requestIds: [result.committed.randomRequests[0].id] },
     ]);
     const transitionContext = provider.requests.find((modelRequest) =>
       modelRequest.role === "truth-transition")!.context as { commitmentRounds: unknown };
@@ -361,7 +365,15 @@ describe("committed discrete random", () => {
       const playerAction = step.actions.find((action) => action.actorId === "player")!;
       const playerOutcome = step.outcomes.find((outcome) => outcome.proposalId === playerAction.id)!;
       const requests = Array.from({ length: requestCount }, (_, index) => {
-        const randomRequest = request(`round-cap-${index + 1}`, distribution("four-six-sum"));
+        const randomRequest = request(runtimeId({
+          worldHash: candidate.worldHash,
+          revision: step.baseRevision,
+          kind: "random",
+          stage: "resolution",
+          owner: candidate.worldId,
+          round: 1,
+          ordinal: index,
+        }), distribution("four-six-sum"));
         randomRequest.causes = [{ kind: "action", id: playerAction.id }];
         return randomRequest;
       });
@@ -370,7 +382,7 @@ describe("committed discrete random", () => {
       step.randomRequests = requests;
       step.randomResults = resolved.results;
       step.commitmentRounds = [
-        { kind: "check", phase: "resolution", requestIds: ["committed-check"] },
+        { kind: "check", phase: "resolution", requestIds: step.checkRequests.map((check) => check.id) },
         { kind: "random", requestIds: requests.map((randomRequest) => randomRequest.id) },
       ];
       step.rngAfter = resolved.rng;
@@ -419,8 +431,12 @@ describe("committed discrete random", () => {
       .toThrow("commitment rounds do not exactly cover requests in order");
 
     const intent = result.state.player.intent!;
+    const publicStepEvents = publicCommittedStepEvents(
+      result.committed,
+      result.state.truth.elapsedSeconds,
+    );
     const sessionDocument: WorldSessionDocument = {
-      schemaVersion: 8,
+      schemaVersion: 9,
       id: "committed-random-session",
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -450,17 +466,12 @@ describe("committed discrete random", () => {
             type: "run.execution_started",
             at: "2026-08-24T00:00:00.000Z",
             payload: { runId: "random-run", inputId: intent.latestInput.id, reason: "initial" },
-          }, {
-            sequence: 3,
-            type: "step.committed",
+          }, ...publicStepEvents.map((event, index) => ({
+            ...event,
+            sequence: index + 3,
             at: "2026-08-24T00:00:01.000Z",
-            payload: {
-              revision: result.state.revision,
-              step: result.state.step,
-              elapsedSeconds: result.state.truth.elapsedSeconds,
-            },
-          }, {
-            sequence: 4,
+          })), {
+            sequence: publicStepEvents.length + 3,
             type: "run.completed",
             at: "2026-08-24T00:00:01.000Z",
             payload: {
@@ -536,6 +547,91 @@ describe("committed discrete random", () => {
     expect(() => validateSimulationState(passedTampered, true, true))
       .toThrow("invalid causal assurance");
 
+    expect(result.committed.causalAssertionResults
+      .filter((assertion) => assertion.target.kind === "outcome")
+      .every((assertion) => assertion.target.id.startsWith("rt:outcome:"))).toBe(true);
+
+    const deepExtraField = structuredClone(result.state);
+    const deepExtraStep = deepExtraField.history[0];
+    Object.assign(deepExtraStep.initialActions[0], { unexpectedNestedField: true });
+    refreshCommittedStepHash(deepExtraStep);
+    expect(() => validateSimulationState(deepExtraField, true, true)).toThrow();
+
+    const missingBootstrapAudit = structuredClone(result.state);
+    missingBootstrapAudit.bootstrapModelAudits = [];
+    expect(() => validateSimulationState(missingBootstrapAudit, true, true))
+      .toThrow("bootstrap commits and model audits do not exactly cover");
+
+    const duplicateTruthAudit = structuredClone(result.state);
+    const duplicateTruthStep = duplicateTruthAudit.history[0];
+    duplicateTruthStep.modelAudits.push(structuredClone(
+      duplicateTruthStep.modelAudits.find((audit) => audit.role === "truth-transition")!,
+    ));
+    refreshCommittedStepHash(duplicateTruthStep);
+    expect(() => validateSimulationState(duplicateTruthAudit, true, true))
+      .toThrow("must have exactly one truth-transition audit");
+
+    const reboundTruthAudit = structuredClone(result.state);
+    const reboundTruthStep = reboundTruthAudit.history[0];
+    reboundTruthStep.modelAudits.find((audit) => audit.role === "truth-resolution")!.subjectId = "player";
+    refreshCommittedStepHash(reboundTruthStep);
+    expect(() => validateSimulationState(reboundTruthAudit, true, true))
+      .toThrow("must have exactly one truth-resolution audit");
+
+    const futureFactReference = structuredClone(result.state);
+    futureFactReference.truth.facts["future-only"] = {
+      id: "future-only",
+      subjectId: "player",
+      predicate: "future_only",
+      value: { kind: "boolean", value: true },
+      description: "只存在于被篡改终态、并不存在于该历史步骤前态。",
+      access: { kind: "private" },
+      provenance: [{ kind: "world_seed", id: futureFactReference.worldHash }],
+    };
+    futureFactReference.history[0].events[0].causes = [{ kind: "fact", id: "future-only" }];
+    refreshCommittedStepHash(futureFactReference.history[0]);
+    expect(() => validateSimulationState(futureFactReference, true, true))
+      .toThrow("references unknown fact future-only");
+
+    const missingActiveActor = structuredClone(result.state);
+    const missingActorStep = missingActiveActor.history[0];
+    const missingActorId = missingActorStep.initialActions.find((action) => action.actorId !== "player")!.actorId;
+    const removedActionIds = new Set(missingActorStep.initialActions
+      .filter((action) => action.actorId === missingActorId)
+      .map((action) => action.id));
+    const removedOutcomeIds = new Set(missingActorStep.outcomes
+      .filter((outcome) => removedActionIds.has(outcome.proposalId))
+      .map((outcome) => outcome.id));
+    missingActorStep.initialActions = missingActorStep.initialActions
+      .filter((action) => action.actorId !== missingActorId);
+    missingActorStep.actions = missingActorStep.actions.filter((action) => action.actorId !== missingActorId);
+    missingActorStep.outcomes = missingActorStep.outcomes
+      .filter((outcome) => !removedActionIds.has(outcome.proposalId));
+    missingActorStep.causalAssertionResults = missingActorStep.causalAssertionResults
+      .filter((assertion) => assertion.target.kind !== "outcome" || !removedOutcomeIds.has(assertion.target.id));
+    const reboundOutcomeIds = new Map<string, string>();
+    missingActorStep.outcomes.forEach((outcome, ordinal) => {
+      const previousId = outcome.id;
+      outcome.id = runtimeId({
+        worldHash: missingActiveActor.worldHash,
+        revision: missingActorStep.baseRevision,
+        kind: "outcome",
+        stage: "transition",
+        owner: outcome.proposalId,
+        round: 0,
+        ordinal,
+      });
+      reboundOutcomeIds.set(previousId, outcome.id);
+    });
+    for (const assertion of missingActorStep.causalAssertionResults) {
+      if (assertion.target.kind === "outcome" && reboundOutcomeIds.has(assertion.target.id)) {
+        assertion.target.id = reboundOutcomeIds.get(assertion.target.id)!;
+      }
+    }
+    refreshCommittedStepHash(missingActorStep);
+    expect(() => validateSimulationState(missingActiveActor, true, true))
+      .toThrow("does not exactly cover the active actors");
+
     const fiveRoundChain = structuredClone(result.state);
     const fiveRoundStep = fiveRoundChain.history[0];
     const chainRequests = Array.from({ length: 5 }, (_, index) => {
@@ -568,7 +664,7 @@ describe("committed discrete random", () => {
     selfDependentStep.randomRequests[0].causes = [{ kind: "random", id: "committed-yield" }];
     refreshCommittedStepHash(selfDependentStep);
     expect(() => validateSimulationState(selfDependent, true, true))
-      .toThrow("history random request committed-yield references unknown random committed-yield");
+      .toThrow("references unknown random committed-yield");
 
     const randomBeforeCheck = structuredClone(result.state);
     const randomBeforeCheckStep = randomBeforeCheck.history[0];
@@ -578,7 +674,7 @@ describe("committed discrete random", () => {
     ];
     refreshCommittedStepHash(randomBeforeCheckStep);
     expect(() => validateSimulationState(randomBeforeCheck, true, true))
-      .toThrow("has a d20 round after random commitments");
+      .toThrow("commitment rounds do not exactly cover requests in order");
 
     const perceptionAfterResolution = structuredClone(result.state);
     const perceptionAfterResolutionStep = perceptionAfterResolution.history[0];
@@ -597,7 +693,7 @@ describe("committed discrete random", () => {
     ];
     refreshCommittedStepHash(perceptionAfterResolutionStep);
     expect(() => validateSimulationState(perceptionAfterResolution, true, true))
-      .toThrow("reopens perception after resolution");
+      .toThrow("invalid engine-owned runtime id");
 
     const siblingDependent = structuredClone(result.state);
     const siblingDependentStep = siblingDependent.history[0];
@@ -624,7 +720,7 @@ describe("committed discrete random", () => {
     siblingDependent.truth.rng = structuredClone(siblingResolution.rng);
     refreshCommittedStepHash(siblingDependentStep);
     expect(() => validateSimulationState(siblingDependent, true, true))
-      .toThrow("history random request sibling-history-draw references unknown random committed-yield");
+      .toThrow("invalid random audit coverage");
 
     const unusedCommitment = structuredClone(result.state);
     const unusedStep = unusedCommitment.history[0];
@@ -639,13 +735,13 @@ describe("committed discrete random", () => {
     delete (unusedPayload as Partial<typeof unusedStep>).contentHash;
     unusedStep.contentHash = contentHash(unusedPayload);
     expect(() => validateSimulationState(unusedCommitment, true, true))
-      .toThrow("does not consume committed random unused-history-draw");
+      .toThrow("invalid random audit coverage");
 
     engine.beginPlayerIntent("触发第二次世界声明的随机产出");
     const secondResult = await engine.step();
     expect(secondResult.committed.commitmentRounds).toEqual([
-      { kind: "check", phase: "resolution", requestIds: ["committed-check:2"] },
-      { kind: "random", requestIds: ["committed-yield:2"] },
+      { kind: "check", phase: "resolution", requestIds: [secondResult.committed.checkRequests[0].id] },
+      { kind: "random", requestIds: [secondResult.committed.randomRequests[0].id] },
     ]);
     expect(() => validateSimulationState(secondResult.state, true, true)).not.toThrow();
     const secondTransitionContext = provider.requests.findLast((modelRequest) =>
@@ -660,14 +756,14 @@ describe("committed discrete random", () => {
     priorRandomStep.randomRequests[0].causes = [{ kind: "random", id: "committed-yield" }];
     refreshCommittedStepHash(priorRandomStep);
     expect(() => validateSimulationState(priorRandomDependent, true, true))
-      .toThrow("history random request committed-yield:2 references unknown random committed-yield");
+      .toThrow("references unknown random committed-yield");
 
     const priorCheckDependent = structuredClone(secondResult.state);
     const priorCheckStep = priorCheckDependent.history[1];
     priorCheckStep.randomRequests[0].causes = [{ kind: "check", id: "committed-check" }];
     refreshCommittedStepHash(priorCheckStep);
     expect(() => validateSimulationState(priorCheckDependent, true, true))
-      .toThrow("history random request committed-yield:2 references unknown check committed-check");
+      .toThrow("references unknown check committed-check");
   });
 
   it("rolls back when resolution requests a d20 round after random has started", async () => {
@@ -680,14 +776,10 @@ describe("committed discrete random", () => {
         randomResults?: DiscreteRandomResult[];
       };
       if (role === "agent-bootstrap" || role === "agent-mind") {
-        const agentId = context.agent!.id;
         return {
-          beliefPatch: { agentId, baseRevision: context.revision, operations: [] },
-          characterPatch: { agentId, baseRevision: context.revision, operations: [] },
+          beliefPatch: { operations: [] },
+          characterPatch: { operations: [] },
           nextAction: {
-            id: `next:${agentId}:${context.revision}`,
-            actorId: agentId,
-            baseRevision: context.revision,
             rawText: "继续履行自己的职责",
             goal: "履行职责",
             means: null,
@@ -754,17 +846,14 @@ describe("committed discrete random", () => {
         agent?: { id: string };
         jointActions?: Array<{ id: string; actorId: string }>;
         agentEpistemics?: Record<string, unknown>;
+        checkResults?: Array<{ requestId: string }>;
         randomResults?: DiscreteRandomResult[];
       };
       if (role === "agent-bootstrap" || role === "agent-mind") {
-        const agentId = context.agent!.id;
         return {
-          beliefPatch: { agentId, baseRevision: context.revision, operations: [] },
-          characterPatch: { agentId, baseRevision: context.revision, operations: [] },
+          beliefPatch: { operations: [] },
+          characterPatch: { operations: [] },
           nextAction: {
-            id: `next:${agentId}:${context.revision}`,
-            actorId: agentId,
-            baseRevision: context.revision,
             rawText: "继续履行自己的职责",
             goal: "履行职责",
             means: null,
@@ -776,11 +865,30 @@ describe("committed discrete random", () => {
       if (role === "truth-reaction-routing") return { requests: [] };
       if (role === "truth-resolution") {
         const playerAction = context.jointActions!.find((action) => action.actorId === "player")!;
+        if ((context.checkResults?.length ?? 0) < 2) {
+          return {
+            kind: "request_checks",
+            requests: [{
+              id: "check-1",
+              actorId: "player",
+              targetId: null,
+              ratingId: null,
+              modifier: 0,
+              modifierSources: [],
+              dc: 0,
+              mode: "normal",
+              stakes: "验证每轮都可复用局部 check alias。",
+              visibility: "hidden",
+              phase: "resolution",
+              causes: [{ kind: "action", id: playerAction.id }],
+            }],
+          };
+        }
         if (!context.randomResults?.length) {
           return {
             kind: "request_random",
             requests: [{
-              id: "selection-a",
+              id: "selection",
               distributionId: "four-six-sum",
               causes: [{ kind: "action", id: playerAction.id }],
             }],
@@ -790,7 +898,7 @@ describe("committed discrete random", () => {
           return {
             kind: "request_random",
             requests: [{
-              id: "selection-b",
+              id: "selection",
               distributionId: "four-six-sum",
               causes: [{ kind: "action", id: playerAction.id }],
             }],
@@ -801,6 +909,7 @@ describe("committed discrete random", () => {
       if (role === "truth-transition") {
         const playerAction = context.jointActions!.find((action) => action.actorId === "player")!;
         const selected = resultStep(context.randomResults![1], "amount").aggregate;
+        const selectedRequestId = context.randomResults![1].requestId;
         const nextStep = context.step + 1;
         const eventId = `event:selection:${nextStep}`;
         return {
@@ -810,12 +919,12 @@ describe("committed discrete random", () => {
             status: action.actorId === "player" ? "succeeded" : "continuing",
             summary: "只采用第二次随机结果。",
             causeRefs: action.actorId === "player"
-              ? [{ kind: "action", id: playerAction.id }, { kind: "random", id: "selection-b" }]
+              ? [{ kind: "action", id: playerAction.id }, { kind: "random", id: selectedRequestId }]
               : [{ kind: "action", id: action.id }],
             assertions: action.actorId === "player"
               ? [{
                 kind: "random_result",
-                requestId: "selection-b",
+                requestId: selectedRequestId,
                 stepId: "amount",
                 expected: selected!,
               }]
@@ -849,7 +958,7 @@ describe("committed discrete random", () => {
           })),
           intentStatus: "completed",
           requiresPlayerDecision: false,
-        } satisfies TransitionProposal;
+        } satisfies TransitionProposalDraft;
       }
       if (role === "causal-verifier") return { verdict: "accept", findings: [] };
       throw new Error(`unexpected role ${role}`);
@@ -863,7 +972,7 @@ describe("committed discrete random", () => {
     engine.beginPlayerIntent("连续抽取直到得到偏好的结果", "selection-shopping");
     const snapshot = engine.snapshot;
 
-    await expect(engine.step()).rejects.toThrow("does not consume committed random selection-a");
+    await expect(engine.step()).rejects.toThrow("does not consume committed random");
     expect(engine.snapshot).toEqual(snapshot);
   });
 });

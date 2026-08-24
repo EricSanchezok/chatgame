@@ -116,6 +116,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .cg-revision-rail dt { color: var(--cg-fog); font-size: .62rem; letter-spacing: .08em; }
 .cg-revision-rail dd { margin: .2rem 0 0; font-family: var(--cg-font-mono); font-size: .75rem; }
 .cg-game__alert { position: absolute; z-index: 5; top: 5.5rem; left: 50%; width: min(calc(100% - 2rem), 42rem); margin: 0; transform: translateX(-50%); }
+.cg-game__stream-status { position: absolute; z-index: 5; top: 5.5rem; left: 50%; width: min(calc(100% - 2rem), 42rem); margin: 0; border-left: 2px solid var(--cg-brass); background: var(--cg-brass-soft); padding: .8rem 1rem; line-height: 1.55; transform: translateX(-50%); }
+.cg-game__stream-status:empty { width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.cg-game__alert + .cg-game__stream-status:not(:empty) { top: 9.5rem; }
 .cg-game-loading { min-height: 100dvh; display: grid; align-content: center; justify-items: center; gap: 1rem; padding: 2rem; color: var(--cg-fog); text-align: center; }
 .cg-game-loading h1 { margin: 0; color: var(--cg-ivory); font-family: var(--cg-font-narrative); font-size: 2.5rem; font-weight: 400; }
 .cg-thread { min-height: 0; }
@@ -140,7 +143,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .cg-checks li strong { color: var(--cg-brass); }
 .cg-run-status { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; margin-top: 1.5rem; color: var(--cg-fog); font-family: var(--cg-font-mono); font-size: .65rem; }
 .cg-run-status__error { width: 100%; color: var(--cg-ember); line-height: 1.5; }
-.cg-run-status .cg-button--quiet { margin-left: auto; font-family: var(--cg-font-ui); font-size: .75rem; }
+.cg-run-status .cg-button--quiet { font-family: var(--cg-font-ui); font-size: .75rem; }
+.cg-run-status .cg-button--quiet:first-of-type { margin-left: auto; }
+.cg-run-status .cg-button--quiet:disabled { cursor: wait; opacity: .45; }
 .cg-scroll-button { position: sticky; z-index: 4; bottom: 8.5rem; width: 44px; height: 44px; display: grid; place-items: center; margin-right: max(1rem, calc((100% - 52rem) / 2)); border: 1px solid var(--cg-border-strong); border-radius: 50%; background: var(--cg-slate); cursor: pointer; }
 .cg-composer-dock { position: sticky; z-index: 3; bottom: 0; padding: 1rem 0 max(1rem, env(safe-area-inset-bottom)); background: var(--cg-night); }
 .cg-chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .75rem; border: 1px solid var(--cg-border-strong); background: var(--cg-slate); padding: .7rem; }

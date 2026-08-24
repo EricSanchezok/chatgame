@@ -30,7 +30,7 @@ Class: architecture
 
 ## Decision Outcome
 
-schema v5 `mechanics.yaml` 可声明 `random_distributions`。每个分布包含稳定 ID、说明和有序 steps；step 声明 1–100 次 `count`、2–100 个 `outcomes` 槽位、`first | sum | values` 聚合，以及可选的 `when: { step_id, equals }`。outcome 只能是非空字符串、安全整数、布尔值或 null。`first` 只允许一次抽取，`sum` 只接受安全整数，`values` 保留抽取序列；条件只能引用同一分布中更早且不是 values 聚合的 step。条件不满足时保存 skipped、空 draws 和 null aggregate，且不消耗 RNG。
+schema v6 `mechanics.yaml` 可声明 `random_distributions`。每个分布包含稳定 ID、说明和有序 steps；step 声明 1–100 次 `count`、2–100 个 `outcomes` 槽位、`first | sum | values` 聚合，以及可选的 `when: { step_id, equals }`。outcome 只能是非空字符串、安全整数、布尔值或 null。`first` 只允许一次抽取，`sum` 只接受安全整数，`values` 保留抽取序列；条件只能引用同一分布中更早且不是 values 聚合的 step。条件不满足时保存 skipped、空 draws 和 null aggregate，且不消耗 RNG。
 
 每次抽取从 outcomes 的索引槽位中等概率选择。RNG state 以奇数 Weyl increment 遍历全部 `2^32` 个状态，再经过由 xor-right-shift 和奇数模乘组成的 32-bit 双射输出 word；全部 uint32 seed 各自保留唯一初态，seed 0 不映射到另一个 seed。随后用 rejection sampling 映射槽位，拒绝不能均匀分桶的尾部值，避免 `floor(float × n)` 的槽位偏差，也避免非双射 mixer 在完整 32-bit 结果域产生碰撞。每个被拒绝的 uint32 仍推进 RNG state 与 `SeededRngState.draws`，step `draws[]` 只保存接受后的 `{ outcomeIndex, value }`；历史从 `rngBefore` 复算被拒绝抽数，原始 word 不作为游戏结果暴露。相同 outcome 值可以重复占据多个槽位来表达整数权重；槽位顺序和重复次数都进入世界内容身份、严格导入结果与固定世界契约，不被去重、排序、折叠为概率摘要或替换成期望值。
 
@@ -46,7 +46,7 @@ schema v5 `mechanics.yaml` 可声明 `random_distributions`。每个分布包含
 
 所有预算用同一个 canonical 稳定序列化 helper 计算实际 UTF-8 字节，不使用字符数或近似 token 数。单 outcome 上限 256 B，单分布 32 KiB 且至多 1,024 次声明抽取；单个世界至多 256 个分布，完整 catalog 至多 512 KiB，防止每次 Truth 与因果复核上下文被合法世界包放大到归档总上限。每个离散随机承诺轮至多 16 个请求，每个 committed step 至多 32 个随机请求、2,048 次声明抽取和 4,096 个实际消费的 uint32 word，分布快照合计至多 256 KiB、结果合计至多 512 KiB。边界值接受，增加一个分布、随机请求、抽取、word 或一个 UTF-8 字节即拒绝；loader、Truth resolution、历史校验和 session restore 复用同一组常量与 helper。
 
-`SimulationState` 使用 schema v7，`WorldSessionDocument` 使用 schema v8；世界剧本继续使用 schema v5。旧状态和旧会话直接拒绝，项目不提供迁移读取、默认补丁或兼容路径。
+`SimulationState` 使用 schema v8，`WorldSessionDocument` 使用 schema v9；世界剧本使用 schema v6。旧状态和旧会话直接拒绝，项目不提供迁移读取、默认补丁或兼容路径。
 
 ### Consequences
 

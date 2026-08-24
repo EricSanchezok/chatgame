@@ -26,7 +26,7 @@ Class: bug-fix
 
 loader 规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 entities，再计算 `sha256` 内容身份。`WorldDefinition.contentHash`、`SimulationState.worldHash` 和公共会话 `worldHash` 必须一致；文件名和归档条目顺序不参与身份。
 
-会话 schema v8 嵌入不可变 `WorldRuntimeContract`，包括世界元数据、分阶段 Truth profiles、完整法则、披露策略、已验证规则包裁决和离散随机分布。恢复只从会话状态和该契约构造引擎，并重新验证本地受信任规则包与模型目录，不读取当前 world catalog。
+会话 schema v9 嵌入不可变 `WorldRuntimeContract`，包括世界元数据、分阶段 Truth profiles、完整法则、披露策略、已验证规则包裁决和离散随机分布。恢复只从会话状态和该契约构造引擎，并重新验证本地受信任规则包与模型目录，不读取当前 world catalog。
 
 初始 Fact provenance 使用判别引用 `{ kind: "world_seed", id: worldHash }`。完整状态校验只接受与状态哈希精确相等的 seed 引用；运行时 `law`、`fact`、`action`、`check`、`random`、`event` 与 `mechanic` 来源继续要求解析到真实因果。
 
@@ -63,4 +63,6 @@ loader 规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 
 
 - [0032](0032-open-world-facts-and-d20-kernel.md) — 开放 Fact 与因果内核。
 - [0041](0041-local-sqlite-runtime.md) — 保存世界版本和会话的本地数据库。
+- [0048](0048-engine-owned-runtime-identities.md) — SimulationState v8 与持久身份 ledger。
+- [0049](0049-world-run-failure-and-stream-boundaries.md) — WorldSessionDocument v9 与严格 run 边界。
 - [事故复盘 0010](../postmortems/0010-session-world-identity-drift.md) — 促成此护栏的失效机制。

@@ -51,7 +51,12 @@ function schemaExample(schema: unknown, root = schema, seen = new Set<unknown>()
       schemaExample(value, root, new Set(seen)),
     ]));
   }
-  if (node.type === "array") return [schemaExample(node.items, root, new Set(seen))];
+  if (node.type === "array") {
+    const minimum = typeof node.minItems === "number" && Number.isSafeInteger(node.minItems)
+      ? Math.max(0, node.minItems)
+      : 0;
+    return Array.from({ length: minimum }, () => schemaExample(node.items, root, new Set(seen)));
+  }
   if (node.type === "string") return "string";
   if (node.type === "integer" || node.type === "number") return 0;
   if (node.type === "boolean") return false;

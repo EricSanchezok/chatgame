@@ -37,7 +37,7 @@ ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时
 
 `CommittedStep` 保存 initial/final actions、reaction requests/decisions、character patches、分阶段检定与 `agent-reaction` 模型审计，并把它们纳入内容 hash、恢复校验和重放。任一 Truth Engine、reaction、AgentMind 或事务验证失败都连同本步 RNG 一起回滚。公共 API 与 SSE 只投影玩家 outcome、公开检定、玩家 observation 和公开会话状态。
 
-世界剧本使用 schema v5，SimulationState 使用 schema v7，WorldSessionDocument 使用 schema v8。所有会进入状态字典或引用图的 ID 拒绝 JavaScript 原型保留键，避免模型输出、世界包或持久化文档污染对象原型。旧版本直接拒绝，不提供迁移或双轨兼容。
+世界剧本使用 schema v6，SimulationState 使用 schema v8，WorldSessionDocument 使用 schema v9。语义 ID 使用 [0048](0048-engine-owned-runtime-identities.md) 的规范化、保留命名空间、不可重绑与 tombstone 规则；action、stimulus 和 observation 等发生记录由引擎确定性分配身份。旧版本直接拒绝，不提供迁移或双轨兼容。
 
 ### Consequences
 
@@ -75,5 +75,6 @@ ReactionRequest 的 stimulus 是观察者私有 observation，可以引入临时
 - [0035](0035-truth-engine-hardening-and-verifiable-audit.md) — 结构化验证、公开边界和可验证审计。
 - [0036](0036-multi-provider-model-gateway-and-fair-scheduler.md) — 模型 Profile、严格结构化输出、公平调度与审计。
 - [0042](0042-causal-assurance-and-staged-model-profiles.md) — 分阶段 Truth 与 Agent Profile、因果复核。
+- [0048](0048-engine-owned-runtime-identities.md) — Agent action、reaction replacement 与语义身份的所有权。
 - [引擎运行时规格](../game-design/engine-runtime.md) — 当前心智、反应和提交契约。
-- [世界剧本格式](../game-design/script-format.md) — schema v5 角色种子格式。
+- [世界剧本格式](../game-design/script-format.md) — schema v6 角色种子格式。

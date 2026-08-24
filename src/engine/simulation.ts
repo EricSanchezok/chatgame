@@ -1,15 +1,11 @@
 import { AgentMind } from "./agent-mind";
-import { applyBeliefPatch } from "./belief";
-import { applyCharacterPatch } from "./character";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { contentHash } from "./model-audit";
 import { createHistoryReplayBase } from "./history-replay";
-import type { AgentMindOutput } from "./llm-schemas";
+import { applyMindCommit } from "./mind-commit";
 import type { ModelExecutionScope } from "./model-provider";
 import type {
   AgentActionProposal,
-  AgentState,
-  BeliefPatch,
   CommittedStep,
   ObservationPacket,
   SimulationState,
@@ -17,6 +13,7 @@ import type {
 } from "./model";
 import {
   applyObservationBindings,
+  applyPlayerObservationBindings,
   ingestPlayerObservations,
   validateObservations,
 } from "./observation";
@@ -25,11 +22,25 @@ import { TruthEngine } from "./truth-engine";
 import type { WorldDefinition } from "./world-definition";
 import { validateWorldDefinition } from "./world-definition";
 import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "./observability";
+import { runtimeId } from "./runtime-id";
 
 export interface WorldStepResult {
   committed: CommittedStep;
   state: SimulationState;
   requiresPlayerDecision: boolean;
+}
+
+// A snapshot capability never crosses serialization: only this module can
+// register it, the exact content hash detects mutation, and construction
+// consumes it once. External/load/restart states therefore always take the
+// complete history validator while an unchanged snapshot from a validated
+// engine avoids replaying the same ledger immediately before the next step.
+const validatedSnapshotHashes = new WeakMap<SimulationState, string>();
+
+function consumeValidatedSnapshot(state: SimulationState): boolean {
+  const expectedHash = validatedSnapshotHashes.get(state);
+  validatedSnapshotHashes.delete(state);
+  return expectedHash !== undefined && expectedHash === contentHash(state);
 }
 
 export interface WorldRunResult {
@@ -43,87 +54,6 @@ function observationsFor(
   observerId: string,
 ): ObservationPacket[] {
   return packets.filter((packet) => packet.observerId === observerId);
-}
-
-function mergeBindingsForPatch(agent: AgentState, patch: BeliefPatch): AgentState {
-  const next = structuredClone(agent);
-  for (const operation of patch.operations) {
-    if (operation.kind === "remove_local_entity") {
-      delete next.bindings[operation.localEntityId];
-      continue;
-    }
-    if (operation.kind === "split_local_entity") {
-      const source = next.bindings[operation.fromId];
-      if (source) {
-        for (const entity of operation.entities) {
-          next.bindings[entity.id] = {
-            localEntityId: entity.id,
-            canonicalEntityIds: [...source.canonicalEntityIds],
-          };
-        }
-      }
-      delete next.bindings[operation.fromId];
-      continue;
-    }
-    if (operation.kind !== "merge_local_entities" || operation.fromId === operation.intoId) continue;
-    const from = next.bindings[operation.fromId];
-    const into = next.bindings[operation.intoId];
-    if (from || into) {
-      next.bindings[operation.intoId] = {
-        localEntityId: operation.intoId,
-        canonicalEntityIds: [...new Set([
-          ...(into?.canonicalEntityIds ?? []),
-          ...(from?.canonicalEntityIds ?? []),
-        ])],
-      };
-    }
-    delete next.bindings[operation.fromId];
-  }
-  return next;
-}
-
-function applyMindOutput(
-  agent: AgentState,
-  output: AgentMindOutput,
-  step: number,
-  observations: readonly ObservationPacket[],
-  events: TransitionProposal["events"],
-): AgentState {
-  const withBindings = mergeBindingsForPatch(agent, output.beliefPatch);
-  const belief = applyBeliefPatch(withBindings.belief, output.beliefPatch);
-  return {
-    ...withBindings,
-    belief,
-    character: applyCharacterPatch(
-      withBindings.character,
-      belief,
-      output.characterPatch,
-      step,
-      observations,
-      events,
-    ),
-    nextAction: structuredClone(output.nextAction),
-  };
-}
-
-function applyPlayerBindings(
-  state: SimulationState,
-  packets: readonly ObservationPacket[],
-): void {
-  for (const packet of packets) {
-    if (packet.observerId !== "player") continue;
-    for (const introduction of packet.introductions) {
-      if (!introduction.canonicalEntityId) continue;
-      const current = state.player.bindings[introduction.localEntity.id];
-      state.player.bindings[introduction.localEntity.id] = {
-        localEntityId: introduction.localEntity.id,
-        canonicalEntityIds: [...new Set([
-          ...(current?.canonicalEntityIds ?? []),
-          introduction.canonicalEntityId,
-        ])],
-      };
-    }
-  }
 }
 
 function assertObservationCoverage(state: SimulationState, packets: readonly ObservationPacket[]): void {
@@ -187,19 +117,25 @@ export class SimulationEngine {
   ) {
     validateWorldDefinition(definition);
     if (initialState.worldId !== definition.id) throw new Error("simulation state belongs to another world");
-    validateSimulationState(initialState, false, true);
+    if (!consumeValidatedSnapshot(initialState)) validateSimulationState(initialState, false, true);
     this.state = structuredClone(initialState);
+    this.state.historyBase ??= createHistoryReplayBase(definition.initialState);
   }
 
   get snapshot(): SimulationState {
-    return structuredClone(this.state);
+    const snapshot = structuredClone(this.state);
+    validatedSnapshotHashes.set(snapshot, contentHash(snapshot));
+    return snapshot;
   }
 
   async bootstrapAgents(scope?: ModelExecutionScope): Promise<SimulationState> {
     const source = structuredClone(this.state);
-    const executionScope = scope ?? {
-      workloadId: `simulation:${source.worldId}`,
-      batchId: `bootstrap:${source.revision}`,
+    const executionScope: ModelExecutionScope = {
+      ...(scope ?? {
+        workloadId: `simulation:${source.worldId}`,
+        batchId: `bootstrap:${source.revision}`,
+      }),
+      runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
     };
     const startedAt = Date.now();
     const observe = runtimeEventEmitter(executionScope.observer);
@@ -232,13 +168,19 @@ export class SimulationEngine {
         counts: { agents: agents.length, modelAudits: outputs.length },
         hashes: { outputs: contentHash(outputs) },
       });
+      source.bootstrapAgentCommits = outputs.map((output, index) => ({
+        agentId: agents[index].id,
+        beliefPatch: structuredClone(output.beliefPatch),
+        characterPatch: structuredClone(output.characterPatch),
+        nextAction: structuredClone(output.nextAction),
+      }));
       for (let index = 0; index < agents.length; index += 1) {
-        source.agents[agents[index].id] = applyMindOutput(
-        agents[index],
-        outputs[index],
-        source.step,
-        [],
-        [],
+        source.agents[agents[index].id] = applyMindCommit(
+          agents[index],
+          source.bootstrapAgentCommits[index],
+          source.step,
+          [],
+          [],
         );
       }
       source.bootstrapModelAudits = outputs.map((output) => structuredClone(output.modelAudit));
@@ -276,6 +218,12 @@ export class SimulationEngine {
     next.player.intent = {
       id: intentId,
       goal: normalized,
+      inputs: [{
+        id: inputId ?? `input:${intentId}:1`,
+        text: normalized,
+        kind: "goal",
+        submittedAtStep: next.step,
+      }],
       latestInput: {
         id: inputId ?? `input:${intentId}:1`,
         text: normalized,
@@ -295,12 +243,17 @@ export class SimulationEngine {
     const intent = this.state.player.intent;
     if (!intent || intent.status !== "active") throw new Error("no active player intent");
     const next = structuredClone(this.state);
-    next.player.intent!.latestInput = {
+    const clarification = {
       id: inputId,
       text: normalized,
-      kind: "clarification",
+      kind: "clarification" as const,
       submittedAtStep: next.step,
     };
+    if (next.player.intent!.inputs.some((input) => input.id === inputId)) {
+      throw new Error(`player intent input id was already used: ${inputId}`);
+    }
+    next.player.intent!.inputs.push(clarification);
+    next.player.intent!.latestInput = clarification;
     this.state = next;
     return this.snapshot;
   }
@@ -317,7 +270,15 @@ export class SimulationEngine {
     const intent = this.state.player.intent;
     if (!intent || intent.status !== "active") throw new Error("no active player intent");
     const playerAction: AgentActionProposal = {
-      id: `player-action:${intent.id}:${this.state.step + 1}`,
+      id: runtimeId({
+        worldHash: this.state.worldHash,
+        revision: this.state.revision,
+        kind: "action",
+        stage: "prepared",
+        owner: "player",
+        round: 0,
+        ordinal: 0,
+      }),
       actorId: "player",
       baseRevision: this.state.revision,
       rawText: intent.latestInput.text,
@@ -340,9 +301,12 @@ export class SimulationEngine {
 
   async step(scope?: ModelExecutionScope): Promise<WorldStepResult> {
     const source = structuredClone(this.state);
-    const executionScope = scope ?? {
-      workloadId: `simulation:${source.worldId}`,
-      batchId: `step:${source.revision}:${source.step + 1}`,
+    const executionScope: ModelExecutionScope = {
+      ...(scope ?? {
+        workloadId: `simulation:${source.worldId}`,
+        batchId: `step:${source.revision}:${source.step + 1}`,
+      }),
+      runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
     };
     const startedAt = Date.now();
     const observe = runtimeEventEmitter(executionScope.observer);
@@ -427,9 +391,9 @@ export class SimulationEngine {
       ...resolution.stimulusObservations,
       ...resolution.proposal.observations,
     ];
-    applyPlayerBindings(candidate, observations);
+    applyPlayerObservationBindings(candidate, observations);
     candidate.player.knowledge = ingestPlayerObservations(
-      candidate.player.knowledge,
+      candidate,
       observationsFor(observations, "player"),
     );
 
@@ -466,7 +430,7 @@ export class SimulationEngine {
       }))) },
     });
     for (let index = 0; index < agents.length; index += 1) {
-      candidate.agents[agents[index].id] = applyMindOutput(
+      candidate.agents[agents[index].id] = applyMindCommit(
         agents[index],
         outputs[index],
         candidate.step,
@@ -500,10 +464,12 @@ export class SimulationEngine {
       events: structuredClone(resolution.proposal.events),
       observations: structuredClone(observations),
       operations: structuredClone(resolution.proposal.operations),
+      playerIntent: structuredClone(source.player.intent!),
       intentStatus: resolution.proposal.intentStatus,
       requiresPlayerDecision: resolution.proposal.requiresPlayerDecision,
       beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
       characterPatches: outputs.map((output) => structuredClone(output.characterPatch)),
+      nextActions: outputs.map((output) => structuredClone(output.nextAction)),
       modelAudits: [
         ...resolution.modelAudits.map((audit) => structuredClone(audit)),
         ...resolution.reactionModelAudits.map((audit) => structuredClone(audit)),
@@ -515,6 +481,9 @@ export class SimulationEngine {
       ...committedPayload,
     };
     candidate.history.push(committed);
+    // Even when the constructor receives a history already validated by the
+    // persistence boundary, every newly materialized commit is fully replayed
+    // before it can leave the engine.
     validateSimulationState(candidate, true, true);
     this.state = candidate;
     const result = {

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { AgentMind } from "../src/engine/agent-mind";
+import { historyReplayBaseHash } from "../src/engine/history-replay";
 import type { ModelProviderAdapter } from "../src/engine/model-adapter";
 import type { ModelCatalog } from "../src/engine/model-catalog";
 import { ModelGateway } from "../src/engine/model-gateway";
@@ -19,7 +20,8 @@ import { TruthEngine } from "../src/engine/truth-engine";
 import { toWorldRuntimeContract, type WorldDefinition } from "../src/engine/world-definition";
 import { loadWorldScript } from "../src/script/world-loader";
 import { MemoryWorldSessionStore } from "../src/server/world-session-store";
-import type { WorldSessionDocument } from "../src/server/world-run-types";
+import { publicCommittedStepEvents, type WorldRunEvent, type WorldSessionDocument } from
+  "../src/server/world-run-types";
 
 export interface RuntimeDiagnosticOptions {
   agents: number[];
@@ -144,6 +146,7 @@ function scaledDefinition(base: WorldDefinition, agentCount: number): WorldDefin
     };
     definition.initialState.truth.placements[id] = templatePlacement;
   }
+  definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
   return definition;
 }
 
@@ -213,7 +216,7 @@ function archiveMeasurement(observer: RecordingRuntimeObserver): {
   const serialized = observer.events.filter((event) => event.event === "persistence.document.serialized").at(-1);
   const write = observer.events.filter((event) => event.event === "persistence.write.completed").at(-1);
   return {
-    bytes: serialized?.measurements?.envelopeUtf8Bytes ?? 0,
+    bytes: serialized?.measurements?.documentUtf8Bytes ?? 0,
     writeMs: write?.durationMs ?? 0,
   };
 }
@@ -280,7 +283,7 @@ export async function runDeterministicRuntimeDiagnostic(
       });
       const now = "2026-08-23T00:00:00.000Z";
       const document: WorldSessionDocument = {
-        schemaVersion: 8,
+        schemaVersion: 9,
         id: sessionId,
         world: toWorldRuntimeContract(definition),
         title: definition.name,
@@ -358,6 +361,30 @@ export async function runDeterministicRuntimeDiagnostic(
         if (!intent || intent.status !== "completed") {
           throw new Error("deterministic diagnostic step did not complete its player intent");
         }
+        const publicStepEvents = publicCommittedStepEvents(
+          result.committed,
+          result.state.truth.elapsedSeconds,
+        ).map((event, index) => ({
+            ...event,
+            sequence: 3 + index,
+            at: stepAt,
+          }));
+        const events: WorldRunEvent[] = [
+          { sequence: 1, at: stepAt, type: "player.input", payload: { id: inputId, kind: "goal", text: inputText } },
+          {
+            sequence: 2,
+            at: stepAt,
+            type: "run.execution_started",
+            payload: { runId, inputId, reason: "initial" },
+          },
+          ...publicStepEvents,
+          {
+            sequence: 3 + publicStepEvents.length,
+            at: stepAt,
+            type: "run.completed",
+            payload: { runId, revision: result.state.revision, step: result.state.step },
+          },
+        ];
         document.runs[runId] = {
           id: runId,
           sessionId,
@@ -366,31 +393,7 @@ export async function runDeterministicRuntimeDiagnostic(
           createdAt: stepAt,
           updatedAt: stepAt,
           cancelRequested: false,
-          events: [
-            { sequence: 1, at: stepAt, type: "player.input", payload: { id: inputId, kind: "goal", text: inputText } },
-            {
-              sequence: 2,
-              at: stepAt,
-              type: "run.execution_started",
-              payload: { runId, inputId, reason: "initial" },
-            },
-            {
-              sequence: 3,
-              at: stepAt,
-              type: "step.committed",
-              payload: {
-                revision: result.state.revision,
-                step: result.state.step,
-                elapsedSeconds: result.state.truth.elapsedSeconds,
-              },
-            },
-            {
-              sequence: 4,
-              at: stepAt,
-              type: "run.completed",
-              payload: { runId, revision: result.state.revision, step: result.state.step },
-            },
-          ],
+          events,
         };
         const persistenceStartedAt = performance.now();
         stored = store.compareAndSwap(sessionId, stored.generation, document, {

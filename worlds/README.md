@@ -1,6 +1,6 @@
 # 参考世界工程
 
-`worlds/` 保存可审阅、可追溯且可由引擎严格校验的参考世界。每个子目录是作者工程；其中的 `world/` 才是可导入的 schema v5 运行目录。
+`worlds/` 保存可审阅、可追溯且可由引擎严格校验的参考世界。每个子目录是作者工程；其中的 `world/` 才是可导入的 schema v6 运行目录。
 
 作者工程可以包含 README、设计文档与许可说明。`world/` 仍只允许 `script.yaml`、`laws.yaml`、`mechanics.yaml`、`player.yaml` 和 `entities/*.yaml`，不会因为仓库内创作需要而放宽导入边界。
 

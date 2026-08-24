@@ -1,4 +1,4 @@
-import type { ObservationPacket, SimulationState, TransitionProposal } from "./model";
+import type { ObservationPacket, SimulationState, TransitionProposal, TransitionProposalDraft } from "./model";
 
 function playerVisibleCorpus(state: SimulationState): string {
   const values: string[] = [];
@@ -80,7 +80,7 @@ function publicText(packet: ObservationPacket): string {
 export function validatePublicInformationBoundary(
   state: SimulationState,
   actions: readonly { id: string; actorId: string }[],
-  proposal: TransitionProposal,
+  proposal: TransitionProposal | TransitionProposalDraft,
 ): void {
   const playerAction = actions.find((action) => action.actorId === "player");
   const outcome = playerAction && proposal.outcomes.find((candidate) => candidate.proposalId === playerAction.id);

@@ -66,7 +66,7 @@ export function WorldsScreen() {
         <div>
           <p className="cg-eyebrow">WORLD PACKAGE</p>
           <h2 id="import-title">导入新的世界</h2>
-          <p>选择符合 schema v5 的 ZIP 世界包。内容会安装到本机，不会上传到云端。</p>
+          <p>选择符合 schema v6 的 ZIP 世界包。内容会安装到本机，不会上传到云端。</p>
         </div>
         <label className="cg-file-button">
           <Upload aria-hidden="true" /> 导入世界 ZIP

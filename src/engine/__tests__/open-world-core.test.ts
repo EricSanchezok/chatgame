@@ -11,16 +11,22 @@ import { createSeededRng, resolveD20Checks } from "../random";
 import { validateObservations } from "../observation";
 import {
   applyTransitionProposal,
+  applyWorldDeltaOperation,
   createEmptyCharacter,
   createEmptyBelief,
   TransitionValidationError,
   validateSimulationState,
 } from "../transaction";
 import { TEST_WORLD_HASH } from "../testing/world";
+import { createTestModelAudit } from "../testing/model-provider";
+import { quantityId, runtimeId } from "../runtime-id";
+import { createHistoryReplayBase } from "../history-replay";
+import { beliefClaimSchema, evidenceSchema, semanticIdSchema } from "../state-schemas";
+import { agentMindOutputSchema, characterPatchSchema } from "../llm-schemas";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     worldId: "test-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],
@@ -65,6 +71,7 @@ function worldState(): SimulationState {
         },
       },
       placements: { player: null, keeper: null, gate: null, key: "player" },
+      factTombstones: [],
       facts: {
         "key-authenticity": {
           id: "key-authenticity",
@@ -123,14 +130,14 @@ function worldState(): SimulationState {
         },
       },
       quantities: {
-        "spirit_stone:player": {
-          id: "spirit_stone:player",
+        [quantityId(TEST_WORLD_HASH, "spirit_stone", "player")]: {
+          id: quantityId(TEST_WORLD_HASH, "spirit_stone", "player"),
           definitionId: "spirit_stone",
           holderId: "player",
           amount: 3,
         },
-        "spirit_stone:keeper": {
-          id: "spirit_stone:keeper",
+        [quantityId(TEST_WORLD_HASH, "spirit_stone", "keeper")]: {
+          id: quantityId(TEST_WORLD_HASH, "spirit_stone", "keeper"),
           definitionId: "spirit_stone",
           holderId: "keeper",
           amount: 7,
@@ -160,7 +167,10 @@ function worldState(): SimulationState {
         },
         bindings: { self: { localEntityId: "self", canonicalEntityIds: ["keeper"] } },
         nextAction: {
-          id: "keeper-action-0",
+          id: runtimeId({
+            worldHash: TEST_WORLD_HASH, revision: 0, kind: "action", stage: "prepared",
+            owner: "keeper", round: 0, ordinal: 0,
+          }),
           actorId: "keeper",
           baseRevision: 0,
           rawText: "继续看守石门",
@@ -176,7 +186,24 @@ function worldState(): SimulationState {
       bindings: {},
     },
     history: [],
-    bootstrapModelAudits: [],
+    bootstrapAgentCommits: [{
+      agentId: "keeper",
+      beliefPatch: { agentId: "keeper", baseRevision: 0, operations: [] },
+      characterPatch: { agentId: "keeper", baseRevision: 0, operations: [] },
+      nextAction: {
+        id: runtimeId({
+          worldHash: TEST_WORLD_HASH, revision: 0, kind: "action", stage: "prepared",
+          owner: "keeper", round: 0, ordinal: 0,
+        }),
+        actorId: "keeper",
+        baseRevision: 0,
+        rawText: "继续看守石门",
+        goal: "不让陌生人通过",
+        means: null,
+        targetIds: [],
+      },
+    }],
+    bootstrapModelAudits: [createTestModelAudit("agent-bootstrap", "keeper", TEST_WORLD_HASH)],
   };
 }
 
@@ -196,6 +223,84 @@ function proposal(operations: TransitionProposal["operations"]): TransitionPropo
 const causalAction = [{ kind: "action" as const, id: "player-action" }];
 
 describe("open world kernel", () => {
+  it("reserves rt identities from every model-authored semantic namespace", () => {
+    expect(quantityId(TEST_WORLD_HASH, "definition:a", "holder"))
+      .not.toBe(quantityId(TEST_WORLD_HASH, "definition", "a:holder"));
+    expect(agentMindOutputSchema.safeParse({
+      beliefPatch: { agentId: "keeper", baseRevision: 0, operations: [] },
+      characterPatch: { operations: [] },
+      nextAction: { rawText: "等待", goal: "观察", means: null, targetIds: [] },
+    }).success).toBe(false);
+    expect(semanticIdSchema.safeParse("rt:claim:forged").success).toBe(false);
+    expect(semanticIdSchema.safeParse("agent\u0085id").success).toBe(false);
+    expect(beliefClaimSchema.safeParse({
+      id: "rt:claim:forged",
+      subjectId: "self",
+      predicate: "identity",
+      value: { kind: "text", value: "forged" },
+      description: "不得占用内核命名空间。",
+      stance: "believed",
+      confidence: 1,
+      evidenceIds: [],
+    }).success).toBe(false);
+    expect(evidenceSchema.safeParse({
+      id: "rt:evidence:forged",
+      kind: "assumption",
+      description: "不得占用内核命名空间。",
+      sourceId: null,
+      step: 0,
+    }).success).toBe(false);
+    expect(characterPatchSchema.safeParse({
+      agentId: "keeper",
+      baseRevision: 0,
+      operations: [{
+        kind: "create_trait",
+        facet: { id: "rt:trait:forged", description: "不得占用内核命名空间。", strength: 1 },
+        sourceObservationIds: ["rt:observation:source"],
+        evidenceIds: ["rt:evidence:source"],
+      }],
+    }).success).toBe(false);
+  });
+
+  it("recomputes bootstrap model-audit identities from canonical coordinates", () => {
+    const state = worldState();
+    validateSimulationState(state, true, true);
+    state.bootstrapModelAudits[0].invocations[0].id = `rt:model-audit:${"0".repeat(64)}`;
+    expect(() => validateSimulationState(state, true, true))
+      .toThrow("invalid model invocation identity");
+  });
+
+  it("keeps observer-local identities tombstoned for the whole simulation lifetime", () => {
+    const state = worldState();
+    state.historyBase = createHistoryReplayBase(state);
+    state.bootstrapAgentCommits[0].beliefPatch.operations.push({
+      kind: "upsert_local_entity",
+      entity: {
+        id: "retired-witness",
+        name: "旧见证人",
+        description: "已经被移除的局部身份。",
+        status: "observed",
+      },
+    }, { kind: "remove_local_entity", localEntityId: "retired-witness" });
+    expect(() => validateObservations(state, [{
+      id: "draft-observation",
+      observerId: "keeper",
+      step: 1,
+      kind: "outcome",
+      summary: "试图重新引入已退休的局部身份。",
+      introductions: [{
+        localEntity: {
+          id: "retired-witness",
+          name: "旧目击者",
+          description: "同名身份已经在历史中使用过。",
+          status: "reported",
+        },
+        canonicalEntityId: null,
+      }],
+      apparentClaims: [],
+      sourceEventIds: [],
+    }], 1)).toThrow("reintroduces local entity retired-witness");
+  });
   it("keeps a false belief independent from canonical truth", () => {
     const source = createEmptyBelief();
     const patch: BeliefPatch = {
@@ -325,9 +430,9 @@ describe("open world kernel", () => {
       ]),
     );
 
-    expect(source.truth.quantities["spirit_stone:keeper"].amount).toBe(7);
-    expect(next.truth.quantities["spirit_stone:keeper"].amount).toBe(2);
-    expect(next.truth.quantities["spirit_stone:player"].amount).toBe(8);
+    expect(source.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "keeper")].amount).toBe(7);
+    expect(next.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "keeper")].amount).toBe(2);
+    expect(next.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "player")].amount).toBe(8);
   });
 
   it("rejects unsupported matter creation atomically", () => {
@@ -348,7 +453,7 @@ describe("open world kernel", () => {
         ]),
       ),
     ).toThrow(TransitionValidationError);
-    expect(source.truth.quantities["spirit_stone:player"].amount).toBe(3);
+    expect(source.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "player")].amount).toBe(3);
     expect(source.revision).toBe(0);
   });
 
@@ -367,10 +472,60 @@ describe("open world kernel", () => {
     );
 
     expect(next.truth.entities.keeper.lifecycle).toBe("retired");
-    expect(next.truth.facts["threshold:health:keeper:death-at-zero:condition"].value).toEqual({
+    const thresholdFactId = runtimeId({
+      worldHash: TEST_WORLD_HASH,
+      revision: 0,
+      kind: "fact",
+      stage: "meter-threshold",
+      owner: ["health:keeper", "death-at-zero", "condition"],
+      round: 0,
+      ordinal: 1,
+    });
+    expect(next.truth.facts[thresholdFactId].value).toEqual({
       kind: "text",
       value: "dead",
     });
+  });
+
+  it("keeps removed semantic and runtime Fact identities tombstoned for life", () => {
+    const semantic = worldState();
+    applyWorldDeltaOperation(semantic, {
+      kind: "remove_fact",
+      factId: "key-authenticity",
+      causes: causalAction,
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+    });
+    expect(() => applyWorldDeltaOperation(semantic, {
+      kind: "set_fact",
+      fact: {
+        id: "key-authenticity",
+        subjectId: "key",
+        predicate: "authenticity",
+        value: { kind: "text", value: "real" },
+        description: "试图复用已经删除的 Fact identity。",
+        access: { kind: "private" },
+        provenance: causalAction,
+      },
+      causes: causalAction,
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+    })).toThrow("fact identity is tombstoned");
+
+    const runtime = applyTransitionProposal(worldState(), proposal([{
+      kind: "adjust_meter",
+      meterId: "health:keeper",
+      amount: -10,
+      causes: [{ kind: "check", id: "attack-roll" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+    }]));
+    const thresholdFactId = Object.keys(runtime.truth.facts).find((id) => id.startsWith("rt:fact:"))!;
+    applyWorldDeltaOperation(runtime, {
+      kind: "remove_fact",
+      factId: thresholdFactId,
+      causes: causalAction,
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+    });
+    expect(runtime.truth.factTombstones).toContain(thresholdFactId);
+    expect(() => validateSimulationState(runtime)).not.toThrow();
   });
 
   it("rejects prototype-polluting record identifiers before state mutation", () => {
@@ -428,6 +583,27 @@ describe("open world kernel", () => {
       summary: "试图用 introduction 重写既有 self。",
       introductions: [{
         localEntity: { id: "self", name: "伪造身份", description: "覆盖既有局部身份", status: "observed" },
+        canonicalEntityId: "player",
+      }],
+      apparentClaims: [],
+      sourceEventIds: [],
+    }])).toThrow("reintroduces local entity self");
+  });
+
+  it("keeps removed observer-local identities tombstoned for live observations", () => {
+    const source = worldState();
+    source.historyBase = createHistoryReplayBase(source);
+    delete source.agents.keeper.belief.localEntities.self;
+    delete source.agents.keeper.bindings.self;
+
+    expect(() => validateObservations(source, [{
+      id: "observation:tombstone",
+      observerId: "keeper",
+      step: 1,
+      kind: "outcome",
+      summary: "试图重新占用已删除的局部身份。",
+      introductions: [{
+        localEntity: { id: "self", name: "伪造身份", description: "不允许复用", status: "observed" },
         canonicalEntityId: "player",
       }],
       apparentClaims: [],

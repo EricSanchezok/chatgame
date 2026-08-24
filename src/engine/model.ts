@@ -175,6 +175,7 @@ export interface CanonicalWorldState {
   entities: Record<EntityId, WorldEntity>;
   placements: Record<EntityId, EntityId | null>;
   facts: Record<FactId, WorldFact>;
+  factTombstones: FactId[];
   mechanics: MechanicsCatalog;
   meters: Record<string, MeterState>;
   quantities: Record<string, QuantityState>;
@@ -183,8 +184,8 @@ export interface CanonicalWorldState {
 
 export interface HistoryReplayBase {
   truth: CanonicalWorldState;
-  agentEntities: Record<AgentId, EntityId>;
-  playerEntityId: EntityId;
+  agents: Record<AgentId, AgentState>;
+  player: PlayerState;
 }
 
 export interface LocalEntity {
@@ -314,6 +315,11 @@ export interface AgentActionProposal {
   targetIds: LocalEntityId[];
 }
 
+export type AgentActionDraft = Pick<
+  AgentActionProposal,
+  "rawText" | "goal" | "means" | "targetIds"
+>;
+
 export interface AgentState {
   id: AgentId;
   entityId: EntityId;
@@ -361,17 +367,34 @@ export interface AgentSelfStateView {
   }>;
 }
 
+export interface PlayerIntentInput {
+  id: string;
+  text: string;
+  kind: "goal" | "clarification";
+  submittedAtStep: number;
+}
+
 export interface PlayerIntent {
   id: string;
   goal: string;
-  latestInput: {
-    id: string;
-    text: string;
-    kind: "goal" | "clarification";
-    submittedAtStep: number;
-  };
+  inputs: PlayerIntentInput[];
+  latestInput: PlayerIntentInput;
   status: "active" | "completed" | "failed" | "cancelled";
   startedAtStep: number;
+}
+
+export interface PlayerState {
+  entityId: EntityId;
+  knowledge: PlayerKnowledgeState;
+  bindings: Record<LocalEntityId, EpistemicBinding>;
+  intent?: PlayerIntent;
+}
+
+export interface AgentMindCommit {
+  agentId: AgentId;
+  beliefPatch: BeliefPatch;
+  characterPatch: CharacterPatch;
+  nextAction: AgentActionProposal;
 }
 
 export interface SeededRngState {
@@ -390,7 +413,7 @@ export interface WorldEvent {
 }
 
 export interface SimulationState {
-  schemaVersion: 7;
+  schemaVersion: 8;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -398,14 +421,10 @@ export interface SimulationState {
   step: number;
   truth: CanonicalWorldState;
   agents: Record<AgentId, AgentState>;
-  player: {
-    entityId: EntityId;
-    knowledge: PlayerKnowledgeState;
-    bindings: Record<LocalEntityId, EpistemicBinding>;
-    intent?: PlayerIntent;
-  };
+  player: PlayerState;
   history: CommittedStep[];
   historyBase?: HistoryReplayBase;
+  bootstrapAgentCommits: AgentMindCommit[];
   bootstrapModelAudits: ModelExecutionAudit[];
 }
 
@@ -483,13 +502,17 @@ export interface KnownAlternative {
     | { kind: "observation"; observationId: string };
 }
 
-export interface ActionOutcome {
+export interface ActionOutcomeDraft {
   proposalId: string;
   status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
   summary: string;
   causeRefs: CausalRef[];
   assertions: CausalAssertion[];
   knownAlternatives: KnownAlternative[];
+}
+
+export interface ActionOutcome extends ActionOutcomeDraft {
+  id: string;
 }
 
 export interface ApparentClaim {
@@ -728,6 +751,10 @@ export interface TransitionProposal {
   requiresPlayerDecision: boolean;
 }
 
+export interface TransitionProposalDraft extends Omit<TransitionProposal, "outcomes"> {
+  outcomes: ActionOutcomeDraft[];
+}
+
 export interface ModelTokenUsage {
   input: number | null;
   output: number | null;
@@ -821,9 +848,11 @@ export interface CommittedStep {
   events: WorldEvent[];
   observations: ObservationPacket[];
   operations: WorldDeltaOperation[];
+  playerIntent: PlayerIntent;
   intentStatus: TransitionProposal["intentStatus"];
   requiresPlayerDecision: boolean;
   beliefPatches: BeliefPatch[];
   characterPatches: CharacterPatch[];
+  nextActions: AgentActionProposal[];
   modelAudits: ModelExecutionAudit[];
 }

@@ -27,6 +27,7 @@ import type { WorldSessionDocument } from "./world-run-types";
 
 const INSTANCE_HEARTBEAT_MS = 5_000;
 const INSTANCE_LEASE_MS = 15_000;
+const VALIDATED_SESSION_CACHE_LIMIT = 8;
 
 interface LocalDatabaseOptions {
   ownerId?: string;
@@ -50,6 +51,17 @@ interface SessionRow {
   document_json: string;
 }
 
+interface ListedSessionRow extends SessionRow {
+  id: string;
+}
+
+interface ValidatedSessionCacheEntry {
+  generation: number;
+  serialized: string;
+  documentUtf8Bytes: number;
+  document: WorldSessionDocument;
+}
+
 interface LockRow {
   owner_id: string;
   expires_at: number;
@@ -70,6 +82,7 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
   private readonly heartbeatTimer?: NodeJS.Timeout;
   private readonly observer: RuntimeObserver;
   private readonly observe: ReturnType<typeof runtimeEventEmitter>;
+  private readonly validatedSessions = new Map<string, ValidatedSessionCacheEntry>();
   private closed = false;
 
   constructor(readonly file: string, options: LocalDatabaseOptions = {}) {
@@ -96,6 +109,64 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
       this.heartbeatTimer = setInterval(() => this.renewInstanceLease(), INSTANCE_HEARTBEAT_MS);
       this.heartbeatTimer.unref();
     }
+  }
+
+  private cacheValidatedSession(
+    sessionId: string,
+    generation: number,
+    serialized: string,
+    document: WorldSessionDocument,
+  ): ValidatedSessionCacheEntry {
+    const entry = {
+      generation,
+      serialized,
+      documentUtf8Bytes: Buffer.byteLength(serialized, "utf8"),
+      document: structuredClone(document),
+    };
+    this.validatedSessions.delete(sessionId);
+    this.validatedSessions.set(sessionId, entry);
+    while (this.validatedSessions.size > VALIDATED_SESSION_CACHE_LIMIT) {
+      const oldestSessionId = this.validatedSessions.keys().next().value;
+      if (oldestSessionId === undefined) break;
+      this.validatedSessions.delete(oldestSessionId);
+    }
+    return entry;
+  }
+
+  private cachedSession(
+    sessionId: string,
+    row: SessionRow,
+    promote = true,
+  ): ValidatedSessionCacheEntry | undefined {
+    const cached = this.validatedSessions.get(sessionId);
+    if (!cached || cached.generation !== row.generation || cached.serialized !== row.document_json) {
+      if (cached) this.validatedSessions.delete(sessionId);
+      return undefined;
+    }
+    if (promote) {
+      this.validatedSessions.delete(sessionId);
+      this.validatedSessions.set(sessionId, cached);
+    }
+    return cached;
+  }
+
+  private observeCachedRead(
+    sessionId: string,
+    cached: ValidatedSessionCacheEntry,
+    startedAt: number,
+    correlation?: RuntimeCorrelation,
+  ): void {
+    this.observe?.({
+      event: "persistence.read.completed",
+      correlation: { ...correlation, sessionId },
+      durationMs: Math.max(0, Date.now() - startedAt),
+      attributes: { sink: "sqlite", cacheHit: true },
+      measurements: { documentUtf8Bytes: cached.documentUtf8Bytes },
+      counts: {
+        history: cached.document.state.history.length,
+        runs: Object.keys(cached.document.runs).length,
+      },
+    });
   }
 
   private migrate(): void {
@@ -233,8 +304,36 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
       WHERE catalog.world_id = ?
     `).get(worldId) as WorldRow | undefined;
     if (!row) throw new Error(`world not found: ${worldId}`);
+    return this.definitionFromWorldRow(row, seed, modelCatalog);
+  }
+
+  loadVersion(
+    worldId: string,
+    contentHash: string,
+    seed: number | undefined,
+    modelCatalog: ModelCatalog,
+  ) {
+    const row = this.connection.prepare(`
+      SELECT world_id AS id,
+             name,
+             manifest_version AS version,
+             content_hash,
+             description,
+             template_json
+      FROM world_versions
+      WHERE world_id = ? AND content_hash = ?
+    `).get(worldId, contentHash) as WorldRow | undefined;
+    if (!row) throw new Error(`world version not found: ${worldId}@${contentHash}`);
+    return this.definitionFromWorldRow(row, seed, modelCatalog);
+  }
+
+  private definitionFromWorldRow(
+    row: WorldRow,
+    seed: number | undefined,
+    modelCatalog: ModelCatalog,
+  ) {
     const template = parseWorldTemplate(JSON.parse(row.template_json));
-    if (hashWorldTemplate(template) !== row.content_hash) throw new Error(`world ${worldId} content hash mismatch`);
+    if (hashWorldTemplate(template) !== row.content_hash) throw new Error(`world ${row.id} content hash mismatch`);
     return buildWorldDefinition(template, { seed, modelCatalog, rulePackages: this.rulePackages });
   }
 
@@ -278,32 +377,29 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     const startedAt = Date.now();
     const serialized = serializeWorldSessionDocument(document, this.observer, correlation);
     try {
-      const stored = this.connection.transaction(() => {
-      this.assertInstanceLease();
-      try {
-        this.connection.prepare(`
-          INSERT INTO world_sessions(
-            id, generation, world_id, world_hash, document_json, created_at, updated_at
-          ) VALUES (?, 1, ?, ?, ?, ?, ?)
-        `).run(
-          document.id,
-          document.world.id,
-          document.world.contentHash,
-          serialized,
-          document.createdAt,
-          document.updatedAt,
-        );
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
-          throw new WorldSessionConflictError(document.id);
+      this.connection.transaction(() => {
+        this.assertInstanceLease();
+        try {
+          this.connection.prepare(`
+            INSERT INTO world_sessions(
+              id, generation, world_id, world_hash, document_json, created_at, updated_at
+            ) VALUES (?, 1, ?, ?, ?, ?, ?)
+          `).run(
+            document.id,
+            document.world.id,
+            document.world.contentHash,
+            serialized,
+            document.createdAt,
+            document.updatedAt,
+          );
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+            throw new WorldSessionConflictError(document.id);
+          }
+          throw error;
         }
-        throw error;
-      }
-        return {
-          generation: 1,
-          document: parseWorldSessionDocument(serialized, document.id, this.observer, correlation),
-        };
       })();
+      const cached = this.cacheValidatedSession(document.id, 1, serialized, document);
       this.observe?.({
         event: "persistence.write.completed",
         correlation: { ...correlation, sessionId: document.id },
@@ -311,7 +407,7 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
         measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
         attributes: { sink: "sqlite", operation: "create" },
       });
-      return stored;
+      return { generation: 1, document: structuredClone(cached.document) };
     } catch (error) {
       this.observe?.({
         event: "persistence.write.failed",
@@ -326,13 +422,27 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
   }
 
   read(sessionId: string, correlation?: RuntimeCorrelation): StoredWorldSession {
+    const startedAt = Date.now();
     const row = this.connection.prepare(
       "SELECT generation, document_json FROM world_sessions WHERE id = ?",
     ).get(sessionId) as SessionRow | undefined;
     if (!row) throw new WorldSessionNotFoundError(sessionId);
+    const cached = this.cachedSession(sessionId, row);
+    if (cached) {
+      this.observeCachedRead(sessionId, cached, startedAt, correlation);
+      return { generation: cached.generation, document: structuredClone(cached.document) };
+    }
+    const document = parseWorldSessionDocument(
+      row.document_json,
+      sessionId,
+      this.observer,
+      correlation,
+      { sink: "sqlite", cacheHit: false },
+    );
+    this.cacheValidatedSession(sessionId, row.generation, row.document_json, document);
     return {
       generation: row.generation,
-      document: parseWorldSessionDocument(row.document_json, sessionId, this.observer, correlation),
+      document,
     };
   }
 
@@ -346,34 +456,32 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
     const startedAt = Date.now();
     const serialized = serializeWorldSessionDocument(document, this.observer, correlation);
     try {
-      const stored = this.connection.transaction(() => {
-      this.assertInstanceLease();
-      const result = this.connection.prepare(`
-        UPDATE world_sessions
-        SET generation = generation + 1,
-            world_id = ?,
-            world_hash = ?,
-            document_json = ?,
-            updated_at = ?
-        WHERE id = ? AND generation = ?
-      `).run(
-        document.world.id,
-        document.world.contentHash,
-        serialized,
-        document.updatedAt,
-        sessionId,
-        expectedGeneration,
-      );
-      if (result.changes !== 1) {
-        const exists = this.connection.prepare("SELECT 1 FROM world_sessions WHERE id = ?").get(sessionId);
-        if (!exists) throw new WorldSessionNotFoundError(sessionId);
-        throw new WorldSessionConflictError(sessionId);
-      }
-        return {
-          generation: expectedGeneration + 1,
-          document: parseWorldSessionDocument(serialized, sessionId, this.observer, correlation),
-        };
+      this.connection.transaction(() => {
+        this.assertInstanceLease();
+        const result = this.connection.prepare(`
+          UPDATE world_sessions
+          SET generation = generation + 1,
+              world_id = ?,
+              world_hash = ?,
+              document_json = ?,
+              updated_at = ?
+          WHERE id = ? AND generation = ?
+        `).run(
+          document.world.id,
+          document.world.contentHash,
+          serialized,
+          document.updatedAt,
+          sessionId,
+          expectedGeneration,
+        );
+        if (result.changes !== 1) {
+          const exists = this.connection.prepare("SELECT 1 FROM world_sessions WHERE id = ?").get(sessionId);
+          if (!exists) throw new WorldSessionNotFoundError(sessionId);
+          throw new WorldSessionConflictError(sessionId);
+        }
       })();
+      const generation = expectedGeneration + 1;
+      const cached = this.cacheValidatedSession(sessionId, generation, serialized, document);
       this.observe?.({
         event: "persistence.write.completed",
         correlation: { ...correlation, sessionId },
@@ -381,7 +489,7 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
         measurements: { documentUtf8Bytes: Buffer.byteLength(serialized, "utf8") },
         attributes: { sink: "sqlite", operation: "compare_and_swap" },
       });
-      return stored;
+      return { generation, document: structuredClone(cached.document) };
     } catch (error) {
       this.observe?.({
         event: "persistence.write.failed",
@@ -396,8 +504,36 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
   }
 
   listSessions(correlation?: RuntimeCorrelation): StoredWorldSession[] {
-    const ids = this.connection.prepare("SELECT id FROM world_sessions ORDER BY id").all() as Array<{ id: string }>;
-    return ids.map(({ id }) => this.read(id, correlation));
+    const rows = this.connection.prepare(
+      "SELECT id, generation, document_json FROM world_sessions ORDER BY id",
+    ).all() as ListedSessionRow[];
+    const persistedIds = new Set(rows.map((row) => row.id));
+    for (const sessionId of this.validatedSessions.keys()) {
+      if (!persistedIds.has(sessionId)) this.validatedSessions.delete(sessionId);
+    }
+    const misses: Array<{ row: ListedSessionRow; document: WorldSessionDocument }> = [];
+    const sessions = rows.map((row): StoredWorldSession => {
+      const startedAt = Date.now();
+      const cached = this.cachedSession(row.id, row, false);
+      if (cached) {
+        this.observeCachedRead(row.id, cached, startedAt, correlation);
+        return { generation: cached.generation, document: structuredClone(cached.document) };
+      }
+      const document = parseWorldSessionDocument(
+        row.document_json,
+        row.id,
+        this.observer,
+        correlation,
+        { sink: "sqlite", cacheHit: false },
+      );
+      misses.push({ row, document });
+      return { generation: row.generation, document };
+    });
+    for (const { row, document } of misses) {
+      if (this.validatedSessions.size >= VALIDATED_SESSION_CACHE_LIMIT) break;
+      this.cacheValidatedSession(row.id, row.generation, row.document_json, document);
+    }
+    return sessions;
   }
 
   delete(sessionId: string, expectedGeneration: number, correlation?: RuntimeCorrelation): void {
@@ -413,6 +549,7 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
         if (!exists) throw new WorldSessionNotFoundError(sessionId);
         throw new WorldSessionConflictError(sessionId);
       })();
+      this.validatedSessions.delete(sessionId);
       this.observe?.({
         event: "persistence.delete.completed",
         correlation: { ...correlation, sessionId },
@@ -435,6 +572,7 @@ export class LocalDatabase implements WorldRepository, WorldSessionStore {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.validatedSessions.clear();
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     try {
       this.connection.prepare("DELETE FROM instance_lock WHERE singleton = 1 AND owner_id = ?").run(this.ownerId);

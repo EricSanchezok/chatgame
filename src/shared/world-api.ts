@@ -1,4 +1,4 @@
-export const WORLD_API_VERSION = 3 as const;
+export const WORLD_API_VERSION = 4 as const;
 
 export interface WorldSummary {
   id: string;
@@ -93,6 +93,42 @@ export type WorldRunStatus =
   | "cancelled"
   | "failed";
 
+export const WORLD_RUN_EXECUTING_STATUSES = ["queued", "running"] as const satisfies readonly WorldRunStatus[];
+export const WORLD_RUN_STREAM_BOUNDARY_STATUSES = [
+  "awaiting_player",
+  "completed",
+  "goal_failed",
+  "step_limit",
+  "cancelled",
+  "failed",
+] as const satisfies readonly WorldRunStatus[];
+export const WORLD_RUN_ACTIVE_INTENT_OWNER_STATUSES = [
+  ...WORLD_RUN_EXECUTING_STATUSES,
+  "awaiting_player",
+  "step_limit",
+  "failed",
+] as const satisfies readonly WorldRunStatus[];
+
+export type WorldRunExecutingStatus = typeof WORLD_RUN_EXECUTING_STATUSES[number];
+export type WorldRunStreamBoundaryStatus = typeof WORLD_RUN_STREAM_BOUNDARY_STATUSES[number];
+export type WorldRunActiveIntentOwnerStatus = typeof WORLD_RUN_ACTIVE_INTENT_OWNER_STATUSES[number];
+
+const executingStatuses = new Set<WorldRunStatus>(WORLD_RUN_EXECUTING_STATUSES);
+const streamBoundaryStatuses = new Set<WorldRunStatus>(WORLD_RUN_STREAM_BOUNDARY_STATUSES);
+const activeIntentOwnerStatuses = new Set<WorldRunStatus>(WORLD_RUN_ACTIVE_INTENT_OWNER_STATUSES);
+
+export function isWorldRunExecuting(status: WorldRunStatus): status is WorldRunExecutingStatus {
+  return executingStatuses.has(status);
+}
+
+export function isWorldRunStreamBoundary(status: WorldRunStatus): status is WorldRunStreamBoundaryStatus {
+  return streamBoundaryStatuses.has(status);
+}
+
+export function isWorldRunActiveIntentOwner(status: WorldRunStatus): status is WorldRunActiveIntentOwnerStatus {
+  return activeIntentOwnerStatuses.has(status);
+}
+
 export interface PublicObservationPacket {
   id: string;
   observerId: "player";
@@ -184,8 +220,10 @@ export type WorldRunEvent =
       sequence: number;
       type: "run.failed";
       at: string;
-      payload: { runId: string; message: string; retriable: true };
+      payload: { runId: string; message: string; retriable: boolean };
     };
+
+export type WorldRunFailureEvent = Extract<WorldRunEvent, { type: "run.failed" }>;
 
 export interface WorldRunRecordView {
   id: string;
@@ -222,4 +260,18 @@ export interface ContinueWorldRunInput {
 export interface WorldRunSnapshot {
   run: WorldRunRecordView;
   state: PublicSessionState;
+}
+
+export function latestWorldRunFailure(
+  run: Pick<WorldRunRecordView, "events">,
+): WorldRunFailureEvent | undefined {
+  const event = run.events.at(-1);
+  return event?.type === "run.failed" ? event : undefined;
+}
+
+export function isWorldRunRetriable(
+  run: Pick<WorldRunRecordView, "status" | "events">,
+): boolean {
+  return run.status === "step_limit" ||
+    (run.status === "failed" && latestWorldRunFailure(run)?.payload.retriable === true);
 }

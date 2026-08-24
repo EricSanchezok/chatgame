@@ -72,7 +72,7 @@ function oversizedDeclaredArchive(): Buffer {
 }
 
 describe("world import", () => {
-  it("atomically imports one validated schema v5 world", () => {
+  it("atomically imports one validated schema v6 world", () => {
     const root = temporaryRoot();
     const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     const result = database.importWorld(zipDirectory(fixture).toBuffer(), modelCatalog);
@@ -183,7 +183,7 @@ describe("world import", () => {
     try {
       database.importWorld(zipDirectory(fixture).toBuffer(), provider.catalog);
       const firstHost = createHost();
-      const original = await firstHost.createSession({ worldId: "open-world-fixture" });
+      const original = await firstHost.createSession({ worldId: "open-world-fixture", seed: 47 });
 
       const replacement = path.join(root, "replacement");
       cpSync(fixture, replacement, { recursive: true });

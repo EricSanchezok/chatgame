@@ -16,7 +16,12 @@ import type {
   StructuredModelRequest,
   StructuredModelResult,
 } from "./model-provider";
-import { ModelConfigurationError, ModelOutputError, ModelTransportError } from "./model-provider";
+import {
+  ModelConfigurationError,
+  modelInvocationIdentity,
+  ModelOutputError,
+  ModelTransportError,
+} from "./model-provider";
 import {
   FairModelScheduler,
   ModelOverloadedError,
@@ -186,8 +191,12 @@ export class ModelGateway implements StructuredModelProvider {
     const observer = request.observer ?? this.observer;
     const observe = runtimeEventEmitter(observer);
     const modelInvocation = request.modelInvocation ?? 1;
-    const modelInvocationId = request.modelInvocationId ??
-      `${request.workloadId}:${request.batchId}:${request.role}:${request.subjectId}:${modelInvocation}`;
+    const modelInvocationId = request.modelInvocationId ?? modelInvocationIdentity(
+      request,
+      request.role,
+      request.subjectId,
+      modelInvocation,
+    ).modelInvocationId;
     const correlation: RuntimeCorrelation = {
       ...request.correlation,
       modelInvocationId,
@@ -528,7 +537,11 @@ export class ModelGateway implements StructuredModelProvider {
           });
           throw new ModelTransportError(
             error instanceof Error ? error.message : String(error),
-            { cause: error },
+            {
+              cause: error,
+              retriable: isRetryableTransportError(error, request.abortSignal),
+              statusCode: statusCode(error) ?? null,
+            },
           );
         }
         const serverDelay = retryAfterMs(error, this.now());
@@ -564,7 +577,7 @@ export class ModelGateway implements StructuredModelProvider {
           if (cancelled) throw retryError;
           throw new ModelTransportError(
             retryError instanceof Error ? retryError.message : String(retryError),
-            { cause: retryError },
+            { cause: retryError, retriable: false, statusCode: statusCode(retryError) ?? null },
           );
         }
       }

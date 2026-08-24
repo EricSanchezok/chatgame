@@ -7,9 +7,11 @@ import {
   resolutionDirectiveSchema,
   transitionProposalSchema,
   type DiscreteRandomRequestProposal,
+  type ReactionRequestDraft,
 } from "./llm-schemas";
 import type {
   AgentActionProposal,
+  CausalAssertion,
   CausalAssertionResult,
   CausalRef,
   CausalVerification,
@@ -26,6 +28,7 @@ import type {
   SeededRngState,
   SimulationState,
   TransitionProposal,
+  TransitionProposalDraft,
 } from "./model";
 import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import {
@@ -34,6 +37,7 @@ import {
   modelInvocationCorrelation,
   modelInvocationIdentity,
   ModelOutputError,
+  ModelSemanticRepairError,
   ModelTransportError,
   setModelInvocationOutcome,
   setModelInvocationResultKind,
@@ -63,6 +67,7 @@ import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "./rule-package";
 import type { WorldDefinition } from "./world-definition";
 import type { ModelRole } from "./model-catalog";
+import { runtimeId } from "./runtime-id";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
@@ -113,13 +118,6 @@ class ReactionExecutionError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "ReactionExecutionError";
-  }
-}
-
-class ModelStageError extends Error {
-  constructor(readonly role: ModelRole, message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "ModelStageError";
   }
 }
 
@@ -225,7 +223,11 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
       repairCount += 1;
       if (repairCount > input.repairAttempts) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new ModelStageError(input.role, `${input.role} failed after repairs: ${message}`, { cause: error });
+        throw new ModelSemanticRepairError(
+          input.role,
+          `${input.role} failed after repairs: ${message}`,
+          { cause: error },
+        );
       }
     }
   }
@@ -430,6 +432,206 @@ function applyReactionDecisions(
     left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
 }
 
+function materializeObservationPackets(
+  state: SimulationState,
+  packets: readonly ObservationPacket[],
+  stage: "stimulus" | "outcome",
+  eventAliases: ReadonlyMap<string, string> = new Map(),
+): { packets: ObservationPacket[]; aliases: Map<string, string> } {
+  const aliases = new Map<string, string>();
+  for (const [ordinal, packet] of packets.entries()) {
+    if (aliases.has(packet.id)) throw new Error(`duplicate ${stage} observation alias ${packet.id}`);
+    aliases.set(packet.id, runtimeId({
+      worldHash: state.worldHash,
+      revision: state.revision,
+      kind: "observation",
+      stage,
+      owner: packet.observerId,
+      round: 0,
+      ordinal,
+    }));
+  }
+  return {
+    aliases,
+    packets: packets.map((packet, packetOrdinal) => {
+      const id = aliases.get(packet.id)!;
+      return {
+        ...structuredClone(packet),
+        id,
+        step: state.step + 1,
+        kind: stage,
+        apparentClaims: packet.apparentClaims.map((claim, claimOrdinal) => ({
+          ...structuredClone(claim),
+          id: runtimeId({
+            worldHash: state.worldHash,
+            revision: state.revision,
+            kind: "claim",
+            stage,
+            owner: [packet.observerId, id],
+            round: packetOrdinal,
+            ordinal: claimOrdinal,
+          }),
+        })),
+        sourceEventIds: packet.sourceEventIds.map((eventId) => eventAliases.get(eventId) ?? eventId),
+      };
+    }),
+  };
+}
+
+function materializeReactionRequests(
+  state: SimulationState,
+  requests: readonly ReactionRequestDraft[],
+  sourceActionId: string,
+): ReactionRequest[] {
+  const materialized = materializeObservationPackets(
+    state,
+    requests.map((request) => ({
+      ...structuredClone(request.stimulus),
+      observerId: request.agentId,
+      step: state.step + 1,
+      kind: "stimulus" as const,
+      sourceEventIds: [],
+    })),
+    "stimulus",
+  ).packets;
+  return requests.map((request, index) => ({
+    agentId: request.agentId,
+    sourceActionId,
+    stimulus: materialized[index],
+    basis: structuredClone(request.basis),
+  }));
+}
+
+function materializeTransitionProposal(
+  state: SimulationState,
+  direct: TransitionProposalDraft,
+  checkAliases: ReadonlyMap<string, string | null>,
+  randomAliases: ReadonlyMap<string, string | null>,
+): TransitionProposal {
+  const mechanicAliases = new Map<string, string>();
+  for (const [ordinal, invocation] of direct.mechanicInvocations.entries()) {
+    if (mechanicAliases.has(invocation.id)) throw new Error(`duplicate mechanic alias ${invocation.id}`);
+    mechanicAliases.set(invocation.id, runtimeId({
+      worldHash: state.worldHash,
+      revision: state.revision,
+      kind: "mechanic",
+      stage: "transition",
+      owner: state.worldId,
+      round: 0,
+      ordinal,
+    }));
+  }
+  const eventAliases = new Map<string, string>();
+  for (const [ordinal, event] of direct.events.entries()) {
+    if (eventAliases.has(event.id)) throw new Error(`duplicate event alias ${event.id}`);
+    eventAliases.set(event.id, runtimeId({
+      worldHash: state.worldHash,
+      revision: state.revision,
+      kind: "event",
+      stage: "transition",
+      owner: state.worldId,
+      round: 0,
+      ordinal,
+    }));
+  }
+  const rewriteCause = (cause: CausalRef): CausalRef => {
+    const checkId = cause.kind === "check" ? checkAliases.get(cause.id) : undefined;
+    if (checkId) {
+      return { ...cause, id: checkId };
+    }
+    const randomId = cause.kind === "random" ? randomAliases.get(cause.id) : undefined;
+    if (randomId) {
+      return { ...cause, id: randomId };
+    }
+    if (cause.kind === "mechanic" && mechanicAliases.has(cause.id)) {
+      return { ...cause, id: mechanicAliases.get(cause.id)! };
+    }
+    if (cause.kind === "event" && eventAliases.has(cause.id)) {
+      return { ...cause, id: eventAliases.get(cause.id)! };
+    }
+    return structuredClone(cause);
+  };
+  const rewriteAssertion = (assertion: CausalAssertion): CausalAssertion => {
+    const checkId = assertion.kind === "check_result" ? checkAliases.get(assertion.checkId) : undefined;
+    if (assertion.kind === "check_result" && checkId) {
+      return { ...structuredClone(assertion), checkId };
+    }
+    const randomId = assertion.kind === "random_result" ? randomAliases.get(assertion.requestId) : undefined;
+    if (assertion.kind === "random_result" && randomId) {
+      return { ...structuredClone(assertion), requestId: randomId };
+    }
+    return structuredClone(assertion);
+  };
+  const rewriteMechanicInput = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(rewriteMechanicInput);
+    if (!value || typeof value !== "object") return structuredClone(value);
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+      if (key === "checkId" && typeof item === "string" && checkAliases.get(item)) {
+        return [key, checkAliases.get(item)!];
+      }
+      if (key === "requestId" && typeof item === "string" && randomAliases.get(item)) {
+        return [key, randomAliases.get(item)!];
+      }
+      return [key, rewriteMechanicInput(item)];
+    }));
+  };
+  const observations = materializeObservationPackets(
+    state,
+    direct.observations,
+    "outcome",
+    eventAliases,
+  );
+  return {
+    ...structuredClone(direct),
+    baseRevision: state.revision,
+    mechanicInvocations: direct.mechanicInvocations.map((invocation) => ({
+      ...structuredClone(invocation),
+      id: mechanicAliases.get(invocation.id)!,
+      causes: invocation.causes.map(rewriteCause),
+      assertions: invocation.assertions.map(rewriteAssertion),
+      input: rewriteMechanicInput(invocation.input),
+    })),
+    operations: direct.operations.map((operation) => ({
+      ...structuredClone(operation),
+      causes: operation.causes.map(rewriteCause),
+      assertions: operation.assertions.map(rewriteAssertion),
+    })),
+    events: direct.events.map((event) => ({
+      ...structuredClone(event),
+      id: eventAliases.get(event.id)!,
+      step: state.step + 1,
+      causes: event.causes.map(rewriteCause),
+      assertions: event.assertions.map(rewriteAssertion),
+    })),
+    outcomes: direct.outcomes.map((outcome, ordinal) => ({
+      ...structuredClone(outcome),
+      id: runtimeId({
+        worldHash: state.worldHash,
+        revision: state.revision,
+        kind: "outcome",
+        stage: "transition",
+        owner: outcome.proposalId,
+        round: 0,
+        ordinal,
+      }),
+      causeRefs: outcome.causeRefs.map(rewriteCause),
+      assertions: outcome.assertions.map(rewriteAssertion),
+      knownAlternatives: outcome.knownAlternatives.map((alternative) =>
+        alternative.basis.kind === "observation"
+          ? {
+              ...structuredClone(alternative),
+              basis: {
+                ...alternative.basis,
+                observationId: observations.aliases.get(alternative.basis.observationId) ??
+                  alternative.basis.observationId,
+              },
+            }
+          : structuredClone(alternative)),
+    })),
+    observations: observations.packets,
+  };
+}
+
 function validateTransitionEnvelope(
   input: TruthResolutionInput,
   actions: readonly AgentActionProposal[],
@@ -444,6 +646,33 @@ function validateTransitionEnvelope(
     throw new Error("transition must contain exactly one outcome for every final joint action");
   }
   if (proposal.baseRevision !== input.state.revision) throw new Error("transition has a stale base revision");
+
+  const historicalAgentIds = new Set([
+    ...Object.keys(input.state.historyBase?.agents ?? {}),
+    ...Object.keys(input.state.agents),
+    ...input.state.history.flatMap((step) => step.operations
+      .filter((operation) => operation.kind === "create_agent")
+      .map((operation) => operation.agent.id)),
+  ]);
+  const historicalAgentEntities = new Set([
+    input.state.player.entityId,
+    ...Object.values(input.state.historyBase?.agents ?? {}).map((agent) => agent.entityId),
+    ...Object.values(input.state.agents).map((agent) => agent.entityId),
+    ...input.state.history.flatMap((step) => step.operations
+      .filter((operation) => operation.kind === "create_agent")
+      .map((operation) => operation.agent.entityId)),
+  ]);
+  for (const operation of proposal.operations) {
+    if (operation.kind !== "create_agent") continue;
+    if (operation.agent.id === "player" || historicalAgentIds.has(operation.agent.id)) {
+      throw new Error(`agent identity was already used: ${operation.agent.id}`);
+    }
+    if (historicalAgentEntities.has(operation.agent.entityId)) {
+      throw new Error(`agent entity was already bound: ${operation.agent.entityId}`);
+    }
+    historicalAgentIds.add(operation.agent.id);
+    historicalAgentEntities.add(operation.agent.entityId);
+  }
 
   const eventIds = new Set(input.state.truth.events.map((event) => event.id));
   const proposedEventIds = new Set<string>();
@@ -531,6 +760,8 @@ export class TruthEngine {
 
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
     let actions = input.initialActions.map((action) => structuredClone(action));
+    const playerAction = input.initialActions.find((action) => action.actorId === "player");
+    if (!playerAction) throw new Error("initial joint action has no player action");
     const allowedForCommitments: Record<CausalRef["kind"], Set<string>> = {
       action: new Set(actions.map((action) => action.id)),
       check: new Set(),
@@ -544,11 +775,13 @@ export class TruthEngine {
     const checks: D20CheckResult[] = [];
     const requests: D20CheckRequest[] = [];
     const requestIds = new Set<string>();
+    const checkAliases = new Map<string, string | null>();
     const randomRequests: DiscreteRandomRequest[] = [];
     const randomResults: DiscreteRandomResult[] = [];
     const commitmentRounds: CommitmentRound[] = [];
     const randomRequestIds = new Set(input.state.history.flatMap((step) =>
       step.randomRequests.map((request) => request.id)));
+    const randomAliases = new Map<string, string | null>();
     let reactionRequests: ReactionRequest[] = [];
     let reactionDecisions: ReactionDecision[] = [];
     let reactionModelAudits: ModelExecutionAudit[] = [];
@@ -585,16 +818,41 @@ export class TruthEngine {
       stage,
     });
 
-    const validateCheckRound = (round: readonly D20CheckRequest[], phase: "perception" | "resolution") => {
+    const normalizeCheckRound = (
+      round: readonly D20CheckRequest[],
+      phase: "perception" | "resolution",
+    ): D20CheckRequest[] => {
       if (commitmentRounds.length >= this.maxCommitmentRounds) {
         throw new Error("maximum commitment rounds exceeded");
       }
       if (randomStarted) throw new Error("d20 checks cannot be requested after discrete random commitments");
-      const roundIds = new Set<string>();
-      for (const request of round) {
-        if (request.phase !== phase) throw new Error(`${phase} stage emitted ${request.phase} check`);
-        if (requestIds.has(request.id) || roundIds.has(request.id)) throw new Error(`duplicate check request ${request.id}`);
-        roundIds.add(request.id);
+      const aliases = new Map<string, string>();
+      for (const [ordinal, request] of round.entries()) {
+        if (aliases.has(request.id)) throw new Error(`duplicate check request alias ${request.id}`);
+        const canonicalId = runtimeId({
+          worldHash: input.state.worldHash,
+          revision: input.state.revision,
+          kind: "check",
+          stage: phase,
+          owner: input.definition.id,
+          round: commitmentRounds.length,
+          ordinal,
+        });
+        aliases.set(request.id, canonicalId);
+        // Draft aliases are round-local. A repeated spelling is deliberately
+        // marked ambiguous so transition drafts must use the canonical rt id
+        // exposed in committed context rather than silently binding a round.
+      }
+      const normalized = round.map((request) => ({
+        ...structuredClone(request),
+        id: aliases.get(request.id)!,
+        phase,
+        causes: request.causes.map((cause) => cause.kind === "check" && aliases.has(cause.id)
+          ? { ...cause, id: aliases.get(cause.id)! }
+          : structuredClone(cause)),
+      }));
+      for (const request of normalized) {
+        if (requestIds.has(request.id)) throw new Error(`duplicate check request ${request.id}`);
         validateCheckRequest(
           input.state,
           request,
@@ -602,6 +860,7 @@ export class TruthEngine {
           input.definition.disclosure.defaultCheckVisibility,
         );
       }
+      return normalized;
     };
 
     const commitCheckRound = (round: readonly D20CheckRequest[]) => {
@@ -620,6 +879,16 @@ export class TruthEngine {
       });
     };
 
+    const registerCheckAliases = (
+      draft: readonly D20CheckRequest[],
+      normalized: readonly D20CheckRequest[],
+    ): void => {
+      draft.forEach((request, index) => {
+        const canonicalId = normalized[index]!.id;
+        checkAliases.set(request.id, checkAliases.has(request.id) ? null : canonicalId);
+      });
+    };
+
     const normalizeRandomRound = (
       round: readonly DiscreteRandomRequestProposal[],
     ): DiscreteRandomRequest[] => {
@@ -629,21 +898,42 @@ export class TruthEngine {
       if (round.length > MAX_RANDOM_REQUESTS_PER_ROUND) {
         throw new Error("discrete random round exceeds request limit");
       }
-      const roundIds = new Set<string>();
+      const aliases = new Map<string, string>();
+      for (const [ordinal, request] of round.entries()) {
+        if (aliases.has(request.id)) throw new Error(`duplicate random request alias ${request.id}`);
+        const canonicalId = runtimeId({
+          worldHash: input.state.worldHash,
+          revision: input.state.revision,
+          kind: "random",
+          stage: "resolution",
+          owner: input.definition.id,
+          round: commitmentRounds.length,
+          ordinal,
+        });
+        aliases.set(request.id, canonicalId);
+      }
       const normalized = round.map((request) => {
-        if (randomRequestIds.has(request.id) || roundIds.has(request.id)) {
-          throw new Error(`duplicate random request ${request.id}`);
+        const canonicalId = aliases.get(request.id)!;
+        const causes = request.causes.map((cause) => cause.kind === "random" && aliases.has(cause.id)
+          ? { ...cause, id: aliases.get(cause.id)! }
+          : structuredClone(cause));
+        if (randomRequestIds.has(canonicalId)) {
+          throw new Error(`duplicate random request ${canonicalId}`);
         }
-        roundIds.add(request.id);
-        for (const cause of request.causes) {
-          validateCausalReference(cause, allowedForCommitments, `random request ${request.id}`);
+        for (const cause of causes) {
+          validateCausalReference(cause, allowedForCommitments, `random request ${canonicalId}`);
         }
         const distribution = input.definition.randomDistributions.find((candidate) =>
           candidate.id === request.distributionId);
         if (!distribution) {
-          throw new Error(`random request ${request.id} references unknown distribution ${request.distributionId}`);
+          throw new Error(`random request ${canonicalId} references unknown distribution ${request.distributionId}`);
         }
-        return { ...structuredClone(request), distribution: structuredClone(distribution) };
+        return {
+          ...structuredClone(request),
+          id: canonicalId,
+          causes,
+          distribution: structuredClone(distribution),
+        };
       });
       validateDiscreteRandomCommitmentBudget([...randomRequests, ...normalized]);
       return normalized;
@@ -669,8 +959,19 @@ export class TruthEngine {
       commitmentRounds.push({ kind: "random", requestIds: round.map((request) => request.id) });
     };
 
+    const registerRandomAliases = (
+      draft: readonly DiscreteRandomRequestProposal[],
+      normalized: readonly DiscreteRandomRequest[],
+    ): void => {
+      draft.forEach((request, index) => {
+        const canonicalId = normalized[index]!.id;
+        randomAliases.set(request.id, randomAliases.has(request.id) ? null : canonicalId);
+      });
+    };
+
     const perceptionAudits: ModelExecutionAudit[] = [];
     while (true) {
+      let acceptedRound: D20CheckRequest[] | null = null;
       const call = await generateValidated({
         provider: this.provider,
         profileId: input.definition.modelProfiles.perception,
@@ -684,7 +985,7 @@ export class TruthEngine {
         buildContext: (issues) => truthContext("perception", issues),
         validate: (directive) => {
           if (directive.kind === "request_checks") {
-            validateCheckRound(directive.requests, "perception");
+            acceptedRound = normalizeCheckRound(directive.requests, "perception");
           }
         },
         repairAttempts: this.repairAttempts,
@@ -692,7 +993,9 @@ export class TruthEngine {
       });
       perceptionAudits.push(call.audit);
       if (call.value.kind === "done") break;
-      commitCheckRound(call.value.requests);
+      if (!acceptedRound) throw new Error("accepted perception round was not materialized");
+      registerCheckAliases(call.value.requests, acceptedRound);
+      commitCheckRound(acceptedRound);
     }
     modelAudits.push(combineStageAudits(perceptionAudits));
 
@@ -707,11 +1010,16 @@ export class TruthEngine {
       schema: reactionRoutingOutputSchema,
       scope,
       buildContext: (issues) => truthContext("reaction-routing", issues),
-      validate: (output) => validateReactionRequests(input, output.requests, requests, checks),
+      validate: (output) => validateReactionRequests(
+        input,
+        materializeReactionRequests(input.state, output.requests, playerAction.id),
+        requests,
+        checks,
+      ),
       repairAttempts: this.repairAttempts,
     });
     modelAudits.push(routing.audit);
-    reactionRequests = structuredClone(routing.value.requests);
+    reactionRequests = materializeReactionRequests(input.state, routing.value.requests, playerAction.id);
     if (reactionRequests.length > 0) {
       try {
         const resolved = await input.resolveReactions(reactionRequests);
@@ -727,6 +1035,8 @@ export class TruthEngine {
 
     const resolutionAudits: ModelExecutionAudit[] = [];
     while (true) {
+      let acceptedChecks: D20CheckRequest[] | null = null;
+      let acceptedRandom: DiscreteRandomRequest[] | null = null;
       const call = await generateValidated({
         provider: this.provider,
         profileId: input.definition.modelProfiles.resolution,
@@ -740,9 +1050,9 @@ export class TruthEngine {
         buildContext: (issues) => truthContext("resolution", issues),
         validate: (directive) => {
           if (directive.kind === "request_checks") {
-            validateCheckRound(directive.requests, "resolution");
+            acceptedChecks = normalizeCheckRound(directive.requests, "resolution");
           } else if (directive.kind === "request_random") {
-            normalizeRandomRound(directive.requests);
+            acceptedRandom = normalizeRandomRound(directive.requests);
           }
         },
         repairAttempts: this.repairAttempts,
@@ -751,9 +1061,13 @@ export class TruthEngine {
       resolutionAudits.push(call.audit);
       if (call.value.kind === "done") break;
       if (call.value.kind === "request_checks") {
-        commitCheckRound(call.value.requests);
+        if (!acceptedChecks) throw new Error("accepted resolution check round was not materialized");
+        registerCheckAliases(call.value.requests, acceptedChecks);
+        commitCheckRound(acceptedChecks);
       } else {
-        commitRandomRound(normalizeRandomRound(call.value.requests));
+        if (!acceptedRandom) throw new Error("accepted random round was not materialized");
+        registerRandomAliases(call.value.requests, acceptedRandom);
+        commitRandomRound(acceptedRandom);
       }
     }
     modelAudits.push(combineStageAudits(resolutionAudits));
@@ -808,7 +1122,12 @@ export class TruthEngine {
         });
         transitionAudits.push(generated.audit);
         setModelInvocationResultKind(generated.audit, "truth-transition_transition");
-        const directProposal = generated.value;
+        const directProposal = materializeTransitionProposal(
+          input.state,
+          generated.value,
+          checkAliases,
+          randomAliases,
+        );
         const mechanics = this.rulePackages.resolve(input.definition.rulePackages, {
           state: input.state,
           actions,
@@ -920,7 +1239,7 @@ export class TruthEngine {
           reactionModelAudits: structuredClone(reactionModelAudits),
         };
       } catch (error) {
-        if (error instanceof ModelStageError && error.role === "causal-verifier") throw error;
+        if (error instanceof ModelSemanticRepairError && error.role === "causal-verifier") throw error;
         if (error instanceof ModelConfigurationError || error instanceof ModelTransportError ||
           error instanceof ModelOverloadedError || (error instanceof Error && error.name === "AbortError")) {
           throw error;
@@ -949,7 +1268,11 @@ export class TruthEngine {
         transitionRepairs += 1;
         if (transitionRepairs > this.repairAttempts) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`truth-transition failed after repairs: ${message}`, { cause: error });
+          throw new ModelSemanticRepairError(
+            "truth-transition",
+            `truth-transition failed after repairs: ${message}`,
+            { cause: error },
+          );
         }
       }
     }

@@ -29,7 +29,7 @@ Class: architecture
 
 运行时由 `CanonicalWorldState`、每个 Agent 的 `AgentBeliefState` 与人类玩家的 `PlayerKnowledgeState` 组成。信念图使用 Agent 私有局部实体身份，允许事实、描述和实体存在性与真相冲突；Truth Engine 不得用真相自动改写信念。
 
-自主实体拥有 `AgentMind`，普通物体只有 `Entity`。每个已提交世界步骤包含所有存活 Agent 基于同一 base revision 产生的自由 `AgentActionProposal`；联合输入按稳定身份规范排序，不能从调用方数组顺序获得隐含先手。玩家原文与 Agent 提案共同交给 Truth Engine；不存在预配置 action kind、目录 `actionId` 或未知动作降级，proposal 自身的 id 只用于本次因果审计。
+自主实体拥有 `AgentMind`，普通物体只有 `Entity`。每个已提交世界步骤包含所有存活 Agent 基于同一 base revision 产生的自由 `AgentActionProposal`；联合输入按稳定身份规范排序，不能从调用方数组顺序获得隐含先手。玩家原文与 Agent draft 共同交给 Truth Engine；不存在预配置 action kind、目录 `actionId` 或未知动作降级，proposal 的运行时 id 由 [0048](0048-engine-owned-runtime-identities.md) 定义的引擎身份层确定性分配，只用于因果审计。
 
 Truth Engine 负责联合语义裁决并提出检定、客观事件、状态 delta 和逐观察者 observation。`ActionOutcome` 的 summary 与 known alternatives 是服务端内部裁决审计，不是公共叙事接口；玩家 UI 的 outcome 文本只能汇总玩家自己的 `kind=outcome` Observation，AgentMind 的本步与历史 outcome 只获得 status，所有可见结果文本只来自该 Agent 自己的 Observation。非 LLM 事务内核只检查 schema、引用、数值、provenance、随机承诺和原子性。Truth Engine 与 AgentMind 的非法输出最多修复两次；失败步骤不提交。
 
@@ -70,4 +70,5 @@ Truth Engine 负责联合语义裁决并提出检定、客观事件、状态 del
 - [0007](0007-engine-runtime.md) — 被本记录取代的固定动作 PDVA 运行时。
 - [0014](0014-llm-context-management.md) — 被主观信念上下文取代的全局对话摘要。
 - [0015](0015-memory-strength-retrieval-supersede.md) — 被信念、证据和观察链取代的旧记忆模型。
+- [0048](0048-engine-owned-runtime-identities.md) — action 与其他发生记录的单一身份所有权。
 - [引擎运行时规格](../game-design/engine-runtime.md) — 当前运行时参考。

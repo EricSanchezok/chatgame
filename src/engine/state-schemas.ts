@@ -14,6 +14,7 @@ import type {
   FactValue,
   LocalEntity,
   MeterState,
+  QuantityState,
   RatingState,
   WorldEntity,
   WorldFact,
@@ -24,9 +25,11 @@ import type {
   DiscreteRandomRequest,
   DiscreteRandomResult,
   DiscreteRandomValue,
+  D20CheckResult,
 } from "./model";
 import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
+import { isRuntimeId } from "./runtime-id";
 
 const reservedRecordKeys = new Set([
   ...Object.getOwnPropertyNames(Object.prototype),
@@ -37,9 +40,28 @@ export function isSafeId(value: string): boolean {
   return value.length > 0 && !reservedRecordKeys.has(value);
 }
 
+export function isNormalizedBoundedId(value: string): boolean {
+  return isSafeId(value) && value === value.normalize("NFC") && value === value.trim() &&
+    !/\p{Cc}/u.test(value) && Buffer.byteLength(value, "utf8") <= 128;
+}
+
+export function isSemanticId(value: string): boolean {
+  return isNormalizedBoundedId(value) && !value.startsWith("rt:");
+}
+
 export const safeIdSchema = z.string().min(1).refine(
   isSafeId,
   { message: "reserved object key cannot be used as an id" },
+);
+
+export const semanticIdSchema = z.string().min(1).refine(
+  isSemanticId,
+  { message: "semantic ids must be NFC, trimmed, control-free, at most 128 UTF-8 bytes, and not use rt:" },
+);
+
+export const runtimeIdSchema = z.string().refine(
+  (value) => isRuntimeId(value),
+  { message: "invalid engine-owned runtime id" },
 );
 
 export const causalRefSchema = z.strictObject({
@@ -145,6 +167,18 @@ export const commitmentRoundSchema = z.discriminatedUnion("kind", [
 export const commitmentRoundsSchema = z.array(commitmentRoundSchema)
   .max(MAX_COMMITMENT_ROUNDS_PER_STEP);
 
+export const d20CheckResultSchema = z.strictObject({
+  requestId: runtimeIdSchema.refine((id) => isRuntimeId(id, "check")),
+  dice: z.array(z.number().int().min(1).max(20)).min(1).max(2),
+  kept: z.number().int().min(1).max(20),
+  modifier: z.number().int(),
+  total: z.number().int(),
+  dc: z.number().int().min(0).max(100),
+  succeeded: z.boolean(),
+  margin: z.number().int(),
+  visibility: z.enum(["full", "result_only", "hidden"]),
+}) as z.ZodType<D20CheckResult>;
+
 export const causalAssertionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("check_result"),
@@ -205,7 +239,7 @@ export const beliefValueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("text"), value: z.string() }),
   z.strictObject({ kind: z.literal("number"), value: z.number().finite() }),
   z.strictObject({ kind: z.literal("boolean"), value: z.boolean() }),
-  z.strictObject({ kind: z.literal("local_entity"), localEntityId: safeIdSchema }),
+  z.strictObject({ kind: z.literal("local_entity"), localEntityId: semanticIdSchema }),
   z.strictObject({ kind: z.literal("none") }),
 ]) as z.ZodType<BeliefValue>;
 
@@ -216,43 +250,64 @@ export const accessSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const localEntitySchema = z.strictObject({
-  id: safeIdSchema,
+  id: semanticIdSchema,
   name: z.string().min(1),
   description: z.string(),
   status: z.enum(["observed", "reported", "hypothesized"]),
 }) as z.ZodType<LocalEntity>;
 
-export const evidenceSchema = z.strictObject({
-  id: safeIdSchema,
+const evidenceShape = {
+  id: semanticIdSchema,
   kind: z.enum(["observation", "testimony", "inference", "assumption"]),
   description: z.string().min(1),
   sourceId: safeIdSchema.nullable(),
   step: z.number().int().nonnegative(),
-}) as z.ZodType<BeliefEvidence>;
+};
+export const evidenceSchema = z.strictObject(evidenceShape) as z.ZodType<BeliefEvidence>;
 
-export const beliefClaimSchema = z.strictObject({
-  id: safeIdSchema,
-  subjectId: safeIdSchema,
+const beliefClaimShape = {
+  id: semanticIdSchema,
+  subjectId: semanticIdSchema,
   predicate: z.string().min(1),
   value: beliefValueSchema,
   description: z.string(),
   stance: z.enum(["believed", "suspected", "disbelieved"]),
   confidence: z.number().min(0).max(1),
   evidenceIds: z.array(safeIdSchema),
+};
+export const beliefClaimSchema = z.strictObject(beliefClaimShape) as z.ZodType<BeliefClaim>;
+
+const persistedEvidenceIdSchema = z.union([
+  semanticIdSchema,
+  runtimeIdSchema.refine((id) => isRuntimeId(id, "evidence")),
+]);
+const persistedClaimIdSchema = z.union([
+  semanticIdSchema,
+  runtimeIdSchema.refine((id) => isRuntimeId(id, "claim")),
+]);
+
+export const persistedEvidenceSchema = z.strictObject({
+  ...evidenceShape,
+  id: persistedEvidenceIdSchema,
+}) as z.ZodType<BeliefEvidence>;
+
+export const persistedBeliefClaimSchema = z.strictObject({
+  ...beliefClaimShape,
+  id: persistedClaimIdSchema,
 }) as z.ZodType<BeliefClaim>;
 
 export const actionProposalSchema = z.strictObject({
-  id: safeIdSchema,
-  actorId: safeIdSchema,
+  id: runtimeIdSchema.refine((id) => isRuntimeId(id, "action")),
+  actorId: semanticIdSchema,
   baseRevision: z.number().int().nonnegative(),
   rawText: z.string().min(1),
   goal: z.string().min(1),
   means: z.string().min(1).nullable(),
-  targetIds: z.array(safeIdSchema),
+  targetIds: z.array(semanticIdSchema),
 }) as z.ZodType<AgentActionProposal>;
 
 export const entitySchema = z.strictObject({
-  id: safeIdSchema,
+  id: semanticIdSchema,
   kind: z.string().min(1),
   name: z.string().min(1),
   description: z.string(),
@@ -261,8 +316,23 @@ export const entitySchema = z.strictObject({
 }) as z.ZodType<WorldEntity>;
 
 export const factSchema = z.strictObject({
-  id: safeIdSchema,
-  subjectId: safeIdSchema,
+  id: semanticIdSchema,
+  subjectId: semanticIdSchema,
+  predicate: z.string().min(1),
+  value: factValueSchema,
+  description: z.string(),
+  access: accessSchema,
+  provenance: z.array(factProvenanceRefSchema),
+}) as z.ZodType<WorldFact>;
+
+export const persistedFactIdSchema = z.union([
+  semanticIdSchema,
+  runtimeIdSchema.refine((id) => isRuntimeId(id, "fact")),
+]);
+
+export const persistedFactSchema = z.strictObject({
+  id: persistedFactIdSchema,
+  subjectId: semanticIdSchema,
   predicate: z.string().min(1),
   value: factValueSchema,
   description: z.string(),
@@ -271,28 +341,41 @@ export const factSchema = z.strictObject({
 }) as z.ZodType<WorldFact>;
 
 export const meterSchema = z.strictObject({
-  id: safeIdSchema,
-  definitionId: safeIdSchema,
-  entityId: safeIdSchema,
+  id: semanticIdSchema,
+  definitionId: semanticIdSchema,
+  entityId: semanticIdSchema,
   current: z.number().finite(),
   firedThresholdIds: z.array(safeIdSchema),
 }) as z.ZodType<MeterState>;
 
 export const ratingSchema = z.strictObject({
-  id: safeIdSchema,
-  definitionId: safeIdSchema,
-  entityId: safeIdSchema,
+  id: semanticIdSchema,
+  definitionId: semanticIdSchema,
+  entityId: semanticIdSchema,
   value: z.number().finite(),
 }) as z.ZodType<RatingState>;
 
+export const quantityStateSchema = z.strictObject({
+  id: runtimeIdSchema.refine((id) => isRuntimeId(id, "quantity")),
+  definitionId: semanticIdSchema,
+  holderId: semanticIdSchema,
+  amount: z.number().finite().nonnegative(),
+}) as z.ZodType<QuantityState>;
+
+export const semanticBeliefStateSchema = z.strictObject({
+  localEntities: z.record(semanticIdSchema, localEntitySchema),
+  claims: z.record(semanticIdSchema, beliefClaimSchema),
+  evidence: z.record(semanticIdSchema, evidenceSchema),
+});
+
 export const beliefStateSchema = z.strictObject({
-  localEntities: z.record(safeIdSchema, localEntitySchema),
-  claims: z.record(safeIdSchema, beliefClaimSchema),
-  evidence: z.record(safeIdSchema, evidenceSchema),
+  localEntities: z.record(semanticIdSchema, localEntitySchema),
+  claims: z.record(persistedClaimIdSchema, persistedBeliefClaimSchema),
+  evidence: z.record(persistedEvidenceIdSchema, persistedEvidenceSchema),
 });
 
 const characterRecordBase = {
-  id: safeIdSchema,
+  id: semanticIdSchema,
   description: z.string().min(1),
   createdAtStep: z.number().int().nonnegative(),
   updatedAtStep: z.number().int().nonnegative(),
@@ -313,7 +396,7 @@ export const emotionStateSchema = z.strictObject({
 
 export const attitudeStateSchema = z.strictObject({
   ...characterRecordBase,
-  subjectId: safeIdSchema,
+  subjectId: semanticIdSchema,
   intensity: z.number().min(0).max(1),
   status: z.enum(["active", "retired"]),
 }) as z.ZodType<AttitudeState>;
@@ -322,16 +405,16 @@ export const agentGoalSchema = z.strictObject({
   ...characterRecordBase,
   priority: z.number().min(0).max(1),
   progress: z.number().min(0).max(1),
-  targetIds: z.array(safeIdSchema),
-  parentGoalId: safeIdSchema.optional(),
-  motivatedByIds: z.array(safeIdSchema),
+  targetIds: z.array(semanticIdSchema),
+  parentGoalId: semanticIdSchema.optional(),
+  motivatedByIds: z.array(semanticIdSchema),
   status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]),
 }) as z.ZodType<AgentGoal>;
 
 export const agentCommitmentSchema = z.strictObject({
   ...characterRecordBase,
   priority: z.number().min(0).max(1),
-  subjectIds: z.array(safeIdSchema),
+  subjectIds: z.array(semanticIdSchema),
   status: z.enum(["active", "fulfilled", "broken", "released"]),
 }) as z.ZodType<AgentCommitment>;
 
@@ -342,17 +425,17 @@ export const agentCharacterStateSchema = z.strictObject({
     updatedAtStep: z.number().int().nonnegative(),
     evidenceIds: z.array(safeIdSchema),
   }),
-  traits: z.record(safeIdSchema, characterFacetSchema),
-  values: z.record(safeIdSchema, characterFacetSchema),
-  emotions: z.record(safeIdSchema, emotionStateSchema),
-  attitudes: z.record(safeIdSchema, attitudeStateSchema),
-  goals: z.record(safeIdSchema, agentGoalSchema),
-  commitments: z.record(safeIdSchema, agentCommitmentSchema),
+  traits: z.record(semanticIdSchema, characterFacetSchema),
+  values: z.record(semanticIdSchema, characterFacetSchema),
+  emotions: z.record(semanticIdSchema, emotionStateSchema),
+  attitudes: z.record(semanticIdSchema, attitudeStateSchema),
+  goals: z.record(semanticIdSchema, agentGoalSchema),
+  commitments: z.record(semanticIdSchema, agentCommitmentSchema),
 }) as z.ZodType<AgentCharacterState>;
 
 export const agentStateSchema = z.strictObject({
-  id: safeIdSchema,
-  entityId: safeIdSchema,
+  id: semanticIdSchema,
+  entityId: semanticIdSchema,
   modelProfiles: z.strictObject({
     bootstrap: safeIdSchema,
     mind: safeIdSchema,
@@ -361,10 +444,10 @@ export const agentStateSchema = z.strictObject({
   character: agentCharacterStateSchema,
   belief: beliefStateSchema,
   bindings: z.record(
-    safeIdSchema,
+    semanticIdSchema,
     z.strictObject({
-      localEntityId: safeIdSchema,
-      canonicalEntityIds: z.array(safeIdSchema),
+      localEntityId: semanticIdSchema,
+      canonicalEntityIds: z.array(semanticIdSchema),
     }),
   ),
   nextAction: actionProposalSchema.nullable(),

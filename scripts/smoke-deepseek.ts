@@ -1,4 +1,5 @@
 import path from "node:path";
+import { z } from "zod";
 import { AgentMind } from "../src/engine/agent-mind";
 import { loadModelCatalog } from "../src/engine/model-catalog";
 import { createModelGateway } from "../src/engine/model-gateway";
@@ -6,6 +7,31 @@ import { SimulationEngine } from "../src/engine/simulation";
 import { TruthEngine } from "../src/engine/truth-engine";
 import { summarizeModelExecutionAudit } from "../src/engine/model-provider";
 import { loadWorldScript } from "../src/script/world-loader";
+
+function diagnosticLines(error: unknown, depth = 0): string[] {
+  if (depth > 4) return ["cause depth limit reached"];
+  if (error instanceof AggregateError) {
+    return [
+      `${error.name}: ${error.message}`,
+      ...error.errors.slice(0, 8).flatMap((member, index) =>
+        diagnosticLines(member, depth + 1).map((line) => `member[${index}]: ${line}`)),
+    ];
+  }
+  if (error instanceof z.ZodError) {
+    return error.issues.slice(0, 16).map((issue) =>
+      `ZodError ${issue.path.join(".") || "<root>"} ${issue.code}`);
+  }
+  if (!(error instanceof Error)) return [`NonError: ${typeof error}`];
+  const safeMessage = error.name === "ModelOutputError" || error.name === "ModelSemanticRepairError"
+    ? "structured model output was rejected"
+    : error.message;
+  const lines = [`${error.name}: ${safeMessage}`];
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (cause !== undefined) {
+    lines.push(...diagnosticLines(cause, depth + 1).map((line) => `cause: ${line}`));
+  }
+  return lines;
+}
 
 async function main(): Promise<void> {
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
@@ -40,7 +66,9 @@ async function main(): Promise<void> {
       `contentHash=${result.committed.contentHash}`,
     ].join(" ") + "\n");
   } catch (error) {
-    process.stderr.write(`DeepSeek full-engine smoke failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`DeepSeek full-engine smoke failed:\n${diagnosticLines(error)
+      .map((line) => `- ${line}`)
+      .join("\n")}\n`);
     process.exitCode = 1;
   }
 }

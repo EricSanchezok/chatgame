@@ -58,7 +58,7 @@ describe("world API routes", () => {
     expect(await response.json()).toEqual({ error: "seed must be a uint32" });
   });
 
-  it("lists schema v5 worlds and rejects empty run text", async () => {
+  it("lists schema v6 worlds and rejects empty run text", async () => {
     installHost();
     const worlds = await listWorlds();
     expect(await worlds.json()).toMatchObject({
@@ -189,6 +189,34 @@ describe("world API routes", () => {
     const headerReplay = await replayFromHeader.text();
     expect(headerReplay).not.toContain("id: 3\n");
     expect(headerReplay).toContain("id: 4\n");
+
+    const tail = host.run(session.summary.id, run.runId).run.events.at(-1)!.sequence;
+    const boundaryAtTail = await streamEvents(
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}/events?after=${tail}`),
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
+    );
+    expect(boundaryAtTail.status).toBe(204);
+    expect(await boundaryAtTail.text()).toBe("");
+
+    const ahead = await streamEvents(
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}/events?after=${tail + 1}`),
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
+    );
+    expect(ahead.status).toBe(409);
+
+    const invalid = await streamEvents(
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}/events?after=-1`),
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
+    );
+    expect(invalid.status).toBe(400);
+
+    const invalidHeader = await streamEvents(
+      new Request(`http://local/api/sessions/${session.summary.id}/runs/${run.runId}/events?after=0`, {
+        headers: { "Last-Event-ID": "not-a-cursor" },
+      }),
+      { params: Promise.resolve({ id: session.summary.id, runId: run.runId }) },
+    );
+    expect(invalidHeader.status).toBe(400);
   });
 
   it("correlates HTTP, run, step, model, persistence, and SSE without changing public payloads", async () => {

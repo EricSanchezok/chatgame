@@ -6,6 +6,73 @@ import type {
   PlayerKnowledgeState,
   SimulationState,
 } from "./model";
+import { runtimeId } from "./runtime-id";
+
+function historicalObserverIdentityLedger(
+  state: SimulationState,
+  observerId: string,
+): { localIds: Set<string>; claimBindings: Map<string, string> } {
+  const localIds = new Set(observerId === "player"
+    ? Object.keys(state.historyBase?.player.knowledge.localEntities ?? {})
+    : Object.keys(state.historyBase?.agents[observerId]?.belief.localEntities ?? {}));
+  const baseClaims = observerId === "player"
+    ? state.historyBase?.player.knowledge.claims ?? {}
+    : state.historyBase?.agents[observerId]?.belief.claims ?? {};
+  const claimBindings = new Map(Object.values(baseClaims)
+    .map((claim) => [claim.id, `${claim.subjectId}\u0000${claim.predicate}`]));
+  if (observerId !== "player") {
+    for (const commit of state.bootstrapAgentCommits) {
+      if (commit.agentId !== observerId) continue;
+      for (const operation of commit.beliefPatch.operations) {
+        if (operation.kind === "upsert_local_entity") localIds.add(operation.entity.id);
+        if (operation.kind === "split_local_entity") {
+          for (const entity of operation.entities) localIds.add(entity.id);
+        }
+        if (operation.kind === "upsert_claim") {
+          claimBindings.set(operation.claim.id, `${operation.claim.subjectId}\u0000${operation.claim.predicate}`);
+        }
+      }
+    }
+  }
+  for (const committed of state.history) {
+    for (const operation of committed.operations) {
+      if (operation.kind !== "create_agent" || operation.agent.id !== observerId) continue;
+      for (const id of Object.keys(operation.agent.belief.localEntities)) localIds.add(id);
+      for (const claim of Object.values(operation.agent.belief.claims)) {
+        claimBindings.set(claim.id, `${claim.subjectId}\u0000${claim.predicate}`);
+      }
+    }
+    for (const observation of committed.observations) {
+      if (observation.observerId !== observerId) continue;
+      for (const introduction of observation.introductions) localIds.add(introduction.localEntity.id);
+      for (const claim of observation.apparentClaims) {
+        claimBindings.set(claim.id, `${claim.subjectId}\u0000${claim.predicate}`);
+      }
+    }
+    if (observerId === "player") continue;
+    for (const patch of committed.beliefPatches) {
+      if (patch.agentId !== observerId) continue;
+      for (const operation of patch.operations) {
+        if (operation.kind === "upsert_local_entity") localIds.add(operation.entity.id);
+        if (operation.kind === "split_local_entity") {
+          for (const entity of operation.entities) localIds.add(entity.id);
+        }
+        if (operation.kind === "upsert_claim") {
+          claimBindings.set(
+            operation.claim.id,
+            `${operation.claim.subjectId}\u0000${operation.claim.predicate}`,
+          );
+        }
+      }
+    }
+  }
+  const current = observerId === "player" ? state.player.knowledge : state.agents[observerId]?.belief;
+  for (const id of Object.keys(current?.localEntities ?? {})) localIds.add(id);
+  for (const claim of Object.values(current?.claims ?? {})) {
+    claimBindings.set(claim.id, `${claim.subjectId}\u0000${claim.predicate}`);
+  }
+  return { localIds, claimBindings };
+}
 
 function assertLocalClaimReferences(
   localEntities: Record<string, unknown>,
@@ -28,7 +95,7 @@ export function validateObservations(
   const ids = new Set(state.history.flatMap((committed) =>
     committed.observations.map((observation) => observation.id)));
   const localEntitiesByObserver = new Map<string, Record<string, unknown>>();
-  const claimIdsByObserver = new Map<string, Set<string>>();
+  const identityLedgers = new Map<string, ReturnType<typeof historicalObserverIdentityLedger>>();
   for (const packet of packets) {
     if (ids.has(packet.id)) throw new Error(`duplicate observation id ${packet.id}`);
     ids.add(packet.id);
@@ -47,28 +114,32 @@ export function validateObservations(
       localEntities = { ...existing };
       localEntitiesByObserver.set(packet.observerId, localEntities);
     }
-    let claimIds = claimIdsByObserver.get(packet.observerId);
-    if (!claimIds) {
-      claimIds = new Set(Object.keys(packet.observerId === "player"
-        ? state.player.knowledge.claims
-        : state.agents[packet.observerId].belief.claims));
-      claimIdsByObserver.set(packet.observerId, claimIds);
+    let identityLedger = identityLedgers.get(packet.observerId);
+    if (!identityLedger) {
+      identityLedger = historicalObserverIdentityLedger(state, packet.observerId);
+      identityLedgers.set(packet.observerId, identityLedger);
     }
     for (const introduction of packet.introductions) {
-      if (localEntities[introduction.localEntity.id]) {
+      if (identityLedger.localIds.has(introduction.localEntity.id)) {
         throw new Error(`observation ${packet.id} reintroduces local entity ${introduction.localEntity.id}`);
       }
       if (state.truth.entities[introduction.localEntity.id]) {
         throw new Error(`observation ${packet.id} uses canonical id ${introduction.localEntity.id} as a local identity; rename localEntity.id while keeping canonicalEntityId private`);
       }
       localEntities[introduction.localEntity.id] = introduction.localEntity;
+      identityLedger.localIds.add(introduction.localEntity.id);
       if (introduction.canonicalEntityId && !state.truth.entities[introduction.canonicalEntityId]) {
         throw new Error(`observation ${packet.id} introduces unknown canonical entity`);
       }
     }
     for (const claim of packet.apparentClaims) {
-      if (claimIds.has(claim.id)) throw new Error(`observation ${packet.id} repeats apparent claim ${claim.id}`);
-      claimIds.add(claim.id);
+      const binding = `${claim.subjectId}\u0000${claim.predicate}`;
+      if (identityLedger.claimBindings.has(claim.id)) {
+        const prior = identityLedger.claimBindings.get(claim.id);
+        if (prior !== binding) throw new Error(`observation ${packet.id} rebinds apparent claim ${claim.id}`);
+        throw new Error(`observation ${packet.id} repeats apparent claim ${claim.id}`);
+      }
+      identityLedger.claimBindings.set(claim.id, binding);
       assertLocalClaimReferences(localEntities, claim, packet.id);
     }
     if (new Set(packet.sourceEventIds).size !== packet.sourceEventIds.length) {
@@ -95,11 +166,31 @@ export function applyObservationBindings(agent: AgentState, packets: readonly Ob
   return next;
 }
 
+export function applyPlayerObservationBindings(
+  state: SimulationState,
+  packets: readonly ObservationPacket[],
+): void {
+  for (const packet of packets) {
+    if (packet.observerId !== "player") continue;
+    for (const introduction of packet.introductions) {
+      if (!introduction.canonicalEntityId) continue;
+      const current = state.player.bindings[introduction.localEntity.id];
+      state.player.bindings[introduction.localEntity.id] = {
+        localEntityId: introduction.localEntity.id,
+        canonicalEntityIds: [...new Set([
+          ...(current?.canonicalEntityIds ?? []),
+          introduction.canonicalEntityId,
+        ])],
+      };
+    }
+  }
+}
+
 export function ingestPlayerObservations(
-  source: PlayerKnowledgeState,
+  state: SimulationState,
   packets: readonly ObservationPacket[],
 ): PlayerKnowledgeState {
-  const next = structuredClone(source);
+  const next = structuredClone(state.player.knowledge);
   for (const packet of packets) {
     if (packet.observerId !== "player") continue;
     if (!next.observationIds.includes(packet.id)) next.observationIds.push(packet.id);
@@ -107,7 +198,15 @@ export function ingestPlayerObservations(
       next.localEntities[introduction.localEntity.id] = structuredClone(introduction.localEntity);
     }
     const evidence: BeliefEvidence = {
-      id: `observation:${packet.id}`,
+      id: runtimeId({
+        worldHash: state.worldHash,
+        revision: packet.step - 1,
+        kind: "evidence",
+        stage: "player-observation",
+        owner: packet.id,
+        round: 0,
+        ordinal: 0,
+      }),
       kind: "observation",
       description: packet.summary,
       sourceId: packet.id,

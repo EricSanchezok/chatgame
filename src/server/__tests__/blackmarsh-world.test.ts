@@ -198,7 +198,7 @@ describe("Blackmarsh reference world", () => {
 
     expect(definition).toMatchObject({
       id: "blackmarsh",
-      manifestVersion: "1.0.0",
+      manifestVersion: "1.1.0",
       rulePackages: [expect.objectContaining({ id: "core-d20", version: "1.1.0" })],
     });
     expect(definition.description).toContain("Robert Conley");
@@ -491,7 +491,7 @@ describe("Blackmarsh reference world", () => {
     expect(parseWorldArchive(zipWorld(), provider.catalog)).toMatchObject({
       id: "blackmarsh",
       name: "黑沼边境",
-      version: "1.0.0",
+      version: "1.1.0",
       contentHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
     });
   });

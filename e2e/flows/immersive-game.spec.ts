@@ -20,6 +20,12 @@ test("a player installs a world and continues a persistent conversation", async 
   await expect(page).toHaveURL(/\/play\/[^/]+$/);
   await expect(page.getByRole("heading", { name: "你想做什么？" })).toBeVisible();
 
+  let streamRequests = 0;
+  page.on("request", (request) => {
+    if (/\/api\/sessions\/[^/]+\/runs\/[^/]+\/events(?:\?|$)/.test(request.url())) {
+      streamRequests += 1;
+    }
+  });
   const composer = page.getByLabel("你的行动");
   await composer.fill("我尝试一个剧本没有预配置的自由行动");
   await composer.press("Enter");
@@ -27,6 +33,11 @@ test("a player installs a world and continues a persistent conversation", async 
   await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toHaveCount(0);
   await expect(page.getByText("目标已经完成")).toBeVisible();
   await expect(page.getByLabel("当前世界状态").getByText("1", { exact: true })).toBeVisible();
+  const streamsAtCompletion = streamRequests;
+  expect(streamsAtCompletion).toBeGreaterThan(0);
+  await page.waitForTimeout(3_500);
+  expect(streamRequests).toBe(streamsAtCompletion);
+  await expect(page.getByText(/进度连接暂时中断|最新存档状态暂时无法同步/)).toHaveCount(0);
 
   const sessionsResponse = await page.request.get("/api/sessions");
   const sessions = await sessionsResponse.json() as { sessions: Array<{ id: string; revision: number }> };
@@ -71,4 +82,72 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
   await page.getByRole("button", { name: /打开游戏控制/ }).click();
   await expect(page).toHaveURL(/\/control$/);
   await expect(page.getByRole("heading", { name: "游戏控制" })).toBeVisible();
+});
+
+test("a streamed terminal failure does not reconnect and can be abandoned", async ({ page }) => {
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  const detail = await created.json() as { summary: { id: string } };
+  let streamRequests = 0;
+  page.on("request", (request) => {
+    if (/\/api\/sessions\/[^/]+\/runs\/[^/]+\/events(?:\?|$)/.test(request.url())) {
+      streamRequests += 1;
+    }
+  });
+
+  await page.goto(`/play/${detail.summary.id}`);
+  const composer = page.getByLabel("你的行动");
+  await composer.fill("触发 E2E 流式失败");
+  await composer.press("Enter");
+
+  await expect.poll(() => streamRequests).toBeGreaterThan(0);
+  await expect(page.getByText("这一步未能完成")).toBeVisible();
+  await expect(page.getByText("这一步没有提交，世界仍停留在上一个已保存状态。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试这一步" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "放弃目标" })).toBeVisible();
+  await expect(page.getByText("世界正在推演…")).toHaveCount(0);
+
+  const streamsAtFailure = streamRequests;
+  await page.waitForTimeout(3_500);
+  expect(streamRequests).toBe(streamsAtFailure);
+
+  await page.getByRole("button", { name: "放弃目标" }).click();
+  await expect(page.getByText("目标已经结束")).toBeVisible();
+  await composer.fill("观察石门");
+  await composer.press("Enter");
+  await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
+  await expect(page.getByText("目标已经完成")).toBeVisible();
+});
+
+test("a terminal snapshot never opens an EventSource", async ({ page }) => {
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  const detail = await created.json() as { summary: { id: string } };
+  let streamRequests = 0;
+  page.on("request", (request) => {
+    if (/\/api\/sessions\/[^/]+\/runs\/[^/]+\/events(?:\?|$)/.test(request.url())) {
+      streamRequests += 1;
+    }
+  });
+
+  await page.goto(`/play/${detail.summary.id}`);
+  const composer = page.getByLabel("你的行动");
+  await composer.fill("触发 E2E 快速失败");
+  await composer.press("Enter");
+
+  await expect(page.getByText("这一步未能完成")).toBeVisible();
+  expect(streamRequests).toBe(0);
+  await page.waitForTimeout(3_500);
+  expect(streamRequests).toBe(0);
+  await expect(page.getByText(/进度连接暂时中断|最新存档状态暂时无法同步/)).toHaveCount(0);
 });

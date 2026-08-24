@@ -13,6 +13,7 @@ import type {
 } from "../engine/model";
 import { historyReplayBaseHash } from "../engine/history-replay";
 import { createSeededRng, validateDiscreteRandomDefinitions } from "../engine/random";
+import { quantityId } from "../engine/runtime-id";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { validateSimulationState } from "../engine/transaction";
 import type { WorldDefinition } from "../engine/world-definition";
@@ -292,7 +293,7 @@ export function buildWorldDefinition(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 7,
+      schemaVersion: 8,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),
@@ -305,6 +306,7 @@ export function buildWorldDefinition(
         entities: {},
         placements: {},
         facts: {},
+        factTombstones: [],
         mechanics,
         meters: {},
         quantities: {},
@@ -322,6 +324,7 @@ export function buildWorldDefinition(
         ),
       },
       history: [],
+      bootstrapAgentCommits: [],
       bootstrapModelAudits: [],
     };
 
@@ -355,7 +358,7 @@ export function buildWorldDefinition(
         };
       }
       for (const quantity of document.quantities) {
-        const id = `${quantity.definition_id}:${document.id}`;
+        const id = quantityId(worldHash, quantity.definition_id, document.id);
         if (state.truth.quantities[id]) throw new Error(`duplicate quantity id ${id}`);
         state.truth.quantities[id] = {
           id,
@@ -375,6 +378,8 @@ export function buildWorldDefinition(
       }
       const agent = agentFrom(document);
       if (agent) {
+        if (agent.id === "player") throw new Error("agent id player is reserved");
+        if (agent.entityId === player.entity_id) throw new Error(`agent ${agent.id} cannot bind the player entity`);
         if (state.agents[agent.id]) throw new Error(`duplicate agent id ${agent.id}`);
         state.agents[agent.id] = agent;
       }

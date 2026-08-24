@@ -16,6 +16,12 @@ export interface WorldRepository {
   readonly rulePackages: RulePackageRegistry;
   list(): WorldCatalogEntry[];
   load(worldId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition;
+  loadVersion(
+    worldId: string,
+    contentHash: string,
+    seed: number | undefined,
+    modelCatalog: ModelCatalog,
+  ): WorldDefinition;
 }
 
 export class MemoryWorldRepository implements WorldRepository {
@@ -39,6 +45,27 @@ export class MemoryWorldRepository implements WorldRepository {
   load(worldId: string, seed: number | undefined, modelCatalog: ModelCatalog): WorldDefinition {
     const definition = this.definitions[worldId];
     if (!definition) throw new Error(`world not found: ${worldId}`);
+    return this.cloneDefinition(definition, seed, modelCatalog);
+  }
+
+  loadVersion(
+    worldId: string,
+    contentHash: string,
+    seed: number | undefined,
+    modelCatalog: ModelCatalog,
+  ): WorldDefinition {
+    const definition = this.definitions[worldId];
+    if (!definition || definition.contentHash !== contentHash) {
+      throw new Error(`world version not found: ${worldId}@${contentHash}`);
+    }
+    return this.cloneDefinition(definition, seed, modelCatalog);
+  }
+
+  private cloneDefinition(
+    definition: WorldDefinition,
+    seed: number | undefined,
+    modelCatalog: ModelCatalog,
+  ): WorldDefinition {
     const cloned = structuredClone(definition);
     if (seed !== undefined) {
       cloned.initialState.truth.rng = createSeededRng(seed);

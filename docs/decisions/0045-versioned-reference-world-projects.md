@@ -7,7 +7,7 @@ Class: feature
 
 ## Context and Problem Statement
 
-引擎删除旧内置剧本后只保留最小测试夹具，无法用一套真实、可玩的中型世界持续验证 20–50 Agent、有限认知、跨地点行动和长程后果。世界作者还需要保存来源、许可、世界圣经与设计理由，但 schema v5 世界根为保证安全导入而严格拒绝 README、文档、资产和额外目录。
+引擎删除旧内置剧本后只保留最小测试夹具，无法用一套真实、可玩的中型世界持续验证 20–50 Agent、有限认知、跨地点行动和长程后果。世界作者还需要保存来源、许可、世界圣经与设计理由，但 schema v6 世界根为保证安全导入而严格拒绝 README、文档、资产和额外目录。
 
 ## Decision Drivers
 
@@ -21,12 +21,12 @@ Class: feature
 
 - 仓库继续只保留最小测试夹具。
 - 只提交一个没有创作文档的严格世界目录。
-- 放宽 schema v5 根目录以接受 README、文档与资产。
+- 放宽 schema v6 根目录以接受 README、文档与资产。
 - 使用外层作者工程和内层严格 `world/` 目录——所选方案。
 
 ## Decision Outcome
 
-仓库在 `worlds/<world-id>/` 版本化参考世界作者工程。作者工程保存 README、许可与设计文档；其中 `world/` 是唯一可校验、打包和导入的 schema v5 目录，继续只接受四个根 YAML 和 `entities/*.yaml`。参考世界不在应用启动时自动安装，必须经过普通 ZIP 导入入口进入本地世界库。
+仓库在 `worlds/<world-id>/` 版本化参考世界作者工程。作者工程保存 README、许可与设计文档；其中 `world/` 是唯一可校验、打包和导入的 schema v6 目录，继续只接受四个根 YAML 和 `entities/*.yaml`。参考世界不在应用启动时自动安装，必须经过普通 ZIP 导入入口进入本地世界库。
 
 首个参考世界位于 `worlds/blackmarsh/`，以 CC BY 4.0 的 Blackmarsh version 11 为来源。它使用现有 `core-d20@1.1.0` 与开放事实原语，不携带执行代码，不改变 loader 的目录白名单，也不把 D&D 专用属性或动作写入引擎。
 
@@ -56,7 +56,7 @@ Blackmarsh 的首个稳定参考契约覆盖原作全部 17 个命名地理区�
 - 好：结构最简单，可直接导入。
 - 坏：许可、来源和人物设计只能散落到仓库其他位置，世界本身不可审阅也难以继续创作。
 
-### 放宽 schema v5 根目录
+### 放宽 schema v6 根目录
 
 - 好：ZIP 看起来像一个包含所有材料的普通项目。
 - 坏：扩大不受信任导入表面，破坏严格布局，并迫使 loader 区分可执行与非执行文件。
@@ -73,5 +73,5 @@ Blackmarsh 的首个稳定参考契约覆盖原作全部 17 个命名地理区�
 - [0033](0033-persistent-streaming-world-runs.md) — 显式世界导入与无旧内置剧本运行时。
 - [0042](0042-causal-assurance-and-staged-model-profiles.md) — 规则包和分阶段模型契约。
 - [0046](0046-committed-discrete-random-distributions.md) — 剧本声明、预承诺并可重放的离散随机协议。
-- [世界剧本格式](../game-design/script-format.md) — schema v5 严格运行目录。
+- [世界剧本格式](../game-design/script-format.md) — schema v6 严格运行目录。
 - [参考世界工程](../../worlds/README.md) — 作者工程目录。

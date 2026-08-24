@@ -6,6 +6,7 @@ import type {
   LocalEntityId,
 } from "./model";
 import { isSafeId } from "./state-schemas";
+import { contentHash } from "./model-audit";
 
 function assertSafeId(value: string): void {
   if (!isSafeId(value)) throw new Error(`belief id ${value} uses a reserved object key`);
@@ -64,11 +65,20 @@ export function applyBeliefPatch(
       }
       case "upsert_evidence":
         assertSafeId(operation.evidence.id);
+        if (next.evidence[operation.evidence.id] &&
+          contentHash(next.evidence[operation.evidence.id]) !== contentHash(operation.evidence)) {
+          throw new Error(`belief evidence ${operation.evidence.id} is append-only`);
+        }
         next.evidence[operation.evidence.id] = structuredClone(operation.evidence);
         break;
       case "upsert_claim":
         assertSafeId(operation.claim.id);
         assertClaimReferencesExist(next, operation.claim);
+        if (next.claims[operation.claim.id] &&
+          (next.claims[operation.claim.id].subjectId !== operation.claim.subjectId ||
+            next.claims[operation.claim.id].predicate !== operation.claim.predicate)) {
+          throw new Error(`belief claim ${operation.claim.id} cannot change identity`);
+        }
         next.claims[operation.claim.id] = structuredClone(operation.claim);
         break;
       case "remove_claim":

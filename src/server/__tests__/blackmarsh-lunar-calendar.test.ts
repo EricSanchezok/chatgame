@@ -6,14 +6,16 @@ import type {
   DiscreteRandomResult,
   SimulationState,
   TransitionProposal,
+  TransitionProposalDraft,
 } from "../../engine/model";
 import { SimulationEngine } from "../../engine/simulation";
 import { ScriptedModelProvider, createTestModelCatalog } from "../../engine/testing/model-provider";
 import { validateSimulationState } from "../../engine/transaction";
 import { TruthEngine } from "../../engine/truth-engine";
+import { quantityId } from "../../engine/runtime-id";
 import { toWorldRuntimeContract } from "../../engine/world-definition";
 import { loadWorldScript } from "../../script/world-loader";
-import type { WorldSessionDocument } from "../world-run-types";
+import { publicCommittedStepEvents, type WorldSessionDocument } from "../world-run-types";
 import { MemoryWorldSessionStore } from "../world-session-store";
 import { settleBlackmarshOpeningDeadlines } from "./blackmarsh-test-support";
 
@@ -26,6 +28,19 @@ function randomAmount(results: readonly DiscreteRandomResult[]): number {
     throw new Error("missing committed moon-shell amount");
   }
   return step.aggregate;
+}
+
+function publicStepEvents(
+  committed: SimulationState["history"][number],
+  elapsedSeconds: number,
+  at: string,
+) {
+  return publicCommittedStepEvents(committed, elapsedSeconds)
+    .map((event, index) => ({
+      ...event,
+      sequence: 3 + index,
+      at,
+    }));
 }
 
 function remainingSecondsToFirstFullMoon(state: SimulationState): number {
@@ -48,13 +63,11 @@ function completeObservations(observerIds: string[], step: number) {
 }
 
 function emptyMindOutput(agentId: string, revision: number) {
+  if (!agentId || !Number.isSafeInteger(revision)) throw new Error("invalid AgentMind fixture context");
   return {
-    beliefPatch: { agentId, baseRevision: revision, operations: [] },
-    characterPatch: { agentId, baseRevision: revision, operations: [] },
+    beliefPatch: { operations: [] },
+    characterPatch: { operations: [] },
     nextAction: {
-      id: `next:${agentId}:${revision}`,
-      actorId: agentId,
-      baseRevision: revision,
       rawText: "继续处理自己能够观察和抵达的事务。",
       goal: "根据本地证据继续履行职责",
       means: null,
@@ -68,7 +81,7 @@ function crossingOnly(
   actions: AgentActionProposal[],
   observerIds: string[],
   results: readonly DiscreteRandomResult[],
-): TransitionProposal {
+): TransitionProposalDraft {
   const amount = randomAmount(results);
   const nextStep = state.step + 1;
   return {
@@ -127,7 +140,7 @@ function settledFullMoon(
   actions: AgentActionProposal[],
   observerIds: string[],
   results: readonly DiscreteRandomResult[],
-): TransitionProposal {
+): TransitionProposalDraft {
   const amount = randomAmount(results);
   const cycleFact = state.truth.facts["blackmarsh-last-settled-full-moon-node"];
   const taveFact = state.truth.facts["tave-weretiger-circle-last-gathered-full-moon-node"];
@@ -403,7 +416,9 @@ describe("Blackmarsh lunar calendar", () => {
     expect(state.truth.elapsedSeconds).toBe(firstFullMoonSeconds);
     expect(Object.values(state.truth.facts).filter((fact) => fact.predicate === "deadline-seconds"))
       .toHaveLength(0);
-    expect(state.truth.quantities["viz:moon-shell-mermaids"].amount).toBe(amount);
+    expect(state.truth.quantities[
+      quantityId(state.worldHash, "viz", "moon-shell-mermaids")
+    ].amount).toBe(amount);
     expect(state.truth.placements["tave-weretiger-circle"]).toBe("tave-marshes");
     expect(state.truth.facts["tave-weretiger-circle-last-gathered-full-moon-node"].value)
       .toEqual({ kind: "number", value: 0 });
@@ -416,8 +431,18 @@ describe("Blackmarsh lunar calendar", () => {
     const store = new MemoryWorldSessionStore();
     const deadlineIntent = deadline.state.player.intent!;
     const intent = state.player.intent!;
+    const deadlinePublicStepEvents = publicStepEvents(
+      deadline.result.committed,
+      deadline.state.truth.elapsedSeconds,
+      "2026-08-24T00:00:01.000Z",
+    );
+    const lunarPublicStepEvents = publicStepEvents(
+      result.committed,
+      state.truth.elapsedSeconds,
+      "2026-08-24T00:00:02.000Z",
+    );
     const document: WorldSessionDocument = {
-      schemaVersion: 8,
+      schemaVersion: 9,
       id: "blackmarsh-lunar-session",
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -451,17 +476,8 @@ describe("Blackmarsh lunar calendar", () => {
               inputId: deadlineIntent.latestInput.id,
               reason: "initial",
             },
-          }, {
-            sequence: 3,
-            type: "step.committed",
-            at: "2026-08-24T00:00:01.000Z",
-            payload: {
-              revision: deadline.state.revision,
-              step: deadline.state.step,
-              elapsedSeconds: deadline.state.truth.elapsedSeconds,
-            },
-          }, {
-            sequence: 4,
+          }, ...deadlinePublicStepEvents, {
+            sequence: 3 + deadlinePublicStepEvents.length,
             type: "run.completed",
             at: "2026-08-24T00:00:01.000Z",
             payload: {
@@ -497,17 +513,8 @@ describe("Blackmarsh lunar calendar", () => {
               inputId: intent.latestInput.id,
               reason: "initial",
             },
-          }, {
-            sequence: 3,
-            type: "step.committed",
-            at: "2026-08-24T00:00:02.000Z",
-            payload: {
-              revision: state.revision,
-              step: state.step,
-              elapsedSeconds: state.truth.elapsedSeconds,
-            },
-          }, {
-            sequence: 4,
+          }, ...lunarPublicStepEvents, {
+            sequence: 3 + lunarPublicStepEvents.length,
             type: "run.completed",
             at: "2026-08-24T00:00:02.000Z",
             payload: {
@@ -621,7 +628,7 @@ describe("Blackmarsh lunar calendar", () => {
           ),
           intentStatus: "completed",
           requiresPlayerDecision: false,
-        } satisfies TransitionProposal;
+        } satisfies TransitionProposalDraft;
       }
       if (role === "causal-verifier") {
         expect(context.canonicalTruth?.facts["blackmarsh-last-settled-full-moon-node"].value)
