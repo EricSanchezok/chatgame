@@ -77,6 +77,47 @@ test("a player installs a world and continues a persistent conversation", async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test("the world detail gives its first screen to saves instead of package maintenance", async ({ page }) => {
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+
+  await page.goto("/worlds/open-world-fixture");
+  const intro = page.locator(".cg-world-detail__intro");
+  const saves = page.locator(".cg-world-saves");
+  const savesHeading = page.locator(".cg-world-saves__heading > div");
+  const firstSave = page.locator(".cg-library-save").first();
+  const packageMaintenance = page.locator(".cg-world-package");
+  const newGame = page.getByRole("button", { name: /开始新游戏/ });
+  await expect(firstSave).toBeVisible();
+
+  const [introBox, savesBox, savesHeadingBox, firstSaveBox, packageBox, newGameBox] = await Promise.all([
+    intro.boundingBox(),
+    saves.boundingBox(),
+    savesHeading.boundingBox(),
+    firstSave.boundingBox(),
+    packageMaintenance.boundingBox(),
+    newGame.boundingBox(),
+  ]);
+  expect(introBox).not.toBeNull();
+  expect(savesBox).not.toBeNull();
+  expect(savesHeadingBox).not.toBeNull();
+  expect(firstSaveBox).not.toBeNull();
+  expect(packageBox).not.toBeNull();
+  expect(newGameBox).not.toBeNull();
+  expect(savesBox!.y).toBeLessThan(packageBox!.y);
+  expect(firstSaveBox!.y + firstSaveBox!.height).toBeLessThan(900);
+  expect(savesBox!.y - (introBox!.y + introBox!.height)).toBeLessThanOrEqual(40);
+  expect(newGameBox!.y).toBeLessThan(savesHeadingBox!.y + savesHeadingBox!.height);
+  expect(newGameBox!.y + newGameBox!.height).toBeGreaterThan(savesHeadingBox!.y);
+});
+
 test("the control orb exposes desktop and mobile navigation", async ({ page }) => {
   await page.setViewportSize({ width: 1_440, height: 900 });
   await page.request.post("/api/worlds/import", {
@@ -189,7 +230,8 @@ test("the official thread axis keeps the composer anchored after every message",
   const composer = page.getByLabel("你的行动");
   const shell = page.locator(".aui-composer-shell");
   await composer.blur();
-  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element).boxShadow)).toBe("none");
+  const restingShadow = await shell.evaluate((element) => getComputedStyle(element).boxShadow);
+  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element, "::after").opacity)).toBe("0");
   const restingBorderColor = await shell.evaluate((element) => {
     const context = document.createElement("canvas").getContext("2d")!;
     context.fillStyle = getComputedStyle(element).borderColor;
@@ -197,7 +239,7 @@ test("the official thread axis keeps the composer anchored after every message",
     return [...context.getImageData(0, 0, 1, 1).data];
   });
   await composer.focus();
-  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element, "::after").opacity)).toBe("1");
   const focusedStyle = await shell.evaluate((element) => ({
     borderColor: (() => {
       const context = document.createElement("canvas").getContext("2d")!;
@@ -206,12 +248,18 @@ test("the official thread axis keeps the composer anchored after every message",
       return [...context.getImageData(0, 0, 1, 1).data];
     })(),
     boxShadow: getComputedStyle(element).boxShadow,
-    ringColor: getComputedStyle(document.documentElement).getPropertyValue("--cg-ring").trim(),
-    foregroundColor: getComputedStyle(document.documentElement).getPropertyValue("--cg-foreground").trim(),
+    focusMarkerHeight: Number.parseFloat(getComputedStyle(element, "::after").height),
+    focusMarkerWidth: Number.parseFloat(getComputedStyle(element, "::after").width),
+    shellWidth: element.getBoundingClientRect().width,
+    textareaBoxShadow: getComputedStyle(element.querySelector("textarea")!).boxShadow,
+    textareaOutline: getComputedStyle(element.querySelector("textarea")!).outlineStyle,
   }));
-  expect(focusedStyle.boxShadow).not.toBe("none");
-  expect(focusedStyle.ringColor).not.toBe(focusedStyle.foregroundColor);
+  expect(focusedStyle.boxShadow).toBe(restingShadow);
   expect(focusedStyle.borderColor).toEqual(restingBorderColor);
+  expect(focusedStyle.focusMarkerHeight).toBe(2);
+  expect(focusedStyle.focusMarkerWidth).toBeLessThan(focusedStyle.shellWidth / 4);
+  expect(focusedStyle.textareaBoxShadow).toBe("none");
+  expect(focusedStyle.textareaOutline).toBe("none");
   const emptyBox = await shell.boundingBox();
   expect(emptyBox).not.toBeNull();
   expect(Math.abs((emptyBox!.y + emptyBox!.height / 2) - 450)).toBeLessThan(80);

@@ -33,7 +33,7 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 ## 浏览器路由与消息投影
 
-`/` 是只含“世界包”和“设置”的游戏外入口。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧按所选世界展示“开始新游戏”、全部存档、更新和卸载；窄屏以两个可寻址页面逐级进入。`/settings` 保存本机阅读偏好；不存在独立 `/saves` 和当前存档浏览器指针。
+`/` 是只含“世界包”和“设置”的游戏外入口。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位，版本、内容标识、更新和卸载收纳到列表之后的世界包管理区；窄屏以两个可寻址页面逐级进入。`/settings` 保存本机阅读偏好；不存在独立 `/saves` 和当前存档浏览器指针。
 
 `/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。游戏内只列出当前世界存档，不创建游戏或切换世界。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
 
@@ -43,4 +43,4 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 桌面控制球是 56px 状态表盘，接收世界名、存档名、step、elapsedSeconds 与 running/confirming/saved。拖动以 Pointer Events、`requestAnimationFrame` 和 `translate3d` 跟随指针，松手吸附最近左右边缘；位置以 `{ edge, y }` 写入 `livingworld:control-position:v2`，`y` 是归一化坐标，视口变化后限制在安全区和 composer 排除区。桌面点击向页面内侧展开存档、设置、主菜单三个动作和状态卡，方位按边缘及上下空间翻转；状态卡从当前方位的完整按钮包络向页面内侧再让出 32px，任何按钮实体都不能与卡片相交。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home。小于 48rem 时点击打开当前页面内具备焦点约束、Escape/遮罩关闭和安全区适配的底部 Sheet。
 
-全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。普通控件仅在 `:focus-visible` 使用主题蓝色 `--cg-ring`，composer 聚焦时不改变静态边框，只显示同色柔光，forced-colors 改用系统 `Highlight`。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。
+全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。普通控件仅在 `:focus-visible` 使用主题蓝色 `--cg-ring` 绘制非包围式底部标记，composer 只显示短底部标记，静态边框与外部阴影不变化；forced-colors 改用系统 `Highlight` 完整 outline。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。

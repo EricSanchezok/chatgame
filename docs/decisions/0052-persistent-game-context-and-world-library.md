@@ -15,6 +15,7 @@ Class: architecture
 
 - 打开存档或设置时必须保持 assistant-ui runtime、composer 草稿、滚动位置和 SSE 连接。
 - 世界包是游戏外的一级资源，存档必须归属于所选世界展示。
+- 世界详情的首屏空间必须服务于继续旅程，存档列表是主体，新游戏是相邻的创建动作，包版本与生命周期维护属于次级信息。
 - 游戏内只能管理当前世界存档和全局设置；创建游戏、切换世界和世界包生命周期属于游戏外。
 - 后台 WorldRun 不因前端上下文切换而取消，运行状态必须在管理界面可见。
 - 外部工作台和游戏内管理层必须共享业务组件和数据控制器，不能形成两套 CRUD。
@@ -29,9 +30,11 @@ Class: architecture
 
 ## Decision Outcome
 
-本记录继承 [0051](0051-assistant-ui-upstream-session-surface.md) 固定的 assistant-ui 版本、官方 Thread 拓扑、主题、消息投影和控制球拖动契约，并取代其中的四动作导航与独立管理路由。会话视觉上游和 WorldRun External Store 数据路径保持不变。
+本记录继承 [0051](0051-assistant-ui-upstream-session-surface.md) 固定的 assistant-ui 版本、官方 Thread 拓扑、主题 token、消息投影和控制球拖动契约，并取代其中的四动作导航、独立管理路由与包围式焦点几何。会话视觉上游和 WorldRun External Store 数据路径保持不变。
 
-游戏外由 `/`、`/worlds`、`/worlds/:worldId` 与 `/settings` 组成。`/` 只提供“世界包”和“设置”两个入口；世界工作台在桌面使用世界列表与所选世界详情双栏，在窄屏使用列表到详情的路由钻取。所选世界详情的首要动作是创建新游戏，其后展示该世界的全部存档。独立 `/saves` 路由和当前存档浏览器指针不存在。
+游戏外由 `/`、`/worlds`、`/worlds/:worldId` 与 `/settings` 组成。`/` 只提供“世界包”和“设置”两个入口；世界工作台在桌面使用世界列表与所选世界详情双栏，在窄屏使用列表到详情的路由钻取。所选世界详情以存档列表作为首屏主体，把新游戏放在存档标题的相邻工具位；版本、内容标识、更新和卸载位于列表之后的世界包管理区。独立 `/saves` 路由和当前存档浏览器指针不存在。
+
+普通主题的键盘焦点使用 `--cg-ring` 绘制非包围式底部标记，不用整圈 outline 或外层光晕改变控件轮廓；composer 以短底部标记表示输入焦点，静态边框和外部阴影均保持不变。forced-colors 使用系统 `Highlight` 的完整 outline，确保高对比模式仍由平台提供明确位置反馈。
 
 游戏页由 `/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 与 Thread。`/play/:sessionId/manage/saves` 和 `/play/:sessionId/manage/settings` 只在该布局上方渲染具备模态语义的大型管理层。管理层背景 inert、焦点受约束并在关闭后恢复到控制球，但游戏状态与连接继续存活。桌面控制球只保留存档、设置和主菜单三个真实动作；移动端使用同一动作集的 Sheet。
 
@@ -44,6 +47,7 @@ Class: architecture
 - 游戏管理能力拥有可寻址 URL，同时不会因子路由变化卸载会话。
 - 从一个运行中存档切换出去后，服务端可继续执行；管理列表需要在存在 active run 时刷新状态。
 - 世界与存档关系成为唯一游戏外信息架构，旧存档页面和浏览器“当前会话”偏好被删除。
+- 高频的继续游戏路径在世界详情首屏直接可见，低频包维护不会把存档推出首屏。
 - 世界卸载增加一个服务端资源生命周期接口，但不改变 Session、WorldRun、SSE 或持久化 schema。
 
 ## Pros and Cons of the Options
@@ -75,3 +79,4 @@ Class: architecture
 - [0039](0039-pinned-world-runtime-contract.md) — 存档锁定世界版本的契约。
 - [表现层参考](../game-design/presentation.md) — 浏览器信息架构与交互规格。
 - [事故复盘 0019](../postmortems/0019-game-management-unmounted-session.md) — 独立管理路由为何破坏游戏心流并逃过测试。
+- [事故复盘 0020](../postmortems/0020-world-detail-inverted-hierarchy.md) — 世界包详情为何把高频存档压到低频元数据之后。

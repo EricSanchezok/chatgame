@@ -206,7 +206,7 @@ function Composer({
   const autoFocus = useDesktopAutoFocus();
   return (
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
-      <div className="aui-composer-shell flex w-full cursor-text flex-col gap-2 rounded-3xl border border-border bg-card p-2 transition-[box-shadow]">
+      <div className="aui-composer-shell flex w-full cursor-text flex-col gap-2 rounded-3xl border border-border bg-card p-2">
         <ComposerPrimitive.Input
           aria-label={awaitingPlayer ? "补充信息" : "你的行动"}
           autoFocus={autoFocus}
