@@ -1,5 +1,6 @@
 import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { WorldRunRecordView } from "../../shared/world-api";
+import { worldRunCopyText } from "./world-run-presentation";
 
 function statusFromEvents(
   run: WorldRunRecordView,
@@ -56,7 +57,10 @@ export function runsToMessages(runs: WorldRunRecordView[]): ThreadMessageLike[] 
       {
         id: `${key}:assistant`,
         role: "assistant" as const,
-        content: [{ type: "data" as const, name: "world-run", data: segment }],
+        content: [
+          { type: "data" as const, name: "world-run", data: segment },
+          { type: "text" as const, text: worldRunCopyText(segment) },
+        ],
         createdAt: new Date(segment.updatedAt),
         status: assistantStatus(segment),
       },

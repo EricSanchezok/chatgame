@@ -35,7 +35,10 @@ describe("runsToMessages", () => {
       id: "run:run-1:input:input-1:assistant",
       role: "assistant",
       status: { type: "complete", reason: "stop" },
-      content: [{ type: "data", name: "world-run" }],
+      content: [
+        { type: "data", name: "world-run" },
+        { type: "text", text: "目标已经完成。\n\n目标已经完成" },
+      ],
     });
   });
 

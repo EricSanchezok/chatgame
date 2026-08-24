@@ -1,9 +1,14 @@
+import {
+  defaultControlPosition,
+  parseControlPosition,
+  type ControlPosition,
+} from "./control-orb-position";
+
 export const CURRENT_SESSION_KEY = "livingworld:current-session";
-export const CONTROL_CORNER_KEY = "livingworld:control-corner";
+export const CONTROL_POSITION_KEY = "livingworld:control-position:v2";
 export const PREFERENCES_KEY = "livingworld:preferences:v1";
 export const PREFERENCES_EVENT = "livingworld:preferences-changed";
 
-export type ControlCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 export type FontScale = "compact" | "standard" | "large";
 
 export interface PlayerPreferences {
@@ -55,9 +60,15 @@ export function writePreferences(preferences: PlayerPreferences): void {
   window.dispatchEvent(new CustomEvent(PREFERENCES_EVENT));
 }
 
-export function readControlCorner(): ControlCorner {
-  const corner = localStorage.getItem(CONTROL_CORNER_KEY);
-  return corner === "top-left" || corner === "top-right" || corner === "bottom-left"
-    ? corner
-    : "bottom-right";
+export function readControlPosition(): ControlPosition {
+  return parseControlPosition(localStorage.getItem(CONTROL_POSITION_KEY));
+}
+
+export function writeControlPosition(position: ControlPosition): void {
+  localStorage.setItem(CONTROL_POSITION_KEY, JSON.stringify(position));
+}
+
+export function resetControlPosition(): void {
+  localStorage.removeItem(CONTROL_POSITION_KEY);
+  writeControlPosition(defaultControlPosition);
 }

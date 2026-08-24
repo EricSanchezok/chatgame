@@ -1,27 +1,49 @@
 "use client";
 
+import { useTheme } from "next-themes";
 import { useMemo, useSyncExternalStore } from "react";
 import {
-  CONTROL_CORNER_KEY,
   parsePreferences,
   preferencesSnapshot,
+  resetControlPosition,
   serverPreferencesSnapshot,
   subscribePreferences,
   writePreferences,
 } from "../_lib/browser-state";
+import { normalizeThemePreference, themePreferences } from "../_lib/theme-preference";
 import { ManagementShell } from "./management-shell";
 
 export function SettingsScreen() {
+  const { setTheme, theme } = useTheme();
+  const themeReady = useSyncExternalStore(() => () => undefined, () => true, () => false);
   const serialized = useSyncExternalStore(
     subscribePreferences,
     preferencesSnapshot,
     serverPreferencesSnapshot,
   );
   const preferences = useMemo(() => parsePreferences(serialized), [serialized]);
+  const selectedTheme = normalizeThemePreference(theme);
 
   return (
     <ManagementShell eyebrow="LOCAL PREFERENCES" title="设置" description="只调整这台设备上的阅读体验。设置不会离开浏览器。">
       <div className="cg-settings">
+        <fieldset>
+          <legend>外观</legend>
+          <p>跟随系统，或固定使用浅色或深色外观。</p>
+          <div className="cg-segmented">
+            {themePreferences.map((value) => (
+              <button
+                aria-pressed={themeReady && selectedTheme === value}
+                disabled={!themeReady}
+                key={value}
+                onClick={() => setTheme(value)}
+                type="button"
+              >
+                {{ system: "跟随系统", light: "浅色", dark: "深色" }[value]}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <fieldset>
           <legend>文字大小</legend>
           <p>改变叙事和界面的整体比例。</p>
@@ -38,8 +60,8 @@ export function SettingsScreen() {
           <input checked={preferences.reduceMotion} onChange={(event) => writePreferences({ ...preferences, reduceMotion: event.target.checked })} type="checkbox" />
         </label>
         <div className="cg-setting-row">
-          <span><strong>重置控制球位置</strong><small>下次进入游戏时恢复到右下角。</small></span>
-          <button className="cg-button--quiet" onClick={() => localStorage.removeItem(CONTROL_CORNER_KEY)} type="button">重置</button>
+          <span><strong>重置控制球位置</strong><small>恢复到页面右侧的默认位置。</small></span>
+          <button className="cg-button--quiet" onClick={resetControlPosition} type="button">重置位置</button>
         </div>
       </div>
     </ManagementShell>

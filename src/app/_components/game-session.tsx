@@ -2,28 +2,19 @@
 
 import {
   AssistantRuntimeProvider,
-  ComposerPrimitive,
-  MessagePrimitive,
-  ThreadPrimitive,
   useExternalStoreRuntime,
   type AppendMessage,
-  type DataMessagePartComponent,
-  type TextMessagePartComponent,
 } from "@assistant-ui/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
-import { ArrowDown, CornerDownLeft, RotateCcw, Square } from "lucide-react";
 import {
   isWorldRunActiveIntentOwner,
   isWorldRunExecuting,
@@ -38,6 +29,7 @@ import { CURRENT_SESSION_KEY } from "../_lib/browser-state";
 import { runsToMessages } from "../_lib/run-messages";
 import { WorldApiError, worldApi } from "../lib/world-api-client";
 import { ControlOrb } from "./control-orb";
+import { GameThread } from "./game-thread";
 
 const runEventTypes: WorldRunEvent["type"][] = [
   "player.input",
@@ -56,10 +48,6 @@ const runEventTypes: WorldRunEvent["type"][] = [
 
 function isAwaitingPlayer(run: WorldRunRecordView | undefined): boolean {
   return run?.status === "awaiting_player";
-}
-
-function isPaused(run: WorldRunRecordView | undefined): boolean {
-  return run?.status === "awaiting_player" || run?.status === "step_limit" || run?.status === "failed";
 }
 
 function activeRunSummary(run: WorldRunRecordView | undefined): PublicSessionDetail["summary"]["activeRun"] {
@@ -251,158 +239,6 @@ function sessionReducer(state: PublicSessionDetail | undefined, action: SessionA
     },
     runs,
   };
-}
-
-interface RunActions {
-  retry: (runId: string) => Promise<void>;
-  abandon: (runId: string) => Promise<void>;
-  actionableInputId?: string;
-  actionableRunId?: string;
-  pendingRunId?: string;
-}
-
-const RunActionsContext = createContext<RunActions | null>(null);
-
-const statusText: Record<WorldRunRecordView["status"], string> = {
-  queued: "行动已进入世界",
-  running: "世界正在推演",
-  awaiting_player: "等待你的决定",
-  completed: "目标已经完成",
-  goal_failed: "目标未能完成",
-  step_limit: "已到达本次推演上限",
-  cancelled: "目标已经结束",
-  failed: "这一步未能完成",
-};
-
-const emptyNarrativeText: Record<WorldRunRecordView["status"], string> = {
-  queued: "世界正在推演…",
-  running: "世界正在推演…",
-  awaiting_player: "世界在等待你的决定。",
-  completed: "目标已经完成。",
-  goal_failed: "目标未能完成。",
-  step_limit: "本次推演已到上限。你可以放弃当前目标。",
-  cancelled: "行动已取消，未提交的变化没有写入世界。",
-  failed: "这一步没有提交，世界仍停留在上一个已保存状态。",
-};
-
-const WorldRunPart: DataMessagePartComponent = ({ data }) => {
-  const actions = useContext(RunActionsContext);
-  const run = data as WorldRunRecordView;
-  const observations = run.events.filter((event) => event.type === "player.observation");
-  const outcomes = run.events.filter((event) => event.type === "player.outcome");
-  const checks = run.events.filter((event) => event.type === "check.resolved");
-  const actionable = actions?.actionableRunId === run.id &&
-    actions.actionableInputId === run.inputs.at(-1)?.id;
-  const retriable = actionable && isWorldRunRetriable(run);
-  const paused = actionable && isPaused(run);
-  const actionPending = actions?.pendingRunId === run.id;
-
-  return (
-    <div className="cg-world-reply" data-status={run.status}>
-      {observations.length > 0 ? observations.map((event) => (
-        <p className="cg-narrative" key={event.sequence}>{event.payload.summary}</p>
-      )) : outcomes.length > 0 ? outcomes.map((event) => (
-        <p className="cg-narrative" key={event.sequence}>{event.payload.summary}</p>
-      )) : (
-        <p className={`cg-narrative${isWorldRunExecuting(run.status) ? " cg-narrative--thinking" : ""}`}>
-          {emptyNarrativeText[run.status]}
-        </p>
-      )}
-      {checks.length > 0 ? (
-        <details className="cg-checks">
-          <summary>{checks.length} 次可见检定</summary>
-          <ul>
-            {checks.map((event) => (
-              <li key={event.sequence}>
-                {event.payload.visibility === "full"
-                  ? `${event.payload.total} / DC ${event.payload.dc}`
-                  : "结果已揭示"}
-                <strong>{event.payload.succeeded ? "成功" : "失败"}</strong>
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-      <footer className="cg-run-status">
-        <span>{statusText[run.status]}</span>
-        {run.error ? <span className="cg-run-status__error" role="alert">{run.error}</span> : null}
-        {retriable && actions ? (
-          <button
-            className="cg-button--quiet"
-            disabled={actionPending}
-            onClick={() => void actions.retry(run.id)}
-            type="button"
-          >
-            <RotateCcw aria-hidden="true" /> {run.status === "step_limit" ? "继续推演" : "重试这一步"}
-          </button>
-        ) : null}
-        {paused && actions ? (
-          <button
-            className="cg-button--quiet"
-            disabled={actionPending}
-            onClick={() => void actions.abandon(run.id)}
-            type="button"
-          >
-            放弃目标
-          </button>
-        ) : null}
-      </footer>
-    </div>
-  );
-};
-
-const UserText: TextMessagePartComponent = ({ text }) => <p className="cg-user-text">{text}</p>;
-
-function UserMessage() {
-  return (
-    <MessagePrimitive.Root className="cg-message cg-message--user">
-      <span className="cg-message__role">你</span>
-      <MessagePrimitive.Parts components={{ Text: UserText }} />
-    </MessagePrimitive.Root>
-  );
-}
-
-function AssistantMessage() {
-  return (
-    <MessagePrimitive.Root className="cg-message">
-      <span className="cg-message__role">世界</span>
-      <MessagePrimitive.Parts components={{ data: { by_name: { "world-run": WorldRunPart } } }} />
-    </MessagePrimitive.Root>
-  );
-}
-
-function GameThread({ children, awaitingPlayer }: { children: ReactNode; awaitingPlayer: boolean }) {
-  return (
-    <ThreadPrimitive.Root className="cg-thread">
-      <ThreadPrimitive.Viewport className="cg-thread__viewport" autoScroll turnAnchor="top">
-        <ThreadPrimitive.Empty>
-          <section className="cg-thread-empty">
-            <p className="cg-eyebrow">THE WORLD IS LISTENING</p>
-            <h2>你想做什么？</h2>
-            <p>描述一个行动、目标，或一句想说的话。世界会根据当前事实与所有角色的认知继续向前。</p>
-          </section>
-        </ThreadPrimitive.Empty>
-        <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
-        <ThreadPrimitive.ScrollToBottom className="cg-scroll-button" aria-label="滚动到最新消息">
-          <ArrowDown aria-hidden="true" />
-        </ThreadPrimitive.ScrollToBottom>
-        <div className="cg-composer-dock">
-          <ComposerPrimitive.Root className="cg-chat-composer">
-            <ComposerPrimitive.Input
-              aria-label={awaitingPlayer ? "补充信息" : "你的行动"}
-              maxLength={4000}
-              placeholder={awaitingPlayer ? "补充你的选择、方法或缺失信息…" : "说出你的行动…"}
-              submitMode="enter"
-              unstable_insertNewlineOnTouchEnter
-              rows={1}
-            />
-            {children}
-          </ComposerPrimitive.Root>
-          <p className="cg-composer-hint">Enter 发送 · Shift + Enter 换行 · 自动保存</p>
-        </div>
-      </ThreadPrimitive.Viewport>
-    </ThreadPrimitive.Root>
-  );
 }
 
 export function GameSession({ sessionId }: { sessionId: string }) {
@@ -919,7 +755,7 @@ export function GameSession({ sessionId }: { sessionId: string }) {
   const runtime = useExternalStoreRuntime({
     messages,
     convertMessage: (message) => message,
-    isRunning: Boolean(activeRun || hasPendingObservation),
+    isRunning: Boolean(activeRun),
     isSendDisabled: loading || Boolean(pendingAction) || Boolean(activeRun) ||
       hasPendingObservation ||
       (Boolean(ownerRun) && !awaitingRun) || !detail,
@@ -952,50 +788,35 @@ export function GameSession({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <RunActionsContext.Provider value={{
-      retry,
-      abandon,
-      actionableInputId: ownerRun?.inputs.at(-1)?.id,
-      actionableRunId: ownerRun?.id,
-      pendingRunId: pendingAction?.runId,
-    }}>
-      <AssistantRuntimeProvider runtime={runtime}>
-        <main className="cg-game">
-          <header className="cg-game__header">
-            <div>
-              <p className="cg-eyebrow">{detail.summary.world.name}</p>
-              <h1>{detail.summary.title}</h1>
-            </div>
-            <dl className="cg-revision-rail" aria-label="当前世界状态">
-              <div><dt>步</dt><dd>{detail.summary.step}</dd></div>
-              <div><dt>时间</dt><dd>{detail.summary.elapsedSeconds}s</dd></div>
-              <div><dt>存档</dt><dd>{activeRun ? "推演中" : hasPendingObservation ? "确认中" : "已保存"}</dd></div>
-            </dl>
-          </header>
-          {actionError ? <p className="cg-game__alert" role="alert">{actionError}</p> : null}
-          <p className="cg-game__stream-status" role="status">{streamWarning}</p>
-          <GameThread awaitingPlayer={Boolean(awaitingRun)}>
-            {activeRun ? (
-              <ComposerPrimitive.Cancel
-                className="cg-send-button"
-                aria-label={activeRun.cancelRequested ? "正在停止推演" : "停止推演"}
-                disabled={activeRun.cancelRequested || pendingAction?.kind === "cancel"}
-              >
-                <Square aria-hidden="true" />
-              </ComposerPrimitive.Cancel>
-            ) : (
-              <ComposerPrimitive.Send
-                className="cg-send-button"
-                aria-label={hasPendingObservation ? "正在确认行动" : "发送行动"}
-                disabled={hasPendingObservation}
-              >
-                <CornerDownLeft aria-hidden="true" />
-              </ComposerPrimitive.Send>
-            )}
-          </GameThread>
-          <ControlOrb status={activeRun || hasPendingObservation ? "running" : "saved"} onNavigate={navigate} />
-        </main>
-      </AssistantRuntimeProvider>
-    </RunActionsContext.Provider>
+    <AssistantRuntimeProvider runtime={runtime}>
+      <main className="cg-game">
+        <h1 className="cg-sr-only">{detail.summary.title}</h1>
+        <GameThread
+          actionError={actionError}
+          awaitingPlayer={Boolean(awaitingRun)}
+          cancelPending={Boolean(activeRun?.cancelRequested || pendingAction?.kind === "cancel")}
+          confirmationPending={hasPendingObservation}
+          runActions={{
+            retry,
+            abandon,
+            actionableInputId: ownerRun?.inputs.at(-1)?.id,
+            actionableRunId: ownerRun?.id,
+            pendingRunId: pendingAction?.runId,
+          }}
+          streamWarning={streamWarning}
+        />
+        <ControlOrb
+          composerDocked={messages.length > 0}
+          onNavigate={navigate}
+          status={{
+            elapsedSeconds: detail.summary.elapsedSeconds,
+            phase: activeRun ? "running" : hasPendingObservation ? "confirming" : "saved",
+            sessionTitle: detail.summary.title,
+            step: detail.summary.step,
+            worldName: detail.summary.world.name,
+          }}
+        />
+      </main>
+    </AssistantRuntimeProvider>
   );
 }

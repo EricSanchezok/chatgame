@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   PublicSessionDetail,
@@ -53,85 +53,74 @@ vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a>,
 }));
 vi.mock("./control-orb", () => ({ ControlOrb: () => null }));
-vi.mock("@assistant-ui/react", async () => {
-  const React = await vi.importActual<typeof import("react")>("react");
-  const MessageContext = React.createContext<MockMessage | undefined>(undefined);
+vi.mock("@assistant-ui/react", () => {
   return {
     AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => children,
-    ComposerPrimitive: {
-      Root: ({ children, className }: { children: ReactNode; className?: string }) => (
-        <div className={className}>{children}</div>
-      ),
-      Input: ({
-        submitMode: _submitMode,
-        unstable_insertNewlineOnTouchEnter: _touchEnter,
-        ...props
-      }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
-        submitMode?: string;
-        unstable_insertNewlineOnTouchEnter?: boolean;
-      }) => {
-        void _submitMode;
-        void _touchEnter;
-        return <textarea {...props} />;
-      },
-      Cancel: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props} />,
-      Send: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props} />,
-    },
-    MessagePrimitive: {
-      Root: ({ children, className }: { children: ReactNode; className?: string }) => (
-        <div className={className}>{children}</div>
-      ),
-      Parts: ({ components }: {
-        components: {
-          Text?: ComponentType<{ text: string }>;
-          data?: { by_name?: Record<string, ComponentType<{ data: unknown }>> };
-        };
-      }) => {
-        const message = React.useContext(MessageContext);
-        return message?.content.map((part, index) => {
-          if (part.type === "text") {
-            const Text = components.Text;
-            return Text ? <Text key={index} text={part.text} /> : null;
-          }
-          const Data = components.data?.by_name?.[part.name];
-          return Data ? <Data data={part.data} key={index} /> : null;
-        }) ?? null;
-      },
-    },
-    ThreadPrimitive: {
-      Empty: ({ children }: { children: ReactNode }) => runtimeOptions?.messages.length ? null : children,
-      Messages: ({ components }: {
-        components: { UserMessage: ComponentType; AssistantMessage: ComponentType };
-      }) => runtimeOptions?.messages.map((message) => {
-        const Message = message.role === "user" ? components.UserMessage : components.AssistantMessage;
-        return (
-          <MessageContext.Provider key={message.id} value={message}>
-            <Message />
-          </MessageContext.Provider>
-        );
-      }) ?? null,
-      Root: ({ children, className }: { children: ReactNode; className?: string }) => (
-        <div className={className}>{children}</div>
-      ),
-      ScrollToBottom: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props} />,
-      Viewport: ({
-        autoScroll: _autoScroll,
-        children,
-        turnAnchor: _turnAnchor,
-        ...props
-      }: React.HTMLAttributes<HTMLDivElement> & {
-        autoScroll?: boolean;
-        turnAnchor?: string;
-      }) => {
-        void _autoScroll;
-        void _turnAnchor;
-        return <div {...props}>{children}</div>;
-      },
-    },
     useExternalStoreRuntime: (options: RuntimeOptions) => {
       runtimeOptions = options;
       return {};
     },
+  };
+});
+vi.mock("./game-thread", async () => {
+  const { isWorldRunActiveIntentOwner, isWorldRunRetriable } =
+    await vi.importActual<typeof import("../../shared/world-api")>("../../shared/world-api");
+  const { worldRunNarrative, worldRunStatusText } =
+    await vi.importActual<typeof import("../_lib/world-run-presentation")>("../_lib/world-run-presentation");
+
+  return {
+    GameThread: (props: {
+      actionError: string;
+      cancelPending: boolean;
+      confirmationPending: boolean;
+      runActions: {
+        abandon: (runId: string) => Promise<void>;
+        actionableInputId?: string;
+        actionableRunId?: string;
+        pendingRunId?: string;
+        retry: (runId: string) => Promise<void>;
+      };
+      streamWarning: string;
+    }) => (
+      <div>
+        {runtimeOptions?.messages.flatMap((message) => message.content).map((part, index) => {
+          if (part.type !== "data" || part.name !== "world-run") return null;
+          const run = part.data as WorldRunRecordView;
+          const actionable = props.runActions.actionableRunId === run.id &&
+            props.runActions.actionableInputId === run.inputs.at(-1)?.id &&
+            isWorldRunActiveIntentOwner(run.status);
+          const pending = props.runActions.pendingRunId === run.id;
+          return (
+            <section key={`${run.id}:${index}`}>
+              {worldRunNarrative(run).map((line) => <p key={line}>{line}</p>)}
+              <span>{worldRunStatusText[run.status]}</span>
+              {run.error ? <span role="alert">{run.error}</span> : null}
+              {actionable && isWorldRunRetriable(run) ? (
+                <button disabled={pending} onClick={() => void props.runActions.retry(run.id)} type="button">
+                  {run.status === "step_limit" ? "继续推演" : "重试这一步"}
+                </button>
+              ) : null}
+              {actionable && ["awaiting_player", "step_limit", "failed"].includes(run.status) ? (
+                <button disabled={pending} onClick={() => void props.runActions.abandon(run.id)} type="button">
+                  放弃目标
+                </button>
+              ) : null}
+            </section>
+          );
+        })}
+        <div role="status">{props.streamWarning}</div>
+        {props.actionError ? <div role="alert">{props.actionError}</div> : null}
+        {runtimeOptions?.isRunning ? (
+          <button disabled={props.cancelPending} type="button">
+            {props.cancelPending ? "正在停止推演" : "停止推演"}
+          </button>
+        ) : (
+          <button disabled={runtimeOptions?.isSendDisabled || props.confirmationPending} type="button">
+            {props.confirmationPending ? "正在确认行动" : "发送行动"}
+          </button>
+        )}
+      </div>
+    ),
   };
 });
 
@@ -308,7 +297,7 @@ describe("GameSession WorldRun lifecycle", () => {
         at: "2026-08-24T00:00:01.000Z",
         payload: { runId: "run-1", revision: 0, step: 0 },
       },
-      narrative: "本次推演已到上限。你可以放弃当前目标。",
+      narrative: "本次推演已到上限。你可以继续推演或放弃当前目标。",
       retryLabel: "继续推演",
     },
     {
@@ -708,7 +697,7 @@ describe("GameSession WorldRun lifecycle", () => {
       expect(api.run).not.toHaveBeenCalled();
       expect(api.startRun).toHaveBeenCalledTimes(1);
       expect(FakeEventSource.instances).toHaveLength(0);
-      expect(runtimeOptions).toMatchObject({ isRunning: true, isSendDisabled: true });
+      expect(runtimeOptions).toMatchObject({ isRunning: false, isSendDisabled: true });
       expect(screen.getByRole("button", { name: "正在确认行动" })).toBeDisabled();
       expect(screen.getByRole("status")).toHaveTextContent("行动已经提交，正在重新确认世界进度");
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -757,7 +746,7 @@ describe("GameSession WorldRun lifecycle", () => {
     await screen.findByRole("heading", { name: "测试存档" });
     await act(async () => runtimeOptions!.onNew(inputMessage("观察石门")));
 
-    expect(runtimeOptions).toMatchObject({ isRunning: true, isSendDisabled: true });
+    expect(runtimeOptions).toMatchObject({ isRunning: false, isSendDisabled: true });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     now.mockReturnValue(2_500);
 
@@ -804,7 +793,7 @@ describe("GameSession WorldRun lifecycle", () => {
     await act(async () => runtimeOptions!.onNew(inputMessage("打开石门")));
 
     expect(FakeEventSource.instances).toHaveLength(0);
-    expect(runtimeOptions).toMatchObject({ isRunning: true, isSendDisabled: true });
+    expect(runtimeOptions).toMatchObject({ isRunning: false, isSendDisabled: true });
     expect(screen.getByRole("button", { name: "正在确认行动" })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("行动已经提交，正在重新确认世界进度");
 

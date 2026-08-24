@@ -98,7 +98,7 @@ const server = createServer(async (request, response) => {
     const playerIntent = context.playerIntent as { goal?: string } | null;
     if (playerIntent?.goal === "触发 E2E 流式失败" || playerIntent?.goal === "触发 E2E 快速失败") {
       if (playerIntent.goal === "触发 E2E 流式失败") {
-        await new Promise<void>((resolve) => setTimeout(resolve, 200));
+        await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
       }
       response.writeHead(401, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "forced e2e authentication failure" } }));

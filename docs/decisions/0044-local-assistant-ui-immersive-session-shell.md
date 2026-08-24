@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0051](0051-assistant-ui-upstream-session-surface.md)
 Class: architecture
 
 ## Context and Problem Statement
