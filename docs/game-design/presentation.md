@@ -33,7 +33,7 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 ## 浏览器路由与消息投影
 
-`/` 是只含“世界包”和“设置”的游戏外入口。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位，版本、内容标识、更新和卸载收纳到列表之后的世界包管理区；窄屏以两个可寻址页面逐级进入。`/settings` 保存本机阅读偏好；不存在独立 `/saves` 和当前存档浏览器指针。
+`/` 是只含“世界包”和“设置”的游戏外入口。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位且主文案必须继承主操作前景色；版本和内容标识在列表之后以无卡片的紧凑单行元数据呈现，更新和卸载属于同一区域的管理动作；窄屏以两个可寻址页面逐级进入。`/settings` 保存本机阅读偏好；不存在独立 `/saves` 和当前存档浏览器指针。
 
 `/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。游戏内只列出当前世界存档，不创建游戏或切换世界。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
 

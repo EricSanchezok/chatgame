@@ -47,7 +47,7 @@ export function WorldDetail({
           <div>
             <p className="cg-eyebrow">本地旅程</p>
             <h2 id="world-saves-title">存档</h2>
-            <span>{sessions.length} 份</span>
+            <span className="cg-world-saves__count">{sessions.length} 份</span>
           </div>
           <button
             className="cg-new-game"
@@ -97,7 +97,7 @@ export function WorldDetail({
         </div>
         <dl className="cg-world-facts">
           <div><dt>版本</dt><dd>{world.version}</dd></div>
-          <div><dt>内容标识</dt><dd>{world.contentHash}</dd></div>
+          <div><dt>内容标识</dt><dd title={world.contentHash}>{world.contentHash}</dd></div>
         </dl>
         {sessions.length > 0 ? <p className="cg-world-detail__constraint">删除这个世界的全部存档后才能卸载世界包。</p> : null}
         {confirmDelete ? (

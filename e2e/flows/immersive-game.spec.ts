@@ -94,15 +94,18 @@ test("the world detail gives its first screen to saves instead of package mainte
   const savesHeading = page.locator(".cg-world-saves__heading > div");
   const firstSave = page.locator(".cg-library-save").first();
   const packageMaintenance = page.locator(".cg-world-package");
+  const packageFacts = page.locator(".cg-world-facts");
   const newGame = page.getByRole("button", { name: /开始新游戏/ });
+  const newGameLabel = newGame.locator("strong");
   await expect(firstSave).toBeVisible();
 
-  const [introBox, savesBox, savesHeadingBox, firstSaveBox, packageBox, newGameBox] = await Promise.all([
+  const [introBox, savesBox, savesHeadingBox, firstSaveBox, packageBox, factsBox, newGameBox] = await Promise.all([
     intro.boundingBox(),
     saves.boundingBox(),
     savesHeading.boundingBox(),
     firstSave.boundingBox(),
     packageMaintenance.boundingBox(),
+    packageFacts.boundingBox(),
     newGame.boundingBox(),
   ]);
   expect(introBox).not.toBeNull();
@@ -110,12 +113,21 @@ test("the world detail gives its first screen to saves instead of package mainte
   expect(savesHeadingBox).not.toBeNull();
   expect(firstSaveBox).not.toBeNull();
   expect(packageBox).not.toBeNull();
+  expect(factsBox).not.toBeNull();
   expect(newGameBox).not.toBeNull();
   expect(savesBox!.y).toBeLessThan(packageBox!.y);
   expect(firstSaveBox!.y + firstSaveBox!.height).toBeLessThan(900);
   expect(savesBox!.y - (introBox!.y + introBox!.height)).toBeLessThanOrEqual(40);
   expect(newGameBox!.y).toBeLessThan(savesHeadingBox!.y + savesHeadingBox!.height);
   expect(newGameBox!.y + newGameBox!.height).toBeGreaterThan(savesHeadingBox!.y);
+  expect(factsBox!.height).toBeLessThanOrEqual(32);
+  expect(packageBox!.height).toBeLessThan(200);
+  expect(await newGameLabel.evaluate((element) => getComputedStyle(element).color))
+    .toBe(await newGame.evaluate((element) => getComputedStyle(element).color));
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await packageFacts.boundingBox())!.height).toBeLessThanOrEqual(50);
 });
 
 test("the control orb exposes desktop and mobile navigation", async ({ page }) => {
