@@ -1,0 +1,20 @@
+id: black-dragon-young
+kind: dragon
+name: 黑沼幼黑龙
+description: 年老母黑龙的年轻后代，拥有独立感知、伤势和行动选择。
+placement: black-marshes
+facts:
+  - id: black-dragon-young-range
+    predicate: hunting-range
+    value: { kind: entity, entityId: black-marshes }
+    description: 它通常在母龙猎区内移动，但不与母龙共享心智或必然保持同一位置。
+    access: { kind: private }
+meters:
+  - { id: "vitality:black-dragon-young", definition_id: vitality, current: 22 }
+quantities: []
+ratings:
+  - { id: "force:black-dragon-young", definition_id: force, value: 5 }
+  - { id: "finesse:black-dragon-young", definition_id: finesse, value: 3 }
+  - { id: "resolve:black-dragon-young", definition_id: resolve, value: 3 }
+  - { id: "magic:black-dragon-young", definition_id: magic, value: 2 }
+  - { id: "wilderness:black-dragon-young", definition_id: wilderness, value: 4 }

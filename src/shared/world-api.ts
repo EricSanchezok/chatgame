@@ -112,7 +112,6 @@ export interface PublicObservationPacket {
 export interface PublicActionOutcome {
   status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
   summary: string;
-  knownAlternatives: string[];
 }
 
 export type WorldRunEvent =

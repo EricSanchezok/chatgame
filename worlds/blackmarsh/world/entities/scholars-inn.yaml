@@ -1,0 +1,22 @@
+id: scholars-inn
+kind: inn-and-library
+name: 学者旅店
+description: 城中最大的旅店，拥有偏重当代记录的开放馆藏，并长期接待重建 Blackmarsh Guild of Wizards 的施法者。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: scholars-inn-current-records
+    predicate: collection
+    value: { kind: text, value: broad-and-current-but-less-deep-than-thoth }
+    description: 旅店馆藏不及 Thoth 神殿深，却拥有更多近期航海、探险和交易记录。
+    access: { kind: public }
+  - id: wizards-guild-recovery
+    predicate: resident-group
+    value: { kind: text, value: distrusted-rebuilding-wizards-guild }
+    description: Atacyl 暴政与精灵接管后的幸存法师在此重组，但仍受市民猜疑。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 110 }
+  - { definition_id: provisions, amount: 45 }
+  - { definition_id: viz, amount: 3 }
+ratings: []

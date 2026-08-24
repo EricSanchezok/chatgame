@@ -1,0 +1,29 @@
+id: mountain-that-fell-roc-flock
+kind: roc-flock
+name: Mountain That Fell Roc 群
+description: 与 Mountain That Fell 及 1706 取食遗迹相关、精确位置会随迁徙改变的 roc 群。
+placement: blackmarsh-region
+facts:
+  - id: mountain-that-fell-roc-flock-known-living-count
+    predicate: composition
+    value: { kind: number, value: 4 }
+    description: 1706 的近期现场确认四只活 roc 参与取食；东侧另有第五只 roc 的焦黑遗体，不计入活群。
+    access: { kind: private }
+  - id: mountain-that-fell-roc-flock-origin
+    predicate: reported-origin
+    value: { kind: entity, entityId: hex-1309-mountain-that-fell }
+    description: 来源明确把到达 1706 的 roc 描述为来自 Mountain That Fell；其 t0 位置与后续猎区未知，不扩写为 Dragonbone 家域。
+    access: { kind: private }
+  - id: mountain-that-fell-roc-flock-recent-site
+    predicate: recent-presence
+    value: { kind: entity, entityId: hex-1706-roc-feeding-ground }
+    description: 1706 的羽毛、足迹和进食痕迹支持近期到访；t0 精确位置未知，不能把群体锁死在残骸旁。
+    access: { kind: private }
+  - id: mountain-that-fell-roc-flock-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: four-individual-rocs-without-shared-mind }
+    description: roc 能结群盘旋、争食和响应警叫，但各自感知、受伤和决定去向。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

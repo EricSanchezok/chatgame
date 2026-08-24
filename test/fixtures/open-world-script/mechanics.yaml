@@ -24,3 +24,42 @@ ratings:
     name: 决心
     min: -5
     max: 10
+random_distributions:
+  - id: four-six-sum
+    description: 四次独立六结果抽样之和。
+    steps:
+      - id: amount
+        count: 4
+        outcomes: [1, 2, 3, 4, 5, 6]
+        aggregate: sum
+  - id: five-ten-sum
+    description: 五次独立十结果抽样之和。
+    steps:
+      - id: amount
+        count: 5
+        outcomes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        aggregate: sum
+  - id: hourly-four-four
+    description: 四分之一概率触发后进行四次独立四结果抽样。
+    steps:
+      - id: triggered
+        count: 1
+        outcomes: [false, false, false, true]
+        aggregate: first
+      - id: group-size
+        count: 4
+        outcomes: [1, 2, 3, 4]
+        aggregate: sum
+        when: { step_id: triggered, equals: true }
+  - id: three-six-four-two
+    description: 六槽中三槽触发，触发后按四槽对两槽分支。
+    steps:
+      - id: triggered
+        count: 1
+        outcomes: [false, false, false, true, true, true]
+        aggregate: first
+      - id: branch
+        count: 1
+        outcomes: [first, first, first, first, second, second]
+        aggregate: first
+        when: { step_id: triggered, equals: true }

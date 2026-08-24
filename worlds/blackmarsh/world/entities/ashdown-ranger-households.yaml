@@ -1,0 +1,24 @@
+id: ashdown-ranger-households
+kind: household-community
+name: Ashdown Ranger Households
+description: 居住在 Ashdown 的退役 Rangers、现役成员的伴侣与子女，以及维持村庄日常生活的多族家庭。
+placement: hex-0608-ashdown
+facts:
+  - id: ashdown-ranger-households-composition
+    predicate: composition
+    value: { kind: text, value: retired-rangers-active-ranger-families-and-mixed-residents }
+    description: 原作确认这些家庭构成村庄核心，但没有给出各类人的精确分项人数。
+    access: { kind: public }
+  - id: ashdown-ranger-households-support
+    predicate: standing-policy
+    value: { kind: text, value: aid-proven-friends-and-allies-of-blackmarsh-rangers }
+    description: 村民愿意帮助 Rangers 的朋友与盟友；具体援助仍由家庭、议会和现有资源决定。
+    access: { kind: public }
+  - id: ashdown-ranger-households-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: households-share-a-village-not-a-shared-mind }
+    description: 亲属和退役经历形成信息网络，但远方巡逻报告仍须经过真实通信进入村庄。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

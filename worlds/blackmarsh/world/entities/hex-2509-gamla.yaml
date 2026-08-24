@@ -1,0 +1,24 @@
+id: hex-2509-gamla
+kind: settlement
+name: Gamla
+description: 受西侧沼泽保护、以肥沃农地维持生计的 Vasan 聚落。
+placement: blackmarsh-region
+facts:
+  - id: hex-2509-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2509" }
+    description: Gamla 位于区域六角 2509，在西侧沼泽之外的 Vasan 肥沃农地。
+    access: { kind: public }
+  - id: hex-2509-population
+    predicate: population
+    value: { kind: number, value: 405 }
+    description: 常住人口约四百零五，以 Vasan 人类为主。
+    access: { kind: public }
+  - id: hex-2509-farms
+    predicate: resource
+    value: { kind: text, value: fertile-farms-protected-by-western-swamp }
+    description: 西侧沼泽形成天然屏障，肥沃农地给聚落带来有限繁荣。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

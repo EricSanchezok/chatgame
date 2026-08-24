@@ -1,0 +1,24 @@
+id: great-hall-black-pudding
+kind: giant-ooze
+name: 旧大厅巨型 Black Pudding
+description: 一只体型异常巨大的 black pudding，也是能独立受伤、移动和选择猎物的个体生物。
+placement: hex-0309-ruined-wizard-keep
+facts:
+  - id: great-hall-black-pudding-territory
+    predicate: established-territory
+    value: { kind: text, value: old-great-hall-and-adjoining-damp-passages }
+    description: 它通常占据旧大厅与相连潮湿通道，但会循食物、热量和扰动移动。
+    access: { kind: private }
+  - id: great-hall-black-pudding-infestation-relation
+    predicate: coexists-with
+    value: { kind: entity, entityId: ochre-jelly-infestation }
+    description: 它与遍布废堡的 ochre jelly 同处一座遗址，但不指挥或共享它们的感知。
+    access: { kind: private }
+meters:
+  - { id: "vitality:great-hall-black-pudding", definition_id: vitality, current: 27 }
+quantities: []
+ratings:
+  - { id: "force:great-hall-black-pudding", definition_id: force, value: 6 }
+  - { id: "finesse:great-hall-black-pudding", definition_id: finesse, value: -3 }
+  - { id: "resolve:great-hall-black-pudding", definition_id: resolve, value: 8 }
+  - { id: "wilderness:great-hall-black-pudding", definition_id: wilderness, value: 3 }

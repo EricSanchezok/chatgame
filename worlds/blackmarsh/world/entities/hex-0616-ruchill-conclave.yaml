@@ -1,0 +1,29 @@
+id: hex-0616-ruchill-conclave
+kind: ruin
+name: Ruchill Burn 法师遗址
+description: 五十英尺深的溪谷两岸布满 Bright Empire 法师结社的分层建筑，旧桥跨越峡谷连接不再安全的研究区。
+placement: blackmarsh-region
+facts:
+  - id: hex-0616-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0616" }
+    description: 遗址位于区域六角 0616 的 Ruchill Burn 独立溪谷，不把它等同于 Lanis River 河体。
+    access: { kind: public }
+  - id: hex-0616-gorge
+    predicate: terrain
+    value: { kind: text, value: fifty-foot-deep-gorge-for-over-half-mile }
+    description: Ruchill Burn 在此穿过超过半英里长、约五十英尺深的峡谷。
+    access: { kind: public }
+  - id: hex-0616-conclave-origin
+    predicate: origin
+    value: { kind: text, value: bright-empire-viz-harvesting-conclave }
+    description: Bright Empire 施法者为采集崖壁中的 Viz 建立结社，帝国崩溃两百年后才彻底放弃。
+    access: { kind: public }
+  - id: hex-0616-levels-and-bridges
+    predicate: structure
+    value: { kind: text, value: cliff-levels-linked-by-unsafe-bridges }
+    description: 多层房间凿入两侧崖壁，若干桥梁横跨峡谷；部分桥面和锚点已经失效。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

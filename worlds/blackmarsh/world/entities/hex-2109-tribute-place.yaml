@@ -1,0 +1,24 @@
+id: hex-2109-tribute-place
+kind: stronghold
+name: The Tribute Place
+description: Crimson Hills 中以粗石堆筑成、供 Brotherhood of the Raven 接收两大部族年度贡赋的据点。
+placement: crimson-hills
+facts:
+  - id: hex-2109-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2109" }
+    description: Tribute Place 位于区域六角 2109，属于 Crimson Hills。
+    access: { kind: public }
+  - id: hex-2109-garrison
+    predicate: associated-force
+    value: { kind: entity, entityId: tribute-place-garrison }
+    description: 守军实体唯一承载人数、命令与库存；本地点只保存粗石据点与贡赋功能。
+    access: { kind: private }
+  - id: hex-2109-tribute-office
+    predicate: political-role
+    value: { kind: text, value: collect-annual-bateater-and-bloodcrusher-tribute-for-raven }
+    description: 据点负责向 Bateater 与 Bloodcrusher 收取 Brotherhood 的年度贡赋，是强制关系的实体节点。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

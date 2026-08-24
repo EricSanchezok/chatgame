@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AgentMind } from "../agent-mind";
+import { historyReplayBaseHash } from "../history-replay";
 import { applyCharacterPatch } from "../character";
 import { validatePublicInformationBoundary } from "../information-boundary";
 import { contentHash } from "../model-audit";
@@ -317,7 +318,7 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
     };
   }
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     worldId: "reaction-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["time"],
@@ -381,6 +382,8 @@ function reactionDefinition(initialState: SimulationState): WorldDefinition {
       adjudication: "使用 d20 检定。",
       rules: [{ id: "apply-meter-impact", description: "检定驱动 Meter 变化。" }],
     }],
+    randomDistributions: [],
+    historyBaseHash: historyReplayBaseHash(initialState),
     initialState,
   };
 }
@@ -492,7 +495,7 @@ describe("Agent self state and reaction protocol", () => {
       jointActions: actions,
       agentEpistemics: { keeper: {} },
     });
-    proposal.outcomes.find((outcome) => outcome.proposalId === "player-action")!.summary =
+    proposal.observations.find((observation) => observation.observerId === "player")!.summary =
       state.agents.keeper.character.persona.summary;
 
     expect(() => validatePublicInformationBoundary(state, actions, proposal))
@@ -566,6 +569,7 @@ describe("Agent self state and reaction protocol", () => {
         revision: number;
         jointActions: AgentActionProposal[];
         agentEpistemics: Record<string, unknown>;
+        checkResults: Array<{ requestId: string }>;
         agent: { id: string };
         originalAction?: AgentActionProposal;
       };
@@ -581,6 +585,26 @@ describe("Agent self state and reaction protocol", () => {
               stimulus: stimulus(agentId, playerAction.id),
               basis: [{ kind: "shared_placement", placementId: "room" }],
             })),
+          };
+        }
+        if (truthCalls === 2) {
+          const keeperAction = context.jointActions.find((action) => action.actorId === "keeper")!;
+          return {
+            kind: "request_checks",
+            requests: [{
+              id: "reply-resolution-check",
+              actorId: "keeper",
+              targetId: null,
+              ratingId: "reflex:keeper",
+              modifier: 3,
+              modifierSources: [{ kind: "rating", id: "reflex:keeper", amount: 3 }],
+              dc: 0,
+              mode: "normal",
+              stakes: "只允许最终替换行动支撑 resolution 检定。",
+              visibility: "hidden",
+              phase: "resolution",
+              causes: [{ kind: "action", id: keeperAction.id }],
+            }],
           };
         }
         return { kind: "transition", proposal: outcomeTransition(context) };
@@ -624,8 +648,23 @@ describe("Agent self state and reaction protocol", () => {
     expect(result.committed.observations.filter((packet) => packet.kind === "stimulus")).toHaveLength(2);
     expect(result.committed.outcomes.map((outcome) => outcome.proposalId))
       .toEqual(expect.arrayContaining(["reply:keeper:0", "reply:scribe:0"]));
+    expect(result.committed.commitmentRounds).toEqual([{
+      kind: "check",
+      phase: "resolution",
+      requestIds: ["reply-resolution-check"],
+    }]);
     expect(result.state.agents.keeper.belief.localEntities.speaker).toBeDefined();
     validateSimulationState(result.state, true, true);
+
+    const initialActionDependent = structuredClone(result.state);
+    const initialActionStep = initialActionDependent.history[0];
+    initialActionStep.checkRequests[0].causes = [{ kind: "action", id: "prepared:keeper:0" }];
+    const initialActionPayload = Object.fromEntries(
+      Object.entries(initialActionStep).filter(([key]) => key !== "contentHash"),
+    );
+    initialActionStep.contentHash = contentHash(initialActionPayload);
+    expect(() => validateSimulationState(initialActionDependent, true, true))
+      .toThrow("history check reply-resolution-check references unknown action prepared:keeper:0");
   });
 
   it("rejects remote shouting without a channel and makes no reaction model call", async () => {
@@ -844,10 +883,19 @@ describe("Agent self state and reaction protocol", () => {
         if (context.originalAction) {
           reactionCalls += 1;
           return {
-            kind: "keep",
+            kind: "replace",
             agentId: "keeper",
             baseRevision: context.revision,
             originalProposalId: context.originalAction.id,
+            replacementAction: {
+              id: "heard-reply:keeper:0",
+              actorId: "keeper",
+              baseRevision: context.revision,
+              rawText: "守门人回应刚感知到的远方讯息",
+              goal: "回应远方讯息",
+              means: null,
+              targetIds: [],
+            },
           };
         }
         return emptyMindOutput(context.agent.id, context.revision);
@@ -902,6 +950,20 @@ describe("Agent self state and reaction protocol", () => {
     expect(result.committed.reactionRequests[0].basis[0]).toEqual({
       kind: "perception_check", checkId: "hear-distant-message",
     });
+    expect(result.committed.initialActions.find((action) => action.actorId === "keeper")?.id)
+      .toBe("prepared:keeper:0");
+    expect(result.committed.actions.find((action) => action.actorId === "keeper")?.id)
+      .toBe("heard-reply:keeper:0");
+
+    const finalActionDependent = structuredClone(result.state);
+    const finalActionStep = finalActionDependent.history[0];
+    finalActionStep.checkRequests[0].causes = [{ kind: "action", id: "heard-reply:keeper:0" }];
+    const finalActionPayload = Object.fromEntries(
+      Object.entries(finalActionStep).filter(([key]) => key !== "contentHash"),
+    );
+    finalActionStep.contentHash = contentHash(finalActionPayload);
+    expect(() => validateSimulationState(finalActionDependent, true, true))
+      .toThrow("history check hear-distant-message references unknown action heard-reply:keeper:0");
   });
 
   it("keeps the reaction window closed after resolution starts and forbids a second round", async () => {

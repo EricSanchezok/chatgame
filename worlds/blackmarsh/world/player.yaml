@@ -1,0 +1,92 @@
+entity_id: player
+local_entities:
+  - id: self
+    name: 我
+    description: 刚在黑沼堡港区下船的外来旅人。
+    status: observed
+  - id: castle
+    name: 黑沼堡
+    description: Smoking Bay 南岸最大的港城，精灵总督与多方势力共同维持脆弱秩序。
+    status: observed
+  - id: viz
+    name: Viz
+    description: 能被施法和附魔消耗的实体魔力，也是黑沼探险者争夺的主要财富。
+    status: reported
+  - id: rangers
+    name: Blackmarsh Rangers
+    description: 船员所说会在 Blackoak Castle 招募各族新人的地区巡逻组织。
+    status: reported
+  - id: mazardan
+    name: Lord Mazardan
+    description: 据说会重金收购 Viz 的 Oldan Hold 矮人领主；具体报价尚未核实。
+    status: reported
+  - id: sarrath-invaders
+    name: 传闻中的 Sarrath 入侵者
+    description: 港口流言中正从东南驶来的武装远征；船只数量、任务和位置都尚未亲见。
+    status: hypothesized
+evidence:
+  - id: harbor-arrival
+    kind: observation
+    description: 我在风暴将至的傍晚从客船踏上黑沼堡港区。
+    sourceId: null
+    step: 0
+  - id: public-viz-lore
+    kind: testimony
+    description: 船员们说黑沼各族都在寻找形态各异的 Viz。
+    sourceId: null
+    step: 0
+  - id: deckhand-ranger-rumor
+    kind: testimony
+    description: 一名常跑 Smoking Bay 的水手说 Blackoak Castle 一直训练并招收愿意保护本地居民的新人。
+    sourceId: null
+    step: 0
+  - id: bosun-mazardan-rumor
+    kind: testimony
+    description: 大副声称 Mazardan 会为每份 Viz 支付一千金币，但他没有展示报价或成交凭证。
+    sourceId: null
+    step: 0
+  - id: quay-invasion-rumor
+    kind: testimony
+    description: 下船时有人高喊 Sarrath 的军队正从东南海面入侵，其他搬运工只确认听过同一说法。
+    sourceId: null
+    step: 0
+claims:
+  - id: castle-is-port
+    subjectId: castle
+    predicate: role
+    value: { kind: text, value: regional-port }
+    description: 黑沼堡是进入本地区最常用的港口与市场。
+    evidenceIds: [harbor-arrival]
+  - id: viz-is-valuable
+    subjectId: viz
+    predicate: value
+    value: { kind: text, value: highly-sought }
+    description: Viz 能用于魔法，因此受到施法者、商人与统治者追逐。
+    evidenceIds: [public-viz-lore]
+  - id: rangers-are-recruiting
+    subjectId: rangers
+    predicate: current-policy
+    value: { kind: text, value: recruiting-new-members-at-blackoak-castle }
+    description: Blackmarsh Rangers 目前在 Blackoak Castle 接受新人。
+    evidenceIds: [deckhand-ranger-rumor]
+  - id: mazardan-offers-thousand
+    subjectId: mazardan
+    predicate: purchase-offer
+    value: { kind: number, value: 1000 }
+    description: Mazardan 据说会为每份 Viz 支付一千金币；这仍是未经核实的转述。
+    evidenceIds: [bosun-mazardan-rumor]
+  - id: sarrath-army-is-coming
+    subjectId: sarrath-invaders
+    predicate: current-mission
+    value: { kind: text, value: invade-blackmarsh }
+    description: 一支 Sarrath 入侵军据说正接近黑沼；玩家没有亲眼看见舰队或任务令。
+    evidenceIds: [quay-invasion-rumor]
+bindings:
+  - local_entity_id: self
+    canonical_entity_ids: [player]
+  - local_entity_id: castle
+    canonical_entity_ids: [hex-0913-castle-blackmarsh]
+  - local_entity_id: rangers
+    canonical_entity_ids: [blackmarsh-rangers]
+  - local_entity_id: mazardan
+    canonical_entity_ids: [lord-mazardan]

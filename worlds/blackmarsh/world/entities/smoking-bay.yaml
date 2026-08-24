@@ -1,0 +1,19 @@
+id: smoking-bay
+kind: geographic-region
+name: 烟湾
+description: Mountain That Fell 撞击形成的巨大海湾，海底遍布碎岩、沉船与适合大型水生生物藏身的沟壑。
+placement: blackmarsh-region
+facts:
+  - id: smoking-bay-name-history
+    predicate: name-origin
+    value: { kind: text, value: steam-pillars-rose-for-a-century-after-impact-and-were-visible-for-hundreds-of-miles }
+    description: 坠山撞击后一百年间，水面蒸汽柱在数百英里外可见；蒸汽已消退，但“烟湾”名称保留。
+    access: { kind: public }
+  - id: smoking-bay-navigation
+    predicate: navigation
+    value: { kind: text, value: hazardous-rubble-and-uncharted-channels }
+    description: 未经本地领航的船只容易触礁或误入浅滩。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

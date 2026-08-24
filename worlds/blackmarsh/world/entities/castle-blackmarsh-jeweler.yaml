@@ -1,0 +1,27 @@
+id: castle-blackmarsh-jeweler
+kind: shop
+name: Harbor Goldsmith
+description: 黑沼堡港区经营旧首饰、修复与估价的小型珠宝店；未经识别的旧货与委托品分柜保管。
+placement: castle-blackmarsh-harbor
+facts:
+  - id: harbor-goldsmith-old-stock
+    predicate: inventory-item
+    value: { kind: entity, entityId: ragnars-lost-ring }
+    description: 一枚来自旧批次的磨损戒指仍在未识别货柜中，没有作为王室遗物陈列。
+    access: { kind: private }
+  - id: harbor-goldsmith-ring-appraisal
+    predicate: current-appraisal
+    value: { kind: text, value: old-vasan-style-trade-ring-of-moderate-value }
+    description: 店主只把这枚戒指判断为 Vasan 风格旧首饰，尚不知道它与 Ragnar 王室有关。
+    access: { kind: private }
+  - id: harbor-goldsmith-ledger-gap
+    predicate: record-condition
+    value: { kind: text, value: acquired-with-unclaimed-raid-salvage-and-incompletely-recorded }
+    description: 戒指随多年前一批无人认领的袭港遗物进入库存，旧账只保留日期、重量和模糊来源。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 850 }
+  - { definition_id: provisions, amount: 0 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

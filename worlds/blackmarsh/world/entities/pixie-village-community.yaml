@@ -1,0 +1,24 @@
+id: pixie-village-community
+kind: pixie-community
+name: 树台 Pixie 社群
+description: 居住在 2203 树台村的 pixie 共同体，以林间路径、局部协作与约定信号维护领地。
+placement: hex-2203-pixie-village
+facts:
+  - id: pixie-village-community-population
+    predicate: population
+    value: { kind: number, value: 85 }
+    description: 原作明确村庄居民为八十五名 pixie。
+    access: { kind: private }
+  - id: pixie-village-community-defense
+    predicate: recurring-behavior
+    value: { kind: text, value: torments-and-misdirects-intruders-through-individual-and-coordinated-pranks }
+    description: 居民会按自己看见的入侵行为选择戏弄、诱导离开或更强烈的骚扰。
+    access: { kind: public }
+  - id: pixie-village-community-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: neighbors-share-reports-and-signals-without-shared-mind }
+    description: 消息需通过呼喊、信使或约定信号传播；未在场居民不会自动知道其他人的观察。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

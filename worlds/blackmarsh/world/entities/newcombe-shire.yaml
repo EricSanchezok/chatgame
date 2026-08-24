@@ -1,0 +1,32 @@
+id: newcombe-shire
+kind: settlement-league
+name: Newcombe Shire
+description: 由 Greenton 市场与 Strangeholms 农村构成的半身人聚落联盟，以粮食生产、地方自治和与 Rangers 的安全互赖维系联系。
+placement: hex-0610-greenton
+facts:
+  - id: newcombe-shire-centers
+    predicate: member-settlements
+    value: { kind: text, value: greenton-capital-and-strangeholms-farming-village }
+    description: Greenton 是首府和跨区粮市，Strangeholms 负责重要农产并直接向 Blackoak Castle 供粮。
+    access: { kind: public }
+  - id: newcombe-shire-leadership
+    predicate: distributed-government
+    value: { kind: text, value: paddock-ryburn-at-greenton-holbein-redleaf-at-strangeholms }
+    description: Ealdorman Paddock Ryburn 治理 Greenton，Mayor Holbein Redleaf 治理 Strangeholms；双方通过交易与求援协调而非一套即时命令行事。
+    access: { kind: public }
+  - id: newcombe-shire-security
+    predicate: security-network
+    value: { kind: text, value: 20-greenton-constables-plus-local-constable-and-ranger-aid }
+    description: Greenton 有二十名 constables，Strangeholms 另有本地治安官；更大威胁需要真实请求 Rangers 支援。
+    access: { kind: private }
+  - id: newcombe-shire-current-exposure
+    predicate: strategic-risk
+    value: { kind: text, value: graptar-raids-and-wizard-keep-escapees-threaten-food-routes }
+    description: Graptar 的新据点威胁半身人粮路，Strangeholms 还承受西北法师废堡怪物逸出的长期风险。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 650 }
+  - { definition_id: provisions, amount: 1400 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

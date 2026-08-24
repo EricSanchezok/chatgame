@@ -1,0 +1,29 @@
+id: hex-1316-jorvik
+kind: settlement
+name: Jorvik
+description: Atacyl 支持者在其倒台后固守的旧 Blackmarsh 盟村。
+placement: sheltered-bay
+facts:
+  - id: hex-1316-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1316" }
+    description: Jorvik 位于区域六角 1316；Sheltered Bay 西南岸归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-1316-population
+    predicate: population
+    value: { kind: number, value: 481 }
+    description: 常住人口约四百八十一，以人类为主。
+    access: { kind: public }
+  - id: hex-1316-market
+    predicate: resource
+    value: { kind: text, value: regional-market }
+    description: Jorvik 保有可吸引外来侦察者和商人的市场。
+    access: { kind: public }
+  - id: hex-1316-atacyl-history
+    predicate: political-history
+    value: { kind: text, value: fortified-by-atacyl-supporters-and-forced-to-pay-tribute }
+    description: Atacyl 倒台后支持者逃来固守，多次复辟失败；四十年前援助其最后进攻后，村庄被迫向 Castle Blackmarsh 纳贡。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

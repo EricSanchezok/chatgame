@@ -1,0 +1,29 @@
+id: naomis-dryad-allies
+kind: dryad-circle
+name: Naomi's Dryad Allies
+description: 分别守护 Naomi 岛上林地的数名 dryad；她们与 Naomi 协作，却各自感知、判断并决定如何处置闯入者。
+placement: hex-1307-naomis-island
+facts:
+  - id: naomi-dryad-allies-scale
+    predicate: composition
+    value: { kind: text, value: several-dryads-without-canonical-headcount }
+    description: 原作只确认 Naomi 依靠数名 dryad，没有给出可冻结的精确人数。
+    access: { kind: private }
+  - id: naomi-dryad-allies-alliance
+    predicate: allied-with
+    value: { kind: entity, entityId: naomi }
+    description: 她们协助 Naomi 保护岛屿，但同盟不抹去各自的林地职责和处置判断。
+    access: { kind: private }
+  - id: naomi-dryad-allies-duty
+    predicate: guards
+    value: { kind: entity, entityId: hex-1307-naomis-island }
+    description: 她们持续阻止砍伐、定居和未经允许的资源掠取。
+    access: { kind: private }
+  - id: naomi-dryad-allies-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: independent-dryads-coordinate-without-shared-mind }
+    description: 一名 dryad 的观察、魅惑或承诺不会自动成为其余成员或 Naomi 的知识与决定。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

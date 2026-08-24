@@ -1,0 +1,24 @@
+id: daur-anthar-earth-elemental
+kind: elemental-guardian
+name: Daur Anthar 土元素守卫
+description: 与 Daur Anthar 古代守卫约束相连的强大土元素，能够独立感知破坏、承受伤害并响应侵入。
+placement: hex-0105-daur-anthar
+facts:
+  - id: daur-anthar-earth-elemental-duty
+    predicate: guards
+    value: { kind: entity, entityId: hex-0105-daur-anthar }
+    description: 山堡被放弃时，土元素仍留在遗址执行守卫职责。
+    access: { kind: private }
+  - id: daur-anthar-earth-elemental-boundary
+    predicate: standing-behavior
+    value: { kind: text, value: protects-ruins-workshops-and-viz-bearing-vein-from-intrusion }
+    description: 它把进入封闭工坊、开采矿脉或破坏遗址视为需要制止的侵入；守卫约束的来源与解除方法尚未确定。
+    access: { kind: private }
+meters:
+  - { id: "vitality:daur-anthar-earth-elemental", definition_id: vitality, current: 30 }
+quantities: []
+ratings:
+  - { id: "force:daur-anthar-earth-elemental", definition_id: force, value: 8 }
+  - { id: "finesse:daur-anthar-earth-elemental", definition_id: finesse, value: -2 }
+  - { id: "resolve:daur-anthar-earth-elemental", definition_id: resolve, value: 8 }
+  - { id: "magic:daur-anthar-earth-elemental", definition_id: magic, value: 6 }

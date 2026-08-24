@@ -1,0 +1,14 @@
+id: castle-blackmarsh-harbor
+kind: district
+name: 黑沼堡港区
+description: 商船、渔船与探险船停靠的拥挤岸区，Merry Legs、仓库和领航人把外来者引向城内各方势力。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: harbor-storm-warning
+    predicate: weather-warning
+    value: { kind: text, value: storm-before-midnight }
+    description: 港务人员预计风暴会在午夜前抵达。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

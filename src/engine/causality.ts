@@ -5,6 +5,7 @@ import type {
   CausalSource,
   CausalTarget,
   D20CheckResult,
+  DiscreteRandomResult,
   NumericComparison,
   SimulationState,
   TransitionProposal,
@@ -25,6 +26,7 @@ function compare(actual: number, operator: NumericComparison, expected: number):
 function evaluate(
   state: SimulationState,
   checks: ReadonlyMap<string, D20CheckResult>,
+  randomResults: ReadonlyMap<string, DiscreteRandomResult>,
   assertion: CausalAssertion,
 ): Pick<CausalAssertionResult, "passed" | "observed"> {
   switch (assertion.kind) {
@@ -32,6 +34,12 @@ function evaluate(
       const check = checks.get(assertion.checkId);
       const observed = check ? (check.succeeded ? "succeeded" : "failed") : null;
       return { passed: observed === assertion.expected, observed };
+    }
+    case "random_result": {
+      const result = randomResults.get(assertion.requestId);
+      const step = result?.steps.find((candidate) => candidate.stepId === assertion.stepId);
+      const observed = step && !step.skipped ? step.aggregate : null;
+      return { passed: Boolean(step && !step.skipped && isDeepStrictEqual(observed, assertion.expected)), observed };
     }
     case "fact_matches": {
       const fact = state.truth.facts[assertion.factId];
@@ -106,31 +114,53 @@ function targetForOperation(index: number, kind: string): CausalTarget {
 function evaluateSource(
   state: SimulationState,
   checks: ReadonlyMap<string, D20CheckResult>,
+  randomResults: ReadonlyMap<string, DiscreteRandomResult>,
   target: CausalTarget,
   source: CausalSource,
 ): CausalAssertionResult[] {
   if (source.assertions.length === 0) throw new Error(`${target.kind} ${target.id} has no causal assertions`);
   for (const cause of source.causes) {
-    if (cause.kind !== "check") continue;
-    const hasAssertion = source.assertions.some((assertion) =>
-      assertion.kind === "check_result" && assertion.checkId === cause.id);
-    if (!hasAssertion) {
-      throw new Error(`${target.kind} ${target.id} cites check ${cause.id} without asserting its result`);
+    if (cause.kind === "check") {
+      const hasAssertion = source.assertions.some((assertion) =>
+        assertion.kind === "check_result" && assertion.checkId === cause.id);
+      if (!hasAssertion) {
+        throw new Error(`${target.kind} ${target.id} cites check ${cause.id} without asserting its result`);
+      }
+    }
+    if (cause.kind === "random") {
+      const hasAssertion = source.assertions.some((assertion) =>
+        assertion.kind === "random_result" && assertion.requestId === cause.id);
+      if (!hasAssertion) {
+        throw new Error(`${target.kind} ${target.id} cites random ${cause.id} without asserting its result`);
+      }
     }
   }
   return source.assertions.map((assertion) => ({
     target,
     assertion: structuredClone(assertion),
-    ...evaluate(state, checks, assertion),
+    ...evaluate(state, checks, randomResults, assertion),
   }));
 }
 
 export function evaluateProposalCausality(
   state: SimulationState,
   checkResults: readonly D20CheckResult[],
+  discreteRandomResults: readonly DiscreteRandomResult[],
   proposal: TransitionProposal,
 ): CausalAssertionResult[] {
+  const consumedRandomIds = new Set([
+    ...proposal.mechanicInvocations.flatMap((invocation) => invocation.causes),
+    ...proposal.operations.flatMap((operation) => operation.causes),
+    ...proposal.events.flatMap((event) => event.causes),
+    ...proposal.outcomes.flatMap((outcome) => outcome.causeRefs),
+  ].filter((cause) => cause.kind === "random").map((cause) => cause.id));
+  for (const result of discreteRandomResults) {
+    if (!consumedRandomIds.has(result.requestId)) {
+      throw new Error(`transition does not consume committed random ${result.requestId}`);
+    }
+  }
   const checks = new Map(checkResults.map((check) => [check.requestId, check]));
+  const randomResults = new Map(discreteRandomResults.map((result) => [result.requestId, result]));
   const results: CausalAssertionResult[] = [];
   const working = structuredClone(state);
 
@@ -139,19 +169,20 @@ export function evaluateProposalCausality(
       const citesLaw = operation.causes.some((cause) => cause.kind === "law" && cause.id === operation.lawId);
       if (!citesLaw) throw new Error(`${operation.kind} must cite its authorizing law ${operation.lawId}`);
     }
-    results.push(...evaluateSource(working, checks, targetForOperation(index, operation.kind), operation));
+    results.push(...evaluateSource(working, checks, randomResults, targetForOperation(index, operation.kind), operation));
     applyWorldDeltaOperation(working, operation);
   });
   for (const invocation of proposal.mechanicInvocations) {
     results.push(...evaluateSource(
       state,
       checks,
+      randomResults,
       { kind: "mechanic", id: invocation.id },
       invocation,
     ));
   }
   for (const event of proposal.events) {
-    results.push(...evaluateSource(working, checks, { kind: "event", id: event.id }, event));
+    results.push(...evaluateSource(working, checks, randomResults, { kind: "event", id: event.id }, event));
   }
   for (const outcome of proposal.outcomes) {
     if (!outcome.causeRefs.some((cause) => cause.kind === "action" && cause.id === outcome.proposalId)) {
@@ -160,6 +191,7 @@ export function evaluateProposalCausality(
     results.push(...evaluateSource(
       working,
       checks,
+      randomResults,
       { kind: "outcome", id: outcome.proposalId },
       { causes: outcome.causeRefs, assertions: outcome.assertions },
     ));

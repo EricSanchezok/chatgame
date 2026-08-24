@@ -1,0 +1,19 @@
+id: hex-2416-azure-kings-hall
+kind: underwater-settlement
+name: Azure King's Hall
+description: 灰海海山周围的 merman 宫廷，峰顶距水面十五英尺，洞穴从峰顶向下延伸八十英尺。
+placement: grey-sea
+facts:
+  - id: hex-2416-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2416" }
+    description: 宫廷位于区域六角 2416，属于 Grey Sea。
+    access: { kind: public }
+  - id: hex-2416-seamount
+    predicate: underwater-terrain
+    value: { kind: text, value: summit-15-feet-below-surface-grottos-descend-80-feet }
+    description: 海山峰顶距海面约十五英尺，石窟与洞穴沿山体向下延伸约八十英尺。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

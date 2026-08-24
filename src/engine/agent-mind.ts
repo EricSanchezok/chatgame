@@ -128,7 +128,6 @@ export class AgentMind {
       action: AgentActionProposal | null;
       outcome: {
         status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
-        summary: string;
       } | null;
     } = { action: null, outcome: null },
     events: readonly WorldEvent[] = [],

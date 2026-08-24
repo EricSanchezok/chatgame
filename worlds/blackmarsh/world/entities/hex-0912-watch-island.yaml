@@ -1,0 +1,29 @@
+id: hex-0912-watch-island
+kind: island-settlement
+name: 烽火渔岛
+description: 以守望 Vasan 袭击者换取居住权的渔业岛屿，南端木塔接入 Castle Blackmarsh 烽火链。
+placement: smoking-bay
+facts:
+  - id: hex-0912-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0912" }
+    description: 渔岛位于区域六角 0912，属于 Smoking Bay。
+    access: { kind: public }
+  - id: hex-0912-population
+    predicate: population
+    value: { kind: number, value: 100 }
+    description: 岛上约有一百名居民，以捕捞周边水域为生。
+    access: { kind: public }
+  - id: hex-0912-watch-obligation
+    predicate: civic-obligation
+    value: { kind: text, value: watch-for-raiders-in-exchange-for-island-grant }
+    description: Castle Blackmarsh 领主以岛屿居住权换取居民持续观察来船，尤其警戒 Vasan Vikings。
+    access: { kind: public }
+  - id: hex-0912-signal-tower
+    predicate: infrastructure
+    value: { kind: text, value: twenty-foot-wooden-tower-linked-to-castle-beacon-chain }
+    description: 岛南端二十英尺木塔在大陆可见；发现危险后点火，信号会由一连串塔传向 Castle Blackmarsh。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

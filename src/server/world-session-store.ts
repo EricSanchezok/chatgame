@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { contentHash } from "../engine/model-audit";
+import { createHistoryReplayBase } from "../engine/history-replay";
 import {
   NOOP_RUNTIME_OBSERVER,
   runtimeEventEmitter,
@@ -7,7 +8,9 @@ import {
   type RuntimeCorrelation,
   type RuntimeObserver,
 } from "../engine/observability";
+import { validateDiscreteRandomDefinitions } from "../engine/random";
 import { validateSimulationState } from "../engine/transaction";
+import { discreteRandomDefinitionSchema } from "../engine/state-schemas";
 import type { WorldRunEvent, WorldSessionDocument } from "./world-run-types";
 
 const runStatusSchema = z.enum([
@@ -75,8 +78,7 @@ const runEventSchema = z.union([
     type: z.literal("player.outcome"),
     payload: z.strictObject({
       status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
-      summary: z.string(),
-      knownAlternatives: z.array(z.string()),
+      summary: z.string().trim().min(1),
     }),
   }),
   z.strictObject({
@@ -86,7 +88,7 @@ const runEventSchema = z.union([
       id: z.string().min(1),
       observerId: z.literal("player"),
       step: z.number().int().nonnegative(),
-      summary: z.string(),
+      summary: z.string().trim().min(1),
       introductions: z.array(z.strictObject({ localEntity: localEntityViewSchema })),
       apparentClaims: z.array(z.strictObject({
         id: z.string().min(1),
@@ -155,10 +157,12 @@ const worldContractSchema = z.strictObject({
     adjudication: z.string().min(1),
     rules: z.array(z.strictObject({ id: z.string().min(1), description: z.string().min(1) })),
   })).min(1),
+  randomDistributions: z.array(discreteRandomDefinitionSchema),
+  historyBaseHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
 const documentEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(7),
+  schemaVersion: z.literal(8),
   id: z.string().min(1),
   world: worldContractSchema,
   title: z.string().trim().min(1).max(80),
@@ -202,12 +206,28 @@ function validateWorldSessionDocument(document: WorldSessionDocument, expectedSe
   if (document.state.worldId !== document.world.id || document.state.worldHash !== document.world.contentHash) {
     throw new Error("session world contract mismatch");
   }
+  validateDiscreteRandomDefinitions(document.world.randomDistributions);
   const lawIds = new Set(document.world.laws.map((law) => law.id));
   if (lawIds.size !== document.world.laws.length || document.state.lawIds.length !== lawIds.size ||
     document.state.lawIds.some((id) => !lawIds.has(id))) {
     throw new Error("session world laws mismatch");
   }
   validateSimulationState(document.state, true, true);
+  if (contentHash(createHistoryReplayBase(document.state)) !== document.world.historyBaseHash) {
+    throw new Error("session history replay base mismatch");
+  }
+  const randomDistributions = new Map(document.world.randomDistributions.map((definition) => [
+    definition.id,
+    definition,
+  ]));
+  for (const step of document.state.history) {
+    for (const request of step.randomRequests) {
+      const pinned = randomDistributions.get(request.distributionId);
+      if (!pinned || contentHash(pinned) !== contentHash(request.distribution)) {
+        throw new Error(`session random distribution mismatch for ${request.id}`);
+      }
+    }
+  }
 
   const currentIntentRuns: string[] = [];
   const intentIds = new Set<string>();

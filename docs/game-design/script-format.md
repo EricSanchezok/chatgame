@@ -81,11 +81,37 @@ ratings:
     name: 决心
     min: -5
     max: 10
+random_distributions:
+  - id: four-six-total
+    description: 独立抽取四次六槽结果并求和。
+    steps:
+      - id: total
+        count: 4
+        outcomes: [1, 2, 3, 4, 5, 6]
+        aggregate: sum
+  - id: conditional-group-size
+    description: 四分之一概率触发，触发后独立抽取四次四槽结果并求和。
+    steps:
+      - id: triggered
+        count: 1
+        outcomes: [false, false, false, true]
+        aggregate: first
+      - id: group-size
+        count: 4
+        outcomes: [1, 2, 3, 4]
+        aggregate: sum
+        when: { step_id: triggered, equals: true }
 ```
 
 `rule_packages` 至少包含一个服务端已注册包。引用由包 ID、精确版本和严格 JSON 配置组成；世界目录不能提供代码。默认注册表提供 `core-d20@1.1.0`，其中 `apply-meter-impact` 根据已提交 resolution check 确定性派生 Meter 变化，并拒绝直接 `adjust_meter` 绕过。未知包、规则、版本不符、重复引用和多余配置拒绝。
 
 Meter 的 `max` 必须大于 `min`，阈值位于范围内；threshold effect 为 `set_lifecycle` 或 `set_fact`。Quantity 通过 `production_law_ids` 与 `consumption_law_ids` 分别列出授权法则；空列表表示禁止相应操作，转移始终守恒。Rating 是剧本命名的通用检定修正，`max >= min`。
+
+`random_distributions` 可省略，默认空数组。每个分布包含稳定 ID、说明和 1–100 个有序 step；每个 step 的 `count` 为 1–100，`outcomes` 是 2–100 个等概率槽位，允许重复值以表达权重。outcome 只能是非空字符串、安全整数、布尔值或 null；槽位顺序和重复次数都是运行契约的一部分。
+
+导入按 canonical 稳定序列化后的实际 UTF-8 字节执行资源边界：单 outcome 至多 256 B，单分布至多 32 KiB，且单分布所有 step 的 `count` 合计至多 1,024；单个世界至多声明 256 个分布，完整 catalog 至多 512 KiB。边界值有效，超过一个分布、UTF-8 字节或一次声明抽取即拒绝；运行步骤的聚合预算见[离散随机协议](engine-runtime.md#离散随机协议)。
+
+`aggregate: first` 要求 `count: 1`，返回一次抽取；`aggregate: sum` 要求所有 outcome 为安全整数并返回安全整数总和；`aggregate: values` 按抽取顺序返回完整数组。`when` 可省略或为 null；存在时只能用 `step_id` 引用本分布中更早且聚合结果不是 values 的 step，并以 `equals` 精确匹配 scalar 结果。条件不满足的 step 被标记 skipped，不抽取且不消耗 RNG。运行时如何预承诺、断言与重放这些分布见 [离散随机协议](engine-runtime.md#离散随机协议)。
 
 ## `entities/*.yaml`
 
@@ -158,7 +184,7 @@ agent:
 
 `placement` 为另一个实体 ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 agent IDs。Meter/Rating 引用目录定义并受范围约束；Quantity 初值非负。同一实体可选 `agent`，没有该块就只是普通对象。`model_profiles` 的三个必填字段分别引用允许 `agent-bootstrap`、`agent-mind` 与 `agent-reaction` 的 Profile；不同调用点和不同 Agent 都可独立选择 Provider/Profile。
 
-loader 对规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 entities 计算 `worldHash`。YAML 中的初始 Fact 不声明 provenance；运行态统一生成 `{ kind: "world_seed", id: worldHash }`，不得借用任意 Law 伪装世界种子来源。
+loader 对规范化 manifest、laws、mechanics、player 与按实体 ID 排序的 entities 计算 `worldHash`；random distribution 的有序 steps 和 outcome 槽位因此参与内容身份。YAML 中的初始 Fact 不声明 provenance；运行态统一生成 `{ kind: "world_seed", id: worldHash }`，不得借用任意 Law 伪装世界种子来源。
 
 ## 角色种子
 
@@ -203,7 +229,7 @@ bindings:
 
 ## 引用与状态校验
 
-loader 验证实体、placement、fact entity value、Agent entity、唯一 self binding、角色局部引用与 evidence、玩家实体、Meter/Quantity/Rating 定义、binding canonical IDs、claim subject/evidence、Profile 存在性与角色、范围、数量、唯一 ID 与 placement 无环。loader 将初始 Agent `nextAction` 设为 null；创建会话时 AgentMind 统一初始化。
+loader 验证实体、placement、fact entity value、Agent entity、唯一 self binding、角色局部引用与 evidence、玩家实体、Meter/Quantity/Rating 定义、random distribution 的顺序引用与聚合约束、binding canonical IDs、claim subject/evidence、Profile 存在性与角色、范围、数量、唯一 ID 与 placement 无环。loader 将初始 Agent `nextAction` 设为 null；创建会话时 AgentMind 统一初始化。
 
 ## 规模
 

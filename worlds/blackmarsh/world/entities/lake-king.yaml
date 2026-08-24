@@ -1,0 +1,30 @@
+id: lake-king
+kind: person
+name: Lake King
+description: 统治西部湖宫、也是 Three Sisters 三位 nixie 姐妹之父的水下君主。
+placement: hex-0515-lake-kings-court
+facts:
+  - id: lake-king-rule
+    predicate: office
+    value: { kind: entity, entityId: hex-0515-lake-kings-court }
+    description: Lake King 统治最西部湖泊的水下宫廷；人口只由宫廷实体记录。
+    access: { kind: public }
+  - id: lake-king-daughters
+    predicate: parent-of
+    value: { kind: entity, entityId: three-sisters-nixies }
+    description: Three Sisters 是 Lake King 彼此争吵并离开宫廷的三个女儿。
+    access: { kind: private }
+  - id: lake-king-release-offer
+    predicate: standing-offer
+    value: { kind: text, value: release-captives-in-exchange-for-bringing-his-daughters-home }
+    description: 他愿意释放宫廷扣押者，以换取外人把三个女儿带回；这不是赐予宝藏的承诺。
+    access: { kind: private }
+meters:
+  - { id: "vitality:lake-king", definition_id: vitality, current: 18 }
+quantities:
+  - { definition_id: coin, amount: 140 }
+  - { definition_id: provisions, amount: 40 }
+  - { definition_id: viz, amount: 1 }
+ratings:
+  - { id: "influence:lake-king", definition_id: influence, value: 4 }
+  - { id: "magic:lake-king", definition_id: magic, value: 3 }

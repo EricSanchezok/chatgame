@@ -1,0 +1,24 @@
+id: ochre-jelly-infestation
+kind: ooze-infestation
+name: 法师堡赭色胶怪群
+description: 与 Bright Empire 失败实验相连的 ochre jelly 聚合种群，各个体依环境刺激独立移动。
+placement: hex-0309-ruined-wizard-keep
+facts:
+  - id: ochre-jelly-infestation-origin
+    predicate: origin
+    value: { kind: text, value: bright-empire-experiment-gone-awry }
+    description: 约千年前的一场法师实验失控，使废堡长期被胶怪侵占。
+    access: { kind: private }
+  - id: ochre-jelly-infestation-scale
+    predicate: population-state
+    value: { kind: text, value: numerous-ochre-jellies-without-fixed-canonical-count }
+    description: 原作只明确数量众多而未给总数；个体会因分裂、死亡与迁移改变分布。
+    access: { kind: private }
+  - id: ochre-jelly-infestation-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: independent-oozes-without-shared-mind-or-command }
+    description: 胶怪不构成统一行动主体，聚合实体只记录持续侵染状态。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

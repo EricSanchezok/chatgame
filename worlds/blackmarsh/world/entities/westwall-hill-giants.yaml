@@ -1,0 +1,24 @@
+id: westwall-hill-giants
+kind: hill-giant-household
+name: Westwall 山丘巨人群
+description: 以 1217 Westwall 山麓家园为活动中心的 hill giant 亲族群体，依地形、食物与分赃关系协同行动。
+placement: hex-1217-hill-giant-steading
+facts:
+  - id: westwall-hill-giants-count
+    predicate: composition
+    value: { kind: number, value: 8 }
+    description: 原作明确家园由八名 hill giant 占据。
+    access: { kind: private }
+  - id: westwall-hill-giants-raiding-pattern
+    predicate: recurring-activity
+    value: { kind: text, value: selectively-raids-farms-around-jorvik-and-norbury-castle }
+    description: 巨人会依据收成、防备和运输状况变化目标与路线，并非固定等待在某处袭击。
+    access: { kind: public }
+  - id: westwall-hill-giants-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: individual-giants-without-shared-mind }
+    description: 他们可结伴出猎或袭掠，但分别感知、受伤并作决定。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

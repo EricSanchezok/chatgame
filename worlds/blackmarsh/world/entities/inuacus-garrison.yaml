@@ -1,0 +1,34 @@
+id: inuacus-garrison
+kind: military-garrison
+name: Inuacus Keep 守军
+description: 驻守 Inuacus Keep 的边境军政单位，依正式军令、轮值与通信承担农地防卫。
+placement: hex-1113-inuacus-keep
+facts:
+  - id: inuacus-garrison-strength
+    predicate: composition
+    value: { kind: number, value: 50 }
+    description: Inuacus Keep 的正式驻军人数为五十人。
+    access: { kind: public }
+  - id: inuacus-garrison-commander
+    predicate: commanded-by
+    value: { kind: entity, entityId: sir-causari }
+    description: Sir Causari 以要塞指挥官身份发布守军命令。
+    access: { kind: public }
+  - id: inuacus-garrison-standing-orders
+    predicate: standing-order
+    value: { kind: text, value: defend-surrounding-farms-monitor-jorvik-and-stop-monsters-moving-north }
+    description: t0 的命令是保护周边农地、防备 Jorvik 的 Atacyl 余党并拦截北上的沼泽怪物。
+    access: { kind: private }
+  - id: inuacus-garrison-political-boundary
+    predicate: authority-boundary
+    value: { kind: text, value: military-duty-does-not-automatically-make-garrison-a-human-restoration-force }
+    description: Causari 的政治立场不会自动把五十名守军转成政变军力；调动仍需合法命令和可传达的理由。
+    access: { kind: private }
+  - id: inuacus-garrison-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: soldiers-follow-command-chain-without-shared-mind }
+    description: 士兵可协同执行命令，但各自拥有认知、伤势和服从判断，聚合实体不代表共享心智。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

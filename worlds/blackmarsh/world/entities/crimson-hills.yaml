@@ -1,0 +1,19 @@
+id: crimson-hills
+kind: geographic-region
+name: The Crimson Hills
+description: 多代兽人部族反复征服、复仇和迁徙的丘陵，Bateater 与 Bloodcrusher 是现存最大两支势力。
+placement: blackmarsh-region
+facts:
+  - id: crimson-hills-major-tribes
+    predicate: inhabitants
+    value: { kind: text, value: bateater-and-bloodcrusher-with-smaller-clans }
+    description: Bateater 占据 1911，Bloodcrusher 占据 2207，另有小型氏族和家族在丘陵中狩猎与隐居。
+    access: { kind: public }
+  - id: crimson-hills-conflict-pattern
+    predicate: political-condition
+    value: { kind: text, value: recurring-intertribal-conquest-and-feud }
+    description: 地名源于长期流血冲突；具体敌意来自部族关系和历史，不是兽人的天生属性。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

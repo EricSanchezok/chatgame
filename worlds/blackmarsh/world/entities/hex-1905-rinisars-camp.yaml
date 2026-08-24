@@ -1,0 +1,14 @@
+id: hex-1905-rinisars-camp
+kind: military-camp
+name: Rinisar's Camp
+description: Dragonbone Peaks 西部林缘的前进营地，由隐蔽宿营位、诱饵储存点与撤离通道组成。
+placement: dragonbone-peaks
+facts:
+  - id: hex-1905-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1905" }
+    description: 营地位于区域六角 1905；Dragonbone Peaks 西部林缘归属依据原始地图判读。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

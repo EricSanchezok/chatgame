@@ -18,7 +18,7 @@ export type BeliefValue =
   | { kind: "local_entity"; localEntityId: LocalEntityId };
 
 export interface CausalRef {
-  kind: "action" | "check" | "event" | "fact" | "law" | "mechanic";
+  kind: "action" | "check" | "random" | "event" | "fact" | "law" | "mechanic";
   id: string;
 }
 
@@ -26,6 +26,12 @@ export type NumericComparison = "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
 
 export type CausalAssertion =
   | { kind: "check_result"; checkId: string; expected: "succeeded" | "failed" }
+  | {
+      kind: "random_result";
+      requestId: string;
+      stepId: string;
+      expected: DiscreteRandomAggregate;
+    }
   | { kind: "fact_matches"; factId: FactId; expected: FactValue }
   | { kind: "fact_absent"; factId: FactId }
   | { kind: "entity_absent"; entityId: EntityId }
@@ -120,6 +126,26 @@ export interface MechanicsCatalog {
   ratings: Record<string, RatingDefinition>;
 }
 
+export type DiscreteRandomValue = string | number | boolean | null;
+export type DiscreteRandomAggregate = DiscreteRandomValue | DiscreteRandomValue[];
+
+export interface DiscreteRandomStepDefinition {
+  id: string;
+  count: number;
+  outcomes: DiscreteRandomValue[];
+  aggregate: "first" | "sum" | "values";
+  when: {
+    stepId: string;
+    equals: DiscreteRandomValue;
+  } | null;
+}
+
+export interface DiscreteRandomDefinition {
+  id: string;
+  description: string;
+  steps: DiscreteRandomStepDefinition[];
+}
+
 export interface MeterState {
   id: string;
   definitionId: string;
@@ -153,6 +179,12 @@ export interface CanonicalWorldState {
   meters: Record<string, MeterState>;
   quantities: Record<string, QuantityState>;
   ratings: Record<string, RatingState>;
+}
+
+export interface HistoryReplayBase {
+  truth: CanonicalWorldState;
+  agentEntities: Record<AgentId, EntityId>;
+  playerEntityId: EntityId;
 }
 
 export interface LocalEntity {
@@ -358,7 +390,7 @@ export interface WorldEvent {
 }
 
 export interface SimulationState {
-  schemaVersion: 6;
+  schemaVersion: 7;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -373,6 +405,7 @@ export interface SimulationState {
     intent?: PlayerIntent;
   };
   history: CommittedStep[];
+  historyBase?: HistoryReplayBase;
   bootstrapModelAudits: ModelExecutionAudit[];
 }
 
@@ -407,6 +440,40 @@ export interface D20CheckResult {
   succeeded: boolean;
   margin: number;
   visibility: CheckVisibility;
+}
+
+export type CommitmentRound =
+  | {
+      kind: "check";
+      phase: D20CheckRequest["phase"];
+      requestIds: string[];
+    }
+  | {
+      kind: "random";
+      requestIds: string[];
+    };
+
+export interface DiscreteRandomRequest {
+  id: string;
+  distributionId: string;
+  distribution: DiscreteRandomDefinition;
+  causes: CausalRef[];
+}
+
+export interface DiscreteRandomStepResult {
+  stepId: string;
+  skipped: boolean;
+  draws: Array<{
+    outcomeIndex: number;
+    value: DiscreteRandomValue;
+  }>;
+  aggregate: DiscreteRandomAggregate | null;
+}
+
+export interface DiscreteRandomResult {
+  requestId: string;
+  distributionId: string;
+  steps: DiscreteRandomStepResult[];
 }
 
 export interface KnownAlternative {
@@ -618,7 +685,7 @@ export interface MechanicResult {
 }
 
 export interface CausalTarget {
-  kind: "check" | "operation" | "mechanic" | "event" | "outcome" | "observation";
+  kind: "check" | "random" | "operation" | "mechanic" | "event" | "outcome" | "observation";
   id: string;
 }
 
@@ -743,6 +810,9 @@ export interface CommittedStep {
   rngAfter: SeededRngState;
   checkRequests: D20CheckRequest[];
   checks: D20CheckResult[];
+  randomRequests: DiscreteRandomRequest[];
+  randomResults: DiscreteRandomResult[];
+  commitmentRounds: CommitmentRound[];
   outcomes: ActionOutcome[];
   mechanicInvocations: MechanicInvocation[];
   mechanicResults: MechanicResult[];
@@ -751,6 +821,8 @@ export interface CommittedStep {
   events: WorldEvent[];
   observations: ObservationPacket[];
   operations: WorldDeltaOperation[];
+  intentStatus: TransitionProposal["intentStatus"];
+  requiresPlayerDecision: boolean;
   beliefPatches: BeliefPatch[];
   characterPatches: CharacterPatch[];
   modelAudits: ModelExecutionAudit[];

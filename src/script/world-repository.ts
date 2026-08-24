@@ -1,4 +1,5 @@
 import { validateWorldModelProfiles, type WorldDefinition } from "../engine/world-definition";
+import { historyReplayBaseHash } from "../engine/history-replay";
 import type { ModelCatalog } from "../engine/model-catalog";
 import { createSeededRng } from "../engine/random";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
@@ -39,7 +40,10 @@ export class MemoryWorldRepository implements WorldRepository {
     const definition = this.definitions[worldId];
     if (!definition) throw new Error(`world not found: ${worldId}`);
     const cloned = structuredClone(definition);
-    if (seed !== undefined) cloned.initialState.truth.rng = createSeededRng(seed);
+    if (seed !== undefined) {
+      cloned.initialState.truth.rng = createSeededRng(seed);
+      cloned.historyBaseHash = historyReplayBaseHash(cloned.initialState);
+    }
     validateWorldModelProfiles(cloned, modelCatalog);
     return cloned;
   }

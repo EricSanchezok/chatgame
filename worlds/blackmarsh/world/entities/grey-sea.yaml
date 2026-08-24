@@ -1,0 +1,24 @@
+id: grey-sea
+kind: geographic-region
+name: The Grey Sea
+description: 风暴、强流、暗礁与丰饶渔场并存、连接黑沼与外部诸国的广大外海。
+placement: blackmarsh-region
+facts:
+  - id: grey-sea-navigation
+    predicate: navigation
+    value: { kind: text, value: storms-strong-currents-and-treacherous-reefs }
+    description: 远海航行需要可靠船只、领航知识和天气判断；水面距离不能绕过风、流与暗礁约束。
+    access: { kind: public }
+  - id: grey-sea-fisheries
+    predicate: resource
+    value: { kind: text, value: exceptionally-productive-fishing-grounds }
+    description: 丰饶渔场支撑沿岸聚落，也吸引长途渔船进入天气危险区。
+    access: { kind: public }
+  - id: grey-sea-naval-balance
+    predicate: political-condition
+    value: { kind: text, value: grand-kingdom-dominance-with-vasan-and-pirate-resistance }
+    description: Bright Empire 崩溃后的掠夺者优势已被 Grand Kingdom 海军大体压制，但远离航线的海域仍无法被持续控制。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

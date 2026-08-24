@@ -6,14 +6,18 @@ import {
   reactionRoutingOutputSchema,
   resolutionDirectiveSchema,
   transitionProposalSchema,
+  type DiscreteRandomRequestProposal,
 } from "./llm-schemas";
 import type {
   AgentActionProposal,
   CausalAssertionResult,
   CausalRef,
   CausalVerification,
+  CommitmentRound,
   D20CheckRequest,
   D20CheckResult,
+  DiscreteRandomRequest,
+  DiscreteRandomResult,
   ModelExecutionAudit,
   MechanicResult,
   ObservationPacket,
@@ -23,6 +27,7 @@ import type {
   SimulationState,
   TransitionProposal,
 } from "./model";
+import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import {
   combineModelExecutionAudits,
   modelInvocationCorrelation,
@@ -48,7 +53,12 @@ import {
   validationIssues,
   type PromptValidationIssue,
 } from "./prompts";
-import { resolveD20Checks } from "./random";
+import {
+  resolveD20Checks,
+  resolveDiscreteRandomRequests,
+  validateDiscreteRandomCommitmentBudget,
+} from "./random";
+import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "./rule-package";
 import type { WorldDefinition } from "./world-definition";
 import type { ModelRole } from "./model-catalog";
@@ -67,6 +77,9 @@ export interface TruthResolution {
   stimulusObservations: ObservationPacket[];
   requests: D20CheckRequest[];
   checks: D20CheckResult[];
+  randomRequests: DiscreteRandomRequest[];
+  randomResults: DiscreteRandomResult[];
+  commitmentRounds: CommitmentRound[];
   rng: SeededRngState;
   mechanicResults: MechanicResult[];
   causalAssertionResults: CausalAssertionResult[];
@@ -83,6 +96,7 @@ export interface TruthResolutionInput {
   validateProposal: (
     proposal: TransitionProposal,
     checks: readonly D20CheckResult[],
+    randomResults: readonly DiscreteRandomResult[],
     actions: readonly AgentActionProposal[],
     stimulusObservations: readonly ObservationPacket[],
   ) => void;
@@ -90,7 +104,7 @@ export interface TruthResolutionInput {
 
 export interface TruthEngineOptions {
   repairAttempts?: number;
-  maxCheckRounds?: number;
+  maxCommitmentRounds?: number;
   rulePackages?: RulePackageRegistry;
 }
 
@@ -419,6 +433,7 @@ function validateTransitionEnvelope(
   actions: readonly AgentActionProposal[],
   proposal: TransitionProposal,
   checks: readonly D20CheckResult[],
+  randomResults: readonly DiscreteRandomResult[],
 ): void {
   const proposalIds = actions.map((action) => action.id);
   const outcomeIds = proposal.outcomes.map((outcome) => outcome.proposalId);
@@ -439,6 +454,7 @@ function validateTransitionEnvelope(
   const allowed: Record<CausalRef["kind"], Set<string>> = {
     action: new Set(proposalIds),
     check: new Set(checks.map((check) => check.requestId)),
+    random: new Set(randomResults.map((result) => result.requestId)),
     event: eventIds,
     fact: new Set(Object.keys(input.state.truth.facts)),
     law: new Set(input.definition.laws.map((law) => law.id)),
@@ -495,7 +511,7 @@ function validateTransitionEnvelope(
 
 export class TruthEngine {
   private readonly repairAttempts: number;
-  private readonly maxCheckRounds: number;
+  private readonly maxCommitmentRounds: number;
   private readonly rulePackages: RulePackageRegistry;
 
   constructor(
@@ -503,15 +519,20 @@ export class TruthEngine {
     options: TruthEngineOptions = {},
   ) {
     this.repairAttempts = options.repairAttempts ?? 2;
-    this.maxCheckRounds = options.maxCheckRounds ?? 4;
+    this.maxCommitmentRounds = options.maxCommitmentRounds ?? MAX_COMMITMENT_ROUNDS_PER_STEP;
+    if (!Number.isSafeInteger(this.maxCommitmentRounds) || this.maxCommitmentRounds < 0 ||
+      this.maxCommitmentRounds > MAX_COMMITMENT_ROUNDS_PER_STEP) {
+      throw new Error(`maxCommitmentRounds must be an integer from 0 to ${MAX_COMMITMENT_ROUNDS_PER_STEP}`);
+    }
     this.rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
   }
 
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
     let actions = input.initialActions.map((action) => structuredClone(action));
-    const allowedForChecks: Record<CausalRef["kind"], Set<string>> = {
+    const allowedForCommitments: Record<CausalRef["kind"], Set<string>> = {
       action: new Set(actions.map((action) => action.id)),
       check: new Set(),
+      random: new Set(),
       event: new Set(input.state.truth.events.map((event) => event.id)),
       fact: new Set(Object.keys(input.state.truth.facts)),
       law: new Set(input.definition.laws.map((law) => law.id)),
@@ -521,11 +542,17 @@ export class TruthEngine {
     const checks: D20CheckResult[] = [];
     const requests: D20CheckRequest[] = [];
     const requestIds = new Set<string>();
+    const randomRequests: DiscreteRandomRequest[] = [];
+    const randomResults: DiscreteRandomResult[] = [];
+    const commitmentRounds: CommitmentRound[] = [];
+    const randomRequestIds = new Set(input.state.history.flatMap((step) =>
+      step.randomRequests.map((request) => request.id)));
     let reactionRequests: ReactionRequest[] = [];
     let reactionDecisions: ReactionDecision[] = [];
     let reactionModelAudits: ModelExecutionAudit[] = [];
     const modelAudits: ModelExecutionAudit[] = [];
-    let checkRounds = 0;
+    let randomStarted = false;
+    let randomRngDrawsBefore: number | null = null;
     const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
       combineModelExecutionAudits(audits);
 
@@ -542,6 +569,9 @@ export class TruthEngine {
       reactionWindow: stage === "perception" || stage === "reaction-routing" ? "open" : "closed",
       committedCheckRequests: requests,
       checkResults: checks,
+      committedRandomRequests: randomRequests,
+      randomResults,
+      commitmentRounds,
       allowedAgentProfiles: {
         bootstrap: this.provider.catalog.profileSummaries("agent-bootstrap"),
         mind: this.provider.catalog.profileSummaries("agent-mind"),
@@ -554,7 +584,10 @@ export class TruthEngine {
     });
 
     const validateCheckRound = (round: readonly D20CheckRequest[], phase: "perception" | "resolution") => {
-      if (checkRounds >= this.maxCheckRounds) throw new Error("maximum check rounds exceeded");
+      if (commitmentRounds.length >= this.maxCommitmentRounds) {
+        throw new Error("maximum commitment rounds exceeded");
+      }
+      if (randomStarted) throw new Error("d20 checks cannot be requested after discrete random commitments");
       const roundIds = new Set<string>();
       for (const request of round) {
         if (request.phase !== phase) throw new Error(`${phase} stage emitted ${request.phase} check`);
@@ -563,7 +596,7 @@ export class TruthEngine {
         validateCheckRequest(
           input.state,
           request,
-          allowedForChecks,
+          allowedForCommitments,
           input.definition.disclosure.defaultCheckVisibility,
         );
       }
@@ -576,9 +609,62 @@ export class TruthEngine {
       checks.push(...resolved.results);
       for (const request of round) {
         requestIds.add(request.id);
-        allowedForChecks.check.add(request.id);
+        allowedForCommitments.check.add(request.id);
       }
-      checkRounds += 1;
+      commitmentRounds.push({
+        kind: "check",
+        phase: round[0]!.phase,
+        requestIds: round.map((request) => request.id),
+      });
+    };
+
+    const normalizeRandomRound = (
+      round: readonly DiscreteRandomRequestProposal[],
+    ): DiscreteRandomRequest[] => {
+      if (commitmentRounds.length >= this.maxCommitmentRounds) {
+        throw new Error("maximum commitment rounds exceeded");
+      }
+      if (round.length > MAX_RANDOM_REQUESTS_PER_ROUND) {
+        throw new Error("discrete random round exceeds request limit");
+      }
+      const roundIds = new Set<string>();
+      const normalized = round.map((request) => {
+        if (randomRequestIds.has(request.id) || roundIds.has(request.id)) {
+          throw new Error(`duplicate random request ${request.id}`);
+        }
+        roundIds.add(request.id);
+        for (const cause of request.causes) {
+          validateCausalReference(cause, allowedForCommitments, `random request ${request.id}`);
+        }
+        const distribution = input.definition.randomDistributions.find((candidate) =>
+          candidate.id === request.distributionId);
+        if (!distribution) {
+          throw new Error(`random request ${request.id} references unknown distribution ${request.distributionId}`);
+        }
+        return { ...structuredClone(request), distribution: structuredClone(distribution) };
+      });
+      validateDiscreteRandomCommitmentBudget([...randomRequests, ...normalized]);
+      return normalized;
+    };
+
+    const commitRandomRound = (round: readonly DiscreteRandomRequest[]) => {
+      const resolved = resolveDiscreteRandomRequests(rng, round);
+      const firstRandomDraw = randomRngDrawsBefore ?? rng.draws;
+      validateDiscreteRandomCommitmentBudget(
+        [...randomRequests, ...round],
+        [...randomResults, ...resolved.results],
+        resolved.rng.draws - firstRandomDraw,
+      );
+      randomRngDrawsBefore = firstRandomDraw;
+      rng = resolved.rng;
+      randomRequests.push(...structuredClone(round));
+      randomResults.push(...resolved.results);
+      for (const request of round) {
+        randomRequestIds.add(request.id);
+        allowedForCommitments.random.add(request.id);
+      }
+      randomStarted = true;
+      commitmentRounds.push({ kind: "random", requestIds: round.map((request) => request.id) });
     };
 
     const perceptionAudits: ModelExecutionAudit[] = [];
@@ -634,7 +720,7 @@ export class TruthEngine {
         const message = error instanceof Error ? error.message : String(error);
         throw new ReactionExecutionError(`reaction execution failed: ${message}`, { cause: error });
       }
-      allowedForChecks.action = new Set(actions.map((action) => action.id));
+      allowedForCommitments.action = new Set(actions.map((action) => action.id));
     }
 
     const resolutionAudits: ModelExecutionAudit[] = [];
@@ -653,6 +739,8 @@ export class TruthEngine {
         validate: (directive) => {
           if (directive.kind === "request_checks") {
             validateCheckRound(directive.requests, "resolution");
+          } else if (directive.kind === "request_random") {
+            normalizeRandomRound(directive.requests);
           }
         },
         repairAttempts: this.repairAttempts,
@@ -660,7 +748,11 @@ export class TruthEngine {
       });
       resolutionAudits.push(call.audit);
       if (call.value.kind === "done") break;
-      commitCheckRound(call.value.requests);
+      if (call.value.kind === "request_checks") {
+        commitCheckRound(call.value.requests);
+      } else {
+        commitRandomRound(normalizeRandomRound(call.value.requests));
+      }
     }
     modelAudits.push(combineStageAudits(resolutionAudits));
 
@@ -720,6 +812,8 @@ export class TruthEngine {
           actions,
           checkRequests: requests,
           checkResults: checks,
+          randomRequests,
+          randomResults,
         }, directProposal.mechanicInvocations, directProposal.operations);
         const proposal: TransitionProposal = {
           ...structuredClone(directProposal),
@@ -736,9 +830,9 @@ export class TruthEngine {
             throw new Error(`new agent ${operation.agent.id} must not provide a prepared action`);
           }
         }
-        validateTransitionEnvelope(input, actions, proposal, checks);
-        const causalAssertionResults = evaluateProposalCausality(input.state, checks, proposal);
-        input.validateProposal(proposal, checks, actions, stimulusObservations);
+        validateTransitionEnvelope(input, actions, proposal, checks, randomResults);
+        const causalAssertionResults = evaluateProposalCausality(input.state, checks, randomResults, proposal);
+        input.validateProposal(proposal, checks, randomResults, actions, stimulusObservations);
 
         const verification = await generateValidated({
           provider: this.provider,
@@ -756,6 +850,9 @@ export class TruthEngine {
             actions,
             checkRequests: requests,
             checkResults: checks,
+            randomRequests,
+            randomResults,
+            commitmentRounds,
             proposal,
             assertionResults: causalAssertionResults,
             mechanicResults: mechanics.results,
@@ -768,6 +865,7 @@ export class TruthEngine {
             if (report.verdict !== "reject") return;
             const targets = new Set([
               ...requests.map((request) => `check:${request.id}`),
+              ...randomRequests.map((request) => `random:${request.id}`),
               ...proposal.operations.map((operation, index) => `operation:${index}:${operation.kind}`),
               ...proposal.mechanicInvocations.map((invocation) => `mechanic:${invocation.id}`),
               ...proposal.events.map((event) => `event:${event.id}`),
@@ -808,6 +906,9 @@ export class TruthEngine {
           stimulusObservations: structuredClone(stimulusObservations),
           requests: structuredClone(requests),
           checks: structuredClone(checks),
+          randomRequests: structuredClone(randomRequests),
+          randomResults: structuredClone(randomResults),
+          commitmentRounds: structuredClone(commitmentRounds),
           rng,
           mechanicResults: structuredClone(mechanics.results),
           causalAssertionResults: structuredClone(causalAssertionResults),

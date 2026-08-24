@@ -1,0 +1,32 @@
+id: atacyl-remnants
+kind: aging-warlock-coven
+name: Warlock Island Remnants
+description: 约一百年前携 Atacyl 遗体逃到 1214 的施法者结社残部；实体只代表岛上年迈幸存者，不包括 Jorvik 网络、Sir Autse 或未定存亡的 Atacyl。
+placement: hex-1214-warlock-island
+facts:
+  - id: atacyl-remnants-public-reputation
+    predicate: reputation
+    value: { kind: text, value: isolated-warlocks-occupy-the-island }
+    description: 外界只可靠地知道岛上有避世 warlock 结社，未公开掌握其成员来历和旧仪式细节。
+    access: { kind: public }
+  - id: atacyl-remnants-origin
+    predicate: historical-origin
+    value: { kind: text, value: atacyl-supporters-carried-his-body-here-after-his-fall }
+    description: 创始成员在 Atacyl 倒台后携其遗体来到岛上，并建立隐蔽结社。
+    access: { kind: private }
+  - id: atacyl-remnants-resurrection-history
+    predicate: historical-action
+    value: { kind: text, value: coven-enabled-vampiric-resurrection-and-lost-half-its-members }
+    description: 结社监督 Atacyl 化为 vampire；复生过程中他杀死约一半成员后逃入沼泽。
+    access: { kind: private }
+  - id: atacyl-remnants-current-boundary
+    predicate: current-condition
+    value: { kind: text, value: few-aging-survivors-with-no-proven-command-link-to-other-remnants }
+    description: 开局只剩少数年迈施法者，且没有已证实的现存指挥链连接 Jorvik、Autse 或 Atacyl 本人。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 120 }
+  - { definition_id: provisions, amount: 90 }
+  - { definition_id: viz, amount: 9 }
+ratings: []

@@ -1,0 +1,29 @@
+id: hex-0610-greenton
+kind: settlement
+name: Greenton
+description: Newcombe 半身人的首要聚落与农产市场，外来商人集中在城外称为 Sack 的临时商业村。
+placement: blackmarsh-region
+facts:
+  - id: hex-0610-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0610" }
+    description: Greenton 位于区域六角 0610，在 Pendar Mountains 以东的 Newcombe 农地。
+    access: { kind: public }
+  - id: hex-0610-population
+    predicate: population
+    value: { kind: number, value: 642 }
+    description: 常住人口约六百四十二，以半身人为主。
+    access: { kind: public }
+  - id: hex-0610-farm-market
+    predicate: resource
+    value: { kind: text, value: regional-grain-and-produce-market }
+    description: 黑沼各地商人来此采购谷物和农产，再运回各自地区。
+    access: { kind: public }
+  - id: hex-0610-sack-hamlet
+    predicate: district
+    value: { kind: text, value: merchant-hamlet-outside-greenton }
+    description: 外来商人驻在城外 Sack，以塞满羊毛的袋子作为竞价与谈判座席。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

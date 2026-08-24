@@ -1,0 +1,27 @@
+id: dax-brothers-outfitters
+kind: outfitter
+name: Dax Brothers 装备行
+description: 由散布各地的 Dax 家族共同经营，以高于市价的价格提供从 Grand Kingdom 及海外进口的可靠装备。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: dax-foundation
+    predicate: institutional-history
+    value: { kind: text, value: founded-by-two-brothers-five-decades-ago }
+    description: Dax Brothers 装备行由两兄弟在五十年前创立；创办者已经去世，店铺由亲族延续。
+    access: { kind: public }
+  - id: dax-quality-premium
+    predicate: trade-policy
+    value: { kind: text, value: twenty-percent-premium-for-reliable-quality }
+    description: 价格通常高出两成，工具质量可在因果相关的行动中成为检定依据。
+    access: { kind: public }
+  - id: dax-family-network
+    predicate: supply-network
+    value: { kind: text, value: dispersed-cousins-source-imports }
+    description: 创办者已经去世，家族亲属在海外和黑沼各地寻找货源。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 900 }
+  - { definition_id: provisions, amount: 20 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

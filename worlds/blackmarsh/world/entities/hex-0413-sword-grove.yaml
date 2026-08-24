@@ -1,0 +1,19 @@
+id: hex-0413-sword-grove
+kind: stronghold
+name: 发光律剑林地
+description: 黑沼西缘湖泊北侧的林间据点，中央露天林地保存着一柄古老的发光秩序之剑。
+placement: black-marshes
+facts:
+  - id: hex-0413-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0413" }
+    description: 林地位于区域六角 0413；Black Marshes 西缘归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-0413-glowing-sword
+    predicate: contains
+    value: { kind: entity, entityId: glowing-sword-of-law }
+    description: 中央露天林地保存着发光秩序之剑；其接触历史与危险性质由物件实体独立承载。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

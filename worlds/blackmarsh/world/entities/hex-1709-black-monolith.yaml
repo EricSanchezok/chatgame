@@ -1,0 +1,24 @@
+id: hex-1709-black-monolith
+kind: ritual-site
+name: Tave 黑色独石
+description: Tave Marshes 岩岛上的黑色独石，材质与 Mountain That Fell 相同，是周期仪式的固定场所。
+placement: tave-marshes
+facts:
+  - id: hex-1709-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1709" }
+    description: 独石位于区域六角 1709，属于 Tave Marshes。
+    access: { kind: public }
+  - id: hex-1709-monolith-material
+    predicate: material
+    value: { kind: text, value: same-black-stone-as-mountain-that-fell }
+    description: 有坠山实地经验者能够认出独石材质相同，但两者的因果关系仍未证实。
+    access: { kind: private }
+  - id: hex-1709-ritual-community
+    predicate: associated-community
+    value: { kind: entity, entityId: tave-weretiger-circle }
+    description: 共同体实体唯一承载满月周期、参与者边界与认知隔离；本地点保存独石及其空间属性。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

@@ -30,7 +30,7 @@ export interface WorldRunRecord extends Omit<WorldRunRecordView, "error" | "inpu
 }
 
 export interface WorldSessionDocument {
-  schemaVersion: 7;
+  schemaVersion: 8;
   id: string;
   world: WorldRuntimeContract;
   title: string;

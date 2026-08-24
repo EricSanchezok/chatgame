@@ -1,0 +1,37 @@
+id: sigrun-brigand-column
+kind: warband
+name: Sigrun 的复仇纵队
+description: 由 Sigrun the Boneless 指挥、以两级骨干维持纪律的 brigand 行军战团。
+placement: hex-0107-blackoak-march
+facts:
+  - id: sigrun-column-strength
+    predicate: headcount
+    value: { kind: number, value: 121 }
+    description: 队伍由 Sigrun、两名队长、三名副官和一百一十五名普通 brigands 组成。
+    access: { kind: private }
+  - id: sigrun-column-readiness
+    predicate: readiness
+    value: { kind: text, value: marching-with-scouts-forward-and-limited-supplies }
+    description: 纵队保持行军队形并派出前哨，但补给只足以支持短期行动。
+    access: { kind: private }
+  - id: sigrun-column-operation-state
+    predicate: operation-state
+    value: { kind: text, value: in-progress }
+    description: 纵队的进军行动已经开始；该状态是截止结算时必须更新的唯一行动状态。
+    access: { kind: private }
+  - id: sigrun-column-operation-target
+    predicate: operation-target
+    value: { kind: entity, entityId: hex-0407-blackoak-castle }
+    description: 本次进军以进入 Blackoak Castle 外围的可攻击位置为目标，不等于预先保证攻城成功。
+    access: { kind: private }
+  - id: sigrun-column-march-deadline
+    predicate: deadline-seconds
+    value: { kind: number, value: 36000 }
+    description: 这是从世界 elapsedSeconds = 0 计算的绝对阈值 36,000；达到或越过阈值的提交必须结算行动状态，路况、阻滞与指挥变化可在此前改变截止。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 310 }
+  - { definition_id: provisions, amount: 180 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

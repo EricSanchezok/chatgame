@@ -1,0 +1,29 @@
+id: hex-1213-witch-hill
+kind: ruin
+name: Witch Hill
+description: Bright Empire 时期 Thoth 修道院 Ramat 的地基遗址，也是 Spear of Ramat 失落记录关联的山丘。
+placement: black-marshes
+facts:
+  - id: hex-1213-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1213" }
+    description: Witch Hill 位于区域六角 1213，属于 Black Marshes 北缘。
+    access: { kind: public }
+  - id: hex-1213-ramat-foundations
+    predicate: origin
+    value: { kind: text, value: bright-empire-thothian-monastery-foundations }
+    description: 丘上只剩 Ramat 修道院地基；本世界不依赖第三方《The Ruins of Ramat》冒险内容。
+    access: { kind: public }
+  - id: hex-1213-spear-record
+    predicate: historical-association
+    value: { kind: text, value: spear-of-ramat-once-kept-here-records-lost }
+    description: 强大神圣遗物 Spear of Ramat 曾保存在修道院，但帝国撤退后相关记录全部遗失，遗物当前去向未知。
+    access: { kind: public }
+  - id: hex-1213-search-conditions
+    predicate: environmental-pressure
+    value: { kind: text, value: exposed-tracks-degrade-in-rain-wind-and-bog-water }
+    description: 足迹和气味会随降雨、风与沼水持续退化，犬只也会自行移动；搜寻难度依真实经过时间与天气变化，而非地点倒计时。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,29 @@
+id: hex-0913-castle-blackmarsh
+kind: city-state
+name: 黑沼堡
+description: Bright Empire 建立、围绕旧城堡与港口发展起来的多族城邦。
+placement: smoking-bay
+facts:
+  - id: castle-blackmarsh-hex
+    predicate: hex-coordinate
+    value: { kind: text, value: "0913" }
+    description: 黑沼堡位于区域六角 0913。
+    access: { kind: public }
+  - id: castle-blackmarsh-population
+    predicate: population
+    value: { kind: number, value: 1294 }
+    description: 城内常住人口约一千二百九十四，以人类为主。
+    access: { kind: public }
+  - id: castle-blackmarsh-government
+    predicate: government
+    value: { kind: text, value: elven-appointed-governor-and-reformed-council }
+    description: 精灵任命的总督与改革后的议会共同治理城市。
+    access: { kind: public }
+  - id: castle-blackmarsh-lower-levels
+    predicate: sealed-depths
+    value: { kind: text, value: partially-unexplored-atacyl-complex }
+    description: 城堡下层仍有 Atacyl 扩建而未被彻底探索的区域。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

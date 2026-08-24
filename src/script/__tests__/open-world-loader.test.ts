@@ -4,6 +4,12 @@ import path from "node:path";
 import { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
 import { RulePackageRegistry } from "../../engine/rule-package";
+import {
+  MAX_RANDOM_DISTRIBUTION_UTF8_BYTES,
+  MAX_RANDOM_DISTRIBUTIONS_PER_WORLD,
+  stableRandomUtf8Bytes,
+} from "../../engine/random-limits";
+import type { DiscreteRandomDefinition } from "../../engine/model";
 import { createTestModelCatalog } from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../world-loader";
 
@@ -59,6 +65,37 @@ describe("open world script loader", () => {
       version: "1.1.0",
       config: { damageUsesMeters: true },
     })]);
+    expect(definition.randomDistributions).toEqual([
+      expect.objectContaining({
+        id: "four-six-sum",
+        steps: [{
+          id: "amount",
+          count: 4,
+          outcomes: [1, 2, 3, 4, 5, 6],
+          aggregate: "sum",
+          when: null,
+        }],
+      }),
+      expect.objectContaining({ id: "five-ten-sum" }),
+      expect.objectContaining({
+        id: "hourly-four-four",
+        steps: expect.arrayContaining([expect.objectContaining({
+          id: "group-size",
+          count: 4,
+          outcomes: [1, 2, 3, 4],
+          aggregate: "sum",
+          when: { stepId: "triggered", equals: true },
+        })]),
+      }),
+      expect.objectContaining({
+        id: "three-six-four-two",
+        steps: expect.arrayContaining([expect.objectContaining({
+          id: "branch",
+          outcomes: ["first", "first", "first", "first", "second", "second"],
+          when: { stepId: "triggered", equals: true },
+        })]),
+      }),
+    ]);
   });
 
   it("hashes normalized world content independently of entity file names", () => {
@@ -134,6 +171,66 @@ describe("open world script loader", () => {
       id: "cultivation-d20",
       version: "2.0.0",
     });
+  });
+
+  it("enforces the exact canonical UTF-8 distribution budget during world loading", () => {
+    const exact = copiedFixture();
+    const definition: DiscreteRandomDefinition = {
+      id: "loader-byte-boundary",
+      description: "x",
+      steps: [{
+        id: "value",
+        count: 1,
+        outcomes: [0, 1],
+        aggregate: "first",
+        when: null,
+      }],
+    };
+    definition.description += "x".repeat(
+      MAX_RANDOM_DISTRIBUTION_UTF8_BYTES - stableRandomUtf8Bytes(definition),
+    );
+    expect(stableRandomUtf8Bytes(definition)).toBe(MAX_RANDOM_DISTRIBUTION_UTF8_BYTES);
+    const appendDefinition = (directory: string, description: string) => {
+      const file = path.join(directory, "mechanics.yaml");
+      writeFileSync(file, `${readFileSync(file, "utf8")}\n  - id: loader-byte-boundary\n` +
+        `    description: ${description}\n` +
+        "    steps:\n" +
+        "      - id: value\n" +
+        "        count: 1\n" +
+        "        outcomes: [0, 1]\n" +
+        "        aggregate: first\n", "utf8");
+    };
+    appendDefinition(exact, definition.description);
+    expect(() => loadWorldScript(exact, { modelCatalog })).not.toThrow();
+
+    const oversized = copiedFixture();
+    appendDefinition(oversized, `${definition.description}x`);
+    expect(() => loadWorldScript(oversized, { modelCatalog })).toThrow("exceeds byte limit");
+  });
+
+  it("enforces the world random catalog count at the loader boundary", () => {
+    const appendDistributions = (directory: string, count: number) => {
+      const file = path.join(directory, "mechanics.yaml");
+      const additions = Array.from({ length: count }, (_, index) =>
+        `  - id: loader-catalog-${index}\n` +
+        "    description: loader catalog boundary\n" +
+        "    steps:\n" +
+        "      - id: value\n" +
+        "        count: 1\n" +
+        "        outcomes: [0, 1]\n" +
+        "        aggregate: first\n").join("");
+      writeFileSync(file, `${readFileSync(file, "utf8")}\n${additions}`, "utf8");
+    };
+
+    const fixtureDistributionCount = 4;
+    const exact = copiedFixture();
+    appendDistributions(exact, MAX_RANDOM_DISTRIBUTIONS_PER_WORLD - fixtureDistributionCount);
+    expect(() => loadWorldScript(exact, { modelCatalog })).not.toThrow();
+
+    const oversized = copiedFixture();
+    appendDistributions(oversized, MAX_RANDOM_DISTRIBUTIONS_PER_WORLD - fixtureDistributionCount + 1);
+    expect(() => loadWorldScript(oversized, { modelCatalog }))
+      .toThrow("catalog exceeds distribution limit");
   });
 
   it("rejects unknown or role-incompatible Truth and Agent model profiles", () => {

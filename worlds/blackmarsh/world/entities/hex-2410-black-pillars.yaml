@@ -1,0 +1,24 @@
+id: hex-2410-black-pillars
+kind: underwater-ruin
+name: 六黑柱浅滩
+description: 浅滩水下竖立六根二十英尺高的黑色雕纹柱，每根端部都有可容纳 Viz 的封闭槽室。
+placement: sheltered-bay
+facts:
+  - id: hex-2410-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2410" }
+    description: 黑柱浅滩位于区域六角 2410，属于 Sheltered Bay。
+    access: { kind: public }
+  - id: hex-2410-pillar-count
+    predicate: structure
+    value: { kind: number, value: 6 }
+    description: 六根约二十英尺高的黑柱从浅滩顶端立起，清水时可从水面辨认。
+    access: { kind: public }
+  - id: hex-2410-viz-compartments
+    predicate: mechanism
+    value: { kind: text, value: carved-end-compartments-accept-viz }
+    description: 每根柱端有可投入 Viz 的槽室；装置结果尚未作为开局已知事实，投入行为必须真实消耗 Viz。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

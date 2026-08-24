@@ -1,0 +1,14 @@
+id: hex-2105-scythebacks-lair
+kind: lair
+name: Scytheback's Lair
+description: Dragonbone Peaks 中与古老红龙家族及 Bright Empire 战利品历史相连的山中巢穴与藏宝空间。
+placement: dragonbone-peaks
+facts:
+  - id: hex-2105-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2105" }
+    description: 巢穴位于区域六角 2105，属于 Dragonbone Peaks。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

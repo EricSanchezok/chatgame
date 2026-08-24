@@ -1,0 +1,34 @@
+id: hex-0804-stardell-falls
+kind: settlement
+name: Stardell Falls
+description: 围绕四十英尺瀑布呈半圆分布的 Greywoods 核心聚落，王塔、后塔、Silvanus 神殿与 Viz 水源构成权力中心。
+placement: greywoods
+facts:
+  - id: hex-0804-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0804" }
+    description: Stardell Falls 位于区域六角 0804，原作明确称其为 Greywoods 核心。
+    access: { kind: public }
+  - id: hex-0804-population
+    predicate: population
+    value: { kind: number, value: 503 }
+    description: 常住人口约五百零三，以精灵为主。
+    access: { kind: public }
+  - id: hex-0804-paired-royal-towers
+    predicate: built-feature
+    value: { kind: text, value: kings-tower-west-and-queens-tower-east-linked-by-bridge }
+    description: 瀑布西侧的 King’s Tower 与东侧的 Queen’s Tower 由桥连接；Greywood 的政府归属只由 realm 实体记录。
+    access: { kind: public }
+  - id: hex-0804-viz-falls
+    predicate: resource
+    value: { kind: text, value: waterfall-rich-in-viz }
+    description: 瀑布是稳定 Viz 来源，施法者家园环绕瀑潭分布。
+    access: { kind: public }
+  - id: hex-0804-silvanus-temple
+    predicate: sacred-site
+    value: { kind: text, value: rock-cut-temple-behind-falls }
+    description: 瀑布后方岩壁内雕有 Silvanus 神殿，日月位于天顶时水幕会强化仪式景观。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

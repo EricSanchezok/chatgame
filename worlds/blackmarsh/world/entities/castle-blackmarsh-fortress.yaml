@@ -1,0 +1,19 @@
+id: castle-blackmarsh-fortress
+kind: fortress
+name: 黑沼城堡
+description: 城邦最古老的要塞与旧法师议会所在地。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: fortress-entry-policy
+    predicate: entry-policy
+    value: { kind: text, value: ranger-or-thor-recommendation-required }
+    description: 探索者必须获得 Rangers 或 Temple of Thor 推荐才能进入未清理区域。
+    access: { kind: public }
+  - id: fortress-clearing-capacity
+    predicate: clearing-capacity
+    value: { kind: text, value: insufficient-without-external-parties }
+    description: 精灵驻军能封锁入口，却没有足够人力彻底清理地下层。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

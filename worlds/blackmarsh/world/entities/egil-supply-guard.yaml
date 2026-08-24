@@ -1,0 +1,32 @@
+id: egil-supply-guard
+kind: detached-warband
+name: Egil 返航补给守卫
+description: 从 Egil 远征舰队分出、负责保护 Alhert Island 返航补给的 Vasan 小队。
+placement: hex-2015-egils-supply-camp
+facts:
+  - id: egil-supply-guard-headcount
+    predicate: headcount
+    value: { kind: number, value: 10 }
+    description: 来源确定补给营由十名 Vasan 战士守卫；伤亡、撤离与重编只在本实体更新。
+    access: { kind: private }
+  - id: egil-supply-guard-parent-force
+    predicate: detached-from
+    value: { kind: entity, entityId: egil-raiding-fleet }
+    description: 小队属于 Egil 的远征战团，但与随船人员处于不同地点，不能同时参与同一现场行动。
+    access: { kind: private }
+  - id: egil-supply-guard-duty
+    predicate: standing-duty
+    value: { kind: text, value: protect-return-voyage-cache-until-recalled-or-forced-to-withdraw }
+    description: 小队守护返航物资，撤离、焚毁或转运必须基于真实命令与威胁。
+    access: { kind: private }
+  - id: egil-supply-guard-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: individual-warriors-require-orders-and-communication }
+    description: 小队成员不共享全知心智，细分判断与伤势属于具体个体。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: provisions, amount: 80 }
+  - { definition_id: coin, amount: 40 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

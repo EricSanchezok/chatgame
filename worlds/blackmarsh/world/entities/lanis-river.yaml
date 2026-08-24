@@ -1,0 +1,24 @@
+id: lanis-river
+kind: geographic-region
+name: Lanis River
+description: 从 Southland 向北流入黑沼、入境处宽约三英里的深缓大河，是内陆货运与海湾贸易的主干。
+placement: blackmarsh-region
+facts:
+  - id: lanis-river-width
+    predicate: width-miles
+    value: { kind: number, value: 3 }
+    description: Lanis River 进入黑沼地区时约宽三英里。
+    access: { kind: public }
+  - id: lanis-river-navigation
+    predicate: navigation
+    value: { kind: text, value: deep-slow-and-bidirectional-for-ships-and-barges }
+    description: 河道深而流速缓，船只和驳船能够双向通航；浅滩、支流与沼泽入口仍需要本地知识。
+    access: { kind: public }
+  - id: lanis-river-trade-route
+    predicate: trade-route
+    value: { kind: text, value: castle-blackmarsh-westguard-bolzak }
+    description: 商船沿河连接 Castle Blackmarsh、Westguard 与矮人王国 Bolzak，偶有 Vasan 长船向更南方袭掠。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,32 @@
+id: northern-company-adventurers
+kind: exploration-company
+name: Northern Company of Adventurers
+description: 以 Oldan Hold 为基地、由 Lord Mazardan 担任 High Captain 的 Viz 勘探会社，通过探索者、路线故事与矮人市场连接北方发现。
+placement: hex-0217-oldan-hold
+facts:
+  - id: northern-company-purpose
+    predicate: charter
+    value: { kind: text, value: locate-viz-sources-and-share-expedition-knowledge }
+    description: 会社公开招揽寻找 Viz 来源的探索者，并把可靠发现带回 Oldan Hold 的工艺与交易网络。
+    access: { kind: public }
+  - id: northern-company-high-captain
+    predicate: leadership
+    value: { kind: entity, entityId: lord-mazardan }
+    description: Lord Mazardan 同时担任 Oldan Hold 领主和会社 High Captain，两项职位的资源与责任并不自动等同。
+    access: { kind: public }
+  - id: northern-company-annual-feast
+    predicate: institution
+    value: { kind: text, value: annual-feast-for-members-and-invited-friends }
+    description: 会社每年举办宴会，成员和受邀朋友交流成功探索的故事与声望。
+    access: { kind: public }
+  - id: northern-company-report-boundary
+    predicate: information-quality
+    value: { kind: text, value: field-reports-remain-unverified-until-return-and-comparison }
+    description: 年度故事与路线报告由不同探索队产生；在人员返程、交叉核验前，它们不会成为全体成员的共同知识。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 800 }
+  - { definition_id: provisions, amount: 240 }
+  - { definition_id: viz, amount: 10 }
+ratings: []

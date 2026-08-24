@@ -1,0 +1,27 @@
+id: temple-of-thor
+kind: temple
+name: Thor 神殿
+description: Atacyl 垮台后建立的战士神殿，与 Rangers 合作清除城内陷阱并主动组织新人应对地区求援。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: thor-ranger-alliance
+    predicate: alliance
+    value: { kind: text, value: blackmarsh-rangers }
+    description: 神殿与 Blackmarsh Rangers 保持公开而紧密的行动同盟。
+    access: { kind: public }
+  - id: thor-adventure-sponsorship
+    predicate: service
+    value: { kind: text, value: organize-parties-healing-and-referrals }
+    description: 神殿为可信探险队提供治疗、求援线索和城堡探索推荐。
+    access: { kind: public }
+  - id: thor-public-standing
+    predicate: civic-popularity
+    value: { kind: text, value: most-popular-temple-in-castle-blackmarsh-with-hall-packed-on-holy-days }
+    description: Thor 神殿是黑沼堡最受欢迎的神殿，圣日礼拜会挤满大厅。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 320 }
+  - { definition_id: provisions, amount: 24 }
+  - { definition_id: viz, amount: 2 }
+ratings: []

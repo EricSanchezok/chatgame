@@ -1,0 +1,32 @@
+id: brotherhood-of-raven
+kind: clandestine-order
+name: Brotherhood of the Raven
+description: 活动近两千年的精灵至上隐秘组织。
+placement: hex-1807-brotherhood-ravines
+facts:
+  - id: brotherhood-raven-doctrine
+    predicate: doctrine
+    value: { kind: text, value: elves-should-rule-and-enslave-other-peoples }
+    description: Brotherhood 以精灵应统治并奴役其他族群为组织教义，Rangers 是其长期宿敌。
+    access: { kind: public }
+  - id: brotherhood-raven-base-composition
+    predicate: headquarters-composition
+    value: { kind: text, value: 158-raven-elves-and-about-200-enslaved-people-mostly-orcs }
+    description: 1807 总部约有一百五十八名组织精灵与两百名被奴役者；奴隶不是自愿成员。
+    access: { kind: private }
+  - id: brotherhood-raven-fragmented-command
+    predicate: command-structure
+    value: { kind: text, value: elana-negotiates-with-commanders-who-control-separate-forces }
+    description: Autarch Elana 的最高权威很弱，各 commander 掌握自己的部队和否决资源，行动一致必须经真实协商与通信形成。
+    access: { kind: private }
+  - id: brotherhood-raven-distributed-operations
+    predicate: operational-network
+    value: { kind: text, value: headquarters-rinisar-field-cell-kinkaris-tribute-chain-and-scytheback-contact }
+    description: 总部、Rinisar 小队、Kinkaris 贡赋链和 Scytheback 联络线是不同知情范围，任一节点的秘密不会自动广播到全组织。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 2400 }
+  - { definition_id: provisions, amount: 1800 }
+  - { definition_id: viz, amount: 24 }
+ratings: []

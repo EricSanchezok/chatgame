@@ -1,0 +1,24 @@
+id: muncaester-caravan-remains
+kind: destroyed-caravan
+name: Muncaester 失联商队残部
+description: 来自 Muncaester 的商队人员、车辆与货物所形成的覆灭遗存。
+placement: hex-0702-caravan-killing-ground
+facts:
+  - id: muncaester-caravan-remains-origin
+    predicate: origin
+    value: { kind: entity, entityId: hex-1305-muncaester }
+    description: 商队从 Muncaester 出发，并应按既定路线抵达后续登记点。
+    access: { kind: private }
+  - id: muncaester-caravan-remains-condition
+    predicate: current-condition
+    value: { kind: text, value: occupants-found-dead-wagons-damaged-and-cargo-scattered }
+    description: t0 已无被证实的幸存成员留在现场；尸体、车辆与散货会受雨水、腐败和食腐者改变，现场本身不能确认凶手。
+    access: { kind: private }
+  - id: muncaester-caravan-remains-scavengers
+    predicate: recently-scavenged-by
+    value: { kind: entity, entityId: troll-caravan-raiders }
+    description: troll 被确认在尸体旁进食并留下炊火与足迹；这只证明到场食腐，不证明它们杀死商队。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

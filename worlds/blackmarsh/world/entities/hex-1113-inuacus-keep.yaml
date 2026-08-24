@@ -1,0 +1,14 @@
+id: hex-1113-inuacus-keep
+kind: keep
+name: Inuacus Keep
+description: 黑沼堡南部农地边境的要塞前哨，连接周边道路与通往 Jorvik 的接触线。
+placement: blackmarsh-region
+facts:
+  - id: inuacus-keep-hex
+    predicate: hex-coordinate
+    value: { kind: text, value: "1113" }
+    description: Inuacus Keep 位于区域六角 1113 的农地边境，在 Black Marshes 之外防备向北移动的怪物。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -133,10 +133,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .cg-narrative + .cg-narrative { margin-top: 1.2rem; }
 .cg-narrative--thinking { color: var(--cg-fog); }
 .cg-world-reply[data-status="running"] .cg-narrative--thinking::after, .cg-world-reply[data-status="queued"] .cg-narrative--thinking::after { content: " ·"; color: var(--cg-brass); }
-.cg-outcomes, .cg-alternatives, .cg-checks { margin-top: 1.25rem; border-left: 1px solid var(--cg-border-strong); padding-left: 1rem; color: var(--cg-fog); font-size: .88rem; line-height: 1.65; }
-.cg-outcomes p { margin: .35rem 0; }
-.cg-alternatives strong { color: var(--cg-ivory); font-weight: 600; }
-.cg-alternatives ul { margin: .45rem 0 0; padding-left: 1.2rem; }
+.cg-checks { margin-top: 1.25rem; border-left: 1px solid var(--cg-border-strong); padding-left: 1rem; color: var(--cg-fog); font-size: .88rem; line-height: 1.65; }
 .cg-checks summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .cg-checks ul { display: grid; gap: .4rem; margin: 0; padding: 0 0 .5rem; list-style: none; }
 .cg-checks li { display: flex; justify-content: space-between; gap: 1rem; font-family: var(--cg-font-mono); font-size: .7rem; }

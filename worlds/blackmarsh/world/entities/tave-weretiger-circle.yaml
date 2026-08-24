@@ -1,0 +1,39 @@
+id: tave-weretiger-circle
+kind: ritual-community
+name: Tave Weretiger 仪式圈
+description: 以 Tave Marshes 的黑色独石为周期仪式中心、成员平时散居且不共享心智的 weretiger 共同体。
+placement: tave-marshes
+facts:
+  - id: tave-weretiger-circle-ritual-site
+    predicate: recurring-gathering-site
+    value: { kind: entity, entityId: hex-1709-black-monolith }
+    description: 共同体在满月汇聚到 1709 黑色独石；非满月时，placement 只表示其成员分散所在的 Tave Marshes。
+    access: { kind: private }
+  - id: tave-weretiger-circle-cycle
+    predicate: recurring-ritual
+    value: { kind: text, value: gathers-at-black-monolith-every-full-moon }
+    description: 仪式由月相驱动，成员平时散居周围沼泽，不能因玩家到访而提前生成满月集会。
+    access: { kind: private }
+  - id: tave-weretiger-circle-last-gathered-full-moon-node
+    predicate: lunar-last-gathered-node
+    value: { kind: number, value: -1 }
+    description: -1 表示开局尚未完成任何运行时满月仪式；每次集会只更新一次对应节点，成员在节点后仍按常态分散于 Tave Marshes。
+    access: { kind: private }
+  - id: tave-weretiger-circle-diversity
+    predicate: participant-ancestries
+    value: { kind: text, value: elves-humans-halflings-dwarves-orcs-goblins-and-kobolds }
+    description: 被长期观察到的参与者包含精灵、人类、半身人、矮人、兽人、地精和 kobold。
+    access: { kind: private }
+  - id: tave-weretiger-circle-scale
+    predicate: population-state
+    value: { kind: text, value: recurring-community-without-canonical-headcount }
+    description: 原作未给出参与者总数，运行世界不补造精确人口。
+    access: { kind: private }
+  - id: tave-weretiger-circle-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: individual-weretigers-without-shared-mind-or-automatic-consensus }
+    description: 共同仪式不等于共享记忆、意图或即时决定；每名成员只依据自身知识与可达信息行动。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

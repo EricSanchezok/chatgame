@@ -1,0 +1,29 @@
+id: hex-0814-bog-conclave
+kind: ruin
+name: 沼泽植物结社遗址
+description: Black Marshes 中由分散施法者住宅与逐渐沉入泥沼的连接石路构成的 Bright Empire 遗址。
+placement: black-marshes
+facts:
+  - id: hex-0814-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0814" }
+    description: 遗址位于区域六角 0814，属于 Black Marshes。
+    access: { kind: public }
+  - id: hex-0814-research-purpose
+    predicate: origin
+    value: { kind: text, value: bright-empire-plant-and-herb-research-homes }
+    description: 施法者曾在分散住宅中研究本地植物与药草，帝国崩溃后的一个世纪内遗址被放弃。
+    access: { kind: public }
+  - id: hex-0814-sunken-paths
+    predicate: navigation
+    value: { kind: text, value: broken-stone-causeways-through-bog }
+    description: 原有干燥石路多处磨损或沉没，错误路线会把行人带入深泥和被占据的住宅。
+    access: { kind: public }
+  - id: hex-0814-unfinished-experiments
+    predicate: inhabitants
+    value: { kind: text, value: creatures-and-possibly-altered-plant-life }
+    description: 多种生物已占据建筑；有关未完成实验和异常植物的报告存在，但其范围未被系统核实。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

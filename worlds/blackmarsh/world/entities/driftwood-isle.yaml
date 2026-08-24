@@ -1,0 +1,24 @@
+id: driftwood-isle
+kind: geographic-region
+name: Driftwood Isle
+description: 灰海洋流把浮木、船材与远方杂物推上岸的岛屿，东南半岛散布着一艘失事船的残骸。
+placement: blackmarsh-region
+facts:
+  - id: driftwood-isle-current
+    predicate: current-effect
+    value: { kind: text, value: persistent-debris-accumulation }
+    description: 风与潮流持续把浮木和海上遗失物堆积到岛岸，旧物会被新一轮风暴重新排列。
+    access: { kind: public }
+  - id: driftwood-isle-noble-body
+    predicate: hidden-evidence
+    value: { kind: text, value: young-man-in-grand-kingdom-high-noble-fashion-with-royal-seal-necklace }
+    description: t0 时东南半岛海藻堆下压着一名按 Grand Kingdom 高等贵族样式着装的青年遗体，手中握有王室印记项链。
+    access: { kind: private }
+  - id: driftwood-isle-evidence-weathering
+    predicate: environmental-pressure
+    value: { kind: text, value: tides-and-storms-rearrange-exposed-shore-evidence }
+    description: 海潮与风暴会持续冲散海藻、足迹与轻小船骸；遗体和项链仍存在，但位置可能随实际天气改变，本地点不设独立倒计时。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

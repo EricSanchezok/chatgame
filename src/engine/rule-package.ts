@@ -5,6 +5,8 @@ import type {
   CausalAssertion,
   D20CheckRequest,
   D20CheckResult,
+  DiscreteRandomRequest,
+  DiscreteRandomResult,
   MechanicInvocation,
   MechanicResult,
   SimulationState,
@@ -24,6 +26,8 @@ export interface RuleExecutionContext {
   actions: readonly AgentActionProposal[];
   checkRequests: readonly D20CheckRequest[];
   checkResults: readonly D20CheckResult[];
+  randomRequests: readonly DiscreteRandomRequest[];
+  randomResults: readonly DiscreteRandomResult[];
 }
 
 export interface RuleResultDraft {

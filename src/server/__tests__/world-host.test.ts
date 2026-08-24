@@ -285,6 +285,59 @@ describe("WorldHost", () => {
     expect(reloaded.session(session.summary.id).state).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 10 });
   });
 
+  it("derives public outcome text only from player outcome observations", async () => {
+    const internalSummary = "keeper-internal-outcome-secret";
+    const internalAlternative = "keeper-internal-alternative-secret";
+    const provider = new ScriptedModelProvider(({ profileId, prompt }) => {
+      const context = JSON.parse(prompt) as {
+        baseRevision: number;
+        step: number;
+        jointActions: Array<{ id: string; actorId: string }>;
+        revision: number;
+        agent: { id: string };
+      };
+      if (profileId !== "truth-deepseek") return mindOutput(context.agent.id, context.revision);
+      const proposal = transition(context);
+      const playerAction = context.jointActions.find((action) => action.actorId === "player")!;
+      const playerOutcome = proposal.outcomes.find((outcome) => outcome.proposalId === playerAction.id)!;
+      playerOutcome.summary = internalSummary;
+      playerOutcome.knownAlternatives = [{
+        description: internalAlternative,
+        basis: { kind: "observation", observationId: `observation:player:${context.step + 1}` },
+      }];
+      proposal.observations.push({
+        id: `observation:player:${context.step + 1}:second`,
+        observerId: "player",
+        step: context.step + 1,
+        kind: "outcome",
+        summary: "石门本身没有移动。",
+        introductions: [],
+        apparentClaims: [],
+        sourceEventIds: [`event:${context.step + 1}`],
+      });
+      return { kind: "transition", proposal };
+    });
+    const { host, store } = createHost(provider);
+    const session = await host.createSession({ worldId: "open-world-fixture" });
+    const started = host.startRun(session.summary.id, "观察石门与守门人");
+
+    const completed = await host.waitForRun(session.summary.id, started.runId);
+
+    const publicOutcome = completed.run.events.find((event) => event.type === "player.outcome");
+    expect(publicOutcome?.payload).toEqual({
+      status: "succeeded",
+      summary: "你看见守门人仍站在石门前。\n石门本身没有移动。",
+    });
+    expect(JSON.stringify(completed)).not.toContain(internalSummary);
+    expect(JSON.stringify(completed)).not.toContain(internalAlternative);
+    const storedStep = store.read(session.summary.id).document.state.history[0];
+    const storedPlayerAction = storedStep.actions.find((action) => action.actorId === "player")!;
+    const storedOutcome = storedStep.outcomes.find((outcome) =>
+      outcome.proposalId === storedPlayerAction.id)!;
+    expect(storedOutcome.summary).toBe(internalSummary);
+    expect(storedOutcome.knownAlternatives[0].description).toBe(internalAlternative);
+  });
+
   it("persists a retriable failure without committing the invalid step", async () => {
     const observer = new RecordingRuntimeObserver({ mode: "full" });
     const provider = new ScriptedModelProvider(({ profileId, prompt }) => {

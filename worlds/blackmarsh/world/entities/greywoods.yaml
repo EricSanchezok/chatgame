@@ -1,0 +1,19 @@
+id: greywoods
+kind: geographic-region
+name: The Greywoods
+description: 秋日灰梣种子如灰烬铺地、并提供受严密守护 Viz 来源的精灵森林。
+placement: blackmarsh-region
+facts:
+  - id: greywoods-grey-ash
+    predicate: seasonal-resource
+    value: { kind: text, value: autumn-grey-ash-seeds-rich-in-viz }
+    description: 灰梣种子在秋季干燥成灰烬般颜色，是精灵严密管理的 Viz 来源。
+    access: { kind: public }
+  - id: greywoods-memory
+    predicate: cultural-landscape
+    value: { kind: text, value: restored-impact-wasteland }
+    description: 林地由精灵在坠山后的废土上长期修复；满地灰种被视为对灾难的持续提醒。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

@@ -1,0 +1,42 @@
+disclosure:
+  default_check_visibility: full
+laws:
+  - id: positive-time
+    text: 每个世界步骤必须推进正数时间；跨越五英里六角、航行、集结军队、研究和治疗必须消耗与距离及条件相称的时间。
+    severity: hard
+  - id: situated-causality
+    text: 实体只能从当前地点或可到达地点行动；海湾、沼泽、山脉、道路、船只与天气会真实约束移动和接触。
+    severity: hard
+  - id: deadline-integrity
+    text: deadline-seconds 是从 elapsedSeconds = 0 计算的绝对阈值；每个截止主体必须唯一持有 operation-state 与 operation-target。若时间推进达到或越过阈值，同一原子提交必须把 operation-state 更新为 implemented、blocked 或 cancelled 并移除截止，或以新的因果依据替换截止；禁止保留达到阈值的 preparing 或 in-progress 状态。
+    severity: hard
+  - id: lunar-calendar
+    text: 月相以黑沼地区的开局锚点和 lunar-cycle-seconds 随 elapsedSeconds 连续推进；时间达到或越过满月节点时，月贝转化、Tave 仪式与黑堡现象即使没有玩家在场也必须按各自条件原子结算，并更新唯一 lunar-last-settled-node。Tave 仪式圈更新 lunar-last-gathered-node，但共同体的常态 placement 仍表示成员分散所在的沼泽；黑堡每节点更新 lunar-last-evaluated-node，有占据者才产生伤亡。任何节点不得重复产出或重复结算。
+    severity: hard
+  - id: mortal-consequence
+    text: 暴力、坠落、火焰、溺水、毒物与怪物攻击会造成与情势相称的伤害；生命降至零的主体退出活动世界。
+    severity: hard
+  - id: knowledge-is-local
+    text: 主体只能依据亲历、可追溯证词或推理更新认知；私密事实、隐藏身份和远方事件不会自动成为共同知识。
+    severity: hard
+  - id: viz-cycle
+    text: Viz 只能从已存在的 Viz 转移，或由陨山、灰种、瀑布、矿脉、月变贝壳、异常虫卵等明确魔法来源产生；施法、附魔与实验可以消耗 Viz。
+    severity: hard
+  - id: committed-source-randomness
+    text: 来源规定随机分布时，实际结果必须在 resolution 阶段调用 world runtime contract 中同名离散分布，并把请求、结果及引用结果的状态变更原子提交；条件步骤只能在前置结果满足 when 时执行，禁止事后挑选、重抽或用期望值代替承诺结果。
+    severity: hard
+  - id: coin-economy
+    text: 钱币只能通过转移、明确收入、铸造或发现既存宝藏产生，并只能通过支付、税费、遗失或明确毁坏消耗。
+    severity: hard
+  - id: provisions-cycle
+    text: 旅粮只能由农牧、渔猎、采购或既存储备产生；进食、腐败、遗失和供给队伍会消耗旅粮。
+    severity: hard
+  - id: magic-has-means
+    text: 魔法效果必须有施法能力、遗物、仪式、Viz 或已建立的超自然天性作为手段，效果规模受准备、距离、抵抗与代价约束。
+    severity: hard
+  - id: factions-are-not-minds
+    text: 阵营、族群和组织不共享全知心智；只有具体 Agent 能作决定，集体行动需要权威、沟通、承诺或足以形成共同方向的事件。
+    severity: hard
+  - id: promises-create-pressure
+    text: 誓言、贡赋、职位和同盟不会强制主体服从，但违背它们会产生可信的关系、声望与政治后果。
+    severity: soft

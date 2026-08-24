@@ -1,0 +1,25 @@
+id: cee-three
+kind: gilded-construct
+name: Cee-Three
+description: Wizard of the Isle 的金色机械仆从，负责把在坠山登陆后仍然存活的闯入者护送回船。
+placement: hex-1309-mountain-that-fell
+facts:
+  - id: cee-three-service
+    predicate: serves
+    value: { kind: entity, entityId: wizard-of-the-isle }
+    description: Cee-Three 接受 Wizard of the Isle 的现场指令，不是独立知道陨山秘密的全知守卫。
+    access: { kind: private }
+  - id: cee-three-standing-order
+    predicate: standing-order
+    value: { kind: text, value: calmly-escort-warned-survivors-back-to-their-vessel }
+    description: 常规命令是说明此地危险并把幸存登陆者送回船，而非默认杀死所有来客。
+    access: { kind: private }
+meters:
+  - { id: "vitality:cee-three", definition_id: vitality, current: 24 }
+quantities:
+  - { definition_id: coin, amount: 0 }
+  - { definition_id: provisions, amount: 0 }
+  - { definition_id: viz, amount: 1 }
+ratings:
+  - { id: "force:cee-three", definition_id: force, value: 5 }
+  - { id: "resolve:cee-three", definition_id: resolve, value: 6 }

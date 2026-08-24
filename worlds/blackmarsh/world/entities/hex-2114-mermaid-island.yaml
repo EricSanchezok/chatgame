@@ -1,0 +1,19 @@
+id: hex-2114-mermaid-island
+kind: island
+name: 月贝岛
+description: 有溪流汇入中央透明池塘的林木岛屿，是月贝采集共同体长期使用的场所。
+placement: sheltered-bay
+facts:
+  - id: hex-2114-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2114" }
+    description: 月贝岛位于区域六角 2114，属于 Sheltered Bay。
+    access: { kind: public }
+  - id: hex-2114-collector-community
+    predicate: associated-community
+    value: { kind: entity, entityId: moon-shell-mermaids }
+    description: 采集者的编成、周期产量和交付活动由共同体实体唯一承载；本地点只记录其空间与环境。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

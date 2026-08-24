@@ -111,3 +111,5 @@
 - [0042 — 通用因果断言、受信任规则钩子与分阶段模型 Profile](0042-causal-assurance-and-staged-model-profiles.md)
 - [0043 — 端到端运行时可观测性与 invocation 审计](0043-end-to-end-runtime-observability.md)
 - [0044 — 本地 assistant-ui 沉浸会话壳与存档资源](0044-local-assistant-ui-immersive-session-shell.md)
+- [0045 — 版本化参考世界采用作者工程与严格运行目录分层](0045-versioned-reference-world-projects.md)
+- [0046 — 剧本声明、预承诺并可重放的通用离散随机分布](0046-committed-discrete-random-distributions.md)

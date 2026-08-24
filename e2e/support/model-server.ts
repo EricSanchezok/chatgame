@@ -35,7 +35,7 @@ function agentOutput(context: Record<string, unknown>) {
 }
 
 function truthOutput(context: Record<string, unknown>) {
-  if (context.promptVersion === "causal-verifier-v1") return { verdict: "accept", findings: [] };
+  if (context.promptVersion === "causal-verifier-v2") return { verdict: "accept", findings: [] };
   if (context.stage === "perception" || context.stage === "resolution") return { kind: "done" };
   if (context.stage === "reaction-routing") return { requests: [] };
   if (context.stage !== "transition") throw new Error(`unexpected Truth stage ${String(context.stage)}`);

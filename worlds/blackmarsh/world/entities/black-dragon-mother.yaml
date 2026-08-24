@@ -1,0 +1,25 @@
+id: black-dragon-mother
+kind: dragon
+name: 黑沼母黑龙
+description: 一头年老母黑龙，具有独立的猎食、护幼和领地选择能力。
+placement: black-marshes
+facts:
+  - id: black-dragon-mother-offspring
+    predicate: parent-of
+    value: { kind: entity, entityId: black-dragon-young }
+    description: 她与一头较年轻的黑龙共同狩猎并保护其安全。
+    access: { kind: private }
+  - id: black-dragon-mother-range
+    predicate: hunting-range
+    value: { kind: entity, entityId: black-marshes }
+    description: 她会在黑沼猎区内随猎物、天气和幼龙需要移动，当前精确位置未知。
+    access: { kind: private }
+meters:
+  - { id: "vitality:black-dragon-mother", definition_id: vitality, current: 26 }
+quantities: []
+ratings:
+  - { id: "force:black-dragon-mother", definition_id: force, value: 6 }
+  - { id: "finesse:black-dragon-mother", definition_id: finesse, value: 2 }
+  - { id: "resolve:black-dragon-mother", definition_id: resolve, value: 5 }
+  - { id: "magic:black-dragon-mother", definition_id: magic, value: 3 }
+  - { id: "wilderness:black-dragon-mother", definition_id: wilderness, value: 5 }

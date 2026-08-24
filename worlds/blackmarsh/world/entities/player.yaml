@@ -1,0 +1,20 @@
+id: player
+kind: person
+name: 外来旅人
+description: 由玩家在行动中定义职业、出身、种族、性别与意图的外来旅人。
+placement: castle-blackmarsh-harbor
+facts:
+  - id: player-newcomer-status
+    predicate: local-status
+    value: { kind: text, value: unknown-newcomer }
+    description: 当地势力尚未形成对这名旅人的可靠判断。
+    access: { kind: public }
+meters:
+  - { id: "vitality:player", definition_id: vitality, current: 16 }
+quantities:
+  - { definition_id: coin, amount: 20 }
+  - { definition_id: provisions, amount: 3 }
+  - { definition_id: viz, amount: 0 }
+ratings:
+  - { id: "resolve:player", definition_id: resolve, value: 1 }
+  - { id: "insight:player", definition_id: insight, value: 1 }

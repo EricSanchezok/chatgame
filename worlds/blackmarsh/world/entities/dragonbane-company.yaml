@@ -1,0 +1,32 @@
+id: dragonbane-company
+kind: monster-hunting-company
+name: Dragonbane Company
+description: Lord Ingwold 领导、负责巡查 Ethanfeld 上游谷地并清除怪物的地方战团。
+placement: hex-1506-ethanfeld
+facts:
+  - id: dragonbane-company-command
+    predicate: commander
+    value: { kind: entity, entityId: lord-ingwold }
+    description: Lord Ingwold 决定长期巡防优先级，并以 Ethanfeld 安全而非全公国的即时需求为首要职责。
+    access: { kind: public }
+  - id: dragonbane-company-strength
+    predicate: headcount
+    value: { kind: number, value: 20 }
+    description: 战团开局有二十名可供轮换巡逻、护送与村庄留守的成员。
+    access: { kind: private }
+  - id: dragonbane-company-mission
+    predicate: charter
+    value: { kind: text, value: clear-upper-valley-monsters-and-protect-ethanfeld }
+    description: 会社沿河谷上游清理怪物，为渔民和前往 Dragonbone Peaks 的探索者维持通路。
+    access: { kind: public }
+  - id: dragonbane-company-field-discretion
+    predicate: command-structure
+    value: { kind: text, value: patrol-leaders-can-limit-pursuit-and-retain-village-guard }
+    description: 现场巡逻领队可依据足迹、伤员和留守需求决定追击距离，战团不受 Blackoak Rangers 直接指挥。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 300 }
+  - { definition_id: provisions, amount: 120 }
+  - { definition_id: viz, amount: 1 }
+ratings: []

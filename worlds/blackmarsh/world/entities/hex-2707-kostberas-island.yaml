@@ -1,0 +1,19 @@
+id: hex-2707-kostberas-island
+kind: island
+name: Kostbera's Island
+description: Grey Sea 东缘仅有一座浮木小屋的孤岛，也是 Vasan 预言者 Kostbera 的居所。
+placement: grey-sea
+facts:
+  - id: hex-2707-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2707" }
+    description: 孤岛位于区域六角 2707；原始地图显示它是 Grey Sea 东缘未命名小岛，并非 Sandstone Island。
+    access: { kind: public }
+  - id: hex-2707-resident
+    predicate: inhabitants
+    value: { kind: text, value: kostbera-vasan-seeress }
+    description: 除 Kostbera 与其浮木小屋外，岛上没有固定聚落。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

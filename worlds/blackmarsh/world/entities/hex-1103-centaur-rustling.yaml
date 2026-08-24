@@ -1,0 +1,29 @@
+id: hex-1103-centaur-rustling
+kind: pasture
+name: Centaur 劫牛场
+description: Wedmor 外围的牲畜放牧区，连接村庄道路与 Rednut River 一带的破碎地形。
+placement: rednut-river
+facts:
+  - id: hex-1103-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1103" }
+    description: 牧地位于区域六角 1103，属于 Rednut River 流域。
+    access: { kind: public }
+  - id: hex-1103-rustler-tracks
+    predicate: recent-conflict
+    value: { kind: text, value: sixteen-centaurs-drove-stolen-cattle-away }
+    description: 十六名 centaur 已把一批牛赶离牧地，蹄印、牛粪和被踩倒的围栏构成可追踪路线；队伍当前位置不冻结在本六角。
+    access: { kind: private }
+  - id: hex-1103-herder-report
+    predicate: recent-report
+    value: { kind: text, value: two-herders-rode-to-wedmor-for-help }
+    description: 两名牧人已全速返回 Wedmor 报警，村内因而知道失牛和大致逃逸方向。
+    access: { kind: private }
+  - id: hex-1103-centaur-pattern
+    predicate: recurring-pressure
+    value: { kind: text, value: centaur-rustlers-use-broken-ground-to-evade-pursuit }
+    description: centaur 熟悉能摆脱常规骑兵的破碎地形；是否追上取决于真实追踪时间与路线，而非在此等待的遭遇。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

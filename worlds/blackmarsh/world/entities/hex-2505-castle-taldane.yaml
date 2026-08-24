@@ -1,0 +1,29 @@
+id: hex-2505-castle-taldane
+kind: stronghold
+name: Castle Taldane
+description: Ragnar 祖父在 Vasa 失陷后建立的流亡王族堡垒与政治中心。
+placement: blackmarsh-region
+facts:
+  - id: hex-2505-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2505" }
+    description: Castle Taldane 位于区域六角 2505，在 Crimson Hills 以东的 Vasan 海岸陆地。
+    access: { kind: public }
+  - id: hex-2505-garrison
+    predicate: garrison
+    value: { kind: number, value: 200 }
+    description: 城堡约有二百名 Vasan 战士与居民承担防务。
+    access: { kind: public }
+  - id: hex-2505-exile-history
+    predicate: political-history
+    value: { kind: text, value: founded-by-ragnars-grandfather-after-grand-kingdom-conquest-of-vasa }
+    description: Ragnar 的祖父在 Grand Kingdom 征服 Vasa 时率亲族和盟族乘长船流亡，在黑沼建立王权。
+    access: { kind: public }
+  - id: hex-2505-reconquest-strain
+    predicate: political-condition
+    value: { kind: text, value: reconquest-dream-undermined-by-survival-and-division }
+    description: 历代国王梦想收复 Vasa，却连维持聚落和军力都十分艰难。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

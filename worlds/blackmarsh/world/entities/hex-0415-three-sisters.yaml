@@ -1,0 +1,19 @@
+id: hex-0415-three-sisters
+kind: island-cluster
+name: Three Sisters
+description: 黑沼湖中彼此相邻的三座小岛，是 Three Sisters 共同局势的固定场所。
+placement: black-marshes
+facts:
+  - id: hex-0415-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0415" }
+    description: Three Sisters 位于区域六角 0415，属于 Black Marshes 湖群。
+    access: { kind: public }
+  - id: hex-0415-rival-community
+    predicate: associated-community
+    value: { kind: entity, entityId: three-sisters-nixies }
+    description: 姐妹的编成、竞争和扣押策略由聚合实体唯一承载；本地点只保存岛群空间。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

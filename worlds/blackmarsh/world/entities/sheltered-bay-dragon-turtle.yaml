@@ -1,0 +1,25 @@
+id: sheltered-bay-dragon-turtle
+kind: dragon-turtle
+name: Sheltered Bay 漂游 Dragon Turtle
+description: 一头会随海流在深浅水间漂移、并能因风暴、船只、猎物或伤害改变行为的 dragon turtle。
+placement: hex-1914-dragon-turtle-drift
+facts:
+  - id: sheltered-bay-dragon-turtle-t0-condition
+    predicate: current-condition
+    value: { kind: text, value: sleeping-and-drifting-with-bay-currents-at-t0 }
+    description: 开局证据支持它仍处于休眠漂游状态，但该状态不是永久场景。
+    access: { kind: private }
+  - id: sheltered-bay-dragon-turtle-response
+    predicate: causal-response
+    value: { kind: text, value: may-wake-or-change-course-when-disturbed-by-storm-impact-prey-or-injury }
+    description: 苏醒与转向必须由真实扰动触发，而不是玩家进入六角便自动发生。
+    access: { kind: private }
+meters:
+  - { id: "vitality:sheltered-bay-dragon-turtle", definition_id: vitality, current: 30 }
+quantities: []
+ratings:
+  - { id: "force:sheltered-bay-dragon-turtle", definition_id: force, value: 8 }
+  - { id: "finesse:sheltered-bay-dragon-turtle", definition_id: finesse, value: 0 }
+  - { id: "resolve:sheltered-bay-dragon-turtle", definition_id: resolve, value: 7 }
+  - { id: "wilderness:sheltered-bay-dragon-turtle", definition_id: wilderness, value: 6 }
+  - { id: "seamanship:sheltered-bay-dragon-turtle", definition_id: seamanship, value: 7 }

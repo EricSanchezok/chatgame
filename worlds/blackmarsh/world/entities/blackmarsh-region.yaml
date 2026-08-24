@@ -1,0 +1,54 @@
+id: blackmarsh-region
+kind: region
+name: 黑沼地区
+description: 围绕 Smoking Bay 展开的五英里六角边境，北接 Wild North，南连 Southland，东向 Grey Sea。
+placement: null
+facts:
+  - id: blackmarsh-current-season
+    predicate: season
+    value: { kind: text, value: early-autumn }
+    description: 当前是初秋，红果成熟而海上风暴开始频繁。
+    access: { kind: public }
+  - id: blackmarsh-current-hour
+    predicate: opening-time
+    value: { kind: text, value: two-hours-before-sunset }
+    description: 初始时刻距离日落约两小时，一场海上风暴正在接近。
+    access: { kind: public }
+  - id: blackmarsh-opening-lunar-phase
+    predicate: lunar-phase-at-opening
+    value: { kind: text, value: waxing-gibbous }
+    description: t0 处于盈凸月阶段；这是运行改编采用的日历锚点，不是上游原稿给出的日期。
+    access: { kind: public }
+  - id: blackmarsh-seconds-until-next-full-moon
+    predicate: seconds-until-next-full-moon-at-opening
+    value: { kind: number, value: 518400 }
+    description: 从 elapsedSeconds 0 起六天后首次达到满月节点，为月贝转化、weretiger 集会与黑堡现象提供共同时间基准。
+    access: { kind: private }
+  - id: blackmarsh-lunar-cycle-seconds
+    predicate: lunar-cycle-seconds
+    value: { kind: number, value: 2551443 }
+    description: 后续满月节点按二百五十五万一千四百四十三秒的朔望周期重复；裁决使用 elapsedSeconds 计算，不依赖玩家是否在场。
+    access: { kind: private }
+  - id: blackmarsh-last-settled-full-moon-node
+    predicate: lunar-last-settled-node
+    value: { kind: number, value: -1 }
+    description: -1 表示开局尚未结算任何满月节点；首次节点编号为 0，每次原子结算后递增，禁止同一节点重复产出或重复触发现象。
+    access: { kind: private }
+  - id: blackmarsh-hex-scale
+    predicate: map-scale
+    value: { kind: number, value: 5 }
+    description: 区域地图每个六角横跨五英里。
+    access: { kind: public }
+  - id: blackmarsh-southland-frontier
+    predicate: external-geography
+    value: { kind: text, value: southland-is-a-recently-opened-settlement-frontier-of-grand-kingdom-vasa-province }
+    description: 南方 Southland 位于 Grand Kingdom 的 Vasa Province 边疆，近期才开放定居。
+    access: { kind: public }
+  - id: blackmarsh-bolzak-connection
+    predicate: migration-origin
+    value: { kind: text, value: bolzak-in-white-mountains-is-birthplace-of-many-blackmarsh-dwarves }
+    description: White Mountains 的 Bolzak 王国是许多黑沼矮人的出生地，也是 Oldan Hold 探索与贸易网络的后方。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

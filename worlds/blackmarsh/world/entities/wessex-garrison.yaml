@@ -1,0 +1,32 @@
+id: wessex-garrison
+kind: frontier-garrison
+name: Wessex Keep 守军
+description: 由 Bedewald the Atheling 指挥、负责屏护 Ostrobard 西部农庄的边境驻军。
+placement: hex-1602-wessex-keep
+facts:
+  - id: wessex-garrison-headcount
+    predicate: headcount
+    value: { kind: number, value: 50 }
+    description: 开局名册有五十名驻军；伤亡、调动与招募只在本实体更新。
+    access: { kind: private }
+  - id: wessex-garrison-commander
+    predicate: commander
+    value: { kind: entity, entityId: bedewald-atheling }
+    description: Bedewald 决定驻军轮值、巡逻和对农庄的预警响应。
+    access: { kind: public }
+  - id: wessex-garrison-mission
+    predicate: standing-order
+    value: { kind: text, value: shield-western-ostrobard-farms-from-dragonbone-creatures }
+    description: 守军以边境预警、要塞防卫和农庄屏护为长期职责。
+    access: { kind: public }
+  - id: wessex-garrison-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: individual-soldiers-require-orders-and-communication }
+    description: 驻军聚合实体不共享即时知识或单一心智，细分行动需要具体士兵或小队。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: provisions, amount: 420 }
+  - { definition_id: coin, amount: 180 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

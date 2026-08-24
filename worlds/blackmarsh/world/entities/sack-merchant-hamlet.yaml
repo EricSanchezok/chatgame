@@ -1,0 +1,19 @@
+id: sack-merchant-hamlet
+kind: hamlet
+name: Sack
+description: Greenton 外供外来商人住宿、竞价和装货的小村，因买家坐在塞满羊毛的布袋上谈价而得名。
+placement: hex-0610-greenton
+facts:
+  - id: sack-merchant-hamlet-role
+    predicate: function
+    value: { kind: text, value: seasonal-merchant-lodging-bidding-and-loading-hamlet }
+    description: 来自各地的商人在此停留并竞购 Newcombe 粮食，交易完成后再沿真实路线离开。
+    access: { kind: public }
+  - id: sack-merchant-hamlet-name-origin
+    predicate: name-origin
+    value: { kind: text, value: merchants-sit-on-stuffed-woolsacks-while-negotiating }
+    description: Sack 的名称来自商人谈判时所坐的塞羊毛布袋。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

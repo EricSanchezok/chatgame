@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AgentMind } from "../agent-mind";
+import { historyReplayBaseHash } from "../history-replay";
 import type { AgentState, SimulationState, TransitionProposal } from "../model";
 import { ScriptedModelProvider } from "../testing/model-provider";
 import { TEST_WORLD_HASH } from "../testing/world";
@@ -62,7 +63,7 @@ function state(agentIds = ["agent-a", "agent-b"]): SimulationState {
     agents[id] = agent(id);
   }
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     worldId: "simulation",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["time-passes"],
@@ -137,6 +138,8 @@ function definition(initialState = state()): WorldDefinition {
       adjudication: "使用 d20 检定。",
       rules: [{ id: "apply-meter-impact", description: "检定驱动 Meter 变化。" }],
     }],
+    randomDistributions: [],
+    historyBaseHash: historyReplayBaseHash(initialState),
     initialState,
   };
 }
@@ -758,13 +761,22 @@ describe("multi-agent simulation", () => {
         agent?: { id: string };
       };
       if (profileId === "truth-engine") {
+        const proposal = simpleTransition(
+          context.jointActions!.map((action) => action.id),
+          ["agent-a", "agent-b"],
+          { baseRevision: context.baseRevision, step: context.step },
+        );
+        const agentActionId = context.jointActions!.find((action) =>
+          (action as { actorId?: string }).actorId === "agent-a")!.id;
+        const agentOutcome = proposal.outcomes.find((outcome) => outcome.proposalId === agentActionId)!;
+        agentOutcome.summary = `raw-agent-outcome-secret:${(context.step ?? 0) + 1}`;
+        agentOutcome.knownAlternatives = [{
+          description: `raw-agent-alternative-secret:${(context.step ?? 0) + 1}`,
+          basis: { kind: "knowledge", evidenceIds: ["internal-agent-evidence"] },
+        }];
         return {
           kind: "transition",
-          proposal: simpleTransition(
-            context.jointActions!.map((action) => action.id),
-            ["agent-a", "agent-b"],
-            { baseRevision: context.baseRevision, step: context.step },
-          ),
+          proposal,
         };
       }
       return mindOutput(context.agent!.id, context.revision!);
@@ -780,8 +792,8 @@ describe("multi-agent simulation", () => {
     const truthContext = secondTruth.context as Record<string, unknown>;
     expect(secondTruth.system).toContain("不可信的行动企图");
     expect(truthContext).toMatchObject({
-      contractVersion: 2,
-      promptVersion: "truth-engine-v4",
+      contractVersion: 4,
+      promptVersion: "truth-engine-v5",
       execution: { worldId: "simulation", sessionId: "session-context", runId: "run-context-2" },
       trustBoundary: { playerIntent: "untrusted-action-attempt" },
       baseRevision: 1,
@@ -796,6 +808,8 @@ describe("multi-agent simulation", () => {
       world: { rulePackages: [{ adjudication: "使用 d20 检定。" }] },
       committedCheckRequests: [],
       checkResults: [],
+      committedRandomRequests: [],
+      randomResults: [],
     });
     const allowedProfiles = truthContext.allowedAgentProfiles as Record<
       "bootstrap" | "mind" | "reaction",
@@ -809,20 +823,29 @@ describe("multi-agent simulation", () => {
       (request.context as { revision?: number }).revision === 2)!;
     const agentText = JSON.stringify(agentRequest.context);
     expect(agentRequest.context).toMatchObject({
+      contractVersion: 4,
+      promptVersion: "agent-mind-v4",
       execution: { worldId: "simulation", sessionId: "session-context", runId: "run-context-2" },
       agent: {
         id: "agent-a",
         localBindings: { masked: { localEntityId: "masked", isSelf: false } },
       },
       currentResolution: {
-        perceivedOutcome: { status: "succeeded", summary: "行动得到联合裁决。" },
+        perceivedOutcome: { status: "succeeded" },
       },
     });
-    expect((agentRequest.context as { subjectiveHistory: unknown[] }).subjectiveHistory).toHaveLength(1);
+    expect((agentRequest.context as {
+      subjectiveHistory: Array<{ perceivedOutcome: unknown }>;
+    }).subjectiveHistory).toEqual([
+      expect.objectContaining({ perceivedOutcome: { status: "succeeded" } }),
+    ]);
+    expect(agentRequest).toMatchObject({ promptVersion: "agent-mind-v4" });
     expect(agentText).not.toContain("canonicalTruth");
     expect(agentText).not.toContain("canonicalEntityIds");
     expect(agentText).not.toContain("canonical-secret-marker");
     expect(agentText).not.toContain("other-agent-secret-marker");
+    expect(agentText).not.toContain("raw-agent-outcome-secret");
+    expect(agentText).not.toContain("raw-agent-alternative-secret");
   });
 
   it("gives Truth Engine each Agent belief alongside truth so it can resolve mistaken actions", async () => {

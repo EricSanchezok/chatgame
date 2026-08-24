@@ -1,0 +1,19 @@
+id: hex-0318-boar-valley
+kind: wilderness
+name: 恶脾野猪谷
+description: White Mountains 山坡上的高猎压谷地，林缘、饮水点和密集兽道切分其内部路线。
+placement: white-mountains
+facts:
+  - id: hex-0318-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0318" }
+    description: 野猪谷位于区域六角 0318，原作明确称其为 White Mountains 山坡。
+    access: { kind: public }
+  - id: hex-0318-hunter-avoidance
+    predicate: reputation
+    value: { kind: text, value: oldan-hold-hunters-avoid-valley }
+    description: Oldan Hold 猎人知道这里危险，常规狩猎路线绕开山谷。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

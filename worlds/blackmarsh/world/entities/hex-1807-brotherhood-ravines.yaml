@@ -1,0 +1,19 @@
+id: hex-1807-brotherhood-ravines
+kind: faction-stronghold
+name: Brotherhood Ravines
+description: 林中丘谷与错综沟壑构成的隐蔽据点，长期用作 Brotherhood of the Raven 总部。
+placement: blackmarsh-region
+facts:
+  - id: hex-1807-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1807" }
+    description: 总部位于区域六角 1807，在 Tave Marshes 之外的独立森林丘谷。
+    access: { kind: public }
+  - id: hex-1807-ravine-defense
+    predicate: terrain-advantage
+    value: { kind: text, value: confusing-ravines-and-hills-conceal-base }
+    description: 沟壑和丘陵遮蔽视线、分割道路，并让熟悉地形的守卫能延迟较大部队。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

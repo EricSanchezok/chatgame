@@ -1,0 +1,29 @@
+id: centaur-rustling-band
+kind: rustling-band
+name: Wedmor 劫牛 Centaur 队
+description: 以牲畜掠取和荒野移动为活动方式的 centaur 队伍，活动范围位于 Rednut River 一带。
+placement: rednut-river
+facts:
+  - id: centaur-rustling-band-count
+    predicate: composition
+    value: { kind: number, value: 16 }
+    description: 原作明确参与这次劫牛的是十六名 centaur。
+    access: { kind: private }
+  - id: centaur-rustling-band-recent-action
+    predicate: recent-conflict
+    value: { kind: entity, entityId: hex-1103-centaur-rustling }
+    description: 1103 的围栏破口、牛群路线与蹄印证明他们近期从该牧地赶走牛群，但不把队伍锁定在那里。
+    access: { kind: private }
+  - id: centaur-rustling-band-current-location
+    predicate: current-location-state
+    value: { kind: text, value: moving-through-rednut-river-region-with-stolen-cattle-exact-position-unknown-at-t0 }
+    description: 队伍正利用红果河流域的破碎地形撤离，追踪结果取决于实际经过时间、路线和干扰。
+    access: { kind: private }
+  - id: centaur-rustling-band-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: sixteen-individual-centaurs-without-shared-mind }
+    description: 他们能协同驱赶牛群，但没有统一认知或自动一致的后续选择。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

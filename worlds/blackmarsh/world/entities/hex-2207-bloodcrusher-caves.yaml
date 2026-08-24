@@ -1,0 +1,14 @@
+id: hex-2207-bloodcrusher-caves
+kind: tribal-stronghold
+name: Bloodcrusher Caves
+description: Crimson Hills 中由相连洞室、储藏区与防御通道组成的 Bloodcrusher 部族据点。
+placement: crimson-hills
+facts:
+  - id: hex-2207-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "2207" }
+    description: 洞穴网位于区域六角 2207，属于 Crimson Hills。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

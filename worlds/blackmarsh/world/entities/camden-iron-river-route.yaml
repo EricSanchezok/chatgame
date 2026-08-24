@@ -1,0 +1,24 @@
+id: camden-iron-river-route
+kind: transport-route
+name: Camden 铁料水陆运输线
+description: 把 Camden 分散矿场、Rednut River 装运点与 Muncaester 市场连接起来的水陆运输网络。
+placement: hex-1302-camden
+facts:
+  - id: camden-route-origin
+    predicate: route-endpoint
+    value: { kind: entity, entityId: hex-1302-camden }
+    description: Camden 的矿场与装运点是铁料运输线的来源端。
+    access: { kind: public }
+  - id: camden-route-river-segment
+    predicate: traverses
+    value: { kind: entity, entityId: rednut-river }
+    description: 运输线利用 Rednut River 的部分航段，但不等同于整条河。
+    access: { kind: public }
+  - id: camden-route-market-endpoint
+    predicate: route-endpoint
+    value: { kind: entity, entityId: hex-1305-muncaester }
+    description: 大部分公国铁料最终进入 Muncaester 的市场与领地调拨系统。
+    access: { kind: public }
+meters: []
+quantities: []
+ratings: []

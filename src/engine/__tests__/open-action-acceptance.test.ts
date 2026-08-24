@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AgentMind } from "../agent-mind";
+import { historyReplayBaseHash } from "../history-replay";
 import type {
   AgentActionProposal,
   AgentState,
@@ -140,7 +141,7 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
     agents[id] = autonomousAgent(id);
   }
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     worldId: "acceptance-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: laws.map((law) => law.id),
@@ -316,6 +317,8 @@ function definition(initialState: SimulationState): WorldDefinition {
       adjudication: "使用 d20 检定。",
       rules: [{ id: "apply-meter-impact", description: "检定驱动 Meter 变化。" }],
     }],
+    randomDistributions: [],
+    historyBaseHash: historyReplayBaseHash(initialState),
     initialState,
   };
 }
@@ -727,7 +730,7 @@ describe("open action acceptance", () => {
       return {
         kind: "transition",
         proposal: jointTransition(context, {
-          playerSummary: calls === 1 ? "hidden-heir 正守着 sealed-treasure。" : "你暂时没有发现新的线索。",
+          playerSummary: "hidden-heir 正守着 sealed-treasure，这是内部 outcome 审计文本。",
           playerObservation: calls === 1
             ? "蒙面人的真实身份是失踪王储，隔墙密室里封存着王室宝藏。"
             : "墙后没有传来足以辨认内容的动静。",
@@ -739,11 +742,12 @@ describe("open action acceptance", () => {
     const result = await engine.step();
 
     expect(calls).toBe(2);
-    const publicText = JSON.stringify([
-      result.committed.outcomes.find((outcome) =>
-        outcome.proposalId === result.committed.actions.find((action) => action.actorId === "player")!.id),
-      ...result.committed.observations.filter((packet) => packet.observerId === "player"),
-    ]);
+    const playerOutcome = result.committed.outcomes.find((outcome) =>
+      outcome.proposalId === result.committed.actions.find((action) => action.actorId === "player")!.id)!;
+    expect(playerOutcome.summary).toContain("hidden-heir");
+    const publicText = JSON.stringify(
+      result.committed.observations.filter((packet) => packet.observerId === "player"),
+    );
     expect(publicText).not.toMatch(/hidden-heir|sealed-treasure|失踪王储|王室宝藏/);
   });
 

@@ -1,0 +1,24 @@
+id: chimera-nesting-herd
+kind: chimera-herd
+name: 黑沼 Chimera 育幼群
+description: 以群体筑巢和育幼为生态核心的一群 chimera，成员分别感知、受伤并选择追击目标。
+placement: hex-1014-chimera-island
+facts:
+  - id: chimera-nesting-herd-ground
+    predicate: nesting-ground
+    value: { kind: entity, entityId: hex-1014-chimera-island }
+    description: 1014 大岛是稳定育幼地，而非只在旅人抵达时出现的随机遭遇点。
+    access: { kind: private }
+  - id: chimera-nesting-herd-scale
+    predicate: population-state
+    value: { kind: text, value: herd-present-without-canonical-headcount }
+    description: 原作明确为一个 herd，但没有给出成兽、幼兽或总数；运行世界不补造精确数量。
+    access: { kind: private }
+  - id: chimera-nesting-herd-coordination
+    predicate: cognition-boundary
+    value: { kind: text, value: individuals-coordinate-around-nests-without-shared-mind }
+    description: 群内成员可因叫声和威胁共同反应，但分别感知、受伤和作出追击选择。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

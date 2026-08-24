@@ -1,0 +1,37 @@
+id: greywood-realm
+kind: woodland-realm
+name: Greywood Realm
+description: 以 Stardell Falls 为政治与仪式核心、通过使者、祭司和驻军维系各处职责的精灵共同体。
+placement: hex-0804-stardell-falls
+facts:
+  - id: greywood-realm-population
+    predicate: population-band
+    value: { kind: text, value: more-than-one-thousand-elves }
+    description: 来源确定 Greywoods 有超过一千名精灵；共同体编成与人口变化只在本实体记录。
+    access: { kind: public }
+  - id: greywood-realm-sovereignty
+    predicate: government
+    value: { kind: text, value: king-nilal-and-lady-aerindel-at-stardell-falls }
+    description: Nilal 与 Aerindel 居于瀑布两侧王塔，承担 Greywood 长期安全与对外关系的最高政治责任。
+    access: { kind: public }
+  - id: greywood-realm-stewardship
+    predicate: stewardship
+    value: { kind: text, value: protect-greywoods-grey-seed-stardell-viz-and-castle-seals }
+    description: 王廷守护森林、灰种和 Stardell Falls 的 Viz 来源，并以驻军封锁黑沼城堡尚未清理的下层入口。
+    access: { kind: public }
+  - id: greywood-realm-capacity-strain
+    predicate: strategic-condition
+    value: { kind: text, value: declining-strength-cannot-clear-castle-lower-levels-alone }
+    description: Greywood 的整体力量正在衰退，现有驻军足以维持封锁，却不足以独自彻底清理 Atacyl 扩建的地下区域。
+    access: { kind: private }
+  - id: greywood-realm-governance-boundary
+    predicate: delegation
+    value: { kind: text, value: royal-court-sets-boundaries-tyrilas-administers-castle }
+    description: 王廷决定长期安全边界，Governor Tyrilas 负责黑沼堡日常治理；两层权力需要报告和协商，不会即时共享所有判断。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 1800 }
+  - { definition_id: provisions, amount: 1300 }
+  - { definition_id: viz, amount: 36 }
+ratings: []

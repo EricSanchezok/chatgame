@@ -1,0 +1,32 @@
+id: blackmarsh-wizards-guild
+kind: rebuilding-guild
+name: Blackmarsh Guild of Wizards
+description: Atacyl 暴政与精灵接管后的施法者幸存者所重建的职业公会，以受审视的城堡登记为法律归属，并在 Scholar's Inn 长租房间开展日常合作。
+placement: castle-blackmarsh-fortress
+facts:
+  - id: blackmarsh-wizards-guild-rebuilding
+    predicate: institutional-status
+    value: { kind: text, value: rebuilding-after-atacyl-persecution-and-postwar-collapse }
+    description: 公会仍处于重建期，公开目标是恢复施法者的社会信任、专业协作与研究能力。
+    access: { kind: public }
+  - id: blackmarsh-wizards-guild-quarters
+    predicate: operating-quarters
+    value: { kind: text, value: members-rent-nearly-half-of-scholars-inn-rooms }
+    description: 成员长期租用 Scholar's Inn 近半客房，并使用旅店的当代资料馆藏；公会并不拥有旅店。
+    access: { kind: public }
+  - id: blackmarsh-wizards-guild-factions
+    predicate: internal-factions
+    value: { kind: text, value: transparency-autonomy-and-minority-conclave-nostalgia }
+    description: 透明重建派愿意接受审计，自治派反感精灵监管，少数复古成员美化旧 conclave；三者没有统一的政治判断。
+    access: { kind: private }
+  - id: blackmarsh-wizards-guild-loyalty-boundary
+    predicate: historical-boundary
+    value: { kind: text, value: surviving-atacyl-era-does-not-imply-support-for-atacyl }
+    description: 成员从 Atacyl 时代幸存不等于曾支持或现在效忠他，具体经历必须由个人证据判定。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 700 }
+  - { definition_id: provisions, amount: 90 }
+  - { definition_id: viz, amount: 16 }
+ratings: []

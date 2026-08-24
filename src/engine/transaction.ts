@@ -19,8 +19,19 @@ import {
 } from "./llm-schemas";
 import { contentHash as contentHashForAudit, isSha256 } from "./model-audit";
 import { modelInferenceSchema } from "./model-catalog";
-import { resolveD20Checks } from "./random";
-import { isSafeId } from "./state-schemas";
+import {
+  resolveD20Checks,
+  resolveDiscreteRandomRequests,
+  validateDiscreteRandomCommitmentBudget,
+} from "./random";
+import { evaluateProposalCausality } from "./causality";
+import { createHistoryReplayBase } from "./history-replay";
+import {
+  commitmentRoundsSchema,
+  discreteRandomRequestSchema,
+  discreteRandomResultSchema,
+  isSafeId,
+} from "./state-schemas";
 
 const playerIntentStatuses = new Set(["active", "completed", "failed", "cancelled"]);
 const playerInputKinds = new Set(["goal", "clarification"]);
@@ -402,6 +413,44 @@ function validateHistory(state: SimulationState): void {
   if (state.history.length !== state.revision || state.step !== state.revision) {
     throw new Error("history, revision and step are not aligned");
   }
+  if (state.history.length > 0 && !state.historyBase) {
+    throw new Error("committed history is missing its pinned replay base");
+  }
+  const historyBase = createHistoryReplayBase(state);
+  if (historyBase.truth.events.length > 0) {
+    throw new Error("history replay base must not contain committed events");
+  }
+  assertSafeId(historyBase.playerEntityId, "history replay player entity");
+  if (!historyBase.truth.entities[historyBase.playerEntityId]) {
+    throw new Error("history replay player has no entity");
+  }
+  const replayAgentEntities = new Set<string>();
+  const replayAgents = Object.fromEntries(Object.entries(historyBase.agentEntities).map(([agentId, entityId]) => {
+    assertSafeId(agentId, "history replay agent id");
+    assertSafeId(entityId, `history replay agent ${agentId} entity`);
+    if (historyBase.truth.entities[entityId]?.lifecycle !== "active") {
+      throw new Error(`history replay agent ${agentId} has no entity`);
+    }
+    if (replayAgentEntities.has(entityId)) {
+      throw new Error(`history replay entity ${entityId} has multiple agents`);
+    }
+    replayAgentEntities.add(entityId);
+    return [agentId, { id: agentId, entityId } as AgentState];
+  }));
+  const replayState: SimulationState = {
+    schemaVersion: state.schemaVersion,
+    worldId: state.worldId,
+    worldHash: state.worldHash,
+    lawIds: structuredClone(state.lawIds),
+    revision: 0,
+    step: 0,
+    truth: structuredClone(historyBase.truth),
+    agents: replayAgents,
+    player: { ...structuredClone(state.player), entityId: historyBase.playerEntityId },
+    history: [],
+    historyBase: structuredClone(historyBase),
+    bootstrapModelAudits: [],
+  };
   const priorEventIds = new Set<string>();
   const allFactIds = new Set(Object.keys(state.truth.facts));
   for (const committed of state.history) {
@@ -413,6 +462,7 @@ function validateHistory(state: SimulationState): void {
   const lawIds = new Set(state.lawIds);
   const historyActionIds = new Set<string>();
   const historyCheckIds = new Set<string>();
+  const historyRandomIds = new Set<string>();
   const assertResolved = (
     causes: CausalRef[],
     allowed: Record<CausalRef["kind"], Set<string>>,
@@ -460,6 +510,13 @@ function validateHistory(state: SimulationState): void {
     for (const request of committed.reactionRequests) reactionRequestSchema.parse(request);
     for (const decision of committed.reactionDecisions) reactionDecisionSchema.parse(decision);
     for (const request of committed.checkRequests) checkRequestSchema.parse(request);
+    const parsedCommitmentRounds = commitmentRoundsSchema.safeParse(committed.commitmentRounds);
+    if (!parsedCommitmentRounds.success) {
+      throw new Error(`history step ${index + 1} has an invalid commitment round ledger`);
+    }
+    validateDiscreteRandomCommitmentBudget(committed.randomRequests, committed.randomResults);
+    for (const request of committed.randomRequests) discreteRandomRequestSchema.parse(request);
+    for (const result of committed.randomResults) discreteRandomResultSchema.parse(result);
     for (const patch of committed.characterPatches) characterPatchSchema.parse(patch);
     if (new Set(reactionAgents).size !== reactionAgents.length ||
       new Set(decisionAgents).size !== decisionAgents.length ||
@@ -517,8 +574,17 @@ function validateHistory(state: SimulationState): void {
     const requestIds = committed.checkRequests.map((request) => request.id);
     const resultIds = committed.checks.map((result) => result.requestId);
     if (new Set(requestIds).size !== requestIds.length || new Set(resultIds).size !== resultIds.length ||
-      requestIds.length !== resultIds.length || requestIds.some((id) => !resultIds.includes(id))) {
+      requestIds.length !== resultIds.length || requestIds.some((id, requestIndex) => id !== resultIds[requestIndex])) {
       throw new Error(`history step ${index + 1} has invalid check audit coverage`);
+    }
+    const randomRequestIds = committed.randomRequests.map((request) => request.id);
+    const randomResultIds = committed.randomResults.map((result) => result.requestId);
+    if (new Set(randomRequestIds).size !== randomRequestIds.length ||
+      new Set(randomResultIds).size !== randomResultIds.length ||
+      randomRequestIds.some((id) => historyRandomIds.has(id)) ||
+      randomRequestIds.length !== randomResultIds.length ||
+      randomRequestIds.some((id, requestIndex) => id !== randomResultIds[requestIndex])) {
+      throw new Error(`history step ${index + 1} has invalid random audit coverage`);
     }
     for (const request of committed.checkRequests) {
       const modifierSourceIds = request.modifierSources.map((source) => `${source.kind}:${source.id}`);
@@ -526,19 +592,6 @@ function validateHistory(state: SimulationState): void {
         request.modifierSources.reduce((total, source) => total + source.amount, 0) !== request.modifier) {
         throw new Error(`history step ${index + 1} has invalid modifier sources for ${request.id}`);
       }
-      const allowedChecks = new Set(historyCheckIds);
-      for (const priorRequest of committed.checkRequests) {
-        if (priorRequest.id === request.id) break;
-        allowedChecks.add(priorRequest.id);
-      }
-      assertResolved(request.causes, {
-        action: new Set([...initialProposalIds, ...proposalIds]),
-        check: allowedChecks,
-        event: priorEventIds,
-        fact: allFactIds,
-        law: lawIds,
-        mechanic: new Set(),
-      }, `history check ${request.id}`);
       const result = committed.checks.find((candidate) => candidate.requestId === request.id)!;
       const expectedDice = request.mode === "normal" ? 1 : 2;
       const expectedKept = request.mode === "disadvantage" ? Math.min(...result.dice) : Math.max(...result.dice);
@@ -549,18 +602,86 @@ function validateHistory(state: SimulationState): void {
         throw new Error(`history step ${index + 1} has inconsistent check result ${request.id}`);
       }
     }
-    const firstResolutionCheck = committed.checkRequests.findIndex((request) => request.phase === "resolution");
-    if (firstResolutionCheck >= 0 && committed.checkRequests
-      .slice(firstResolutionCheck + 1).some((request) => request.phase === "perception")) {
-      throw new Error(`history step ${index + 1} reopens perception after resolution`);
+    const ledgerCheckIds = parsedCommitmentRounds.data.flatMap((round) =>
+      round.kind === "check" ? round.requestIds : []);
+    const ledgerRandomIds = parsedCommitmentRounds.data.flatMap((round) =>
+      round.kind === "random" ? round.requestIds : []);
+    if (requestIds.some((id, requestIndex) => id !== ledgerCheckIds[requestIndex]) ||
+      requestIds.length !== ledgerCheckIds.length ||
+      randomRequestIds.some((id, requestIndex) => id !== ledgerRandomIds[requestIndex]) ||
+      randomRequestIds.length !== ledgerRandomIds.length) {
+      throw new Error(`history step ${index + 1} commitment rounds do not exactly cover requests in order`);
     }
-    const replayed = resolveD20Checks(committed.rngBefore, committed.checkRequests);
-    if (JSON.stringify(replayed.results) !== JSON.stringify(committed.checks) ||
-      JSON.stringify(replayed.rng) !== JSON.stringify(committed.rngAfter)) {
+
+    const checkById = new Map(committed.checkRequests.map((request) => [request.id, request]));
+    const randomById = new Map(committed.randomRequests.map((request) => [request.id, request]));
+    const committedCheckIds = new Set<string>();
+    const committedRandomIds = new Set<string>();
+    const stepFactIds = new Set(Object.keys(replayState.truth.facts));
+    let resolutionStarted = false;
+    let randomStarted = false;
+    for (const [roundIndex, round] of parsedCommitmentRounds.data.entries()) {
+      if (round.kind === "check") {
+        if (randomStarted) {
+          throw new Error(`history step ${index + 1} has a d20 round after random commitments`);
+        }
+        if (round.phase === "perception" && resolutionStarted) {
+          throw new Error(`history step ${index + 1} reopens perception after resolution`);
+        }
+        if (round.phase === "resolution") resolutionStarted = true;
+        const actionIds = round.phase === "perception"
+          ? new Set(initialProposalIds)
+          : new Set(proposalIds);
+        for (const requestId of round.requestIds) {
+          const request = checkById.get(requestId);
+          if (!request || request.phase !== round.phase) {
+            throw new Error(`history step ${index + 1} has an invalid check round ${roundIndex + 1}`);
+          }
+          assertResolved(request.causes, {
+            action: actionIds,
+            check: committedCheckIds,
+            random: committedRandomIds,
+            event: priorEventIds,
+            fact: stepFactIds,
+            law: lawIds,
+            mechanic: new Set(),
+          }, `history check ${request.id}`);
+        }
+        for (const requestId of round.requestIds) committedCheckIds.add(requestId);
+        continue;
+      }
+
+      resolutionStarted = true;
+      randomStarted = true;
+      for (const requestId of round.requestIds) {
+        const request = randomById.get(requestId);
+        if (!request) {
+          throw new Error(`history step ${index + 1} has an invalid random round ${roundIndex + 1}`);
+        }
+        assertResolved(request.causes, {
+          action: new Set(proposalIds),
+          check: committedCheckIds,
+          random: committedRandomIds,
+          event: priorEventIds,
+          fact: stepFactIds,
+          law: lawIds,
+          mechanic: new Set(),
+        }, `history random request ${request.id}`);
+      }
+      for (const requestId of round.requestIds) committedRandomIds.add(requestId);
+    }
+    const replayedChecks = resolveD20Checks(committed.rngBefore, committed.checkRequests);
+    const replayedRandom = resolveDiscreteRandomRequests(replayedChecks.rng, committed.randomRequests);
+    if (JSON.stringify(replayedChecks.results) !== JSON.stringify(committed.checks) ||
+      JSON.stringify(replayedRandom.results) !== JSON.stringify(committed.randomResults) ||
+      JSON.stringify(replayedRandom.rng) !== JSON.stringify(committed.rngAfter)) {
       throw new Error(`history step ${index + 1} has non-reproducible RNG audit`);
     }
     if (index > 0 && JSON.stringify(state.history[index - 1].rngAfter) !== JSON.stringify(committed.rngBefore)) {
       throw new Error(`history step ${index + 1} has discontinuous RNG state`);
+    }
+    if (JSON.stringify(replayState.truth.rng) !== JSON.stringify(committed.rngBefore)) {
+      throw new Error(`history step ${index + 1} does not start from the replayed RNG state`);
     }
     for (const role of [
       "truth-perception",
@@ -608,6 +729,7 @@ function validateHistory(state: SimulationState): void {
     const allowedForEvents: Record<CausalRef["kind"], Set<string>> = {
       action: new Set(proposalIds),
       check: new Set(requestIds),
+      random: new Set(randomRequestIds),
       event: new Set(priorEventIds),
       fact: allFactIds,
       law: lawIds,
@@ -629,29 +751,32 @@ function validateHistory(state: SimulationState): void {
     for (const outcome of committed.outcomes) {
       assertResolved(outcome.causeRefs, allowedForEvents, `history outcome ${outcome.proposalId}`);
     }
-    const expectedAssertions = [
-      ...committed.operations.flatMap((operation, operationIndex) => operation.assertions.map((assertion) => ({
-        target: { kind: "operation" as const, id: `${operationIndex}:${operation.kind}` },
-        assertion,
-      }))),
-      ...committed.mechanicInvocations.flatMap((invocation) => invocation.assertions.map((assertion) => ({
-        target: { kind: "mechanic" as const, id: invocation.id },
-        assertion,
-      }))),
-      ...committed.events.flatMap((event) => event.assertions.map((assertion) => ({
-        target: { kind: "event" as const, id: event.id },
-        assertion,
-      }))),
-      ...committed.outcomes.flatMap((outcome) => outcome.assertions.map((assertion) => ({
-        target: { kind: "outcome" as const, id: outcome.proposalId },
-        assertion,
-      }))),
-    ];
+    const replayProposal: TransitionProposal = {
+      baseRevision: committed.baseRevision,
+      outcomes: structuredClone(committed.outcomes),
+      mechanicInvocations: structuredClone(committed.mechanicInvocations),
+      operations: structuredClone(committed.operations),
+      events: structuredClone(committed.events),
+      observations: committed.observations
+        .filter((observation) => observation.kind === "outcome")
+        .map((observation) => structuredClone(observation)),
+      intentStatus: committed.intentStatus,
+      requiresPlayerDecision: committed.requiresPlayerDecision,
+    };
+    let replayedCausalAssertions;
+    try {
+      replayedCausalAssertions = evaluateProposalCausality(
+        replayState,
+        replayedChecks.results,
+        replayedRandom.results,
+        replayProposal,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`history step ${index + 1} has invalid causal assurance: ${message}`);
+    }
     if (committed.causalVerification.verdict !== "accept" ||
-      committed.causalAssertionResults.length !== expectedAssertions.length ||
-      committed.causalAssertionResults.some((result, resultIndex) => !result.passed ||
-        contentHashForAudit({ target: result.target, assertion: result.assertion }) !==
-        contentHashForAudit(expectedAssertions[resultIndex]))) {
+      contentHashForAudit(replayedCausalAssertions) !== contentHashForAudit(committed.causalAssertionResults)) {
       throw new Error(`history step ${index + 1} has invalid causal assurance`);
     }
     const resultInvocationIds = committed.mechanicResults.map((result) => result.invocationId);
@@ -708,7 +833,16 @@ function validateHistory(state: SimulationState): void {
     }
     for (const proposalId of proposalIds) historyActionIds.add(proposalId);
     for (const checkId of requestIds) historyCheckIds.add(checkId);
+    for (const randomId of randomRequestIds) historyRandomIds.add(randomId);
     for (const event of committed.events) priorEventIds.add(event.id);
+    for (const operation of committed.operations) applyWorldDeltaOperation(replayState, operation);
+    replayState.revision = committed.revision;
+    replayState.step = committed.step;
+    replayState.truth.rng = structuredClone(committed.rngAfter);
+    replayState.truth.events.push(...structuredClone(committed.events));
+    for (const [agentId, agent] of Object.entries(replayState.agents)) {
+      if (replayState.truth.entities[agent.entityId]?.lifecycle !== "active") delete replayState.agents[agentId];
+    }
   }
   if (state.truth.events.length !== priorEventIds.size ||
     state.truth.events.some((event) => !priorEventIds.has(event.id))) {
@@ -718,9 +852,23 @@ function validateHistory(state: SimulationState): void {
     JSON.stringify(state.history.at(-1)!.rngAfter) !== JSON.stringify(state.truth.rng)) {
     throw new Error("canonical RNG does not match committed history");
   }
+  if (contentHashForAudit(replayState.truth) !== contentHashForAudit(state.truth)) {
+    throw new Error("canonical truth does not match replayed committed history");
+  }
+  const finalReplayAgentEntities = Object.fromEntries(Object.values(replayState.agents)
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((agent) => [agent.id, agent.entityId]));
+  const finalAgentEntities = Object.fromEntries(Object.values(state.agents)
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((agent) => [agent.id, agent.entityId]));
+  if (contentHashForAudit(finalReplayAgentEntities) !== contentHashForAudit(finalAgentEntities) ||
+    replayState.player.entityId !== state.player.entityId) {
+    throw new Error("runtime actor identities do not match replayed committed history");
+  }
   const allowedFinal: Record<CausalRef["kind"], Set<string>> = {
     action: historyActionIds,
     check: historyCheckIds,
+    random: historyRandomIds,
     event: priorEventIds,
     fact: allFactIds,
     law: lawIds,
@@ -846,7 +994,7 @@ export function validateSimulationState(
   requireNextActions = false,
   requireHistoryAlignment = false,
 ): void {
-  if (state.schemaVersion !== 6 || !state.worldId.trim() || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 7 || !state.worldId.trim() || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   assertSafeId(state.worldId, "world id");

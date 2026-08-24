@@ -32,6 +32,7 @@ export function validateObservations(
   for (const packet of packets) {
     if (ids.has(packet.id)) throw new Error(`duplicate observation id ${packet.id}`);
     ids.add(packet.id);
+    if (!packet.summary.trim()) throw new Error(`observation ${packet.id} has a blank summary`);
     if (packet.observerId !== "player" && !state.agents[packet.observerId]) {
       throw new Error(`observation ${packet.id} has unknown observer ${packet.observerId}`);
     }

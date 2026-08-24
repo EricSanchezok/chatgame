@@ -1,0 +1,21 @@
+id: causaris-lost-dog
+kind: animal
+name: Causari 幼女的宠物犬
+description: Causari 幼女饲养的宠物犬，具有会受天气、饥饿、声音与遭遇影响而自主移动的动物主体性。
+placement: hex-1213-witch-hill
+facts:
+  - id: causari-dog-owner
+    predicate: companion-of
+    value: { kind: entity, entityId: causaris-young-daughter }
+    description: 这只犬是 Causari 幼女最喜爱的宠物。
+    access: { kind: private }
+  - id: causari-dog-search-state
+    predicate: current-condition
+    value: { kind: text, value: lost-alive-and-moving-near-witch-hill-at-t0 }
+    description: 开局时犬只仍活着并在遗址附近移动；后续位置和状况必须由世界时间与事件更新。
+    access: { kind: private }
+meters:
+  - { id: "vitality:causaris-lost-dog", definition_id: vitality, current: 5 }
+quantities: []
+ratings:
+  - { id: "wilderness:causaris-lost-dog", definition_id: wilderness, value: 1 }

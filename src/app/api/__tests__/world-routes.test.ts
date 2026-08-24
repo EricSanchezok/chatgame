@@ -47,6 +47,17 @@ describe("world API routes", () => {
     expect(await response.json()).toEqual({ error: "服务器无法完成请求。" });
   });
 
+  it("rejects session seeds outside the uint32 contract", async () => {
+    const response = await createSession(new Request("http://local/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ worldId: "open-world-fixture", seed: 0x100000000 }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "seed must be a uint32" });
+  });
+
   it("lists schema v5 worlds and rejects empty run text", async () => {
     installHost();
     const worlds = await listWorlds();

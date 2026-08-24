@@ -1,0 +1,24 @@
+id: three-sisters-nixies
+kind: rival-sibling-group
+name: Three Sisters
+description: 分居相邻岛屿、彼此竞争且不共享心智的 Lake King 女儿共同体。
+placement: hex-0415-three-sisters
+facts:
+  - id: three-sisters-count
+    predicate: composition
+    value: { kind: number, value: 3 }
+    description: 三座岛各住一名 nixie，她们是 Lake King 的三个女儿。
+    access: { kind: private }
+  - id: three-sisters-rivalry
+    predicate: relationship
+    value: { kind: text, value: each-rival-charming-handsome-captives-and-sabotaging-the-others }
+    description: 三姐妹分别作出选择并争夺俊美俘虏，也会与外人交易来破坏姐妹的收获。
+    access: { kind: private }
+  - id: three-sisters-no-treasure-offer
+    predicate: rumor-status
+    value: { kind: text, value: no-standing-offer-to-reward-pleasing-visitors-with-treasure }
+    description: “取悦少女便获宝藏”的传闻为假；实际风险是 charm 与扣押。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

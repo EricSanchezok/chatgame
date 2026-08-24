@@ -1,0 +1,22 @@
+id: blackmarsh-company-adventurers
+kind: caravan-company
+name: Blackmarsh Company of Adventurers
+description: 地区最大的 caravan master 联合体，组织通往 Greywood、Ostrobard、Newcombe 和 Southland 的陆路商队。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: adventurers-company-routes
+    predicate: routes
+    value: { kind: text, value: greywood-ostrobard-newcombe-southland }
+    description: 公司维持黑沼堡与四个主要内陆方向之间的定期商队。
+    access: { kind: public }
+  - id: adventurers-company-recruiting
+    predicate: recruitment
+    value: { kind: text, value: merchants-scouts-and-guards }
+    description: 公司持续招募商人、斥候与护卫。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 1600 }
+  - { definition_id: provisions, amount: 520 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

@@ -1,0 +1,27 @@
+id: merry-legs-banquet-hall
+kind: inn-and-hall
+name: Merry Legs 宴会厅
+description: 黑沼堡最大的开放宴会厅，探险队可租套间，商人、船长和 caravan master 每晚在表演开始前交换机会与消息。
+placement: hex-0913-castle-blackmarsh
+facts:
+  - id: merry-legs-access
+    predicate: access
+    value: { kind: text, value: open-to-paying-parties }
+    description: 任何能支付费用的探险队都可使用大厅、包间和三至四室套房。
+    access: { kind: public }
+  - id: merry-legs-information-market
+    predicate: social-function
+    value: { kind: text, value: nightly-commercial-information-exchange }
+    description: 入夜前后是寻找雇主、船位、护卫与流言的最佳时段。
+    access: { kind: public }
+  - id: merry-legs-floor-show
+    predicate: recurring-program
+    value: { kind: text, value: begins-one-hour-after-sunset-with-singing-bards-dancers-and-juggling-dwarves }
+    description: 每晚日落后一小时开始表演，固定类型包括吟游诗人演唱、舞者与矮人杂耍；实际表演者仍是独立主体。
+    access: { kind: public }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 90 }
+  - { definition_id: provisions, amount: 60 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

@@ -1,0 +1,26 @@
+id: tavis
+kind: person
+name: Tavis
+description: 独自维护 Mannann 海神神龛、以救助海难幸存者为宗教职责的祭司。
+placement: hex-1515-mannann-shrine
+facts:
+  - id: tavis-shrine-duty
+    predicate: sacred-duty
+    value: { kind: text, value: aid-any-shipwreck-survivor }
+    description: Tavis 的宗教义务是不问阵营地救助遇难者。
+    access: { kind: public }
+  - id: tavis-rescue-boat
+    predicate: equipment
+    value: { kind: entity, entityId: tavis-rescue-sloop }
+    description: Tavis 以结构化船只实体执行搜救；位置、损伤与控制权不会冻结在人物描述中。
+    access: { kind: public }
+meters:
+  - { id: "vitality:tavis", definition_id: vitality, current: 16 }
+quantities:
+  - { definition_id: coin, amount: 20 }
+  - { definition_id: provisions, amount: 2 }
+  - { definition_id: viz, amount: 0 }
+ratings:
+  - { id: "seamanship:tavis", definition_id: seamanship, value: 4 }
+  - { id: "resolve:tavis", definition_id: resolve, value: 4 }
+  - { id: "magic:tavis", definition_id: magic, value: 3 }

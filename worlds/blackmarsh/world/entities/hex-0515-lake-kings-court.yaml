@@ -1,0 +1,19 @@
+id: hex-0515-lake-kings-court
+kind: aquatic-court
+name: Lake King 宫廷
+description: 位于 Black Marshes 最西部湖泊的水下宫廷与 nixie 聚落。
+placement: black-marshes
+facts:
+  - id: hex-0515-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0515" }
+    description: 宫廷位于区域六角 0515，属于 Black Marshes 湖群。
+    access: { kind: public }
+  - id: hex-0515-court-population
+    predicate: population
+    value: { kind: number, value: 80 }
+    description: Lake King 的宫廷有八十名 nixie，不含国王本人。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

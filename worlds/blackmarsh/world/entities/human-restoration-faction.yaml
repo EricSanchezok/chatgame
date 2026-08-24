@@ -1,0 +1,32 @@
+id: human-restoration-faction
+kind: political-faction
+name: Human Restoration Faction
+description: 由 Sir Causari 公开领导、要求 Greywood 结束黑沼堡托管并恢复人类自治的政治派系，其影响来自职位、人脉与城民支持而非共享意志。
+placement: hex-1113-inuacus-keep
+facts:
+  - id: human-restoration-platform
+    predicate: public-platform
+    value: { kind: text, value: defined-trusteeship-end-and-restored-human-government }
+    description: 派系公开要求给出托管终点并把城邦治理权交还人类居民。
+    access: { kind: public }
+  - id: human-restoration-leader
+    predicate: public-leader
+    value: { kind: entity, entityId: sir-causari }
+    description: Causari 以个人政治声望和 Inuacus Keep 指挥官身份领导派系，但守军职责不自动转化为党派军力。
+    access: { kind: public }
+  - id: human-restoration-no-coup-force
+    predicate: mobilization-state
+    value: { kind: text, value: no-separate-coup-army-mobilized }
+    description: 开局不存在以复权名义集结的政变军；Inuacus 守军的现行命令是保护农地并监视 Jorvik。
+    access: { kind: private }
+  - id: human-restoration-internal-split
+    predicate: internal-factions
+    value: { kind: text, value: negotiated-transition-moderates-and-coercive-pressure-hardliners }
+    description: 温和成员要求议会交权与共同监管，强硬成员主张街头或军事施压；两派必须通过具体人物争取 Causari。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: coin, amount: 120 }
+  - { definition_id: provisions, amount: 0 }
+  - { definition_id: viz, amount: 0 }
+ratings: []

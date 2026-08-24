@@ -1,0 +1,24 @@
+id: crystal-skeleton
+kind: crystalline-remains
+name: Grey Sea 巨型晶骸
+description: 潜水者在 2714 海床报告的巨大晶体骨片集合。
+placement: hex-2714-crystal-skeleton
+facts:
+  - id: crystal-skeleton-depth
+    predicate: depth-feet
+    value: { kind: number, value: 100 }
+    description: 潜水者在约一百英尺深的海床发现晶体骨片。
+    access: { kind: private }
+  - id: crystal-skeleton-reassembly
+    predicate: dated-report-pattern
+    value: { kind: text, value: later-reports-show-more-complete-assembly-than-earlier-reports }
+    description: 较新的潜水报告描述了比早期报告更完整的骨架；这组证词不能单独证明正在自行重组、其速率或原因。
+    access: { kind: private }
+  - id: crystal-skeleton-identity-boundary
+    predicate: unresolved-identity
+    value: { kind: text, value: life-status-origin-final-form-and-causal-mechanism-unknown }
+    description: 世界种子不把未知骨架擅自定性为生物、构装体、亡灵或武器，也不赋予未经证实的战斗能力。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

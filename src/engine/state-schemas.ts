@@ -18,7 +18,15 @@ import type {
   WorldEntity,
   WorldFact,
   CausalAssertion,
+  CommitmentRound,
+  DiscreteRandomAggregate,
+  DiscreteRandomDefinition,
+  DiscreteRandomRequest,
+  DiscreteRandomResult,
+  DiscreteRandomValue,
 } from "./model";
+import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
+import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 
 const reservedRecordKeys = new Set([
   ...Object.getOwnPropertyNames(Object.prototype),
@@ -35,7 +43,7 @@ export const safeIdSchema = z.string().min(1).refine(
 );
 
 export const causalRefSchema = z.strictObject({
-  kind: z.enum(["action", "check", "event", "fact", "law", "mechanic"]),
+  kind: z.enum(["action", "check", "random", "event", "fact", "law", "mechanic"]),
   id: safeIdSchema,
 });
 
@@ -57,11 +65,97 @@ export const factValueSchema = z.discriminatedUnion("kind", [
 
 const numericComparisonSchema = z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]);
 
+const discreteRandomIntegerSchema = z.number().int().safe().refine(
+  (value) => !Object.is(value, -0),
+  { message: "negative zero is not a canonical random value" },
+);
+
+export const discreteRandomValueSchema = z.union([
+  z.string().min(1),
+  discreteRandomIntegerSchema,
+  z.boolean(),
+  z.null(),
+]) as z.ZodType<DiscreteRandomValue>;
+
+export const discreteRandomAggregateSchema = z.union([
+  discreteRandomValueSchema,
+  z.array(discreteRandomValueSchema).min(1),
+]) as z.ZodType<DiscreteRandomAggregate>;
+
+export const discreteRandomDefinitionSchema = z.strictObject({
+  id: safeIdSchema,
+  description: z.string().min(1),
+  steps: z.array(z.strictObject({
+    id: safeIdSchema,
+    count: z.number().int().min(1).max(100),
+    outcomes: z.array(discreteRandomValueSchema).min(2).max(100),
+    aggregate: z.enum(["first", "sum", "values"]),
+    when: z.strictObject({
+      stepId: safeIdSchema,
+      equals: discreteRandomValueSchema,
+    }).nullable(),
+  })).min(1).max(100),
+}) as z.ZodType<DiscreteRandomDefinition>;
+
+export const discreteRandomRequestSchema = z.strictObject({
+  id: safeIdSchema,
+  distributionId: safeIdSchema,
+  distribution: discreteRandomDefinitionSchema,
+  causes: z.array(causalRefSchema).min(1).max(16),
+}) as z.ZodType<DiscreteRandomRequest>;
+
+export const discreteRandomResultSchema = z.strictObject({
+  requestId: safeIdSchema,
+  distributionId: safeIdSchema,
+  steps: z.array(z.strictObject({
+    stepId: safeIdSchema,
+    skipped: z.boolean(),
+    draws: z.array(z.strictObject({
+      outcomeIndex: z.number().int().nonnegative(),
+      value: discreteRandomValueSchema,
+    })),
+    aggregate: discreteRandomAggregateSchema.nullable(),
+  })).min(1),
+}) as z.ZodType<DiscreteRandomResult>;
+
+const commitmentRoundRequestIdsSchema = z.array(safeIdSchema).min(1).refine(
+  (requestIds) => new Set(requestIds).size === requestIds.length,
+  { message: "commitment round request ids must be unique" },
+);
+const randomCommitmentRoundRequestIdsSchema = z.array(safeIdSchema)
+  .min(1)
+  .max(MAX_RANDOM_REQUESTS_PER_ROUND)
+  .refine(
+    (requestIds) => new Set(requestIds).size === requestIds.length,
+    { message: "commitment round request ids must be unique" },
+  );
+
+export const commitmentRoundSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("check"),
+    phase: z.enum(["perception", "resolution"]),
+    requestIds: commitmentRoundRequestIdsSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("random"),
+    requestIds: randomCommitmentRoundRequestIdsSchema,
+  }),
+]) as z.ZodType<CommitmentRound>;
+
+export const commitmentRoundsSchema = z.array(commitmentRoundSchema)
+  .max(MAX_COMMITMENT_ROUNDS_PER_STEP);
+
 export const causalAssertionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("check_result"),
     checkId: safeIdSchema,
     expected: z.enum(["succeeded", "failed"]),
+  }),
+  z.strictObject({
+    kind: z.literal("random_result"),
+    requestId: safeIdSchema,
+    stepId: safeIdSchema,
+    expected: discreteRandomAggregateSchema,
   }),
   z.strictObject({ kind: z.literal("fact_matches"), factId: safeIdSchema, expected: factValueSchema }),
   z.strictObject({ kind: z.literal("fact_absent"), factId: safeIdSchema }),

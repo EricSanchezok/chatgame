@@ -1,0 +1,29 @@
+id: hex-1816-ochre-wreck
+kind: underwater-ruin
+name: Ochre Empire 侦察船残骸
+description: 沉在 Driftwood Isle 泻湖底、属于五年前 Ochre Empire 侦察远征的船只残骸。
+placement: driftwood-isle
+facts:
+  - id: hex-1816-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "1816" }
+    description: 残骸位于区域六角 1816，属于原图标示的 Driftwood Isle 泻湖。
+    access: { kind: public }
+  - id: hex-1816-origin
+    predicate: origin
+    value: { kind: text, value: lost-ochre-empire-scout-expedition-ship }
+    description: 该船属于 Grand Kingdom 对手 Ochre Empire 五年前派出的黑沼侦察远征。
+    access: { kind: private }
+  - id: hex-1816-bribery-gold
+    predicate: treasure
+    value: { kind: text, value: several-chests-of-gold-intended-for-bribes }
+    description: 数箱黄金原用于收买地方势力，具体数额尚无人公开清点。
+    access: { kind: private }
+  - id: hex-1816-expedition-supplies
+    predicate: cache
+    value: { kind: text, value: valuable-supplies-for-inland-expeditions }
+    description: 船中另有用于组织内陆勘探的高价值补给，浸水与腐败程度取决于包装。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []

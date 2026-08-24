@@ -1,0 +1,40 @@
+id: rinisar-raven-cell
+kind: field-unit
+name: Rinisar's Raven Cell
+description: 由 Rinisar Anothil 指挥、依靠分工与分段情报行动的 Brotherhood 外勤单元。
+placement: hex-1905-rinisars-camp
+facts:
+  - id: rinisar-raven-cell-strength
+    predicate: composition
+    value: { kind: number, value: 15 }
+    description: 小队总数为十五人，包括 Rinisar 与十四名队员。
+    access: { kind: private }
+  - id: rinisar-raven-cell-commander
+    predicate: commanded-by
+    value: { kind: entity, entityId: rinisar-anothil }
+    description: Rinisar 负责侦察、诱饵、撤离与是否执行行动的现场指挥。
+    access: { kind: private }
+  - id: rinisar-raven-cell-operation-state
+    predicate: operation-state
+    value: { kind: text, value: preparing }
+    description: 小队正在完成惊扰 Hydra 所需的侦察、诱饵和撤离准备；该状态是截止结算时必须更新的唯一行动状态。
+    access: { kind: private }
+  - id: rinisar-raven-cell-operation-target
+    predicate: operation-target
+    value: { kind: entity, entityId: eight-headed-hydra }
+    description: 本次行动直接针对八首 Hydra，意图把它诱向 Ostrobard 土地但不预先保证方向或成功。
+    access: { kind: private }
+  - id: rinisar-raven-cell-operation-deadline
+    predicate: deadline-seconds
+    value: { kind: number, value: 64800 }
+    description: 这是从世界 elapsedSeconds = 0 计算的绝对阈值 64,800；命令、侦察结果、天气与阻挠可在此前改变截止，达到或越过阈值时必须结算行动状态。
+    access: { kind: private }
+  - id: rinisar-raven-cell-cognition
+    predicate: cognition-boundary
+    value: { kind: text, value: members-know-assigned-segments-without-shared-mind }
+    description: 队员只掌握职责所需片段，组织隶属不让总部或其他 Raven 单元即时获得行动细节。
+    access: { kind: private }
+meters: []
+quantities:
+  - { definition_id: provisions, amount: 90 }
+ratings: []

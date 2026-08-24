@@ -1,0 +1,19 @@
+id: hex-0105-daur-anthar
+kind: ruin
+name: Daur Anthar 遗址
+description: 矮人铸铁大师 Gamli Norreshield 的废弃山堡，旧工坊沿一条 Viz 富集金属矿脉修建。
+placement: pendar-mountains
+facts:
+  - id: hex-0105-coordinate
+    predicate: hex-coordinate
+    value: { kind: text, value: "0105" }
+    description: Daur Anthar 位于区域六角 0105；其 Pendar Mountains 归属依据原始地图判读。
+    access: { kind: public }
+  - id: hex-0105-viz-vein
+    predicate: resource
+    value: { kind: text, value: metal-vein-rich-in-viz }
+    description: Gamli 曾在此发现富含 Viz 的金属矿脉，并研究把它用于武器和护甲锻造。
+    access: { kind: private }
+meters: []
+quantities: []
+ratings: []
