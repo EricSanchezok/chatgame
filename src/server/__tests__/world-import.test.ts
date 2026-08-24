@@ -184,7 +184,7 @@ describe("world import", () => {
     const provider = new DeterministicModelProvider();
     const archive = zipDirectory(fixture).toBuffer();
     database.importWorld(archive, provider.catalog);
-    const host = new WorldHost({ repository: database, store: database, importer: database, provider });
+    const host = new WorldHost({ repository: database, store: database, catalogManager: database, provider });
     const session = await host.createSession({ worldId: "open-world-fixture" });
 
     expect(() => host.deleteWorld("open-world-fixture")).toThrow("still has saved sessions");
@@ -206,7 +206,7 @@ describe("world import", () => {
     const createHost = () => new WorldHost({
       repository: database,
       store: database,
-      importer: database,
+      catalogManager: database,
       provider,
       idFactory: () => `id-${++nextId}`,
     });

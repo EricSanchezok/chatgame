@@ -9,12 +9,18 @@ test("a player installs a world and continues a persistent conversation", async 
   await page.getByRole("link", { name: /世界包/ }).click();
   await expect(page).toHaveURL(/\/worlds$/);
 
-  await page.locator('input[type="file"]').setInputFiles({
+  const catalogResponse = await page.request.get("/api/worlds");
+  const catalog = await catalogResponse.json() as { worlds: Array<{ id: string }> };
+  const worldAlreadyInstalled = catalog.worlds.some((world) => world.id === "open-world-fixture");
+  const worldArchiveInput = worldAlreadyInstalled
+    ? page.locator('.cg-world-detail__tools input[type="file"]')
+    : page.locator('.cg-import-world input[type="file"]');
+  await worldArchiveInput.setInputFiles({
     name: "open-world-fixture.zip",
     mimeType: "application/zip",
     buffer: fixtureArchive(),
   });
-  await expect(page.getByRole("heading", { name: "开放世界测试夹具" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "开放世界测试夹具", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: /开始新游戏/ }).click();
   await expect(page).toHaveURL(/\/play\/[^/]+$/);
   const activeSessionId = new URL(page.url()).pathname.split("/").at(-1);
@@ -52,7 +58,7 @@ test("a player installs a world and continues a persistent conversation", async 
   await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
   await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toHaveCount(0);
   await page.goto("/");
-  await expect(page.getByRole("link", { name: /1 个世界 · 1 份存档/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /世界包.*1 个世界/ })).toBeVisible();
 
   await page.goto(`/play/${activeSessionId}/manage/saves`);
   await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
@@ -106,6 +112,7 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
 
   await orb.click();
   await expect(page.getByRole("button", { name: "存档" })).toBeVisible();
+  await expect(page.locator(".cg-orb__action")).toHaveCount(3);
   const statusCard = page.locator(".cg-orb__card");
   const cardBox = await statusCard.boundingBox();
   expect(cardBox).not.toBeNull();

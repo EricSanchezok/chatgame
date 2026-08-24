@@ -197,6 +197,7 @@ export function ControlOrb({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [exitConfirmation, setExitConfirmation] = useState(false);
   const actions = controlActions(sessionId);
+  const exitAction = actions.find((action) => action.kind === "exit")!;
 
   const applyPoint = useCallback((next: PixelPosition) => {
     pixelRef.current = next;
@@ -438,7 +439,7 @@ export function ControlOrb({
             <div className="cg-orb__exit-confirm" role="group" aria-label="确认返回主菜单">
               <p>当前行动会在后台继续推演。确定返回主菜单？</p>
               <div>
-                <button onClick={() => void navigate(actions[2], true)} type="button">继续离开</button>
+                <button onClick={() => void navigate(exitAction, true)} type="button">继续离开</button>
                 <button onClick={() => setExitConfirmation(false)} type="button">留在游戏</button>
               </div>
             </div>
@@ -478,7 +479,7 @@ export function ControlOrb({
           {exitConfirmation ? (
             <div className="cg-sheet-exit" role="group" aria-label="确认返回主菜单">
               <p>当前行动会在后台继续推演。确定返回主菜单？</p>
-              <button onClick={() => void navigate(actions[2], true)} type="button">继续离开</button>
+              <button onClick={() => void navigate(exitAction, true)} type="button">继续离开</button>
               <button className="cg-button--quiet" onClick={() => setExitConfirmation(false)} type="button">留在游戏</button>
             </div>
           ) : null}

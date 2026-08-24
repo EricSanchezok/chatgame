@@ -13,7 +13,7 @@ test("the local menu and world library have no detectable accessibility violatio
   await expectNoViolations(page);
 
   await page.goto("/worlds");
-  await expect(page.getByRole("heading", { name: "世界包" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "世界包", exact: true, level: 2 })).toBeVisible();
   await expectNoViolations(page);
 });
 
@@ -33,6 +33,7 @@ test("the empty and completed conversation have no detectable accessibility viol
   await page.getByLabel("你的行动").fill("执行一个自由行动");
   await page.getByRole("button", { name: "发送行动" }).click();
   await expect(page.getByText("目标已经完成")).toBeVisible();
+  await page.waitForTimeout(200);
   await expectNoViolations(page);
 
   const orb = page.getByRole("button", { name: /打开游戏控制/ });
@@ -46,6 +47,7 @@ test("the empty and completed conversation have no detectable accessibility viol
   await orb.click();
   await page.getByRole("button", { name: "存档" }).click();
   await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
+  await page.waitForTimeout(300);
   await expectNoViolations(page);
   await page.keyboard.press("Escape");
   await expect(orb).toBeFocused();
@@ -53,6 +55,7 @@ test("the empty and completed conversation have no detectable accessibility viol
   await page.setViewportSize({ width: 390, height: 844 });
   await orb.click();
   await expect(page.getByRole("dialog")).toBeVisible();
+  await page.waitForTimeout(300);
   await expectNoViolations(page);
   await page.keyboard.press("Escape");
   await expect(orb).toBeFocused();

@@ -125,7 +125,7 @@ export interface WorldHostOptions {
   repository: WorldRepository;
   store: WorldSessionStore;
   provider: StructuredModelProvider;
-  importer?: WorldCatalogManager;
+  catalogManager?: WorldCatalogManager;
   now?: () => Date;
   idFactory?: () => string;
   maxStepsPerRun?: number;
@@ -174,7 +174,7 @@ export class WorldHost {
       this.singleton = new WorldHost({
         repository: database,
         store: database,
-        importer: database,
+        catalogManager: database,
         provider,
         observer,
       });
@@ -218,13 +218,13 @@ export class WorldHost {
   }
 
   importWorld(buffer: Buffer, replace = false, expectedWorldId?: string): WorldImportResult {
-    if (!this.options.importer) throw new WorldHostError("world import is unavailable", 501);
-    return this.options.importer.importWorld(buffer, this.options.provider.catalog, replace, expectedWorldId);
+    if (!this.options.catalogManager) throw new WorldHostError("world import is unavailable", 501);
+    return this.options.catalogManager.importWorld(buffer, this.options.provider.catalog, replace, expectedWorldId);
   }
 
   deleteWorld(worldId: string): void {
-    if (!this.options.importer) throw new WorldHostError("world management is unavailable", 501);
-    this.options.importer.deleteWorld(worldId);
+    if (!this.options.catalogManager) throw new WorldHostError("world management is unavailable", 501);
+    this.options.catalogManager.deleteWorld(worldId);
   }
 
   private pinnedWorldContractIdentity(document: WorldSessionDocument): { key: string; seed: number } {

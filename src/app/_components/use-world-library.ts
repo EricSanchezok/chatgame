@@ -9,7 +9,7 @@ interface WorldLibrarySnapshot {
   worlds: WorldSummary[];
 }
 
-export interface ImportWorldOptions {
+interface ImportWorldOptions {
   expectedWorldId?: string;
   replace?: boolean;
 }
@@ -50,7 +50,10 @@ export function useWorldLibrary(currentSession?: PublicSessionSummary) {
     const timer = window.setTimeout(() => {
       void refresh().catch(() => undefined);
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      refreshSequence.current += 1;
+    };
   }, [refresh]);
 
   const sessions = useMemo(() => {
@@ -154,7 +157,6 @@ export function useWorldLibrary(currentSession?: PublicSessionSummary) {
 
   return {
     busy,
-    clearFeedback: () => { setError(""); setNotice(""); },
     createSession,
     deleteSession,
     deleteWorld,
@@ -162,7 +164,6 @@ export function useWorldLibrary(currentSession?: PublicSessionSummary) {
     importWorld,
     loading,
     notice,
-    refresh,
     renameSession,
     sessions,
     worlds: snapshot.worlds,

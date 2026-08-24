@@ -46,7 +46,7 @@ export function WorldDetail({
           <button className="cg-button--quiet" disabled={busy?.startsWith("world-import:")} onClick={() => updateInput.current?.click()} type="button">
             <RefreshCw aria-hidden="true" />更新世界包
           </button>
-          <input ref={updateInput} className="cg-sr-only" accept=".zip,application/zip" onChange={selectUpdate} type="file" />
+          <input ref={updateInput} accept=".zip,application/zip" hidden onChange={selectUpdate} type="file" />
           <button
             className="cg-button--quiet cg-button--danger"
             disabled={sessions.length > 0 || busy === `world-delete:${world.id}`}

@@ -70,6 +70,12 @@ export function WorldWorkspace({ selectedWorldId }: { selectedWorldId?: string }
               <p>使用左侧的“导入世界包”，安装一个 schema v6 ZIP 后开始游戏。</p>
             </div>
           ) : null}
+          {!library.loading && library.worlds.length > 0 && !selectedWorld ? (
+            <div className="cg-workspace-empty">
+              <h1>找不到这个世界包</h1>
+              <p>它可能已经被卸载。请从左侧选择一个已安装的世界。</p>
+            </div>
+          ) : null}
           {!library.loading && selectedWorld ? (
             <WorldDetail
               busy={library.busy}

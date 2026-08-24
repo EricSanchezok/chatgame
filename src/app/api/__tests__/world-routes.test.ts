@@ -24,7 +24,7 @@ const fixtureRoot = path.resolve("test/fixtures/open-world-script");
 
 function installHost(
   observer?: RecordingRuntimeObserver,
-  importer?: WorldHostOptions["importer"],
+  catalogManager?: WorldHostOptions["catalogManager"],
 ): WorldHost {
   let id = 0;
   const provider = new DeterministicModelProvider();
@@ -32,7 +32,7 @@ function installHost(
   const host = new WorldHost({
     repository: new MemoryWorldRepository({ [definition.id]: definition }),
     store: new MemoryWorldSessionStore(observer),
-    importer,
+    catalogManager,
     provider,
     idFactory: () => `route-${++id}`,
     now: () => new Date("2026-08-23T00:00:00.000Z"),

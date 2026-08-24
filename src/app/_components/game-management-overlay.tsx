@@ -57,7 +57,9 @@ export function GameManagementOverlay({
                 );
               })}
             </nav>
-            <Link className="cg-game-manage__return" href={gameHref}>返回对话</Link>
+            <Dialog.Close asChild>
+              <button className="cg-game-manage__return" type="button">返回对话</button>
+            </Dialog.Close>
           </aside>
           <div className="cg-game-manage__content">{children}</div>
           <Dialog.Close aria-label="关闭游戏管理" className="cg-game-manage__close">
