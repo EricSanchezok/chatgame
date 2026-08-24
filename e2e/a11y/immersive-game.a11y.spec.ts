@@ -49,6 +49,9 @@ test("the empty and completed conversation have no detectable accessibility viol
   await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
   await page.waitForTimeout(300);
   await expectNoViolations(page);
+  await page.getByRole("link", { name: "设置" }).click();
+  await expect(page.getByRole("switch", { name: "减少动态效果" })).toBeVisible();
+  await expectNoViolations(page);
   await page.keyboard.press("Escape");
   await expect(orb).toBeFocused();
 

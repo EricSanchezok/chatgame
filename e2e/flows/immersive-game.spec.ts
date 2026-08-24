@@ -60,8 +60,25 @@ test("a player installs a world and continues a persistent conversation", async 
   await page.goto("/");
   await expect(page.getByRole("link", { name: /世界包.*1 个世界/ })).toBeVisible();
 
+  await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
   await page.goto(`/play/${activeSessionId}/manage/saves`);
   await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
+  const currentSave = page.locator('.cg-library-save[data-current="true"]');
+  const otherSave = page.locator('.cg-library-save:not([data-current="true"])').first();
+  await expect(otherSave).toBeVisible();
+  const [currentRowBox, otherRowBox, currentContentBox, otherContentBox] = await Promise.all([
+    currentSave.boundingBox(),
+    otherSave.boundingBox(),
+    currentSave.locator(".cg-library-save__content").boundingBox(),
+    otherSave.locator(".cg-library-save__content").boundingBox(),
+  ]);
+  expect(currentRowBox).not.toBeNull();
+  expect(otherRowBox).not.toBeNull();
+  expect(currentContentBox).not.toBeNull();
+  expect(otherContentBox).not.toBeNull();
+  expect(currentRowBox!.x).toBeCloseTo(otherRowBox!.x, 1);
+  expect(currentRowBox!.width).toBeCloseTo(otherRowBox!.width, 1);
+  expect(currentContentBox!.x).toBeCloseTo(otherContentBox!.x, 1);
   await page.getByRole("article").filter({
     has: page.locator(`a[href="/play/${activeSessionId}"]`),
   })
@@ -69,11 +86,11 @@ test("a player installs a world and continues a persistent conversation", async 
   await page.getByLabel("存档名称").fill("石门之外");
   await page.getByRole("button", { name: "保存名称" }).click();
   await expect(page.getByRole("heading", { name: "石门之外", level: 3 })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("button", { name: "关闭游戏管理" }).click();
   await expect(page).toHaveURL(`/play/${activeSessionId}`);
   await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
-
-  await page.setViewportSize({ width: 320, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -166,12 +183,17 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
   await orb.click();
   await expect(page.getByRole("button", { name: "存档" })).toBeVisible();
   await expect(page.locator(".cg-orb__action")).toHaveCount(3);
+  await page.waitForTimeout(300);
   const statusCard = page.locator(".cg-orb__card");
   const cardBox = await statusCard.boundingBox();
+  const openOrbBox = await page.locator(".cg-orb__trigger").boundingBox();
   expect(cardBox).not.toBeNull();
+  expect(openOrbBox).not.toBeNull();
+  const actionBoxes: Array<{ height: number; width: number; x: number; y: number }> = [];
   for (const action of await page.locator(".cg-orb__action").all()) {
     const box = await action.boundingBox();
     expect(box).not.toBeNull();
+    actionBoxes.push(box!);
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.y).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(1_440);
@@ -182,6 +204,15 @@ test("the control orb exposes desktop and mobile navigation", async ({ page }) =
       box!.y + box!.height > cardBox!.y;
     expect(overlapsCard).toBe(false);
   }
+  const orbCenter = {
+    x: openOrbBox!.x + (openOrbBox!.width / 2),
+    y: openOrbBox!.y + (openOrbBox!.height / 2),
+  };
+  const actionRadii = actionBoxes.map((box) => Math.hypot(
+    box.x + (box.width / 2) - orbCenter.x,
+    box.y + (box.height / 2) - orbCenter.y,
+  ));
+  expect(Math.max(...actionRadii) - Math.min(...actionRadii)).toBeLessThan(1);
   await page.getByRole("button", { name: /关闭游戏控制/ }).click();
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -216,6 +247,13 @@ test("in-game management preserves an active world run", async ({ page }) => {
   await expect(page).toHaveURL(`${playURL}/manage/settings`);
   await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
+  const reduceMotion = page.getByRole("switch", { name: "减少动态效果" });
+  await expect(reduceMotion).toHaveAttribute("aria-checked", "false");
+  await reduceMotion.click();
+  await expect(reduceMotion).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("html")).toHaveAttribute("data-cg-motion", "reduced");
+  await reduceMotion.press("Space");
+  await expect(reduceMotion).toHaveAttribute("aria-checked", "false");
 
   await expect.poll(async () => {
     const response = await page.request.get(`/api/sessions/${detail.summary.id}`);

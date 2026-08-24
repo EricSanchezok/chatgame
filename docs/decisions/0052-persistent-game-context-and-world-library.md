@@ -36,9 +36,9 @@ Class: architecture
 
 普通主题的键盘焦点使用 `--cg-ring` 绘制非包围式底部标记，不用整圈 outline 或外层光晕改变控件轮廓；composer 以短底部标记表示输入焦点，静态边框和外部阴影均保持不变。forced-colors 使用系统 `Highlight` 的完整 outline，确保高对比模式仍由平台提供明确位置反馈。
 
-游戏页由 `/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 与 Thread。`/play/:sessionId/manage/saves` 和 `/play/:sessionId/manage/settings` 只在该布局上方渲染具备模态语义的大型管理层。管理层背景 inert、焦点受约束并在关闭后恢复到控制球，但游戏状态与连接继续存活。桌面控制球只保留存档、设置和主菜单三个真实动作；移动端使用同一动作集的 Sheet。
+游戏页由 `/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 与 Thread。`/play/:sessionId/manage/saves` 和 `/play/:sessionId/manage/settings` 只在该布局上方渲染具备模态语义的大型管理层。管理层背景 inert、焦点受约束并在关闭后恢复到控制球，但游戏状态与连接继续存活。桌面控制球只保留存档、设置和主菜单三个真实动作，三个动作在同一半径上等角展开；移动端使用同一动作集的 Sheet。减少动态效果使用具备开关语义和明确开关状态的控件。
 
-游戏内存档列表只展示当前 `worldId`。当前存档空闲时可以改名但不能删除；同世界其他存档可以进入、改名和删除。打开管理层不产生取消；运行中切换存档或返回主菜单需要确认旧存档将继续后台推演，确认后只执行导航。世界切换必须先返回游戏外。
+游戏内存档列表只展示当前 `worldId`。当前存档空闲时可以改名但不能删除；其高亮不改变列表行的起点、宽度、内边距或相邻内容对齐。同世界其他存档可以进入、改名和删除。打开管理层不产生取消；运行中切换存档或返回主菜单需要确认旧存档将继续后台推演，确认后只执行导航。世界切换必须先返回游戏外。
 
 世界包导入区分安装与目标明确的更新。更新必须提供 `expectedWorldId` 且归档 ID 必须匹配；既有存档继续使用锁定的 content hash。卸载由数据库事务拒绝任何仍有关联存档的世界，成功时删除目录项和无引用版本。所有常规编辑与破坏性确认在工作台内容流内完成，不使用浏览器确认框。
 
@@ -80,3 +80,4 @@ Class: architecture
 - [表现层参考](../game-design/presentation.md) — 浏览器信息架构与交互规格。
 - [事故复盘 0019](../postmortems/0019-game-management-unmounted-session.md) — 独立管理路由为何破坏游戏心流并逃过测试。
 - [事故复盘 0020](../postmortems/0020-world-detail-inverted-hierarchy.md) — 世界包详情为何把高频存档压到低频元数据之后。
+- [事故复盘 0021](../postmortems/0021-control-and-state-geometry-drift.md) — 径向菜单、设置控件与当前存档高亮的几何漂移。

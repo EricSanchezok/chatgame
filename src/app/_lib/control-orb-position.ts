@@ -2,6 +2,7 @@ export const controlOrbSize = 56;
 export const radialActionInset = 6;
 export const radialActionSize = 44;
 export const radialCardGap = 32;
+export const radialActionRadius = 84;
 export const defaultControlPosition: ControlPosition = { edge: "right", y: 0.78 };
 
 export type ControlEdge = "left" | "right";
@@ -115,16 +116,19 @@ export function radialOffsets(
   const horizontal = edge === "left" ? 1 : -1;
   const vertical = zone === "bottom" ? -1 : 1;
   if (zone === "middle") {
+    const verticalOffset = radialActionRadius / 2;
+    const horizontalOffset = Math.sqrt((radialActionRadius ** 2) - (verticalOffset ** 2));
     return [
-      [horizontal * 78, -50],
-      [horizontal * 96, 0],
-      [horizontal * 78, 50],
+      [horizontal * horizontalOffset, -verticalOffset],
+      [horizontal * radialActionRadius, 0],
+      [horizontal * horizontalOffset, verticalOffset],
     ];
   }
+  const diagonalOffset = radialActionRadius / Math.SQRT2;
   return [
-    [horizontal * 78, 0],
-    [horizontal * 68, vertical * 54],
-    [horizontal * 38, vertical * 92],
+    [horizontal * radialActionRadius, 0],
+    [horizontal * diagonalOffset, vertical * diagonalOffset],
+    [0, vertical * radialActionRadius],
   ];
 }
 
