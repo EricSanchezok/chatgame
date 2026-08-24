@@ -41,6 +41,7 @@ export default defineConfig({
       env: {
         LIVINGWORLD_DATA_ROOT: dataRoot,
         LIVINGWORLD_MODEL_CATALOG_PATH: modelCatalog,
+        LIVINGWORLD_OBSERVABILITY: "full",
         E2E_MODEL_API_KEY: "e2e-test-key",
         NEXT_TELEMETRY_DISABLED: "1",
       },

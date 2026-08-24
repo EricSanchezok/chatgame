@@ -6,6 +6,10 @@ import { loadWorldScript } from "../../../script/world-loader";
 import { MemoryWorldRepository } from "../../../script/world-repository";
 import { WorldHost } from "../../../server/world-host";
 import { MemoryWorldSessionStore } from "../../../server/world-session-store";
+import { GET as getInspector } from "../sessions/[id]/inspector/route";
+import { GET as getInspectorAttempt } from "../sessions/[id]/inspector/attempts/[attemptId]/route";
+import { GET as streamInspectorEvents } from "../sessions/[id]/inspector/events/route";
+import { GET as getInspectorStep } from "../sessions/[id]/inspector/steps/[revision]/route";
 import { GET as streamEvents } from "../sessions/[id]/runs/[runId]/events/route";
 import { POST as continueRun } from "../sessions/[id]/runs/[runId]/inputs/route";
 import { GET as getRun } from "../sessions/[id]/runs/[runId]/route";
@@ -293,5 +297,161 @@ describe("world API routes", () => {
     expect(observer.events.some((event) =>
       event.event === "sse.connection.cancelled" && event.correlation?.runId === run.runId)).toBe(true);
     expect(JSON.stringify(host.run(session.summary.id, run.runId))).not.toContain("modelAudits");
+  });
+
+  it("keeps the player contract isolated while the dedicated inspector exposes full committed truth", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "full" });
+    const host = installHost(observer);
+    const created = await (await createSession(new Request("http://local/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ worldId: "open-world-fixture", seed: 45 }),
+    }))).json() as { summary: { id: string } };
+    const started = await startRun(
+      new Request(`http://local/api/sessions/${created.summary.id}/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "观察完整世界演化" }),
+      }),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    );
+    const { runId } = await started.json() as { runId: string };
+    await host.waitForRun(created.summary.id, runId);
+
+    const publicPayload = await (await getSession(
+      new Request(`http://local/api/sessions/${created.summary.id}`),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    )).json();
+    expect(JSON.stringify(publicPayload)).not.toContain('"truth"');
+    expect(JSON.stringify(publicPayload)).not.toContain('"modelAudits"');
+    expect(JSON.stringify(publicPayload)).not.toContain('"beliefPatches"');
+
+    const inspectorResponse = await getInspector(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector?limit=24`),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    );
+    expect(inspectorResponse.status).toBe(200);
+    const inspector = await inspectorResponse.json() as {
+      apiVersion: number;
+      actors: Array<{ id: string }>;
+      nodes: Array<{ kind: string }>;
+      edges: Array<{ source: string; target: string; kind: string }>;
+      steps: Array<{ revision: number }>;
+      attempts: Array<{ id: string; status: string }>;
+      trace: { mode: string };
+    };
+    expect(inspector).toMatchObject({ apiVersion: 1, trace: { mode: "full" } });
+    expect(inspector.actors.map((actor) => actor.id)).toEqual(expect.arrayContaining(["player", "keeper"]));
+    expect(inspector.nodes.map((node) => node.kind)).toEqual(expect.arrayContaining([
+      "commit", "action", "event", "observation", "mind",
+    ]));
+    expect(inspector.steps).toHaveLength(1);
+    const committedAttempt = inspector.attempts.find((attempt) => attempt.status === "committed");
+    expect(committedAttempt).toBeDefined();
+    expect(inspector.edges).toContainEqual(expect.objectContaining({
+      source: `attempt:${committedAttempt!.id}`,
+      target: "commit:1",
+    }));
+    const attemptResponse = await getInspectorAttempt(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector/attempts/${committedAttempt!.id}`),
+      { params: Promise.resolve({ id: created.summary.id, attemptId: committedAttempt!.id }) },
+    );
+    expect(await attemptResponse.json()).toMatchObject({
+      apiVersion: 1,
+      summary: { id: committedAttempt!.id, status: "committed" },
+    });
+
+    const stepResponse = await getInspectorStep(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector/steps/1`),
+      { params: Promise.resolve({ id: created.summary.id, revision: "1" }) },
+    );
+    const step = await stepResponse.json() as {
+      committed: { operations: unknown[]; beliefPatches: unknown[]; modelAudits: unknown[] };
+      before: { truth: { elapsedSeconds: number } };
+      after: { truth: { elapsedSeconds: number } };
+      runtimeEvents: Array<{ event: string }>;
+    };
+    expect(step.before.truth.elapsedSeconds).toBe(0);
+    expect(step.after.truth.elapsedSeconds).toBeGreaterThan(0);
+    expect(step.committed.operations.length).toBeGreaterThan(0);
+    expect(step.committed.beliefPatches.length).toBeGreaterThan(0);
+    expect(step.committed.modelAudits.length).toBeGreaterThan(0);
+    expect(step.runtimeEvents.some((event) => event.event === "step.committed")).toBe(true);
+
+    observer.emit({
+      event: "step.started",
+      correlation: {
+        sessionId: created.summary.id,
+        runId: "rolled-back-run",
+        stepAttemptId: "rolled-back-attempt",
+        revision: 1,
+        step: 2,
+      },
+    });
+    observer.emit({
+      event: "step.rolled_back",
+      level: "error",
+      correlation: {
+        sessionId: created.summary.id,
+        runId: "rolled-back-run",
+        stepAttemptId: "rolled-back-attempt",
+        revision: 1,
+        step: 2,
+      },
+      error: { name: "Error", message: "simulated rollback" },
+    });
+    const withRollback = await (await getInspector(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector?limit=24`),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    )).json() as {
+      attempts: Array<{ id: string; status: string }>;
+      edges: Array<{ source: string; target: string; kind: string }>;
+    };
+    expect(withRollback.attempts).toContainEqual(expect.objectContaining({
+      id: "rolled-back-attempt",
+      status: "rolled_back",
+    }));
+    expect(withRollback.edges).toContainEqual(expect.objectContaining({
+      source: "commit:1",
+      target: "attempt:rolled-back-attempt",
+      kind: "rollback",
+    }));
+
+    const invalid = await getInspector(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector?limit=51`),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    );
+    expect(invalid.status).toBe(400);
+
+    const resyncResponse = await streamInspectorEvents(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector/events?after=stale:0`),
+      { params: Promise.resolve({ id: created.summary.id }) },
+    );
+    const resyncReader = resyncResponse.body!.getReader();
+    const resync = await resyncReader.read();
+    expect(new TextDecoder().decode(resync.value)).toContain("event: resync");
+    expect(new TextDecoder().decode(resync.value)).toContain('"reason":"epoch_changed"');
+    await resyncReader.cancel();
+
+    const cursor = host.inspectorStreamState().latest;
+    const abort = new AbortController();
+    const events = host.subscribeInspectorEvents(created.summary.id, cursor, abort.signal);
+    const firstPending = events.next();
+    const firstEmitted = observer.emit({
+      event: "test.inspector.first",
+      correlation: { sessionId: created.summary.id },
+    });
+    const first = await firstPending;
+    expect(first.value).toMatchObject({ event: "test.inspector.first", sequence: firstEmitted.sequence });
+    const secondPending = events.next();
+    const secondEmitted = observer.emit({
+      event: "test.inspector.second",
+      correlation: { sessionId: created.summary.id },
+    });
+    const second = await secondPending;
+    expect(second.value).toMatchObject({ event: "test.inspector.second", sequence: secondEmitted.sequence });
+    expect(secondEmitted.sequence).toBe(firstEmitted.sequence + 1);
+    abort.abort();
+    await events.return(undefined);
   });
 });

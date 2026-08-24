@@ -6,6 +6,7 @@ import {
   type AppendMessage,
 } from "@assistant-ui/react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -14,6 +15,7 @@ import {
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   isWorldRunActiveIntentOwner,
@@ -25,11 +27,21 @@ import {
   type WorldRunRecordView,
   type WorldRunSnapshot,
 } from "../../shared/world-api";
-import { CURRENT_SESSION_KEY } from "../_lib/browser-state";
+import {
+  CURRENT_SESSION_KEY,
+  parsePreferences,
+  preferencesSnapshot,
+  serverPreferencesSnapshot,
+  subscribePreferences,
+} from "../_lib/browser-state";
 import { runsToMessages } from "../_lib/run-messages";
 import { WorldApiError, worldApi } from "../lib/world-api-client";
 import { ControlOrb } from "./control-orb";
 import { GameThread } from "./game-thread";
+
+const WorldInspectorDialog = dynamic(() => import("./world-inspector-dialog"), {
+  ssr: false,
+});
 
 const runEventTypes: WorldRunEvent["type"][] = [
   "player.input",
@@ -243,6 +255,17 @@ function sessionReducer(state: PublicSessionDetail | undefined, action: SessionA
 
 export function GameSession({ sessionId }: { sessionId: string }) {
   const router = useRouter();
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const subscribeGamePreferences = useCallback((notify: () => void) => subscribePreferences(() => {
+    if (!parsePreferences(preferencesSnapshot()).showWorldInspector) setInspectorOpen(false);
+    notify();
+  }), []);
+  const serializedPreferences = useSyncExternalStore(
+    subscribeGamePreferences,
+    preferencesSnapshot,
+    serverPreferencesSnapshot,
+  );
+  const preferences = useMemo(() => parsePreferences(serializedPreferences), [serializedPreferences]);
   const [detail, dispatch] = useReducer(sessionReducer, undefined);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState("");
@@ -807,7 +830,9 @@ export function GameSession({ sessionId }: { sessionId: string }) {
         />
         <ControlOrb
           composerDocked={messages.length > 0}
+          inspectorEnabled={preferences.showWorldInspector}
           onNavigate={navigate}
+          onOpenInspector={() => setInspectorOpen(true)}
           status={{
             elapsedSeconds: detail.summary.elapsedSeconds,
             phase: activeRun ? "running" : hasPendingObservation ? "confirming" : "saved",
@@ -816,6 +841,15 @@ export function GameSession({ sessionId }: { sessionId: string }) {
             worldName: detail.summary.world.name,
           }}
         />
+        {preferences.showWorldInspector && inspectorOpen && (
+          <WorldInspectorDialog
+            key={sessionId}
+            onOpenChange={setInspectorOpen}
+            open={inspectorOpen}
+            reduceMotion={preferences.reduceMotion}
+            sessionId={sessionId}
+          />
+        )}
       </main>
     </AssistantRuntimeProvider>
   );

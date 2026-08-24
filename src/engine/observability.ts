@@ -52,8 +52,12 @@ export interface RuntimeObserver {
   readonly mode: RuntimeObservabilityMode;
   readonly degraded: boolean;
   emit(input: RuntimeEventInput): RuntimeEvent | undefined;
+  subscribe?(listener: RuntimeEventListener): () => void;
+  snapshot?(): RuntimeEvent[];
   close?(): void;
 }
+
+export type RuntimeEventListener = (event: RuntimeEvent) => void;
 
 function numericStatus(value: unknown): number | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -146,6 +150,7 @@ export class RecordingRuntimeObserver implements RuntimeObserver {
   serializedUtf8Bytes = 0;
   serializationMs = 0;
   private readonly now: () => Date;
+  private readonly listeners = new Set<RuntimeEventListener>();
   private sequence = 0;
 
   constructor(options: RecordingRuntimeObserverOptions = {}) {
@@ -162,7 +167,23 @@ export class RecordingRuntimeObserver implements RuntimeObserver {
       this.serializationMs += performance.now() - startedAt;
     }
     this.events.push(event);
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch {
+        // Diagnostic consumers cannot change runtime semantics.
+      }
+    }
     return event;
+  }
+
+  subscribe(listener: RuntimeEventListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  snapshot(): RuntimeEvent[] {
+    return structuredClone(this.events);
   }
 }
 

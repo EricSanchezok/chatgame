@@ -28,6 +28,7 @@ interface MockMessage {
 }
 
 let runtimeOptions: RuntimeOptions | undefined;
+let controlOrbProps: { inspectorEnabled: boolean; onOpenInspector: () => void } | undefined;
 
 const api = vi.hoisted(() => ({
   cancelRun: vi.fn(),
@@ -52,7 +53,14 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a>,
 }));
-vi.mock("./control-orb", () => ({ ControlOrb: () => null }));
+vi.mock("./control-orb", () => ({
+  ControlOrb: (props: { inspectorEnabled: boolean; onOpenInspector: () => void }) => {
+    controlOrbProps = props;
+    return props.inspectorEnabled
+      ? <button onClick={props.onOpenInspector} type="button">世界演化</button>
+      : null;
+  },
+}));
 vi.mock("@assistant-ui/react", () => {
   return {
     AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => children,
@@ -256,7 +264,9 @@ describe("GameSession WorldRun lifecycle", () => {
     api.runEventsUrl.mockImplementation((sessionId: string, runId: string, after: number) =>
       `/api/sessions/${sessionId}/runs/${runId}/events?after=${after}`);
     runtimeOptions = undefined;
+    controlOrbProps = undefined;
     FakeEventSource.instances = [];
+    localStorage.clear();
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "clarification-id") });
   });
@@ -275,6 +285,26 @@ describe("GameSession WorldRun lifecycle", () => {
     await screen.findByRole("heading", { name: "测试存档" });
     expect(FakeEventSource.instances).toHaveLength(0);
     expect(runtimeOptions).toMatchObject({ isRunning: false, isSendDisabled: true });
+  });
+
+  it("hides the full-truth inspector until the local preference explicitly enables it", async () => {
+    api.session.mockResolvedValue(detail(run("completed")));
+    const first = render(<GameSession sessionId="session-1" />);
+
+    await screen.findByRole("heading", { name: "测试存档" });
+    expect(controlOrbProps?.inspectorEnabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "世界演化" })).toBeNull();
+    first.unmount();
+
+    localStorage.setItem("livingworld:preferences:v2", JSON.stringify({
+      fontScale: "standard",
+      reduceMotion: false,
+      showWorldInspector: true,
+    }));
+    render(<GameSession sessionId="session-1" />);
+    await screen.findByRole("heading", { name: "测试存档" });
+    expect(controlOrbProps?.inspectorEnabled).toBe(true);
+    expect(screen.getByRole("button", { name: "世界演化" })).toBeInTheDocument();
   });
 
   it.each([

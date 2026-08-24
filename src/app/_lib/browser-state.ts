@@ -6,7 +6,7 @@ import {
 
 export const CURRENT_SESSION_KEY = "livingworld:current-session";
 export const CONTROL_POSITION_KEY = "livingworld:control-position:v2";
-export const PREFERENCES_KEY = "livingworld:preferences:v1";
+export const PREFERENCES_KEY = "livingworld:preferences:v2";
 export const PREFERENCES_EVENT = "livingworld:preferences-changed";
 
 export type FontScale = "compact" | "standard" | "large";
@@ -14,11 +14,13 @@ export type FontScale = "compact" | "standard" | "large";
 export interface PlayerPreferences {
   fontScale: FontScale;
   reduceMotion: boolean;
+  showWorldInspector: boolean;
 }
 
 export const defaultPreferences: PlayerPreferences = {
   fontScale: "standard",
   reduceMotion: false,
+  showWorldInspector: false,
 };
 
 export function parsePreferences(serialized: string): PlayerPreferences {
@@ -28,6 +30,7 @@ export function parsePreferences(serialized: string): PlayerPreferences {
     return {
       fontScale: fontScale === "compact" || fontScale === "large" ? fontScale : "standard",
       reduceMotion: value?.reduceMotion === true,
+      showWorldInspector: value?.showWorldInspector === true,
     };
   } catch {
     return defaultPreferences;

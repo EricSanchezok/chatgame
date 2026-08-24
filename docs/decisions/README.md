@@ -118,3 +118,4 @@
 - [0049 — WorldRun 失败分类、取消恢复与流边界](0049-world-run-failure-and-stream-boundaries.md)
 - [0050 — 本地开发默认完整运行时日志](0050-development-default-full-observability.md)
 - [0051 — 以 assistant-ui 上游为会话表面基线](0051-assistant-ui-upstream-session-surface.md)
+- [0052 — 本地受信任的世界演化调试器](0052-trusted-world-evolution-inspector.md)

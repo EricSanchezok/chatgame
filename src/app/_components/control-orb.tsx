@@ -13,6 +13,7 @@ import {
 import {
   Check,
   LoaderCircle,
+  Network,
 } from "lucide-react";
 import {
   Sheet,
@@ -164,10 +165,14 @@ export function ControlOrb({
   composerDocked,
   status,
   onNavigate,
+  inspectorEnabled,
+  onOpenInspector,
 }: {
   composerDocked: boolean;
   status: ControlOrbStatus;
   onNavigate: (href: string) => Promise<void>;
+  inspectorEnabled: boolean;
+  onOpenInspector: () => void;
 }) {
   const desktop = useDesktop();
   const reservedBottom = useComposerReservedSpace(composerDocked);
@@ -335,6 +340,12 @@ export function ControlOrb({
     await onNavigate(href);
   }
 
+  function openInspector(): void {
+    setOpen(false);
+    setMobileOpen(false);
+    queueMicrotask(onOpenInspector);
+  }
+
   const zone = verticalZone(position.y);
   const offsets = radialOffsets(position.edge, zone);
   const cardOffset = radialCardOffset(position.edge, offsets);
@@ -360,6 +371,7 @@ export function ControlOrb({
           aria-expanded={desktop ? open : mobileOpen}
           aria-label={`${open || mobileOpen ? "关闭" : "打开"}游戏控制；${label}`}
           className="cg-orb__trigger"
+          id="cg-orb-trigger"
           onClick={activate}
           onKeyDown={onKeyDown}
           onPointerCancel={finishDrag}
@@ -417,6 +429,15 @@ export function ControlOrb({
           <h2>{status.worldName}</h2>
           <p>{status.sessionTitle}</p>
           <StatusMetrics status={status} />
+          {inspectorEnabled && (
+            <div className="cg-orb__tools">
+              <span>工具</span>
+              <button onClick={openInspector} tabIndex={open ? 0 : -1} type="button">
+                <Network aria-hidden="true" />
+                <span><strong>世界演化</strong><small>查看完整推演与 Agent 认知</small></span>
+              </button>
+            </div>
+          )}
         </section>
       </div>
 
@@ -449,6 +470,15 @@ export function ControlOrb({
               );
             })}
           </nav>
+          {inspectorEnabled && (
+            <section className="cg-sheet-tools" aria-label="开发者工具">
+              <h3>开发者工具</h3>
+              <button onClick={openInspector} type="button">
+                <Network aria-hidden="true" className="size-5" />
+                <span><strong>打开世界演化</strong><small>查看完整推演、隐藏检定和 Agent 认知</small></span>
+              </button>
+            </section>
+          )}
         </SheetContent>
       </Sheet>
     </>

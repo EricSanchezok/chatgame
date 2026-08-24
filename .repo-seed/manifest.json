@@ -10,7 +10,7 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "sha256": "cd91bbaf8b9c6f881a1a341969188105b6ce36358b429922b7318e86c0ca1ebd",
+      "sha256": "dc6cbe8e404c5f209f459dcf97a640127c14c78a0ac39ad751409b16001d1637",
       "category": "instruction"
     },
     {
@@ -25,25 +25,25 @@
     },
     {
       "path": "docs/architecture.md",
-      "sha256": "892590464485d8ccf1ccdafc72a8da513ad72e97d139ce2f4b99e877c2e0af2e",
+      "sha256": "0c5bf70223143a06b84ed56b8e5078e6f6f1c2efb06cdc4a6ef351f58e8944f5",
       "category": "docs",
       "userModified": true
     },
     {
       "path": "docs/development.md",
-      "sha256": "af6296397468aa0715bfd52a982e20c8b17321d13b334acad0883d0e85977e34",
+      "sha256": "f4cbd1629a3cc488b7dff5659b8fcb594ab2b860d6df381e954dac1516381861",
       "category": "docs",
       "userModified": true
     },
     {
       "path": "docs/testing.md",
-      "sha256": "b37fec20c490987481934f5d910c386ce4f9ae0ea9469c08e086b72c64296100",
+      "sha256": "ec2a4bd5866865293889454e4aa8460649a5f6b58c3da7c62309f0f640487585",
       "category": "docs",
       "userModified": true
     },
     {
       "path": "docs/decisions/README.md",
-      "sha256": "1a980de1abedcd3f09396595c6aa4cc8b3c9457e404da5011f74fbc151f9dad5",
+      "sha256": "53cf9264b15f2e860d6438e84c7e2a9208e66e6378b8a05e0e2c4c12c13e5a7d",
       "category": "docs",
       "userModified": true
     },

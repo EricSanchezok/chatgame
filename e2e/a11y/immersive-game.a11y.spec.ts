@@ -68,3 +68,25 @@ test("the failed conversation and forced-color controls remain accessible", asyn
   await expect(page.getByRole("button", { name: "放弃目标" })).toBeVisible();
   await expectNoViolations(page);
 });
+
+test("the world evolution workspace has no detectable accessibility violations", async ({ page }) => {
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  const detail = await created.json() as { summary: { id: string } };
+  await page.goto("/settings");
+  await page.getByRole("checkbox", { name: /显示世界调试器/ }).check();
+  await page.goto(`/play/${detail.summary.id}`);
+  await page.getByLabel("你的行动").fill("观察石门");
+  await page.getByRole("button", { name: "发送行动" }).click();
+  await expect(page.getByText("目标已经完成")).toBeVisible();
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await page.getByRole("button", { name: /世界演化/ }).click();
+  await expect(page.getByRole("dialog", { name: "世界演化" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /世界，Revision 1/ })).toBeVisible();
+  await expectNoViolations(page);
+});

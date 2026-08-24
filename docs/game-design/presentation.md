@@ -2,7 +2,7 @@
 
 ## 浏览器安全边界
 
-浏览器只使用 `src/shared/world-api.ts`。会话列表是含标题、世界摘要、更新时间、步数和 queued/running run 的 `PublicSessionSummary`；详情拆成 `{ summary, state, runs }`。公开状态包含 world ID、world hash、manifest version、revision、step、elapsedSeconds、玩家知识和当前目标；不包含 canonical truth、bindings、Agent belief、隐藏检定或完整审计 delta。
+普通游戏界面只使用 `src/shared/world-api.ts`。会话列表是含标题、世界摘要、更新时间、步数和 queued/running run 的 `PublicSessionSummary`；详情拆成 `{ summary, state, runs }`。公开状态包含 world ID、world hash、manifest version、revision、step、elapsedSeconds、玩家知识和当前目标；不包含 canonical truth、bindings、Agent belief、隐藏检定或完整审计 delta。唯一例外是默认隐藏的本地受信任调试器，它只使用独立的 `src/shared/world-inspector-api.ts` 与 inspector 路由，不得把字段回流到游戏消息或公开 DTO。
 
 ## HTTP 资源
 
@@ -21,6 +21,10 @@
 | `POST /api/sessions/:id/runs/:runId/inputs` | 以幂等 `{ id, text }` 向 awaiting_player run 追加 clarification 并恢复同一 run |
 | `DELETE /api/sessions/:id/runs/:runId` | 取消 queued/running，或放弃 awaiting_player/failed/step_limit 目标；保留最后已提交步骤并返回 `{ run, state }` |
 | `GET /api/sessions/:id/runs/:runId/events` | 从 `Last-Event-ID` 或 `after` 游标重放并订阅 SSE |
+| `GET /api/sessions/:id/inspector?beforeRevision=&limit=` | 读取最近 committed 图谱、Agent 目录、attempt 分支与 trace 可用性；默认 24，最大 50 |
+| `GET /api/sessions/:id/inspector/steps/:revision` | 按需读取一个 revision 的前后状态、完整提交与相关运行事件 |
+| `GET /api/sessions/:id/inspector/attempts/:stepAttemptId` | 读取进行中、失败、回滚或已提交 attempt 的运行事件 |
+| `GET /api/sessions/:id/inspector/events` | 以 `epoch:sequence` 游标订阅独立的调试 SSE |
 
 ## SSE 事件
 
@@ -41,3 +45,13 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 桌面控制球是 56px 状态表盘，接收世界名、存档名、step、elapsedSeconds 与 running/confirming/saved。拖动以 Pointer Events、`requestAnimationFrame` 和 `translate3d` 跟随指针，松手吸附最近左右边缘；位置以 `{ edge, y }` 写入 `livingworld:control-position:v2`，`y` 是归一化坐标，视口变化后限制在安全区和 composer 排除区。桌面点击向页面内侧展开四个导航动作和状态卡，方位按边缘及上下空间翻转；状态卡从当前方位的完整按钮包络向页面内侧再让出 32px，任何按钮实体都不能与卡片相交。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home。小于 48rem 时点击打开当前页面内具备焦点约束、Escape/遮罩关闭和安全区适配的底部 Sheet。
 
 全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。普通控件仅在 `:focus-visible` 使用主题蓝色 `--cg-ring`，composer 聚焦时不改变静态边框，只显示同色柔光，forced-colors 改用系统 `Highlight`。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。
+
+## 世界演化调试器
+
+设置页的“显示世界调试器”默认关闭，并明确提示会暴露客观真相、隐藏检定和所有角色认知。关闭时控制球没有相关入口；开启后，桌面状态卡和移动 Sheet 的“开发者工具”区提供“世界演化”。入口打开页面内 Radix `WorkspaceDialog`，桌面使用 `16px` 外边距的近全屏工作台与背景虚化，移动端占满安全区；Escape、遮罩、关闭按钮统一关闭并把焦点还给控制球。
+
+工作台左侧按“整个世界 / 玩家 / Agent”选择主体，中间在 React Flow 图谱和 Git 风格时间线之间切换，右侧按“概要 / 变更 / 因果 / 模型 / 原始”查看选中记录。Agent 选择只高亮相关泳道并保留世界上下文，“仅看此 Agent”才过滤其他主体；搜索同时匹配 Agent、节点说明和 revision。手动平移或缩放会暂停自动居中，事件仍实时进入；“回到最新”恢复追随。移动端默认时间线，Agent 列表收进带遮罩和 Escape 行为的侧滑抽屉，详情成为下方连续面板。
+
+图谱节点只消费服务端语义与边，不接收画布坐标。首帧以确定性拓扑布局立即显示，Web Worker 内的 ELK Layered 完成后精排；worker 错误保留首帧布局。节点类型覆盖 commit、行动、反应、检定、随机、机制、operation、世界事件、observation、心智更新和 attempt；状态同时使用文字、图标、颜色和线型。缩远时节点收敛为主体、阶段和计数，居中尺度显示主链，近距离才展示完整说明；方向键顺序漫游节点，Home/End 到达图首尾。React Flow 只渲染可视节点并提供 minimap、缩放和 fit view，时间线承担完整的窄屏与线性阅读替代。
+
+首屏读取最近 24 个 revision，旧历史用 `beforeRevision` 向前分页，step 与 attempt 详情按需请求。面板只读，不提供回滚、重跑、分叉或编辑。`off` 模式只有 committed history，`metrics` 增加阶段与数值，`full` 才展示已经记录的模型上下文和结构化输出；任何模式都不展示或推断隐藏思维链。设置开关只负责沉浸与剧透控制，不是 inspector API 的认证边界。
