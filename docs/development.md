@@ -18,7 +18,7 @@
 - `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld/`；世界版本、会话与 WorldRun 统一存放在 `livingworld.sqlite`。
 - `LIVINGWORLD_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
 - 每个 provider 的密钥环境变量由目录 `api_key_env` 指定；仅当世界或 Agent 实际引用该 provider 的 Profile 时才要求对应密钥。仓库参考世界只需要 `DEEPSEEK_API_KEY`。
-- 运行日志默认关闭；模式、目录、segment 与总量配置见 [运行时可观测性](game-design/runtime-observability.md#模式与-payload-所有权) 和 [文件 sink、轮转与健康](game-design/runtime-observability.md#文件-sink轮转与健康)。
+- `npm run dev` 默认启用 `full` 运行日志；显式设置 `LIVINGWORLD_OBSERVABILITY=off|metrics|full` 可以覆盖，测试与生产未显式配置时默认关闭。模式、目录、敏感数据边界、segment 与总量配置见 [运行时可观测性](game-design/runtime-observability.md#模式与-payload-所有权) 和 [文件 sink、轮转与健康](game-design/runtime-observability.md#文件-sink轮转与健康)。
 
 模型、思考强度、超时、输出上限、角色与并发只在 [模型目录与 Gateway](game-design/model-gateway.md) 定义。环境变量不提供逐字段覆盖。
 

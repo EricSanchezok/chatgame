@@ -11,6 +11,8 @@ DEEPSEEK_API_KEY=... npm run dev
 
 打开 <http://localhost:3000>。默认[模型目录](docs/game-design/model-gateway.md)注册 DeepSeek、OpenAI 与 xAI；只有世界或 Agent 实际选择某家供应商的 Profile 时才要求对应密钥，缺失时显式失败且不 fallback。仓库参考世界使用 DeepSeek；默认 Truth Engine 与 Agent Profile 均为 `deepseek-v4-flash` 非思考模式。运行时没有默认模型、别名、环境字段覆盖或生产 mock。
 
+`npm run dev` 默认把完整运行诊断写入 `.livingworld/logs/` 并同步输出到终端，便于复盘失败与回滚；日志有界轮转且可能包含玩家输入与世界秘密。临时关闭可使用 `LIVINGWORLD_OBSERVABILITY=off npm run dev`，其他模式与保留边界见[运行时可观测性](docs/game-design/runtime-observability.md)。
+
 仓库中的[参考世界工程](worlds/README.md)提供可审阅、可校验的可玩内容，但应用不会自动安装；初次进入会看到导入入口。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
 
 ## 常用命令

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0050](0050-development-default-full-observability.md)
 Class: architecture
 
 ## Context and Problem Statement
@@ -80,4 +80,5 @@ Class: architecture
 - [0035](0035-truth-engine-hardening-and-verifiable-audit.md) — 已提交步骤审计与公开信息边界。
 - [0036](0036-multi-provider-model-gateway-and-fair-scheduler.md) — 模型 Gateway、调度和供应商语义。
 - [0042](0042-causal-assurance-and-staged-model-profiles.md) — 分阶段 Truth 调用点与运行态 schema 基线。
+- [0050](0050-development-default-full-observability.md) — 本地开发默认启用完整运行日志。
 - [运行时可观测性规格](../game-design/runtime-observability.md) — 当前事件、模式、轮转、审计与诊断契约。

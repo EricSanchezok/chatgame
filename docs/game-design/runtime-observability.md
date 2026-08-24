@@ -18,7 +18,7 @@ Correlation 按可用边界逐层增加：`requestId → sessionId → runId/run
 
 ## 模式与 payload 所有权
 
-`LIVINGWORLD_OBSERVABILITY=off|metrics|full` 控制运行日志，默认 `off`。`metrics` 只记录 ID、大小、计数、耗时、状态、错误分类和 hash；`full` 在此基础上记录关键应用层 payload。显式启用的两种模式同时写 stdout 与文件。
+`LIVINGWORLD_OBSERVABILITY=off|metrics|full` 控制运行日志，显式值始终优先。未显式配置时，`NODE_ENV=development` 默认 `full`，其他环境默认 `off`；因此 `npm run dev` 自动保留完整本地诊断链，而测试与生产不会隐式记录 payload。`metrics` 只记录 ID、大小、计数、耗时、状态、错误分类和 hash；`full` 在此基础上记录关键应用层 payload。启用的两种模式同时写 stdout 与文件。
 
 Full payload 只在拥有边界出现：HTTP 记录经过递归凭证字段脱敏的游戏 JSON body；世界导入只记录文件名、字节数、hash 与 replace；步骤记录初始状态、联合行动、检定、离散随机承诺与 reaction、transition、玩家知识、Agent patches 和提交后状态；模型记录三类规范 Context、结构化输出，以及每个唯一 system/schema 契约一次。后续事件只引用 hash，不能重复附加同一大对象。日志不包含不可见思维链。
 
@@ -50,7 +50,7 @@ Gateway 先递归按键规范化 Context，再以两空格 JSON 序列化；`con
 
 日志目录由 `LIVINGWORLD_OBSERVABILITY_DIR` 指定，默认 `${LIVINGWORLD_DATA_ROOT:-.livingworld}/logs`。`LIVINGWORLD_OBSERVABILITY_SEGMENT_BYTES` 默认 64 MiB，`LIVINGWORLD_OBSERVABILITY_MAX_BYTES` 默认 1 GiB；启用模式下必须是正安全整数，且总量不小于 segment。
 
-文件名为 `livingworld-<启动 UTC>-<PID>-<四位段号>.ndjson`。单个事件不跨文件；超过 segment 上限的事件独占一个段。轮转只删除符合该命名规则的最旧文件，保留目录内其他文件；最新超大段可以暂时使目录超过总量上限。
+文件名为 `livingworld-<启动 UTC>-<PID>-<四位段号>.ndjson`。默认 observer 归进程所有并通过 `globalThis` 跨开发模块热重载复用，不能因 Route 模块重新求值重复打开空日志段或注册退出钩子。单个事件不跨文件；超过 segment 上限的事件独占一个段。轮转只删除符合该命名规则的最旧文件，保留目录内其他文件；最新超大段可以暂时使目录超过总量上限。
 
 显式启用时，目录创建或首个文件打开失败使 WorldHost 初始化失败。运行中的日志文件 write/fsync/open 失败使 observer 进入 degraded，业务继续执行且后续事件继续写 stdout；世界存档自身的临时文件或 rename 失败仍按事务失败处理。轮转和关闭输出 `observability.health`，包含事件数、日志字节、序列化耗时、active segment 字节、degraded 与 sink error 数；同步 flush 保证进程正常退出与轮转边界落盘。
 

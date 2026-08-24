@@ -50,7 +50,8 @@ export function readRuntimeObservabilityConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
   cwd = process.cwd(),
 ): RuntimeObservabilityConfig {
-  const rawMode = env.LIVINGWORLD_OBSERVABILITY ?? "off";
+  const rawMode = env.LIVINGWORLD_OBSERVABILITY ??
+    (env.NODE_ENV === "development" ? "full" : "off");
   if (rawMode !== "off" && rawMode !== "metrics" && rawMode !== "full") {
     throw new Error("LIVINGWORLD_OBSERVABILITY must be off, metrics, or full");
   }
@@ -302,7 +303,12 @@ export class NdjsonRuntimeObserver implements RuntimeObserver {
   }
 }
 
-let defaultObserver: RuntimeObserver | undefined;
+interface RuntimeObserverProcessGlobal {
+  __livingWorldRuntimeObserver?: RuntimeObserver;
+  __livingWorldRuntimeObserverExitHookInstalled?: boolean;
+}
+
+const runtimeObserverProcess = globalThis as typeof globalThis & RuntimeObserverProcessGlobal;
 
 export function createRuntimeObserver(
   config = readRuntimeObservabilityConfig(),
@@ -312,11 +318,13 @@ export function createRuntimeObserver(
 }
 
 export function getRuntimeObserver(): RuntimeObserver {
-  if (!defaultObserver) {
-    defaultObserver = createRuntimeObserver();
-    if (defaultObserver.close) {
-      process.once("exit", () => defaultObserver?.close?.());
+  if (!runtimeObserverProcess.__livingWorldRuntimeObserver) {
+    runtimeObserverProcess.__livingWorldRuntimeObserver = createRuntimeObserver();
+    if (runtimeObserverProcess.__livingWorldRuntimeObserver.close &&
+      !runtimeObserverProcess.__livingWorldRuntimeObserverExitHookInstalled) {
+      runtimeObserverProcess.__livingWorldRuntimeObserverExitHookInstalled = true;
+      process.once("exit", () => runtimeObserverProcess.__livingWorldRuntimeObserver?.close?.());
     }
   }
-  return defaultObserver;
+  return runtimeObserverProcess.__livingWorldRuntimeObserver;
 }

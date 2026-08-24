@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   RecordingRuntimeObserver,
   redactRuntimePayload,
@@ -90,8 +90,19 @@ describe("runtime observability", () => {
     expect(logged).not.toContain("error-secret");
   });
 
-  it("parses the public configuration contract and ignores byte knobs while off", () => {
+  it("defaults local development to full and every other environment to off", () => {
+    expect(readRuntimeObservabilityConfig({ NODE_ENV: "development" }, "/workspace")).toMatchObject({
+      mode: "full",
+      directory: "/workspace/.livingworld/logs",
+    });
+    expect(readRuntimeObservabilityConfig({ NODE_ENV: "production" }, "/workspace").mode).toBe("off");
+    expect(readRuntimeObservabilityConfig({ NODE_ENV: "test" }, "/workspace").mode).toBe("off");
+    expect(readRuntimeObservabilityConfig({}, "/workspace").mode).toBe("off");
+  });
+
+  it("lets an explicit mode override the development default and ignores byte knobs while off", () => {
     const off = readRuntimeObservabilityConfig({
+      NODE_ENV: "development",
       LIVINGWORLD_OBSERVABILITY: "off",
       LIVINGWORLD_OBSERVABILITY_SEGMENT_BYTES: "invalid",
     }, "/workspace");
@@ -107,6 +118,16 @@ describe("runtime observability", () => {
       LIVINGWORLD_OBSERVABILITY_SEGMENT_BYTES: "100",
       LIVINGWORLD_OBSERVABILITY_MAX_BYTES: "99",
     })).toThrow("at least the segment size");
+  });
+
+  it("reuses the process observer across development module reloads", async () => {
+    vi.resetModules();
+    const firstModule = await import("../runtime-observer");
+    const first = firstModule.getRuntimeObserver();
+    vi.resetModules();
+    const secondModule = await import("../runtime-observer");
+
+    expect(secondModule.getRuntimeObserver()).toBe(first);
   });
 
   it("writes complete NDJSON lines, rotates, retains oversized events, and protects unrelated files", () => {
