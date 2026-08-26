@@ -3,6 +3,48 @@ import { fixtureArchive } from "../support/world-fixture";
 
 const screenshotOptions = { animations: "disabled" as const, maxDiffPixelRatio: 0.01 };
 
+test("the settings workspace matches light/dark desktop/mobile baselines", async ({ page }) => {
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  for (const colorScheme of ["light", "dark"] as const) {
+    const created = await page.request.post("/api/sessions", {
+      data: { worldId: "open-world-fixture", seed: colorScheme === "light" ? 161 : 162 },
+    });
+    const detail = await created.json() as { summary: { id: string } };
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1_440, height: 900 });
+    await page.goto(`/play/${detail.summary.id}/manage/settings`);
+    await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
+    const resetPosition = page.getByRole("button", { name: "重置位置" });
+    await resetPosition.scrollIntoViewIfNeeded();
+    await expect(page).toHaveScreenshot(`settings-${colorScheme}-desktop.png`, {
+      ...screenshotOptions,
+      maxDiffPixelRatio: 0.003,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
+    await expect.poll(() => page.locator(".cg-game-manage").evaluate((element) => (
+      getComputedStyle(element).transform
+    ))).toBe("none");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const mobileContent = page.locator(".cg-game-manage__content");
+    await mobileContent.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect.poll(() => mobileContent.evaluate((element) => (
+      Math.ceil(element.scrollTop + element.clientHeight) >= element.scrollHeight
+    ))).toBe(true);
+    await expect(page).toHaveScreenshot(`settings-${colorScheme}-mobile.png`, {
+      ...screenshotOptions,
+      maxDiffPixelRatio: 0.003,
+    });
+  }
+});
+
 test("the conversation and controls match light/dark desktop/mobile baselines", async ({ page }) => {
   await page.request.post("/api/worlds/import", {
     multipart: {
@@ -110,6 +152,51 @@ test("the world evolution workspace matches light/dark desktop/mobile baselines"
     await page.getByRole("button", { name: /打开世界演化/ }).click();
     await expect(page.getByRole("feed", { name: "世界提交时间线" })).toBeVisible();
     await expect(page).toHaveScreenshot(`world-inspector-${colorScheme}-mobile.png`, screenshotOptions);
+    await page.keyboard.press("Escape");
+  }
+});
+
+test("the failed world evolution workspace matches light/dark desktop/mobile baselines", async ({ page }) => {
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  for (const colorScheme of ["light", "dark"] as const) {
+    const created = await page.request.post("/api/sessions", {
+      data: { worldId: "open-world-fixture", seed: colorScheme === "light" ? 381 : 382 },
+    });
+    const detail = await created.json() as { summary: { id: string } };
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    const playURL = `/play/${detail.summary.id}`;
+    await page.goto(`${playURL}/manage/settings`);
+    const inspectorToggle = page.getByRole("switch", { name: /显示世界调试器/ });
+    if (await inspectorToggle.getAttribute("aria-checked") !== "true") await inspectorToggle.click();
+    await page.getByRole("button", { name: "关闭游戏管理" }).click();
+    await page.setViewportSize({ width: 1_440, height: 900 });
+    await page.getByLabel("你的行动").fill("触发 E2E 快速失败");
+    await page.getByRole("button", { name: "发送行动" }).click();
+    await expect(page.getByText("这一步未能完成")).toBeVisible();
+    await page.getByRole("button", { name: /打开游戏控制/ }).click();
+    await page.getByRole("button", { name: /世界演化/ }).click();
+    const inspector = page.getByRole("dialog", { name: "世界演化" });
+    await expect(inspector.getByRole("feed", { name: "世界提交时间线" })).toBeVisible();
+    await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
+    await page.waitForTimeout(200);
+    await expect(page).toHaveScreenshot(`world-inspector-failure-${colorScheme}-desktop.png`, {
+      ...screenshotOptions,
+      maxDiffPixelRatio: 0.003,
+    });
+    await page.keyboard.press("Escape");
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: /打开游戏控制/ }).click();
+    await page.getByRole("button", { name: /打开世界演化/ }).click();
+    await expect(page.getByRole("feed", { name: "世界提交时间线" })).toBeVisible();
+    await expect(page.getByText("世界状态没有提交")).toBeVisible();
+    await page.waitForTimeout(200);
+    await expect(page).toHaveScreenshot(`world-inspector-failure-${colorScheme}-mobile.png`, screenshotOptions);
     await page.keyboard.press("Escape");
   }
 });

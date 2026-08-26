@@ -12,6 +12,21 @@ import type {
   WorldInspectorStepSummary,
 } from "../../shared/world-inspector-api";
 
+const attemptStatusLabel = {
+  active: "推演中",
+  cancelled: "已取消",
+  committed: "已提交",
+  failed: "失败",
+  rolled_back: "已回滚",
+} as const;
+
+function formatDuration(durationMs: number | undefined): string | undefined {
+  if (durationMs === undefined) return undefined;
+  if (durationMs < 1_000) return `${durationMs} ms`;
+  if (durationMs < 60_000) return `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)} 秒`;
+  return `${Math.floor(durationMs / 60_000)} 分 ${Math.round(durationMs % 60_000 / 1_000)} 秒`;
+}
+
 export function WorldInspectorTimeline({
   attempts,
   hasOlder,
@@ -43,9 +58,10 @@ export function WorldInspectorTimeline({
     return actorMatch && queryMatch;
   });
   const visibleAttempts = [...attempts].reverse().filter((attempt) => {
+    const actorMatch = selectedActorId === "world" || attempt.actorIds.includes(selectedActorId);
     const queryMatch = !normalized || `${attempt.id} ${attempt.latestEvent} ${attempt.errorMessage ?? ""}`
       .toLocaleLowerCase().includes(normalized);
-    return queryMatch;
+    return actorMatch && queryMatch;
   });
 
   return (
@@ -63,13 +79,16 @@ export function WorldInspectorTimeline({
             >
               <span className="cg-inspector-log__heading">
                 <strong>{active ? "正在推演" : attempt.status === "committed" ? "已提交的尝试" : "未提交的尝试"}</strong>
-                <span data-status={attempt.status}><Icon aria-hidden="true" /> {attempt.status}</span>
+                <span data-status={attempt.status}><Icon aria-hidden="true" /> {attemptStatusLabel[attempt.status]}</span>
               </span>
               <span className="cg-inspector-log__copy">{attempt.errorMessage ?? attempt.latestEvent}</span>
               <span className="cg-inspector-log__meta">
-                <span>step {attempt.step ?? "?"} · run attempt {attempt.runAttempt ?? 1}</span>
-                <span>{attempt.eventCount} events</span>
-                <span>{attempt.modelInvocationCount} invocations</span>
+                <span>Step {attempt.step ?? "?"} · 第 {attempt.runAttempt ?? 1} 次运行</span>
+                {attempt.failureStageLabel && <span>{attempt.failureStageLabel}</span>}
+                {formatDuration(attempt.durationMs) && <span>{formatDuration(attempt.durationMs)}</span>}
+                <span>{attempt.eventCount} 条事件</span>
+                <span>{attempt.modelInvocationCount} 次模型调用</span>
+                {attempt.rejectionCount > 0 && <span>{attempt.rejectionCount} 次输出拒绝</span>}
               </span>
             </button>
           </article>

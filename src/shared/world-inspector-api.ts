@@ -9,7 +9,7 @@ import type {
   RuntimeObservabilityMode,
 } from "../engine/observability";
 
-export const WORLD_INSPECTOR_API_VERSION = 1 as const;
+export const WORLD_INSPECTOR_API_VERSION = 2 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -50,6 +50,7 @@ export interface WorldInspectorNodeSummary {
   description: string;
   status?: "succeeded" | "partial" | "failed" | "blocked" | "continuing" | "active" | "rolled_back";
   count?: number;
+  relatedActorIds?: string[];
 }
 
 export interface WorldInspectorEdgeSummary {
@@ -92,6 +93,22 @@ export interface WorldInspectorStepSummary {
 
 export type WorldInspectorAttemptStatus = "active" | "committed" | "rolled_back" | "failed" | "cancelled";
 
+export type WorldInspectorAttemptStageStatus = "active" | "succeeded" | "failed";
+
+export interface WorldInspectorAttemptStage {
+  id: string;
+  label: string;
+  status: WorldInspectorAttemptStageStatus;
+  startedAt: string;
+  updatedAt: string;
+  eventCount: number;
+  modelInvocationCount: number;
+  rejectionCount: number;
+  repairCount: number;
+  modelRole?: string;
+  errorMessage?: string;
+}
+
 export interface WorldInspectorAttemptSummary {
   id: string;
   runId?: string;
@@ -101,10 +118,29 @@ export interface WorldInspectorAttemptSummary {
   status: WorldInspectorAttemptStatus;
   startedAt: string;
   updatedAt: string;
+  terminalAt?: string;
+  durationMs?: number;
   latestEvent: string;
   eventCount: number;
   modelInvocationCount: number;
+  actorIds: string[];
+  relatedActorIds: string[];
+  rejectionCount: number;
+  repairCount: number;
+  failureStage?: string;
+  failureStageLabel?: string;
+  rollbackVerified?: boolean;
   errorMessage?: string;
+}
+
+export interface WorldInspectorRuntimeEventSummary extends Omit<RuntimeEvent, "payload"> {
+  id: string;
+  hasPayload: boolean;
+}
+
+export interface WorldInspectorRuntimeEventDetail {
+  apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
+  event: RuntimeEvent;
 }
 
 export interface WorldInspectorTraceAvailability {
@@ -157,18 +193,20 @@ export interface WorldInspectorStepDetail {
   committed: CommittedStep;
   before: WorldInspectorStateSnapshot;
   after: WorldInspectorStateSnapshot;
-  runtimeEvents: RuntimeEvent[];
+  runtimeEvents: WorldInspectorRuntimeEventSummary[];
   trace: WorldInspectorTraceAvailability;
 }
 
 export interface WorldInspectorAttemptDetail {
   apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
   summary: WorldInspectorAttemptSummary;
-  events: RuntimeEvent[];
+  attemptedActions: CommittedStep["initialActions"];
+  stages: WorldInspectorAttemptStage[];
+  events: WorldInspectorRuntimeEventSummary[];
   trace: WorldInspectorTraceAvailability;
 }
 
 export type WorldInspectorStreamEvent =
-  | { type: "runtime"; epoch: string; event: RuntimeEvent }
+  | { type: "runtime"; epoch: string; event: WorldInspectorRuntimeEventSummary }
   | { type: "resync"; epoch: string; reason: "epoch_changed" | "cursor_expired" }
   | { type: "heartbeat"; epoch: string; at: string };

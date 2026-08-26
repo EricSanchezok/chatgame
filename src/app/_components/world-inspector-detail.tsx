@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  AlertTriangle,
   BadgeCheck,
   Bot,
   Braces,
@@ -13,6 +14,7 @@ import {
   GitCompareArrows,
   Link2,
   LoaderCircle,
+  RotateCcw,
   ScanSearch,
   Sparkles,
   Waypoints,
@@ -22,8 +24,10 @@ import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type {
   WorldInspectorAttemptDetail,
   WorldInspectorAttemptStatus,
+  WorldInspectorRuntimeEventSummary,
   WorldInspectorStepDetail,
 } from "../../shared/world-inspector-api";
+import { JsonInspector, RuntimeEventPayload } from "./world-inspector-json";
 
 type Detail =
   | { kind: "step"; value: WorldInspectorStepDetail }
@@ -75,12 +79,7 @@ const operationLabel: Record<string, string> = {
 };
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
-  return (
-    <details className="cg-inspector-json">
-      <summary>{label}</summary>
-      <pre>{JSON.stringify(value, null, 2)}</pre>
-    </details>
-  );
+  return <JsonInspector label={label} value={value} />;
 }
 
 function DetailSection({
@@ -163,8 +162,9 @@ function WorldOverview({ detail }: { detail: WorldInspectorStepDetail }) {
   );
 }
 
-function ActionCard({ action, label, outcome, planned = false }: {
+function ActionCard({ action, attempted = false, label, outcome, planned = false }: {
   action: StepAction;
+  attempted?: boolean;
   label: string;
   outcome?: StepOutcome;
   planned?: boolean;
@@ -174,7 +174,9 @@ function ActionCard({ action, label, outcome, planned = false }: {
       <header>
         <span><Activity aria-hidden="true" /></span>
         <small>{label}</small>
-        <b data-status={outcome?.status}>{planned ? "尚未执行" : outcome ? outcomeStatusLabel[outcome.status] : "已提交"}</b>
+        <b data-status={attempted ? "failed" : outcome?.status}>
+          {attempted ? "未提交" : planned ? "尚未执行" : outcome ? outcomeStatusLabel[outcome.status] : "已提交"}
+        </b>
       </header>
       <p>{action.rawText}</p>
       <dl>
@@ -361,7 +363,7 @@ function Causality({ detail }: { detail: WorldInspectorStepDetail }) {
   );
 }
 
-function ModelAudit({ detail }: { detail: WorldInspectorStepDetail }) {
+function ModelAudit({ detail, sessionId }: { detail: WorldInspectorStepDetail; sessionId: string }) {
   const events = detail.runtimeEvents.filter((event) => event.event.startsWith("model."));
   const invocationCount = detail.committed.modelAudits.reduce((total, audit) => total + audit.invocations.length, 0);
   return (
@@ -385,60 +387,253 @@ function ModelAudit({ detail }: { detail: WorldInspectorStepDetail }) {
         );
       })}
       {detail.committed.modelAudits.length === 0 && <p className="cg-inspector-inline-empty">本轮没有保留模型调用审计。</p>}
-      {events.length > 0 && <JsonBlock label={`查看 ${events.length} 条模型运行事件`} value={events} />}
+      {events.length > 0 && <RuntimeEventList events={events} label="模型运行事件" sessionId={sessionId} />}
     </div>
   );
 }
 
-function AttemptOverview({ detail }: { detail: WorldInspectorAttemptDetail }) {
+function formatDuration(durationMs: number | undefined): string {
+  if (durationMs === undefined) return "未记录";
+  if (durationMs < 1_000) return `${durationMs} ms`;
+  if (durationMs < 60_000) return `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)} 秒`;
+  return `${Math.floor(durationMs / 60_000)} 分 ${Math.round(durationMs % 60_000 / 1_000)} 秒`;
+}
+
+function RuntimeEventRows({ events, sessionId }: {
+  events: WorldInspectorRuntimeEventSummary[];
+  sessionId: string;
+}) {
+  return (
+    <div className="cg-runtime-events">
+      {events.map((event) => (
+        <details className="cg-runtime-event" key={event.id}>
+          <summary>
+            <span data-level={event.level}>{event.level}</span>
+            <strong>{event.event}</strong>
+            <small>{new Date(event.timestamp).toLocaleTimeString()}</small>
+          </summary>
+          <div className="cg-runtime-event__body">
+            <JsonInspector label="事件信封" value={event} />
+            <RuntimeEventPayload event={event} sessionId={sessionId} />
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function RuntimeEventList({ events, label, sessionId }: {
+  events: WorldInspectorRuntimeEventSummary[];
+  label: string;
+  sessionId: string;
+}) {
+  const [filter, setFilter] = useState<"all" | "errors" | "model">("all");
+  const filtered = events.filter((event) => filter === "all" || (filter === "errors"
+    ? event.level === "error" || event.level === "warn"
+    : event.event.startsWith("model.")));
+  return (
+    <section className="cg-runtime-event-list" aria-label={label}>
+      <header>
+        <strong>{label}</strong>
+        <span>{filtered.length} / {events.length}</span>
+      </header>
+      <div className="cg-runtime-event-filters" aria-label="运行事件筛选">
+        <button aria-pressed={filter === "all"} onClick={() => setFilter("all")} type="button">全部</button>
+        <button aria-pressed={filter === "errors"} onClick={() => setFilter("errors")} type="button">警告与错误</button>
+        <button aria-pressed={filter === "model"} onClick={() => setFilter("model")} type="button">模型</button>
+      </div>
+      {filtered.length > 0
+        ? <RuntimeEventRows events={filtered} sessionId={sessionId} />
+        : <p className="cg-inspector-inline-empty">当前筛选下没有运行事件。</p>}
+    </section>
+  );
+}
+
+function AttemptModelAudit({ detail, sessionId }: {
+  detail: WorldInspectorAttemptDetail;
+  sessionId: string;
+}) {
+  const groups = new Map<string, WorldInspectorRuntimeEventSummary[]>();
+  for (const event of detail.events.filter((candidate) => candidate.event.startsWith("model."))) {
+    const id = event.correlation?.modelInvocationId ?? `${event.correlation?.modelRole ?? "model"}:unscoped`;
+    const group = groups.get(id) ?? [];
+    group.push(event);
+    groups.set(id, group);
+  }
+  return (
+    <div className="cg-inspector-detail-stack">
+      <header className="cg-inspector-model-summary">
+        <span><Bot aria-hidden="true" /></span>
+        <div>
+          <strong>{groups.size} 次模型调用</strong>
+          <small>{detail.summary.rejectionCount} 次输出拒绝 · {detail.summary.repairCount} 次修复</small>
+        </div>
+      </header>
+      {[...groups.entries()].map(([id, events]) => {
+        const first = events[0]!;
+        const started = events.find((event) => event.event === "model.invocation.started");
+        const completed = events.findLast((event) => event.event === "model.transport.completed");
+        const parsed = events.findLast((event) => event.event === "model.structured_output.parsed");
+        const rejected = events.findLast((event) => event.event === "model.semantic.rejected");
+        const accepted = events.some((event) => event.event === "model.semantic.accepted");
+        const status = rejected ? "rejected" : accepted ? "accepted" : "active";
+        return (
+          <section className="cg-model-invocation" data-status={status} key={id}>
+            <header>
+              <span><BrainCircuit aria-hidden="true" /></span>
+              <div>
+                <strong>{first.correlation?.modelRole ?? "模型调用"}</strong>
+                <small>
+                  {String(started?.attributes?.providerId ?? "未知 provider")} / {String(started?.attributes?.modelId ?? "未知 model")}
+                </small>
+              </div>
+              <b>{status === "rejected" ? "输出被拒绝" : status === "accepted" ? "语义接受" : "进行中"}</b>
+            </header>
+            <dl>
+              <div><dt>调用序号</dt><dd>{first.correlation?.modelInvocation ?? "—"}</dd></div>
+              <div><dt>执行耗时</dt><dd>{formatDuration(completed?.durationMs)}</dd></div>
+              <div><dt>输入 token</dt><dd>{parsed?.measurements?.inputTokens ?? "—"}</dd></div>
+              <div><dt>输出 token</dt><dd>{parsed?.measurements?.outputTokens ?? "—"}</dd></div>
+            </dl>
+            {rejected?.error?.message && <p className="cg-model-invocation__error">{rejected.error.message}</p>}
+            <details className="cg-model-invocation__events">
+              <summary>查看 {events.length} 条调用事件</summary>
+              <RuntimeEventRows events={events} sessionId={sessionId} />
+            </details>
+          </section>
+        );
+      })}
+      {groups.size === 0 && <p className="cg-inspector-inline-empty">这次尝试没有保留模型事件。</p>}
+    </div>
+  );
+}
+
+function AttemptOverview({ actorId, actorName, detail }: {
+  actorId: string;
+  actorName: string;
+  detail: WorldInspectorAttemptDetail;
+}) {
+  const action = detail.attemptedActions.find((candidate) => candidate.actorId === actorId);
+  const directlyRelated = detail.summary.relatedActorIds.includes(actorId);
   return (
     <div className="cg-inspector-detail-stack">
       <header className="cg-inspector-detail-heading">
         <span className="cg-inspector-detail__status" data-status={detail.summary.status}>
           {attemptStatusLabel[detail.summary.status]}
         </span>
-        <h3>推演尝试</h3>
-        <p><span>{detail.summary.errorMessage ?? detail.summary.latestEvent}</span></p>
+        <h3>{detail.summary.failureStageLabel ? `${detail.summary.failureStageLabel}未通过` : "推演尝试"}</h3>
+        <p><strong>失败原因</strong><span>{detail.summary.errorMessage ?? detail.summary.latestEvent}</span></p>
         <small>{detail.summary.id}</small>
       </header>
+      <section className="cg-inspector-failure-card">
+        <span><AlertTriangle aria-hidden="true" /></span>
+        <div>
+          <strong>世界状态没有提交</strong>
+          <small>
+            {detail.summary.rejectionCount > 0
+              ? `${detail.summary.rejectionCount} 次输出均未通过语义校验，包含 ${detail.summary.repairCount} 次修复。`
+              : "尝试在原子提交前终止。"}
+          </small>
+        </div>
+        <b>{detail.summary.rollbackVerified ? "回滚已验证" : "未产生 Revision"}</b>
+      </section>
       <dl className="cg-inspector-signal-list">
         <div><dt><Sparkles aria-hidden="true" /><span><strong>运行事件</strong><small>这一尝试保留的阶段记录</small></span></dt><dd>{detail.summary.eventCount} 条</dd></div>
         <div><dt><Bot aria-hidden="true" /><span><strong>模型调用</strong><small>尝试期间发起的模型请求</small></span></dt><dd>{detail.summary.modelInvocationCount} 次</dd></div>
-        <div><dt><Clock3 aria-hidden="true" /><span><strong>日志模式</strong><small>决定可查看的 payload 深度</small></span></dt><dd>{detail.trace.mode}</dd></div>
+        <div><dt><Clock3 aria-hidden="true" /><span><strong>尝试耗时</strong><small>从 step 开始到真实终止边界</small></span></dt><dd>{formatDuration(detail.summary.durationMs)}</dd></div>
       </dl>
+      {actorId !== "world" && (
+        <DetailSection
+          description={directlyRelated
+            ? "失败链中的结构化模型输出直接引用了该主体"
+            : "该主体参与了联合尝试，但不是当前失败的直接关联主体"}
+          icon={Activity}
+          title={`${actorName}的尝试视角`}
+        >
+          {action
+            ? <ActionCard action={action} attempted label="拟议行动" />
+            : <p className="cg-inspector-inline-empty">这次尝试没有保留该主体的拟议行动。</p>}
+        </DetailSection>
+      )}
     </div>
   );
 }
 
-function DetailBody({ actorId, actorName, detail, tab }: {
+function AttemptChanges({ detail }: { detail: WorldInspectorAttemptDetail }) {
+  const revision = detail.summary.revision ?? 0;
+  return (
+    <div className="cg-inspector-detail-stack">
+      <section className="cg-inspector-assurance" data-status="accepted">
+        <span><RotateCcw aria-hidden="true" /></span>
+        <div>
+          <strong>零项状态写入</strong>
+          <small>失败尝试没有进入 canonical history，也没有生成新的 Revision。</small>
+        </div>
+        <b>R{revision} → R{revision}</b>
+      </section>
+      <dl className="cg-inspector-change-summary">
+        <div><dt>Canonical 操作</dt><dd>0</dd></div>
+        <div><dt>世界事件</dt><dd>0</dd></div>
+        <div><dt>认知写入</dt><dd>0</dd></div>
+      </dl>
+      <DetailSection
+        count={detail.summary.rollbackVerified ? "已验证" : "未记录"}
+        description="对比尝试开始与回滚终点记录的状态 hash"
+        icon={BadgeCheck}
+        title="回滚完整性"
+      >
+        <p className="cg-inspector-section__summary">
+          {detail.summary.rollbackVerified
+            ? "开始与终止状态 hash 一致，事务回滚保持了原世界状态。"
+            : "当前 trace 没有同时保留可比较的起止状态 hash；Revision 仍未递增。"}
+        </p>
+      </DetailSection>
+    </div>
+  );
+}
+
+function AttemptCausality({ detail }: { detail: WorldInspectorAttemptDetail }) {
+  return (
+    <div className="cg-inspector-detail-stack">
+      <header className="cg-inspector-model-summary">
+        <span><Link2 aria-hidden="true" /></span>
+        <div>
+          <strong>推演停在{detail.summary.failureStageLabel ?? "提交前阶段"}</strong>
+          <small>下列阶段来自同一 attempt 的结构化运行事件。</small>
+        </div>
+      </header>
+      <ol className="cg-attempt-stages" aria-label="推演阶段">
+        {detail.stages.map((stage, index) => (
+          <li data-status={stage.status} key={stage.id}>
+            <span>{stage.status === "failed" ? <AlertTriangle aria-hidden="true" /> : <Check aria-hidden="true" />}</span>
+            <div>
+              <small>阶段 {index + 1}</small>
+              <strong>{stage.label}</strong>
+              <p>{stage.errorMessage ?? (stage.status === "failed"
+                ? "阶段未通过"
+                : stage.status === "active" ? "阶段仍在运行" : "阶段完成")}</p>
+            </div>
+            <b>{stage.rejectionCount > 0 ? `${stage.rejectionCount} 次拒绝` : `${stage.eventCount} 条事件`}</b>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function DetailBody({ actorId, actorName, detail, sessionId, tab }: {
   actorId: string;
   actorName: string;
   detail: Detail;
+  sessionId: string;
   tab: DetailTab;
 }) {
   if (detail.kind === "attempt") {
-    if (tab === "overview") return <AttemptOverview detail={detail.value} />;
-    if (tab === "changes") {
-      return (
-        <p className="cg-inspector-inline-empty">
-          推演尝试不会单独写入世界状态；请选择对应的 Revision，查看原子提交前后的状态变化。
-        </p>
-      );
-    }
-    if (tab === "causality") {
-      return (
-        <p className="cg-inspector-inline-empty">
-          因果复核属于提交后的 Revision；尝试阶段仅保留运行轨迹，不代表已经通过裁决。
-        </p>
-      );
-    }
-    if (tab === "model") {
-      const events = detail.value.events.filter((event) => event.event.startsWith("model."));
-      return events.length > 0
-        ? <JsonBlock label={`查看 ${events.length} 条模型事件`} value={events} />
-        : <p className="cg-inspector-inline-empty">这次尝试没有保留模型事件。</p>;
-    }
-    return <JsonBlock label="完整尝试轨迹（Attempt trace）" value={detail.value.events} />;
+    if (tab === "overview") return <AttemptOverview actorId={actorId} actorName={actorName} detail={detail.value} />;
+    if (tab === "changes") return <AttemptChanges detail={detail.value} />;
+    if (tab === "causality") return <AttemptCausality detail={detail.value} />;
+    if (tab === "model") return <AttemptModelAudit detail={detail.value} sessionId={sessionId} />;
+    return <RuntimeEventList events={detail.value.events} label="完整尝试轨迹" sessionId={sessionId} />;
   }
 
   const step = detail.value;
@@ -449,12 +644,12 @@ function DetailBody({ actorId, actorName, detail, tab }: {
   }
   if (tab === "changes") return <StepChanges actorId={actorId} detail={step} />;
   if (tab === "causality") return <Causality detail={step} />;
-  if (tab === "model") return <ModelAudit detail={step} />;
+  if (tab === "model") return <ModelAudit detail={step} sessionId={sessionId} />;
   return (
     <div className="cg-inspector-detail-stack">
       <p className="cg-inspector-technical-note">以下是未经归纳的完整技术记录，用于精确核对字段与运行事件。</p>
       <JsonBlock label="完整提交对象（CommittedStep）" value={step.committed} />
-      <JsonBlock label="完整运行事件（RuntimeEvent）" value={step.runtimeEvents} />
+      <RuntimeEventList events={step.runtimeEvents} label="完整运行事件" sessionId={sessionId} />
     </div>
   );
 }
@@ -465,12 +660,14 @@ export function WorldInspectorDetail({
   detail,
   error,
   loading,
+  sessionId,
 }: {
   actorId: string;
   actorName: string;
   detail?: Detail;
   error?: string;
   loading: boolean;
+  sessionId: string;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const moveTabFocus = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -483,8 +680,8 @@ export function WorldInspectorDetail({
     const next = tabs[nextIndex];
     if (!next) return;
     event.preventDefault();
+    document.getElementById(`world-inspector-tab-${next.id}`)?.focus();
     setTab(next.id);
-    requestAnimationFrame(() => document.getElementById(`world-inspector-tab-${next.id}`)?.focus());
   };
 
   return (
@@ -518,7 +715,9 @@ export function WorldInspectorDetail({
       >
         {loading && <p className="cg-inspector-detail__loading"><LoaderCircle aria-hidden="true" /> 正在读取审计记录…</p>}
         {!loading && error && <p className="cg-inspector-detail__error" role="alert">{error} 请重新选择记录或刷新调试器。</p>}
-        {!loading && !error && detail && <DetailBody actorId={actorId} actorName={actorName} detail={detail} tab={tab} />}
+        {!loading && !error && detail && (
+          <DetailBody actorId={actorId} actorName={actorName} detail={detail} sessionId={sessionId} tab={tab} />
+        )}
         {!loading && !error && !detail && (
           <div className="cg-inspector-empty">
             <strong>选择一条推演记录</strong>

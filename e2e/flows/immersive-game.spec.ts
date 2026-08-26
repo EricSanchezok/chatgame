@@ -273,6 +273,27 @@ test("the opt-in world inspector reveals the committed world and individual agen
   await expect(inspector.getByText("认知传播")).toBeVisible();
   await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
   await expect(inspector.getByText(/full · healthy/)).toBeVisible();
+  const overviewTab = inspector.getByRole("tab", { name: "概要" });
+  const overviewTabState = await overviewTab.evaluate((element) => ({
+    boxShadow: getComputedStyle(element).boxShadow,
+    selectedDecoration: getComputedStyle(element, "::after").content,
+  }));
+  expect(overviewTabState.boxShadow).toBe("none");
+  expect(overviewTabState.selectedDecoration).toBe("none");
+  await overviewTab.press("ArrowRight");
+  const changesTab = inspector.getByRole("tab", { name: "变更" });
+  await expect(changesTab).toHaveAttribute("aria-selected", "true");
+  const keyboardTabFocus = await changesTab.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      focusOutlineStyle: style.outlineStyle,
+      focusOutlineWidth: Number.parseFloat(style.outlineWidth),
+    };
+  });
+  expect(keyboardTabFocus.focusOutlineStyle).toBe("solid");
+  expect(keyboardTabFocus.focusOutlineWidth).toBeGreaterThanOrEqual(2);
+  await changesTab.press("ArrowLeft");
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
 
   await inspector.getByRole("complementary", { name: "主体选择" })
     .getByRole("button", { name: /守门人/ }).click();
@@ -284,7 +305,6 @@ test("the opt-in world inspector reveals the committed world and individual agen
   await expect(inspector.getByRole("button", { name: "显示全部主体" }))
     .toHaveAttribute("aria-pressed", "true");
   await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
-  const changesTab = inspector.getByRole("tab", { name: "变更" });
   await changesTab.click();
   await expect(inspector.getByText("对比提交前后的完整 Agent 状态")).toBeVisible();
   await changesTab.press("ArrowRight");
@@ -349,6 +369,163 @@ test("the opt-in world inspector reveals the committed world and individual agen
   await expect(page.getByRole("button", { name: /世界演化/ })).toHaveCount(0);
 });
 
+test("the world inspector diagnoses a failed attempt without committing state", async ({ page }) => {
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await page.request.post("/api/worlds/import", {
+    multipart: {
+      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
+      replace: "true",
+    },
+  });
+  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  const detail = await created.json() as { summary: { id: string } };
+  const playURL = `/play/${detail.summary.id}`;
+  await page.goto(`${playURL}/manage/settings`);
+  await page.getByRole("switch", { name: /显示世界调试器/ }).click();
+  await page.getByRole("button", { name: "关闭游戏管理" }).click();
+  await page.getByLabel("你的行动").fill("触发 E2E 快速失败");
+  await page.getByRole("button", { name: "发送行动" }).click();
+  await expect(page.getByText("这一步未能完成")).toBeVisible();
+
+  let payloadRequests = 0;
+  page.on("request", (request) => {
+    if (/\/inspector\/runtime-events\/runtime-[a-f0-9]{64}$/.test(request.url())) payloadRequests += 1;
+  });
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await page.getByRole("button", { name: /世界演化/ }).click();
+  const inspector = page.getByRole("dialog", { name: "世界演化" });
+  await expect(inspector.getByRole("feed", { name: "世界提交时间线" })).toBeVisible();
+  const failedAttempt = inspector.locator(".cg-inspector-log--attempt > button").first();
+  await expect(failedAttempt).toHaveAttribute("aria-pressed", "true");
+  await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
+  await expect(inspector.getByText("0 个提交 · 1 次尝试").first()).toBeVisible();
+
+  await inspector.getByRole("tab", { name: "变更" }).click();
+  await expect(inspector.getByText("零项状态写入")).toBeVisible();
+  await expect(inspector.getByText("R0 → R0")).toBeVisible();
+  await inspector.getByRole("tab", { name: "因果" }).click();
+  await expect(inspector.getByText(/推演停在/)).toBeVisible();
+  await expect(inspector.getByRole("list", { name: "推演阶段" })).toBeVisible();
+  await inspector.getByRole("tab", { name: "模型" }).click();
+  await expect(inspector.getByText(/次模型调用/).first()).toBeVisible();
+  await inspector.getByRole("tab", { name: "原始" }).click();
+  await expect(inspector.getByText("完整尝试轨迹")).toBeVisible();
+  expect(payloadRequests).toBe(0);
+  const payloadEvent = inspector.locator(".cg-runtime-event").filter({ hasText: "step.started" });
+  await payloadEvent.locator("summary").first().click();
+  const payloadDisclosure = payloadEvent.locator(".cg-runtime-payload > summary");
+  await expect(payloadDisclosure).toBeVisible();
+  expect(payloadRequests).toBe(0);
+  await payloadDisclosure.click();
+  await expect.poll(() => payloadRequests).toBe(1);
+  const payloadRegion = payloadEvent.getByRole("region", { name: "payload", exact: true });
+  await expect(payloadRegion.getByRole("button", { name: "收起全部" })).toBeVisible();
+  await expect(payloadRegion.locator('.cg-json-branch[data-depth="0"] > .cg-json-copy-menu')).toHaveCount(0);
+  const rootKeyBox = await payloadRegion.locator('.cg-json-node[data-depth="0"] > summary > .cg-json-key')
+    .boundingBox();
+  const childKeyBox = await payloadRegion.locator([
+    '.cg-json-row[data-depth="1"] > .cg-json-key',
+    '.cg-json-node[data-depth="1"] > summary > .cg-json-key',
+  ].join(", ")).first().boundingBox();
+  expect(rootKeyBox).not.toBeNull();
+  expect(childKeyBox).not.toBeNull();
+  expect(childKeyBox!.x - rootKeyBox!.x).toBeGreaterThanOrEqual(12);
+  const firstCopyMenu = payloadRegion.locator('.cg-json-branch[data-depth="1"] > .cg-json-copy-menu').first();
+  const copyMenuAlignment = await firstCopyMenu.evaluate((menu) => ({
+    menuTop: menu.getBoundingClientRect().top,
+    rowTop: menu.parentElement!.getBoundingClientRect().top,
+  }));
+  expect(Math.abs(copyMenuAlignment.menuTop - copyMenuAlignment.rowTop)).toBeLessThanOrEqual(1);
+  await firstCopyMenu.locator("summary").click();
+  await expect(firstCopyMenu.getByRole("button", { name: "复制路径" })).toBeVisible();
+  await expect(firstCopyMenu.getByRole("button", { name: "复制值" })).toBeVisible();
+  const inspectorScrollRegions = inspector.locator([
+    ".cg-inspector-actor-list",
+    ".cg-inspector-timeline",
+    ".cg-inspector-detail__body",
+    ".cg-json-inspector__tree",
+  ].join(", "));
+  const inspectorScrollStyles = await inspectorScrollRegions.evaluateAll((elements) => elements.map((element) => ({
+    overflowY: getComputedStyle(element).overflowY,
+    scrollbarWidth: getComputedStyle(element).scrollbarWidth,
+  })));
+  expect(inspectorScrollStyles.length).toBeGreaterThanOrEqual(4);
+  expect(inspectorScrollStyles.every((style) => style.overflowY === "auto" && style.scrollbarWidth === "none"))
+    .toBe(true);
+
+  await inspector.getByRole("tab", { name: "概要" }).click();
+  await inspector.getByRole("complementary", { name: "主体选择" })
+    .getByRole("button", { name: /守门人/ }).click();
+  await expect(inspector.getByText("守门人的尝试视角")).toBeVisible();
+  await expect(inspector.getByText("拟议行动")).toBeVisible();
+  await expect(inspector.getByText(/参与了联合尝试，但不是当前失败的直接关联主体/)).toBeVisible();
+
+  const actorSeparator = inspector.getByRole("separator", { name: "调整主体列表宽度" });
+  const detailSeparator = inspector.getByRole("separator", { name: "调整推演详情宽度" });
+  const initialActorWidth = Number(await actorSeparator.getAttribute("aria-valuenow"));
+  const initialDetailWidth = Number(await detailSeparator.getAttribute("aria-valuenow"));
+  const actorSeparatorBox = await actorSeparator.boundingBox();
+  const detailSeparatorBox = await detailSeparator.boundingBox();
+  const actorPanelBox = await inspector.getByRole("complementary", { name: "主体选择" }).boundingBox();
+  const stageBox = await inspector.locator(".cg-inspector-stage").boundingBox();
+  const detailPanelBox = await inspector.locator(".cg-inspector-detail").boundingBox();
+  expect(actorSeparatorBox).not.toBeNull();
+  expect(detailSeparatorBox).not.toBeNull();
+  expect(actorPanelBox).not.toBeNull();
+  expect(stageBox).not.toBeNull();
+  expect(detailPanelBox).not.toBeNull();
+  const actorBoundary = actorSeparatorBox!.x + actorSeparatorBox!.width / 2;
+  const detailBoundary = detailSeparatorBox!.x + detailSeparatorBox!.width / 2;
+  expect(Math.abs(actorBoundary - (actorPanelBox!.x + actorPanelBox!.width))).toBeLessThanOrEqual(1);
+  expect(Math.abs(actorBoundary - stageBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(detailBoundary - (stageBox!.x + stageBox!.width))).toBeLessThanOrEqual(1);
+  expect(Math.abs(detailBoundary - detailPanelBox!.x)).toBeLessThanOrEqual(1);
+  await page.mouse.move(
+    actorSeparatorBox!.x + actorSeparatorBox!.width / 2,
+    actorSeparatorBox!.y + actorSeparatorBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    actorSeparatorBox!.x + actorSeparatorBox!.width / 2 + 24,
+    actorSeparatorBox!.y + actorSeparatorBox!.height / 2,
+    { steps: 2 },
+  );
+  await page.mouse.up();
+  await expect(actorSeparator).toHaveAttribute("aria-valuenow", String(initialActorWidth + 24));
+  await page.mouse.move(
+    detailSeparatorBox!.x + detailSeparatorBox!.width / 2,
+    detailSeparatorBox!.y + detailSeparatorBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    detailSeparatorBox!.x + detailSeparatorBox!.width / 2 - 24,
+    detailSeparatorBox!.y + detailSeparatorBox!.height / 2,
+    { steps: 2 },
+  );
+  await page.mouse.up();
+  await expect(detailSeparator).toHaveAttribute("aria-valuenow", String(initialDetailWidth + 24));
+  await actorSeparator.focus();
+  await actorSeparator.press("ArrowRight");
+  await expect(actorSeparator).toHaveAttribute("aria-valuenow", String(initialActorWidth + 40));
+  await detailSeparator.focus();
+  await detailSeparator.press("ArrowLeft");
+  await expect(detailSeparator).toHaveAttribute("aria-valuenow", String(initialDetailWidth + 40));
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await page.getByRole("button", { name: /世界演化/ }).click();
+  await expect(page.getByRole("separator", { name: "调整主体列表宽度" }))
+    .toHaveAttribute("aria-valuenow", String(initialActorWidth + 40));
+  await expect(page.getByRole("separator", { name: "调整推演详情宽度" }))
+    .toHaveAttribute("aria-valuenow", String(initialDetailWidth + 40));
+
+  await inspector.getByRole("button", { name: "图谱" }).click();
+  await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
+  const attemptNode = inspector.getByRole("button", { name: /世界，Step 1 尝试/ });
+  await attemptNode.focus();
+  await attemptNode.press("Enter");
+  await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
+});
+
 test("in-game management preserves an active world run", async ({ page }) => {
   await page.request.post("/api/worlds/import", {
     multipart: {
@@ -370,6 +547,21 @@ test("in-game management preserves an active world run", async ({ page }) => {
   await expect(page).toHaveURL(`${playURL}/manage/settings`);
   await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
+  const settingsPanel = page.locator(".cg-settings");
+  const separators = await settingsPanel.locator("fieldset, .cg-setting-row").evaluateAll((elements) => (
+    elements.map((element) => getComputedStyle(element).borderBottomWidth)
+  ));
+  expect(separators).toEqual(separators.map(() => "0px"));
+  const developerSection = settingsPanel.locator(".cg-settings__developer");
+  const [developerDescriptionBox, developerRowBox] = await Promise.all([
+    developerSection.locator("header > p").boundingBox(),
+    developerSection.locator(".cg-setting-row").boundingBox(),
+  ]);
+  expect(developerDescriptionBox).not.toBeNull();
+  expect(developerRowBox).not.toBeNull();
+  const developerInnerGap = developerRowBox!.y - (developerDescriptionBox!.y + developerDescriptionBox!.height);
+  expect(developerInnerGap).toBeGreaterThanOrEqual(12);
+  expect(developerInnerGap).toBeLessThanOrEqual(20);
   const reduceMotion = page.getByRole("switch", { name: "减少动态效果" });
   const resetPosition = page.getByRole("button", { name: "重置位置" });
   await resetPosition.scrollIntoViewIfNeeded();

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0056](0056-control-state-and-settings-grouping.md)
 Class: bug-fix
 
 ## Context and Problem Statement

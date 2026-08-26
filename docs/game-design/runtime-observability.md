@@ -12,9 +12,13 @@
 
 本地受信任的世界演化调试器是运行日志的只读消费者，不是第三条观测链路。已提交图谱与状态差异来自 canonical history；失败、取消、回滚和进行中 attempt 来自同一 RuntimeEvent。`RuntimeObserver.subscribe` 在事件写入现有 sink 后通知进程内订阅者，监听器异常被隔离，不能改变 emit、WorldRun 或持久化结果。
 
+Inspector v2 先按 `stepAttemptId` 聚合，再以 `step.committed`、`step.rolled_back`、`step.persistence_rolled_back` 或取消事件裁剪 attempt；存在 persistence rollback 时它优先于较早的候选 commit。终止之后复用同一 correlation 的 persistence 读取不进入该 attempt 的最新事件、数量、耗时或阶段。服务端从裁剪后的事件归纳终止时间、失败模型角色、输出拒绝、修复 invocation、参与/直接关联主体、拟议行动和起止 state hash；客户端不解析错误文本猜测这些字段。
+
+窗口、step、attempt 和调试 SSE 只携带 RuntimeEvent 摘要：事件信封、错误、指标、`hasPayload` 与由 timestamp、sequence、事件名生成的稳定不透明 ID，不携带大型 payload。`GET /api/sessions/:id/inspector/runtime-events/:eventId` 在展开时从当前有界 trace 读取已经脱敏的完整事件；轮转或淘汰后的 ID 返回 404。摘要和详情共用同一事件 ID 算法，不建立 payload 缓存或第二份日志。
+
 `RuntimeTraceIndex` 只索引符合日志命名规则的现存 NDJSON 段。每段记录 mtime、已读取 offset、尚未换行的尾部字节，以及完整行的文件偏移与 session 归属；payload 不常驻索引，查询时只按需读取匹配 session 的行。文件缩短时从头重建，轮转删除时同步移除该段索引，坏行只形成 trace 缺口并把可用性标为 degraded。查询合并持久事件、observer snapshot 与 10,000 条进程内 live buffer，并按 timestamp、sequence 排序去重。`off` 不读取 trace，`metrics` 不提供 payload，`full` 只返回 sink 已记录的 payload。
 
-`/api/sessions/:id/inspector/events` 使用独立进程 epoch 和 RuntimeEvent sequence 作为 SSE ID。合法同 epoch 游标只接收更大 sequence；epoch 变化、游标被 live buffer 淘汰或游标超前时先发 `resync`，客户端重新读取窗口。15 秒 heartbeat 携带最新已发送游标，不使游标倒退。连接、索引和序列化失败只使面板重连或显示记录不可用，不进入游戏事务。
+`/api/sessions/:id/inspector/events` 使用独立进程 epoch 和 RuntimeEvent sequence 作为 SSE ID，并以同一摘要 projector 删除 payload。合法同 epoch 游标只接收更大 sequence；epoch 变化、游标被 live buffer 淘汰或游标超前时先发 `resync`，客户端重新读取窗口。15 秒 heartbeat 携带最新已发送游标，不使游标倒退。连接、索引和序列化失败只使面板重连或显示记录不可用，不进入游戏事务。
 
 WorldHost 对 committed 图谱窗口和 revision 前后快照使用 64 项有界 LRU。键包含 session ID、world content hash、当前 revision 与查询身份；revision 变化自然失效。缓存不包含 RuntimeEvent、trace 可用性或进行中 attempt，每次响应仍从当前日志派生这些字段；缓存不是持久状态。
 
@@ -70,4 +74,4 @@ Gateway 先递归按键规范化 Context，再以两空格 JSON 序列化；`con
 
 `npm run diagnose:live -- --steps 3` 显式使用模型目录和现有密钥，报告真实 token、cache、provider request ID、transport 与延迟。它是手动采样，不进入 CI；stdout 同样以 `diagnostic.summary` 收尾，stderr 只输出简表。
 
-决策理由见 [0043](../decisions/0043-end-to-end-runtime-observability.md) 与 [0055](../decisions/0055-trusted-world-evolution-inspector.md)。
+决策理由见 [0043](../decisions/0043-end-to-end-runtime-observability.md)、[0055](../decisions/0055-trusted-world-evolution-inspector.md) 与 [0057](../decisions/0057-failure-aware-world-inspector.md)。

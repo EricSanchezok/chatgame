@@ -14,8 +14,10 @@ import { toWorldRuntimeContract } from "../../engine/world-definition";
 import { loadWorldScript } from "../../script/world-loader";
 import type { WorldInspectorStateSnapshot } from "../../shared/world-inspector-api";
 import {
+  buildWorldInspectorAttemptDetail,
   buildWorldInspectorCommittedProjection,
   buildWorldInspectorCommittedStepDetail,
+  buildWorldInspectorRuntimeEventDetail,
   summarizeRuntimeAttempts,
 } from "../world-inspector";
 import type { WorldSessionDocument } from "../world-run-types";
@@ -32,6 +34,98 @@ function snapshot(state: Readonly<SimulationState>): WorldInspectorStateSnapshot
 }
 
 describe("world inspector committed projection", () => {
+  it("cuts failed attempts at the rollback boundary and derives structured diagnostics", () => {
+    let timestamp = Date.parse("2026-08-25T01:00:00.000Z");
+    const observer = new RecordingRuntimeObserver({
+      mode: "full",
+      now: () => new Date(timestamp += 1_000),
+    });
+    const correlation = {
+      sessionId: "session-failed",
+      runId: "run-failed",
+      stepAttemptId: "attempt-failed",
+      revision: 0,
+      step: 1,
+    };
+    observer.emit({ event: "step.started", correlation, hashes: { state: "stable-hash" } });
+    observer.emit({
+      event: "step.joint_actions.generated",
+      correlation,
+      payload: {
+        actions: [
+          { id: "player-action", actorId: "player", baseRevision: 0, rawText: "观察", goal: "观察", means: null, targetIds: [] },
+          { id: "agent-action", actorId: "archon-devers", baseRevision: 0, rawText: "守望", goal: "守望", means: null, targetIds: [] },
+        ],
+      },
+    });
+    const modelCorrelation = {
+      ...correlation,
+      modelInvocationId: "invocation-rejected",
+      modelRole: "truth-reaction-routing",
+      modelSubject: "archon-devers",
+      modelInvocation: 1,
+    };
+    observer.emit({ event: "model.invocation.started", correlation: modelCorrelation });
+    observer.emit({
+      event: "model.structured_output.parsed",
+      correlation: modelCorrelation,
+      payload: { reactionRequests: [{ agentId: "archon-devers", sourceActionId: "player-action" }] },
+    });
+    observer.emit({
+      event: "model.semantic.rejected",
+      level: "warn",
+      correlation: modelCorrelation,
+      error: { name: "Error", message: "reaction routing was invalid" },
+    });
+    const rollback = observer.emit({
+      event: "step.rolled_back",
+      level: "error",
+      correlation,
+      hashes: { state: "stable-hash" },
+      error: { name: "Error", message: "routing failed after repairs" },
+    });
+    observer.emit({
+      event: "persistence.snapshot.loaded",
+      correlation,
+      payload: { mustNotAppearInAttempt: true },
+    });
+
+    const summary = summarizeRuntimeAttempts(observer.events)[0]!;
+    expect(summary).toMatchObject({
+      actorIds: ["archon-devers", "player"],
+      eventCount: 6,
+      failureStage: "truth-reaction-routing",
+      failureStageLabel: "反应路由",
+      latestEvent: "step.rolled_back",
+      rejectionCount: 1,
+      repairCount: 0,
+      relatedActorIds: ["archon-devers"],
+      rollbackVerified: true,
+      status: "rolled_back",
+      terminalAt: rollback.timestamp,
+    });
+    expect(summary.durationMs).toBe(5_000);
+
+    const detail = buildWorldInspectorAttemptDetail("attempt-failed", observer, observer.events)!;
+    expect(detail.events).toHaveLength(6);
+    expect(detail.events.every((event) => !("payload" in event))).toBe(true);
+    expect(detail.events.find((event) => event.event === "step.joint_actions.generated")).toMatchObject({
+      hasPayload: true,
+      id: expect.stringMatching(/^runtime-[a-f0-9]{64}$/),
+    });
+    expect(detail.attemptedActions.map((action) => action.actorId)).toEqual(["player", "archon-devers"]);
+    expect(detail.stages).toContainEqual(expect.objectContaining({
+      label: "反应路由",
+      rejectionCount: 1,
+      status: "failed",
+    }));
+    const payloadEvent = detail.events.find((event) => event.hasPayload)!;
+    expect(buildWorldInspectorRuntimeEventDetail(payloadEvent.id, observer.events)?.event.payload).toEqual({
+      actions: expect.any(Array),
+    });
+    expect(buildWorldInspectorRuntimeEventDetail("runtime-missing", observer.events)).toBeUndefined();
+  });
+
   it("keeps a persistence rollback as an uncommitted branch even after candidate commit", () => {
     const observer = new RecordingRuntimeObserver({ mode: "full" });
     const correlation = {
@@ -48,6 +142,41 @@ describe("world inspector committed projection", () => {
     expect(summarizeRuntimeAttempts(observer.events)).toEqual([
       expect.objectContaining({ id: "attempt-rollback", status: "rolled_back" }),
     ]);
+  });
+
+  it("attributes a model transport failure to its structured model stage", () => {
+    const observer = new RecordingRuntimeObserver({ mode: "full" });
+    const correlation = {
+      sessionId: "session-transport-failure",
+      runId: "run-transport-failure",
+      stepAttemptId: "attempt-transport-failure",
+      revision: 0,
+      step: 1,
+    };
+    observer.emit({ event: "step.started", correlation });
+    observer.emit({
+      event: "model.transport.failed",
+      level: "error",
+      correlation: {
+        ...correlation,
+        modelInvocationId: "invocation-transport-failure",
+        modelRole: "truth-perception",
+        modelSubject: "world-transport-failure",
+        modelInvocation: 1,
+      },
+      error: { name: "Error", message: "provider unavailable" },
+    });
+    observer.emit({
+      event: "step.rolled_back",
+      level: "error",
+      correlation,
+      error: { name: "Error", message: "truth perception failed" },
+    });
+
+    expect(summarizeRuntimeAttempts(observer.events)[0]).toMatchObject({
+      failureStage: "truth-perception",
+      failureStageLabel: "感知裁决",
+    });
   });
 
   it("matches transaction replay at every revision and exposes each Agent evolution", async () => {

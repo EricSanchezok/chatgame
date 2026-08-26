@@ -68,9 +68,11 @@ export function SettingsPanel() {
           </button>
         </div>
       </div>
-      <fieldset className="cg-settings__developer">
-        <legend>开发者工具</legend>
-        <p>这些工具会揭示玩家通常无法知道的世界信息。</p>
+      <section aria-labelledby="settings-developer-title" className="cg-settings__group cg-settings__developer">
+        <header>
+          <h3 id="settings-developer-title">开发者工具</h3>
+          <p>这些工具会揭示玩家通常无法知道的世界信息。</p>
+        </header>
         <div className="cg-setting-row">
           <span>
             <strong>显示世界调试器</strong>
@@ -92,7 +94,7 @@ export function SettingsPanel() {
             </button>
           </div>
         </div>
-      </fieldset>
+      </section>
       <div className="cg-setting-row">
         <span><strong>重置控制球位置</strong><small>恢复到页面右侧的默认位置。</small></span>
         <div className="cg-setting-row__control">

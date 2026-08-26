@@ -20,6 +20,9 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
 } from "react";
 import { WorkspaceDialog } from "@/components/ui/workspace-dialog";
 import type {
@@ -32,6 +35,20 @@ import type {
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
 import { mergeWorldInspectorWindows } from "../_lib/world-inspector-window";
+import {
+  WORLD_INSPECTOR_ACTOR_DEFAULT,
+  WORLD_INSPECTOR_ACTOR_MAX,
+  WORLD_INSPECTOR_ACTOR_MIN,
+  WORLD_INSPECTOR_DETAIL_DEFAULT,
+  WORLD_INSPECTOR_DETAIL_MAX,
+  WORLD_INSPECTOR_DETAIL_MIN,
+  clampWorldInspectorActorWidth,
+  clampWorldInspectorDetailWidth,
+  readWorldInspectorLayout,
+  resizeWorldInspectorPanelWidth,
+  writeWorldInspectorLayout,
+  type WorldInspectorView,
+} from "../_lib/world-inspector-preferences";
 import { worldInspectorApi } from "../lib/world-inspector-api-client";
 import { WorldInspectorDetail } from "./world-inspector-detail";
 import { WorldInspectorGraph } from "./world-inspector-graph";
@@ -40,8 +57,7 @@ import { WorldInspectorTimeline } from "./world-inspector-timeline";
 type InspectorDetail =
   | { kind: "step"; value: WorldInspectorStepDetail }
   | { kind: "attempt"; value: WorldInspectorAttemptDetail };
-
-type InspectorView = "graph" | "timeline";
+type ResizablePanel = "actors" | "detail";
 
 const narrowQuery = "(max-width: 52rem)";
 
@@ -57,8 +73,55 @@ function useNarrowViewport(): boolean {
   );
 }
 
-function actorActivity(actorId: string, steps: readonly WorldInspectorStepSummary[]): number {
-  return steps.reduce((total, step) => total + (step.actorIds.includes(actorId) ? 1 : 0), 0);
+function actorActivity(
+  actorId: string,
+  steps: readonly WorldInspectorStepSummary[],
+  attempts: readonly WorldInspectorAttemptSummary[],
+): { attempts: number; steps: number } {
+  return {
+    steps: steps.reduce((total, step) => total + (step.actorIds.includes(actorId) ? 1 : 0), 0),
+    attempts: attempts.reduce((total, attempt) => total + (attempt.actorIds.includes(actorId) ? 1 : 0), 0),
+  };
+}
+
+function InspectorResizer({
+  label,
+  maximum,
+  minimum,
+  onKeyDown,
+  onPointerCancel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  value,
+}: {
+  label: string;
+  maximum: number;
+  minimum: number;
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onPointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
+  value: number;
+}) {
+  return (
+    <div
+      aria-label={label}
+      aria-orientation="vertical"
+      aria-valuemax={maximum}
+      aria-valuemin={minimum}
+      aria-valuenow={value}
+      className="cg-inspector-resizer"
+      onKeyDown={onKeyDown}
+      onPointerCancel={onPointerCancel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      role="separator"
+      tabIndex={0}
+    />
+  );
 }
 
 export default function WorldInspectorDialog({
@@ -77,6 +140,14 @@ export default function WorldInspectorDialog({
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const requestRef = useRef(0);
   const detailRequestRef = useRef(0);
+  const selectedNodeRef = useRef<string | undefined>(undefined);
+  const followLatestRef = useRef(true);
+  const resizeRef = useRef<{
+    currentWidth: number;
+    panel: ResizablePanel;
+    startX: number;
+    startWidth: number;
+  } | undefined>(undefined);
   const [data, setData] = useState<WorldInspectorWindow>();
   const [detail, setDetail] = useState<InspectorDetail>();
   const [detailError, setDetailError] = useState("");
@@ -91,12 +162,53 @@ export default function WorldInspectorDialog({
   const [query, setQuery] = useState("");
   const [selectedActorId, setSelectedActorId] = useState("world");
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
-  const [view, setView] = useState<InspectorView>();
-  const activeView = view ?? (narrow ? "timeline" : "graph");
+  const [view, setView] = useState<WorldInspectorView>("graph");
+  const [actorWidth, setActorWidth] = useState(WORLD_INSPECTOR_ACTOR_DEFAULT);
+  const [detailWidth, setDetailWidth] = useState(WORLD_INSPECTOR_DETAIL_DEFAULT);
+  const [failureViewOverride, setFailureViewOverride] = useState(false);
+  const activeView = narrow || failureViewOverride ? "timeline" : view;
   const closeActorDrawer = useCallback(() => {
     setActorsOpen(false);
     if (narrow) requestAnimationFrame(() => actorToggleRef.current?.focus());
   }, [narrow]);
+
+  useEffect(() => {
+    selectedNodeRef.current = selectedNodeId;
+  }, [selectedNodeId]);
+
+  useEffect(() => {
+    followLatestRef.current = followLatest;
+  }, [followLatest]);
+
+  useEffect(() => {
+    if (!open) return;
+    const hydrateLayout = window.setTimeout(() => {
+      const preferences = readWorldInspectorLayout();
+      setView(preferences.view);
+      setActorWidth(preferences.actorWidth);
+      setDetailWidth(preferences.detailWidth);
+      setFailureViewOverride(false);
+    }, 0);
+    return () => window.clearTimeout(hydrateLayout);
+  }, [open]);
+
+  const persistLayout = useCallback((next: {
+    actorWidth?: number;
+    detailWidth?: number;
+    view?: WorldInspectorView;
+  }) => {
+    writeWorldInspectorLayout({
+      actorWidth: next.actorWidth ?? actorWidth,
+      detailWidth: next.detailWidth ?? detailWidth,
+      view: next.view ?? view,
+    });
+  }, [actorWidth, detailWidth, view]);
+
+  const chooseView = useCallback((next: WorldInspectorView) => {
+    setFailureViewOverride(false);
+    setView(next);
+    persistLayout({ view: next });
+  }, [persistLayout]);
 
   const selectStep = useCallback(async (step: WorldInspectorStepSummary, nodeId = `commit:${step.revision}`) => {
     const request = ++detailRequestRef.current;
@@ -139,8 +251,25 @@ export default function WorldInspectorDialog({
       if (request !== requestRef.current) return;
       setData((current) => preserveHistory ? mergeWorldInspectorWindows(current, incoming) : incoming);
       setError("");
-      const latest = incoming.steps.at(-1);
-      if (!preserveHistory && latest) void selectStep(latest);
+      const activeAttempt = [...incoming.attempts].reverse().find((attempt) => attempt.status === "active");
+      const latestFailure = [...incoming.attempts].reverse().find((attempt) =>
+        attempt.status !== "active" && attempt.status !== "committed");
+      const latestStep = incoming.steps.at(-1);
+      const failureIsCurrent = latestFailure &&
+        (latestFailure.revision ?? incoming.session.revision) >= (latestStep?.revision ?? 0);
+      const nextAttempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
+      if (!preserveHistory) {
+        if (nextAttempt) {
+          if (!activeAttempt && latestFailure && incoming.steps.length === 0) setFailureViewOverride(true);
+          void selectAttempt(nextAttempt);
+        } else if (latestStep) {
+          void selectStep(latestStep);
+        }
+      } else if (followLatestRef.current) {
+        const nextId = nextAttempt ? `attempt:${nextAttempt.id}` : latestStep ? `commit:${latestStep.revision}` : undefined;
+        if (nextAttempt && nextId !== selectedNodeRef.current) void selectAttempt(nextAttempt);
+        else if (!nextAttempt && latestStep && nextId !== selectedNodeRef.current) void selectStep(latestStep);
+      }
     } catch (reason) {
       if (request === requestRef.current) {
         setError(reason instanceof Error ? reason.message : "无法读取世界演化记录。");
@@ -148,7 +277,7 @@ export default function WorldInspectorDialog({
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
-  }, [selectStep, sessionId]);
+  }, [selectAttempt, selectStep, sessionId]);
 
   useEffect(() => {
     if (!open) return;
@@ -233,6 +362,79 @@ export default function WorldInspectorDialog({
     ? `${data.session.worldName} · Revision ${data.session.revision} · ${data.trace.mode} trace`
     : "读取世界提交历史、Agent 演化与运行审计。";
 
+  const returnToLatest = () => {
+    setFollowLatest(true);
+    if (!data) return;
+    const activeAttempt = [...data.attempts].reverse().find((attempt) => attempt.status === "active");
+    const latestFailure = [...data.attempts].reverse().find((attempt) =>
+      attempt.status !== "active" && attempt.status !== "committed");
+    const latestStep = data.steps.at(-1);
+    const failureIsCurrent = latestFailure &&
+      (latestFailure.revision ?? data.session.revision) >= (latestStep?.revision ?? 0);
+    const attempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
+    if (attempt) void selectAttempt(attempt);
+    else if (latestStep) void selectStep(latestStep);
+  };
+
+  const updatePanelWidth = (panel: ResizablePanel, width: number) => {
+    if (panel === "actors") setActorWidth(width);
+    else setDetailWidth(width);
+  };
+
+  const resizePanel = (event: PointerEvent<HTMLDivElement>) => {
+    const resize = resizeRef.current;
+    if (!resize || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    const inlineDelta = (event.clientX - resize.startX) * (document.documentElement.dir === "rtl" ? -1 : 1);
+    const next = resize.panel === "actors"
+      ? clampWorldInspectorActorWidth(resize.startWidth + inlineDelta)
+      : clampWorldInspectorDetailWidth(resize.startWidth - inlineDelta);
+    resize.currentWidth = next;
+    updatePanelWidth(resize.panel, next);
+  };
+
+  const finishResize = (event: PointerEvent<HTMLDivElement>) => {
+    const resize = resizeRef.current;
+    if (!resize) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    resizeRef.current = undefined;
+    persistLayout(resize.panel === "actors"
+      ? { actorWidth: resize.currentWidth }
+      : { detailWidth: resize.currentWidth });
+  };
+
+  const resizePanelWithKeyboard = (
+    panel: ResizablePanel,
+    currentWidth: number,
+    event: KeyboardEvent<HTMLDivElement>,
+  ) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const next = resizeWorldInspectorPanelWidth(
+      currentWidth,
+      event.key as "ArrowLeft" | "ArrowRight" | "End" | "Home",
+      panel,
+      { rtl: document.documentElement.dir === "rtl", shift: event.shiftKey },
+    );
+    event.preventDefault();
+    updatePanelWidth(panel, next);
+    persistLayout(panel === "actors" ? { actorWidth: next } : { detailWidth: next });
+  };
+
+  const beginPanelResize = (
+    panel: ResizablePanel,
+    currentWidth: number,
+    event: PointerEvent<HTMLDivElement>,
+  ) => {
+    resizeRef.current = {
+      currentWidth,
+      panel,
+      startWidth: currentWidth,
+      startX: event.clientX,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
   return (
     <WorkspaceDialog
       closeLabel="关闭世界演化调试器"
@@ -244,10 +446,10 @@ export default function WorldInspectorDialog({
     >
       <div className="cg-inspector-toolbar">
         <div className="cg-inspector-view-switch" aria-label="推演视图">
-          <button aria-pressed={activeView === "graph"} onClick={() => setView("graph")} type="button">
+          <button aria-pressed={activeView === "graph"} onClick={() => chooseView("graph")} type="button">
             <Network aria-hidden="true" /> 图谱
           </button>
-          <button aria-pressed={activeView === "timeline"} onClick={() => setView("timeline")} type="button">
+          <button aria-pressed={activeView === "timeline"} onClick={() => chooseView("timeline")} type="button">
             <ListTree aria-hidden="true" /> 时间线
           </button>
         </div>
@@ -279,7 +481,7 @@ export default function WorldInspectorDialog({
         <button
           aria-pressed={followLatest}
           className="cg-inspector-toolbar__button"
-          onClick={() => setFollowLatest((value) => !value)}
+          onClick={() => followLatest ? setFollowLatest(false) : returnToLatest()}
           type="button"
         >
           <LocateFixed aria-hidden="true" /> {followLatest ? "追随最新" : "回到最新"}
@@ -313,6 +515,10 @@ export default function WorldInspectorDialog({
             event.stopPropagation();
             closeActorDrawer();
           }}
+          style={{
+            "--cg-inspector-actor-width": `${actorWidth}px`,
+            "--cg-inspector-detail-width": `${detailWidth}px`,
+          } as CSSProperties}
         >
           <button
             aria-label="关闭主体列表"
@@ -337,28 +543,46 @@ export default function WorldInspectorDialog({
               type="button"
             >
               <span><GitBranch aria-hidden="true" /></span>
-              <span><strong>整个世界</strong><small>{data.steps.length} 个已载入提交</small></span>
+              <span><strong>整个世界</strong><small>{data.steps.length} 个提交 · {data.attempts.length} 次尝试</small></span>
             </button>
             <div className="cg-inspector-actor-list">
-              {visibleActors.map((actor) => (
-                <button
-                  aria-pressed={selectedActorId === actor.id}
-                  className="cg-inspector-actor"
-                  key={actor.id}
-                  onClick={() => { setSelectedActorId(actor.id); closeActorDrawer(); }}
-                  type="button"
-                >
-                  <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
-                  <span><strong>{actor.name}</strong><small>{actor.id} · {actorActivity(actor.id, data.steps)} steps</small></span>
-                  <i data-lifecycle={actor.lifecycle} title={actor.lifecycle} />
-                </button>
-              ))}
+              {visibleActors.map((actor) => {
+                const activity = actorActivity(actor.id, data.steps, data.attempts);
+                return (
+                  <button
+                    aria-pressed={selectedActorId === actor.id}
+                    className="cg-inspector-actor"
+                    key={actor.id}
+                    onClick={() => { setSelectedActorId(actor.id); closeActorDrawer(); }}
+                    type="button"
+                  >
+                    <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
+                    <span>
+                      <strong>{actor.name}</strong>
+                      <small>{activity.steps} 个提交 · {activity.attempts} 次尝试</small>
+                    </span>
+                    <i data-lifecycle={actor.lifecycle} title={actor.lifecycle} />
+                  </button>
+                );
+              })}
             </div>
             <footer>
               <span><ArrowDownToLine aria-hidden="true" /> {data.trace.retainedEventCount} trace events</span>
               <span>{data.trace.mode} · {data.trace.degraded ? "degraded" : "healthy"}</span>
             </footer>
           </aside>
+
+          <InspectorResizer
+            label="调整主体列表宽度"
+            maximum={WORLD_INSPECTOR_ACTOR_MAX}
+            minimum={WORLD_INSPECTOR_ACTOR_MIN}
+            onKeyDown={(event) => resizePanelWithKeyboard("actors", actorWidth, event)}
+            onPointerCancel={finishResize}
+            onPointerDown={(event) => beginPanelResize("actors", actorWidth, event)}
+            onPointerMove={resizePanel}
+            onPointerUp={finishResize}
+            value={actorWidth}
+          />
 
           <section className="cg-inspector-stage" aria-label={`${selectedActor?.name ?? "整个世界"}推演记录`}>
             {activeView === "graph" ? (
@@ -381,8 +605,8 @@ export default function WorldInspectorDialog({
                 hasOlder={data.pagination.hasOlder}
                 loadingOlder={loadingOlder}
                 onLoadOlder={() => void loadOlder()}
-                onSelectAttempt={(attempt) => { void selectAttempt(attempt); }}
-                onSelectStep={(step) => { void selectStep(step); }}
+                onSelectAttempt={(attempt) => { setFollowLatest(false); void selectAttempt(attempt); }}
+                onSelectStep={(step) => { setFollowLatest(false); void selectStep(step); }}
                 query={query}
                 selectedActorId={selectedActorId}
                 selectedId={selectedNodeId}
@@ -392,6 +616,18 @@ export default function WorldInspectorDialog({
             {error && <p className="cg-inspector-stage__warning" role="alert">{error}</p>}
           </section>
 
+          <InspectorResizer
+            label="调整推演详情宽度"
+            maximum={WORLD_INSPECTOR_DETAIL_MAX}
+            minimum={WORLD_INSPECTOR_DETAIL_MIN}
+            onKeyDown={(event) => resizePanelWithKeyboard("detail", detailWidth, event)}
+            onPointerCancel={finishResize}
+            onPointerDown={(event) => beginPanelResize("detail", detailWidth, event)}
+            onPointerMove={resizePanel}
+            onPointerUp={finishResize}
+            value={detailWidth}
+          />
+
           <WorldInspectorDetail
             actorId={selectedActorId}
             actorName={selectedActor?.name ?? (selectedActorId === "world" ? "整个世界" : selectedActorId)}
@@ -399,6 +635,7 @@ export default function WorldInspectorDialog({
             error={detailError}
             key={selectedNodeId ?? "empty"}
             loading={loadingDetail}
+            sessionId={sessionId}
           />
         </div>
       )}

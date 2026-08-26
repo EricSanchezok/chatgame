@@ -25,6 +25,7 @@
 | `GET /api/sessions/:id/inspector?beforeRevision=&limit=` | 读取最近 committed 图谱、Agent 目录、attempt 分支与 trace 可用性；默认 24，最大 50 |
 | `GET /api/sessions/:id/inspector/steps/:revision` | 按需读取一个 revision 的前后状态、完整提交与相关运行事件 |
 | `GET /api/sessions/:id/inspector/attempts/:stepAttemptId` | 读取进行中、失败、回滚或已提交 attempt 的运行事件 |
+| `GET /api/sessions/:id/inspector/runtime-events/:eventId` | 按稳定不透明 ID 读取一条已脱敏 RuntimeEvent 的完整 payload；过期返回 404 |
 | `GET /api/sessions/:id/inspector/events` | 以 `epoch:sequence` 游标订阅独立的调试 SSE |
 
 ## SSE 事件
@@ -39,7 +40,7 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 `/` 是只含“世界包”和“设置”的游戏外入口。设置是当前主菜单上的模态任务，打开后 URL 保持 `/`，关闭后焦点回到触发按钮；不存在独立 `/settings`。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位且主文案必须继承主操作前景色；版本和内容标识在列表之后以无卡片的紧凑单行元数据呈现，更新和卸载属于同一区域的管理动作；窄屏以两个可寻址页面逐级进入。不存在独立 `/saves` 和当前存档浏览器指针。
 
-`/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。每个模态表面只有右上角一个视觉关闭动作，可滚动内容使用透明轨道与窄拇指。游戏内只列出当前世界存档，不创建游戏或切换世界；当前存档只通过不参与盒模型的背景和“当前游戏”标签高亮，正文与操作区必须和其他存档保持同一对齐线。设置中的减少动态效果使用可由点击、Enter 和 Space 操作并公开开关状态的 switch，所有尾部设置控件在固定宽度列中共享水平中心线。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
+`/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。每个模态表面只有右上角一个视觉关闭动作，可滚动内容使用透明轨道与窄拇指。游戏内只列出当前世界存档，不创建游戏或切换世界；当前存档只通过不参与盒模型的背景和“当前游戏”标签高亮，正文与操作区必须和其他存档保持同一对齐线。设置面板以空间和浅层表面分组，不用横向分隔线建立层级；开发者工具是带标题与说明的独立组，减少动态效果和重置位置是独立设置行。减少动态效果使用可由点击、Enter 和 Space 操作并公开开关状态的 switch，所有尾部设置控件在固定宽度列中共享水平中心线，30rem 以下正文与控件纵向排列。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
 
 游戏页使用 `@assistant-ui/react` 0.15.16 External Store，并固定官方 `ThreadPrimitive.Root → flex Viewport → 44rem message group → ThreadPrimitive.ViewportFooter` 单轴结构。空会话在轴中间只显示“你想做什么？”和圆角 composer；出现消息后 footer 以 `mt-auto + sticky bottom-0` 固定到底部并适配安全区，消息数量、等待或失败状态不能改变底部锚点。玩家消息是右侧低对比气泡：先按短句 max-content 内在宽度收缩，再以会话轴 85% 或 34rem 为上限，空间充足时短中文不得逐字换行；世界消息是平铺正文，检定、运行状态和恢复动作属于从属 footer。ActionBar 只提供真实可用的复制；复制文本由同一 WorldRun 的公开叙事、可见检定和人类可读状态纯投影，不序列化 data part、客户端状态或内部 JSON。
 
@@ -47,16 +48,18 @@ run 状态为 queued、running、awaiting_player、completed、goal_failed、ste
 
 桌面控制球是 56px 状态表盘，接收世界名、存档名、step、elapsedSeconds 与 running/confirming/saved。拖动以 Pointer Events、`requestAnimationFrame` 和 `translate3d` 跟随指针，松手吸附最近左右边缘；位置以 `{ edge, y }` 写入 `livingworld:control-position:v2`，`y` 是归一化坐标，视口变化后限制在安全区和 composer 排除区。桌面点击向页面内侧展开存档、设置、主菜单三个动作和状态卡；三个动作中心位于同一个 84px 半径上，并在可用四分之一圆弧或中部圆弧内等角分布，方位按边缘及上下空间镜像。状态卡从当前方位的完整按钮包络向页面内侧再让出 32px，任何按钮实体都不能与卡片相交。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home。小于 48rem 时点击打开当前页面内具备焦点约束、Escape/遮罩关闭和安全区适配的底部 Sheet。
 
-全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。普通非文本控件仅在 `:focus-visible` 使用主题蓝色 `--cg-ring` 绘制非包围式底部标记；composer 普通主题不绘制附加焦点线且静态边框与外部阴影不变化，编辑位置由文本插入光标表达；forced-colors 改用系统 `Highlight` 完整 outline。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。
+全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。选中控件只用自身背景、前景、字重、图标或边界表达状态，不绘制底部蓝线或选中伪元素；普通非文本控件仅在 `:focus-visible` 使用 `--cg-foreground` 绘制 2px 中性 outline。composer 普通主题不绘制附加焦点线且静态边框与外部阴影不变化，编辑位置由文本插入光标表达；forced-colors 改用系统 `Highlight` 完整 outline。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。
 
 ## 世界演化调试器
 
 统一设置中的“显示世界调试器”默认关闭，并明确提示会暴露客观真相、隐藏检定和所有角色认知。关闭时控制球没有相关入口；开启后，桌面状态卡和移动 Sheet 的“开发者工具”区提供“世界演化”。入口打开页面内 Radix `WorkspaceDialog`，桌面使用 `16px` 外边距的近全屏工作台与背景虚化，移动端占满安全区；Escape、遮罩、关闭按钮统一关闭并把焦点还给控制球。
 
-工作台左侧按“整个世界 / 玩家 / Agent”选择主体，中间在 React Flow 图谱和 Git 风格时间线之间切换，右侧按“概要 / 变更 / 因果 / 模型 / 原始”查看选中记录。整个世界的概要先展示“联合行动 → 状态变更 → 世界事件”结果链，再解释认知传播、额外裁决和模型开销；个体概要直接展示本轮实际行动、结果、所见信息和认知变化，只有存在后续计划时才显示并标注“尚未执行”。变更、因果与模型页签先归纳非空阶段，完整结构化对象按需展开，原始页签保留未经归纳的审计记录。
+工作台左侧按“整个世界 / 玩家 / Agent”选择主体，中间在 React Flow 图谱和 Git 风格时间线之间切换，右侧按“概要 / 变更 / 因果 / 模型 / 原始”查看选中记录；详情页签只用背景与字重表示当前项，不增加底部装饰线。初次打开按活动 attempt、当前最新失败、最新提交的顺序自动选择；只有失败且没有 committed revision 时临时强制时间线，不覆盖保存的常规视图偏好。整个世界的成功概要展示“联合行动 → 状态变更 → 世界事件”结果链；失败概要展示终止阶段、原因、真实耗时、输出拒绝/修复、零写入和回滚校验。个体概要直接展示已提交行动或失败 attempt 中的拟议行动、目标与方式，并明确该主体是否是失败的直接关联方。
 
-Agent 选择只高亮相关泳道并保留世界上下文，“聚焦此 Agent”才过滤其他主体；激活后同一按钮变为“显示全部主体”。搜索同时匹配 Agent、节点说明和 revision。手动平移或缩放会暂停自动居中，事件仍实时进入；“回到最新”恢复追随。移动端默认时间线，Agent 列表收进带遮罩和 Escape 行为的侧滑抽屉，详情成为下方连续面板。
+Agent 列表显示“提交数 · 尝试数”。Agent 选择只高亮相关泳道和 attempt 并保留世界上下文，“聚焦此 Agent”才过滤其他主体；激活后同一按钮变为“显示全部主体”。搜索同时匹配 Agent、节点说明和 revision。手动选择旧记录或平移、缩放会暂停追随，事件仍实时进入；只有“追随最新”开启时 SSE 才改变当前记录，“回到最新”立即选择当前最新记录。移动端默认时间线，Agent 列表收进带遮罩和 Escape 行为的侧滑抽屉，详情成为下方连续面板。
 
 图谱节点只消费服务端语义与边，不接收画布坐标。首帧以确定性拓扑布局立即显示，Web Worker 内的 ELK Layered 完成后精排；worker 错误保留首帧布局。节点类型覆盖 commit、行动、反应、检定、随机、机制、operation、世界事件、observation、心智更新和 attempt；状态同时使用文字、图标、颜色和线型。缩远时节点收敛为主体、阶段和计数，居中尺度显示主链，近距离才展示完整说明；方向键顺序漫游节点，Home/End 到达图首尾。React Flow 只渲染可视节点并提供缩放和 fit view；布局完成状态必须对应当前可见节点与边的拓扑签名，minimap 在该拓扑的精排坐标可用后挂载，按节点语义着色并以描边保证浅色、深色和遮罩区域内均可辨认。时间线承担完整的窄屏与线性阅读替代。
+
+桌面主体栏默认 13.5rem，可在 11–22.5rem 内拖拽；详情栏默认 30rem，可在 22–42rem 内拖拽。两个 separator 都使用 Pointer Capture，并支持方向键、Shift 加速与 Home/End；零宽网格轨道把 1px 可见线放在相邻面板的共同边界，透明命中面以该边界为中心向两侧扩展，左右定位一致。视图和两侧宽度以 `livingworld:inspector-layout:v2` 保存。窄屏忽略桌面宽度。主体列表、时间线、详情正文和 JSON 树保留滚轮、触控板、触摸与键盘滚动，但不显示常驻滚动条。结构化对象使用递归 JSON Inspector：对象与数组以原生 disclosure 展开，顶层及 error/cause 路径默认打开，其他大型节点折叠；子树只在展开后挂载，数组每批 100 项。每层使用固定缩进、disclosure 占位和连续导引线；根节点只使用工具栏“复制对象”，非根字段在同一行只显示一个复制入口，展开后明确选择路径或值，结果通过 live region 反馈。模型页按 invocation 分组，原始页先显示无 payload 的事件信封；full payload 只在展开时按 event ID 请求，过期或失败在局部重试。
 
 首屏读取最近 24 个 revision，旧历史用 `beforeRevision` 向前分页，step 与 attempt 详情按需请求。面板只读，不提供回滚、重跑、分叉或编辑。`off` 模式只有 committed history，`metrics` 增加阶段与数值，`full` 才展示已经记录的模型上下文和结构化输出；任何模式都不展示或推断隐藏思维链。设置开关只负责沉浸与剧透控制，不是 inspector API 的认证边界。

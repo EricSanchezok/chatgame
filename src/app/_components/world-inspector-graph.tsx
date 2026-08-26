@@ -44,7 +44,6 @@ import { worldInspectorFallbackPositions } from "../_lib/world-inspector-layout"
 interface InspectorNodeData extends Record<string, unknown> {
   actorName: string;
   dimmed: boolean;
-  onSelect: (node: WorldInspectorNodeSummary) => void;
   selected: boolean;
   summary: WorldInspectorNodeSummary;
 }
@@ -114,7 +113,6 @@ function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
         data-kind={data.summary.kind}
         data-selected={data.selected || undefined}
         data-status={data.summary.status}
-        onClick={() => data.onSelect(data.summary)}
         onKeyDown={moveFocus}
         type="button"
       >
@@ -198,7 +196,8 @@ export function WorldInspectorGraph({
   ]), [actors]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleSummaries = useMemo(() => sourceNodes.filter((node) =>
-    !isolateActor || selectedActorId === "world" || node.laneId === selectedActorId || node.laneId === "world"),
+    !isolateActor || selectedActorId === "world" || node.laneId === selectedActorId ||
+    (node.laneId === "world" && node.kind !== "attempt") || node.relatedActorIds?.includes(selectedActorId)),
   [isolateActor, selectedActorId, sourceNodes]);
   const visibleIds = useMemo(() => new Set(visibleSummaries.map((node) => node.id)), [visibleSummaries]);
   const visibleEdges = useMemo(() => sourceEdges.filter((edge) =>
@@ -273,7 +272,10 @@ export function WorldInspectorGraph({
   const nodes = useMemo<InspectorFlowNode[]>(() => visibleSummaries.map((summary) => {
     const matchesQuery = !normalizedQuery || `${summary.label} ${summary.description} ${actorNames.get(summary.laneId) ?? summary.laneId}`
       .toLocaleLowerCase().includes(normalizedQuery);
-    const matchesActor = selectedActorId === "world" || summary.laneId === selectedActorId || summary.laneId === "world";
+    const matchesActor = selectedActorId === "world" || summary.laneId === selectedActorId ||
+      (summary.kind === "attempt"
+        ? summary.relatedActorIds?.includes(selectedActorId)
+        : summary.laneId === "world");
     return {
       id: summary.id,
       type: "inspector",
@@ -287,12 +289,11 @@ export function WorldInspectorGraph({
       data: {
         actorName: actorNames.get(summary.laneId) ?? summary.laneId,
         dimmed: !matchesQuery || !matchesActor,
-        onSelect,
         selected: selectedNodeId === summary.id,
         summary,
       },
     };
-  }), [actorNames, normalizedQuery, onSelect, positions, provisionalPositions, selectedActorId, selectedNodeId, visibleSummaries]);
+  }), [actorNames, normalizedQuery, positions, provisionalPositions, selectedActorId, selectedNodeId, visibleSummaries]);
 
   const edges = useMemo<Edge[]>(() => visibleEdges.map((edge) => ({
     id: edge.id,
@@ -365,6 +366,7 @@ export function WorldInspectorGraph({
           setSemanticZoom((current) => current === next ? current : next);
         }}
         onMoveStart={(event) => { if (event) onInteract(); }}
+        onNodeClick={(_, node) => onSelect(node.data.summary)}
         onlyRenderVisibleElements
         panOnScroll
         proOptions={{ hideAttribution: true }}

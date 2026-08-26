@@ -82,7 +82,11 @@ test("the failed conversation and forced-color controls remain accessible", asyn
   const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
   const detail = await created.json() as { summary: { id: string } };
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
-  await page.goto(`/play/${detail.summary.id}`);
+  const playURL = `/play/${detail.summary.id}`;
+  await page.goto(`${playURL}/manage/settings`);
+  await page.getByRole("switch", { name: /显示世界调试器/ }).click();
+  await page.getByRole("button", { name: "关闭游戏管理" }).click();
+  await expect(page).toHaveURL(playURL);
   const composer = page.getByLabel("你的行动");
   await composer.focus();
   const forcedFocus = await composer.evaluate((element) => {
@@ -95,6 +99,34 @@ test("the failed conversation and forced-color controls remain accessible", asyn
   await page.getByRole("button", { name: "发送行动" }).click();
   await expect(page.getByText("这一步未能完成")).toBeVisible();
   await expect(page.getByRole("button", { name: "放弃目标" })).toBeVisible();
+  await expectNoViolations(page);
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await page.getByRole("button", { name: /世界演化/ }).click();
+  const inspector = page.getByRole("dialog", { name: "世界演化" });
+  await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
+  const actorSeparator = inspector.getByRole("separator", { name: "调整主体列表宽度" });
+  await inspector.getByRole("complementary", { name: "主体选择" }).getByRole("button").last().focus();
+  await page.keyboard.press("Tab");
+  await expect(actorSeparator).toBeFocused();
+  const actorSeparatorFocus = await actorSeparator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: Number.parseFloat(style.outlineWidth) };
+  });
+  expect(actorSeparatorFocus.outlineStyle).not.toBe("none");
+  expect(actorSeparatorFocus.outlineWidth).toBeGreaterThanOrEqual(2);
+  await actorSeparator.press("ArrowRight");
+  const detailSeparator = inspector.getByRole("separator", { name: "调整推演详情宽度" });
+  await inspector.locator(".cg-inspector-log--attempt > button").focus();
+  await page.keyboard.press("Tab");
+  await expect(detailSeparator).toBeFocused();
+  const detailSeparatorFocus = await detailSeparator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: Number.parseFloat(style.outlineWidth) };
+  });
+  expect(detailSeparatorFocus.outlineStyle).not.toBe("none");
+  expect(detailSeparatorFocus.outlineWidth).toBeGreaterThanOrEqual(2);
+  await inspector.getByRole("tab", { name: "原始" }).click();
+  await inspector.locator(".cg-runtime-event").first().locator("summary").first().click();
   await expectNoViolations(page);
 });
 

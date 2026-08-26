@@ -9,6 +9,7 @@ import { MemoryWorldSessionStore } from "../../../server/world-session-store";
 import { GET as getInspector } from "../sessions/[id]/inspector/route";
 import { GET as getInspectorAttempt } from "../sessions/[id]/inspector/attempts/[attemptId]/route";
 import { GET as streamInspectorEvents } from "../sessions/[id]/inspector/events/route";
+import { GET as getInspectorRuntimeEvent } from "../sessions/[id]/inspector/runtime-events/[eventId]/route";
 import { GET as getInspectorStep } from "../sessions/[id]/inspector/steps/[revision]/route";
 import { GET as streamEvents } from "../sessions/[id]/runs/[runId]/events/route";
 import { POST as continueRun } from "../sessions/[id]/runs/[runId]/inputs/route";
@@ -361,7 +362,7 @@ describe("world API routes", () => {
       attempts: Array<{ id: string; status: string }>;
       trace: { mode: string };
     };
-    expect(inspector).toMatchObject({ apiVersion: 1, trace: { mode: "full" } });
+    expect(inspector).toMatchObject({ apiVersion: 2, trace: { mode: "full" } });
     expect(inspector.actors.map((actor) => actor.id)).toEqual(expect.arrayContaining(["player", "keeper"]));
     expect(inspector.nodes.map((node) => node.kind)).toEqual(expect.arrayContaining([
       "commit", "action", "event", "observation", "mind",
@@ -378,7 +379,7 @@ describe("world API routes", () => {
       { params: Promise.resolve({ id: created.summary.id, attemptId: committedAttempt!.id }) },
     );
     expect(await attemptResponse.json()).toMatchObject({
-      apiVersion: 1,
+      apiVersion: 2,
       summary: { id: committedAttempt!.id, status: "committed" },
     });
 
@@ -390,7 +391,7 @@ describe("world API routes", () => {
       committed: { operations: unknown[]; beliefPatches: unknown[]; modelAudits: unknown[] };
       before: { truth: { elapsedSeconds: number } };
       after: { truth: { elapsedSeconds: number } };
-      runtimeEvents: Array<{ event: string }>;
+      runtimeEvents: Array<{ event: string; hasPayload: boolean; id: string; payload?: unknown }>;
     };
     expect(step.before.truth.elapsedSeconds).toBe(0);
     expect(step.after.truth.elapsedSeconds).toBeGreaterThan(0);
@@ -398,6 +399,23 @@ describe("world API routes", () => {
     expect(step.committed.beliefPatches.length).toBeGreaterThan(0);
     expect(step.committed.modelAudits.length).toBeGreaterThan(0);
     expect(step.runtimeEvents.some((event) => event.event === "step.committed")).toBe(true);
+    expect(step.runtimeEvents.every((event) => !("payload" in event))).toBe(true);
+    const eventWithPayload = step.runtimeEvents.find((event) => event.hasPayload);
+    expect(eventWithPayload).toBeDefined();
+    const runtimeEventResponse = await getInspectorRuntimeEvent(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector/runtime-events/${eventWithPayload!.id}`),
+      { params: Promise.resolve({ id: created.summary.id, eventId: eventWithPayload!.id }) },
+    );
+    expect(runtimeEventResponse.status).toBe(200);
+    expect(await runtimeEventResponse.json()).toMatchObject({
+      apiVersion: 2,
+      event: { event: expect.any(String), payload: expect.anything() },
+    });
+    const missingRuntimeEvent = await getInspectorRuntimeEvent(
+      new Request(`http://local/api/sessions/${created.summary.id}/inspector/runtime-events/runtime-${"0".repeat(64)}`),
+      { params: Promise.resolve({ id: created.summary.id, eventId: `runtime-${"0".repeat(64)}` }) },
+    );
+    expect(missingRuntimeEvent.status).toBe(404);
 
     observer.emit({
       event: "step.started",
@@ -461,9 +479,15 @@ describe("world API routes", () => {
     const firstEmitted = observer.emit({
       event: "test.inspector.first",
       correlation: { sessionId: created.summary.id },
+      payload: { large: true },
     });
     const first = await firstPending;
-    expect(first.value).toMatchObject({ event: "test.inspector.first", sequence: firstEmitted.sequence });
+    expect(first.value).toMatchObject({
+      event: "test.inspector.first",
+      hasPayload: true,
+      sequence: firstEmitted.sequence,
+    });
+    expect(first.value).not.toHaveProperty("payload");
     const secondPending = events.next();
     const secondEmitted = observer.emit({
       event: "test.inspector.second",

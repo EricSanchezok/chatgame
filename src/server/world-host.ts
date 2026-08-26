@@ -34,6 +34,8 @@ import {
 } from "../shared/world-api";
 import type {
   WorldInspectorAttemptDetail,
+  WorldInspectorRuntimeEventDetail,
+  WorldInspectorRuntimeEventSummary,
   WorldInspectorStepDetail,
   WorldInspectorWindow,
 } from "../shared/world-inspector-api";
@@ -45,8 +47,10 @@ import {
   buildWorldInspectorAttemptDetail,
   buildWorldInspectorCommittedProjection,
   buildWorldInspectorCommittedStepDetail,
+  buildWorldInspectorRuntimeEventDetail,
   buildWorldInspectorStepDetail,
   buildWorldInspectorWindow,
+  summarizeRuntimeEvent,
   type WorldInspectorCommittedProjection,
   type WorldInspectorCommittedStepDetail,
 } from "./world-inspector";
@@ -619,6 +623,18 @@ export class WorldHost {
     return detail;
   }
 
+  inspectorRuntimeEvent(
+    sessionId: string,
+    eventId: string,
+    correlation?: RuntimeCorrelation,
+  ): WorldInspectorRuntimeEventDetail {
+    this.loadSession(sessionId, true, correlation);
+    const trace = this.inspectorRuntimeTrace(sessionId);
+    const detail = buildWorldInspectorRuntimeEventDetail(eventId, trace.events);
+    if (!detail) throw new WorldHostError(`runtime event not found or expired: ${eventId}`, 404);
+    return detail;
+  }
+
   inspectorStreamState(): { epoch: string; earliest: number; latest: number } {
     return {
       epoch: this.inspectorEpoch,
@@ -631,7 +647,7 @@ export class WorldHost {
     sessionId: string,
     afterSequence: number,
     signal?: AbortSignal,
-  ): AsyncGenerator<RuntimeEvent> {
+  ): AsyncGenerator<WorldInspectorRuntimeEventSummary> {
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
       throw new WorldHostError("inspector event cursor must be a non-negative safe integer", 400);
     }
@@ -642,7 +658,7 @@ export class WorldHost {
         event.sequence > cursor && event.correlation?.sessionId === sessionId);
       for (const event of available) {
         cursor = event.sequence;
-        yield structuredClone(event);
+        yield summarizeRuntimeEvent(event);
       }
       await this.inspectorChannel.wait(channelVersion, signal);
     }

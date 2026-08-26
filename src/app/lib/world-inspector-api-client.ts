@@ -1,5 +1,6 @@
 import type {
   WorldInspectorAttemptDetail,
+  WorldInspectorRuntimeEventDetail,
   WorldInspectorStepDetail,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
@@ -23,6 +24,11 @@ export const worldInspectorApi = {
   attempt(sessionId: string, attemptId: string) {
     return requestJson<WorldInspectorAttemptDetail>(
       `${base(sessionId)}/attempts/${encodeURIComponent(attemptId)}`,
+    );
+  },
+  runtimeEvent(sessionId: string, eventId: string) {
+    return requestJson<WorldInspectorRuntimeEventDetail>(
+      `${base(sessionId)}/runtime-events/${encodeURIComponent(eventId)}`,
     );
   },
   eventsUrl(sessionId: string) {
