@@ -16,14 +16,14 @@
 
 ## 配置
 
-- `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld/`；世界版本、会话与 WorldRun 统一存放在 `livingworld.sqlite`。
+- `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld/`；世界版本、会话、WorldRun 与 Execution Ledger 统一存放在 `livingworld.sqlite`。schema v10 不读取 v9 session；升级时使用新的 data root。
 - `LIVINGWORLD_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
 - 每个 provider 的密钥环境变量由目录 `api_key_env` 指定；仅当世界或 Agent 实际引用该 provider 的 Profile 时才要求对应密钥。仓库参考世界只需要 `DEEPSEEK_API_KEY`。
-- `npm run dev` 默认启用 `full` 运行日志；显式设置 `LIVINGWORLD_OBSERVABILITY=off|metrics|full` 可以覆盖，测试与生产未显式配置时默认关闭。模式、目录、敏感数据边界、segment 与总量配置见 [运行时可观测性](game-design/runtime-observability.md#模式与-payload-所有权) 和 [文件 sink、轮转与健康](game-design/runtime-observability.md#文件-sink轮转与健康)。
+- 正常运行、失败诊断、模型输入输出与实验材料始终写入 SQLite Execution Ledger；不存在 `off|metrics|full` 产品开关或日志目录。完整数据边界见 [Execution Ledger](game-design/runtime-observability.md)。
 
 模型、思考强度、超时、输出上限、角色与并发只在 [模型目录与 Gateway](game-design/model-gateway.md) 定义。环境变量不提供逐字段覆盖。
 
-性能基线使用 `npm run diagnose:runtime -- --agents 1,10,50 --steps 1,10,100`；真实供应商采样使用 `npm run diagnose:live -- --steps 3`。命令输出契约见 [运行时可观测性](game-design/runtime-observability.md#诊断命令)。
+确定性规模矩阵使用 `npm run experiment:run -- --agents 1,10,50,1000 --steps 1`。重放、比较和导出命令见 [Execution Ledger](game-design/runtime-observability.md#研究命令)。
 
 ## 关键约束
 

@@ -58,6 +58,6 @@ DeepSeek 调用 Chat Completions，启用稳定 `json_object` 模式，在用户
 
 ## 审计
 
-WorldSession model audit 以 `invocations[]` 持久化 catalog schema/hash、prompt 版本、profile/provider/实际模型、原生推理配置、结构化输出模式，以及每次调用的 Context 字节/分区、transport attempts、token usage、finish reason、provider request ID、规范请求/响应 hash 与语义结论；汇总只从调用明细派生。它不保存 API key、原始 prompt、原始响应或思维链。完整字段、失败调用日志与 metrics/full 边界见 [运行时可观测性](runtime-observability.md)。
+Execution Ledger 为每次调用持久化 catalog/schema/prompt hash、profile/provider/实际模型、原生推理配置、结构化输出模式、完整规范请求与结构化响应、Context 字节/分区、transport attempts、token usage、finish reason、provider request ID 与语义结论；汇总只从这些原始事件派生。API key 和隐藏思维链不进入 Ledger，WorldSession 不保存模型审计副本。完整字段见 [Execution Ledger](runtime-observability.md)。
 
 上下文的权威和认知投影由 [Truth Engine 运行时规格](engine-runtime.md#prompt-与上下文) 定义，世界对 Profile 的引用由 [世界剧本格式](script-format.md) 定义。

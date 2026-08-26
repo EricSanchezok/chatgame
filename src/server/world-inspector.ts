@@ -1,6 +1,7 @@
 import type {
   CausalRef,
   CommittedStep,
+  ModelExecutionAudit,
   SimulationState,
   WorldDeltaOperation,
 } from "../engine/model";
@@ -44,11 +45,11 @@ function stateSnapshot(state: Readonly<SimulationState>): WorldInspectorStateSna
   };
 }
 
-function tokenUsage(step: CommittedStep): WorldInspectorTokenUsage {
+function tokenUsage(audits: readonly ModelExecutionAudit[]): WorldInspectorTokenUsage {
   let input = 0;
   let output = 0;
   let unknown = false;
-  for (const invocation of step.modelAudits.flatMap((audit) => audit.invocations)) {
+  for (const invocation of audits.flatMap((audit) => audit.invocations)) {
     if (invocation.tokenUsage.input === null) unknown = true;
     else input += invocation.tokenUsage.input;
     if (invocation.tokenUsage.output === null) unknown = true;
@@ -122,6 +123,7 @@ function projectStep(
   elapsedSeconds: number,
   entityActors: ReadonlyMap<string, string>,
   selectedEventNodes: ReadonlyMap<string, string> = new Map(),
+  modelAudits: readonly ModelExecutionAudit[] = [],
 ): ProjectedStep {
   const nodes: WorldInspectorNodeSummary[] = [];
   const edges: WorldInspectorEdgeSummary[] = [];
@@ -350,9 +352,9 @@ function projectStep(
       events: committed.events.length,
       observations: committed.observations.length,
       mindUpdates: mindActorIds.size,
-      modelInvocations: committed.modelAudits.reduce((sum, audit) => sum + audit.invocations.length, 0),
+      modelInvocations: modelAudits.reduce((sum, audit) => sum + audit.invocations.length, 0),
     },
-    tokenUsage: tokenUsage(committed),
+    tokenUsage: tokenUsage(modelAudits),
     nodeIds: nodes.map((node) => node.id),
   };
   return { summary, nodes, edges };
@@ -656,6 +658,12 @@ export function buildWorldInspectorWindow(
 ): WorldInspectorWindow {
   const projection = structuredClone(cachedProjection ??
     buildWorldInspectorCommittedProjection(document, input));
+  for (const summary of projection.steps) {
+    const committed = document.state.history.find((candidate) => candidate.revision === summary.revision);
+    const audits = modelAuditsForStep(runtimeEvents, summary.step, committed?.executionRef?.executionId);
+    summary.counts.modelInvocations = audits.reduce((sum, audit) => sum + audit.invocations.length, 0);
+    summary.tokenUsage = tokenUsage(audits);
+  }
   const attempts = summarizeRuntimeAttempts(runtimeEvents).slice(-50);
   const nodes = projection.nodes;
   const edges = projection.edges;
@@ -712,6 +720,7 @@ export function buildWorldInspectorWindow(
 export function buildWorldInspectorCommittedStepDetail(
   document: WorldSessionDocument,
   revision: number,
+  modelAudits: readonly ModelExecutionAudit[] = [],
 ): WorldInspectorCommittedStepDetail | undefined {
   const committed = document.state.history.find((candidate) => candidate.revision === revision);
   if (!committed) return undefined;
@@ -730,14 +739,30 @@ export function buildWorldInspectorCommittedStepDetail(
   const actors = actorsFor(document);
   const projected = projectStep(committed, after.truth.elapsedSeconds, new Map(
     actors.map((actor) => [actor.entityId, actor.id]),
-  ));
+  ), new Map(), modelAudits);
   return {
     apiVersion: WORLD_INSPECTOR_API_VERSION,
     summary: projected.summary,
-    committed: structuredClone(committed),
+    committed: { ...structuredClone(committed), modelAudits: structuredClone([...modelAudits]) },
     before,
     after,
   };
+}
+
+export function modelAuditsForStep(
+  runtimeEvents: readonly RuntimeEvent[],
+  step: number,
+  executionId?: string,
+): ModelExecutionAudit[] {
+  const candidates = runtimeEvents.filter((event) => event.event === "execution.candidate.persisted" &&
+    event.attributes?.phase === "step" && event.correlation?.step === step);
+  const candidate = executionId
+    ? candidates.find((event) => event.correlation?.executionId === executionId)
+    : candidates.at(-1);
+  const payload = candidate?.payload as { modelAudits?: unknown } | undefined;
+  return Array.isArray(payload?.modelAudits)
+    ? structuredClone(payload.modelAudits as ModelExecutionAudit[])
+    : [];
 }
 
 export function buildWorldInspectorStepDetail(

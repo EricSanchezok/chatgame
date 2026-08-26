@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0059](0059-unified-execution-kernel-and-ledger.md)
 Class: process
 
 ## Context and Problem Statement

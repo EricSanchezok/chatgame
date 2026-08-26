@@ -62,4 +62,4 @@ Agent 列表显示“提交数 · 尝试数”。Agent 选择只高亮相关泳�
 
 桌面主体栏默认 13.5rem，可在 11–22.5rem 内拖拽；详情栏默认 30rem，可在 22–42rem 内拖拽。两个 separator 都使用 Pointer Capture，并支持方向键、Shift 加速与 Home/End；零宽网格轨道把 1px 可见线放在相邻面板的共同边界，透明命中面以该边界为中心向两侧扩展，左右定位一致。视图和两侧宽度以 `livingworld:inspector-layout:v2` 保存。窄屏忽略桌面宽度。主体列表、时间线、详情正文和 JSON 树保留滚轮、触控板、触摸与键盘滚动，但不显示常驻滚动条。结构化对象使用递归 JSON Inspector：对象与数组以原生 disclosure 展开，顶层及 error/cause 路径默认打开，其他大型节点折叠；子树只在展开后挂载，数组每批 100 项。每层使用固定缩进、disclosure 占位和连续导引线；根节点只使用工具栏“复制对象”，非根字段在同一行只显示一个复制入口，展开后明确选择路径或值，结果通过 live region 反馈。模型页按 invocation 分组，原始页先显示无 payload 的事件信封；full payload 只在展开时按 event ID 请求，过期或失败在局部重试。
 
-首屏读取最近 24 个 revision，旧历史用 `beforeRevision` 向前分页，step 与 attempt 详情按需请求。面板只读，不提供回滚、重跑、分叉或编辑。`off` 模式只有 committed history，`metrics` 增加阶段与数值，`full` 才展示已经记录的模型上下文和结构化输出；任何模式都不展示或推断隐藏思维链。设置开关只负责沉浸与剧透控制，不是 inspector API 的认证边界。
+首屏读取最近 24 个 revision，旧历史用 `beforeRevision` 向前分页，step 与 attempt 详情按需请求。面板只读，不提供回滚、重跑、分叉或编辑。正式运行统一读取完整 Execution Ledger；模型上下文与结构化输出只在详情中按需展开，任何表面都不展示或推断隐藏思维链。设置开关只负责沉浸与剧透控制，不是 inspector API 的认证边界。

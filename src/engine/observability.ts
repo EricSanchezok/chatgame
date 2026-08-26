@@ -4,6 +4,7 @@ export type RuntimeObservabilityMode = "off" | "metrics" | "full";
 export type RuntimeEventLevel = "debug" | "info" | "warn" | "error";
 
 export interface RuntimeCorrelation {
+  executionId?: string;
   requestId?: string;
   sessionId?: string;
   runId?: string;
@@ -30,6 +31,10 @@ export type RuntimeAttribute = string | number | boolean | null;
 
 export interface RuntimeEventInput {
   event: string;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
+  links?: readonly { traceId: string; spanId: string }[];
   level?: RuntimeEventLevel;
   correlation?: RuntimeCorrelation;
   durationMs?: number;
@@ -51,7 +56,9 @@ export interface RuntimeEvent extends RuntimeEventInput {
 export interface RuntimeObserver {
   readonly mode: RuntimeObservabilityMode;
   readonly degraded: boolean;
+  readonly critical?: boolean;
   emit(input: RuntimeEventInput): RuntimeEvent | undefined;
+  flush?(): void;
   subscribe?(listener: RuntimeEventListener): () => void;
   snapshot?(): RuntimeEvent[];
   close?(): void;
@@ -215,7 +222,8 @@ function emitRuntimeEvent(
   if (!observer) return undefined;
   try {
     return observer.emit(input);
-  } catch {
+  } catch (error) {
+    if (observer.critical) throw error;
     return undefined;
   }
 }

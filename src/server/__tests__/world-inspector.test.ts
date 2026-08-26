@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { AgentMind } from "../../engine/agent-mind";
 import type { SimulationState } from "../../engine/model";
+import { MonolithicCurrentAlgorithm } from "../../engine/monolithic-current";
 import { RecordingRuntimeObserver } from "../../engine/observability";
 import {
   createTestModelCatalog,
@@ -9,7 +9,6 @@ import {
 } from "../../engine/testing/model-provider";
 import { SimulationEngine } from "../../engine/simulation";
 import { replayCommittedHistory } from "../../engine/transaction";
-import { TruthEngine } from "../../engine/truth-engine";
 import { toWorldRuntimeContract } from "../../engine/world-definition";
 import { loadWorldScript } from "../../script/world-loader";
 import type { WorldInspectorStateSnapshot } from "../../shared/world-inspector-api";
@@ -18,6 +17,7 @@ import {
   buildWorldInspectorCommittedProjection,
   buildWorldInspectorCommittedStepDetail,
   buildWorldInspectorRuntimeEventDetail,
+  modelAuditsForStep,
   summarizeRuntimeAttempts,
 } from "../world-inspector";
 import type { WorldSessionDocument } from "../world-run-types";
@@ -34,6 +34,26 @@ function snapshot(state: Readonly<SimulationState>): WorldInspectorStateSnapshot
 }
 
 describe("world inspector committed projection", () => {
+  it("binds committed model audits to the canonical execution instead of an earlier retry", () => {
+    const observer = new RecordingRuntimeObserver({ mode: "full" });
+    observer.emit({
+      event: "execution.candidate.persisted",
+      attributes: { phase: "step" },
+      correlation: { step: 1, executionId: "failed-execution" },
+      payload: { modelAudits: [{ subjectId: "failed" }] },
+    });
+    observer.emit({
+      event: "execution.candidate.persisted",
+      attributes: { phase: "step" },
+      correlation: { step: 1, executionId: "committed-execution" },
+      payload: { modelAudits: [{ subjectId: "committed" }] },
+    });
+
+    expect(modelAuditsForStep(observer.events, 1, "committed-execution"))
+      .toEqual([{ subjectId: "committed" }]);
+    expect(modelAuditsForStep(observer.events, 1)).toEqual([{ subjectId: "committed" }]);
+  });
+
   it("cuts failed attempts at the rollback boundary and derives structured diagnostics", () => {
     let timestamp = Date.parse("2026-08-25T01:00:00.000Z");
     const observer = new RecordingRuntimeObserver({
@@ -185,7 +205,7 @@ describe("world inspector committed projection", () => {
       seed: 71,
       modelCatalog: provider.catalog,
     });
-    const engine = new SimulationEngine(definition, new TruthEngine(provider), new AgentMind(provider));
+    const engine = new SimulationEngine(definition, new MonolithicCurrentAlgorithm(provider));
     await engine.bootstrapAgents();
     for (const goal of ["观察石门", "询问守门人", "继续前进"]) {
       engine.beginPlayerIntent(goal);
@@ -193,7 +213,7 @@ describe("world inspector committed projection", () => {
     }
     const state = engine.snapshot;
     const document: WorldSessionDocument = {
-      schemaVersion: 9,
+      schemaVersion: 10,
       id: "inspector-replay-session",
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -247,7 +267,7 @@ describe("world inspector committed projection", () => {
     });
     const { state } = await settleBlackmarshOpeningDeadlines(definition, catalog);
     const document: WorldSessionDocument = {
-      schemaVersion: 9,
+      schemaVersion: 10,
       id: "inspector-causal-session",
       world: toWorldRuntimeContract(definition),
       title: definition.name,

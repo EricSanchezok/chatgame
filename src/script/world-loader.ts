@@ -325,7 +325,6 @@ export function buildWorldDefinition(
       },
       history: [],
       bootstrapAgentCommits: [],
-      bootstrapModelAudits: [],
     };
 
     for (const document of documents) {

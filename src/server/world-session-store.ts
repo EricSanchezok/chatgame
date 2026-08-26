@@ -192,7 +192,7 @@ const worldContractSchema = z.strictObject({
 });
 
 const documentEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(9),
+  schemaVersion: z.literal(10),
   id: z.string().min(1),
   world: worldContractSchema,
   title: preservedNonBlankStringSchema.max(80),

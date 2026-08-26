@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by [0050](0050-development-default-full-observability.md)
+Superseded by [0059](0059-unified-execution-kernel-and-ledger.md)
 Class: architecture
 
 ## Context and Problem Statement

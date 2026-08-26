@@ -203,7 +203,6 @@ function worldState(): SimulationState {
         targetIds: [],
       },
     }],
-    bootstrapModelAudits: [createTestModelAudit("agent-bootstrap", "keeper", TEST_WORLD_HASH)],
   };
 }
 
@@ -262,12 +261,14 @@ describe("open world kernel", () => {
     }).success).toBe(false);
   });
 
-  it("recomputes bootstrap model-audit identities from canonical coordinates", () => {
+  it("rejects execution evidence injected into canonical state", () => {
     const state = worldState();
     validateSimulationState(state, true, true);
-    state.bootstrapModelAudits[0].invocations[0].id = `rt:model-audit:${"0".repeat(64)}`;
+    Object.assign(state, {
+      bootstrapModelAudits: [createTestModelAudit("agent-bootstrap", "keeper", TEST_WORLD_HASH)],
+    });
     expect(() => validateSimulationState(state, true, true))
-      .toThrow("invalid model invocation identity");
+      .toThrow();
   });
 
   it("keeps observer-local identities tombstoned for the whole simulation lifetime", () => {

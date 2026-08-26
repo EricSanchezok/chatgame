@@ -56,7 +56,7 @@ AgentMind 用 `CharacterPatch` 演化角色。每项操作必须引用本步骤�
 
 带 `agent` 配置的实体成为自主 Agent；普通物体没有 AgentMind。每个 Agent 分别保存 bootstrap、mind 与 reaction Profile，因此同一角色的初始化可以使用强推理模型，常规心智和一次性反应可以使用成本更低的模型。创建 Agent 的 world delta 必须同时引用已存在或本步创建的实体，三个 Profile 分别允许对应精确角色，提供唯一 self binding，并把 `nextAction` 设为 `null`。新 Agent 在创建步骤的 observation 后立即调用 AgentMind，只有它成功生成 belief patch、character patch 和下一行动，步骤才能提交。退休实体或 `remove_agent` 退出后续联合行动。
 
-初始化会话时，所有初始 Agent 先以 revision 0、空 observation 运行 AgentMind，准备第一步行动。模型只返回 belief/character operation draft 与 action draft；引擎按调用上下文注入 patch 的 Agent/revision 和行动的 ID/actor/revision，并发完成后再按 Agent ID 归位。任一初始化失败或 bootstrap audit 未恰好覆盖全部 Agent，则会话不创建。
+初始化会话时，所有初始 Agent 先以 revision 0、空 observation 运行 AgentMind，准备第一步行动。模型只返回 belief/character operation draft 与 action draft；引擎按调用上下文注入 patch 的 Agent/revision 和行动的 ID/actor/revision，并发完成后再按 Agent ID 归位。任一初始化失败或 bootstrap candidate 未恰好覆盖全部 Agent，则会话不创建；完整调用证据保留在该 bootstrap execution 中。
 
 ## 联合步骤
 
@@ -147,11 +147,13 @@ AgentMind v5 使用 model context contract v4，只获得自身人格、目标�
 
 ## 审计与重放
 
-每个 `CommittedStep` 保存 base/new revision、不可变 player intent/input ledger、initial/final/next actions、reaction requests/decisions、完整分阶段检定请求与结果、commitment rounds、离散随机请求/分布快照/逐次抽取/聚合结果、RNG 前后态、outcomes、规则调用/结果、因果断言结果、最终因果复核、带影响级别的事件、stimulus/outcome observations、delta operations、belief/character patches 和模型审计。五个 Truth 阶段与 bootstrap/mind/reaction 使用独立审计角色。模型审计以 `invocations[]` 保存 catalog/prompt 版本与 hash、role/subject/profile/provider/实际 model、原生推理配置、结构化输出模式、Context 分区与字节、transport attempts、queue/执行/retry delay、token、finish reason、provider request ID、语义结论和请求/响应 SHA-256；invocation ID 必须按固定 world/revision/role/subject/ordinal 重算，汇总由 helper 派生，不保存密钥、prompt、原始响应或思维链。整个步骤另有 canonical JSON 内容 hash。运行事件契约见 [运行时可观测性](runtime-observability.md)。
+每个 `CommittedStep` 保存 base/new revision、不可变 player intent/input ledger、initial/final/next actions、reaction requests/decisions、分阶段检定与随机承诺、RNG 前后态、outcomes、规则与因果结果、events、observations、operations、belief/character patches、`semanticHash`、`executionRef` 和 `contentHash`。`semanticHash` 排除执行引用；`contentHash` 覆盖 `{executionId, terminalEventSequence, traceHash}`。它不保存模型审计副本。
 
-完整状态校验先以 strict schema 解析全部持久结构，再逐步重放 d20、离散随机、世界 delta、玩家观察和 AgentMind commit。typed history ledger 核对 phase 与随机协议顺序、RNG 连续性、请求/结果一一对应、运行时 ID 全历史单义性、引用时间作用域、当步存活 actor、reaction 覆盖、上一轮 prepared action 与本轮 initial action 的内容相等、未反应与 keep 行动的逐字段不变性、initial/final actor 集、全部因果引用、AgentMind/Agent reaction 审计覆盖、角色 observation 依据、intent/input 全历史 tombstone、完整玩家输入链和每步内容 hash；最终 truth、Agent cognition 与玩家 cognition/intent 必须等于重放结果。步骤间的新目标由 WorldRun 终态与 `player.input` 账本补足边界证明。历史是已发生事实的审计证据；重放不重新调用模型。
+同一步 execution 在 Execution Ledger 中保存五个 Truth 阶段与 bootstrap/mind/reaction 的独立调用身份、完整规范请求与结构化响应、catalog/prompt/schema hash、profile/provider/model、推理配置、Context 分区、transport/retry、token、候选结果和失败材料。凭证与隐藏思维链不记录。recorded replay 逐次消费这些已存模型输出，重新运行算法和固定提交内核，不访问网络。完整契约见 [Execution Ledger](runtime-observability.md)。
 
-世界运行态使用 schema v8，会话文档使用 schema v9，并携带 `worldHash` 与固定 `WorldRuntimeContract`。宿主用 replay base 的原 seed 从保留的 content-addressed 世界版本重建可信契约，并在每次读取时精确比较会话内嵌内容。初始世界 Fact 以该哈希的 `world_seed` 为来源；完整校验要求 seed 引用精确匹配，其他 provenance 仍必须解析到 Law、Fact、Action、Check、Random、Event 或 Mechanic。旧版本状态与会话直接拒绝，不执行迁移或兼容读取。公共会话详情、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis、内部 `ActionOutcome` summary/alternatives、因果审计或模型审计；`player.outcome.summary` 只按提交顺序汇总本步玩家自己的 outcome Observation summary，公共 outcome 不含 alternatives。
+完整状态校验先以 strict schema 解析全部持久结构，再逐步重放 d20、离散随机、世界 delta、玩家观察和 AgentMind commit。typed history ledger 核对 phase 与随机协议顺序、RNG 连续性、请求/结果一一对应、运行时 ID 全历史单义性、引用时间作用域、当步存活 actor、reaction 覆盖、prepared/final action、AgentMind patch 覆盖、observation 依据、intent/input tombstone、完整玩家输入链、`semanticHash` 与 `contentHash`；最终 truth、Agent cognition 与玩家 cognition/intent 必须等于重放结果。步骤间的新目标由 WorldRun 终态与 `player.input` 账本补足边界证明。canonical history 的重放不调用模型；execution replay 才消费 Ledger 中的已记录模型输出。
+
+世界运行态使用 schema v8，会话文档使用 schema v10，并携带 `worldHash` 与固定 `WorldRuntimeContract`。宿主用 replay base 的原 seed 从保留的 content-addressed 世界版本重建可信契约，并在每次读取时精确比较会话内嵌内容。初始世界 Fact 以该哈希的 `world_seed` 为来源；完整校验要求 seed 引用精确匹配，其他 provenance 仍必须解析到 Law、Fact、Action、Check、Random、Event 或 Mechanic。旧版本状态与会话直接拒绝，不执行迁移或兼容读取。公共会话详情、HTTP 和 SSE 不包含 AgentCharacterState、AgentSelfStateView、reaction stimulus/basis、内部 `ActionOutcome` summary/alternatives、因果审计或模型审计；`player.outcome.summary` 只按提交顺序汇总本步玩家自己的 outcome Observation summary，公共 outcome 不含 alternatives。
 
 ## 规则包
 

@@ -8,7 +8,11 @@ import {
   modelInvocationIdentity,
   summarizeModelExecutionAudit,
 } from "../model-provider";
-import { RecordingRuntimeObserver } from "../observability";
+import {
+  RecordingRuntimeObserver,
+  type RuntimeEventInput,
+  type RuntimeObserver,
+} from "../observability";
 import { FairModelScheduler, ModelOverloadedError } from "../model-scheduler";
 import { TEST_WORLD_HASH } from "../testing/world";
 
@@ -359,6 +363,36 @@ describe("model catalog and provider adapters", () => {
       .toHaveLength(2);
     expect(observer.events.find((event) => event.event === "model.context.serialized")?.payload)
       .toHaveProperty("context.greeting", "你好");
+  });
+
+  it("flushes the full request before transport and the response before returning", async () => {
+    const pending: RuntimeEventInput[] = [];
+    const durable: RuntimeEventInput[] = [];
+    const observer: RuntimeObserver = {
+      mode: "full",
+      degraded: false,
+      critical: true,
+      emit(input) {
+        pending.push(structuredClone(input));
+        return undefined;
+      },
+      flush() {
+        durable.push(...pending.splice(0));
+      },
+    };
+    const gateway = new ModelGateway(catalog(), credentials, {
+      observer,
+      fetch: async () => {
+        expect(durable.some((event) => event.event === "model.context.serialized")).toBe(true);
+        expect(durable.some((event) => event.event === "model.structured_output.parsed")).toBe(false);
+        return deepSeekResponse();
+      },
+    });
+
+    await gateway.generateStructured(request("deep"));
+
+    expect(durable.some((event) => event.event === "model.structured_output.parsed")).toBe(true);
+    expect(pending).toEqual([]);
   });
 
   it("retries 429 transport failures but never repairs auth errors or malformed structured output", async () => {

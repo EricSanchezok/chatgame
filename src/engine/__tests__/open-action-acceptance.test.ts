@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentMind } from "../agent-mind";
+import { semanticStepHash } from "../canonical-committer";
 import { historyReplayBaseHash } from "../history-replay";
 import type {
   AgentActionProposal,
@@ -11,19 +11,18 @@ import type {
   WorldDeltaOperation,
 } from "../model";
 import {
-  createTestModelAudit,
   ScriptedModelProvider,
   type ScriptedModelHandler,
 } from "../testing/model-provider";
 import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { SimulationEngine } from "../simulation";
-import { TruthEngine } from "../truth-engine";
 import { summarizeModelExecutionAudit } from "../model-provider";
 import { createEmptyCharacter, validateSimulationState } from "../transaction";
 import type { WorldDefinition } from "../world-definition";
 import { quantityId, runtimeId } from "../runtime-id";
 import { contentHash } from "../model-audit";
+import { MonolithicCurrentAlgorithm } from "../monolithic-current";
 
 const laws = [
   { id: "world-law", text: "物质、能力与因果必须来自世界状态。", severity: "hard" as const },
@@ -307,8 +306,6 @@ function acceptanceState(agentIds: string[] = []): SimulationState {
       characterPatch: { agentId: id, baseRevision: 0, operations: [] },
       nextAction: structuredClone(agents[id].nextAction!),
     })),
-    bootstrapModelAudits: agentIds.map((id) =>
-      createTestModelAudit("agent-bootstrap", id, TEST_WORLD_HASH)),
   };
 }
 
@@ -424,7 +421,7 @@ function jointTransition(
 
 function engineWith(initialState: SimulationState, handler: ScriptedModelHandler): SimulationEngine {
   const provider = new ScriptedModelProvider(handler);
-  return new SimulationEngine(definition(initialState), new TruthEngine(provider), new AgentMind(provider));
+  return new SimulationEngine(definition(initialState), new MonolithicCurrentAlgorithm(provider));
 }
 
 describe("open action acceptance", () => {
@@ -454,7 +451,6 @@ describe("open action acceptance", () => {
       expect(step.actions).toHaveLength(51);
       expect(step.actions.every((action) => action.baseRevision === index)).toBe(true);
       expect(new Set(step.actions.map((action) => action.actorId)).size).toBe(51);
-      expect(step.modelAudits.filter((audit) => audit.role === "agent-mind")).toHaveLength(50);
       expect(mindCalls.get(index + 1)?.size).toBe(50);
     }
     const reboundPreparedAction = structuredClone(result.state);
@@ -462,6 +458,7 @@ describe("open action acceptance", () => {
     const rebound = secondStep.initialActions.find((action) => action.actorId === agentIds[0])!;
     rebound.rawText = "篡改跨步已承诺行动";
     secondStep.actions.find((action) => action.id === rebound.id)!.rawText = rebound.rawText;
+    secondStep.semanticHash = semanticStepHash(secondStep);
     secondStep.contentHash = contentHash(Object.fromEntries(
       Object.entries(secondStep).filter(([key]) => key !== "contentHash"),
     ));
@@ -548,7 +545,7 @@ describe("open action acceptance", () => {
     invalidStart.player.intent!.inputs[0].submittedAtStep -= 1;
     invalidStart.player.intent!.latestInput.submittedAtStep -= 1;
     expect(() => validateSimulationState(invalidStart, true, true))
-      .toThrow("does not match replayed committed cognition and input ledger");
+      .toThrow("invalid player intent input ledger");
 
     const reboundGoal = structuredClone(queued);
     reboundGoal.player.intent!.goal = "改绑后的第二目标";
@@ -560,6 +557,7 @@ describe("open action acceptance", () => {
     oldStep.playerIntent.goal = "伪造旧目标";
     oldStep.playerIntent.inputs[0].text = "伪造旧目标";
     oldStep.playerIntent.latestInput.text = "伪造旧目标";
+    oldStep.semanticHash = semanticStepHash(oldStep);
     oldStep.contentHash = contentHash(Object.fromEntries(
       Object.entries(oldStep).filter(([key]) => key !== "contentHash"),
     ));
@@ -764,7 +762,7 @@ describe("open action acceptance", () => {
     expect(result.state.truth.entities.enemy.lifecycle).toBe("retired");
     expect(result.state.agents.enemy).toBeUndefined();
     expect(summarizeModelExecutionAudit(
-      result.committed.modelAudits.find((audit) => audit.role === "truth-resolution")!,
+      result.modelAudits.find((audit) => audit.role === "truth-resolution")!,
     ))
       .toMatchObject({ invocations: 2, repairAttempts: 0 });
   });
@@ -827,7 +825,7 @@ describe("open action acceptance", () => {
 
     expect(truthCalls).toBe(2);
     expect(summarizeModelExecutionAudit(
-      result.committed.modelAudits.find((audit) => audit.role === "truth-transition")!,
+      result.modelAudits.find((audit) => audit.role === "truth-transition")!,
     ).repairAttempts).toBe(1);
     expect(result.state.player.knowledge.claims["key-is-real"].value).toEqual({ kind: "text", value: "real" });
     expect(JSON.stringify(result.committed.observations.filter((packet) => packet.observerId === "player")))

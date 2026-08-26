@@ -28,7 +28,7 @@ Class: bug-fix
 
 `src/shared/world-inspector-api.ts` 只保留 Inspector v2。服务端按 `stepAttemptId` 聚合后，以 `step.committed`、`step.rolled_back`、`step.persistence_rolled_back` 或取消边界裁剪 attempt；persistence rollback 优先于候选 commit。摘要包含真实终止时间与耗时、参与和直接关联主体、失败阶段、模型调用、输出拒绝、修复调用及回滚 hash 结论。拟议行动来自 `step.joint_actions.generated`，阶段诊断与主体关联由 `src/server/world-inspector.ts` 单一投影。
 
-step、attempt 与调试 SSE 只返回 `WorldInspectorRuntimeEventSummary`。摘要保留信封、错误、指标、稳定不透明 ID 与 `hasPayload`，不内联 payload；`GET /api/sessions/:id/inspector/runtime-events/:eventId` 按需返回已由 observer 脱敏的完整事件。事件 ID 由 timestamp、sequence 和事件名生成，只用于当前有界 trace 中的精确读取；日志轮转或事件淘汰返回 404，客户端在原位重试而不清空详情。
+step、attempt 与调试 SSE 只返回 `WorldInspectorRuntimeEventSummary`。摘要保留信封、错误、指标、稳定不透明 ID 与 `hasPayload`，不内联 payload；`GET /api/sessions/:id/inspector/runtime-events/:eventId` 按需从 Execution Ledger artifact 返回已脱敏的完整事件。事件 ID 由 timestamp、sequence 和事件名生成，用于同一持久 trace 中的精确读取。
 
 失败且没有 committed revision 时，工作台初次打开强制进入时间线并选中最新失败；其他情况按活动 attempt、最新失败、最新提交排序选择。手动查看旧记录会关闭追随，只有“追随最新”开启时 SSE 才改变选择，“回到最新”立即选择当前最新记录。图谱统一由 React Flow `onNodeClick` 接收节点选择，节点内部原生 button 保留键盘语义与方向键漫游。
 
@@ -39,7 +39,7 @@ step、attempt 与调试 SSE 只返回 `WorldInspectorRuntimeEventSummary`。摘
 ### Consequences
 
 - 失败会话在零 revision 时也能直接回答失败阶段、调用、参与主体、拟议行动和回滚结果。
-- 窗口与详情响应不再复制大型 payload；展开原始数据会增加一次只读请求，并可能因 trace 轮转得到可重试的 404。
+- 窗口与详情响应不再复制大型 payload；展开原始数据会增加一次 Ledger 只读请求。
 - Inspector 内部契约发生破坏性升级；快速迭代期不保留 v1 或内联 payload 双轨。
 - 组件与 E2E 回归需要覆盖终止裁剪、延迟读取、JSON 单入口复制与层级缩进、两侧分栏的指针与键盘操作、隐藏滚动条后的连续滚动、失败选择、Agent 视角及明暗/窄屏视觉。
 
@@ -64,7 +64,7 @@ step、attempt 与调试 SSE 只返回 `WorldInspectorRuntimeEventSummary`。摘
 
 - [0055](0055-trusted-world-evolution-inspector.md) — 保持不变的受信任只读边界与 canonical replay 来源。
 - [0049](0049-world-run-failure-and-stream-boundaries.md) — WorldRun 失败和步骤回滚语义。
-- [0050](0050-development-default-full-observability.md) — 有界 RuntimeEvent 与 full payload 所有权。
+- [0059](0059-unified-execution-kernel-and-ledger.md) — Execution Ledger 与 full artifact 所有权。
 - [事故复盘 0025](../postmortems/0025-world-inspector-failure-blindness.md) — 失败诊断为何在真实使用中不可操作。
 - [表现层参考](../game-design/presentation.md) — 当前工作台交互与响应式规格。
 - [运行时可观测性](../game-design/runtime-observability.md) — attempt 裁剪、事件摘要与按需 payload 契约。

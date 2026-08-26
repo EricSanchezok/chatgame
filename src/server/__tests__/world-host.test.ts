@@ -367,14 +367,8 @@ describe("WorldHost", () => {
     expect(JSON.stringify(completed)).not.toContain("modelAudits");
     const storedStep = store.read(session.summary.id).document.state.history[0];
     expect(storedStep.contentHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(storedStep.modelAudits.map((audit) => audit.role)).toEqual([
-      "truth-perception",
-      "truth-reaction-routing",
-      "truth-resolution",
-      "truth-transition",
-      "causal-verifier",
-      "agent-mind",
-    ]);
+    expect(storedStep.semanticHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(storedStep)).not.toContain("modelAudits");
     expect(storedStep.checkRequests).toEqual([]);
 
     const reloaded = new WorldHost({
@@ -414,6 +408,7 @@ describe("WorldHost", () => {
     const hostFor = () => new WorldHost({
       repository,
       store: database,
+      ledger: database,
       provider,
       idFactory: () => `whitespace-${++nextId}`,
       now: () => new Date("2026-08-23T00:00:00.000Z"),
@@ -426,6 +421,32 @@ describe("WorldHost", () => {
       const started = host.startRun(session.summary.id, "观察石门");
       const completed = await host.waitForRun(session.summary.id, started.runId);
       expect(completed.run.status).toBe("completed");
+      const executions = database.executions({ sessionId: session.summary.id });
+      const bootstrapExecution = executions.find((execution) => execution.runId === undefined);
+      const runExecution = executions.find((execution) => execution.runId === started.runId &&
+        execution.parentExecutionId === undefined);
+      const stepExecution = executions.find((execution) => execution.parentExecutionId === runExecution?.id);
+      expect(runExecution).toMatchObject({ kind: "interactive", status: "succeeded" });
+      expect(stepExecution).toMatchObject({ kind: "interactive", status: "succeeded", step: 1 });
+      const stepEvents = database.executionEvents(stepExecution!.id);
+      expect(stepEvents.find((event) => event.event === "step.started")?.links).toContainEqual({
+        traceId: runExecution!.traceId,
+        spanId: runExecution!.traceId.slice(0, 16),
+      });
+      expect(stepEvents.some((event) => event.event === "execution.candidate.persisted")).toBe(true);
+      expect(stepEvents.find((event) => event.event === "persistence.atomic_commit"))
+        .toMatchObject({
+          attributes: { operation: "compare_and_swap", status: "completed" },
+          measurements: {
+            documentUtf8Bytes: expect.any(Number),
+            sqliteWriteMs: expect.any(Number),
+          },
+        });
+      const canonical = database.read(session.summary.id).document.state;
+      expect(canonical.bootstrapExecutionRef?.executionId).toBe(bootstrapExecution?.id);
+      expect(canonical.history[0].executionRef?.executionId).toBe(stepExecution?.id);
+      expect(canonical.history[0].executionRef?.traceHash).toBe(stepExecution?.traceHash);
+      expect(host.inspectorStep(session.summary.id, 1).committed.modelAudits.length).toBeGreaterThan(0);
 
       database.close();
       database = new LocalDatabase(databaseFile, { heartbeat: false });

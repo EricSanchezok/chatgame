@@ -2,7 +2,6 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { loadWorldScript } from "../../script/world-loader";
-import { AgentMind } from "../agent-mind";
 import { evaluateProposalCausality } from "../causality";
 import type {
   D20CheckRequest,
@@ -13,9 +12,9 @@ import type {
   WorldDeltaOperation,
 } from "../model";
 import { createCoreRulePackageRegistry, RulePackageRegistry } from "../rule-package";
+import { MonolithicCurrentAlgorithm } from "../monolithic-current";
 import { SimulationEngine } from "../simulation";
 import { ScriptedModelProvider, createTestModelCatalog } from "../testing/model-provider";
-import { TruthEngine } from "../truth-engine";
 import { summarizeModelExecutionAudit } from "../model-provider";
 
 const fixture = path.resolve("test/fixtures/open-world-script");
@@ -288,7 +287,7 @@ describe("causal assurance", () => {
       }
       throw new Error(`unexpected role ${role}`);
     }, catalog, false);
-    const engine = new SimulationEngine(definition, new TruthEngine(provider), new AgentMind(provider));
+    const engine = new SimulationEngine(definition, new MonolithicCurrentAlgorithm(provider));
     await engine.bootstrapAgents();
     engine.beginPlayerIntent("在原地等待一秒");
     const result = await engine.step();
@@ -296,7 +295,7 @@ describe("causal assurance", () => {
     expect(transitionCalls).toBe(2);
     expect(verifierCalls).toBe(2);
     expect(result.committed.causalVerification).toEqual({ verdict: "accept", findings: [] });
-    expect(result.committed.modelAudits.filter((audit) => audit.role.startsWith("truth-") ||
+    expect(result.modelAudits.filter((audit) => audit.role.startsWith("truth-") ||
       audit.role === "causal-verifier").map((audit) => audit.profileId)).toEqual([
       "truth-deepseek",
       "truth-deepseek",
@@ -305,7 +304,7 @@ describe("causal assurance", () => {
       "truth-deepseek",
     ]);
     expect(summarizeModelExecutionAudit(
-      result.committed.modelAudits.find((audit) => audit.role === "truth-transition")!,
+      result.modelAudits.find((audit) => audit.role === "truth-transition")!,
     ))
       .toMatchObject({ invocations: 2, repairAttempts: 1 });
   });

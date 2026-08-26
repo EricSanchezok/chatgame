@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentMind } from "../agent-mind";
+import { semanticStepHash } from "../canonical-committer";
 import { historyReplayBaseHash } from "../history-replay";
 import { applyCharacterPatch } from "../character";
 import { validatePublicInformationBoundary } from "../information-boundary";
@@ -14,13 +14,13 @@ import type {
   TransitionProposalDraft,
   WorldEvent,
 } from "../model";
-import { createTestModelAudit, ScriptedModelProvider } from "../testing/model-provider";
+import { MonolithicCurrentAlgorithm } from "../monolithic-current";
+import { ScriptedModelProvider } from "../testing/model-provider";
 import { TEST_WORLD_HASH } from "../testing/world";
 import { createSeededRng } from "../random";
 import { projectAgentSelfState } from "../self-state";
 import { SimulationEngine } from "../simulation";
 import { createEmptyCharacter, validateSimulationState } from "../transaction";
-import { TruthEngine } from "../truth-engine";
 import type { WorldDefinition } from "../world-definition";
 import { quantityId, runtimeId } from "../runtime-id";
 
@@ -366,8 +366,6 @@ function reactionState(agentIds = ["keeper"], remote = false): SimulationState {
       characterPatch: { agentId: id, baseRevision: 0, operations: [] },
       nextAction: structuredClone(agents[id].nextAction!),
     })),
-    bootstrapModelAudits: agentIds.map((id) =>
-      createTestModelAudit("agent-bootstrap", id, TEST_WORLD_HASH)),
   };
 }
 
@@ -631,8 +629,7 @@ describe("Agent self state and reaction protocol", () => {
     });
     const engine = new SimulationEngine(
       reactionDefinition(initial),
-      new TruthEngine(provider),
-      new AgentMind(provider),
+      new MonolithicCurrentAlgorithm(provider),
     );
     engine.beginPlayerIntent("请 keeper 和 scribe 回答我");
 
@@ -645,7 +642,7 @@ describe("Agent self state and reaction protocol", () => {
       .every((action) => action.id.startsWith("rt:action:") &&
         !result.committed.initialActions.some((initial) => initial.id === action.id))).toBe(true);
     expect(result.committed.reactionRequests).toHaveLength(2);
-    expect(result.committed.modelAudits.filter((audit) => audit.role === "agent-reaction")).toHaveLength(2);
+    expect(result.modelAudits.filter((audit) => audit.role === "agent-reaction")).toHaveLength(2);
     expect(result.committed.observations.filter((packet) => packet.kind === "stimulus")).toHaveLength(2);
     expect(result.committed.outcomes.map((outcome) => outcome.proposalId))
       .toEqual(expect.arrayContaining(result.committed.actions.map((action) => action.id)));
@@ -657,16 +654,6 @@ describe("Agent self state and reaction protocol", () => {
     expect(result.state.agents.keeper.belief.localEntities.speaker).toBeDefined();
     validateSimulationState(result.state, true, true);
 
-    const forgedAuditId = structuredClone(result.state);
-    const forgedAuditStep = forgedAuditId.history[0];
-    forgedAuditStep.modelAudits.find((audit) => audit.role === "agent-mind")!
-      .invocations[0].id = `rt:model-audit:${"0".repeat(64)}`;
-    forgedAuditStep.contentHash = contentHash(Object.fromEntries(
-      Object.entries(forgedAuditStep).filter(([key]) => key !== "contentHash"),
-    ));
-    expect(() => validateSimulationState(forgedAuditId, true, true))
-      .toThrow("invalid model invocation identity");
-
     const nextActionTampered = structuredClone(result.state);
     nextActionTampered.agents.keeper.nextAction!.rawText = "被篡改的下一行动";
     expect(() => validateSimulationState(nextActionTampered, true, true))
@@ -675,6 +662,7 @@ describe("Agent self state and reaction protocol", () => {
     const committedNextActionTampered = structuredClone(result.state);
     const committedNextStep = committedNextActionTampered.history[0];
     committedNextStep.nextActions.find((action) => action.actorId === "keeper")!.rawText = "伪造提交";
+    committedNextStep.semanticHash = semanticStepHash(committedNextStep);
     committedNextStep.contentHash = contentHash(Object.fromEntries(
       Object.entries(committedNextStep).filter(([key]) => key !== "contentHash"),
     ));
@@ -716,6 +704,7 @@ describe("Agent self state and reaction protocol", () => {
       kind: "action",
       id: initialActionStep.initialActions.find((action) => action.actorId === "keeper")!.id,
     }];
+    initialActionStep.semanticHash = semanticStepHash(initialActionStep);
     const initialActionPayload = Object.fromEntries(
       Object.entries(initialActionStep).filter(([key]) => key !== "contentHash"),
     );
@@ -750,6 +739,7 @@ describe("Agent self state and reaction protocol", () => {
       },
       canonicalEntityId: "player",
     });
+    localReuseStep.semanticHash = semanticStepHash(localReuseStep);
     const localReusePayload = Object.fromEntries(
       Object.entries(localReuseStep).filter(([key]) => key !== "contentHash"),
     );
@@ -793,7 +783,7 @@ describe("Agent self state and reaction protocol", () => {
       return { kind: "transition", proposal: outcomeTransition(context) };
     });
     const engine = new SimulationEngine(
-      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+      reactionDefinition(initial), new MonolithicCurrentAlgorithm(provider),
     );
     engine.beginPlayerIntent("隔着十万八千里直接喊 keeper");
 
@@ -848,7 +838,7 @@ describe("Agent self state and reaction protocol", () => {
       return emptyMindOutput(context.agent.id, context.revision);
     });
     const engine = new SimulationEngine(
-      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+      reactionDefinition(initial), new MonolithicCurrentAlgorithm(provider),
     );
     engine.beginPlayerIntent("飞鸽传书给 keeper：请回信");
 
@@ -860,6 +850,7 @@ describe("Agent self state and reaction protocol", () => {
       .toBe(result.committed.initialActions.find((action) => action.actorId === "keeper")?.id);
     const corrupted = structuredClone(result.state);
     corrupted.history[0].actions.find((action) => action.actorId === "keeper")!.rawText = "被篡改的 keep 行动";
+    corrupted.history[0].semanticHash = semanticStepHash(corrupted.history[0]);
     const payload = Object.fromEntries(
       Object.entries(corrupted.history[0]).filter(([key]) => key !== "contentHash"),
     );
@@ -909,7 +900,7 @@ describe("Agent self state and reaction protocol", () => {
       };
     });
     const engine = new SimulationEngine(
-      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+      reactionDefinition(initial), new MonolithicCurrentAlgorithm(provider),
     );
     engine.beginPlayerIntent("把晴朗天气当成远程喊话渠道");
 
@@ -938,7 +929,7 @@ describe("Agent self state and reaction protocol", () => {
       return emptyMindOutput(context.agent.id, context.revision);
     });
     const engine = new SimulationEngine(
-      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+      reactionDefinition(initial), new MonolithicCurrentAlgorithm(provider),
     );
     engine.beginPlayerIntent("安静地等待");
 
@@ -1016,7 +1007,7 @@ describe("Agent self state and reaction protocol", () => {
       return { kind: "transition", proposal: outcomeTransition(context) };
     });
     const engine = new SimulationEngine(
-      reactionDefinition(initial), new TruthEngine(provider), new AgentMind(provider),
+      reactionDefinition(initial), new MonolithicCurrentAlgorithm(provider),
     );
     engine.beginPlayerIntent("使用世界允许的远距感知发送讯息");
 
@@ -1038,6 +1029,7 @@ describe("Agent self state and reaction protocol", () => {
       kind: "action",
       id: finalActionStep.actions.find((action) => action.actorId === "keeper")!.id,
     }];
+    finalActionStep.semanticHash = semanticStepHash(finalActionStep);
     const finalActionPayload = Object.fromEntries(
       Object.entries(finalActionStep).filter(([key]) => key !== "contentHash"),
     );
@@ -1104,7 +1096,7 @@ describe("Agent self state and reaction protocol", () => {
       return emptyMindOutput(context.agent.id, context.revision);
     }, undefined, false);
     const engine = new SimulationEngine(
-      reactionDefinition(reactionState()), new TruthEngine(provider), new AgentMind(provider),
+      reactionDefinition(reactionState()), new MonolithicCurrentAlgorithm(provider),
     );
     engine.beginPlayerIntent("测试反应窗口阶段门禁");
     const result = await engine.step();
@@ -1157,8 +1149,7 @@ describe("Agent self state and reaction protocol", () => {
     });
     const replacementEngine = new SimulationEngine(
       reactionDefinition(invalidReplacementState),
-      new TruthEngine(invalidReplacementProvider),
-      new AgentMind(invalidReplacementProvider),
+      new MonolithicCurrentAlgorithm(invalidReplacementProvider),
     );
     replacementEngine.beginPlayerIntent("触发非法 replacement");
     await expect(replacementEngine.step()).rejects.toThrow("reaction execution failed");
@@ -1205,8 +1196,7 @@ describe("Agent self state and reaction protocol", () => {
     });
     const characterEngine = new SimulationEngine(
       reactionDefinition(invalidCharacterState),
-      new TruthEngine(invalidCharacterProvider),
-      new AgentMind(invalidCharacterProvider),
+      new MonolithicCurrentAlgorithm(invalidCharacterProvider),
     );
     characterEngine.beginPlayerIntent("触发非法 CharacterPatch");
     await expect(characterEngine.step()).rejects.toThrow("AgentMind");

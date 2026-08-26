@@ -8,6 +8,7 @@ import type {
   TransitionProposal,
   TransitionProposalDraft,
 } from "../../engine/model";
+import { MonolithicCurrentAlgorithm } from "../../engine/monolithic-current";
 import { SimulationEngine } from "../../engine/simulation";
 import { ScriptedModelProvider, createTestModelCatalog } from "../../engine/testing/model-provider";
 import { validateSimulationState } from "../../engine/transaction";
@@ -395,8 +396,7 @@ describe("Blackmarsh lunar calendar", () => {
 
     const engine = new SimulationEngine(
       definition,
-      new TruthEngine(provider),
-      new AgentMind(provider),
+      new MonolithicCurrentAlgorithm(provider),
       source,
     );
     engine.beginPlayerIntent("在原地等待到首次满月，不前往月贝岛、Tave 沼泽或黑石废堡。", "full-moon");
@@ -442,7 +442,7 @@ describe("Blackmarsh lunar calendar", () => {
       "2026-08-24T00:00:02.000Z",
     );
     const document: WorldSessionDocument = {
-      schemaVersion: 9,
+      schemaVersion: 10,
       id: "blackmarsh-lunar-session",
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -648,8 +648,10 @@ describe("Blackmarsh lunar calendar", () => {
     }, catalog, false);
     const repeatEngine = new SimulationEngine(
       definition,
-      new TruthEngine(repeatProvider, { repairAttempts: 0 }),
-      new AgentMind(repeatProvider),
+      new MonolithicCurrentAlgorithm(
+        new TruthEngine(repeatProvider, { repairAttempts: 0 }),
+        new AgentMind(repeatProvider),
+      ),
       state,
     );
     repeatEngine.beginPlayerIntent("在同一满月节点再等一秒。", "repeat-full-moon");

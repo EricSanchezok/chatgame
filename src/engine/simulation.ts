@@ -1,46 +1,27 @@
-import { AgentMind } from "./agent-mind";
-import { validatePublicInformationBoundary } from "./information-boundary";
-import { contentHash } from "./model-audit";
+import { performance } from "node:perf_hooks";
+import { CanonicalCommitter } from "./canonical-committer";
+import type { ExecutionContext, ExecutionTraceWriter, WorldExecutionAlgorithm } from "./execution";
 import { createHistoryReplayBase } from "./history-replay";
-import { applyMindCommit } from "./mind-commit";
+import type { CommittedStep, SimulationState } from "./model";
+import type { ModelExecutionAudit } from "./model";
+import { contentHash } from "./model-audit";
 import type { ModelExecutionScope } from "./model-provider";
-import type {
-  AgentActionProposal,
-  CommittedStep,
-  ObservationPacket,
-  SimulationState,
-  TransitionProposal,
-} from "./model";
 import {
-  applyObservationBindings,
-  applyPlayerObservationBindings,
-  ingestPlayerObservations,
-  validateObservations,
-} from "./observation";
-import { applyTransitionProposal, validateSimulationState } from "./transaction";
-import { TruthEngine } from "./truth-engine";
+  NOOP_RUNTIME_OBSERVER,
+  serializeRuntimeError,
+  type RuntimeEvent,
+  type RuntimeEventInput,
+  type RuntimeObserver,
+} from "./observability";
+import { validateModelAudit, validateSimulationState } from "./transaction";
 import type { WorldDefinition } from "./world-definition";
 import { validateWorldDefinition } from "./world-definition";
-import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "./observability";
-import { runtimeId } from "./runtime-id";
 
 export interface WorldStepResult {
   committed: CommittedStep;
+  modelAudits: ModelExecutionAudit[];
   state: SimulationState;
   requiresPlayerDecision: boolean;
-}
-
-// A snapshot capability never crosses serialization: only this module can
-// register it, the exact content hash detects mutation, and construction
-// consumes it once. External/load/restart states therefore always take the
-// complete history validator while an unchanged snapshot from a validated
-// engine avoids replaying the same ledger immediately before the next step.
-const validatedSnapshotHashes = new WeakMap<SimulationState, string>();
-
-function consumeValidatedSnapshot(state: SimulationState): boolean {
-  const expectedHash = validatedSnapshotHashes.get(state);
-  validatedSnapshotHashes.delete(state);
-  return expectedHash !== undefined && expectedHash === contentHash(state);
 }
 
 export interface WorldRunResult {
@@ -49,76 +30,146 @@ export interface WorldRunResult {
   state: SimulationState;
 }
 
-function observationsFor(
-  packets: readonly ObservationPacket[],
-  observerId: string,
-): ObservationPacket[] {
-  return packets.filter((packet) => packet.observerId === observerId);
+const validatedSnapshotHashes = new WeakMap<SimulationState, string>();
+
+function consumeValidatedSnapshot(state: SimulationState): boolean {
+  const expectedHash = validatedSnapshotHashes.get(state);
+  validatedSnapshotHashes.delete(state);
+  return expectedHash !== undefined && expectedHash === contentHash(state);
 }
 
-function assertObservationCoverage(state: SimulationState, packets: readonly ObservationPacket[]): void {
-  const observerIds = new Set(packets
-    .filter((packet) => packet.kind === "outcome")
-    .map((packet) => packet.observerId));
-  if (!observerIds.has("player")) throw new Error("transition must provide an outcome observation for the player");
-  for (const agentId of Object.keys(state.agents)) {
-    if (!observerIds.has(agentId)) {
-      throw new Error(`transition must provide an outcome observation for agent ${agentId}`);
-    }
-  }
-  for (const packet of packets) {
-    if (packet.observerId !== "player" && !state.agents[packet.observerId]) {
-      throw new Error(`transition observes inactive agent ${packet.observerId}`);
-    }
-  }
-}
-
-function assertActionSnapshot(state: SimulationState, actions: readonly AgentActionProposal[]): void {
-  const ids = new Set<string>();
-  const actors = new Set<string>();
-  for (const action of actions) {
-    if (ids.has(action.id)) throw new Error(`duplicate action id ${action.id}`);
-    if (actors.has(action.actorId)) throw new Error(`actor ${action.actorId} proposed more than one action`);
-    if (action.baseRevision !== state.revision) {
-      throw new Error(`action ${action.id} uses revision ${action.baseRevision}; expected ${state.revision}`);
-    }
-    ids.add(action.id);
-    actors.add(action.actorId);
-  }
-  if (!actors.has("player")) throw new Error("joint action is missing the player");
-  for (const agentId of Object.keys(state.agents)) {
-    if (!actors.has(agentId)) throw new Error(`joint action is missing agent ${agentId}`);
-  }
-  if (actions.length !== Object.keys(state.agents).length + 1) {
-    throw new Error("joint action contains an unknown actor");
-  }
-}
-
-function assertStepAdvancesTime(proposal: TransitionProposal): void {
-  const advances = proposal.operations.filter((operation) => operation.kind === "advance_time");
-  if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
-}
-
-async function settledValues<T>(promises: readonly Promise<T>[], label: string): Promise<T[]> {
-  const settled = await Promise.allSettled(promises);
-  const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-  if (failures.length > 0) throw new AggregateError(failures.map((failure) => failure.reason), `${label} batch failed`);
-  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
-}
-
-export class SimulationEngine {
-  private state: SimulationState;
+class ScopedTraceWriter implements ExecutionTraceWriter {
+  readonly critical?: boolean;
+  readonly degraded: boolean;
+  readonly mode: RuntimeObserver["mode"];
+  readonly traceId: string;
 
   constructor(
-    readonly definition: WorldDefinition,
-    private readonly truthEngine: TruthEngine,
-    private readonly agentMind: AgentMind,
+    readonly executionId: string,
+    private readonly observer: RuntimeObserver,
+    private readonly correlation: ModelExecutionScope["correlation"],
+  ) {
+    this.mode = observer.mode;
+    this.degraded = observer.degraded;
+    this.critical = observer.critical;
+    this.traceId = "traceId" in observer && typeof observer.traceId === "string"
+      ? observer.traceId
+      : contentHash({ executionId }).slice("sha256:".length);
+  }
+
+  emit(input: RuntimeEventInput): RuntimeEvent | undefined {
+    return this.observer.emit({
+      ...input,
+      traceId: input.traceId ?? this.traceId,
+      correlation: { ...this.correlation, ...input.correlation, executionId: this.executionId },
+    });
+  }
+
+  flush(): void {
+    this.observer.flush?.();
+  }
+
+  artifact(kind: string, value: unknown): string {
+    if ("artifact" in this.observer && typeof this.observer.artifact === "function") {
+      return (this.observer as ExecutionTraceWriter).artifact(kind, value);
+    }
+    return contentHash(value);
+  }
+
+  subscribe(listener: (event: RuntimeEvent) => void): () => void {
+    return this.observer.subscribe?.(listener) ?? (() => undefined);
+  }
+
+  snapshot(): RuntimeEvent[] {
+    return this.observer.snapshot?.() ?? [];
+  }
+}
+
+function createExecutionContext(scope: ModelExecutionScope, source: SimulationState): ExecutionContext {
+  const executionId = scope.correlation?.executionId ?? `${scope.batchId}:${source.revision}:${source.step}`;
+  const observer = scope.observer ?? NOOP_RUNTIME_OBSERVER;
+  const trace = new ScopedTraceWriter(executionId, observer, scope.correlation);
+  const modelScope: ModelExecutionScope = {
+    ...scope,
+    correlation: { ...scope.correlation, executionId },
+    observer: trace,
+    runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
+  };
+  let randomState = Number.parseInt(contentHash({
+    worldHash: source.worldHash,
+    revision: source.revision,
+    step: source.step,
+    rng: source.truth.rng,
+  }).slice(0, 8), 16) >>> 0;
+  const random = (): number => {
+    randomState = (randomState + 0x6d2b79f5) >>> 0;
+    let value = randomState;
+    value ^= value >>> 16;
+    value = Math.imul(value, 0x7feb352d);
+    value ^= value >>> 15;
+    value = Math.imul(value, 0x846ca68b);
+    value ^= value >>> 16;
+    return (value >>> 0) / 0x1_0000_0000;
+  };
+  return {
+    executionId,
+    abortSignal: scope.abortSignal,
+    modelScope,
+    random,
+    trace,
+  };
+}
+
+function resourceBaseline() {
+  return { cpu: process.cpuUsage(), elu: performance.eventLoopUtilization() };
+}
+
+function resourceMeasurements(baseline: ReturnType<typeof resourceBaseline>): Record<string, number> {
+  const cpu = process.cpuUsage(baseline.cpu);
+  const elu = performance.eventLoopUtilization(baseline.elu);
+  const memory = process.memoryUsage();
+  return {
+    cpuUserMs: cpu.user / 1_000,
+    cpuSystemMs: cpu.system / 1_000,
+    rssBytes: memory.rss,
+    heapUsedBytes: memory.heapUsed,
+    heapTotalBytes: memory.heapTotal,
+    externalBytes: memory.external,
+    eventLoopUtilization: elu.utilization,
+    eventLoopActiveMs: elu.active,
+    eventLoopIdleMs: elu.idle,
+  };
+}
+
+function validateCandidateModelAudits(
+  audits: readonly ModelExecutionAudit[],
+  source: Readonly<SimulationState>,
+): void {
+  const seenInvocationIds = new Set<string>();
+  for (const [index, audit] of audits.entries()) {
+    validateModelAudit(audit, `execution candidate model audit ${index + 1}`, source.worldHash, source.revision, seenInvocationIds);
+  }
+}
+
+/** All candidate generation and commits share one algorithm/committer path. */
+export class SimulationEngine {
+  readonly definition: WorldDefinition;
+  private state: SimulationState;
+  private readonly algorithm: WorldExecutionAlgorithm;
+  private readonly committer = new CanonicalCommitter();
+  private bootstrapAudits: ModelExecutionAudit[] = [];
+
+  constructor(
+    definition: WorldDefinition,
+    algorithm: WorldExecutionAlgorithm,
     initialState: SimulationState = definition.initialState,
   ) {
+    this.definition = definition;
     validateWorldDefinition(definition);
-    if (initialState.worldId !== definition.id) throw new Error("simulation state belongs to another world");
-    if (!consumeValidatedSnapshot(initialState)) validateSimulationState(initialState, false, true);
+    this.algorithm = algorithm;
     this.state = structuredClone(initialState);
+    if (this.state.worldId !== definition.id) throw new Error("simulation state belongs to another world");
+    if (!consumeValidatedSnapshot(this.state)) validateSimulationState(this.state, false, true);
     this.state.historyBase ??= createHistoryReplayBase(definition.initialState);
   }
 
@@ -128,81 +179,83 @@ export class SimulationEngine {
     return snapshot;
   }
 
+  get bootstrapModelAudits(): ModelExecutionAudit[] {
+    return structuredClone(this.bootstrapAudits);
+  }
+
   async bootstrapAgents(scope?: ModelExecutionScope): Promise<SimulationState> {
     const source = structuredClone(this.state);
-    const executionScope: ModelExecutionScope = {
-      ...(scope ?? {
-        workloadId: `simulation:${source.worldId}`,
-        batchId: `bootstrap:${source.revision}`,
-      }),
-      runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
+    const executionScope = scope ?? {
+      workloadId: `simulation:${source.worldId}`,
+      batchId: `bootstrap:${source.revision}`,
     };
+    const context = createExecutionContext(executionScope, source);
+    const resources = resourceBaseline();
     const startedAt = Date.now();
-    const observe = runtimeEventEmitter(executionScope.observer);
-    observe?.({
+    context.trace.emit({
+      event: "execution.world_definition.persisted",
+      hashes: { worldDefinition: contentHash(this.definition) },
+      payload: this.definition,
+    });
+    context.trace.emit({
       event: "session.bootstrap.started",
-      correlation: executionScope.correlation,
-      counts: { agents: Object.keys(source.agents).length },
-      hashes: { state: contentHash(source) },
-      payload: executionScope.observer
-        ? fullRuntimePayload(executionScope.observer, { state: source })
-        : undefined,
+      counts: { persistentAgents: Object.keys(source.agents).length },
+      hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
+      payload: { state: source },
     });
     try {
-      const agents = Object.values(source.agents);
-      const outputs = await settledValues(
-      agents.map((agent) => this.agentMind.think(
-        source,
-        agent,
-        [],
-        executionScope,
-        { action: null, outcome: null },
-        [],
-        "bootstrap",
-      )),
-      "AgentMind bootstrap",
-      );
-      observe?.({
-        event: "session.bootstrap.agent_batch.completed",
-        correlation: executionScope.correlation,
-        counts: { agents: agents.length, modelAudits: outputs.length },
-        hashes: { outputs: contentHash(outputs) },
+      const candidate = await this.algorithm.bootstrap({
+        definition: structuredClone(this.definition),
+        state: structuredClone(source),
+      }, context);
+      validateCandidateModelAudits(candidate.modelAudits, source);
+      context.trace.emit({
+        event: "execution.resources.sampled",
+        attributes: { phase: "bootstrap" },
+        measurements: resourceMeasurements(resources),
       });
-      source.bootstrapAgentCommits = outputs.map((output, index) => ({
-        agentId: agents[index].id,
-        beliefPatch: structuredClone(output.beliefPatch),
-        characterPatch: structuredClone(output.characterPatch),
-        nextAction: structuredClone(output.nextAction),
-      }));
-      for (let index = 0; index < agents.length; index += 1) {
-        source.agents[agents[index].id] = applyMindCommit(
-          agents[index],
-          source.bootstrapAgentCommits[index],
-          source.step,
-          [],
-          [],
-        );
-      }
-      source.bootstrapModelAudits = outputs.map((output) => structuredClone(output.modelAudit));
-      validateSimulationState(source, true, true);
-      this.state = source;
-      observe?.({
+      context.trace.emit({
+        event: "execution.candidate.persisted",
+        attributes: { phase: "bootstrap" },
+        hashes: { candidate: contentHash(candidate) },
+        payload: candidate,
+      });
+      context.trace.flush();
+      const validationStartedAt = performance.now();
+      context.trace.emit({ event: "canonical.validation.started", attributes: { phase: "bootstrap" } });
+      const committed = this.committer.bootstrap(source, candidate);
+      context.trace.emit({
+        event: "canonical.validation.completed",
+        attributes: {
+          phase: "bootstrap",
+          status: "accepted",
+          cognitionIsolation: "accepted",
+          canonicalInvariants: "accepted",
+        },
+        durationMs: Math.max(0, performance.now() - validationStartedAt),
+        hashes: { state: contentHash(committed) },
+      });
+      this.bootstrapAudits = candidate.modelAudits.map((audit) => structuredClone(audit));
+      this.state = committed;
+      context.trace.emit({
         event: "session.bootstrap.committed",
-        correlation: executionScope.correlation,
         durationMs: Math.max(0, Date.now() - startedAt),
-        counts: { agents: agents.length, modelAudits: source.bootstrapModelAudits.length },
-        hashes: { state: contentHash(source) },
+        counts: { activatedAgents: candidate.agentCommits.length, updatedAgents: candidate.agentCommits.length },
+        hashes: { state: contentHash(committed) },
       });
+      context.trace.flush();
       return this.snapshot;
     } catch (error) {
-      observe?.({
+      context.trace.emit({
         event: "session.bootstrap.rolled_back",
         level: "error",
-        correlation: executionScope.correlation,
         durationMs: Math.max(0, Date.now() - startedAt),
-        hashes: { state: contentHash(this.state) },
+        counts: { rollbacks: 1 },
+        attributes: { rollbackStateMatches: true },
+        hashes: { state: contentHash(source) },
         error: serializeRuntimeError(error),
       });
+      context.trace.flush();
       throw error;
     }
   }
@@ -210,26 +263,20 @@ export class SimulationEngine {
   beginPlayerIntent(text: string, inputId?: string): SimulationState {
     const normalized = text.trim();
     if (!normalized) throw new Error("player intent cannot be empty");
-    if (this.state.player.intent?.status === "active") {
-      throw new Error("a player intent is already active");
-    }
+    if (this.state.player.intent?.status === "active") throw new Error("a player intent is already active");
     const next = structuredClone(this.state);
     const intentId = inputId ? `intent:${inputId}` : `intent:${next.revision}:${next.step}`;
+    const input = {
+      id: inputId ?? `input:${intentId}:1`,
+      text: normalized,
+      kind: "goal" as const,
+      submittedAtStep: next.step,
+    };
     next.player.intent = {
       id: intentId,
       goal: normalized,
-      inputs: [{
-        id: inputId ?? `input:${intentId}:1`,
-        text: normalized,
-        kind: "goal",
-        submittedAtStep: next.step,
-      }],
-      latestInput: {
-        id: inputId ?? `input:${intentId}:1`,
-        text: normalized,
-        kind: "goal",
-        submittedAtStep: next.step,
-      },
+      inputs: [input],
+      latestInput: input,
       status: "active",
       startedAtStep: next.step,
     };
@@ -266,256 +313,102 @@ export class SimulationEngine {
     return this.snapshot;
   }
 
-  private jointActions(): AgentActionProposal[] {
-    const intent = this.state.player.intent;
-    if (!intent || intent.status !== "active") throw new Error("no active player intent");
-    const playerAction: AgentActionProposal = {
-      id: runtimeId({
-        worldHash: this.state.worldHash,
-        revision: this.state.revision,
-        kind: "action",
-        stage: "prepared",
-        owner: "player",
-        round: 0,
-        ordinal: 0,
-      }),
-      actorId: "player",
-      baseRevision: this.state.revision,
-      rawText: intent.latestInput.text,
-      goal: intent.goal,
-      means: intent.latestInput.kind === "goal" && this.state.step === intent.startedAtStep
-        ? null
-        : intent.latestInput.text,
-      targetIds: [],
-    };
-    const actions = [playerAction];
-    for (const agent of Object.values(this.state.agents)) {
-      if (!agent.nextAction) throw new Error(`agent ${agent.id} has not prepared an action`);
-      actions.push(structuredClone(agent.nextAction));
-    }
-    const canonicalActions = actions.sort((left, right) =>
-      left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
-    assertActionSnapshot(this.state, canonicalActions);
-    return canonicalActions;
-  }
-
   async step(scope?: ModelExecutionScope): Promise<WorldStepResult> {
     const source = structuredClone(this.state);
-    const executionScope: ModelExecutionScope = {
-      ...(scope ?? {
-        workloadId: `simulation:${source.worldId}`,
-        batchId: `step:${source.revision}:${source.step + 1}`,
-      }),
-      runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
+    const executionScope = scope ?? {
+      workloadId: `simulation:${source.worldId}`,
+      batchId: `step:${source.revision}:${source.step + 1}`,
     };
+    const context = createExecutionContext(executionScope, source);
+    const resources = resourceBaseline();
     const startedAt = Date.now();
-    const observe = runtimeEventEmitter(executionScope.observer);
-    observe?.({
+    let generatedModelCalls = 0;
+    let discardedInputTokens = 0;
+    let discardedOutputTokens = 0;
+    let discardedReasoningTokens = 0;
+    let discardedModelExecutionMs = 0;
+    context.trace.emit({
+      event: "execution.world_definition.persisted",
+      hashes: { worldDefinition: contentHash(this.definition) },
+      payload: this.definition,
+    });
+    context.trace.emit({
       event: "step.started",
-      correlation: executionScope.correlation,
-      attributes: { worldId: source.worldId },
-      hashes: { state: contentHash(source) },
-      payload: executionScope.observer
-        ? fullRuntimePayload(executionScope.observer, { state: source })
-        : undefined,
+      hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
+      counts: { persistentAgents: Object.keys(source.agents).length },
+      payload: { state: source },
     });
     try {
-    const initialActions = this.jointActions();
-    observe?.({
-      event: "step.joint_actions.generated",
-      correlation: executionScope.correlation,
-      counts: { actions: initialActions.length, agents: Object.keys(source.agents).length },
-      hashes: { jointActions: contentHash(initialActions) },
-      payload: executionScope.observer
-        ? fullRuntimePayload(executionScope.observer, { actions: initialActions })
-        : undefined,
-    });
-    let transitionCandidate: SimulationState | undefined;
-    const resolution = await this.truthEngine.resolve({
-      definition: this.definition,
-      state: source,
-      initialActions,
-      resolveReactions: async (requests) => {
-        const reactionOutputs = await settledValues(requests.map((request) => {
-          const sourceAgent = source.agents[request.agentId];
-          const agent = applyObservationBindings(sourceAgent, [request.stimulus]);
-          const originalAction = initialActions.find((action) => action.actorId === request.agentId);
-          if (!originalAction) throw new Error(`agent ${request.agentId} has no prepared action`);
-          return this.agentMind.react(source, agent, originalAction, request.stimulus, executionScope);
-        }), "Agent reaction");
-        return {
-          decisions: reactionOutputs.map((output) => output.kind === "keep" ? {
-            agentId: output.agentId,
-            baseRevision: output.baseRevision,
-            originalProposalId: output.originalProposalId,
-            kind: output.kind,
-          } : {
-            agentId: output.agentId,
-            baseRevision: output.baseRevision,
-            originalProposalId: output.originalProposalId,
-            kind: output.kind,
-            replacementAction: output.replacementAction,
-          }),
-          modelAudits: reactionOutputs.map((output) => output.modelAudit),
-        };
-      },
-      validateProposal: (proposal, _checks, _randomResults, finalActions, stimulusObservations) => {
-        assertStepAdvancesTime(proposal);
-        validatePublicInformationBoundary(source, finalActions, proposal);
-        const candidate = applyTransitionProposal(source, proposal);
-        validateObservations(
-          candidate,
-          [...stimulusObservations, ...proposal.observations],
-          candidate.step,
-        );
-        assertObservationCoverage(candidate, proposal.observations);
-        transitionCandidate = candidate;
-      },
-    }, executionScope);
-    observe?.({
-      event: "step.truth.completed",
-      correlation: executionScope.correlation,
-      counts: {
-        truthAudits: resolution.modelAudits.length,
-        reactionAudits: resolution.reactionModelAudits.length,
-        checks: resolution.checks.length,
-        randomResults: resolution.randomResults.length,
-      },
-      hashes: { proposal: contentHash(resolution.proposal) },
-    });
-    if (!transitionCandidate) throw new Error("TruthEngine returned without a validated transition");
-
-    const candidate = transitionCandidate as SimulationState;
-    candidate.truth.rng = structuredClone(resolution.rng);
-    const observations = [
-      ...resolution.stimulusObservations,
-      ...resolution.proposal.observations,
-    ];
-    applyPlayerObservationBindings(candidate, observations);
-    candidate.player.knowledge = ingestPlayerObservations(
-      candidate,
-      observationsFor(observations, "player"),
-    );
-
-    const agents = Object.values(candidate.agents).map((agent) =>
-      applyObservationBindings(
-        agent,
-        observationsFor(observations, agent.id),
-      ));
-    const outputs = await settledValues(
-      agents.map((agent) => {
-        const action = resolution.actions.find((candidateAction) => candidateAction.actorId === agent.id) ?? null;
-        const outcome = action
-          ? resolution.proposal.outcomes.find((candidateOutcome) => candidateOutcome.proposalId === action.id) ?? null
-          : null;
-        return this.agentMind.think(
-          candidate,
-          agent,
-          observationsFor(observations, agent.id),
-          executionScope,
-          { action, outcome: outcome ? { status: outcome.status } : null },
-          resolution.proposal.events,
-          source.agents[agent.id] ? "mind" : "bootstrap",
-        );
-      }),
-      "AgentMind",
-    );
-    observe?.({
-      event: "step.agent_mind_batch.completed",
-      correlation: executionScope.correlation,
-      counts: { agents: agents.length, modelAudits: outputs.length },
-      hashes: { patches: contentHash(outputs.map((output) => ({
-        beliefPatch: output.beliefPatch,
-        characterPatch: output.characterPatch,
-      }))) },
-    });
-    for (let index = 0; index < agents.length; index += 1) {
-      candidate.agents[agents[index].id] = applyMindCommit(
-        agents[index],
-        outputs[index],
-        candidate.step,
-        observationsFor(observations, agents[index].id),
-        resolution.proposal.events,
-      );
-    }
-    candidate.historyBase ??= createHistoryReplayBase(source);
-    validateSimulationState(candidate, true);
-
-    const committedPayload: Omit<CommittedStep, "contentHash"> = {
-      baseRevision: source.revision,
-      revision: candidate.revision,
-      step: candidate.step,
-      initialActions: structuredClone(resolution.initialActions),
-      reactionRequests: structuredClone(resolution.reactionRequests),
-      reactionDecisions: structuredClone(resolution.reactionDecisions),
-      actions: structuredClone(resolution.actions),
-      rngBefore: structuredClone(source.truth.rng),
-      rngAfter: structuredClone(candidate.truth.rng),
-      checkRequests: structuredClone(resolution.requests),
-      checks: structuredClone(resolution.checks),
-      randomRequests: structuredClone(resolution.randomRequests),
-      randomResults: structuredClone(resolution.randomResults),
-      commitmentRounds: structuredClone(resolution.commitmentRounds),
-      outcomes: structuredClone(resolution.proposal.outcomes),
-      mechanicInvocations: structuredClone(resolution.proposal.mechanicInvocations),
-      mechanicResults: structuredClone(resolution.mechanicResults),
-      causalAssertionResults: structuredClone(resolution.causalAssertionResults),
-      causalVerification: structuredClone(resolution.causalVerification),
-      events: structuredClone(resolution.proposal.events),
-      observations: structuredClone(observations),
-      operations: structuredClone(resolution.proposal.operations),
-      playerIntent: structuredClone(source.player.intent!),
-      intentStatus: resolution.proposal.intentStatus,
-      requiresPlayerDecision: resolution.proposal.requiresPlayerDecision,
-      beliefPatches: outputs.map((output) => structuredClone(output.beliefPatch)),
-      characterPatches: outputs.map((output) => structuredClone(output.characterPatch)),
-      nextActions: outputs.map((output) => structuredClone(output.nextAction)),
-      modelAudits: [
-        ...resolution.modelAudits.map((audit) => structuredClone(audit)),
-        ...resolution.reactionModelAudits.map((audit) => structuredClone(audit)),
-        ...outputs.map((output) => structuredClone(output.modelAudit)),
-      ],
-    };
-    const committed: CommittedStep = {
-      contentHash: contentHash(committedPayload),
-      ...committedPayload,
-    };
-    candidate.history.push(committed);
-    // Even when the constructor receives a history already validated by the
-    // persistence boundary, every newly materialized commit is fully replayed
-    // before it can leave the engine.
-    validateSimulationState(candidate, true, true);
-    this.state = candidate;
-    const result = {
-      committed: structuredClone(committed),
-      state: this.snapshot,
-      requiresPlayerDecision: resolution.proposal.requiresPlayerDecision,
-    };
-    observe?.({
-      event: "step.committed",
-      correlation: {
-        ...executionScope.correlation,
-        revision: candidate.revision,
-        step: candidate.step,
-      },
-      durationMs: Math.max(0, Date.now() - startedAt),
-      counts: { modelAudits: committed.modelAudits.length },
-      hashes: { committedStep: committed.contentHash, state: contentHash(candidate) },
-      payload: executionScope.observer
-        ? fullRuntimePayload(executionScope.observer, { state: candidate })
-        : undefined,
-    });
-    return result;
+      const candidate = await this.algorithm.step({
+        definition: structuredClone(this.definition),
+        state: structuredClone(source),
+      }, context);
+      validateCandidateModelAudits(candidate.modelAudits, source);
+      generatedModelCalls = candidate.modelAudits.reduce((sum, audit) => sum + audit.invocations.length, 0);
+      const generatedInvocations = candidate.modelAudits.flatMap((audit) => audit.invocations);
+      discardedInputTokens = generatedInvocations.reduce((sum, invocation) => sum + (invocation.tokenUsage.input ?? 0), 0);
+      discardedOutputTokens = generatedInvocations.reduce((sum, invocation) => sum + (invocation.tokenUsage.output ?? 0), 0);
+      discardedReasoningTokens = generatedInvocations.reduce((sum, invocation) =>
+        sum + (invocation.tokenUsage.reasoning ?? 0), 0);
+      discardedModelExecutionMs = generatedInvocations.flatMap((invocation) => invocation.transports)
+        .reduce((sum, transport) => sum + transport.executionMs, 0);
+      context.trace.emit({
+        event: "execution.candidate.persisted",
+        attributes: { phase: "step" },
+        hashes: { candidate: contentHash(candidate) },
+        payload: candidate,
+      });
+      context.trace.flush();
+      const validationStartedAt = performance.now();
+      context.trace.emit({ event: "canonical.validation.started", attributes: { phase: "step" } });
+      const result = this.committer.step(source, candidate);
+      context.trace.emit({
+        event: "canonical.validation.completed",
+        attributes: {
+          phase: "step",
+          status: "accepted",
+          cognitionIsolation: "accepted",
+          canonicalInvariants: "accepted",
+        },
+        durationMs: Math.max(0, performance.now() - validationStartedAt),
+        hashes: { semantic: result.committed.semanticHash, state: contentHash(result.state) },
+      });
+      this.state = result.state;
+      context.trace.emit({
+        event: "execution.resources.sampled",
+        attributes: { phase: "step" },
+        measurements: resourceMeasurements(resources),
+      });
+      context.trace.emit({
+        event: "step.committed",
+        durationMs: Math.max(0, Date.now() - startedAt),
+        counts: { modelExecutions: candidate.modelAudits.length },
+        hashes: { committedStep: result.committed.contentHash, state: contentHash(result.state) },
+      });
+      context.trace.flush();
+      return {
+        committed: result.committed,
+        modelAudits: candidate.modelAudits.map((audit) => structuredClone(audit)),
+        state: this.snapshot,
+        requiresPlayerDecision: result.committed.requiresPlayerDecision,
+      };
     } catch (error) {
-      observe?.({
+      context.trace.emit({
         event: "step.rolled_back",
         level: "error",
-        correlation: executionScope.correlation,
         durationMs: Math.max(0, Date.now() - startedAt),
-        attributes: { result: "rolled_back" },
-        hashes: { state: contentHash(this.state) },
+        counts: { rollbacks: 1, discardedModelCalls: generatedModelCalls },
+        measurements: {
+          discardedInputTokens,
+          discardedOutputTokens,
+          discardedReasoningTokens,
+          discardedModelExecutionMs,
+        },
+        attributes: { result: "rolled_back", rollbackStateMatches: true },
+        hashes: { state: contentHash(source) },
         error: serializeRuntimeError(error),
       });
+      context.trace.flush();
       throw error;
     }
   }
@@ -532,13 +425,9 @@ export class SimulationEngine {
       steps.push(result.committed);
       await onStep?.(result);
       const status = this.state.player.intent?.status;
-      if (result.requiresPlayerDecision) {
-        return { status: "awaiting_player", steps, state: this.snapshot };
-      }
+      if (result.requiresPlayerDecision) return { status: "awaiting_player", steps, state: this.snapshot };
       if (status === "completed") return { status: "completed", steps, state: this.snapshot };
-      if (status === "failed" || status === "cancelled") {
-        return { status: "failed", steps, state: this.snapshot };
-      }
+      if (status === "failed" || status === "cancelled") return { status: "failed", steps, state: this.snapshot };
     }
     return { status: "step_limit", steps, state: this.snapshot };
   }

@@ -425,7 +425,7 @@ export interface SimulationState {
   history: CommittedStep[];
   historyBase?: HistoryReplayBase;
   bootstrapAgentCommits: AgentMindCommit[];
-  bootstrapModelAudits: ModelExecutionAudit[];
+  bootstrapExecutionRef?: import("./execution").ExecutionRef;
 }
 
 export type CheckVisibility = "full" | "result_only" | "hidden";
@@ -826,6 +826,8 @@ export interface ModelExecutionAudit {
 
 export interface CommittedStep {
   contentHash: string;
+  semanticHash: string;
+  executionRef?: import("./execution").ExecutionRef;
   baseRevision: number;
   revision: number;
   step: number;
@@ -854,5 +856,4 @@ export interface CommittedStep {
   beliefPatches: BeliefPatch[];
   characterPatches: CharacterPatch[];
   nextActions: AgentActionProposal[];
-  modelAudits: ModelExecutionAudit[];
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ExecutionRef } from "./execution";
 import type {
   AgentBeliefState,
   AgentState,
@@ -7,11 +8,13 @@ import type {
   CommittedStep,
   FactValue,
   MeterState,
+  ModelExecutionAudit,
   QuantityState,
   SimulationState,
   TransitionProposal,
   WorldDeltaOperation,
 } from "./model";
+import { modelInferenceSchema } from "./model-catalog";
 import { validateCharacterState } from "./character";
 import {
   beliefPatchSchema,
@@ -25,7 +28,6 @@ import {
   reactionRequestSchema,
 } from "./llm-schemas";
 import { contentHash as contentHashForAudit, isSha256 } from "./model-audit";
-import { modelInferenceSchema } from "./model-catalog";
 import {
   resolveD20Checks,
   resolveDiscreteRandomRequests,
@@ -84,6 +86,14 @@ function assertExactKeys(
   const allowed = new Set([...required, ...optional]);
   if (required.some((key) => !actual.includes(key)) || actual.some((key) => !allowed.has(key))) {
     throw new Error(`${label} has unexpected or missing fields`);
+  }
+}
+
+function validateExecutionRef(reference: ExecutionRef, label: string): void {
+  assertExactKeys(reference, ["executionId", "terminalEventSequence", "traceHash"], [], label);
+  if (!reference.executionId.trim() || !Number.isSafeInteger(reference.terminalEventSequence) ||
+    reference.terminalEventSequence <= 0 || !isSha256(reference.traceHash)) {
+    throw new Error(`${label} is invalid`);
   }
 }
 
@@ -602,7 +612,6 @@ export function replayCommittedHistory(
     history: [],
     historyBase: structuredClone(historyBase),
     bootstrapAgentCommits: [],
-    bootstrapModelAudits: [],
   };
   const priorEventIds = new Set<string>();
   const allFactIds = new Set(Object.keys(state.truth.facts));
@@ -689,13 +698,8 @@ export function replayCommittedHistory(
       }
     }
   };
-  const modelInvocationIds = new Set<string>();
-  for (const audit of state.bootstrapModelAudits) {
-    validateModelAudit(audit, "bootstrap", state.worldHash, 0, modelInvocationIds);
-  }
   const initialAgentIds = Object.keys(historyBase.agents).sort();
-  const bootstrapCompleted = state.history.length > 0 || state.bootstrapModelAudits.length > 0 ||
-    state.bootstrapAgentCommits.length > 0;
+  const bootstrapCompleted = state.history.length > 0 || state.bootstrapAgentCommits.length > 0;
   if (bootstrapCompleted) {
     const commitSubjects = state.bootstrapAgentCommits.map((commit) => commit.agentId).sort();
     if (commitSubjects.length !== initialAgentIds.length || new Set(commitSubjects).size !== commitSubjects.length ||
@@ -762,12 +766,21 @@ export function replayCommittedHistory(
       "randomRequests", "randomResults", "commitmentRounds", "outcomes", "mechanicInvocations",
       "mechanicResults", "causalAssertionResults", "causalVerification", "events", "observations",
       "operations", "playerIntent", "intentStatus", "requiresPlayerDecision", "beliefPatches",
-      "characterPatches", "nextActions", "modelAudits",
-    ], [], `history step ${index + 1}`);
+      "characterPatches", "nextActions", "semanticHash",
+    ], ["executionRef"], `history step ${index + 1}`);
     const { contentHash: committedHash, ...committedPayload } = committed;
     if (!isSha256(committedHash) || contentHashForAudit(committedPayload) !== committedHash) {
       throw new Error(`history step ${index + 1} has an invalid content hash`);
     }
+    const semanticPayload = { ...committedPayload } as Partial<typeof committedPayload>;
+    const semanticHash = semanticPayload.semanticHash;
+    delete semanticPayload.semanticHash;
+    delete semanticPayload.executionRef;
+    if (typeof semanticHash !== "string" || !isSha256(semanticHash) ||
+      contentHashForAudit(semanticPayload) !== semanticHash) {
+      throw new Error(`history step ${index + 1} has an invalid semantic hash`);
+    }
+    if (committed.executionRef) validateExecutionRef(committed.executionRef, `history step ${index + 1} executionRef`);
     if (committed.baseRevision !== index || committed.revision !== index + 1 || committed.step !== index + 1) {
       throw new Error(`history step ${index + 1} has invalid revision metadata`);
     }
@@ -1107,57 +1120,14 @@ export function replayCommittedHistory(
     if (JSON.stringify(replayState.truth.rng) !== JSON.stringify(committed.rngBefore)) {
       throw new Error(`history step ${index + 1} does not start from the replayed RNG state`);
     }
-    for (const role of [
-      "truth-perception",
-      "truth-reaction-routing",
-      "truth-resolution",
-      "truth-transition",
-      "causal-verifier",
-    ] as const) {
-      const stageAudits = committed.modelAudits.filter((audit) => audit.role === role);
-      if (stageAudits.length !== 1 || stageAudits[0]!.subjectId !== state.worldId) {
-        throw new Error(`history step ${index + 1} must have exactly one ${role} audit for ${state.worldId}`);
-      }
-    }
     const patchAgentIds = committed.beliefPatches.map((patch) => patch.agentId);
     const characterPatchAgentIds = committed.characterPatches.map((patch) => patch.agentId);
-    const auditAgentIds = committed.modelAudits
-      .filter((audit) => audit.role === "agent-mind" || audit.role === "agent-bootstrap")
-      .map((audit) => audit.subjectId);
-    if (new Set(patchAgentIds).size !== patchAgentIds.length || new Set(auditAgentIds).size !== auditAgentIds.length ||
-      patchAgentIds.length !== auditAgentIds.length || patchAgentIds.some((agentId) => !auditAgentIds.includes(agentId)) ||
+    if (new Set(patchAgentIds).size !== patchAgentIds.length ||
       characterPatchAgentIds.length !== patchAgentIds.length ||
       patchAgentIds.some((agentId) => !characterPatchAgentIds.includes(agentId)) ||
       committed.beliefPatches.some((patch) => patch.baseRevision !== committed.revision) ||
       committed.characterPatches.some((patch) => patch.baseRevision !== committed.revision)) {
-      throw new Error(`history step ${index + 1} has invalid AgentMind audit coverage`);
-    }
-    const createdAgentIds = new Set(committed.operations
-      .filter((operation) => operation.kind === "create_agent")
-      .map((operation) => operation.agent.id));
-    for (const audit of committed.modelAudits.filter((candidate) =>
-      candidate.role === "agent-mind" || candidate.role === "agent-bootstrap")) {
-      const expectedRole = createdAgentIds.has(audit.subjectId) ? "agent-bootstrap" : "agent-mind";
-      if (audit.role !== expectedRole) {
-        throw new Error(`history step ${index + 1} uses ${audit.role} for ${audit.subjectId}; expected ${expectedRole}`);
-      }
-    }
-    const reactionAuditAgentIds = committed.modelAudits
-      .filter((audit) => audit.role === "agent-reaction")
-      .map((audit) => audit.subjectId);
-    if (new Set(reactionAuditAgentIds).size !== reactionAuditAgentIds.length ||
-      reactionAuditAgentIds.length !== reactionAgents.length ||
-      reactionAgents.some((agentId) => !reactionAuditAgentIds.includes(agentId))) {
-      throw new Error(`history step ${index + 1} has invalid Agent reaction audit coverage`);
-    }
-    for (const audit of committed.modelAudits) {
-      validateModelAudit(
-        audit,
-        `history step ${index + 1}`,
-        state.worldHash,
-        committed.baseRevision,
-        modelInvocationIds,
-      );
+      throw new Error(`history step ${index + 1} has invalid AgentMind patch coverage`);
     }
     const allowedForEvents: Record<CausalRef["kind"], Set<string>> = {
       action: new Set(proposalIds),
@@ -1551,8 +1521,8 @@ export function replayCommittedHistory(
   }
 }
 
-function validateModelAudit(
-  audit: SimulationState["bootstrapModelAudits"][number],
+export function validateModelAudit(
+  audit: ModelExecutionAudit,
   label: string,
   worldHash: string,
   revision: number,
@@ -1675,8 +1645,9 @@ export function validateSimulationState(
 ): void {
   assertExactKeys(state, [
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents",
-    "player", "history", "bootstrapAgentCommits", "bootstrapModelAudits",
-  ], ["historyBase"], "simulation state");
+    "player", "history", "bootstrapAgentCommits",
+  ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
+  if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
   assertExactKeys(state.truth, [
     "elapsedSeconds", "rng", "events", "entities", "placements", "facts", "factTombstones",
     "mechanics", "meters", "quantities", "ratings",
@@ -1712,11 +1683,6 @@ export function validateSimulationState(
   if (state.player.intent) {
     validatePlayerIntentSnapshot(state.player.intent, state.step);
   }
-  const bootstrapInvocationIds = new Set<string>();
-  for (const audit of state.bootstrapModelAudits) {
-    validateModelAudit(audit, "bootstrap", state.worldHash, 0, bootstrapInvocationIds);
-    if (audit.role !== "agent-bootstrap") throw new Error("bootstrap has a non-bootstrap audit");
-  }
   for (const commit of state.bootstrapAgentCommits) {
     assertExactKeys(
       commit,
@@ -1744,9 +1710,9 @@ export function validateSimulationState(
   }
   const initialAgentIds = state.historyBase
     ? Object.keys(state.historyBase.agents).sort()
-    : state.revision === 0 || state.bootstrapModelAudits.length === 0
-      ? Object.keys(state.agents).sort()
-      : state.bootstrapModelAudits.map((audit) => audit.subjectId).sort();
+    : state.bootstrapAgentCommits.length > 0
+      ? state.bootstrapAgentCommits.map((commit) => commit.agentId).sort()
+      : Object.keys(state.agents).sort();
   const currentInitialActions = initialAgentIds
     .map((agentId) => state.agents[agentId]?.nextAction)
     .filter((action) => action !== undefined);
@@ -1755,18 +1721,13 @@ export function validateSimulationState(
     preparedInitialAgents !== currentInitialActions.length) {
     throw new Error("bootstrap is only partially committed");
   }
-  const bootstrapCompleted = state.history.length > 0 || state.bootstrapModelAudits.length > 0 ||
-    state.bootstrapAgentCommits.length > 0 ||
+  const bootstrapCompleted = state.history.length > 0 || state.bootstrapAgentCommits.length > 0 ||
     (currentInitialActions.length > 0 && preparedInitialAgents === currentInitialActions.length);
   if (bootstrapCompleted) {
-    const auditSubjects = state.bootstrapModelAudits.map((audit) => audit.subjectId).sort();
     const commitSubjects = state.bootstrapAgentCommits.map((commit) => commit.agentId).sort();
-    if (auditSubjects.length !== initialAgentIds.length ||
-      new Set(auditSubjects).size !== auditSubjects.length ||
-      auditSubjects.some((subjectId, index) => subjectId !== initialAgentIds[index]) ||
-      commitSubjects.length !== initialAgentIds.length || new Set(commitSubjects).size !== commitSubjects.length ||
+    if (commitSubjects.length !== initialAgentIds.length || new Set(commitSubjects).size !== commitSubjects.length ||
       commitSubjects.some((subjectId, index) => subjectId !== initialAgentIds[index])) {
-      throw new Error("bootstrap commits and model audits do not exactly cover the initial Agents");
+      throw new Error("bootstrap commits do not exactly cover the initial Agents");
     }
   }
   if (!Number.isSafeInteger(state.truth.rng.seed) || !Number.isSafeInteger(state.truth.rng.state) ||

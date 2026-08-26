@@ -4,6 +4,7 @@ import { loadWorldScript } from "../../script/world-loader";
 import { publicCommittedStepEvents, type WorldSessionDocument } from "../../server/world-run-types";
 import { MemoryWorldSessionStore } from "../../server/world-session-store";
 import { AgentMind } from "../agent-mind";
+import { semanticStepHash } from "../canonical-committer";
 import { evaluateProposalCausality } from "../causality";
 import type {
   CommittedStep,
@@ -14,6 +15,7 @@ import type {
   TransitionProposalDraft,
 } from "../model";
 import { contentHash } from "../model-audit";
+import { MonolithicCurrentAlgorithm } from "../monolithic-current";
 import {
   MAX_RANDOM_REQUESTS_PER_ROUND,
   MAX_RANDOM_RESULT_UTF8_BYTES_PER_STEP,
@@ -61,6 +63,7 @@ function resultStep(result: DiscreteRandomResult, stepId: string) {
 }
 
 function refreshCommittedStepHash(step: CommittedStep): void {
+  step.semanticHash = semanticStepHash(step);
   const payload = { ...step } as Partial<CommittedStep>;
   delete payload.contentHash;
   step.contentHash = contentHash(payload);
@@ -334,7 +337,7 @@ describe("committed discrete random", () => {
       };
       return { kind: "transition", proposal };
     });
-    const engine = new SimulationEngine(definition, new TruthEngine(provider), new AgentMind(provider));
+    const engine = new SimulationEngine(definition, new MonolithicCurrentAlgorithm(provider));
     await engine.bootstrapAgents();
     engine.beginPlayerIntent("触发一次世界声明的随机产出");
     const stateBeforeStep = engine.snapshot;
@@ -436,7 +439,7 @@ describe("committed discrete random", () => {
       result.state.truth.elapsedSeconds,
     );
     const sessionDocument: WorldSessionDocument = {
-      schemaVersion: 9,
+      schemaVersion: 10,
       id: "committed-random-session",
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -508,9 +511,7 @@ describe("committed discrete random", () => {
     const oversizedStep = oversizedResult.state.history[0];
     oversizedStep.randomResults[0].steps[0].draws[0].value =
       "x".repeat(MAX_RANDOM_RESULT_UTF8_BYTES_PER_STEP);
-    const oversizedPayload = { ...oversizedStep };
-    delete (oversizedPayload as Partial<typeof oversizedStep>).contentHash;
-    oversizedStep.contentHash = contentHash(oversizedPayload);
+    refreshCommittedStepHash(oversizedStep);
     expect(() => store.compareAndSwap(oversizedResult.id, stored.generation, oversizedResult))
       .toThrow("result byte limit");
 
@@ -518,9 +519,7 @@ describe("committed discrete random", () => {
     const tamperedStep = tampered.history[0];
     const tamperedAmount = resultStep(tamperedStep.randomResults[0], "amount");
     tamperedAmount.aggregate = Number(tamperedAmount.aggregate) + 1;
-    const tamperedPayload = { ...tamperedStep };
-    delete (tamperedPayload as Partial<typeof tamperedStep>).contentHash;
-    tamperedStep.contentHash = contentHash(tamperedPayload);
+    refreshCommittedStepHash(tamperedStep);
     expect(() => validateSimulationState(tampered, true, true)).toThrow("non-reproducible RNG audit");
 
     const observedTampered = structuredClone(result.state);
@@ -557,26 +556,14 @@ describe("committed discrete random", () => {
     refreshCommittedStepHash(deepExtraStep);
     expect(() => validateSimulationState(deepExtraField, true, true)).toThrow();
 
-    const missingBootstrapAudit = structuredClone(result.state);
-    missingBootstrapAudit.bootstrapModelAudits = [];
-    expect(() => validateSimulationState(missingBootstrapAudit, true, true))
-      .toThrow("bootstrap commits and model audits do not exactly cover");
-
-    const duplicateTruthAudit = structuredClone(result.state);
-    const duplicateTruthStep = duplicateTruthAudit.history[0];
-    duplicateTruthStep.modelAudits.push(structuredClone(
-      duplicateTruthStep.modelAudits.find((audit) => audit.role === "truth-transition")!,
-    ));
-    refreshCommittedStepHash(duplicateTruthStep);
-    expect(() => validateSimulationState(duplicateTruthAudit, true, true))
-      .toThrow("must have exactly one truth-transition audit");
-
-    const reboundTruthAudit = structuredClone(result.state);
-    const reboundTruthStep = reboundTruthAudit.history[0];
-    reboundTruthStep.modelAudits.find((audit) => audit.role === "truth-resolution")!.subjectId = "player";
-    refreshCommittedStepHash(reboundTruthStep);
-    expect(() => validateSimulationState(reboundTruthAudit, true, true))
-      .toThrow("must have exactly one truth-resolution audit");
+    const forgedSemanticHash = structuredClone(result.state);
+    const forgedSemanticStep = forgedSemanticHash.history[0];
+    forgedSemanticStep.semanticHash = "0".repeat(64);
+    const forgedContentPayload = { ...forgedSemanticStep } as Partial<CommittedStep>;
+    delete forgedContentPayload.contentHash;
+    forgedSemanticStep.contentHash = contentHash(forgedContentPayload);
+    expect(() => validateSimulationState(forgedSemanticHash, true, true))
+      .toThrow("invalid semantic hash");
 
     const futureFactReference = structuredClone(result.state);
     futureFactReference.truth.facts["future-only"] = {
@@ -731,9 +718,7 @@ describe("committed discrete random", () => {
     unusedStep.commitmentRounds.push({ kind: "random", requestIds: [unusedRequest.id] });
     unusedStep.rngAfter = unusedResolution.rng;
     unusedCommitment.truth.rng = structuredClone(unusedResolution.rng);
-    const unusedPayload = { ...unusedStep };
-    delete (unusedPayload as Partial<typeof unusedStep>).contentHash;
-    unusedStep.contentHash = contentHash(unusedPayload);
+    refreshCommittedStepHash(unusedStep);
     expect(() => validateSimulationState(unusedCommitment, true, true))
       .toThrow("invalid random audit coverage");
 
@@ -823,8 +808,10 @@ describe("committed discrete random", () => {
     }, catalog, false);
     const engine = new SimulationEngine(
       definition,
-      new TruthEngine(provider, { repairAttempts: 0 }),
-      new AgentMind(provider),
+      new MonolithicCurrentAlgorithm(
+        new TruthEngine(provider, { repairAttempts: 0 }),
+        new AgentMind(provider),
+      ),
     );
     await engine.bootstrapAgents();
     engine.beginPlayerIntent("先随机再请求 d20", "random-before-check");
@@ -965,8 +952,10 @@ describe("committed discrete random", () => {
     }, catalog, false);
     const engine = new SimulationEngine(
       definition,
-      new TruthEngine(provider, { repairAttempts: 0 }),
-      new AgentMind(provider),
+      new MonolithicCurrentAlgorithm(
+        new TruthEngine(provider, { repairAttempts: 0 }),
+        new AgentMind(provider),
+      ),
     );
     await engine.bootstrapAgents();
     engine.beginPlayerIntent("连续抽取直到得到偏好的结果", "selection-shopping");

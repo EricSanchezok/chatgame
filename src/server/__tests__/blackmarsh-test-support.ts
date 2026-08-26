@@ -1,4 +1,3 @@
-import { AgentMind } from "../../engine/agent-mind";
 import type { ModelCatalog } from "../../engine/model-catalog";
 import type {
   AgentActionDraft,
@@ -7,10 +6,10 @@ import type {
   TransitionProposal,
   TransitionProposalDraft,
 } from "../../engine/model";
+import { MonolithicCurrentAlgorithm } from "../../engine/monolithic-current";
 import { SimulationEngine } from "../../engine/simulation";
 import { ScriptedModelProvider } from "../../engine/testing/model-provider";
 import { applyTransitionProposal, validateSimulationState } from "../../engine/transaction";
-import { TruthEngine } from "../../engine/truth-engine";
 import type { WorldDefinition } from "../../engine/world-definition";
 
 export const openingDeadlineSettlementSeconds = 108_000;
@@ -311,8 +310,7 @@ export async function settleBlackmarshOpeningDeadlines(
 
   const engine = new SimulationEngine(
     definition,
-    new TruthEngine(provider),
-    new AgentMind(provider),
+    new MonolithicCurrentAlgorithm(provider),
   );
   await engine.bootstrapAgents();
   engine.beginPlayerIntent("在港区原地等待到第 108000 秒，不假设知晓远方行动结果。", "deadline-audit");

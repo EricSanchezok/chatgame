@@ -2,6 +2,7 @@ import type {
   AgentState,
   CanonicalWorldState,
   CommittedStep,
+  ModelExecutionAudit,
   PlayerState,
 } from "../engine/model";
 import type {
@@ -190,7 +191,7 @@ export interface WorldInspectorStateSnapshot {
 export interface WorldInspectorStepDetail {
   apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
   summary: WorldInspectorStepSummary;
-  committed: CommittedStep;
+  committed: CommittedStep & { modelAudits: ModelExecutionAudit[] };
   before: WorldInspectorStateSnapshot;
   after: WorldInspectorStateSnapshot;
   runtimeEvents: WorldInspectorRuntimeEventSummary[];

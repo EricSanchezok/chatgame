@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentMind } from "../../engine/agent-mind";
+import { semanticStepHash } from "../../engine/canonical-committer";
 import { contentHash } from "../../engine/model-audit";
+import { MonolithicCurrentAlgorithm } from "../../engine/monolithic-current";
 import { RecordingRuntimeObserver } from "../../engine/observability";
 import { DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { SimulationEngine } from "../../engine/simulation";
-import { TruthEngine } from "../../engine/truth-engine";
 import { toWorldRuntimeContract } from "../../engine/world-definition";
 import { loadWorldScript } from "../../script/world-loader";
 import { LocalDatabase, LocalDatabaseInUseError } from "../local-database";
@@ -37,7 +37,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
     seed: 17,
     modelCatalog: provider.catalog,
   });
-  const engine = new SimulationEngine(definition, new TruthEngine(provider), new AgentMind(provider));
+  const engine = new SimulationEngine(definition, new MonolithicCurrentAlgorithm(provider));
   await engine.bootstrapAgents();
   if (committed) {
     engine.beginPlayerIntent("推进一个可审计步骤");
@@ -50,7 +50,7 @@ async function sessionDocument(id = "session-1", committed = false): Promise<Wor
     ? publicCommittedStepEvents(state.history[0], state.truth.elapsedSeconds)
     : [];
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
     id,
     world: toWorldRuntimeContract(definition),
     title: definition.name,
@@ -149,7 +149,7 @@ function addFailedRun(document: WorldSessionDocument, retriable: boolean): void 
 }
 
 describe("WorldSessionStore", () => {
-  it("persists a strict v9 document and rejects missing sessions", async () => {
+  it("persists a strict v10 document and rejects missing sessions", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
 
@@ -185,10 +185,10 @@ describe("WorldSessionStore", () => {
     expect(store.read(second.document.id).document.id).toBe(second.document.id);
   });
 
-  it("rejects v8 documents without a compatibility path", async () => {
+  it("rejects v9 documents without a compatibility path", async () => {
     const store = new MemoryWorldSessionStore();
     const document = await sessionDocument();
-    const legacy = { ...document, schemaVersion: 8 } as unknown as WorldSessionDocument;
+    const legacy = { ...document, schemaVersion: 9 } as unknown as WorldSessionDocument;
 
     expect(() => store.create(legacy)).toThrow();
   });
@@ -385,40 +385,39 @@ describe("WorldSessionStore", () => {
     const document = created.document;
     const step = document.state.history[0];
     step.characterPatches[0].baseRevision = 99;
+    step.semanticHash = semanticStepHash(step);
     const payload = Object.fromEntries(Object.entries(step).filter(([key]) => key !== "contentHash"));
     step.contentHash = contentHash(payload);
 
     expect(() => store.compareAndSwap(document.id, created.generation, document))
-      .toThrow("invalid AgentMind audit coverage");
+      .toThrow("invalid AgentMind patch coverage");
   });
 
-  it("rejects mutation of invocation audit hashes even when the step hash is recomputed", async () => {
+  it("rejects mutation of the semantic hash even when the content hash is recomputed", async () => {
     const store = new MemoryWorldSessionStore();
-    const created = store.create(await sessionDocument("invocation-hash", true));
+    const created = store.create(await sessionDocument("semantic-hash", true));
     const document = created.document;
     const step = document.state.history[0];
-    step.modelAudits[0].invocations[0].requestHash = "tampered";
+    step.semanticHash = "0".repeat(64);
     const payload = Object.fromEntries(Object.entries(step).filter(([key]) => key !== "contentHash"));
     step.contentHash = contentHash(payload);
 
     expect(() => store.compareAndSwap(document.id, created.generation, document))
-      .toThrow("model invocation identity");
+      .toThrow("invalid semantic hash");
   });
 
-  it("rejects raw payload fields injected into an invocation audit", async () => {
+  it("rejects execution evidence injected into canonical history", async () => {
     const store = new MemoryWorldSessionStore();
-    const created = store.create(await sessionDocument("invocation-payload", true));
+    const created = store.create(await sessionDocument("execution-evidence", true));
     const document = created.document;
     const step = document.state.history[0];
-    const invocation = step.modelAudits[0].invocations[0] as typeof step.modelAudits[0]["invocations"][0] & {
-      payload?: unknown;
-    };
-    invocation.payload = { prompt: "must not persist" };
+    Object.assign(step, { modelAudits: [{ payload: { prompt: "must not persist" } }] });
+    step.semanticHash = semanticStepHash(step);
     const payload = Object.fromEntries(Object.entries(step).filter(([key]) => key !== "contentHash"));
     step.contentHash = contentHash(payload);
 
     expect(() => store.compareAndSwap(document.id, created.generation, document))
-      .toThrow("model invocation identity");
+      .toThrow();
   });
 
   it("rejects canonical identity fields in public run events", async () => {
@@ -612,5 +611,40 @@ describe("WorldSessionStore", () => {
     expect(() => first.create(document)).toThrow(LocalDatabaseInUseError);
     second.close();
     first.close();
+  });
+
+  it("renews its own expired lease after synchronous work blocks the heartbeat", async () => {
+    const file = temporaryDatabase();
+    let now = 0;
+    const clock = () => now;
+    const database = new LocalDatabase(file, { ownerId: "long-running-owner", heartbeat: false, now: clock });
+    now = 15_001;
+    expect(database.create(await sessionDocument("long-running-session"))).toMatchObject({ generation: 1 });
+    database.close();
+  });
+
+  it("rolls back the session CAS when execution terminal persistence fails", async () => {
+    const database = new LocalDatabase(temporaryDatabase(), { heartbeat: false });
+    try {
+      const created = database.create(await sessionDocument("atomic-execution-session"));
+      const updated = structuredClone(created.document);
+      updated.title = "不得单独提交";
+      updated.updatedAt = "2026-08-23T00:00:01.000Z";
+
+      expect(() => database.compareAndSwapAndFinishExecution(
+        updated.id,
+        created.generation,
+        updated,
+        "missing-execution",
+        { status: "succeeded", semanticHash: contentHash("semantic") },
+      )).toThrow("execution not found");
+
+      expect(database.read(updated.id)).toMatchObject({
+        generation: created.generation,
+        document: { title: created.document.title },
+      });
+    } finally {
+      database.close();
+    }
   });
 });

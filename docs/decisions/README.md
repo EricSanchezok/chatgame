@@ -125,3 +125,4 @@
 - [0056 — 控件状态与设置空间分组](0056-control-state-and-settings-grouping.md)
 - [0057 — 失败感知的世界演化诊断工作台](0057-failure-aware-world-inspector.md)
 - [0058 — 通过门禁的工作单元及时本地提交](0058-timely-gated-local-commits.md)
+- [0059 — 统一执行内核与 Execution Ledger](0059-unified-execution-kernel-and-ledger.md)

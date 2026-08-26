@@ -243,7 +243,7 @@ export class ModelGateway implements StructuredModelProvider {
       },
       counts: contextAudit.counts,
       hashes: { context: contentHash(context), request: requestHash, contract: contractHash },
-      payload: fullRuntimePayload(observer, { context, sections: contextAudit.sections }),
+      payload: fullRuntimePayload(observer, requestDocument),
     });
     const contractEmissionKey = `${observer.mode}:${contractHash}`;
     if (observe && !this.emittedContracts.has(contractEmissionKey)) {
@@ -272,6 +272,7 @@ export class ModelGateway implements StructuredModelProvider {
       hashes: { request: requestHash, contract: contractHash },
       measurements: { requestUtf8Bytes, contextUtf8Bytes: contextAudit.utf8Bytes },
     });
+    observer.flush?.();
     const transports: ModelTransportAttemptAudit[] = [];
     let transportAttempts = 0;
 
@@ -375,6 +376,7 @@ export class ModelGateway implements StructuredModelProvider {
           },
           hashes: { request: requestHash, response: responseHash },
         });
+        observer.flush?.();
         return {
           value: output,
           audit: {
@@ -507,6 +509,7 @@ export class ModelGateway implements StructuredModelProvider {
               counts: { transportAttempts: transports.length },
               hashes: { request: requestHash },
             });
+            observer.flush?.();
             throw new ModelOutputError(
               error instanceof Error ? error.message : String(error),
               audit,
@@ -524,6 +527,7 @@ export class ModelGateway implements StructuredModelProvider {
               hashes: { request: requestHash },
               error: serializeRuntimeError(error),
             });
+            observer.flush?.();
             throw error;
           }
           observe?.({
@@ -535,6 +539,7 @@ export class ModelGateway implements StructuredModelProvider {
             hashes: { request: requestHash },
             error: serializeRuntimeError(error),
           });
+          observer.flush?.();
           throw new ModelTransportError(
             error instanceof Error ? error.message : String(error),
             {
@@ -553,7 +558,9 @@ export class ModelGateway implements StructuredModelProvider {
           correlation: transportCorrelation,
           durationMs: delayMs,
           attributes: { source: serverDelay === undefined ? "backoff" : "retry-after" },
+          measurements: { retryDelayMs: delayMs },
         });
+        observer.flush?.();
         try {
           await this.sleep(delayMs, request.abortSignal);
         } catch (retryError) {
@@ -574,6 +581,7 @@ export class ModelGateway implements StructuredModelProvider {
             hashes: { request: requestHash },
             error: serializeRuntimeError(retryError),
           });
+          observer.flush?.();
           if (cancelled) throw retryError;
           throw new ModelTransportError(
             retryError instanceof Error ? retryError.message : String(retryError),

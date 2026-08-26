@@ -4,9 +4,8 @@ import { canonicalize, measureModelContext } from "../model-audit";
 import { RecordingRuntimeObserver, type RuntimeObserver } from "../observability";
 import { DeterministicModelProvider } from "../testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
+import { MonolithicCurrentAlgorithm } from "../monolithic-current";
 import { SimulationEngine } from "../simulation";
-import { TruthEngine } from "../truth-engine";
-import { AgentMind } from "../agent-mind";
 
 describe("model context measurements", () => {
   it("uses canonical pretty JSON UTF-8 bytes and reports top-level sections and state counts", () => {
@@ -64,8 +63,7 @@ describe("model context measurements", () => {
       });
       const engine = new SimulationEngine(
         definition,
-        new TruthEngine(provider),
-        new AgentMind(provider),
+        new MonolithicCurrentAlgorithm(provider),
       );
       const scope = {
         workloadId: "semantic-equivalence",

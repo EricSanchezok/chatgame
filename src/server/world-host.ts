@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { AgentMind } from "../engine/agent-mind";
 import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
 import { canonicalize, contentHash } from "../engine/model-audit";
+import { semanticStepHash } from "../engine/canonical-committer";
 import type { StructuredModelProvider } from "../engine/model-provider";
+import { MonolithicCurrentAlgorithm, MONOLITHIC_CURRENT_MANIFEST } from "../engine/monolithic-current";
+import { WorldExecutionAlgorithmRegistry } from "../engine/execution";
 import { SimulationEngine } from "../engine/simulation";
-import { TruthEngine } from "../engine/truth-engine";
 import {
   validateWorldDefinition,
   validateWorldModelProfiles,
@@ -40,9 +41,8 @@ import type {
   WorldInspectorWindow,
 } from "../shared/world-inspector-api";
 import { LocalDatabase } from "./local-database";
+import type { ExecutionLedger, FinishExecutionInput } from "./execution-ledger";
 import type { WorldImportResult } from "./world-import";
-import { getRuntimeObserver, readRuntimeObservabilityConfig } from "./runtime-observer";
-import { RuntimeTraceIndex } from "./runtime-trace-index";
 import {
   buildWorldInspectorAttemptDetail,
   buildWorldInspectorCommittedProjection,
@@ -50,6 +50,7 @@ import {
   buildWorldInspectorRuntimeEventDetail,
   buildWorldInspectorStepDetail,
   buildWorldInspectorWindow,
+  modelAuditsForStep,
   summarizeRuntimeEvent,
   type WorldInspectorCommittedProjection,
   type WorldInspectorCommittedStepDetail,
@@ -74,6 +75,7 @@ import {
   type WorldRunStatus,
   type WorldSessionDocument,
 } from "./world-run-types";
+import { runtimeCodeIdentity } from "./code-identity";
 
 interface HostedSession extends StoredWorldSession {
   definition: WorldDefinition;
@@ -113,6 +115,12 @@ const streamBoundaryEventTypes = new Set<WorldRunEvent["type"]>([
   "run.failed",
 ]);
 
+const LEDGER_INSPECTOR_OBSERVER: RuntimeObserver = {
+  mode: "full",
+  degraded: false,
+  emit: () => undefined,
+};
+
 class RunChannel {
   private readonly waiters = new Set<() => void>();
   private version = 0;
@@ -150,7 +158,32 @@ export interface WorldHostOptions {
   idFactory?: () => string;
   maxStepsPerRun?: number;
   observer?: RuntimeObserver;
-  traceIndex?: RuntimeTraceIndex;
+  ledger?: ExecutionLedger;
+  algorithmRegistry?: WorldExecutionAlgorithmRegistry;
+  algorithm?: { id: string; version: string };
+}
+
+interface AtomicExecutionSessionStore extends WorldSessionStore {
+  createAndFinishExecution(
+    document: WorldSessionDocument,
+    executionId: string,
+    finish: FinishExecutionInput,
+    correlation?: RuntimeCorrelation,
+  ): { session: StoredWorldSession };
+  compareAndSwapAndFinishExecution(
+    sessionId: string,
+    expectedGeneration: number,
+    document: WorldSessionDocument,
+    executionId: string,
+    finish: FinishExecutionInput,
+    correlation?: RuntimeCorrelation,
+  ): { session: StoredWorldSession };
+}
+
+function isAtomicExecutionSessionStore(store: WorldSessionStore): store is AtomicExecutionSessionStore {
+  const candidate = store as Partial<AtomicExecutionSessionStore>;
+  return typeof candidate.createAndFinishExecution === "function" &&
+    typeof candidate.compareAndSwapAndFinishExecution === "function";
 }
 
 export class WorldHostError extends Error {
@@ -175,6 +208,9 @@ export class WorldHost {
   private readonly now: () => Date;
   private readonly idFactory: () => string;
   private readonly maxStepsPerRun: number;
+  private readonly ledger?: ExecutionLedger;
+  private readonly algorithmRegistry: WorldExecutionAlgorithmRegistry;
+  private readonly algorithmIdentity: { id: string; version: string };
   readonly runtimeObserver: RuntimeObserver;
   private readonly observe: ReturnType<typeof runtimeEventEmitter>;
 
@@ -182,6 +218,19 @@ export class WorldHost {
     this.now = options.now ?? (() => new Date());
     this.idFactory = options.idFactory ?? randomUUID;
     this.maxStepsPerRun = options.maxStepsPerRun ?? 100;
+    this.ledger = options.ledger;
+    if (this.ledger && !isAtomicExecutionSessionStore(options.store)) {
+      throw new Error("Execution Ledger requires an atomic execution/session store");
+    }
+    this.algorithmRegistry = options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry();
+    this.algorithmIdentity = options.algorithm ?? {
+      id: MONOLITHIC_CURRENT_MANIFEST.id,
+      version: MONOLITHIC_CURRENT_MANIFEST.version,
+    };
+    if (!options.algorithmRegistry) {
+      this.algorithmRegistry.register(MONOLITHIC_CURRENT_MANIFEST, () =>
+        new MonolithicCurrentAlgorithm(this.options.provider, this.options.repository.rulePackages));
+    }
     this.runtimeObserver = options.observer ?? NOOP_RUNTIME_OBSERVER;
     this.observe = runtimeEventEmitter(this.runtimeObserver);
     this.runtimeObserver.subscribe?.((event) => {
@@ -189,34 +238,38 @@ export class WorldHost {
       if (this.liveRuntimeEvents.length > 10_000) this.liveRuntimeEvents.splice(0, this.liveRuntimeEvents.length - 10_000);
       this.inspectorChannel.notify();
     });
+    this.ledger?.subscribe((event) => {
+      this.liveRuntimeEvents.push(structuredClone(event));
+      if (this.liveRuntimeEvents.length > 10_000) {
+        this.liveRuntimeEvents.splice(0, this.liveRuntimeEvents.length - 10_000);
+      }
+      this.inspectorChannel.notify();
+    });
   }
 
   static get(): WorldHost {
     if (!this.singleton) {
-      const observer = getRuntimeObserver();
-      const observability = readRuntimeObservabilityConfig();
       const catalog = loadModelCatalog(path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
-      const provider = createModelGateway(catalog, process.env, { observer });
+      const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld",
       );
-      const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"), { observer });
+      const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
         repository: database,
         store: database,
         catalogManager: database,
         provider,
-        observer,
-        traceIndex: new RuntimeTraceIndex(observability.directory),
+        ledger: database,
       });
     }
     return this.singleton;
   }
 
   static observer(): RuntimeObserver {
-    return this.singleton?.runtimeObserver ?? getRuntimeObserver();
+    return this.singleton?.runtimeObserver ?? NOOP_RUNTIME_OBSERVER;
   }
 
   static setForTests(host: WorldHost | undefined): void {
@@ -328,10 +381,76 @@ export class WorldHost {
   private buildEngine(definition: WorldDefinition, state = definition.initialState): SimulationEngine {
     return new SimulationEngine(
       definition,
-      new TruthEngine(this.options.provider, { rulePackages: this.options.repository.rulePackages }),
-      new AgentMind(this.options.provider),
+      this.algorithmRegistry.create(this.algorithmIdentity.id, this.algorithmIdentity.version),
       state,
     );
+  }
+
+  private beginLedgerExecution(input: {
+    kind: "interactive" | "diagnostic" | "benchmark" | "replay";
+    sessionId?: string;
+    runId?: string;
+    parentExecutionId?: string;
+    step: number;
+    state: import("../engine/model").SimulationState;
+  }) {
+    if (!this.ledger) return undefined;
+    const executionId = randomUUID();
+    const code = runtimeCodeIdentity();
+    const trace = this.ledger.beginExecution({
+      id: executionId,
+      kind: input.kind,
+      parentExecutionId: input.parentExecutionId,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      step: input.step,
+      manifest: this.algorithmRegistry.create(
+        this.algorithmIdentity.id,
+        this.algorithmIdentity.version,
+      ).manifest,
+      worldHash: input.state.worldHash,
+      codeRevision: code.revision,
+      codeDirty: code.dirty,
+      modelCatalogHash: this.options.provider.catalog.hash,
+      seed: input.state.historyBase?.truth.rng.seed ?? input.state.truth.rng.seed,
+      runtimeConfig: {
+        node: process.version,
+        platform: process.platform,
+        architecture: process.arch,
+        scheduler: this.options.provider.catalog.scheduler,
+      },
+    });
+    return { executionId, trace };
+  }
+
+  private failLedgerExecution(executionId: string | undefined, error: unknown): void {
+    if (!executionId || !this.ledger) return;
+    if (this.ledger.execution(executionId)?.status !== "running") return;
+    this.ledger.finishExecution(executionId, {
+      status: error instanceof Error && error.name === "AbortError" ? "cancelled" : "failed",
+      error: serializeRuntimeError(error),
+    });
+  }
+
+  private finishRunLedgerExecution(
+    execution: { executionId: string; trace: import("../engine/execution").ExecutionTraceWriter } | undefined,
+    status: "succeeded" | "cancelled",
+    state: import("../engine/model").SimulationState,
+    semanticHashes: readonly string[],
+  ): void {
+    if (!execution || !this.ledger || this.ledger.execution(execution.executionId)?.status !== "running") return;
+    execution.trace.emit({
+      event: "run.execution.completed",
+      attributes: { status },
+      counts: { committedSteps: semanticHashes.length },
+      hashes: { state: contentHash(state), semantics: contentHash(semanticHashes) },
+    });
+    this.ledger.finishExecution(execution.executionId, {
+      status,
+      semanticHash: contentHash(semanticHashes),
+      stateHash: contentHash(state),
+      commitRevision: state.revision,
+    });
   }
 
   private appendEvent(
@@ -361,16 +480,30 @@ export class WorldHost {
     engine: SimulationEngine,
     document: WorldSessionDocument,
     correlation?: RuntimeCorrelation,
+    execution?: { id: string; finish: FinishExecutionInput },
   ): HostedSession {
     document.state = engine.snapshot;
     document.updatedAt = this.now().toISOString();
-    const stored = this.options.store.compareAndSwap(
-      session.document.id,
-      session.generation,
-      document,
-      correlation,
-    );
-    return { ...stored, definition: session.definition, engine };
+    const stored = execution && this.ledger && isAtomicExecutionSessionStore(this.options.store)
+      ? this.options.store.compareAndSwapAndFinishExecution(
+          session.document.id,
+          session.generation,
+          document,
+          execution.id,
+          execution.finish,
+          correlation,
+        ).session
+      : this.options.store.compareAndSwap(
+          session.document.id,
+          session.generation,
+          document,
+          correlation,
+        );
+    return {
+      ...stored,
+      definition: session.definition,
+      engine: this.buildEngine(session.definition, stored.document.state),
+    };
   }
 
   private commitRequest(
@@ -488,16 +621,33 @@ export class WorldHost {
     this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     const engine = this.buildEngine(definition);
     const id = this.idFactory();
-    const sessionCorrelation = { ...correlation, sessionId: id, revision: 0, step: 0 };
-    await engine.bootstrapAgents({
-      workloadId: id,
-      batchId: `bootstrap:${id}`,
-      correlation: sessionCorrelation,
-      observer: this.runtimeObserver,
+    const ledgerExecution = this.beginLedgerExecution({
+      kind: "interactive",
+      sessionId: id,
+      step: 0,
+      state: definition.initialState,
     });
+    const sessionCorrelation = {
+      ...correlation,
+      executionId: ledgerExecution?.executionId,
+      sessionId: id,
+      revision: 0,
+      step: 0,
+    };
+    try {
+      await engine.bootstrapAgents({
+        workloadId: id,
+        batchId: `bootstrap:${id}`,
+        correlation: sessionCorrelation,
+        observer: ledgerExecution?.trace ?? this.runtimeObserver,
+      });
+    } catch (error) {
+      this.failLedgerExecution(ledgerExecution?.executionId, error);
+      throw error;
+    }
     const now = this.now().toISOString();
     const document: WorldSessionDocument = {
-      schemaVersion: 9,
+      schemaVersion: 10,
       id,
       world: toWorldRuntimeContract(definition),
       title: definition.name,
@@ -507,8 +657,26 @@ export class WorldHost {
       runs: {},
     };
     try {
-      this.options.store.create(document, sessionCorrelation);
+      if (ledgerExecution && this.ledger && isAtomicExecutionSessionStore(this.options.store)) {
+        this.options.store.createAndFinishExecution(document, ledgerExecution.executionId, {
+          status: "succeeded",
+          semanticHash: contentHash({ bootstrapAgentCommits: document.state.bootstrapAgentCommits }),
+          stateHash: contentHash(document.state),
+          commitRevision: document.state.revision,
+        }, sessionCorrelation);
+      } else {
+        this.options.store.create(document, sessionCorrelation);
+        if (ledgerExecution && this.ledger) {
+          this.ledger.finishExecution(ledgerExecution.executionId, {
+            status: "succeeded",
+            semanticHash: contentHash({ bootstrapAgentCommits: document.state.bootstrapAgentCommits }),
+            stateHash: contentHash(document.state),
+            commitRevision: document.state.revision,
+          });
+        }
+      }
     } catch (error) {
+      this.failLedgerExecution(ledgerExecution?.executionId, error);
       this.observe?.({
         event: "session.bootstrap.persistence_rolled_back",
         level: "error",
@@ -533,21 +701,17 @@ export class WorldHost {
   }
 
   private inspectorRuntimeTrace(sessionId: string): { degraded: boolean; events: RuntimeEvent[] } {
-    if (this.runtimeObserver.mode === "off") {
-      return { degraded: this.runtimeObserver.degraded, events: [] };
-    }
     let persisted: RuntimeEvent[] = [];
-    let degraded = this.runtimeObserver.degraded;
+    let degraded = false;
     try {
-      persisted = this.options.traceIndex?.events(sessionId) ?? [];
-      degraded ||= this.options.traceIndex?.degraded ?? false;
+      persisted = this.ledger?.sessionEvents(sessionId) ?? [];
     } catch {
-      // Trace inspection is best-effort and cannot affect the world host.
       degraded = true;
     }
-    const recorded = this.runtimeObserver.snapshot?.().filter((event) =>
+    const recorded = this.ledger ? [] : this.runtimeObserver.snapshot?.().filter((event) =>
       event.correlation?.sessionId === sessionId) ?? [];
-    const live = this.liveRuntimeEvents.filter((event) => event.correlation?.sessionId === sessionId);
+    const live = this.ledger ? [] : this.liveRuntimeEvents.filter((event) =>
+      event.correlation?.sessionId === sessionId);
     const unique = new Map<string, RuntimeEvent>();
     for (const event of [...persisted, ...recorded, ...live]) {
       unique.set(`${event.timestamp}\u0000${event.sequence}\u0000${event.event}`, event);
@@ -557,6 +721,10 @@ export class WorldHost {
       events: [...unique.values()].sort((left, right) =>
         left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence),
     };
+  }
+
+  private inspectorObserver(): RuntimeObserver {
+    return this.ledger ? LEDGER_INSPECTOR_OBSERVER : this.runtimeObserver;
   }
 
   inspectorWindow(
@@ -573,7 +741,7 @@ export class WorldHost {
     const trace = this.inspectorRuntimeTrace(sessionId);
     return buildWorldInspectorWindow(
       document,
-      this.runtimeObserver,
+      this.inspectorObserver(),
       trace.events,
       input,
       projection,
@@ -587,17 +755,25 @@ export class WorldHost {
     correlation?: RuntimeCorrelation,
   ): WorldInspectorStepDetail {
     const document = this.loadSession(sessionId, true, correlation).document;
+    const trace = this.inspectorRuntimeTrace(sessionId);
+    const committed = document.state.history.find((candidate) => candidate.revision === revision);
     const cacheKey = `${this.inspectorCachePrefix(document)}:step:${revision}`;
-    const committedDetail = this.inspectorCacheValue(this.inspectorStepCache, cacheKey, () => {
-      const built = buildWorldInspectorCommittedStepDetail(document, revision);
+    const buildCommittedDetail = () => {
+      const built = buildWorldInspectorCommittedStepDetail(
+        document,
+        revision,
+        modelAuditsForStep(trace.events, committed?.step ?? revision, committed?.executionRef?.executionId),
+      );
       if (!built) throw new WorldHostError(`world revision not found: ${revision}`, 404);
       return built;
-    });
-    const trace = this.inspectorRuntimeTrace(sessionId);
+    };
+    const committedDetail = trace.degraded
+      ? buildCommittedDetail()
+      : this.inspectorCacheValue(this.inspectorStepCache, cacheKey, buildCommittedDetail);
     const detail = buildWorldInspectorStepDetail(
       document,
       revision,
-      this.runtimeObserver,
+      this.inspectorObserver(),
       trace.events,
       committedDetail,
       trace.degraded,
@@ -615,7 +791,7 @@ export class WorldHost {
     const trace = this.inspectorRuntimeTrace(sessionId);
     const detail = buildWorldInspectorAttemptDetail(
       attemptId,
-      this.runtimeObserver,
+      this.inspectorObserver(),
       trace.events,
       trace.degraded,
     );
@@ -636,10 +812,13 @@ export class WorldHost {
   }
 
   inspectorStreamState(): { epoch: string; earliest: number; latest: number } {
+    const persisted = this.ledger ? this.options.store.listSessions()
+      .flatMap((session) => this.ledger!.sessionEvents(session.document.id)) : [];
+    const events = persisted.length > 0 ? persisted : this.liveRuntimeEvents;
     return {
       epoch: this.inspectorEpoch,
-      earliest: this.liveRuntimeEvents[0]?.sequence ?? 0,
-      latest: this.liveRuntimeEvents.at(-1)?.sequence ?? 0,
+      earliest: events[0]?.sequence ?? 0,
+      latest: events.at(-1)?.sequence ?? 0,
     };
   }
 
@@ -654,7 +833,8 @@ export class WorldHost {
     let cursor = afterSequence;
     while (!signal?.aborted) {
       const channelVersion = this.inspectorChannel.currentVersion;
-      const available = this.liveRuntimeEvents.filter((event) =>
+      const sourceEvents = this.ledger?.sessionEvents(sessionId) ?? this.liveRuntimeEvents;
+      const available = sourceEvents.filter((event) =>
         event.sequence > cursor && event.correlation?.sessionId === sessionId);
       for (const event of available) {
         cursor = event.sequence;
@@ -932,11 +1112,26 @@ export class WorldHost {
     const startedAt = Date.now();
     let pendingStepCorrelation: RuntimeCorrelation | undefined;
     let rollbackStateHash: string | undefined;
+    let pendingExecutionId: string | undefined;
+    let runLedgerExecution: ReturnType<WorldHost["beginLedgerExecution"]> = undefined;
+    const committedSemanticHashes: string[] = [];
     try {
       let session = this.loadSession(sessionId, false, correlation);
       let document = structuredClone(session.document);
       let run = document.runs[runId];
       if (!run || run.status !== "queued") return;
+      runLedgerExecution = this.beginLedgerExecution({
+        kind: "interactive",
+        sessionId,
+        runId,
+        step: session.engine.snapshot.step,
+        state: session.engine.snapshot,
+      });
+      runLedgerExecution?.trace.emit({
+        event: "run.execution.started",
+        attributes: { reason },
+        counts: { persistentAgents: Object.keys(session.engine.snapshot.agents).length },
+      });
       run.status = "running";
       const input = [...run.events].reverse().find((event) => event.type === "player.input");
       if (!input || input.type !== "player.input") throw new Error(`run ${runId} has no player input`);
@@ -950,14 +1145,25 @@ export class WorldHost {
 
       for (let index = 0; index < this.maxStepsPerRun; index += 1) {
         if (this.requireRun(session, runId).cancelRequested || abortSignal.aborted) {
-          this.cancelExecution(session, runId, correlation, startedAt);
+          session = this.cancelExecution(session, runId, correlation, startedAt);
+          this.finishRunLedgerExecution(runLedgerExecution, "cancelled", session.engine.snapshot, committedSemanticHashes);
           return;
         }
         const engine = session.engine;
         const baseState = engine.snapshot;
         rollbackStateHash = contentHash(baseState);
+        const ledgerExecution = this.beginLedgerExecution({
+          kind: "interactive",
+          sessionId,
+          runId,
+          parentExecutionId: runLedgerExecution?.executionId,
+          step: baseState.step + 1,
+          state: baseState,
+        });
+        pendingExecutionId = ledgerExecution?.executionId;
         const stepCorrelation = {
           ...correlation,
+          executionId: ledgerExecution?.executionId,
           stepAttemptId: `${runId}:${correlation.runAttempt ?? 1}:${baseState.revision + 1}`,
           revision: baseState.revision,
           step: baseState.step + 1,
@@ -967,7 +1173,7 @@ export class WorldHost {
           batchId: runId,
           abortSignal,
           correlation: stepCorrelation,
-          observer: this.runtimeObserver,
+          observer: ledgerExecution?.trace ?? this.runtimeObserver,
         });
         pendingStepCorrelation = stepCorrelation;
         const latest = this.readStoredSession(sessionId, stepCorrelation);
@@ -1006,11 +1212,28 @@ export class WorldHost {
             payload: { runId, revision: result.state.revision, step: result.state.step },
           }, stepCorrelation);
         }
-        session = this.commitCandidate(session, engine, document, {
+        const committedCorrelation = {
           ...stepCorrelation,
           revision: result.state.revision,
           step: result.state.step,
-        });
+        };
+        session = this.commitCandidate(
+          session,
+          engine,
+          document,
+          committedCorrelation,
+          ledgerExecution ? {
+            id: ledgerExecution.executionId,
+            finish: {
+              status: "succeeded",
+              semanticHash: semanticStepHash(result.committed),
+              stateHash: contentHash(result.state),
+              commitRevision: result.state.revision,
+            },
+          } : undefined,
+        );
+        pendingExecutionId = undefined;
+        committedSemanticHashes.push(result.committed.semanticHash);
         pendingStepCorrelation = undefined;
         rollbackStateHash = undefined;
         this.notifyRun(sessionId, runId, Boolean(terminalStatus));
@@ -1022,16 +1245,21 @@ export class WorldHost {
             durationMs: Math.max(0, Date.now() - startedAt),
             attributes: { status: terminalStatus },
           });
+          this.finishRunLedgerExecution(runLedgerExecution, "succeeded", result.state, committedSemanticHashes);
           return;
         }
 
         if (this.requireRun(session, runId).cancelRequested || abortSignal.aborted) {
-          this.cancelExecution(session, runId, correlation, startedAt);
+          session = this.cancelExecution(session, runId, correlation, startedAt);
+          this.finishRunLedgerExecution(runLedgerExecution, "cancelled", session.engine.snapshot, committedSemanticHashes);
           return;
         }
       }
-      this.finishRun(session, runId, "step_limit", session.engine, correlation, startedAt);
+      const finished = this.finishRun(session, runId, "step_limit", session.engine, correlation, startedAt);
+      this.finishRunLedgerExecution(runLedgerExecution, "succeeded", finished.engine.snapshot, committedSemanticHashes);
     } catch (error) {
+      this.failLedgerExecution(pendingExecutionId, error);
+      this.failLedgerExecution(runLedgerExecution?.executionId, error);
       const failure = classifyRunFailure(error);
       const failureKey = this.executionKey(sessionId, runId);
       if (failure.kind === "cancelled" || abortSignal.aborted) {
