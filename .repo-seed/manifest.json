@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "repoSeedVersion": "0.2.0",
+  "repoSeedVersion": "0.3.0",
   "lastSyncCommit": null,
   "config": {
     "license": "MIT",
@@ -10,8 +10,9 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "sha256": "435466d58ff41b0a1c83abe6722311eaa6e64e068b8061a3b9143c4a9a038a78",
-      "category": "instruction"
+      "sha256": "1abdc8b46a1df29ad5a11616a1c2ea208fdac318b171bc92d4b313764d5eb3af",
+      "category": "instruction",
+      "userModified": true
     },
     {
       "path": "CLAUDE.md",
@@ -31,7 +32,7 @@
     },
     {
       "path": "docs/development.md",
-      "sha256": "f4cbd1629a3cc488b7dff5659b8fcb594ab2b860d6df381e954dac1516381861",
+      "sha256": "c091c83a28dd0ad75614b385cdd17ba16d3dc440f399fac9c704bd77611d4463",
       "category": "docs",
       "userModified": true
     },
@@ -43,7 +44,7 @@
     },
     {
       "path": "docs/decisions/README.md",
-      "sha256": "ce1c13f858d73c09e8f2f14472b6f6865c4ff0aba91c532208da723869a6211a",
+      "sha256": "fba5d0478f08a1758c7e407d46b3f2d55fe832c7ec8a05911a5799e09a2844f4",
       "category": "docs",
       "userModified": true
     },
@@ -112,8 +113,9 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "cd746166ddbc19bd5932a53d62567d8dd8d687841f98b108bc278d210fb981cd",
-      "category": "meta"
+      "sha256": "6182d162f456a2df815d36471f9692300df445e04978de765d24b0a81b3eae66",
+      "category": "meta",
+      "userModified": true
     },
     {
       "path": "LICENSE",

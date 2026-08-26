@@ -6,7 +6,7 @@
 
 1. 改动前阅读 [AGENTS.md](AGENTS.md) 与 [docs/AGENTS.md](docs/AGENTS.md)。
 2. 任何非平凡改动，在 [docs/decisions/](docs/decisions/README.md) 新增或更新一条决策记录（使用 `repo-decisions` skill）。
-3. 提交前运行门禁；pre-commit hook 强制执行：
+3. 每完成一个可独立验证的工作单元，按触碰表面运行对应检查并立即本地提交；不要把多个已完成单元长期堆积在工作树。pre-commit hook 强制执行治理门禁：
    ```sh
    node scripts/verify-decisions.mjs
    node scripts/verify-doc-links.mjs
@@ -15,6 +15,8 @@
    ```
 4. 在同一改动内写或更新测试；没有回归测试的修复只是传闻。
 5. 如果改动修复了一个到达用户的 bug，在 [docs/postmortems/](docs/postmortems/README.md) 添加 postmortem。
+
+每个 commit 只包含当前任务的相关改动。无法与用户或其他任务的未提交修改安全分离时，先说明冲突；push 仍需明确授权。
 
 ## 决策记录
 

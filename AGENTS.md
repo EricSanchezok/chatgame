@@ -42,14 +42,16 @@ node scripts/verify-decisions.mjs && node scripts/verify-doc-links.mjs && node s
 
 ## Governance loop (hard rules)
 
-1. 每次 commit 前运行门禁；pre-commit hook 强制执行。
-2. 每个非平凡改动必须在同一改动内新增或更新 [docs/decisions/](docs/decisions/README.md) 决策记录（见 `repo-decisions` skill）。
-3. 一个 bug 到达了真实用户、合并的 PR 或发布，必须写 [docs/postmortems/](docs/postmortems/README.md) postmortem。
-4. 治理层（seeded 文件）的唯一升级通道是重跑 repo-seed skill；绝不手改 seeded 文件去"对齐上游"。
+1. 每完成一个可独立验证的工作单元，按触碰表面运行对应检查，并立即创建本地 commit；pre-commit hook 强制执行治理门禁。不要把多个已经完成的工作单元长期堆积在工作树中。
+2. commit 只包含当前获准任务的相关改动；不得顺带暂存用户或其他任务的修改。改动无法安全分离时，停止提交并说明冲突。
+3. 每个非平凡改动必须在同一改动内新增或更新 [docs/decisions/](docs/decisions/README.md) 决策记录（见 `repo-decisions` skill）。
+4. 一个 bug 到达了真实用户、合并的 PR 或发布，必须写 [docs/postmortems/](docs/postmortems/README.md) postmortem。
+5. 治理层（seeded 文件）的唯一升级通道是重跑 repo-seed skill；绝不手改 seeded 文件去"对齐上游"。
 
 ## Security rules
 
-- 未经用户明确请求，绝不 git commit 或 git push。
+- 用户授权修改或构建即包含在工作单元完成且门禁通过后创建本地 commit 的授权；用户明确要求不 commit、只评审或只诊断时除外。未完成或门禁失败的改动不得提交。
+- 未经用户明确请求，绝不 git push。commit 是本地防丢与回滚检查点，不等于发布或共享。
 - 未经询问，绝不修改 seeded 路径（AGENTS.md、CLAUDE.md、docs/、scripts/、.agents/skills/repo-review、.agents/skills/repo-decisions、.github/、CONTRIBUTING.md、LICENSE、.editorconfig、.gitattributes、.repo-seed/）以外的文件。
 - 绝不读 `.env` 文件或其他 secrets。
 
