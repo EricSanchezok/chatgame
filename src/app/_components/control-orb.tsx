@@ -14,7 +14,6 @@ import {
   Check,
   LoaderCircle,
   Network,
-  UserRound,
 } from "lucide-react";
 import {
   Sheet,
@@ -166,14 +165,12 @@ export function ControlOrb({
   composerDocked,
   inspectorEnabled,
   onAction,
-  onOpenCharacter,
   onOpenInspector,
   status,
 }: {
   composerDocked: boolean;
   inspectorEnabled: boolean;
   onAction: (kind: ControlAction["kind"]) => Promise<void> | void;
-  onOpenCharacter: () => void;
   onOpenInspector: () => void;
   status: ControlOrbStatus;
 }) {
@@ -365,13 +362,6 @@ export function ControlOrb({
     queueMicrotask(onOpenInspector);
   }
 
-  function openCharacter(): void {
-    setOpen(false);
-    setMobileOpen(false);
-    setExitConfirmation(false);
-    queueMicrotask(onOpenCharacter);
-  }
-
   const zone = verticalZone(position.y);
   const offsets = radialOffsets(position.edge, zone);
   const cardOffset = radialCardOffset(position.edge, offsets);
@@ -464,17 +454,13 @@ export function ControlOrb({
               </div>
             </div>
           ) : null}
-          {!exitConfirmation ? (
+          {!exitConfirmation && inspectorEnabled ? (
             <div className="cg-orb__tools">
-              <span>工具</span>
-              <button onClick={openCharacter} tabIndex={open ? 0 : -1} type="button">
-                <UserRound aria-hidden="true" />
-                <span><strong>角色</strong><small>查看记忆、目标与内在状态</small></span>
-              </button>
-              {inspectorEnabled ? <button onClick={openInspector} tabIndex={open ? 0 : -1} type="button">
+              <span>开发者工具</span>
+              <button onClick={openInspector} tabIndex={open ? 0 : -1} type="button">
                 <Network aria-hidden="true" />
                 <span><strong>世界演化</strong><small>查看完整推演与 Agent 认知</small></span>
-              </button> : null}
+              </button>
             </div>
           ) : null}
         </section>
@@ -509,17 +495,13 @@ export function ControlOrb({
               );
             })}
           </nav>
-          {!exitConfirmation ? (
-            <section className="cg-sheet-tools" aria-label="角色与开发者工具">
-              <h3>工具</h3>
-              <button onClick={openCharacter} type="button">
-                <UserRound aria-hidden="true" className="size-5" />
-                <span><strong>打开角色</strong><small>查看记忆、目标与内在状态</small></span>
-              </button>
-              {inspectorEnabled ? <button onClick={openInspector} type="button">
+          {!exitConfirmation && inspectorEnabled ? (
+            <section className="cg-sheet-tools" aria-label="开发者工具">
+              <h3>开发者工具</h3>
+              <button onClick={openInspector} type="button">
                 <Network aria-hidden="true" className="size-5" />
                 <span><strong>打开世界演化</strong><small>查看完整推演、隐藏检定和 Agent 认知</small></span>
-              </button> : null}
+              </button>
             </section>
           ) : null}
           {exitConfirmation ? (

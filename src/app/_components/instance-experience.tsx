@@ -471,7 +471,6 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
             if (kind === "exit") router.push("/");
             else void openOverlay(kind);
           }}
-          onOpenCharacter={() => setOverlay("character")}
           onOpenInspector={() => setInspectorOpen(true)}
           status={{
             elapsedSeconds: detail.summary.elapsedSeconds,

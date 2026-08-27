@@ -94,12 +94,23 @@ test("Arrival, player composer, role and control overlays remain accessible", as
   await page.setViewportSize({ width: 1_280, height: 720 });
 
   await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await expect(page.locator(".cg-orb__menu").getByRole("button")).toHaveCount(4);
+  await expect(page.locator(".cg-orb__card").getByRole("button", { name: "角色" })).toHaveCount(0);
   await page.getByRole("button", { name: "角色" }).click();
   await expect(page.getByRole("dialog", { name: "角色" })).toBeVisible();
   await expect(page.locator(".cg-orb__card")).toBeHidden();
   await expectNoViolations(page);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  const mobileControls = page.locator(".cg-sheet-surface");
+  await expect(mobileControls.getByRole("button", { name: /^角色/ })).toBeVisible();
+  await expectNoViolations(page);
+  await mobileControls.getByRole("button", { name: /^角色/ }).click();
+  await expect(page.getByRole("dialog", { name: "角色" })).toBeVisible();
+  await expectNoViolations(page);
 });
 
 test("world awakening remains accessible when motion, color and space are constrained", async ({ page }) => {
