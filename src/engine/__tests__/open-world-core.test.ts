@@ -26,7 +26,7 @@ import { agentMindOutputSchema, characterPatchSchema } from "../llm-schemas";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     worldId: "test-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],
@@ -180,11 +180,7 @@ function worldState(): SimulationState {
         },
       },
     },
-    player: {
-      entityId: "player",
-      knowledge: { localEntities: {}, claims: {}, evidence: {}, observationIds: [] },
-      bindings: {},
-    },
+    admissions: [],
     history: [],
     bootstrapAgentCommits: [{
       agentId: "keeper",
@@ -211,11 +207,18 @@ function proposal(operations: TransitionProposal["operations"]): TransitionPropo
     baseRevision: 0,
     outcomes: [],
     mechanicInvocations: [],
-    operations,
+    operations: [
+      ...operations,
+      {
+        kind: "advance_time",
+        seconds: 1,
+        causes: [{ kind: "law", id: "time-passes" }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "eq", value: 0 }],
+      },
+    ],
     events: [],
     observations: [],
-    intentStatus: "active",
-    requiresPlayerDecision: false,
+    decisionRequests: [],
   };
 }
 
@@ -477,10 +480,10 @@ describe("open world kernel", () => {
       worldHash: TEST_WORLD_HASH,
       revision: 0,
       kind: "fact",
-      stage: "meter-threshold",
-      owner: ["health:keeper", "death-at-zero", "condition"],
+      stage: "threshold",
+      owner: ["health:keeper", "death-at-zero"],
       round: 0,
-      ordinal: 1,
+      ordinal: 0,
     });
     expect(next.truth.facts[thresholdFactId].value).toEqual({
       kind: "text",
@@ -547,7 +550,7 @@ describe("open world kernel", () => {
         causes: [{ kind: "law", id: "worldgen" }],
         assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       }]),
-    )).toThrow("reserved object key");
+    )).toThrow("semantic ids");
     expect(Object.getPrototypeOf(source.truth.facts)).toBe(Object.prototype);
     expect(Object.hasOwn(source.truth.facts, "__proto__")).toBe(false);
   });
@@ -570,7 +573,7 @@ describe("open world kernel", () => {
         causes: [{ kind: "law", id: "worldgen" }],
         assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
       }]),
-    )).toThrow("reserved object key");
+    )).toThrow("semantic ids");
     expect(Object.hasOwn(source.truth.facts, "toString")).toBe(false);
   });
 

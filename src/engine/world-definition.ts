@@ -14,11 +14,41 @@ export interface MechanicalDisclosurePolicy {
   defaultCheckVisibility: "full" | "result_only" | "hidden";
 }
 
+export interface WorldRuntimeDefaults {
+  simulatedSeconds: number;
+  realtimeIntervalMs: number;
+  actionWindowMs: number;
+}
+
+export interface WorldOrigin {
+  id: string;
+  title: string;
+  fantasy: string;
+  description: string;
+  entityKind: string;
+  spawnEntityId: string;
+  persona: string;
+  defaultGoal: string;
+  relationshipHooks: string[];
+  risks: string[];
+  resources: Array<{ definitionId: string; amount: number }>;
+  modelProfiles: { bootstrap: string; mind: string; reaction: string };
+  image?: { hash: string; alt: string };
+  fallbackArrival: string;
+}
+
+export interface WorldParticipation {
+  claimableAgentIds: string[];
+  origins: WorldOrigin[];
+}
+
 export interface WorldRuntimeContract {
   id: string;
   name: string;
   manifestVersion: string;
   description: string;
+  runtimeDefaults: WorldRuntimeDefaults;
+  participation: WorldParticipation | null;
   contentHash: string;
   modelProfiles: {
     perception: string;
@@ -26,6 +56,14 @@ export interface WorldRuntimeContract {
     resolution: string;
     transition: string;
     causalVerifier: string;
+    grounding: string;
+    observation: string;
+    arrival: string;
+    dynamicAgent: {
+      bootstrap: string;
+      mind: string;
+      reaction: string;
+    };
   };
   laws: WorldLaw[];
   disclosure: MechanicalDisclosurePolicy;
@@ -36,23 +74,28 @@ export interface WorldRuntimeContract {
 
 export interface WorldDefinition extends WorldRuntimeContract {
   initialState: SimulationState;
+  assetData: Record<string, { mime: "image/png" | "image/webp" | "image/avif"; bytesBase64: string }>;
 }
 
 export function toWorldRuntimeContract(definition: WorldDefinition): WorldRuntimeContract {
   const contract = structuredClone(definition);
   delete (contract as Partial<WorldDefinition>).initialState;
+  delete (contract as Partial<WorldDefinition>).assetData;
   return contract;
 }
 
 export function validateWorldDefinition(definition: WorldDefinition): void {
   if (!definition.id.trim() || !definition.name.trim()) throw new Error("world id and name are required");
   if (!definition.manifestVersion.trim()) throw new Error("world manifest version is required");
+  for (const value of Object.values(definition.runtimeDefaults)) {
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error("world runtime defaults must be positive integers");
+  }
   if (!/^sha256:[a-f0-9]{64}$/.test(definition.contentHash)) throw new Error("invalid world content hash");
   if (!/^[a-f0-9]{64}$/.test(definition.historyBaseHash) ||
     definition.historyBaseHash !== historyReplayBaseHash(definition.initialState)) {
     throw new Error("world history replay base mismatch");
   }
-  if (Object.values(definition.modelProfiles).some((profileId) => !profileId.trim())) {
+  if (worldModelProfileIds(definition).some((profileId) => !profileId.trim())) {
     throw new Error("world model profiles are required");
   }
   const ids = new Set<string>();
@@ -80,6 +123,27 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
     packageIds.add(rulePackage.id);
   }
   validateDiscreteRandomDefinitions(definition.randomDistributions);
+  if (definition.participation) {
+    const origins = new Set<string>();
+    for (const agentId of definition.participation.claimableAgentIds) {
+      if (!(agentId in definition.initialState.agents)) throw new Error(`unknown claimable agent ${agentId}`);
+    }
+    for (const origin of definition.participation.origins) {
+      if (origins.has(origin.id)) throw new Error(`duplicate origin ${origin.id}`);
+      origins.add(origin.id);
+      if (!(origin.spawnEntityId in definition.initialState.truth.entities)) {
+        throw new Error(`origin ${origin.id} has unknown spawn entity ${origin.spawnEntityId}`);
+      }
+      for (const resource of origin.resources) {
+        if (!(resource.definitionId in definition.initialState.truth.mechanics.quantities)) {
+          throw new Error(`origin ${origin.id} has unknown resource ${resource.definitionId}`);
+        }
+      }
+      if (origin.image && !(origin.image.hash in definition.assetData)) {
+        throw new Error(`origin ${origin.id} has unknown image ${origin.image.hash}`);
+      }
+    }
+  }
 }
 
 export function validateWorldModelProfiles(definition: WorldDefinition, catalog: ModelCatalog): void {
@@ -88,6 +152,12 @@ export function validateWorldModelProfiles(definition: WorldDefinition, catalog:
   catalog.assertProfile(definition.modelProfiles.resolution, "truth-resolution");
   catalog.assertProfile(definition.modelProfiles.transition, "truth-transition");
   catalog.assertProfile(definition.modelProfiles.causalVerifier, "causal-verifier");
+  catalog.assertProfile(definition.modelProfiles.grounding, "action-grounding");
+  catalog.assertProfile(definition.modelProfiles.observation, "observation-renderer");
+  catalog.assertProfile(definition.modelProfiles.arrival, "arrival-generator");
+  catalog.assertProfile(definition.modelProfiles.dynamicAgent.bootstrap, "agent-bootstrap");
+  catalog.assertProfile(definition.modelProfiles.dynamicAgent.mind, "agent-mind");
+  catalog.assertProfile(definition.modelProfiles.dynamicAgent.reaction, "agent-reaction");
   for (const agent of Object.values(definition.initialState.agents)) {
     catalog.assertProfile(agent.modelProfiles.bootstrap, "agent-bootstrap");
     catalog.assertProfile(agent.modelProfiles.mind, "agent-mind");
@@ -97,7 +167,15 @@ export function validateWorldModelProfiles(definition: WorldDefinition, catalog:
 
 export function worldModelProfileIds(definition: WorldDefinition): string[] {
   return [...new Set([
-    ...Object.values(definition.modelProfiles),
+    definition.modelProfiles.perception,
+    definition.modelProfiles.reactionRouting,
+    definition.modelProfiles.resolution,
+    definition.modelProfiles.transition,
+    definition.modelProfiles.causalVerifier,
+    definition.modelProfiles.grounding,
+    definition.modelProfiles.observation,
+    definition.modelProfiles.arrival,
+    ...Object.values(definition.modelProfiles.dynamicAgent),
     ...Object.values(definition.initialState.agents)
       .flatMap((agent) => Object.values(agent.modelProfiles)),
   ])].sort();

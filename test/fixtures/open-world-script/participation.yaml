@@ -1,0 +1,19 @@
+claimable_agents:
+  - player
+  - keeper
+origins:
+  - id: courtyard-wanderer
+    title: 庭院旅人
+    fantasy: 从石门前开始一段没有预设答案的旅程。
+    description: 你刚穿过庭院入口，石门、守门人和一把来历可疑的钥匙都在眼前。
+    entity_kind: person
+    spawn_entity_id: courtyard
+    persona: 谨慎但好奇的旅人，愿意依据亲眼所见作出判断。
+    default_goal: 弄清庭院里正在发生什么。
+    relationship_hooks:
+      - 守门人可能知道石门的秘密。
+    risks:
+      - 仓促的行动可能引起守门人的警觉。
+    resources:
+      - { definition_id: spirit-stone, amount: 1 }
+    fallback_arrival: 你站在石门内侧的庭院中。风穿过门缝，守门人正留意着周围的动静。

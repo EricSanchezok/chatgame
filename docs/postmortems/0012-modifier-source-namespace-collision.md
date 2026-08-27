@@ -25,4 +25,4 @@ d20 修正来源只保存裸 ID，而 Rating 与 Fact 是两个独立状态表�
 - [决策 0032](../decisions/0032-open-world-facts-and-d20-kernel.md) 明确 modifier source 以 kind 与 ID 共同标识。
 - [`llm-schemas.ts`](../../src/engine/llm-schemas.ts) 只接受 `rating`/`fact` 判别联合。
 - [`truth-engine.ts`](../../src/engine/truth-engine.ts) 按 kind 读取精确状态表，并核对 amount 与 modifier 总和。
-- [`multi-agent-simulation.test.ts`](../../src/engine/__tests__/multi-agent-simulation.test.ts) 让同 ID Rating 与 Fact 同时合法贡献一次检定。
+- [`open-world-core.test.ts`](../../src/engine/__tests__/open-world-core.test.ts)覆盖类型化 Rating 修正来源及其状态引用。

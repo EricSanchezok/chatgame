@@ -1,10 +1,3 @@
-import {
-  defaultControlPosition,
-  parseControlPosition,
-  type ControlPosition,
-} from "./control-orb-position";
-
-export const CONTROL_POSITION_KEY = "livingworld:control-position:v2";
 export const PREFERENCES_KEY = "livingworld:preferences:v2";
 export const PREFERENCES_EVENT = "livingworld:preferences-changed";
 
@@ -60,17 +53,4 @@ export function readPreferences(): PlayerPreferences {
 export function writePreferences(preferences: PlayerPreferences): void {
   localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
   window.dispatchEvent(new CustomEvent(PREFERENCES_EVENT));
-}
-
-export function readControlPosition(): ControlPosition {
-  return parseControlPosition(localStorage.getItem(CONTROL_POSITION_KEY));
-}
-
-export function writeControlPosition(position: ControlPosition): void {
-  localStorage.setItem(CONTROL_POSITION_KEY, JSON.stringify(position));
-}
-
-export function resetControlPosition(): void {
-  localStorage.removeItem(CONTROL_POSITION_KEY);
-  writeControlPosition(defaultControlPosition);
 }

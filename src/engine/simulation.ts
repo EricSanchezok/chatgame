@@ -1,6 +1,12 @@
 import { performance } from "node:perf_hooks";
 import { CanonicalCommitter } from "./canonical-committer";
-import type { ExecutionContext, ExecutionTraceWriter, WorldExecutionAlgorithm } from "./execution";
+import type {
+  ExecutionContext,
+  ExecutionTraceWriter,
+  PolicyBinding,
+  WorldAdvanceRequest,
+  WorldExecutionAlgorithm,
+} from "./execution";
 import { createHistoryReplayBase } from "./history-replay";
 import type { CommittedStep, SimulationState } from "./model";
 import type { ModelExecutionAudit } from "./model";
@@ -21,11 +27,11 @@ export interface WorldStepResult {
   committed: CommittedStep;
   modelAudits: ModelExecutionAudit[];
   state: SimulationState;
-  requiresPlayerDecision: boolean;
+  decisionRequests: CommittedStep["decisionRequests"];
 }
 
-export interface WorldRunResult {
-  status: "completed" | "failed" | "awaiting_player" | "step_limit";
+export interface WorldAdvanceSequenceResult {
+  status: "completed" | "awaiting_external" | "step_limit";
   steps: CommittedStep[];
   state: SimulationState;
 }
@@ -198,7 +204,7 @@ export class SimulationEngine {
       payload: this.definition,
     });
     context.trace.emit({
-      event: "session.bootstrap.started",
+      event: "instance.bootstrap.started",
       counts: { persistentAgents: Object.keys(source.agents).length },
       hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
       payload: { state: source },
@@ -238,7 +244,7 @@ export class SimulationEngine {
       this.bootstrapAudits = candidate.modelAudits.map((audit) => structuredClone(audit));
       this.state = committed;
       context.trace.emit({
-        event: "session.bootstrap.committed",
+        event: "instance.bootstrap.committed",
         durationMs: Math.max(0, Date.now() - startedAt),
         counts: { activatedAgents: candidate.agentCommits.length, updatedAgents: candidate.agentCommits.length },
         hashes: { state: contentHash(committed) },
@@ -247,7 +253,7 @@ export class SimulationEngine {
       return this.snapshot;
     } catch (error) {
       context.trace.emit({
-        event: "session.bootstrap.rolled_back",
+        event: "instance.bootstrap.rolled_back",
         level: "error",
         durationMs: Math.max(0, Date.now() - startedAt),
         counts: { rollbacks: 1 },
@@ -260,61 +266,18 @@ export class SimulationEngine {
     }
   }
 
-  beginPlayerIntent(text: string, inputId?: string): SimulationState {
-    const normalized = text.trim();
-    if (!normalized) throw new Error("player intent cannot be empty");
-    if (this.state.player.intent?.status === "active") throw new Error("a player intent is already active");
-    const next = structuredClone(this.state);
-    const intentId = inputId ? `intent:${inputId}` : `intent:${next.revision}:${next.step}`;
-    const input = {
-      id: inputId ?? `input:${intentId}:1`,
-      text: normalized,
-      kind: "goal" as const,
-      submittedAtStep: next.step,
-    };
-    next.player.intent = {
-      id: intentId,
-      goal: normalized,
-      inputs: [input],
-      latestInput: input,
-      status: "active",
-      startedAtStep: next.step,
-    };
-    this.state = next;
-    return this.snapshot;
-  }
-
-  continuePlayerIntent(text: string, inputId: string): SimulationState {
-    const normalized = text.trim();
-    if (!normalized) throw new Error("player intent input cannot be empty");
-    const intent = this.state.player.intent;
-    if (!intent || intent.status !== "active") throw new Error("no active player intent");
-    const next = structuredClone(this.state);
-    const clarification = {
-      id: inputId,
-      text: normalized,
-      kind: "clarification" as const,
-      submittedAtStep: next.step,
-    };
-    if (next.player.intent!.inputs.some((input) => input.id === inputId)) {
-      throw new Error(`player intent input id was already used: ${inputId}`);
-    }
-    next.player.intent!.inputs.push(clarification);
-    next.player.intent!.latestInput = clarification;
-    this.state = next;
-    return this.snapshot;
-  }
-
-  cancelPlayerIntent(): SimulationState {
-    if (!this.state.player.intent || this.state.player.intent.status !== "active") return this.snapshot;
-    const next = structuredClone(this.state);
-    next.player.intent!.status = "cancelled";
-    this.state = next;
-    return this.snapshot;
-  }
-
-  async step(scope?: ModelExecutionScope): Promise<WorldStepResult> {
+  async step(
+    policyRoster: Readonly<Record<string, PolicyBinding>>,
+    request: Readonly<WorldAdvanceRequest>,
+    scope?: ModelExecutionScope,
+  ): Promise<WorldStepResult> {
     const source = structuredClone(this.state);
+    if (request.expectedRevision !== source.revision) {
+      throw new Error(`world advance expected revision ${request.expectedRevision}; current revision is ${source.revision}`);
+    }
+    if (!Number.isSafeInteger(request.simulatedSeconds) || request.simulatedSeconds <= 0) {
+      throw new Error("world advance simulatedSeconds must be a positive integer");
+    }
     const executionScope = scope ?? {
       workloadId: `simulation:${source.worldId}`,
       batchId: `step:${source.revision}:${source.step + 1}`,
@@ -336,12 +299,18 @@ export class SimulationEngine {
       event: "step.started",
       hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
       counts: { persistentAgents: Object.keys(source.agents).length },
-      payload: { state: source },
+      payload: {
+        state: source,
+        policyRoster: structuredClone(policyRoster),
+        request: structuredClone(request),
+      },
     });
     try {
       const candidate = await this.algorithm.step({
         definition: structuredClone(this.definition),
         state: structuredClone(source),
+        policyRoster: structuredClone(policyRoster),
+        request: structuredClone(request),
       }, context);
       validateCandidateModelAudits(candidate.modelAudits, source);
       generatedModelCalls = candidate.modelAudits.reduce((sum, audit) => sum + audit.invocations.length, 0);
@@ -361,7 +330,7 @@ export class SimulationEngine {
       context.trace.flush();
       const validationStartedAt = performance.now();
       context.trace.emit({ event: "canonical.validation.started", attributes: { phase: "step" } });
-      const result = this.committer.step(source, candidate);
+      const result = this.committer.step(source, candidate, policyRoster);
       context.trace.emit({
         event: "canonical.validation.completed",
         attributes: {
@@ -390,7 +359,7 @@ export class SimulationEngine {
         committed: result.committed,
         modelAudits: candidate.modelAudits.map((audit) => structuredClone(audit)),
         state: this.snapshot,
-        requiresPlayerDecision: result.committed.requiresPlayerDecision,
+        decisionRequests: structuredClone(result.committed.decisionRequests),
       };
     } catch (error) {
       context.trace.emit({
@@ -414,20 +383,24 @@ export class SimulationEngine {
   }
 
   async runUntilBoundary(
+    policyRoster: Readonly<Record<string, PolicyBinding>>,
+    request: Omit<WorldAdvanceRequest, "expectedRevision">,
     maxSteps = 100,
     onStep?: (result: WorldStepResult) => void | Promise<void>,
     scope?: ModelExecutionScope,
-  ): Promise<WorldRunResult> {
+  ): Promise<WorldAdvanceSequenceResult> {
     if (!Number.isSafeInteger(maxSteps) || maxSteps <= 0) throw new Error("maxSteps must be positive");
     const steps: CommittedStep[] = [];
     for (let index = 0; index < maxSteps; index += 1) {
-      const result = await this.step(scope);
+      const result = await this.step(policyRoster, {
+        ...structuredClone(request),
+        expectedRevision: this.state.revision,
+      }, scope);
       steps.push(result.committed);
       await onStep?.(result);
-      const status = this.state.player.intent?.status;
-      if (result.requiresPlayerDecision) return { status: "awaiting_player", steps, state: this.snapshot };
-      if (status === "completed") return { status: "completed", steps, state: this.snapshot };
-      if (status === "failed" || status === "cancelled") return { status: "failed", steps, state: this.snapshot };
+      if (result.decisionRequests.length > 0) {
+        return { status: "awaiting_external", steps, state: this.snapshot };
+      }
     }
     return { status: "step_limit", steps, state: this.snapshot };
   }

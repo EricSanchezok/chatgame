@@ -31,19 +31,44 @@ function agentOutput() {
 
 function truthOutput(context: Record<string, unknown>) {
   if (context.promptVersion === "causal-verifier-v3") return { verdict: "accept", findings: [] };
+  if (Array.isArray(context.observationSlots)) {
+    const events = context.currentEvents as Array<{ id: string }>;
+    return {
+      observations: context.observationSlots.map(() => ({
+        summary: "你看见庭院中的世界继续变化。",
+        introductions: [],
+        apparentClaims: [],
+        sourceEventIds: events.map((event) => event.id),
+      })),
+    };
+  }
+  if (context.action && typeof context.action === "object") {
+    const action = context.action as { actorId: string };
+    return {
+      reads: [{ kind: "global", id: "world" }],
+      writes: [{ kind: "global", id: "world" }],
+      audienceAgentIds: [action.actorId],
+      globalFallback: true,
+    };
+  }
+  if (context.entity && typeof context.entity === "object") {
+    const entity = context.entity as { name: string; location: string | null };
+    return {
+      title: `此刻，你是${entity.name}`,
+      scene: entity.location ? `你在${entity.location}恢复了对周围的注意。` : "你暂时无法确认所在位置。",
+      suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
+    };
+  }
   if (context.stage === "perception" || context.stage === "resolution") return { kind: "done" };
   if (context.stage === "reaction-routing") return { requests: [] };
   if (context.stage !== "transition") throw new Error(`unexpected Truth stage ${String(context.stage)}`);
-  const baseRevision = context.baseRevision as number;
   const step = context.step as number;
   const actions = context.jointActions as Array<{ id: string }>;
-  const agentEpistemics = context.agentEpistemics as Record<string, unknown>;
   const world = context.world as { laws: Array<{ id: string }> };
   const nextStep = step + 1;
   const eventId = `e2e-event:${nextStep}`;
   const lawId = world.laws[0].id;
   return {
-    baseRevision,
     outcomes: actions.map((action) => ({
       proposalId: action.id,
       status: "succeeded",
@@ -53,32 +78,15 @@ function truthOutput(context: Record<string, unknown>) {
       knownAlternatives: [],
     })),
     mechanicInvocations: [],
-    operations: [{
-      kind: "advance_time",
-      seconds: 1,
-      causes: [{ kind: "law", id: lawId }],
-      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
-    }],
+    operations: [],
     events: [{
       id: eventId,
-      step: nextStep,
       description: "世界在联合裁决后推进了一秒。",
       impact: "ordinary",
       causes: [{ kind: "law", id: lawId }],
-      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 1 }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
     }],
-    observations: ["player", ...Object.keys(agentEpistemics)].map((observerId) => ({
-      id: `e2e-observation:${observerId}:${nextStep}`,
-      observerId,
-      step: nextStep,
-      kind: "outcome",
-      summary: observerId === "player" ? "世界回应了你的自由行动。" : "周围的世界继续变化。",
-      introductions: [],
-      apparentClaims: [],
-      sourceEventIds: [eventId],
-    })),
-    intentStatus: "completed",
-    requiresPlayerDecision: false,
+    decisionRequests: [],
   };
 }
 
@@ -95,9 +103,9 @@ const server = createServer(async (request, response) => {
     }
     const body = await readBody(request);
     const context = contextFrom(body);
-    const playerIntent = context.playerIntent as { goal?: string } | null;
-    if (playerIntent?.goal === "触发 E2E 流式失败" || playerIntent?.goal === "触发 E2E 快速失败") {
-      if (playerIntent.goal === "触发 E2E 流式失败") {
+    const serializedContext = JSON.stringify(context);
+    if (serializedContext.includes("触发 E2E 流式失败") || serializedContext.includes("触发 E2E 快速失败")) {
+      if (serializedContext.includes("触发 E2E 流式失败")) {
         await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
       }
       response.writeHead(401, { "content-type": "application/json" });

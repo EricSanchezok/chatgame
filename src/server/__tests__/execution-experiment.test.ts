@@ -10,15 +10,15 @@ describe("execution experiment core", () => {
     expect(result.scenarios).toEqual([expect.objectContaining({
       agents: 1,
       steps: 1,
-      modelInvocations: 7,
-      sessionDocumentBytes: expect.any(Number),
+      modelInvocations: 9,
+      instanceDocumentBytes: expect.any(Number),
       ledgerEventCount: 0,
     })]);
-    expect(result.scenarios[0].sessionDocumentBytes).toBeGreaterThan(0);
+    expect(result.scenarios[0].instanceDocumentBytes).toBeGreaterThan(0);
     expect(result.records.at(-1)).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       event: "experiment.summary",
-      kind: "deterministic-runtime",
+      kind: "deterministic-eager-reference",
     });
     expect(result.records.some((record) => record.event === "experiment.context")).toBe(true);
     expect(result.records.some((record) => record.event === "experiment.bootstrap")).toBe(true);
@@ -30,7 +30,7 @@ describe("execution experiment core", () => {
     expect(result.scenarios).toEqual([expect.objectContaining({
       agents: 2,
       steps: 1,
-      modelInvocations: 9,
+      modelInvocations: 12,
     })]);
   });
 

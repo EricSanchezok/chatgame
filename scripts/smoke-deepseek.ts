@@ -1,11 +1,26 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import { loadModelCatalog } from "../src/engine/model-catalog";
 import { createModelGateway } from "../src/engine/model-gateway";
-import { SimulationEngine } from "../src/engine/simulation";
-import { MonolithicCurrentAlgorithm } from "../src/engine/monolithic-current";
-import { summarizeModelExecutionAudit } from "../src/engine/model-provider";
 import { loadWorldScript } from "../src/script/world-loader";
+import { MemoryWorldRepository } from "../src/script/world-repository";
+import { LocalDatabase } from "../src/server/local-database";
+import { WorldHost } from "../src/server/world-host";
+
+function failedAdvanceDiagnostic(database: LocalDatabase, instanceId: string): string {
+  const document = database.readInstance(instanceId).document;
+  const advance = Object.values(document.advances).at(-1);
+  const execution = database.executions({ instanceId }).at(-1);
+  const terminal = execution ? database.executionEvents(execution.id).at(-1) : undefined;
+  return [
+    advance?.error,
+    terminal?.error?.message,
+    ...(terminal?.error?.errors ?? []).map((error) => error.message),
+  ].filter((value): value is string => Boolean(value)).join(" | ") || "no durable failure diagnostic";
+}
 
 function diagnosticLines(error: unknown, depth = 0): string[] {
   if (depth > 4) return ["cause depth limit reached"];
@@ -26,48 +41,78 @@ function diagnosticLines(error: unknown, depth = 0): string[] {
     : error.message;
   const lines = [`${error.name}: ${safeMessage}`];
   const cause = (error as Error & { cause?: unknown }).cause;
-  if (cause !== undefined) {
-    lines.push(...diagnosticLines(cause, depth + 1).map((line) => `cause: ${line}`));
-  }
+  if (cause !== undefined) lines.push(...diagnosticLines(cause, depth + 1).map((line) => `cause: ${line}`));
   return lines;
 }
 
 async function main(): Promise<void> {
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
-  const provider = createModelGateway(catalog);
-  const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
-    seed: 20260823,
+  const provider = createModelGateway(catalog, process.env);
+  const definition = loadWorldScript(path.resolve("worlds/blackmarsh/world"), {
+    seed: 20260827,
     modelCatalog: catalog,
   });
-  const engine = new SimulationEngine(
-    definition,
-    new MonolithicCurrentAlgorithm(provider),
-  );
+  const root = mkdtempSync(path.join(tmpdir(), "lwe-deepseek-smoke-"));
+  const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
+  const host = new WorldHost({
+    repository: new MemoryWorldRepository({ [definition.id]: definition }),
+    store: database,
+    ledger: database,
+    provider,
+    idFactory: randomUUID,
+  });
 
   try {
-    await engine.bootstrapAgents();
-    engine.beginPlayerIntent("观察石门和庭院，然后在原地等待一秒，不尝试改变任何物品或人物。只依据可观察信息反馈。");
-    const result = await engine.step();
-    const truthAudit = result.modelAudits.find((audit) => audit.role === "truth-transition");
-    const mindAudits = result.modelAudits.filter((audit) => audit.role === "agent-mind");
-    if (!truthAudit || mindAudits.length !== Object.keys(result.state.agents).length) {
-      throw new Error("committed step is missing model audit coverage");
+    let instance = await host.createInstance({ worldId: definition.id, seed: 20260827, title: "DeepSeek 烟测" });
+    instance = await host.advance(instance.summary.id, {
+      expectedRevision: instance.summary.revision,
+      trigger: "manual",
+      steps: 1,
+    });
+    if (instance.summary.revision < 1) {
+      throw new Error(`headless step did not commit: ${failedAdvanceDiagnostic(database, instance.summary.id)}`);
+    }
+    const headlessRevision = instance.summary.revision;
+
+    const joined = await host.createParticipant(instance.summary.id, {
+      expectedRevision: instance.summary.revision,
+      originId: "harbor-wayfarer",
+      displayName: "远行者",
+      appearance: "披着被海风打湿的深色斗篷。",
+      motivation: "弄清自己身在何处，并寻找今晚可以落脚的地方。",
+    });
+    instance = await host.advance(instance.summary.id, {
+      expectedRevision: joined.instance.summary.revision,
+      trigger: "manual",
+      steps: 1,
+    });
+    if (!instance.actionWindow) throw new Error("participant step did not open an ActionWindow");
+    instance = await host.submitAction(instance.summary.id, joined.participantId, {
+      submissionId: randomUUID(),
+      expectedRevision: instance.summary.revision,
+      text: "我现在在哪里？我先观察周围的地标、人群和天气。",
+    });
+    if (instance.summary.revision <= joined.instance.summary.revision) {
+      throw new Error(
+        `participant action did not commit: ${failedAdvanceDiagnostic(database, instance.summary.id)}`,
+      );
     }
     process.stdout.write([
-      "DeepSeek full-engine smoke passed",
-      `revision=${result.state.revision}`,
-      `step=${result.state.step}`,
-      `provider=${truthAudit.providerId}`,
-      `model=${truthAudit.modelId}`,
-      `truthAttempts=${summarizeModelExecutionAudit(truthAudit).invocations}`,
-      `agentAudits=${mindAudits.length}`,
-      `contentHash=${result.committed.contentHash}`,
+      "DeepSeek eager-reference smoke passed",
+      `world=${definition.id}`,
+      `agents=${Object.keys(database.readInstance(instance.summary.id).document.state.agents).length}`,
+      `headlessRevision=${headlessRevision}`,
+      `participantRevision=${instance.summary.revision}`,
+      `executions=${database.executions({ instanceId: instance.summary.id }).length}`,
     ].join(" ") + "\n");
   } catch (error) {
-    process.stderr.write(`DeepSeek full-engine smoke failed:\n${diagnosticLines(error)
+    process.stderr.write(`DeepSeek eager-reference smoke failed:\n${diagnosticLines(error)
       .map((line) => `- ${line}`)
       .join("\n")}\n`);
     process.exitCode = 1;
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
   }
 }
 

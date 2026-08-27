@@ -66,10 +66,17 @@ export class ModelConfigurationError extends Error {
   }
 }
 
+export interface ModelSemanticRepairErrorOptions extends ErrorOptions {
+  audit?: ModelExecutionAudit;
+}
+
 export class ModelSemanticRepairError extends Error {
-  constructor(readonly role: ModelRole, message: string, options?: ErrorOptions) {
-    super(message, options);
+  readonly audit?: ModelExecutionAudit;
+
+  constructor(readonly role: ModelRole, message: string, options: ModelSemanticRepairErrorOptions = {}) {
+    super(message, { cause: options.cause });
     this.name = "ModelSemanticRepairError";
+    this.audit = options.audit ? structuredClone(options.audit) : undefined;
   }
 }
 
@@ -182,7 +189,7 @@ export function modelInvocationIdentity(
       revision,
       kind: "model-audit",
       stage: role,
-      // workloadId/batchId are transport correlation (often session/run UUIDs),
+      // workloadId/batchId are transport correlation (often instance/advance UUIDs),
       // never persisted identity coordinates. A retry of the same semantic
       // model stage must receive the same engine-owned id.
       owner: subjectId,

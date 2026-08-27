@@ -3,14 +3,12 @@ import type {
   CanonicalWorldState,
   CommittedStep,
   ModelExecutionAudit,
-  PlayerState,
 } from "../engine/model";
 import type {
   RuntimeEvent,
-  RuntimeObservabilityMode,
 } from "../engine/observability";
 
-export const WORLD_INSPECTOR_API_VERSION = 2 as const;
+export const WORLD_INSPECTOR_API_VERSION = 3 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -36,7 +34,7 @@ export type WorldInspectorEdgeKind =
 export interface WorldInspectorActor {
   id: string;
   entityId: string;
-  kind: "player" | "agent";
+  kind: "agent";
   name: string;
   description: string;
   lifecycle: "active" | "retired";
@@ -74,7 +72,7 @@ export interface WorldInspectorStepSummary {
   step: number;
   contentHash: string;
   elapsedSeconds: number;
-  playerGoal: string;
+  primaryAction: string;
   actorIds: string[];
   counts: {
     actions: number;
@@ -112,8 +110,8 @@ export interface WorldInspectorAttemptStage {
 
 export interface WorldInspectorAttemptSummary {
   id: string;
-  runId?: string;
-  runAttempt?: number;
+  advanceId?: string;
+  advanceAttempt?: number;
   revision?: number;
   step?: number;
   status: WorldInspectorAttemptStatus;
@@ -145,17 +143,17 @@ export interface WorldInspectorRuntimeEventDetail {
 }
 
 export interface WorldInspectorTraceAvailability {
-  mode: RuntimeObservabilityMode;
-  degraded: boolean;
+  mode: "full";
+  degraded: false;
   retainedEventCount: number;
   earliestTimestamp?: string;
   latestTimestamp?: string;
-  hasFullPayload: boolean;
+  hasFullPayload: true;
 }
 
 export interface WorldInspectorWindow {
   apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
-  session: {
+  instance: {
     id: string;
     title: string;
     worldId: string;
@@ -185,7 +183,6 @@ export interface WorldInspectorStateSnapshot {
   step: number;
   truth: CanonicalWorldState;
   agents: Record<string, AgentState>;
-  player: PlayerState;
 }
 
 export interface WorldInspectorStepDetail {

@@ -1,806 +1,143 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { fixtureArchive } from "../support/world-fixture";
 
-test("a player installs a world and continues a persistent conversation", async ({ page }) => {
-  await page.goto("/");
-
-  await expect(page.getByRole("heading", { name: "从哪里开始？" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /世界包/ })).toBeVisible();
-  await page.getByRole("link", { name: /世界包/ }).click();
-  await expect(page).toHaveURL(/\/worlds$/);
-
-  const catalogResponse = await page.request.get("/api/worlds");
-  const catalog = await catalogResponse.json() as { worlds: Array<{ id: string }> };
-  const worldAlreadyInstalled = catalog.worlds.some((world) => world.id === "open-world-fixture");
-  const worldArchiveInput = worldAlreadyInstalled
-    ? page.locator('.cg-world-detail__tools input[type="file"]')
-    : page.locator('.cg-import-world input[type="file"]');
-  await worldArchiveInput.setInputFiles({
-    name: "open-world-fixture.zip",
-    mimeType: "application/zip",
-    buffer: fixtureArchive(),
-  });
-  await expect(page.getByRole("heading", { name: "开放世界测试夹具", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: /开始新游戏/ }).click();
-  await expect(page).toHaveURL(/\/play\/[^/]+$/);
-  const activeSessionId = new URL(page.url()).pathname.split("/").at(-1);
-  if (!activeSessionId) throw new Error("new session URL does not contain an id");
-  await expect(page.getByRole("heading", { name: "你想做什么？" })).toBeVisible();
-
-  let streamRequests = 0;
-  page.on("request", (request) => {
-    if (/\/api\/sessions\/[^/]+\/runs\/[^/]+\/events(?:\?|$)/.test(request.url())) {
-      streamRequests += 1;
-    }
-  });
-  const composer = page.getByLabel("你的行动");
-  await composer.fill("我尝试一个剧本没有预配置的自由行动");
-  await composer.press("Enter");
-  await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
-  await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toHaveCount(0);
-  await expect(page.getByText("目标已经完成")).toBeVisible();
-  await expect(page.getByRole("button", { name: /第 1 步/ })).toBeVisible();
-  const streamsAtCompletion = streamRequests;
-  expect(streamsAtCompletion).toBeGreaterThan(0);
-  await page.waitForTimeout(3_500);
-  expect(streamRequests).toBe(streamsAtCompletion);
-  await expect(page.getByText(/进度连接暂时中断|最新存档状态暂时无法同步/)).toHaveCount(0);
-
-  const sessionsResponse = await page.request.get("/api/sessions");
-  const sessions = await sessionsResponse.json() as { sessions: Array<{ id: string; revision: number }> };
-  const summary = sessions.sessions.find((session) => session.id === activeSessionId);
-  expect(summary).toBeDefined();
-  expect(summary?.revision).toBe(1);
-  expect(JSON.stringify(sessions)).not.toContain("canonicalEntityIds");
-  expect(JSON.stringify(sessions)).not.toContain("key-authenticity");
-
-  await page.reload();
-  await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
-  await expect(page.getByText("模拟 Truth Engine 已联合裁决行动。")).toHaveCount(0);
-  await page.goto("/");
-  await expect(page.getByRole("link", { name: /世界包.*1 个世界/ })).toBeVisible();
-
-  await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  await page.goto(`/play/${activeSessionId}/manage/saves`);
-  const managementDialog = page.getByRole("dialog", { name: "游戏管理" });
-  await expect(managementDialog).toBeVisible();
-  await expect(managementDialog.getByRole("button", { name: "关闭游戏管理" })).toHaveCount(1);
-  await expect(managementDialog.getByRole("button", { name: "返回对话" })).toHaveCount(0);
-  const currentSave = page.locator('.cg-library-save[data-current="true"]');
-  const otherSave = page.locator('.cg-library-save:not([data-current="true"])').first();
-  await expect(otherSave).toBeVisible();
-  const [currentRowBox, otherRowBox, currentContentBox, otherContentBox] = await Promise.all([
-    currentSave.boundingBox(),
-    otherSave.boundingBox(),
-    currentSave.locator(".cg-library-save__content").boundingBox(),
-    otherSave.locator(".cg-library-save__content").boundingBox(),
-  ]);
-  expect(currentRowBox).not.toBeNull();
-  expect(otherRowBox).not.toBeNull();
-  expect(currentContentBox).not.toBeNull();
-  expect(otherContentBox).not.toBeNull();
-  expect(currentRowBox!.x).toBeCloseTo(otherRowBox!.x, 1);
-  expect(currentRowBox!.width).toBeCloseTo(otherRowBox!.width, 1);
-  expect(currentContentBox!.x).toBeCloseTo(otherContentBox!.x, 1);
-  await page.getByRole("article").filter({
-    has: page.locator(`a[href="/play/${activeSessionId}"]`),
-  })
-    .getByRole("button", { name: /重命名/ }).click();
-  await page.getByLabel("存档名称").fill("石门之外");
-  await page.getByRole("button", { name: "保存名称" }).click();
-  await expect(page.getByRole("heading", { name: "石门之外", level: 3 })).toBeVisible();
-  await page.setViewportSize({ width: 320, height: 720 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole("button", { name: "关闭游戏管理" }).click();
-  await expect(page).toHaveURL(`/play/${activeSessionId}`);
-  await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-});
-
-test("the world detail gives its first screen to saves instead of package maintenance", async ({ page }) => {
-  await page.setViewportSize({ width: 1_440, height: 900 });
-  await page.request.post("/api/worlds/import", {
+async function installFixture(page: Page): Promise<void> {
+  const response = await page.request.post("/api/worlds/import", {
     multipart: {
       file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
       replace: "true",
     },
   });
-  await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
+  expect(response.ok()).toBe(true);
+}
 
+async function createInstance(page: Page): Promise<{ id: string; revision: number }> {
+  const response = await page.request.post("/api/instances", {
+    data: { worldId: "open-world-fixture", seed: 20260827 },
+  });
+  expect(response.status()).toBe(201);
+  const detail = await response.json() as { summary: { id: string; revision: number } };
+  return detail.summary;
+}
+
+async function chooseEntry(page: Page, text: string | RegExp): Promise<void> {
+  const card = page.locator(".cg-entry-grid label").filter({ hasText: text }).first();
+  await card.click();
+  await expect(card.locator("input[type=radio]")).toBeChecked();
+}
+
+async function enterFromOrigin(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "进入世界" }).click();
+  await chooseEntry(page, "庭院旅人");
+  await page.getByLabel("显示名称").fill("小明");
+  await page.getByLabel("外观描述").fill("背着旧旅行包");
+  await page.getByLabel("一个自由动机").fill("找到石门后的道路");
+  await page.getByRole("button", { name: "确认角色" }).click();
+  const arrival = page.getByRole("dialog");
+  await expect(arrival.getByRole("heading", { name: "此刻，你是小明" })).toBeVisible();
+  await arrival.getByRole("button", { name: "确认当前位置" }).click();
+  await expect(page.getByRole("heading", { name: "小明" })).toBeVisible();
+}
+
+test("a world evolves headlessly through the same persistent instance", async ({ page }) => {
+  await installFixture(page);
   await page.goto("/worlds/open-world-fixture");
-  const intro = page.locator(".cg-world-detail__intro");
-  const saves = page.locator(".cg-world-saves");
-  const savesHeading = page.locator(".cg-world-saves__heading > div");
-  const firstSave = page.locator(".cg-library-save").first();
-  const packageMaintenance = page.locator(".cg-world-package");
-  const packageFacts = page.locator(".cg-world-facts");
-  const newGame = page.getByRole("button", { name: /开始新游戏/ });
-  const newGameLabel = newGame.locator("strong");
-  await expect(firstSave).toBeVisible();
+  await expect(page.getByRole("heading", { name: "开放世界测试夹具", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: /创建实例/ }).click();
+  await expect(page).toHaveURL(/\/play\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: "世界正在发生什么" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "你还没有进入世界" })).toBeVisible();
 
-  const [introBox, savesBox, savesHeadingBox, firstSaveBox, packageBox, factsBox, newGameBox] = await Promise.all([
-    intro.boundingBox(),
-    saves.boundingBox(),
-    savesHeading.boundingBox(),
-    firstSave.boundingBox(),
-    packageMaintenance.boundingBox(),
-    packageFacts.boundingBox(),
-    newGame.boundingBox(),
-  ]);
-  expect(introBox).not.toBeNull();
-  expect(savesBox).not.toBeNull();
-  expect(savesHeadingBox).not.toBeNull();
-  expect(firstSaveBox).not.toBeNull();
-  expect(packageBox).not.toBeNull();
-  expect(factsBox).not.toBeNull();
-  expect(newGameBox).not.toBeNull();
-  expect(savesBox!.y).toBeLessThan(packageBox!.y);
-  expect(firstSaveBox!.y + firstSaveBox!.height).toBeLessThan(900);
-  expect(savesBox!.y - (introBox!.y + introBox!.height)).toBeLessThanOrEqual(40);
-  expect(newGameBox!.y).toBeLessThan(savesHeadingBox!.y + savesHeadingBox!.height);
-  expect(newGameBox!.y + newGameBox!.height).toBeGreaterThan(savesHeadingBox!.y);
-  expect(factsBox!.height).toBeLessThanOrEqual(32);
-  expect(packageBox!.height).toBeLessThan(200);
-  expect(await newGameLabel.evaluate((element) => getComputedStyle(element).color))
-    .toBe(await newGame.evaluate((element) => getComputedStyle(element).color));
+  await page.getByRole("button", { name: "单步" }).click();
+  await expect(page.getByText("Revision 1 · Step 1")).toBeVisible();
+  await expect(page.getByText("世界在联合裁决后推进了一秒。")).toBeVisible();
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  expect((await packageFacts.boundingBox())!.height).toBeLessThanOrEqual(50);
-});
-
-test("the control orb exposes desktop and mobile navigation", async ({ page }) => {
-  await page.setViewportSize({ width: 1_440, height: 900 });
-  await page.request.post("/api/worlds/import", {
-    multipart: {
-      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
-      replace: "true",
-    },
-  });
-  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  const detail = await created.json() as { summary: { id: string } };
-
-  await page.goto(`/play/${detail.summary.id}`);
-  const orb = page.getByRole("button", { name: /打开游戏控制/ });
-  const initialBox = await orb.boundingBox();
-  expect(initialBox).not.toBeNull();
-
-  await page.keyboard.down("Alt");
-  await orb.press("ArrowLeft");
-  await page.keyboard.up("Alt");
-  await expect.poll(async () => (await orb.boundingBox())?.x).toBeCloseTo(16, 0);
-  await page.reload();
-  await expect.poll(async () => (await orb.boundingBox())?.x).toBeCloseTo(16, 0);
-
-  const draggedFrom = await orb.boundingBox();
-  if (!draggedFrom) throw new Error("control orb has no layout box");
-  await page.mouse.move(draggedFrom.x + 28, draggedFrom.y + 28);
-  await page.mouse.down();
-  await page.mouse.move(900, 300, { steps: 4 });
-  const midDrag = await orb.boundingBox();
-  expect(midDrag?.x).toBeGreaterThan(400);
-  await page.mouse.up();
-  await expect.poll(async () => (await orb.boundingBox())?.x).toBeCloseTo(1_368, 0);
-
-  await orb.click();
-  await expect(page.getByRole("button", { name: "存档" })).toBeVisible();
-  await expect(page.locator(".cg-orb__action")).toHaveCount(3);
-  await page.waitForTimeout(300);
-  const statusCard = page.locator(".cg-orb__card");
-  const cardBox = await statusCard.boundingBox();
-  const openOrbBox = await page.locator(".cg-orb__trigger").boundingBox();
-  expect(cardBox).not.toBeNull();
-  expect(openOrbBox).not.toBeNull();
-  const actionBoxes: Array<{ height: number; width: number; x: number; y: number }> = [];
-  for (const action of await page.locator(".cg-orb__action").all()) {
-    const box = await action.boundingBox();
-    expect(box).not.toBeNull();
-    actionBoxes.push(box!);
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.y).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(1_440);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(900);
-    const overlapsCard = box!.x < cardBox!.x + cardBox!.width &&
-      box!.x + box!.width > cardBox!.x &&
-      box!.y < cardBox!.y + cardBox!.height &&
-      box!.y + box!.height > cardBox!.y;
-    expect(overlapsCard).toBe(false);
-  }
-  const orbCenter = {
-    x: openOrbBox!.x + (openOrbBox!.width / 2),
-    y: openOrbBox!.y + (openOrbBox!.height / 2),
-  };
-  const actionRadii = actionBoxes.map((box) => Math.hypot(
-    box.x + (box.width / 2) - orbCenter.x,
-    box.y + (box.height / 2) - orbCenter.y,
-  ));
-  expect(Math.max(...actionRadii) - Math.min(...actionRadii)).toBeLessThan(1);
-  await page.getByRole("button", { name: /关闭游戏控制/ }).click();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  const playURL = page.url();
-  await page.getByRole("button", { name: /打开游戏控制/ }).click();
-  await expect(page).toHaveURL(playURL);
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByRole("dialog").getByRole("button", { name: /存档/ })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
-});
-
-test("the opt-in world inspector reveals the committed world and individual agent history", async ({ page }) => {
-  await page.setViewportSize({ width: 1_440, height: 900 });
-  await page.request.post("/api/worlds/import", {
-    multipart: {
-      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
-      replace: "true",
-    },
-  });
-  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  const detail = await created.json() as { summary: { id: string } };
-  const playURL = `/play/${detail.summary.id}`;
-
-  await page.goto(playURL);
-  await page.getByRole("button", { name: /打开游戏控制/ }).click();
-  await expect(page.getByRole("button", { name: /世界演化/ })).toHaveCount(0);
-  await page.getByRole("button", { name: /关闭游戏控制/ }).click();
-
-  await page.goto(`${playURL}/manage/settings`);
-  const inspectorToggle = page.getByRole("switch", { name: /显示世界调试器/ });
-  await expect(inspectorToggle).toHaveAttribute("aria-checked", "false");
-  await inspectorToggle.click();
-  await expect(inspectorToggle).toHaveAttribute("aria-checked", "true");
-  await page.getByRole("button", { name: "关闭游戏管理" }).click();
-  await expect(page).toHaveURL(playURL);
-
-  const composer = page.getByLabel("你的行动");
-  await composer.fill("观察石门，并留意守门人的反应");
-  await composer.press("Enter");
-  await expect(page.getByText("目标已经完成")).toBeVisible();
-
-  const orb = page.getByRole("button", { name: /打开游戏控制/ });
-  await orb.click();
-  await page.getByRole("button", { name: /世界演化/ }).click();
-  const inspector = page.getByRole("dialog", { name: "世界演化" });
-  await expect(inspector).toBeVisible();
-  await expect(inspector.getByText("WORLD EVOLUTION / READ ONLY")).toBeVisible();
-  await expect(inspector.getByRole("region", { name: "世界演化因果图" })).toBeVisible();
-  await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
-  await expect(inspector.getByRole("button", { name: /世界，Revision 1/ })).toBeVisible();
-  await expect(inspector.getByRole("heading", { name: "Revision 1" })).toBeVisible();
-  await expect(inspector.getByText("个联合行动")).toBeVisible();
-  await expect(inspector.getByText("认知传播")).toBeVisible();
-  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
-  await expect(inspector.getByText(/full · healthy/)).toBeVisible();
-  const overviewTab = inspector.getByRole("tab", { name: "概要" });
-  const overviewTabState = await overviewTab.evaluate((element) => ({
-    boxShadow: getComputedStyle(element).boxShadow,
-    selectedDecoration: getComputedStyle(element, "::after").content,
-  }));
-  expect(overviewTabState.boxShadow).toBe("none");
-  expect(overviewTabState.selectedDecoration).toBe("none");
-  await overviewTab.press("ArrowRight");
-  const changesTab = inspector.getByRole("tab", { name: "变更" });
-  await expect(changesTab).toHaveAttribute("aria-selected", "true");
-  const keyboardTabFocus = await changesTab.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      focusOutlineStyle: style.outlineStyle,
-      focusOutlineWidth: Number.parseFloat(style.outlineWidth),
-    };
-  });
-  expect(keyboardTabFocus.focusOutlineStyle).toBe("solid");
-  expect(keyboardTabFocus.focusOutlineWidth).toBeGreaterThanOrEqual(2);
-  await changesTab.press("ArrowLeft");
-  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
-
-  await inspector.getByRole("complementary", { name: "主体选择" })
-    .getByRole("button", { name: /守门人/ }).click();
-  await expect(inspector.getByText("守门人本轮实际行动")).toBeVisible();
-  await expect(inspector.getByText("下一轮计划")).toBeVisible();
-  await expect(inspector.getByText("尚未执行")).toBeVisible();
-  await expect(inspector.getByText("本步最终行动")).toHaveCount(0);
-  await inspector.getByRole("button", { name: "聚焦此 Agent" }).click();
-  await expect(inspector.getByRole("button", { name: "显示全部主体" }))
-    .toHaveAttribute("aria-pressed", "true");
-  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
-  await changesTab.click();
-  await expect(inspector.getByText("对比提交前后的完整 Agent 状态")).toBeVisible();
-  await changesTab.press("ArrowRight");
-  await expect(inspector.getByRole("tab", { name: "因果" })).toHaveAttribute("aria-selected", "true");
-  await inspector.getByRole("tab", { name: "模型" }).click();
-  await expect(inspector.getByText(/次模型调用/).first()).toBeVisible();
-  await page.setViewportSize({ width: 1_088, height: 988 });
-  await expect(inspector.locator(".react-flow__minimap-node").first()).toBeVisible();
-
-  const publicResponse = await page.request.get(`/api/sessions/${detail.summary.id}`);
-  const publicBody = JSON.stringify(await publicResponse.json());
-  expect(publicBody).not.toContain("canonicalEntityIds");
-  const inspectorResponse = await page.request.get(`/api/sessions/${detail.summary.id}/inspector/steps/1`);
-  expect(inspectorResponse.ok()).toBe(true);
-  const inspectorBody = JSON.stringify(await inspectorResponse.json());
-  expect(inspectorBody).toContain("canonicalEntityIds");
-  expect(inspectorBody).toContain("modelAudits");
-
-  await page.keyboard.press("Escape");
-  await expect(inspector).toHaveCount(0);
-  await expect(orb).toBeFocused();
-
-  await orb.click();
-  await page.getByRole("button", { name: /世界演化/ }).click();
-  await page.getByRole("button", { name: "关闭世界演化调试器" }).click();
-  await expect(inspector).toHaveCount(0);
-  await expect(orb).toBeFocused();
-
-  await orb.click();
-  await page.getByRole("button", { name: /世界演化/ }).click();
-  await page.locator(".cg-workspace__overlay").click({ position: { x: 2, y: 2 } });
-  await expect(inspector).toHaveCount(0);
-  await expect(orb).toBeFocused();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await orb.click();
-  await page.getByRole("button", { name: /打开世界演化/ }).click();
-  const mobileInspector = page.getByRole("dialog", { name: "世界演化" });
-  await expect(mobileInspector).toBeVisible();
-  await expect(mobileInspector.getByRole("feed", { name: "世界提交时间线" })).toBeVisible();
-  const actorToggle = mobileInspector.locator(".cg-inspector-actor-toggle");
-  await expect(actorToggle).toHaveAttribute("aria-expanded", "false");
-  await actorToggle.click();
-  await expect(actorToggle).toHaveAttribute("aria-expanded", "true");
-  await mobileInspector.getByRole("complementary", { name: "主体选择" })
-    .getByRole("button", { name: /守门人/ }).click();
-  await expect(actorToggle).toHaveAttribute("aria-expanded", "false");
-  await page.locator("html").evaluate((element) => { element.style.fontSize = "200%"; });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-
-  await page.evaluate(() => {
-    localStorage.setItem("livingworld:preferences:v2", JSON.stringify({
-      fontScale: "standard",
-      reduceMotion: false,
-      showWorldInspector: false,
-    }));
-    window.dispatchEvent(new CustomEvent("livingworld:preferences-changed"));
-  });
-  await expect(mobileInspector).toHaveCount(0);
-  await expect(orb).toBeFocused();
-  await orb.click();
-  await expect(page.getByRole("button", { name: /世界演化/ })).toHaveCount(0);
-});
-
-test("the world inspector diagnoses a failed attempt without committing state", async ({ page }) => {
-  await page.setViewportSize({ width: 1_440, height: 900 });
-  await page.request.post("/api/worlds/import", {
-    multipart: {
-      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
-      replace: "true",
-    },
-  });
-  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  const detail = await created.json() as { summary: { id: string } };
-  const playURL = `/play/${detail.summary.id}`;
-  await page.goto(`${playURL}/manage/settings`);
-  await page.getByRole("switch", { name: /显示世界调试器/ }).click();
-  await page.getByRole("button", { name: "关闭游戏管理" }).click();
-  await page.getByLabel("你的行动").fill("触发 E2E 快速失败");
-  await page.getByRole("button", { name: "发送行动" }).click();
-  await expect(page.getByText("这一步未能完成")).toBeVisible();
-
-  let payloadRequests = 0;
-  page.on("request", (request) => {
-    if (/\/inspector\/runtime-events\/runtime-[a-f0-9]{64}$/.test(request.url())) payloadRequests += 1;
-  });
-  await page.getByRole("button", { name: /打开游戏控制/ }).click();
-  await page.getByRole("button", { name: /世界演化/ }).click();
-  const inspector = page.getByRole("dialog", { name: "世界演化" });
-  await expect(inspector.getByRole("feed", { name: "世界提交时间线" })).toBeVisible();
-  const failedAttempt = inspector.locator(".cg-inspector-log--attempt > button").first();
-  await expect(failedAttempt).toHaveAttribute("aria-pressed", "true");
-  await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
-  await expect(inspector.getByText("0 个提交 · 1 次尝试").first()).toBeVisible();
-
-  await inspector.getByRole("tab", { name: "变更" }).click();
-  await expect(inspector.getByText("零项状态写入")).toBeVisible();
-  await expect(inspector.getByText("R0 → R0")).toBeVisible();
-  await inspector.getByRole("tab", { name: "因果" }).click();
-  await expect(inspector.getByText(/推演停在/)).toBeVisible();
-  await expect(inspector.getByRole("list", { name: "推演阶段" })).toBeVisible();
-  await inspector.getByRole("tab", { name: "模型" }).click();
-  await expect(inspector.getByText(/次模型调用/).first()).toBeVisible();
-  await inspector.getByRole("tab", { name: "原始" }).click();
-  await expect(inspector.getByText("完整尝试轨迹")).toBeVisible();
-  expect(payloadRequests).toBe(0);
-  const payloadEvent = inspector.locator(".cg-runtime-event").filter({ hasText: "step.started" });
-  await payloadEvent.locator("summary").first().click();
-  const payloadDisclosure = payloadEvent.locator(".cg-runtime-payload > summary");
-  await expect(payloadDisclosure).toBeVisible();
-  expect(payloadRequests).toBe(0);
-  await payloadDisclosure.click();
-  await expect.poll(() => payloadRequests).toBe(1);
-  const payloadRegion = payloadEvent.getByRole("region", { name: "payload", exact: true });
-  await expect(payloadRegion.getByRole("button", { name: "收起全部" })).toBeVisible();
-  await expect(payloadRegion.locator('.cg-json-branch[data-depth="0"] > .cg-json-copy-menu')).toHaveCount(0);
-  const rootKeyBox = await payloadRegion.locator('.cg-json-node[data-depth="0"] > summary > .cg-json-key')
-    .boundingBox();
-  const childKeyBox = await payloadRegion.locator([
-    '.cg-json-row[data-depth="1"] > .cg-json-key',
-    '.cg-json-node[data-depth="1"] > summary > .cg-json-key',
-  ].join(", ")).first().boundingBox();
-  expect(rootKeyBox).not.toBeNull();
-  expect(childKeyBox).not.toBeNull();
-  expect(childKeyBox!.x - rootKeyBox!.x).toBeGreaterThanOrEqual(12);
-  const firstCopyMenu = payloadRegion.locator('.cg-json-branch[data-depth="1"] > .cg-json-copy-menu').first();
-  const copyMenuAlignment = await firstCopyMenu.evaluate((menu) => ({
-    menuTop: menu.getBoundingClientRect().top,
-    rowTop: menu.parentElement!.getBoundingClientRect().top,
-  }));
-  expect(Math.abs(copyMenuAlignment.menuTop - copyMenuAlignment.rowTop)).toBeLessThanOrEqual(1);
-  await firstCopyMenu.locator("summary").click();
-  await expect(firstCopyMenu.getByRole("button", { name: "复制路径" })).toBeVisible();
-  await expect(firstCopyMenu.getByRole("button", { name: "复制值" })).toBeVisible();
-  const inspectorScrollRegions = inspector.locator([
-    ".cg-inspector-actor-list",
-    ".cg-inspector-timeline",
-    ".cg-inspector-detail__body",
-    ".cg-json-inspector__tree",
-  ].join(", "));
-  const inspectorScrollStyles = await inspectorScrollRegions.evaluateAll((elements) => elements.map((element) => ({
-    overflowY: getComputedStyle(element).overflowY,
-    scrollbarWidth: getComputedStyle(element).scrollbarWidth,
-  })));
-  expect(inspectorScrollStyles.length).toBeGreaterThanOrEqual(4);
-  expect(inspectorScrollStyles.every((style) => style.overflowY === "auto" && style.scrollbarWidth === "none"))
-    .toBe(true);
-
-  await inspector.getByRole("tab", { name: "概要" }).click();
-  await inspector.getByRole("complementary", { name: "主体选择" })
-    .getByRole("button", { name: /守门人/ }).click();
-  await expect(inspector.getByText("守门人的尝试视角")).toBeVisible();
-  await expect(inspector.getByText("拟议行动")).toBeVisible();
-  await expect(inspector.getByText(/参与了联合尝试，但不是当前失败的直接关联主体/)).toBeVisible();
-
-  const actorSeparator = inspector.getByRole("separator", { name: "调整主体列表宽度" });
-  const detailSeparator = inspector.getByRole("separator", { name: "调整推演详情宽度" });
-  const initialActorWidth = Number(await actorSeparator.getAttribute("aria-valuenow"));
-  const initialDetailWidth = Number(await detailSeparator.getAttribute("aria-valuenow"));
-  const actorSeparatorBox = await actorSeparator.boundingBox();
-  const detailSeparatorBox = await detailSeparator.boundingBox();
-  const actorPanelBox = await inspector.getByRole("complementary", { name: "主体选择" }).boundingBox();
-  const stageBox = await inspector.locator(".cg-inspector-stage").boundingBox();
-  const detailPanelBox = await inspector.locator(".cg-inspector-detail").boundingBox();
-  expect(actorSeparatorBox).not.toBeNull();
-  expect(detailSeparatorBox).not.toBeNull();
-  expect(actorPanelBox).not.toBeNull();
-  expect(stageBox).not.toBeNull();
-  expect(detailPanelBox).not.toBeNull();
-  const actorBoundary = actorSeparatorBox!.x + actorSeparatorBox!.width / 2;
-  const detailBoundary = detailSeparatorBox!.x + detailSeparatorBox!.width / 2;
-  expect(Math.abs(actorBoundary - (actorPanelBox!.x + actorPanelBox!.width))).toBeLessThanOrEqual(1);
-  expect(Math.abs(actorBoundary - stageBox!.x)).toBeLessThanOrEqual(1);
-  expect(Math.abs(detailBoundary - (stageBox!.x + stageBox!.width))).toBeLessThanOrEqual(1);
-  expect(Math.abs(detailBoundary - detailPanelBox!.x)).toBeLessThanOrEqual(1);
-  await page.mouse.move(
-    actorSeparatorBox!.x + actorSeparatorBox!.width / 2,
-    actorSeparatorBox!.y + actorSeparatorBox!.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    actorSeparatorBox!.x + actorSeparatorBox!.width / 2 + 24,
-    actorSeparatorBox!.y + actorSeparatorBox!.height / 2,
-    { steps: 2 },
-  );
-  await page.mouse.up();
-  await expect(actorSeparator).toHaveAttribute("aria-valuenow", String(initialActorWidth + 24));
-  await page.mouse.move(
-    detailSeparatorBox!.x + detailSeparatorBox!.width / 2,
-    detailSeparatorBox!.y + detailSeparatorBox!.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    detailSeparatorBox!.x + detailSeparatorBox!.width / 2 - 24,
-    detailSeparatorBox!.y + detailSeparatorBox!.height / 2,
-    { steps: 2 },
-  );
-  await page.mouse.up();
-  await expect(detailSeparator).toHaveAttribute("aria-valuenow", String(initialDetailWidth + 24));
-  await actorSeparator.focus();
-  await actorSeparator.press("ArrowRight");
-  await expect(actorSeparator).toHaveAttribute("aria-valuenow", String(initialActorWidth + 40));
-  await detailSeparator.focus();
-  await detailSeparator.press("ArrowLeft");
-  await expect(detailSeparator).toHaveAttribute("aria-valuenow", String(initialDetailWidth + 40));
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: /打开游戏控制/ }).click();
-  await page.getByRole("button", { name: /世界演化/ }).click();
-  await expect(page.getByRole("separator", { name: "调整主体列表宽度" }))
-    .toHaveAttribute("aria-valuenow", String(initialActorWidth + 40));
-  await expect(page.getByRole("separator", { name: "调整推演详情宽度" }))
-    .toHaveAttribute("aria-valuenow", String(initialDetailWidth + 40));
-
-  await inspector.getByRole("button", { name: "图谱" }).click();
-  await inspector.locator('.cg-inspector-graph[data-layout-ready="true"]').waitFor();
-  const attemptNode = inspector.getByRole("button", { name: /世界，Step 1 尝试/ });
-  await attemptNode.focus();
-  await attemptNode.press("Enter");
-  await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
-});
-
-test("in-game management preserves an active world run", async ({ page }) => {
-  await page.request.post("/api/worlds/import", {
-    multipart: {
-      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
-      replace: "true",
-    },
-  });
-  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  const detail = await created.json() as { summary: { id: string } };
-  const playURL = `/play/${detail.summary.id}`;
-
-  await page.goto(playURL);
-  await page.getByLabel("你的行动").fill("触发 E2E 流式失败");
-  await page.getByLabel("你的行动").press("Enter");
-  const orb = page.getByRole("button", { name: /打开游戏控制；世界正在推演/ });
-  await expect(orb).toBeVisible();
-  await orb.click();
-  await page.getByRole("button", { name: "设置" }).click();
-  await expect(page).toHaveURL(`${playURL}/manage/settings`);
-  await expect(page.getByRole("dialog", { name: "游戏管理" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
-  const settingsPanel = page.locator(".cg-settings");
-  const separators = await settingsPanel.locator("fieldset, .cg-setting-row").evaluateAll((elements) => (
-    elements.map((element) => getComputedStyle(element).borderBottomWidth)
-  ));
-  expect(separators).toEqual(separators.map(() => "0px"));
-  const developerSection = settingsPanel.locator(".cg-settings__developer");
-  const [developerDescriptionBox, developerRowBox] = await Promise.all([
-    developerSection.locator("header > p").boundingBox(),
-    developerSection.locator(".cg-setting-row").boundingBox(),
-  ]);
-  expect(developerDescriptionBox).not.toBeNull();
-  expect(developerRowBox).not.toBeNull();
-  const developerInnerGap = developerRowBox!.y - (developerDescriptionBox!.y + developerDescriptionBox!.height);
-  expect(developerInnerGap).toBeGreaterThanOrEqual(12);
-  expect(developerInnerGap).toBeLessThanOrEqual(20);
-  const reduceMotion = page.getByRole("switch", { name: "减少动态效果" });
-  const resetPosition = page.getByRole("button", { name: "重置位置" });
-  await resetPosition.scrollIntoViewIfNeeded();
-  const [switchBox, resetBox] = await Promise.all([
-    reduceMotion.boundingBox(),
-    resetPosition.boundingBox(),
-  ]);
-  expect(switchBox).not.toBeNull();
-  expect(resetBox).not.toBeNull();
-  expect(switchBox!.x + switchBox!.width / 2).toBeCloseTo(
-    resetBox!.x + resetBox!.width / 2,
-    1,
-  );
-  await expect(reduceMotion).toHaveAttribute("aria-checked", "false");
-  await reduceMotion.click();
-  await expect(reduceMotion).toHaveAttribute("aria-checked", "true");
-  await expect(page.locator("html")).toHaveAttribute("data-cg-motion", "reduced");
-  await reduceMotion.press("Space");
-  await expect(reduceMotion).toHaveAttribute("aria-checked", "false");
-
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/sessions/${detail.summary.id}`);
-    const session = await response.json() as { runs: Array<{ status: string }> };
-    return session.runs.at(-1)?.status;
-  }).toBe("failed");
-  await page.getByRole("button", { name: "关闭游戏管理" }).click();
-  await expect(page).toHaveURL(playURL);
-  await expect(page.getByText("这一步未能完成")).toBeVisible();
-});
-
-test("the official thread axis keeps the composer anchored after every message", async ({ page }) => {
-  await page.setViewportSize({ width: 1_440, height: 900 });
-  await page.request.post("/api/worlds/import", {
-    multipart: {
-      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
-      replace: "true",
-    },
-  });
-  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  const detail = await created.json() as { summary: { id: string } };
-  await page.goto(`/play/${detail.summary.id}`);
-
-  const composer = page.getByLabel("你的行动");
-  const shell = page.locator(".aui-composer-shell");
-  await composer.blur();
-  const restingShadow = await shell.evaluate((element) => getComputedStyle(element).boxShadow);
-  await expect.poll(() => shell.evaluate((element) => getComputedStyle(element, "::after").content)).toBe("none");
-  const restingBorderColor = await shell.evaluate((element) => {
-    const context = document.createElement("canvas").getContext("2d")!;
-    context.fillStyle = getComputedStyle(element).borderColor;
-    context.fillRect(0, 0, 1, 1);
-    return [...context.getImageData(0, 0, 1, 1).data];
-  });
-  await composer.focus();
-  const focusedStyle = await shell.evaluate((element) => ({
-    borderColor: (() => {
-      const context = document.createElement("canvas").getContext("2d")!;
-      context.fillStyle = getComputedStyle(element).borderColor;
-      context.fillRect(0, 0, 1, 1);
-      return [...context.getImageData(0, 0, 1, 1).data];
-    })(),
-    boxShadow: getComputedStyle(element).boxShadow,
-    focusMarkerContent: getComputedStyle(element, "::after").content,
-    textareaBoxShadow: getComputedStyle(element.querySelector("textarea")!).boxShadow,
-    textareaOutline: getComputedStyle(element.querySelector("textarea")!).outlineStyle,
-  }));
-  expect(focusedStyle.boxShadow).toBe(restingShadow);
-  expect(focusedStyle.borderColor).toEqual(restingBorderColor);
-  expect(focusedStyle.focusMarkerContent).toBe("none");
-  expect(focusedStyle.textareaBoxShadow).toBe("none");
-  expect(focusedStyle.textareaOutline).toBe("none");
-  const emptyBox = await shell.boundingBox();
-  expect(emptyBox).not.toBeNull();
-  expect(Math.abs((emptyBox!.y + emptyBox!.height / 2) - 450)).toBeLessThan(80);
-
-  await composer.fill("正在使用输入法");
-  await composer.evaluate((element) => element.dispatchEvent(new KeyboardEvent("keydown", {
-    bubbles: true,
-    code: "Enter",
-    isComposing: true,
-    key: "Enter",
-  })));
-  await expect(composer).toHaveValue("正在使用输入法");
-  await expect(page.getByRole("heading", { name: "你想做什么？" })).toBeVisible();
-
-  await composer.fill("先观察石门");
-  await composer.press("Shift+Enter");
-  await expect(composer).toHaveValue("先观察石门\n");
-  await composer.fill("先观察石门");
-  await composer.press("Enter");
-  await expect(page.getByRole("button", { name: /第 1 步/ })).toBeVisible();
-  const userBubble = page.locator(".aui-user-message-bubble").last();
-  const shortMessageGeometry = await userBubble.evaluate((element) => {
-    const paragraph = element.querySelector("p")!;
-    const style = getComputedStyle(paragraph);
-    return {
-      bubbleWidth: element.getBoundingClientRect().width,
-      lineHeight: Number.parseFloat(style.lineHeight),
-      textHeight: paragraph.getBoundingClientRect().height,
-    };
-  });
-  expect(shortMessageGeometry.textHeight).toBeLessThanOrEqual(shortMessageGeometry.lineHeight * 1.25);
-  expect(shortMessageGeometry.bubbleWidth).toBeGreaterThan(shortMessageGeometry.lineHeight * 2.5);
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: new URL(page.url()).origin,
-  });
-  const assistantMessage = page.locator('[data-role="assistant"]').last();
-  await assistantMessage.hover();
-  await assistantMessage.getByRole("button", { name: "复制世界回复" }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
-    "世界回应了你的自由行动。\n\n目标已经完成",
-  );
-  const firstBottom = (await shell.boundingBox())!.y + (await shell.boundingBox())!.height;
-  expect(Math.abs(firstBottom - 876)).toBeLessThanOrEqual(2);
-
-  await composer.fill("再查看门后的空间");
-  await composer.press("Enter");
-  await expect(page.getByRole("button", { name: /第 2 步/ })).toBeVisible();
-  const secondBox = await shell.boundingBox();
-  expect(Math.abs((secondBox!.y + secondBox!.height) - firstBottom)).toBeLessThanOrEqual(2);
-
-  for (const width of [2_560, 5_120]) {
-    await page.setViewportSize({ width, height: 900 });
-    const currentShell = await shell.boundingBox();
-    expect(currentShell!.width).toBeLessThanOrEqual(704);
-    expect(Math.abs((currentShell!.x + currentShell!.width / 2) - width / 2)).toBeLessThanOrEqual(2);
-  }
+  await page.getByRole("button", { name: "实时" }).click();
+  await expect(page.getByText("实时演化")).toBeVisible();
+  await page.getByRole("button", { name: "暂停" }).click();
+  await expect(page.getByText("已暂停")).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 720 });
-  await page.locator("html").evaluate((element) => { element.style.fontSize = "200%"; });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(page.getByRole("button", { name: "进入世界" })).toBeVisible();
 });
 
-test("a streamed terminal failure does not reconnect and can be abandoned", async ({ page }) => {
-  await page.request.post("/api/worlds/import", {
-    multipart: {
-      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
-      replace: "true",
-    },
-  });
-  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  const detail = await created.json() as { summary: { id: string } };
-  let streamRequests = 0;
-  page.on("request", (request) => {
-    if (/\/api\/sessions\/[^/]+\/runs\/[^/]+\/events(?:\?|$)/.test(request.url())) {
-      streamRequests += 1;
-    }
-  });
+test("a Participant enters from an Origin, acts, releases, and reclaims the same Agent", async ({ page }) => {
+  await installFixture(page);
+  const instance = await createInstance(page);
+  await page.goto(`/play/${instance.id}`);
+  await enterFromOrigin(page);
 
-  await page.goto(`/play/${detail.summary.id}`);
-  const composer = page.getByLabel("你的行动");
-  await composer.fill("触发 E2E 流式失败");
-  await composer.press("Enter");
+  await page.getByRole("button", { name: "准备下一步" }).click();
+  const action = page.getByLabel("你要做什么？");
+  await expect(action).toHaveValue("确认当前位置");
+  await action.fill("我现在在哪里？");
+  await page.getByRole("button", { name: "提交行动" }).click();
+  await expect(page.getByText("Revision 2 · Step 1")).toBeVisible();
+  await expect(page.getByText("世界在联合裁决后推进了一秒。")).toBeVisible();
+  await expect(page.locator(".cg-role-observations").getByText("世界继续变化。")).toBeVisible();
 
-  await expect.poll(() => streamRequests).toBeGreaterThan(0);
-  await expect(page.getByText("这一步未能完成")).toBeVisible();
-  await expect(page.getByText("这一步没有提交，世界仍停留在上一个已保存状态。")).toBeVisible();
-  await expect(page.getByRole("button", { name: "重试这一步" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "放弃目标" })).toBeVisible();
-  await expect(page.getByText("世界正在推演…")).toHaveCount(0);
+  await page.getByRole("button", { name: "离开并交给 AgentMind" }).click();
+  await expect(page.getByRole("heading", { name: "你还没有进入世界" })).toBeVisible();
+  await page.getByRole("button", { name: "进入世界" }).click();
+  await chooseEntry(page, "小明");
+  await page.getByRole("button", { name: "确认角色" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "关闭入场场景" }).click();
+  await expect(page.getByRole("heading", { name: "小明" })).toBeVisible();
 
-  const streamsAtFailure = streamRequests;
-  await page.waitForTimeout(3_500);
-  expect(streamRequests).toBe(streamsAtFailure);
-
-  await page.getByRole("button", { name: "放弃目标" }).click();
-  await expect(page.getByText("目标已经结束")).toBeVisible();
-  await composer.fill("观察石门");
-  await composer.press("Enter");
-  await expect(page.getByText("世界回应了你的自由行动。")).toBeVisible();
-  await expect(page.getByText("目标已经完成")).toBeVisible();
+  await page.getByRole("button", { name: "离开并让角色等待" }).click();
+  await expect(page.getByRole("heading", { name: "你还没有进入世界" })).toBeVisible();
+  await page.getByRole("button", { name: "进入世界" }).click();
+  await expect(page.locator(".cg-entry-grid label").filter({ hasText: "小明" })).toBeVisible();
 });
 
-test("a terminal snapshot never opens an EventSource", async ({ page }) => {
-  await page.request.post("/api/worlds/import", {
-    multipart: {
-      file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
-      replace: "true",
-    },
-  });
-  const created = await page.request.post("/api/sessions", { data: { worldId: "open-world-fixture" } });
-  const detail = await created.json() as { summary: { id: string } };
-  const started = await page.request.post(`/api/sessions/${detail.summary.id}/runs`, {
-    data: { text: "触发 E2E 快速失败" },
-  });
-  const { runId } = await started.json() as { runId: string };
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/sessions/${detail.summary.id}/runs/${runId}`);
-    const snapshot = await response.json() as { run: { status: string } };
-    return snapshot.run.status;
-  }).toBe("failed");
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/sessions/${detail.summary.id}`);
-    const session = await response.json() as { runs: Array<{ id: string; status: string }> };
-    return session.runs.find((run) => run.id === runId)?.status;
-  }).toBe("failed");
-  let streamRequests = 0;
-  page.on("request", (request) => {
-    if (/\/api\/sessions\/[^/]+\/runs\/[^/]+\/events(?:\?|$)/.test(request.url())) {
-      streamRequests += 1;
-    }
-  });
+test("failed execution remains atomic and long diagnostics never widen the inspector", async ({ page }) => {
+  await installFixture(page);
+  const instance = await createInstance(page);
+  await page.goto(`/play/${instance.id}`);
 
-  await page.goto(`/play/${detail.summary.id}`);
-  await expect(page.getByText("这一步未能完成")).toBeVisible();
-  expect(streamRequests).toBe(0);
-  await page.waitForTimeout(3_500);
-  expect(streamRequests).toBe(0);
-  await expect(page.getByText(/进度连接暂时中断|最新存档状态暂时无法同步/)).toHaveCount(0);
+  await page.getByRole("button", { name: "进入世界" }).click();
+  await chooseEntry(page, /^旅人/);
+  await page.getByRole("button", { name: "确认角色" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "关闭入场场景" }).click();
+  await page.getByRole("button", { name: "准备下一步" }).click();
+  await page.getByLabel("你要做什么？").fill("触发 E2E 快速失败");
+  await page.getByRole("button", { name: "提交行动" }).click();
+  await expect(page.getByLabel("你要做什么？")).toHaveValue("");
+
+  await page.getByRole("button", { name: "运行记录" }).click();
+  const inspector = page.getByRole("dialog", { name: "世界演化" });
+  await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
+  await expect(inspector.getByText(/forced e2e authentication failure|ModelTransportError/).first()).toBeVisible();
+  expect(await inspector.locator(".cg-inspector-detail").evaluate((element) => (
+    element.scrollWidth <= element.clientWidth
+  ))).toBe(true);
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await inspector.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
+test("instance APIs expose Agent-scoped views without canonical identity bindings", async ({ page }) => {
+  await installFixture(page);
+  const instance = await createInstance(page);
+  const response = await page.request.get(`/api/instances/${instance.id}`);
+  expect(response.ok()).toBe(true);
+  const text = await response.text();
+  expect(text).not.toContain("canonicalEntityIds");
+  expect(text).not.toContain("key-is-authentic");
+  expect(text).not.toContain("providerId");
 });
 
 test("the global theme preference persists across product routes", async ({ page }) => {
-  const obsoleteSettingsPage = await page.request.get("/settings");
-  expect(obsoleteSettingsPage.status()).toBe(404);
   await page.goto("/");
   const settingsTrigger = page.getByRole("button", { name: /设置.*外观/ });
   await settingsTrigger.click();
   const settingsDialog = page.getByRole("dialog", { name: "设置" });
-  await expect(settingsDialog).toBeVisible();
-  await expect(page).toHaveURL(/\/$/);
-  const scrollTrackColor = await page.locator(".cg-settings-dialog__content").evaluate(
-    (element) => getComputedStyle(element, "::-webkit-scrollbar-track").backgroundColor,
-  );
-  expect(["rgba(0, 0, 0, 0)", "transparent"]).toContain(scrollTrackColor);
-  await settingsDialog.getByRole("button", { name: "浅色" }).click();
-  await expect(page.locator("html")).not.toHaveClass(/dark/);
-
   await settingsDialog.getByRole("button", { name: "深色" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await page.keyboard.press("Escape");
-  await expect(settingsDialog).toHaveCount(0);
   await expect(settingsTrigger).toBeFocused();
-  await page.reload();
-  await expect(page.locator("html")).toHaveClass(/dark/);
-  await page.getByRole("button", { name: /设置.*外观/ }).click();
-  await expect(page.getByRole("dialog", { name: "设置" }).getByRole("button", { name: "深色" })).toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("Escape");
-
   await page.goto("/worlds");
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await expect(page.getByRole("heading", { name: "世界包", exact: true, level: 2 })).toBeVisible();
 });

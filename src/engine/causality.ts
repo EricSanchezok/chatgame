@@ -9,7 +9,6 @@ import type {
   NumericComparison,
   SimulationState,
   TransitionProposal,
-  TransitionProposalDraft,
 } from "./model";
 import { applyWorldDeltaOperation } from "./transaction";
 import { quantityId } from "./runtime-id";
@@ -148,7 +147,7 @@ export function evaluateProposalCausality(
   state: SimulationState,
   checkResults: readonly D20CheckResult[],
   discreteRandomResults: readonly DiscreteRandomResult[],
-  proposal: TransitionProposal | TransitionProposalDraft,
+  proposal: TransitionProposal,
 ): CausalAssertionResult[] {
   const consumedRandomIds = new Set([
     ...proposal.mechanicInvocations.flatMap((invocation) => invocation.causes),
@@ -194,10 +193,7 @@ export function evaluateProposalCausality(
       working,
       checks,
       randomResults,
-      // Draft-only callers have no engine identity yet; persisted proposals do.
-      // Once materialized, causal targets must bind to the outcome itself rather
-      // than reusing the source action identity.
-      { kind: "outcome", id: "id" in outcome ? outcome.id : outcome.proposalId },
+      { kind: "outcome", id: outcome.id },
       { causes: outcome.causeRefs, assertions: outcome.assertions },
     ));
   }

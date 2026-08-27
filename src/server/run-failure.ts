@@ -10,7 +10,7 @@ import {
   ModelScheduledExecutionError,
 } from "../engine/model-scheduler";
 import { TransitionValidationError } from "../engine/transaction";
-import { WorldSessionConflictError } from "./world-session-store";
+import { WorldInstanceConflictError } from "./world-instance-store";
 
 export type RunFailureKind = "cancelled" | "retriable" | "permanent";
 
@@ -76,7 +76,7 @@ function localDisposition(error: unknown): RunFailureKind | undefined {
   }
   if (error instanceof ModelOutputError || error instanceof ModelSemanticRepairError ||
     error instanceof ModelOverloadedError ||
-    error instanceof WorldSessionConflictError) {
+    error instanceof WorldInstanceConflictError) {
     return "retriable";
   }
   const status = numericStatus(error);

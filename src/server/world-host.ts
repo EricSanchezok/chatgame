@@ -1,96 +1,68 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { CanonicalCommitter } from "../engine/canonical-committer";
+import { EagerReferenceAlgorithm, EAGER_REFERENCE_MANIFEST } from "../engine/eager-reference";
+import type {
+  ExternalActionInput,
+  PolicyBinding,
+  WorldAdvanceRequest,
+} from "../engine/execution";
+import { WorldExecutionAlgorithmRegistry } from "../engine/execution";
+import { arrivalDraftSchema } from "../engine/llm-schemas";
 import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
-import { canonicalize, contentHash } from "../engine/model-audit";
-import { semanticStepHash } from "../engine/canonical-committer";
-import type { StructuredModelProvider } from "../engine/model-provider";
-import { MonolithicCurrentAlgorithm, MONOLITHIC_CURRENT_MANIFEST } from "../engine/monolithic-current";
-import { WorldExecutionAlgorithmRegistry } from "../engine/execution";
-import { SimulationEngine } from "../engine/simulation";
-import {
-  validateWorldDefinition,
-  validateWorldModelProfiles,
-  toWorldRuntimeContract,
-  worldModelProfileIds,
-  type WorldDefinition,
-} from "../engine/world-definition";
-import type { WorldRepository } from "../script/world-repository";
+import { contentHash } from "../engine/model-audit";
+import { modelInvocationIdentity, type StructuredModelProvider } from "../engine/model-provider";
 import {
   NOOP_RUNTIME_OBSERVER,
-  runtimeEventEmitter,
-  serializeRuntimeError,
   type RuntimeCorrelation,
-  type RuntimeEvent,
   type RuntimeObserver,
 } from "../engine/observability";
+import { quantityId } from "../engine/runtime-id";
+import { SimulationEngine } from "../engine/simulation";
+import { validateSimulationState } from "../engine/transaction";
 import {
-  isWorldRunActiveIntentOwner,
-  isWorldRunExecuting,
-  isWorldRunRetriable,
-  isWorldRunStreamBoundary,
-  type ContinueWorldRunInput,
-  type StartWorldRunResponse,
-  type WorldRunSnapshot,
-} from "../shared/world-api";
+  toWorldRuntimeContract,
+  validateWorldModelProfiles,
+  worldModelProfileIds,
+  type WorldDefinition,
+  type WorldOrigin,
+} from "../engine/world-definition";
+import type { AgentState, SimulationState } from "../engine/model";
+import type { WorldRepository } from "../script/world-repository";
 import type {
-  WorldInspectorAttemptDetail,
-  WorldInspectorRuntimeEventDetail,
-  WorldInspectorRuntimeEventSummary,
-  WorldInspectorStepDetail,
-  WorldInspectorWindow,
-} from "../shared/world-inspector-api";
-import { LocalDatabase } from "./local-database";
+  AdvanceWorldInput,
+  AgentPrivateView,
+  ArrivalView,
+  CreateParticipantInput,
+  PublicInstanceDetail,
+  PublicInstanceSummary,
+  ReleaseParticipantInput,
+  SubmitExternalActionInput,
+} from "../shared/world-api";
+import { runtimeCodeIdentity } from "./code-identity";
 import type { ExecutionLedger, FinishExecutionInput } from "./execution-ledger";
+import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
 import {
   buildWorldInspectorAttemptDetail,
-  buildWorldInspectorCommittedProjection,
-  buildWorldInspectorCommittedStepDetail,
   buildWorldInspectorRuntimeEventDetail,
   buildWorldInspectorStepDetail,
   buildWorldInspectorWindow,
-  modelAuditsForStep,
   summarizeRuntimeEvent,
-  type WorldInspectorCommittedProjection,
-  type WorldInspectorCommittedStepDetail,
 } from "./world-inspector";
-import { classifyRunFailure, type RunFailureClassification } from "./run-failure";
 import {
-  WorldSessionConflictError,
-  WorldSessionNotFoundError,
-  type StoredWorldSession,
-  type WorldSessionStore,
-} from "./world-session-store";
-import {
-  publicSessionDetail,
-  publicCommittedStepEvents,
-  publicSessionSummary,
-  publicWorldRunSnapshot,
-  type PublicSessionDetail,
-  type PublicSessionSummary,
-  type WorldRunEvent,
-  type WorldRunEventInput,
-  type WorldRunRecord,
-  type WorldRunStatus,
-  type WorldSessionDocument,
-} from "./world-run-types";
-import { runtimeCodeIdentity } from "./code-identity";
-
-interface HostedSession extends StoredWorldSession {
-  definition: WorldDefinition;
-  engine: SimulationEngine;
-}
-
-interface HostedExecution {
-  promise: Promise<void>;
-  controller: AbortController;
-}
-
-interface PendingRunFailure {
-  classification: RunFailureClassification;
-  internalError: string;
-}
+  WorldInstanceConflictError,
+  WorldInstanceNotFoundError,
+  type WorldInstanceStore,
+} from "./world-instance-store";
+import type {
+  ActionWindow,
+  ParticipantRecord,
+  StoredWorldInstance,
+  WorldAdvanceRecord,
+  WorldInstanceDocument,
+} from "./world-instance-types";
 
 interface WorldCatalogManager {
   importWorld(
@@ -102,88 +74,43 @@ interface WorldCatalogManager {
   deleteWorld(worldId: string): void;
 }
 
-type ExecutionReason = "initial" | "player_input" | "retry";
+interface AtomicExecutionInstanceStore extends WorldInstanceStore {
+  createInstanceAndFinishExecution(
+    document: WorldInstanceDocument,
+    executionId: string,
+    finish: FinishExecutionInput,
+    correlation?: RuntimeCorrelation,
+  ): { instance: StoredWorldInstance };
+  compareAndSwapInstanceAndFinishExecution(
+    instanceId: string,
+    expectedGeneration: number,
+    document: WorldInstanceDocument,
+    executionId: string,
+    finish: FinishExecutionInput,
+    phase?: "step" | "admission" | "instance",
+    correlation?: RuntimeCorrelation,
+  ): { instance: StoredWorldInstance };
+}
 
-const inputIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/;
-const PINNED_WORLD_CONTRACT_CACHE_LIMIT = 8;
-const streamBoundaryEventTypes = new Set<WorldRunEvent["type"]>([
-  "run.awaiting_player",
-  "run.completed",
-  "run.goal_failed",
-  "run.step_limit",
-  "run.cancelled",
-  "run.failed",
-]);
-
-const LEDGER_INSPECTOR_OBSERVER: RuntimeObserver = {
-  mode: "full",
-  degraded: false,
-  emit: () => undefined,
-};
-
-class RunChannel {
-  private readonly waiters = new Set<() => void>();
-  private version = 0;
-
-  get currentVersion(): number {
-    return this.version;
-  }
-
-  notify(): void {
-    this.version += 1;
-    for (const waiter of this.waiters) waiter();
-    this.waiters.clear();
-  }
-
-  async wait(afterVersion: number, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted || this.version !== afterVersion) return;
-    await new Promise<void>((resolve) => {
-      const done = () => {
-        signal?.removeEventListener("abort", done);
-        this.waiters.delete(done);
-        resolve();
-      };
-      this.waiters.add(done);
-      signal?.addEventListener("abort", done, { once: true });
-    });
-  }
+function isAtomicStore(store: WorldInstanceStore): store is AtomicExecutionInstanceStore {
+  const candidate = store as Partial<AtomicExecutionInstanceStore>;
+  return typeof candidate.createInstanceAndFinishExecution === "function" &&
+    typeof candidate.compareAndSwapInstanceAndFinishExecution === "function";
 }
 
 export interface WorldHostOptions {
   repository: WorldRepository;
-  store: WorldSessionStore;
+  store: WorldInstanceStore;
   provider: StructuredModelProvider;
   catalogManager?: WorldCatalogManager;
-  now?: () => Date;
-  idFactory?: () => string;
-  maxStepsPerRun?: number;
-  observer?: RuntimeObserver;
   ledger?: ExecutionLedger;
   algorithmRegistry?: WorldExecutionAlgorithmRegistry;
-  algorithm?: { id: string; version: string };
-}
-
-interface AtomicExecutionSessionStore extends WorldSessionStore {
-  createAndFinishExecution(
-    document: WorldSessionDocument,
-    executionId: string,
-    finish: FinishExecutionInput,
-    correlation?: RuntimeCorrelation,
-  ): { session: StoredWorldSession };
-  compareAndSwapAndFinishExecution(
-    sessionId: string,
-    expectedGeneration: number,
-    document: WorldSessionDocument,
-    executionId: string,
-    finish: FinishExecutionInput,
-    correlation?: RuntimeCorrelation,
-  ): { session: StoredWorldSession };
-}
-
-function isAtomicExecutionSessionStore(store: WorldSessionStore): store is AtomicExecutionSessionStore {
-  const candidate = store as Partial<AtomicExecutionSessionStore>;
-  return typeof candidate.createAndFinishExecution === "function" &&
-    typeof candidate.compareAndSwapAndFinishExecution === "function";
+  now?: () => Date;
+  idFactory?: () => string;
+  observer?: RuntimeObserver;
+  maxActiveParticipants?: number;
+  setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
 }
 
 export class WorldHostError extends Error {
@@ -193,58 +120,170 @@ export class WorldHostError extends Error {
   }
 }
 
+const ARRIVAL_SYSTEM = `你只根据所给角色私有视角写第一人称入场。
+不得推断隐藏真相，不得输出世界状态修改。
+三条建议必须可编辑且不得声称已执行。只输出 schema 指定的 JSON。`;
+
+function policyRoster(state: Readonly<SimulationState>): Record<string, PolicyBinding> {
+  return Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
+    kind: "model" as const,
+    agentId: agent.id,
+    profiles: structuredClone(agent.modelProfiles),
+  }]));
+}
+
+function currentAdvance(document: WorldInstanceDocument): WorldAdvanceRecord | undefined {
+  return Object.values(document.advances)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))[0];
+}
+
+function activeParticipants(document: WorldInstanceDocument): ParticipantRecord[] {
+  return Object.values(document.participants)
+    .filter((participant) => participant.status === "active")
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function claimableAgentIds(document: WorldInstanceDocument, definition: WorldDefinition): string[] {
+  return [...new Set([
+    ...(definition.participation?.claimableAgentIds ?? []),
+    ...Object.values(document.participants)
+      .filter((participant) => participant.status === "released")
+      .map((participant) => participant.agentId),
+  ])].filter((agentId) => document.state.agents[agentId]).sort();
+}
+
+function publicSummary(document: WorldInstanceDocument): PublicInstanceSummary {
+  return {
+    id: document.id,
+    worldId: document.world.id,
+    title: document.title,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+    revision: document.state.revision,
+    step: document.state.step,
+    elapsedSeconds: document.state.truth.elapsedSeconds,
+    participantCount: activeParticipants(document).length,
+    schedulerMode: document.scheduler.mode,
+    ...(currentAdvance(document) ? { advanceStatus: currentAdvance(document)!.status } : {}),
+  };
+}
+
+function privateView(document: WorldInstanceDocument, agentId: string): AgentPrivateView {
+  const agent = document.state.agents[agentId];
+  if (!agent) throw new WorldHostError(`Agent not found: ${agentId}`, 404);
+  const entity = document.state.truth.entities[agent.entityId];
+  const placementId = document.state.truth.placements[agent.entityId];
+  return {
+    agentId,
+    entity: {
+      name: entity.name,
+      description: entity.description,
+      location: placementId ? document.state.truth.entities[placementId]?.name ?? null : null,
+    },
+    character: structuredClone(agent.character),
+    belief: structuredClone(agent.belief),
+    observations: document.state.history.flatMap((step) => step.observations
+      .filter((packet) => packet.observerId === agentId)
+      .map((packet) => ({ step: packet.step, summary: packet.summary }))),
+  };
+}
+
+function agentStateFromOrigin(
+  state: Readonly<SimulationState>,
+  origin: WorldOrigin,
+  agentId: string,
+  displayName: string,
+  appearance: string,
+  motivation: string,
+): AgentState {
+  const selfId = `${agentId}-self`;
+  const locationId = `${agentId}-location`;
+  return {
+    id: agentId,
+    entityId: agentId,
+    modelProfiles: structuredClone(origin.modelProfiles),
+    character: {
+      persona: {
+        summary: appearance ? `${origin.persona}\n外观：${appearance}` : origin.persona,
+        voice: "",
+        updatedAtStep: state.step,
+        evidenceIds: [],
+      },
+      traits: {},
+      values: {},
+      emotions: {},
+      attitudes: {},
+      goals: {
+        [`${agentId}-motivation`]: {
+          id: `${agentId}-motivation`,
+          description: motivation || origin.defaultGoal,
+          priority: 0.8,
+          progress: 0,
+          targetIds: [],
+          motivatedByIds: [],
+          status: "active",
+          createdAtStep: state.step,
+          updatedAtStep: state.step,
+          evidenceIds: [],
+        },
+      },
+      commitments: {},
+    },
+    belief: {
+      localEntities: {
+        [selfId]: {
+          id: selfId,
+          name: displayName,
+          description: appearance || origin.persona,
+          status: "observed",
+        },
+        [locationId]: {
+          id: locationId,
+          name: state.truth.entities[origin.spawnEntityId].name,
+          description: state.truth.entities[origin.spawnEntityId].description,
+          status: "observed",
+        },
+      },
+      claims: {},
+      evidence: {},
+    },
+    bindings: {
+      [selfId]: { localEntityId: selfId, canonicalEntityIds: [agentId] },
+      [locationId]: { localEntityId: locationId, canonicalEntityIds: [origin.spawnEntityId] },
+    },
+    nextAction: null,
+  };
+}
+
 export class WorldHost {
   private static singleton: WorldHost | undefined;
-  private readonly executions = new Map<string, HostedExecution>();
-  private readonly pendingRunFailures = new Map<string, PendingRunFailure>();
-  private readonly pendingRunCancellations = new Set<string>();
-  private readonly channels = new Map<string, RunChannel>();
-  private readonly inspectorChannel = new RunChannel();
-  private readonly liveRuntimeEvents: RuntimeEvent[] = [];
-  private readonly inspectorProjectionCache = new Map<string, WorldInspectorCommittedProjection>();
-  private readonly inspectorStepCache = new Map<string, WorldInspectorCommittedStepDetail>();
-  private readonly inspectorEpoch = randomUUID();
-  private readonly pinnedWorldContracts = new Map<string, ReturnType<typeof toWorldRuntimeContract>>();
+  private readonly registry: WorldExecutionAlgorithmRegistry;
+  private readonly committer = new CanonicalCommitter();
   private readonly now: () => Date;
   private readonly idFactory: () => string;
-  private readonly maxStepsPerRun: number;
-  private readonly ledger?: ExecutionLedger;
-  private readonly algorithmRegistry: WorldExecutionAlgorithmRegistry;
-  private readonly algorithmIdentity: { id: string; version: string };
+  private readonly maxActiveParticipants: number;
+  private readonly locks = new Map<string, Promise<unknown>>();
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly setTimer: WorldHostOptions["setTimer"];
+  private readonly clearTimer: NonNullable<WorldHostOptions["clearTimer"]>;
   readonly runtimeObserver: RuntimeObserver;
-  private readonly observe: ReturnType<typeof runtimeEventEmitter>;
 
   constructor(private readonly options: WorldHostOptions) {
+    if (options.ledger && !isAtomicStore(options.store)) {
+      throw new Error("Execution Ledger requires atomic instance/execution persistence");
+    }
     this.now = options.now ?? (() => new Date());
     this.idFactory = options.idFactory ?? randomUUID;
-    this.maxStepsPerRun = options.maxStepsPerRun ?? 100;
-    this.ledger = options.ledger;
-    if (this.ledger && !isAtomicExecutionSessionStore(options.store)) {
-      throw new Error("Execution Ledger requires an atomic execution/session store");
-    }
-    this.algorithmRegistry = options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry();
-    this.algorithmIdentity = options.algorithm ?? {
-      id: MONOLITHIC_CURRENT_MANIFEST.id,
-      version: MONOLITHIC_CURRENT_MANIFEST.version,
-    };
-    if (!options.algorithmRegistry) {
-      this.algorithmRegistry.register(MONOLITHIC_CURRENT_MANIFEST, () =>
-        new MonolithicCurrentAlgorithm(this.options.provider, this.options.repository.rulePackages));
-    }
+    this.maxActiveParticipants = options.maxActiveParticipants ?? 1;
     this.runtimeObserver = options.observer ?? NOOP_RUNTIME_OBSERVER;
-    this.observe = runtimeEventEmitter(this.runtimeObserver);
-    this.runtimeObserver.subscribe?.((event) => {
-      this.liveRuntimeEvents.push(structuredClone(event));
-      if (this.liveRuntimeEvents.length > 10_000) this.liveRuntimeEvents.splice(0, this.liveRuntimeEvents.length - 10_000);
-      this.inspectorChannel.notify();
-    });
-    this.ledger?.subscribe((event) => {
-      this.liveRuntimeEvents.push(structuredClone(event));
-      if (this.liveRuntimeEvents.length > 10_000) {
-        this.liveRuntimeEvents.splice(0, this.liveRuntimeEvents.length - 10_000);
-      }
-      this.inspectorChannel.notify();
-    });
+    this.registry = options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry();
+    if (!options.algorithmRegistry) {
+      this.registry.register(EAGER_REFERENCE_MANIFEST, () =>
+        new EagerReferenceAlgorithm(options.provider, options.repository.rulePackages));
+    }
+    this.setTimer = options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
+    this.clearTimer = options.clearTimer ?? clearTimeout;
+    for (const stored of options.store.listInstances()) this.restoreSchedule(stored);
   }
 
   static get(): WorldHost {
@@ -254,7 +293,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v12",
       );
       const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
@@ -276,51 +315,8 @@ export class WorldHost {
     this.singleton = host;
   }
 
-  private executionKey(sessionId: string, runId: string): string {
-    return `${sessionId}:${runId}`;
-  }
-
-  private inspectorCacheValue<T>(cache: Map<string, T>, key: string, create: () => T): T {
-    const existing = cache.get(key);
-    if (existing !== undefined) {
-      cache.delete(key);
-      cache.set(key, existing);
-      return existing;
-    }
-    const value = create();
-    cache.set(key, value);
-    if (cache.size > 64) {
-      const oldest = cache.keys().next().value as string | undefined;
-      if (oldest !== undefined) cache.delete(oldest);
-    }
-    return value;
-  }
-
-  private inspectorCachePrefix(document: WorldSessionDocument): string {
-    return `${document.id}:${document.world.contentHash}:${document.state.revision}`;
-  }
-
-  private channel(sessionId: string, runId: string): RunChannel {
-    const key = this.executionKey(sessionId, runId);
-    const channel = this.channels.get(key) ?? new RunChannel();
-    this.channels.set(key, channel);
-    return channel;
-  }
-
-  private notifyRun(sessionId: string, runId: string, close = false): void {
-    const key = this.executionKey(sessionId, runId);
-    this.channels.get(key)?.notify();
-    if (close) this.channels.delete(key);
-  }
-
   listWorlds() {
-    return this.options.repository.list().map((summary) => ({
-      id: summary.id,
-      name: summary.name,
-      version: summary.version,
-      contentHash: summary.contentHash,
-      description: summary.description,
-    }));
+    return this.options.repository.list();
   }
 
   importWorld(buffer: Buffer, replace = false, expectedWorldId?: string): WorldImportResult {
@@ -333,1110 +329,866 @@ export class WorldHost {
     this.options.catalogManager.deleteWorld(worldId);
   }
 
-  private pinnedWorldContractIdentity(document: WorldSessionDocument): { key: string; seed: number } {
-    const seed = document.state.historyBase?.truth.rng.seed;
-    if (seed === undefined) throw new Error("session state has no pinned pre-bootstrap world seed");
-    return { key: `${document.world.id}\u0000${document.world.contentHash}\u0000${seed}`, seed };
+  worldAsset(worldId: string, hash: string): { mime: string; bytes: Buffer } {
+    const definition = this.options.repository.load(worldId, 1, this.options.provider.catalog);
+    const asset = definition.assetData[hash];
+    if (!asset) throw new WorldHostError("world asset not found", 404);
+    return { mime: asset.mime, bytes: Buffer.from(asset.bytesBase64, "base64") };
   }
 
-  private verifyPinnedWorld(document: WorldSessionDocument): ReturnType<typeof toWorldRuntimeContract> {
-    const { key, seed } = this.pinnedWorldContractIdentity(document);
-    let trusted = this.pinnedWorldContracts.get(key);
-    if (trusted) {
-      this.pinnedWorldContracts.delete(key);
-      this.pinnedWorldContracts.set(key, trusted);
-    } else {
-      const definition = this.options.repository.loadVersion(
-        document.world.id,
-        document.world.contentHash,
-        seed,
-        this.options.provider.catalog,
-      );
-      trusted = toWorldRuntimeContract(definition);
-      this.pinnedWorldContracts.set(key, trusted);
-      while (this.pinnedWorldContracts.size > PINNED_WORLD_CONTRACT_CACHE_LIMIT) {
-        const oldestKey = this.pinnedWorldContracts.keys().next().value;
-        if (oldestKey === undefined) break;
-        this.pinnedWorldContracts.delete(oldestKey);
-      }
+  private definition(document: WorldInstanceDocument): WorldDefinition {
+    const seed = document.state.historyBase?.truth.rng.seed ?? document.state.truth.rng.seed;
+    const definition = this.options.repository.loadVersion(
+      document.world.id,
+      document.world.contentHash,
+      seed,
+      this.options.provider.catalog,
+    );
+    if (contentHash(toWorldRuntimeContract(definition)) !== contentHash(document.world)) {
+      throw new Error("instance world contract does not match its pinned world version");
     }
-    if (JSON.stringify(canonicalize(document.world)) !== JSON.stringify(canonicalize(trusted))) {
-      throw new Error(`session world contract does not match pinned version ${document.world.contentHash}`);
-    }
-    return structuredClone(trusted);
-  }
-
-  private definitionFrom(document: WorldSessionDocument): WorldDefinition {
-    const trusted = this.verifyPinnedWorld(document);
-    const definition: WorldDefinition = {
-      ...trusted,
-      initialState: structuredClone(document.state),
-    };
-    validateWorldDefinition(definition);
     validateWorldModelProfiles(definition, this.options.provider.catalog);
-    this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     return definition;
   }
 
-  private buildEngine(definition: WorldDefinition, state = definition.initialState): SimulationEngine {
-    return new SimulationEngine(
-      definition,
-      this.algorithmRegistry.create(this.algorithmIdentity.id, this.algorithmIdentity.version),
-      state,
-    );
+  private read(id: string): StoredWorldInstance {
+    try {
+      const stored = this.options.store.readInstance(id, { instanceId: id });
+      this.definition(stored.document);
+      return stored;
+    } catch (error) {
+      if (error instanceof WorldInstanceNotFoundError) throw new WorldHostError(`world instance not found: ${id}`, 404);
+      throw error;
+    }
   }
 
-  private beginLedgerExecution(input: {
-    kind: "interactive" | "diagnostic" | "benchmark" | "replay";
-    sessionId?: string;
-    runId?: string;
-    parentExecutionId?: string;
-    step: number;
-    state: import("../engine/model").SimulationState;
-  }) {
-    if (!this.ledger) return undefined;
-    const executionId = randomUUID();
+  private persist(stored: StoredWorldInstance, document: WorldInstanceDocument): StoredWorldInstance {
+    try {
+      return this.options.store.compareAndSwapInstance(document.id, stored.generation, document, { instanceId: document.id });
+    } catch (error) {
+      if (error instanceof WorldInstanceConflictError) throw new WorldHostError("world instance changed concurrently", 409);
+      throw error;
+    }
+  }
+
+  private async serialized<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.catch(() => undefined).then(() => gate);
+    this.locks.set(id, queued);
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.locks.get(id) === queued) this.locks.delete(id);
+    }
+  }
+
+  private beginExecution(
+    document: WorldInstanceDocument,
+    kind: "interactive" | "diagnostic" | "benchmark" | "replay",
+    trigger: string,
+    policyBindings: Readonly<Record<string, PolicyBinding>> = document.policyBindings,
+  ) {
+    if (!this.options.ledger) return undefined;
+    const id = randomUUID();
     const code = runtimeCodeIdentity();
-    const trace = this.ledger.beginExecution({
-      id: executionId,
-      kind: input.kind,
-      parentExecutionId: input.parentExecutionId,
-      sessionId: input.sessionId,
-      runId: input.runId,
-      step: input.step,
-      manifest: this.algorithmRegistry.create(
-        this.algorithmIdentity.id,
-        this.algorithmIdentity.version,
-      ).manifest,
-      worldHash: input.state.worldHash,
+    const bindings = Object.values(policyBindings);
+    const trace = this.options.ledger.beginExecution({
+      id,
+      kind,
+      instanceId: document.id,
+      step: document.state.step,
+      manifest: EAGER_REFERENCE_MANIFEST,
+      worldHash: document.state.worldHash,
       codeRevision: code.revision,
       codeDirty: code.dirty,
       modelCatalogHash: this.options.provider.catalog.hash,
-      seed: input.state.historyBase?.truth.rng.seed ?? input.state.truth.rng.seed,
+      seed: document.state.historyBase?.truth.rng.seed ?? document.state.truth.rng.seed,
       runtimeConfig: {
-        node: process.version,
-        platform: process.platform,
-        architecture: process.arch,
-        scheduler: this.options.provider.catalog.scheduler,
+        trigger,
+        simulatedSeconds: document.runtime.simulatedSeconds,
+        realtimeIntervalMs: document.runtime.realtimeIntervalMs,
+        actionWindowMs: document.runtime.actionWindowMs,
+        policyRosterHash: contentHash(policyBindings),
+        participants: activeParticipants(document).length,
+        autonomousAgents: bindings.filter((binding) => binding.kind === "model").length,
+        externalAgents: bindings.filter((binding) => binding.kind === "external").length,
+        idleAgents: bindings.filter((binding) => binding.kind === "idle").length,
       },
     });
-    return { executionId, trace };
+    return { id, trace };
   }
 
-  private failLedgerExecution(executionId: string | undefined, error: unknown): void {
-    if (!executionId || !this.ledger) return;
-    if (this.ledger.execution(executionId)?.status !== "running") return;
-    this.ledger.finishExecution(executionId, {
+  private failExecution(executionId: string | undefined, error: unknown): void {
+    if (!executionId || !this.options.ledger || this.options.ledger.execution(executionId)?.status !== "running") return;
+    this.options.ledger.finishExecution(executionId, {
       status: error instanceof Error && error.name === "AbortError" ? "cancelled" : "failed",
-      error: serializeRuntimeError(error),
+      error,
     });
   }
 
-  private finishRunLedgerExecution(
-    execution: { executionId: string; trace: import("../engine/execution").ExecutionTraceWriter } | undefined,
-    status: "succeeded" | "cancelled",
-    state: import("../engine/model").SimulationState,
-    semanticHashes: readonly string[],
-  ): void {
-    if (!execution || !this.ledger || this.ledger.execution(execution.executionId)?.status !== "running") return;
-    execution.trace.emit({
-      event: "run.execution.completed",
-      attributes: { status },
-      counts: { committedSteps: semanticHashes.length },
-      hashes: { state: contentHash(state), semantics: contentHash(semanticHashes) },
-    });
-    this.ledger.finishExecution(execution.executionId, {
-      status,
-      semanticHash: contentHash(semanticHashes),
-      stateHash: contentHash(state),
-      commitRevision: state.revision,
-    });
-  }
-
-  private appendEvent(
-    run: WorldRunRecord,
-    input: WorldRunEventInput,
-    correlation?: RuntimeCorrelation,
-  ): WorldRunEvent {
-    const event = {
-      ...input,
-      sequence: (run.events.at(-1)?.sequence ?? 0) + 1,
-      at: this.now().toISOString(),
-    } as WorldRunEvent;
-    run.events.push(event);
-    run.updatedAt = event.at;
-    this.observe?.({
-      event: "run.public_event.appended",
-      correlation: { ...correlation, sessionId: run.sessionId, runId: run.id },
-      attributes: { publicEventType: event.type },
-      measurements: { eventUtf8Bytes: Buffer.byteLength(JSON.stringify(event), "utf8") },
-      hashes: { publicEvent: contentHash(event) },
-    });
-    return event;
-  }
-
-  private commitCandidate(
-    session: HostedSession,
-    engine: SimulationEngine,
-    document: WorldSessionDocument,
-    correlation?: RuntimeCorrelation,
-    execution?: { id: string; finish: FinishExecutionInput },
-  ): HostedSession {
-    document.state = engine.snapshot;
-    document.updatedAt = this.now().toISOString();
-    const stored = execution && this.ledger && isAtomicExecutionSessionStore(this.options.store)
-      ? this.options.store.compareAndSwapAndFinishExecution(
-          session.document.id,
-          session.generation,
-          document,
-          execution.id,
-          execution.finish,
-          correlation,
-        ).session
-      : this.options.store.compareAndSwap(
-          session.document.id,
-          session.generation,
-          document,
-          correlation,
-        );
-    return {
-      ...stored,
-      definition: session.definition,
-      engine: this.buildEngine(session.definition, stored.document.state),
-    };
-  }
-
-  private commitRequest(
-    session: HostedSession,
-    engine: SimulationEngine,
-    document: WorldSessionDocument,
-    correlation?: RuntimeCorrelation,
-  ): HostedSession {
-    try {
-      return this.commitCandidate(session, engine, document, correlation);
-    } catch (error) {
-      if (error instanceof WorldSessionConflictError) {
-        throw new WorldHostError("world session changed concurrently; retry the request", 409);
-      }
-      throw error;
-    }
-  }
-
-  private readStoredSession(
-    sessionId: string,
-    correlation?: RuntimeCorrelation,
-  ): StoredWorldSession {
-    try {
-      const stored = this.options.store.read(sessionId, { ...correlation, sessionId });
-      this.verifyPinnedWorld(stored.document);
-      return stored;
-    } catch (error) {
-      if (!(error instanceof WorldSessionNotFoundError)) throw error;
-      throw new WorldHostError(`world session not found: ${sessionId}`, 404);
-    }
-  }
-
-  private loadSession(
-    sessionId: string,
-    recover = true,
-    correlation?: RuntimeCorrelation,
-  ): HostedSession {
-    const stored = this.readStoredSession(sessionId, correlation);
-    const definition = this.definitionFrom(stored.document);
-    let session: HostedSession = {
-      ...stored,
-      definition,
-      engine: this.buildEngine(definition, stored.document.state),
-    };
-    if (!recover) return session;
-
-    const document = structuredClone(session.document);
-    let recoveredEngine = session.engine;
-    let changed = false;
-    const recoveredRunIds: string[] = [];
-    for (const run of Object.values(document.runs)) {
-      const executionKey = this.executionKey(sessionId, run.id);
-      const pendingCancellation = this.pendingRunCancellations.has(executionKey) &&
-        isWorldRunActiveIntentOwner(run.status);
-      if (!isWorldRunExecuting(run.status) && !pendingCancellation) {
-        this.pendingRunFailures.delete(executionKey);
-        this.pendingRunCancellations.delete(executionKey);
-        continue;
-      }
-      if (isWorldRunExecuting(run.status) && this.executions.has(executionKey)) continue;
-      if (run.cancelRequested || pendingCancellation) {
-        recoveredEngine = this.buildEngine(session.definition, document.state);
-        recoveredEngine.cancelPlayerIntent();
-        document.state = recoveredEngine.snapshot;
-        run.status = "cancelled";
-        run.cancelRequested = false;
-        run.error = undefined;
-        run.internalError = undefined;
-        this.appendEvent(run, {
-          type: "run.cancelled",
-          payload: { runId: run.id, revision: document.state.revision, step: document.state.step },
-        }, { ...correlation, sessionId, runId: run.id });
-      } else {
-        const pendingFailure = this.pendingRunFailures.get(executionKey);
-        run.status = "failed";
-        run.error = pendingFailure?.classification.publicMessage ??
-          "运行进程在世界步骤边界外中断，可安全重试。";
-        run.internalError = pendingFailure?.internalError ??
-          "process interrupted while run was queued or running";
-        this.appendEvent(run, {
-          type: "run.failed",
-          payload: {
-            runId: run.id,
-            message: run.error,
-            retriable: pendingFailure?.classification.retriable ?? true,
-          },
-        }, { ...correlation, sessionId, runId: run.id });
-      }
-      changed = true;
-      recoveredRunIds.push(run.id);
-    }
-    if (changed) {
-      try {
-        session = this.commitCandidate(session, recoveredEngine, document, correlation);
-      } catch (error) {
-        if (!(error instanceof WorldSessionConflictError)) throw error;
-        session = this.loadSession(sessionId, false, correlation);
-      }
-      for (const runId of recoveredRunIds) {
-        if (!isWorldRunExecuting(this.requireRun(session, runId).status)) {
-          this.pendingRunFailures.delete(this.executionKey(sessionId, runId));
-          this.pendingRunCancellations.delete(this.executionKey(sessionId, runId));
-        }
-        this.notifyRun(sessionId, runId, isWorldRunStreamBoundary(this.requireRun(session, runId).status));
-      }
-    }
-    return session;
-  }
-
-  async createSession(
-    input: { worldId: string; seed?: number },
-    correlation?: RuntimeCorrelation,
-  ): Promise<PublicSessionDetail> {
+  async createInstance(input: { worldId: string; seed?: number; title?: string }): Promise<PublicInstanceDetail> {
     const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
     this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
-    const engine = this.buildEngine(definition);
     const id = this.idFactory();
-    const ledgerExecution = this.beginLedgerExecution({
-      kind: "interactive",
-      sessionId: id,
-      step: 0,
-      state: definition.initialState,
-    });
-    const sessionCorrelation = {
-      ...correlation,
-      executionId: ledgerExecution?.executionId,
-      sessionId: id,
-      revision: 0,
-      step: 0,
-    };
-    try {
-      await engine.bootstrapAgents({
-        workloadId: id,
-        batchId: `bootstrap:${id}`,
-        correlation: sessionCorrelation,
-        observer: ledgerExecution?.trace ?? this.runtimeObserver,
-      });
-    } catch (error) {
-      this.failLedgerExecution(ledgerExecution?.executionId, error);
-      throw error;
-    }
     const now = this.now().toISOString();
-    const document: WorldSessionDocument = {
-      schemaVersion: 10,
+    const initial: WorldInstanceDocument = {
+      schemaVersion: 12,
       id,
       world: toWorldRuntimeContract(definition),
-      title: definition.name,
+      title: input.title?.trim() || definition.name,
       createdAt: now,
       updatedAt: now,
-      state: engine.snapshot,
-      runs: {},
+      state: structuredClone(definition.initialState),
+      participants: {},
+      policyBindings: policyRoster(definition.initialState),
+      actionWindow: null,
+      runtime: structuredClone(definition.runtimeDefaults),
+      scheduler: { mode: "paused", generation: 1, nextTickAt: null },
+      advances: {},
+      participantIntents: [],
     };
+    const execution = this.beginExecution(initial, "interactive", "bootstrap");
+    const engine = new SimulationEngine(
+      definition,
+      this.registry.create(EAGER_REFERENCE_MANIFEST.id, EAGER_REFERENCE_MANIFEST.version),
+    );
     try {
-      if (ledgerExecution && this.ledger && isAtomicExecutionSessionStore(this.options.store)) {
-        this.options.store.createAndFinishExecution(document, ledgerExecution.executionId, {
-          status: "succeeded",
-          semanticHash: contentHash({ bootstrapAgentCommits: document.state.bootstrapAgentCommits }),
-          stateHash: contentHash(document.state),
-          commitRevision: document.state.revision,
-        }, sessionCorrelation);
-      } else {
-        this.options.store.create(document, sessionCorrelation);
-        if (ledgerExecution && this.ledger) {
-          this.ledger.finishExecution(ledgerExecution.executionId, {
-            status: "succeeded",
-            semanticHash: contentHash({ bootstrapAgentCommits: document.state.bootstrapAgentCommits }),
-            stateHash: contentHash(document.state),
-            commitRevision: document.state.revision,
-          });
-        }
-      }
-    } catch (error) {
-      this.failLedgerExecution(ledgerExecution?.executionId, error);
-      this.observe?.({
-        event: "session.bootstrap.persistence_rolled_back",
-        level: "error",
-        correlation: sessionCorrelation,
-        attributes: { result: "rolled_back" },
-        hashes: { state: contentHash(document.state) },
-        error: serializeRuntimeError(error),
+      initial.state = await engine.bootstrapAgents({
+        workloadId: id,
+        batchId: `bootstrap:${id}`,
+        correlation: { executionId: execution?.id, instanceId: id, revision: 0, step: 0 },
+        observer: execution?.trace ?? this.runtimeObserver,
       });
+      initial.policyBindings = policyRoster(initial.state);
+      const finish: FinishExecutionInput = {
+        status: "succeeded",
+        semanticHash: contentHash(initial.state),
+        stateHash: contentHash(initial.state),
+        commitRevision: initial.state.revision,
+      };
+      const stored = execution && this.options.ledger && isAtomicStore(this.options.store)
+        ? this.options.store.createInstanceAndFinishExecution(initial, execution.id, finish).instance
+        : this.options.store.createInstance(initial);
+      if (execution && this.options.ledger && !isAtomicStore(this.options.store)) {
+        this.options.ledger.finishExecution(execution.id, finish);
+      }
+      return this.project(stored.document);
+    } catch (error) {
+      this.failExecution(execution?.id, error);
       throw error;
     }
-    this.observe?.({
-      event: "session.bootstrap.finished",
-      correlation: sessionCorrelation,
-      counts: { agents: Object.keys(document.state.agents).length },
-      hashes: { state: contentHash(document.state) },
-    });
-    return publicSessionDetail(document);
   }
 
-  session(sessionId: string, correlation?: RuntimeCorrelation): PublicSessionDetail {
-    return publicSessionDetail(this.loadSession(sessionId, true, correlation).document);
+  listInstances(): PublicInstanceSummary[] {
+    return this.options.store.listInstances().map(({ document }) => publicSummary(document));
   }
 
-  private inspectorRuntimeTrace(sessionId: string): { degraded: boolean; events: RuntimeEvent[] } {
-    let persisted: RuntimeEvent[] = [];
-    let degraded = false;
-    try {
-      persisted = this.ledger?.sessionEvents(sessionId) ?? [];
-    } catch {
-      degraded = true;
-    }
-    const recorded = this.ledger ? [] : this.runtimeObserver.snapshot?.().filter((event) =>
-      event.correlation?.sessionId === sessionId) ?? [];
-    const live = this.ledger ? [] : this.liveRuntimeEvents.filter((event) =>
-      event.correlation?.sessionId === sessionId);
-    const unique = new Map<string, RuntimeEvent>();
-    for (const event of [...persisted, ...recorded, ...live]) {
-      unique.set(`${event.timestamp}\u0000${event.sequence}\u0000${event.event}`, event);
-    }
-    return {
-      degraded,
-      events: [...unique.values()].sort((left, right) =>
-        left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence),
-    };
+  inspectorWindow(id: string, input: { beforeRevision?: number; limit: number }) {
+    const document = this.read(id).document;
+    const records = this.options.ledger?.executions({ instanceId: id }) ?? [];
+    const events = this.options.ledger?.instanceEvents(id) ?? [];
+    return buildWorldInspectorWindow(document, records, events, input);
   }
 
-  private inspectorObserver(): RuntimeObserver {
-    return this.ledger ? LEDGER_INSPECTOR_OBSERVER : this.runtimeObserver;
-  }
-
-  inspectorWindow(
-    sessionId: string,
-    input: { beforeRevision?: number; limit: number },
-    correlation?: RuntimeCorrelation,
-  ): WorldInspectorWindow {
-    const document = this.loadSession(sessionId, true, correlation).document;
-    const projection = this.inspectorCacheValue(
-      this.inspectorProjectionCache,
-      `${this.inspectorCachePrefix(document)}:window:${input.beforeRevision ?? "latest"}:${input.limit}`,
-      () => buildWorldInspectorCommittedProjection(document, input),
-    );
-    const trace = this.inspectorRuntimeTrace(sessionId);
-    return buildWorldInspectorWindow(
-      document,
-      this.inspectorObserver(),
-      trace.events,
-      input,
-      projection,
-      trace.degraded,
-    );
-  }
-
-  inspectorStep(
-    sessionId: string,
-    revision: number,
-    correlation?: RuntimeCorrelation,
-  ): WorldInspectorStepDetail {
-    const document = this.loadSession(sessionId, true, correlation).document;
-    const trace = this.inspectorRuntimeTrace(sessionId);
-    const committed = document.state.history.find((candidate) => candidate.revision === revision);
-    const cacheKey = `${this.inspectorCachePrefix(document)}:step:${revision}`;
-    const buildCommittedDetail = () => {
-      const built = buildWorldInspectorCommittedStepDetail(
-        document,
-        revision,
-        modelAuditsForStep(trace.events, committed?.step ?? revision, committed?.executionRef?.executionId),
-      );
-      if (!built) throw new WorldHostError(`world revision not found: ${revision}`, 404);
-      return built;
-    };
-    const committedDetail = trace.degraded
-      ? buildCommittedDetail()
-      : this.inspectorCacheValue(this.inspectorStepCache, cacheKey, buildCommittedDetail);
+  inspectorStep(id: string, revision: number) {
+    const document = this.read(id).document;
     const detail = buildWorldInspectorStepDetail(
       document,
       revision,
-      this.inspectorObserver(),
-      trace.events,
-      committedDetail,
-      trace.degraded,
+      this.options.ledger?.instanceEvents(id) ?? [],
     );
-    if (!detail) throw new WorldHostError(`world revision not found: ${revision}`, 404);
+    if (!detail) throw new WorldHostError(`committed revision not found: ${revision}`, 404);
     return detail;
   }
 
-  inspectorAttempt(
-    sessionId: string,
-    attemptId: string,
-    correlation?: RuntimeCorrelation,
-  ): WorldInspectorAttemptDetail {
-    this.loadSession(sessionId, true, correlation);
-    const trace = this.inspectorRuntimeTrace(sessionId);
+  inspectorAttempt(id: string, executionId: string) {
+    const document = this.read(id).document;
+    const record = this.options.ledger?.execution(executionId);
+    if (!record || record.instanceId !== id) throw new WorldHostError("execution not found", 404);
     const detail = buildWorldInspectorAttemptDetail(
-      attemptId,
-      this.inspectorObserver(),
-      trace.events,
-      trace.degraded,
+      executionId,
+      record,
+      this.options.ledger?.executionEvents(executionId) ?? [],
+      Object.keys(document.state.agents),
     );
-    if (!detail) throw new WorldHostError(`runtime attempt not found or expired: ${attemptId}`, 404);
+    if (!detail) throw new WorldHostError("execution not found", 404);
     return detail;
   }
 
-  inspectorRuntimeEvent(
-    sessionId: string,
-    eventId: string,
-    correlation?: RuntimeCorrelation,
-  ): WorldInspectorRuntimeEventDetail {
-    this.loadSession(sessionId, true, correlation);
-    const trace = this.inspectorRuntimeTrace(sessionId);
-    const detail = buildWorldInspectorRuntimeEventDetail(eventId, trace.events);
-    if (!detail) throw new WorldHostError(`runtime event not found or expired: ${eventId}`, 404);
+  inspectorRuntimeEvent(id: string, eventId: string) {
+    this.read(id);
+    const detail = buildWorldInspectorRuntimeEventDetail(
+      eventId,
+      this.options.ledger?.instanceEvents(id) ?? [],
+    );
+    if (!detail) throw new WorldHostError("runtime event not found", 404);
     return detail;
   }
 
-  inspectorStreamState(): { epoch: string; earliest: number; latest: number } {
-    const persisted = this.ledger ? this.options.store.listSessions()
-      .flatMap((session) => this.ledger!.sessionEvents(session.document.id)) : [];
-    const events = persisted.length > 0 ? persisted : this.liveRuntimeEvents;
-    return {
-      epoch: this.inspectorEpoch,
-      earliest: events[0]?.sequence ?? 0,
-      latest: events.at(-1)?.sequence ?? 0,
-    };
+  subscribeInspectorEvents(id: string, listener: (event: ReturnType<typeof summarizeRuntimeEvent>) => void): () => void {
+    this.read(id);
+    return this.options.ledger?.subscribe((event) => {
+      if (event.correlation?.instanceId === id) listener(summarizeRuntimeEvent(event));
+    }) ?? (() => undefined);
   }
 
-  async *subscribeInspectorEvents(
-    sessionId: string,
-    afterSequence: number,
-    signal?: AbortSignal,
-  ): AsyncGenerator<WorldInspectorRuntimeEventSummary> {
-    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
-      throw new WorldHostError("inspector event cursor must be a non-negative safe integer", 400);
-    }
-    let cursor = afterSequence;
-    while (!signal?.aborted) {
-      const channelVersion = this.inspectorChannel.currentVersion;
-      const sourceEvents = this.ledger?.sessionEvents(sessionId) ?? this.liveRuntimeEvents;
-      const available = sourceEvents.filter((event) =>
-        event.sequence > cursor && event.correlation?.sessionId === sessionId);
-      for (const event of available) {
-        cursor = event.sequence;
-        yield summarizeRuntimeEvent(event);
-      }
-      await this.inspectorChannel.wait(channelVersion, signal);
-    }
+  instance(id: string, principalId = "local"): PublicInstanceDetail {
+    return this.project(this.read(id).document, principalId);
   }
 
-  listSessions(correlation?: RuntimeCorrelation): PublicSessionSummary[] {
-    const stored = this.options.store.listSessions(correlation);
-    const cached: StoredWorldSession[] = [];
-    const cold: StoredWorldSession[] = [];
-    for (const session of stored) {
-      const destination = this.pinnedWorldContracts.has(this.pinnedWorldContractIdentity(session.document).key)
-        ? cached
-        : cold;
-      destination.push(session);
-    }
-    for (const { document } of [...cached, ...cold]) this.verifyPinnedWorld(document);
-    return stored
-      .map(({ document }) => publicSessionSummary(document))
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
-  }
-
-  renameSession(
-    sessionId: string,
-    title: string,
-    correlation?: RuntimeCorrelation,
-  ): PublicSessionDetail {
+  renameInstance(id: string, title: string): PublicInstanceDetail {
     const normalized = title.trim();
-    if (!normalized || normalized.length > 80) {
-      throw new WorldHostError("session title must be between 1 and 80 characters", 400);
-    }
-    const session = this.loadSession(sessionId, true, correlation);
-    const active = Object.values(session.document.runs).find((run) => isWorldRunExecuting(run.status));
-    if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
-    const document = structuredClone(session.document);
+    if (!normalized || normalized.length > 80) throw new WorldHostError("title must contain 1–80 characters", 400);
+    const stored = this.read(id);
+    const document = structuredClone(stored.document);
     document.title = normalized;
-    const committed = this.commitRequest(session, session.engine, document, correlation);
-    return publicSessionDetail(committed.document);
+    document.updatedAt = this.now().toISOString();
+    return this.project(this.persist(stored, document).document);
   }
 
-  deleteSession(sessionId: string, correlation?: RuntimeCorrelation): void {
-    const session = this.loadSession(sessionId, true, correlation);
-    const active = Object.values(session.document.runs).find((run) => isWorldRunExecuting(run.status));
-    if (active) throw new WorldHostError(`session has active run ${active.id}`, 409);
-    try {
-      this.options.store.delete(sessionId, session.generation, correlation);
-    } catch (error) {
-      if (error instanceof WorldSessionConflictError) {
-        throw new WorldHostError("world session changed concurrently; retry the request", 409);
+  deleteInstance(id: string): void {
+    const stored = this.read(id);
+    this.cancelTimer(id);
+    this.options.store.deleteInstance(id, stored.generation, { instanceId: id });
+  }
+
+  private project(document: WorldInstanceDocument, principalId = "local"): PublicInstanceDetail {
+    const definition = this.definition(document);
+    const observedBy = new Map<string, Set<string>>();
+    for (const step of document.state.history) {
+      for (const observation of step.observations) {
+        for (const eventId of observation.sourceEventIds) {
+          const observers = observedBy.get(eventId) ?? new Set<string>();
+          observers.add(observation.observerId);
+          observedBy.set(eventId, observers);
+        }
       }
-      throw error;
     }
-    const prefix = `${sessionId}:`;
-    for (const key of this.channels.keys()) {
-      if (key.startsWith(prefix)) this.channels.delete(key);
-    }
-    for (const key of this.pendingRunFailures.keys()) {
-      if (key.startsWith(prefix)) this.pendingRunFailures.delete(key);
-    }
-    for (const key of this.pendingRunCancellations) {
-      if (key.startsWith(prefix)) this.pendingRunCancellations.delete(key);
-    }
-  }
-
-  startRun(sessionId: string, text: string, correlation?: RuntimeCorrelation): StartWorldRunResponse {
-    const normalized = text.trim();
-    if (!normalized) throw new WorldHostError("run input cannot be empty", 400);
-    if (text.length > 4_000) throw new WorldHostError("run input must be 4000 characters or fewer", 400);
-    let session = this.loadSession(sessionId, true, correlation);
-    const activeIntent = session.engine.snapshot.player.intent;
-    if (activeIntent?.status === "active") {
-      const owner = Object.values(session.document.runs).find((run) => run.intentId === activeIntent.id);
-      throw new WorldHostError(`session already has active run ${owner?.id ?? "unknown"}`, 409);
-    }
-
-    const id = this.idFactory();
-    if (session.document.runs[id]) throw new Error(`world run id collision: ${id}`);
-    const inputId = `input:${id}:1`;
-    const engine = this.buildEngine(session.definition, session.engine.snapshot);
-    engine.beginPlayerIntent(normalized, inputId);
-    const now = this.now().toISOString();
-    const run: WorldRunRecord = {
-      id,
-      sessionId,
-      intentId: engine.snapshot.player.intent!.id,
-      status: "queued",
-      createdAt: now,
-      updatedAt: now,
-      cancelRequested: false,
-      events: [],
+    const allAgents = Object.keys(document.state.agents).length;
+    const active = activeParticipants(document);
+    const controlled = active.find((participant) => participant.principalId === principalId);
+    const claimed = new Set(active.map((participant) => participant.agentId));
+    return {
+      summary: publicSummary(document),
+      world: {
+        id: document.world.id,
+        name: document.world.name,
+        version: document.world.manifestVersion,
+        contentHash: document.world.contentHash,
+        description: document.world.description,
+        participation: document.world.participation ? "open" : "headless",
+      },
+      publicEvents: document.state.truth.events
+        .filter((event) => allAgents > 0 && (observedBy.get(event.id)?.size ?? 0) === allAgents)
+        .map(({ id, step, description, impact }) => ({ id, step, description, impact })),
+      participants: active.map(({ id, displayName, agentId, status, joinedAt }) => ({
+        id, displayName, agentId, status, joinedAt,
+      })),
+      actionWindow: document.actionWindow && document.actionWindow.status !== "committed" &&
+        document.actionWindow.status !== "cancelled" ? {
+          id: document.actionWindow.id,
+          baseRevision: document.actionWindow.baseRevision,
+          requiredAgentIds: [...document.actionWindow.requiredAgentIds],
+          submittedAgentIds: Object.keys(document.actionWindow.submissions).sort(),
+          deadlineAt: document.actionWindow.deadlineAt,
+          status: document.actionWindow.status,
+        } : null,
+      origins: (definition.participation?.origins ?? []).map((origin) => ({
+        id: origin.id,
+        title: origin.title,
+        fantasy: origin.fantasy,
+        description: origin.description,
+        location: document.state.truth.entities[origin.spawnEntityId].name,
+        relationshipHooks: [...origin.relationshipHooks],
+        risks: [...origin.risks],
+        ...(origin.image ? { image: structuredClone(origin.image) } : {}),
+      })),
+      claimableAgents: claimableAgentIds(document, definition)
+        .map((agentId) => {
+          const agent = document.state.agents[agentId];
+          const entity = document.state.truth.entities[agent.entityId];
+          const placement = document.state.truth.placements[entity.id];
+          return {
+            id: agentId,
+            name: entity.name,
+            description: entity.description,
+            location: placement ? document.state.truth.entities[placement]?.name ?? null : null,
+            claimable: !claimed.has(agentId),
+          };
+        }),
+      ...(controlled ? { controlledView: privateView(document, controlled.agentId) } : {}),
     };
-    const runCorrelation = { ...correlation, sessionId, runId: id, revision: engine.snapshot.revision };
-    this.appendEvent(
-      run,
-      { type: "player.input", payload: { id: inputId, kind: "goal", text: normalized } },
-      runCorrelation,
+  }
+
+  async advance(id: string, input: AdvanceWorldInput): Promise<PublicInstanceDetail> {
+    return this.serialized(id, async () => this.advanceLocked(id, input));
+  }
+
+  private openWindow(document: WorldInstanceDocument, requiredAgentIds: string[]): ActionWindow {
+    const deadlineAt = document.runtime.actionWindowMs > 0
+      ? new Date(this.now().getTime() + document.runtime.actionWindowMs).toISOString()
+      : null;
+    return {
+      id: this.idFactory(),
+      generation: 1,
+      baseRevision: document.state.revision,
+      requiredAgentIds,
+      submissions: {},
+      deadlineAt,
+      status: "open",
+    };
+  }
+
+  private async advanceLocked(id: string, input: AdvanceWorldInput): Promise<PublicInstanceDetail> {
+    let stored = this.read(id);
+    if (input.expectedRevision !== stored.document.state.revision) {
+      throw new WorldHostError("world revision changed; refresh before advancing", 409);
+    }
+    const steps = input.trigger === "batch" ? Math.max(1, Math.min(100, input.steps ?? 1)) : 1;
+    for (let index = 0; index < steps; index += 1) {
+      const document = structuredClone(stored.document);
+      const externalIds = Object.values(document.policyBindings)
+        .filter((binding): binding is Extract<PolicyBinding, { kind: "external" }> => binding.kind === "external")
+        .map((binding) => binding.agentId)
+        .sort();
+      let advance = currentAdvance(document);
+      if (!advance || !["awaiting_actions", "queued", "running"].includes(advance.status)) {
+        const now = this.now().toISOString();
+        advance = {
+          id: this.idFactory(),
+          request: {
+            expectedRevision: document.state.revision,
+            trigger: input.trigger,
+            simulatedSeconds: input.simulatedSeconds ?? document.runtime.simulatedSeconds,
+            externalActions: [],
+          },
+          status: externalIds.length > 0 ? "awaiting_actions" : "queued",
+          createdAt: now,
+          updatedAt: now,
+          executionIds: [],
+          committedRevisions: [],
+        };
+        document.advances[advance.id] = advance;
+      }
+      if (externalIds.length > 0) {
+        if (!document.actionWindow) document.actionWindow = this.openWindow(document, externalIds);
+        const expired = document.actionWindow.deadlineAt !== null &&
+          Date.parse(document.actionWindow.deadlineAt) <= this.now().getTime();
+        const complete = document.actionWindow.requiredAgentIds.every((agentId) => document.actionWindow!.submissions[agentId]);
+        if (!complete && !expired) {
+          advance.status = "awaiting_actions";
+          advance.updatedAt = this.now().toISOString();
+          document.updatedAt = advance.updatedAt;
+          stored = this.persist(stored, document);
+          this.scheduleWindowDeadline(document);
+          return this.project(stored.document);
+        }
+      }
+      stored = await this.executeStep(stored, advance);
+      if (stored.document.actionWindow || input.trigger === "batch" && activeParticipants(stored.document).length > 0) break;
+    }
+    if (stored.document.scheduler.mode === "realtime") this.scheduleRealtime(stored.document);
+    return this.project(stored.document);
+  }
+
+  private async executeStep(
+    stored: StoredWorldInstance,
+    advance: WorldAdvanceRecord,
+  ): Promise<StoredWorldInstance> {
+    const document = structuredClone(stored.document);
+    const advanceRecord = document.advances[advance.id] ?? structuredClone(advance);
+    document.advances[advanceRecord.id] = advanceRecord;
+    const window = document.actionWindow;
+    const effectiveRoster = structuredClone(document.policyBindings);
+    const externalActions: ExternalActionInput[] = [];
+    let timeoutNoops = 0;
+    if (window) {
+      window.status = "resolving";
+      for (const agentId of window.requiredAgentIds) {
+        const submission = window.submissions[agentId];
+        if (submission) externalActions.push(structuredClone(submission));
+        else {
+          effectiveRoster[agentId] = { kind: "idle", agentId, reason: "timeout" };
+          timeoutNoops += 1;
+        }
+      }
+    }
+    advanceRecord.status = "running";
+    advanceRecord.updatedAt = this.now().toISOString();
+    const execution = this.beginExecution(document, "interactive", advanceRecord.request.trigger, effectiveRoster);
+    if (execution) advanceRecord.executionIds.push(execution.id);
+    const definition = this.definition(document);
+    const engine = new SimulationEngine(
+      definition,
+      this.registry.create(EAGER_REFERENCE_MANIFEST.id, EAGER_REFERENCE_MANIFEST.version),
+      document.state,
     );
-    const document = structuredClone(session.document);
-    document.runs[id] = run;
-    session = this.commitRequest(session, engine, document, runCorrelation);
-    this.scheduleExecution(sessionId, id, "initial", runCorrelation);
-    return { runId: id };
-  }
-
-  continueRun(
-    sessionId: string,
-    runId: string,
-    input: ContinueWorldRunInput,
-    correlation?: RuntimeCorrelation,
-  ): WorldRunSnapshot {
-    const normalized = input.text.trim();
-    if (!inputIdPattern.test(input.id)) throw new WorldHostError("player input id is invalid", 400);
-    if (!normalized) throw new WorldHostError("player input cannot be empty", 400);
-    if (input.text.length > 4_000) throw new WorldHostError("player input must be 4000 characters or fewer", 400);
-    let session = this.loadSession(sessionId, true, correlation);
-    const current = this.requireRun(session, runId);
-    const priorInput = current.events.find((event) =>
-      event.type === "player.input" && event.payload.id === input.id);
-    if (priorInput?.type === "player.input") {
-      if (priorInput.payload.text !== normalized) {
-        throw new WorldHostError(`player input ${input.id} already exists with different text`, 409);
-      }
-      return publicWorldRunSnapshot(session.document, current);
-    }
-    if (current.status !== "awaiting_player") {
-      throw new WorldHostError(`run ${runId} is not awaiting player input`, 409);
-    }
-    if (session.engine.snapshot.player.intent?.status !== "active" ||
-      session.engine.snapshot.player.intent.id !== current.intentId) {
-      throw new WorldHostError(`run ${runId} does not own the active player intent`, 409);
-    }
-    const engine = this.buildEngine(session.definition, session.engine.snapshot);
-    engine.continuePlayerIntent(normalized, input.id);
-    const document = structuredClone(session.document);
-    const run = document.runs[runId];
-    run.status = "queued";
-    run.error = undefined;
-    run.internalError = undefined;
-    run.cancelRequested = false;
-    this.appendEvent(run, {
-      type: "player.input",
-      payload: { id: input.id, kind: "clarification", text: normalized },
-    }, { ...correlation, sessionId, runId, revision: engine.snapshot.revision });
+    const request: WorldAdvanceRequest = {
+      expectedRevision: document.state.revision,
+      trigger: advanceRecord.request.trigger,
+      simulatedSeconds: advanceRecord.request.simulatedSeconds,
+      externalActions,
+    };
     try {
-      session = this.commitCandidate(session, engine, document, correlation);
-    } catch (error) {
-      if (!(error instanceof WorldSessionConflictError)) throw error;
-      const latest = this.loadSession(sessionId, false, correlation);
-      const latestRun = this.requireRun(latest, runId);
-      const persistedInput = latestRun.events.find((event) =>
-        event.type === "player.input" && event.payload.id === input.id);
-      if (persistedInput?.type === "player.input" && persistedInput.payload.text === normalized) {
-        return publicWorldRunSnapshot(latest.document, latestRun);
-      }
-      throw new WorldHostError("world session changed concurrently; retry the request", 409);
-    }
-    this.scheduleExecution(sessionId, runId, "player_input", correlation);
-    return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
-  }
-
-  retryRun(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
-    let session = this.loadSession(sessionId, true, correlation);
-    const current = this.requireRun(session, runId);
-    if (!isWorldRunRetriable(current)) {
-      throw new WorldHostError(`run ${runId} is not retriable`, 409);
-    }
-    if (session.engine.snapshot.player.intent?.status !== "active" ||
-      session.engine.snapshot.player.intent.id !== current.intentId) {
-      throw new WorldHostError(`run ${runId} does not own the active player intent`, 409);
-    }
-    const document = structuredClone(session.document);
-    const run = document.runs[runId];
-    run.status = "queued";
-    run.error = undefined;
-    run.internalError = undefined;
-    run.cancelRequested = false;
-    session = this.commitRequest(session, session.engine, document, correlation);
-    this.scheduleExecution(sessionId, runId, "retry", correlation);
-    return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
-  }
-
-  private scheduleExecution(
-    sessionId: string,
-    runId: string,
-    reason: ExecutionReason,
-    correlation?: RuntimeCorrelation,
-  ): void {
-    const key = this.executionKey(sessionId, runId);
-    const run = this.readStoredSession(sessionId, correlation).document.runs[runId];
-    const runAttempt = run.events.filter((event) => event.type === "run.execution_started").length + 1;
-    const executionCorrelation = { ...correlation, sessionId, runId, runAttempt };
-    this.observe?.({
-      event: "run.queued",
-      correlation: executionCorrelation,
-      attributes: { reason },
-    });
-    const prior = this.executions.get(key)?.promise;
-    const controller = new AbortController();
-    const promise = (prior ?? Promise.resolve())
-      .then(() => this.executeRun(sessionId, runId, reason, controller.signal, executionCorrelation))
-      .finally(() => {
-        if (this.executions.get(key)?.promise !== promise) return;
-        this.executions.delete(key);
-        try {
-          const stored = this.readStoredSession(sessionId, executionCorrelation);
-          if (isWorldRunExecuting(this.requireRun(stored, runId).status)) {
-            this.loadSession(sessionId, true, executionCorrelation);
-          }
-        } catch {
-          // A later request retries durable recovery when storage becomes readable again.
-        }
-      });
-    this.executions.set(key, { promise, controller });
-    void promise.catch(() => undefined);
-  }
-
-  private finishRun(
-    session: HostedSession,
-    runId: string,
-    status: Extract<WorldRunStatus, "awaiting_player" | "completed" | "goal_failed" | "step_limit" | "cancelled">,
-    engine = session.engine,
-    correlation?: RuntimeCorrelation,
-    startedAt = Date.now(),
-  ): HostedSession {
-    const document = structuredClone(session.document);
-    const run = document.runs[runId];
-    run.status = status;
-    run.cancelRequested = false;
-    if (status === "cancelled") {
-      run.error = undefined;
-      run.internalError = undefined;
-    }
-    this.appendEvent(run, {
-      type: `run.${status}` as "run.awaiting_player" | "run.completed" | "run.goal_failed" |
-        "run.step_limit" | "run.cancelled",
-      payload: { runId: run.id, revision: engine.snapshot.revision, step: engine.snapshot.step },
-    }, correlation);
-    const committed = this.commitCandidate(session, engine, document, correlation);
-    this.observe?.({
-      event: "run.finished",
-      correlation,
-      durationMs: Math.max(0, Date.now() - startedAt),
-      attributes: { status },
-      measurements: { revision: engine.snapshot.revision, step: engine.snapshot.step },
-    });
-    this.notifyRun(document.id, run.id, true);
-    return committed;
-  }
-
-  private cancelExecution(
-    session: HostedSession,
-    runId: string,
-    correlation?: RuntimeCorrelation,
-    startedAt = Date.now(),
-  ): HostedSession {
-    const cancellationKey = this.executionKey(session.document.id, runId);
-    this.pendingRunCancellations.add(cancellationKey);
-    const engine = this.buildEngine(session.definition, session.engine.snapshot);
-    engine.cancelPlayerIntent();
-    const committed = this.finishRun(session, runId, "cancelled", engine, correlation, startedAt);
-    this.pendingRunCancellations.delete(cancellationKey);
-    return committed;
-  }
-
-  private async executeRun(
-    sessionId: string,
-    runId: string,
-    reason: ExecutionReason,
-    abortSignal: AbortSignal,
-    correlation: RuntimeCorrelation,
-  ): Promise<void> {
-    const startedAt = Date.now();
-    let pendingStepCorrelation: RuntimeCorrelation | undefined;
-    let rollbackStateHash: string | undefined;
-    let pendingExecutionId: string | undefined;
-    let runLedgerExecution: ReturnType<WorldHost["beginLedgerExecution"]> = undefined;
-    const committedSemanticHashes: string[] = [];
-    try {
-      let session = this.loadSession(sessionId, false, correlation);
-      let document = structuredClone(session.document);
-      let run = document.runs[runId];
-      if (!run || run.status !== "queued") return;
-      runLedgerExecution = this.beginLedgerExecution({
-        kind: "interactive",
-        sessionId,
-        runId,
-        step: session.engine.snapshot.step,
-        state: session.engine.snapshot,
-      });
-      runLedgerExecution?.trace.emit({
-        event: "run.execution.started",
-        attributes: { reason },
-        counts: { persistentAgents: Object.keys(session.engine.snapshot.agents).length },
-      });
-      run.status = "running";
-      const input = [...run.events].reverse().find((event) => event.type === "player.input");
-      if (!input || input.type !== "player.input") throw new Error(`run ${runId} has no player input`);
-      this.appendEvent(run, {
-        type: "run.execution_started",
-        payload: { runId, inputId: input.payload.id, reason },
-      }, correlation);
-      this.observe?.({ event: "run.started", correlation, attributes: { reason } });
-      session = this.commitCandidate(session, session.engine, document, correlation);
-      this.notifyRun(sessionId, runId);
-
-      for (let index = 0; index < this.maxStepsPerRun; index += 1) {
-        if (this.requireRun(session, runId).cancelRequested || abortSignal.aborted) {
-          session = this.cancelExecution(session, runId, correlation, startedAt);
-          this.finishRunLedgerExecution(runLedgerExecution, "cancelled", session.engine.snapshot, committedSemanticHashes);
-          return;
-        }
-        const engine = session.engine;
-        const baseState = engine.snapshot;
-        rollbackStateHash = contentHash(baseState);
-        const ledgerExecution = this.beginLedgerExecution({
-          kind: "interactive",
-          sessionId,
-          runId,
-          parentExecutionId: runLedgerExecution?.executionId,
-          step: baseState.step + 1,
-          state: baseState,
-        });
-        pendingExecutionId = ledgerExecution?.executionId;
-        const stepCorrelation = {
-          ...correlation,
-          executionId: ledgerExecution?.executionId,
-          stepAttemptId: `${runId}:${correlation.runAttempt ?? 1}:${baseState.revision + 1}`,
-          revision: baseState.revision,
-          step: baseState.step + 1,
-        };
-        const result = await engine.step({
-          workloadId: sessionId,
-          batchId: runId,
-          abortSignal,
-          correlation: stepCorrelation,
-          observer: ledgerExecution?.trace ?? this.runtimeObserver,
-        });
-        pendingStepCorrelation = stepCorrelation;
-        const latest = this.readStoredSession(sessionId, stepCorrelation);
-        if (latest.generation !== session.generation) {
-          const latestRun = this.requireRun(latest, runId);
-          if (latestRun.cancelRequested || abortSignal.aborted) {
-            this.cancelExecution(
-              this.loadSession(sessionId, false, correlation),
-              runId,
-              correlation,
-              startedAt,
-            );
-          }
-          else throw new WorldSessionConflictError(sessionId);
-          return;
-        }
-
-        document = structuredClone(session.document);
-        run = document.runs[runId];
-        for (const event of publicCommittedStepEvents(result.committed, result.state.truth.elapsedSeconds)) {
-          this.appendEvent(run, event, stepCorrelation);
-        }
-        let terminalStatus: Extract<
-          WorldRunStatus,
-          "awaiting_player" | "completed" | "goal_failed" | "step_limit"
-        > | undefined;
-        if (result.requiresPlayerDecision) terminalStatus = "awaiting_player";
-        else if (result.state.player.intent?.status === "completed") terminalStatus = "completed";
-        else if (result.state.player.intent?.status === "failed") terminalStatus = "goal_failed";
-        else if (index === this.maxStepsPerRun - 1) terminalStatus = "step_limit";
-        if (terminalStatus) {
-          run.status = terminalStatus;
-          run.cancelRequested = false;
-          this.appendEvent(run, {
-            type: `run.${terminalStatus}`,
-            payload: { runId, revision: result.state.revision, step: result.state.step },
-          }, stepCorrelation);
-        }
-        const committedCorrelation = {
-          ...stepCorrelation,
-          revision: result.state.revision,
-          step: result.state.step,
-        };
-        session = this.commitCandidate(
-          session,
-          engine,
-          document,
-          committedCorrelation,
-          ledgerExecution ? {
-            id: ledgerExecution.executionId,
-            finish: {
-              status: "succeeded",
-              semanticHash: semanticStepHash(result.committed),
-              stateHash: contentHash(result.state),
-              commitRevision: result.state.revision,
-            },
-          } : undefined,
-        );
-        pendingExecutionId = undefined;
-        committedSemanticHashes.push(result.committed.semanticHash);
-        pendingStepCorrelation = undefined;
-        rollbackStateHash = undefined;
-        this.notifyRun(sessionId, runId, Boolean(terminalStatus));
-
-        if (terminalStatus) {
-          this.observe?.({
-            event: "run.finished",
-            correlation: { ...correlation, revision: result.state.revision, step: result.state.step },
-            durationMs: Math.max(0, Date.now() - startedAt),
-            attributes: { status: terminalStatus },
-          });
-          this.finishRunLedgerExecution(runLedgerExecution, "succeeded", result.state, committedSemanticHashes);
-          return;
-        }
-
-        if (this.requireRun(session, runId).cancelRequested || abortSignal.aborted) {
-          session = this.cancelExecution(session, runId, correlation, startedAt);
-          this.finishRunLedgerExecution(runLedgerExecution, "cancelled", session.engine.snapshot, committedSemanticHashes);
-          return;
-        }
-      }
-      const finished = this.finishRun(session, runId, "step_limit", session.engine, correlation, startedAt);
-      this.finishRunLedgerExecution(runLedgerExecution, "succeeded", finished.engine.snapshot, committedSemanticHashes);
-    } catch (error) {
-      this.failLedgerExecution(pendingExecutionId, error);
-      this.failLedgerExecution(runLedgerExecution?.executionId, error);
-      const failure = classifyRunFailure(error);
-      const failureKey = this.executionKey(sessionId, runId);
-      if (failure.kind === "cancelled" || abortSignal.aborted) {
-        this.pendingRunCancellations.add(failureKey);
-        this.pendingRunFailures.delete(failureKey);
-      } else {
-        this.pendingRunFailures.set(failureKey, {
-          classification: failure,
-          internalError: error instanceof Error ? error.message : String(error),
-        });
-      }
-      if (pendingStepCorrelation) {
-        this.observe?.({
-          event: "step.persistence_rolled_back",
-          level: "error",
-          correlation: pendingStepCorrelation,
-          attributes: { result: "rolled_back", revisionUnchanged: true },
-          hashes: rollbackStateHash ? { state: rollbackStateHash } : undefined,
-          error: serializeRuntimeError(error),
-        });
-      }
-      let session: HostedSession;
-      try {
-        session = this.loadSession(sessionId, false, correlation);
-      } catch {
-        return;
-      }
-      const current = this.requireRun(session, runId);
-      if (current.cancelRequested || abortSignal.aborted || failure.kind === "cancelled") {
-        this.pendingRunFailures.delete(failureKey);
-        try {
-          this.cancelExecution(session, runId, correlation, startedAt);
-        } catch {
-          // A later request recovers the persisted queued/running run if storage is unavailable here.
-        }
-        return;
-      }
-      const document = structuredClone(session.document);
-      const run = document.runs[runId];
-      if (run.status !== "queued" && run.status !== "running") {
-        this.pendingRunFailures.delete(failureKey);
-        return;
-      }
-      run.status = "failed";
-      run.internalError = error instanceof Error ? error.message : String(error);
-      run.error = failure.publicMessage;
-      this.appendEvent(run, {
-        type: "run.failed",
-        payload: { runId: run.id, message: run.error, retriable: failure.retriable },
-      }, correlation);
-      this.observe?.({
-        event: "run.failed",
-        level: "error",
-        correlation,
-        durationMs: Math.max(0, Date.now() - startedAt),
-        attributes: {
-          status: "failed",
-          revisionUnchanged: true,
-          retriable: failure.retriable,
-          failureKind: failure.kind,
+      execution?.trace.emit({
+        event: "action_window.resolved",
+        attributes: { trigger: request.trigger },
+        counts: {
+          requiredExternalAgents: window?.requiredAgentIds.length ?? 0,
+          submittedExternalActions: externalActions.length,
+          timeoutNoops,
         },
-        error: serializeRuntimeError(error),
+        measurements: {
+          actionWindowWaitMs: window?.deadlineAt
+            ? Math.max(0, document.runtime.actionWindowMs - (Date.parse(window.deadlineAt) - this.now().getTime()))
+            : 0,
+        },
       });
-      let persisted = false;
+      const result = await engine.step(effectiveRoster, request, {
+        workloadId: document.id,
+        batchId: `step:${document.state.revision + 1}`,
+        correlation: {
+          executionId: execution?.id,
+          instanceId: document.id,
+          revision: document.state.revision,
+          step: document.state.step + 1,
+        },
+        observer: execution?.trace ?? this.runtimeObserver,
+      });
+      document.state = result.state;
+      for (const agent of Object.values(document.state.agents)) {
+        if (!document.policyBindings[agent.id]) {
+          document.policyBindings[agent.id] = {
+            kind: "model",
+            agentId: agent.id,
+            profiles: structuredClone(agent.modelProfiles),
+          };
+        }
+      }
+      for (const agentId of Object.keys(document.policyBindings)) {
+        if (!document.state.agents[agentId]) delete document.policyBindings[agentId];
+      }
+      for (const binding of Object.values(document.policyBindings)) {
+        if (binding.kind === "model") delete binding.resumeFromRevision;
+      }
+      advanceRecord.status = "committed";
+      advanceRecord.committedRevisions.push(document.state.revision);
+      advanceRecord.updatedAt = this.now().toISOString();
+      document.actionWindow = null;
+      if (document.scheduler.mode === "realtime") {
+        document.scheduler.nextTickAt = new Date(
+          this.now().getTime() + document.runtime.realtimeIntervalMs,
+        ).toISOString();
+      }
+      document.updatedAt = advanceRecord.updatedAt;
+      const finish: FinishExecutionInput = {
+        status: "succeeded",
+        semanticHash: result.committed.semanticHash,
+        stateHash: contentHash(document.state),
+        commitRevision: document.state.revision,
+      };
+      const committed = execution && this.options.ledger && isAtomicStore(this.options.store)
+        ? this.options.store.compareAndSwapInstanceAndFinishExecution(
+            document.id,
+            stored.generation,
+            document,
+            execution.id,
+            finish,
+          ).instance
+        : this.persist(stored, document);
+      if (execution && this.options.ledger && !isAtomicStore(this.options.store)) {
+        this.options.ledger.finishExecution(execution.id, finish);
+      }
+      return committed;
+    } catch (error) {
+      this.failExecution(execution?.id, error);
+      const failed = structuredClone(stored.document);
+      const failedAdvance = failed.advances[advanceRecord.id] ?? structuredClone(advanceRecord);
+      failed.advances[failedAdvance.id] = failedAdvance;
+      failedAdvance.status = "failed";
+      failedAdvance.error = error instanceof Error ? error.message : String(error);
+      failedAdvance.updatedAt = this.now().toISOString();
+      failed.updatedAt = failedAdvance.updatedAt;
+      if (failed.scheduler.mode === "realtime") {
+        failed.scheduler.nextTickAt = new Date(
+          this.now().getTime() + failed.runtime.realtimeIntervalMs,
+        ).toISOString();
+      }
       try {
-        this.commitCandidate(session, session.engine, document, correlation);
-        persisted = true;
-        this.pendingRunFailures.delete(failureKey);
+        return this.persist(stored, failed);
       } catch {
-        // Recovery marks the still-running durable record as failed on the next request.
+        throw error;
       }
-      this.notifyRun(sessionId, runId, persisted);
     }
   }
 
-  private requireRun(session: Pick<StoredWorldSession, "document">, runId: string): WorldRunRecord {
-    const run = session.document.runs[runId];
-    if (!run) throw new WorldHostError(`world run not found: ${runId}`, 404);
-    return run;
-  }
-
-  private readRunSession(
-    sessionId: string,
-    runId: string,
-    correlation?: RuntimeCorrelation,
-  ): StoredWorldSession {
-    const stored = this.readStoredSession(sessionId, correlation);
-    const run = this.requireRun(stored, runId);
-    if (isWorldRunExecuting(run.status) && !this.executions.has(this.executionKey(sessionId, runId))) {
-      return this.loadSession(sessionId, true, correlation);
-    }
-    return stored;
-  }
-
-  run(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
-    const session = this.readRunSession(sessionId, runId, correlation);
-    return publicWorldRunSnapshot(session.document, this.requireRun(session, runId));
-  }
-
-  cancelRun(sessionId: string, runId: string, correlation?: RuntimeCorrelation): WorldRunSnapshot {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      let session = this.loadSession(sessionId, true, correlation);
-      const current = this.requireRun(session, runId);
-      if (!isWorldRunActiveIntentOwner(current.status) || current.cancelRequested) {
-        return publicWorldRunSnapshot(session.document, current);
+  async submitAction(
+    instanceId: string,
+    participantId: string,
+    input: SubmitExternalActionInput,
+    principalId = "local",
+  ): Promise<PublicInstanceDetail> {
+    return this.serialized(instanceId, async () => {
+      let stored = this.read(instanceId);
+      const document = structuredClone(stored.document);
+      const participant = document.participants[participantId];
+      if (!participant || participant.status !== "active" || participant.principalId !== principalId) {
+        throw new WorldHostError("active participant not found", 404);
       }
+      if (input.expectedRevision !== document.state.revision) throw new WorldHostError("world revision changed", 409);
+      const window = document.actionWindow;
+      if (!window || window.status !== "open" || window.baseRevision !== input.expectedRevision) {
+        throw new WorldHostError("no action window is open for this revision", 409);
+      }
+      const submissionId = input.submissionId.trim();
+      if (!submissionId || submissionId.length > 128) throw new WorldHostError("invalid action submission identity", 400);
+      const existing = window.submissions[participant.agentId];
+      if (existing) {
+        if (existing.submissionId !== submissionId || existing.rawText !== input.text.trim()) {
+          throw new WorldHostError("this Agent already submitted a different action", 409);
+        }
+        return this.project(document, principalId);
+      }
+      const text = input.text.trim();
+      if (!text || text.length > 4_000) throw new WorldHostError("action must contain 1–4000 characters", 400);
+      window.submissions[participant.agentId] = {
+        submissionId,
+        agentId: participant.agentId,
+        rawText: text,
+        goal: text,
+        means: null,
+        targetIds: [],
+      };
+      window.generation += 1;
+      document.participantIntents.push({
+        participantId,
+        submissionId,
+        revision: document.state.revision,
+        text,
+        submittedAt: this.now().toISOString(),
+      });
+      document.updatedAt = this.now().toISOString();
+      stored = this.persist(stored, document);
+      const complete = window.requiredAgentIds.every((agentId) => window.submissions[agentId]);
+      if (!complete) return this.project(stored.document, principalId);
+      const advance = currentAdvance(stored.document);
+      if (!advance) throw new Error("action window has no advance record");
+      const committed = await this.executeStep(stored, advance);
+      if (committed.document.scheduler.mode === "realtime") this.scheduleRealtime(committed.document);
+      return this.project(committed.document, principalId);
+    });
+  }
+
+  async createParticipant(
+    instanceId: string,
+    input: CreateParticipantInput,
+    principalId = "local",
+  ): Promise<{ instance: PublicInstanceDetail; participantId: string; arrival: ArrivalView }> {
+    return this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
+      const document = structuredClone(stored.document);
+      if (input.expectedRevision !== document.state.revision) {
+        throw new WorldHostError("world revision changed", 409);
+      }
+      if (document.actionWindow || currentAdvance(document)?.status === "running") {
+        throw new WorldHostError("join only at a committed revision boundary", 409);
+      }
+      if (activeParticipants(document).length >= this.maxActiveParticipants) {
+        throw new WorldHostError("this instance has reached its active participant limit", 409);
+      }
+      if (activeParticipants(document).some((participant) => participant.principalId === principalId)) {
+        throw new WorldHostError("this principal already controls an Agent", 409);
+      }
+      const definition = this.definition(document);
+      if (!definition.participation) throw new WorldHostError("this world is headless-only", 409);
+      const displayName = input.displayName.trim();
+      const appearance = input.appearance.trim();
+      const motivation = input.motivation.trim();
+      if (!displayName || displayName.length > 80 || appearance.length > 500 || motivation.length > 500) {
+        throw new WorldHostError("participant customization is invalid", 400);
+      }
+      const participantId = this.idFactory();
+      const execution = this.beginExecution(document, "interactive", "participant_admission");
+      let agentId: string;
+      let fallbackArrival: string;
+      let commitPhase: "admission" | "instance";
       try {
-        if (current.status === "awaiting_player" || current.status === "failed" || current.status === "step_limit") {
-          session = this.cancelExecution(session, runId, correlation);
-          return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
+        execution?.trace.emit({
+          event: "participant.admission.started",
+          attributes: { mode: input.claimAgentId ? "claim" : "origin" },
+          counts: { activeParticipants: activeParticipants(document).length },
+        });
+        if (input.claimAgentId) {
+          commitPhase = "instance";
+          agentId = input.claimAgentId;
+          if (!claimableAgentIds(document, definition).includes(agentId)) {
+            throw new WorldHostError("Agent is not claimable", 409);
+          }
+          if (activeParticipants(document).some((participant) => participant.agentId === agentId)) {
+            throw new WorldHostError("Agent was claimed concurrently", 409);
+          }
+          fallbackArrival = `你重新把注意力放回 ${document.state.truth.entities[document.state.agents[agentId].entityId].name} 的此刻。`;
         } else {
-          const document = structuredClone(session.document);
-          document.runs[runId].cancelRequested = true;
-          session = this.commitCandidate(session, session.engine, document, correlation);
-          this.executions.get(this.executionKey(sessionId, runId))?.controller.abort();
-          this.observe?.({
-            event: "run.cancel_requested",
-            correlation: { ...correlation, sessionId, runId, revision: session.engine.snapshot.revision },
-            attributes: { status: current.status },
+          commitPhase = "admission";
+          const origin = definition.participation.origins.find((entry) => entry.id === input.originId);
+          if (!origin) throw new WorldHostError("origin not found", 404);
+          let ordinal = 1;
+          do agentId = `${origin.id}-${ordinal++}`; while (document.state.agents[agentId]);
+          const agent = agentStateFromOrigin(document.state, origin, agentId, displayName, appearance, motivation);
+          const quantities = origin.resources.map((resource) => ({
+            id: quantityId(document.state.worldHash, resource.definitionId, agentId),
+            definitionId: resource.definitionId,
+            holderId: agentId,
+            amount: resource.amount,
+          }));
+          const admitted = this.committer.admit(document.state, {
+            entity: {
+              id: agentId,
+              kind: origin.entityKind,
+              name: displayName,
+              description: appearance ? `${origin.description}\n外观：${appearance}` : origin.description,
+              lifecycle: "active",
+              createdAtStep: document.state.step,
+            },
+            placementId: origin.spawnEntityId,
+            agent,
+            quantities,
           });
+          document.state = admitted.state;
+          for (const binding of Object.values(document.policyBindings)) {
+            if (binding.kind === "model") binding.resumeFromRevision = admitted.committed.baseRevision;
+          }
+          execution?.trace.emit({
+            event: "participant.admission.candidate",
+            attributes: { mode: "origin", agentId },
+            hashes: { semantic: admitted.committed.semanticHash, state: contentHash(document.state) },
+            payload: admitted.committed,
+          });
+          fallbackArrival = origin.fallbackArrival;
         }
-        this.notifyRun(sessionId, runId);
-        return publicWorldRunSnapshot(session.document, session.document.runs[runId]);
+        const joinedAt = this.now().toISOString();
+        document.participants[participantId] = {
+          id: participantId,
+          principalId,
+          displayName,
+          agentId,
+          status: "active",
+          joinedAt,
+          updatedAt: joinedAt,
+          controlledSinceRevision: document.state.revision,
+          ...(execution ? { admissionExecutionId: execution.id } : {}),
+          ...(document.state.agents[agentId].nextAction
+            ? { suppressedActionId: document.state.agents[agentId].nextAction!.id }
+            : {}),
+        };
+        document.policyBindings[agentId] = { kind: "external", agentId, participantId };
+        document.updatedAt = joinedAt;
+        validateSimulationState(document.state, false, true);
+        const finish: FinishExecutionInput = {
+          status: "succeeded",
+          semanticHash: commitPhase === "admission"
+            ? document.state.admissions.at(-1)!.semanticHash
+            : contentHash({ participantId, agentId, mode: "claim", revision: document.state.revision }),
+          stateHash: contentHash(document.state),
+          commitRevision: document.state.revision,
+        };
+        const committed = execution && this.options.ledger && isAtomicStore(this.options.store)
+          ? this.options.store.compareAndSwapInstanceAndFinishExecution(
+              document.id,
+              stored.generation,
+              document,
+              execution.id,
+              finish,
+              commitPhase,
+            ).instance
+          : this.persist(stored, document);
+        if (execution && this.options.ledger && !isAtomicStore(this.options.store)) {
+          this.options.ledger.finishExecution(execution.id, finish);
+        }
+        const arrival = await this.generateArrival(committed.document, participantId, fallbackArrival);
+        return { instance: this.project(committed.document, principalId), participantId, arrival };
       } catch (error) {
-        if (!(error instanceof WorldSessionConflictError)) throw error;
+        this.failExecution(execution?.id, error);
+        throw error;
       }
-    }
-    throw new WorldHostError("world session kept changing while cancellation was requested", 409);
+    });
   }
 
-  async *subscribeRunEvents(
-    sessionId: string,
-    runId: string,
-    afterSequence = 0,
-    signal?: AbortSignal,
-  ): AsyncGenerator<WorldRunEvent> {
-    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
-      throw new WorldHostError("event cursor must be a non-negative safe integer", 400);
-    }
-    if (signal?.aborted) return;
-    const initialRun = this.requireRun(this.readRunSession(sessionId, runId), runId);
-    const initialTail = initialRun.events.at(-1)?.sequence ?? 0;
-    if (afterSequence > initialTail) {
-      throw new WorldHostError(`event cursor ${afterSequence} is ahead of run ${runId}`, 409);
-    }
-    const channel = this.channel(sessionId, runId);
-    let cursor = afterSequence;
-    while (!signal?.aborted) {
-      const channelVersion = channel.currentVersion;
-      const session = this.readRunSession(sessionId, runId);
-      const run = this.requireRun(session, runId);
-      const available = run.events.filter((event) => event.sequence > cursor);
-      for (const event of available) {
-        cursor = event.sequence;
-        yield structuredClone(event);
-        if (streamBoundaryEventTypes.has(event.type)) {
-          const key = this.executionKey(sessionId, runId);
-          if (this.channels.get(key) === channel) this.channels.delete(key);
-          return;
+  async releaseParticipant(
+    instanceId: string,
+    participantId: string,
+    input: ReleaseParticipantInput,
+    principalId = "local",
+  ): Promise<PublicInstanceDetail> {
+    return this.serialized(instanceId, async () => {
+      let stored = this.read(instanceId);
+      if (input.expectedRevision !== stored.document.state.revision) {
+        throw new WorldHostError("world revision changed", 409);
+      }
+      const document = structuredClone(stored.document);
+      const participant = document.participants[participantId];
+      if (!participant || participant.status !== "active" || participant.principalId !== principalId) {
+        throw new WorldHostError("active participant not found", 404);
+      }
+      participant.status = "released";
+      participant.updatedAt = this.now().toISOString();
+      const agent = document.state.agents[participant.agentId];
+      document.policyBindings[participant.agentId] = input.disposition === "model"
+        ? {
+            kind: "model",
+            agentId: agent.id,
+            profiles: structuredClone(agent.modelProfiles),
+            resumeFromRevision: participant.controlledSinceRevision,
+          }
+        : { kind: "idle", agentId: agent.id, reason: "released" };
+      if (document.actionWindow?.status === "open") {
+        document.actionWindow.requiredAgentIds = document.actionWindow.requiredAgentIds
+          .filter((agentId) => agentId !== participant.agentId);
+        delete document.actionWindow.submissions[participant.agentId];
+        document.actionWindow.generation += 1;
+      }
+      document.updatedAt = participant.updatedAt;
+      stored = this.persist(stored, document);
+      if (stored.document.actionWindow?.status === "open" &&
+        stored.document.actionWindow.requiredAgentIds.length === 0) {
+        const advance = currentAdvance(stored.document);
+        if (advance && ["awaiting_actions", "queued"].includes(advance.status)) {
+          stored = await this.executeStep(stored, advance);
         }
       }
-      if (isWorldRunStreamBoundary(run.status) && cursor >= (run.events.at(-1)?.sequence ?? 0)) {
-        const key = this.executionKey(sessionId, runId);
-        if (this.channels.get(key) === channel) this.channels.delete(key);
-        return;
+      if (stored.document.scheduler.mode === "realtime") this.scheduleRealtime(stored.document);
+      return this.project(stored.document, principalId);
+    });
+  }
+
+  private async generateArrival(
+    document: WorldInstanceDocument,
+    participantId: string,
+    fallback: string,
+  ): Promise<ArrivalView> {
+    const participant = document.participants[participantId];
+    const definition = this.definition(document);
+    const execution = this.beginExecution(document, "interactive", "arrival");
+    try {
+      const scope = {
+        workloadId: document.id,
+        batchId: `arrival:${participantId}`,
+        correlation: { executionId: execution?.id, instanceId: document.id, revision: document.state.revision },
+        observer: execution?.trace ?? this.runtimeObserver,
+        runtimeIdentity: { worldHash: document.state.worldHash, revision: document.state.revision },
+      };
+      const identity = modelInvocationIdentity(scope, "arrival-generator", participant.agentId, 1);
+      const result = await this.options.provider.generateStructured({
+        ...scope,
+        ...identity,
+        profileId: definition.modelProfiles.arrival,
+        role: "arrival-generator",
+        subjectId: participant.agentId,
+        promptVersion: "arrival-v1",
+        schemaName: "arrival",
+        system: ARRIVAL_SYSTEM,
+        context: privateView(document, participant.agentId),
+        schema: arrivalDraftSchema,
+      });
+      execution?.trace.emit({ event: "arrival.generated", attributes: { status: "accepted" }, payload: result.value });
+      if (execution && this.options.ledger) {
+        this.options.ledger.finishExecution(execution.id, {
+          status: "succeeded",
+          semanticHash: contentHash(result.value),
+          stateHash: contentHash(document.state),
+          commitRevision: document.state.revision,
+        });
       }
-      await channel.wait(channelVersion, signal);
+      return { ...result.value, generated: true };
+    } catch (error) {
+      this.failExecution(execution?.id, error);
+      return {
+        title: "你已进入世界",
+        scene: fallback,
+        suggestions: ["观察四周", "确认自己所在的位置", "寻找一个可以交谈的人"],
+        generated: false,
+      };
     }
   }
 
-  async waitForRun(sessionId: string, runId: string): Promise<WorldRunSnapshot> {
-    const execution = this.executions.get(this.executionKey(sessionId, runId));
-    if (execution) {
-      await execution.promise.catch(() => undefined);
-      return this.run(sessionId, runId);
+  async setRealtime(instanceId: string, enabled: boolean): Promise<PublicInstanceDetail> {
+    return this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
+      const document = structuredClone(stored.document);
+      document.scheduler.mode = enabled ? "realtime" : "paused";
+      document.scheduler.generation += 1;
+      document.scheduler.nextTickAt = enabled
+        ? new Date(this.now().getTime() + document.runtime.realtimeIntervalMs).toISOString()
+        : null;
+      document.updatedAt = this.now().toISOString();
+      const committed = this.persist(stored, document);
+      if (enabled) this.scheduleRealtime(committed.document);
+      else this.cancelTimer(instanceId);
+      return this.project(committed.document);
+    });
+  }
+
+  private cancelTimer(instanceId: string): void {
+    const timer = this.timers.get(instanceId);
+    if (timer) this.clearTimer(timer);
+    this.timers.delete(instanceId);
+  }
+
+  private scheduleAt(instanceId: string, at: string, task: () => Promise<void>): void {
+    this.cancelTimer(instanceId);
+    const delay = Math.max(0, Date.parse(at) - this.now().getTime());
+    const timer = this.setTimer!(async () => {
+      this.timers.delete(instanceId);
+      await task().catch(() => undefined);
+    }, delay);
+    this.timers.set(instanceId, timer);
+  }
+
+  private scheduleWindowDeadline(document: WorldInstanceDocument): void {
+    if (!document.actionWindow?.deadlineAt) return;
+    this.scheduleAt(document.id, document.actionWindow.deadlineAt, async () => {
+      await this.serialized(document.id, async () => {
+        const stored = this.read(document.id);
+        const window = stored.document.actionWindow;
+        if (!window || window.id !== document.actionWindow!.id || window.status !== "open") return;
+        const advance = currentAdvance(stored.document);
+        if (!advance) return;
+        const committed = await this.executeStep(stored, advance);
+        if (committed.document.scheduler.mode === "realtime") this.scheduleRealtime(committed.document);
+      });
+    });
+  }
+
+  private scheduleRealtime(document: WorldInstanceDocument): void {
+    if (document.scheduler.mode !== "realtime") return;
+    const generation = document.scheduler.generation;
+    const at = document.scheduler.nextTickAt ??
+      new Date(this.now().getTime() + document.runtime.realtimeIntervalMs).toISOString();
+    this.scheduleAt(document.id, at, async () => {
+      const current = this.read(document.id).document;
+      if (current.scheduler.mode !== "realtime" || current.scheduler.generation !== generation) return;
+      await this.advance(document.id, {
+        expectedRevision: current.state.revision,
+        trigger: "realtime",
+        steps: 1,
+      });
+    });
+  }
+
+  private restoreSchedule(stored: StoredWorldInstance): void {
+    const document = stored.document;
+    if (document.actionWindow?.status === "open" && document.actionWindow.deadlineAt) {
+      this.scheduleWindowDeadline(document);
+    } else if (document.scheduler.mode === "realtime") {
+      const restored = structuredClone(document);
+      restored.scheduler.generation += 1;
+      restored.scheduler.nextTickAt = new Date(this.now().getTime() + restored.runtime.realtimeIntervalMs).toISOString();
+      restored.updatedAt = this.now().toISOString();
+      this.scheduleRealtime(this.persist(stored, restored).document);
     }
-    for await (const event of this.subscribeRunEvents(sessionId, runId)) void event;
-    return this.run(sessionId, runId);
   }
 }

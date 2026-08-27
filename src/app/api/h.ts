@@ -34,6 +34,14 @@ export async function readJson<T>(request: Request): Promise<T | undefined> {
   }
 }
 
+export function principalId(request: Request): string {
+  const value = request.headers.get("x-lwe-principal")?.trim() || "local";
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/.test(value)) {
+    throw new WorldHostError("invalid principal identity", 400);
+  }
+  return value;
+}
+
 export interface HttpObservationScope {
   observer: RuntimeObserver;
   correlation: RuntimeCorrelation;

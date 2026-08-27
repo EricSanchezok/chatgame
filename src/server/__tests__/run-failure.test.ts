@@ -9,13 +9,13 @@ import {
 import { ModelOverloadedError } from "../../engine/model-scheduler";
 import { TransitionValidationError } from "../../engine/transaction";
 import { classifyRunFailure } from "../run-failure";
-import { WorldSessionConflictError } from "../world-session-store";
+import { WorldInstanceConflictError } from "../world-instance-store";
 
 describe("classifyRunFailure", () => {
   it.each([
     new ModelOverloadedError("queue is full"),
     new ModelOutputError("output repair exhausted"),
-    new WorldSessionConflictError("session-1"),
+    new WorldInstanceConflictError("instance-1"),
     Object.assign(new Error("provider overloaded"), { status: 429 }),
     Object.assign(new Error("provider unavailable"), { statusCode: 503 }),
     new ModelTransportError("temporary transport failure", { retriable: true }),

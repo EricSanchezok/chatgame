@@ -10,6 +10,7 @@ export interface WorldCatalogEntry {
   version: string;
   contentHash: string;
   description: string;
+  participation: "headless" | "open";
 }
 
 export interface WorldRepository {
@@ -38,6 +39,7 @@ export class MemoryWorldRepository implements WorldRepository {
         version: definition.manifestVersion,
         contentHash: definition.contentHash,
         description: definition.description,
+        participation: definition.participation ? "open" as const : "headless" as const,
       }))
       .sort((left, right) => left.id.localeCompare(right.id));
   }

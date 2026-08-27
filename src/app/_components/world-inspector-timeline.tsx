@@ -53,7 +53,7 @@ export function WorldInspectorTimeline({
   const normalized = query.trim().toLocaleLowerCase();
   const visibleSteps = [...steps].reverse().filter((step) => {
     const actorMatch = selectedActorId === "world" || step.actorIds.includes(selectedActorId);
-    const queryMatch = !normalized || `${step.revision} ${step.playerGoal} ${step.contentHash}`
+    const queryMatch = !normalized || `${step.revision} ${step.primaryAction} ${step.contentHash}`
       .toLocaleLowerCase().includes(normalized);
     return actorMatch && queryMatch;
   });
@@ -83,7 +83,7 @@ export function WorldInspectorTimeline({
               </span>
               <span className="cg-inspector-log__copy">{attempt.errorMessage ?? attempt.latestEvent}</span>
               <span className="cg-inspector-log__meta">
-                <span>Step {attempt.step ?? "?"} · 第 {attempt.runAttempt ?? 1} 次运行</span>
+                <span>Step {attempt.step ?? "?"} · 第 {attempt.advanceAttempt ?? 1} 次推进</span>
                 {attempt.failureStageLabel && <span>{attempt.failureStageLabel}</span>}
                 {formatDuration(attempt.durationMs) && <span>{formatDuration(attempt.durationMs)}</span>}
                 <span>{attempt.eventCount} 条事件</span>
@@ -106,7 +106,7 @@ export function WorldInspectorTimeline({
               <strong>Revision {step.revision}</strong>
               <span data-status="committed"><Check aria-hidden="true" /> committed</span>
             </span>
-            <span className="cg-inspector-log__copy">{step.playerGoal}</span>
+            <span className="cg-inspector-log__copy">{step.primaryAction}</span>
             <span className="cg-inspector-log__meta">
               <span>{step.contentHash.slice(0, 15)}</span>
               <span>{step.actorIds.join(" + ") || "world"}</span>

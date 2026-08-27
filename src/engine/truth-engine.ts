@@ -10,6 +10,9 @@ import {
   type ReactionRequestDraft,
 } from "./llm-schemas";
 import type {
+  ActionGrounding,
+} from "./execution";
+import type {
   AgentActionProposal,
   CausalAssertion,
   CausalAssertionResult,
@@ -17,18 +20,22 @@ import type {
   CausalVerification,
   CommitmentRound,
   D20CheckRequest,
+  D20CheckRequestDraft,
   D20CheckResult,
   DiscreteRandomRequest,
   DiscreteRandomResult,
   ModelExecutionAudit,
   MechanicResult,
   ObservationPacket,
+  ObservationPacketDraft,
   ReactionDecision,
   ReactionRequest,
   SeededRngState,
   SimulationState,
   TransitionProposal,
   TransitionProposalDraft,
+  WorldDeltaOperation,
+  WorldDeltaOperationDraft,
 } from "./model";
 import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import {
@@ -74,6 +81,11 @@ export interface ReactionResolution {
   modelAudits: ModelExecutionAudit[];
 }
 
+export interface ObservationResolution {
+  packets: ObservationPacket[];
+  modelAudits: ModelExecutionAudit[];
+}
+
 export interface TruthResolution {
   proposal: TransitionProposal;
   initialActions: AgentActionProposal[];
@@ -98,7 +110,15 @@ export interface TruthResolutionInput {
   definition: WorldDefinition;
   state: SimulationState;
   initialActions: AgentActionProposal[];
+  simulatedSeconds: number;
+  identityOwner: string;
+  groundings: readonly ActionGrounding[];
   resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
+  renderObservations: (
+    proposal: Readonly<TransitionProposal>,
+    actions: readonly AgentActionProposal[],
+    transitionAttempt: number,
+  ) => Promise<ObservationResolution>;
   validateProposal: (
     proposal: TransitionProposal,
     checks: readonly D20CheckResult[],
@@ -112,6 +132,46 @@ export interface TruthEngineOptions {
   repairAttempts?: number;
   maxCommitmentRounds?: number;
   rulePackages?: RulePackageRegistry;
+}
+
+export function normalizeOutcomeAlternativeEvidence(
+  state: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  proposal: Readonly<TransitionProposal>,
+): { proposal: TransitionProposal; droppedReferences: number; droppedAlternatives: number } {
+  const actorByAction = new Map(actions.map((action) => [action.id, action.actorId]));
+  let droppedReferences = 0;
+  let droppedAlternatives = 0;
+  const outcomes = proposal.outcomes.map((outcome) => {
+    const actorId = actorByAction.get(outcome.proposalId);
+    const evidence = actorId ? state.agents[actorId]?.belief.evidence : undefined;
+    const knownAlternatives = outcome.knownAlternatives.flatMap((alternative) => {
+      if (alternative.basis.kind !== "knowledge") return [structuredClone(alternative)];
+      const seen = new Set<string>();
+      const evidenceIds = alternative.basis.evidenceIds.filter((evidenceId) => {
+        if (!evidence?.[evidenceId] || seen.has(evidenceId)) {
+          droppedReferences += 1;
+          return false;
+        }
+        seen.add(evidenceId);
+        return true;
+      });
+      if (evidenceIds.length === 0) {
+        droppedAlternatives += 1;
+        return [];
+      }
+      return [{
+        ...structuredClone(alternative),
+        basis: { kind: "knowledge" as const, evidenceIds },
+      }];
+    });
+    return { ...structuredClone(outcome), knownAlternatives };
+  });
+  return {
+    proposal: { ...structuredClone(proposal), outcomes },
+    droppedReferences,
+    droppedAlternatives,
+  };
 }
 
 class ReactionExecutionError extends Error {
@@ -300,8 +360,6 @@ function validateReactionRequests(
   checkRequests: readonly D20CheckRequest[],
   checks: readonly D20CheckResult[],
 ): void {
-  const playerAction = input.initialActions.find((action) => action.actorId === "player");
-  if (!playerAction) throw new Error("reaction round has no player action");
   const requestedAgents = new Set<string>();
   const requestByCheck = new Map(checkRequests.map((request) => [request.id, request]));
   const resultByCheck = new Map(checks.map((result) => [result.requestId, result]));
@@ -311,9 +369,12 @@ function validateReactionRequests(
     requestedAgents.add(request.agentId);
     const agent = input.state.agents[request.agentId];
     if (!agent) throw new Error(`reaction request has unknown agent ${request.agentId}`);
-    if (request.sourceActionId !== playerAction.id) {
-      throw new Error(`reaction request for ${request.agentId} does not reference the player action`);
+    const sourceAction = input.initialActions.find((action) => action.id === request.sourceActionId);
+    if (!sourceAction || sourceAction.actorId === request.agentId) {
+      throw new Error(`reaction request for ${request.agentId} has an invalid source action`);
     }
+    const sourceAgent = input.state.agents[sourceAction.actorId];
+    if (!sourceAgent) throw new Error(`reaction request references unknown source actor ${sourceAction.actorId}`);
     if (!input.initialActions.some((action) => action.actorId === request.agentId)) {
       throw new Error(`reaction request for ${request.agentId} has no prepared action`);
     }
@@ -335,9 +396,9 @@ function validateReactionRequests(
       basisIds.add(basisId);
 
       if (basis.kind === "shared_placement") {
-        const playerPlacement = input.state.truth.placements[input.state.player.entityId];
+        const sourcePlacement = input.state.truth.placements[sourceAgent.entityId];
         const agentPlacement = input.state.truth.placements[agent.entityId];
-        if (!playerPlacement || playerPlacement !== agentPlacement || playerPlacement !== basis.placementId) {
+        if (!sourcePlacement || sourcePlacement !== agentPlacement || sourcePlacement !== basis.placementId) {
           throw new Error(`reaction request for ${request.agentId} has no shared direct placement`);
         }
         continue;
@@ -347,7 +408,7 @@ function validateReactionRequests(
         const accessible = fact && (fact.access.kind === "public" ||
           (fact.access.kind === "agents" && fact.access.agentIds.includes(request.agentId)));
         if (!accessible) throw new Error(`reaction request for ${request.agentId} cites inaccessible fact`);
-        const endpoints = new Set([input.state.player.entityId, agent.entityId]);
+        const endpoints = new Set([sourceAgent.entityId, agent.entityId]);
         const connected = endpoints.has(fact.subjectId) ||
           (fact.value.kind === "entity" && endpoints.has(fact.value.entityId));
         if (!connected) {
@@ -364,12 +425,12 @@ function validateReactionRequests(
       if (checkRequest.actorId !== agent.entityId) {
         throw new Error(`perception check ${basis.checkId} belongs to another observer`);
       }
-      const citesPlayerAction = checkRequest.causes.some((cause) =>
-        cause.kind === "action" && cause.id === playerAction.id);
+      const citesSourceAction = checkRequest.causes.some((cause) =>
+        cause.kind === "action" && cause.id === sourceAction.id);
       const citesWorldBasis = checkRequest.causes.some((cause) =>
         cause.kind === "fact" || cause.kind === "law");
-      if (!citesPlayerAction || !citesWorldBasis) {
-        throw new Error(`perception check ${basis.checkId} lacks player-action and world basis`);
+      if (!citesSourceAction || !citesWorldBasis) {
+        throw new Error(`perception check ${basis.checkId} lacks source-action and world basis`);
       }
     }
   }
@@ -422,7 +483,7 @@ function applyReactionDecisions(
     if (ids.has(action.id)) throw new Error(`reaction produced duplicate action id ${action.id}`);
     if (actors.has(action.actorId)) throw new Error(`reaction produced duplicate actor ${action.actorId}`);
     if (action.baseRevision !== input.state.revision) throw new Error(`reaction action ${action.id} has stale revision`);
-    if (action.actorId !== "player" && !input.state.agents[action.actorId]) {
+    if (!input.state.agents[action.actorId]) {
       throw new Error(`reaction produced action for unknown actor ${action.actorId}`);
     }
     ids.add(action.id);
@@ -432,9 +493,9 @@ function applyReactionDecisions(
     left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
 }
 
-function materializeObservationPackets(
+export function materializeObservationPackets(
   state: SimulationState,
-  packets: readonly ObservationPacket[],
+  packets: readonly ObservationPacketDraft[],
   stage: "stimulus" | "outcome",
   eventAliases: ReadonlyMap<string, string> = new Map(),
 ): { packets: ObservationPacket[]; aliases: Map<string, string> } {
@@ -481,32 +542,121 @@ function materializeObservationPackets(
 function materializeReactionRequests(
   state: SimulationState,
   requests: readonly ReactionRequestDraft[],
-  sourceActionId: string,
 ): ReactionRequest[] {
   const materialized = materializeObservationPackets(
     state,
-    requests.map((request) => ({
+    requests.map((request, index) => ({
       ...structuredClone(request.stimulus),
+      id: `reaction-stimulus-${index}`,
       observerId: request.agentId,
-      step: state.step + 1,
-      kind: "stimulus" as const,
       sourceEventIds: [],
     })),
     "stimulus",
   ).packets;
   return requests.map((request, index) => ({
     agentId: request.agentId,
-    sourceActionId,
+    sourceActionId: request.sourceActionId,
     stimulus: materialized[index],
     basis: structuredClone(request.basis),
   }));
 }
 
+function materializeWorldOperation(
+  state: SimulationState,
+  definition: WorldDefinition,
+  operation: WorldDeltaOperationDraft,
+  rewriteCause: (cause: CausalRef) => CausalRef,
+  rewriteAssertion: (assertion: CausalAssertion) => CausalAssertion,
+): WorldDeltaOperation {
+  const causes = operation.causes.map(rewriteCause);
+  const assertions = operation.assertions.map(rewriteAssertion);
+  const nextStep = state.step + 1;
+
+  switch (operation.kind) {
+    case "create_entity":
+      return {
+        ...structuredClone(operation),
+        entity: {
+          ...structuredClone(operation.entity),
+          lifecycle: "active",
+          createdAtStep: nextStep,
+        },
+        causes,
+        assertions,
+      };
+    case "set_fact":
+      return {
+        ...structuredClone(operation),
+        fact: {
+          ...structuredClone(operation.fact),
+          provenance: structuredClone(causes),
+        },
+        causes,
+        assertions,
+      };
+    case "set_meter":
+      return {
+        ...structuredClone(operation),
+        meter: {
+          ...structuredClone(operation.meter),
+          firedThresholdIds: structuredClone(
+            state.truth.meters[operation.meter.id]?.firedThresholdIds ?? [],
+          ),
+        },
+        causes,
+        assertions,
+      };
+    case "create_agent": {
+      const stampRecords = <T extends { id: string }>(records: Record<string, T>) =>
+        Object.fromEntries(Object.entries(records).map(([id, record]) => [id, {
+          ...structuredClone(record),
+          createdAtStep: nextStep,
+          updatedAtStep: nextStep,
+        }]));
+      return {
+        ...structuredClone(operation),
+        agent: {
+          ...structuredClone(operation.agent),
+          modelProfiles: structuredClone(definition.modelProfiles.dynamicAgent),
+          character: {
+            persona: {
+              ...structuredClone(operation.agent.character.persona),
+              updatedAtStep: nextStep,
+            },
+            traits: stampRecords(operation.agent.character.traits),
+            values: stampRecords(operation.agent.character.values),
+            emotions: stampRecords(operation.agent.character.emotions),
+            attitudes: stampRecords(operation.agent.character.attitudes),
+            goals: stampRecords(operation.agent.character.goals),
+            commitments: stampRecords(operation.agent.character.commitments),
+          },
+          belief: {
+            ...structuredClone(operation.agent.belief),
+            evidence: Object.fromEntries(Object.entries(operation.agent.belief.evidence)
+              .map(([id, evidence]) => [id, { ...structuredClone(evidence), step: nextStep }])),
+          },
+          nextAction: null,
+        },
+        causes,
+        assertions,
+      };
+    }
+    default:
+      return {
+        ...structuredClone(operation),
+        causes,
+        assertions,
+      };
+  }
+}
+
 function materializeTransitionProposal(
+  definition: WorldDefinition,
   state: SimulationState,
   direct: TransitionProposalDraft,
   checkAliases: ReadonlyMap<string, string | null>,
   randomAliases: ReadonlyMap<string, string | null>,
+  identityOwner: string,
 ): TransitionProposal {
   const mechanicAliases = new Map<string, string>();
   for (const [ordinal, invocation] of direct.mechanicInvocations.entries()) {
@@ -516,7 +666,7 @@ function materializeTransitionProposal(
       revision: state.revision,
       kind: "mechanic",
       stage: "transition",
-      owner: state.worldId,
+      owner: identityOwner,
       round: 0,
       ordinal,
     }));
@@ -529,7 +679,7 @@ function materializeTransitionProposal(
       revision: state.revision,
       kind: "event",
       stage: "transition",
-      owner: state.worldId,
+      owner: identityOwner,
       round: 0,
       ordinal,
     }));
@@ -575,12 +725,6 @@ function materializeTransitionProposal(
       return [key, rewriteMechanicInput(item)];
     }));
   };
-  const observations = materializeObservationPackets(
-    state,
-    direct.observations,
-    "outcome",
-    eventAliases,
-  );
   return {
     ...structuredClone(direct),
     baseRevision: state.revision,
@@ -591,11 +735,8 @@ function materializeTransitionProposal(
       assertions: invocation.assertions.map(rewriteAssertion),
       input: rewriteMechanicInput(invocation.input),
     })),
-    operations: direct.operations.map((operation) => ({
-      ...structuredClone(operation),
-      causes: operation.causes.map(rewriteCause),
-      assertions: operation.assertions.map(rewriteAssertion),
-    })),
+    operations: direct.operations.map((operation) =>
+      materializeWorldOperation(state, definition, operation, rewriteCause, rewriteAssertion)),
     events: direct.events.map((event) => ({
       ...structuredClone(event),
       id: eventAliases.get(event.id)!,
@@ -616,19 +757,9 @@ function materializeTransitionProposal(
       }),
       causeRefs: outcome.causeRefs.map(rewriteCause),
       assertions: outcome.assertions.map(rewriteAssertion),
-      knownAlternatives: outcome.knownAlternatives.map((alternative) =>
-        alternative.basis.kind === "observation"
-          ? {
-              ...structuredClone(alternative),
-              basis: {
-                ...alternative.basis,
-                observationId: observations.aliases.get(alternative.basis.observationId) ??
-                  alternative.basis.observationId,
-              },
-            }
-          : structuredClone(alternative)),
+      knownAlternatives: outcome.knownAlternatives.map((alternative) => structuredClone(alternative)),
     })),
-    observations: observations.packets,
+    observations: [],
   };
 }
 
@@ -655,7 +786,6 @@ function validateTransitionEnvelope(
       .map((operation) => operation.agent.id)),
   ]);
   const historicalAgentEntities = new Set([
-    input.state.player.entityId,
     ...Object.values(input.state.historyBase?.agents ?? {}).map((agent) => agent.entityId),
     ...Object.values(input.state.agents).map((agent) => agent.entityId),
     ...input.state.history.flatMap((step) => step.operations
@@ -664,7 +794,7 @@ function validateTransitionEnvelope(
   ]);
   for (const operation of proposal.operations) {
     if (operation.kind !== "create_agent") continue;
-    if (operation.agent.id === "player" || historicalAgentIds.has(operation.agent.id)) {
+    if (historicalAgentIds.has(operation.agent.id)) {
       throw new Error(`agent identity was already used: ${operation.agent.id}`);
     }
     if (historicalAgentEntities.has(operation.agent.entityId)) {
@@ -716,26 +846,25 @@ function validateTransitionEnvelope(
     }
   }
 
-  const playerAction = actions.find((action) => action.actorId === "player");
-  const playerOutcome = playerAction && proposal.outcomes.find((outcome) => outcome.proposalId === playerAction.id);
-  if (!playerOutcome) throw new Error("transition is missing the player outcome");
-  if ((playerOutcome.status === "failed" || playerOutcome.status === "blocked") && !playerOutcome.summary.trim()) {
-    throw new Error("failed player outcome requires an understandable summary");
-  }
-  const playerObservationIds = new Set(
-    proposal.observations.filter((packet) => packet.observerId === "player").map((packet) => packet.id),
-  );
-  for (const alternative of playerOutcome.knownAlternatives) {
-    if (alternative.basis.kind === "knowledge") {
-      for (const evidenceId of alternative.basis.evidenceIds) {
-        if (!input.state.player.knowledge.evidence[evidenceId]) {
-          throw new Error(`player alternative references unknown evidence ${evidenceId}`);
-        }
-      }
-      continue;
+  for (const action of actions) {
+    const outcome = proposal.outcomes.find((candidate) => candidate.proposalId === action.id)!;
+    if ((outcome.status === "failed" || outcome.status === "blocked") && !outcome.summary.trim()) {
+      throw new Error(`failed outcome for ${action.actorId} requires an understandable summary`);
     }
-    if (!playerObservationIds.has(alternative.basis.observationId)) {
-      throw new Error(`player alternative references unknown observation ${alternative.basis.observationId}`);
+    const observationIds = new Set(proposal.observations
+      .filter((packet) => packet.observerId === action.actorId)
+      .map((packet) => packet.id));
+    const belief = input.state.agents[action.actorId]?.belief;
+    for (const alternative of outcome.knownAlternatives) {
+      if (alternative.basis.kind === "knowledge") {
+        for (const evidenceId of alternative.basis.evidenceIds) {
+          if (!belief?.evidence[evidenceId]) {
+            throw new Error(`outcome alternative for ${action.actorId} references unknown evidence ${evidenceId}`);
+          }
+        }
+      } else if (!observationIds.has(alternative.basis.observationId)) {
+        throw new Error(`outcome alternative for ${action.actorId} references unknown observation ${alternative.basis.observationId}`);
+      }
     }
   }
 }
@@ -759,9 +888,11 @@ export class TruthEngine {
   }
 
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
+    const truthSubject = input.identityOwner;
     let actions = input.initialActions.map((action) => structuredClone(action));
-    const playerAction = input.initialActions.find((action) => action.actorId === "player");
-    if (!playerAction) throw new Error("initial joint action has no player action");
+    if (!Number.isSafeInteger(input.simulatedSeconds) || input.simulatedSeconds <= 0) {
+      throw new Error("truth resolution requires positive simulatedSeconds");
+    }
     const allowedForCommitments: Record<CausalRef["kind"], Set<string>> = {
       action: new Set(actions.map((action) => action.id)),
       check: new Set(),
@@ -807,19 +938,15 @@ export class TruthEngine {
       committedRandomRequests: randomRequests,
       randomResults,
       commitmentRounds,
-      allowedAgentProfiles: {
-        bootstrap: this.provider.availableProfileSummaries("agent-bootstrap"),
-        mind: this.provider.availableProfileSummaries("agent-mind"),
-        reaction: this.provider.availableProfileSummaries("agent-reaction"),
-      },
-      sessionId: scope.workloadId,
-      runId: scope.batchId,
+      groundings: input.groundings,
+      instanceId: scope.workloadId,
+      advanceId: scope.batchId,
       issues,
       stage,
     });
 
     const normalizeCheckRound = (
-      round: readonly D20CheckRequest[],
+      round: readonly D20CheckRequestDraft[],
       phase: "perception" | "resolution",
     ): D20CheckRequest[] => {
       if (commitmentRounds.length >= this.maxCommitmentRounds) {
@@ -834,7 +961,7 @@ export class TruthEngine {
           revision: input.state.revision,
           kind: "check",
           stage: phase,
-          owner: input.definition.id,
+          owner: input.identityOwner,
           round: commitmentRounds.length,
           ordinal,
         });
@@ -880,7 +1007,7 @@ export class TruthEngine {
     };
 
     const registerCheckAliases = (
-      draft: readonly D20CheckRequest[],
+      draft: readonly D20CheckRequestDraft[],
       normalized: readonly D20CheckRequest[],
     ): void => {
       draft.forEach((request, index) => {
@@ -906,7 +1033,7 @@ export class TruthEngine {
           revision: input.state.revision,
           kind: "random",
           stage: "resolution",
-          owner: input.definition.id,
+          owner: input.identityOwner,
           round: commitmentRounds.length,
           ordinal,
         });
@@ -976,7 +1103,7 @@ export class TruthEngine {
         provider: this.provider,
         profileId: input.definition.modelProfiles.perception,
         role: "truth-perception",
-        subjectId: input.definition.id,
+        subjectId: truthSubject,
         promptVersion: TRUTH_PROMPT_VERSION,
         schemaName: "truth_perception_directive",
         system: TRUTH_SYSTEM,
@@ -1003,7 +1130,7 @@ export class TruthEngine {
       provider: this.provider,
       profileId: input.definition.modelProfiles.reactionRouting,
       role: "truth-reaction-routing",
-      subjectId: input.definition.id,
+      subjectId: truthSubject,
       promptVersion: TRUTH_PROMPT_VERSION,
       schemaName: "truth_reaction_routing",
       system: TRUTH_SYSTEM,
@@ -1012,14 +1139,14 @@ export class TruthEngine {
       buildContext: (issues) => truthContext("reaction-routing", issues),
       validate: (output) => validateReactionRequests(
         input,
-        materializeReactionRequests(input.state, output.requests, playerAction.id),
+        materializeReactionRequests(input.state, output.requests),
         requests,
         checks,
       ),
       repairAttempts: this.repairAttempts,
     });
     modelAudits.push(routing.audit);
-    reactionRequests = materializeReactionRequests(input.state, routing.value.requests, playerAction.id);
+    reactionRequests = materializeReactionRequests(input.state, routing.value.requests);
     if (reactionRequests.length > 0) {
       try {
         const resolved = await input.resolveReactions(reactionRequests);
@@ -1041,7 +1168,7 @@ export class TruthEngine {
         provider: this.provider,
         profileId: input.definition.modelProfiles.resolution,
         role: "truth-resolution",
-        subjectId: input.definition.id,
+        subjectId: truthSubject,
         promptVersion: TRUTH_PROMPT_VERSION,
         schemaName: "truth_resolution_directive",
         system: TRUTH_SYSTEM,
@@ -1078,6 +1205,7 @@ export class TruthEngine {
     let previousReport: CausalVerification | null = null;
     const transitionAudits: ModelExecutionAudit[] = [];
     const verifierAudits: ModelExecutionAudit[] = [];
+    const observationAudits: ModelExecutionAudit[] = [];
     const observe = runtimeEventEmitter(scope.observer);
 
     while (true) {
@@ -1089,13 +1217,13 @@ export class TruthEngine {
         const identity = modelInvocationIdentity(
           scope,
           "truth-transition",
-          input.definition.id,
+          truthSubject,
           invocation,
         );
         const correlation = modelInvocationCorrelation(
           scope,
           "truth-transition",
-          input.definition.id,
+          truthSubject,
           identity,
         );
         observe?.({
@@ -1113,7 +1241,7 @@ export class TruthEngine {
           observer: scope.observer,
           ...identity,
           role: "truth-transition",
-          subjectId: input.definition.id,
+          subjectId: truthSubject,
           promptVersion: TRUTH_PROMPT_VERSION,
           schemaName: "truth_transition",
           system: TRUTH_SYSTEM,
@@ -1122,12 +1250,32 @@ export class TruthEngine {
         });
         transitionAudits.push(generated.audit);
         setModelInvocationResultKind(generated.audit, "truth-transition_transition");
-        const directProposal = materializeTransitionProposal(
+        const materializedProposal = materializeTransitionProposal(
+          input.definition,
           input.state,
           generated.value,
           checkAliases,
           randomAliases,
+          input.identityOwner,
         );
+        const normalizedAlternatives = normalizeOutcomeAlternativeEvidence(
+          input.state,
+          actions,
+          materializedProposal,
+        );
+        const directProposal = normalizedAlternatives.proposal;
+        if (normalizedAlternatives.droppedReferences > 0 || normalizedAlternatives.droppedAlternatives > 0) {
+          observe?.({
+            event: "algorithm.outcome.alternative_evidence_normalized",
+            level: "warn",
+            correlation,
+            attributes: { phase: "transition" },
+            counts: {
+              droppedOutcomeAlternativeEvidenceReferences: normalizedAlternatives.droppedReferences,
+              droppedOutcomeAlternatives: normalizedAlternatives.droppedAlternatives,
+            },
+          });
+        }
         const mechanics = this.rulePackages.resolve(input.definition.rulePackages, {
           state: input.state,
           actions,
@@ -1139,19 +1287,26 @@ export class TruthEngine {
         const proposal: TransitionProposal = {
           ...structuredClone(directProposal),
           mechanicInvocations: mechanics.invocations,
-          operations: [...structuredClone(directProposal.operations), ...mechanics.operations],
+          operations: [
+            ...structuredClone(directProposal.operations),
+            ...mechanics.operations,
+            {
+              kind: "advance_time",
+              seconds: input.simulatedSeconds,
+              causes: actions.map((action) => ({ kind: "action" as const, id: action.id })),
+              assertions: [{
+                kind: "elapsed_seconds_compare" as const,
+                operator: "eq" as const,
+                value: input.state.truth.elapsedSeconds,
+              }],
+            },
+          ],
         };
 
-        for (const operation of proposal.operations) {
-          if (operation.kind !== "create_agent") continue;
-          this.provider.catalog.assertProfile(operation.agent.modelProfiles.bootstrap, "agent-bootstrap");
-          this.provider.catalog.assertProfile(operation.agent.modelProfiles.mind, "agent-mind");
-          this.provider.catalog.assertProfile(operation.agent.modelProfiles.reaction, "agent-reaction");
-          this.provider.assertProfilesAvailable(Object.values(operation.agent.modelProfiles));
-          if (operation.agent.nextAction !== null) {
-            throw new Error(`new agent ${operation.agent.id} must not provide a prepared action`);
-          }
-        }
+        const rendered = await input.renderObservations(proposal, actions, transitionRepairs);
+        proposal.observations = structuredClone(rendered.packets);
+        observationAudits.push(...structuredClone(rendered.modelAudits));
+
         validateTransitionEnvelope(input, actions, proposal, checks, randomResults);
         const causalAssertionResults = evaluateProposalCausality(input.state, checks, randomResults, proposal);
         input.validateProposal(proposal, checks, randomResults, actions, stimulusObservations);
@@ -1160,7 +1315,7 @@ export class TruthEngine {
           provider: this.provider,
           profileId: input.definition.modelProfiles.causalVerifier,
           role: "causal-verifier",
-          subjectId: input.definition.id,
+          subjectId: truthSubject,
           promptVersion: CAUSAL_VERIFIER_PROMPT_VERSION,
           schemaName: "causal_verification",
           system: CAUSAL_VERIFIER_SYSTEM,
@@ -1179,8 +1334,8 @@ export class TruthEngine {
             assertionResults: causalAssertionResults,
             mechanicResults: mechanics.results,
             previousReport,
-            sessionId: scope.workloadId,
-            runId: scope.batchId,
+            instanceId: scope.workloadId,
+            advanceId: scope.batchId,
             issues,
           }),
           validate: (report) => {
@@ -1191,7 +1346,7 @@ export class TruthEngine {
               ...proposal.operations.map((operation, index) => `operation:${index}:${operation.kind}`),
               ...proposal.mechanicInvocations.map((invocation) => `mechanic:${invocation.id}`),
               ...proposal.events.map((event) => `event:${event.id}`),
-              ...proposal.outcomes.map((outcome) => `outcome:${outcome.proposalId}`),
+              ...proposal.outcomes.map((outcome) => `outcome:${outcome.id}`),
               ...proposal.observations.map((observation) => `observation:${observation.id}`),
             ]);
             for (const finding of report.findings) {
@@ -1218,6 +1373,7 @@ export class TruthEngine {
           attributes: { resultKind: "truth-transition_transition" },
         });
         modelAudits.push(combineModelExecutionAudits(transitionAudits));
+        modelAudits.push(...structuredClone(observationAudits));
         modelAudits.push(combineStageAudits(verifierAudits));
         return {
           proposal,
@@ -1239,7 +1395,8 @@ export class TruthEngine {
           reactionModelAudits: structuredClone(reactionModelAudits),
         };
       } catch (error) {
-        if (error instanceof ModelSemanticRepairError && error.role === "causal-verifier") throw error;
+        if (error instanceof ModelSemanticRepairError &&
+          (error.role === "causal-verifier" || error.role === "observation-renderer")) throw error;
         if (error instanceof ModelConfigurationError || error instanceof ModelTransportError ||
           error instanceof ModelOverloadedError || (error instanceof Error && error.name === "AbortError")) {
           throw error;
@@ -1256,7 +1413,7 @@ export class TruthEngine {
         observe?.({
           event: "model.semantic.rejected",
           level: "warn",
-          correlation: modelInvocationCorrelation(scope, "truth-transition", input.definition.id, {
+          correlation: modelInvocationCorrelation(scope, "truth-transition", truthSubject, {
             modelInvocationId: invocation?.id,
             modelInvocation: invocation?.ordinal,
           }),

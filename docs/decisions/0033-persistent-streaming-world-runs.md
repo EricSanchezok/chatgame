@@ -1,7 +1,7 @@
 # 持久化流式 WorldRun 与无内置剧本工作台
 
 ## Status
-Accepted
+Superseded by [0062](0062-world-instance-participation-and-action-window.md)
 Class: architecture
 
 ## Context and Problem Statement

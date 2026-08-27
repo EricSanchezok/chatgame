@@ -17,9 +17,10 @@ profiles:
     provider_id: deepseek-e2e
     model: e2e-truth
     description: E2E Truth Engine through the production DeepSeek adapter
-    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, causal-verifier]
+    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 10000
     max_output_tokens: 32768
+    max_input_bytes: 262144
     inference:
       kind: deepseek-thinking
       effort: max
@@ -30,6 +31,7 @@ profiles:
     allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
     request_timeout_ms: 10000
     max_output_tokens: 8192
+    max_input_bytes: 131072
     inference:
       kind: deepseek-thinking
       effort: high

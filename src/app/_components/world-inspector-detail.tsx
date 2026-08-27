@@ -115,7 +115,7 @@ function CommitHeading({ detail }: { detail: WorldInspectorStepDetail }) {
     <header className="cg-inspector-detail-heading">
       <span className="cg-inspector-detail__status" data-status="committed"><Check aria-hidden="true" /> 已提交</span>
       <h3>Revision {detail.summary.revision}</h3>
-      <p><strong>玩家意图</strong><span>{detail.summary.playerGoal}</span></p>
+      <p><strong>联合行动</strong><span>{detail.summary.primaryAction}</span></p>
       <small>
         Step {detail.summary.step} · 世界推进 {detail.summary.elapsedSeconds} 秒 · {detail.summary.tokenUsage.unknown
           ? "部分 token 未记录"
@@ -220,20 +220,18 @@ function ActorOverview({ actorId, actorName, detail }: {
             ))}</ul>
           : <p className="cg-inspector-inline-empty">没有新增观察。</p>}
       </DetailSection>
-      {actorId !== "player" && (
-        <DetailSection
-          count={`${beliefChanges + characterChanges} 项`}
-          description="观察经过 AgentMind 后写入的信念与角色状态"
-          icon={BrainCircuit}
-          title="个体演化"
-        >
-          <p className="cg-inspector-section__summary">
-            {beliefChanges + characterChanges > 0
-              ? `${beliefChanges} 项信念变化 · ${characterChanges} 项角色变化`
-              : "本轮认知与角色状态没有变化。"}
-          </p>
-        </DetailSection>
-      )}
+      <DetailSection
+        count={`${beliefChanges + characterChanges} 项`}
+        description="自主策略会通过 AgentMind 写入信念与角色状态；外部策略主体保持不变"
+        icon={BrainCircuit}
+        title="个体演化"
+      >
+        <p className="cg-inspector-section__summary">
+          {beliefChanges + characterChanges > 0
+            ? `${beliefChanges} 项信念变化 · ${characterChanges} 项角色变化`
+            : "本轮认知与角色状态没有变化。"}
+        </p>
+      </DetailSection>
       {nextAction && <ActionCard action={nextAction} label="下一轮计划" planned />}
     </div>
   );
@@ -260,19 +258,6 @@ function StepChanges({ actorId, detail }: { actorId: string; detail: WorldInspec
             : <p className="cg-inspector-inline-empty">本轮没有改变世界状态。</p>}
         </DetailSection>
         <JsonBlock label="对比提交前后的完整世界快照" value={{ before: detail.before.truth, after: detail.after.truth }} />
-      </div>
-    );
-  }
-  if (actorId === "player") {
-    return (
-      <div className="cg-inspector-detail-stack">
-        <DetailSection
-          description="玩家知识与客观世界保持隔离"
-          icon={Eye}
-          title="玩家认知变化"
-        >
-          <JsonBlock label="对比提交前后的玩家认知" value={{ before: detail.before.player, after: detail.after.player }} />
-        </DetailSection>
       </div>
     );
   }
@@ -363,7 +348,7 @@ function Causality({ detail }: { detail: WorldInspectorStepDetail }) {
   );
 }
 
-function ModelAudit({ detail, sessionId }: { detail: WorldInspectorStepDetail; sessionId: string }) {
+function ModelAudit({ detail, instanceId }: { detail: WorldInspectorStepDetail; instanceId: string }) {
   const events = detail.runtimeEvents.filter((event) => event.event.startsWith("model."));
   const invocationCount = detail.committed.modelAudits.reduce((total, audit) => total + audit.invocations.length, 0);
   return (
@@ -387,7 +372,7 @@ function ModelAudit({ detail, sessionId }: { detail: WorldInspectorStepDetail; s
         );
       })}
       {detail.committed.modelAudits.length === 0 && <p className="cg-inspector-inline-empty">本轮没有保留模型调用审计。</p>}
-      {events.length > 0 && <RuntimeEventList events={events} label="模型运行事件" sessionId={sessionId} />}
+      {events.length > 0 && <RuntimeEventList events={events} label="模型运行事件" instanceId={instanceId} />}
     </div>
   );
 }
@@ -399,9 +384,9 @@ function formatDuration(durationMs: number | undefined): string {
   return `${Math.floor(durationMs / 60_000)} 分 ${Math.round(durationMs % 60_000 / 1_000)} 秒`;
 }
 
-function RuntimeEventRows({ events, sessionId }: {
+function RuntimeEventRows({ events, instanceId }: {
   events: WorldInspectorRuntimeEventSummary[];
-  sessionId: string;
+  instanceId: string;
 }) {
   return (
     <div className="cg-runtime-events">
@@ -414,7 +399,7 @@ function RuntimeEventRows({ events, sessionId }: {
           </summary>
           <div className="cg-runtime-event__body">
             <JsonInspector label="事件信封" value={event} />
-            <RuntimeEventPayload event={event} sessionId={sessionId} />
+            <RuntimeEventPayload event={event} instanceId={instanceId} />
           </div>
         </details>
       ))}
@@ -422,10 +407,10 @@ function RuntimeEventRows({ events, sessionId }: {
   );
 }
 
-function RuntimeEventList({ events, label, sessionId }: {
+function RuntimeEventList({ events, label, instanceId }: {
   events: WorldInspectorRuntimeEventSummary[];
   label: string;
-  sessionId: string;
+  instanceId: string;
 }) {
   const [filter, setFilter] = useState<"all" | "errors" | "model">("all");
   const filtered = events.filter((event) => filter === "all" || (filter === "errors"
@@ -443,15 +428,15 @@ function RuntimeEventList({ events, label, sessionId }: {
         <button aria-pressed={filter === "model"} onClick={() => setFilter("model")} type="button">模型</button>
       </div>
       {filtered.length > 0
-        ? <RuntimeEventRows events={filtered} sessionId={sessionId} />
+        ? <RuntimeEventRows events={filtered} instanceId={instanceId} />
         : <p className="cg-inspector-inline-empty">当前筛选下没有运行事件。</p>}
     </section>
   );
 }
 
-function AttemptModelAudit({ detail, sessionId }: {
+function AttemptModelAudit({ detail, instanceId }: {
   detail: WorldInspectorAttemptDetail;
-  sessionId: string;
+  instanceId: string;
 }) {
   const groups = new Map<string, WorldInspectorRuntimeEventSummary[]>();
   for (const event of detail.events.filter((candidate) => candidate.event.startsWith("model."))) {
@@ -498,7 +483,7 @@ function AttemptModelAudit({ detail, sessionId }: {
             {rejected?.error?.message && <p className="cg-model-invocation__error">{rejected.error.message}</p>}
             <details className="cg-model-invocation__events">
               <summary>查看 {events.length} 条调用事件</summary>
-              <RuntimeEventRows events={events} sessionId={sessionId} />
+              <RuntimeEventRows events={events} instanceId={instanceId} />
             </details>
           </section>
         );
@@ -621,19 +606,19 @@ function AttemptCausality({ detail }: { detail: WorldInspectorAttemptDetail }) {
   );
 }
 
-function DetailBody({ actorId, actorName, detail, sessionId, tab }: {
+function DetailBody({ actorId, actorName, detail, instanceId, tab }: {
   actorId: string;
   actorName: string;
   detail: Detail;
-  sessionId: string;
+  instanceId: string;
   tab: DetailTab;
 }) {
   if (detail.kind === "attempt") {
     if (tab === "overview") return <AttemptOverview actorId={actorId} actorName={actorName} detail={detail.value} />;
     if (tab === "changes") return <AttemptChanges detail={detail.value} />;
     if (tab === "causality") return <AttemptCausality detail={detail.value} />;
-    if (tab === "model") return <AttemptModelAudit detail={detail.value} sessionId={sessionId} />;
-    return <RuntimeEventList events={detail.value.events} label="完整尝试轨迹" sessionId={sessionId} />;
+    if (tab === "model") return <AttemptModelAudit detail={detail.value} instanceId={instanceId} />;
+    return <RuntimeEventList events={detail.value.events} label="完整尝试轨迹" instanceId={instanceId} />;
   }
 
   const step = detail.value;
@@ -644,12 +629,12 @@ function DetailBody({ actorId, actorName, detail, sessionId, tab }: {
   }
   if (tab === "changes") return <StepChanges actorId={actorId} detail={step} />;
   if (tab === "causality") return <Causality detail={step} />;
-  if (tab === "model") return <ModelAudit detail={step} sessionId={sessionId} />;
+  if (tab === "model") return <ModelAudit detail={step} instanceId={instanceId} />;
   return (
     <div className="cg-inspector-detail-stack">
       <p className="cg-inspector-technical-note">以下是未经归纳的完整技术记录，用于精确核对字段与运行事件。</p>
       <JsonBlock label="完整提交对象（CommittedStep）" value={step.committed} />
-      <RuntimeEventList events={step.runtimeEvents} label="完整运行事件" sessionId={sessionId} />
+      <RuntimeEventList events={step.runtimeEvents} label="完整运行事件" instanceId={instanceId} />
     </div>
   );
 }
@@ -660,14 +645,14 @@ export function WorldInspectorDetail({
   detail,
   error,
   loading,
-  sessionId,
+  instanceId,
 }: {
   actorId: string;
   actorName: string;
   detail?: Detail;
   error?: string;
   loading: boolean;
-  sessionId: string;
+  instanceId: string;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const moveTabFocus = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -712,11 +697,12 @@ export function WorldInspectorDetail({
         className="cg-inspector-detail__body"
         id="world-inspector-detail-panel"
         role="tabpanel"
+        tabIndex={0}
       >
         {loading && <p className="cg-inspector-detail__loading"><LoaderCircle aria-hidden="true" /> 正在读取审计记录…</p>}
         {!loading && error && <p className="cg-inspector-detail__error" role="alert">{error} 请重新选择记录或刷新调试器。</p>}
         {!loading && !error && detail && (
-          <DetailBody actorId={actorId} actorName={actorName} detail={detail} sessionId={sessionId} tab={tab} />
+          <DetailBody actorId={actorId} actorName={actorName} detail={detail} instanceId={instanceId} tab={tab} />
         )}
         {!loading && !error && !detail && (
           <div className="cg-inspector-empty">

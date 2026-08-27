@@ -6,32 +6,32 @@ import type {
 } from "../../shared/world-inspector-api";
 import { requestJson } from "./api-client";
 
-function base(sessionId: string): string {
-  return `/api/sessions/${encodeURIComponent(sessionId)}/inspector`;
+function base(instanceId: string): string {
+  return `/api/instances/${encodeURIComponent(instanceId)}/inspector`;
 }
 
 export const worldInspectorApi = {
-  window(sessionId: string, input: { beforeRevision?: number; limit?: number } = {}) {
+  window(instanceId: string, input: { beforeRevision?: number; limit?: number } = {}) {
     const search = new URLSearchParams();
     if (input.beforeRevision !== undefined) search.set("beforeRevision", String(input.beforeRevision));
     if (input.limit !== undefined) search.set("limit", String(input.limit));
     const query = search.size > 0 ? `?${search}` : "";
-    return requestJson<WorldInspectorWindow>(`${base(sessionId)}${query}`);
+    return requestJson<WorldInspectorWindow>(`${base(instanceId)}${query}`);
   },
-  step(sessionId: string, revision: number) {
-    return requestJson<WorldInspectorStepDetail>(`${base(sessionId)}/steps/${revision}`);
+  step(instanceId: string, revision: number) {
+    return requestJson<WorldInspectorStepDetail>(`${base(instanceId)}/steps/${revision}`);
   },
-  attempt(sessionId: string, attemptId: string) {
+  attempt(instanceId: string, attemptId: string) {
     return requestJson<WorldInspectorAttemptDetail>(
-      `${base(sessionId)}/attempts/${encodeURIComponent(attemptId)}`,
+      `${base(instanceId)}/attempts/${encodeURIComponent(attemptId)}`,
     );
   },
-  runtimeEvent(sessionId: string, eventId: string) {
+  runtimeEvent(instanceId: string, eventId: string) {
     return requestJson<WorldInspectorRuntimeEventDetail>(
-      `${base(sessionId)}/runtime-events/${encodeURIComponent(eventId)}`,
+      `${base(instanceId)}/runtime-events/${encodeURIComponent(eventId)}`,
     );
   },
-  eventsUrl(sessionId: string) {
-    return `${base(sessionId)}/events`;
+  eventsUrl(instanceId: string) {
+    return `${base(instanceId)}/events`;
   },
 };

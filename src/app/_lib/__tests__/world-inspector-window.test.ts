@@ -9,9 +9,9 @@ function inspectorWindow(
   const oldestRevision = revisions[0];
   const newestRevision = revisions.at(-1);
   return {
-    apiVersion: 2,
-    session: {
-      id: "session-1",
+    apiVersion: 3,
+    instance: {
+      id: "instance-1",
       title: "存档",
       worldId: "world-1",
       worldName: "世界",
@@ -27,7 +27,7 @@ function inspectorWindow(
       step: revision,
       contentHash: `hash-${revision}`,
       elapsedSeconds: revision,
-      playerGoal: `goal-${revision}`,
+      primaryAction: `action-${revision}`,
       actorIds: [],
       counts: {
         actions: 0,
@@ -59,7 +59,7 @@ function inspectorWindow(
       kind: "temporal",
     })),
     attempts: [],
-    trace: { mode: "off", degraded: false, retainedEventCount: 0, hasFullPayload: false },
+    trace: { mode: "full", degraded: false, retainedEventCount: 0, hasFullPayload: true },
     pagination: {
       limit: 24,
       hasOlder: input.hasOlder,

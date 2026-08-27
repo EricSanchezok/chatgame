@@ -4,7 +4,7 @@ export function mergeWorldInspectorWindows(
   current: WorldInspectorWindow | undefined,
   incoming: WorldInspectorWindow,
 ): WorldInspectorWindow {
-  if (!current || current.session.worldHash !== incoming.session.worldHash) return incoming;
+  if (!current || current.instance.worldHash !== incoming.instance.worldHash) return incoming;
   const byRevision = new Map(current.steps.map((step) => [step.revision, step]));
   for (const step of incoming.steps) byRevision.set(step.revision, step);
   const byNode = new Map(current.nodes

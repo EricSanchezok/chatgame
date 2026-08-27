@@ -15,8 +15,8 @@ export interface BeginExecutionInput {
   id: string;
   kind: ExecutionKind;
   parentExecutionId?: string;
-  sessionId?: string;
-  runId?: string;
+  instanceId?: string;
+  advanceId?: string;
   step?: number;
   manifest: AlgorithmManifest;
   worldHash: string;
@@ -65,9 +65,9 @@ export interface ExecutionLedger {
   beginExecution(input: BeginExecutionInput): ExecutionTraceWriter;
   finishExecution(executionId: string, input: FinishExecutionInput): ExecutionRef;
   execution(executionId: string): ExecutionRecord | undefined;
-  executions(input?: { kind?: ExecutionKind; parentExecutionId?: string; sessionId?: string }): ExecutionRecord[];
+  executions(input?: { kind?: ExecutionKind; parentExecutionId?: string; instanceId?: string }): ExecutionRecord[];
   executionEvents(executionId: string): RuntimeEvent[];
-  sessionEvents(sessionId: string): RuntimeEvent[];
+  instanceEvents(instanceId: string): RuntimeEvent[];
   artifact(hash: string): ExecutionArtifactRecord | undefined;
   appendExecutionEvent(executionId: string, input: RuntimeEventInput): RuntimeEvent;
   appendExecutionEvents(executionId: string, inputs: readonly RuntimeEventInput[]): RuntimeEvent[];

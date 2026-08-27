@@ -24,5 +24,5 @@
 
 - [决策 0041](../decisions/0041-local-sqlite-runtime.md) 明确默认宿主必须在获取数据库租约前完成模型配置校验。
 - [`world-host.ts`](../../src/server/world-host.ts) 先构造模型网关，再打开唯一的有状态资源 `LocalDatabase`。
-- [`world-host.test.ts`](../../src/server/__tests__/world-host.test.ts) 连续触发无效模型配置并验证没有创建数据库文件或遗留租约。
+- [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts)通过真实 WorldHost 和 SQLite 入口覆盖实例生命周期与资源释放。
 - 开发态浏览器复核使用显式测试密钥，运行时观测用于区分首因与后续症状。

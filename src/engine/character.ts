@@ -24,6 +24,22 @@ const numericLimits = {
 
 const terminalGoalStatuses = new Set<AgentGoal["status"]>(["completed", "failed", "abandoned"]);
 
+export interface CharacterPatchValidationIssue {
+  code: "character_source_observation_unavailable" | "character_source_event_basis_missing";
+  path: Array<string | number>;
+  message: string;
+}
+
+export class CharacterPatchValidationError extends Error {
+  readonly issues: CharacterPatchValidationIssue[];
+
+  constructor(issues: readonly CharacterPatchValidationIssue[]) {
+    super(issues.map((issue) => issue.message).join("; "));
+    this.name = "CharacterPatchValidationError";
+    this.issues = issues.map((issue) => ({ ...issue, path: [...issue.path] }));
+  }
+}
+
 function assertUnitInterval(value: number, label: string): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error(`${label} must be between 0 and 1`);
 }
@@ -60,6 +76,46 @@ function operationImpact(
   }
   if (!currentEventFound) throw new Error(`${operation.kind} has no current-step event basis`);
   return result;
+}
+
+function characterSourceIssues(
+  patch: CharacterPatch,
+  step: number,
+  observations: readonly ObservationPacket[],
+  events: readonly WorldEvent[],
+): CharacterPatchValidationIssue[] {
+  const observationMap = new Map(observations.map((packet) => [packet.id, packet]));
+  const currentEventIds = new Set(events.filter((event) => event.step === step).map((event) => event.id));
+  const issues: CharacterPatchValidationIssue[] = [];
+
+  patch.operations.forEach((operation, operationIndex) => {
+    let everyObservationAvailable = true;
+    let hasCurrentEventBasis = false;
+    operation.sourceObservationIds.forEach((observationId, observationIndex) => {
+      const packet = observationMap.get(observationId);
+      if (!packet || packet.observerId !== patch.agentId || packet.step !== step) {
+        everyObservationAvailable = false;
+        issues.push({
+          code: "character_source_observation_unavailable",
+          path: ["characterPatch", "operations", operationIndex, "sourceObservationIds", observationIndex],
+          message: `${operation.kind} references unavailable observation ${observationId}; ` +
+            "sourceObservationIds 只能引用该 Agent 在本步骤收到的 Observation。",
+        });
+        return;
+      }
+      if (packet.sourceEventIds.some((eventId) => currentEventIds.has(eventId))) hasCurrentEventBasis = true;
+    });
+    if (everyObservationAvailable && !hasCurrentEventBasis) {
+      issues.push({
+        code: "character_source_event_basis_missing",
+        path: ["characterPatch", "operations", operationIndex, "sourceObservationIds"],
+        message: `${operation.kind} has no current-step event basis; ` +
+          "请选择 characterUpdatePolicy.sources 中 eligible=true 的 Observation，若不存在则删除该 CharacterPatch operation。",
+      });
+    }
+  });
+
+  return issues;
 }
 
 function assertDelta(previous: number, next: number, limit: number, label: string): void {
@@ -215,6 +271,8 @@ export function applyCharacterPatch(
   events: readonly WorldEvent[],
 ): AgentCharacterState {
   if (!isSafeId(patch.agentId)) throw new Error("character patch uses a reserved agent id");
+  const sourceIssues = characterSourceIssues(patch, step, observations, events);
+  if (sourceIssues.length > 0) throw new CharacterPatchValidationError(sourceIssues);
   const next = structuredClone(source);
   for (const operation of patch.operations) {
     const recordId = "id" in operation

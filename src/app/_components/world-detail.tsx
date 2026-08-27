@@ -1,112 +1,65 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type ChangeEvent } from "react";
-import { ArrowLeft, ArrowRight, RefreshCw, Trash2 } from "lucide-react";
-import type { PublicSessionDetail, PublicSessionSummary, WorldSummary } from "../../shared/world-api";
-import { SaveList } from "./save-list";
+import { ArrowRight, Pause, Radio, Trash2 } from "lucide-react";
+import { useState } from "react";
+import type { PublicInstanceSummary, WorldSummary } from "../../shared/world-api";
 
 export function WorldDetail({
   busy,
-  onCreateSession,
-  onDeleteSession,
+  instances,
+  onCreateInstance,
+  onDeleteInstance,
   onDeleteWorld,
-  onRenameSession,
-  onUpdateWorld,
-  sessions,
   world,
 }: {
   busy?: string;
-  onCreateSession: (world: WorldSummary) => Promise<PublicSessionDetail>;
-  onDeleteSession: (session: PublicSessionSummary) => Promise<void>;
+  instances: PublicInstanceSummary[];
+  onCreateInstance: (world: WorldSummary) => Promise<void>;
+  onDeleteInstance: (instance: PublicInstanceSummary) => Promise<void>;
   onDeleteWorld: (world: WorldSummary) => Promise<void>;
-  onRenameSession: (session: PublicSessionSummary, title: string) => Promise<void>;
-  onUpdateWorld: (world: WorldSummary, file: File) => Promise<void>;
-  sessions: PublicSessionSummary[];
   world: WorldSummary;
 }) {
-  const updateInput = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  function selectUpdate(event: ChangeEvent<HTMLInputElement>): void {
-    const file = event.target.files?.[0];
-    if (file) void onUpdateWorld(world, file).catch(() => undefined).finally(() => { event.target.value = ""; });
-  }
-
   return (
     <section className="cg-world-detail" aria-labelledby="world-detail-title">
-      <Link className="cg-world-detail__mobile-back cg-back-link" href="/worlds"><ArrowLeft aria-hidden="true" />全部世界</Link>
       <header className="cg-world-detail__intro">
-        <p className="cg-eyebrow">本地世界</p>
+        <p className="cg-eyebrow">{world.participation === "open" ? "可参与的活世界" : "无人演化世界"}</p>
         <h1 id="world-detail-title">{world.name}</h1>
         <p>{world.description}</p>
       </header>
-
-      <section className="cg-world-saves" aria-labelledby="world-saves-title">
+      <section className="cg-world-saves" aria-labelledby="world-instances-title">
         <div className="cg-world-saves__heading">
-          <div>
-            <p className="cg-eyebrow">本地旅程</p>
-            <h2 id="world-saves-title">存档</h2>
-            <span className="cg-world-saves__count">{sessions.length} 份</span>
-          </div>
-          <button
-            className="cg-new-game"
-            disabled={busy === `session-create:${world.id}`}
-            onClick={() => void onCreateSession(world).catch(() => undefined)}
-            type="button"
-          >
-            <span><small>从世界起点开始</small><strong>{busy === `session-create:${world.id}` ? "正在创建…" : "开始新游戏"}</strong></span>
+          <div><p className="cg-eyebrow">持续运行</p><h2 id="world-instances-title">世界实例</h2></div>
+          <button className="cg-new-game" disabled={busy === `instance-create:${world.id}`}
+            onClick={() => void onCreateInstance(world)} type="button">
+            <span><small>从世界起点初始化</small><strong>{busy ? "请稍候…" : "创建实例"}</strong></span>
             <ArrowRight aria-hidden="true" />
           </button>
         </div>
-        {sessions.length === 0 ? (
-          <div className="cg-workspace-empty">
-            <h3>这个世界还没有存档</h3>
-            <p>开始新游戏后，世界会在每一步自动保存。</p>
-          </div>
-        ) : (
-          <SaveList
-            busy={busy}
-            onDelete={onDeleteSession}
-            onRename={onRenameSession}
-            sessions={sessions}
-          />
+        {instances.length === 0 ? <div className="cg-workspace-empty"><h3>还没有实例</h3><p>实例可以无人运行，也可以稍后进入。</p></div> : (
+          <ul className="cg-instance-list">
+            {instances.map((instance) => (
+              <li key={instance.id}>
+                <Link href={`/play/${encodeURIComponent(instance.id)}`}>
+                  <span><strong>{instance.title}</strong><small>Revision {instance.revision} · Step {instance.step}</small></span>
+                  <span className="cg-instance-state">{instance.schedulerMode === "realtime" ? <Radio aria-hidden="true" /> : <Pause aria-hidden="true" />}{instance.schedulerMode === "realtime" ? "实时" : "已暂停"}</span>
+                </Link>
+                <button aria-label={`删除实例“${instance.title}”`} disabled={busy === `instance-delete:${instance.id}`}
+                  onClick={() => void onDeleteInstance(instance)} type="button"><Trash2 aria-hidden="true" /></button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
-
       <section className="cg-world-package" aria-labelledby="world-package-title">
-        <div className="cg-world-package__header">
-          <div>
-            <p className="cg-eyebrow">世界包管理</p>
-            <h2 id="world-package-title">版本与内容</h2>
-          </div>
-          <div className="cg-world-detail__tools">
-            <button className="cg-button--quiet" disabled={busy?.startsWith("world-import:")} onClick={() => updateInput.current?.click()} type="button">
-              <RefreshCw aria-hidden="true" />更新世界包
-            </button>
-            <input ref={updateInput} accept=".zip,application/zip" hidden onChange={selectUpdate} type="file" />
-            <button
-              className="cg-button--quiet cg-button--danger"
-              disabled={sessions.length > 0 || busy === `world-delete:${world.id}`}
-              onClick={() => setConfirmDelete(true)}
-              type="button"
-            >
-              <Trash2 aria-hidden="true" />卸载世界包
-            </button>
-          </div>
-        </div>
-        <dl className="cg-world-facts">
-          <div><dt>版本</dt><dd>{world.version}</dd></div>
-          <div><dt>内容标识</dt><dd title={world.contentHash}>{world.contentHash}</dd></div>
-        </dl>
-        {sessions.length > 0 ? <p className="cg-world-detail__constraint">删除这个世界的全部存档后才能卸载世界包。</p> : null}
-        {confirmDelete ? (
-          <div className="cg-inline-confirm" role="group" aria-label={`确认卸载世界包“${world.name}”`}>
-            <p>卸载“{world.name}”？之后需要重新导入才能开始新游戏。</p>
-            <button onClick={() => void onDeleteWorld(world).catch(() => undefined)} type="button">卸载世界包</button>
-            <button className="cg-button--quiet" onClick={() => setConfirmDelete(false)} type="button">取消</button>
-          </div>
-        ) : null}
+        <div className="cg-world-package__header"><div><p className="cg-eyebrow">世界包</p><h2 id="world-package-title">版本与内容</h2></div>
+          <button className="cg-button--quiet cg-button--danger" disabled={instances.length > 0}
+            onClick={() => setConfirmDelete(true)} type="button"><Trash2 aria-hidden="true" />卸载</button></div>
+        <dl className="cg-world-facts"><div><dt>版本</dt><dd>{world.version}</dd></div><div><dt>内容标识</dt><dd>{world.contentHash}</dd></div></dl>
+        {confirmDelete ? <div className="cg-inline-confirm" role="group" aria-label="确认卸载世界包"><p>卸载“{world.name}”？</p>
+          <button onClick={() => void onDeleteWorld(world)} type="button">确认卸载</button>
+          <button className="cg-button--quiet" onClick={() => setConfirmDelete(false)} type="button">取消</button></div> : null}
       </section>
     </section>
   );

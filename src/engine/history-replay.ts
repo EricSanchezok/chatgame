@@ -8,7 +8,6 @@ export function createHistoryReplayBase(state: SimulationState): HistoryReplayBa
     agents: Object.fromEntries(Object.values(state.agents)
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((agent) => [agent.id, structuredClone(agent)])),
-    player: structuredClone(state.player),
   };
 }
 

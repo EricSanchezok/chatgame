@@ -4,7 +4,7 @@
 
 ## 目录
 
-- [`world/`](world/)：可直接校验、打包和导入的 schema v6 世界目录。
+- [`world/`](world/)：可直接校验、打包和导入的 schema v8 世界目录。
 - [`docs/design-brief.md`](docs/design-brief.md)：玩家位置、创作边界、核心矛盾与动态世界原则。
 - [`docs/source-ledger.md`](docs/source-ledger.md)：原始版本、校验和、逐章提取范围和排除项。
 - [`docs/world-bible.md`](docs/world-bible.md)：统一历史、Viz、文明格局和超自然底层。
@@ -22,7 +22,7 @@
 npm run world:validate -- worlds/blackmarsh/world
 ```
 
-应用不会自动安装仓库中的参考世界。通过校验后，把 `world/` 内的五个顶层条目打包为 ZIP，再从世界库导入。
+应用不会自动安装仓库中的参考世界。通过校验后，把 `world/` 内容打包为单一世界根目录 ZIP，再从世界库导入。
 
 ## 内容原则
 

@@ -10,3 +10,35 @@ quantities:
   - { definition_id: spirit-stone, amount: 3 }
 ratings:
   - { id: "resolve:player", definition_id: resolve, value: 2 }
+agent:
+  id: player
+  model_profiles:
+    bootstrap: agent-deepseek
+    mind: agent-deepseek
+    reaction: agent-deepseek
+  character:
+    persona: { summary: 一个刚来到石门前的旅人。, voice: 谨慎, evidence_ids: [] }
+    traits: []
+    values: []
+    emotions: []
+    attitudes: []
+    goals: []
+    commitments: []
+  belief:
+    local_entities:
+      - { id: self, name: 我, description: 刚来到石门前的旅人。, status: observed }
+      - { id: copper-key, name: 铜钥匙, description: 商人声称能打开石门的钥匙。, status: reported }
+    evidence:
+      - { id: merchant-testimony, kind: testimony, description: 昨日商人声称这是真钥匙。, sourceId: merchant, step: 0 }
+    claims:
+      - id: key-is-authentic
+        subjectId: copper-key
+        predicate: authenticity
+        value: { kind: text, value: real }
+        description: 商人说它是真的。
+        stance: suspected
+        confidence: 0.6
+        evidenceIds: [merchant-testimony]
+    bindings:
+      - { local_entity_id: self, canonical_entity_ids: [player] }
+      - { local_entity_id: copper-key, canonical_entity_ids: [key] }

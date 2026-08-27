@@ -1,7 +1,7 @@
 # 认知分叉的多智能体 Truth Engine
 
 ## Status
-Accepted
+Superseded by [0061](0061-unified-agent-and-external-policy.md)
 Class: architecture
 
 ## Context and Problem Statement
@@ -31,7 +31,7 @@ Class: architecture
 
 自主实体拥有 `AgentMind`，普通物体只有 `Entity`。每个已提交世界步骤包含所有存活 Agent 基于同一 base revision 产生的自由 `AgentActionProposal`；联合输入按稳定身份规范排序，不能从调用方数组顺序获得隐含先手。玩家原文与 Agent draft 共同交给 Truth Engine；不存在预配置 action kind、目录 `actionId` 或未知动作降级，proposal 的运行时 id 由 [0048](0048-engine-owned-runtime-identities.md) 定义的引擎身份层确定性分配，只用于因果审计。
 
-Truth Engine 负责联合语义裁决并提出检定、客观事件、状态 delta 和逐观察者 observation。`ActionOutcome` 的 summary 与 known alternatives 是服务端内部裁决审计，不是公共叙事接口；玩家 UI 的 outcome 文本只能汇总玩家自己的 `kind=outcome` Observation，AgentMind 的本步与历史 outcome 只获得 status，所有可见结果文本只来自该 Agent 自己的 Observation。非 LLM 事务内核只检查 schema、引用、数值、provenance、随机承诺和原子性。Truth Engine 与 AgentMind 的非法输出最多修复两次；失败步骤不提交。
+Truth Engine 负责联合语义裁决并提出检定、客观事件、状态 delta 和逐观察者 observation。`ActionOutcome` 的 summary 与 known alternatives 是服务端内部裁决审计，不是公共叙事接口；玩家 UI 的 outcome 文本只能汇总玩家自己的 `kind=outcome` Observation，AgentMind 的本步与历史 outcome 只获得 status，所有可见结果文本只来自该 Agent 自己的 Observation。非 LLM 事务内核只检查 schema、引用、数值、provenance、随机承诺和原子性。Truth transition 上下文声明每个观察者已有的局部身份命名空间；局部 ID 与 canonical ID 冲突时，内核在一次 repair 中返回全部冲突的稳定 code 与精确路径。CharacterPatch 只能引用该 Agent 本步骤收到且关联本步骤事件的 Observation；AgentMind 上下文显式列出可用依据与影响级别，内核一次返回全部违规 operation 的稳定 code 与精确路径。Truth Engine 与 AgentMind 的非法输出最多修复两次；失败步骤不提交。
 
 每个已提交 transition 必须为玩家和提交后每个存活 Agent 至少提供一条非空 summary 的 `kind=outcome` Observation。每个 AgentMind 在一次调用中解释自己刚收到的 Observation、提交 BeliefPatch，并产生下一步骤行动。新创建的自主实体在创建步骤内完成心智初始化，随后参与全体联合行动。人类玩家的状态只记录可知信息，不由模型推断真人心理。
 

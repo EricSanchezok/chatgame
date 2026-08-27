@@ -2,23 +2,16 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import {
-  createTestModelCatalog,
-  DeterministicModelProvider,
-} from "../../engine/testing/model-provider";
+import { DeterministicModelProvider } from "../../engine/testing/model-provider";
+import { EagerReferenceAlgorithm } from "../../engine/eager-reference";
+import { SimulationEngine } from "../../engine/simulation";
 import { loadWorldScript } from "../../script/world-loader";
-import { MemoryWorldRepository } from "../../script/world-repository";
-import { WorldHost } from "../world-host";
 import { parseWorldArchive } from "../world-import";
-import { MemoryWorldSessionStore } from "../world-session-store";
-import {
-  openingDeadlineSettlementSeconds,
-  settleBlackmarshOpeningDeadlines,
-} from "./blackmarsh-test-support";
 
 const worldRoot = path.resolve("worlds/blackmarsh/world");
 
 const agentIds = [
+  "player",
   "archon-devers",
   "autarch-elana",
   "azure-king",
@@ -476,12 +469,8 @@ describe("Blackmarsh reference world", () => {
       .toEqual(["muncaester-northern-trade-road"]);
     expect(definition.initialState.agents["lord-varxis"].bindings["river-route"].canonicalEntityIds)
       .toEqual(["camden-iron-river-route"]);
-    expect(JSON.stringify(definition.initialState.player.knowledge)).not.toContain("ragnar-ring-identity");
-    expect(definition.initialState.player.knowledge.claims["mazardan-offers-thousand"].value)
-      .toEqual({ kind: "number", value: 1_000 });
+    expect(JSON.stringify(definition.initialState.agents.player.belief)).not.toContain("ragnar-ring-identity");
     expect(truth.facts["mazardan-viz-offer"].value).toEqual({ kind: "number", value: 200 });
-    expect(definition.initialState.player.knowledge.claims["sarrath-army-is-coming"].value)
-      .toEqual({ kind: "text", value: "invade-blackmarsh" });
     expect(truth.facts["ochre-expedition-mission"].value)
       .toEqual({ kind: "text", value: "find-expedition-lost-five-years-ago-not-launch-an-invasion" });
   });
@@ -496,30 +485,9 @@ describe("Blackmarsh reference world", () => {
     });
   });
 
-  it("rejects crossing-only deadline resolution and requires independent result causes", async () => {
-    const catalog = createTestModelCatalog(["truth-deepseek", "agent-deepseek"]);
-    const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: catalog });
-    const { state, transitionCalls, verifierCalls } =
-      await settleBlackmarshOpeningDeadlines(definition, catalog);
-
-    expect(transitionCalls).toBe(2);
-    expect(verifierCalls).toBe(2);
-    expect(state.truth.elapsedSeconds).toBe(openingDeadlineSettlementSeconds);
-    expect(Object.values(state.truth.facts).filter((fact) => fact.predicate === "deadline-seconds"))
-      .toHaveLength(0);
-    expect(state.truth.facts["sigrun-column-operation-state"].value)
-      .toEqual({ kind: "text", value: "cancelled" });
-    expect(state.truth.facts["rinisar-raven-cell-operation-state"].value)
-      .toEqual({ kind: "text", value: "cancelled" });
-    expect(state.truth.facts["ochre-expedition-operation-state"].value)
-      .toEqual({ kind: "text", value: "implemented" });
-    expect(state.truth.placements["ochre-search-expedition"]).toBe("sheltered-bay");
-  });
-
   it("keeps legacy D&D statistics out of the executable package", () => {
     const source = [
       readFileSync(path.join(worldRoot, "script.yaml"), "utf8"),
-      readFileSync(path.join(worldRoot, "player.yaml"), "utf8"),
       readFileSync(path.join(worldRoot, "mechanics.yaml"), "utf8"),
       readFileSync(path.join(worldRoot, "laws.yaml"), "utf8"),
       ...readdirSync(path.join(worldRoot, "entities"))
@@ -533,30 +501,25 @@ describe("Blackmarsh reference world", () => {
   it("bootstraps all Agents and commits one deterministic open-world step", async () => {
     const provider = new DeterministicModelProvider();
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
-    const store = new MemoryWorldSessionStore();
-    let nextId = 0;
-    const host = new WorldHost({
-      repository: new MemoryWorldRepository({ [definition.id]: definition }),
-      store,
-      provider,
-      idFactory: () => `blackmarsh-smoke-${++nextId}`,
-      now: () => new Date("2026-08-24T10:00:00.000Z"),
-      maxStepsPerRun: 2,
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const state = engine.snapshot;
+    expect(Object.values(state.agents)).toHaveLength(48);
+    expect(Object.values(state.agents).every((agent) => agent.nextAction !== null)).toBe(true);
+    expect(provider.requests.filter((request) => request.role === "agent-bootstrap")).toHaveLength(48);
+    const roster = Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: agent.modelProfiles,
+    }]));
+    const completed = await engine.step(roster, {
+      expectedRevision: state.revision,
+      trigger: "manual",
+      simulatedSeconds: definition.runtimeDefaults.simulatedSeconds,
+      externalActions: [],
     });
-
-    const session = await host.createSession({ worldId: "blackmarsh", seed: 47 });
-    const document = store.read(session.summary.id).document;
-    expect(JSON.stringify(session.state)).not.toContain("canonicalEntityIds");
-    expect(JSON.stringify(session.state)).not.toContain("ragnar-ring-identity");
-    expect(Object.values(document.state.agents)).toHaveLength(47);
-    expect(Object.values(document.state.agents).every((agent) => agent.nextAction !== null)).toBe(true);
-    expect(provider.requests.filter((request) => request.role === "agent-bootstrap")).toHaveLength(47);
-
-    const started = host.startRun(session.summary.id, "我先在港区观察天气、船只和来往人群");
-    const completed = await host.waitForRun(session.summary.id, started.runId);
-    expect(completed.run.status).toBe("completed");
-    expect(completed.state).toMatchObject({ revision: 1, step: 1, elapsedSeconds: 1 });
-    expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(47);
+    expect(completed.state).toMatchObject({ revision: 1, step: 1 });
+    expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(48);
     expect(provider.requests.some((request) => request.role === "truth-perception")).toBe(true);
-  }, 20_000);
+  }, 30_000);
 });

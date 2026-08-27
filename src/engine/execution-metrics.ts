@@ -154,6 +154,7 @@ registerNumericFields("counts", ["algorithm.activation.completed"], [
   ["lwe.agent.skipped", "skippedAgents", "1"],
   ["lwe.agent.reused", "reusedAgents", "1"],
   ["lwe.agent.noop", "noopAgents", "1"],
+  ["lwe.agent.external", "externalAgents", "1"],
 ]);
 
 registerNumericFields("counts", ["algorithm.candidate.completed"], [
@@ -168,6 +169,7 @@ registerNumericFields("counts", ["algorithm.candidate.completed"], [
   ["lwe.output.events", "events", "1"],
   ["lwe.output.observations", "observations", "1"],
   ["lwe.output.mind_commits", "mindCommits", "1"],
+  ["lwe.agent.mind_fallbacks", "mindFallbacks", "1"],
   ["lwe.dependency.nodes", "dependencyNodes", "1"],
   ["lwe.dependency.edges", "dependencyEdges", "1"],
   ["lwe.dependency.components", "dependencyComponents", "1"],
@@ -177,11 +179,32 @@ registerNumericFields("counts", ["algorithm.candidate.completed"], [
   ["lwe.dependency.audience_cardinality", "audienceCardinality", "1"],
 ]);
 
+registerNumericFields("counts", ["algorithm.grounding.global_fallback"], [
+  ["lwe.normalization.grounding_fields", "normalizedGroundingFields", "1"],
+]);
+
+registerNumericFields("counts", ["algorithm.observation.references_normalized"], [
+  ["lwe.normalization.observation_event_references", "droppedObservationEventReferences", "1"],
+  ["lwe.normalization.observation_claims", "droppedObservationClaims", "1"],
+  ["lwe.normalization.observation_introductions", "droppedObservationIntroductions", "1"],
+  ["lwe.normalization.observation_bindings", "clearedObservationCanonicalBindings", "1"],
+]);
+
+registerNumericFields("counts", ["algorithm.observation.batch_split", "algorithm.observation.repair_fallback"], [
+  ["lwe.observation.batch_splits", "observationBatchSplits", "1"],
+  ["lwe.observation.fallbacks", "observationFallbacks", "1"],
+]);
+
+registerNumericFields("counts", ["algorithm.outcome.alternative_evidence_normalized"], [
+  ["lwe.normalization.outcome_alternative_evidence", "droppedOutcomeAlternativeEvidenceReferences", "1"],
+  ["lwe.normalization.outcome_alternatives", "droppedOutcomeAlternatives", "1"],
+]);
+
 registerNumericFields("counts", ["model.invocation.provider_completed", "model.invocation.failed"], [
   ["lwe.model.transport_attempts", "transportAttempts", "1"],
 ]);
 
-registerNumericFields("counts", ["step.rolled_back", "session.bootstrap.rolled_back"], [
+registerNumericFields("counts", ["step.rolled_back", "instance.bootstrap.rolled_back"], [
   ["lwe.waste.discarded_calls", "discardedModelCalls", "1"],
   ["lwe.waste.rollbacks", "rollbacks", "1"],
 ]);
@@ -216,7 +239,7 @@ registerNumericFields("measurements", undefined, [
   ["lwe.ledger.sqlite_write", "ledgerSqliteWriteMs", "ms"],
 ]);
 
-registerNumericFields("measurements", ["step.rolled_back", "session.bootstrap.rolled_back"], [
+registerNumericFields("measurements", ["step.rolled_back", "instance.bootstrap.rolled_back"], [
   ["lwe.waste.discarded_input_tokens", "discardedInputTokens", "token"],
   ["lwe.waste.discarded_output_tokens", "discardedOutputTokens", "token"],
   ["lwe.waste.discarded_reasoning_tokens", "discardedReasoningTokens", "token"],

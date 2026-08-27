@@ -6,10 +6,9 @@ export type RuntimeEventLevel = "debug" | "info" | "warn" | "error";
 export interface RuntimeCorrelation {
   executionId?: string;
   requestId?: string;
-  sessionId?: string;
-  runId?: string;
-  runAttempt?: number;
-  stepAttemptId?: string;
+  instanceId?: string;
+  advanceId?: string;
+  advanceAttempt?: number;
   revision?: number;
   step?: number;
   modelInvocationId?: string;
@@ -25,6 +24,7 @@ export interface RuntimeError {
   stack?: string;
   status?: number;
   cause?: RuntimeError;
+  errors?: RuntimeError[];
 }
 
 export type RuntimeAttribute = string | number | boolean | null;
@@ -91,6 +91,9 @@ export function serializeRuntimeError(error: unknown, depth = 0): RuntimeError {
   if (status !== undefined) serialized.status = status;
   const cause = (error as Error & { cause?: unknown }).cause;
   if (cause !== undefined && depth < 3) serialized.cause = serializeRuntimeError(cause, depth + 1);
+  if (error instanceof AggregateError && depth < 3) {
+    serialized.errors = error.errors.slice(0, 32).map((member) => serializeRuntimeError(member, depth + 1));
+  }
   return serialized;
 }
 

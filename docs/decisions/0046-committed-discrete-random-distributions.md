@@ -86,6 +86,6 @@ schema v6 `mechanics.yaml` 可声明 `random_distributions`。每个分布包含
 - [0039](0039-pinned-world-runtime-contract.md) — 内容身份与固定世界运行时契约。
 - [0042](0042-causal-assurance-and-staged-model-profiles.md) — 分阶段 Truth、因果断言和独立复核。
 - [0045](0045-versioned-reference-world-projects.md) — 首个使用通用离散分布的参考世界。
-- [引擎运行时规格](../game-design/engine-runtime.md#离散随机协议) — 请求、断言、RNG 与历史重放契约。
+- [引擎运行时规格](../game-design/engine-runtime.md#truth-与随机承诺) — 请求、断言、RNG 与历史重放契约。
 - [世界剧本格式](../game-design/script-format.md#mechanicsyaml) — random distributions 的严格 YAML 格式。
 - [世界导入](../game-design/script-import.md) — 分布在严格导入和规范世界契约中的保存方式。

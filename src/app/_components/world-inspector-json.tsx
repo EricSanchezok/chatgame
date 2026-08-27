@@ -223,10 +223,10 @@ export function JsonInspector({ label, value }: { label: string; value: unknown 
 
 export function RuntimeEventPayload({
   event,
-  sessionId,
+  instanceId,
 }: {
   event: WorldInspectorRuntimeEventSummary;
-  sessionId: string;
+  instanceId: string;
 }) {
   const [payload, setPayload] = useState<unknown>();
   const [loading, setLoading] = useState(false);
@@ -239,7 +239,7 @@ export function RuntimeEventPayload({
     requestAttempted.current = true;
     setLoading(true);
     setError("");
-    void worldInspectorApi.runtimeEvent(sessionId, event.id).then((detail) => {
+    void worldInspectorApi.runtimeEvent(instanceId, event.id).then((detail) => {
       setPayload(detail.event.payload);
     }).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : "无法读取 payload。");

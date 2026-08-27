@@ -24,5 +24,5 @@ WorldHost 用进程内 Map 串行运行，但世界和会话分别落在文件�
 
 - [决策 0041](../decisions/0041-local-sqlite-runtime.md) 把部署契约限定为纯本地单实例 SQLite。
 - [`local-database.ts`](../../src/server/local-database.ts) 启用事务、WAL/FULL、generation CAS 和写前租约核验。
-- [`world-session-store.test.ts`](../../src/server/__tests__/world-session-store.test.ts) 覆盖跨连接恢复、旧 generation 冲突、损坏文档拒绝和活跃租约下第二实例拒绝。
-- [`world-host.test.ts`](../../src/server/__tests__/world-host.test.ts) 证明在途取消改变 generation 后，候选步骤不会提交。
+- [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts)覆盖 generation CAS、ActionWindow 并发和过期 scheduler callback 不提交。
+- [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts)覆盖 SQLite 原子 terminal record 与实例提交。

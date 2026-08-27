@@ -185,7 +185,6 @@ export interface CanonicalWorldState {
 export interface HistoryReplayBase {
   truth: CanonicalWorldState;
   agents: Record<AgentId, AgentState>;
-  player: PlayerState;
 }
 
 export interface LocalEntity {
@@ -202,6 +201,8 @@ export interface BeliefEvidence {
   sourceId: string | null;
   step: number;
 }
+
+export type BeliefEvidenceDraft = Omit<BeliefEvidence, "step">;
 
 export interface BeliefClaim {
   id: string;
@@ -293,21 +294,34 @@ export interface AgentCharacterState {
   commitments: Record<string, AgentCommitment>;
 }
 
+export type CharacterFacetDraft = Omit<CharacterFacet, "createdAtStep" | "updatedAtStep">;
+export type EmotionStateDraft = Omit<EmotionState, "createdAtStep" | "updatedAtStep">;
+export type AttitudeStateDraft = Omit<AttitudeState, "createdAtStep" | "updatedAtStep">;
+export type AgentGoalDraft = Omit<AgentGoal, "createdAtStep" | "updatedAtStep">;
+export type AgentCommitmentDraft = Omit<AgentCommitment, "createdAtStep" | "updatedAtStep">;
+
+export interface AgentCharacterStateDraft {
+  persona: Omit<AgentCharacterState["persona"], "updatedAtStep">;
+  traits: Record<string, CharacterFacetDraft>;
+  values: Record<string, CharacterFacetDraft>;
+  emotions: Record<string, EmotionStateDraft>;
+  attitudes: Record<string, AttitudeStateDraft>;
+  goals: Record<string, AgentGoalDraft>;
+  commitments: Record<string, AgentCommitmentDraft>;
+}
+
+export interface AgentBeliefStateDraft extends Omit<AgentBeliefState, "evidence"> {
+  evidence: Record<string, BeliefEvidenceDraft>;
+}
+
 export interface EpistemicBinding {
   localEntityId: LocalEntityId;
   canonicalEntityIds: EntityId[];
 }
 
-export interface PlayerKnowledgeState {
-  localEntities: Record<LocalEntityId, LocalEntity>;
-  claims: Record<string, Omit<BeliefClaim, "stance" | "confidence">>;
-  evidence: Record<string, BeliefEvidence>;
-  observationIds: string[];
-}
-
 export interface AgentActionProposal {
   id: string;
-  actorId: AgentId | "player";
+  actorId: AgentId;
   baseRevision: number;
   rawText: string;
   goal: string;
@@ -332,6 +346,14 @@ export interface AgentState {
   belief: AgentBeliefState;
   bindings: Record<LocalEntityId, EpistemicBinding>;
   nextAction: AgentActionProposal | null;
+}
+
+export interface AgentStateDraft {
+  id: AgentId;
+  entityId: EntityId;
+  character: AgentCharacterStateDraft;
+  belief: AgentBeliefStateDraft;
+  bindings: Record<LocalEntityId, EpistemicBinding>;
 }
 
 export interface AgentSelfStateView {
@@ -367,29 +389,6 @@ export interface AgentSelfStateView {
   }>;
 }
 
-export interface PlayerIntentInput {
-  id: string;
-  text: string;
-  kind: "goal" | "clarification";
-  submittedAtStep: number;
-}
-
-export interface PlayerIntent {
-  id: string;
-  goal: string;
-  inputs: PlayerIntentInput[];
-  latestInput: PlayerIntentInput;
-  status: "active" | "completed" | "failed" | "cancelled";
-  startedAtStep: number;
-}
-
-export interface PlayerState {
-  entityId: EntityId;
-  knowledge: PlayerKnowledgeState;
-  bindings: Record<LocalEntityId, EpistemicBinding>;
-  intent?: PlayerIntent;
-}
-
 export interface AgentMindCommit {
   agentId: AgentId;
   beliefPatch: BeliefPatch;
@@ -412,8 +411,24 @@ export interface WorldEvent {
   assertions: CausalAssertion[];
 }
 
+export interface AgentAdmissionCommit {
+  contentHash: string;
+  semanticHash: string;
+  executionRef?: import("./execution").ExecutionRef;
+  baseRevision: number;
+  revision: number;
+  step: number;
+  entity: WorldEntity;
+  placementId: EntityId | null;
+  agent: AgentState;
+  quantities: QuantityState[];
+  invalidatedActionIds: string[];
+}
+
+export type WorldEventDraft = Omit<WorldEvent, "step">;
+
 export interface SimulationState {
-  schemaVersion: 8;
+  schemaVersion: 9;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -421,7 +436,7 @@ export interface SimulationState {
   step: number;
   truth: CanonicalWorldState;
   agents: Record<AgentId, AgentState>;
-  player: PlayerState;
+  admissions: AgentAdmissionCommit[];
   history: CommittedStep[];
   historyBase?: HistoryReplayBase;
   bootstrapAgentCommits: AgentMindCommit[];
@@ -444,6 +459,8 @@ export interface D20CheckRequest {
   phase: "perception" | "resolution";
   causes: CausalRef[];
 }
+
+export type D20CheckRequestDraft = Omit<D20CheckRequest, "phase">;
 
 export type ModifierSource =
   | { kind: "rating"; id: string; amount: number }
@@ -523,6 +540,8 @@ export interface ApparentClaim {
   description: string;
 }
 
+export type ApparentClaimDraft = Omit<ApparentClaim, "id">;
+
 export interface ObservationIntroduction {
   localEntity: LocalEntity;
   canonicalEntityId: EntityId | null;
@@ -530,13 +549,26 @@ export interface ObservationIntroduction {
 
 export interface ObservationPacket {
   id: string;
-  observerId: AgentId | "player";
+  observerId: AgentId;
   step: number;
   kind: "stimulus" | "outcome";
   summary: string;
   introductions: ObservationIntroduction[];
   apparentClaims: ApparentClaim[];
   sourceEventIds: EventId[];
+}
+
+export interface ObservationPacketDraft extends Omit<
+  ObservationPacket,
+  "step" | "kind" | "apparentClaims"
+> {
+  apparentClaims: ApparentClaimDraft[];
+}
+
+export interface ReactionStimulusDraft {
+  summary: string;
+  introductions: ObservationIntroduction[];
+  apparentClaims: ApparentClaimDraft[];
 }
 
 export type BeliefPatchOperation =
@@ -556,6 +588,10 @@ export type BeliefPatchOperation =
         valueId: LocalEntityId | null;
       }>;
     };
+
+export type BeliefPatchDraftOperation =
+  | Exclude<BeliefPatchOperation, { kind: "upsert_evidence" }>
+  | { kind: "upsert_evidence"; evidence: BeliefEvidenceDraft };
 
 export interface BeliefPatch {
   agentId: AgentId;
@@ -691,6 +727,44 @@ export type WorldDeltaOperation = CausalSource & (
   | { kind: "remove_agent"; agentId: AgentId }
 );
 
+export type WorldEntityDraft = Omit<WorldEntity, "lifecycle" | "createdAtStep">;
+export type WorldFactDraft = Omit<WorldFact, "provenance">;
+export type MeterStateDraft = Omit<MeterState, "firedThresholdIds">;
+
+export type WorldDeltaOperationDraft = CausalSource & (
+  | { kind: "create_entity"; entity: WorldEntityDraft; placementId: EntityId | null }
+  | { kind: "retire_entity"; entityId: EntityId }
+  | { kind: "place_entity"; entityId: EntityId; placementId: EntityId | null }
+  | { kind: "set_fact"; fact: WorldFactDraft }
+  | { kind: "remove_fact"; factId: FactId }
+  | { kind: "set_meter"; meter: MeterStateDraft }
+  | { kind: "adjust_meter"; meterId: string; amount: number }
+  | {
+      kind: "transfer_quantity";
+      definitionId: string;
+      fromHolderId: EntityId;
+      toHolderId: EntityId;
+      amount: number;
+    }
+  | {
+      kind: "produce_quantity";
+      definitionId: string;
+      holderId: EntityId;
+      amount: number;
+      lawId: string;
+    }
+  | {
+      kind: "consume_quantity";
+      definitionId: string;
+      holderId: EntityId;
+      amount: number;
+      lawId: string;
+    }
+  | { kind: "set_rating"; rating: RatingState }
+  | { kind: "create_agent"; agent: AgentStateDraft }
+  | { kind: "remove_agent"; agentId: AgentId }
+);
+
 export interface MechanicInvocation extends CausalSource {
   id: string;
   packageId: string;
@@ -747,12 +821,28 @@ export interface TransitionProposal {
   operations: WorldDeltaOperation[];
   events: WorldEvent[];
   observations: ObservationPacket[];
-  intentStatus: PlayerIntent["status"];
-  requiresPlayerDecision: boolean;
+  decisionRequests: DecisionRequest[];
 }
 
-export interface TransitionProposalDraft extends Omit<TransitionProposal, "outcomes"> {
+export interface TransitionProposalDraft {
   outcomes: ActionOutcomeDraft[];
+  mechanicInvocations: MechanicInvocation[];
+  operations: WorldDeltaOperationDraft[];
+  events: WorldEventDraft[];
+  decisionRequests: DecisionRequest[];
+}
+
+export interface ObservationRenderDraft {
+  summary: string;
+  introductions: ObservationIntroduction[];
+  apparentClaims: ApparentClaimDraft[];
+  sourceEventIds: EventId[];
+}
+
+export interface DecisionRequest {
+  agentId: AgentId;
+  prompt: string;
+  suggestions: string[];
 }
 
 export interface ModelTokenUsage {
@@ -850,9 +940,7 @@ export interface CommittedStep {
   events: WorldEvent[];
   observations: ObservationPacket[];
   operations: WorldDeltaOperation[];
-  playerIntent: PlayerIntent;
-  intentStatus: TransitionProposal["intentStatus"];
-  requiresPlayerDecision: boolean;
+  decisionRequests: DecisionRequest[];
   beliefPatches: BeliefPatch[];
   characterPatches: CharacterPatch[];
   nextActions: AgentActionProposal[];

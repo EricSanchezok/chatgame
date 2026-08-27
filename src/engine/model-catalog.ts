@@ -11,10 +11,13 @@ export const modelRoles = [
   "truth-reaction-routing",
   "truth-resolution",
   "truth-transition",
+  "action-grounding",
+  "observation-renderer",
   "causal-verifier",
   "agent-bootstrap",
   "agent-mind",
   "agent-reaction",
+  "arrival-generator",
 ] as const;
 
 export type ModelRole = typeof modelRoles[number];
@@ -85,6 +88,7 @@ const profileSchema = z.object({
   allowed_roles: z.array(z.enum(modelRoles)).min(1),
   request_timeout_ms: z.number().int().min(1_000).max(3_600_000),
   max_output_tokens: positiveIntegerSchema,
+  max_input_bytes: positiveIntegerSchema.default(262_144),
   inference: modelInferenceSchema,
 }).strict();
 

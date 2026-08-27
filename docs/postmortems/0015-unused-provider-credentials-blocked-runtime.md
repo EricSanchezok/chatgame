@@ -25,6 +25,6 @@
 
 - [决策 0047](../decisions/0047-on-demand-model-provider-credentials.md) 定义目录能力、实际 Profile 与凭据激活边界。
 - [`model-provider.test.ts`](../../src/engine/__tests__/model-provider.test.ts) 证明仅有 DeepSeek 密钥时可调用 DeepSeek，缺密钥 Profile 在 fetch 与排队前失败，并且不会暴露给动态 Agent。
-- [`world-host.test.ts`](../../src/server/__tests__/world-host.test.ts) 证明世界引用的全部 Profile 在 Agent bootstrap、首次持久化和中断恢复写入之前完成预检。
-- [`multi-agent-simulation.test.ts`](../../src/engine/__tests__/multi-agent-simulation.test.ts) 证明动态 Agent 引用不可用 Profile 时不提交状态且不进入 transition repair，并证明 AgentMind 不重试配置错误。
-- 本地可体验性检查同时探测根页面、`/api/worlds` 与 `/api/sessions`，不能再以静态页面 200 代替运行时健康。
+- [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts)通过真实 WorldHost 入口覆盖世界 Profile 与实例创建。
+- [`model-provider.test.ts`](../../src/engine/__tests__/model-provider.test.ts)证明只要求实际选择的供应商凭据，并隐藏不可用 Profile。
+- 本地可体验性检查同时探测根页面、`/api/worlds` 与 `/api/instances`，不能以静态页面 200 代替运行时健康。

@@ -3,14 +3,19 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveExecutionWork, EXECUTION_METRICS, type MetricPoint } from "../src/engine/execution-metrics";
-import type { BootstrapCandidate, WorldStepCandidate } from "../src/engine/execution";
+import { EagerReferenceAlgorithm } from "../src/engine/eager-reference";
+import type {
+  BootstrapCandidate,
+  PolicyBinding,
+  WorldAdvanceRequest,
+  WorldStepCandidate,
+} from "../src/engine/execution";
 import { ModelCatalog, type ModelCatalogDocument, type ModelRole } from "../src/engine/model-catalog";
 import type { ModelExecutionAudit, ModelInvocationAudit, SimulationState } from "../src/engine/model";
 import { contentHash } from "../src/engine/model-audit";
 import type { RuntimeEvent } from "../src/engine/observability";
 import { ModelOutputError, type StructuredModelProvider, type StructuredModelRequest, type StructuredModelResult } from
   "../src/engine/model-provider";
-import { MonolithicCurrentAlgorithm } from "../src/engine/monolithic-current";
 import { SimulationEngine } from "../src/engine/simulation";
 import type { WorldDefinition } from "../src/engine/world-definition";
 import { LocalDatabase } from "../src/server/local-database";
@@ -89,6 +94,7 @@ function recordedCatalog(audits: readonly ModelExecutionAudit[]): ModelCatalog {
       allowed_roles: [...roles],
       request_timeout_ms: 1_000,
       max_output_tokens: 1,
+      max_input_bytes: 128 * 1024 * 1024,
       inference: structuredClone(audit.inference),
     };
   }
@@ -175,16 +181,20 @@ export async function replayThroughAlgorithm(
   stateHash: string;
   revision: number;
 }> {
-  if (original.manifest.id !== "monolithic-current" || original.manifest.version !== "1") {
+  if (original.manifest.id !== "eager-reference" || original.manifest.version !== "1") {
     throw new Error(`recorded replay does not support algorithm ${original.manifest.id}@${original.manifest.version}`);
   }
   const definitionEvent = event(events, "execution.world_definition.persisted");
   const definition = definitionEvent.payload as WorldDefinition;
-  const stepSources = events.filter((candidate) => candidate.event === "step.started")
-    .map((candidate) => (candidate.payload as { state: SimulationState }).state);
+  const stepInputs = events.filter((candidate) => candidate.event === "step.started")
+    .map((candidate) => candidate.payload as {
+      state: SimulationState;
+      policyRoster: Record<string, PolicyBinding>;
+      request: WorldAdvanceRequest;
+    });
   const candidateEvents = events.filter((candidate) => candidate.event === "execution.candidate.persisted");
   const candidates = candidateEvents
-    .filter((candidate) => candidate.attributes?.phase === (stepSources.length > 0 ? "step" : "bootstrap"))
+    .filter((candidate) => candidate.attributes?.phase === (stepInputs.length > 0 ? "step" : "bootstrap"))
     .map((candidate) => candidate.payload as BootstrapCandidate | WorldStepCandidate);
   const provider = new RecordedModelProvider(events, candidates);
   const code = runtimeCodeIdentity();
@@ -193,8 +203,8 @@ export async function replayThroughAlgorithm(
     id: replayExecutionId,
     kind: "replay",
     parentExecutionId: original.id,
-    sessionId: original.sessionId,
-    runId: original.runId,
+    instanceId: original.instanceId,
+    advanceId: original.advanceId,
     step: original.step,
     manifest: original.manifest,
     worldHash: original.worldHash,
@@ -207,21 +217,27 @@ export async function replayThroughAlgorithm(
   try {
     const semanticHashes: string[] = [];
     let finalState: SimulationState | undefined;
-    if (stepSources.length > 0) {
-      for (const [index, source] of stepSources.entries()) {
-        const engine = new SimulationEngine(definition, new MonolithicCurrentAlgorithm(provider), source);
-        const result = await engine.step({
+    if (stepInputs.length > 0) {
+      for (const [index, input] of stepInputs.entries()) {
+        const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider), input.state);
+        const result = await engine.step(input.policyRoster, input.request, {
           workloadId: `replay:${original.id}`,
           batchId: `replay:${original.id}:${index + 1}`,
-          correlation: { executionId: replayExecutionId, revision: source.revision, step: source.step + 1 },
+          correlation: {
+            executionId: replayExecutionId,
+            instanceId: original.instanceId,
+            advanceId: original.advanceId,
+            revision: input.state.revision,
+            step: input.state.step + 1,
+          },
           observer: trace,
         });
         semanticHashes.push(result.committed.semanticHash);
         finalState = result.state;
       }
     } else {
-      const source = (event(events, "session.bootstrap.started").payload as { state: SimulationState }).state;
-      const engine = new SimulationEngine(definition, new MonolithicCurrentAlgorithm(provider), source);
+      const source = (event(events, "instance.bootstrap.started").payload as { state: SimulationState }).state;
+      const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider), source);
       finalState = await engine.bootstrapAgents({
         workloadId: `replay:${original.id}`,
         batchId: `replay:${original.id}:bootstrap`,

@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { deriveExecutionWork, MetricDefinitionRegistry, EXECUTION_METRICS } from "../../engine/execution-metrics";
 import { contentHash } from "../../engine/model-audit";
@@ -22,6 +23,26 @@ const manifestBody = {
 const manifest = { ...manifestBody, hash: contentHash(manifestBody) };
 
 describe("Execution Ledger", () => {
+  it("rejects an older database without migrating or deleting it", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "lwe-old-database-"));
+    const file = path.join(root, "livingworld.sqlite");
+    const legacy = new Database(file);
+    legacy.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      ) STRICT;
+      INSERT INTO schema_migrations(version, applied_at) VALUES (5, '2026-08-27T00:00:00.000Z');
+    `);
+    legacy.close();
+
+    expect(() => new LocalDatabase(file, { heartbeat: false }))
+      .toThrow("use a new LIVINGWORLD_DATA_ROOT");
+    const preserved = new Database(file, { readonly: true });
+    expect(preserved.prepare("SELECT version FROM schema_migrations").pluck().get()).toBe(5);
+    preserved.close();
+  });
+
   it("buffers bounded trace writes until an explicit durability boundary", () => {
     const ledger = database();
     try {
@@ -59,7 +80,7 @@ describe("Execution Ledger", () => {
       const trace = ledger.beginExecution({
         id: "execution-1",
         kind: "diagnostic",
-        sessionId: "session-1",
+        instanceId: "instance-1",
         step: 1,
         manifest,
         worldHash: contentHash("world"),
@@ -93,7 +114,7 @@ describe("Execution Ledger", () => {
       expect(reference.traceHash).toMatch(/^[a-f0-9]{64}$/);
       expect(ledger.execution("execution-1")).toMatchObject({
         status: "succeeded",
-        sessionId: "session-1",
+        instanceId: "instance-1",
         commitRevision: 1,
       });
       expect(ledger.executionEvents("execution-1").map((event) => event.payload)).toEqual([
@@ -128,7 +149,11 @@ describe("Execution Ledger", () => {
       ledger.finishExecution("failed-execution", { status: "failed", error: new Error("invalid") });
       expect(ledger.execution("failed-execution")).toMatchObject({ status: "failed" });
       expect(ledger.execution("failed-execution")?.commitRevision).toBeUndefined();
-      expect(ledger.executionEvents("failed-execution")).toHaveLength(1);
+      expect(ledger.executionEvents("failed-execution")).toHaveLength(2);
+      expect(ledger.executionEvents("failed-execution").at(-1)).toMatchObject({
+        event: "execution.failed",
+        error: { name: "Error", message: "invalid" },
+      });
     } finally {
       ledger.close();
     }
@@ -154,9 +179,13 @@ describe("Execution Ledger", () => {
     const recovered = new LocalDatabase(file, { heartbeat: false });
     try {
       expect(recovered.execution("interrupted-execution")).toMatchObject({ status: "failed" });
-      expect(recovered.executionEvents("interrupted-execution").at(-1)).toMatchObject({
+      expect(recovered.executionEvents("interrupted-execution")).toContainEqual(expect.objectContaining({
         event: "execution.recovered_as_failed",
         attributes: { reason: "process_interrupted" },
+      }));
+      expect(recovered.executionEvents("interrupted-execution").at(-1)).toMatchObject({
+        event: "execution.failed",
+        error: { name: "ExecutionInterruptedError" },
       });
     } finally {
       recovered.close();
@@ -186,10 +215,15 @@ describe("Execution Ledger", () => {
       trace.emit({
         event: "algorithm.candidate.completed",
         attributes: { phase: "step" },
-        counts: { updatedAgents: 1000 },
+        counts: { updatedAgents: 1000, mindFallbacks: 2 },
       });
       trace.emit({
-        event: "session.bootstrap.committed",
+        event: "algorithm.outcome.alternative_evidence_normalized",
+        attributes: { phase: "transition" },
+        counts: { droppedOutcomeAlternativeEvidenceReferences: 3, droppedOutcomeAlternatives: 1 },
+      });
+      trace.emit({
+        event: "instance.bootstrap.committed",
         counts: { activatedAgents: 1000, updatedAgents: 1000 },
       });
       const points = EXECUTION_METRICS.derive(ledger.executionEvents("metric-execution"));
@@ -199,9 +233,13 @@ describe("Execution Ledger", () => {
         .toEqual([expect.objectContaining({ value: 1000 })]);
       expect(points.filter((point) => point.name === "lwe.agent.updated"))
         .toEqual([expect.objectContaining({ value: 1000 })]);
+      expect(points.filter((point) => point.name === "lwe.agent.mind_fallbacks"))
+        .toEqual([expect.objectContaining({ value: 2 })]);
+      expect(points.filter((point) => point.name === "lwe.normalization.outcome_alternatives"))
+        .toEqual([expect.objectContaining({ value: 1 })]);
       expect(points.some((point) => "agentId" in point.dimensions)).toBe(false);
       expect(deriveExecutionWork(ledger.executionEvents("metric-execution"))).toMatchObject({
-        spanCount: 3,
+        spanCount: 4,
         maxSpanDepth: 2,
       });
       const registry = new MetricDefinitionRegistry();
@@ -230,7 +268,7 @@ describe("Execution Ledger", () => {
       expect(experiment.scenarios[0].ledgerEventCount).toBeGreaterThan(0);
       expect(experiment.scenarios[0].ledgerArtifactRawBytes).toBeGreaterThan(0);
       const original = ledger.executions({ kind: "benchmark" })
-        .find((execution) => execution.manifest.id === "monolithic-current");
+        .find((execution) => execution.manifest.id === "eager-reference");
       expect(original).toBeDefined();
       const replayed = await replayThroughAlgorithm(
         ledger,

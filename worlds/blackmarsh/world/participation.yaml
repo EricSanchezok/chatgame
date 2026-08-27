@@ -1,0 +1,22 @@
+claimable_agents:
+  - player
+origins:
+  - id: harbor-wayfarer
+    title: 风暴前的外来旅人
+    fantasy: 从一张陌生港口的通行纸开始，在黑沼边境亲手决定自己的身份。
+    description: 你刚从客船踏上黑沼堡港区。身上只有少量钱币、三日口粮和一个无人替你回答的动机。
+    entity_kind: person
+    spawn_entity_id: castle-blackmarsh-harbor
+    persona: 初来黑沼边境的外来旅人，谨慎、好奇，但愿意为自己的选择承担后果。
+    default_goal: 在黑沼边境找到立足点，并决定值得追随、保护或反抗的事物。
+    relationship_hooks:
+      - 港区的船工见过你下船，但尚不知道你来此的目的。
+      - 黑沼堡的行会、守卫和冒险者都可能成为第一条关系线。
+    risks:
+      - 风暴正在逼近，港区很快会变得混乱。
+      - 陌生人的身份既带来自由，也意味着没有势力会无条件保护你。
+    resources:
+      - { definition_id: coin, amount: 20 }
+      - { definition_id: provisions, amount: 3 }
+      - { definition_id: viz, amount: 0 }
+    fallback_arrival: 海风把雨意推过灰色水面。你站在黑沼堡港区潮湿的石阶上，身后的客船已经开始收缆；前方是行会旗帜、守卫火盆与通往城内的拱门。这里没有人为你安排下一步。

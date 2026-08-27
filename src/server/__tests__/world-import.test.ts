@@ -72,7 +72,7 @@ function oversizedDeclaredArchive(): Buffer {
 }
 
 describe("world import", () => {
-  it("atomically imports one validated schema v6 world", () => {
+  it("atomically imports one validated schema v8 world", () => {
     const root = temporaryRoot();
     const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     const result = database.importWorld(zipDirectory(fixture).toBuffer(), modelCatalog);
@@ -92,7 +92,7 @@ describe("world import", () => {
     database.close();
   });
 
-  it("uses one injected rule registry for import, catalog load, and session recovery", async () => {
+  it("uses one injected rule registry for import, catalog load, and instance recovery", async () => {
     const root = temporaryRoot();
     const archive = zipDirectory(fixture);
     const mechanics = readFileSync(path.join(fixture, "mechanics.yaml"), "utf8")
@@ -116,8 +116,8 @@ describe("world import", () => {
       .toMatchObject({ id: "test-rules", rules: [] });
 
     const host = new WorldHost({ repository: database, store: database, provider });
-    const session = await host.createSession({ worldId: "open-world-fixture" });
-    expect(host.session(session.summary.id).state.worldHash).toBe(session.state.worldHash);
+    const instance = await host.createInstance({ worldId: "open-world-fixture" });
+    expect(host.instance(instance.summary.id).world.contentHash).toBe(instance.world.contentHash);
     database.close();
   });
 
@@ -178,18 +178,18 @@ describe("world import", () => {
     database.close();
   });
 
-  it("uninstalls only worlds with no saved sessions", async () => {
+  it("uninstalls only worlds with no saved instances", async () => {
     const root = temporaryRoot();
     const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     const provider = new DeterministicModelProvider();
     const archive = zipDirectory(fixture).toBuffer();
     database.importWorld(archive, provider.catalog);
     const host = new WorldHost({ repository: database, store: database, catalogManager: database, provider });
-    const session = await host.createSession({ worldId: "open-world-fixture" });
+    const instance = await host.createInstance({ worldId: "open-world-fixture" });
 
-    expect(() => host.deleteWorld("open-world-fixture")).toThrow("still has saved sessions");
+    expect(() => host.deleteWorld("open-world-fixture")).toThrow("still has instances");
     expect(host.listWorlds()).toEqual([expect.objectContaining({ id: "open-world-fixture" })]);
-    host.deleteSession(session.summary.id);
+    host.deleteInstance(instance.summary.id);
     host.deleteWorld("open-world-fixture");
 
     expect(host.listWorlds()).toEqual([]);
@@ -197,7 +197,7 @@ describe("world import", () => {
     database.close();
   });
 
-  it("pins existing sessions to their embedded world contract after replacement and restart", async () => {
+  it("pins existing instances to their embedded world contract after replacement and restart", async () => {
     const root = temporaryRoot();
     const databaseFile = path.join(root, "livingworld.sqlite");
     let database = new LocalDatabase(databaseFile, { heartbeat: false });
@@ -214,7 +214,7 @@ describe("world import", () => {
     try {
       database.importWorld(zipDirectory(fixture).toBuffer(), provider.catalog);
       const firstHost = createHost();
-      const original = await firstHost.createSession({ worldId: "open-world-fixture", seed: 47 });
+      const original = await firstHost.createInstance({ worldId: "open-world-fixture", seed: 47 });
 
       const replacement = path.join(root, "replacement");
       cpSync(fixture, replacement, { recursive: true });
@@ -231,16 +231,15 @@ describe("world import", () => {
       database.close();
       database = new LocalDatabase(databaseFile, { heartbeat: false });
       const restartedHost = createHost();
-      const restored = restartedHost.session(original.summary.id);
-      const current = await restartedHost.createSession({ worldId: "open-world-fixture" });
+      const restored = restartedHost.instance(original.summary.id);
+      const current = await restartedHost.createInstance({ worldId: "open-world-fixture" });
 
-      expect(restored.state).toMatchObject({
-        id: original.summary.id,
-        worldVersion: "1.0.0",
-        worldHash: original.state.worldHash,
+      expect(restored).toMatchObject({
+        summary: { id: original.summary.id },
+        world: { version: "1.0.0", contentHash: original.world.contentHash },
       });
-      expect(current.state.worldVersion).toBe("2.0.0");
-      expect(current.state.worldHash).not.toBe(original.state.worldHash);
+      expect(current.world.version).toBe("2.0.0");
+      expect(current.world.contentHash).not.toBe(original.world.contentHash);
     } finally {
       database.close();
     }

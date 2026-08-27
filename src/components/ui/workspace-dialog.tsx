@@ -25,13 +25,7 @@ export function WorkspaceDialog({
     <Dialog.Root onOpenChange={onOpenChange} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="cg-workspace__overlay" />
-        <Dialog.Content
-          className="cg-workspace"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            document.querySelector<HTMLElement>("[data-cg-orb-trigger]")?.focus();
-          }}
-        >
+        <Dialog.Content className="cg-workspace">
           <header className="cg-workspace__header">
             <div className="cg-workspace__heading">
               <span className="cg-workspace__eyebrow">{eyebrow}</span>

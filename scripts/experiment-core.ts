@@ -1,33 +1,25 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { EagerReferenceAlgorithm, EAGER_REFERENCE_MANIFEST } from "../src/engine/eager-reference";
 import { historyReplayBaseHash } from "../src/engine/history-replay";
-import { contentHash } from "../src/engine/model-audit";
-import { semanticStepHash } from "../src/engine/canonical-committer";
 import type { ModelProviderAdapter } from "../src/engine/model-adapter";
 import type { ModelCatalog } from "../src/engine/model-catalog";
 import { ModelGateway } from "../src/engine/model-gateway";
-import { MonolithicCurrentAlgorithm } from "../src/engine/monolithic-current";
-import type {
-  AgentState,
-  ModelExecutionAudit,
-  ModelInvocationAudit,
-} from "../src/engine/model";
+import type { AgentState, ModelExecutionAudit, ModelInvocationAudit } from "../src/engine/model";
+import { contentHash } from "../src/engine/model-audit";
 import { summarizeModelExecutionAudit } from "../src/engine/model-provider";
-import { RecordingRuntimeObserver } from "../src/engine/observability";
-import type { RuntimeEvent, RuntimeEventInput, RuntimeObserver } from "../src/engine/observability";
-import { MONOLITHIC_CURRENT_MANIFEST } from "../src/engine/monolithic-current";
-import { SimulationEngine } from "../src/engine/simulation";
 import {
-  createTestModelCatalog,
-  deterministicModelOutput,
-} from "../src/engine/testing/model-provider";
-import { toWorldRuntimeContract, type WorldDefinition } from "../src/engine/world-definition";
+  RecordingRuntimeObserver,
+  type RuntimeEvent,
+  type RuntimeEventInput,
+  type RuntimeObserver,
+} from "../src/engine/observability";
+import { SimulationEngine } from "../src/engine/simulation";
+import { createTestModelCatalog, deterministicModelOutput } from "../src/engine/testing/model-provider";
+import type { WorldDefinition } from "../src/engine/world-definition";
 import { loadWorldScript } from "../src/script/world-loader";
-import { MemoryWorldSessionStore } from "../src/server/world-session-store";
-import { publicCommittedStepEvents, type WorldRunEvent, type WorldSessionDocument } from
-  "../src/server/world-run-types";
-import type { ExecutionLedger } from "../src/server/execution-ledger";
 import { runtimeCodeIdentity } from "../src/server/code-identity";
+import type { ExecutionLedger } from "../src/server/execution-ledger";
 
 export interface ExperimentOptions {
   agents: number[];
@@ -38,7 +30,7 @@ export interface ExperimentOptions {
 }
 
 export interface ExperimentRecord {
-  schemaVersion: 1;
+  schemaVersion: 2;
   sequence: number;
   event: string;
   [key: string]: unknown;
@@ -51,7 +43,7 @@ export interface ExperimentResult {
     steps: number;
     cumulativeInputBytes: number;
     modelInvocations: number;
-    sessionDocumentBytes: number;
+    instanceDocumentBytes: number;
     ledgerEventCount: number;
     ledgerArtifactRawBytes: number;
     ledgerArtifactStoredBytes: number;
@@ -65,33 +57,19 @@ const deterministicAdapter: ModelProviderAdapter = {
   async generate(profile, request, contextJson) {
     const context = JSON.parse(contextJson);
     let value: unknown;
-    if (request.role === "causal-verifier") {
-      value = { verdict: "accept", findings: [] };
-    } else if (request.role === "truth-perception" || request.role === "truth-resolution") {
-      value = { kind: "done" };
-    } else if (request.role === "truth-reaction-routing") {
-      value = { requests: [] };
-    } else if (request.role === "truth-transition") {
-      const generated = deterministicModelOutput(request.profileId, context) as {
-        kind: "transition";
-        proposal: unknown;
-      };
+    if (request.role === "causal-verifier") value = { verdict: "accept", findings: [] };
+    else if (request.role === "truth-perception" || request.role === "truth-resolution") value = { kind: "done" };
+    else if (request.role === "truth-reaction-routing") value = { requests: [] };
+    else if (request.role === "truth-transition") {
+      const generated = deterministicModelOutput(request.profileId, context) as { kind: "transition"; proposal: unknown };
       value = generated.proposal;
-    } else {
-      value = deterministicModelOutput(request.profileId, context);
-    }
+    } else value = deterministicModelOutput(request.profileId, context);
     return {
       value,
       responseId: request.modelInvocationId ?? "experiment-model-invocation",
       responseModelId: profile.model,
       finishReason: "stop",
-      tokenUsage: {
-        input: null,
-        output: null,
-        reasoning: null,
-        cacheRead: null,
-        cacheWrite: null,
-      },
+      tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
     };
   },
 };
@@ -126,8 +104,7 @@ function experimentCredentials(catalog: ModelCatalog): Record<string, string> {
 
 function positiveMatrix(values: readonly number[], label: string): number[] {
   const unique = [...new Set(values)];
-  if (unique.length === 0 || unique.some((value) =>
-    !Number.isSafeInteger(value) || value <= 0)) {
+  if (unique.length === 0 || unique.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
     throw new Error(`${label} must contain positive safe integers`);
   }
   return unique.sort((left, right) => left - right);
@@ -144,8 +121,7 @@ export function parseExperimentMatrix(
     if (!match) throw new Error(`unknown experiment argument: ${argument}`);
     const key = match[1] as "agents" | "steps";
     if (values[key] !== undefined) throw new Error(`duplicate experiment argument: --${key}`);
-    const inline = match[2];
-    const value = inline ?? argv[++index];
+    const value = match[2] ?? argv[++index];
     if (!value || value.startsWith("--")) throw new Error(`--${key} requires a comma-separated value`);
     values[key] = value;
   }
@@ -159,17 +135,27 @@ export function parseExperimentMatrix(
 
 function scaledDefinition(base: WorldDefinition, agentCount: number): WorldDefinition {
   const definition = structuredClone(base);
-  const template = definition.initialState.agents.keeper;
+  definition.participation = null;
+  const template = Object.values(definition.initialState.agents)[0];
+  if (!template) throw new Error("experiment fixture requires one Agent template");
   const templateEntity = definition.initialState.truth.entities[template.entityId];
   const templatePlacement = definition.initialState.truth.placements[template.entityId] ?? null;
-  if (!template || !templateEntity) throw new Error("experiment fixture requires the keeper Agent");
+  for (const agent of Object.values(definition.initialState.agents)) {
+    if (agent.id !== template.id) {
+      delete definition.initialState.agents[agent.id];
+    }
+  }
   for (let index = 1; index < agentCount; index += 1) {
-    const id = `experiment-agent-${String(index + 1).padStart(3, "0")}`;
+    const id = `experiment-agent-${String(index + 1).padStart(4, "0")}`;
     const agent: AgentState = structuredClone(template);
     agent.id = id;
     agent.entityId = id;
     agent.nextAction = null;
-    agent.bindings.self = { localEntityId: "self", canonicalEntityIds: [id] };
+    agent.bindings = Object.fromEntries(Object.entries(agent.bindings).map(([localId, binding]) => [localId, {
+      ...binding,
+      canonicalEntityIds: binding.canonicalEntityIds.map((entityId) =>
+        entityId === template.entityId ? id : entityId),
+    }]));
     definition.initialState.agents[id] = agent;
     definition.initialState.truth.entities[id] = {
       ...structuredClone(templateEntity),
@@ -183,110 +169,7 @@ function scaledDefinition(base: WorldDefinition, agentCount: number): WorldDefin
   return definition;
 }
 
-function percentile(values: readonly number[], ratio: number): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)];
-}
-
-function stageDurations(observer: RecordingRuntimeObserver): Record<string, {
-  samples: number;
-  p50Ms: number;
-  p95Ms: number;
-  maxMs: number;
-}> {
-  const groups = new Map<string, number[]>();
-  for (const event of observer.events) {
-    if (event.durationMs === undefined) continue;
-    const values = groups.get(event.event) ?? [];
-    values.push(event.durationMs);
-    groups.set(event.event, values);
-  }
-  return Object.fromEntries([...groups.entries()].sort(([left], [right]) => left.localeCompare(right))
-    .map(([event, values]) => [event, {
-      samples: values.length,
-      p50Ms: percentile(values, 0.5),
-      p95Ms: percentile(values, 0.95),
-      maxMs: Math.max(...values),
-    }]));
-}
-
-function roleContext(invocations: readonly ModelInvocationAudit[]): {
-  totalUtf8Bytes: number;
-  sections: Record<string, number>;
-  counts: ModelInvocationAudit["context"]["counts"];
-} {
-  const counts: ModelInvocationAudit["context"]["counts"] = {
-    history: 0,
-    events: 0,
-    agents: 0,
-    entities: 0,
-    facts: 0,
-    beliefs: 0,
-    evidence: 0,
-    observations: 0,
-  };
-  const sections: Record<string, number> = {};
-  for (const invocation of invocations) {
-    for (const [name, section] of Object.entries(invocation.context.sections)) {
-      sections[name] = (sections[name] ?? 0) + section.utf8Bytes;
-    }
-    for (const key of Object.keys(counts) as Array<keyof typeof counts>) {
-      counts[key] += invocation.context.counts[key];
-    }
-  }
-  return {
-    totalUtf8Bytes: invocations.reduce((sum, invocation) => sum + invocation.context.utf8Bytes, 0),
-    sections: Object.fromEntries(Object.entries(sections).sort(([left], [right]) => left.localeCompare(right))),
-    counts,
-  };
-}
-
-function sessionMeasurement(observer: RecordingRuntimeObserver): {
-  bytes: number;
-  writeMs: number;
-} {
-  const serialized = observer.events.filter((event) => event.event === "persistence.document.serialized").at(-1);
-  const write = observer.events.filter((event) => event.event === "persistence.write.completed").at(-1);
-  return {
-    bytes: serialized?.measurements?.documentUtf8Bytes ?? 0,
-    writeMs: write?.durationMs ?? 0,
-  };
-}
-
-function ledgerMeasurement(
-  ledger: ExecutionLedger | undefined,
-  executionId: string | undefined,
-): {
-  eventCount: number;
-  artifactRawBytes: number;
-  artifactStoredBytes: number;
-  sqliteWriteMs: number;
-} {
-  const events = ledger && executionId ? ledger.executionEvents(executionId) : [];
-  return {
-    eventCount: events.length,
-    artifactRawBytes: events.reduce(
-      (sum, event) => sum + (event.measurements?.ledgerArtifactRawBytes ?? 0),
-      0,
-    ),
-    artifactStoredBytes: events.reduce(
-      (sum, event) => sum + (event.measurements?.ledgerArtifactStoredBytes ?? 0),
-      0,
-    ),
-    sqliteWriteMs: Number(events.reduce(
-      (sum, event) => sum + (event.measurements?.ledgerSqliteWriteMs ?? 0),
-      0,
-    ).toFixed(3)),
-  };
-}
-
-function invocationSummary(audits: readonly ModelExecutionAudit[]): {
-  invocations: number;
-  repairs: number;
-  transportRetries: number;
-  inputBytes: number;
-} {
+function invocationSummary(audits: readonly ModelExecutionAudit[]) {
   const invocations = audits.flatMap((audit) => audit.invocations);
   return {
     invocations: invocations.length,
@@ -299,191 +182,120 @@ function invocationSummary(audits: readonly ModelExecutionAudit[]): {
   };
 }
 
-export async function runDeterministicExperiment(
-  options: ExperimentOptions,
-): Promise<ExperimentResult> {
-  const agents = positiveMatrix(options.agents, "agents");
-  const steps = positiveMatrix(options.steps, "steps");
+function roleContext(invocations: readonly ModelInvocationAudit[]) {
+  return {
+    totalUtf8Bytes: invocations.reduce((sum, invocation) => sum + invocation.context.utf8Bytes, 0),
+    counts: invocations.reduce((totals, invocation) => {
+      for (const key of Object.keys(totals) as Array<keyof typeof totals>) totals[key] += invocation.context.counts[key];
+      return totals;
+    }, { history: 0, events: 0, agents: 0, entities: 0, facts: 0, beliefs: 0, evidence: 0, observations: 0 }),
+  };
+}
+
+function ledgerMeasurement(ledger: ExecutionLedger | undefined, executionId: string | undefined) {
+  const events = ledger && executionId ? ledger.executionEvents(executionId) : [];
+  return {
+    eventCount: events.length,
+    artifactRawBytes: events.reduce((sum, event) => sum + (event.measurements?.ledgerArtifactRawBytes ?? 0), 0),
+    artifactStoredBytes: events.reduce((sum, event) => sum + (event.measurements?.ledgerArtifactStoredBytes ?? 0), 0),
+    sqliteWriteMs: Number(events.reduce(
+      (sum, event) => sum + (event.measurements?.ledgerSqliteWriteMs ?? 0),
+      0,
+    ).toFixed(3)),
+  };
+}
+
+export async function runDeterministicExperiment(options: ExperimentOptions): Promise<ExperimentResult> {
   const records: ExperimentRecord[] = [];
+  const scenarios: ExperimentResult["scenarios"] = [];
   let sequence = 0;
   const write = (record: Omit<ExperimentRecord, "schemaVersion" | "sequence">): void => {
-    const complete = { schemaVersion: 1 as const, sequence: ++sequence, ...record } as ExperimentRecord;
+    const complete = { schemaVersion: 2 as const, sequence: ++sequence, ...record } as ExperimentRecord;
     records.push(complete);
     options.write?.(complete);
   };
-  const catalog = createTestModelCatalog();
+  const catalog = createTestModelCatalog(undefined, { maxInputBytes: 4 * 1024 * 1024 });
   const fixture = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
     seed: 20260823,
     modelCatalog: catalog,
   });
-  const scenarios: ExperimentResult["scenarios"] = [];
 
-  for (const agentCount of agents) {
-    for (const stepCount of steps) {
-      const recording = new RecordingRuntimeObserver({ mode: options.ledger ? "full" : "metrics" });
+  for (const agentCount of positiveMatrix(options.agents, "agents")) {
+    for (const stepCount of positiveMatrix(options.steps, "steps")) {
       const definition = scaledDefinition(fixture, agentCount);
+      const instanceId = `experiment-${agentCount}-${stepCount}`;
       const trialId = options.ledger ? randomUUID() : undefined;
+      const recording = new RecordingRuntimeObserver({ mode: options.ledger ? "full" : "metrics" });
+      const code = runtimeCodeIdentity();
       const durable = trialId ? options.ledger!.beginExecution({
         id: trialId,
         kind: "benchmark",
         parentExecutionId: options.parentExecutionId,
-        sessionId: `experiment-${agentCount}-${stepCount}`,
+        instanceId,
         step: 0,
-        manifest: MONOLITHIC_CURRENT_MANIFEST,
+        manifest: EAGER_REFERENCE_MANIFEST,
         worldHash: definition.initialState.worldHash,
-        codeRevision: runtimeCodeIdentity().revision,
-        codeDirty: runtimeCodeIdentity().dirty,
+        codeRevision: code.revision,
+        codeDirty: code.dirty,
         modelCatalogHash: catalog.hash,
         seed: definition.initialState.truth.rng.seed,
-        runtimeConfig: { agents: agentCount, steps: stepCount, deterministic: true },
+        runtimeConfig: { agents: agentCount, steps: stepCount, deterministic: true, participants: 0 },
       }) : undefined;
-      const observer: RuntimeObserver = durable
-        ? new ExperimentObserver(durable, recording)
-        : recording;
+      const observer: RuntimeObserver = durable ? new ExperimentObserver(durable, recording) : recording;
       const provider = new ModelGateway(catalog, experimentCredentials(catalog), {
         observer,
         maxTransportAttempts: 1,
         adapters: new Map([["scripted-test", deterministicAdapter]]),
       });
-      const engine = new SimulationEngine(
-        definition,
-        new MonolithicCurrentAlgorithm(provider),
-      );
-      const sessionId = `experiment-${agentCount}-${stepCount}`;
-      const store = new MemoryWorldSessionStore(observer);
+      const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+      const semanticHashes: string[] = [];
       try {
         write({ event: "experiment.scenario.started", agents: agentCount, steps: stepCount });
         await engine.bootstrapAgents({
-          workloadId: sessionId,
-          batchId: `bootstrap:${sessionId}`,
-          correlation: { sessionId, revision: 0, step: 0 },
+          workloadId: instanceId,
+          batchId: `bootstrap:${instanceId}`,
+          correlation: { instanceId, revision: 0, step: 0, executionId: trialId },
           observer,
         });
-        const now = "2026-08-23T00:00:00.000Z";
-        const document: WorldSessionDocument = {
-          schemaVersion: 10,
-          id: sessionId,
-          world: toWorldRuntimeContract(definition),
-          title: definition.name,
-          createdAt: now,
-          updatedAt: now,
-          state: engine.snapshot,
-          runs: {},
-        };
-        let stored = store.create(document, { sessionId, revision: 0, step: 0 });
-        const bootstrapSummary = invocationSummary(engine.bootstrapModelAudits);
-        let cumulativeInputBytes = bootstrapSummary.inputBytes;
-        let modelInvocations = bootstrapSummary.invocations;
-        let previousSessionDocumentBytes = sessionMeasurement(recording).bytes;
-        const previousByRole = new Map<string, number>();
+        let cumulativeInputBytes = invocationSummary(engine.bootstrapModelAudits).inputBytes;
+        let modelInvocations = invocationSummary(engine.bootstrapModelAudits).invocations;
         write({
           event: "experiment.bootstrap",
           agents: agentCount,
           targetSteps: stepCount,
-          modelInvocations: bootstrapSummary.invocations,
-          repairs: bootstrapSummary.repairs,
-          transportRetries: bootstrapSummary.transportRetries,
-          inputUtf8Bytes: bootstrapSummary.inputBytes,
+          ...invocationSummary(engine.bootstrapModelAudits),
           cumulativeInputUtf8Bytes: cumulativeInputBytes,
-          sessionDocumentBytes: previousSessionDocumentBytes,
         });
-        const bootstrapByRole = new Map<string, ModelInvocationAudit[]>();
-        for (const audit of engine.bootstrapModelAudits) {
-          const values = bootstrapByRole.get(audit.role) ?? [];
-          values.push(...audit.invocations);
-          bootstrapByRole.set(audit.role, values);
-        }
-        for (const [role, invocations] of bootstrapByRole) {
-          const context = roleContext(invocations);
-          write({
-            event: "experiment.context",
-            phase: "bootstrap",
-            agents: agentCount,
-            targetSteps: stepCount,
-            step: 0,
-            role,
-            invocations: invocations.length,
-            totalUtf8Bytes: context.totalUtf8Bytes,
-            growthUtf8Bytes: context.totalUtf8Bytes,
-            sections: context.sections,
-            counts: context.counts,
-          });
-          previousByRole.set(role, context.totalUtf8Bytes);
-        }
 
-        for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
-          const runId = `run:${sessionId}:${stepIndex + 1}`;
-          const inputId = `input:${sessionId}:${stepIndex + 1}`;
-          const inputText = `实验步骤 ${stepIndex + 1}：观察世界并等待一秒。`;
-          engine.beginPlayerIntent(inputText, inputId);
-          const base = engine.snapshot;
-          const stepStartedAt = performance.now();
-          const result = await engine.step({
-            workloadId: sessionId,
-            batchId: runId,
+        for (let index = 0; index < stepCount; index += 1) {
+          const source = engine.snapshot;
+          const advanceId = `advance:${instanceId}:${index + 1}`;
+          const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+            kind: "model" as const,
+            agentId: agent.id,
+            profiles: structuredClone(agent.modelProfiles),
+          }]));
+          const startedAt = performance.now();
+          const result = await engine.step(roster, {
+            expectedRevision: source.revision,
+            trigger: "batch",
+            simulatedSeconds: definition.runtimeDefaults.simulatedSeconds,
+            externalActions: [],
+          }, {
+            workloadId: instanceId,
+            batchId: advanceId,
             correlation: {
-              sessionId,
-              runId,
-              runAttempt: 1,
-              stepAttemptId: `run:${sessionId}:1:${base.revision + 1}`,
-              revision: base.revision,
-              step: base.step + 1,
+              instanceId,
+              advanceId,
+              advanceAttempt: 1,
+              revision: source.revision,
+              step: source.step + 1,
+              executionId: trialId,
             },
             observer,
           });
-          const stepWallMs = performance.now() - stepStartedAt;
-          document.state = result.state;
-          const stepAt = new Date(Date.parse(now) + (stepIndex + 1) * 1_000).toISOString();
-          document.updatedAt = stepAt;
-          const intent = result.state.player.intent;
-          if (!intent || intent.status !== "completed") {
-            throw new Error("deterministic experiment step did not complete its player intent");
-          }
-          const publicStepEvents = publicCommittedStepEvents(
-            result.committed,
-            result.state.truth.elapsedSeconds,
-          ).map((event, index) => ({
-            ...event,
-            sequence: 3 + index,
-            at: stepAt,
-          }));
-          const events: WorldRunEvent[] = [
-            { sequence: 1, at: stepAt, type: "player.input", payload: { id: inputId, kind: "goal", text: inputText } },
-            {
-              sequence: 2,
-              at: stepAt,
-              type: "run.execution_started",
-              payload: { runId, inputId, reason: "initial" },
-            },
-            ...publicStepEvents,
-            {
-              sequence: 3 + publicStepEvents.length,
-              at: stepAt,
-              type: "run.completed",
-              payload: { runId, revision: result.state.revision, step: result.state.step },
-            },
-          ];
-          document.runs[runId] = {
-            id: runId,
-            sessionId,
-            intentId: intent.id,
-            status: "completed",
-            createdAt: stepAt,
-            updatedAt: stepAt,
-            cancelRequested: false,
-            events,
-          };
-          const persistenceStartedAt = performance.now();
-          stored = store.compareAndSwap(sessionId, stored.generation, document, {
-            sessionId,
-            runId,
-            runAttempt: 1,
-            revision: result.state.revision,
-            step: result.state.step,
-          });
-          const persistenceWallMs = performance.now() - persistenceStartedAt;
+          semanticHashes.push(result.committed.semanticHash);
           const summary = invocationSummary(result.modelAudits);
-          const session = sessionMeasurement(recording);
           cumulativeInputBytes += summary.inputBytes;
           modelInvocations += summary.invocations;
           write({
@@ -491,75 +303,50 @@ export async function runDeterministicExperiment(
             agents: agentCount,
             targetSteps: stepCount,
             step: result.state.step,
-            modelInvocations: summary.invocations,
-            repairs: summary.repairs,
-            transportRetries: summary.transportRetries,
-            inputUtf8Bytes: summary.inputBytes,
+            ...summary,
             cumulativeInputUtf8Bytes: cumulativeInputBytes,
-            stepWallMs: Number(stepWallMs.toFixed(3)),
-            sessionWriteWallMs: Number(persistenceWallMs.toFixed(3)),
-            sessionDocumentBytes: session.bytes,
-            sessionDocumentGrowthBytes: session.bytes - previousSessionDocumentBytes,
-            sessionWriteMs: session.writeMs,
+            stepWallMs: Number((performance.now() - startedAt).toFixed(3)),
+            instanceDocumentBytes: Buffer.byteLength(JSON.stringify(result.state), "utf8"),
           });
-          previousSessionDocumentBytes = session.bytes;
           const byRole = new Map<string, ModelInvocationAudit[]>();
           for (const audit of result.modelAudits) {
             const values = byRole.get(audit.role) ?? [];
             values.push(...audit.invocations);
             byRole.set(audit.role, values);
           }
-          for (const [role, invocations] of [...byRole].sort(([left], [right]) => left.localeCompare(right))) {
-            const context = roleContext(invocations);
-            const prior = previousByRole.get(role) ?? 0;
+          for (const [role, invocations] of byRole) {
             write({
               event: "experiment.context",
               phase: "step",
               agents: agentCount,
-              targetSteps: stepCount,
               step: result.state.step,
               role,
-              invocations: invocations.length,
-              totalUtf8Bytes: context.totalUtf8Bytes,
-              growthUtf8Bytes: context.totalUtf8Bytes - prior,
-              sections: context.sections,
-              counts: context.counts,
+              ...roleContext(invocations),
             });
-            previousByRole.set(role, context.totalUtf8Bytes);
           }
         }
 
-        const session = sessionMeasurement(recording);
-        if (trialId) {
-          options.ledger!.finishExecution(trialId, {
-            status: "succeeded",
-            semanticHash: contentHash(engine.snapshot.history.map(semanticStepHash)),
-            stateHash: contentHash(engine.snapshot),
-            commitRevision: engine.snapshot.revision,
-          });
-        }
+        const finalState = engine.snapshot;
+        if (trialId) options.ledger!.finishExecution(trialId, {
+          status: "succeeded",
+          semanticHash: contentHash(semanticHashes),
+          stateHash: contentHash(finalState),
+          commitRevision: finalState.revision,
+        });
         const ledger = ledgerMeasurement(options.ledger, trialId);
         const scenario = {
           agents: agentCount,
           steps: stepCount,
           cumulativeInputBytes,
           modelInvocations,
-          sessionDocumentBytes: session.bytes,
+          instanceDocumentBytes: Buffer.byteLength(JSON.stringify(finalState), "utf8"),
           ledgerEventCount: ledger.eventCount,
           ledgerArtifactRawBytes: ledger.artifactRawBytes,
           ledgerArtifactStoredBytes: ledger.artifactStoredBytes,
           ledgerSqliteWriteMs: ledger.sqliteWriteMs,
         };
         scenarios.push(scenario);
-        write({
-          event: "experiment.scenario.completed",
-          ...scenario,
-          sessionWriteMs: session.writeMs,
-          stageDurations: stageDurations(recording),
-          observabilityEventCount: recording.events.length,
-          observabilityUtf8Bytes: recording.serializedUtf8Bytes,
-          observabilitySerializationMs: Number(recording.serializationMs.toFixed(3)),
-        });
+        write({ event: "experiment.scenario.completed", ...scenario, observabilityEventCount: recording.events.length });
       } catch (error) {
         if (trialId && options.ledger!.execution(trialId)?.status === "running") {
           options.ledger!.finishExecution(trialId, { status: "failed", error });
@@ -568,10 +355,6 @@ export async function runDeterministicExperiment(
       }
     }
   }
-  write({
-    event: "experiment.summary",
-    kind: "deterministic-runtime",
-    scenarios,
-  });
+  write({ event: "experiment.summary", kind: "deterministic-eager-reference", scenarios });
   return { records, scenarios };
 }

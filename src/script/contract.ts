@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   accessSchema,
   beliefClaimSchema,
-  beliefValueSchema,
   evidenceSchema,
   factValueSchema,
   localEntitySchema,
@@ -11,18 +10,63 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(6),
+  schema_version: z.literal(8),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string().min(1),
+  runtime_defaults: z.object({
+    simulated_seconds: z.number().int().min(1).max(86_400),
+    realtime_interval_ms: z.number().int().min(1_000).max(86_400_000),
+    action_window_ms: z.number().int().min(1_000).max(86_400_000),
+  }).strict(),
   model_profiles: z.object({
     perception: safeIdSchema,
     reaction_routing: safeIdSchema,
     resolution: safeIdSchema,
     transition: safeIdSchema,
     causal_verifier: safeIdSchema,
+    grounding: safeIdSchema,
+    observation: safeIdSchema,
+    arrival: safeIdSchema,
+    dynamic_agent: z.object({
+      bootstrap: safeIdSchema,
+      mind: safeIdSchema,
+      reaction: safeIdSchema,
+    }).strict(),
   }).strict(),
+}).strict();
+
+const participationImageSchema = z.object({
+  path: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/),
+  alt: z.string().trim().min(1).max(300),
+}).strict();
+
+export const participationFileSchema = z.object({
+  claimable_agents: z.array(safeIdSchema).default([]),
+  origins: z.array(z.object({
+    id: safeIdSchema,
+    title: z.string().trim().min(1).max(80),
+    fantasy: z.string().trim().min(1).max(160),
+    description: z.string().trim().min(1).max(1_000),
+    entity_kind: safeIdSchema,
+    spawn_entity_id: safeIdSchema,
+    persona: z.string().trim().min(1).max(1_000),
+    default_goal: z.string().trim().min(1).max(500),
+    relationship_hooks: z.array(z.string().trim().min(1).max(300)).max(8).default([]),
+    risks: z.array(z.string().trim().min(1).max(300)).max(8).default([]),
+    resources: z.array(z.object({
+      definition_id: safeIdSchema,
+      amount: z.number().nonnegative().finite(),
+    }).strict()).max(32).default([]),
+    model_profiles: z.object({
+      bootstrap: safeIdSchema,
+      mind: safeIdSchema,
+      reaction: safeIdSchema,
+    }).strict().optional(),
+    image: participationImageSchema.optional(),
+    fallback_arrival: z.string().trim().min(1).max(2_000),
+  }).strict()).max(64).default([]),
 }).strict();
 
 export const lawsFileSchema = z.object({
@@ -214,25 +258,8 @@ export const entityDocumentSchema = z.object({
   }).strict().optional(),
 }).strict();
 
-const playerClaimSchema = z.object({
-  id: safeIdSchema,
-  subjectId: safeIdSchema,
-  predicate: z.string().min(1),
-  value: beliefValueSchema,
-  description: z.string(),
-  evidenceIds: z.array(safeIdSchema),
-}).strict();
-
-export const playerDocumentSchema = z.object({
-  entity_id: safeIdSchema,
-  local_entities: z.array(localEntitySchema),
-  evidence: z.array(evidenceSchema),
-  claims: z.array(playerClaimSchema),
-  bindings: z.array(bindingSchema),
-}).strict();
-
 export type ScriptManifestDocument = z.infer<typeof scriptManifestSchema>;
+export type ParticipationDocument = z.infer<typeof participationFileSchema>;
 export type LawsDocument = z.infer<typeof lawsFileSchema>;
 export type MechanicsDocument = z.infer<typeof mechanicsFileSchema>;
 export type EntityDocument = z.infer<typeof entityDocumentSchema>;
-export type PlayerDocument = z.infer<typeof playerDocumentSchema>;

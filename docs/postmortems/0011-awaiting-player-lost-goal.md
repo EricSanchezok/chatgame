@@ -23,6 +23,6 @@ Truth Engine 能返回“需要玩家决定”，但 run 只会停止并关闭�
 ## Guardrails
 
 - [决策 0040](../decisions/0040-resumable-player-intent.md) 定义 stable goal、latest input、幂等 ID 和 run 所有权。
-- [`world-host.test.ts`](../../src/server/__tests__/world-host.test.ts) 从真实 awaiting 状态追加 clarification，断言同一 run 完成、原 goal 保留，并覆盖相同/冲突幂等重发。
-- [`world-session-store.ts`](../../src/server/world-session-store.ts) 要求 active intent 精确属于一个非终态 run，latest input 与事件日志一致。
-- [`inputs/route.ts`](../../src/app/api/sessions/[id]/runs/[runId]/inputs/route.ts) 提供唯一 continuation HTTP 入口。
+- [World Instance 与 ActionWindow 决策](../decisions/0062-world-instance-participation-and-action-window.md)以持久外部行动窗口承载可恢复的人类输入。
+- [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts)覆盖外部行动的收齐、幂等、CAS、deadline 与恢复边界。
+- [`actions/route.ts`](../../src/app/api/instances/[id]/participants/[participantId]/actions/route.ts)提供按 Participant 和 revision 寻址的外部行动入口。

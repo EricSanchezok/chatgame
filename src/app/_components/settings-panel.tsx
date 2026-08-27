@@ -5,7 +5,6 @@ import { useMemo, useSyncExternalStore } from "react";
 import {
   parsePreferences,
   preferencesSnapshot,
-  resetControlPosition,
   serverPreferencesSnapshot,
   subscribePreferences,
   writePreferences,
@@ -76,7 +75,7 @@ export function SettingsPanel() {
         <div className="cg-setting-row">
           <span>
             <strong>显示世界调试器</strong>
-            <small>在控制球中显示“世界演化”入口。调试器会暴露客观真相、隐藏检定和所有角色认知。</small>
+            <small>在世界实例页面显示“世界演化”入口。调试器会暴露客观真相、隐藏检定和所有角色认知。</small>
           </span>
           <div className="cg-setting-row__control">
             <button
@@ -95,12 +94,6 @@ export function SettingsPanel() {
           </div>
         </div>
       </section>
-      <div className="cg-setting-row">
-        <span><strong>重置控制球位置</strong><small>恢复到页面右侧的默认位置。</small></span>
-        <div className="cg-setting-row__control">
-          <button className="cg-button--quiet" onClick={resetControlPosition} type="button">重置位置</button>
-        </div>
-      </div>
     </div>
   );
 }

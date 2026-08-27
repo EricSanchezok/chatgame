@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0062](0062-world-instance-participation-and-action-window.md)
 Class: bug-fix
 
 ## Context and Problem Statement

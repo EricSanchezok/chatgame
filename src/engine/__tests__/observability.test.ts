@@ -1,13 +1,28 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
 import { canonicalize, measureModelContext } from "../model-audit";
-import { RecordingRuntimeObserver, type RuntimeObserver } from "../observability";
+import { RecordingRuntimeObserver, serializeRuntimeError, type RuntimeObserver } from "../observability";
 import { DeterministicModelProvider } from "../testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
-import { MonolithicCurrentAlgorithm } from "../monolithic-current";
+import { EagerReferenceAlgorithm } from "../eager-reference";
 import { SimulationEngine } from "../simulation";
 
 describe("model context measurements", () => {
+  it("preserves AggregateError members for terminal diagnostics", () => {
+    const error = serializeRuntimeError(new AggregateError([
+      new Error("first transport failed"),
+      new Error("second transport failed"),
+    ], "grounding batch failed"));
+    expect(error).toMatchObject({
+      name: "AggregateError",
+      message: "grounding batch failed",
+      errors: [
+        { name: "Error", message: "first transport failed" },
+        { name: "Error", message: "second transport failed" },
+      ],
+    });
+  });
+
   it("uses canonical pretty JSON UTF-8 bytes and reports top-level sections and state counts", () => {
     const context = {
       zeta: "你好",
@@ -63,23 +78,32 @@ describe("model context measurements", () => {
       });
       const engine = new SimulationEngine(
         definition,
-        new MonolithicCurrentAlgorithm(provider),
+        new EagerReferenceAlgorithm(provider),
       );
       const scope = {
         workloadId: "semantic-equivalence",
         batchId: "semantic-equivalence-run",
-        correlation: { sessionId: "semantic-equivalence", revision: 0, step: 0 },
+        correlation: { instanceId: "semantic-equivalence", revision: 0, step: 0 },
         observer,
       };
       await engine.bootstrapAgents(scope);
-      engine.beginPlayerIntent("观察世界并等待一秒");
-      await engine.step({
+      const state = engine.snapshot;
+      const roster = Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
+        kind: "model" as const,
+        agentId: agent.id,
+        profiles: agent.modelProfiles,
+      }]));
+      await engine.step(roster, {
+        expectedRevision: state.revision,
+        trigger: "manual",
+        simulatedSeconds: 1,
+        externalActions: [],
+      }, {
         ...scope,
         correlation: {
           ...scope.correlation,
-          runId: "semantic-equivalence-run",
-          runAttempt: 1,
-          stepAttemptId: "semantic-equivalence-run:1:1",
+          advanceId: "semantic-equivalence-run",
+          advanceAttempt: 1,
           step: 1,
         },
       });

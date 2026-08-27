@@ -1,6 +1,9 @@
 import type { AgentMindOutput } from "./llm-schemas";
 import { contentHash } from "./model-audit";
+import { runtimeId } from "./runtime-id";
 import type {
+  AgentActionProposal,
+  AgentId,
   ModelExecutionAudit,
   ObservationPacket,
   SimulationState,
@@ -62,6 +65,61 @@ export interface BootstrapCandidate {
 export interface WorldStepInput {
   definition: WorldDefinition;
   state: SimulationState;
+  policyRoster: Readonly<Record<AgentId, PolicyBinding>>;
+  request: Readonly<WorldAdvanceRequest>;
+}
+
+export type ParticipantId = string;
+
+export type PolicyBinding =
+  | {
+      kind: "model";
+      agentId: AgentId;
+      profiles: Readonly<{ bootstrap: string; mind: string; reaction: string }>;
+      resumeFromRevision?: number;
+    }
+  | { kind: "external"; agentId: AgentId; participantId: ParticipantId }
+  | { kind: "idle"; agentId: AgentId; reason: "timeout" | "released" | "explicit" }
+  | { kind: "replay"; agentId: AgentId; sourceExecutionId: string };
+
+export interface ExternalActionInput {
+  submissionId: string;
+  agentId: AgentId;
+  rawText: string;
+  goal: string;
+  means: string | null;
+  targetIds: string[];
+}
+
+export interface WorldAdvanceRequest {
+  expectedRevision: number;
+  trigger: "manual" | "batch" | "realtime" | "participant_action";
+  simulatedSeconds: number;
+  externalActions: readonly ExternalActionInput[];
+}
+
+export function noopAction(
+  state: Readonly<SimulationState>,
+  agentId: AgentId,
+  reason: "timeout" | "released" | "explicit",
+): AgentActionProposal {
+  return {
+    id: runtimeId({
+      worldHash: state.worldHash,
+      revision: state.revision,
+      kind: "action",
+      stage: "idle",
+      owner: agentId,
+      round: 0,
+      ordinal: 0,
+    }),
+    actorId: agentId,
+    baseRevision: state.revision,
+    rawText: `保持空闲（${reason}）`,
+    goal: "本步骤不采取主动行动",
+    means: null,
+    targetIds: [],
+  };
 }
 
 export interface WorldStepCandidate {
@@ -70,7 +128,29 @@ export interface WorldStepCandidate {
   observations: ObservationPacket[];
   mindCommits: Array<AgentMindOutput & { agentId: string }>;
   modelAudits: ModelExecutionAudit[];
+  groundings: ActionGrounding[];
+  components: AgentId[][];
 }
+
+export type FootprintRef =
+  | { kind: "entity"; id: string }
+  | { kind: "fact"; id: string }
+  | { kind: "placement"; id: string }
+  | { kind: "meter"; id: string }
+  | { kind: "quantity"; id: string }
+  | { kind: "rating"; id: string }
+  | { kind: "global"; id: "world" };
+
+export interface ActionGrounding {
+  actionId: string;
+  actorId: AgentId;
+  reads: FootprintRef[];
+  writes: FootprintRef[];
+  audienceAgentIds: AgentId[];
+  globalFallback: boolean;
+}
+
+export type ActionGroundingDraft = Omit<ActionGrounding, "actionId" | "actorId">;
 
 export interface WorldExecutionAlgorithm {
   readonly manifest: AlgorithmManifest;

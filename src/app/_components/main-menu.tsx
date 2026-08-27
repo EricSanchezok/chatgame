@@ -6,8 +6,8 @@ import { SettingsDialog } from "./settings-dialog";
 import { useWorldLibrary } from "./use-world-library";
 
 export function MainMenu() {
-  const { error, loading, sessions, worlds } = useWorldLibrary();
-  const running = sessions.filter((session) => session.activeRun).length;
+  const { error, loading, instances, worlds } = useWorldLibrary();
+  const running = instances.filter((instance) => instance.schedulerMode === "realtime").length;
 
   return (
     <main className="cg-launcher">
@@ -26,7 +26,7 @@ export function MainMenu() {
             <Waypoints aria-hidden="true" />
             <span>
               <strong>世界包</strong>
-              <small>{loading ? "正在读取本地世界…" : `${worlds.length} 个世界 · ${sessions.length} 份存档${running > 0 ? ` · ${running} 个正在推演` : ""}`}</small>
+              <small>{loading ? "正在读取本地世界…" : `${worlds.length} 个世界 · ${instances.length} 个实例${running > 0 ? ` · ${running} 个实时演化` : ""}`}</small>
             </span>
             <ArrowRight aria-hidden="true" />
           </Link>

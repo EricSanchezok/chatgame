@@ -1,61 +1,50 @@
 import type {
-  PublicSessionDetail,
-  PublicSessionSummary,
-  StartWorldRunResponse,
-  WorldRunSnapshot,
+  AdvanceWorldInput,
+  ArrivalView,
+  CreateParticipantInput,
+  PublicInstanceDetail,
+  PublicInstanceSummary,
+  ReleaseParticipantInput,
+  SubmitExternalActionInput,
   WorldSummary,
 } from "../../shared/world-api";
 import { requestJson } from "./api-client";
 
 export { WorldApiError } from "./api-client";
 
-function post<T>(url: string, body?: unknown): Promise<T> {
-  return requestJson<T>(url, {
-    method: "POST",
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+function body(method: "POST" | "PUT" | "PATCH", value: unknown): RequestInit {
+  return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(value) };
 }
 
 export const worldApi = {
   worlds: () => requestJson<{ worlds: WorldSummary[] }>("/api/worlds"),
-  sessions: () => requestJson<{ sessions: PublicSessionSummary[] }>("/api/sessions"),
-  createSession: (worldId: string, seed?: number) =>
-    post<PublicSessionDetail>("/api/sessions", { worldId, seed }),
-  session: (sessionId: string) =>
-    requestJson<PublicSessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`),
-  renameSession: (sessionId: string, title: string) =>
-    requestJson<PublicSessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title }),
-    }),
-  deleteSession: (sessionId: string) =>
-    requestJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
-  startRun: (sessionId: string, text: string) =>
-    post<StartWorldRunResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { text }),
-  continueRun: (sessionId: string, runId: string, id: string, text: string) =>
-    post<WorldRunSnapshot>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/inputs`,
-      { id, text },
+  instances: () => requestJson<{ instances: PublicInstanceSummary[] }>("/api/instances"),
+  createInstance: (worldId: string, seed?: number) =>
+    requestJson<PublicInstanceDetail>("/api/instances", body("POST", { worldId, seed })),
+  instance: (id: string) => requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}`),
+  renameInstance: (id: string, title: string) =>
+    requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}`, body("PATCH", { title })),
+  deleteInstance: (id: string) =>
+    requestJson<void>(`/api/instances/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  advance: (id: string, input: AdvanceWorldInput) =>
+    requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/advance`, body("POST", input)),
+  realtime: (id: string, enabled: boolean) =>
+    requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/realtime`, body("PUT", { enabled })),
+  createParticipant: (id: string, input: CreateParticipantInput) =>
+    requestJson<{ instance: PublicInstanceDetail; participantId: string; arrival: ArrivalView }>(
+      `/api/instances/${encodeURIComponent(id)}/participants`,
+      body("POST", input),
     ),
-  run: (sessionId: string, runId: string) =>
-    requestJson<WorldRunSnapshot>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,
+  submitAction: (id: string, participantId: string, input: SubmitExternalActionInput) =>
+    requestJson<PublicInstanceDetail>(
+      `/api/instances/${encodeURIComponent(id)}/participants/${encodeURIComponent(participantId)}/actions`,
+      body("POST", input),
     ),
-  retryRun: (sessionId: string, runId: string) =>
-    post<WorldRunSnapshot>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,
+  releaseParticipant: (id: string, participantId: string, input: ReleaseParticipantInput) =>
+    requestJson<PublicInstanceDetail>(
+      `/api/instances/${encodeURIComponent(id)}/participants/${encodeURIComponent(participantId)}/release`,
+      body("POST", input),
     ),
-  cancelRun: (sessionId: string, runId: string) =>
-    requestJson<WorldRunSnapshot>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,
-      { method: "DELETE" },
-    ),
-  runEventsUrl: (sessionId: string, runId: string, afterSequence = 0) => {
-    const base = `/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/events`;
-    return afterSequence > 0 ? `${base}?after=${afterSequence}` : base;
-  },
   importWorld: (file: File, options: { replace?: boolean; expectedWorldId?: string } = {}) => {
     const form = new FormData();
     form.set("file", file);

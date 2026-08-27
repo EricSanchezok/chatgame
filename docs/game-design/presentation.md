@@ -1,65 +1,61 @@
-# 沉浸会话壳与流式 API
+# World Instance API 与参与体验
 
-## 浏览器安全边界
+## 安全边界
 
-普通游戏界面只使用 `src/shared/world-api.ts`。会话列表是含标题、世界摘要、更新时间、步数和 queued/running run 的 `PublicSessionSummary`；详情拆成 `{ summary, state, runs }`。公开状态包含 world ID、world hash、manifest version、revision、step、elapsedSeconds、玩家知识和当前目标；不包含 canonical truth、bindings、Agent belief、隐藏检定或完整审计 delta。唯一例外是默认隐藏的本地受信任调试器，它只使用独立的 `src/shared/world-inspector-api.ts` 与 inspector 路由，不得把字段回流到游戏消息或公开 DTO。
+普通产品界面只使用 `src/shared/world-api.ts`。公开 DTO 包含 World Instance 摘要、公共事件、Participant 摘要、公开 Origin/角色预览以及当前 Principal 所控制角色的授权视角；不包含 canonical truth、canonical binding、其他 Agent belief、隐藏检定或完整模型审计。
+
+本地受信任 Inspector 使用独立的 `src/shared/world-inspector-api.ts` 和 Inspector 路由。Inspector 数据不能回流到公开事件、角色视角或行动上下文。
+
+当前 Principal Resolver 从 `x-lwe-principal` 读取稳定身份，本地默认值为 `local`。产品入口限制一个 active Participant；持久状态、ActionWindow 和服务端投影以复数 Participant 建模。
 
 ## HTTP 资源
 
 | 方法与路径 | 语义 |
 |---|---|
-| `GET /api/worlds` | 列出已安装 schema v6 世界 |
-| `POST /api/worlds/import` | multipart 上传一个世界 ZIP；安装使用 `replace=false`，目标明确的更新同时提供 `replace=true` 与 `expectedWorldId` |
-| `DELETE /api/worlds/:id` | 仅在不存在关联存档时卸载世界目录项和无引用版本 |
-| `GET /api/sessions` | 按更新时间列出持久 Session 摘要 |
-| `POST /api/sessions` | 以 `worldId` 和可选 uint32 seed 创建 Session，返回详情 |
-| `GET /api/sessions/:id` | 读取精确寻址的 Session 详情 |
-| `PATCH /api/sessions/:id` | 在无 queued/running run 时以 `{ title }` 重命名存档 |
-| `DELETE /api/sessions/:id` | 在无 queued/running run 时删除该存档 |
-| `POST /api/sessions/:id/runs` | 提交 1–4000 字符任意自然语言目标，返回 202 与精确形状 `{ runId }` |
-| `GET /api/sessions/:id/runs/:runId` | 返回 `{ run, state }` 公开组合快照 |
-| `POST /api/sessions/:id/runs/:runId` | 继续 step_limit 或重试 `retriable=true` 的 failed run，返回 `{ run, state }` |
-| `POST /api/sessions/:id/runs/:runId/inputs` | 以幂等 `{ id, text }` 向 awaiting_player run 追加 clarification 并恢复同一 run |
-| `DELETE /api/sessions/:id/runs/:runId` | 取消 queued/running，或放弃 awaiting_player/failed/step_limit 目标；保留最后已提交步骤并返回 `{ run, state }` |
-| `GET /api/sessions/:id/runs/:runId/events` | 从 `Last-Event-ID` 或 `after` 游标重放并订阅 SSE |
-| `GET /api/sessions/:id/inspector?beforeRevision=&limit=` | 读取最近 committed 图谱、Agent 目录、attempt 分支与 trace 可用性；默认 24，最大 50 |
-| `GET /api/sessions/:id/inspector/steps/:revision` | 按需读取一个 revision 的前后状态、完整提交与相关运行事件 |
-| `GET /api/sessions/:id/inspector/attempts/:stepAttemptId` | 读取进行中、失败、回滚或已提交 attempt 的运行事件 |
-| `GET /api/sessions/:id/inspector/runtime-events/:eventId` | 按稳定不透明 ID 读取一条已脱敏 RuntimeEvent 的完整 payload；过期返回 404 |
-| `GET /api/sessions/:id/inspector/events` | 以 `epoch:sequence` 游标订阅独立的调试 SSE |
+| `GET /api/worlds` | 列出已安装的 schema v8 世界及 headless/open 参与能力 |
+| `POST /api/worlds/import` | 导入或显式替换世界 ZIP |
+| `DELETE /api/worlds/:id` | 在没有关联实例时卸载世界 |
+| `GET /api/worlds/:id/assets/:hash` | 以不可变 content hash 读取已验证静态图片 |
+| `GET /api/instances` | 按更新时间列出 World Instance |
+| `POST /api/instances` | 以 `worldId`、可选标题和可选 uint32 seed 创建实例 |
+| `GET /api/instances/:id` | 读取 Principal 权限下的公开实例详情 |
+| `PATCH /api/instances/:id` | 重命名实例 |
+| `DELETE /api/instances/:id` | 删除实例 |
+| `POST /api/instances/:id/advance` | 按 expected revision 执行单步、批量或 realtime 触发 |
+| `PUT /api/instances/:id/realtime` | 启动或暂停严格串行实时调度 |
+| `POST /api/instances/:id/participants` | 从 Origin 创建角色或认领已有 Agent |
+| `POST /api/instances/:id/participants/:participantId/actions` | 幂等提交当前 ActionWindow 的外部行动 |
+| `POST /api/instances/:id/participants/:participantId/release` | 将角色交还 model 策略或置为 idle |
+| `GET /api/instances/:id/inspector` | 分页读取 committed 图谱、Agent 与 execution attempt |
+| `GET /api/instances/:id/inspector/steps/:revision` | 读取一个 revision 的提交证据 |
+| `GET /api/instances/:id/inspector/attempts/:executionId` | 读取成功、失败或回滚 execution 的事件 |
+| `GET /api/instances/:id/inspector/runtime-events/:eventId` | 读取一条 Ledger RuntimeEvent 的完整 payload |
+| `GET /api/instances/:id/inspector/events` | 订阅本地调试 SSE；断线不重新执行世界 |
 
-## SSE 事件
+所有改变世界或参与状态的请求使用 revision CAS。模型、持久化、验证或调度失败不得推进 revision；失败 execution 仍保存在 Execution Ledger。外部行动以 `submissionId` 幂等，同一 revision 的冲突提交返回冲突而不是覆盖。
 
-事件有单调 `sequence`、`type`、时间与 payload。`player.input` 记录 goal/clarification；`run.execution_started` 记录 initial/player_input/retry 执行边界；其余类型包括 `check.resolved`、`player.outcome`、`player.observation`、`step.committed` 以及各流边界状态。每个 committed step 的检定、结果、玩家观察与提交事件由 canonical history 的单一 helper 精确投影，持久校验要求内容、数量和顺序完全一致。公开检定使用宿主生成的不透明 ID；公共 outcome 只包含 status 与从本步玩家 outcome Observation 按提交顺序汇总的 summary，不包含内部替代方向。边界状态在发送同名末事件后关闭；落后游标重放到遇到的首个边界，已位于边界尾部返回 204，非法游标返回 400，超过尾部返回 409。断线重放不重新运行世界步骤。
+## 世界推进
 
-## 运行状态
+单步只调用一次统一推进入口。批量推进重复该入口，遇到外部 ActionWindow 就停在可恢复边界。实时调度在上一步结束后才安排下一次触发；重启只从当前时间恢复，不补算离线 backlog。
 
-run 状态为 queued、running、awaiting_player、completed、goal_failed、step_limit、cancelled 或 failed。只有 queued/running 正在执行；awaiting_player/completed/goal_failed/step_limit/cancelled/failed 是流边界；queued/running/awaiting_player/step_limit/failed 可以拥有 active intent。一个 active intent 必须精确属于一个 run，新目标在完成或明确放弃前拒绝。`run.failed.payload.retriable` 决定失败能否重试，内部异常只保存在服务端记录；awaiting_player 通过新输入继续，step_limit 通过继续运行恢复，三种未完成边界都能放弃。
+零 active Participant 时，所有 model/idle/replay 策略直接产生行动并推进。有 external 策略时，引擎为当前 revision 打开唯一 ActionWindow；收齐所有必需 Agent 的提交后推进，deadline 到期则为缺失者生成 typed noop。
 
-## 浏览器路由与消息投影
+## 浏览器流程
 
-`/` 是只含“世界包”和“设置”的游戏外入口。设置是当前主菜单上的模态任务，打开后 URL 保持 `/`，关闭后焦点回到触发按钮；不存在独立 `/settings`。`/worlds` 与 `/worlds/:worldId` 共同组成世界包工作台：桌面左侧列出世界，右侧以存档列表为首屏主体，新游戏位于列表标题的相邻工具位且主文案必须继承主操作前景色；版本和内容标识在列表之后以无卡片的紧凑单行元数据呈现，更新和卸载属于同一区域的管理动作；窄屏以两个可寻址页面逐级进入。不存在独立 `/saves` 和当前存档浏览器指针。
+`/worlds/:worldId` 创建或打开 World Instance；`/play/:instanceId` 是唯一世界体验页。页面由公共世界舞台、演化控制和 Participant 侧栏组成，不维护独立于服务端状态的会话事实。
 
-`/play/:sessionId` 的持久布局拥有 `GameSession`、assistant-ui runtime、SSE 和 Thread。`/play/:sessionId/manage/saves` 与 `/play/:sessionId/manage/settings` 在同一布局上方渲染模态大型管理层，背景 inert、焦点受约束且关闭后回到控制球；嵌套管理路由变化不得卸载会话。每个模态表面只有右上角一个视觉关闭动作，可滚动内容使用透明轨道与窄拇指。游戏内只列出当前世界存档，不创建游戏或切换世界；当前存档只通过不参与盒模型的背景和“当前游戏”标签高亮，正文与操作区必须和其他存档保持同一对齐线。设置面板以空间和浅层表面分组，不用横向分隔线建立层级；开发者工具是带标题与说明的独立组，减少动态效果和重置位置是独立设置行。减少动态效果使用可由点击、Enter 和 Space 操作并公开开关状态的 switch，所有尾部设置控件在固定宽度列中共享水平中心线，30rem 以下正文与控件纵向排列。运行中切换存档或返回主菜单只确认旧存档将在后台继续，不取消 WorldRun。开发与生产启动默认只监听 loopback。
+旁观者可以查看公共事件，并执行单步、十步、实时或暂停。没有 `participation.yaml` 的世界只显示旁观能力。公共事件只包含所有主体均获授权的事件，不暴露某个 Agent 的私有 Observation。
 
-游戏页使用 `@assistant-ui/react` 0.15.16 External Store，并固定官方 `ThreadPrimitive.Root → flex Viewport → 44rem message group → ThreadPrimitive.ViewportFooter` 单轴结构。空会话在轴中间只显示“你想做什么？”和圆角 composer；出现消息后 footer 以 `mt-auto + sticky bottom-0` 固定到底部并适配安全区，消息数量、等待或失败状态不能改变底部锚点。玩家消息是右侧低对比气泡：先按短句 max-content 内在宽度收缩，再以会话轴 85% 或 34rem 为上限，空间充足时短中文不得逐字换行；世界消息是平铺正文，检定、运行状态和恢复动作属于从属 footer。ActionBar 只提供真实可用的复制；复制文本由同一 WorldRun 的公开叙事、可见检定和人类可读状态纯投影，不序列化 data part、客户端状态或内部 JSON。
+“进入世界”展示可认领 Agent 和 Origin。认领前只展示公开名称、描述和位置；成功后才返回该角色的 character、belief 和 Observation。Origin 允许填写显示名称、外观描述和一个自由动机；出生点、资源、角色基础和 Agent ID 由剧本与内核确定。
 
-消息不是另一份存储：每个 WorldRun 按 `player.input` 边界投影玩家/世界消息段，clarification 继续同一 run；世界 data part 只展示公开 observation、observation 派生的 outcome、检定与边界状态。SSE 增量合并后再从 `PublicSessionDetail` 重建；刷新、重连和存档恢复不会产生第二条消息路径。客户端只为 queued/running 建立带 epoch/identity 的连接，另以请求序号和卸载状态隔离旧 refresh。start/continue/retry/cancel/abandon 的成功与响应不确定分支、页面重新聚焦和跨标签页变化都调用同一 reconcile-and-observe 路径，使 EventSource 只跟随服务端当前 executing run；状态合并后再决定连接，旧快照不能关闭新 run 的 source。若 start 响应在返回 `runId` 前丢失，客户端以提交前 run 集合、规范化 goal 和本次 attempt 匹配服务端新 run，在两次跨越确认窗口的权威“确实不存在”之前保持操作锁，避免重复创建。网络错误以及 408、429、5xx 和其他不能证明请求未提交的 HTTP 响应都进入这条不确定恢复；只有明确的永久 400、401、403、404、422 直接失败。取消或放弃的 API/reconcile 错误与 SSE 终态无论谁先到，服务端已确认的终态都撤销该操作的失效错误；旧终态不能清除后来独立操作的错误。运行中可安全中断，awaiting_player 可补充信息，可重试失败/step_limit 可继续，所有未完成边界都可明确放弃。提交尚未确认出 run 时输入保持锁定并显示确认状态，不提供实际无法执行的停止动作。
+准入成功后，Arrival Generator 只读取新角色获授权的视角，输出标题、第一人称场景和三条可编辑建议。建议只填充行动输入，不自动提交；生成失败显示 Origin 的回退文本，已经成功的角色准入不会回滚。
 
-桌面控制球是 56px 状态表盘，接收世界名、存档名、step、elapsedSeconds 与 running/confirming/saved。拖动以 Pointer Events、`requestAnimationFrame` 和 `translate3d` 跟随指针，松手吸附最近左右边缘；位置以 `{ edge, y }` 写入 `livingworld:control-position:v2`，`y` 是归一化坐标，视口变化后限制在安全区和 composer 排除区。桌面点击向页面内侧展开存档、设置、主菜单三个动作和状态卡；三个动作中心位于同一个 84px 半径上，并在可用四分之一圆弧或中部圆弧内等角分布，方位按边缘及上下空间镜像。状态卡从当前方位的完整按钮包络向页面内侧再让出 32px，任何按钮实体都不能与卡片相交。键盘支持 Enter/Space、Escape、Alt+方向键和 Alt+Home。小于 48rem 时点击打开当前页面内具备焦点约束、Escape/遮罩关闭和安全区适配的底部 Sheet。
+真人控制时，Agent 保留位置、历史和私有认知，但不运行 AgentMind。释放时可以交给 AgentMind 继续生活或保持 idle；托管先消化控制期间遗漏的本角色 Observation，再恢复 model 策略。释放后的角色可以再次认领。
 
-全产品以 next-themes 保存 `system | light | dark`，默认跟随系统并通过根节点 `.dark` 切换。assistant-ui 明暗 OKLCH 色映射为 `--cg-*` 语义 token，组件和 Tailwind 都只能间接消费这些 token；正文统一使用 Inter、IBM Plex Mono 与中文系统字体回退。选中控件只用自身背景、前景、字重、图标或边界表达状态，不绘制底部蓝线或选中伪元素；普通非文本控件仅在 `:focus-visible` 使用 `--cg-foreground` 绘制 2px 中性 outline。composer 普通主题不绘制附加焦点线且静态边框与外部阴影不变化，编辑位置由文本插入光标表达；forced-colors 改用系统 `Highlight` 完整 outline。主要控件至少 44px。错误使用 alert，加载和连接状态使用会话轴内 live region，并支持 320px、200% 字体、减少动效、forced colors 与安全区。
+## 界面约束
 
-## 世界演化调试器
+界面只使用内置组件、Lucide 图标和 `--cg-*` 颜色 token，世界包不能注入 UI。所有流程支持键盘、可见焦点、触控目标、320 px 宽度、200% 缩放、RTL、减少动态效果和无图片回退。
 
-统一设置中的“显示世界调试器”默认关闭，并明确提示会暴露客观真相、隐藏检定和所有角色认知。关闭时控制球没有相关入口；开启后，桌面状态卡和移动 Sheet 的“开发者工具”区提供“世界演化”。入口打开页面内 Radix `WorkspaceDialog`，桌面使用 `16px` 外边距的近全屏工作台与背景虚化，移动端占满安全区；Escape、遮罩、关闭按钮统一关闭并把焦点还给控制球。
+长 execution ID、错误、canonical/runtime ID 和 JSON 必须在自身容器内换行或滚动，不能扩大 Participant 侧栏或 Inspector 对话框。模态框关闭后焦点返回触发控件；Arrival 建议和世界控制必须公开可理解的可访问名称。
 
-工作台左侧按“整个世界 / 玩家 / Agent”选择主体，中间在 React Flow 图谱和 Git 风格时间线之间切换，右侧按“概要 / 变更 / 因果 / 模型 / 原始”查看选中记录；详情页签只用背景与字重表示当前项，不增加底部装饰线。初次打开按活动 attempt、当前最新失败、最新提交的顺序自动选择；只有失败且没有 committed revision 时临时强制时间线，不覆盖保存的常规视图偏好。整个世界的成功概要展示“联合行动 → 状态变更 → 世界事件”结果链；失败概要展示终止阶段、原因、真实耗时、输出拒绝/修复、零写入和回滚校验。个体概要直接展示已提交行动或失败 attempt 中的拟议行动、目标与方式，并明确该主体是否是失败的直接关联方。
-
-Agent 列表显示“提交数 · 尝试数”。Agent 选择只高亮相关泳道和 attempt 并保留世界上下文，“聚焦此 Agent”才过滤其他主体；激活后同一按钮变为“显示全部主体”。搜索同时匹配 Agent、节点说明和 revision。手动选择旧记录或平移、缩放会暂停追随，事件仍实时进入；只有“追随最新”开启时 SSE 才改变当前记录，“回到最新”立即选择当前最新记录。移动端默认时间线，Agent 列表收进带遮罩和 Escape 行为的侧滑抽屉，详情成为下方连续面板。
-
-图谱节点只消费服务端语义与边，不接收画布坐标。首帧以确定性拓扑布局立即显示，Web Worker 内的 ELK Layered 完成后精排；worker 错误保留首帧布局。节点类型覆盖 commit、行动、反应、检定、随机、机制、operation、世界事件、observation、心智更新和 attempt；状态同时使用文字、图标、颜色和线型。缩远时节点收敛为主体、阶段和计数，居中尺度显示主链，近距离才展示完整说明；方向键顺序漫游节点，Home/End 到达图首尾。React Flow 只渲染可视节点并提供缩放和 fit view；布局完成状态必须对应当前可见节点与边的拓扑签名，minimap 在该拓扑的精排坐标可用后挂载，按节点语义着色并以描边保证浅色、深色和遮罩区域内均可辨认。时间线承担完整的窄屏与线性阅读替代。
-
-桌面主体栏默认 13.5rem，可在 11–22.5rem 内拖拽；详情栏默认 30rem，可在 22–42rem 内拖拽。两个 separator 都使用 Pointer Capture，并支持方向键、Shift 加速与 Home/End；零宽网格轨道把 1px 可见线放在相邻面板的共同边界，透明命中面以该边界为中心向两侧扩展，左右定位一致。视图和两侧宽度以 `livingworld:inspector-layout:v2` 保存。窄屏忽略桌面宽度。主体列表、时间线、详情正文和 JSON 树保留滚轮、触控板、触摸与键盘滚动，但不显示常驻滚动条。结构化对象使用递归 JSON Inspector：对象与数组以原生 disclosure 展开，顶层及 error/cause 路径默认打开，其他大型节点折叠；子树只在展开后挂载，数组每批 100 项。每层使用固定缩进、disclosure 占位和连续导引线；根节点只使用工具栏“复制对象”，非根字段在同一行只显示一个复制入口，展开后明确选择路径或值，结果通过 live region 反馈。模型页按 invocation 分组，原始页先显示无 payload 的事件信封；full payload 只在展开时按 event ID 请求，过期或失败在局部重试。
-
-首屏读取最近 24 个 revision，旧历史用 `beforeRevision` 向前分页，step 与 attempt 详情按需请求。面板只读，不提供回滚、重跑、分叉或编辑。正式运行统一读取完整 Execution Ledger；模型上下文与结构化输出只在详情中按需展开，任何表面都不展示或推断隐藏思维链。设置开关只负责沉浸与剧透控制，不是 inspector API 的认证边界。
+设计依据见 [0061](../decisions/0061-unified-agent-and-external-policy.md)、[0062](../decisions/0062-world-instance-participation-and-action-window.md) 与 [0063](../decisions/0063-eager-reference-execution.md)。

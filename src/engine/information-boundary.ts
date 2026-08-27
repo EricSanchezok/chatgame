@@ -1,15 +1,16 @@
-import type { ObservationPacket, SimulationState, TransitionProposal, TransitionProposalDraft } from "./model";
+import type { ObservationPacket, SimulationState, TransitionProposal } from "./model";
 
-function playerVisibleCorpus(state: SimulationState): string {
+function observerVisibleCorpus(state: SimulationState, observerId: string): string {
   const values: string[] = [];
-  const knowledge = state.player.knowledge;
-  for (const entity of Object.values(knowledge.localEntities)) {
+  const belief = state.agents[observerId]?.belief;
+  if (!belief) return "";
+  for (const entity of Object.values(belief.localEntities)) {
     values.push(entity.id, entity.name, entity.description);
   }
-  for (const evidence of Object.values(knowledge.evidence)) {
+  for (const evidence of Object.values(belief.evidence)) {
     values.push(evidence.id, evidence.description, evidence.sourceId ?? "");
   }
-  for (const claim of Object.values(knowledge.claims)) {
+  for (const claim of Object.values(belief.claims)) {
     values.push(claim.id, claim.subjectId, claim.predicate, claim.description);
     if (claim.value.kind === "text") values.push(claim.value.value);
     if (claim.value.kind === "local_entity") values.push(claim.value.localEntityId);
@@ -17,9 +18,9 @@ function playerVisibleCorpus(state: SimulationState): string {
   return values.join("\n").toLocaleLowerCase();
 }
 
-function protectedTokens(state: SimulationState): Set<string> {
+function protectedTokens(state: SimulationState, observerId: string): Set<string> {
   const tokens = new Set<string>();
-  const visible = playerVisibleCorpus(state);
+  const visible = observerVisibleCorpus(state, observerId);
   const protect = (value: unknown): void => {
     if (typeof value !== "string") return;
     const normalized = value.trim().toLocaleLowerCase();
@@ -35,6 +36,7 @@ function protectedTokens(state: SimulationState): Set<string> {
     if (fact.value.kind === "entity") protect(fact.value.entityId);
   }
   for (const agent of Object.values(state.agents)) {
+    if (agent.id === observerId) continue;
     for (const profileId of Object.values(agent.modelProfiles)) protect(profileId);
     protect(agent.character.persona.summary);
     protect(agent.character.persona.voice);
@@ -65,7 +67,7 @@ function protectedTokens(state: SimulationState): Set<string> {
   return tokens;
 }
 
-function publicText(packet: ObservationPacket): string {
+function publicText(packet: Pick<ObservationPacket, "summary" | "introductions" | "apparentClaims">): string {
   const values = [packet.summary];
   for (const introduction of packet.introductions) {
     values.push(introduction.localEntity.name, introduction.localEntity.description);
@@ -80,14 +82,14 @@ function publicText(packet: ObservationPacket): string {
 export function validatePublicInformationBoundary(
   state: SimulationState,
   actions: readonly { id: string; actorId: string }[],
-  proposal: TransitionProposal | TransitionProposalDraft,
+  proposal: TransitionProposal,
 ): void {
-  const playerAction = actions.find((action) => action.actorId === "player");
-  const outcome = playerAction && proposal.outcomes.find((candidate) => candidate.proposalId === playerAction.id);
-  const packets = proposal.observations.filter((packet) => packet.observerId === "player");
-  if (!outcome || packets.length === 0) throw new Error("player public output is incomplete");
-  const text = packets.map(publicText).join("\n");
-  for (const token of protectedTokens(state)) {
-    if (text.includes(token)) throw new Error("player public output contains protected world information");
+  for (const observerId of new Set(proposal.observations.map((packet) => packet.observerId))) {
+    if (!state.agents[observerId]) throw new Error(`observation targets unknown agent ${observerId}`);
+    const packets = proposal.observations.filter((packet) => packet.observerId === observerId);
+    const text = packets.map(publicText).join("\n");
+    for (const token of protectedTokens(state, observerId)) {
+      if (text.includes(token)) throw new Error(`observation for ${observerId} contains protected information`);
+    }
   }
 }

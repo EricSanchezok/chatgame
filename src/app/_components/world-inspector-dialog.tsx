@@ -128,12 +128,12 @@ export default function WorldInspectorDialog({
   onOpenChange,
   open,
   reduceMotion,
-  sessionId,
+  instanceId,
 }: {
   onOpenChange: (open: boolean) => void;
   open: boolean;
   reduceMotion: boolean;
-  sessionId: string;
+  instanceId: string;
 }) {
   const narrow = useNarrowViewport();
   const actorToggleRef = useRef<HTMLButtonElement>(null);
@@ -216,7 +216,7 @@ export default function WorldInspectorDialog({
     setLoadingDetail(true);
     setDetailError("");
     try {
-      const value = await worldInspectorApi.step(sessionId, step.revision);
+      const value = await worldInspectorApi.step(instanceId, step.revision);
       if (request === detailRequestRef.current) setDetail({ kind: "step", value });
     } catch (reason) {
       if (request === detailRequestRef.current) {
@@ -225,7 +225,7 @@ export default function WorldInspectorDialog({
     } finally {
       if (request === detailRequestRef.current) setLoadingDetail(false);
     }
-  }, [sessionId]);
+  }, [instanceId]);
 
   const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary) => {
     const request = ++detailRequestRef.current;
@@ -233,7 +233,7 @@ export default function WorldInspectorDialog({
     setLoadingDetail(true);
     setDetailError("");
     try {
-      const value = await worldInspectorApi.attempt(sessionId, attempt.id);
+      const value = await worldInspectorApi.attempt(instanceId, attempt.id);
       if (request === detailRequestRef.current) setDetail({ kind: "attempt", value });
     } catch (reason) {
       if (request === detailRequestRef.current) {
@@ -242,12 +242,12 @@ export default function WorldInspectorDialog({
     } finally {
       if (request === detailRequestRef.current) setLoadingDetail(false);
     }
-  }, [sessionId]);
+  }, [instanceId]);
 
   const loadWindow = useCallback(async (preserveHistory: boolean) => {
     const request = ++requestRef.current;
     try {
-      const incoming = await worldInspectorApi.window(sessionId);
+      const incoming = await worldInspectorApi.window(instanceId);
       if (request !== requestRef.current) return;
       setData((current) => preserveHistory ? mergeWorldInspectorWindows(current, incoming) : incoming);
       setError("");
@@ -256,7 +256,7 @@ export default function WorldInspectorDialog({
         attempt.status !== "active" && attempt.status !== "committed");
       const latestStep = incoming.steps.at(-1);
       const failureIsCurrent = latestFailure &&
-        (latestFailure.revision ?? incoming.session.revision) >= (latestStep?.revision ?? 0);
+        (latestFailure.revision ?? incoming.instance.revision) >= (latestStep?.revision ?? 0);
       const nextAttempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
       if (!preserveHistory) {
         if (nextAttempt) {
@@ -277,7 +277,7 @@ export default function WorldInspectorDialog({
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
-  }, [selectAttempt, selectStep, sessionId]);
+  }, [instanceId, selectAttempt, selectStep]);
 
   useEffect(() => {
     if (!open) return;
@@ -292,7 +292,7 @@ export default function WorldInspectorDialog({
 
   useEffect(() => {
     if (!open) return;
-    const source = new EventSource(worldInspectorApi.eventsUrl(sessionId));
+    const source = new EventSource(worldInspectorApi.eventsUrl(instanceId));
     const scheduleRefresh = () => {
       if (refreshTimerRef.current !== undefined) window.clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = window.setTimeout(() => {
@@ -322,7 +322,7 @@ export default function WorldInspectorDialog({
       source.removeEventListener("runtime", onRuntime as EventListener);
       source.removeEventListener("resync", onResync);
     };
-  }, [loadWindow, open, sessionId]);
+  }, [instanceId, loadWindow, open]);
 
   const selectNode = useCallback((node: WorldInspectorNodeSummary) => {
     if (!data) return;
@@ -341,14 +341,14 @@ export default function WorldInspectorDialog({
     if (!beforeRevision || loadingOlder) return;
     setLoadingOlder(true);
     try {
-      const older = await worldInspectorApi.window(sessionId, { beforeRevision: beforeRevision + 1 });
+      const older = await worldInspectorApi.window(instanceId, { beforeRevision: beforeRevision + 1 });
       setData((current) => mergeWorldInspectorWindows(current, older));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法读取更早的推演记录。");
     } finally {
       setLoadingOlder(false);
     }
-  }, [data?.pagination.oldestRevision, loadingOlder, sessionId]);
+  }, [data?.pagination.oldestRevision, instanceId, loadingOlder]);
 
   const visibleActors = useMemo(() => {
     if (!data) return [];
@@ -359,7 +359,7 @@ export default function WorldInspectorDialog({
 
   const selectedActor = data?.actors.find((actor) => actor.id === selectedActorId);
   const statusDescription = data
-    ? `${data.session.worldName} · Revision ${data.session.revision} · ${data.trace.mode} trace`
+    ? `${data.instance.worldName} · Revision ${data.instance.revision} · ${data.trace.mode} trace`
     : "读取世界提交历史、Agent 演化与运行审计。";
 
   const returnToLatest = () => {
@@ -370,7 +370,7 @@ export default function WorldInspectorDialog({
       attempt.status !== "active" && attempt.status !== "committed");
     const latestStep = data.steps.at(-1);
     const failureIsCurrent = latestFailure &&
-      (latestFailure.revision ?? data.session.revision) >= (latestStep?.revision ?? 0);
+      (latestFailure.revision ?? data.instance.revision) >= (latestStep?.revision ?? 0);
     const attempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
     if (attempt) void selectAttempt(attempt);
     else if (latestStep) void selectStep(latestStep);
@@ -635,7 +635,7 @@ export default function WorldInspectorDialog({
             error={detailError}
             key={selectedNodeId ?? "empty"}
             loading={loadingDetail}
-            sessionId={sessionId}
+            instanceId={instanceId}
           />
         </div>
       )}

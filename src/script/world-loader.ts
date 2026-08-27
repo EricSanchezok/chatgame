@@ -8,7 +8,6 @@ import type {
   AgentState,
   DiscreteRandomDefinition,
   MechanicsCatalog,
-  PlayerKnowledgeState,
   SimulationState,
 } from "../engine/model";
 import { historyReplayBaseHash } from "../engine/history-replay";
@@ -24,14 +23,19 @@ import {
   entityDocumentSchema,
   lawsFileSchema,
   mechanicsFileSchema,
-  playerDocumentSchema,
+  participationFileSchema,
   scriptManifestSchema,
   type EntityDocument,
   type LawsDocument,
   type MechanicsDocument,
-  type PlayerDocument,
+  type ParticipationDocument,
   type ScriptManifestDocument,
 } from "./contract";
+import {
+  inspectImageAsset,
+  MAX_WORLD_ASSET_TOTAL_BYTES,
+  type InspectedImageAsset,
+} from "./image-asset";
 
 export class WorldScriptError extends Error {
   constructor(readonly file: string, message: string) {
@@ -189,15 +193,6 @@ function agentFrom(document: EntityDocument): AgentState | undefined {
   };
 }
 
-function playerKnowledge(document: ReturnType<typeof playerDocumentSchema.parse>): PlayerKnowledgeState {
-  return {
-    localEntities: uniqueRecord(document.local_entities, "player local entity"),
-    evidence: uniqueRecord(document.evidence, "player evidence"),
-    claims: uniqueRecord(document.claims, "player claim"),
-    observationIds: [],
-  };
-}
-
 function entityFiles(scriptDir: string): string[] {
   const directory = path.join(scriptDir, "entities");
   if (!existsSync(directory) || !statSync(directory).isDirectory()) {
@@ -209,15 +204,62 @@ function entityFiles(scriptDir: string): string[] {
     .map((name) => path.join(directory, name));
 }
 
+interface NormalizedImageAsset extends InspectedImageAsset {
+  path: string;
+  bytesBase64: string;
+}
+
+function assetFiles(scriptDir: string): string[] {
+  const root = path.join(scriptDir, "assets");
+  if (!existsSync(root)) return [];
+  const files: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      const stats = lstatSync(absolute);
+      if (stats.isSymbolicLink()) throw new WorldScriptError(absolute, "symbolic links are not allowed");
+      if (entry.isDirectory()) visit(absolute);
+      else if (entry.isFile()) files.push(absolute);
+      else throw new WorldScriptError(absolute, "assets may contain regular files only");
+    }
+  };
+  visit(root);
+  return files.sort();
+}
+
+function loadAssets(scriptDir: string): NormalizedImageAsset[] {
+  let total = 0;
+  return assetFiles(scriptDir).map((file) => {
+    const bytes = readFileSync(file);
+    total += bytes.byteLength;
+    if (total > MAX_WORLD_ASSET_TOTAL_BYTES) {
+      throw new WorldScriptError(file, "world assets exceed 32 MiB in total");
+    }
+    try {
+      return {
+        path: path.relative(path.join(scriptDir, "assets"), file).split(path.sep).join("/"),
+        ...inspectImageAsset(bytes),
+        bytesBase64: bytes.toString("base64"),
+      };
+    } catch (error) {
+      throw new WorldScriptError(file, error instanceof Error ? error.message : String(error));
+    }
+  });
+}
+
 export function validateWorldScriptLayout(scriptDir: string): void {
   const root = path.resolve(scriptDir);
-  const rootFiles = new Set(["script.yaml", "laws.yaml", "mechanics.yaml", "player.yaml"]);
+  const rootFiles = new Set(["script.yaml", "laws.yaml", "mechanics.yaml", "participation.yaml"]);
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const absolute = path.join(root, entry.name);
     const stats = lstatSync(absolute);
     if (stats.isSymbolicLink()) throw new WorldScriptError(absolute, "symbolic links are not allowed");
     if (entry.isDirectory()) {
-      if (entry.name !== "entities") throw new WorldScriptError(absolute, "unexpected directory");
+      if (entry.name !== "entities" && entry.name !== "assets") throw new WorldScriptError(absolute, "unexpected directory");
+      if (entry.name === "assets") {
+        assetFiles(root);
+        continue;
+      }
       for (const entityEntry of readdirSync(absolute, { withFileTypes: true })) {
         const entityFile = path.join(absolute, entityEntry.name);
         if (!entityEntry.isFile() || !/\.ya?ml$/.test(entityEntry.name)) {
@@ -242,21 +284,31 @@ export interface NormalizedWorldTemplate {
   manifest: ScriptManifestDocument;
   laws: LawsDocument;
   mechanics: MechanicsDocument;
-  player: PlayerDocument;
   entities: EntityDocument[];
+  participation: ParticipationDocument | null;
+  assets: NormalizedImageAsset[];
 }
 
 const normalizedWorldTemplateSchema = z.strictObject({
   manifest: scriptManifestSchema,
   laws: lawsFileSchema,
   mechanics: mechanicsFileSchema,
-  player: playerDocumentSchema,
   entities: z.array(entityDocumentSchema).min(1),
+  participation: participationFileSchema.nullable(),
+  assets: z.array(z.strictObject({
+    path: z.string().min(1),
+    hash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    mime: z.enum(["image/png", "image/webp", "image/avif"]),
+    width: z.number().int().min(1).max(4096),
+    height: z.number().int().min(1).max(4096),
+    bytesBase64: z.string().min(1),
+  })),
 });
 
 export function parseWorldTemplate(value: unknown): NormalizedWorldTemplate {
   const template = normalizedWorldTemplateSchema.parse(value);
   template.entities.sort((left, right) => left.id.localeCompare(right.id));
+  template.assets.sort((left, right) => left.path.localeCompare(right.path));
   return template;
 }
 
@@ -277,8 +329,11 @@ export function loadWorldTemplate(scriptDir: string): NormalizedWorldTemplate {
     manifest: parseDocument(path.join(root, "script.yaml"), scriptManifestSchema),
     laws: parseDocument(path.join(root, "laws.yaml"), lawsFileSchema),
     mechanics: parseDocument(path.join(root, "mechanics.yaml"), mechanicsFileSchema),
-    player: parseDocument(path.join(root, "player.yaml"), playerDocumentSchema),
     entities,
+    participation: existsSync(path.join(root, "participation.yaml"))
+      ? parseDocument(path.join(root, "participation.yaml"), participationFileSchema)
+      : null,
+    assets: loadAssets(root),
   });
 }
 
@@ -288,12 +343,12 @@ export function buildWorldDefinition(
 ): WorldDefinition {
   const seed = options.seed ?? 1;
   const rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
-  const { manifest, laws, mechanics: mechanicsDocument, player, entities: documents } = template;
+  const { manifest, laws, mechanics: mechanicsDocument, entities: documents } = template;
   const worldHash = hashWorldTemplate(template);
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 8,
+      schemaVersion: 9,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),
@@ -313,16 +368,7 @@ export function buildWorldDefinition(
         ratings: {},
       },
       agents: {},
-      player: {
-        entityId: player.entity_id,
-        knowledge: playerKnowledge(player),
-        bindings: Object.fromEntries(
-          player.bindings.map((binding) => [
-            binding.local_entity_id,
-            { localEntityId: binding.local_entity_id, canonicalEntityIds: binding.canonical_entity_ids },
-          ]),
-        ),
-      },
+      admissions: [],
       history: [],
       bootstrapAgentCommits: [],
     };
@@ -377,8 +423,6 @@ export function buildWorldDefinition(
       }
       const agent = agentFrom(document);
       if (agent) {
-        if (agent.id === "player") throw new Error("agent id player is reserved");
-        if (agent.entityId === player.entity_id) throw new Error(`agent ${agent.id} cannot bind the player entity`);
         if (state.agents[agent.id]) throw new Error(`duplicate agent id ${agent.id}`);
         state.agents[agent.id] = agent;
       }
@@ -389,6 +433,43 @@ export function buildWorldDefinition(
       name: manifest.name,
       manifestVersion: manifest.version,
       description: manifest.description,
+      runtimeDefaults: {
+        simulatedSeconds: manifest.runtime_defaults.simulated_seconds,
+        realtimeIntervalMs: manifest.runtime_defaults.realtime_interval_ms,
+        actionWindowMs: manifest.runtime_defaults.action_window_ms,
+      },
+      participation: template.participation ? {
+        claimableAgentIds: [...template.participation.claimable_agents],
+        origins: template.participation.origins.map((origin) => {
+          const image = origin.image
+            ? template.assets.find((asset) => asset.path === origin.image!.path)
+            : undefined;
+          if (origin.image && !image) throw new Error(`origin ${origin.id} image not found: ${origin.image.path}`);
+          return {
+            id: origin.id,
+            title: origin.title,
+            fantasy: origin.fantasy,
+            description: origin.description,
+            entityKind: origin.entity_kind,
+            spawnEntityId: origin.spawn_entity_id,
+            persona: origin.persona,
+            defaultGoal: origin.default_goal,
+            relationshipHooks: [...origin.relationship_hooks],
+            risks: [...origin.risks],
+            resources: origin.resources.map((resource) => ({
+              definitionId: resource.definition_id,
+              amount: resource.amount,
+            })),
+            modelProfiles: origin.model_profiles ?? {
+              bootstrap: manifest.model_profiles.dynamic_agent.bootstrap,
+              mind: manifest.model_profiles.dynamic_agent.mind,
+              reaction: manifest.model_profiles.dynamic_agent.reaction,
+            },
+            ...(image ? { image: { hash: image.hash, alt: origin.image!.alt } } : {}),
+            fallbackArrival: origin.fallback_arrival,
+          };
+        }),
+      } : null,
       contentHash: worldHash,
       modelProfiles: {
         perception: manifest.model_profiles.perception,
@@ -396,6 +477,14 @@ export function buildWorldDefinition(
         resolution: manifest.model_profiles.resolution,
         transition: manifest.model_profiles.transition,
         causalVerifier: manifest.model_profiles.causal_verifier,
+        grounding: manifest.model_profiles.grounding,
+        observation: manifest.model_profiles.observation,
+        arrival: manifest.model_profiles.arrival,
+        dynamicAgent: {
+          bootstrap: manifest.model_profiles.dynamic_agent.bootstrap,
+          mind: manifest.model_profiles.dynamic_agent.mind,
+          reaction: manifest.model_profiles.dynamic_agent.reaction,
+        },
       },
       laws: laws.laws,
       disclosure: { defaultCheckVisibility: laws.disclosure.default_check_visibility },
@@ -407,6 +496,10 @@ export function buildWorldDefinition(
       randomDistributions: randomDistributions(mechanicsDocument),
       historyBaseHash: historyReplayBaseHash(state),
       initialState: state,
+      assetData: Object.fromEntries(template.assets.map((asset) => [
+        asset.hash,
+        { mime: asset.mime, bytesBase64: asset.bytesBase64 },
+      ])),
     };
     validateWorldDefinition(definition);
     validateWorldModelProfiles(definition, options.modelCatalog);

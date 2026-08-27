@@ -17,7 +17,10 @@ const TEST_PROFILE_IDS = [
   "agent-xai",
 ];
 
-export function createTestModelCatalog(profileIds: readonly string[] = TEST_PROFILE_IDS): ModelCatalog {
+export function createTestModelCatalog(
+  profileIds: readonly string[] = TEST_PROFILE_IDS,
+  options: { maxInputBytes?: number } = {},
+): ModelCatalog {
   return parseModelCatalog({
     schema_version: 2,
     scheduler: {
@@ -38,10 +41,20 @@ export function createTestModelCatalog(profileIds: readonly string[] = TEST_PROF
       model: `scripted:${profileId}`,
       description: `Deterministic test profile ${profileId}`,
       allowed_roles: profileId.startsWith("truth-") || profileId === "truth-engine"
-        ? ["truth-perception", "truth-reaction-routing", "truth-resolution", "truth-transition", "causal-verifier"]
+        ? [
+            "truth-perception",
+            "truth-reaction-routing",
+            "truth-resolution",
+            "truth-transition",
+            "action-grounding",
+            "observation-renderer",
+            "causal-verifier",
+            "arrival-generator",
+          ]
         : ["agent-bootstrap", "agent-mind", "agent-reaction"],
       request_timeout_ms: 10_000,
       max_output_tokens: 32_768,
+      max_input_bytes: options.maxInputBytes ?? 262_144,
       inference: {
         kind: "deepseek-non-thinking",
         temperature: null,
@@ -283,10 +296,41 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         step?: number;
         baseRevision?: number;
         agent?: { id: string };
+        action?: { id: string; actorId: string };
+        entity?: { name: string; location: string | null };
         world?: { laws: Array<{ id: string }> };
-        agentEpistemics?: Record<string, unknown>;
+        actors?: Record<string, unknown>;
         jointActions?: Array<{ id: string }>;
+        observationSlots?: Array<{ observer: { agentId: string } }>;
+        currentEvents?: Array<{ id: string }>;
       };
+      if (input.action) {
+        return {
+          reads: [{ kind: "global", id: "world" }],
+          writes: [{ kind: "global", id: "world" }],
+          audienceAgentIds: [input.action.actorId],
+          globalFallback: true,
+        };
+      }
+      if (input.entity) {
+        return {
+          title: `此刻，你是${input.entity.name}`,
+          scene: input.entity.location
+            ? `你在${input.entity.location}恢复了对周围的注意。`
+            : "你恢复了对周围的注意，但还不能确定当前位置。",
+          suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
+        };
+      }
+      if (input.observationSlots) {
+        return {
+          observations: input.observationSlots.map(() => ({
+            summary: "世界继续变化。",
+            introductions: [],
+            apparentClaims: [],
+            sourceEventIds: input.currentEvents?.map((event) => event.id) ?? [],
+          })),
+        };
+      }
       if (profileId === "truth-engine" || profileId === "truth-deepseek") {
         const step = input.step;
         const revision = input.baseRevision;
@@ -297,11 +341,9 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         }
         const nextStep = step + 1;
         const eventId = `mock-event:${nextStep}`;
-        const observers = ["player", ...Object.keys(input.agentEpistemics ?? {})];
         return {
           kind: "transition",
           proposal: {
-            baseRevision: revision,
             outcomes: actions.map((action) => ({
               proposalId: action.id,
               status: "succeeded",
@@ -311,32 +353,15 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
               knownAlternatives: [],
             })),
             mechanicInvocations: [],
-            operations: [{
-              kind: "advance_time",
-              seconds: 1,
-              causes: [{ kind: "law", id: lawId }],
-              assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
-            }],
+            operations: [],
             events: [{
               id: eventId,
-              step: nextStep,
               description: "模拟世界推进了一秒。",
               impact: "ordinary",
               causes: [{ kind: "law", id: lawId }],
               assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
             }],
-            observations: observers.map((observerId) => ({
-              id: `mock-observation:${observerId}:${nextStep}`,
-              observerId,
-              step: nextStep,
-              kind: "outcome",
-              summary: observerId === "player" ? "世界回应了你的自由行动。" : "世界继续变化。",
-              introductions: [],
-              apparentClaims: [],
-              sourceEventIds: [eventId],
-            })),
-            intentStatus: "completed",
-            requiresPlayerDecision: false,
+            decisionRequests: [],
           },
         };
       }

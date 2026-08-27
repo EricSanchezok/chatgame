@@ -11,6 +11,7 @@ import {
 import type {
   AgentActionProposal,
   AgentState,
+  BeliefPatchOperation,
   ModelExecutionAudit,
   ObservationPacket,
   ReactionDecision,
@@ -137,7 +138,13 @@ function validateMindOutput(
   const beliefPatch = {
     agentId: agent.id,
     baseRevision: revision,
-    operations: structuredClone(output.beliefPatch.operations),
+    operations: output.beliefPatch.operations.map((operation): BeliefPatchOperation =>
+      operation.kind === "upsert_evidence"
+        ? {
+            ...structuredClone(operation),
+            evidence: { ...structuredClone(operation.evidence), step },
+          }
+        : structuredClone(operation)),
   };
   const characterPatch = {
     agentId: agent.id,
@@ -244,7 +251,7 @@ export class AgentMind {
       } | null;
     } = { action: null, outcome: null },
     events: readonly WorldEvent[] = [],
-    purpose: "bootstrap" | "mind" = "mind",
+    purpose: "bootstrap" | "mind" | "resume" = "mind",
   ): Promise<AgentMindOutput & { modelAudit: ModelExecutionAudit }> {
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
@@ -252,6 +259,7 @@ export class AgentMind {
     let lastCause: unknown;
     const observe = runtimeEventEmitter(scope.observer);
     const role = purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind";
+    const profileId = purpose === "bootstrap" ? agent.modelProfiles.bootstrap : agent.modelProfiles.mind;
 
     for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
       try {
@@ -260,13 +268,19 @@ export class AgentMind {
           state,
           agent,
           observations,
+          events,
           currentAction: currentResolution.action,
           currentOutcome: currentResolution.outcome,
-          sessionId: scope.workloadId,
-          runId: scope.batchId,
+          instanceId: scope.workloadId,
+          advanceId: scope.batchId,
           issues,
         });
-        const identity = modelInvocationIdentity(scope, role, agent.id, attempt + 1);
+        const identity = modelInvocationIdentity(
+          scope,
+          role,
+          purpose === "resume" ? `${agent.id}:resume` : agent.id,
+          attempt + 1,
+        );
         const correlation = modelInvocationCorrelation(scope, role, agent.id, identity);
         observe?.({
           event: "model.context.built",
@@ -275,7 +289,7 @@ export class AgentMind {
           hashes: { context: contentHash(context) },
         });
         const result = await this.provider.generateStructured({
-          profileId: agent.modelProfiles[purpose],
+          profileId,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
@@ -298,12 +312,19 @@ export class AgentMind {
           events,
           result.value,
         );
-        setModelInvocationResultKind(result.audit, purpose === "bootstrap" ? "agent_bootstrap" : "agent_mind");
+        setModelInvocationResultKind(
+          result.audit,
+          purpose === "bootstrap" ? "agent_bootstrap" : purpose === "resume" ? "agent_mind_resume" : "agent_mind",
+        );
         setModelInvocationOutcome(result.audit, "accepted");
         observe?.({
           event: "model.semantic.accepted",
           correlation,
-          attributes: { resultKind: purpose === "bootstrap" ? "agent_bootstrap" : "agent_mind" },
+          attributes: {
+            resultKind: purpose === "bootstrap"
+              ? "agent_bootstrap"
+              : purpose === "resume" ? "agent_mind_resume" : "agent_mind",
+          },
           hashes: { response: result.audit.invocations.at(-1)!.responseHash! },
         });
         return {
@@ -338,7 +359,10 @@ export class AgentMind {
     throw new ModelSemanticRepairError(
       role,
       `AgentMind ${agent.id} failed after repairs: ${lastError}`,
-      { cause: lastCause },
+      {
+        cause: lastCause,
+        audit: audits.length > 0 ? combineModelExecutionAudits(audits) : undefined,
+      },
     );
   }
 
@@ -363,8 +387,8 @@ export class AgentMind {
           agent,
           originalAction,
           stimulus,
-          sessionId: scope.workloadId,
-          runId: scope.batchId,
+          instanceId: scope.workloadId,
+          advanceId: scope.batchId,
           issues,
         });
         const identity = modelInvocationIdentity(scope, "agent-reaction", agent.id, attempt + 1);
@@ -439,7 +463,10 @@ export class AgentMind {
     throw new ModelSemanticRepairError(
       "agent-reaction",
       `Agent reaction ${agent.id} failed after repairs: ${lastError}`,
-      { cause: lastCause },
+      {
+        cause: lastCause,
+        audit: audits.length > 0 ? combineModelExecutionAudits(audits) : undefined,
+      },
     );
   }
 }

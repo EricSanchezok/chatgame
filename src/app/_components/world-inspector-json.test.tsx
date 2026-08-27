@@ -71,7 +71,7 @@ describe("console JSON inspector", () => {
     runtimeEvent
       .mockRejectedValueOnce(new Error("expired"))
       .mockResolvedValueOnce({ apiVersion: 2, event: { ...event, payload: { accepted: true } } });
-    const { container } = render(<RuntimeEventPayload event={event} sessionId="session-1" />);
+    const { container } = render(<RuntimeEventPayload event={event} instanceId="instance-1" />);
     expect(runtimeEvent).not.toHaveBeenCalled();
     const details = container.querySelector("details")!;
     details.open = true;

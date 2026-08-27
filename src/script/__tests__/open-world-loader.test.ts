@@ -31,7 +31,7 @@ function copiedFixture(): string {
 }
 
 describe("open world script loader", () => {
-  it("loads open facts, numeric mechanics, agents and player knowledge", () => {
+  it("loads open facts, numeric mechanics, Agents and private knowledge", () => {
     const definition = loadWorldScript(fixture, { seed: 91, modelCatalog });
 
     expect(definition.id).toBe("open-world-fixture");
@@ -45,7 +45,7 @@ describe("open world script loader", () => {
     expect(definition.initialState.truth.facts["key-authenticity"].provenance).toEqual([
       { kind: "world_seed", id: definition.contentHash },
     ]);
-    expect(definition.initialState.player.knowledge.claims["key-is-authentic"].value).toEqual({
+    expect(definition.initialState.agents.player.belief.claims["key-is-authentic"].value).toEqual({
       kind: "text",
       value: "real",
     });
@@ -130,12 +130,12 @@ describe("open world script loader", () => {
     });
   });
 
-  it("rejects schema v5 worlds and missing or duplicate Agent self bindings", () => {
+  it("rejects schema v7 worlds and missing or duplicate Agent self bindings", () => {
     const oldWorld = copiedFixture();
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 6", "schema_version: 5"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 8", "schema_version: 7"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
