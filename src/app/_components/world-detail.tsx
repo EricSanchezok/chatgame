@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Eye, Pause, Radio, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CirclePause, Eye, Radio, Trash2, X } from "lucide-react";
 import { AnimatePresence, LazyMotion, MotionConfig } from "motion/react";
 import * as m from "motion/react-m";
 import Image from "next/image";
@@ -259,12 +259,13 @@ export function WorldDetail({
                   <Link href={`/play/${encodeURIComponent(instance.id)}`}>
                     <span><strong>{instance.title}</strong><small>Revision {instance.revision} · Step {instance.step}</small></span>
                     <span className="cg-instance-state">
-                      {instance.schedulerMode === "realtime" ? <Radio aria-hidden="true" /> : <Pause aria-hidden="true" />}
+                      {instance.schedulerMode === "realtime" ? <Radio aria-hidden="true" /> : <CirclePause aria-hidden="true" />}
                       {instance.schedulerMode === "realtime" ? "实时" : "已暂停"}
                     </span>
                   </Link>
                   <button
                     aria-label={`删除实例“${instance.title}”`}
+                    className="cg-instance-delete"
                     disabled={busy === `instance-delete:${instance.id}`}
                     onClick={() => void onDeleteInstance(instance)}
                     type="button"

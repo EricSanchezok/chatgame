@@ -134,6 +134,14 @@ test("world detail keeps historical saves in a scrollable middle panel", async (
   const history = page.getByRole("region", { name: "历史存档列表" });
   await expect(history.locator("li")).toHaveCount(initialCount + 7);
   expect(await history.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  const firstRow = history.locator("li").first();
+  const statusBox = await firstRow.locator(".cg-instance-state").boundingBox();
+  const deleteIconBox = await firstRow.locator(".cg-instance-delete svg").boundingBox();
+  expect(statusBox).not.toBeNull();
+  expect(deleteIconBox).not.toBeNull();
+  const statusCenter = statusBox!.y + statusBox!.height / 2;
+  const deleteIconCenter = deleteIconBox!.y + deleteIconBox!.height / 2;
+  expect(Math.abs(statusCenter - deleteIconCenter)).toBeLessThanOrEqual(1);
   await history.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
   expect(await history.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
