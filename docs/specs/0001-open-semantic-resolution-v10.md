@@ -41,4 +41,21 @@ Run `npm test`, `npm run world:validate -- worlds/blackmarsh/world`, `npm run bu
 
 ## Evidence
 
-Pending implementation.
+Implemented by the following independently verified commits:
+
+- `8af88d6` — Approved this Spec and recorded ADR 0067.
+- `e3fd055` — Added the deterministic semantic resolution core.
+- `98b1aa3` — Published strict schema v10 and upgraded Blackmarsh.
+- `4f2651b` — Integrated pre-random plans, receipts, trusted settlement, projections, Inspector evidence, and replay.
+- `fb8072e` — Closed semantic review gaps, including the independent pre-random plan verifier, reaction re-grounding, RNG transcript replay, numeric provenance edges, and cognitive-isolation checks.
+
+Final verification passed on 2026-08-27:
+
+- `npm test`: 28 test files and 162 tests passed.
+- `npm run world:validate -- worlds/blackmarsh/world`: 232 entities and 48 Agents validated.
+- `npm run world:validate -- test/fixtures/open-world-script`: 5 entities and 2 Agents validated.
+- `npm run build`: the production Next.js build completed successfully.
+- `npm run check:fast`: lint, typecheck, tests, fixture validation, workflow verification, and all six governance gates passed.
+- `git diff --check`: passed.
+
+Verification did not start a server or import a world.
