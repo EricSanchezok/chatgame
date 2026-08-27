@@ -33,12 +33,13 @@ type Detail =
   | { kind: "step"; value: WorldInspectorStepDetail }
   | { kind: "attempt"; value: WorldInspectorAttemptDetail };
 
-type DetailTab = "overview" | "changes" | "causality" | "model" | "raw";
+type DetailTab = "overview" | "temporal" | "changes" | "causality" | "model" | "raw";
 type StepAction = WorldInspectorStepDetail["committed"]["actions"][number];
 type StepOutcome = WorldInspectorStepDetail["committed"]["outcomes"][number];
 
 const tabs: Array<{ id: DetailTab; label: string; icon: typeof ScanSearch }> = [
   { id: "overview", label: "概要", icon: ScanSearch },
+  { id: "temporal", label: "时间", icon: Clock3 },
   { id: "changes", label: "变更", icon: GitCompareArrows },
   { id: "causality", label: "因果", icon: Link2 },
   { id: "model", label: "模型", icon: BrainCircuit },
@@ -279,6 +280,124 @@ function StepChanges({ actorId, detail }: { actorId: string; detail: WorldInspec
       <JsonBlock
         label="对比提交前后的完整 Agent 状态"
         value={{ before: detail.before.agents[actorId] ?? null, after: detail.after.agents[actorId] ?? null }}
+      />
+    </div>
+  );
+}
+
+const temporalReasonLabel = {
+  activity_checkpoint: "活动检查点",
+  activity_completion: "活动完成",
+  timer: "定时器到期",
+  condition_expiry: "条件检查",
+  safety_horizon: "无人干预推进上限",
+} as const;
+
+function formatWorldTime(seconds: number): string {
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor(seconds % 86_400 / 3_600);
+  const minutes = Math.floor(seconds % 3_600 / 60);
+  const remainder = seconds % 60;
+  const clock = [hours, minutes, remainder].map((value) => String(value).padStart(2, "0")).join(":");
+  return days > 0 ? `第 ${days} 天 ${clock}` : clock;
+}
+
+function TemporalAudit({ actorId, detail }: { actorId: string; detail: WorldInspectorStepDetail }) {
+  const { temporalBoundary: boundary } = detail.committed;
+  const relevant = (agentId: string) => actorId === "world" || agentId === actorId;
+  const plans = detail.committed.temporalPlans.filter((plan) => relevant(plan.actorId));
+  const transitions = detail.committed.activityTransitions.filter((transition) => relevant(transition.actorId));
+  const decisions = detail.committed.decisionPoints.filter((point) => relevant(point.agentId));
+  const activitySnapshots = (activities: typeof detail.committed.temporalState.activities) => Object.fromEntries(
+    Object.entries(activities).filter(([, activity]) => relevant(activity.actorId)),
+  );
+  const timerSnapshots = Object.fromEntries(Object.entries(detail.committed.temporalState.timers).filter(([, timer]) =>
+    actorId === "world" || timer.wakeAgentIds.includes(actorId)));
+  return (
+    <div className="cg-inspector-detail-stack">
+      <section className="cg-inspector-assurance" data-status="accepted">
+        <span><Clock3 aria-hidden="true" /></span>
+        <div>
+          <strong>动态时间边界 · Δt {boundary.deltaSeconds} 秒</strong>
+          <small>{formatWorldTime(boundary.fromElapsedSeconds)} → {formatWorldTime(boundary.toElapsedSeconds)}</small>
+        </div>
+        <b>引擎提交</b>
+      </section>
+      <DetailSection
+        count={`${boundary.reasons.length} 个`}
+        description="引擎选择全部候选中最早的绝对时间；同刻到期项联合裁决"
+        icon={Waypoints}
+        title="边界来源"
+      >
+        <ul className="cg-inspector-observation-list">
+          {boundary.reasons.map((reason, index) => {
+            const subject = reason.kind === "activity_checkpoint" || reason.kind === "activity_completion"
+              ? reason.activityId
+              : reason.kind === "timer" ? reason.timerId
+                : reason.kind === "condition_expiry" ? reason.conditionId : null;
+            return <li key={`${reason.kind}:${subject ?? index}`}><Clock3 aria-hidden="true" /><span><strong>{temporalReasonLabel[reason.kind]}</strong><small>{subject ?? "没有更早的活动、定时器或语义事件"}</small></span></li>;
+          })}
+        </ul>
+        <JsonBlock
+          label="查看边界与同刻到期集合"
+          value={{
+            boundary,
+            due: {
+              activities: boundary.dueActivityIds,
+              timers: boundary.dueTimerIds,
+              conditions: boundary.dueConditionIds,
+            },
+          }}
+        />
+      </DetailSection>
+      <DetailSection
+        count={`${plans.length} 个`}
+        description="时间计划在活动开始前预承诺；模型只能选择剧本配置或引用受信任数量"
+        icon={BadgeCheck}
+        title="本次创建的 TemporalPlan"
+      >
+        {plans.length > 0
+          ? <JsonBlock label="查看计划、依据与资源声明" value={plans} />
+          : <p className="cg-inspector-inline-empty">本次提交沿用已有活动，没有创建新的时间计划。</p>}
+      </DetailSection>
+      <DetailSection
+        count={`${transitions.length} 项`}
+        description="只记录截至本边界已经真实发生的进度、阶段或终态变化"
+        icon={Activity}
+        title="活动转换"
+      >
+        {transitions.length > 0
+          ? <JsonBlock label="查看活动转换" value={transitions} />
+          : <p className="cg-inspector-inline-empty">当前视角没有活动转换。</p>}
+      </DetailSection>
+      <DetailSection
+        count={`${decisions.length} 个`}
+        description="只有这些主体在该边界重新获得行动或 AgentMind 资格"
+        icon={BrainCircuit}
+        title="新决策点"
+      >
+        {decisions.length > 0
+          ? <JsonBlock label="查看决策资格" value={decisions} />
+          : <p className="cg-inspector-inline-empty">本边界没有为当前视角打开新的决策窗口。</p>}
+      </DetailSection>
+      <JsonBlock
+        label="核对活动、定时器的提交前后快照"
+        value={{
+          before: {
+            activities: activitySnapshots(detail.before.truth.activities),
+            timers: Object.fromEntries(Object.entries(detail.before.truth.timers).filter(([, timer]) =>
+              actorId === "world" || timer.wakeAgentIds.includes(actorId))),
+          },
+          committed: {
+            activities: activitySnapshots(detail.committed.temporalState.activities),
+            timers: timerSnapshots,
+          },
+          after: {
+            activities: activitySnapshots(detail.after.truth.activities),
+            timers: Object.fromEntries(Object.entries(detail.after.truth.timers).filter(([, timer]) =>
+              actorId === "world" || timer.wakeAgentIds.includes(actorId))),
+          },
+        }}
       />
     </div>
   );
@@ -615,6 +734,18 @@ function DetailBody({ actorId, actorName, detail, instanceId, tab }: {
 }) {
   if (detail.kind === "attempt") {
     if (tab === "overview") return <AttemptOverview actorId={actorId} actorName={actorName} detail={detail.value} />;
+    if (tab === "temporal") {
+      return (
+        <div className="cg-inspector-detail-stack">
+          <section className="cg-inspector-assurance" data-status="accepted">
+            <span><Clock3 aria-hidden="true" /></span>
+            <div><strong>世界时间没有推进</strong><small>attempt 未形成原子提交，canonical clock 与活动进度保持最近成功 Revision。</small></div>
+            <b>Δt 0</b>
+          </section>
+          <RuntimeEventList events={detail.value.events} label="未提交尝试的时间证据" instanceId={instanceId} />
+        </div>
+      );
+    }
     if (tab === "changes") return <AttemptChanges detail={detail.value} />;
     if (tab === "causality") return <AttemptCausality detail={detail.value} />;
     if (tab === "model") return <AttemptModelAudit detail={detail.value} instanceId={instanceId} />;
@@ -627,6 +758,7 @@ function DetailBody({ actorId, actorName, detail, instanceId, tab }: {
       ? <WorldOverview detail={step} />
       : <ActorOverview actorId={actorId} actorName={actorName} detail={step} />;
   }
+  if (tab === "temporal") return <TemporalAudit actorId={actorId} detail={step} />;
   if (tab === "changes") return <StepChanges actorId={actorId} detail={step} />;
   if (tab === "causality") return <Causality detail={step} />;
   if (tab === "model") return <ModelAudit detail={step} instanceId={instanceId} />;
