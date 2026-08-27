@@ -184,6 +184,33 @@ function zipWorld(): Buffer {
 }
 
 describe("Blackmarsh reference world", () => {
+  it("locks the semantic adjudication calibration matrix and its relative effect ordering", () => {
+    const provider = new DeterministicModelProvider(undefined, false);
+    const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
+    const calibrations = Object.fromEntries(definition.initialState.truth.mechanics.adjudicationCalibrations
+      .map((entry) => [entry.id, entry]));
+    const rank = { none: 0, minor: 1, standard: 2, major: 3, decisive: 4 } as const;
+
+    expect(rank[calibrations["club-strike"].effect]).toBeLessThan(rank[calibrations["sword-strike"].effect]);
+    expect(rank[calibrations["sword-strike"].effect]).toBeLessThan(rank[calibrations["enchanted-warhammer"].effect]);
+    expect(rank[calibrations["enchanted-warhammer"].effect]).toBeLessThan(rank[calibrations["lethal-holy-sword"].effect]);
+    expect(calibrations["lethal-holy-sword"]).toMatchObject({ risk: "dire", effect: "decisive" });
+    expect(calibrations["flaming-sword"]).toMatchObject({ effect: "standard" });
+    expect(calibrations["flaming-sword"].explanation).toContain("minor burning");
+    expect(calibrations["armored-target"].effect).toBe("minor");
+    expect(calibrations["carried-arsenal-single-means"]).toMatchObject({ effect: "standard" });
+    expect(calibrations["sand-present"]).toMatchObject({ difficulty: "opposed", effect: "standard" });
+    expect(calibrations["sand-absent"]).toMatchObject({ difficulty: "blocked", effect: "none" });
+    expect(Object.keys(calibrations)).toEqual(expect.arrayContaining([
+      "field-healing",
+      "pick-lock",
+      "foot-chase",
+      "persuasion",
+      "fair-trade",
+      "long-project",
+    ]));
+  });
+
   it("loads the complete geography, autonomous cast, and three opening deadlines", () => {
     const provider = new DeterministicModelProvider(undefined, false);
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });

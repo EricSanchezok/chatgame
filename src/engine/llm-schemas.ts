@@ -21,6 +21,7 @@ import type {
   WorldDeltaOperation,
   WorldDeltaOperationDraft,
 } from "./model";
+import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
 import type { ActionGroundingDraft } from "./execution";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import {
@@ -31,6 +32,7 @@ import {
   beliefValueSchema,
   causalAssertionSchema,
   causalRefSchema,
+  conditionStateSchema,
   entitySchema,
   evidenceSchema,
   factValueSchema,
@@ -38,6 +40,7 @@ import {
   localEntitySchema,
   meterSchema,
   persistedFactIdSchema,
+  quantityStateSchema,
   ratingSchema,
   safeIdSchema,
   semanticIdSchema,
@@ -228,18 +231,11 @@ const checkRequestShape = {
   targetId: semanticIdSchema.nullable(),
   ratingId: semanticIdSchema.nullable(),
   modifier: z.number().int(),
-  modifierSources: z.array(z.discriminatedUnion("kind", [
-    z.strictObject({
-      kind: z.literal("rating"),
-      id: safeIdSchema,
-      amount: z.number().int().min(-100).max(100),
-    }),
-    z.strictObject({
-      kind: z.literal("fact"),
-      id: safeIdSchema,
-      amount: z.number().int().min(-100).max(100),
-    }),
-  ])),
+  modifierSources: z.array(z.strictObject({
+    kind: z.literal("rating"),
+    id: safeIdSchema,
+    amount: z.number().int().min(-100).max(100),
+  })).max(1),
   dc: z.number().int().min(0).max(100),
   mode: z.enum(["normal", "advantage", "disadvantage"]),
   stakes: z.string().min(1),
@@ -257,6 +253,98 @@ export const persistedCheckRequestSchema = z.strictObject({
   ...checkRequestShape,
   phase: z.enum(["perception", "resolution"]),
 }) as z.ZodType<D20CheckRequest>;
+
+const resolutionSourceRefSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("action"), id: safeIdSchema }),
+  z.strictObject({ kind: z.literal("entity"), id: semanticIdSchema }),
+  z.strictObject({ kind: z.literal("fact"), id: safeIdSchema }),
+  z.strictObject({ kind: z.literal("condition"), id: semanticIdSchema }),
+  z.strictObject({ kind: z.literal("rating"), id: semanticIdSchema }),
+  z.strictObject({ kind: z.literal("law"), id: semanticIdSchema }),
+  z.strictObject({ kind: z.literal("placement"), id: semanticIdSchema }),
+]);
+
+const resolutionFactorSchema = z.strictObject({
+  source: resolutionSourceRefSchema,
+  role: z.enum(["permission", "control", "potency", "protection", "secondary", "risk"]),
+  direction: z.enum(["helpful", "hindering", "neutral"]),
+  steps: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  authority: z.enum(["semantic", "authored"]),
+  channel: z.string().min(1).nullable(),
+  explanation: z.string().min(1),
+});
+
+const effectBaseShape = {
+  id: semanticIdSchema,
+  targetId: semanticIdSchema,
+  channel: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string().min(1),
+  sourceRefs: z.array(resolutionSourceRefSchema).min(1),
+};
+const magnitudeBandSchema = z.enum(["none", "minor", "standard", "major", "decisive"]);
+const meterEffectIntentSchema = z.strictObject({
+  kind: z.literal("meter"),
+  ...effectBaseShape,
+  meterId: semanticIdSchema,
+  impactProfileId: semanticIdSchema,
+  magnitude: magnitudeBandSchema,
+});
+const conditionEffectIntentSchema = z.strictObject({
+  kind: z.literal("condition"),
+  ...effectBaseShape,
+  conditionId: semanticIdSchema,
+  conditionProfileId: semanticIdSchema.nullable(),
+  durationProfileId: semanticIdSchema,
+  access: accessSchema,
+  magnitude: magnitudeBandSchema,
+});
+const effectIntentSchema = z.discriminatedUnion("kind", [meterEffectIntentSchema, conditionEffectIntentSchema]);
+const threatenedEffectSchema = z.discriminatedUnion("kind", [
+  meterEffectIntentSchema.omit({ magnitude: true }),
+  conditionEffectIntentSchema.omit({ magnitude: true }),
+]);
+const resolutionDifficultySchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("environment"),
+    band: z.enum(["trivial", "easy", "challenging", "hard", "extreme"]),
+    source: resolutionSourceRefSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("opposed"),
+    targetId: semanticIdSchema,
+    ratingId: semanticIdSchema,
+    source: resolutionSourceRefSchema,
+  }),
+]);
+
+function resolutionPlanSchemaWithId(id: z.ZodType<string>) {
+  return z.strictObject({
+    id,
+    actionId: safeIdSchema,
+    actorId: semanticIdSchema,
+    targetIds: z.array(semanticIdSchema),
+    goal: z.string().min(1),
+    means: z.array(z.strictObject({ description: z.string().min(1), source: resolutionSourceRefSchema })),
+    mode: z.enum(["automatic", "check", "blocked"]),
+    difficulty: resolutionDifficultySchema.nullable(),
+    actorRatingId: semanticIdSchema.nullable(),
+    factors: z.array(resolutionFactorSchema),
+    risk: z.enum(["safe", "risky", "dire"]),
+    baseEffect: magnitudeBandSchema,
+    primaryEffect: effectIntentSchema.nullable(),
+    secondaryEffect: effectIntentSchema.nullable(),
+    threatenedEffect: threatenedEffectSchema.nullable(),
+    visibility: z.enum(["full", "result_only", "hidden"]),
+    causes: z.array(causalRefSchema).min(1),
+  });
+}
+
+export type ResolutionPlanDraft = ResolutionPlan;
+export const resolutionPlanDraftSchema = resolutionPlanSchemaWithId(draftAliasSchema) as z.ZodType<ResolutionPlanDraft>;
+export const resolutionPlanSchema = resolutionPlanSchemaWithId(
+  runtimeIdSchema.refine((id) => id.startsWith("rt:resolution-plan:")),
+) as z.ZodType<ResolutionPlan>;
 
 const characterRecordDraftShape = {
   id: semanticIdSchema,
@@ -342,13 +430,6 @@ const factDraftSchema = z.strictObject({
   access: accessSchema,
 });
 
-const meterDraftSchema = z.strictObject({
-  id: semanticIdSchema,
-  definitionId: semanticIdSchema,
-  entityId: semanticIdSchema,
-  current: z.number().finite(),
-});
-
 export const worldDeltaOperationDraftSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("create_entity"),
@@ -365,33 +446,6 @@ export const worldDeltaOperationDraftSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({ kind: z.literal("set_fact"), fact: factDraftSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("remove_fact"), factId: persistedFactIdSchema, ...causalSourceShape }),
-  z.strictObject({ kind: z.literal("set_meter"), meter: meterDraftSchema, ...causalSourceShape }),
-  z.strictObject({ kind: z.literal("adjust_meter"), meterId: semanticIdSchema, amount: z.number().finite(), ...causalSourceShape }),
-  z.strictObject({
-    kind: z.literal("transfer_quantity"),
-    definitionId: semanticIdSchema,
-    fromHolderId: semanticIdSchema,
-    toHolderId: semanticIdSchema,
-    amount: z.number().positive(),
-    ...causalSourceShape,
-  }),
-  z.strictObject({
-    kind: z.literal("produce_quantity"),
-    definitionId: semanticIdSchema,
-    holderId: semanticIdSchema,
-    amount: z.number().positive(),
-    lawId: semanticIdSchema,
-    ...causalSourceShape,
-  }),
-  z.strictObject({
-    kind: z.literal("consume_quantity"),
-    definitionId: semanticIdSchema,
-    holderId: semanticIdSchema,
-    amount: z.number().positive(),
-    lawId: semanticIdSchema,
-    ...causalSourceShape,
-  }),
-  z.strictObject({ kind: z.literal("set_rating"), rating: ratingSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("create_agent"), agent: agentStateDraftSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("remove_agent"), agentId: semanticIdSchema, ...causalSourceShape }),
 ]) as z.ZodType<WorldDeltaOperationDraft>;
@@ -438,11 +492,34 @@ export const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
     lawId: semanticIdSchema,
     ...causalSourceShape,
   }),
+  z.strictObject({ kind: z.literal("set_quantity"), quantity: quantityStateSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("set_rating"), rating: ratingSchema, ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("set_condition"), condition: conditionStateSchema, ...causalSourceShape }),
+  z.strictObject({ kind: z.literal("remove_condition"), conditionId: semanticIdSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("advance_time"), seconds: z.number().int().positive(), ...causalSourceShape }),
   z.strictObject({ kind: z.literal("create_agent"), agent: agentStateSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("remove_agent"), agentId: semanticIdSchema, ...causalSourceShape }),
 ]) as z.ZodType<WorldDeltaOperation>;
+
+export const resolutionReceiptSchema = z.strictObject({
+  id: runtimeIdSchema.refine((id) => id.startsWith("rt:resolution-receipt:")),
+  plan: resolutionPlanSchema,
+  checkRequestId: runtimeIdSchema.refine((id) => id.startsWith("rt:check:")).nullable(),
+  dc: z.number().int().nullable(),
+  modifier: z.number().finite(),
+  checkMode: z.enum(["normal", "advantage", "disadvantage"]).nullable(),
+  dice: z.array(z.number().int().min(1).max(20)).max(2),
+  kept: z.number().int().min(1).max(20).nullable(),
+  total: z.number().finite().nullable(),
+  margin: z.number().finite().nullable(),
+  outcome: z.enum(["exceptional", "full", "mixed", "miss"]).nullable(),
+  effects: z.array(z.strictObject({
+    role: z.enum(["primary", "secondary", "consequence"]),
+    magnitude: magnitudeBandSchema,
+    intent: effectIntentSchema,
+  })),
+  operations: z.array(worldDeltaOperationSchema),
+}) as z.ZodType<ResolutionReceipt>;
 
 export const mechanicResultSchema = z.strictObject({
   invocationId: runtimeIdSchema.refine((id) => id.startsWith("rt:mechanic:")),
@@ -633,6 +710,7 @@ const footprintRefSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("meter"), id: semanticIdSchema }),
   z.strictObject({ kind: z.literal("quantity"), id: runtimeIdSchema }),
   z.strictObject({ kind: z.literal("rating"), id: semanticIdSchema }),
+  z.strictObject({ kind: z.literal("condition"), id: semanticIdSchema }),
   z.strictObject({ kind: z.literal("global"), id: z.literal("world") }),
 ]);
 
@@ -683,7 +761,7 @@ export const reactionRoutingOutputSchema = z.strictObject({
 });
 
 export const resolutionDirectiveSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("request_checks"), requests: z.array(checkRequestSchema).min(1) }),
+  z.strictObject({ kind: z.literal("commit_plans"), plans: z.array(resolutionPlanDraftSchema).min(1) }),
   z.strictObject({
     kind: z.literal("request_random"),
     requests: z.array(discreteRandomRequestProposalSchema).min(1).max(MAX_RANDOM_REQUESTS_PER_ROUND),

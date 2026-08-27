@@ -73,7 +73,10 @@ function operationLabel(operation: WorldDeltaOperation): string {
     case "transfer_quantity": return `转移资源 · ${operation.definitionId}`;
     case "produce_quantity": return `产生资源 · ${operation.definitionId}`;
     case "consume_quantity": return `消耗资源 · ${operation.definitionId}`;
+    case "set_quantity": return `设置资源 · ${operation.quantity.id}`;
     case "set_rating": return `设置评级 · ${operation.rating.id}`;
+    case "set_condition": return `设置状态 · ${operation.condition.label}`;
+    case "remove_condition": return `移除状态 · ${operation.conditionId}`;
     case "advance_time": return `推进时间 · ${operation.seconds} 秒`;
     case "create_agent": return `创建 Agent · ${operation.agent.id}`;
     case "remove_agent": return `移除 Agent · ${operation.agentId}`;

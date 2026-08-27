@@ -372,6 +372,54 @@ export interface AgentStateDraft {
   bindings: Record<LocalEntityId, EpistemicBinding>;
 }
 
+export interface AgentResolutionEffectView {
+  role: "primary" | "secondary" | "consequence";
+  kind: "meter" | "condition";
+  magnitude: import("./resolution").MagnitudeBand;
+  channel: string;
+  label: string;
+  description: string;
+}
+
+export type AgentResolutionReceiptView = {
+  id: string;
+  visibility: "result_only";
+  actionId: string;
+  outcome: import("./resolution").OutcomeGrade | null;
+  effects: AgentResolutionEffectView[];
+} | {
+  id: string;
+  visibility: "full";
+  actionId: string;
+  outcome: import("./resolution").OutcomeGrade | null;
+  effects: AgentResolutionEffectView[];
+  plan: {
+    goal: string;
+    means: string[];
+    mode: import("./resolution").ResolutionMode;
+    difficulty: { kind: "environment"; band: import("./resolution").DifficultyBand } |
+      { kind: "opposed" } | null;
+    actorRating: { name: string; value: number } | null;
+    factors: Array<{
+      role: import("./resolution").FactorRole;
+      direction: import("./resolution").FactorDirection;
+      steps: 0 | 1 | 2;
+      explanation: string;
+    }>;
+    risk: import("./resolution").RiskBand;
+    baseEffect: import("./resolution").MagnitudeBand;
+  };
+  check: {
+    dc: number | null;
+    modifier: number;
+    mode: "normal" | "advantage" | "disadvantage" | null;
+    dice: number[];
+    kept: number | null;
+    total: number | null;
+    margin: number | null;
+  };
+};
+
 export interface AgentSelfStateView {
   selfLocalEntityId: LocalEntityId;
   lifecycle: WorldEntity["lifecycle"];
@@ -405,7 +453,7 @@ export interface AgentSelfStateView {
     magnitude: import("./resolution").MagnitudeBand;
     durationProfileId: string;
   }>;
-  resolutionReceipts: ResolutionReceipt[];
+  resolutionReceipts: AgentResolutionReceiptView[];
   facts: Array<{
     predicate: string;
     value: BeliefValue;
@@ -489,9 +537,7 @@ export interface D20CheckRequest {
 
 export type D20CheckRequestDraft = Omit<D20CheckRequest, "phase">;
 
-export type ModifierSource =
-  | { kind: "rating"; id: string; amount: number }
-  | { kind: "fact"; id: string; amount: number };
+export type ModifierSource = { kind: "rating"; id: string; amount: number };
 
 export interface D20CheckResult {
   requestId: string;
@@ -748,7 +794,10 @@ export type WorldDeltaOperation = CausalSource & (
       amount: number;
       lawId: string;
     }
+  | { kind: "set_quantity"; quantity: QuantityState }
   | { kind: "set_rating"; rating: RatingState }
+  | { kind: "set_condition"; condition: ConditionState }
+  | { kind: "remove_condition"; conditionId: string }
   | { kind: "advance_time"; seconds: number }
   | { kind: "create_agent"; agent: AgentState }
   | { kind: "remove_agent"; agentId: AgentId }
@@ -756,7 +805,6 @@ export type WorldDeltaOperation = CausalSource & (
 
 export type WorldEntityDraft = Omit<WorldEntity, "lifecycle" | "createdAtStep">;
 export type WorldFactDraft = Omit<WorldFact, "provenance">;
-export type MeterStateDraft = Omit<MeterState, "firedThresholdIds">;
 
 export type WorldDeltaOperationDraft = CausalSource & (
   | { kind: "create_entity"; entity: WorldEntityDraft; placementId: EntityId | null }
@@ -764,30 +812,6 @@ export type WorldDeltaOperationDraft = CausalSource & (
   | { kind: "place_entity"; entityId: EntityId; placementId: EntityId | null }
   | { kind: "set_fact"; fact: WorldFactDraft }
   | { kind: "remove_fact"; factId: FactId }
-  | { kind: "set_meter"; meter: MeterStateDraft }
-  | { kind: "adjust_meter"; meterId: string; amount: number }
-  | {
-      kind: "transfer_quantity";
-      definitionId: string;
-      fromHolderId: EntityId;
-      toHolderId: EntityId;
-      amount: number;
-    }
-  | {
-      kind: "produce_quantity";
-      definitionId: string;
-      holderId: EntityId;
-      amount: number;
-      lawId: string;
-    }
-  | {
-      kind: "consume_quantity";
-      definitionId: string;
-      holderId: EntityId;
-      amount: number;
-      lawId: string;
-    }
-  | { kind: "set_rating"; rating: RatingState }
   | { kind: "create_agent"; agent: AgentStateDraft }
   | { kind: "remove_agent"; agentId: AgentId }
 );

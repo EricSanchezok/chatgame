@@ -31,8 +31,8 @@ The reference algorithm deliberately spends complete work to provide a precise s
 
 1. Every model Agent uses a prepared action, every external Agent uses its ActionWindow submission, and every idle or timed-out Agent receives an engine-generated typed noop.
 2. Each action is grounded independently; private cognition enters only that action's context. Grounding returns a conservative read/write/audience footprint, and uncertain dependencies enter the global fallback.
-3. Footprints form a conflict graph. Connected components independently perform perception, reaction routing, resolution, random commitment, and transition; an actual out-of-footprint access or cross-component dependency triggers global readjudication.
-4. Truth transition emits outcomes, mechanics, operations, events, and decision requests. The engine injects the one positive `advance_time` operation.
+3. Footprints form a conflict graph. Connected components independently perform perception, reaction routing, precommitted ResolutionPlan construction, deterministic d20 derivation, random commitment, and transition; an actual out-of-footprint access or cross-component dependency triggers global readjudication.
+4. Truth transition emits outcomes, semantic mechanics, operations, events, and decision requests. `core-resolution@2.0.0` settles persisted ResolutionReceipts and Condition duration before the engine injects the one positive `advance_time` operation.
 5. Observation Renderer fills fixed observer slots whose count, observer, step, kind, and persisted identity are engine-owned. After component merge, the complete candidate produces one permission-limited global projection for every Agent; batching respects the Observation Profile input-byte budget.
 6. All model Agents run AgentMind concurrently; external and idle Agents receive only their own Observation.
 7. CanonicalCommitter performs one global validation and constructs the next state. Instance CAS and the execution terminal record commit in one SQLite transaction.
@@ -63,7 +63,8 @@ World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_RO
 - Every Agent appears exactly once in the policy roster, and every final joint action has exactly one outcome.
 - Every step contains exactly one engine-injected positive time advance.
 - Every living Agent receives exactly one outcome observation; private text uses observer-local IDs.
-- Quantities conserve unless a world law authorizes production or consumption; Meters and Ratings remain in script ranges.
+- Numeric writes are trusted-rule derived: Quantities use explicit provenance and conserve unless a world law authorizes production or consumption; Meter impacts clamp to script ranges; Ratings remain in script ranges.
+- Every action pins one ResolutionPlan before resolution randomness, and every plan pins one deterministic ResolutionReceipt whose operations are part of the same atomic step.
 - Placement is acyclic; an Agent binds an active Entity and owns one self binding.
 - Causes and assertions for operations, mechanics, events, and outcomes resolve and hold before writes.
 - External Agents do not run AgentMind; model Agents and Agents created in the step commit exactly one mind update.

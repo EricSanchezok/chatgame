@@ -8,6 +8,7 @@ import {
   transitionProposalSchema,
   type DiscreteRandomRequestProposal,
   type ReactionRequestDraft,
+  type ResolutionPlanDraft,
 } from "./llm-schemas";
 import type {
   ActionGrounding,
@@ -26,6 +27,7 @@ import type {
   DiscreteRandomResult,
   ModelExecutionAudit,
   MechanicResult,
+  MechanicInvocation,
   ObservationPacket,
   ObservationPacketDraft,
   ReactionDecision,
@@ -37,6 +39,16 @@ import type {
   WorldDeltaOperation,
   WorldDeltaOperationDraft,
 } from "./model";
+import {
+  deriveCheck,
+  deriveResolutionReceipt,
+  expectedActionStatus,
+  validateResolutionPlan,
+  type ResolutionEvidenceIndex,
+  type ResolutionPlan,
+  type ResolutionReceipt,
+  type ResolutionSourceRef,
+} from "./resolution";
 import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import {
   combineModelExecutionAudits,
@@ -98,6 +110,8 @@ export interface TruthResolution {
   randomRequests: DiscreteRandomRequest[];
   randomResults: DiscreteRandomResult[];
   commitmentRounds: CommitmentRound[];
+  resolutionPlans: ResolutionPlan[];
+  resolutionReceipts: ResolutionReceipt[];
   rng: SeededRngState;
   mechanicResults: MechanicResult[];
   causalAssertionResults: CausalAssertionResult[];
@@ -330,21 +344,10 @@ function validateCheckRequest(
       throw new Error(`check ${request.id} repeats modifier source ${sourceKey}`);
     }
     modifierSourceIds.add(sourceKey);
-    if (source.kind === "rating") {
-      const rating = state.truth.ratings[source.id];
-      if (!rating) throw new Error(`check ${request.id} has unknown rating modifier ${source.id}`);
-      if (rating.value !== source.amount) {
-        throw new Error(`check ${request.id} misstates rating modifier ${source.id}`);
-      }
-      continue;
-    }
-    const fact = state.truth.facts[source.id];
-    if (!fact) throw new Error(`check ${request.id} has unknown fact modifier ${source.id}`);
-    if (fact.value.kind !== "number") {
-      throw new Error(`check ${request.id} uses non-numeric fact modifier ${source.id}`);
-    }
-    if (fact.value.value !== source.amount) {
-      throw new Error(`check ${request.id} misstates fact modifier ${source.id}`);
+    const rating = state.truth.ratings[source.id];
+    if (!rating) throw new Error(`check ${request.id} has unknown rating modifier ${source.id}`);
+    if (rating.value !== source.amount) {
+      throw new Error(`check ${request.id} misstates rating modifier ${source.id}`);
     }
   }
   for (const cause of request.causes) validateCausalReference(cause, allowed, `check ${request.id}`);
@@ -352,6 +355,184 @@ function validateCheckRequest(
   if (visibilityRank[request.visibility] > visibilityRank[maximumVisibility]) {
     throw new Error(`check ${request.id} exceeds world disclosure policy ${maximumVisibility}`);
   }
+}
+
+function resolutionEvidenceIndex(
+  state: SimulationState,
+  actions: readonly AgentActionProposal[],
+  laws: readonly { id: string }[],
+): ResolutionEvidenceIndex {
+  return {
+    actions: new Set(actions.map((action) => action.id)),
+    entities: new Set(Object.keys(state.truth.entities)),
+    facts: new Set(Object.keys(state.truth.facts)),
+    conditions: new Set(Object.keys(state.truth.conditions)),
+    laws: new Set(laws.map((law) => law.id)),
+    placements: new Set(Object.keys(state.truth.entities)),
+    ratingOwners: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.entityId])),
+    ratingValues: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.value])),
+  };
+}
+
+function groundingContainsSource(grounding: ActionGrounding, source: ResolutionSourceRef): boolean {
+  if (grounding.globalFallback || source.kind === "action" || source.kind === "law") return true;
+  const kind = source.kind === "entity" || source.kind === "fact" || source.kind === "condition" ||
+    source.kind === "rating" || source.kind === "placement"
+    ? source.kind
+    : null;
+  return kind !== null && [...grounding.reads, ...grounding.writes]
+    .some((reference) => reference.kind === kind && reference.id === source.id);
+}
+
+function validatePlanEffect(
+  state: SimulationState,
+  plan: ResolutionPlan,
+  effect: NonNullable<ResolutionPlan["primaryEffect"]> | NonNullable<ResolutionPlan["threatenedEffect"]>,
+): void {
+  if (effect.kind === "meter") {
+    const meter = state.truth.meters[effect.meterId];
+    const profile = state.truth.mechanics.impactProfiles[effect.impactProfileId];
+    if (!meter || meter.entityId !== effect.targetId || !profile || profile.meterDefinitionId !== meter.definitionId) {
+      throw new Error(`plan ${plan.id} has invalid meter effect ${effect.id}`);
+    }
+    return;
+  }
+  const duration = state.truth.mechanics.durationProfiles[effect.durationProfileId];
+  const profile = effect.conditionProfileId
+    ? state.truth.mechanics.conditionProfiles[effect.conditionProfileId]
+    : null;
+  if (!duration || (effect.conditionProfileId !== null && !profile) ||
+    (profile && profile.defaultDurationProfileId !== effect.durationProfileId)) {
+    throw new Error(`plan ${plan.id} has invalid condition effect ${effect.id}`);
+  }
+}
+
+function materializeResolutionPlans(input: {
+  state: SimulationState;
+  definition: WorldDefinition;
+  actions: readonly AgentActionProposal[];
+  groundings: readonly ActionGrounding[];
+  identityOwner: string;
+  drafts: readonly ResolutionPlanDraft[];
+  allowedCauses: Record<CausalRef["kind"], Set<string>>;
+}): ResolutionPlan[] {
+  if (input.drafts.length !== input.actions.length) {
+    throw new Error("resolution plans must cover every final joint action exactly once");
+  }
+  const aliases = new Set<string>();
+  const actionIds = new Set<string>();
+  const evidence = resolutionEvidenceIndex(input.state, input.actions, input.definition.laws);
+  const visibilityRank = { hidden: 0, result_only: 1, full: 2 } as const;
+  const plans = input.drafts.map((draft, ordinal) => {
+    if (aliases.has(draft.id)) throw new Error(`duplicate resolution plan alias ${draft.id}`);
+    aliases.add(draft.id);
+    if (actionIds.has(draft.actionId)) throw new Error(`duplicate resolution plan for action ${draft.actionId}`);
+    actionIds.add(draft.actionId);
+    const action = input.actions.find((candidate) => candidate.id === draft.actionId);
+    if (!action) throw new Error(`resolution plan references unknown action ${draft.actionId}`);
+    const actor = input.state.agents[action.actorId];
+    if (!actor || draft.actorId !== actor.entityId || draft.goal !== action.goal) {
+      throw new Error(`resolution plan ${draft.id} changes actor or goal`);
+    }
+    const plan: ResolutionPlan = {
+      ...structuredClone(draft),
+      id: runtimeId({
+        worldHash: input.state.worldHash,
+        revision: input.state.revision,
+        kind: "resolution-plan",
+        stage: "resolution",
+        owner: [input.identityOwner, action.id],
+        round: 0,
+        ordinal,
+      }),
+    };
+    const grounding = input.groundings.find((candidate) => candidate.actionId === action.id);
+    if (!grounding) throw new Error(`resolution plan ${plan.id} has no action grounding`);
+    for (const mean of plan.means) {
+      if (!groundingContainsSource(grounding, mean.source)) {
+        throw new Error(`resolution plan ${plan.id} uses means outside its committed grounding`);
+      }
+    }
+    for (const factor of plan.factors) {
+      if (factor.authority === "authored" && factor.source.kind !== "rating" && factor.source.kind !== "law") {
+        throw new Error(`resolution plan ${plan.id} has an unauthoritative authored factor`);
+      }
+    }
+    if (visibilityRank[plan.visibility] > visibilityRank[input.definition.disclosure.defaultCheckVisibility]) {
+      throw new Error(`resolution plan ${plan.id} exceeds world disclosure policy`);
+    }
+    if (!plan.causes.some((cause) => cause.kind === "action" && cause.id === action.id)) {
+      throw new Error(`resolution plan ${plan.id} does not cite its action`);
+    }
+    for (const cause of plan.causes) {
+      if (cause.kind === "check" || cause.kind === "random" || cause.kind === "mechanic") {
+        throw new Error(`resolution plan ${plan.id} cites post-plan evidence`);
+      }
+      validateCausalReference(cause, input.allowedCauses, `resolution plan ${plan.id}`);
+    }
+    if ((plan.primaryEffect?.magnitude ?? "none") !== plan.baseEffect) {
+      throw new Error(`resolution plan ${plan.id} base effect does not match its primary effect`);
+    }
+    validateResolutionPlan(plan, evidence);
+    if (plan.primaryEffect) validatePlanEffect(input.state, plan, plan.primaryEffect);
+    if (plan.secondaryEffect) validatePlanEffect(input.state, plan, plan.secondaryEffect);
+    if (plan.threatenedEffect) validatePlanEffect(input.state, plan, plan.threatenedEffect);
+    return plan;
+  });
+  if (input.actions.some((action) => !actionIds.has(action.id))) {
+    throw new Error("resolution plans omit a final joint action");
+  }
+  return plans;
+}
+
+function checkRequestsForPlans(input: {
+  state: SimulationState;
+  plans: readonly ResolutionPlan[];
+  identityOwner: string;
+  round: number;
+  allowedCauses: Record<CausalRef["kind"], Set<string>>;
+  maximumVisibility: WorldDefinition["disclosure"]["defaultCheckVisibility"];
+}): D20CheckRequest[] {
+  const baseEvidence = resolutionEvidenceIndex(input.state, [], []);
+  const evidence: ResolutionEvidenceIndex = {
+    ...baseEvidence,
+    actions: new Set(input.plans.map((plan) => plan.actionId)),
+  };
+  return input.plans.filter((plan) => plan.mode === "check").map((plan, ordinal) => {
+    const derived = deriveCheck(plan, evidence);
+    if (!Number.isSafeInteger(derived.dc) || !Number.isSafeInteger(derived.modifier)) {
+      throw new Error(`resolution plan ${plan.id} derives a non-integer d20 value`);
+    }
+    const id = runtimeId({
+      worldHash: input.state.worldHash,
+      revision: input.state.revision,
+      kind: "check",
+      stage: "resolution",
+      owner: [input.identityOwner, plan.id],
+      round: input.round,
+      ordinal,
+    });
+    const request: D20CheckRequest = {
+      id,
+      actorId: plan.actorId,
+      targetId: plan.difficulty?.kind === "opposed"
+        ? plan.difficulty.targetId
+        : plan.primaryEffect?.targetId ?? plan.targetIds[0] ?? null,
+      ratingId: plan.actorRatingId,
+      modifier: derived.modifier,
+      modifierSources: plan.actorRatingId
+        ? [{ kind: "rating", id: plan.actorRatingId, amount: derived.modifier }]
+        : [],
+      dc: derived.dc,
+      mode: derived.mode,
+      stakes: `${plan.risk}: ${plan.primaryEffect?.description ?? plan.goal}`,
+      visibility: plan.visibility,
+      phase: "resolution",
+      causes: structuredClone(plan.causes),
+    };
+    validateCheckRequest(input.state, request, input.allowedCauses, input.maximumVisibility);
+    return request;
+  });
 }
 
 function validateReactionRequests(
@@ -594,18 +775,6 @@ function materializeWorldOperation(
         causes,
         assertions,
       };
-    case "set_meter":
-      return {
-        ...structuredClone(operation),
-        meter: {
-          ...structuredClone(operation.meter),
-          firedThresholdIds: structuredClone(
-            state.truth.meters[operation.meter.id]?.firedThresholdIds ?? [],
-          ),
-        },
-        causes,
-        assertions,
-      };
     case "create_agent": {
       const stampRecords = <T extends { id: string }>(records: Record<string, T>) =>
         Object.fromEntries(Object.entries(records).map(([id, record]) => [id, {
@@ -769,6 +938,7 @@ function validateTransitionEnvelope(
   proposal: TransitionProposal,
   checks: readonly D20CheckResult[],
   randomResults: readonly DiscreteRandomResult[],
+  resolutionReceipts: readonly ResolutionReceipt[],
 ): void {
   const proposalIds = actions.map((action) => action.id);
   const outcomeIds = proposal.outcomes.map((outcome) => outcome.proposalId);
@@ -802,6 +972,24 @@ function validateTransitionEnvelope(
     }
     historicalAgentIds.add(operation.agent.id);
     historicalAgentEntities.add(operation.agent.entityId);
+  }
+
+  const createdEntityIds = new Set(proposal.operations
+    .filter((operation) => operation.kind === "create_entity")
+    .map((operation) => operation.entity.id));
+  const profiledEntityIds = proposal.mechanicInvocations
+    .filter((invocation) => invocation.packageId === "core-resolution" &&
+      invocation.ruleId === "instantiate-entity-profile")
+    .map((invocation) => (invocation.input as { entityId?: unknown }).entityId)
+    .filter((entityId): entityId is string => typeof entityId === "string");
+  if (new Set(profiledEntityIds).size !== profiledEntityIds.length) {
+    throw new Error("a transition can instantiate at most one mechanics profile per entity");
+  }
+  for (const operation of proposal.operations) {
+    if (operation.kind === "create_agent" && createdEntityIds.has(operation.agent.entityId) &&
+      !profiledEntityIds.includes(operation.agent.entityId)) {
+      throw new Error(`new Agent entity ${operation.agent.entityId} requires an entity mechanics profile`);
+    }
   }
 
   const eventIds = new Set(input.state.truth.events.map((event) => event.id));
@@ -848,6 +1036,10 @@ function validateTransitionEnvelope(
 
   for (const action of actions) {
     const outcome = proposal.outcomes.find((candidate) => candidate.proposalId === action.id)!;
+    const receipt = resolutionReceipts.find((candidate) => candidate.plan.actionId === action.id);
+    if (!receipt || outcome.status !== expectedActionStatus(receipt)) {
+      throw new Error(`outcome for ${action.id} contradicts its resolution receipt`);
+    }
     if ((outcome.status === "failed" || outcome.status === "blocked") && !outcome.summary.trim()) {
       throw new Error(`failed outcome for ${action.actorId} requires an understandable summary`);
     }
@@ -913,6 +1105,8 @@ export class TruthEngine {
     const randomRequestIds = new Set(input.state.history.flatMap((step) =>
       step.randomRequests.map((request) => request.id)));
     const randomAliases = new Map<string, string | null>();
+    let resolutionPlans: ResolutionPlan[] = [];
+    let resolutionReceipts: ResolutionReceipt[] = [];
     let reactionRequests: ReactionRequest[] = [];
     let reactionDecisions: ReactionDecision[] = [];
     let reactionModelAudits: ModelExecutionAudit[] = [];
@@ -938,6 +1132,8 @@ export class TruthEngine {
       committedRandomRequests: randomRequests,
       randomResults,
       commitmentRounds,
+      resolutionPlans,
+      resolutionReceipts,
       groundings: input.groundings,
       instanceId: scope.workloadId,
       advanceId: scope.batchId,
@@ -1162,7 +1358,8 @@ export class TruthEngine {
 
     const resolutionAudits: ModelExecutionAudit[] = [];
     while (true) {
-      let acceptedChecks: D20CheckRequest[] | null = null;
+      let acceptedPlans: ResolutionPlan[] = [];
+      let acceptedPlanChecks: D20CheckRequest[] = [];
       let acceptedRandom: DiscreteRandomRequest[] | null = null;
       const call = await generateValidated({
         provider: this.provider,
@@ -1176,10 +1373,34 @@ export class TruthEngine {
         scope,
         buildContext: (issues) => truthContext("resolution", issues),
         validate: (directive) => {
-          if (directive.kind === "request_checks") {
-            acceptedChecks = normalizeCheckRound(directive.requests, "resolution");
+          if (directive.kind === "commit_plans") {
+            if (resolutionPlans.length > 0) throw new Error("resolution plans are already committed");
+            acceptedPlans = materializeResolutionPlans({
+              state: input.state,
+              definition: input.definition,
+              actions,
+              groundings: input.groundings,
+              identityOwner: input.identityOwner,
+              drafts: directive.plans,
+              allowedCauses: allowedForCommitments,
+            });
+            if (acceptedPlans.some((plan) => plan.mode === "check") &&
+              commitmentRounds.length >= this.maxCommitmentRounds) {
+              throw new Error("maximum commitment rounds exceeded");
+            }
+            acceptedPlanChecks = checkRequestsForPlans({
+              state: input.state,
+              plans: acceptedPlans,
+              identityOwner: input.identityOwner,
+              round: commitmentRounds.length,
+              allowedCauses: allowedForCommitments,
+              maximumVisibility: input.definition.disclosure.defaultCheckVisibility,
+            });
           } else if (directive.kind === "request_random") {
+            if (resolutionPlans.length === 0) throw new Error("resolution plans must be committed before random requests");
             acceptedRandom = normalizeRandomRound(directive.requests);
+          } else if (resolutionPlans.length === 0) {
+            throw new Error("resolution plans must be committed before resolution can finish");
           }
         },
         repairAttempts: this.repairAttempts,
@@ -1187,10 +1408,31 @@ export class TruthEngine {
       });
       resolutionAudits.push(call.audit);
       if (call.value.kind === "done") break;
-      if (call.value.kind === "request_checks") {
-        if (!acceptedChecks) throw new Error("accepted resolution check round was not materialized");
-        registerCheckAliases(call.value.requests, acceptedChecks);
-        commitCheckRound(acceptedChecks);
+      if (call.value.kind === "commit_plans") {
+        if (acceptedPlans.length === 0) throw new Error("accepted resolution plans were not materialized");
+        resolutionPlans = structuredClone(acceptedPlans);
+        if (acceptedPlanChecks.length > 0) commitCheckRound(acceptedPlanChecks);
+        const evidence = resolutionEvidenceIndex(input.state, actions, input.definition.laws);
+        let checkOrdinal = 0;
+        resolutionReceipts = resolutionPlans.map((plan, ordinal) => {
+          const request = plan.mode === "check" ? acceptedPlanChecks[checkOrdinal++]! : null;
+          const result = request ? checks.find((candidate) => candidate.requestId === request.id) ?? null : null;
+          return deriveResolutionReceipt({
+            receiptId: runtimeId({
+              worldHash: input.state.worldHash,
+              revision: input.state.revision,
+              kind: "resolution-receipt",
+              stage: "resolution",
+              owner: [input.identityOwner, plan.id],
+              round: 0,
+              ordinal,
+            }),
+            plan,
+            checkRequestId: request?.id ?? null,
+            check: plan.mode === "check" ? deriveCheck(plan, evidence) : null,
+            result,
+          });
+        });
       } else {
         if (!acceptedRandom) throw new Error("accepted random round was not materialized");
         registerRandomAliases(call.value.requests, acceptedRandom);
@@ -1276,14 +1518,81 @@ export class TruthEngine {
             },
           });
         }
+        if (directProposal.mechanicInvocations.some((invocation) =>
+          invocation.packageId === "core-resolution" &&
+          (invocation.ruleId === "apply-receipt" || invocation.ruleId === "advance-conditions"))) {
+          throw new Error("core-resolution settlement invocations are engine-owned");
+        }
+        const resolutionInvocations: MechanicInvocation[] = resolutionReceipts.map((receipt, ordinal) => {
+          const check = receipt.checkRequestId
+            ? checks.find((candidate) => candidate.requestId === receipt.checkRequestId)
+            : null;
+          return {
+            id: runtimeId({
+              worldHash: input.state.worldHash,
+              revision: input.state.revision,
+              kind: "mechanic",
+              stage: "resolution-effect",
+              owner: [input.identityOwner, receipt.id],
+              round: 0,
+              ordinal,
+            }),
+            packageId: "core-resolution",
+            ruleId: "apply-receipt",
+            input: { receiptId: receipt.id },
+            causes: structuredClone(receipt.plan.causes),
+            assertions: check ? [{
+              kind: "check_result" as const,
+              checkId: check.requestId,
+              expected: check.succeeded ? "succeeded" as const : "failed" as const,
+            }] : [{
+              kind: "entity_lifecycle" as const,
+              entityId: receipt.plan.actorId,
+              expected: input.state.truth.entities[receipt.plan.actorId]?.lifecycle ?? "active",
+            }],
+          };
+        });
+        const conditionAdvanceInvocation: MechanicInvocation = {
+          id: runtimeId({
+            worldHash: input.state.worldHash,
+            revision: input.state.revision,
+            kind: "mechanic",
+            stage: "condition-advance",
+            owner: input.identityOwner,
+            round: 0,
+            ordinal: resolutionInvocations.length,
+          }),
+          packageId: "core-resolution",
+          ruleId: "advance-conditions",
+          input: { seconds: input.simulatedSeconds },
+          causes: actions.map((action) => ({ kind: "action" as const, id: action.id })),
+          assertions: [{
+            kind: "elapsed_seconds_compare",
+            operator: "eq",
+            value: input.state.truth.elapsedSeconds,
+          }],
+        };
         const mechanics = this.rulePackages.resolve(input.definition.rulePackages, {
           state: input.state,
           actions,
+          resolutionPlans,
+          resolutionReceipts,
           checkRequests: requests,
           checkResults: checks,
           randomRequests,
           randomResults,
-        }, directProposal.mechanicInvocations, directProposal.operations);
+        }, [
+          ...directProposal.mechanicInvocations,
+          ...resolutionInvocations,
+          conditionAdvanceInvocation,
+        ], directProposal.operations);
+        resolutionReceipts = resolutionReceipts.map((receipt) => {
+          const invocation = resolutionInvocations.find((candidate) =>
+            (candidate.input as { receiptId: string }).receiptId === receipt.id)!;
+          const result = mechanics.results.find((candidate) => candidate.invocationId === invocation.id);
+          if (!result) throw new Error(`resolution receipt ${receipt.id} has no trusted mechanic result`);
+          return { ...structuredClone(receipt), operations: structuredClone(result.operations) };
+        });
         const proposal: TransitionProposal = {
           ...structuredClone(directProposal),
           mechanicInvocations: mechanics.invocations,
@@ -1307,7 +1616,7 @@ export class TruthEngine {
         proposal.observations = structuredClone(rendered.packets);
         observationAudits.push(...structuredClone(rendered.modelAudits));
 
-        validateTransitionEnvelope(input, actions, proposal, checks, randomResults);
+        validateTransitionEnvelope(input, actions, proposal, checks, randomResults, resolutionReceipts);
         const causalAssertionResults = evaluateProposalCausality(input.state, checks, randomResults, proposal);
         input.validateProposal(proposal, checks, randomResults, actions, stimulusObservations);
 
@@ -1330,6 +1639,8 @@ export class TruthEngine {
             randomRequests,
             randomResults,
             commitmentRounds,
+            resolutionPlans,
+            resolutionReceipts,
             proposal,
             assertionResults: causalAssertionResults,
             mechanicResults: mechanics.results,
@@ -1387,6 +1698,8 @@ export class TruthEngine {
           randomRequests: structuredClone(randomRequests),
           randomResults: structuredClone(randomResults),
           commitmentRounds: structuredClone(commitmentRounds),
+          resolutionPlans: structuredClone(resolutionPlans),
+          resolutionReceipts: structuredClone(resolutionReceipts),
           rng,
           mechanicResults: structuredClone(mechanics.results),
           causalAssertionResults: structuredClone(causalAssertionResults),

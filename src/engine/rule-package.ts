@@ -2,6 +2,7 @@ import { z } from "zod";
 import { worldDeltaOperationSchema } from "./llm-schemas";
 import type {
   AgentActionProposal,
+  CausalAssertion,
   D20CheckRequest,
   D20CheckResult,
   DiscreteRandomRequest,
@@ -11,6 +12,13 @@ import type {
   SimulationState,
   WorldDeltaOperation,
 } from "./model";
+import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
+import {
+  deriveClampedMeterDelta,
+  materializeCondition,
+  mergeCondition,
+} from "./resolution";
+import { quantityId } from "./runtime-id";
 
 export interface RulePackageReference {
   id: string;
@@ -23,10 +31,14 @@ export interface RulePackageReference {
 export interface RuleExecutionContext {
   state: SimulationState;
   actions: readonly AgentActionProposal[];
+  resolutionPlans: readonly ResolutionPlan[];
+  resolutionReceipts: readonly ResolutionReceipt[];
   checkRequests: readonly D20CheckRequest[];
   checkResults: readonly D20CheckResult[];
   randomRequests: readonly DiscreteRandomRequest[];
   randomResults: readonly DiscreteRandomResult[];
+  priorMechanicResults?: readonly MechanicResult[];
+  candidateDirectOperations?: readonly WorldDeltaOperation[];
 }
 
 export interface RuleResultDraft {
@@ -159,19 +171,33 @@ export class RulePackageRegistry {
       const normalizedInvocation = { ...structuredClone(invocation), input: structuredClone(input) };
       normalizedInvocations.push(normalizedInvocation);
       const draft = ruleResultDraftSchema.parse(rule.resolve(
-        structuredClone(context),
+        {
+          ...structuredClone(context),
+          priorMechanicResults: structuredClone(results),
+          candidateDirectOperations: structuredClone(directOperations),
+        },
         structuredClone(entry.config),
         structuredClone(input),
         structuredClone(normalizedInvocation),
       ));
-      if (draft.operations.some((operation) => operation.causes.some((cause) => cause.kind === "mechanic"))) {
-        throw new Error(`rule ${invocation.packageId}/${invocation.ruleId} cannot claim mechanic provenance`);
+      const invocationMechanics = new Set(invocation.causes
+        .filter((cause) => cause.kind === "mechanic")
+        .map((cause) => cause.id));
+      if (draft.operations.some((operation) => operation.causes.some((cause) =>
+        cause.kind === "mechanic" && !invocationMechanics.has(cause.id)))) {
+        throw new Error(`rule ${invocation.packageId}/${invocation.ruleId} claims undeclared mechanic provenance`);
       }
       const mechanicCause = { kind: "mechanic" as const, id: invocation.id };
       const derived = draft.operations.map((operation) => ({
         ...structuredClone(operation),
         causes: [...structuredClone(operation.causes), mechanicCause],
-      }));
+        ...(operation.kind === "set_condition" ? {
+          condition: {
+            ...structuredClone(operation.condition),
+            provenance: [...structuredClone(operation.condition.provenance), mechanicCause],
+          },
+        } : {}),
+      })) as WorldDeltaOperation[];
       results.push({
         invocationId: invocation.id,
         packageId: invocation.packageId,
@@ -188,16 +214,539 @@ export class RulePackageRegistry {
 
 const coreResolutionConfigSchema = z.strictObject({});
 
+const applyReceiptInputSchema = z.strictObject({
+  receiptId: z.string().regex(/^rt:resolution-receipt:[a-f0-9]{64}$/),
+});
+
+function priorDerivedOperations(context: RuleExecutionContext): WorldDeltaOperation[] {
+  return context.priorMechanicResults?.flatMap((result) => structuredClone(result.operations)) ?? [];
+}
+
+function projectedConditions(context: RuleExecutionContext): Map<string, import("./resolution").ConditionState> {
+  const projected = new Map(Object.values(context.state.truth.conditions)
+    .map((condition) => [condition.id, structuredClone(condition)]));
+  for (const operation of priorDerivedOperations(context)) {
+    if (operation.kind === "set_condition") projected.set(operation.condition.id, structuredClone(operation.condition));
+    if (operation.kind === "remove_condition") projected.delete(operation.conditionId);
+  }
+  return projected;
+}
+
+function projectedMeterCurrents(context: RuleExecutionContext): Map<string, number> {
+  const projected = new Map(Object.values(context.state.truth.meters).map((meter) => [meter.id, meter.current]));
+  for (const operation of priorDerivedOperations(context)) {
+    if (operation.kind === "set_meter") projected.set(operation.meter.id, operation.meter.current);
+    if (operation.kind === "adjust_meter") {
+      const current = projected.get(operation.meterId);
+      if (current === undefined) throw new Error(`prior mechanic adjusts unknown meter ${operation.meterId}`);
+      projected.set(operation.meterId, current + operation.amount);
+    }
+  }
+  return projected;
+}
+
+function conditionSources(plan: ResolutionPlan): Set<string> {
+  const sources = [
+    ...plan.means.map((mean) => mean.source),
+    ...plan.factors.map((factor) => factor.source),
+    ...(plan.difficulty ? [plan.difficulty.source] : []),
+    ...(plan.primaryEffect?.sourceRefs ?? []),
+    ...(plan.secondaryEffect?.sourceRefs ?? []),
+    ...(plan.threatenedEffect?.sourceRefs ?? []),
+  ];
+  return new Set(sources.filter((source) => source.kind === "condition").map((source) => source.id));
+}
+
+const applyReceipt: MechanicRule = {
+  id: "apply-receipt",
+  description: "从已提交的 ResolutionReceipt 和世界 mechanics profiles 派生 Meter 与 Condition 操作。输入只能引用 receipt，不能携带数值。",
+  inputSchema: applyReceiptInputSchema,
+  resolve: (context, _config, input, invocation) => {
+    const receiptId = (input as z.infer<typeof applyReceiptInputSchema>).receiptId;
+    const receipt = context.resolutionReceipts.find((candidate) => candidate.id === receiptId);
+    if (!receipt) throw new Error(`unknown resolution receipt ${receiptId}`);
+    if (receipt.operations.length > 0) throw new Error(`resolution receipt ${receiptId} is already finalized`);
+    const checkResult = receipt.checkRequestId
+      ? context.checkResults.find((candidate) => candidate.requestId === receipt.checkRequestId)
+      : null;
+    if (receipt.checkRequestId && !checkResult) throw new Error(`resolution receipt ${receiptId} has no check result`);
+    const assertions: CausalAssertion[] = checkResult ? [{
+      kind: "check_result",
+      checkId: checkResult.requestId,
+      expected: checkResult.succeeded ? "succeeded" : "failed",
+    }] : [{
+      kind: "entity_lifecycle",
+      entityId: receipt.plan.actorId,
+      expected: context.state.truth.entities[receipt.plan.actorId]?.lifecycle ?? "active",
+    }];
+    const causes = structuredClone(invocation.causes);
+    const operations: WorldDeltaOperation[] = [];
+    const conditionMap = projectedConditions(context);
+    const meterCurrents = projectedMeterCurrents(context);
+    for (const conditionId of [...conditionSources(receipt.plan)].sort()) {
+      const condition = conditionMap.get(conditionId);
+      if (!condition || condition.remainingUses === null) continue;
+      if (condition.remainingUses <= 1) {
+        operations.push({
+          kind: "remove_condition",
+          conditionId,
+          causes: structuredClone(causes),
+          assertions: structuredClone(assertions),
+        });
+        conditionMap.delete(conditionId);
+      } else {
+        const consumed = {
+          ...structuredClone(condition),
+          remainingUses: condition.remainingUses - 1,
+          provenance: structuredClone(causes),
+        };
+        operations.push({
+          kind: "set_condition",
+          condition: consumed,
+          causes: structuredClone(causes),
+          assertions: structuredClone(assertions),
+        });
+        conditionMap.set(conditionId, consumed);
+      }
+    }
+    for (const effect of receipt.effects) {
+      if (effect.intent.kind === "meter") {
+        const meter = context.state.truth.meters[effect.intent.meterId];
+        const definition = meter ? context.state.truth.mechanics.meters[meter.definitionId] : null;
+        const profile = context.state.truth.mechanics.impactProfiles[effect.intent.impactProfileId];
+        if (!meter || !definition || meter.entityId !== effect.intent.targetId || !profile ||
+          profile.meterDefinitionId !== meter.definitionId) {
+          throw new Error(`receipt ${receiptId} has an invalid meter effect ${effect.intent.id}`);
+        }
+        const unsigned = profile.amounts[effect.magnitude];
+        const desired = profile.direction === "increase" ? unsigned : -unsigned;
+        const current = meterCurrents.get(meter.id);
+        if (current === undefined) throw new Error(`receipt ${receiptId} has no projected meter ${meter.id}`);
+        const amount = deriveClampedMeterDelta(current, definition.min, definition.max, desired);
+        if (amount !== 0) {
+          operations.push({
+            kind: "adjust_meter",
+            meterId: meter.id,
+            amount,
+            causes: structuredClone(causes),
+            assertions: structuredClone(assertions),
+          });
+          meterCurrents.set(meter.id, current + amount);
+        }
+        continue;
+      }
+      const duration = context.state.truth.mechanics.durationProfiles[effect.intent.durationProfileId];
+      const profile = effect.intent.conditionProfileId
+        ? context.state.truth.mechanics.conditionProfiles[effect.intent.conditionProfileId]
+        : null;
+      if (!duration || (effect.intent.conditionProfileId !== null && !profile)) {
+        throw new Error(`receipt ${receiptId} has an invalid condition effect ${effect.intent.id}`);
+      }
+      const incoming = materializeCondition({
+        intent: effect.intent,
+        magnitude: effect.magnitude,
+        duration,
+        profile,
+        elapsedSeconds: context.state.truth.elapsedSeconds,
+        provenance: causes,
+      });
+      const merged = mergeCondition([...conditionMap.values()], incoming);
+      conditionMap.clear();
+      for (const condition of merged.conditions) conditionMap.set(condition.id, condition);
+      operations.push({
+        kind: "set_condition",
+        condition: merged.condition,
+        causes: structuredClone(causes),
+        assertions: structuredClone(assertions),
+      });
+    }
+    return {
+      code: receipt.effects.length === 0 ? "receipt-settled-no-effect" : "receipt-effects-derived",
+      data: {
+        receiptId,
+        outcome: receipt.outcome,
+        effects: receipt.effects.map((effect) => ({
+          id: effect.intent.id,
+          role: effect.role,
+          magnitude: effect.magnitude,
+        })),
+      },
+      operations,
+    };
+  },
+};
+
+const advanceConditionsInputSchema = z.strictObject({
+  seconds: z.number().int().positive(),
+});
+
+const advanceConditions: MechanicRule = {
+  id: "advance-conditions",
+  description: "在引擎推进模拟时间前，按 condition/duration/impact profiles 结算持续影响和到期状态。",
+  inputSchema: advanceConditionsInputSchema,
+  resolve: (context, _config, input, invocation) => {
+    const { seconds } = input as z.infer<typeof advanceConditionsInputSchema>;
+    const conditions = projectedConditions(context);
+    const meterCurrents = projectedMeterCurrents(context);
+    const operations: WorldDeltaOperation[] = [];
+    const end = context.state.truth.elapsedSeconds + seconds;
+    for (const condition of [...conditions.values()].sort((left, right) => left.id.localeCompare(right.id))) {
+      const profile = condition.conditionProfileId
+        ? context.state.truth.mechanics.conditionProfiles[condition.conditionProfileId]
+        : null;
+      if (profile?.recurringImpactProfileId) {
+        const impact = context.state.truth.mechanics.impactProfiles[profile.recurringImpactProfileId];
+        const meter = Object.values(context.state.truth.meters).find((candidate) =>
+          candidate.entityId === condition.subjectId && candidate.definitionId === impact?.meterDefinitionId);
+        const definition = meter ? context.state.truth.mechanics.meters[meter.definitionId] : null;
+        if (!impact || !meter || !definition) {
+          throw new Error(`condition ${condition.id} has no meter for recurring impact`);
+        }
+        const current = meterCurrents.get(meter.id);
+        if (current === undefined) throw new Error(`condition ${condition.id} has no projected meter state`);
+        const unsigned = impact.amounts[condition.magnitude];
+        const desired = impact.direction === "increase" ? unsigned : -unsigned;
+        const amount = deriveClampedMeterDelta(current, definition.min, definition.max, desired);
+        if (amount !== 0) {
+          operations.push({
+            kind: "adjust_meter",
+            meterId: meter.id,
+            amount,
+            causes: structuredClone(invocation.causes),
+            assertions: [{ kind: "meter_compare", meterId: meter.id, operator: "eq", value: current }],
+          });
+          meterCurrents.set(meter.id, current + amount);
+        }
+      }
+      if (condition.expiresAtElapsedSeconds !== null && condition.expiresAtElapsedSeconds <= end) {
+        operations.push({
+          kind: "remove_condition",
+          conditionId: condition.id,
+          causes: structuredClone(invocation.causes),
+          assertions: [{
+            kind: "elapsed_seconds_compare",
+            operator: "eq",
+            value: context.state.truth.elapsedSeconds,
+          }],
+        });
+      }
+    }
+    return {
+      code: operations.length === 0 ? "conditions-unchanged" : "conditions-advanced",
+      data: { seconds, endElapsedSeconds: end, operationCount: operations.length },
+      operations,
+    };
+  },
+};
+
+const quantityAmountSourceSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("explicit_action_amount"),
+    actionId: z.string().min(1),
+    quotedText: z.string().trim().min(1).max(64),
+    amount: z.number().positive().finite(),
+  }),
+  z.strictObject({
+    kind: z.literal("existing_state"),
+    quantityId: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal("random_result"),
+    requestId: z.string().min(1),
+    stepId: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal("trusted_rule"),
+    mechanicId: z.string().min(1),
+    dataPath: z.array(z.string().min(1)).min(1).max(8),
+  }),
+]);
+
+type QuantityAmountSource = z.infer<typeof quantityAmountSourceSchema>;
+
+const chineseDigit = new Map([
+  ["零", 0], ["〇", 0], ["一", 1], ["二", 2], ["两", 2], ["三", 3], ["四", 4],
+  ["五", 5], ["六", 6], ["七", 7], ["八", 8], ["九", 9],
+]);
+const chineseUnit = new Map([["十", 10], ["百", 100], ["千", 1_000]]);
+
+function parseExplicitNumber(text: string): number | null {
+  if (/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(text)) return Number(text);
+  if (![...text].every((character) => chineseDigit.has(character) || chineseUnit.has(character))) return null;
+  if (![...text].some((character) => chineseUnit.has(character))) {
+    const digits = [...text].map((character) => chineseDigit.get(character)!);
+    return Number(digits.join(""));
+  }
+  let total = 0;
+  let current = 0;
+  for (const character of text) {
+    const digit = chineseDigit.get(character);
+    if (digit !== undefined) {
+      current = digit;
+      continue;
+    }
+    const unit = chineseUnit.get(character)!;
+    total += (current || 1) * unit;
+    current = 0;
+  }
+  return total + current;
+}
+
+function valueAtPath(value: unknown, path: readonly string[]): unknown {
+  let current = value;
+  for (const part of path) {
+    if (!current || typeof current !== "object" || !(part in current)) return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function deriveQuantityAmount(
+  context: RuleExecutionContext,
+  source: QuantityAmountSource,
+): { amount: number; assertion: CausalAssertion | null } {
+  if (source.kind === "explicit_action_amount") {
+    const action = context.actions.find((candidate) => candidate.id === source.actionId);
+    const sourceText = action ? [action.rawText, action.goal, action.means ?? ""].join("\n") : "";
+    const parsed = parseExplicitNumber(source.quotedText);
+    if (!action || !sourceText.includes(source.quotedText) || parsed !== source.amount) {
+      throw new Error("explicit quantity amount is not present verbatim in its action");
+    }
+    return { amount: source.amount, assertion: null };
+  }
+  if (source.kind === "existing_state") {
+    const quantity = context.state.truth.quantities[source.quantityId];
+    if (!quantity) throw new Error(`unknown existing quantity ${source.quantityId}`);
+    return {
+      amount: quantity.amount,
+      assertion: {
+        kind: "quantity_compare",
+        definitionId: quantity.definitionId,
+        holderId: quantity.holderId,
+        operator: "eq",
+        value: quantity.amount,
+      },
+    };
+  }
+  if (source.kind === "random_result") {
+    const result = context.randomResults.find((candidate) => candidate.requestId === source.requestId);
+    const step = result?.steps.find((candidate) => candidate.stepId === source.stepId);
+    if (!step || typeof step.aggregate !== "number" || !Number.isFinite(step.aggregate) || step.aggregate <= 0) {
+      throw new Error("random quantity amount is not a positive committed number");
+    }
+    return {
+      amount: step.aggregate,
+      assertion: {
+        kind: "random_result",
+        requestId: source.requestId,
+        stepId: source.stepId,
+        expected: step.aggregate,
+      },
+    };
+  }
+  const result = context.priorMechanicResults?.find((candidate) => candidate.invocationId === source.mechanicId);
+  const value = result ? valueAtPath(result.data, source.dataPath) : undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error("trusted rule quantity amount is not a positive prior mechanic result");
+  }
+  return { amount: value, assertion: null };
+}
+
+function validateQuantitySourceCause(source: QuantityAmountSource, invocation: MechanicInvocation): void {
+  const required = source.kind === "explicit_action_amount"
+    ? { kind: "action" as const, id: source.actionId }
+    : source.kind === "random_result"
+      ? { kind: "random" as const, id: source.requestId }
+      : source.kind === "trusted_rule"
+        ? { kind: "mechanic" as const, id: source.mechanicId }
+        : null;
+  if (required && !invocation.causes.some((cause) => cause.kind === required.kind && cause.id === required.id)) {
+    throw new Error(`${source.kind} quantity source is absent from mechanic causes`);
+  }
+}
+
+const transferQuantityInputSchema = z.strictObject({
+  definitionId: z.string().min(1),
+  fromHolderId: z.string().min(1),
+  toHolderId: z.string().min(1),
+  amountSource: quantityAmountSourceSchema,
+});
+
+const transferQuantity: MechanicRule = {
+  id: "transfer-quantity",
+  description: "按 explicit_action_amount、existing_state、random_result 或 trusted_rule provenance 派生守恒转移量。",
+  inputSchema: transferQuantityInputSchema,
+  resolve: (context, _config, input, invocation) => {
+    const value = input as z.infer<typeof transferQuantityInputSchema>;
+    validateQuantitySourceCause(value.amountSource, invocation);
+    const derived = deriveQuantityAmount(context, value.amountSource);
+    const from = Object.values(context.state.truth.quantities).find((quantity) =>
+      quantity.definitionId === value.definitionId && quantity.holderId === value.fromHolderId);
+    if (!from || from.amount < derived.amount || value.fromHolderId === value.toHolderId ||
+      !context.state.truth.entities[value.toHolderId]) throw new Error("invalid or insufficient quantity transfer");
+    if (value.amountSource.kind === "explicit_action_amount") {
+      const actionId = value.amountSource.actionId;
+      const action = context.actions.find((candidate) => candidate.id === actionId);
+      if (!action || context.state.agents[action.actorId]?.entityId !== value.fromHolderId) {
+        throw new Error("explicit transfer amount belongs to another holder");
+      }
+    }
+    return {
+      code: "quantity-transfer-derived",
+      data: { amount: derived.amount, provenance: value.amountSource.kind },
+      operations: [{
+        kind: "transfer_quantity",
+        definitionId: value.definitionId,
+        fromHolderId: value.fromHolderId,
+        toHolderId: value.toHolderId,
+        amount: derived.amount,
+        causes: structuredClone(invocation.causes),
+        assertions: [derived.assertion ?? {
+          kind: "quantity_compare",
+          definitionId: value.definitionId,
+          holderId: value.fromHolderId,
+          operator: "gte",
+          value: derived.amount,
+        }],
+      }],
+    };
+  },
+};
+
+const changeQuantityInputSchema = z.strictObject({
+  kind: z.enum(["produce", "consume"]),
+  definitionId: z.string().min(1),
+  holderId: z.string().min(1),
+  lawId: z.string().min(1),
+  amountSource: quantityAmountSourceSchema,
+});
+
+const changeQuantity: MechanicRule = {
+  id: "change-quantity",
+  description: "在 Quantity 声明的生产/消耗法则下，从四类允许 provenance 派生数量。",
+  inputSchema: changeQuantityInputSchema,
+  resolve: (context, _config, input, invocation) => {
+    const value = input as z.infer<typeof changeQuantityInputSchema>;
+    validateQuantitySourceCause(value.amountSource, invocation);
+    const definition = context.state.truth.mechanics.quantities[value.definitionId];
+    const laws = value.kind === "produce" ? definition?.productionLawIds : definition?.consumptionLawIds;
+    if (!laws?.includes(value.lawId) || !invocation.causes.some((cause) => cause.kind === "law" && cause.id === value.lawId)) {
+      throw new Error(`law ${value.lawId} cannot authorize ${value.kind} quantity`);
+    }
+    if (!context.state.truth.entities[value.holderId]) throw new Error(`unknown quantity holder ${value.holderId}`);
+    const derived = deriveQuantityAmount(context, value.amountSource);
+    const quantity = Object.values(context.state.truth.quantities).find((candidate) =>
+      candidate.definitionId === value.definitionId && candidate.holderId === value.holderId);
+    if (value.kind === "consume" && (!quantity || quantity.amount < derived.amount)) {
+      throw new Error("insufficient quantity consumption");
+    }
+    const operation = value.kind === "produce" ? {
+      kind: "produce_quantity" as const,
+      definitionId: value.definitionId,
+      holderId: value.holderId,
+      amount: derived.amount,
+      lawId: value.lawId,
+    } : {
+      kind: "consume_quantity" as const,
+      definitionId: value.definitionId,
+      holderId: value.holderId,
+      amount: derived.amount,
+      lawId: value.lawId,
+    };
+    return {
+      code: `quantity-${value.kind}-derived`,
+      data: { amount: derived.amount, provenance: value.amountSource.kind },
+      operations: [{
+        ...operation,
+        causes: structuredClone(invocation.causes),
+        assertions: [derived.assertion ?? {
+          kind: "entity_lifecycle",
+          entityId: value.holderId,
+          expected: context.state.truth.entities[value.holderId].lifecycle,
+        }],
+      }],
+    };
+  },
+};
+
+const instantiateEntityProfileInputSchema = z.strictObject({
+  entityId: z.string().min(1),
+  profileId: z.string().min(1),
+});
+
+const instantiateEntityProfile: MechanicRule = {
+  id: "instantiate-entity-profile",
+  description: "为同一 transition 新建的 Entity 按 entity_mechanics_profile 确定性初始化 Meter、Quantity 与 Rating。",
+  inputSchema: instantiateEntityProfileInputSchema,
+  resolve: (context, _config, input, invocation) => {
+    const value = input as z.infer<typeof instantiateEntityProfileInputSchema>;
+    if (context.state.truth.entities[value.entityId] ||
+      !context.candidateDirectOperations?.some((operation) =>
+        operation.kind === "create_entity" && operation.entity.id === value.entityId)) {
+      throw new Error(`entity profile target ${value.entityId} is not created by this transition`);
+    }
+    const profile = context.state.truth.mechanics.entityMechanicsProfiles[value.profileId];
+    if (!profile) throw new Error(`unknown entity mechanics profile ${value.profileId}`);
+    const assertions: CausalAssertion[] = [{ kind: "entity_absent", entityId: value.entityId }];
+    const operations: WorldDeltaOperation[] = [
+      ...profile.meters.map((entry) => ({
+        kind: "set_meter" as const,
+        meter: {
+          id: `${value.entityId}-${entry.definitionId}`,
+          definitionId: entry.definitionId,
+          entityId: value.entityId,
+          current: entry.current,
+          firedThresholdIds: [],
+        },
+        causes: structuredClone(invocation.causes),
+        assertions: structuredClone(assertions),
+      })),
+      ...profile.quantities.map((entry) => ({
+        kind: "set_quantity" as const,
+        quantity: {
+          id: quantityId(context.state.worldHash, entry.definitionId, value.entityId),
+          definitionId: entry.definitionId,
+          holderId: value.entityId,
+          amount: entry.amount,
+        },
+        causes: structuredClone(invocation.causes),
+        assertions: structuredClone(assertions),
+      })),
+      ...profile.ratings.map((entry) => ({
+        kind: "set_rating" as const,
+        rating: {
+          id: `${value.entityId}-${entry.definitionId}`,
+          definitionId: entry.definitionId,
+          entityId: value.entityId,
+          value: entry.value,
+        },
+        causes: structuredClone(invocation.causes),
+        assertions: structuredClone(assertions),
+      })),
+    ];
+    return {
+      code: "entity-mechanics-profile-instantiated",
+      data: { entityId: value.entityId, profileId: value.profileId, operationCount: operations.length },
+      operations,
+    };
+  },
+};
+
 export const coreResolutionRulePackage: RulePackage = {
   id: "core-resolution",
   version: "2.0.0",
   adjudication: "先提交 ResolutionPlan，再由引擎把命名难度、风险和效果档确定性映射为 d20 检定与规则效果。模型不得提交 raw DC、modifier、Meter delta、Condition 强度或 Rating 数值。",
   configSchema: coreResolutionConfigSchema,
-  rules: [],
+  rules: [applyReceipt, advanceConditions, transferQuantity, changeQuantity, instantiateEntityProfile],
   validateDirectOperations: (_context, _config, operations) => {
     for (const operation of operations) {
-      if (operation.kind === "adjust_meter" || operation.kind === "set_meter" || operation.kind === "set_rating") {
+      if (operation.kind === "adjust_meter" || operation.kind === "set_meter" || operation.kind === "set_rating" ||
+        operation.kind === "set_condition" || operation.kind === "remove_condition") {
         throw new Error(`${operation.kind} must be derived by a trusted core-resolution rule`);
+      }
+      if (operation.kind === "transfer_quantity" || operation.kind === "produce_quantity" ||
+        operation.kind === "consume_quantity" || operation.kind === "set_quantity") {
+        throw new Error(`${operation.kind} amount must be derived by a trusted core-resolution rule`);
       }
     }
   },

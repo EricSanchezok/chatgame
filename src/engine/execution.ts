@@ -139,6 +139,7 @@ export type FootprintRef =
   | { kind: "meter"; id: string }
   | { kind: "quantity"; id: string }
   | { kind: "rating"; id: string }
+  | { kind: "condition"; id: string }
   | { kind: "global"; id: "world" };
 
 export interface ActionGrounding {

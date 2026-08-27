@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 export type RuntimeIdKind =
   | "action"
   | "check"
+  | "resolution-plan"
+  | "resolution-receipt"
   | "random"
   | "mechanic"
   | "event"

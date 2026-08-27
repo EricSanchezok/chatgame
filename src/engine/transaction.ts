@@ -27,10 +27,18 @@ import {
   persistedTransitionProposalSchema,
   reactionDecisionSchema,
   reactionRequestSchema,
+  resolutionPlanSchema,
+  resolutionReceiptSchema,
 } from "./llm-schemas";
 import { modelInferenceSchema, modelRoles } from "./model-catalog";
 import { contentHash, isSha256 } from "./model-audit";
 import { applyObservationBindings, validateObservations } from "./observation";
+import {
+  deriveCheck,
+  deriveResolutionReceipt,
+  validateResolutionPlan,
+  type ResolutionEvidenceIndex,
+} from "./resolution";
 import {
   actionProposalSchema,
   agentStateSchema,
@@ -237,6 +245,17 @@ export function applyWorldDeltaOperation(state: SimulationState, operation: Worl
       quantity.amount += operation.kind === "produce_quantity" ? operation.amount : -operation.amount;
       return;
     }
+    case "set_quantity": {
+      const quantity = operation.quantity;
+      const expectedId = quantityId(state.worldHash, quantity.definitionId, quantity.holderId);
+      if (quantity.id !== expectedId || state.truth.quantities[quantity.id] ||
+        !state.truth.mechanics.quantities[quantity.definitionId] || !state.truth.entities[quantity.holderId] ||
+        !Number.isFinite(quantity.amount) || quantity.amount < 0) {
+        throw new Error(`invalid quantity initialization ${quantity.id}`);
+      }
+      state.truth.quantities[quantity.id] = structuredClone(quantity);
+      return;
+    }
     case "set_rating": {
       const existing = state.truth.ratings[operation.rating.id];
       if (existing && (existing.definitionId !== operation.rating.definitionId || existing.entityId !== operation.rating.entityId)) {
@@ -248,6 +267,24 @@ export function applyWorldDeltaOperation(state: SimulationState, operation: Worl
       state.truth.ratings[operation.rating.id] = structuredClone(operation.rating);
       return;
     }
+    case "set_condition": {
+      conditionStateSchema.parse(operation.condition);
+      const existing = state.truth.conditions[operation.condition.id];
+      if (!state.truth.entities[operation.condition.subjectId] ||
+        (existing && existing.subjectId !== operation.condition.subjectId) ||
+        !state.truth.mechanics.durationProfiles[operation.condition.durationProfileId] ||
+        (operation.condition.conditionProfileId !== null &&
+          !state.truth.mechanics.conditionProfiles[operation.condition.conditionProfileId]) ||
+        contentHash(operation.condition.provenance) !== contentHash(operation.causes)) {
+        throw new Error(`invalid condition ${operation.condition.id}`);
+      }
+      state.truth.conditions[operation.condition.id] = structuredClone(operation.condition);
+      return;
+    }
+    case "remove_condition":
+      if (!state.truth.conditions[operation.conditionId]) throw new Error(`unknown condition ${operation.conditionId}`);
+      delete state.truth.conditions[operation.conditionId];
+      return;
     case "advance_time":
       if (!Number.isSafeInteger(operation.seconds) || operation.seconds <= 0) throw new Error("time advance must be positive seconds");
       state.truth.elapsedSeconds += operation.seconds;
@@ -398,7 +435,7 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
   state.admissions.push(commit);
 }
 
-function validateCommittedStepShape(step: CommittedStep): void {
+function validateCommittedStepShape(step: CommittedStep, state: SimulationState): void {
   if (step.semanticHash !== semanticStepHash(step)) throw new Error(`step ${step.step} semantic hash mismatch`);
   const payload = structuredClone(step) as Partial<CommittedStep>;
   delete payload.contentHash;
@@ -410,10 +447,90 @@ function validateCommittedStepShape(step: CommittedStep): void {
   step.reactionDecisions.forEach((decision) => reactionDecisionSchema.parse(decision));
   step.checkRequests.forEach((request) => persistedCheckRequestSchema.parse(request));
   step.checks.forEach((result) => d20CheckResultSchema.parse(result));
+  step.resolutionPlans.forEach((plan) => resolutionPlanSchema.parse(plan));
+  step.resolutionReceipts.forEach((receipt) => resolutionReceiptSchema.parse(receipt));
+  assertUnique(step.resolutionPlans.map((plan) => plan.id), `step ${step.step} resolution plans`);
+  assertUnique(step.resolutionReceipts.map((receipt) => receipt.id), `step ${step.step} resolution receipts`);
+  if (contentHash(step.resolutionPlans.map((plan) => plan.actionId).sort()) !==
+    contentHash(step.actions.map((action) => action.id).sort())) {
+    throw new Error(`step ${step.step} resolution plans do not cover actions`);
+  }
+  if (step.resolutionReceipts.length !== step.resolutionPlans.length) {
+    throw new Error(`step ${step.step} resolution receipts do not cover plans`);
+  }
+  const evidence: ResolutionEvidenceIndex = {
+    actions: new Set(step.actions.map((action) => action.id)),
+    entities: new Set(Object.keys(state.truth.entities)),
+    facts: new Set(Object.keys(state.truth.facts)),
+    conditions: new Set(Object.keys(state.truth.conditions)),
+    laws: new Set(state.lawIds),
+    placements: new Set(Object.keys(state.truth.entities)),
+    ratingOwners: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.entityId])),
+    ratingValues: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.value])),
+  };
+  for (const plan of step.resolutionPlans) {
+    validateResolutionPlan(plan, evidence);
+    const receipt = step.resolutionReceipts.find((candidate) => candidate.plan.id === plan.id);
+    if (!receipt || contentHash(receipt.plan) !== contentHash(plan)) {
+      throw new Error(`step ${step.step} resolution receipt does not pin plan ${plan.id}`);
+    }
+    const request = receipt.checkRequestId
+      ? step.checkRequests.find((candidate) => candidate.id === receipt.checkRequestId)
+      : null;
+    const result = receipt.checkRequestId
+      ? step.checks.find((candidate) => candidate.requestId === receipt.checkRequestId)
+      : null;
+    const check = plan.mode === "check" ? deriveCheck(plan, evidence) : null;
+    if (plan.mode === "check" && (!request || !result || request.phase !== "resolution" ||
+      request.dc !== check!.dc || request.modifier !== check!.modifier || request.mode !== check!.mode)) {
+      throw new Error(`step ${step.step} receipt ${receipt.id} has an invalid committed check`);
+    }
+    const derived = deriveResolutionReceipt({
+      receiptId: receipt.id,
+      plan,
+      checkRequestId: receipt.checkRequestId,
+      check,
+      result: result ?? null,
+    });
+    const expectedReceipt = { ...derived, operations: receipt.operations };
+    if (contentHash(expectedReceipt) !== contentHash(receipt)) {
+      throw new Error(`step ${step.step} resolution receipt ${receipt.id} is not deterministic`);
+    }
+  }
   step.randomRequests.forEach((request) => discreteRandomRequestSchema.parse(request));
   step.randomResults.forEach((result) => discreteRandomResultSchema.parse(result));
   commitmentRoundsSchema.parse(step.commitmentRounds);
   step.mechanicResults.forEach((result) => mechanicResultSchema.parse(result));
+  const receiptInvocations = step.mechanicInvocations.filter((invocation) =>
+    invocation.packageId === "core-resolution" && invocation.ruleId === "apply-receipt");
+  if (receiptInvocations.length !== step.resolutionReceipts.length) {
+    throw new Error(`step ${step.step} has an invalid apply-receipt invocation count`);
+  }
+  for (const receipt of step.resolutionReceipts) {
+    const invocations = receiptInvocations.filter((invocation) =>
+      (invocation.input as { receiptId?: unknown }).receiptId === receipt.id);
+    if (invocations.length !== 1) throw new Error(`step ${step.step} does not uniquely apply receipt ${receipt.id}`);
+    const result = step.mechanicResults.find((candidate) => candidate.invocationId === invocations[0].id);
+    if (!result || result.packageId !== "core-resolution" || result.ruleId !== "apply-receipt" ||
+      contentHash(result.operations) !== contentHash(receipt.operations) ||
+      receipt.operations.some((receiptOperation) => !step.operations.some((operation) =>
+        contentHash(operation) === contentHash(receiptOperation)))) {
+      throw new Error(`step ${step.step} receipt ${receipt.id} is not pinned to its trusted operations`);
+    }
+  }
+  const conditionAdvanceInvocations = step.mechanicInvocations.filter((invocation) =>
+    invocation.packageId === "core-resolution" && invocation.ruleId === "advance-conditions");
+  const timeAdvance = step.operations.find((operation) => operation.kind === "advance_time");
+  const conditionAdvance = conditionAdvanceInvocations[0];
+  const conditionAdvanceResult = conditionAdvance
+    ? step.mechanicResults.find((result) => result.invocationId === conditionAdvance.id)
+    : null;
+  if (conditionAdvanceInvocations.length !== 1 || !conditionAdvanceResult || !timeAdvance ||
+    (conditionAdvance.input as { seconds?: unknown }).seconds !== timeAdvance.seconds ||
+    conditionAdvanceResult.operations.some((conditionOperation) => !step.operations.some((operation) =>
+      contentHash(operation) === contentHash(conditionOperation)))) {
+    throw new Error(`step ${step.step} does not pin deterministic condition advancement`);
+  }
   step.causalAssertionResults.forEach((result) => causalAssertionResultSchema.parse(result));
   causalVerificationSchema.parse(step.causalVerification);
   step.beliefPatches.forEach((entry) => beliefPatchSchema.parse(entry));
@@ -476,7 +593,7 @@ export function replaySimulationState(
       continue;
     }
     const step = entry.value;
-    validateCommittedStepShape(step);
+    validateCommittedStepShape(step, replay);
     if (step.baseRevision !== replay.revision || step.revision !== replay.revision + 1 || step.step !== replay.step + 1) {
       throw new Error(`history step ${step.step} is not contiguous`);
     }

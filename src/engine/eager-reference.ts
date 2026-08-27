@@ -173,6 +173,7 @@ export function normalizeGrounding(
     meter: state.truth.meters,
     quantity: state.truth.quantities,
     rating: state.truth.ratings,
+    condition: state.truth.conditions,
   };
   const fallbackReasons: string[] = [];
   const validRefs = (refs: readonly FootprintRef[]): FootprintRef[] => refs.filter((ref) => {
@@ -280,6 +281,7 @@ function groundingContext(
       meters: state.truth.meters,
       quantities: state.truth.quantities,
       ratings: state.truth.ratings,
+      conditions: state.truth.conditions,
       agents: Object.values(state.agents).map(({ id, entityId }) => ({ id, entityId })),
     },
     validationIssues: issues,
@@ -495,7 +497,10 @@ function operationResources(
     case "consume_quantity":
       writes.add(`quantity:${quantityId(state.worldHash, operation.definitionId, operation.holderId)}`);
       break;
+    case "set_quantity": writes.add(`quantity:${operation.quantity.id}`); break;
     case "set_rating": writes.add(`rating:${operation.rating.id}`); break;
+    case "set_condition": writes.add(`condition:${operation.condition.id}`); addEntity(operation.condition.subjectId, reads); break;
+    case "remove_condition": writes.add(`condition:${operation.conditionId}`); break;
     case "create_agent": addEntity(operation.agent.entityId); break;
     case "remove_agent": writes.add(`agent:${operation.agentId}`); break;
     case "advance_time": break;
@@ -545,10 +550,25 @@ function mergeResolutions(
   simulatedSeconds: number,
 ): TruthResolution {
   const actions = resolutions.flatMap((resolution) => structuredClone(resolution.actions));
+  const allMechanicInvocations = resolutions.flatMap((resolution) =>
+    structuredClone(resolution.proposal.mechanicInvocations));
+  const allMechanicResults = resolutions.flatMap((resolution) => structuredClone(resolution.mechanicResults));
+  const conditionAdvances = allMechanicInvocations.filter((invocation) =>
+    invocation.packageId === "core-resolution" && invocation.ruleId === "advance-conditions");
+  const keptConditionAdvanceId = conditionAdvances[0]?.id;
+  if (conditionAdvances.length > 1 && conditionAdvances.some((invocation) =>
+    allMechanicResults.find((result) => result.invocationId === invocation.id)?.operations.length !== 0)) {
+    throw new Error("condition advancement with effects requires global resolution");
+  }
+  const mechanicInvocations = allMechanicInvocations.filter((invocation) =>
+    invocation.packageId !== "core-resolution" || invocation.ruleId !== "advance-conditions" ||
+    invocation.id === keptConditionAdvanceId);
+  const mechanicInvocationIds = new Set(mechanicInvocations.map((invocation) => invocation.id));
+  const mechanicResults = allMechanicResults.filter((result) => mechanicInvocationIds.has(result.invocationId));
   const proposal: TransitionProposal = {
     baseRevision: source.revision,
     outcomes: resolutions.flatMap((resolution) => structuredClone(resolution.proposal.outcomes)),
-    mechanicInvocations: resolutions.flatMap((resolution) => structuredClone(resolution.proposal.mechanicInvocations)),
+    mechanicInvocations,
     operations: [
       ...resolutions.flatMap((resolution) => resolution.proposal.operations
         .filter((operation) => operation.kind !== "advance_time")
@@ -582,8 +602,10 @@ function mergeResolutions(
     randomRequests: resolutions.flatMap((resolution) => structuredClone(resolution.randomRequests)),
     randomResults,
     commitmentRounds: resolutions.flatMap((resolution) => structuredClone(resolution.commitmentRounds)),
+    resolutionPlans: resolutions.flatMap((resolution) => structuredClone(resolution.resolutionPlans)),
+    resolutionReceipts: resolutions.flatMap((resolution) => structuredClone(resolution.resolutionReceipts)),
     rng: structuredClone(resolutions.at(-1)?.rng ?? source.truth.rng),
-    mechanicResults: resolutions.flatMap((resolution) => structuredClone(resolution.mechanicResults)),
+    mechanicResults,
     causalAssertionResults: evaluateProposalCausality(source, checks, randomResults, proposal),
     causalVerification: { verdict: "accept", findings: [] },
     modelAudits: resolutions.flatMap((resolution) => structuredClone(resolution.modelAudits)),

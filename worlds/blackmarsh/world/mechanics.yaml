@@ -139,6 +139,7 @@ adjudication_calibrations:
   - { id: lethal-holy-sword, situation: 让致命圣剑接触曾经触碰过它的人。, difficulty: opposed, risk: dire, effect: decisive, explanation: 圣剑的接触史法则决定致命效果，且其隐藏代价使风险极高。 }
   - { id: flaming-sword, situation: 用缠绕火焰的剑攻击未着火的目标。, difficulty: opposed, risk: risky, effect: standard, explanation: 主要效果为 standard 伤害，火焰只作为 minor burning 次要效果。 }
   - { id: armored-target, situation: 用普通剑劈砍穿着完好重甲的目标。, difficulty: opposed, risk: risky, effect: minor, explanation: 护甲仅在 physical-harm 通道承担 protection，不重复提高命中难度。 }
+  - { id: carried-arsenal-single-means, situation: 身上同时带着三把剑，但明确只拔出一把普通剑攻击。, difficulty: opposed, risk: risky, effect: standard, explanation: 只有 ActionFrame 明确使用的主手段参与；背包和腰间的其他武器不叠加。 }
   - { id: sand-present, situation: 从脚下沙地抓沙撒向近处敌人的眼睛。, difficulty: opposed, risk: risky, effect: standard, explanation: 地面沙土是 canonical 临时 means，成功制造 obscured-vision。 }
   - { id: sand-absent, situation: 在干净石室里凭空抓沙撒向敌人。, difficulty: blocked, risk: safe, effect: none, explanation: 没有 Entity、Fact、Condition、位置或法则支持这种手段。 }
   - { id: field-healing, situation: 用干净绷带和草药处理一处严重伤口。, difficulty: challenging, risk: risky, effect: standard, explanation: 治疗使用 recovery profile，失败威胁可为感染或资源消耗。 }

@@ -4,7 +4,7 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { RulePackageRegistry } from "../../engine/rule-package";
+import { coreResolutionRulePackage, RulePackageRegistry } from "../../engine/rule-package";
 import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
 import { LocalDatabase } from "../local-database";
@@ -96,10 +96,12 @@ describe("world import", () => {
     const root = temporaryRoot();
     const archive = zipDirectory(fixture);
     const mechanics = readFileSync(path.join(fixture, "mechanics.yaml"), "utf8")
-      .replace("core-resolution", "test-rules")
-      .replace("version: 2.0.0", "version: 1.0.0");
+      .replace(
+        "    config: {}\nmeters:",
+        "    config: {}\n  - id: test-rules\n    version: 1.0.0\n    config: {}\nmeters:",
+      );
     archive.updateFile("world/mechanics.yaml", Buffer.from(mechanics));
-    const rulePackages = new RulePackageRegistry([{
+    const rulePackages = new RulePackageRegistry([coreResolutionRulePackage, {
       id: "test-rules",
       version: "1.0.0",
       configSchema: z.strictObject({}),
@@ -112,7 +114,7 @@ describe("world import", () => {
       rulePackages,
     });
     database.importWorld(archive.toBuffer(), provider.catalog);
-    expect(database.load("open-world-fixture", 9, provider.catalog).rulePackages[0])
+    expect(database.load("open-world-fixture", 9, provider.catalog).rulePackages[1])
       .toMatchObject({ id: "test-rules", rules: [] });
 
     const host = new WorldHost({ repository: database, store: database, provider });

@@ -121,6 +121,10 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
     }
     packageIds.add(rulePackage.id);
   }
+  const coreResolution = definition.rulePackages.find((rulePackage) => rulePackage.id === "core-resolution");
+  if (coreResolution?.version !== "2.0.0") {
+    throw new Error("schema v10 worlds require core-resolution@2.0.0");
+  }
   validateDiscreteRandomDefinitions(definition.randomDistributions);
   if (definition.participation) {
     const origins = new Set<string>();

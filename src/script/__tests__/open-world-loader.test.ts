@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
-import { RulePackageRegistry } from "../../engine/rule-package";
+import { coreResolutionRulePackage, RulePackageRegistry } from "../../engine/rule-package";
 import {
   MAX_RANDOM_DISTRIBUTION_UTF8_BYTES,
   MAX_RANDOM_DISTRIBUTIONS_PER_WORLD,
@@ -162,22 +162,35 @@ describe("open world script loader", () => {
     const world = copiedFixture();
     const mechanicsFile = path.join(world, "mechanics.yaml");
     const mechanics = readFileSync(mechanicsFile, "utf8")
-      .replace("core-resolution", "cultivation-resolution");
+      .replace(
+        "    config: {}\nmeters:",
+        "    config: {}\n  - id: cultivation-resolution\n    version: 2.0.0\n    config: {}\nmeters:",
+      );
     writeFileSync(mechanicsFile, mechanics, "utf8");
 
     expect(() => loadWorldScript(world, { modelCatalog })).toThrow("unknown rule package cultivation-resolution");
 
-    const registry = new RulePackageRegistry([{
+    const registry = new RulePackageRegistry([coreResolutionRulePackage, {
       id: "cultivation-resolution",
       version: "2.0.0",
       adjudication: "使用修仙世界检定。",
       configSchema: z.strictObject({}),
       rules: [],
     }]);
-    expect(loadWorldScript(world, { seed: 1, rulePackages: registry, modelCatalog }).rulePackages[0]).toMatchObject({
+    expect(loadWorldScript(world, { seed: 1, rulePackages: registry, modelCatalog }).rulePackages[1]).toMatchObject({
       id: "cultivation-resolution",
       version: "2.0.0",
     });
+
+    const missingCore = copiedFixture();
+    const missingCoreFile = path.join(missingCore, "mechanics.yaml");
+    writeFileSync(
+      missingCoreFile,
+      readFileSync(missingCoreFile, "utf8").replace("core-resolution", "cultivation-resolution"),
+      "utf8",
+    );
+    expect(() => loadWorldScript(missingCore, { seed: 1, rulePackages: registry, modelCatalog }))
+      .toThrow("schema v10 worlds require core-resolution@2.0.0");
   });
 
   it("enforces the exact canonical UTF-8 distribution budget during world loading", () => {

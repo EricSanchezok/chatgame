@@ -3,7 +3,12 @@ kind: location
 name: 石门前庭
 description: 一处被高墙围住的庭院。
 placement: null
-facts: []
+facts:
+  - id: courtyard-sandy-ground
+    predicate: ground-cover
+    value: { kind: text, value: loose-sand }
+    description: 庭院边缘积着一层可以抓取的松散沙土。
+    access: { kind: public }
 meters: []
 quantities: []
 ratings: []

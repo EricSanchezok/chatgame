@@ -264,7 +264,10 @@ export function validateResolutionPlan(
     plan.targetIds.some((targetId) => !index.entities.has(targetId))) {
     throw new Error(`plan ${plan.id} has invalid targets`);
   }
-  if (plan.mode !== "blocked" && plan.means.length === 0) throw new Error(`plan ${plan.id} has no grounded means`);
+  if (plan.mode !== "blocked" && plan.means.length === 0 &&
+    !(plan.mode === "automatic" && plan.baseEffect === "none")) {
+    throw new Error(`plan ${plan.id} has no grounded means`);
+  }
   for (const mean of plan.means) {
     if (!mean.description.trim() || !sourceExists(mean.source, index)) {
       throw new Error(`plan ${plan.id} has ungrounded means ${sourceKey(mean.source)}`);
@@ -317,10 +320,14 @@ export function validateResolutionPlan(
     }
     return;
   }
-  if (!plan.primaryEffect || plan.primaryEffect.magnitude === "none") {
-    throw new Error(`plan ${plan.id} requires a non-none primary effect`);
+  if (!plan.primaryEffect) {
+    if (plan.mode !== "automatic" || plan.baseEffect !== "none" || plan.secondaryEffect || plan.threatenedEffect) {
+      throw new Error(`plan ${plan.id} requires a non-none primary effect`);
+    }
+    return;
   }
-  if (!plan.threatenedEffect) throw new Error(`plan ${plan.id} has no failure threat`);
+  if (plan.primaryEffect.magnitude === "none") throw new Error(`plan ${plan.id} requires a non-none primary effect`);
+  if (plan.mode === "check" && !plan.threatenedEffect) throw new Error(`plan ${plan.id} has no failure threat`);
 
   const intended = [plan.primaryEffect, plan.secondaryEffect].filter((effect): effect is EffectIntent => Boolean(effect));
   for (const effect of intended) {
@@ -330,7 +337,7 @@ export function validateResolutionPlan(
       throw new Error(`plan ${plan.id} has an invalid ${effect.id} effect`);
     }
   }
-  if (!plan.targetIds.includes(plan.threatenedEffect.targetId)) {
+  if (plan.threatenedEffect && !plan.targetIds.includes(plan.threatenedEffect.targetId)) {
     throw new Error(`plan ${plan.id} threat targets an undeclared entity`);
   }
   if (plan.secondaryEffect) {
@@ -410,7 +417,8 @@ function settleEffects(plan: ResolutionPlan, outcome: OutcomeGrade | null): Reso
   if (outcome === null) throw new Error(`plan ${plan.id} has no outcome`);
   const result: ResolvedEffect[] = [];
   if (outcome !== "miss") {
-    const primary = plan.primaryEffect!;
+    const primary = plan.primaryEffect;
+    if (!primary) return result;
     const outcomeShift = outcome === "exceptional" ? 1 : outcome === "mixed" ? -1 : 0;
     const primaryMagnitude = shiftMagnitude(
       primary.magnitude,
