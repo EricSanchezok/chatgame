@@ -31,6 +31,19 @@ function agentOutput() {
 
 function truthOutput(context: Record<string, unknown>) {
   if (context.promptVersion === "causal-verifier-v3") return { verdict: "accept", findings: [] };
+  if (context.temporalAction && Array.isArray(context.temporalProfiles)) {
+    const action = context.temporalAction as { id: string; rawText: string };
+    const profiles = context.temporalProfiles as Array<{ id: string }>;
+    const profile = profiles.find((candidate) => candidate.id === "brief-action") ?? profiles[0];
+    if (!profile) throw new Error("temporal planner has no authored profile");
+    return {
+      profileId: profile.id,
+      basis: { kind: "profile" },
+      description: action.rawText,
+      conditionAssertions: [],
+      causes: [{ kind: "action", id: action.id }],
+    };
+  }
   if (Array.isArray(context.observationSlots)) {
     const events = context.currentEvents as Array<{ id: string }>;
     return {
@@ -65,23 +78,33 @@ function truthOutput(context: Record<string, unknown>) {
   const step = context.step as number;
   const actions = context.jointActions as Array<{ id: string }>;
   const world = context.world as { laws: Array<{ id: string }> };
+  const boundary = context.temporalBoundary as { deltaSeconds: number; toElapsedSeconds: number };
+  const canonicalTruth = context.canonicalTruth as {
+    activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
+  };
   const nextStep = step + 1;
   const eventId = `e2e-event:${nextStep}`;
   const lawId = world.laws[0].id;
   return {
-    outcomes: actions.map((action) => ({
-      proposalId: action.id,
-      status: "succeeded",
-      summary: "模拟 Truth Engine 已联合裁决行动。",
-      causeRefs: [{ kind: "action", id: action.id }],
-      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
-      knownAlternatives: [],
-    })),
+    outcomes: actions.map((action) => {
+      const activity = Object.values(canonicalTruth.activities ?? {})
+        .find((candidate) => candidate.sourceActionId === action.id);
+      const continuing = Boolean(activity && (activity.completionAtSeconds === null ||
+        activity.completionAtSeconds > boundary.toElapsedSeconds));
+      return {
+        proposalId: action.id,
+        status: continuing ? "continuing" : "succeeded",
+        summary: continuing ? "行动推进到下一个时间检查点。" : "模拟 Truth Engine 已联合裁决行动。",
+        causeRefs: [{ kind: "action", id: action.id }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+        knownAlternatives: [],
+      };
+    }),
     mechanicInvocations: [],
     operations: [],
     events: [{
       id: eventId,
-      description: "世界在联合裁决后推进了一秒。",
+      description: `世界在联合裁决后推进了 ${boundary.deltaSeconds} 秒。`,
       impact: "ordinary",
       causes: [{ kind: "law", id: lawId }],
       assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
