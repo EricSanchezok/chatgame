@@ -83,6 +83,64 @@ test("Arrival, player composer, role and control overlays remain accessible", as
   await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
 });
 
+test("world awakening remains accessible when motion, color and space are constrained", async ({ page }) => {
+  await installFixture(page);
+  await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto("/worlds/open-world-fixture");
+  await page.evaluate(() => {
+    localStorage.setItem("livingworld:preferences:v2", JSON.stringify({
+      fontScale: "standard",
+      reduceMotion: true,
+      showWorldInspector: false,
+      advancedRoleControl: false,
+    }));
+    window.dispatchEvent(new CustomEvent("livingworld:preferences-changed"));
+  });
+  await page.getByRole("button", { name: /开始新游戏/ }).click();
+  const chooser = page.getByRole("dialog", { name: "选择你的身份" });
+  await chooser.locator(".cg-start-card").filter({ hasText: "庭院旅人" }).click();
+  await chooser.getByRole("button", { name: "继续塑造角色" }).click();
+  const customization = page.getByRole("dialog", { name: "成为庭院旅人" });
+  await customization.getByLabel("你的名字").fill("小明");
+
+  let releaseRequest!: () => void;
+  let markIntercepted!: () => void;
+  const intercepted = new Promise<void>((resolve) => { markIntercepted = resolve; });
+  const requestGate = new Promise<void>((resolve) => { releaseRequest = resolve; });
+  await page.route("**/api/instances", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    markIntercepted();
+    await requestGate;
+    await route.fulfill({
+      body: JSON.stringify({ error: "forced creation failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
+
+  await customization.getByRole("button", { name: "进入世界" }).click();
+  await intercepted;
+  const awakening = page.getByRole("dialog", { name: "世界正在苏醒" });
+  await expect(awakening).toBeVisible();
+  await expectNoViolations(page);
+
+  await page.evaluate(() => {
+    document.documentElement.dir = "rtl";
+    document.documentElement.style.fontSize = "200%";
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await awakening.locator(".cg-awakening").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expectNoViolations(page);
+  releaseRequest();
+  await expect(customization.getByRole("alert")).toHaveText(
+    "世界没能被唤醒。你的角色信息仍在，可以检查后重试。",
+  );
+});
+
 test("the inspector is accessible in forced colors and at 200 percent zoom", async ({ page }) => {
   const instanceId = await createInstance(page);
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
