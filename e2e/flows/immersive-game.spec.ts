@@ -240,6 +240,98 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await expect(page.getByLabel("你的行动")).toBeVisible();
 });
 
+test("the world spirit freely drags, persists, gazes and opens a complete desktop ring", async ({ page }) => {
+  await installFixture(page);
+  const instance = await createObserver(page);
+  await page.setViewportSize({ width: 1_280, height: 800 });
+  await page.goto(`/play/${instance.id}`);
+  await expect(page.getByRole("button", { name: "单步" })).toBeVisible();
+
+  const trigger = page.getByRole("button", { name: /打开游戏控制/ });
+  const spirit = page.locator(".cg-world-spirit");
+  await expect(spirit.locator("svg")).toBeVisible();
+  await expect(spirit.locator(".mo-eyes")).toHaveCount(1);
+  await expect(trigger).not.toHaveAttribute("title", /.+/);
+  await expect(page.locator(".cg-orb__status")).toContainText("已保存");
+
+  const initial = await trigger.boundingBox();
+  expect(initial).not.toBeNull();
+  await page.mouse.move(initial!.x + initial!.width / 2, initial!.y + initial!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(650, 380, { steps: 8 });
+  await page.mouse.up();
+  const dragged = await trigger.boundingBox();
+  expect(dragged).not.toBeNull();
+  expect(Math.abs(dragged!.x - 650)).toBeLessThan(48);
+  expect(dragged!.x).toBeGreaterThan(100);
+  expect(dragged!.x + dragged!.width).toBeLessThan(1_180);
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "单步" })).toBeVisible();
+  const persisted = await trigger.boundingBox();
+  expect(persisted).not.toBeNull();
+  expect(Math.abs(persisted!.x - dragged!.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(persisted!.y - dragged!.y)).toBeLessThanOrEqual(2);
+
+  await trigger.click();
+  const toolbar = page.getByRole("toolbar", { name: "游戏控制" });
+  await expect(toolbar.getByRole("button")).toHaveCount(4);
+  await expect(page.locator(".cg-orb__card")).toHaveCount(0);
+  const actionBounds = await toolbar.getByRole("button").evaluateAll((buttons) => buttons.map((button) => {
+    const bounds = button.getBoundingClientRect();
+    return { top: bounds.top, right: bounds.right, bottom: bounds.bottom, left: bounds.left };
+  }));
+  for (const bounds of actionBounds) {
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(1_280);
+    expect(bounds.bottom).toBeLessThanOrEqual(800);
+  }
+
+  const character = toolbar.getByRole("button", { name: "角色" });
+  const beforeHover = await character.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color };
+  });
+  await character.hover();
+  await expect(character.locator(".cg-orb__action-label")).toBeVisible();
+  await expect.poll(() => character.evaluate((element) => getComputedStyle(element).scale)).toBe("1.08");
+  const afterHover = await character.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color };
+  });
+  expect(afterHover).not.toEqual(beforeHover);
+  await expect.poll(() => spirit.locator(".mo-eyes").evaluate((element) => getComputedStyle(element).transform))
+    .not.toBe("none");
+
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await trigger.press("Enter");
+  await expect(character).toBeFocused();
+  await character.press("ArrowRight");
+  await expect(toolbar.getByRole("button", { name: "存档" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+
+  await trigger.press("Alt+Home");
+  const reset = await trigger.boundingBox();
+  expect(reset).not.toBeNull();
+  expect(reset!.x).toBeGreaterThan(900);
+  await trigger.click();
+  await page.waitForTimeout(100);
+  const afterResetClick = await page.locator(".cg-orb__trigger").boundingBox();
+  expect(afterResetClick).not.toBeNull();
+  expect(Math.abs(afterResetClick!.x - reset!.x)).toBeLessThan(80);
+  await page.keyboard.press("Escape");
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  await trigger.click();
+  const mobileControls = page.locator(".cg-sheet-surface");
+  await expect(mobileControls.getByRole("button", { name: /^角色/ })).toBeVisible();
+  await expect(page.locator(".cg-orb__action")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test("failed execution stays atomic and long diagnostics never widen the inspector", async ({ page }) => {
   await installFixture(page);
   await startOrigin(page);

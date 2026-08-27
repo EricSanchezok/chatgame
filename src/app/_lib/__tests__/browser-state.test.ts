@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONTROL_POSITION_KEY,
   PREFERENCES_KEY,
   defaultPreferences,
   parsePreferences,
@@ -7,6 +8,7 @@ import {
 
 describe("browser preferences", () => {
   it("keeps the full-truth inspector hidden by default", () => {
+    expect(CONTROL_POSITION_KEY).toBe("livingworld:control-position:v3");
     expect(PREFERENCES_KEY).toBe("livingworld:preferences:v2");
     expect(defaultPreferences.showWorldInspector).toBe(false);
     expect(parsePreferences("")).toEqual(defaultPreferences);

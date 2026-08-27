@@ -29,7 +29,7 @@ import {
   type WorldStartStage,
 } from "./world-start-flow";
 
-const loadMotionFeatures = () => import("./world-awakening-motion").then((module) => module.default);
+const loadMotionFeatures = () => import("./motion-features").then((module) => module.default);
 const premiumEase = [0.4, 0, 0.2, 1] as const;
 
 type StartChoice =

@@ -69,6 +69,28 @@ test("the observer conversation matches light and dark responsive baselines", as
     await expect(page.getByRole("button", { name: "单步" })).toBeVisible();
     await expect(page).toHaveScreenshot(`instance-${colorScheme}-desktop.png`, screenshotOptions);
 
+    await page.getByRole("button", { name: /打开游戏控制/ }).click();
+    await expect(page.getByRole("toolbar", { name: "游戏控制" })).toBeVisible();
+    await expect(page).toHaveScreenshot(`instance-control-ring-${colorScheme}-desktop.png`, screenshotOptions);
+    await page.keyboard.press("Escape");
+
+    let releaseAdvance!: () => void;
+    let markAdvanceStarted!: () => void;
+    const advanceStarted = new Promise<void>((resolve) => { markAdvanceStarted = resolve; });
+    const advanceGate = new Promise<void>((resolve) => { releaseAdvance = resolve; });
+    await page.route("**/api/instances/*/advance", async (route) => {
+      markAdvanceStarted();
+      await advanceGate;
+      await route.continue();
+    });
+    await page.getByRole("button", { name: "单步" }).click();
+    await advanceStarted;
+    await expect(page.getByText("正在确认你的行动", { exact: true })).toBeVisible();
+    await expect(page).toHaveScreenshot(`instance-control-notice-${colorScheme}-desktop.png`, screenshotOptions);
+    releaseAdvance();
+    await expect(page.getByText("世界继续变化。").first()).toBeVisible();
+    await page.unroute("**/api/instances/*/advance");
+
     await page.setViewportSize({ width: 320, height: 720 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(page).toHaveScreenshot(`instance-${colorScheme}-mobile.png`, screenshotOptions);

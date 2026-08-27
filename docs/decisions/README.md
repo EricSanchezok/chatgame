@@ -105,3 +105,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0064 — Conversation Core and Agent-perspective Observer](0064-conversation-core-and-agent-perspective-observer.md)
 - [0065 — Platform Visual Baselines and Deterministic Layout](0065-platform-visual-baselines-and-deterministic-layout.md)
 - [0066 — Upgrade to Progressive Repo-seed Governance](0066-upgrade-progressive-repo-seed-governance.md)
+- [0067 — Blobatar World Spirit](0067-blobatar-world-spirit.md)
