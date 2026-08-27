@@ -172,6 +172,19 @@ describe("core-resolution trusted rules", () => {
         }],
       }],
     )).toThrow("amount must be derived");
+
+    const twentyAction = {
+      ...playerAction,
+      rawText: "把 20 枚灵石交给守门人",
+      goal: "支付 20 枚灵石",
+      means: "交付 20 枚灵石",
+    };
+    expect(() => registry.resolve(
+      definition.rulePackages,
+      ruleContext(definition, [twentyAction]),
+      [invocation],
+      [],
+    )).toThrow("not present verbatim");
   });
 
   it("derives and clamps Meter impact solely from a receipt and impact profile", () => {

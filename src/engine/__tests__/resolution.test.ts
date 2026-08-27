@@ -196,6 +196,21 @@ describe("open semantic resolution", () => {
     expect(() => validateResolutionPlan(oversized, evidence())).toThrow("more than one step");
     expect(() => validateResolutionPlan(plan({ secondaryEffect: conditionIntent({ magnitude: "standard" }) }), evidence()))
       .toThrow("weaker than primary");
+
+    const inflatedByOrdinaryFactors = plan({
+      factors: [
+        { source: { kind: "entity", id: "sword" }, role: "potency", direction: "helpful", steps: 1, authority: "semantic", channel: "physical-harm", explanation: "Sharp edge." },
+        { source: { kind: "fact", id: "sword-burning" }, role: "potency", direction: "helpful", steps: 1, authority: "semantic", channel: "physical-harm", explanation: "Heat." },
+      ],
+      secondaryEffect: null,
+    });
+    expect(() => validateResolutionPlan(inflatedByOrdinaryFactors, evidence()))
+      .toThrow("more than one net step");
+
+    expect(() => validateResolutionPlan(plan({
+      baseEffect: "major",
+      secondaryEffect: null,
+    }), evidence())).toThrow("base effect does not match");
   });
 
   it("clamps meter impacts instead of rejecting bounded overflow", () => {
@@ -255,5 +270,21 @@ describe("open semantic resolution", () => {
     expect(weaker.condition.magnitude).toBe("major");
     expect(weaker.condition.expiresAtElapsedSeconds).toBe(140);
     expect(shiftMagnitude("decisive", 1)).toBe("decisive");
+    expect(() => materializeCondition({
+      intent: { ...intent, durationProfileId: "brief" },
+      magnitude: "standard",
+      duration: { id: "brief", name: "Brief", kind: "uses", uses: 1 },
+      profile: {
+        id: "burning-profile",
+        name: "Burning",
+        stackingKey: "burning",
+        defaultDurationProfileId: "ongoing",
+        recurringImpactProfileId: "harm",
+        recovery: "Extinguish the flames.",
+        thresholds: [],
+      },
+      elapsedSeconds: 40,
+      provenance: [{ kind: "action", id: "strike" }],
+    })).toThrow("default duration mismatch");
   });
 });

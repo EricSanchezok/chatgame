@@ -9,6 +9,7 @@ import {
   reactionDecisionDraftSchema,
   reactionRoutingOutputSchema,
   resolutionDirectiveSchema,
+  resolutionPlanVerificationSchema,
   transitionProposalSchema,
 } from "../llm-schemas";
 
@@ -48,6 +49,7 @@ describe("LLM output field ownership", () => {
       perception: z.toJSONSchema(perceptionDirectiveSchema, { target: "draft-07" }),
       reactionRouting: z.toJSONSchema(reactionRoutingOutputSchema, { target: "draft-07" }),
       resolution: z.toJSONSchema(resolutionDirectiveSchema, { target: "draft-07" }),
+      resolutionPlanVerifier: z.toJSONSchema(resolutionPlanVerificationSchema, { target: "draft-07" }),
       transition: z.toJSONSchema(transitionProposalSchema, { target: "draft-07" }),
       observation: z.toJSONSchema(observationBatchSchema, { target: "draft-07" }),
       causalVerifier: z.toJSONSchema(causalVerificationSchema, { target: "draft-07" }),

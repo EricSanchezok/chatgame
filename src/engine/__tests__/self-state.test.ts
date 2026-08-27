@@ -95,7 +95,7 @@ describe("Agent resolution receipt projection", () => {
         actorRating: { name: "决心", value: 2 },
         factors: [],
       },
-      check: { dc: 13, dice: [15], total: 17, margin: 4 },
+      check: { dc: null, dice: [15], total: 17, margin: 4 },
     });
   });
 
@@ -105,5 +105,34 @@ describe("Agent resolution receipt projection", () => {
     expect(projectAgentResolutionReceipt(definition.initialState, agent, receipt("result_only")))
       .toEqual(expect.objectContaining({ visibility: "result_only", outcome: "full" }));
     expect(projectAgentResolutionReceipt(definition.initialState, agent, receipt("hidden"))).toBeNull();
+  });
+
+  it("does not expose another actor's Rating math or private effects to a target", () => {
+    const definition = loadWorldScript(fixture, { seed: 1, modelCatalog: createTestModelCatalog() });
+    const privateEffectReceipt = receipt("full");
+    const primaryEffect = privateEffectReceipt.plan.primaryEffect;
+    if (!primaryEffect || primaryEffect.kind !== "condition") {
+      throw new Error("fixture receipt must use a condition primary effect");
+    }
+    privateEffectReceipt.effects = [{
+      role: "primary",
+      magnitude: "standard",
+      intent: {
+        ...primaryEffect,
+        access: { kind: "private" },
+      },
+    }];
+    const view = projectAgentResolutionReceipt(
+      definition.initialState,
+      definition.initialState.agents.keeper,
+      privateEffectReceipt,
+    );
+
+    expect(view).toMatchObject({
+      visibility: "full",
+      effects: [],
+      plan: { actorRating: null },
+      check: { dc: 13, modifier: null, total: null, margin: null },
+    });
   });
 });

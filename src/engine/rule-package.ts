@@ -245,14 +245,13 @@ function projectedMeterCurrents(context: RuleExecutionContext): Map<string, numb
   return projected;
 }
 
-function conditionSources(plan: ResolutionPlan): Set<string> {
+function conditionSources(receipt: ResolutionReceipt): Set<string> {
+  const plan = receipt.plan;
   const sources = [
     ...plan.means.map((mean) => mean.source),
     ...plan.factors.map((factor) => factor.source),
     ...(plan.difficulty ? [plan.difficulty.source] : []),
-    ...(plan.primaryEffect?.sourceRefs ?? []),
-    ...(plan.secondaryEffect?.sourceRefs ?? []),
-    ...(plan.threatenedEffect?.sourceRefs ?? []),
+    ...receipt.effects.flatMap((effect) => effect.intent.sourceRefs),
   ];
   return new Set(sources.filter((source) => source.kind === "condition").map((source) => source.id));
 }
@@ -283,7 +282,7 @@ const applyReceipt: MechanicRule = {
     const operations: WorldDeltaOperation[] = [];
     const conditionMap = projectedConditions(context);
     const meterCurrents = projectedMeterCurrents(context);
-    for (const conditionId of [...conditionSources(receipt.plan)].sort()) {
+    for (const conditionId of [...conditionSources(receipt)].sort()) {
       const condition = conditionMap.get(conditionId);
       if (!condition || condition.remainingUses === null) continue;
       if (condition.remainingUses <= 1) {
@@ -492,6 +491,18 @@ function parseExplicitNumber(text: string): number | null {
   return total + current;
 }
 
+function containsStandaloneExplicitNumber(source: string, quoted: string): boolean {
+  const numericCharacter = /[0-9.零〇一二两三四五六七八九十百千]/u;
+  let offset = source.indexOf(quoted);
+  while (offset >= 0) {
+    const before = offset > 0 ? source[offset - 1]! : "";
+    const after = offset + quoted.length < source.length ? source[offset + quoted.length]! : "";
+    if (!numericCharacter.test(before) && !numericCharacter.test(after)) return true;
+    offset = source.indexOf(quoted, offset + 1);
+  }
+  return false;
+}
+
 function valueAtPath(value: unknown, path: readonly string[]): unknown {
   let current = value;
   for (const part of path) {
@@ -509,7 +520,7 @@ function deriveQuantityAmount(
     const action = context.actions.find((candidate) => candidate.id === source.actionId);
     const sourceText = action ? [action.rawText, action.goal, action.means ?? ""].join("\n") : "";
     const parsed = parseExplicitNumber(source.quotedText);
-    if (!action || !sourceText.includes(source.quotedText) || parsed !== source.amount) {
+    if (!action || !containsStandaloneExplicitNumber(sourceText, source.quotedText) || parsed !== source.amount) {
       throw new Error("explicit quantity amount is not present verbatim in its action");
     }
     return { amount: source.amount, assertion: null };

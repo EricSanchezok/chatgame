@@ -294,11 +294,17 @@ async function generateGrounding(
   action: AgentActionProposal,
   scope: ModelExecutionScope,
   profileId: string,
+  invocationOffset = 0,
 ): Promise<{ grounding: ActionGrounding; audit: ModelExecutionAudit }> {
   const audits: ModelExecutionAudit[] = [];
   let issues: string[] = [];
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const identity = modelInvocationIdentity(scope, "action-grounding", action.actorId, attempt + 1);
+    const identity = modelInvocationIdentity(
+      scope,
+      "action-grounding",
+      action.actorId,
+      invocationOffset + attempt + 1,
+    );
     try {
       const generated = await provider.generateStructured({
         profileId,
@@ -692,6 +698,24 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           if (!originalAction) throw new Error(`reaction Agent ${request.agentId} has no prepared action`);
           return this.agentMind.react(scopedState, agent, originalAction, request.stimulus, context.modelScope);
         }), "Agent reaction");
+        const groundingState = structuredClone(scopedState);
+        for (const request of requests) {
+          groundingState.agents[request.agentId] = applyObservationBindings(
+            groundingState.agents[request.agentId],
+            [request.stimulus],
+          );
+        }
+        const replacementActions = outputs.flatMap((output) =>
+          output.kind === "replace" ? [output.replacementAction] : []);
+        const replacementGroundings = await settledValues(replacementActions.map((action) =>
+          generateGrounding(
+            this.provider,
+            groundingState,
+            action,
+            context.modelScope,
+            input.definition.modelProfiles.grounding,
+            3,
+          )), "reaction action grounding");
         return {
           decisions: outputs.map((output) => output.kind === "keep" ? {
             agentId: output.agentId,
@@ -705,7 +729,11 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
             kind: output.kind,
             replacementAction: output.replacementAction,
           }),
-          modelAudits: outputs.map((output) => output.modelAudit),
+          groundings: replacementGroundings.map((result) => result.grounding),
+          modelAudits: [
+            ...outputs.map((output) => output.modelAudit),
+            ...replacementGroundings.map((result) => result.audit),
+          ],
         };
       },
       renderObservations: async (proposal, finalActions, transitionAttempt) => {

@@ -5,6 +5,7 @@ import {
   perceptionDirectiveSchema,
   reactionRoutingOutputSchema,
   resolutionDirectiveSchema,
+  resolutionPlanVerificationSchema,
   transitionProposalSchema,
   type DiscreteRandomRequestProposal,
   type ReactionRequestDraft,
@@ -71,7 +72,10 @@ import {
   CAUSAL_VERIFIER_PROMPT_VERSION,
   CAUSAL_VERIFIER_SYSTEM,
   buildCausalVerificationContext,
+  buildResolutionPlanVerificationContext,
   buildTruthContext,
+  RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION,
+  RESOLUTION_PLAN_VERIFIER_SYSTEM,
   TRUTH_PROMPT_VERSION,
   TRUTH_SYSTEM,
   validationIssues,
@@ -90,6 +94,7 @@ import { runtimeId } from "./runtime-id";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
+  groundings: ActionGrounding[];
   modelAudits: ModelExecutionAudit[];
 }
 
@@ -453,11 +458,6 @@ function materializeResolutionPlans(input: {
         throw new Error(`resolution plan ${plan.id} uses means outside its committed grounding`);
       }
     }
-    for (const factor of plan.factors) {
-      if (factor.authority === "authored" && factor.source.kind !== "rating" && factor.source.kind !== "law") {
-        throw new Error(`resolution plan ${plan.id} has an unauthoritative authored factor`);
-      }
-    }
     if (visibilityRank[plan.visibility] > visibilityRank[input.definition.disclosure.defaultCheckVisibility]) {
       throw new Error(`resolution plan ${plan.id} exceeds world disclosure policy`);
     }
@@ -469,9 +469,6 @@ function materializeResolutionPlans(input: {
         throw new Error(`resolution plan ${plan.id} cites post-plan evidence`);
       }
       validateCausalReference(cause, input.allowedCauses, `resolution plan ${plan.id}`);
-    }
-    if ((plan.primaryEffect?.magnitude ?? "none") !== plan.baseEffect) {
-      throw new Error(`resolution plan ${plan.id} base effect does not match its primary effect`);
     }
     validateResolutionPlan(plan, evidence);
     if (plan.primaryEffect) validatePlanEffect(input.state, plan, plan.primaryEffect);
@@ -1082,6 +1079,7 @@ export class TruthEngine {
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
     const truthSubject = input.identityOwner;
     let actions = input.initialActions.map((action) => structuredClone(action));
+    let groundings = input.groundings.map((grounding) => structuredClone(grounding));
     if (!Number.isSafeInteger(input.simulatedSeconds) || input.simulatedSeconds <= 0) {
       throw new Error("truth resolution requires positive simulatedSeconds");
     }
@@ -1134,7 +1132,7 @@ export class TruthEngine {
       commitmentRounds,
       resolutionPlans,
       resolutionReceipts,
-      groundings: input.groundings,
+      groundings,
       instanceId: scope.workloadId,
       advanceId: scope.batchId,
       issues,
@@ -1349,6 +1347,23 @@ export class TruthEngine {
         reactionDecisions = structuredClone(resolved.decisions);
         reactionModelAudits = structuredClone(resolved.modelAudits);
         actions = applyReactionDecisions(input, reactionRequests, reactionDecisions);
+        const replacedActorIds = new Set(reactionDecisions
+          .filter((decision) => decision.kind === "replace")
+          .map((decision) => decision.agentId));
+        const groundedActorIds = new Set(resolved.groundings.map((grounding) => grounding.actorId));
+        if (resolved.groundings.length !== replacedActorIds.size ||
+          groundedActorIds.size !== replacedActorIds.size ||
+          [...replacedActorIds].some((actorId) => !groundedActorIds.has(actorId)) ||
+          resolved.groundings.some((grounding) => {
+            const action = actions.find((candidate) => candidate.actorId === grounding.actorId);
+            return !action || !replacedActorIds.has(grounding.actorId) || grounding.actionId !== action.id;
+          })) {
+          throw new Error("reaction replacement groundings do not cover replaced actions");
+        }
+        groundings = [
+          ...groundings.filter((grounding) => !replacedActorIds.has(grounding.actorId)),
+          ...resolved.groundings.map((grounding) => structuredClone(grounding)),
+        ].sort((left, right) => left.actorId.localeCompare(right.actorId));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new ReactionExecutionError(`reaction execution failed: ${message}`, { cause: error });
@@ -1357,6 +1372,9 @@ export class TruthEngine {
     }
 
     const resolutionAudits: ModelExecutionAudit[] = [];
+    const resolutionPlanVerifierAudits: ModelExecutionAudit[] = [];
+    let resolutionPlanIssues: PromptValidationIssue[] = [];
+    let resolutionPlanRepairs = 0;
     while (true) {
       let acceptedPlans: ResolutionPlan[] = [];
       let acceptedPlanChecks: D20CheckRequest[] = [];
@@ -1371,7 +1389,7 @@ export class TruthEngine {
         system: TRUTH_SYSTEM,
         schema: resolutionDirectiveSchema,
         scope,
-        buildContext: (issues) => truthContext("resolution", issues),
+        buildContext: (issues) => truthContext("resolution", [...resolutionPlanIssues, ...issues]),
         validate: (directive) => {
           if (directive.kind === "commit_plans") {
             if (resolutionPlans.length > 0) throw new Error("resolution plans are already committed");
@@ -1379,7 +1397,7 @@ export class TruthEngine {
               state: input.state,
               definition: input.definition,
               actions,
-              groundings: input.groundings,
+              groundings,
               identityOwner: input.identityOwner,
               drafts: directive.plans,
               allowedCauses: allowedForCommitments,
@@ -1410,6 +1428,64 @@ export class TruthEngine {
       if (call.value.kind === "done") break;
       if (call.value.kind === "commit_plans") {
         if (acceptedPlans.length === 0) throw new Error("accepted resolution plans were not materialized");
+        const verification = await generateValidated({
+          provider: this.provider,
+          profileId: input.definition.modelProfiles.causalVerifier,
+          role: "causal-verifier",
+          subjectId: truthSubject,
+          promptVersion: RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION,
+          schemaName: "resolution_plan_verification",
+          system: RESOLUTION_PLAN_VERIFIER_SYSTEM,
+          schema: resolutionPlanVerificationSchema,
+          scope,
+          buildContext: (issues) => buildResolutionPlanVerificationContext({
+            definition: input.definition,
+            state: input.state,
+            actions,
+            groundings,
+            plans: acceptedPlans,
+            commitmentRounds,
+            instanceId: scope.workloadId,
+            advanceId: scope.batchId,
+            issues,
+          }),
+          validate: (report) => {
+            if (report.verdict !== "reject") return;
+            const planIds = new Set(acceptedPlans.map((plan) => plan.id));
+            for (const finding of report.findings) {
+              if (!planIds.has(finding.planId)) {
+                throw new Error(`resolution plan verifier references unknown plan ${finding.planId}`);
+              }
+            }
+          },
+          repairAttempts: this.repairAttempts,
+          invocationOffset: resolutionPlanVerifierAudits
+            .reduce((count, audit) => count + audit.invocations.length, 0),
+        });
+        resolutionPlanVerifierAudits.push(verification.audit);
+        if (verification.value.verdict === "reject") {
+          resolutionPlanIssues = verification.value.findings.map((finding) => ({
+            code: finding.code,
+            path: ["plans", finding.planId],
+            message: `${finding.message} Repair: ${finding.repairHint}`,
+          }));
+          setModelInvocationOutcome(
+            call.audit,
+            "rejected",
+            resolutionPlanIssues.map((issue) => issue.code),
+          );
+          resolutionPlanRepairs += 1;
+          if (resolutionPlanRepairs > this.repairAttempts) {
+            throw new ModelSemanticRepairError(
+              "truth-resolution",
+              `truth-resolution plan verification failed after repairs: ${resolutionPlanIssues
+                .map((issue) => `${issue.code}: ${issue.message}`)
+                .join(" | ")}`,
+            );
+          }
+          continue;
+        }
+        resolutionPlanIssues = [];
         resolutionPlans = structuredClone(acceptedPlans);
         if (acceptedPlanChecks.length > 0) commitCheckRound(acceptedPlanChecks);
         const evidence = resolutionEvidenceIndex(input.state, actions, input.definition.laws);
@@ -1440,6 +1516,7 @@ export class TruthEngine {
       }
     }
     modelAudits.push(combineStageAudits(resolutionAudits));
+    modelAudits.push(combineStageAudits(resolutionPlanVerifierAudits));
 
     const stimulusObservations = reactionRequests.map((request) => request.stimulus);
     let transitionIssues: PromptValidationIssue[] = [];
@@ -1667,7 +1744,9 @@ export class TruthEngine {
             }
           },
           repairAttempts: this.repairAttempts,
-          invocationOffset: verifierAudits.reduce((count, audit) => count + audit.invocations.length, 0),
+          invocationOffset: [resolutionPlanVerifierAudits, verifierAudits]
+            .flat()
+            .reduce((count, audit) => count + audit.invocations.length, 0),
         });
         verifierAudits.push(verification.audit);
         if (verification.value.verdict === "reject") {

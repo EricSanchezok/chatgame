@@ -33,6 +33,7 @@ import {
 import { modelInferenceSchema, modelRoles } from "./model-catalog";
 import { contentHash, isSha256 } from "./model-audit";
 import { applyObservationBindings, validateObservations } from "./observation";
+import { resolveD20Checks, resolveDiscreteRandomRequests } from "./random";
 import {
   deriveCheck,
   deriveResolutionReceipt,
@@ -435,6 +436,67 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
   state.admissions.push(commit);
 }
 
+function validateCommittedRandomTranscript(step: CommittedStep, state: SimulationState): void {
+  if (contentHash(step.rngBefore) !== contentHash(state.truth.rng)) {
+    throw new Error(`step ${step.step} RNG does not continue canonical state`);
+  }
+  const checkRoundIds = step.commitmentRounds
+    .filter((round) => round.kind === "check")
+    .flatMap((round) => round.requestIds);
+  const randomRoundIds = step.commitmentRounds
+    .filter((round) => round.kind === "random")
+    .flatMap((round) => round.requestIds);
+  assertUnique(checkRoundIds, `step ${step.step} committed check rounds`);
+  assertUnique(randomRoundIds, `step ${step.step} committed random rounds`);
+  assertUnique(step.checkRequests.map((request) => request.id), `step ${step.step} check requests`);
+  assertUnique(step.checks.map((result) => result.requestId), `step ${step.step} check results`);
+  assertUnique(step.randomRequests.map((request) => request.id), `step ${step.step} random requests`);
+  assertUnique(step.randomResults.map((result) => result.requestId), `step ${step.step} random results`);
+  if (contentHash([...checkRoundIds].sort()) !== contentHash(step.checkRequests.map((request) => request.id).sort()) ||
+    contentHash([...checkRoundIds].sort()) !== contentHash(step.checks.map((result) => result.requestId).sort()) ||
+    contentHash([...randomRoundIds].sort()) !== contentHash(step.randomRequests.map((request) => request.id).sort()) ||
+    contentHash([...randomRoundIds].sort()) !== contentHash(step.randomResults.map((result) => result.requestId).sort())) {
+    throw new Error(`step ${step.step} commitment rounds do not cover their random transcript`);
+  }
+  let rng = structuredClone(step.rngBefore);
+  let phase: "perception" | "resolution" | "random" = "perception";
+  for (const round of step.commitmentRounds) {
+    if (round.kind === "check") {
+      if (phase === "random" || (phase === "resolution" && round.phase === "perception")) {
+        throw new Error(`step ${step.step} has an invalid commitment phase order`);
+      }
+      phase = round.phase;
+      const requests = round.requestIds.map((id) => {
+        const request = step.checkRequests.find((candidate) => candidate.id === id);
+        if (!request || request.phase !== round.phase) throw new Error(`step ${step.step} has an invalid check round`);
+        return request;
+      });
+      const resolved = resolveD20Checks(rng, requests);
+      const recorded = round.requestIds.map((id) => step.checks.find((candidate) => candidate.requestId === id));
+      if (recorded.some((result) => !result) || contentHash(resolved.results) !== contentHash(recorded)) {
+        throw new Error(`step ${step.step} has a non-deterministic d20 transcript`);
+      }
+      rng = resolved.rng;
+      continue;
+    }
+    phase = "random";
+    const requests = round.requestIds.map((id) => {
+      const request = step.randomRequests.find((candidate) => candidate.id === id);
+      if (!request) throw new Error(`step ${step.step} has an invalid discrete random round`);
+      return request;
+    });
+    const resolved = resolveDiscreteRandomRequests(rng, requests);
+    const recorded = round.requestIds.map((id) => step.randomResults.find((candidate) => candidate.requestId === id));
+    if (recorded.some((result) => !result) || contentHash(resolved.results) !== contentHash(recorded)) {
+      throw new Error(`step ${step.step} has a non-deterministic discrete random transcript`);
+    }
+    rng = resolved.rng;
+  }
+  if (contentHash(rng) !== contentHash(step.rngAfter)) {
+    throw new Error(`step ${step.step} has an invalid RNG continuation`);
+  }
+}
+
 function validateCommittedStepShape(step: CommittedStep, state: SimulationState): void {
   if (step.semanticHash !== semanticStepHash(step)) throw new Error(`step ${step.step} semantic hash mismatch`);
   const payload = structuredClone(step) as Partial<CommittedStep>;
@@ -481,8 +543,19 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
       ? step.checks.find((candidate) => candidate.requestId === receipt.checkRequestId)
       : null;
     const check = plan.mode === "check" ? deriveCheck(plan, evidence) : null;
+    const expectedTargetId = plan.difficulty?.kind === "opposed"
+      ? plan.difficulty.targetId
+      : plan.primaryEffect?.targetId ?? plan.targetIds[0] ?? null;
+    const expectedModifierSources = plan.actorRatingId
+      ? [{ kind: "rating" as const, id: plan.actorRatingId, amount: check!.modifier }]
+      : [];
     if (plan.mode === "check" && (!request || !result || request.phase !== "resolution" ||
-      request.dc !== check!.dc || request.modifier !== check!.modifier || request.mode !== check!.mode)) {
+      request.actorId !== plan.actorId || request.targetId !== expectedTargetId ||
+      request.ratingId !== plan.actorRatingId || request.visibility !== plan.visibility ||
+      request.dc !== check!.dc || request.modifier !== check!.modifier || request.mode !== check!.mode ||
+      request.stakes !== `${plan.risk}: ${plan.primaryEffect?.description ?? plan.goal}` ||
+      contentHash(request.modifierSources) !== contentHash(expectedModifierSources) ||
+      contentHash(request.causes) !== contentHash(plan.causes))) {
       throw new Error(`step ${step.step} receipt ${receipt.id} has an invalid committed check`);
     }
     const derived = deriveResolutionReceipt({
@@ -500,6 +573,7 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
   step.randomRequests.forEach((request) => discreteRandomRequestSchema.parse(request));
   step.randomResults.forEach((result) => discreteRandomResultSchema.parse(result));
   commitmentRoundsSchema.parse(step.commitmentRounds);
+  validateCommittedRandomTranscript(step, state);
   step.mechanicResults.forEach((result) => mechanicResultSchema.parse(result));
   const receiptInvocations = step.mechanicInvocations.filter((invocation) =>
     invocation.packageId === "core-resolution" && invocation.ruleId === "apply-receipt");

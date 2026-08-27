@@ -1,8 +1,10 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadWorldScript } from "../../script/world-loader";
+import { semanticStepHash } from "../canonical-committer";
 import { EagerReferenceAlgorithm } from "../eager-reference";
 import type { AgentActionProposal } from "../model";
+import { contentHash } from "../model-audit";
 import { SimulationEngine } from "../simulation";
 import { replaySimulationState } from "../transaction";
 import {
@@ -21,7 +23,8 @@ function statusFor(outcome: string | null) {
 describe("resolution pipeline", () => {
   it("commits a semantic plan before RNG, derives effects, atomically commits, and replays the receipt", async () => {
     const catalog = createTestModelCatalog();
-    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+    let planVerificationAttempts = 0;
+    const provider = new ScriptedModelProvider(({ role, profileId, context, schemaName }) => {
       if (role === "action-grounding") {
         const action = (context as { action: AgentActionProposal }).action;
         return {
@@ -38,8 +41,10 @@ describe("resolution pipeline", () => {
           jointActions: AgentActionProposal[];
           actors: Record<string, { entityId: string }>;
           committedResolutionPlans: unknown[];
+          validationIssues: Array<{ code: string }>;
         };
         if (input.committedResolutionPlans.length > 0) return { kind: "done" };
+        const repaired = input.validationIssues.some((issue) => issue.code === "impact-overstated");
         return {
           kind: "commit_plans",
           plans: input.jointActions.map((action, index) => action.actorId === "player" ? {
@@ -70,7 +75,7 @@ describe("resolution pipeline", () => {
               explanation: "The grounded sand can obscure vision after the strike.",
             }],
             risk: "risky",
-            baseEffect: "standard",
+            baseEffect: repaired ? "standard" : "major",
             primaryEffect: {
               kind: "meter",
               id: "improvised-harm",
@@ -81,7 +86,7 @@ describe("resolution pipeline", () => {
               sourceRefs: [{ kind: "entity", id: "key" }],
               meterId: "health:keeper",
               impactProfileId: "harm",
-              magnitude: "standard",
+              magnitude: repaired ? "standard" : "major",
             },
             secondaryEffect: {
               kind: "condition",
@@ -135,6 +140,34 @@ describe("resolution pipeline", () => {
             causes: [{ kind: "action", id: action.id }],
           }),
         };
+      }
+      if (role === "causal-verifier" && schemaName === "resolution_plan_verification") {
+        planVerificationAttempts += 1;
+        const plans = (context as { candidatePlans: Array<{
+          id: string;
+          actorId: string;
+          baseEffect: string;
+        }>;
+        priorCommitmentRounds: Array<{ kind: string; phase?: string }>;
+        });
+        expect(plans.priorCommitmentRounds).not.toContainEqual(
+          expect.objectContaining({ kind: "check", phase: "resolution" }),
+        );
+        const playerPlan = plans.candidatePlans.find((plan) => plan.actorId === "player")!;
+        if (planVerificationAttempts === 1) {
+          expect(playerPlan.baseEffect).toBe("major");
+          return {
+            verdict: "reject",
+            findings: [{
+              planId: playerPlan.id,
+              code: "impact-overstated",
+              message: "The improvised key does not justify major harm.",
+              repairHint: "Recalibrate the primary effect against the grounded improvised means.",
+            }],
+          };
+        }
+        expect(playerPlan.baseEffect).toBe("standard");
+        return { verdict: "accept", findings: [] };
       }
       if (role === "truth-transition") {
         const input = context as {
@@ -199,6 +232,7 @@ describe("resolution pipeline", () => {
     });
 
     const committed = result.committed;
+    expect(planVerificationAttempts).toBe(2);
     expect(committed.resolutionPlans).toHaveLength(2);
     expect(committed.resolutionReceipts).toHaveLength(2);
     const receipt = committed.resolutionReceipts.find((candidate) => candidate.plan.actorId === "player")!;
@@ -219,5 +253,14 @@ describe("resolution pipeline", () => {
       magnitude: "minor",
     });
     expect(replaySimulationState(result.state)).toEqual(result.state);
+
+    const tampered = structuredClone(result.state);
+    const tamperedStep = tampered.history[0];
+    tamperedStep.rngAfter.draws += 1;
+    tamperedStep.semanticHash = semanticStepHash(tamperedStep);
+    const payload = structuredClone(tamperedStep) as Partial<typeof tamperedStep>;
+    delete payload.contentHash;
+    tamperedStep.contentHash = contentHash(payload);
+    expect(() => replaySimulationState(tampered)).toThrow("RNG");
   });
 });

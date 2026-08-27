@@ -26,6 +26,7 @@ import { projectAgentSelfState } from "./self-state";
 import type { WorldDefinition } from "./world-definition";
 
 export const TRUTH_PROMPT_VERSION = "truth-engine-v10";
+export const RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION = "resolution-plan-verifier-v1";
 export const CAUSAL_VERIFIER_PROMPT_VERSION = "causal-verifier-v4";
 export const AGENT_PROMPT_VERSION = "agent-mind-v7";
 export const REACTION_PROMPT_VERSION = "agent-reaction-v2";
@@ -90,6 +91,12 @@ export const REACTION_SYSTEM = `你是游戏世界中具有有限认知的自主
 这是一次性 reaction window。不得更新 belief 或 character，不得替其他 actor 行动，不得改变 revision，也不得触发第二轮 reaction。所有 nullable 字段必须显式输出 null。
 
 不要输出思维链、Markdown 或解释，只输出请求 schema 规定的结构化结果。`;
+
+export const RESOLUTION_PLAN_VERIFIER_SYSTEM = `你是独立的 ResolutionPlan 语义复核器。你只能接受或否决尚未掷骰、尚未提交的候选计划，不能生成计划、检定、随机请求、状态变化或叙事结果。
+
+逐份核对 action 与 canonical grounding：means 必须来自已有 Entity、Fact、Condition、placement、Law 或 Action；困难、actor Rating、对抗 Rating、风险与效果必须和目标及实际手段相关；护甲、掩体、环境限制和其他相关 protection 不得遗漏；不相关来源不得参与；同一来源不得承担多个机械角色；不得同时把 secondary 来源用于提高 primary；primary/secondary 的效果通道、档位和因果必须合理；对照 adjudication calibrations 检查明显的档位漂移。普通语义因素至多贡献一步，超过一步必须有作者 Rating、Law 或可信规则依据。
+
+只报告必须让 planner 重做计划的具体问题。每个 finding 必须引用候选 planId，使用规定 code，并给出不包含 raw DC、modifier、Meter delta、Condition 强度或 Rating 数值的 repairHint。没有具体问题就 accept。不要输出思维链、Markdown 或 schema 以外内容。`;
 
 export const CAUSAL_VERIFIER_SYSTEM = `你是独立的因果复核器，只能接受或否决已由事务内核验证的候选 transition，不能修改状态，也不能生成替代 transition。
 
@@ -265,6 +272,42 @@ export function buildCausalVerificationContext(input: {
     mechanicResults: input.mechanicResults,
     deterministicAssertionResults: input.assertionResults,
     previousReport: input.previousReport,
+    validationIssues: input.issues,
+  };
+}
+
+export function buildResolutionPlanVerificationContext(input: {
+  definition: WorldDefinition;
+  state: SimulationState;
+  actions: readonly AgentActionProposal[];
+  groundings: readonly ActionGrounding[];
+  plans: readonly ResolutionPlan[];
+  commitmentRounds: readonly CommitmentRound[];
+  instanceId: string;
+  advanceId: string;
+  issues: readonly PromptValidationIssue[];
+}): unknown {
+  const { mechanics, ...canonicalTruth } = input.state.truth;
+  return {
+    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
+    promptVersion: RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION,
+    execution: {
+      worldId: input.definition.id,
+      instanceId: input.instanceId,
+      advanceId: input.advanceId,
+    },
+    world: {
+      id: input.definition.id,
+      laws: input.definition.laws,
+      rulePackages: input.definition.rulePackages,
+      mechanics,
+    },
+    baseRevision: input.state.revision,
+    canonicalTruth,
+    actions: input.actions,
+    groundings: input.groundings,
+    candidatePlans: input.plans,
+    priorCommitmentRounds: input.commitmentRounds,
     validationIssues: input.issues,
   };
 }

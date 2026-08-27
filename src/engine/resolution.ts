@@ -298,6 +298,9 @@ export function validateResolutionPlan(
     factorSources.add(key);
     if (!sourceExists(factor.source, index)) throw new Error(`plan ${plan.id} cites unknown factor ${key}`);
     if (!factor.explanation.trim()) throw new Error(`plan ${plan.id} has an unexplained factor`);
+    if (factor.authority === "authored" && factor.source.kind !== "rating" && factor.source.kind !== "law") {
+      throw new Error(`plan ${plan.id} has an unauthoritative authored factor`);
+    }
     if (factor.authority === "semantic" && factor.steps > 1) {
       throw new Error(`plan ${plan.id} gives an ordinary semantic factor more than one step`);
     }
@@ -315,7 +318,7 @@ export function validateResolutionPlan(
   }
 
   if (plan.mode === "blocked") {
-    if (plan.primaryEffect || plan.secondaryEffect || plan.threatenedEffect) {
+    if (plan.baseEffect !== "none" || plan.primaryEffect || plan.secondaryEffect || plan.threatenedEffect) {
       throw new Error(`blocked plan ${plan.id} cannot carry effects`);
     }
     return;
@@ -327,6 +330,9 @@ export function validateResolutionPlan(
     return;
   }
   if (plan.primaryEffect.magnitude === "none") throw new Error(`plan ${plan.id} requires a non-none primary effect`);
+  if (plan.primaryEffect.magnitude !== plan.baseEffect) {
+    throw new Error(`plan ${plan.id} base effect does not match its primary effect`);
+  }
   if (plan.mode === "check" && !plan.threatenedEffect) throw new Error(`plan ${plan.id} has no failure threat`);
 
   const intended = [plan.primaryEffect, plan.secondaryEffect].filter((effect): effect is EffectIntent => Boolean(effect));
@@ -339,6 +345,12 @@ export function validateResolutionPlan(
   }
   if (plan.threatenedEffect && !plan.targetIds.includes(plan.threatenedEffect.targetId)) {
     throw new Error(`plan ${plan.id} threat targets an undeclared entity`);
+  }
+  if (plan.threatenedEffect && (!plan.threatenedEffect.channel.trim() ||
+    !plan.threatenedEffect.label.trim() || !plan.threatenedEffect.description.trim() ||
+    plan.threatenedEffect.sourceRefs.length === 0 ||
+    plan.threatenedEffect.sourceRefs.some((source) => !sourceExists(source, index)))) {
+    throw new Error(`plan ${plan.id} has an invalid ${plan.threatenedEffect.id} threat`);
   }
   if (plan.secondaryEffect) {
     if (compareMagnitude(plan.secondaryEffect.magnitude, plan.primaryEffect.magnitude) >= 0) {
@@ -361,6 +373,14 @@ export function validateResolutionPlan(
   for (const channel of effectChannels) {
     const shift = effectShift(plan, channel);
     if (Math.abs(shift) > 2) throw new Error(`plan ${plan.id} exceeds the effect shift cap on ${channel}`);
+    const semanticShift = plan.factors.reduce((total, factor) => {
+      if (factor.authority !== "semantic" ||
+        (factor.role !== "potency" && factor.role !== "protection") || factor.channel !== channel) return total;
+      return total + (factor.direction === "helpful" ? factor.steps : -factor.steps);
+    }, 0);
+    if (Math.abs(semanticShift) > 1) {
+      throw new Error(`plan ${plan.id} gives ordinary semantic factors more than one net step on ${channel}`);
+    }
   }
 }
 
@@ -516,6 +536,9 @@ export function materializeCondition(input: {
   if (input.intent.conditionProfileId !== input.profile?.id &&
     !(input.intent.conditionProfileId === null && input.profile === null)) {
     throw new Error("condition profile mismatch");
+  }
+  if (input.profile && input.profile.defaultDurationProfileId !== input.duration.id) {
+    throw new Error("condition profile default duration mismatch");
   }
   return {
     id: input.intent.conditionId,

@@ -769,6 +769,31 @@ export const resolutionDirectiveSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("done") }),
 ]);
 
+const resolutionPlanFindingSchema = z.strictObject({
+  planId: safeIdSchema,
+  code: z.enum([
+    "ungrounded-mean",
+    "omitted-factor",
+    "irrelevant-factor",
+    "duplicated-source",
+    "impact-overstated",
+    "secondary-reuse",
+    "calibration-drift",
+  ]),
+  message: z.string().min(1),
+  repairHint: z.string().min(1),
+});
+
+export const resolutionPlanVerificationSchema = z.discriminatedUnion("verdict", [
+  z.strictObject({ verdict: z.literal("accept"), findings: z.tuple([]) }),
+  z.strictObject({
+    verdict: z.literal("reject"),
+    findings: z.array(resolutionPlanFindingSchema).min(1),
+  }),
+]);
+
+export type ResolutionPlanVerification = z.infer<typeof resolutionPlanVerificationSchema>;
+
 const causalFindingSchema = z.strictObject({
   target: z.strictObject({
     kind: z.enum(["check", "random", "operation", "mechanic", "event", "outcome", "observation"]),

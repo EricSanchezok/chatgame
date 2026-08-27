@@ -50,15 +50,24 @@ function sourceIsVisible(
   }
 }
 
-function projectEffects(receipt: ResolutionReceipt): AgentResolutionEffectView[] {
-  return receipt.effects.map((effect) => ({
-    role: effect.role,
-    kind: effect.intent.kind,
-    magnitude: effect.magnitude,
-    channel: effect.intent.channel,
-    label: effect.intent.label,
-    description: effect.intent.description,
-  }));
+function projectEffects(
+  agent: AgentState,
+  receipt: ResolutionReceipt,
+): AgentResolutionEffectView[] {
+  const isActor = receipt.plan.actorId === agent.entityId;
+  return receipt.effects.flatMap((effect) => {
+    const visible = effect.intent.kind === "condition"
+      ? canAccess(effect.intent.access, agent.id)
+      : isActor || effect.intent.targetId === agent.entityId;
+    return visible ? [{
+      role: effect.role,
+      kind: effect.intent.kind,
+      magnitude: effect.magnitude,
+      channel: effect.intent.channel,
+      label: effect.intent.label,
+      description: effect.intent.description,
+    }] : [];
+  });
 }
 
 export function projectAgentResolutionReceipt(
@@ -72,12 +81,15 @@ export function projectAgentResolutionReceipt(
     id: receipt.id,
     actionId: receipt.plan.actionId,
     outcome: receipt.outcome,
-    effects: projectEffects(receipt),
+    effects: projectEffects(agent, receipt),
   };
   if (receipt.plan.visibility === "result_only") return { ...base, visibility: "result_only" };
   const actorRating = receipt.plan.actorRatingId
     ? state.truth.ratings[receipt.plan.actorRatingId]
     : null;
+  const isActor = receipt.plan.actorId === agent.entityId;
+  const canSeeDc = receipt.plan.difficulty?.kind !== "opposed" ||
+    state.truth.ratings[receipt.plan.difficulty.ratingId]?.entityId === agent.entityId;
   return {
     ...base,
     visibility: "full",
@@ -105,13 +117,13 @@ export function projectAgentResolutionReceipt(
       baseEffect: receipt.plan.baseEffect,
     },
     check: {
-      dc: receipt.dc,
-      modifier: receipt.modifier,
+      dc: canSeeDc ? receipt.dc : null,
+      modifier: isActor ? receipt.modifier : null,
       mode: receipt.checkMode,
       dice: [...receipt.dice],
       kept: receipt.kept,
-      total: receipt.total,
-      margin: receipt.margin,
+      total: isActor ? receipt.total : null,
+      margin: isActor ? receipt.margin : null,
     },
   };
 }

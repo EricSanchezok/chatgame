@@ -411,7 +411,7 @@ export type AgentResolutionReceiptView = {
   };
   check: {
     dc: number | null;
-    modifier: number;
+    modifier: number | null;
     mode: "normal" | "advantage" | "disadvantage" | null;
     dice: number[];
     kept: number | null;
