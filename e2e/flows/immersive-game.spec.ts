@@ -110,6 +110,45 @@ test("world awakening locks the committed identity and restores it after failure
   await expect(page.getByLabel("一个自由动机")).toHaveValue("找到石门后的道路");
 });
 
+test("world detail keeps historical saves in a scrollable middle panel", async ({ page }) => {
+  await installFixture(page);
+  const initialResponse = await page.request.get("/api/instances");
+  expect(initialResponse.ok()).toBe(true);
+  const initialPayload = await initialResponse.json() as { instances: Array<{ worldId: string }> };
+  const initialCount = initialPayload.instances.filter((instance) => instance.worldId === "open-world-fixture").length;
+  for (let index = 0; index < 7; index += 1) {
+    const response = await page.request.post("/api/instances", {
+      data: {
+        seed: 20260830 + index,
+        start: { kind: "observer" },
+        worldId: "open-world-fixture",
+      },
+    });
+    expect(response.status()).toBe(201);
+  }
+
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await page.goto("/worlds/open-world-fixture");
+  await expect(page.getByRole("button", { exact: true, name: "开始新游戏" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "历史存档" })).toBeVisible();
+  const history = page.getByRole("region", { name: "历史存档列表" });
+  await expect(history.locator("li")).toHaveCount(initialCount + 7);
+  expect(await history.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await history.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  expect(await history.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  const historyBox = await page.locator(".cg-world-saves").boundingBox();
+  const packageBox = await page.locator(".cg-world-package").boundingBox();
+  expect(historyBox).not.toBeNull();
+  expect(packageBox).not.toBeNull();
+  expect(packageBox!.y).toBeGreaterThan(historyBox!.y + historyBox!.height);
+  expect(packageBox!.y + packageBox!.height).toBeLessThanOrEqual(900);
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await history.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+});
+
 test("a world starts in observer mode without replacing the conversation core", async ({ page }) => {
   await installFixture(page);
   let releaseRequest!: () => void;

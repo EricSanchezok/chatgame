@@ -224,51 +224,60 @@ export function WorldDetail({
   return (
     <section className="cg-world-detail" aria-labelledby="world-detail-title">
       <header className="cg-world-detail__intro">
-        <p className="cg-eyebrow">{world.participation === "open" ? "可参与的活世界" : "无人演化世界"}</p>
-        <h1 id="world-detail-title">{world.name}</h1>
-        <p>{world.description}</p>
+        <div className="cg-world-detail__intro-copy">
+          <p className="cg-eyebrow">{world.participation === "open" ? "可参与的活世界" : "无人演化世界"}</p>
+          <h1 id="world-detail-title">{world.name}</h1>
+          <p>{world.description}</p>
+        </div>
+        <button
+          className="cg-new-game"
+          disabled={busy === `instance-create:${world.id}`}
+          onClick={() => void openStart()}
+          ref={startTriggerRef}
+          type="button"
+        >
+          开始新游戏
+        </button>
       </header>
       <section className="cg-world-saves" aria-labelledby="world-instances-title">
         <div className="cg-world-saves__heading">
-          <div><p className="cg-eyebrow">持续运行</p><h2 id="world-instances-title">世界实例</h2></div>
-          <button
-            className="cg-new-game"
-            disabled={busy === `instance-create:${world.id}`}
-            onClick={() => void openStart()}
-            ref={startTriggerRef}
-            type="button"
-          >
-            <span><small>选择出身或无人观察</small><strong>开始新游戏</strong></span>
-            <ArrowRight aria-hidden="true" />
-          </button>
+          <div><p className="cg-eyebrow">游玩记录</p><h2 id="world-instances-title">历史存档</h2></div>
+          <p><strong>{instances.length}</strong> 个存档</p>
         </div>
-        {instances.length === 0 ? (
-          <div className="cg-workspace-empty"><h3>还没有实例</h3><p>开始新游戏，或创建一个完全自主演化的世界。</p></div>
-        ) : (
-          <ul className="cg-instance-list">
-            {instances.map((instance) => (
-              <li key={instance.id}>
-                <Link href={`/play/${encodeURIComponent(instance.id)}`}>
-                  <span><strong>{instance.title}</strong><small>Revision {instance.revision} · Step {instance.step}</small></span>
-                  <span className="cg-instance-state">
-                    {instance.schedulerMode === "realtime" ? <Radio aria-hidden="true" /> : <Pause aria-hidden="true" />}
-                    {instance.schedulerMode === "realtime" ? "实时" : "已暂停"}
-                  </span>
-                </Link>
-                <button
-                  aria-label={`删除实例“${instance.title}”`}
-                  disabled={busy === `instance-delete:${instance.id}`}
-                  onClick={() => void onDeleteInstance(instance)}
-                  type="button"
-                >
-                  <Trash2 aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div
+          aria-label="历史存档列表"
+          className="cg-world-saves__viewport"
+          role="region"
+          tabIndex={instances.length > 0 ? 0 : undefined}
+        >
+          {instances.length === 0 ? (
+            <div className="cg-workspace-empty"><h3>还没有历史存档</h3><p>开始新游戏后，旅程会保存在这里。</p></div>
+          ) : (
+            <ul className="cg-instance-list">
+              {instances.map((instance) => (
+                <li key={instance.id}>
+                  <Link href={`/play/${encodeURIComponent(instance.id)}`}>
+                    <span><strong>{instance.title}</strong><small>Revision {instance.revision} · Step {instance.step}</small></span>
+                    <span className="cg-instance-state">
+                      {instance.schedulerMode === "realtime" ? <Radio aria-hidden="true" /> : <Pause aria-hidden="true" />}
+                      {instance.schedulerMode === "realtime" ? "实时" : "已暂停"}
+                    </span>
+                  </Link>
+                  <button
+                    aria-label={`删除实例“${instance.title}”`}
+                    disabled={busy === `instance-delete:${instance.id}`}
+                    onClick={() => void onDeleteInstance(instance)}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
-      <section className="cg-world-package" aria-labelledby="world-package-title">
+      <footer className="cg-world-package" aria-labelledby="world-package-title">
         <div className="cg-world-package__header">
           <div><p className="cg-eyebrow">世界包</p><h2 id="world-package-title">版本与内容</h2></div>
           <button
@@ -291,7 +300,7 @@ export function WorldDetail({
             <button className="cg-button--quiet" onClick={() => setConfirmDelete(false)} type="button">取消</button>
           </div>
         ) : null}
-      </section>
+      </footer>
 
       <LazyMotion features={loadMotionFeatures} strict>
         <MotionConfig reducedMotion={preferences.reduceMotion ? "always" : "user"}>

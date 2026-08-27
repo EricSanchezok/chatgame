@@ -48,8 +48,9 @@ test("menu, world library, Origin dialog and observer conversation are accessibl
   await page.keyboard.press("Escape");
   await expect(settingsTrigger).toBeFocused();
 
-  await installFixture(page);
+  await createInstance(page);
   await page.goto("/worlds/open-world-fixture");
+  await expectNoViolations(page);
   const startTrigger = page.getByRole("button", { name: /开始新游戏/ });
   await startTrigger.click();
   await expectNoViolations(page);
