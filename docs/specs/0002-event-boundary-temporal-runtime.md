@@ -43,10 +43,10 @@ Implemented on `synergy/event-driven-time-kernel` from the committed open-semant
 
 Verification completed on 2026-08-27:
 
-- `npm run check:fast`: 26 test files and 167 tests passed, followed by fixture validation and all six governance gates.
+- `npm run check:fast`: 26 test files and 171 tests passed, followed by fixture validation and all six governance gates.
 - `npm run world:validate -- worlds/blackmarsh/world`: 232 entities and 48 Agents validated as schema v11.
 - `npx next build --webpack`: the production application and all API 9 routes compiled successfully.
 - `npx playwright test --project=e2e`: all 8 product and responsive browser flows passed.
 - `npx playwright test --project=a11y`: all 3 accessibility, forced-color, and 200% zoom flows passed.
-- Isolated Blackmarsh smoke testing on port 32217 and a dedicated v15 data root verified a one-second sword action, partial 100 km rate progress without teleportation, interruption into a one-day explicit-duration activity, staged treatment checkpoints, pause/resume, persisted recovery, and Inspector boundary receipts. The existing port 3217 process and its data were not reused or stopped.
+- Isolated Blackmarsh smoke testing on port 32217 and a dedicated v15 data root verified a one-second sword action, partial 100 km rate progress without teleportation, interruption into a one-day explicit-duration activity, staged treatment checkpoints, pause/resume, persisted recovery, authored absolute Timers, and Inspector boundary receipts. The existing port 3217 process and its data were not reused or stopped.
 - `node scripts/run-gates.mjs` and `git diff --check` passed after final documentation updates.

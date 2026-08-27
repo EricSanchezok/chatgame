@@ -42,7 +42,7 @@
 
 ## 时间与事件截止
 
-运行时从 `elapsedSeconds = 0` 开始，代表初秋日落前约两小时。只有已经具备行动主体、唯一 `operation-state`、唯一 `operation-target` 和可核时间压力的跨地点行动才记录数值截止；`deadline-seconds` 是绝对 elapsedSeconds 阈值，不是每步递减的剩余量。开局三项是 Sigrun 进军、Rinisar 驱赶八首 Hydra 与 Ochre 搜索船抵达。`deadline-integrity` 要求达到或越过截止的同一原子提交把状态更新为 `implemented`、`blocked` 或 `cancelled` 并移除截止，或以新因果依据替换截止，不能继续保持 `preparing` 或 `in-progress`。Egil 的日出袭击仍是其 Agent 意图，是否执行由联合行动裁决，不另建自动时钟。
+运行时从 `elapsedSeconds = 0` 开始，代表初秋日落前约两小时。只有已经具备行动主体、唯一 `operation-state`、唯一 `operation-target` 和可核时间压力的跨地点行动才记录数值截止；`deadline-seconds` 是绝对 elapsedSeconds 阈值，不是每步递减的剩余量。开局三项是 Sigrun 进军、Rinisar 驱赶八首 Hydra 与 Ochre 搜索船抵达；同名 `world_timers` 把这三个阈值接入 Temporal Kernel，并只唤醒各自有权结算的 Agent，不预存结果 delta。`deadline-integrity` 要求达到或越过截止的同一原子提交把状态更新为 `implemented`、`blocked` 或 `cancelled` 并移除截止，或以新因果依据替换截止，不能继续保持 `preparing` 或 `in-progress`。Egil 的日出袭击仍是其 Agent 意图，是否执行由联合行动裁决，不另建自动时钟。
 
 自然日历不是第四个行动截止。开局月相锚定为盈凸月，距下一次满月 `518,400` 秒；以后按 `2,551,443` 秒的朔望周期重复。月贝、Tave 仪式与黑堡现象共同消费这一个日历事实，达到或越过节点时由 `lunar-calendar` 约束原子结算，而不是各写一套互相漂移的倒数。`blackmarsh-last-settled-full-moon-node` 从 -1 起提供唯一幂等凭据；Tave 仪式圈记录最后集会节点而不改变表示成员常态分散范围的 placement；黑堡另记录自身最后评估节点，以区分“已检查但无人可受害”和“漏结算”。两项秒数是运行改编的显式选择，并非来源给出的 Blackmarsh 日期。
 

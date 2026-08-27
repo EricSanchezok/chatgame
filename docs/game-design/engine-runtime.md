@@ -24,7 +24,7 @@ type PolicyBinding =
 
 每个新行动在裁决前获得一个 `TemporalPlan`，其形态为 fixed、rate、staged、conditional 或 ongoing。时间数值只来自玩家原文中可独立验证的明确数量、世界剧本的命名 Temporal Profile，或版本化 Rule Package 的确定性结果；`temporal-planner` 只能选择 Profile 并引用依据，不能填写任意 clock delta、`elapsedSeconds`、最终进度或完成效果。
 
-引擎把 TemporalPlan 物化为 canonical Activity。Activity 保存来源行动、参与 Agent、状态、阶段、开始与更新时间、进度、下一个绝对检查点、完成时刻、可中断性和资源声明；默认前台容量由剧本声明为一，同一 Agent 的额外并发能力也只能由剧本资源容量授权。WorldTimer 保存未来到期时刻、唤醒对象、causes 与 assertions，不保存未经验证的未来 state delta。
+引擎把 TemporalPlan 物化为 canonical Activity。Activity 保存来源行动、参与 Agent、状态、阶段、开始与更新时间、进度、下一个绝对检查点、完成时刻、可中断性和资源声明；默认前台容量由剧本声明为一，同一 Agent 的额外并发能力也只能由剧本资源容量授权。WorldTimer 保存未来到期时刻、唤醒对象、causes 与 assertions，不保存未经验证的未来 state delta。世界脚本可用 `world_timers` 物化初始绝对触发；到期且没有同一 Agent 的到期 Activity 时，内核注入确定性的 Timer trigger action，同刻交给 Truth，CanonicalCommitter 会重新构造并核对该 action。
 
 每次提交选择所有 active Activity 检查点、Timer、Condition 到期和 `max_autonomous_span_seconds` 中最早的绝对时刻。同刻到期项联合裁决，提交只含一个由内核注入的正整数 `advance_time`。无关的更早边界可以更新可见进度，但不能把未到期 Activity 的绝对检查点改成“当前时间加间隔”。完成效果只能在完成或对应阶段边界产生；控制面暂停不形成零时间世界提交。
 
@@ -36,8 +36,8 @@ type PolicyBinding =
 4. footprint 的读写冲突、观察关系和 global fallback 构成无向冲突图；每个连通分量独立进入 Truth。
 5. 每个分量按 `perception → reaction-routing → resolution → transition` 推进。perception 和 resolution 可分轮预承诺 d20 或剧本声明的离散随机；reaction 只有一轮 keep/replace。
 6. 引擎 materialize transition 的运行时身份，并注入与 TemporalBoundary 相等的唯一 `advance_time`。进行中的 Activity 只能提交截至本边界已经真实发生的进度；实际 operation 超出声明 footprint，或两个分量的实际读写交叉时，全体行动以 global footprint 重新裁决。
-7. Observation Renderer 根据 transition 后状态、事件和授权视角生成固定槽位 observation。多个冲突分量合并后，以完整合并候选重新生成权限投影。模型不输出 observation ID、observer ID、step 或 kind；批次不得超过 Observation Profile 输入预算。
-8. 只有完成、失败、中断、Timer 或其他语义事件产生的新决策点允许 model Agent 执行 `BeliefPatch → CharacterPatch → nextAction`。AgentMind 一次消费 observation cursor 之后累积的授权观察；active Activity 不重复思考。external 与 idle Agent 只保留授权观察，新创建 Agent 在本步 bootstrap。
+7. Observation Renderer 根据 transition 后状态、事件和 grounding 授权视角生成固定槽位 observation；非行动 Agent 也能收到与自己相关的授权观察。多个冲突分量合并后，以完整合并候选重新生成权限投影。模型不输出 observation ID、observer ID、step 或 kind；批次不得超过 Observation Profile 输入预算。
+8. 只有完成、失败、中断、Timer 或其他语义事件产生的新决策点允许 model Agent 执行 `BeliefPatch → CharacterPatch → nextAction`。他者行动 grounding 明确把 active Activity 参与者列为 audience 且确有授权 Observation 时，内核生成 `activity_interrupted` 决策点；普通无关观察只累积游标，不唤醒 AgentMind。AgentMind 一次消费 observation cursor 之后累积的授权观察；active Activity 不重复思考。external 与 idle Agent 只保留授权观察，新创建 Agent 在本步 bootstrap。
 9. CanonicalCommitter 重新应用候选并验证全部不变量，构造包含 TemporalPlan、完整 temporal snapshot、Activity 转换、边界来源、到期集合与决策点的 `CommittedStep` 和下一状态。
 
 算法不持有状态写入能力。`sourceStateHash`、候选、policy roster 与当前 source 不一致时提交失败。
