@@ -106,3 +106,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0065 — Platform Visual Baselines and Deterministic Layout](0065-platform-visual-baselines-and-deterministic-layout.md)
 - [0066 — Upgrade to Progressive Repo-seed Governance](0066-upgrade-progressive-repo-seed-governance.md)
 - [0067 — Open Semantic Resolution Plans](0067-open-semantic-resolution-plans.md)
+- [0068 — Unified Agent Perspective](0068-unified-agent-perspective.md)

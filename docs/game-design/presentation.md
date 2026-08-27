@@ -2,9 +2,9 @@
 
 ## 投影边界
 
-公共产品契约为 `src/shared/world-api.ts`（API v7）。Participant DTO 只包含本人控制角色的 Arrival、行动、Observation 与授权私有状态；对话由这些持久事实投影，不保存独立聊天记录。
+公共产品契约为 `src/shared/world-api.ts`（API v8）。Participant 的 `controlledView` 是本人所控 Agent 在当前 revision 的 `AgentPerspectiveView`；Arrival、行动和 Observation 继续投影为对话，不保存独立聊天记录。
 
-Observer 契约为 `src/shared/world-observer-api.ts`。它每次只返回所选 Agent 的行动、Observation、character 与 belief，并移除 canonical binding；切换 Agent 不形成跨主体认知聚合。
+Observer 契约为 `src/shared/world-observer-api.ts`。`selected.perspective` 与 Participant 使用同一投影器，包含所选 Agent 的精确自身状态、授权关系、主观认知、角色状态和完整主观历史；切换 Agent 不形成跨主体认知聚合。
 
 本地受信任 Inspector 使用 `src/shared/world-inspector-api.ts`。它可以读取 canonical truth、隐藏检定、全部认知和 Execution Ledger，因此默认不可见，数据不能进入 Participant 或 Observer 投影。
 
@@ -50,13 +50,21 @@ composer 只负责发送、失败重试和可选的高级 detach，不提供单�
 
 ## Observer 会话
 
-Observer 使用同一消息布局的只读形式。每条记录由所选 Agent 在某个 revision 的行动与收到的 Observation 构成；footer 提供 Agent 切换、单步、十步、实时、角色信息和接管。
+Observer 使用同一消息布局的只读形式。每条记录由所选 Agent 在某个 revision 的行动与收到的 Observation 构成；footer 提供 Agent 切换、单步、十步、实时、视角和接管。
 
 Observer 不能提交角色行动。接管成功后页面切换为 Participant 会话，并以新的持久 Arrival 开始当前控制阶段。
 
+## 视角 HUD
+
+视角 HUD 是最新已提交 revision 的只读投影。桌面以 self 为中心渲染关系星图：精确关系为实线，相信为虚线，怀疑为点线，不相信降低线条强调；节点用文字标识亲自观察、他人告知、推测存在、授权只读或未识别，不依赖颜色。任意 Fact predicate 自动成为关系标签，description 是主要说明文本。
+
+顶部只显示身份、当前位置、世界时间、随身存在数量和实际存在的 Meter、Quantity、Rating、可见 Condition。详情面板显示所选节点的描述、精确关系、主观认知、目标、承诺与证据。移动端不渲染可缩放画布，改用同一 DTO 的分组语义列表；桌面画布同时保留屏幕阅读器关系列表。
+
+打开或关闭 HUD 不提交 Action、不产生对话、不推进时间，也不修改 belief。远处 Entity 只通过授权 Fact 或 Agent belief 出现；HUD 不读取 canonical 远程 placement，也不解释随身关系消失的原因。
+
 ## 控制球与 Inspector
 
-可拖动控制球提供主菜单、存档、设置和角色工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定和全部认知。
+可拖动控制球提供主菜单、存档、设置和视角工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定和全部认知。
 
 工具使用注册槽位扩展；没有数据的工具不显示。弹层关闭后焦点返回触发控件，控制球位置在浏览器偏好中恢复。
 
@@ -64,4 +72,4 @@ Observer 不能提交角色行动。接管成功后页面切换为 Participant �
 
 界面只使用内置组件、Lucide 图标和 `--cg-*` token；世界包不能注入 UI。体验支持键盘、可见焦点、触控目标、320 px、200% 缩放、RTL、reduced motion、forced colors 和无图片回退。长 ID、错误与 JSON 必须在自身容器内换行或滚动，不能扩大侧栏或对话框。
 
-设计依据见 [0061](../decisions/0061-unified-agent-and-external-policy.md)、[0063](../decisions/0063-eager-reference-execution.md)与 [0064](../decisions/0064-conversation-core-and-agent-perspective-observer.md)。
+设计依据见 [0061](../decisions/0061-unified-agent-and-external-policy.md)、[0063](../decisions/0063-eager-reference-execution.md)、[0064](../decisions/0064-conversation-core-and-agent-perspective-observer.md)与 [0068](../decisions/0068-unified-agent-perspective.md)。

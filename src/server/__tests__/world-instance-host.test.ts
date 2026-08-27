@@ -41,7 +41,7 @@ function harness(input: {
     setTimer: input.setTimer,
     clearTimer: input.clearTimer,
   });
-  return { database, host };
+  return { database, host, provider };
 }
 
 const observerStart = {
@@ -82,13 +82,13 @@ describe("World Instance host", () => {
   }, 30_000);
 
   it("creates Origin admission and Arrival with the instance and no orphan shell", async () => {
-    const { database, host } = harness();
+    const { database, host, provider } = harness();
     try {
       const created = await host.createInstance(originStart);
       expect(created.summary).toMatchObject({ revision: 1, participantCount: 1 });
       expect(created.controlledView).toMatchObject({
         agentId: "courtyard-wanderer-1",
-        entity: { name: "小明", location: "石门前庭" },
+        self: { name: "小明", location: { name: "石门前庭" } },
       });
       expect(created.conversation?.turns).toHaveLength(1);
       expect(created.conversation?.turns[0]).toMatchObject({
@@ -115,6 +115,14 @@ describe("World Instance host", () => {
       }));
       expect(stored.participants[created.participants[0].id].arrival.scene).toBeTruthy();
       expect(stored.policyBindings["courtyard-wanderer-1"]).toMatchObject({ kind: "external" });
+      const arrivalRequest = provider.requests.find((request) => request.role === "arrival-generator");
+      expect(arrivalRequest).toMatchObject({
+        promptVersion: "arrival-v2",
+        context: {
+          contractVersion: 10,
+          perspective: { agentId: "courtyard-wanderer-1" },
+        },
+      });
     } finally {
       database.close();
     }
@@ -193,15 +201,19 @@ describe("World Instance host", () => {
         target: { kind: "observer" },
       });
       expect(detached.controlledView).toBeUndefined();
-      expect(host.observer(created.summary.id).agents.map((agent) => agent.id)).toContain("keeper");
+      const releasedPerspective = host.observer(created.summary.id, "courtyard-wanderer-1");
+      expect(releasedPerspective.agents.map((agent) => agent.id)).toContain("keeper");
+      expect(releasedPerspective.selected?.perspective).toEqual(created.controlledView);
       expect(database.readInstance(created.summary.id).document.policyBindings["courtyard-wanderer-1"])
         .toMatchObject({ kind: "model", resumeFromRevision: created.summary.revision });
 
+      const keeperPerspective = host.observer(created.summary.id, "keeper").selected?.perspective;
       const taken = await host.transferControl(created.summary.id, {
         expectedRevision: detached.summary.revision,
         target: { kind: "agent", agentId: "keeper" },
       });
       expect(taken.controlledView?.agentId).toBe("keeper");
+      expect(taken.controlledView).toEqual(keeperPerspective);
       expect(taken.conversation?.turns[0].response?.text).toBeTruthy();
       const stored = database.readInstance(created.summary.id).document;
       expect(Object.values(stored.participants).filter((participant) => participant.status === "active")).toHaveLength(1);

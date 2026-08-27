@@ -943,6 +943,68 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-character-grid section { min-width: 0; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); background: var(--cg-card); padding: 1rem; }
 .cg-character-grid h3 { margin: 0 0 0.75rem; }
 .cg-character-grid pre { max-height: 26rem; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.72rem; line-height: 1.5; }
+.cg-perspective-workspace { min-width: 0; display: grid; gap: 1rem; }
+.cg-perspective-summary { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; border-bottom: 1px solid var(--cg-border); padding-bottom: 1rem; }
+.cg-perspective-summary__identity { min-width: 0; display: flex; align-items: center; gap: 0.85rem; }
+.cg-perspective-summary__identity > span { width: 3.25rem; aspect-ratio: 1; display: grid; flex: 0 0 auto; place-items: center; border: 1px solid var(--cg-border); border-radius: 50%; background: var(--cg-primary); color: var(--cg-primary-foreground); }
+.cg-perspective-summary__identity svg { width: 1.35rem; }
+.cg-perspective-summary h2 { margin: 0.25rem 0 0; font-size: clamp(1.7rem, 4vw, 2.35rem); letter-spacing: -0.04em; }
+.cg-perspective-summary dl { min-width: 0; display: flex; gap: 1.5rem; margin: 0; }
+.cg-perspective-summary dl > div { min-width: 0; display: grid; gap: 0.2rem; }
+.cg-perspective-summary dt { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--cg-muted-foreground); font-size: 0.68rem; }
+.cg-perspective-summary dt svg { width: 0.75rem; }
+.cg-perspective-summary dd { max-width: 11rem; margin: 0; overflow: hidden; font-size: 0.82rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.cg-perspective-mechanics { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.cg-perspective-meter, .cg-perspective-stat { min-width: 8.5rem; display: grid; gap: 0.45rem; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); background: var(--cg-card); padding: 0.65rem 0.75rem; }
+.cg-perspective-meter { flex: 1 1 12rem; }
+.cg-perspective-meter > span { display: flex; align-items: baseline; justify-content: space-between; gap: 0.7rem; }
+.cg-perspective-meter small, .cg-perspective-stat small, .cg-perspective-stat strong span { color: var(--cg-muted-foreground); font-size: 0.68rem; font-weight: 500; }
+.cg-perspective-meter meter { width: 100%; height: 0.42rem; accent-color: var(--cg-primary); }
+.cg-perspective-stat { align-content: center; }
+.cg-perspective-stat strong { display: flex; align-items: baseline; justify-content: space-between; gap: 0.55rem; font-size: 1.05rem; }
+.cg-perspective-legend { display: flex; flex-wrap: wrap; gap: 0.8rem; color: var(--cg-muted-foreground); font-size: 0.68rem; }
+.cg-perspective-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.cg-perspective-legend i { width: 1.4rem; border-top: 2px solid var(--cg-foreground); }
+.cg-perspective-legend [data-relation="believed"] i { border-top-style: dashed; }
+.cg-perspective-legend [data-relation="suspected"] i { border-top-style: dotted; }
+.cg-perspective-legend [data-relation="disbelieved"] i { opacity: 0.42; }
+.cg-perspective-main { min-width: 0; min-height: 28rem; display: grid; grid-template-columns: minmax(0, 1fr) minmax(15rem, 18rem); overflow: hidden; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.35rem); background: color-mix(in oklab, var(--cg-background) 92%, var(--cg-muted)); }
+.cg-perspective-graph { min-width: 0; min-height: 28rem; background: var(--cg-background); }
+.cg-perspective-node { width: 184px; height: 78px; display: grid; grid-template-columns: 2.35rem minmax(0, 1fr); align-items: center; gap: 0.65rem; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.2rem); background: color-mix(in oklab, var(--cg-card) 92%, var(--cg-transparent)); color: var(--cg-card-foreground); padding: 0.65rem; text-align: start; box-shadow: 0 8px 30px color-mix(in oklab, var(--cg-overlay) 10%, var(--cg-transparent)); cursor: pointer; }
+.cg-perspective-node[data-kind="self"] { border-color: var(--cg-primary); background: var(--cg-primary); color: var(--cg-primary-foreground); box-shadow: 0 0 0 8px color-mix(in oklab, var(--cg-ring) 10%, var(--cg-transparent)); }
+.cg-perspective-node[data-kind="authorized"] { border-color: color-mix(in oklab, var(--cg-ring) 58%, var(--cg-border)); }
+.cg-perspective-node[data-kind="unidentified"], .cg-perspective-node[data-kind="value"] { border-style: dashed; }
+.cg-perspective-node[data-selected="true"] { outline: 2px solid var(--cg-ring); outline-offset: 3px; }
+.cg-perspective-node__icon { width: 2.35rem; aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%; background: var(--cg-muted); color: var(--cg-muted-foreground); }
+.cg-perspective-node[data-kind="self"] .cg-perspective-node__icon { background: color-mix(in oklab, var(--cg-primary-foreground) 14%, var(--cg-transparent)); color: var(--cg-primary-foreground); }
+.cg-perspective-node__icon svg { width: 1rem; }
+.cg-perspective-node__copy { min-width: 0; display: grid; gap: 0.2rem; }
+.cg-perspective-node__copy strong, .cg-perspective-node__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cg-perspective-node__copy strong { font-size: 0.82rem; }
+.cg-perspective-node__copy small { color: var(--cg-muted-foreground); font-size: 0.63rem; }
+.cg-perspective-node[data-kind="self"] small { color: color-mix(in oklab, var(--cg-primary-foreground) 72%, var(--cg-transparent)); }
+.cg-perspective-node__handle { width: 6px; height: 6px; border: 0; background: var(--cg-muted-foreground); opacity: 0.48; }
+.cg-perspective-edge .react-flow__edge-path { stroke-width: 1.5; }
+.cg-perspective-edge--believed .react-flow__edge-path { stroke-dasharray: 8 5; }
+.cg-perspective-edge--suspected .react-flow__edge-path { stroke-dasharray: 2 6; stroke-linecap: round; }
+.cg-perspective-edge--disbelieved { opacity: 0.38; }
+.cg-perspective-controls { overflow: hidden; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); box-shadow: none; }
+.cg-perspective-controls button { border-color: var(--cg-border); background: var(--cg-card); color: var(--cg-foreground); }
+.cg-perspective-detail { min-width: 0; overflow-y: auto; border-inline-start: 1px solid var(--cg-border); background: var(--cg-card); padding: 1rem; }
+.cg-perspective-detail > h3 { margin: 0.3rem 0 0; font-size: 1.25rem; }
+.cg-perspective-detail > p:not(.cg-eyebrow) { margin: 0.55rem 0 0; color: var(--cg-muted-foreground); font-size: 0.76rem; line-height: 1.55; }
+.cg-perspective-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.75rem; }
+.cg-perspective-tags span { border: 1px solid var(--cg-border); border-radius: 999px; background: var(--cg-background); padding: 0.25rem 0.45rem; color: var(--cg-muted-foreground); font-size: 0.6rem; }
+.cg-perspective-detail section { margin-top: 1.15rem; border-top: 1px solid var(--cg-border); padding-top: 0.85rem; }
+.cg-perspective-detail h4 { margin: 0; font-size: 0.76rem; }
+.cg-perspective-detail ul { display: grid; gap: 0.65rem; margin: 0.7rem 0 0; padding: 0; list-style: none; }
+.cg-perspective-detail li { min-width: 0; }
+.cg-perspective-detail li > span { display: block; color: var(--cg-muted-foreground); font-size: 0.6rem; }
+.cg-perspective-detail li > span[data-relation="disbelieved"] { font-weight: 400; }
+.cg-perspective-detail li strong { display: block; margin-top: 0.15rem; font-size: 0.75rem; overflow-wrap: anywhere; }
+.cg-perspective-detail li p { margin: 0.2rem 0 0; color: var(--cg-muted-foreground); font-size: 0.68rem; line-height: 1.45; overflow-wrap: anywhere; }
+.cg-perspective-semantic { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+html[data-cg-motion="reduced"] .cg-perspective-workspace *, html[data-cg-motion="reduced"] .cg-perspective-workspace *::before, html[data-cg-motion="reduced"] .cg-perspective-workspace *::after { scroll-behavior: auto; transition-duration: 0s; animation-duration: 0s; }
 .cg-control-choice { width: 100%; min-height: 64px; display: grid; grid-template-columns: 2rem minmax(0, 1fr); align-items: center; gap: 0.7rem; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); background: var(--cg-card); padding: 0.75rem 1rem; text-align: start; cursor: pointer; }
 .cg-control-choice span { display: grid; gap: 0.15rem; }
 .cg-control-choice small, .cg-control-candidates small { color: var(--cg-muted-foreground); }
@@ -1017,6 +1079,19 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
   .cg-observer-console label { grid-column: 1 / -1; }
   .cg-game-overlay, .cg-start-dialog { inset: 0; width: 100vw; max-height: 100dvh; height: 100dvh; border: 0; border-radius: 0; transform: none; }
   .cg-character-grid, .cg-origin-customization, .cg-control-candidates { grid-template-columns: minmax(0, 1fr); }
+  .cg-perspective-summary { align-items: stretch; flex-direction: column; }
+  .cg-perspective-summary dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+  .cg-perspective-summary dd { max-width: none; white-space: normal; }
+  .cg-perspective-legend, .cg-perspective-main { display: none; }
+  .cg-perspective-semantic { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
+  .cg-perspective-semantic > h3 { margin: 0; font-size: 1rem; }
+  .cg-perspective-semantic > section { margin-top: 1rem; }
+  .cg-perspective-semantic h4 { margin: 0; color: var(--cg-muted-foreground); font-size: 0.68rem; text-transform: uppercase; }
+  .cg-perspective-semantic ul { display: grid; gap: 0.55rem; margin: 0.55rem 0 0; padding: 0; list-style: none; }
+  .cg-perspective-semantic li { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.45rem; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); background: var(--cg-card); padding: 0.7rem; font-size: 0.72rem; }
+  .cg-perspective-semantic li > strong:last-of-type { text-align: end; }
+  .cg-perspective-semantic li > span { color: var(--cg-muted-foreground); }
+  .cg-perspective-semantic li p { grid-column: 1 / -1; margin: 0.2rem 0 0; color: var(--cg-muted-foreground); line-height: 1.45; }
   .cg-origin-customization label:first-of-type { grid-column: auto; }
   .cg-start-card { flex-basis: min(76vw, 20rem); }
 }

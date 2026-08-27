@@ -17,6 +17,7 @@ import type {
   QuantityState,
   RatingState,
   SimulationState,
+  TransitionProposal,
   WorldEntity,
 } from "./model";
 import { contentHash } from "./model-audit";
@@ -66,6 +67,64 @@ function observationsFor(packets: readonly ObservationPacket[], observerId: stri
   return packets.filter((packet) => packet.observerId === observerId);
 }
 
+function isWithinSelf(state: Readonly<SimulationState>, entityId: string, selfEntityId: string): boolean {
+  let current = entityId;
+  const seen = new Set<string>([entityId]);
+  while (true) {
+    const placementId = state.truth.placements[current];
+    if (!placementId || seen.has(placementId)) return false;
+    if (placementId === selfEntityId) return true;
+    seen.add(placementId);
+    current = placementId;
+  }
+}
+
+export function validateSelfConsequenceIntroductions(
+  source: Readonly<SimulationState>,
+  transitioned: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  proposal: Readonly<TransitionProposal>,
+  observations: readonly ObservationPacket[],
+): void {
+  const outcomes = new Map(proposal.outcomes.map((outcome) => [outcome.proposalId, outcome]));
+  for (const action of actions) {
+    const outcome = outcomes.get(action.id);
+    if (!outcome || outcome.status !== "succeeded" && outcome.status !== "partial") continue;
+    const agent = source.agents[action.actorId];
+    if (!agent) continue;
+    const knownCanonicalIds = new Set(Object.values(agent.bindings)
+      .flatMap((binding) => binding.canonicalEntityIds));
+    const introducedCanonicalIds = new Set(observations
+      .filter((observation) => observation.observerId === agent.id)
+      .flatMap((observation) => observation.introductions)
+      .flatMap((introduction) => introduction.canonicalEntityId ? [introduction.canonicalEntityId] : []));
+    const required = new Set<string>();
+    for (const operation of proposal.operations) {
+      if (!operation.causes.some((cause) => cause.kind === "action" && cause.id === action.id)) continue;
+      if (operation.kind === "create_entity" || operation.kind === "place_entity") {
+        const entityId = operation.kind === "create_entity" ? operation.entity.id : operation.entityId;
+        if (isWithinSelf(transitioned, entityId, agent.entityId)) required.add(entityId);
+      }
+      if (operation.kind === "set_fact" &&
+        (operation.fact.access.kind === "public" ||
+          operation.fact.access.kind === "agents" && operation.fact.access.agentIds.includes(agent.id))) {
+        if (operation.fact.subjectId === agent.entityId && operation.fact.value.kind === "entity") {
+          required.add(operation.fact.value.entityId);
+        }
+        if (operation.fact.value.kind === "entity" && operation.fact.value.entityId === agent.entityId) {
+          required.add(operation.fact.subjectId);
+        }
+      }
+    }
+    for (const entityId of required) {
+      if (entityId === agent.entityId || knownCanonicalIds.has(entityId) || introducedCanonicalIds.has(entityId)) continue;
+      throw new Error(
+        `successful self consequence for ${agent.id} references ${entityId} without an observer-local introduction`,
+      );
+    }
+  }
+}
+
 function validateCandidateBoundary(
   source: SimulationState,
   actions: readonly AgentActionProposal[],
@@ -77,6 +136,13 @@ function validateCandidateBoundary(
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
   validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);
   validateObservations(transitioned, candidate.observations, transitioned.step);
+  validateSelfConsequenceIntroductions(
+    source,
+    transitioned,
+    actions,
+    candidate.resolution.proposal,
+    candidate.observations,
+  );
   const outcomeObservers = new Set(candidate.resolution.proposal.observations
     .filter((packet) => packet.kind === "outcome")
     .map((packet) => packet.observerId));

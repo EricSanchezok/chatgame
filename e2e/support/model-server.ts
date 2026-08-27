@@ -30,7 +30,10 @@ function agentOutput() {
 }
 
 function truthOutput(context: Record<string, unknown>) {
-  if (context.promptVersion === "causal-verifier-v3") return { verdict: "accept", findings: [] };
+  if (context.promptVersion === "causal-verifier-v4" ||
+    context.promptVersion === "resolution-plan-verifier-v1") {
+    return { verdict: "accept", findings: [] };
+  }
   if (Array.isArray(context.observationSlots)) {
     const events = context.currentEvents as Array<{ id: string }>;
     return {
@@ -51,6 +54,18 @@ function truthOutput(context: Record<string, unknown>) {
       globalFallback: true,
     };
   }
+  if (context.perspective && typeof context.perspective === "object" && context.revision === undefined) {
+    const perspective = context.perspective as {
+      self: { name: string; location: { name: string } | null };
+    };
+    return {
+      title: `此刻，你是${perspective.self.name}`,
+      scene: perspective.self.location
+        ? `你在${perspective.self.location.name}恢复了对周围的注意。`
+        : "你暂时无法确认所在位置。",
+      suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
+    };
+  }
   if (context.entity && typeof context.entity === "object") {
     const entity = context.entity as { name: string; location: string | null };
     return {
@@ -59,7 +74,35 @@ function truthOutput(context: Record<string, unknown>) {
       suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
     };
   }
-  if (context.stage === "perception" || context.stage === "resolution") return { kind: "done" };
+  if (context.stage === "perception") return { kind: "done" };
+  if (context.stage === "resolution") {
+    const committedPlans = context.committedResolutionPlans as unknown[];
+    if (committedPlans.length > 0) return { kind: "done" };
+    const actions = context.jointActions as Array<{ id: string; actorId: string; goal: string }>;
+    const actors = context.actors as Record<string, { entityId: string }>;
+    return {
+      kind: "commit_plans",
+      plans: actions.map((action, index) => ({
+        id: `e2e-plan-${index}`,
+        actionId: action.id,
+        actorId: actors[action.actorId].entityId,
+        targetIds: [],
+        goal: action.goal,
+        means: [],
+        mode: "automatic",
+        difficulty: null,
+        actorRatingId: null,
+        factors: [],
+        risk: "safe",
+        baseEffect: "none",
+        primaryEffect: null,
+        secondaryEffect: null,
+        threatenedEffect: null,
+        visibility: "full",
+        causes: [{ kind: "action", id: action.id }],
+      })),
+    };
+  }
   if (context.stage === "reaction-routing") return { requests: [] };
   if (context.stage !== "transition") throw new Error(`unexpected Truth stage ${String(context.stage)}`);
   const step = context.step as number;

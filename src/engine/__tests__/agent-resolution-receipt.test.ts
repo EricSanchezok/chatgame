@@ -2,7 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadWorldScript } from "../../script/world-loader";
 import type { ResolutionReceipt } from "../resolution";
-import { projectAgentResolutionReceipt } from "../self-state";
+import { projectAgentResolutionReceipt } from "../agent-perspective";
 import { createTestModelCatalog } from "../testing/model-provider";
 
 const fixture = path.resolve("test/fixtures/open-world-script");
@@ -79,7 +79,7 @@ function receipt(visibility: "full" | "result_only" | "hidden"): ResolutionRecei
   };
 }
 
-describe("Agent resolution receipt projection", () => {
+describe("AgentPerspective resolution receipt projection", () => {
   it("shows a full adjudication chain without hidden canonical evidence", () => {
     const definition = loadWorldScript(fixture, { seed: 1, modelCatalog: createTestModelCatalog() });
     const view = projectAgentResolutionReceipt(
@@ -134,5 +134,22 @@ describe("Agent resolution receipt projection", () => {
       plan: { actorRating: null },
       check: { dc: 13, modifier: null, total: null, margin: null },
     });
+  });
+
+  it("does not treat a local identity binding as permission to reveal remote canonical placement", () => {
+    const definition = loadWorldScript(fixture, { seed: 1, modelCatalog: createTestModelCatalog() });
+    const source = structuredClone(definition.initialState);
+    source.truth.placements.key = "courtyard";
+    const value = receipt("full");
+    value.plan.means.push({
+      description: "铜钥匙已经落在远处庭院",
+      source: { kind: "placement", id: "key" },
+    });
+
+    const view = projectAgentResolutionReceipt(source, source.agents.player, value);
+
+    expect(view?.visibility).toBe("full");
+    if (view?.visibility !== "full") throw new Error("expected a full receipt view");
+    expect(view.plan.means).not.toContain("铜钥匙已经落在远处庭院");
   });
 });

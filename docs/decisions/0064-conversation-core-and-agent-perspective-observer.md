@@ -26,15 +26,15 @@ World Instance 同时服务真人体验与无人演化。把它表现为公共�
 
 `WorldInstanceDocument` v13 保留复数 Participant、PolicyBinding、ActionWindow、scheduler、advance 与统一 Execution Ledger 引用，并为 Participant 持久化 Arrival；intent 持久化 Agent、advance 与提交身份。对话只由 Arrival、intent、advance 和 committed Observation 投影，失败 advance 投影安全失败消息并关闭窗口。
 
-创建实例必须选择 Origin 或 Observer。准入界面先以可横向切换的同级卡片展示全部 Origin 与 Observer，选定 Origin 后才进入名字、外观和动机表单；Origin 图片来自可选世界资产，缺失时由宿主渲染默认卡面。Origin 在同一创建事务中完成 bootstrap、准入和持久 Arrival；确认前不创建实例。普通新游戏只通过 Origin 创建新 Agent。Observer 不创建 Participant，可推进世界、选择任一 Agent 并读取该 Agent 的行动、Observation、角色和认知投影。
+创建实例必须选择 Origin 或 Observer。准入界面先以可横向切换的同级卡片展示全部 Origin 与 Observer，选定 Origin 后才进入名字、外观和动机表单；Origin 图片来自可选世界资产，缺失时由宿主渲染默认卡面。Origin 在同一创建事务中完成 bootstrap、准入和持久 Arrival；确认前不创建实例。普通新游戏只通过 Origin 创建新 Agent。Observer 不创建 Participant，可推进世界、选择任一 Agent 并读取 [0068](0068-unified-agent-perspective.md) 定义的统一视角。
 
 控制转移在一个 revision CAS 中完成。Observer 可以接管任意存活且未被 external 策略占用的 Agent；Participant 可以退出到 Observer 或直接切换角色。原角色恢复 model 策略并记录 `resumeFromRevision`，接管角色获得新的持久 Arrival。
 
 `/play/:instanceId` 使用 assistant-ui 会话主舞台。Participant composer 只提交自然语言行动；服务端自动创建 `participant_action` advance 与 ActionWindow，一次提交最多推进一步。Observer 使用同一消息流的只读形态，推进、Agent 切换和接管位于 footer。
 
-可拖动控制球提供存档、设置与角色工具。WorldInspector 读取独立的受信任 DTO，默认隐藏，只有显式开启调试器设置后出现。实例更新 SSE 只发送重新读取提示，不携带世界、Ledger 或私有数据。
+可拖动控制球提供存档、设置与视角工具。WorldInspector 读取独立的受信任 DTO，默认隐藏，只有显式开启调试器设置后出现。实例更新 SSE 只发送重新读取提示，不携带世界、Ledger 或私有数据。
 
-世界包 schema 为 v9，`SimulationState` 保持 v9，World Instance 为 v13，公共 API 为 v7。`participation.yaml` 只声明 Origin；缺失时仍允许 Observer 无人演化和接管已有 Agent。
+世界包 schema 为 v9，`SimulationState` 保持 v9，World Instance 为 v13，公共 API 为 v8。`participation.yaml` 只声明 Origin；缺失时仍允许 Observer 无人演化和接管已有 Agent。
 
 ### Consequences
 

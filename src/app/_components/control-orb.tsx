@@ -469,7 +469,7 @@ export function ControlOrb({
               <span>工具</span>
               <button onClick={openCharacter} tabIndex={open ? 0 : -1} type="button">
                 <UserRound aria-hidden="true" />
-                <span><strong>角色</strong><small>查看记忆、目标与内在状态</small></span>
+                <span><strong>视角</strong><small>查看随身存在、关系与主观认知</small></span>
               </button>
               {inspectorEnabled ? <button onClick={openInspector} tabIndex={open ? 0 : -1} type="button">
                 <Network aria-hidden="true" />
@@ -510,11 +510,11 @@ export function ControlOrb({
             })}
           </nav>
           {!exitConfirmation ? (
-            <section className="cg-sheet-tools" aria-label="角色与开发者工具">
+            <section className="cg-sheet-tools" aria-label="视角与开发者工具">
               <h3>工具</h3>
               <button onClick={openCharacter} type="button">
                 <UserRound aria-hidden="true" className="size-5" />
-                <span><strong>打开角色</strong><small>查看记忆、目标与内在状态</small></span>
+                <span><strong>打开视角</strong><small>查看随身存在、关系与主观认知</small></span>
               </button>
               {inspectorEnabled ? <button onClick={openInspector} type="button">
                 <Network aria-hidden="true" className="size-5" />

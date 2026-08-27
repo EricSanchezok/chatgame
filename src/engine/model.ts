@@ -382,15 +382,11 @@ export interface AgentResolutionEffectView {
 }
 
 export type AgentResolutionReceiptView = {
-  id: string;
   visibility: "result_only";
-  actionId: string;
   outcome: import("./resolution").OutcomeGrade | null;
   effects: AgentResolutionEffectView[];
 } | {
-  id: string;
   visibility: "full";
-  actionId: string;
   outcome: import("./resolution").OutcomeGrade | null;
   effects: AgentResolutionEffectView[];
   plan: {
@@ -420,45 +416,105 @@ export type AgentResolutionReceiptView = {
   };
 };
 
-export interface AgentSelfStateView {
-  selfLocalEntityId: LocalEntityId;
-  lifecycle: WorldEntity["lifecycle"];
+export interface PerspectiveEntity {
+  ref: string;
+  localEntityId?: LocalEntityId;
+  name: string;
+  description: string;
+  status: LocalEntity["status"] | "authorized" | "unidentified";
+  targetable: boolean;
+}
+
+export interface PerspectiveContainment {
+  entityRef: string;
+  containerRef: string;
+  depth: number;
+  viaUnknownContainer: boolean;
+}
+
+export type PerspectiveFactValue =
+  | Exclude<FactValue, { kind: "entity" }>
+  | { kind: "entity"; entityRef: string };
+
+export interface PerspectiveFact {
+  subjectRef: string;
+  predicate: string;
+  value: PerspectiveFactValue;
+  description: string;
+}
+
+export interface PerspectiveMeter {
+  name: string;
+  current: number;
+  min: number;
+  max: number;
+}
+
+export interface PerspectiveQuantity {
+  name: string;
+  unit: string;
+  amount: number;
+}
+
+export interface PerspectiveRating {
+  name: string;
+  value: number;
+  min: number;
+  max: number;
+}
+
+export interface AgentPerspectiveTurn {
+  revision: number;
+  step: number;
+  ownAction: string | null;
+  perceivedOutcome: ActionOutcome["status"] | null;
+  observations: AgentPerspectiveObservation[];
+  resolutions: AgentResolutionReceiptView[];
+}
+
+export interface AgentPerspectiveObservation {
+  kind: ObservationPacket["kind"];
+  summary: string;
+  introductions: LocalEntity[];
+  apparentClaims: ApparentClaim[];
+}
+
+export interface AgentPerspectiveView {
+  agentId: AgentId;
+  revision: number;
+  step: number;
   elapsedSeconds: number;
-  location?: {
-    localEntityId?: LocalEntityId;
+  self: {
+    localEntityId: LocalEntityId;
     name: string;
     description: string;
+    lifecycle: WorldEntity["lifecycle"];
+    location: {
+      localEntityId?: LocalEntityId;
+      name: string;
+      description: string;
+    } | null;
   };
-  meters: Array<{
-    name: string;
-    current: number;
-    min: number;
-    max: number;
-  }>;
-  quantities: Array<{
-    name: string;
-    unit: string;
-    amount: number;
-  }>;
-  ratings: Array<{
-    name: string;
-    value: number;
-    min: number;
-    max: number;
-  }>;
-  conditions: Array<{
-    id: string;
-    label: string;
-    description: string;
-    magnitude: import("./resolution").MagnitudeBand;
-    durationProfileId: string;
-  }>;
-  resolutionReceipts: AgentResolutionReceiptView[];
-  facts: Array<{
-    predicate: string;
-    value: BeliefValue;
-    description: string;
-  }>;
+  mechanics: {
+    meters: PerspectiveMeter[];
+    quantities: PerspectiveQuantity[];
+    ratings: PerspectiveRating[];
+    conditions: Array<{
+      label: string;
+      description: string;
+      magnitude: import("./resolution").MagnitudeBand;
+      duration: string;
+    }>;
+  };
+  knowledge: {
+    entities: PerspectiveEntity[];
+    containment: PerspectiveContainment[];
+    exactFacts: PerspectiveFact[];
+    claims: BeliefClaim[];
+    evidence: BeliefEvidence[];
+  };
+  character: AgentCharacterState;
+  history: AgentPerspectiveTurn[];
 }
 
 export interface AgentMindCommit {

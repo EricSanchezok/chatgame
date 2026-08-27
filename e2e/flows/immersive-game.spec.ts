@@ -75,6 +75,18 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await expect(page.getByText("世界继续变化。").last()).toBeVisible();
 
   await openOrb(page);
+  await page.getByRole("button", { name: /视角.*随身存在/ }).click();
+  const perspective = page.getByRole("dialog", { name: "视角" });
+  await expect(perspective.getByRole("region", { name: "角色关系星图" })).toBeVisible();
+  await expect(perspective.getByText("精确关系", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  await expect(perspective.getByRole("heading", { name: "关系列表" })).toBeVisible();
+  await expect(perspective.getByRole("region", { name: "角色关系星图" })).toBeHidden();
+  expect(await perspective.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1_280, height: 720 });
+
+  await openOrb(page);
   await page.getByRole("button", { name: "设置" }).click();
   const settings = page.getByRole("dialog", { name: "设置" });
   await settings.getByRole("switch", { name: "高级角色控制" }).click();

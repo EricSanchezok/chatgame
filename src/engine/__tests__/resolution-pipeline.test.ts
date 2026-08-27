@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { loadWorldScript } from "../../script/world-loader";
 import { semanticStepHash } from "../canonical-committer";
 import { EagerReferenceAlgorithm } from "../eager-reference";
+import { projectAgentPerspective } from "../agent-perspective";
 import type { AgentActionProposal } from "../model";
 import { contentHash } from "../model-audit";
 import { SimulationEngine } from "../simulation";
@@ -252,6 +253,12 @@ describe("resolution pipeline", () => {
       label: "sand in eyes",
       magnitude: "minor",
     });
+    const perspective = projectAgentPerspective(result.state, result.state.agents.player);
+    expect(perspective.history.at(-1)?.resolutions).toContainEqual(expect.objectContaining({
+      visibility: "full",
+      outcome: "full",
+    }));
+    expect(JSON.stringify(perspective)).not.toContain(receipt.id);
     expect(replaySimulationState(result.state)).toEqual(result.state);
 
     const tampered = structuredClone(result.state);

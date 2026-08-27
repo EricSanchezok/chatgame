@@ -1,4 +1,5 @@
 import type { PublicInstanceSummary, WorldSummary } from "./world-api";
+import type { AgentPerspectiveView } from "./world-api";
 
 export interface ObserverAgentSummary {
   id: string;
@@ -8,19 +9,9 @@ export interface ObserverAgentSummary {
   policy: "model" | "idle" | "replay";
 }
 
-export interface ObserverTurn {
-  id: string;
-  revision: number;
-  step: number;
-  action: string | null;
-  observation: string | null;
-}
-
 export interface ObserverAgentPerspective {
   agent: ObserverAgentSummary;
-  character: unknown;
-  belief: unknown;
-  turns: ObserverTurn[];
+  perspective: AgentPerspectiveView;
 }
 
 export interface WorldObserverDetail {
