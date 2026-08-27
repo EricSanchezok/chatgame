@@ -864,16 +864,29 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       },
       renderObservations: async (proposal, finalActions, transitionAttempt) => {
         const resolvedTemporal = reconcileTemporalOutcomes(scopedTemporalBase, proposal.outcomes);
-        const transitioned = applyTransitionProposal(scopedState, proposal, resolvedTemporal);
+        const observationTemporal = {
+          activities: {
+            ...structuredClone(temporal.activities),
+            ...structuredClone(resolvedTemporal.activities),
+          },
+          timers: {
+            ...structuredClone(temporal.timers),
+            ...structuredClone(resolvedTemporal.timers),
+          },
+        };
+        const observerIds = [...new Set([
+          ...actorIds,
+          ...scopedGroundings.flatMap((grounding) => grounding.audienceAgentIds),
+        ])].sort();
         const observationIdentityOwner = `${identityOwner}:transition-${transitionAttempt}`;
         const rendered = await this.observationRenderer.render({
           definition: input.definition,
-          state: scopedState,
+          state: input.state,
           proposal: structuredClone(proposal),
           actions: structuredClone(finalActions),
-          observerIds: Object.keys(transitioned.agents).sort(),
+          observerIds,
           identityOwner: observationIdentityOwner,
-          temporalState: resolvedTemporal,
+          temporalState: observationTemporal,
         }, context.modelScope);
         context.trace.emit({
           event: "observation.rendering.completed",
@@ -888,7 +901,21 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       validateProposal: (proposal, _checks, _randomResults, finalActions, stimulus) => {
         const resolvedTemporal = reconcileTemporalOutcomes(scopedTemporalBase, proposal.outcomes);
         const candidate = applyTransitionProposal(scopedState, proposal, resolvedTemporal);
-        validateObservations(candidate, [...stimulus, ...proposal.observations], candidate.step);
+        const observationCandidate = applyTransitionProposal(input.state, proposal, {
+          activities: {
+            ...structuredClone(temporal.activities),
+            ...structuredClone(resolvedTemporal.activities),
+          },
+          timers: {
+            ...structuredClone(temporal.timers),
+            ...structuredClone(resolvedTemporal.timers),
+          },
+        });
+        validateObservations(
+          observationCandidate,
+          [...stimulus, ...proposal.observations],
+          observationCandidate.step,
+        );
         const observers = new Set(proposal.observations
           .filter((packet) => packet.kind === "outcome")
           .map((packet) => packet.observerId));
@@ -1099,6 +1126,24 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     candidate.truth.rng = structuredClone(resolution.rng);
     const observations = [...resolution.stimulusObservations, ...resolution.proposal.observations];
     validateObservations(candidate, observations, candidate.step);
+    const observedAgentIds = new Set(observations.map((observation) => observation.observerId));
+    const relevantExternalObservers = new Set(groundings.flatMap((grounding) =>
+      grounding.audienceAgentIds.filter((agentId) =>
+        agentId !== grounding.actorId && observedAgentIds.has(agentId))));
+    const interruptionPoints = Object.values(temporal.activities)
+      .filter((activity) => activity.status === "active" || activity.status === "paused")
+      .flatMap((activity) => activity.participantAgentIds
+        .filter((agentId) => relevantExternalObservers.has(agentId))
+        .map((agentId) => ({
+          agentId,
+          reason: "activity_interrupted" as const,
+          activityId: activity.id,
+          timerId: null,
+        })));
+    temporal.decisionPoints = [...new Map([...temporal.decisionPoints, ...interruptionPoints].map((point) => [
+      `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
+      point,
+    ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
     const postBoundaryDecisionAgents = new Set(temporal.decisionPoints.map((point) => point.agentId));
     const busyAfterBoundary = new Set(Object.values(temporal.activities)
       .filter((activity) => activity.status === "active" || activity.status === "paused")

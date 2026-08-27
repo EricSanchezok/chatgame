@@ -115,6 +115,45 @@ describe("open world script loader", () => {
       .toBe(loadWorldScript(fixture, { modelCatalog }).contentHash);
   });
 
+  it("materializes authored absolute timers only for known laws and Agents", () => {
+    const world = copiedFixture();
+    const mechanicsFile = path.join(world, "mechanics.yaml");
+    writeFileSync(mechanicsFile, readFileSync(mechanicsFile, "utf8").replace(
+      "world_timers: []",
+      "world_timers:\n" +
+      "  - id: gate-deadline\n" +
+      "    description: 石门值守进入绝对截止。\n" +
+      "    due_at_seconds: 120\n" +
+      "    wake_agent_ids: [keeper]\n" +
+      "    law_id: time-passes",
+    ), "utf8");
+
+    const timer = loadWorldScript(world, { modelCatalog }).initialState.truth.timers["gate-deadline"];
+    expect(timer).toEqual({
+      id: "gate-deadline",
+      description: "石门值守进入绝对截止。",
+      createdAtSeconds: 0,
+      dueAtSeconds: 120,
+      status: "scheduled",
+      wakeAgentIds: ["keeper"],
+      causes: [{ kind: "law", id: "time-passes" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "eq", value: 120 }],
+    });
+
+    const invalidAgent = copiedFixture();
+    const invalidMechanics = path.join(invalidAgent, "mechanics.yaml");
+    writeFileSync(invalidMechanics, readFileSync(invalidMechanics, "utf8").replace(
+      "world_timers: []",
+      "world_timers:\n" +
+      "  - id: invalid-deadline\n" +
+      "    description: 无主截止。\n" +
+      "    due_at_seconds: 120\n" +
+      "    wake_agent_ids: [missing-agent]\n" +
+      "    law_id: time-passes",
+    ), "utf8");
+    expect(() => loadWorldScript(invalidAgent, { modelCatalog })).toThrow("wakes unknown Agent");
+  });
+
   it("defaults every optional character layer from only persona.summary", () => {
     const world = copiedFixture();
     const keeperFile = path.join(world, "entities/keeper.yaml");

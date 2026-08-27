@@ -159,6 +159,22 @@ temporal_calibrations:
   - { id: field-treatment-time, situation: 检查、清理并包扎一处严重伤口。, profile_id: field-treatment, explanation: 治疗按阶段推进，恢复效果只能在对应阶段结算。 }
   - { id: wait-condition-time, situation: 等待到天亮、潮汐或其他世界条件成立。, profile_id: wait-until, explanation: 条件等待每五分钟检查且可被事件打断。 }
   - { id: ongoing-watch-time, situation: 持续放哨、守卫或执行没有固定终点的任务。, profile_id: ongoing-watch, explanation: 持续行动按检查点报告直到外部中断。 }
+world_timers:
+  - id: sigrun-column-march-deadline
+    description: Sigrun 的纵队达到进军截止，必须重新判断路况、阻滞、指挥与 Blackoak Castle 外围态势。
+    due_at_seconds: 36000
+    wake_agent_ids: [sigrun-the-boneless]
+    law_id: deadline-integrity
+  - id: rinisar-raven-cell-operation-deadline
+    description: Rinisar 的 Hydra 行动窗关闭，必须根据侦察、诱饵、天气、阻挠与撤离条件结算行动状态。
+    due_at_seconds: 64800
+    wake_agent_ids: [rinisar-anothil]
+    law_id: deadline-integrity
+  - id: ochre-expedition-arrival-deadline
+    description: Ochre 搜索船达到航段截止，必须根据风暴、洋流、船损和命令重新判断 Sheltered Bay 外海态势。
+    due_at_seconds: 108000
+    wake_agent_ids: [lord-travvarn, archon-devers]
+    law_id: deadline-integrity
 condition_profiles:
   - id: obscured-vision
     name: 视线受阻

@@ -26,8 +26,10 @@ import {
   validateObservations,
 } from "./observation";
 import {
+  advanceTemporalState,
   cancelActivity,
   createActivity,
+  reconcileTemporalOutcomes,
   selectTemporalBoundary,
   validateActivityResources,
   validateTemporalPlan,
@@ -105,6 +107,7 @@ function validateCandidateBoundary(
   const planIds = candidate.temporalPlans.map((plan) => plan.id);
   if (new Set(planIds).size !== planIds.length) throw new Error("candidate contains duplicate temporal plans");
   const planningActivities = structuredClone(source.truth.activities);
+  const cancellationTransitions = [] as typeof candidate.activityTransitions;
   for (const transition of candidate.activityTransitions) {
     if (transition.fromElapsedSeconds !== source.truth.elapsedSeconds ||
       transition.toElapsedSeconds !== source.truth.elapsedSeconds) continue;
@@ -120,6 +123,7 @@ function validateCandidateBoundary(
       throw new Error(`candidate cancellation does not match activity ${transition.activityId}`);
     }
     planningActivities[transition.activityId] = cancelled.activity;
+    cancellationTransitions.push(structuredClone(cancelled.transition));
   }
   for (const plan of candidate.temporalPlans) {
     validateTemporalPlan(
@@ -146,6 +150,11 @@ function validateCandidateBoundary(
       participantAgentIds: finalActivity.participantAgentIds,
     });
   }
+  for (const transition of cancellationTransitions) {
+    if (!candidate.temporalPlans.some((plan) => plan.actorId === transition.actorId)) {
+      throw new Error(`candidate cancels activity ${transition.activityId} without a replacement plan`);
+    }
+  }
   validateActivityResources(planningActivities, source.truth.mechanics.activityResources);
   const conditionExpiries = Object.fromEntries(Object.values(source.truth.conditions)
     .filter((condition) => condition.expiresAtElapsedSeconds !== null)
@@ -159,6 +168,40 @@ function validateCandidateBoundary(
   });
   if (contentHash(expectedBoundary) !== contentHash(candidate.temporalBoundary)) {
     throw new Error("candidate did not select the earliest trusted temporal boundary");
+  }
+  let expectedTemporal = advanceTemporalState({
+    boundary: expectedBoundary,
+    activities: planningActivities,
+    timers: source.truth.timers,
+  });
+  expectedTemporal.transitions = [...cancellationTransitions, ...expectedTemporal.transitions];
+  expectedTemporal = reconcileTemporalOutcomes(expectedTemporal, candidate.resolution.proposal.outcomes);
+  const observedAgentIds = new Set(candidate.observations.map((observation) => observation.observerId));
+  const relevantExternalObservers = new Set(candidate.groundings.flatMap((grounding) =>
+    grounding.audienceAgentIds.filter((agentId) =>
+      agentId !== grounding.actorId && observedAgentIds.has(agentId))));
+  const interruptionPoints = Object.values(expectedTemporal.activities)
+    .filter((activity) => activity.status === "active" || activity.status === "paused")
+    .flatMap((activity) => activity.participantAgentIds
+      .filter((agentId) => relevantExternalObservers.has(agentId))
+      .map((agentId) => ({
+        agentId,
+        reason: "activity_interrupted" as const,
+        activityId: activity.id,
+        timerId: null,
+      })));
+  expectedTemporal.decisionPoints = [...new Map([
+    ...expectedTemporal.decisionPoints,
+    ...interruptionPoints,
+  ].map((point) => [
+    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
+    point,
+  ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
+  if (contentHash(expectedTemporal.activities) !== contentHash(candidate.temporalState.activities) ||
+    contentHash(expectedTemporal.timers) !== contentHash(candidate.temporalState.timers) ||
+    contentHash(expectedTemporal.transitions) !== contentHash(candidate.activityTransitions) ||
+    contentHash(expectedTemporal.decisionPoints) !== contentHash(candidate.decisionPoints)) {
+    throw new Error("candidate temporal transitions do not match the trusted boundary result");
   }
 }
 

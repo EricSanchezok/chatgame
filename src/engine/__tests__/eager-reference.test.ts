@@ -399,4 +399,159 @@ describe("eager reference dependency components", () => {
     })).rejects.toThrow("earliest trusted temporal boundary");
     expect(contentHash(engine.snapshot)).toBe(before);
   });
+
+  it("jointly commits an authored Timer with every activity due at the same instant", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, context }) =>
+      deterministicModelOutput(profileId, context));
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.initialState.truth.timers["gate-deadline"] = {
+      id: "gate-deadline",
+      description: "石门值守截止。",
+      createdAtSeconds: 0,
+      dueAtSeconds: 1,
+      status: "scheduled",
+      wakeAgentIds: ["keeper"],
+      causes: [{ kind: "law", id: "time-passes" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "eq", value: 1 }],
+    };
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(result.committed.temporalBoundary).toMatchObject({
+      deltaSeconds: 1,
+      dueTimerIds: ["gate-deadline"],
+    });
+    expect(result.committed.temporalBoundary.dueActivityIds).toHaveLength(2);
+    expect(result.state.truth.timers["gate-deadline"]!.status).toBe("fired");
+    expect(result.committed.decisionPoints).toContainEqual({
+      agentId: "keeper",
+      reason: "timer",
+      activityId: null,
+      timerId: "gate-deadline",
+    });
+    expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
+  });
+
+  it("creates a decision point when another action produces an authorized relevant observation", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "temporal-planner") {
+        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+        if (action.rawText.includes("100公里")) {
+          return {
+            profileId: "measured-travel",
+            basis: {
+              kind: "explicit_quantity",
+              amount: 100,
+              unit: "公里",
+              sourceText: "100公里",
+            },
+            description: "持续前往远方",
+            conditionAssertions: [],
+            causes: [{ kind: "action", id: action.id }],
+          };
+        }
+      }
+      if (role === "action-grounding") {
+        const action = (context as { action: AgentActionProposal }).action;
+        return {
+          reads: [],
+          writes: [{ kind: "entity", id: action.actorId }],
+          audienceAgentIds: action.actorId === "keeper" ? ["keeper", "player"] : [action.actorId],
+          globalFallback: false,
+        };
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.runtimeDefaults.maxAutonomousSpanSeconds = 100_000;
+    const travel = definition.initialState.truth.mechanics.temporalProfiles["measured-travel"];
+    if (!travel || travel.kind !== "rate") throw new Error("fixture travel profile is missing");
+    travel.checkpointUnits = 25;
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const delegate = new EagerReferenceAlgorithm(provider);
+    let latestCandidate: import("../execution").WorldStepCandidate | undefined;
+    const algorithm: WorldExecutionAlgorithm = {
+      manifest: delegate.manifest,
+      bootstrap: (input, context) => delegate.bootstrap(input, context),
+      step: async (input, context) => {
+        latestCandidate = await delegate.step(input, context);
+        return latestCandidate;
+      },
+    };
+    const engine = new SimulationEngine(definition, algorithm);
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const first = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "travel-for-interruption",
+        agentId: "player",
+        rawText: "沿道路走到100公里外的城镇",
+        goal: "抵达远方城镇",
+        means: "步行",
+        targetIds: [],
+      }],
+    });
+    const activity = Object.values(first.state.truth.activities)
+      .find((candidate) => candidate.actorId === "player")!;
+    expect(activity).toMatchObject({ status: "active", progress: { current: 25, target: 100 } });
+
+    const second = await engine.step({
+      player: {
+        kind: "model",
+        agentId: "player",
+        profiles: structuredClone(first.state.agents.player.modelProfiles),
+      },
+      keeper: {
+        kind: "model",
+        agentId: "keeper",
+        profiles: structuredClone(first.state.agents.keeper.modelProfiles),
+      },
+    }, {
+      expectedRevision: first.state.revision,
+      trigger: "batch",
+      externalActions: [],
+    });
+
+    const interrupted = Object.values(second.state.truth.activities)
+      .find((candidate) => candidate.id === activity.id)!;
+    expect(interrupted).toMatchObject({ status: "active", progress: { target: 100 } });
+    expect(interrupted.progress!.current).toBeGreaterThan(25);
+    expect(interrupted.progress!.current).toBeLessThan(26);
+    expect(latestCandidate?.groundings).toContainEqual(expect.objectContaining({
+      actorId: "keeper",
+      audienceAgentIds: ["keeper", "player"],
+    }));
+    expect(latestCandidate?.observations.map((observation) => observation.observerId)).toContain("player");
+    expect(second.committed.decisionPoints).toContainEqual({
+      agentId: "player",
+      reason: "activity_interrupted",
+      activityId: activity.id,
+      timerId: null,
+    });
+    expect(second.committed.beliefPatches).toContainEqual(expect.objectContaining({ agentId: "player" }));
+  });
 });

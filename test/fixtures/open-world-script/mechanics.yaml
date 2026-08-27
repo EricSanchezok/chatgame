@@ -90,6 +90,7 @@ temporal_calibrations:
   - { id: fixture-strike, situation: 挥动手中武器完成一次攻击。, profile_id: brief-action, explanation: 单次短动作使用一秒边界。 }
   - { id: fixture-rest, situation: 按行动文本明确的时长休息。, profile_id: explicit-duration, explanation: 明确时长由行动文本验证。 }
   - { id: fixture-travel, situation: 前往行动文本明确距离的地点。, profile_id: measured-travel, explanation: 距离按声明速率逐检查点推进。 }
+world_timers: []
 condition_profiles:
   - id: obscured-vision
     name: 视线受阻

@@ -208,6 +208,13 @@ export const mechanicsFileSchema = z.object({
     profile_id: safeIdSchema,
     explanation: z.string().min(1),
   }).strict()),
+  world_timers: z.array(z.object({
+    id: safeIdSchema,
+    description: z.string().min(1),
+    due_at_seconds: z.number().int().positive(),
+    wake_agent_ids: z.array(safeIdSchema),
+    law_id: safeIdSchema,
+  }).strict()),
   condition_profiles: z.array(z.object({
     id: safeIdSchema,
     name: z.string().min(1),

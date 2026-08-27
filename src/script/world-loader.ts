@@ -579,6 +579,26 @@ export function buildWorldDefinition(
       }
     }
 
+    for (const timer of mechanicsDocument.world_timers) {
+      if (state.truth.timers[timer.id]) throw new Error(`duplicate world timer id ${timer.id}`);
+      if (!state.lawIds.includes(timer.law_id)) {
+        throw new Error(`world timer ${timer.id} references unknown law ${timer.law_id}`);
+      }
+      for (const agentId of timer.wake_agent_ids) {
+        if (!state.agents[agentId]) throw new Error(`world timer ${timer.id} wakes unknown Agent ${agentId}`);
+      }
+      state.truth.timers[timer.id] = {
+        id: timer.id,
+        description: timer.description,
+        createdAtSeconds: 0,
+        dueAtSeconds: timer.due_at_seconds,
+        status: "scheduled",
+        wakeAgentIds: [...timer.wake_agent_ids],
+        causes: [{ kind: "law", id: timer.law_id }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "eq", value: timer.due_at_seconds }],
+      };
+    }
+
     const definition: WorldDefinition = {
       id: manifest.id,
       name: manifest.name,
