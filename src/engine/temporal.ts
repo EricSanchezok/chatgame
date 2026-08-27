@@ -1,4 +1,4 @@
-import type { AgentId, CausalAssertion, CausalRef } from "./model";
+import type { AgentActionProposal, AgentId, CausalAssertion, CausalRef } from "./model";
 
 export interface ActivityResourceDefinition {
   id: string;
@@ -115,6 +115,7 @@ export type ActivityStatus = "active" | "paused" | "completed" | "blocked" | "fa
 export interface ActivityState {
   id: string;
   sourceActionId: string;
+  sourceAction: AgentActionProposal;
   actorId: AgentId;
   participantAgentIds: AgentId[];
   plan: TemporalPlan;
@@ -446,8 +447,12 @@ export function materializeTrustedTemporalPlan(input: {
 export function createActivity(input: {
   id: string;
   plan: TemporalPlan;
+  sourceAction: AgentActionProposal;
   participantAgentIds?: AgentId[];
 }): ActivityState {
+  if (input.sourceAction.id !== input.plan.actionId || input.sourceAction.actorId !== input.plan.actorId) {
+    throw new Error("activity source action does not match temporal plan");
+  }
   const participants = [...new Set([input.plan.actorId, ...(input.participantAgentIds ?? [])])].sort();
   const nextBoundaryAtSeconds = input.plan.completionAtSeconds === null
     ? input.plan.startsAtSeconds + input.plan.checkpointSeconds
@@ -455,6 +460,7 @@ export function createActivity(input: {
   return {
     id: input.id,
     sourceActionId: input.plan.actionId,
+    sourceAction: structuredClone(input.sourceAction),
     actorId: input.plan.actorId,
     participantAgentIds: participants,
     plan: structuredClone(input.plan),
@@ -514,6 +520,7 @@ export function validateActivityState(
   resources: Readonly<Record<string, ActivityResourceDefinition>>,
 ): void {
   if (!activity.id.trim() || activity.sourceActionId !== activity.plan.actionId || activity.actorId !== activity.plan.actorId ||
+    activity.sourceAction.id !== activity.sourceActionId || activity.sourceAction.actorId !== activity.actorId ||
     !activity.participantAgentIds.includes(activity.actorId) ||
     new Set(activity.participantAgentIds).size !== activity.participantAgentIds.length) {
     throw new Error(`invalid activity ${activity.id}`);

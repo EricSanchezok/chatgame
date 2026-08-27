@@ -12,6 +12,7 @@ import {
   validateTemporalProfile,
   type ActivityResourceDefinition,
   type TemporalPlanDraft,
+  type TemporalPlan,
   type TemporalProfileDefinition,
   type WorldTimer,
 } from "../temporal";
@@ -42,6 +43,18 @@ function draft(profileId: string, basis: TemporalPlanDraft["basis"] = { kind: "p
     description: "执行行动",
     conditionAssertions: [],
     causes: actionCause,
+  };
+}
+
+function sourceAction(plan: TemporalPlan) {
+  return {
+    id: plan.actionId,
+    actorId: plan.actorId,
+    baseRevision: 0,
+    rawText: plan.description,
+    goal: plan.description,
+    means: null,
+    targetIds: [],
   };
 }
 
@@ -120,7 +133,7 @@ describe("event-boundary temporal kernel", () => {
       }),
       profiles: { "road-travel": travel },
     });
-    const activity = createActivity({ id: "activity-travel", plan });
+    const activity = createActivity({ id: "activity-travel", plan, sourceAction: sourceAction(plan) });
     expect(plan.completionAtSeconds).toBe(72_000);
     expect(activity.nextBoundaryAtSeconds).toBe(7_200);
     const boundary = selectTemporalBoundary({
@@ -147,7 +160,7 @@ describe("event-boundary temporal kernel", () => {
       draft: draft("rest"),
       profiles: { rest: fixedProfile({ id: "rest", durationSeconds: 86_400, checkpointSeconds: 3_600 }) },
     });
-    const activity = createActivity({ id: "activity-rest", plan });
+    const activity = createActivity({ id: "activity-rest", plan, sourceAction: sourceAction(plan) });
     const timers: Record<string, WorldTimer> = Object.fromEntries(["fire", "deadline"].map((id) => [id, {
       id,
       description: id,
@@ -200,7 +213,7 @@ describe("event-boundary temporal kernel", () => {
       draft: draft("treatment"),
       profiles: { treatment },
     });
-    let activity = createActivity({ id: "activity-treatment", plan });
+    let activity = createActivity({ id: "activity-treatment", plan, sourceAction: sourceAction(plan) });
     let boundary = selectTemporalBoundary({
       elapsedSeconds: 0,
       maxAutonomousSpanSeconds: 1_000,
@@ -236,9 +249,8 @@ describe("event-boundary temporal kernel", () => {
 
   it("enforces per-Agent resource capacity and supports control-plane pause/resume", () => {
     const profile = fixedProfile({ durationSeconds: 10, checkpointSeconds: 5 });
-    const make = (id: string) => createActivity({
-      id,
-      plan: materializeTemporalPlan({
+    const make = (id: string) => {
+      const plan = materializeTemporalPlan({
         id: `plan-${id}`,
         actionId: `action-${id}`,
         actorId: "agent-a",
@@ -246,8 +258,9 @@ describe("event-boundary temporal kernel", () => {
         startsAtSeconds: 0,
         draft: { ...draft("brief"), causes: [{ kind: "action", id: `action-${id}` }] },
         profiles: { brief: profile },
-      }),
-    });
+      });
+      return createActivity({ id, plan, sourceAction: sourceAction(plan) });
+    };
     const first = make("first");
     const second = make("second");
     expect(() => validateActivityResources({ first, second }, resources)).toThrow("exceeds activity resource");

@@ -12,7 +12,10 @@ export type RuntimeIdKind =
   | "evidence"
   | "quantity"
   | "fact"
-  | "model-audit";
+  | "model-audit"
+  | "temporal-plan"
+  | "activity"
+  | "timer";
 
 export interface RuntimeIdInput {
   worldHash: string;
