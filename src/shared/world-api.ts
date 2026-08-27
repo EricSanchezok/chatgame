@@ -1,4 +1,4 @@
-export const WORLD_API_VERSION = 7 as const;
+export const WORLD_API_VERSION = 9 as const;
 
 export interface WorldSummary {
   id: string;
@@ -16,13 +16,15 @@ export interface PublicWorldEvent {
   impact: "ordinary" | "significant" | "transformative";
 }
 
-export type WorldAdvanceStatus =
-  | "awaiting_actions"
+export type WorldRunStatus =
   | "queued"
   | "running"
-  | "committed"
-  | "cancelled"
-  | "failed";
+  | "pausing"
+  | "paused"
+  | "awaiting-decision"
+  | "completed"
+  | "failed"
+  | "budget-paused";
 
 export interface PublicInstanceSummary {
   id: string;
@@ -35,7 +37,30 @@ export interface PublicInstanceSummary {
   elapsedSeconds: number;
   participantCount: number;
   schedulerMode: "paused" | "realtime";
-  advanceStatus?: WorldAdvanceStatus;
+  runStatus?: WorldRunStatus;
+}
+
+export interface PublicWorldRun {
+  id: string;
+  generation: number;
+  status: WorldRunStatus;
+  committedRevisions: number[];
+  stopReason: string | null;
+  lease: null | {
+    commitCount: number;
+    maxCommits: number;
+    maxWallTimeMs: number;
+    startedAt: string;
+  };
+  activity: null | {
+    id: string;
+    status: "active" | "paused" | "completed" | "blocked" | "failed" | "cancelled";
+    description: string;
+    stage: string | null;
+    progress: { current: number; target: number; unit: string } | null;
+    nextBoundaryAtSeconds: number | null;
+    completionAtSeconds: number | null;
+  };
 }
 
 export interface PublicActionWindow {
@@ -89,7 +114,7 @@ export interface PublicConversationTurn {
   agentId: string;
   baseRevision: number;
   createdAt: string;
-  status: "awaiting" | "running" | "committed" | "failed";
+  status: "awaiting" | "running" | "paused" | "committed" | "failed";
   action?: {
     submissionId: string;
     text: string;
@@ -101,7 +126,10 @@ export interface PublicConversationTurn {
     text: string;
     suggestions?: [string, string, string];
     generated?: boolean;
+    worldTimeSeconds?: number;
+    activity?: PublicWorldRun["activity"];
   };
+  responses?: Array<NonNullable<PublicConversationTurn["response"]>>;
 }
 
 export interface PublicConversation {
@@ -119,6 +147,12 @@ export interface PublicInstanceDetail {
   origins: OriginView[];
   controlledView?: AgentPrivateView;
   conversation?: PublicConversation;
+  run?: PublicWorldRun;
+}
+
+export interface WorldRunControlInput {
+  runId: string;
+  generation: number;
 }
 
 export type CreateInstanceInput = {

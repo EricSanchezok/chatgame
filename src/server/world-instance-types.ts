@@ -2,7 +2,6 @@ import type {
   ExternalActionInput,
   ParticipantId,
   PolicyBinding,
-  WorldAdvanceRequest,
 } from "../engine/execution";
 import type { AgentId, SimulationState } from "../engine/model";
 import type { WorldRuntimeContract } from "../engine/world-definition";
@@ -55,21 +54,46 @@ export interface SchedulerState {
   nextTickAt: string | null;
 }
 
-export interface WorldAdvanceRecord {
+export type WorldRunStatus =
+  | "queued"
+  | "running"
+  | "pausing"
+  | "paused"
+  | "awaiting-decision"
+  | "completed"
+  | "failed"
+  | "budget-paused";
+
+export interface WorldRunLease {
   id: string;
-  request: WorldAdvanceRequest;
-  status: "awaiting_actions" | "queued" | "running" | "committed" | "cancelled" | "failed";
+  generation: number;
+  startedAt: string;
+  maxCommits: number;
+  maxWallTimeMs: number;
+  commitCount: number;
+}
+
+export interface WorldRunRecord {
+  id: string;
+  generation: number;
+  trigger: "manual" | "batch" | "realtime" | "participant_action";
+  status: WorldRunStatus;
+  rootIntents: ExternalActionInput[];
+  activityIds: string[];
+  requestedBoundaryCount: number | null;
   createdAt: string;
   updatedAt: string;
   executionIds: string[];
   committedRevisions: number[];
+  stopReason: string | null;
+  lease: WorldRunLease | null;
   error?: string;
 }
 
 export interface ParticipantIntentRecord {
   participantId: ParticipantId;
   agentId: AgentId;
-  advanceId: string;
+  runId: string;
   submissionId: string;
   revision: number;
   text: string;
@@ -77,7 +101,7 @@ export interface ParticipantIntentRecord {
 }
 
 export interface WorldInstanceDocument {
-  schemaVersion: 14;
+  schemaVersion: 15;
   id: string;
   world: WorldRuntimeContract;
   title: string;
@@ -89,7 +113,7 @@ export interface WorldInstanceDocument {
   actionWindow: ActionWindow | null;
   runtime: InstanceRuntimeConfig;
   scheduler: SchedulerState;
-  advances: Record<string, WorldAdvanceRecord>;
+  runs: Record<string, WorldRunRecord>;
   participantIntents: ParticipantIntentRecord[];
 }
 

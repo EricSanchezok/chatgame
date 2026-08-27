@@ -330,5 +330,32 @@ describe("eager reference dependency components", () => {
     const replayed = replaySimulationState(second.state);
     expect(contentHash(replayed.truth)).toBe(contentHash(second.state.truth));
     expect(contentHash(replayed.agents)).toBe(contentHash(second.state.agents));
+
+    const overrideEngine = new SimulationEngine(
+      definition,
+      new EagerReferenceAlgorithm(provider),
+      result.state,
+    );
+    const overridden = await overrideEngine.step({
+      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: result.state.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "stop-travel",
+        agentId: "player",
+        rawText: "停止赶路，留在原地观察",
+        goal: "停止当前活动",
+        means: null,
+        targetIds: [],
+      }],
+    });
+    expect(overridden.committed.temporalBoundary.deltaSeconds).toBe(1);
+    expect(overridden.state.truth.activities[activity.id]!.status).toBe("cancelled");
+    expect(overridden.committed.activityTransitions).toContainEqual(expect.objectContaining({
+      activityId: activity.id,
+      kind: "cancelled",
+    }));
   });
 });

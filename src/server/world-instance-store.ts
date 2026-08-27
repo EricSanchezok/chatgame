@@ -25,7 +25,7 @@ function requireText(value: unknown, label: string): asserts value is string {
 }
 
 function validateExternalAction(
-  action: WorldInstanceDocument["advances"][string]["request"]["externalActions"][number],
+  action: WorldInstanceDocument["runs"][string]["rootIntents"][number],
   label: string,
 ): void {
   if (!action || typeof action !== "object") throw new Error(`${label} must be an object`);
@@ -161,7 +161,7 @@ function validateActionWindow(document: WorldInstanceDocument): void {
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 14) throw new Error("world instance schema v14 required");
+  if (document.schemaVersion !== 15) throw new Error("world instance schema v15 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
   if (document.title.length > 80) throw new Error("instance title exceeds 80 characters");
@@ -206,55 +206,71 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
   if (document.scheduler.mode === "paused" && document.scheduler.nextTickAt !== null) {
     throw new Error("paused scheduler cannot have a next tick");
   }
-  for (const [advanceId, advance] of Object.entries(document.advances)) {
-    if (advance.id !== advanceId) throw new Error(`advance key mismatch for ${advanceId}`);
-    if (!["awaiting_actions", "queued", "running", "committed", "cancelled", "failed"].includes(advance.status)) {
-      throw new Error(`advance ${advanceId} has an invalid status`);
+  for (const [runId, run] of Object.entries(document.runs)) {
+    if (run.id !== runId) throw new Error(`run key mismatch for ${runId}`);
+    if (!["queued", "running", "pausing", "paused", "awaiting-decision", "completed", "failed", "budget-paused"]
+      .includes(run.status)) throw new Error(`run ${runId} has an invalid status`);
+    if (!Number.isSafeInteger(run.generation) || run.generation < 1 ||
+      !Number.isFinite(Date.parse(run.createdAt)) || !Number.isFinite(Date.parse(run.updatedAt))) {
+      throw new Error(`run ${runId} has invalid generation or timestamps`);
     }
-    if (!Number.isFinite(Date.parse(advance.createdAt)) || !Number.isFinite(Date.parse(advance.updatedAt))) {
-      throw new Error(`advance ${advanceId} timestamps must be ISO dates`);
+    if (!["manual", "batch", "realtime", "participant_action"].includes(run.trigger)) {
+      throw new Error(`run ${runId} has an invalid trigger`);
     }
-    if (!Number.isSafeInteger(advance.request.expectedRevision) || advance.request.expectedRevision < 0) {
-      throw new Error(`advance ${advanceId} has an invalid request`);
+    if (run.requestedBoundaryCount !== null &&
+      (!Number.isSafeInteger(run.requestedBoundaryCount) || run.requestedBoundaryCount < 1 ||
+        run.requestedBoundaryCount > 100)) {
+      throw new Error(`run ${runId} has an invalid requested boundary count`);
     }
-    if (!["manual", "batch", "realtime", "participant_action"].includes(advance.request.trigger)) {
-      throw new Error(`advance ${advanceId} has an invalid trigger`);
-    }
-    if (!Array.isArray(advance.request.externalActions)) {
-      throw new Error(`advance ${advanceId} external actions must be an array`);
-    }
+    if (!Array.isArray(run.rootIntents)) throw new Error(`run ${runId} root intents must be an array`);
     const submittedAgents = new Set<string>();
     const submissionIds = new Set<string>();
-    for (const action of advance.request.externalActions) {
-      validateExternalAction(action, `advance ${advanceId} external action`);
+    for (const action of run.rootIntents) {
+      validateExternalAction(action, `run ${runId} root intent`);
       if (!(action.agentId in document.state.agents)) {
-        throw new Error(`advance ${advanceId} action references unknown Agent ${action.agentId}`);
+        throw new Error(`run ${runId} action references unknown Agent ${action.agentId}`);
       }
       if (submittedAgents.has(action.agentId) || submissionIds.has(action.submissionId)) {
-        throw new Error(`advance ${advanceId} contains duplicate external actions`);
+        throw new Error(`run ${runId} contains duplicate root intents`);
       }
       submittedAgents.add(action.agentId);
       submissionIds.add(action.submissionId);
     }
-    if (!Array.isArray(advance.executionIds) || advance.executionIds.some((id) => typeof id !== "string" || !id.trim())) {
-      throw new Error(`advance ${advanceId} execution ids must be non-empty strings`);
+    if (!Array.isArray(run.activityIds) || new Set(run.activityIds).size !== run.activityIds.length ||
+      run.activityIds.some((id) => !document.state.truth.activities[id])) {
+      throw new Error(`run ${runId} activity ids are invalid`);
     }
-    if (!Array.isArray(advance.committedRevisions) || advance.committedRevisions.some((revision) =>
+    if (!Array.isArray(run.executionIds) || run.executionIds.some((id) => typeof id !== "string" || !id.trim())) {
+      throw new Error(`run ${runId} execution ids must be non-empty strings`);
+    }
+    if (!Array.isArray(run.committedRevisions) || run.committedRevisions.some((revision) =>
       !Number.isSafeInteger(revision) || revision < 0 || revision > document.state.revision)) {
-      throw new Error(`advance ${advanceId} committed revisions are invalid`);
+      throw new Error(`run ${runId} committed revisions are invalid`);
     }
-    if (advance.error !== undefined) requireText(advance.error, `advance ${advanceId} error`);
+    if (run.stopReason !== null) requireText(run.stopReason, `run ${runId} stop reason`);
+    if (run.lease) {
+      requireText(run.lease.id, `run ${runId} lease id`);
+      if (run.lease.generation !== run.generation || !Number.isFinite(Date.parse(run.lease.startedAt)) ||
+        !Number.isSafeInteger(run.lease.maxCommits) || run.lease.maxCommits < 1 ||
+        !Number.isSafeInteger(run.lease.maxWallTimeMs) || run.lease.maxWallTimeMs < 1 ||
+        !Number.isSafeInteger(run.lease.commitCount) || run.lease.commitCount < 0 ||
+        run.lease.commitCount > run.lease.maxCommits) {
+        throw new Error(`run ${runId} lease is invalid`);
+      }
+    }
+    if (run.status === "running" && !run.lease) throw new Error(`running run ${runId} requires a lease`);
+    if (run.error !== undefined) requireText(run.error, `run ${runId} error`);
   }
   for (const intent of document.participantIntents) {
     requireText(intent.participantId, "participant intent participant id");
     requireText(intent.agentId, "participant intent agent id");
-    requireText(intent.advanceId, "participant intent advance id");
+    requireText(intent.runId, "participant intent run id");
     requireText(intent.submissionId, "participant intent submission id");
     requireText(intent.text, "participant intent text");
     if (!(intent.participantId in document.participants)) {
       throw new Error(`participant intent references unknown participant ${intent.participantId}`);
     }
-    if (!(intent.agentId in document.state.agents) || !(intent.advanceId in document.advances)) {
+    if (!(intent.agentId in document.state.agents) || !(intent.runId in document.runs)) {
       throw new Error(`participant intent ${intent.submissionId} references unknown execution state`);
     }
     if (!Number.isSafeInteger(intent.revision) || intent.revision < 0 || intent.revision > document.state.revision) {

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { CausalRef } from "../model";
+import type { ActionOutcome, CausalRef } from "../model";
 import {
   advanceTemporalState,
   createActivity,
+  cancelActivity,
   explicitDurationSeconds,
   materializeTemporalPlan,
   pauseActivity,
   resumeActivity,
+  reconcileTemporalOutcomes,
   selectTemporalBoundary,
   validateActivityResources,
   validateTemporalProfile,
@@ -270,5 +272,47 @@ describe("event-boundary temporal kernel", () => {
     const resumed = resumeActivity(paused.activity, 0);
     expect(resumed.activity.status).toBe("active");
     expect(resumed.activity.nextBoundaryAtSeconds).toBe(5);
+    const cancelled = cancelActivity(resumed.activity, 0);
+    expect(cancelled.activity).toMatchObject({ status: "cancelled", nextBoundaryAtSeconds: null });
+  });
+
+  it("ends conditional work only when the boundary outcome satisfies it", () => {
+    const conditional: TemporalProfileDefinition = {
+      id: "daybreak",
+      name: "等待天亮",
+      kind: "conditional",
+      checkEverySeconds: 60,
+      interruptible: true,
+      resourceClaims: [{ resourceId: "foreground", amount: 1 }],
+    };
+    const plan = materializeTemporalPlan({
+      id: "plan-daybreak",
+      actionId: "action-a",
+      actorId: "agent-a",
+      rawText: "等待天亮",
+      startsAtSeconds: 0,
+      draft: draft("daybreak"),
+      profiles: { daybreak: conditional },
+    });
+    const activity = createActivity({ id: "activity-daybreak", plan, sourceAction: sourceAction(plan) });
+    const boundary = selectTemporalBoundary({
+      elapsedSeconds: 0,
+      maxAutonomousSpanSeconds: 300,
+      activities: { [activity.id]: activity },
+      timers: {},
+      conditionExpiries: {},
+    });
+    const advanced = advanceTemporalState({ boundary, activities: { [activity.id]: activity }, timers: {} });
+    const completed = reconcileTemporalOutcomes(advanced, [{
+      proposalId: "action-a",
+      status: "succeeded",
+    } as ActionOutcome]);
+    expect(completed.activities[activity.id]).toMatchObject({
+      status: "completed",
+      completionAtSeconds: 60,
+      updatedAtSeconds: 60,
+    });
+    expect(completed.transitions[0]!.kind).toBe("completed");
+    expect(completed.decisionPoints[0]).toMatchObject({ reason: "activity_completed" });
   });
 });

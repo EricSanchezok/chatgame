@@ -12,7 +12,7 @@ import { WorldHost } from "../src/server/world-host";
 
 function failedAdvanceDiagnostic(database: LocalDatabase, instanceId: string): string {
   const document = database.readInstance(instanceId).document;
-  const advance = Object.values(document.advances).at(-1);
+  const advance = Object.values(document.runs).at(-1);
   const execution = database.executions({ instanceId }).at(-1);
   const terminal = execution ? database.executionEvents(execution.id).at(-1) : undefined;
   return [

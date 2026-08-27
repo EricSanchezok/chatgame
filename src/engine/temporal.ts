@@ -1,4 +1,4 @@
-import type { AgentActionProposal, AgentId, CausalAssertion, CausalRef } from "./model";
+import type { ActionOutcome, AgentActionProposal, AgentId, CausalAssertion, CausalRef } from "./model";
 
 export interface ActivityResourceDefinition {
   id: string;
@@ -533,7 +533,9 @@ export function validateActivityState(
   validateTemporalPlan(activity.plan, profiles, resources);
   if (!Number.isSafeInteger(activity.startedAtSeconds) || activity.startedAtSeconds !== activity.plan.startsAtSeconds ||
     !Number.isSafeInteger(activity.updatedAtSeconds) || activity.updatedAtSeconds < activity.startedAtSeconds ||
-    activity.updatedAtSeconds > elapsedSeconds || activity.completionAtSeconds !== activity.plan.completionAtSeconds) {
+    activity.updatedAtSeconds > elapsedSeconds ||
+    (activity.plan.mode !== "conditional" && activity.completionAtSeconds !== activity.plan.completionAtSeconds) ||
+    (activity.plan.mode === "conditional" && activity.status !== "completed" && activity.completionAtSeconds !== null)) {
     throw new Error(`activity ${activity.id} has invalid clock`);
   }
   const terminal = new Set<ActivityStatus>(["completed", "blocked", "failed", "cancelled"]);
@@ -725,6 +727,60 @@ export function advanceTemporalState(input: {
   };
 }
 
+export function reconcileTemporalOutcomes(
+  input: Readonly<TemporalAdvanceResult>,
+  outcomes: readonly ActionOutcome[],
+): TemporalAdvanceResult {
+  const next = structuredClone(input) as TemporalAdvanceResult;
+  const byAction = new Map(outcomes.map((outcome) => [outcome.proposalId, outcome]));
+  for (const activity of Object.values(next.activities)) {
+    if (activity.status !== "active") continue;
+    const outcome = byAction.get(activity.sourceActionId);
+    if (!outcome) continue;
+    const terminal = outcome.status === "failed"
+      ? "failed" as const
+      : outcome.status === "blocked"
+        ? "blocked" as const
+        : activity.plan.mode === "conditional" && outcome.status === "succeeded"
+          ? "completed" as const
+          : null;
+    if (!terminal) continue;
+    activity.status = terminal;
+    activity.nextBoundaryAtSeconds = null;
+    if (terminal === "completed") activity.completionAtSeconds = next.boundary.toElapsedSeconds;
+    const existing = next.transitions.find((transition) => transition.activityId === activity.id);
+    next.transitions = [
+      ...next.transitions.filter((candidate) => candidate.activityId !== activity.id),
+      {
+        activityId: activity.id,
+        actorId: activity.actorId,
+        kind: terminal,
+        fromStatus: existing?.fromStatus ?? "active",
+        toStatus: terminal,
+        fromElapsedSeconds: next.boundary.fromElapsedSeconds,
+        toElapsedSeconds: next.boundary.toElapsedSeconds,
+        progress: structuredClone(activity.progress),
+      },
+    ].sort((left, right) => left.activityId.localeCompare(right.activityId));
+    const reason: DecisionPoint["reason"] = terminal === "completed"
+      ? "activity_completed"
+      : terminal === "blocked"
+        ? "activity_blocked"
+        : "activity_failed";
+    next.decisionPoints.push({
+      agentId: activity.actorId,
+      reason,
+      activityId: activity.id,
+      timerId: null,
+    });
+  }
+  next.decisionPoints = [...new Map(next.decisionPoints.map((point) => [
+    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
+    point,
+  ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
+  return next;
+}
+
 export function pauseActivity(activity: Readonly<ActivityState>, atSeconds: number): {
   activity: ActivityState;
   transition: ActivityTransition;
@@ -768,6 +824,33 @@ export function resumeActivity(activity: Readonly<ActivityState>, atSeconds: num
       kind: "resumed",
       fromStatus: "paused",
       toStatus: "active",
+      fromElapsedSeconds: atSeconds,
+      toElapsedSeconds: atSeconds,
+      progress: structuredClone(next.progress),
+    },
+  };
+}
+
+export function cancelActivity(activity: Readonly<ActivityState>, atSeconds: number): {
+  activity: ActivityState;
+  transition: ActivityTransition;
+} {
+  if ((activity.status !== "active" && activity.status !== "paused") || !activity.plan.interruptible ||
+    atSeconds !== activity.updatedAtSeconds) {
+    throw new Error(`activity ${activity.id} cannot be cancelled at ${atSeconds}`);
+  }
+  const next = structuredClone(activity) as ActivityState;
+  const fromStatus = next.status;
+  next.status = "cancelled";
+  next.nextBoundaryAtSeconds = null;
+  return {
+    activity: next,
+    transition: {
+      activityId: next.id,
+      actorId: next.actorId,
+      kind: "cancelled",
+      fromStatus,
+      toStatus: "cancelled",
       fromElapsedSeconds: atSeconds,
       toElapsedSeconds: atSeconds,
       progress: structuredClone(next.progress),
