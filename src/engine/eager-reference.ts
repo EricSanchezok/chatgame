@@ -42,7 +42,8 @@ import { applyObservationBindings, validateObservations } from "./observation";
 import { ObservationRenderer } from "./observation-renderer";
 import type { RulePackageRegistry } from "./rule-package";
 import { quantityId, runtimeId } from "./runtime-id";
-import { projectAgentSelfState } from "./self-state";
+import { projectAgentPerspective } from "./agent-perspective";
+import { MODEL_CONTEXT_CONTRACT_VERSION } from "./prompts";
 import { applyTransitionProposal } from "./transaction";
 import { TruthEngine, type TruthResolution } from "./truth-engine";
 
@@ -80,7 +81,7 @@ const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。�
 不得创建 ID，不得输出状态修改、结果或叙事。actor 的私有认知只用于理解本行动，不是 canonical Fact；任何私有 claim、evidence 或 goal ID 都不得作为 footprint id。
 行动与 actor 身份由调用槽位固定，不要输出。只输出 schema 指定的 JSON。`;
 
-const GROUNDING_PROMPT_VERSION = "action-grounding-v1";
+const GROUNDING_PROMPT_VERSION = "action-grounding-v2";
 
 function observationsFor(packets: readonly ObservationPacket[], observerId: string): ObservationPacket[] {
   return packets.filter((packet) => packet.observerId === observerId);
@@ -262,13 +263,9 @@ function groundingContext(
 ): unknown {
   const agent = state.agents[action.actorId];
   return {
-    contractVersion: 1,
+    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     action,
-    actorPrivateView: {
-      character: agent.character,
-      belief: agent.belief,
-      selfState: projectAgentSelfState(state, agent),
-    },
+    actorPerspective: projectAgentPerspective(state, agent),
     canonicalCatalog: {
       entities: Object.values(state.truth.entities).map(({ id, kind, name, description, lifecycle }) => ({
         id, kind, name, description, lifecycle,

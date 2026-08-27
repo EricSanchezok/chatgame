@@ -296,6 +296,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         step?: number;
         baseRevision?: number;
         agent?: { id: string };
+        perspective?: { agentId: string };
         action?: { id: string; actorId: string };
         entity?: { name: string; location: string | null };
         world?: { laws: Array<{ id: string }> };
@@ -365,7 +366,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           },
         };
       }
-      const agentId = input.agent?.id;
+      const agentId = input.perspective?.agentId;
       const revision = input.revision;
       if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
       return {

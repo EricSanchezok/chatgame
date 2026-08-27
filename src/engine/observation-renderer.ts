@@ -23,12 +23,13 @@ import {
 } from "./model-provider";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { validateObservations } from "./observation";
-import { projectAgentSelfState } from "./self-state";
+import { projectAgentPerspective } from "./agent-perspective";
+import { MODEL_CONTEXT_CONTRACT_VERSION } from "./prompts";
 import { materializeObservationPackets } from "./truth-engine";
 import { applyTransitionProposal } from "./transaction";
 import type { WorldDefinition } from "./world-definition";
 
-const OBSERVATION_PROMPT_VERSION = "observation-renderer-v1";
+const OBSERVATION_PROMPT_VERSION = "observation-renderer-v2";
 const OBSERVATION_SYSTEM = `你是 Living World Engine 的观察渲染器。
 输入包含已经裁决但尚未提交的候选世界变化，以及按固定顺序排列的观察槽位。
 
@@ -60,7 +61,7 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
     .filter((fact) => fact.access.kind === "public" ||
       fact.access.kind === "agents" && fact.access.agentIds.includes(observerId));
   return {
-    contractVersion: 1,
+    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     promptVersion: OBSERVATION_PROMPT_VERSION,
     world: {
       id: input.definition.id,
@@ -88,10 +89,7 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
         observer: {
           agentId: observerId,
           entityId: agent.entityId,
-          character: agent.character,
-          belief: agent.belief,
-          bindings: agent.bindings,
-          selfState: projectAgentSelfState(candidate, agent),
+          perspective: projectAgentPerspective(candidate, agent),
           accessibleFacts: visibleFacts(observerId),
         },
       };
