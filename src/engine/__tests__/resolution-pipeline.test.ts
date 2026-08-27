@@ -262,5 +262,32 @@ describe("resolution pipeline", () => {
     delete payload.contentHash;
     tamperedStep.contentHash = contentHash(payload);
     expect(() => replaySimulationState(tampered)).toThrow("RNG");
+
+    const operationTampered = structuredClone(result.state);
+    const operationStep = operationTampered.history[0];
+    const operationReceipt = operationStep.resolutionReceipts
+      .find((candidate) => candidate.plan.actorId === "player")!;
+    const operationIndex = operationReceipt.operations
+      .findIndex((operation) => operation.kind === "adjust_meter");
+    const recordedOperation = operationReceipt.operations[operationIndex];
+    if (!recordedOperation || recordedOperation.kind !== "adjust_meter") {
+      throw new Error("expected a derived meter operation");
+    }
+    const falsifiedOperation = { ...recordedOperation, amount: recordedOperation.amount + 1 };
+    operationReceipt.operations[operationIndex] = falsifiedOperation;
+    const mechanicResult = operationStep.mechanicResults.find((candidate) =>
+      (candidate.data as { receiptId?: string }).receiptId === operationReceipt.id)!;
+    const mechanicOperationIndex = mechanicResult.operations.findIndex((operation) =>
+      contentHash(operation) === contentHash(recordedOperation));
+    mechanicResult.operations[mechanicOperationIndex] = structuredClone(falsifiedOperation);
+    const stepOperationIndex = operationStep.operations.findIndex((operation) =>
+      contentHash(operation) === contentHash(recordedOperation));
+    operationStep.operations[stepOperationIndex] = structuredClone(falsifiedOperation);
+    operationStep.semanticHash = semanticStepHash(operationStep);
+    const operationPayload = structuredClone(operationStep) as Partial<typeof operationStep>;
+    delete operationPayload.contentHash;
+    operationStep.contentHash = contentHash(operationPayload);
+    expect(() => replaySimulationState(operationTampered))
+      .toThrow("non-deterministic core-resolution result");
   });
 });

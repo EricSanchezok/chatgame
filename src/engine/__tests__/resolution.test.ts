@@ -23,6 +23,7 @@ function evidence(): ResolutionEvidenceIndex {
     entities: new Set(["hero", "foe", "sword", "sand-ground"]),
     facts: new Set(["sword-burning"]),
     conditions: new Set(["armored"]),
+    conditionOwners: new Map([["armored", "hero"]]),
     laws: new Set(["ordinary-physics"]),
     placements: new Set(["courtyard"]),
     ratingOwners: new Map([["hero-prowess", "hero"], ["foe-defense", "foe"]]),
@@ -187,7 +188,37 @@ describe("open semantic resolution", () => {
         { source: { kind: "fact", id: "sword-burning" }, role: "secondary", direction: "neutral", steps: 0, authority: "semantic", channel: null, explanation: "Ignition." },
       ],
     });
-    expect(() => validateResolutionPlan(reused, evidence())).toThrow("more than one role");
+    expect(() => validateResolutionPlan(reused, evidence())).toThrow("more than one mechanical role");
+
+    const reusedAptitude = plan({
+      factors: [{
+        source: { kind: "rating", id: "hero-prowess" },
+        role: "potency",
+        direction: "helpful",
+        steps: 1,
+        authority: "authored",
+        channel: "physical-harm",
+        explanation: "The same aptitude cannot improve both the roll and its effect.",
+      }],
+      secondaryEffect: null,
+    });
+    expect(() => validateResolutionPlan(reusedAptitude, evidence()))
+      .toThrow("more than one mechanical role");
+
+    const falseOppositionEvidence = plan({
+      difficulty: {
+        kind: "opposed",
+        targetId: "foe",
+        ratingId: "foe-defense",
+        source: { kind: "law", id: "ordinary-physics" },
+      },
+    });
+    expect(() => validateResolutionPlan(falseOppositionEvidence, evidence()))
+      .toThrow("does not cite its rating");
+
+    expect(() => validateResolutionPlan(plan({
+      secondaryEffect: conditionIntent({ conditionId: "armored" }),
+    }), evidence())).toThrow("for another subject");
 
     const oversized = plan({
       factors: [{ source: { kind: "entity", id: "sword" }, role: "potency", direction: "helpful", steps: 2, authority: "semantic", channel: "physical-harm", explanation: "Overclaim." }],

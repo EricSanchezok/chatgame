@@ -35,6 +35,10 @@ import { contentHash, isSha256 } from "./model-audit";
 import { applyObservationBindings, validateObservations } from "./observation";
 import { resolveD20Checks, resolveDiscreteRandomRequests } from "./random";
 import {
+  coreResolutionRulePackage,
+  deriveCoreResolutionMechanicResult,
+} from "./rule-package";
+import {
   deriveCheck,
   deriveResolutionReceipt,
   validateResolutionPlan,
@@ -525,6 +529,8 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
     entities: new Set(Object.keys(state.truth.entities)),
     facts: new Set(Object.keys(state.truth.facts)),
     conditions: new Set(Object.keys(state.truth.conditions)),
+    conditionOwners: new Map(Object.values(state.truth.conditions)
+      .map((condition) => [condition.id, condition.subjectId])),
     laws: new Set(state.lawIds),
     placements: new Set(Object.keys(state.truth.entities)),
     ratingOwners: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.entityId])),
@@ -575,6 +581,47 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
   commitmentRoundsSchema.parse(step.commitmentRounds);
   validateCommittedRandomTranscript(step, state);
   step.mechanicResults.forEach((result) => mechanicResultSchema.parse(result));
+  assertUnique(step.mechanicResults.map((result) => result.invocationId), `step ${step.step} mechanic results`);
+  if (contentHash(step.mechanicResults.map((result) => result.invocationId)) !==
+    contentHash(step.mechanicInvocations.map((invocation) => invocation.id))) {
+    throw new Error(`step ${step.step} mechanic results do not preserve invocation order`);
+  }
+  const recordedMechanicOperations = step.mechanicResults.flatMap((result) => result.operations);
+  const directOperationCount = step.operations.length - recordedMechanicOperations.length - 1;
+  const finalOperation = step.operations.at(-1);
+  if (directOperationCount < 0 || finalOperation?.kind !== "advance_time" ||
+    contentHash(step.operations.slice(directOperationCount, -1)) !== contentHash(recordedMechanicOperations)) {
+    throw new Error(`step ${step.step} has an invalid mechanic operation transcript`);
+  }
+  const directOperations = step.operations.slice(0, directOperationCount);
+  const replayContext = {
+    state,
+    actions: step.actions,
+    resolutionPlans: step.resolutionPlans,
+    resolutionReceipts: step.resolutionReceipts.map((receipt) => ({ ...structuredClone(receipt), operations: [] })),
+    checkRequests: step.checkRequests,
+    checkResults: step.checks,
+    randomRequests: step.randomRequests,
+    randomResults: step.randomResults,
+  };
+  coreResolutionRulePackage.validateDirectOperations?.(replayContext, {}, directOperations);
+  const priorMechanicResults: typeof step.mechanicResults = [];
+  for (const invocation of step.mechanicInvocations) {
+    const recorded = step.mechanicResults.find((result) => result.invocationId === invocation.id);
+    if (!recorded) throw new Error(`step ${step.step} has no result for mechanic ${invocation.id}`);
+    if (invocation.packageId === coreResolutionRulePackage.id) {
+      const derived = deriveCoreResolutionMechanicResult(
+        replayContext,
+        invocation,
+        priorMechanicResults,
+        directOperations,
+      );
+      if (contentHash(derived) !== contentHash(recorded)) {
+        throw new Error(`step ${step.step} has a non-deterministic core-resolution result for ${invocation.id}`);
+      }
+    }
+    priorMechanicResults.push(recorded);
+  }
   const receiptInvocations = step.mechanicInvocations.filter((invocation) =>
     invocation.packageId === "core-resolution" && invocation.ruleId === "apply-receipt");
   if (receiptInvocations.length !== step.resolutionReceipts.length) {

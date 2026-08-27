@@ -89,6 +89,58 @@ const ruleResultDraftSchema = z.strictObject({
   operations: z.array(worldDeltaOperationSchema),
 });
 
+function resolveInvocation(
+  entry: SelectedPackage,
+  context: RuleExecutionContext,
+  invocation: MechanicInvocation,
+  priorMechanicResults: readonly MechanicResult[],
+  directOperations: readonly WorldDeltaOperation[],
+): { invocation: MechanicInvocation; result: MechanicResult } {
+  const rule = entry.definition.rules.find((candidate) => candidate.id === invocation.ruleId);
+  if (!rule) throw new Error(`mechanic ${invocation.id} cites unknown rule ${invocation.ruleId}`);
+  const input = rule.inputSchema.parse(invocation.input);
+  const normalizedInvocation = { ...structuredClone(invocation), input: structuredClone(input) };
+  const draft = ruleResultDraftSchema.parse(rule.resolve(
+    {
+      ...structuredClone(context),
+      priorMechanicResults: structuredClone(priorMechanicResults),
+      candidateDirectOperations: structuredClone(directOperations),
+    },
+    structuredClone(entry.config),
+    structuredClone(input),
+    structuredClone(normalizedInvocation),
+  ));
+  const invocationMechanics = new Set(invocation.causes
+    .filter((cause) => cause.kind === "mechanic")
+    .map((cause) => cause.id));
+  if (draft.operations.some((operation) => operation.causes.some((cause) =>
+    cause.kind === "mechanic" && !invocationMechanics.has(cause.id)))) {
+    throw new Error(`rule ${invocation.packageId}/${invocation.ruleId} claims undeclared mechanic provenance`);
+  }
+  const mechanicCause = { kind: "mechanic" as const, id: invocation.id };
+  const derived = draft.operations.map((operation) => ({
+    ...structuredClone(operation),
+    causes: [...structuredClone(operation.causes), mechanicCause],
+    ...(operation.kind === "set_condition" ? {
+      condition: {
+        ...structuredClone(operation.condition),
+        provenance: [...structuredClone(operation.condition.provenance), mechanicCause],
+      },
+    } : {}),
+  })) as WorldDeltaOperation[];
+  return {
+    invocation: normalizedInvocation,
+    result: {
+      invocationId: invocation.id,
+      packageId: invocation.packageId,
+      ruleId: invocation.ruleId,
+      code: draft.code,
+      data: structuredClone(draft.data),
+      operations: derived,
+    },
+  };
+}
+
 export class RulePackageRegistry {
   private readonly packages = new Map<string, RulePackage>();
 
@@ -165,48 +217,10 @@ export class RulePackageRegistry {
       invocationIds.add(invocation.id);
       const entry = selected.get(invocation.packageId);
       if (!entry) throw new Error(`mechanic ${invocation.id} cites inactive package ${invocation.packageId}`);
-      const rule = entry.definition.rules.find((candidate) => candidate.id === invocation.ruleId);
-      if (!rule) throw new Error(`mechanic ${invocation.id} cites unknown rule ${invocation.ruleId}`);
-      const input = rule.inputSchema.parse(invocation.input);
-      const normalizedInvocation = { ...structuredClone(invocation), input: structuredClone(input) };
-      normalizedInvocations.push(normalizedInvocation);
-      const draft = ruleResultDraftSchema.parse(rule.resolve(
-        {
-          ...structuredClone(context),
-          priorMechanicResults: structuredClone(results),
-          candidateDirectOperations: structuredClone(directOperations),
-        },
-        structuredClone(entry.config),
-        structuredClone(input),
-        structuredClone(normalizedInvocation),
-      ));
-      const invocationMechanics = new Set(invocation.causes
-        .filter((cause) => cause.kind === "mechanic")
-        .map((cause) => cause.id));
-      if (draft.operations.some((operation) => operation.causes.some((cause) =>
-        cause.kind === "mechanic" && !invocationMechanics.has(cause.id)))) {
-        throw new Error(`rule ${invocation.packageId}/${invocation.ruleId} claims undeclared mechanic provenance`);
-      }
-      const mechanicCause = { kind: "mechanic" as const, id: invocation.id };
-      const derived = draft.operations.map((operation) => ({
-        ...structuredClone(operation),
-        causes: [...structuredClone(operation.causes), mechanicCause],
-        ...(operation.kind === "set_condition" ? {
-          condition: {
-            ...structuredClone(operation.condition),
-            provenance: [...structuredClone(operation.condition.provenance), mechanicCause],
-          },
-        } : {}),
-      })) as WorldDeltaOperation[];
-      results.push({
-        invocationId: invocation.id,
-        packageId: invocation.packageId,
-        ruleId: invocation.ruleId,
-        code: draft.code,
-        data: structuredClone(draft.data),
-        operations: derived,
-      });
-      operations.push(...derived);
+      const resolved = resolveInvocation(entry, context, invocation, results, directOperations);
+      normalizedInvocations.push(resolved.invocation);
+      results.push(resolved.result);
+      operations.push(...resolved.result.operations);
     }
     return { invocations: normalizedInvocations, results, operations };
   }
@@ -762,6 +776,24 @@ export const coreResolutionRulePackage: RulePackage = {
     }
   },
 };
+
+export function deriveCoreResolutionMechanicResult(
+  context: RuleExecutionContext,
+  invocation: MechanicInvocation,
+  priorMechanicResults: readonly MechanicResult[],
+  directOperations: readonly WorldDeltaOperation[],
+): MechanicResult {
+  if (invocation.packageId !== coreResolutionRulePackage.id) {
+    throw new Error(`mechanic ${invocation.id} is not a core-resolution invocation`);
+  }
+  return resolveInvocation(
+    { definition: coreResolutionRulePackage, config: {} },
+    context,
+    invocation,
+    priorMechanicResults,
+    directOperations,
+  ).result;
+}
 
 export function createCoreRulePackageRegistry(): RulePackageRegistry {
   return new RulePackageRegistry([coreResolutionRulePackage]);

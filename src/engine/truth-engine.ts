@@ -372,6 +372,8 @@ function resolutionEvidenceIndex(
     entities: new Set(Object.keys(state.truth.entities)),
     facts: new Set(Object.keys(state.truth.facts)),
     conditions: new Set(Object.keys(state.truth.conditions)),
+    conditionOwners: new Map(Object.values(state.truth.conditions)
+      .map((condition) => [condition.id, condition.subjectId])),
     laws: new Set(laws.map((law) => law.id)),
     placements: new Set(Object.keys(state.truth.entities)),
     ratingOwners: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.entityId])),
@@ -410,6 +412,10 @@ function validatePlanEffect(
     (profile && profile.defaultDurationProfileId !== effect.durationProfileId)) {
     throw new Error(`plan ${plan.id} has invalid condition effect ${effect.id}`);
   }
+  const existing = state.truth.conditions[effect.conditionId];
+  if (existing && existing.subjectId !== effect.targetId) {
+    throw new Error(`plan ${plan.id} reuses condition ${effect.conditionId} for another subject`);
+  }
 }
 
 function materializeResolutionPlans(input: {
@@ -426,6 +432,7 @@ function materializeResolutionPlans(input: {
   }
   const aliases = new Set<string>();
   const actionIds = new Set<string>();
+  const conditionSubjects = new Map<string, string>();
   const evidence = resolutionEvidenceIndex(input.state, input.actions, input.definition.laws);
   const visibilityRank = { hidden: 0, result_only: 1, full: 2 } as const;
   const plans = input.drafts.map((draft, ordinal) => {
@@ -471,9 +478,16 @@ function materializeResolutionPlans(input: {
       validateCausalReference(cause, input.allowedCauses, `resolution plan ${plan.id}`);
     }
     validateResolutionPlan(plan, evidence);
-    if (plan.primaryEffect) validatePlanEffect(input.state, plan, plan.primaryEffect);
-    if (plan.secondaryEffect) validatePlanEffect(input.state, plan, plan.secondaryEffect);
-    if (plan.threatenedEffect) validatePlanEffect(input.state, plan, plan.threatenedEffect);
+    for (const effect of [plan.primaryEffect, plan.secondaryEffect, plan.threatenedEffect]) {
+      if (!effect) continue;
+      validatePlanEffect(input.state, plan, effect);
+      if (effect.kind !== "condition") continue;
+      const subject = conditionSubjects.get(effect.conditionId);
+      if (subject && subject !== effect.targetId) {
+        throw new Error(`resolution plans reuse condition ${effect.conditionId} for multiple subjects`);
+      }
+      conditionSubjects.set(effect.conditionId, effect.targetId);
+    }
     return plan;
   });
   if (input.actions.some((action) => !actionIds.has(action.id))) {

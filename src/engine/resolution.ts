@@ -130,6 +130,7 @@ export interface ResolutionEvidenceIndex {
   entities: ReadonlySet<string>;
   facts: ReadonlySet<string>;
   conditions: ReadonlySet<string>;
+  conditionOwners: ReadonlyMap<string, string>;
   laws: ReadonlySet<string>;
   placements: ReadonlySet<string>;
   ratingOwners: ReadonlyMap<string, string>;
@@ -288,13 +289,27 @@ export function validateResolutionPlan(
         index.ratingOwners.get(plan.difficulty.ratingId) !== plan.difficulty.targetId) {
         throw new Error(`plan ${plan.id} has invalid opposed rating`);
       }
+      if (plan.difficulty.source.kind !== "rating" || plan.difficulty.source.id !== plan.difficulty.ratingId) {
+        throw new Error(`plan ${plan.id} opposed difficulty does not cite its rating`);
+      }
     }
   }
 
+  const preassignedSources = new Set<string>();
+  if (plan.actorRatingId) preassignedSources.add(sourceKey({ kind: "rating", id: plan.actorRatingId }));
+  if (plan.difficulty) {
+    const difficultyKey = sourceKey(plan.difficulty.source);
+    if (preassignedSources.has(difficultyKey)) {
+      throw new Error(`plan ${plan.id} assigns source ${difficultyKey} more than one mechanical role`);
+    }
+    preassignedSources.add(difficultyKey);
+  }
   const factorSources = new Set<string>();
   for (const factor of plan.factors) {
     const key = sourceKey(factor.source);
-    if (factorSources.has(key)) throw new Error(`plan ${plan.id} assigns source ${key} more than one role`);
+    if (factorSources.has(key) || preassignedSources.has(key)) {
+      throw new Error(`plan ${plan.id} assigns source ${key} more than one mechanical role`);
+    }
     factorSources.add(key);
     if (!sourceExists(factor.source, index)) throw new Error(`plan ${plan.id} cites unknown factor ${key}`);
     if (!factor.explanation.trim()) throw new Error(`plan ${plan.id} has an unexplained factor`);
@@ -342,6 +357,12 @@ export function validateResolutionPlan(
       effect.sourceRefs.some((source) => !sourceExists(source, index))) {
       throw new Error(`plan ${plan.id} has an invalid ${effect.id} effect`);
     }
+    if (effect.kind === "condition") {
+      const existingSubject = index.conditionOwners.get(effect.conditionId);
+      if (existingSubject && existingSubject !== effect.targetId) {
+        throw new Error(`plan ${plan.id} reuses condition ${effect.conditionId} for another subject`);
+      }
+    }
   }
   if (plan.threatenedEffect && !plan.targetIds.includes(plan.threatenedEffect.targetId)) {
     throw new Error(`plan ${plan.id} threat targets an undeclared entity`);
@@ -351,6 +372,12 @@ export function validateResolutionPlan(
     plan.threatenedEffect.sourceRefs.length === 0 ||
     plan.threatenedEffect.sourceRefs.some((source) => !sourceExists(source, index)))) {
     throw new Error(`plan ${plan.id} has an invalid ${plan.threatenedEffect.id} threat`);
+  }
+  if (plan.threatenedEffect?.kind === "condition") {
+    const existingSubject = index.conditionOwners.get(plan.threatenedEffect.conditionId);
+    if (existingSubject && existingSubject !== plan.threatenedEffect.targetId) {
+      throw new Error(`plan ${plan.id} reuses condition ${plan.threatenedEffect.conditionId} for another subject`);
+    }
   }
   if (plan.secondaryEffect) {
     if (compareMagnitude(plan.secondaryEffect.magnitude, plan.primaryEffect.magnitude) >= 0) {
