@@ -73,9 +73,8 @@ test("Arrival, player composer, role and control overlays remain accessible", as
   await page.goto(`/play/${instanceId}`);
   await expect(page.getByText("此刻，你是小明")).toBeVisible();
   await expect(page.getByLabel("你的行动")).toBeVisible();
-  const suggestionPanel = page.getByRole("region", { name: "行动灵感" });
+  const suggestionPanel = page.getByRole("region", { name: "可选的行动建议" });
   await expect(suggestionPanel.getByRole("button")).toHaveCount(3);
-  await expect(suggestionPanel.getByRole("button").last()).toHaveCSS("opacity", "1");
   await expectNoViolations(page);
 
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });

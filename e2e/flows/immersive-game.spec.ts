@@ -206,11 +206,17 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await startOrigin(page);
 
   const composer = page.getByLabel("你的行动");
-  const suggestionPanel = page.getByRole("region", { name: "行动灵感" });
+  const lastWorldMessage = page.locator('[data-role="assistant"]').last();
+  const suggestionPanel = lastWorldMessage.getByRole("region", { name: "可选的行动建议" });
   await expect(suggestionPanel).toBeVisible();
   await expect(suggestionPanel.getByRole("button")).toHaveCount(3);
-  await expect(suggestionPanel.getByText("选择一条填入，或自由描述")).toBeVisible();
   expect(await suggestionPanel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(composer).toHaveAttribute("placeholder", "自由描述你的行动…");
+  const suggestionBox = await suggestionPanel.boundingBox();
+  const composerBox = await page.locator(".aui-composer-shell").boundingBox();
+  expect(suggestionBox).not.toBeNull();
+  expect(composerBox).not.toBeNull();
+  expect(suggestionBox!.y + suggestionBox!.height).toBeLessThan(composerBox!.y);
   await page.getByRole("button", { name: "确认当前位置" }).click();
   await expect(composer).toHaveValue("确认当前位置");
   await expect(composer).toBeFocused();
