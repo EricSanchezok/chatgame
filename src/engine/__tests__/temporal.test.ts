@@ -186,6 +186,8 @@ describe("event-boundary temporal kernel", () => {
     expect(advanced.timers.fire!.status).toBe("fired");
     expect(advanced.timers.deadline!.status).toBe("fired");
     expect(advanced.activities[activity.id]!.status).toBe("active");
+    expect(advanced.activities[activity.id]!.updatedAtSeconds).toBe(600);
+    expect(advanced.activities[activity.id]!.nextBoundaryAtSeconds).toBe(3_600);
     expect(advanced.decisionPoints).toContainEqual({
       agentId: "agent-a",
       reason: "timer",

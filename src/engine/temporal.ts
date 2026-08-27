@@ -668,6 +668,7 @@ export function advanceTemporalState(input: {
   const timers = structuredClone(input.timers) as Record<string, WorldTimer>;
   const transitions: ActivityTransition[] = [];
   const decisionPoints: DecisionPoint[] = [];
+  const dueActivityIds = new Set(input.boundary.dueActivityIds);
   for (const activity of Object.values(activities).sort((left, right) => left.id.localeCompare(right.id))) {
     if (activity.status !== "active") continue;
     const fromStatus = activity.status;
@@ -690,7 +691,7 @@ export function advanceTemporalState(input: {
         activityId: activity.id,
         timerId: null,
       });
-    } else {
+    } else if (dueActivityIds.has(activity.id)) {
       activity.nextBoundaryAtSeconds = nextActivityBoundary(activity, input.boundary.toElapsedSeconds);
     }
     transitions.push({
