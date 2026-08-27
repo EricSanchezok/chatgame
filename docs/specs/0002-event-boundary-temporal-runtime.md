@@ -39,4 +39,14 @@ Use the Blackmarsh player entry to verify a short action, travel, sleep, treatme
 
 ## Evidence
 
-Pending implementation.
+Implemented on `synergy/event-driven-time-kernel` from the committed open-semantic v10 boundary. The delivered runtime includes canonical TemporalPlans, Activities, Timers, earliest-boundary selection, transaction-side authority re-derivation, replay evidence, decision-point cognition, persistent abortable WorldRuns, World API 9, Simulation/World schema 11, Instance schema 15, Participant run controls, Inspector temporal evidence, and authored Blackmarsh calibration.
+
+Verification completed on 2026-08-27:
+
+- `npm run check:fast`: 26 test files and 167 tests passed, followed by fixture validation and all six governance gates.
+- `npm run world:validate -- worlds/blackmarsh/world`: 232 entities and 48 Agents validated as schema v11.
+- `npx next build --webpack`: the production application and all API 9 routes compiled successfully.
+- `npx playwright test --project=e2e`: all 8 product and responsive browser flows passed.
+- `npx playwright test --project=a11y`: all 3 accessibility, forced-color, and 200% zoom flows passed.
+- Isolated Blackmarsh smoke testing on port 32217 and a dedicated v15 data root verified a one-second sword action, partial 100 km rate progress without teleportation, interruption into a one-day explicit-duration activity, staged treatment checkpoints, pause/resume, persisted recovery, and Inspector boundary receipts. The existing port 3217 process and its data were not reused or stopped.
+- `node scripts/run-gates.mjs` and `git diff --check` passed after final documentation updates.
