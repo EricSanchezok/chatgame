@@ -22,6 +22,7 @@ import type {
 import { contentHash } from "./model-audit";
 import {
   applyObservationBindings,
+  pendingObservationsFor,
   validateObservations,
 } from "./observation";
 import { applyAdmissionCommit, applyTransitionProposal, validateSimulationState } from "./transaction";
@@ -195,7 +196,11 @@ export class CanonicalCommitter {
       }
     }
     for (const commit of mindCommits) {
-      const observed = observationsFor(candidate.observations, commit.agentId);
+      const observed = pendingObservationsFor(
+        transitioned,
+        transitioned.agents[commit.agentId],
+        observationsFor(candidate.observations, commit.agentId),
+      );
       transitioned.agents[commit.agentId] = applyMindCommit(
         transitioned.agents[commit.agentId],
         commit,

@@ -262,7 +262,11 @@ describe("eager reference dependency components", () => {
       seed: 47,
       modelCatalog: provider.catalog,
     });
-    definition.runtimeDefaults.maxAutonomousSpanSeconds = 10_000;
+    definition.runtimeDefaults.maxAutonomousSpanSeconds = 100_000;
+    const travelProfile = definition.initialState.truth.mechanics.temporalProfiles["measured-travel"];
+    if (!travelProfile || travelProfile.kind !== "rate") throw new Error("fixture travel profile is missing");
+    travelProfile.checkpointUnits = 50;
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
     const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
     await engine.bootstrapAgents();
     const source = engine.snapshot;
@@ -282,17 +286,21 @@ describe("eager reference dependency components", () => {
       }],
     });
 
-    expect(result.committed.temporalBoundary.deltaSeconds).toBe(720);
-    expect(result.state.truth.elapsedSeconds).toBe(720);
+    expect(result.committed.temporalBoundary.deltaSeconds).toBe(36_000);
+    expect(result.state.truth.elapsedSeconds).toBe(36_000);
     const activity = Object.values(result.state.truth.activities)[0]!;
-    expect(activity).toMatchObject({ status: "active", progress: { current: 1, target: 100, unit: "km" } });
+    expect(activity).toMatchObject({ status: "active", progress: { current: 50, target: 100, unit: "km" } });
     expect(result.committed.outcomes).toHaveLength(1);
     expect(result.committed.outcomes[0]!.status).toBe("continuing");
     expect(result.committed.decisionPoints).toEqual([]);
     expect(result.committed.beliefPatches).toEqual([]);
 
     const second = await engine.step({
-      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      player: {
+        kind: "model",
+        agentId: "player",
+        profiles: structuredClone(result.state.agents.player.modelProfiles),
+      },
       keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
     }, {
       expectedRevision: result.state.revision,
@@ -300,11 +308,24 @@ describe("eager reference dependency components", () => {
       externalActions: [],
     });
     expect(second.committed.temporalPlans).toEqual([]);
-    expect(second.committed.temporalBoundary.deltaSeconds).toBe(720);
-    expect(second.state.truth.elapsedSeconds).toBe(1_440);
-    expect(Object.values(second.state.truth.activities)[0]!.progress?.current).toBe(2);
-    expect(second.committed.beliefPatches).toEqual([]);
+    expect(second.committed.temporalBoundary.deltaSeconds).toBe(36_000);
+    expect(second.state.truth.elapsedSeconds).toBe(72_000);
+    expect(Object.values(second.state.truth.activities)[0]).toMatchObject({
+      status: "completed",
+      progress: { current: 100, target: 100, unit: "km" },
+    });
+    expect(second.committed.decisionPoints).toEqual([{
+      agentId: "player",
+      reason: "activity_completed",
+      activityId: activity.id,
+      timerId: null,
+    }]);
+    expect(second.committed.beliefPatches).toHaveLength(1);
     expect(provider.requests.filter((request) => request.role === "temporal-planner")).toHaveLength(1);
+    const finalMind = provider.requests.filter((request) =>
+      request.role === "agent-mind" && request.subjectId === "player").at(-1);
+    expect((finalMind?.context as { observations?: unknown[] }).observations).toHaveLength(2);
+    expect(second.state.agents.player.observationCursorStep).toBe(2);
 
     const replayed = replaySimulationState(second.state);
     expect(contentHash(replayed.truth)).toBe(contentHash(second.state.truth));

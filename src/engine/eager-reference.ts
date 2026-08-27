@@ -39,7 +39,7 @@ import {
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "./model-provider";
-import { applyObservationBindings, validateObservations } from "./observation";
+import { applyObservationBindings, pendingObservationsFor, validateObservations } from "./observation";
 import { ObservationRenderer } from "./observation-renderer";
 import type { RulePackageRegistry } from "./rule-package";
 import { quantityId, runtimeId } from "./runtime-id";
@@ -935,7 +935,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       () => this.agentMind.think(
         source,
         source.agents[agentId],
-        [],
+        pendingObservationsFor(source, source.agents[agentId]),
         context.modelScope,
         { action: null, outcome: null },
         [],
@@ -1105,10 +1105,15 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         ? resolution.proposal.outcomes.find((entry) => entry.proposalId === action.id) ?? null
         : null;
       const purpose = source.agents[agentId] ? "mind" : "bootstrap";
+      const pendingObservations = pendingObservationsFor(
+        candidate,
+        agent,
+        observationsFor(observations, agentId),
+      );
       return thinkWithFallback(candidate, agent, purpose, context, () => this.agentMind.think(
           candidate,
           agent,
-          observationsFor(observations, agentId),
+          pendingObservations,
           context.modelScope,
           { action, outcome: outcome ? { status: outcome.status } : null },
           resolution.proposal.events,

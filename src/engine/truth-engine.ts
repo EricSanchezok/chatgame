@@ -636,6 +636,7 @@ function materializeWorldOperation(
             evidence: Object.fromEntries(Object.entries(operation.agent.belief.evidence)
               .map(([id, evidence]) => [id, { ...structuredClone(evidence), step: nextStep }])),
           },
+          observationCursorStep: nextStep,
           nextAction: null,
         },
         causes,

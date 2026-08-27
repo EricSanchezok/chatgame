@@ -377,6 +377,7 @@ export interface AgentState {
   character: AgentCharacterState;
   belief: AgentBeliefState;
   bindings: Record<LocalEntityId, EpistemicBinding>;
+  observationCursorStep: number;
   nextAction: AgentActionProposal | null;
 }
 

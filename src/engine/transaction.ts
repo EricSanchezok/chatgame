@@ -30,7 +30,7 @@ import {
 } from "./llm-schemas";
 import { modelInferenceSchema, modelRoles } from "./model-catalog";
 import { contentHash, isSha256 } from "./model-audit";
-import { applyObservationBindings, validateObservations } from "./observation";
+import { applyObservationBindings, pendingObservationsFor, validateObservations } from "./observation";
 import {
   actionProposalSchema,
   agentStateSchema,
@@ -554,7 +554,11 @@ export function replaySimulationState(
       const characterPatch = characters.get(agentId);
       const nextAction = actions.get(agentId);
       if (!agent || !beliefPatch || !characterPatch || !nextAction) throw new Error(`partial AgentMind commit for ${agentId}`);
-      const observed = step.observations.filter((packet) => packet.observerId === agentId);
+      const observed = pendingObservationsFor(
+        advanced,
+        agent,
+        step.observations.filter((packet) => packet.observerId === agentId),
+      );
       advanced.agents[agentId] = applyMindCommit(
         agent,
         { beliefPatch, characterPatch, nextAction },
@@ -767,7 +771,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
   for (const [id, agent] of Object.entries(state.agents)) {
     agentStateSchema.parse(agent);
     if (agent.id !== id || !state.truth.entities[agent.entityId] || state.truth.entities[agent.entityId].lifecycle !== "active" ||
-      ownedEntities.has(agent.entityId)) throw new Error(`invalid Agent ${id}`);
+      ownedEntities.has(agent.entityId) || agent.observationCursorStep > state.step) throw new Error(`invalid Agent ${id}`);
     ownedEntities.add(agent.entityId);
     validateBelief(agent.belief, agent.bindings, state, `Agent ${id}`);
     if (Object.values(agent.bindings).filter((binding) => binding.canonicalEntityIds.includes(agent.entityId)).length !== 1) {

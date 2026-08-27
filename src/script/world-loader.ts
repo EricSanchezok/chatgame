@@ -336,6 +336,7 @@ function agentFrom(document: EntityDocument): AgentState | undefined {
         },
       ]),
     ),
+    observationCursorStep: 0,
     nextAction: null,
   };
 }

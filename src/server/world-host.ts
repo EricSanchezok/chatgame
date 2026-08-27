@@ -356,6 +356,7 @@ function agentStateFromOrigin(
       [selfId]: { localEntityId: selfId, canonicalEntityIds: [agentId] },
       [locationId]: { localEntityId: locationId, canonicalEntityIds: [origin.spawnEntityId] },
     },
+    observationCursorStep: state.step,
     nextAction: null,
   };
 }

@@ -466,5 +466,6 @@ export const agentStateSchema = z.strictObject({
       canonicalEntityIds: z.array(semanticIdSchema),
     }),
   ),
+  observationCursorStep: z.number().int().nonnegative(),
   nextAction: actionProposalSchema.nullable(),
 }) as z.ZodType<AgentState>;

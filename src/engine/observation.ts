@@ -180,3 +180,17 @@ export function applyObservationBindings(agent: AgentState, packets: readonly Ob
   }
   return next;
 }
+
+export function pendingObservationsFor(
+  state: Readonly<SimulationState>,
+  agent: Readonly<AgentState>,
+  currentPackets: readonly ObservationPacket[] = [],
+): ObservationPacket[] {
+  const packets = [
+    ...state.history.flatMap((step) => step.observations),
+    ...currentPackets,
+  ].filter((packet) => packet.observerId === agent.id && packet.step > agent.observationCursorStep);
+  return [...new Map(packets.map((packet) => [packet.id, packet])).values()]
+    .sort((left, right) => left.step - right.step || left.id.localeCompare(right.id))
+    .map((packet) => structuredClone(packet));
+}

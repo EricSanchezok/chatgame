@@ -177,6 +177,7 @@ function worldState(): SimulationState {
           evidence: {},
         },
         bindings: { self: { localEntityId: "self", canonicalEntityIds: ["keeper"] } },
+        observationCursorStep: 0,
         nextAction: {
           id: runtimeId({
             worldHash: TEST_WORLD_HASH, revision: 0, kind: "action", stage: "prepared",
@@ -654,6 +655,7 @@ describe("open world kernel", () => {
         evidence: {},
       },
       bindings: { self: { localEntityId: "self", canonicalEntityIds: ["skeleton"] } },
+      observationCursorStep: 0,
       nextAction: null,
     };
     const next = applyTransitionProposal(
