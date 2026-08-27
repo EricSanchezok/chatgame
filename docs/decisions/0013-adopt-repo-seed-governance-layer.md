@@ -1,7 +1,7 @@
 # 采用 repo-seed 自治理层
 
 ## Status
-Accepted
+Superseded by [0066](0066-upgrade-progressive-repo-seed-governance.md)
 Class: process
 
 ## Context and Problem Statement

@@ -1,31 +1,40 @@
-# 开发指南
+# Development
 
-## 前置条件
+English is the working language for new governance artifacts and code. Existing product specifications and historical records remain valid in their original language. This document covers contributor setup and daily workflow; repository commands live in [AGENTS.md](../AGENTS.md).
+
+## Prerequisites
 
 - Git
-- Node.js 22 或受依赖支持的更新 LTS
+- Node.js 22 or a later dependency-supported LTS release
 
-## 工作流
+## Daily workflow
 
-1. 阅读根 `AGENTS.md` 和与改动相关的当前规格。
-2. 非平凡改动在同一变更更新 `docs/decisions/`；已发布缺陷同时写 postmortem。
-3. 代码标识符与注释用英文，文档和决策记录用中文。
-4. 每完成一个可独立验证的工作单元，按触碰表面运行测试，并立即创建只包含当前任务改动的本地 commit；pre-commit hook 强制运行四个治理门禁。
-5. 用户明确要求不 commit、只评审或只诊断时不创建 commit；未完成、门禁失败或无法与其他未提交改动安全分离时，说明原因并保持未提交。
-6. 本地 commit 是防丢与回滚检查点；未经用户明确要求不 push。
-7. 新增、删除或重命名 Next 动态路由目录后必须重启 `next dev`，并请求一个真实动态 URL 验证 200；端口上已有进程不能证明其路由表属于当前源码拓扑。
+1. Read the root `AGENTS.md`, the owning product specification, and any applicable Spec.
+2. Update behavior, documentation, the smallest sufficient test evidence, and any required Spec, decision, or postmortem in the same work unit.
+3. Run the checks for the touched surface and `node scripts/run-gates.mjs`; run `npm run check:fast` before committing.
+4. Commit the independently verifiable work unit immediately when its gates pass. Do not include unrelated user or task changes.
+5. Do not commit when the user requests review/diagnosis only, checks fail, or changes cannot be separated safely. Never push without explicit authorization.
+6. After adding, deleting, or renaming a Next.js dynamic route directory, restart `next dev` and request a real dynamic URL to verify HTTP 200; a process already occupying the port may hold a stale route table.
 
-## 配置
+## Configuration
 
-- `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld-v13/`；世界版本、World Instance、Advance 与 Execution Ledger 统一存放在 `livingworld.sqlite`。World Instance schema v13 不读取旧实例或 Session 存档；切换格式时使用新的 data root。
-- `LIVINGWORLD_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
-- 每个 provider 的密钥环境变量由目录 `api_key_env` 指定；仅当世界或 Agent 实际引用该 provider 的 Profile 时才要求对应密钥。仓库参考世界只需要 `DEEPSEEK_API_KEY`。
-- 正常运行、失败诊断、模型输入输出与实验材料始终写入 SQLite Execution Ledger；不存在 `off|metrics|full` 产品开关或日志目录。完整数据边界见 [Execution Ledger](game-design/runtime-observability.md)。
+- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v13/`. World versions, World Instances, Advances, and the Execution Ledger share `livingworld.sqlite`. World Instance schema v13 does not read older Instance or Session saves; use a new data root for another format.
+- `LIVINGWORLD_MODEL_CATALOG_PATH` selects the complete model catalog and defaults to `config/models.yaml`.
+- Each provider's `api_key_env` names its credential environment variable. A credential is required only when the world or an Agent uses that provider's Profile. The reference world requires only `DEEPSEEK_API_KEY`.
+- Normal execution, failure diagnosis, model I/O, and experiment evidence always enter the SQLite Execution Ledger. There is no `off|metrics|full` product switch or log directory; [Runtime observability](game-design/runtime-observability.md) owns the data boundary.
 
-模型、思考强度、超时、输出上限、角色与并发只在 [模型目录与 Gateway](game-design/model-gateway.md) 定义。环境变量不提供逐字段覆盖。
+Model selection, reasoning effort, timeouts, output limits, roles, and concurrency belong only to the [model catalog and Gateway](game-design/model-gateway.md). Environment variables do not provide per-field overrides.
 
-确定性规模矩阵使用 `npm run experiment:run -- --agents 1,10,50,1000 --steps 1`。重放、比较和导出命令见 [Execution Ledger](game-design/runtime-observability.md#研究命令)。
+Use `npm run experiment:run -- --agents 1,10,50,1000 --steps 1` for the deterministic scale matrix. Replay, comparison, and export commands are defined by [Runtime observability](game-design/runtime-observability.md#研究命令).
 
-## 关键约束
+## Source attribution
 
-引擎保持服务端；公共 DTO 放在 `src/shared/world-api.ts`。不要重新引入动作枚举、旧存档迁移、剧本可执行代码、浏览器端 truth 或第二套状态提交路径。前端组件只消费 `--cg-*` 颜色变量。
+When implementation is materially derived from a paper, article, benchmark, research report, community post, or copied/adapted code, preserve provenance at the closest stable repository location. Cite a local algorithm, formula, constant, workaround, or behavior in a nearby `Source:` comment; cite cross-cutting design in the owning decision; retain source metadata and satisfy copyright, license, and NOTICE obligations for generated, copied, vendored, or adapted material. A pull request, issue, prompt, or chat transcript is not a durable source of truth.
+
+## Working tree
+
+The manifest owns seeded governance files and preserves project modifications during upgrades. Re-run repo-seed to adopt upstream governance; edit project-owned policy deliberately and re-record it through the skill.
+
+## Product constraints
+
+The engine remains server-only and public DTOs remain in `src/shared/`. Do not reintroduce action enums, old-save migration, executable world scripts, browser-side truth, or a second state-commit path. Frontend components consume only `--cg-*` color variables.

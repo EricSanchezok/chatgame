@@ -1,54 +1,49 @@
-# repo-seed 是生成自治理仓库的 skill，不是静态模板
+# repo-seed is a skill that seeds a self-governing repository, not a static template
 
 ## Status
 Accepted
 Class: architecture
 
 ## Context and Problem Statement
+The goal is to let any repository — empty or existing, any technology stack — become agent-native: documented, decision-logged, and governed by mechanical checks, ready for vibe coding. Two shapes were on the table: a static template repository that users fork or clone, or a skill that generates and maintains the governance layer in place.
 
-目标是让任意仓库——空的或已存在的、任意技术栈——变成 agent-native：有文档、有决策日志、被机械检查治理，准备好 vibe coding。当时有两个形态可选：用户 fork 或 clone 的静态模板仓库，或在原地生成并维护治理层的 skill。
-
-静态模板有已知的致命缺陷：fork 是单提交快照，没有上游历史，永远无法接收模板改进，也无法适配目标仓库的真实状态。纯运行时 skill 有另一个缺陷：skill 触发不可靠（独立评测测得 56% 的 skill 用例从未触发），而"生成但未提交"的输出不可见、无版本。
+Static templates have a known fatal flaw: a fork is a single-commit snapshot with no upstream history, so it can never receive template improvements, and it cannot adapt to the target repository's actual state. Pure runtime skills have a different flaw: skill triggering is unreliable (Vercel's focused Next.js evals found that an available skill was never invoked in 56% of cases), and generated-but-not-committed output is invisible and unversioned.
 
 ## Decision Drivers
-
-- 生成的仓库必须保持可升级：上游治理改进必须能到达已 seed 的仓库。
-- 结构处必须确定性，内容处必须自适应。
-- 用户必须看到并拥有结果：生成文件是已提交的基线，不是转瞬即逝的上下文。
-- 必须复用业界标准形态（AGENTS.md、SKILL.md、MADR），而不是重新发明。
+- The generated repository must stay upgradeable: upstream governance improvements must reach existing seeded repositories.
+- The generated repository must be deterministic where structure matters, and adaptive where content matters.
+- The user must see and own the result: generated files are committed baselines, not ephemeral context.
+- The industry-standard shapes (AGENTS.md, SKILL.md, MADR) must be reused, not reinvented.
 
 ## Considered Options
-
-- 静态模板仓库（fork 起步）。
-- 纯运行时 skill，输出永不落盘。
-- 一个脚手架化确定性结构、把内容交给模型、用所有权清单管理更新的 skill——即所选路线。
+- A static template repository (fork-to-start).
+- A pure runtime skill whose output never lands in the repository.
+- A skill that scaffolds deterministic structure and delegates content to the model, with an ownership manifest for updates — the chosen route.
 
 ## Decision Outcome
-
-repo-seed 是**一个生成器 skill**（SKILL.md + 零依赖脚本 + `references/` 下的模板）。它向目标仓库写入治理基线（AGENTS.md、docs/、决策日志、两个内嵌 skill、门禁、hook、`.repo-seed/manifest.json`），由用户 review 并提交。重跑 skill 就是升级通道：manifest 记录每个 seeded 文件的 sha256，用户改过的文件默认保留，上游模板演进只应用到未触碰的文件。
+repo-seed is **one generator skill** (SKILL.md + zero-dependency scripts + templates under `references/`). It writes an approved governance baseline into the target repository (resident instructions, docs, Specs, decision/postmortem memory, three in-repo skills, gates, and `.repo-seed/manifest.json`), which the user reviews and commits. Hooks are a separately authorized capability. Re-running the skill is the upgrade channel: the manifest records ownership, capabilities, governance paths, and external sources; files the user changed are preserved and template evolution applies only to untouched files.
 
 ### Consequences
-
-- 好：已 seed 的仓库保持可升级——"死模板"失效模式被结构性移除。
-- 好：因为结果是已提交基线而非转瞬即逝的上下文，用户拥有它。
-- 好：生成器是显式调用的 skill，这是 skill 最可靠的形态。
-- 代价：需要一个状态文件（`.repo-seed/manifest.json`）与更新语义；复杂度收敛在一条脚本路径里。
+- Good: seeded repositories remain upgradeable — the "dead template" failure mode is structurally removed.
+- Good: the user owns the result because it is committed baseline, not ephemeral context.
+- Good: the generator is a single explicit-invocation skill, the shape where skills are most reliable.
+- Trade-off: the generator needs a state file (`.repo-seed/manifest.json`) and update semantics; the complexity is contained in one scripted path.
 
 ## Pros and Cons of the Options
+### Static template repository
+- Good: instant, deterministic, zero runtime.
+- Bad: fork cannot receive upstream updates; cannot adapt to repository state; no question-based customization.
 
-### 静态模板仓库
-- 好：即开即用、确定、零运行时。
-- 坏：fork 无法接收上游更新；无法适配仓库状态；没有基于问答的定制。
+### Pure runtime skill, no persisted output
+- Good: cheap to trigger; no repository pollution until invoked.
+- Bad: unreliable triggering; invisible, unversioned output; cannot be reviewed as a diff.
 
-### 纯运行时 skill，无持久化输出
-- 好：触发便宜；调用前不污染仓库。
-- 坏：触发不可靠；输出不可见、无版本；无法作为 diff review。
-
-### 带持久化基线与所有权清单的 skill 生成器
-- 好：结构确定、内容自适应、基线可升级、结果用户所有。
-- 坏：需要维护 manifest 与更新模式逻辑。
+### Skill generator with persisted baseline and ownership manifest
+- Good: deterministic structure, adaptive content, upgradeable baseline, user-owned result.
+- Bad: requires manifest maintenance and update-mode logic.
 
 ## Links
-- [ADR 0000](0000-use-markdown-architectural-decision-records.md) — 本记录所在的决策日志。
-- [ADR 0002](0002-self-governing-repository-design.md) — 生成基线包含什么。
-- [.repo-seed/update-strategy.md](../../.repo-seed/update-strategy.md) — 所有权/更新语义。
+- [ADR 0000](0000-use-markdown-architectural-decision-records.md) — the decision log this record lives in.
+- [ADR 0002](0002-self-governing-repository-design.md) — what the generated baseline contains.
+- [.repo-seed/update-strategy.md](../../.repo-seed/update-strategy.md) — the ownership/update semantics.
+- [Vercel: “AGENTS.md outperforms skills in our agent evals”](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) — source for the 56% non-invocation result.

@@ -1,55 +1,56 @@
-# AGENTS.md — 文档标准
+# AGENTS.md — Documentation standard
 
-本文件定义本仓库的文档结构、Markdown 层级、写作规则与卫生清单。语义评审用 `repo-review` skill，决策记录用 `repo-decisions` skill。
+This file defines document structure, Markdown tiers, writing rules, and the hygiene checklist for this repository. Use the `repo-review` skill for semantic review and the `repo-decisions` skill for decision records.
 
-## 文档结构
+## Document structure
 
-每个人类可读的文档都属于一个层级。文档的主题与树位置决定其范围：以适当细节描述自己的主题，只按目的与职责指引子文档，把更低层细节链接给拥有它的子文档。测试机制属于最低拥有层。
+Every human-facing document belongs to a tier. A document's subject and tree position fix its scope: describe its own subject at appropriate detail, direct children only by purpose and responsibility, and link to the owning descendant for lower-level detail. Testing mechanisms belong at the lowest owning level.
 
-### 层级分类：每个事实只有一个家
+### The tier taxonomy: one home per fact
 
-每个事实只有一个家；别处只放链接。
+Each fact has one home; everywhere else, link there.
 
-| 层级 | 职责 | 不该放 |
+| Tier | Job | Does NOT belong there |
 |---|---|---|
-| 根 `AGENTS.md` | 常驻指令：agent 每次会话都需要的规则，每条一两行，链接各自的家 | 故事、示例、重述的规则 |
-| `docs/AGENTS.md` | 本仓库的文档标准 | 根文件已承载的仓库级规则 |
-| `docs/architecture.md` | 有序地图：组成、模块、接缝、扩展点 | 模块级细节（→ 模块文档）、决策理由（→ 决策日志） |
-| `docs/development.md` | 贡献者设置、日常工作流、命令 | 运行时理由（→ 决策日志） |
-| `docs/testing.md` | 测试政策：层级、验证世界、真实入口路径 | 会与真实命令漂移的逐条清单 |
-| `docs/decisions/` | 统一决策日志：为什么、放弃了什么、要求的验证（MADR + Class 扩展） | 已交付决策的迁移计划与验收清单 |
-| `docs/postmortems/` | 事故复盘：唯一允许战争故事叙述的层级 | — |
-| 内嵌 skill（`.agents/skills/`） | 可复用工作流与专门决策流程 | 产品与运行时契约（→ docs） |
+| Root `AGENTS.md` | Management identity, skill router, and standing orders needed in every session | Stories, worked examples, restated procedures |
+| `docs/AGENTS.md` | The documentation standard | Repo-wide rules the root file carries |
+| `docs/architecture.md` | Ordered map: composition, modules, seams | Per-module detail, decision rationale |
+| `docs/development.md` | Contributor setup, daily workflow, commands | Runtime rationale |
+| `docs/testing.md` | Test mission, risk-to-layer selection, topology, evidence, maintenance budget | Per-case walkthroughs or drifting command inventories |
+| `docs/specs/` | Risk-triggered Intent, Contract, Plan, Verification, and Evidence for a change | Durable alternative rationale or routine-change ceremony |
+| `docs/decisions/` | Durable choices with genuine alternatives (MADR + Class extension) | Change logs, implementation plans, product contracts |
+| `docs/postmortems/` | Incident write-ups linked to permanent guardrails (the only war-story tier) | — |
+| In-repo skills | Reusable workflows and decision procedures | Product contracts |
 
-放置：理由 → 决策；流程 → skills 或 development；事故故事 → postmortems；常驻指令 → 根 `AGENTS.md` 加链接。
+Placement: change contract → specs; durable alternative rationale → decisions; procedures → skills or development; incident stories → postmortems; standing orders → root `AGENTS.md` with a link.
 
-## 教程或参考
+## Tutorial or reference
 
-把范围内的每份文档归类为教程或参考。教程沿着有序路径通向一个结果，只引入每一步需要的内容。参考定义查找范围与当前行为，没有教学顺序。体量大的混合形态分开写；小的次要形态明确标注。
+Classify every in-scope document as a tutorial or a reference. A tutorial follows an ordered path to an outcome. A reference defines a lookup scope and current behavior without a teaching sequence. Separate substantial mixed forms; label a small secondary form clearly.
 
-## 写作规则
+## Writing rules
 
-- 只写当前状态，不写变更历史。避免"之前/现在/不再"、PR、commit 号、栈位置出现在持久性散文里；变更故事进 commit、决策与 postmortem。
-- 每个段落一行物理行。代码块、表格与列表保持格式。
-- 写完整契约，不写推理过程。保留行为、失败、时序、所有权与非显然的方向；删掉叙述与评审分析。
-- 用机器可校验的相对 Markdown 链接交叉引用，绝不裸文件名或编号。链接必须解析到真实文件与真实锚点。
-- 交付的任何文档不得残留填充 token（大写双下划线 token）。
-- 注释与 JSDoc 陈述契约；不重述代码。
+- Document current state, not change history. Avoid "previously/now/no longer", PRs, commits, and stack positions in durable prose; name the live mechanism.
+- One physical line per paragraph.
+- State complete contracts, not reasoning transcripts.
+- Cross-reference with machine-checkable relative Markdown links. Links must resolve.
+- No fill-in tokens may remain in any doc that ships.
+- Comments and JSDoc state contracts or provenance; do not restate code.
 
-## 卫生清单
+## Hygiene checklist
 
-在任意文档中寻找：
+Hunt these in any doc:
 
-- 同一条规则出现在多个家。保留一个家，其余链接。
-- 叙述历史或战争故事（"之前""现在""改名了"、PR）。
-- 实现状态标注（"已实现！""未来：…"）。状态会腐烂。
-- 当源码或生成器是权威时，手工重述的目录或清单。
-- 推理过程：逐步实现叙述、测试走查、被否的局部方案。
-- 规则在兄弟方法旁重复，而不是只在拥有处一次。
-- 段落墙：一个段落携带多条规则。拆分或降级。
-- 强调通胀：到处加粗、大写、"关键地"。把强调留给改变行为的从句。
-- 已交付决策里的规格措辞（"应该"、迁移计划、验收清单）。已交付决策描述现状。
+- The same rule stated in more than one home. Keep one home and link the rest.
+- Narrated history or war stories.
+- Implementation-status annotations ("implemented!", "future: …"). Status rots.
+- Hand-restated catalogs or inventories when source or a generator is authoritative.
+- Reasoning transcripts: step-by-step narration, test walkthroughs, rejected alternatives.
+- Rationale repeated beside sibling methods instead of once at the owning place.
+- Paragraph walls. Split or demote.
+- Emphasis inflation. Reserve emphasis for the clause that changes behavior.
+- Spec-speak in shipped decisions ("should", migration plans, acceptance checklists).
 
-## 预算
+## Budget
 
-根 `AGENTS.md` 软预算 100 行。超出时把内容迁移到其层级之家，留一行链接。
+Root `AGENTS.md` has a soft budget of 100 lines. When it grows past that, relocate content to its tier home and leave a one-line link.

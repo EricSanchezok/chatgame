@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "repoSeedVersion": "0.3.0",
+  "repoSeedVersion": "0.6.2",
   "lastSyncCommit": null,
   "config": {
     "license": "MIT",
@@ -10,147 +10,409 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "sha256": "1abdc8b46a1df29ad5a11616a1c2ea208fdac318b171bc92d4b313764d5eb3af",
+      "sha256": "e5125e58679bff61f3e9d151dde81d7ff094135a4642bf33422e718aa27e3bef",
       "category": "instruction",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": "CLAUDE.md",
-      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
-      "category": "instruction"
+      "sha256": "573138e19d3359c451b7898112a03167e4e7bf356ecd698dc87d933d37de0b96",
+      "category": "instruction",
+      "capability": "baseline"
     },
     {
       "path": "docs/AGENTS.md",
-      "sha256": "ba88fb45957e6a80242443011fc44b01f3d5ff092c1d4fa675fc406351ebb24f",
-      "category": "docs"
+      "sha256": "134e5a28d1507fac4bca101df9b4b096fbb020431d5b40af8fb63eaccf5785ff",
+      "category": "docs",
+      "capability": "baseline"
     },
     {
       "path": "docs/architecture.md",
-      "sha256": "17ef6cc457011432aa28c9ee43cd1b2c9d1b780f904222b039ae9822b7c798f0",
+      "sha256": "7f5564f6f05bec65f7ee81b69ceed7059e66d6e36914f1c4f2da0ea6b5dc502f",
       "category": "docs",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": "docs/development.md",
-      "sha256": "c091c83a28dd0ad75614b385cdd17ba16d3dc440f399fac9c704bd77611d4463",
+      "sha256": "b5c236c7d2a8d3f7bf83e00566d3029897e94fae8832e0a9db037ef6780e8431",
       "category": "docs",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": "docs/testing.md",
-      "sha256": "ec2a4bd5866865293889454e4aa8460649a5f6b58c3da7c62309f0f640487585",
+      "sha256": "9f3a02b8935f10dfaf89a49deffb0e85249ef28da695b569c6e12e8bf6084151",
       "category": "docs",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": "docs/decisions/README.md",
-      "sha256": "fba5d0478f08a1758c7e407d46b3f2d55fe832c7ec8a05911a5799e09a2844f4",
+      "sha256": "db8f2cfe9ab032b1443b572c510c17c9fb46c6d765eb5cad5732fcd79709d39f",
       "category": "docs",
+      "capability": "decisions",
       "userModified": true
     },
     {
       "path": "docs/decisions/0000-use-markdown-architectural-decision-records.md",
-      "sha256": "b5fbee2c6addbc7ac662d865d9f3d4ff38528842eec7ab866a696d9bf00c2465",
-      "category": "docs"
+      "sha256": "77f5a0631fa74ff5daa9948f6ecb0a7e1441e4c7657fdb325ae1a7d627628513",
+      "category": "docs",
+      "capability": "decisions"
     },
     {
       "path": "docs/decisions/0001-repo-seed-is-a-skill-not-a-template.md",
-      "sha256": "24cc4eb0f52ead3d42aa47b1aace086f3b008590df3b88c71ff733f5f9232892",
-      "category": "docs"
+      "sha256": "171ad64e4848e9c3620a7a656d3ed680caa64bcd4c4124adf2d6045c8b5dce46",
+      "category": "docs",
+      "capability": "decisions"
     },
     {
       "path": "docs/decisions/0002-self-governing-repository-design.md",
-      "sha256": "822955dbf2bb8566131dc2dd59bb1064ff80c79961dcf7a0cadb034f0c5ed999",
-      "category": "docs"
+      "sha256": "4d9142ebc29979ec1cdc11463544e98b9108064981af4b8627d3a2f8fded20c5",
+      "category": "docs",
+      "capability": "decisions"
     },
     {
       "path": "docs/decisions/0003-repo-review-instantiated-per-project.md",
-      "sha256": "7e212bd1a49522b198504ab292b5eb77b28949c5eb6070c9e6a33458a8e4b6bc",
-      "category": "docs"
+      "sha256": "51d0f26bbe73bcdca7fe5e487ecd6382b3c28a33f174cb58d7223252951223b2",
+      "category": "docs",
+      "capability": "decisions"
     },
     {
       "path": "docs/postmortems/README.md",
-      "sha256": "47b03d95aeae94d070abb1aa3391782e278431e6296b5f5cef51b5fe469dbc11",
-      "category": "docs"
+      "sha256": "3479046dfb0ba274aa52cbd93486eee21cdf11ae51aaa5e70ca66ad022a39259",
+      "category": "docs",
+      "capability": "postmortems"
     },
     {
       "path": ".agents/skills/repo-review/SKILL.md",
-      "sha256": "0cee5bab1fd3afdd3a440a98e8e3be4e0d39b00a412538feba012e2ea9b6c699",
+      "sha256": "60f3fdd1f7af48935e8aa7b3a203b300387d13872301040cae8df8f3dab191bf",
       "category": "skill",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": ".agents/skills/repo-decisions/SKILL.md",
-      "sha256": "65388918ec7d845e43aa7d36d3c04d5ff306d8199e99afe2c9a0b4520fb7ff80",
-      "category": "skill"
+      "sha256": "b871e064a473c5e117bef302b5b47e9fac6eacda33625a30c554b6bf693aee6d",
+      "category": "skill",
+      "capability": "decisions"
     },
     {
       "path": "scripts/verify-decisions.mjs",
-      "sha256": "aab6a6e9603e71d9450b6d2090c47e90001377d75fa3b12966f58343a8563ef3",
-      "category": "gate"
+      "sha256": "2e100efd61d5b16bbd559988f36e205352716c55662ce4d38d6b9933df1e9ac8",
+      "category": "gate",
+      "capability": "decisions"
     },
     {
       "path": "scripts/verify-doc-links.mjs",
-      "sha256": "d1a6699f375766fa6a14dbd3a2b99cbd1ed8d4e364f6c40d341ebc77e9fdab39",
+      "sha256": "63ab2f3b828a5cbc728adddf6de16d6a17851cab43da353f1eef4b34357b1532",
       "category": "gate",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": "scripts/verify-placeholders.mjs",
-      "sha256": "1b1c5e30be8eab9b5fea7d9231253c384edefc47219a18ec0a847473e07b14e5",
-      "category": "gate"
+      "sha256": "43e36abd5963c9db12f6af763ff65ad3ab4bf4d34b2348800ce25d98837809f0",
+      "category": "gate",
+      "capability": "baseline"
     },
     {
       "path": "scripts/verify-manifest.mjs",
-      "sha256": "a4e1beecd016ce65ae031251604a6ae6fa79834cc021f1f15e8678aeccaa7d90",
-      "category": "gate"
+      "sha256": "0be76f51cc1c873296ef49fe04d79b6370fab6f0c9d723fcfb22cb6966aeca68",
+      "category": "gate",
+      "capability": "baseline"
     },
     {
       "path": "scripts/install-hooks.mjs",
-      "sha256": "388ce4511e337617b76b464c436979a1fbad1f9c4e736ac9f35fdf2025cb6130",
+      "sha256": "fbb14a4889e322ddc4ce326a953c286b70ab881cfbbb8beab9a7bc237dc3b7e8",
       "category": "gate",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "6182d162f456a2df815d36471f9692300df445e04978de765d24b0a81b3eae66",
+      "sha256": "417ee1b6f4fec872ccbad2a31847e558ab5b7021c7b766c2ad227233f7b887cd",
       "category": "meta",
+      "capability": "baseline",
       "userModified": true
     },
     {
       "path": "LICENSE",
       "sha256": "8aa74caf40a821da1e46aaf79d6b4baf761eacf17c2ac2e15b7fda310261627b",
-      "category": "meta"
+      "category": "meta",
+      "capability": "baseline"
     },
     {
       "path": ".editorconfig",
       "sha256": "e3146b348c6eda13df225e5ebcfe1a2b861af1025d2e59016895b33a81fc7a3f",
-      "category": "meta"
+      "category": "meta",
+      "capability": "baseline"
     },
     {
       "path": ".gitattributes",
       "sha256": "5c3b2ff1cf34c6e0a482bdccbef050bd662149fd0084341ad18180e84fcde618",
-      "category": "meta"
+      "category": "meta",
+      "capability": "baseline"
     },
     {
       "path": ".repo-seed/update-strategy.md",
-      "sha256": "1f476eeafc2b245a053bb477a28a92f8d2ac1c35166e6ca73da3f2bf3e5fd47f",
-      "category": "meta"
+      "sha256": "59e7398379df413e36eb508fb1637f787afff55fe5635adc262f2b914a16e686",
+      "category": "meta",
+      "capability": "baseline"
     },
     {
       "path": ".github/pull_request_template.md",
-      "sha256": "b864d0adcf482762d31874b89bd079ea5d68a3781b75e1f5987c4c331d02b4f0",
-      "category": "github"
+      "sha256": "5b2db85304170bc600cbb68b98a6d758dfdc5cd6dc51a85677df111cf2720ff0",
+      "category": "github",
+      "capability": "baseline"
     },
     {
       "path": ".github/ISSUE_TEMPLATE/bug.md",
       "sha256": "011aaa5301e6fe2db8c2ef70911da79b122c2ca4235105fc917ee3ea8574c43f",
-      "category": "github"
+      "category": "github",
+      "capability": "baseline"
     },
     {
       "path": ".github/ISSUE_TEMPLATE/feature.md",
       "sha256": "328dc950ab01003d7e41495f37407eb07f6828f9bc5ffe6053590f2a6f7d53eb",
-      "category": "github"
+      "category": "github",
+      "capability": "baseline"
+    },
+    {
+      "path": ".agents/skills/repo-governance/SKILL.md",
+      "sha256": "884a9c26f73f07c705e6273cb7bc21ede51917c16a8683e772da61d43ebb90a0",
+      "category": "skill",
+      "capability": "baseline"
+    },
+    {
+      "path": "scripts/capabilities.mjs",
+      "sha256": "74fc315d590a4d9c491ff4034f298f1288f649b4e00b3303d07bbb6d28adcc51",
+      "category": "gate",
+      "capability": "baseline"
+    },
+    {
+      "path": "scripts/governance-config.mjs",
+      "sha256": "37f39619b0aa082d0107d1c8d91144489c89b01f1b31602d40dc0b3f2500138e",
+      "category": "gate",
+      "capability": "baseline"
+    },
+    {
+      "path": "scripts/audit-governance.mjs",
+      "sha256": "1a0280f3ecd615b271381529d11438e04eb4dd6ce04a2f2a9dbe037cd55954c9",
+      "category": "gate",
+      "capability": "baseline"
+    },
+    {
+      "path": "scripts/run-gates.mjs",
+      "sha256": "7442033b0a7239fa5bdb5afe91cf1018c9549e2b21be8ee6f595f524be84ed4c",
+      "category": "gate",
+      "capability": "baseline"
+    },
+    {
+      "path": "docs/specs/README.md",
+      "sha256": "bcdff4346cb7ebb0128a19a2177ddc30269d8f191735b2f22585af2725ab3c69",
+      "category": "docs",
+      "capability": "spec"
+    },
+    {
+      "path": "scripts/verify-specs.mjs",
+      "sha256": "8c92aa03abc3dda851b2033615661f47aad3723142f06e17f21a7c9c9783ee59",
+      "category": "gate",
+      "capability": "spec"
+    },
+    {
+      "path": "scripts/verify-postmortems.mjs",
+      "sha256": "167bb9c5bf7d9ce5395467f0c300bee76052c3869d6d16fb4d988edc90a45676",
+      "category": "gate",
+      "capability": "postmortems",
+      "userModified": true
     }
-  ]
+  ],
+  "capabilities": {
+    "version": 1,
+    "items": {
+      "baseline": {
+        "state": "enabled"
+      },
+      "spec": {
+        "state": "enabled",
+        "mode": "repo"
+      },
+      "decisions": {
+        "state": "enabled"
+      },
+      "postmortems": {
+        "state": "enabled"
+      },
+      "ci": {
+        "state": "external",
+        "reason": "Existing GitHub Actions frontend-workbench workflow remains authoritative"
+      },
+      "codeowners": {
+        "state": "declined",
+        "reason": "Single-package repository; generated .next and .synergy trees caused the package-count false positive",
+        "assessmentHash": "02e5ba6414331a55fc4993848475a40e4e39f4cc2f59a8c8636492954779c662"
+      },
+      "monorepo": {
+        "state": "declined",
+        "reason": "Single-package repository; no package subtree needs separate instructions",
+        "assessmentHash": "5acff04a918585ade6a8960f9cc5668be06e98571a9ae5602540d1cfdb8a020b"
+      },
+      "hook": {
+        "state": "enabled"
+      }
+    }
+  },
+  "governance": {
+    "paths": {
+      "architecture": "docs/architecture.md",
+      "testing": "docs/testing.md",
+      "decisions": "docs/decisions",
+      "specs": "docs/specs",
+      "postmortems": "docs/postmortems"
+    },
+    "externalSources": {}
+  },
+  "artifactPolicy": {
+    "version": 1,
+    "legacy": [
+      {
+        "path": "docs/postmortems/0001-deno-action-regression.md",
+        "sha256": "8055bbec9e56a345297087f6633207eb63510e6ab268b4e6f681d2d45816092b"
+      },
+      {
+        "path": "docs/postmortems/0002-script-ui-activation-race.md",
+        "sha256": "79f09c5fe2f39aef593264368fe78eea1f99542e468cb0efe986d8e6cfc8dae4"
+      },
+      {
+        "path": "docs/postmortems/0003-console-layout-displaced-conversation.md",
+        "sha256": "2c29a977c2d1cbbdd01dcc4e811fce7e8c347f35cead06739963a3af67b28178"
+      },
+      {
+        "path": "docs/postmortems/0004-loopback-preview-blocked-client-runtime.md",
+        "sha256": "1a0f192d241a2eae7a1f614d2296edc9590c4bada7f36fedb097804f2fb21b62"
+      },
+      {
+        "path": "docs/postmortems/0005-native-carousel-scrollbar.md",
+        "sha256": "b112f12ebbb41aa3cb60918496c2bb93a3fe05731f8c2ff05e253f91f1474c24"
+      },
+      {
+        "path": "docs/postmortems/0006-launcher-step-layout-jump.md",
+        "sha256": "b9c5b492f5d53e1bb21f272aad2f3f36e5e078d6a83f921f712053b41725ed98"
+      },
+      {
+        "path": "docs/postmortems/0007-cross-script-floating-resume.md",
+        "sha256": "02ec977b89614b928dfcae3294cd61c860898354a3feb05fd43fefa82697400e"
+      },
+      {
+        "path": "docs/postmortems/0008-conversation-hierarchy-regressed-again.md",
+        "sha256": "2cf69d324c6a42732aaf829da8774ce63ef8382857a4f615d48947c57a5cdf47"
+      },
+      {
+        "path": "docs/postmortems/0009-workflow-script-contract-drift.md",
+        "sha256": "84edaebe301cb1c5f56c7590e8e30d2d026ad6b1f9a9ce68971fdffaac73cad0"
+      },
+      {
+        "path": "docs/postmortems/0010-session-world-identity-drift.md",
+        "sha256": "73c1128f517c4456dbc0a021abb0ad69e79d3a1af2a8d2fd659b4a73378a7ef9"
+      },
+      {
+        "path": "docs/postmortems/0011-awaiting-player-lost-goal.md",
+        "sha256": "cad798e391eb98b54379348165130a6cff35f27326c5adbb275c5685d2d3be57"
+      },
+      {
+        "path": "docs/postmortems/0012-modifier-source-namespace-collision.md",
+        "sha256": "0357e251c98ff5efe7788a9a405474b1381f656c6add67827fe74925f3df8476"
+      },
+      {
+        "path": "docs/postmortems/0013-file-host-concurrency-boundary.md",
+        "sha256": "62f1f729e5e038861f2d4e19d6e0e302e5d0a4c385cb5a70ae18f091702ce170"
+      },
+      {
+        "path": "docs/postmortems/0014-world-host-bootstrap-lease-leak.md",
+        "sha256": "ab889e2044de7229f643c00706a75c65f2c728b01cf691962f583665c35e49d8"
+      },
+      {
+        "path": "docs/postmortems/0015-unused-provider-credentials-blocked-runtime.md",
+        "sha256": "dd03a5ff0f94e56aaac519adf3123ea69c0c5b342fd67244a42790138d66f6da"
+      },
+      {
+        "path": "docs/postmortems/0016-runtime-identity-collision-and-reconnect-loop.md",
+        "sha256": "0a03e8ea25e7498777e97cdf9e87c22294b413a72db21e8ee8b060337b7f80fe"
+      },
+      {
+        "path": "docs/postmortems/0017-assistant-ui-visual-baseline-drift.md",
+        "sha256": "6ba8a4d255b9c12d0ce26d859ce00b6e1c372c36c8fe1ee41baf385c83b74a91"
+      },
+      {
+        "path": "docs/postmortems/0018-focus-ring-and-orb-card-collision.md",
+        "sha256": "bd312ae38af56ddf1e0b6e98d4f578581f38a998810c651b5a4d181231294dac"
+      },
+      {
+        "path": "docs/postmortems/0019-game-management-unmounted-session.md",
+        "sha256": "b814e10eaccd8c5c1b5b188376e8b6d5652ae62e9cc0e9cef5d80abe64c638a0"
+      },
+      {
+        "path": "docs/postmortems/0020-world-detail-inverted-hierarchy.md",
+        "sha256": "06acff75acd4b86bffdc5ff00ba8fbe29f5d7e8e7fbdbae4cd70540e336df2ba"
+      },
+      {
+        "path": "docs/postmortems/0021-control-and-state-geometry-drift.md",
+        "sha256": "db9b97aa7594309819ebee88bb5ac16d131aeea5027bd3f1516e49f17cca8e00"
+      },
+      {
+        "path": "docs/postmortems/0022-settings-container-and-modal-chrome-drift.md",
+        "sha256": "e851812a57b6a2f9043404b8693700fe91ceba499960ea3b699f9afbfc696f5d"
+      },
+      {
+        "path": "docs/postmortems/0023-composer-marker-and-cjk-bubble-collapse.md",
+        "sha256": "be3e3516f3e3dff4e7b613cf9e07ba5dd8b4d3b040d5bc482cf836a005a8bd9a"
+      },
+      {
+        "path": "docs/postmortems/0024-state-lines-and-settings-divider-accumulation.md",
+        "sha256": "74c2eece9dae3c3776e24174e222a978748e3de2c3593461b712b3a88e1404b1"
+      },
+      {
+        "path": "docs/postmortems/0025-world-inspector-failure-blindness.md",
+        "sha256": "03ff7d6d9f09627c40fdf47069d90bc71292e2b35d5fcfb2b7bfdca063700b98"
+      },
+      {
+        "path": "docs/postmortems/0026-canonical-local-observation-repair-loop.md",
+        "sha256": "6b1bf99928e318f1d5787d9d45f7505403c318b27268acffc02808d89248fabc"
+      },
+      {
+        "path": "docs/postmortems/0027-character-event-basis-repair-loop.md",
+        "sha256": "75929bdc74317771a061fa2d04f8f5664d272261cebf03b0f3ec2f657be008a9"
+      },
+      {
+        "path": "docs/postmortems/0028-inspector-diagnostic-overflow.md",
+        "sha256": "b15d0469b72d35f63f15f74fa74bee8a5b0fc76061a6a524f9530605e7be5ef0"
+      },
+      {
+        "path": "docs/postmortems/0029-blackmarsh-monolithic-transition-repair-exhaustion.md",
+        "sha256": "337a8b10975f5ddff2723846e137e0ab8fb6072c53e5cfa16615434a4c78299b"
+      },
+      {
+        "path": "docs/postmortems/0030-inspector-reported-last-start-event.md",
+        "sha256": "7f506a1eed0eadfc111d878768a774b5e2afe0120e7153bc1ab7deb64956232c"
+      },
+      {
+        "path": "docs/postmortems/0031-stale-next-dynamic-route-table.md",
+        "sha256": "cad1ff1352aa657b812303128104aba0cb9e9b26adb6c858b6705e0ca3ca4aa6"
+      },
+      {
+        "path": "docs/postmortems/0032-instance-dashboard-replaced-conversation-core.md",
+        "sha256": "879679230cc343954ae8d50e86caf86cb2e54ceff1a24c64411b1bd1a0d353fb"
+      },
+      {
+        "path": "docs/postmortems/0033-cross-platform-visual-baseline-drift.md",
+        "sha256": "906058c2994fbf092d4a3c1a6b7324e13e12ff6fa7a75b1b83c71cdbf2526290"
+      },
+      {
+        "path": "docs/postmortems/0034-hidden-control-overlay-a11y-race.md",
+        "sha256": "9b3b0096d697c04bf830cb35a9fa2184008aa7124e0e66baf745eb592f88af1a"
+      }
+    ]
+  }
 }

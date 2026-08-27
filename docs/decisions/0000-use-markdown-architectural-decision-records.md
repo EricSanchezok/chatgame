@@ -1,54 +1,48 @@
-# 使用 Markdown 架构决策记录（MADR）
+# Use Markdown Architectural Decision Records
 
 ## Status
 Accepted
 Class: process
 
 ## Context and Problem Statement
-
-仓库的决策——某个设计或流程规则为什么存在、赢过了谁、放弃了什么——如果只存在于 commit message 或对话里，就会丢失。没有决策日志，同一个决策会被反复重提，后来的维护者无法分辨当前结构是有意设计还是偶然产物。
+A repository's decisions — why a design or a process rule exists, what it beat, and what it gave up — are lost if they live only in commit messages or conversation. Without a decision log, the same decision gets re-litigated, and future maintainers cannot tell whether current structure is intentional or accidental.
 
 ## Decision Drivers
-
-- 所有决策（架构与流程）需要一个统一、业界标准的"家"。
-- 工具兼容：记录应能被现有 ADR 工具解析。
-- 机器可校验：结构可被门禁检查，漂移能被捕获。
+- A single, industry-standard home for durable architectural and process choices with meaningful alternatives.
+- Tooling compatibility: records should work with existing ADR tooling.
+- Machine-checkable structure so drift can be caught by a verifier.
 
 ## Considered Options
-
-- MADR（Markdown Any Decision Records），存放于 `docs/decisions/`。
-- Nygard 原始 ADR 格式。
-- 自造 notes 格式 + 自定义生命周期词汇。
-- 完全没有决策日志。
+- MADR (Markdown Any Decision Records) in `docs/decisions/`.
+- Nygard's original ADR format.
+- A bespoke "notes" format with a custom lifecycle vocabulary.
+- No decision log at all.
 
 ## Decision Outcome
-
-采用 **MADR** 作为格式，扁平存放于 `docs/decisions/NNNN-title.md`，并带一个文档化的 `Class:` 扩展行（architecture/process/testing/feature/bug-fix/simplification）。状态值为 MADR 原生集合：Proposed、Accepted、Rejected、Deprecated、Superseded by NNNN。生命周期与链接纪律——superseded 记录绝不改写成相反决定，由新记录 supersede 它——遵循 MADR 约定。`scripts/verify-decisions.mjs` 强制命名、编号、章节、状态、Class 与 supersede 链接。
+Adopt **MADR** as the format for durable choices with meaningful alternatives, stored flat in `docs/decisions/NNNN-title.md`, with a documented `Class:` extension line (architecture/process/testing/feature/bug-fix/simplification). Status values are the MADR-native set: Proposed, Accepted, Rejected, Deprecated, Superseded by NNNN. The lifecycle and linking discipline — a superseded record is never rewritten into its opposite, a new record supersedes it — follow the MADR convention. Specs own risk-triggered change contracts; commits own change history. `scripts/verify-decisions.mjs` enforces naming, numbering, sections, status, class, and supersede links.
 
 ### Consequences
-
-- 好：所有决策一个家；现有 MADR 工具可直接解析这些文件；漂移被机械捕获。
-- 好：`Class:` 扩展对不认识它的工具透明，兼容性保留。
-- 代价：相比自由格式笔记，每条决策有少量格式开销；门禁让格式成本变得很低。
+- Good: one place for durable rationale; existing MADR tooling can parse the files; drift is caught mechanically.
+- Good: the `Class:` extension is ignored by tools that do not know it, so compatibility is preserved.
+- Trade-off: a small format overhead per decision compared to free-form notes; accepted because the verifier makes the format cheap.
 
 ## Pros and Cons of the Options
-
 ### MADR
-- 好：标准、有文档、工具友好。
-- 好：`## Status` 在顶部，生命周期一目了然。
-- 中性：要求若干固定章节；门禁保证它们不缺席。
+- Good: standard, documented, tooling-friendly.
+- Good: `## Status` at the top makes lifecycle explicit.
+- Neutral: requires a few required sections; the verifier keeps them honest.
 
-### Nygard 格式
-- 好：原始格式，广为人知。
-- 坏：章节约定更松散，难以统一校验。
+### Nygard format
+- Good: the original, widely known.
+- Bad: looser section conventions; less uniform to verify.
 
-### 自造 notes 格式
-- 好：词汇完全定制。
-- 坏：无生态兼容；重复发明了行业已标准化的轮子。
+### Bespoke notes format
+- Good: fully tailored vocabulary.
+- Bad: no ecosystem compatibility; reinvents a wheel the industry already standardized.
 
-### 无决策日志
-- 坏：决策只活在记忆与提交历史里；被重提是必然。
+### No decision log
+- Bad: decisions live only in memory and commit history; re-litigation is guaranteed.
 
 ## Links
-- [ADR 0001](0001-repo-seed-is-a-skill-not-a-template.md) — 本仓库为何以 skill 形式存在。
-- [ADR 0002](0002-self-governing-repository-design.md) — 本日志所保护的五层治理设计。
+- [ADR 0001](0001-repo-seed-is-a-skill-not-a-template.md) — why this repository exists as a skill.
+- [ADR 0002](0002-self-governing-repository-design.md) — the five-layer governance design this log protects.

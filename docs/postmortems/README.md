@@ -1,16 +1,14 @@
 # Postmortems
 
-事故复盘：一个 bug 到达了不该到达的地方（真实用户、合并的变更、发布），有趣的部分是*我们的流程为什么放它过去*，而不只是一行修复。
+A postmortem records why a subtle, systemic, or costly bug reached a real user, merged change, or release, and which permanent guardrail prevents the same class of failure. It is not a [decision record](../decisions/README.md), feature specification, or one-line fix summary.
 
-postmortem 不是决策记录（[docs/decisions/](../decisions/README.md)），后者记录深思熟虑的设计决策。它是回顾性的失败记录：什么坏了、机制是什么、为什么每张安全网都漏过它、加了哪些具体护栏让同类 bug 下次响亮失败。
+## When to write one
 
-## 何时写
+Write a postmortem when the mechanism is non-obvious, the escape reveals a gap in tests/tooling/conventions, and rediscovery would cost meaningful debugging time. The record explains what broke, the root cause, why every safety net missed it, and the durable guardrail.
 
-当一个 bug **微妙**（机制非显然，细心的工程师会以困难方式重新推导）、**系统性**（它逃逸的原因是测试/工具/约定的缺口，不是一次性笔误）、且**重新发现成本高**（花了真实调试时间，还会再花）时写。
+## Format
 
-## 格式
-
-每个 postmortem 以**执行摘要**开头：忙碌读者三十秒能吸收的一段——什么坏了、用平实语言讲根因、为什么逃逸、持久教训——然后是详细章节：
+New records use the next sequential `NNNN-short-title.md` identity, put `Artifact-Version: 1` below the title, and contain these sections in order:
 
 1. `## Executive summary`
 2. `## Summary`
@@ -18,4 +16,43 @@ postmortem 不是决策记录（[docs/decisions/](../decisions/README.md)），�
 4. `## Root cause`
 5. `## Guardrails`
 
-文件命名为 `NNNN-short-title.md`（顺序编号）。链接 postmortem 催生的护栏（测试、AGENTS.md 规则、决策记录）。
+`## Guardrails` links at least one permanent repository test, gate, skill, AGENTS.md rule, or decision. A verbal follow-up does not close the incident loop.
+
+The existing unversioned 0001–0034 series is content-grandfathered by the repo-seed manifest. These records keep their identities and original language. New versioned records continue at 0035.
+
+## Index
+
+- [0001 — Deno Action Regression](0001-deno-action-regression.md)
+- [0002 — Script UI Activation Race](0002-script-ui-activation-race.md)
+- [0003 — Console Layout Displaced Conversation](0003-console-layout-displaced-conversation.md)
+- [0004 — Loopback Preview Blocked Client Runtime](0004-loopback-preview-blocked-client-runtime.md)
+- [0005 — Native Carousel Scrollbar](0005-native-carousel-scrollbar.md)
+- [0006 — Launcher Step Layout Jump](0006-launcher-step-layout-jump.md)
+- [0007 — Cross-script Floating Resume](0007-cross-script-floating-resume.md)
+- [0008 — Conversation Hierarchy Regressed Again](0008-conversation-hierarchy-regressed-again.md)
+- [0009 — Workflow Script Contract Drift](0009-workflow-script-contract-drift.md)
+- [0010 — Session World Identity Drift](0010-session-world-identity-drift.md)
+- [0011 — Awaiting Player Lost Goal](0011-awaiting-player-lost-goal.md)
+- [0012 — Modifier Source Namespace Collision](0012-modifier-source-namespace-collision.md)
+- [0013 — File-host Concurrency Boundary](0013-file-host-concurrency-boundary.md)
+- [0014 — WorldHost Bootstrap Lease Leak](0014-world-host-bootstrap-lease-leak.md)
+- [0015 — Unused Provider Credentials Blocked Runtime](0015-unused-provider-credentials-blocked-runtime.md)
+- [0016 — Runtime Identity Collision and Reconnect Loop](0016-runtime-identity-collision-and-reconnect-loop.md)
+- [0017 — Assistant UI Visual Baseline Drift](0017-assistant-ui-visual-baseline-drift.md)
+- [0018 — Focus Ring and Orb-card Collision](0018-focus-ring-and-orb-card-collision.md)
+- [0019 — Game-management Unmounted Session](0019-game-management-unmounted-session.md)
+- [0020 — World-detail Inverted Hierarchy](0020-world-detail-inverted-hierarchy.md)
+- [0021 — Control and State Geometry Drift](0021-control-and-state-geometry-drift.md)
+- [0022 — Settings Container and Modal Chrome Drift](0022-settings-container-and-modal-chrome-drift.md)
+- [0023 — Composer Marker and CJK Bubble Collapse](0023-composer-marker-and-cjk-bubble-collapse.md)
+- [0024 — State Lines and Settings Divider Accumulation](0024-state-lines-and-settings-divider-accumulation.md)
+- [0025 — World Inspector Failure Blindness](0025-world-inspector-failure-blindness.md)
+- [0026 — Canonical-local Observation Repair Loop](0026-canonical-local-observation-repair-loop.md)
+- [0027 — Character-event Basis Repair Loop](0027-character-event-basis-repair-loop.md)
+- [0028 — Inspector Diagnostic Overflow](0028-inspector-diagnostic-overflow.md)
+- [0029 — Blackmarsh Monolithic-transition Repair Exhaustion](0029-blackmarsh-monolithic-transition-repair-exhaustion.md)
+- [0030 — Inspector Reported Last-start Event](0030-inspector-reported-last-start-event.md)
+- [0031 — Stale Next.js Dynamic-route Table](0031-stale-next-dynamic-route-table.md)
+- [0032 — Instance Dashboard Replaced Conversation Core](0032-instance-dashboard-replaced-conversation-core.md)
+- [0033 — Cross-platform Visual-baseline Drift](0033-cross-platform-visual-baseline-drift.md)
+- [0034 — Hidden Control-overlay Accessibility Race](0034-hidden-control-overlay-a11y-race.md)

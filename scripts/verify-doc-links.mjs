@@ -8,8 +8,9 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { readRepoManifest, safeRepositoryRelativePath } from './governance-config.mjs';
 
-export const SCOPED_PATHS = ['AGENTS.md', 'CLAUDE.md', 'docs', 'CONTRIBUTING.md'];
+export const SCOPED_PATHS = ['AGENTS.md', 'CLAUDE.md', 'docs', 'CONTRIBUTING.md', 'SECURITY.md', 'CODE_OF_CONDUCT.md'];
 
 // Links inside fenced code blocks and inline code are examples, not real
 // links (e.g. `[0001](0001-title.md)` in a format description); strip them
@@ -59,7 +60,7 @@ export function slugify(heading) {
 }
 
 // Check a single file: all links resolve.
-export async function checkFile(fileAbs, repoRoot) {
+export async function checkFile(fileAbs, repoRoot, { allowedBareDirectories = new Set() } = {}) {
   const errors = [];
   let text;
   try {
@@ -83,8 +84,8 @@ export async function checkFile(fileAbs, repoRoot) {
     const targetAbs = path.resolve(fileDir, l.filePart);
     // Reject escaping the repo root
     const rel = path.relative(repoRoot, targetAbs);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      errors.push(`${path.relative(repoRoot, fileAbs)}: link "${l.raw}" escapes repository root`);
+    if (rel.startsWith('..') || path.isAbsolute(rel) || !safeRepositoryRelativePath(rel)) {
+      errors.push(`${path.relative(repoRoot, fileAbs)}: link "${l.raw}" has an unsafe repository target`);
       continue;
     }
     let st;
@@ -95,6 +96,7 @@ export async function checkFile(fileAbs, repoRoot) {
       continue;
     }
     if (st.isDirectory()) {
+      if (allowedBareDirectories.has(path.resolve(targetAbs))) continue;
       // Directory link: check for README.md inside
       const idx = path.join(targetAbs, 'README.md');
       try {
@@ -154,8 +156,14 @@ export async function collectScopedFiles(repoRoot) {
 export async function verifyLinks(repoRoot) {
   const errors = [];
   const files = await collectScopedFiles(repoRoot);
+  const manifest = await readRepoManifest(repoRoot);
+  const allowedBareDirectories = new Set(
+    Object.values(manifest?.governance?.externalSources ?? {})
+      .filter((source) => source?.type === 'repository' && source.location)
+      .map((source) => path.resolve(repoRoot, source.location))
+  );
   for (const f of files) {
-    const fileErrors = await checkFile(path.join(repoRoot, f), repoRoot);
+    const fileErrors = await checkFile(path.join(repoRoot, f), repoRoot, { allowedBareDirectories });
     errors.push(...fileErrors);
   }
   return { errors, files };

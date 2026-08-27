@@ -1,16 +1,14 @@
-# 决策日志
+# Decision log
 
-每个决策——架构或流程——都只在一个地方：本目录。这是统一决策日志：架构决策与流程决策共享同一格式、同一生命周期、同一门禁。不存在第二套体系。
+Every durable choice with meaningful alternatives—architecture or process—lives in this directory. Specs own risk-boundary change contracts; decisions preserve rationale; commits own change history.
 
-## 格式
+## Format
 
-格式为 **MADR（Markdown Any Decision Records）**，带一个文档化的 `Class:` 扩展。命名与结构遵循行业标准，现有 MADR 工具可直接解析；扩展对不认识它的工具透明。
+Records use MADR (Markdown Any Decision Records) with the documented `Class:` extension. A record is named `NNNN-title.md` directly in this directory. Numbers are sequential, zero-padded to four digits, and never reassigned.
 
-决策记录是直接位于本目录的 `NNNN-title.md` 文件（4 位零填充编号、`-`、kebab-case 标题）。编号顺序分配；编号是记录的身份，永不改变。
+### Required sections
 
-### 必选章节
-
-每条记录恰好包含以下 `##` 章节，按此顺序：
+Every record contains these `##` sections in order:
 
 1. `## Status`
 2. `## Context and Problem Statement`
@@ -20,115 +18,90 @@
 6. `## Pros and Cons of the Options`
 7. `## Links`
 
-`## Links` 可以为空（"None."）但必须存在。`## Links` 之后可以按需追加其他 `##` 章节。
+`## Links` may contain `None.` but must exist. Additional sections may follow it.
 
-### 状态行
+### Status and Class
 
-`## Status` 下的第一个非空行是状态值。合法值：
+The first non-empty line below `## Status` is `Proposed`, `Accepted`, `Rejected`, `Deprecated`, or `Superseded by [NNNN](NNNN-title.md)`. A shipped record describes current or frozen reality and is never rewritten into its opposite; create and cross-link a successor instead.
 
-- `Proposed` — 正在考虑的决策；尚未交付。
-- `Accepted` — 决策已交付；记录描述现状。
-- `Rejected` — 曾考虑并否决；只要其理由能防止一个诱人的、有意义的错误就保留。
-- `Deprecated` — 不再推荐；被一条链接的记录取代。
-- `Superseded by [NNNN](NNNN-title.md)` — 被更新的记录取代；目标必须存在。
+An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `feature`, `bug-fix`, or `simplification`.
 
-状态为 `Accepted`、`Deprecated` 或 `Superseded by …` 的记录描述当前或已冻结的现实。它永不改写成相反决策：要改变决策，新增一条记录并把旧记录标记为 `Superseded by NNNN`。两条记录都保留，交叉链接。
+## Writing rules
 
-### Class 行（扩展）
+- Create or update a decision only when a change chooses among meaningful alternatives and future maintainers may revisit the rationale. Do not use decisions for routine implementation, mechanical refactors, obvious test-defined fixes, feature contracts, or commit history.
+- State the choice, what it beats, and what it gives up. List genuine alternatives and why the selected option won.
+- Cite material external evidence with a stable descriptive link in `## Links`.
+- Cross-reference records with relative Markdown links, never bare numbers.
+- Describe the live contract. Change stories belong to commits; risk-boundary behavior belongs to [Specs](../specs/README.md).
 
-状态值之后的紧邻行可以是 `Class: <value>`。它给决策分类：
+`scripts/verify-decisions.mjs` enforces naming, numbering, section order, statuses, classes, and supersession targets. The manifest-selected runner invokes it.
 
-| Class | 覆盖 |
-|---|---|
-| `architecture` | 交付源码的结构：模块、边界、运行时词汇 |
-| `process` | 代码周边的工具、政策、工作流：门禁、包管理器、约定 |
-| `testing` | 测试基础设施与策略 |
-| `feature` | 新的用户或模型可见能力 |
-| `bug-fix` | 修正缺陷或填补 postmortem 暴露的缺口 |
-| `simplification` | 移除代码、行为或表面积，不新增能力 |
+## Index
 
-`Class:` 行缺失是合法的（它是扩展）；非法值是违规。
-
-## 生命周期
-
-决策从 `Proposed` 开始。实现后状态变为 `Accepted`，记录与交付保持一致（仅事实——名称、路径、结构——不是决策本身）。被否决的提案是 `Rejected`；只有当其理由不再能防止一个貌似可信的错误时才删除。过时的 accepted 决策变为 `Superseded by NNNN` 或 `Deprecated`；绝不编辑成相反决策。
-
-## 写作规则
-
-- 每个非平凡改动包含至少一条新决策记录或更新一条既有记录，且在同一改动内。"非平凡"指改变行为、架构、跨文件共享的契约、流程或工具、测试策略，或维护者可能合理重审的决策。
-- 陈述决策、它赢过了谁、放弃了什么。`## Considered Options` 列出真实的备选方案；`## Pros and Cons of the Options` 记录输家为何输。没有备选方案的决策会被反复重提。
-- 用相对 Markdown 链接交叉引用记录（`[0001](0001-title.md)`），绝不裸编号。
-- 记录当前现实，不写变更历史。变更故事进 commit；决策记录陈述活契约。
-
-## 门禁
-
-`scripts/verify-decisions.mjs` 强制：文件命名、唯一顺序编号、必选章节、合法状态值、出现时合法的 `Class:` 值、`Superseded by NNNN` 目标存在。任何违规退出非零。门禁由 `scripts/install-hooks.mjs` 安装为 pre-commit hook，也可单独运行。
-
-## 索引
-
-- [0000 — 使用 Markdown 架构决策记录（MADR）](0000-use-markdown-architectural-decision-records.md)
-- [0001 — repo-seed 是生成自治理仓库的 skill，不是静态模板](0001-repo-seed-is-a-skill-not-a-template.md)
-- [0002 — 自治理仓库设计](0002-self-governing-repository-design.md)
-- [0003 — repo-review 按项目实例化，而非静态分发](0003-repo-review-instantiated-per-project.md)
-- [0004 — 游戏第一性原理——剧本驱动的通用 AI 游戏框架](0004-game-first-principles.md)
-- [0005 — 剧本格式 v1.0——声明式目录剧本 + zod 可执行契约（由 0032 取代）](0005-script-format-v1.md)
-- [0006 — 引擎 mechanics 模块（由 0032 取代）](0006-engine-mechanics-modules.md)
-- [0007 — 引擎运行时 v1（由 0031 取代）](0007-engine-runtime.md)
-- [0008 — 引擎运行时完备化——v1 未接线系统一次交付](0008-engine-completeness.md)
-- [0009 — 文档体系与 Agent Notes 决策记录](0009-documentation-and-agent-notes.md)
-- [0010 — 导入暂存目录清理（由 0033 取代）](0010-import-staging-cleanup.md)
-- [0011 — 对话主舞台布局 + 深度可扩展表现层 Token v1.1（由 0023 取代）](0011-layout-and-presentation-tokens.md)
-- [0012 — 前端与表现层 v1——沉浸聊天式 UI + 剧本资产/主题系统 + 多剧本管理（由 0022 取代）](0012-ui-theme-assets-multiscript.md)
-- [0013 — 采用 repo-seed 自治理层](0013-adopt-repo-seed-governance-layer.md)
-- [0014 — LLM 上下文管理（由 0031 取代）](0014-llm-context-management.md)
-- [0015 — 记忆系统升级（由 0031 取代）](0015-memory-strength-retrieval-supersede.md)
-- [0016 — 死契约接线与 UI 消费点补全（已废弃）](0016-dead-contract-wiring-and-ui-consumption.md)
-- [0017 — 会话持久化、刷新恢复与 meta 链路（由 0033 取代）](0017-session-persistence-refresh-recovery-meta.md)
-- [0018 — 前端沉浸式游戏化与剧本代码扩展（v2，由 0022 取代）](0018-immersive-frontend-script-code-v2.md)
-- [0019 — 数值系统描述化（由 0032 取代）](0019-semantic-enums-to-free-text.md)
-- [0020 — 合并后审计（已废弃）](0020-post-merge-audit-single-home-injection.md)
-- [0021 — 玩法与引擎扩展契约 v2（由 0031 取代）](0021-gameplay-and-engine-extension-v2.md)
-- [0022 — 前端宿主与剧本 UI 扩展契约 v3](0022-ui-host-and-script-extension-v3.md)
-- [0023 — 布局、主题与无障碍表现契约 v2](0023-layout-theme-and-accessibility-v2.md)
-- [0024 — 前端测试工作台与 CI（由 0034 取代）](0024-frontend-workbench-and-ci.md)
-- [0025 — 《灰烬镇》工业民俗悬疑重做（已废弃）](0025-emberfall-industrial-folk-mystery.md)
-- [0026 — 《星港》老站值班与资源事故重做（已废弃）](0026-starlight-shift-console.md)
-- [0027 — 会话优先 UI API v4（由 0029 取代）](0027-session-first-ui-api-v4.md)
-- [0028 — 会话优先游戏布局（由 0029 取代）](0028-conversation-first-game-layout.md)
-- [0029 — ReUI AppShell 与 UI API v5（由 0030 取代）](0029-reui-app-shell-and-ui-api-v5.md)
-- [0030 — Manus 风格游戏会话工作区与 UI API v6（由 0033 取代）](0030-manus-style-game-workspace-and-ui-api-v6.md)
-- [0031 — 认知分叉的多智能体 Truth Engine](0031-epistemic-multi-agent-truth-engine.md)
-- [0032 — 开放事实世界与通用 d20 内核](0032-open-world-facts-and-d20-kernel.md)
-- [0033 — 持久化流式 WorldRun 与无内置剧本工作台](0033-persistent-streaming-world-runs.md)
-- [0034 — Truth Engine 验证矩阵](0034-truth-engine-verification-matrix.md)
-- [0035 — Truth Engine 硬化与可验证审计](0035-truth-engine-hardening-and-verifiable-audit.md)
-- [0036 — 多供应商模型目录、严格结构化输出与公平调度（由 0047 取代）](0036-multi-provider-model-gateway-and-fair-scheduler.md)
-- [0037 — Agent 心智演化、自身状态投影与有限反应窗口](0037-agent-evolution-self-awareness-and-reaction-window.md)
-- [0038 — 项目改名 Living World Engine（活世界引擎）](0038-project-rename-to-living-world-engine.md)
-- [0039 — 会话锁定世界运行时契约](0039-pinned-world-runtime-contract.md)
-- [0040 — 可恢复的玩家目标与同一 WorldRun](0040-resumable-player-intent.md)
-- [0041 — 纯本地单实例 SQLite 运行时](0041-local-sqlite-runtime.md)
-- [0042 — 通用因果断言、受信任规则钩子与分阶段模型 Profile](0042-causal-assurance-and-staged-model-profiles.md)
-- [0043 — 端到端运行时可观测性与 invocation 审计（由 0050 取代）](0043-end-to-end-runtime-observability.md)
-- [0044 — 本地 assistant-ui 沉浸会话壳与存档资源（由 0051 取代）](0044-local-assistant-ui-immersive-session-shell.md)
-- [0045 — 版本化参考世界采用作者工程与严格运行目录分层](0045-versioned-reference-world-projects.md)
-- [0046 — 剧本声明、预承诺并可重放的通用离散随机分布](0046-committed-discrete-random-distributions.md)
-- [0047 — 按实际 Profile 激活模型供应商凭据](0047-on-demand-model-provider-credentials.md)
-- [0048 — 引擎拥有运行时身份与语义身份不可重绑](0048-engine-owned-runtime-identities.md)
-- [0049 — WorldRun 失败分类、取消恢复与流边界](0049-world-run-failure-and-stream-boundaries.md)
-- [0050 — 本地开发默认完整运行时日志](0050-development-default-full-observability.md)
-- [0051 — 以 assistant-ui 上游为会话表面基线（由 0052 取代）](0051-assistant-ui-upstream-session-surface.md)
-- [0052 — 持久游戏上下文与世界包工作台（由 0053 取代）](0052-persistent-game-context-and-world-library.md)
-- [0053 — 上下文内设置弹层与单一模态壳（由 0054 取代）](0053-context-local-settings-overlays.md)
-- [0054 — Composer 聚焦静默与玩家气泡内在尺寸（由 0056 取代）](0054-composer-focus-and-intrinsic-player-bubbles.md)
-- [0055 — 本地受信任的世界演化调试器](0055-trusted-world-evolution-inspector.md)
-- [0056 — 控件状态与设置空间分组](0056-control-state-and-settings-grouping.md)
-- [0057 — 失败感知的世界演化诊断工作台](0057-failure-aware-world-inspector.md)
-- [0058 — 通过门禁的工作单元及时本地提交](0058-timely-gated-local-commits.md)
-- [0059 — 统一执行内核与 Execution Ledger](0059-unified-execution-kernel-and-ledger.md)
-- [0060 — 模型输出字段所有权与动态 Agent Profile 来源](0060-model-output-field-ownership.md)
-- [0061 — 统一 Agent 与外部策略](0061-unified-agent-and-external-policy.md)
-- [0062 — World Instance、Participant 与 ActionWindow（由 0064 取代）](0062-world-instance-participation-and-action-window.md)
-- [0063 — Eager Reference 执行算法](0063-eager-reference-execution.md)
-- [0064 — 会话核心与 Agent 视角旁观](0064-conversation-core-and-agent-perspective-observer.md)
-- [0065 — 跨平台视觉基线与确定性布局](0065-platform-visual-baselines-and-deterministic-layout.md)
+- [0000 — Use Markdown Architectural Decision Records](0000-use-markdown-architectural-decision-records.md)
+- [0001 — Repo-seed Is a Skill, Not a Template](0001-repo-seed-is-a-skill-not-a-template.md)
+- [0002 — Self-governing Repository Design](0002-self-governing-repository-design.md)
+- [0003 — Instantiate Repo-review per Project](0003-repo-review-instantiated-per-project.md)
+- [0004 — Game-first Principles](0004-game-first-principles.md)
+- [0005 — Script Format v1](0005-script-format-v1.md)
+- [0006 — Engine Mechanics Modules](0006-engine-mechanics-modules.md)
+- [0007 — Engine Runtime](0007-engine-runtime.md)
+- [0008 — Engine Completeness](0008-engine-completeness.md)
+- [0009 — Documentation and Agent Notes](0009-documentation-and-agent-notes.md)
+- [0010 — Import Staging Cleanup](0010-import-staging-cleanup.md)
+- [0011 — Layout and Presentation Tokens](0011-layout-and-presentation-tokens.md)
+- [0012 — UI Theme Assets and Multiple Scripts](0012-ui-theme-assets-multiscript.md)
+- [0013 — Adopt Repo-seed Governance Layer](0013-adopt-repo-seed-governance-layer.md)
+- [0014 — LLM Context Management](0014-llm-context-management.md)
+- [0015 — Memory Strength and Retrieval](0015-memory-strength-retrieval-supersede.md)
+- [0016 — Dead Contract Wiring and UI Consumption](0016-dead-contract-wiring-and-ui-consumption.md)
+- [0017 — Session Persistence and Refresh Recovery](0017-session-persistence-refresh-recovery-meta.md)
+- [0018 — Immersive Frontend Script Code v2](0018-immersive-frontend-script-code-v2.md)
+- [0019 — Semantic Enums to Free Text](0019-semantic-enums-to-free-text.md)
+- [0020 — Post-merge Audit and Single-home Injection](0020-post-merge-audit-single-home-injection.md)
+- [0021 — Gameplay and Engine Extension v2](0021-gameplay-and-engine-extension-v2.md)
+- [0022 — UI Host and Script Extension v3](0022-ui-host-and-script-extension-v3.md)
+- [0023 — Layout, Theme, and Accessibility v2](0023-layout-theme-and-accessibility-v2.md)
+- [0024 — Frontend Workbench and CI](0024-frontend-workbench-and-ci.md)
+- [0025 — Emberfall Industrial Folk Mystery](0025-emberfall-industrial-folk-mystery.md)
+- [0026 — Starlight Shift Console](0026-starlight-shift-console.md)
+- [0027 — Session-first UI API v4](0027-session-first-ui-api-v4.md)
+- [0028 — Conversation-first Game Layout](0028-conversation-first-game-layout.md)
+- [0029 — ReUI App Shell and UI API v5](0029-reui-app-shell-and-ui-api-v5.md)
+- [0030 — Manus-style Game Workspace and UI API v6](0030-manus-style-game-workspace-and-ui-api-v6.md)
+- [0031 — Epistemic Multi-Agent Truth Engine](0031-epistemic-multi-agent-truth-engine.md)
+- [0032 — Open-world Facts and the d20 Kernel](0032-open-world-facts-and-d20-kernel.md)
+- [0033 — Persistent Streaming World Runs](0033-persistent-streaming-world-runs.md)
+- [0034 — Truth Engine Verification Matrix](0034-truth-engine-verification-matrix.md)
+- [0035 — Truth Engine Hardening and Verifiable Audit](0035-truth-engine-hardening-and-verifiable-audit.md)
+- [0036 — Multi-provider Model Gateway and Fair Scheduler](0036-multi-provider-model-gateway-and-fair-scheduler.md)
+- [0037 — Agent Evolution, Self-awareness, and Reaction Window](0037-agent-evolution-self-awareness-and-reaction-window.md)
+- [0038 — Rename the Project to Living World Engine](0038-project-rename-to-living-world-engine.md)
+- [0039 — Pinned World Runtime Contract](0039-pinned-world-runtime-contract.md)
+- [0040 — Resumable Player Intent](0040-resumable-player-intent.md)
+- [0041 — Local SQLite Runtime](0041-local-sqlite-runtime.md)
+- [0042 — Causal Assurance and Staged Model Profiles](0042-causal-assurance-and-staged-model-profiles.md)
+- [0043 — End-to-end Runtime Observability](0043-end-to-end-runtime-observability.md)
+- [0044 — Local Assistant UI Immersive Session Shell](0044-local-assistant-ui-immersive-session-shell.md)
+- [0045 — Versioned Reference World Projects](0045-versioned-reference-world-projects.md)
+- [0046 — Committed Discrete Random Distributions](0046-committed-discrete-random-distributions.md)
+- [0047 — On-demand Model-provider Credentials](0047-on-demand-model-provider-credentials.md)
+- [0048 — Engine-owned Runtime Identities](0048-engine-owned-runtime-identities.md)
+- [0049 — World Run Failure and Stream Boundaries](0049-world-run-failure-and-stream-boundaries.md)
+- [0050 — Development-default Full Observability](0050-development-default-full-observability.md)
+- [0051 — Assistant UI Upstream Session Surface](0051-assistant-ui-upstream-session-surface.md)
+- [0052 — Persistent Game Context and World Library](0052-persistent-game-context-and-world-library.md)
+- [0053 — Context-local Settings Overlays](0053-context-local-settings-overlays.md)
+- [0054 — Composer Focus and Intrinsic Player Bubbles](0054-composer-focus-and-intrinsic-player-bubbles.md)
+- [0055 — Trusted World-evolution Inspector](0055-trusted-world-evolution-inspector.md)
+- [0056 — Control State and Settings Grouping](0056-control-state-and-settings-grouping.md)
+- [0057 — Failure-aware World Inspector](0057-failure-aware-world-inspector.md)
+- [0058 — Timely Gated Local Commits](0058-timely-gated-local-commits.md)
+- [0059 — Unified Execution Kernel and Ledger](0059-unified-execution-kernel-and-ledger.md)
+- [0060 — Model-output Field Ownership](0060-model-output-field-ownership.md)
+- [0061 — Unified Agent and External Policy](0061-unified-agent-and-external-policy.md)
+- [0062 — World Instance Participation and ActionWindow](0062-world-instance-participation-and-action-window.md)
+- [0063 — Eager-reference Execution](0063-eager-reference-execution.md)
+- [0064 — Conversation Core and Agent-perspective Observer](0064-conversation-core-and-agent-perspective-observer.md)
+- [0065 — Platform Visual Baselines and Deterministic Layout](0065-platform-visual-baselines-and-deterministic-layout.md)
+- [0066 — Upgrade to Progressive Repo-seed Governance](0066-upgrade-progressive-repo-seed-governance.md)

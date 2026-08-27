@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // verify-placeholders.mjs — placeholder gate.
 // Flags fill-in tokens (__UPPERCASE__) left in seeded documentation and skills.
-// Scope: AGENTS.md, CLAUDE.md, docs/**, .agents/skills/repo-review, .agents/skills/repo-decisions, CONTRIBUTING.md.
+// Scope: seeded prose, resident skills, optional policy files, and workflows.
 // Zero dependencies; Node >= 18. Exits non-zero on any violation.
 import { readdir, stat, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -15,6 +15,11 @@ export const SCOPED_PATHS = [
   'CONTRIBUTING.md',
   '.agents/skills/repo-review/SKILL.md',
   '.agents/skills/repo-decisions/SKILL.md',
+  '.agents/skills/repo-governance/SKILL.md',
+  'SECURITY.md',
+  'CODE_OF_CONDUCT.md',
+  'CODEOWNERS',
+  '.github/workflows',
 ];
 
 const TOKEN_RE = /__[A-Z][A-Z0-9_]*__/g;
@@ -46,7 +51,7 @@ export async function collectScopedFiles(repoRoot) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
         await walk(full, path.join(prefix, e.name));
-      } else if (e.name.endsWith('.md')) {
+      } else if (e.name.endsWith('.md') || e.name.endsWith('.yml') || e.name.endsWith('.yaml')) {
         files.push(path.join(prefix, e.name));
       }
     }
