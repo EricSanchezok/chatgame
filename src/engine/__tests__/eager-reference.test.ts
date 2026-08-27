@@ -448,6 +448,58 @@ describe("eager reference dependency components", () => {
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
   });
 
+  it("adjudicates a Timer trigger without prematurely settling a longer new Activity", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, context }) =>
+      deterministicModelOutput(profileId, context));
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const brief = definition.initialState.truth.mechanics.temporalProfiles["brief-action"];
+    if (!brief || brief.kind !== "fixed") throw new Error("fixture brief profile is missing");
+    brief.durationSeconds = 10;
+    brief.checkpointSeconds = 10;
+    definition.initialState.truth.timers["gate-deadline"] = {
+      id: "gate-deadline",
+      description: "石门值守截止。",
+      createdAtSeconds: 0,
+      dueAtSeconds: 1,
+      status: "scheduled",
+      wakeAgentIds: ["keeper"],
+      causes: [{ kind: "law", id: "time-passes" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "eq", value: 1 }],
+    };
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    const keeperActivity = Object.values(result.state.truth.activities)
+      .find((activity) => activity.actorId === "keeper")!;
+    expect(result.committed.temporalBoundary).toMatchObject({ deltaSeconds: 1, dueActivityIds: [] });
+    expect(result.committed.actions).toContainEqual(expect.objectContaining({
+      actorId: "keeper",
+      rawText: expect.stringContaining("石门值守截止"),
+    }));
+    expect(result.committed.actions.map((action) => action.id)).not.toContain(keeperActivity.sourceActionId);
+    expect(keeperActivity).toMatchObject({ status: "active", nextBoundaryAtSeconds: 10 });
+    expect(result.committed.decisionPoints).toContainEqual(expect.objectContaining({
+      agentId: "keeper",
+      reason: "timer",
+    }));
+  });
+
   it("creates a decision point when another action produces an authorized relevant observation", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "temporal-planner") {

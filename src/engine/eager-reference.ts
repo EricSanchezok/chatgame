@@ -1029,7 +1029,43 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       if (!activity) throw new Error(`temporal boundary references unknown activity ${activityId}`);
       return [{ ...structuredClone(activity.sourceAction), baseRevision: source.revision }];
     });
-    const actions = [...new Map([...newActions, ...dueActions].map((action) => [action.id, action])).values()]
+    const dueActivityActors = new Set(dueActions.map((action) => action.actorId));
+    const timerDescriptionsByAgent = new Map<AgentId, string[]>();
+    for (const timerId of temporalBoundary.dueTimerIds) {
+      const timer = planningState.truth.timers[timerId];
+      if (!timer) throw new Error(`temporal boundary references unknown Timer ${timerId}`);
+      for (const agentId of timer.wakeAgentIds) {
+        const descriptions = timerDescriptionsByAgent.get(agentId) ?? [];
+        descriptions.push(timer.description);
+        timerDescriptionsByAgent.set(agentId, descriptions);
+      }
+    }
+    const timerActions = [...timerDescriptionsByAgent.entries()]
+      .filter(([agentId]) => !dueActivityActors.has(agentId))
+      .map(([agentId, descriptions], ordinal): AgentActionProposal => ({
+        id: runtimeId({
+          worldHash: source.worldHash,
+          revision: source.revision,
+          kind: "action",
+          stage: "timer",
+          owner: agentId,
+          round: 0,
+          ordinal,
+        }),
+        actorId: agentId,
+        baseRevision: source.revision,
+        rawText: `处理同时到期的世界定时触发：${descriptions.join("；")}`,
+        goal: "根据当前世界事实联合结算已到期触发",
+        means: null,
+        targetIds: [],
+      }));
+    const timerActionActors = new Set(timerActions.map((action) => action.actorId));
+    const adjudicatedNewActions = newActions.filter((action) => !timerActionActors.has(action.actorId));
+    const actions = [...new Map([
+      ...adjudicatedNewActions,
+      ...dueActions,
+      ...timerActions,
+    ].map((action) => [action.id, action])).values()]
       .sort((left, right) => left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
     const newActionIds = new Set(newActions.map((action) => action.id));
     const temporalInput: WorldStepInput = { ...input, state: planningState };

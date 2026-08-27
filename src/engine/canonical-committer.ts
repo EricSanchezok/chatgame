@@ -20,6 +20,7 @@ import type {
   WorldEntity,
 } from "./model";
 import { contentHash } from "./model-audit";
+import { runtimeId } from "./runtime-id";
 import {
   applyObservationBindings,
   pendingObservationsFor,
@@ -84,6 +85,9 @@ function validateCandidateBoundary(
   maxAutonomousSpanSeconds: number,
 ): void {
   if (candidate.sourceStateHash !== contentHash(source)) throw new Error("execution candidate uses another source state");
+  if (new Set(actions.map((action) => action.actorId)).size !== actions.length) {
+    throw new Error("execution candidate contains multiple actions for one Agent");
+  }
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
   validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);
@@ -169,6 +173,46 @@ function validateCandidateBoundary(
   if (contentHash(expectedBoundary) !== contentHash(candidate.temporalBoundary)) {
     throw new Error("candidate did not select the earliest trusted temporal boundary");
   }
+  const dueActivityActors = new Set(expectedBoundary.dueActivityIds.map((activityId) => {
+    const activity = planningActivities[activityId];
+    if (!activity) throw new Error(`trusted boundary references unknown activity ${activityId}`);
+    return activity.actorId;
+  }));
+  const timerDescriptionsByAgent = new Map<string, string[]>();
+  for (const timerId of expectedBoundary.dueTimerIds) {
+    const timer = source.truth.timers[timerId];
+    if (!timer) throw new Error(`trusted boundary references unknown Timer ${timerId}`);
+    for (const agentId of timer.wakeAgentIds) {
+      const descriptions = timerDescriptionsByAgent.get(agentId) ?? [];
+      descriptions.push(timer.description);
+      timerDescriptionsByAgent.set(agentId, descriptions);
+    }
+  }
+  [...timerDescriptionsByAgent.entries()]
+    .filter(([agentId]) => !dueActivityActors.has(agentId))
+    .forEach(([agentId, descriptions], ordinal) => {
+      const expectedAction = {
+        id: runtimeId({
+          worldHash: source.worldHash,
+          revision: source.revision,
+          kind: "action",
+          stage: "timer",
+          owner: agentId,
+          round: 0,
+          ordinal,
+        }),
+        actorId: agentId,
+        baseRevision: source.revision,
+        rawText: `处理同时到期的世界定时触发：${descriptions.join("；")}`,
+        goal: "根据当前世界事实联合结算已到期触发",
+        means: null,
+        targetIds: [],
+      };
+      const actual = actions.find((action) => action.actorId === agentId);
+      if (!actual || contentHash(actual) !== contentHash(expectedAction)) {
+        throw new Error(`candidate does not adjudicate due Timer for ${agentId}`);
+      }
+    });
   let expectedTemporal = advanceTemporalState({
     boundary: expectedBoundary,
     activities: planningActivities,
