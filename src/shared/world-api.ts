@@ -1,4 +1,4 @@
-export const WORLD_API_VERSION = 6 as const;
+export const WORLD_API_VERSION = 7 as const;
 
 export interface WorldSummary {
   id: string;
@@ -55,14 +55,6 @@ export interface ParticipantSummary {
   joinedAt: string;
 }
 
-export interface AgentPublicPreview {
-  id: string;
-  name: string;
-  description: string;
-  location: string | null;
-  claimable: boolean;
-}
-
 export interface OriginView {
   id: string;
   title: string;
@@ -72,6 +64,12 @@ export interface OriginView {
   relationshipHooks: string[];
   risks: string[];
   image?: { hash: string; alt: string };
+}
+
+export interface WorldStartOptions {
+  world: WorldSummary;
+  origins: OriginView[];
+  observerAvailable: true;
 }
 
 export interface AgentPrivateView {
@@ -86,6 +84,32 @@ export interface AgentPrivateView {
   observations: Array<{ step: number; summary: string }>;
 }
 
+export interface PublicConversationTurn {
+  id: string;
+  agentId: string;
+  baseRevision: number;
+  createdAt: string;
+  status: "awaiting" | "running" | "committed" | "failed";
+  action?: {
+    submissionId: string;
+    text: string;
+  };
+  response?: {
+    revision: number;
+    step: number;
+    title?: string;
+    text: string;
+    suggestions?: [string, string, string];
+    generated?: boolean;
+  };
+}
+
+export interface PublicConversation {
+  participantId: string;
+  agentId: string;
+  turns: PublicConversationTurn[];
+}
+
 export interface PublicInstanceDetail {
   summary: PublicInstanceSummary;
   world: WorldSummary;
@@ -93,14 +117,22 @@ export interface PublicInstanceDetail {
   participants: ParticipantSummary[];
   actionWindow: PublicActionWindow | null;
   origins: OriginView[];
-  claimableAgents: AgentPublicPreview[];
   controlledView?: AgentPrivateView;
+  conversation?: PublicConversation;
 }
 
-export interface CreateInstanceInput {
+export type CreateInstanceInput = {
   worldId: string;
   title?: string;
-}
+  seed?: number;
+  start: {
+    kind: "origin";
+    originId: string;
+    displayName: string;
+    appearance: string;
+    motivation: string;
+  } | { kind: "observer" };
+};
 
 export interface AdvanceWorldInput {
   expectedRevision: number;
@@ -109,24 +141,25 @@ export interface AdvanceWorldInput {
   simulatedSeconds?: number;
 }
 
-export interface CreateParticipantInput {
+export interface ControlTransferInput {
   expectedRevision: number;
-  displayName: string;
-  appearance: string;
-  motivation: string;
-  originId?: string;
-  claimAgentId?: string;
+  target: { kind: "observer" } | { kind: "agent"; agentId: string };
+}
+
+export interface ControlCandidate {
+  id: string;
+  name: string;
+  location: string | null;
+}
+
+export interface ControlOptions {
+  agents: ControlCandidate[];
 }
 
 export interface SubmitExternalActionInput {
   submissionId: string;
   expectedRevision: number;
   text: string;
-}
-
-export interface ReleaseParticipantInput {
-  expectedRevision: number;
-  disposition: "model" | "idle";
 }
 
 export interface ArrivalView {

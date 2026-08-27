@@ -1,15 +1,24 @@
+import {
+  defaultControlPosition,
+  parseControlPosition,
+  type ControlPosition,
+} from "./control-orb-position";
+
+export const CONTROL_POSITION_KEY = "livingworld:control-position:v2";
 export const PREFERENCES_KEY = "livingworld:preferences:v2";
 export const PREFERENCES_EVENT = "livingworld:preferences-changed";
 
 export type FontScale = "compact" | "standard" | "large";
 
 export interface PlayerPreferences {
+  advancedRoleControl: boolean;
   fontScale: FontScale;
   reduceMotion: boolean;
   showWorldInspector: boolean;
 }
 
 export const defaultPreferences: PlayerPreferences = {
+  advancedRoleControl: false,
   fontScale: "standard",
   reduceMotion: false,
   showWorldInspector: false,
@@ -20,6 +29,7 @@ export function parsePreferences(serialized: string): PlayerPreferences {
     const value = JSON.parse(serialized || "null") as Partial<PlayerPreferences> | null;
     const fontScale = value?.fontScale;
     return {
+      advancedRoleControl: value?.advancedRoleControl === true,
       fontScale: fontScale === "compact" || fontScale === "large" ? fontScale : "standard",
       reduceMotion: value?.reduceMotion === true,
       showWorldInspector: value?.showWorldInspector === true,
@@ -53,4 +63,17 @@ export function readPreferences(): PlayerPreferences {
 export function writePreferences(preferences: PlayerPreferences): void {
   localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
   window.dispatchEvent(new CustomEvent(PREFERENCES_EVENT));
+}
+
+export function readControlPosition(): ControlPosition {
+  return parseControlPosition(localStorage.getItem(CONTROL_POSITION_KEY));
+}
+
+export function writeControlPosition(position: ControlPosition): void {
+  localStorage.setItem(CONTROL_POSITION_KEY, JSON.stringify(position));
+}
+
+export function resetControlPosition(): void {
+  localStorage.removeItem(CONTROL_POSITION_KEY);
+  writeControlPosition(defaultControlPosition);
 }

@@ -3,7 +3,7 @@ import { fixtureArchive } from "../support/world-fixture";
 
 const screenshotOptions = { animations: "disabled" as const, maxDiffPixelRatio: 0.01 };
 
-async function preparedInstance(page: Page): Promise<string> {
+async function install(page: Page): Promise<void> {
   const imported = await page.request.post("/api/worlds/import", {
     multipart: {
       file: { name: "open-world-fixture.zip", mimeType: "application/zip", buffer: fixtureArchive() },
@@ -11,26 +11,62 @@ async function preparedInstance(page: Page): Promise<string> {
     },
   });
   expect(imported.ok()).toBe(true);
+}
+
+async function preparedInstance(page: Page, kind: "observer" | "origin"): Promise<string> {
+  await install(page);
   const created = await page.request.post("/api/instances", {
-    data: { worldId: "open-world-fixture", seed: 20260828 },
+    data: kind === "observer"
+      ? { worldId: "open-world-fixture", seed: 20260828, start: { kind: "observer" } }
+      : {
+          worldId: "open-world-fixture",
+          seed: 20260828,
+          start: {
+            kind: "origin",
+            originId: "courtyard-wanderer",
+            displayName: "小明",
+            appearance: "背着旧旅行包",
+            motivation: "找到石门后的道路",
+          },
+        },
   });
+  expect(created.status()).toBe(201);
   const detail = await created.json() as { summary: { id: string } };
   return detail.summary.id;
 }
 
-async function chooseEntry(page: Page, text: string): Promise<void> {
-  const card = page.locator(".cg-entry-grid label").filter({ hasText: text }).first();
-  await card.click();
-  await expect(card.locator("input[type=radio]")).toBeChecked();
-}
+test("the new-game identity deck and customization form have stable responsive layouts", async ({ page }) => {
+  await install(page);
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await page.goto("/worlds/open-world-fixture");
+  await page.getByRole("button", { name: /开始新游戏/ }).click();
+  const chooser = page.getByRole("dialog", { name: "选择你的身份" });
+  await expect(chooser).toBeVisible();
+  await expect(page).toHaveScreenshot("start-identity-deck-light-desktop.png", screenshotOptions);
 
-test("the headless instance workspace matches light and dark responsive baselines", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(page).toHaveScreenshot("start-identity-deck-light-mobile.png", screenshotOptions);
+  await page.setViewportSize({ width: 1_440, height: 900 });
+
+  await chooser.locator(".cg-start-card").filter({ hasText: "庭院旅人" }).click();
+  await chooser.getByRole("button", { name: "继续塑造角色" }).click();
+  await expect(page.getByRole("dialog", { name: "成为庭院旅人" })).toBeVisible();
+  await expect(page).toHaveScreenshot("start-customization-light-desktop.png", screenshotOptions);
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(page).toHaveScreenshot("start-customization-light-mobile.png", screenshotOptions);
+});
+
+test("the observer conversation matches light and dark responsive baselines", async ({ page }) => {
   for (const colorScheme of ["light", "dark"] as const) {
-    const instanceId = await preparedInstance(page);
+    const instanceId = await preparedInstance(page, "observer");
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await page.setViewportSize({ width: 1_440, height: 900 });
     await page.goto(`/play/${instanceId}`);
-    await expect(page.getByRole("heading", { name: "世界正在发生什么" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "单步" })).toBeVisible();
     await expect(page).toHaveScreenshot(`instance-${colorScheme}-desktop.png`, screenshotOptions);
 
     await page.setViewportSize({ width: 320, height: 720 });
@@ -39,20 +75,24 @@ test("the headless instance workspace matches light and dark responsive baseline
   }
 });
 
-test("the participating Agent and inspector remain bounded in desktop and mobile layouts", async ({ page }) => {
-  const instanceId = await preparedInstance(page);
+test("the participant conversation, control orb and inspector stay bounded", async ({ page }) => {
+  const instanceId = await preparedInstance(page, "origin");
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await page.goto(`/play/${instanceId}`);
-  await page.getByRole("button", { name: "进入世界" }).click();
-  await chooseEntry(page, "庭院旅人");
-  await page.getByLabel("显示名称").fill("小明");
-  await page.getByLabel("外观描述").fill("背着旧旅行包");
-  await page.getByLabel("一个自由动机").fill("找到石门后的道路");
-  await page.getByRole("button", { name: "确认角色" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "关闭入场场景" }).click();
+  await expect(page.getByText("此刻，你是小明")).toBeVisible();
   await expect(page).toHaveScreenshot("instance-participant-dark-desktop.png", screenshotOptions);
 
-  await page.getByRole("button", { name: "运行记录" }).click();
+  await page.evaluate(() => {
+    localStorage.setItem("livingworld:preferences:v2", JSON.stringify({
+      fontScale: "standard",
+      reduceMotion: true,
+      showWorldInspector: true,
+      advancedRoleControl: false,
+    }));
+    window.dispatchEvent(new CustomEvent("livingworld:preferences-changed"));
+  });
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await page.getByRole("button", { name: "世界演化" }).click();
   const inspector = page.getByRole("dialog", { name: "世界演化" });
   await expect(inspector).toBeVisible();
   await expect(page).toHaveScreenshot("instance-inspector-dark-desktop.png", screenshotOptions);

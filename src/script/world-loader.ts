@@ -439,7 +439,6 @@ export function buildWorldDefinition(
         actionWindowMs: manifest.runtime_defaults.action_window_ms,
       },
       participation: template.participation ? {
-        claimableAgentIds: [...template.participation.claimable_agents],
         origins: template.participation.origins.map((origin) => {
           const image = origin.image
             ? template.assets.find((asset) => asset.path === origin.image!.path)

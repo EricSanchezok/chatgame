@@ -18,6 +18,7 @@ describe("browser preferences", () => {
       reduceMotion: true,
       showWorldInspector: true,
     }))).toEqual({
+      advancedRoleControl: false,
       fontScale: "large",
       reduceMotion: true,
       showWorldInspector: true,

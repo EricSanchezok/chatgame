@@ -135,7 +135,7 @@ describe("open world script loader", () => {
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 8", "schema_version: 7"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 9", "schema_version: 8"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();

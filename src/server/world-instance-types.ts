@@ -18,6 +18,19 @@ export interface ParticipantRecord {
   controlledSinceRevision: number;
   admissionExecutionId?: string;
   suppressedActionId?: string;
+  arrival: ParticipantArrivalRecord;
+}
+
+export interface ParticipantArrivalRecord {
+  id: string;
+  revision: number;
+  step: number;
+  title: string;
+  scene: string;
+  suggestions: [string, string, string];
+  generated: boolean;
+  createdAt: string;
+  executionId?: string;
 }
 
 export interface ActionWindow {
@@ -55,6 +68,8 @@ export interface WorldAdvanceRecord {
 
 export interface ParticipantIntentRecord {
   participantId: ParticipantId;
+  agentId: AgentId;
+  advanceId: string;
   submissionId: string;
   revision: number;
   text: string;
@@ -62,7 +77,7 @@ export interface ParticipantIntentRecord {
 }
 
 export interface WorldInstanceDocument {
-  schemaVersion: 12;
+  schemaVersion: 13;
   id: string;
   world: WorldRuntimeContract;
   title: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { PublicInstanceSummary, WorldSummary } from "../../shared/world-api";
+import type { CreateInstanceInput, PublicInstanceSummary, WorldSummary } from "../../shared/world-api";
 import { worldApi } from "../lib/world-api-client";
 
 export function useWorldLibrary() {
@@ -64,11 +64,15 @@ export function useWorldLibrary() {
     error,
     notice,
     refresh,
-    createInstance: (world: WorldSummary) => perform(
-      `instance-create:${world.id}`,
-      () => worldApi.createInstance(world.id),
-      "世界实例已创建。",
-    ),
+    createInstance: async (input: CreateInstanceInput) => {
+      const created = await perform(
+        `instance-create:${input.worldId}`,
+        () => worldApi.createInstance(input),
+        "新游戏已创建。",
+      );
+      await refresh();
+      return created;
+    },
     deleteInstance: async (instance: PublicInstanceSummary) => {
       await perform(`instance-delete:${instance.id}`, () => worldApi.deleteInstance(instance.id), "实例已删除。");
       await refresh();

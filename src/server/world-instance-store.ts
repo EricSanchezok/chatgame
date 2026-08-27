@@ -106,6 +106,27 @@ function validateParticipant(
   if (participant.suppressedActionId !== undefined) {
     requireText(participant.suppressedActionId, `participant ${participantId} suppressed action id`);
   }
+  const arrival = participant.arrival;
+  if (!arrival || typeof arrival !== "object") throw new Error(`participant ${participantId} arrival is required`);
+  requireText(arrival.id, `participant ${participantId} arrival id`);
+  requireText(arrival.title, `participant ${participantId} arrival title`);
+  requireText(arrival.scene, `participant ${participantId} arrival scene`);
+  if (!Number.isSafeInteger(arrival.revision) || arrival.revision < 0 || arrival.revision > document.state.revision) {
+    throw new Error(`participant ${participantId} arrival revision is invalid`);
+  }
+  if (!Number.isSafeInteger(arrival.step) || arrival.step < 0 || arrival.step > document.state.step) {
+    throw new Error(`participant ${participantId} arrival step is invalid`);
+  }
+  if (!Array.isArray(arrival.suggestions) || arrival.suggestions.length !== 3 ||
+    arrival.suggestions.some((suggestion) => typeof suggestion !== "string" || !suggestion.trim())) {
+    throw new Error(`participant ${participantId} arrival suggestions are invalid`);
+  }
+  if (typeof arrival.generated !== "boolean" || !Number.isFinite(Date.parse(arrival.createdAt))) {
+    throw new Error(`participant ${participantId} arrival metadata is invalid`);
+  }
+  if (arrival.executionId !== undefined) {
+    requireText(arrival.executionId, `participant ${participantId} arrival execution id`);
+  }
 }
 
 function validateActionWindow(document: WorldInstanceDocument): void {
@@ -140,7 +161,7 @@ function validateActionWindow(document: WorldInstanceDocument): void {
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 12) throw new Error("world instance schema v12 required");
+  if (document.schemaVersion !== 13) throw new Error("world instance schema v13 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
   if (document.title.length > 80) throw new Error("instance title exceeds 80 characters");
@@ -227,10 +248,15 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
   }
   for (const intent of document.participantIntents) {
     requireText(intent.participantId, "participant intent participant id");
+    requireText(intent.agentId, "participant intent agent id");
+    requireText(intent.advanceId, "participant intent advance id");
     requireText(intent.submissionId, "participant intent submission id");
     requireText(intent.text, "participant intent text");
     if (!(intent.participantId in document.participants)) {
       throw new Error(`participant intent references unknown participant ${intent.participantId}`);
+    }
+    if (!(intent.agentId in document.state.agents) || !(intent.advanceId in document.advances)) {
+      throw new Error(`participant intent ${intent.submissionId} references unknown execution state`);
     }
     if (!Number.isSafeInteger(intent.revision) || intent.revision < 0 || intent.revision > document.state.revision) {
       throw new Error(`participant intent ${intent.submissionId} has an invalid revision`);

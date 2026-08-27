@@ -3,8 +3,8 @@
 ## 层级
 
 - `npm test`：Vitest 契约、纯内核、仿真集成、SQLite 持久化/CAS、世界版本、导入、Route Handler 与 jsdom UI。
-- `npm run test:e2e`：对生产构建运行真实 Next 入口，并通过本地 HTTP 模型服务走生产 Gateway，验证 World Instance、无人推进、Participant、ActionWindow、Inspector 和响应式界面。
-- `npm run test:a11y`：在旁观、Origin 准入、Arrival、角色释放和 Inspector 上运行 axe，并覆盖 320 px、200% 缩放和 forced colors。
+- `npm run test:e2e`：对生产构建运行真实 Next 入口，并通过本地 HTTP 模型服务走生产 Gateway，验证 Origin 弹层、Participant 会话、Observer 视角、控制转移、ActionWindow、控制球和 Inspector。
+- `npm run test:a11y`：在 Origin 弹层、Participant 会话、Observer、控制球、角色面板和 Inspector 上运行 axe，并覆盖 320 px、200% 缩放和 forced colors。
 - `npm run test:live:deepseek`：使用进程环境中的真实 DeepSeek 凭据完成 Blackmarsh headless 与 Participant 烟测；它是手动兼容性测试，不属于确定性 CI 门禁。
 - `npm run experiment:run -- --agents 1,10,50,1000 --steps 1`：通过统一 Ledger 执行确定性规模矩阵；算法比较使用独立 world/seed 重复单位。
 - `npm run check:fast`：lint、类型、单元/集成、世界夹具和治理门禁。
@@ -34,8 +34,11 @@
 
 - headless 世界必须支持单步、十步 batch、实时启动/暂停和重启恢复；调度测试使用 fake clock 证明无重入、无离线 backlog、generation fencing 和上一步提交后才安排下一步。
 - ActionWindow 使用内部双 Participant 测试收齐、幂等重试、并发冲突、deadline noop、掉线和 revision CAS；产品 UI 仍限制一个 active Principal。
-- Origin 测试验证确定性 ID、出生点、资源、persona、goal 和显示定制；认领测试验证 revision 边界、唯一胜者、私有角色视角、释放为 model/idle、托管补观察和再次认领。
-- Arrival 测试证明只读授权视角、三条建议不自动提交、失败使用回退文本、Ledger 完整记录且 semantic/state hash 不变。
+- Origin 测试验证对话框打开时 URL 不变、取消无孤儿实例，以及确认后的确定性 ID、出生点、资源、persona、goal 和显示定制。
+- Arrival 测试证明它是第一条持久 World 消息、只读授权视角、三条建议不自动提交、失败使用回退文本、Ledger 完整记录且 semantic/state hash 不变。
+- Participant 会话测试证明一次自然语言提交自动创建一个 advance、最多推进一步，并在刷新、重复请求、失败和重启后保持相同消息投影。Participant composer 不得出现 batch 或 realtime 控制。
+- Observer 测试逐 Agent 验证行动、Observation、character 与 belief 投影，搜索 canonical binding 和其他 Agent 私有状态泄漏；接管、退出和直接切换必须在一个 revision CAS 中恢复原角色 model 策略。
+- 控制球测试覆盖拖动恢复、移动 Sheet、存档、设置、角色工具、焦点返回，以及高级 detach 和 Inspector 默认隐藏。
 - 静态资源测试覆盖真实 MIME、动画、尺寸、单文件/总预算、路径穿越、Unicode/大小写冲突、符号链接和恶意 ZIP。
 - 持久化测试覆盖跨连接恢复、generation 冲突、损坏 document 拒绝、校验缓存、WorldRuntimeContract 与 content-addressed world hash 锁定。
 
@@ -46,4 +49,4 @@
 - 聚合指标拒绝 Agent、Participant、Instance、Event 和 invocation 等高基数维度；主体级细节仍可从 trace 查询。
 - 1/10/50/1000 Agent 矩阵以 world/seed 为重复单位，不能把同一世界的 Agent 当成独立样本。
 
-测试夹具位于 `test/fixtures/open-world-script/`，只证明通用契约，不是内置可玩内容。测试矩阵的决策依据见 [0034](decisions/0034-truth-engine-verification-matrix.md)、[0062](decisions/0062-world-instance-participation-and-action-window.md) 与 [0063](decisions/0063-eager-reference-execution.md)。
+测试夹具位于 `test/fixtures/open-world-script/`，只证明通用契约，不是内置可玩内容。测试矩阵的决策依据见 [0034](decisions/0034-truth-engine-verification-matrix.md)、[0063](decisions/0063-eager-reference-execution.md)与 [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md)。

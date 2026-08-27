@@ -18,7 +18,7 @@ execution kind 只有 `interactive | diagnostic | benchmark | replay`。Benchmar
 
 `WorldExecutionAlgorithm` 只生成 `BootstrapCandidate` 或 `WorldStepCandidate`。`CanonicalCommitter` 独立验证候选并构造下一状态。唯一内置算法 `eager-reference@1` 全量激活自主 Agent，按行动 grounding、冲突分量、分批 Observation 和 AgentMind 执行，最后只进行一次全局原子提交。
 
-WorldHost 为 bootstrap、世界推进和 Arrival 建立 execution。成功世界推进时，World Instance CAS 与 execution terminal record 在同一 SQLite 事务内完成；失败、取消、repair 耗尽或关键记录失败均不推进 revision。World Instance document schema 为 v12，旧 Session 存档不迁移。
+WorldHost 为 bootstrap、世界推进和 Arrival 建立 execution。成功世界推进时，World Instance CAS 与 execution terminal record 在同一 SQLite 事务内完成；失败、取消、repair 耗尽或关键记录失败均不推进 revision。World Instance document schema 为 v13，旧 Session 存档不迁移。
 
 原子事务在 terminal event 固定后生成 `{executionId, terminalEventSequence, traceHash}`。`traceHash` 覆盖事件身份、DAG、属性、计数、correlation、错误与 artifact 引用；运行时长和资源测量不进入该 hash。bootstrap 保存 `bootstrapExecutionRef`，每个 `CommittedStep` 保存自己的 `executionRef`；`contentHash` 覆盖引用，`semanticHash` 排除引用，从而分别验证证据链和算法语义。
 
@@ -51,4 +51,4 @@ npm run execution:export -- <execution-id> --database <sqlite> [--output <json>]
 
 随机实验以独立 world/seed 为重复单位；算法比较使用稳定随机键与配对运行，不能把同一世界中的多个 Agent 当成独立样本。
 
-决策依据见 [0059](../decisions/0059-unified-execution-kernel-and-ledger.md)、[0062](../decisions/0062-world-instance-participation-and-action-window.md) 与 [0063](../decisions/0063-eager-reference-execution.md)。
+决策依据见 [0059](../decisions/0059-unified-execution-kernel-and-ledger.md)、[0063](../decisions/0063-eager-reference-execution.md) 与 [0064](../decisions/0064-conversation-core-and-agent-perspective-observer.md)。

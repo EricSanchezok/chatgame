@@ -38,7 +38,6 @@ export interface WorldOrigin {
 }
 
 export interface WorldParticipation {
-  claimableAgentIds: string[];
   origins: WorldOrigin[];
 }
 
@@ -125,9 +124,6 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
   validateDiscreteRandomDefinitions(definition.randomDistributions);
   if (definition.participation) {
     const origins = new Set<string>();
-    for (const agentId of definition.participation.claimableAgentIds) {
-      if (!(agentId in definition.initialState.agents)) throw new Error(`unknown claimable agent ${agentId}`);
-    }
     for (const origin of definition.participation.origins) {
       if (origins.has(origin.id)) throw new Error(`duplicate origin ${origin.id}`);
       origins.add(origin.id);

@@ -72,7 +72,7 @@ function oversizedDeclaredArchive(): Buffer {
 }
 
 describe("world import", () => {
-  it("atomically imports one validated schema v8 world", () => {
+  it("atomically imports one validated schema v9 world", () => {
     const root = temporaryRoot();
     const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     const result = database.importWorld(zipDirectory(fixture).toBuffer(), modelCatalog);
@@ -116,7 +116,7 @@ describe("world import", () => {
       .toMatchObject({ id: "test-rules", rules: [] });
 
     const host = new WorldHost({ repository: database, store: database, provider });
-    const instance = await host.createInstance({ worldId: "open-world-fixture" });
+    const instance = await host.createInstance({ worldId: "open-world-fixture", start: { kind: "observer" } });
     expect(host.instance(instance.summary.id).world.contentHash).toBe(instance.world.contentHash);
     database.close();
   });
@@ -185,7 +185,7 @@ describe("world import", () => {
     const archive = zipDirectory(fixture).toBuffer();
     database.importWorld(archive, provider.catalog);
     const host = new WorldHost({ repository: database, store: database, catalogManager: database, provider });
-    const instance = await host.createInstance({ worldId: "open-world-fixture" });
+    const instance = await host.createInstance({ worldId: "open-world-fixture", start: { kind: "observer" } });
 
     expect(() => host.deleteWorld("open-world-fixture")).toThrow("still has instances");
     expect(host.listWorlds()).toEqual([expect.objectContaining({ id: "open-world-fixture" })]);
@@ -214,7 +214,11 @@ describe("world import", () => {
     try {
       database.importWorld(zipDirectory(fixture).toBuffer(), provider.catalog);
       const firstHost = createHost();
-      const original = await firstHost.createInstance({ worldId: "open-world-fixture", seed: 47 });
+      const original = await firstHost.createInstance({
+        worldId: "open-world-fixture",
+        seed: 47,
+        start: { kind: "observer" },
+      });
 
       const replacement = path.join(root, "replacement");
       cpSync(fixture, replacement, { recursive: true });
@@ -232,7 +236,10 @@ describe("world import", () => {
       database = new LocalDatabase(databaseFile, { heartbeat: false });
       const restartedHost = createHost();
       const restored = restartedHost.instance(original.summary.id);
-      const current = await restartedHost.createInstance({ worldId: "open-world-fixture" });
+      const current = await restartedHost.createInstance({
+        worldId: "open-world-fixture",
+        start: { kind: "observer" },
+      });
 
       expect(restored).toMatchObject({
         summary: { id: original.summary.id },

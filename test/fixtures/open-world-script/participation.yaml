@@ -1,6 +1,3 @@
-claimable_agents:
-  - player
-  - keeper
 origins:
   - id: courtyard-wanderer
     title: 庭院旅人

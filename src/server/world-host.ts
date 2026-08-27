@@ -20,7 +20,6 @@ import {
 } from "../engine/observability";
 import { quantityId } from "../engine/runtime-id";
 import { SimulationEngine } from "../engine/simulation";
-import { validateSimulationState } from "../engine/transaction";
 import {
   toWorldRuntimeContract,
   validateWorldModelProfiles,
@@ -34,12 +33,21 @@ import type {
   AdvanceWorldInput,
   AgentPrivateView,
   ArrivalView,
-  CreateParticipantInput,
+  ControlTransferInput,
+  ControlOptions,
+  CreateInstanceInput,
+  PublicConversation,
+  PublicConversationTurn,
   PublicInstanceDetail,
   PublicInstanceSummary,
-  ReleaseParticipantInput,
   SubmitExternalActionInput,
+  WorldStartOptions,
 } from "../shared/world-api";
+import type {
+  ObserverAgentPerspective,
+  ObserverAgentSummary,
+  WorldObserverDetail,
+} from "../shared/world-observer-api";
 import { runtimeCodeIdentity } from "./code-identity";
 import type { ExecutionLedger, FinishExecutionInput } from "./execution-ledger";
 import { LocalDatabase } from "./local-database";
@@ -58,6 +66,7 @@ import {
 } from "./world-instance-store";
 import type {
   ActionWindow,
+  ParticipantArrivalRecord,
   ParticipantRecord,
   StoredWorldInstance,
   WorldAdvanceRecord,
@@ -143,15 +152,6 @@ function activeParticipants(document: WorldInstanceDocument): ParticipantRecord[
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function claimableAgentIds(document: WorldInstanceDocument, definition: WorldDefinition): string[] {
-  return [...new Set([
-    ...(definition.participation?.claimableAgentIds ?? []),
-    ...Object.values(document.participants)
-      .filter((participant) => participant.status === "released")
-      .map((participant) => participant.agentId),
-  ])].filter((agentId) => document.state.agents[agentId]).sort();
-}
-
 function publicSummary(document: WorldInstanceDocument): PublicInstanceSummary {
   return {
     id: document.id,
@@ -165,6 +165,17 @@ function publicSummary(document: WorldInstanceDocument): PublicInstanceSummary {
     participantCount: activeParticipants(document).length,
     schedulerMode: document.scheduler.mode,
     ...(currentAdvance(document) ? { advanceStatus: currentAdvance(document)!.status } : {}),
+  };
+}
+
+function publicWorld(document: WorldInstanceDocument) {
+  return {
+    id: document.world.id,
+    name: document.world.name,
+    version: document.world.manifestVersion,
+    contentHash: document.world.contentHash,
+    description: document.world.description,
+    participation: document.world.participation ? "open" as const : "headless" as const,
   };
 }
 
@@ -185,6 +196,100 @@ function privateView(document: WorldInstanceDocument, agentId: string): AgentPri
     observations: document.state.history.flatMap((step) => step.observations
       .filter((packet) => packet.observerId === agentId)
       .map((packet) => ({ step: packet.step, summary: packet.summary }))),
+  };
+}
+
+function conversationFor(
+  document: WorldInstanceDocument,
+  participant: ParticipantRecord,
+): PublicConversation {
+  const arrival = participant.arrival;
+  const turns: PublicConversationTurn[] = [{
+    id: arrival.id,
+    agentId: participant.agentId,
+    baseRevision: arrival.revision,
+    createdAt: arrival.createdAt,
+    status: "committed",
+    response: {
+      revision: arrival.revision,
+      step: arrival.step,
+      title: arrival.title,
+      text: arrival.scene,
+      suggestions: [...arrival.suggestions],
+      generated: arrival.generated,
+    },
+  }];
+  for (const intent of document.participantIntents.filter((entry) => entry.participantId === participant.id)) {
+    const advance = document.advances[intent.advanceId];
+    const committedRevision = advance?.committedRevisions.at(-1);
+    const committed = committedRevision === undefined
+      ? undefined
+      : document.state.history.find((step) => step.revision === committedRevision);
+    const summaries = committed?.observations
+      .filter((observation) => observation.observerId === intent.agentId)
+      .map((observation) => observation.summary) ?? [];
+    const status: PublicConversationTurn["status"] = advance?.status === "committed"
+      ? "committed"
+      : advance?.status === "failed" || advance?.status === "cancelled"
+        ? "failed"
+        : advance?.status === "running" || advance?.status === "queued"
+          ? "running"
+          : "awaiting";
+    turns.push({
+      id: `intent:${intent.submissionId}`,
+      agentId: intent.agentId,
+      baseRevision: intent.revision,
+      createdAt: intent.submittedAt,
+      status,
+      action: { submissionId: intent.submissionId, text: intent.text },
+      ...(committed && summaries.length > 0 ? {
+        response: {
+          revision: committed.revision,
+          step: committed.step,
+          text: summaries.join("\n\n"),
+        },
+      } : {}),
+    });
+  }
+  return { participantId: participant.id, agentId: participant.agentId, turns };
+}
+
+function observerAgent(document: WorldInstanceDocument, agentId: string): ObserverAgentSummary {
+  const agent = document.state.agents[agentId];
+  const entity = document.state.truth.entities[agent.entityId];
+  const placementId = document.state.truth.placements[agent.entityId];
+  const binding = document.policyBindings[agentId];
+  return {
+    id: agentId,
+    name: entity.name,
+    description: entity.description,
+    location: placementId ? document.state.truth.entities[placementId]?.name ?? null : null,
+    policy: binding.kind === "external" ? "model" : binding.kind,
+  };
+}
+
+function observerPerspective(document: WorldInstanceDocument, agentId: string): ObserverAgentPerspective {
+  const agent = document.state.agents[agentId];
+  if (!agent) throw new WorldHostError(`Agent not found: ${agentId}`, 404);
+  const turns = document.state.history.flatMap((step) => {
+    const action = step.actions.find((candidate) => candidate.actorId === agentId);
+    const observations = step.observations
+      .filter((observation) => observation.observerId === agentId)
+      .map((observation) => observation.summary);
+    if (!action && observations.length === 0) return [];
+    return [{
+      id: `perspective:${agentId}:${step.revision}`,
+      revision: step.revision,
+      step: step.step,
+      action: action?.rawText ?? null,
+      observation: observations.length > 0 ? observations.join("\n\n") : null,
+    }];
+  });
+  return {
+    agent: observerAgent(document, agentId),
+    character: structuredClone(agent.character),
+    belief: structuredClone(agent.belief),
+    turns,
   };
 }
 
@@ -293,7 +398,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v12",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v13",
       );
       const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
@@ -430,13 +535,38 @@ export class WorldHost {
     });
   }
 
-  async createInstance(input: { worldId: string; seed?: number; title?: string }): Promise<PublicInstanceDetail> {
+  worldStartOptions(worldId: string): WorldStartOptions {
+    const definition = this.options.repository.load(worldId, 1, this.options.provider.catalog);
+    return {
+      world: {
+        id: definition.id,
+        name: definition.name,
+        version: definition.manifestVersion,
+        contentHash: definition.contentHash,
+        description: definition.description,
+        participation: definition.participation ? "open" : "headless",
+      },
+      origins: (definition.participation?.origins ?? []).map((origin) => ({
+        id: origin.id,
+        title: origin.title,
+        fantasy: origin.fantasy,
+        description: origin.description,
+        location: definition.initialState.truth.entities[origin.spawnEntityId].name,
+        relationshipHooks: [...origin.relationshipHooks],
+        risks: [...origin.risks],
+        ...(origin.image ? { image: structuredClone(origin.image) } : {}),
+      })),
+      observerAvailable: true,
+    };
+  }
+
+  async createInstance(input: CreateInstanceInput, principalId = "local"): Promise<PublicInstanceDetail> {
     const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
     this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 12,
+      schemaVersion: 13,
       id,
       world: toWorldRuntimeContract(definition),
       title: input.title?.trim() || definition.name,
@@ -464,6 +594,75 @@ export class WorldHost {
         observer: execution?.trace ?? this.runtimeObserver,
       });
       initial.policyBindings = policyRoster(initial.state);
+      if (input.start.kind === "origin") {
+        const start = input.start;
+        if (!definition.participation) throw new WorldHostError("this world does not define Origins", 409);
+        const origin = definition.participation.origins.find((entry) => entry.id === start.originId);
+        if (!origin) throw new WorldHostError("origin not found", 404);
+        const displayName = start.displayName.trim();
+        const appearance = start.appearance.trim();
+        const motivation = start.motivation.trim();
+        if (!displayName || displayName.length > 80 || appearance.length > 500 || motivation.length > 500) {
+          throw new WorldHostError("participant customization is invalid", 400);
+        }
+        let ordinal = 1;
+        let agentId: string;
+        do agentId = `${origin.id}-${ordinal++}`; while (initial.state.agents[agentId]);
+        const agent = agentStateFromOrigin(initial.state, origin, agentId, displayName, appearance, motivation);
+        const admitted = this.committer.admit(initial.state, {
+          entity: {
+            id: agentId,
+            kind: origin.entityKind,
+            name: displayName,
+            description: appearance ? `${origin.description}\n外观：${appearance}` : origin.description,
+            lifecycle: "active",
+            createdAtStep: initial.state.step,
+          },
+          placementId: origin.spawnEntityId,
+          agent,
+          quantities: origin.resources.map((resource) => ({
+            id: quantityId(initial.state.worldHash, resource.definitionId, agentId),
+            definitionId: resource.definitionId,
+            holderId: agentId,
+            amount: resource.amount,
+          })),
+        });
+        initial.state = admitted.state;
+        initial.policyBindings = policyRoster(initial.state);
+        const participantId = this.idFactory();
+        const joinedAt = this.now().toISOString();
+        const fallback: ParticipantArrivalRecord = {
+          id: this.idFactory(),
+          revision: initial.state.revision,
+          step: initial.state.step,
+          title: "你已进入世界",
+          scene: origin.fallbackArrival,
+          suggestions: ["观察四周", "确认自己所在的位置", "寻找一个可以交谈的人"],
+          generated: false,
+          createdAt: joinedAt,
+        };
+        initial.participants[participantId] = {
+          id: participantId,
+          principalId,
+          displayName,
+          agentId,
+          status: "active",
+          joinedAt,
+          updatedAt: joinedAt,
+          controlledSinceRevision: initial.state.revision,
+          ...(agent.nextAction ? { suppressedActionId: agent.nextAction.id } : {}),
+          arrival: fallback,
+        };
+        initial.policyBindings[agentId] = { kind: "external", agentId, participantId };
+        const arrival = await this.generateArrival(initial, participantId, origin.fallbackArrival);
+        initial.participants[participantId].arrival = {
+          ...fallback,
+          title: arrival.title,
+          scene: arrival.scene,
+          suggestions: [...arrival.suggestions],
+          generated: arrival.generated,
+        };
+      }
       const finish: FinishExecutionInput = {
         status: "succeeded",
         semanticHash: contentHash(initial.state),
@@ -476,7 +675,7 @@ export class WorldHost {
       if (execution && this.options.ledger && !isAtomicStore(this.options.store)) {
         this.options.ledger.finishExecution(execution.id, finish);
       }
-      return this.project(stored.document);
+      return this.project(stored.document, principalId);
     } catch (error) {
       this.failExecution(execution?.id, error);
       throw error;
@@ -536,8 +735,64 @@ export class WorldHost {
     }) ?? (() => undefined);
   }
 
+  subscribeInstanceChanges(id: string, listener: () => void): () => void {
+    this.read(id);
+    return this.options.ledger?.subscribe((event) => {
+      if (event.correlation?.instanceId === id) listener();
+    }) ?? (() => undefined);
+  }
+
   instance(id: string, principalId = "local"): PublicInstanceDetail {
     return this.project(this.read(id).document, principalId);
+  }
+
+  observer(id: string, agentId?: string): WorldObserverDetail {
+    const document = this.read(id).document;
+    if (activeParticipants(document).length > 0) {
+      throw new WorldHostError("detach before opening the observer console", 409);
+    }
+    const agents = Object.keys(document.state.agents)
+      .filter((candidate) => document.state.truth.entities[document.state.agents[candidate].entityId]?.lifecycle === "active")
+      .sort((left, right) => {
+        const leftName = document.state.truth.entities[document.state.agents[left].entityId].name;
+        const rightName = document.state.truth.entities[document.state.agents[right].entityId].name;
+        return leftName.localeCompare(rightName) || left.localeCompare(right);
+      })
+      .map((candidate) => observerAgent(document, candidate));
+    const selectedId = agentId ?? agents[0]?.id;
+    if (selectedId && !agents.some((agent) => agent.id === selectedId)) {
+      throw new WorldHostError(`Agent not found: ${selectedId}`, 404);
+    }
+    return {
+      summary: publicSummary(document),
+      world: publicWorld(document),
+      agents,
+      ...(selectedId ? { selected: observerPerspective(document, selectedId) } : {}),
+    };
+  }
+
+  controlOptions(id: string): ControlOptions {
+    const document = this.read(id).document;
+    return {
+      agents: Object.keys(document.state.agents)
+        .filter((agentId) => {
+          const agent = document.state.agents[agentId];
+          const entity = document.state.truth.entities[agent.entityId];
+          const binding = document.policyBindings[agentId];
+          return entity?.lifecycle === "active" && binding?.kind !== "external";
+        })
+        .map((agentId) => {
+          const agent = document.state.agents[agentId];
+          const entity = document.state.truth.entities[agent.entityId];
+          const placementId = document.state.truth.placements[agent.entityId];
+          return {
+            id: agentId,
+            name: entity.name,
+            location: placementId ? document.state.truth.entities[placementId]?.name ?? null : null,
+          };
+        })
+        .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
+    };
   }
 
   renameInstance(id: string, title: string): PublicInstanceDetail {
@@ -571,17 +826,9 @@ export class WorldHost {
     const allAgents = Object.keys(document.state.agents).length;
     const active = activeParticipants(document);
     const controlled = active.find((participant) => participant.principalId === principalId);
-    const claimed = new Set(active.map((participant) => participant.agentId));
     return {
       summary: publicSummary(document),
-      world: {
-        id: document.world.id,
-        name: document.world.name,
-        version: document.world.manifestVersion,
-        contentHash: document.world.contentHash,
-        description: document.world.description,
-        participation: document.world.participation ? "open" : "headless",
-      },
+      world: publicWorld(document),
       publicEvents: document.state.truth.events
         .filter((event) => allAgents > 0 && (observedBy.get(event.id)?.size ?? 0) === allAgents)
         .map(({ id, step, description, impact }) => ({ id, step, description, impact })),
@@ -607,20 +854,10 @@ export class WorldHost {
         risks: [...origin.risks],
         ...(origin.image ? { image: structuredClone(origin.image) } : {}),
       })),
-      claimableAgents: claimableAgentIds(document, definition)
-        .map((agentId) => {
-          const agent = document.state.agents[agentId];
-          const entity = document.state.truth.entities[agent.entityId];
-          const placement = document.state.truth.placements[entity.id];
-          return {
-            id: agentId,
-            name: entity.name,
-            description: entity.description,
-            location: placement ? document.state.truth.entities[placement]?.name ?? null : null,
-            claimable: !claimed.has(agentId),
-          };
-        }),
-      ...(controlled ? { controlledView: privateView(document, controlled.agentId) } : {}),
+      ...(controlled ? {
+        controlledView: privateView(document, controlled.agentId),
+        conversation: conversationFor(document, controlled),
+      } : {}),
     };
   }
 
@@ -733,6 +970,7 @@ export class WorldHost {
       simulatedSeconds: advanceRecord.request.simulatedSeconds,
       externalActions,
     };
+    advanceRecord.request.externalActions = structuredClone(externalActions);
     try {
       execution?.trace.emit({
         event: "action_window.resolved",
@@ -812,6 +1050,7 @@ export class WorldHost {
       failedAdvance.status = "failed";
       failedAdvance.error = error instanceof Error ? error.message : String(error);
       failedAdvance.updatedAt = this.now().toISOString();
+      failed.actionWindow = null;
       failed.updatedAt = failedAdvance.updatedAt;
       if (failed.scheduler.mode === "realtime") {
         failed.scheduler.nextTickAt = new Date(
@@ -839,22 +1078,56 @@ export class WorldHost {
       if (!participant || participant.status !== "active" || participant.principalId !== principalId) {
         throw new WorldHostError("active participant not found", 404);
       }
-      if (input.expectedRevision !== document.state.revision) throw new WorldHostError("world revision changed", 409);
-      const window = document.actionWindow;
-      if (!window || window.status !== "open" || window.baseRevision !== input.expectedRevision) {
-        throw new WorldHostError("no action window is open for this revision", 409);
-      }
       const submissionId = input.submissionId.trim();
       if (!submissionId || submissionId.length > 128) throw new WorldHostError("invalid action submission identity", 400);
-      const existing = window.submissions[participant.agentId];
-      if (existing) {
-        if (existing.submissionId !== submissionId || existing.rawText !== input.text.trim()) {
-          throw new WorldHostError("this Agent already submitted a different action", 409);
+      const text = input.text.trim();
+      if (!text || text.length > 4_000) throw new WorldHostError("action must contain 1–4000 characters", 400);
+      const existingIntent = document.participantIntents.find((intent) =>
+        intent.participantId === participantId && intent.submissionId === submissionId);
+      if (existingIntent) {
+        if (existingIntent.text !== text || existingIntent.agentId !== participant.agentId) {
+          throw new WorldHostError("submission identity was already used for a different action", 409);
         }
         return this.project(document, principalId);
       }
-      const text = input.text.trim();
-      if (!text || text.length > 4_000) throw new WorldHostError("action must contain 1–4000 characters", 400);
+      if (input.expectedRevision !== document.state.revision) throw new WorldHostError("world revision changed", 409);
+
+      const externalIds = Object.values(document.policyBindings)
+        .filter((binding): binding is Extract<PolicyBinding, { kind: "external" }> => binding.kind === "external")
+        .map((binding) => binding.agentId)
+        .sort();
+      if (!externalIds.includes(participant.agentId)) {
+        throw new WorldHostError("participant does not control an external policy", 409);
+      }
+      let advance = currentAdvance(document);
+      if (!advance || !["awaiting_actions", "queued", "running"].includes(advance.status)) {
+        const now = this.now().toISOString();
+        advance = {
+          id: this.idFactory(),
+          request: {
+            expectedRevision: document.state.revision,
+            trigger: "participant_action",
+            simulatedSeconds: document.runtime.simulatedSeconds,
+            externalActions: [],
+          },
+          status: "awaiting_actions",
+          createdAt: now,
+          updatedAt: now,
+          executionIds: [],
+          committedRevisions: [],
+        };
+        document.advances[advance.id] = advance;
+      }
+      if (advance.status !== "awaiting_actions" || advance.request.expectedRevision !== document.state.revision) {
+        throw new WorldHostError("another world advance is already in progress", 409);
+      }
+      if (!document.actionWindow) document.actionWindow = this.openWindow(document, externalIds);
+      const window = document.actionWindow;
+      if (window.status !== "open" || window.baseRevision !== input.expectedRevision) {
+        throw new WorldHostError("the current action window is not accepting actions", 409);
+      }
+      const existing = window.submissions[participant.agentId];
+      if (existing) throw new WorldHostError("this Agent already submitted an action", 409);
       window.submissions[participant.agentId] = {
         submissionId,
         agentId: participant.agentId,
@@ -866,6 +1139,8 @@ export class WorldHost {
       window.generation += 1;
       document.participantIntents.push({
         participantId,
+        agentId: participant.agentId,
+        advanceId: advance.id,
         submissionId,
         revision: document.state.revision,
         text,
@@ -874,20 +1149,21 @@ export class WorldHost {
       document.updatedAt = this.now().toISOString();
       stored = this.persist(stored, document);
       const complete = window.requiredAgentIds.every((agentId) => window.submissions[agentId]);
-      if (!complete) return this.project(stored.document, principalId);
-      const advance = currentAdvance(stored.document);
-      if (!advance) throw new Error("action window has no advance record");
+      if (!complete) {
+        this.scheduleWindowDeadline(stored.document);
+        return this.project(stored.document, principalId);
+      }
       const committed = await this.executeStep(stored, advance);
       if (committed.document.scheduler.mode === "realtime") this.scheduleRealtime(committed.document);
       return this.project(committed.document, principalId);
     });
   }
 
-  async createParticipant(
+  async transferControl(
     instanceId: string,
-    input: CreateParticipantInput,
+    input: ControlTransferInput,
     principalId = "local",
-  ): Promise<{ instance: PublicInstanceDetail; participantId: string; arrival: ArrivalView }> {
+  ): Promise<PublicInstanceDetail> {
     return this.serialized(instanceId, async () => {
       const stored = this.read(instanceId);
       const document = structuredClone(stored.document);
@@ -895,173 +1171,79 @@ export class WorldHost {
         throw new WorldHostError("world revision changed", 409);
       }
       if (document.actionWindow || currentAdvance(document)?.status === "running") {
-        throw new WorldHostError("join only at a committed revision boundary", 409);
+        throw new WorldHostError("control can change only at a committed revision boundary", 409);
       }
-      if (activeParticipants(document).length >= this.maxActiveParticipants) {
+      const current = activeParticipants(document)
+        .find((participant) => participant.principalId === principalId);
+      if (input.target.kind === "agent" && current?.agentId === input.target.agentId) {
+        return this.project(document, principalId);
+      }
+      if (current) {
+        current.status = "released";
+        current.updatedAt = this.now().toISOString();
+        const releasedAgent = document.state.agents[current.agentId];
+        document.policyBindings[current.agentId] = {
+          kind: "model",
+          agentId: releasedAgent.id,
+          profiles: structuredClone(releasedAgent.modelProfiles),
+          resumeFromRevision: current.controlledSinceRevision,
+        };
+      }
+      if (input.target.kind === "observer") {
+        document.updatedAt = this.now().toISOString();
+        return this.project(this.persist(stored, document).document, principalId);
+      }
+      const agentId = input.target.agentId;
+      const agent = document.state.agents[agentId];
+      const entity = agent ? document.state.truth.entities[agent.entityId] : undefined;
+      if (!agent || !entity || entity.lifecycle !== "active") {
+        throw new WorldHostError("only a living Agent can be controlled", 409);
+      }
+      const binding = document.policyBindings[agentId];
+      if (binding.kind === "external") throw new WorldHostError("Agent is already controlled", 409);
+      if (activeParticipants(document).length - (current ? 1 : 0) >= this.maxActiveParticipants) {
         throw new WorldHostError("this instance has reached its active participant limit", 409);
       }
-      if (activeParticipants(document).some((participant) => participant.principalId === principalId)) {
-        throw new WorldHostError("this principal already controls an Agent", 409);
-      }
-      const definition = this.definition(document);
-      if (!definition.participation) throw new WorldHostError("this world is headless-only", 409);
-      const displayName = input.displayName.trim();
-      const appearance = input.appearance.trim();
-      const motivation = input.motivation.trim();
-      if (!displayName || displayName.length > 80 || appearance.length > 500 || motivation.length > 500) {
-        throw new WorldHostError("participant customization is invalid", 400);
-      }
       const participantId = this.idFactory();
-      const execution = this.beginExecution(document, "interactive", "participant_admission");
-      let agentId: string;
-      let fallbackArrival: string;
-      let commitPhase: "admission" | "instance";
-      try {
-        execution?.trace.emit({
-          event: "participant.admission.started",
-          attributes: { mode: input.claimAgentId ? "claim" : "origin" },
-          counts: { activeParticipants: activeParticipants(document).length },
-        });
-        if (input.claimAgentId) {
-          commitPhase = "instance";
-          agentId = input.claimAgentId;
-          if (!claimableAgentIds(document, definition).includes(agentId)) {
-            throw new WorldHostError("Agent is not claimable", 409);
-          }
-          if (activeParticipants(document).some((participant) => participant.agentId === agentId)) {
-            throw new WorldHostError("Agent was claimed concurrently", 409);
-          }
-          fallbackArrival = `你重新把注意力放回 ${document.state.truth.entities[document.state.agents[agentId].entityId].name} 的此刻。`;
-        } else {
-          commitPhase = "admission";
-          const origin = definition.participation.origins.find((entry) => entry.id === input.originId);
-          if (!origin) throw new WorldHostError("origin not found", 404);
-          let ordinal = 1;
-          do agentId = `${origin.id}-${ordinal++}`; while (document.state.agents[agentId]);
-          const agent = agentStateFromOrigin(document.state, origin, agentId, displayName, appearance, motivation);
-          const quantities = origin.resources.map((resource) => ({
-            id: quantityId(document.state.worldHash, resource.definitionId, agentId),
-            definitionId: resource.definitionId,
-            holderId: agentId,
-            amount: resource.amount,
-          }));
-          const admitted = this.committer.admit(document.state, {
-            entity: {
-              id: agentId,
-              kind: origin.entityKind,
-              name: displayName,
-              description: appearance ? `${origin.description}\n外观：${appearance}` : origin.description,
-              lifecycle: "active",
-              createdAtStep: document.state.step,
-            },
-            placementId: origin.spawnEntityId,
-            agent,
-            quantities,
-          });
-          document.state = admitted.state;
-          for (const binding of Object.values(document.policyBindings)) {
-            if (binding.kind === "model") binding.resumeFromRevision = admitted.committed.baseRevision;
-          }
-          execution?.trace.emit({
-            event: "participant.admission.candidate",
-            attributes: { mode: "origin", agentId },
-            hashes: { semantic: admitted.committed.semanticHash, state: contentHash(document.state) },
-            payload: admitted.committed,
-          });
-          fallbackArrival = origin.fallbackArrival;
-        }
-        const joinedAt = this.now().toISOString();
-        document.participants[participantId] = {
-          id: participantId,
-          principalId,
-          displayName,
-          agentId,
-          status: "active",
-          joinedAt,
-          updatedAt: joinedAt,
-          controlledSinceRevision: document.state.revision,
-          ...(execution ? { admissionExecutionId: execution.id } : {}),
-          ...(document.state.agents[agentId].nextAction
-            ? { suppressedActionId: document.state.agents[agentId].nextAction!.id }
-            : {}),
-        };
-        document.policyBindings[agentId] = { kind: "external", agentId, participantId };
-        document.updatedAt = joinedAt;
-        validateSimulationState(document.state, false, true);
-        const finish: FinishExecutionInput = {
-          status: "succeeded",
-          semanticHash: commitPhase === "admission"
-            ? document.state.admissions.at(-1)!.semanticHash
-            : contentHash({ participantId, agentId, mode: "claim", revision: document.state.revision }),
-          stateHash: contentHash(document.state),
-          commitRevision: document.state.revision,
-        };
-        const committed = execution && this.options.ledger && isAtomicStore(this.options.store)
-          ? this.options.store.compareAndSwapInstanceAndFinishExecution(
-              document.id,
-              stored.generation,
-              document,
-              execution.id,
-              finish,
-              commitPhase,
-            ).instance
-          : this.persist(stored, document);
-        if (execution && this.options.ledger && !isAtomicStore(this.options.store)) {
-          this.options.ledger.finishExecution(execution.id, finish);
-        }
-        const arrival = await this.generateArrival(committed.document, participantId, fallbackArrival);
-        return { instance: this.project(committed.document, principalId), participantId, arrival };
-      } catch (error) {
-        this.failExecution(execution?.id, error);
-        throw error;
-      }
-    });
-  }
-
-  async releaseParticipant(
-    instanceId: string,
-    participantId: string,
-    input: ReleaseParticipantInput,
-    principalId = "local",
-  ): Promise<PublicInstanceDetail> {
-    return this.serialized(instanceId, async () => {
-      let stored = this.read(instanceId);
-      if (input.expectedRevision !== stored.document.state.revision) {
-        throw new WorldHostError("world revision changed", 409);
-      }
-      const document = structuredClone(stored.document);
-      const participant = document.participants[participantId];
-      if (!participant || participant.status !== "active" || participant.principalId !== principalId) {
-        throw new WorldHostError("active participant not found", 404);
-      }
-      participant.status = "released";
-      participant.updatedAt = this.now().toISOString();
-      const agent = document.state.agents[participant.agentId];
-      document.policyBindings[participant.agentId] = input.disposition === "model"
-        ? {
-            kind: "model",
-            agentId: agent.id,
-            profiles: structuredClone(agent.modelProfiles),
-            resumeFromRevision: participant.controlledSinceRevision,
-          }
-        : { kind: "idle", agentId: agent.id, reason: "released" };
-      if (document.actionWindow?.status === "open") {
-        document.actionWindow.requiredAgentIds = document.actionWindow.requiredAgentIds
-          .filter((agentId) => agentId !== participant.agentId);
-        delete document.actionWindow.submissions[participant.agentId];
-        document.actionWindow.generation += 1;
-      }
-      document.updatedAt = participant.updatedAt;
-      stored = this.persist(stored, document);
-      if (stored.document.actionWindow?.status === "open" &&
-        stored.document.actionWindow.requiredAgentIds.length === 0) {
-        const advance = currentAdvance(stored.document);
-        if (advance && ["awaiting_actions", "queued"].includes(advance.status)) {
-          stored = await this.executeStep(stored, advance);
-        }
-      }
-      if (stored.document.scheduler.mode === "realtime") this.scheduleRealtime(stored.document);
-      return this.project(stored.document, principalId);
+      const joinedAt = this.now().toISOString();
+      const fallbackText = `你把注意力放回 ${entity.name} 的此刻。`;
+      const fallback: ParticipantArrivalRecord = {
+        id: this.idFactory(),
+        revision: document.state.revision,
+        step: document.state.step,
+        title: `此刻，你是${entity.name}`,
+        scene: fallbackText,
+        suggestions: ["观察四周", "回想刚才发生的事", "确认自己接下来要做什么"],
+        generated: false,
+        createdAt: joinedAt,
+      };
+      document.participants[participantId] = {
+        id: participantId,
+        principalId,
+        displayName: entity.name,
+        agentId,
+        status: "active",
+        joinedAt,
+        updatedAt: joinedAt,
+        controlledSinceRevision: document.state.revision,
+        ...(agent.nextAction ? { suppressedActionId: agent.nextAction.id } : {}),
+        arrival: fallback,
+      };
+      document.policyBindings[agentId] = { kind: "external", agentId, participantId };
+      document.scheduler.mode = "paused";
+      document.scheduler.generation += 1;
+      document.scheduler.nextTickAt = null;
+      this.cancelTimer(instanceId);
+      const arrival = await this.generateArrival(document, participantId, fallbackText);
+      document.participants[participantId].arrival = {
+        ...fallback,
+        title: arrival.title,
+        scene: arrival.scene,
+        suggestions: [...arrival.suggestions],
+        generated: arrival.generated,
+      };
+      document.updatedAt = this.now().toISOString();
+      return this.project(this.persist(stored, document).document, principalId);
     });
   }
 

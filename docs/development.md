@@ -13,10 +13,11 @@
 4. 每完成一个可独立验证的工作单元，按触碰表面运行测试，并立即创建只包含当前任务改动的本地 commit；pre-commit hook 强制运行四个治理门禁。
 5. 用户明确要求不 commit、只评审或只诊断时不创建 commit；未完成、门禁失败或无法与其他未提交改动安全分离时，说明原因并保持未提交。
 6. 本地 commit 是防丢与回滚检查点；未经用户明确要求不 push。
+7. 新增、删除或重命名 Next 动态路由目录后必须重启 `next dev`，并请求一个真实动态 URL 验证 200；端口上已有进程不能证明其路由表属于当前源码拓扑。
 
 ## 配置
 
-- `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld-v12/`；世界版本、World Instance、Advance 与 Execution Ledger 统一存放在 `livingworld.sqlite`。World Instance schema v12 不读取 Session 存档；切换格式时使用新的 data root。
+- `LIVINGWORLD_DATA_ROOT`：本地数据目录，默认 `.livingworld-v13/`；世界版本、World Instance、Advance 与 Execution Ledger 统一存放在 `livingworld.sqlite`。World Instance schema v13 不读取旧实例或 Session 存档；切换格式时使用新的 data root。
 - `LIVINGWORLD_MODEL_CATALOG_PATH`：完整模型目录，默认 `config/models.yaml`。
 - 每个 provider 的密钥环境变量由目录 `api_key_env` 指定；仅当世界或 Agent 实际引用该 provider 的 Profile 时才要求对应密钥。仓库参考世界只需要 `DEEPSEEK_API_KEY`。
 - 正常运行、失败诊断、模型输入输出与实验材料始终写入 SQLite Execution Ledger；不存在 `off|metrics|full` 产品开关或日志目录。完整数据边界见 [Execution Ledger](game-design/runtime-observability.md)。

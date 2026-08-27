@@ -10,7 +10,7 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(8),
+  schema_version: z.literal(9),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
@@ -43,7 +43,6 @@ const participationImageSchema = z.object({
 }).strict();
 
 export const participationFileSchema = z.object({
-  claimable_agents: z.array(safeIdSchema).default([]),
   origins: z.array(z.object({
     id: safeIdSchema,
     title: z.string().trim().min(1).max(80),

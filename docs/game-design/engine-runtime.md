@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v9 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交与语义历史。`WorldInstanceDocument` v12 在其外层保存 Participant、PolicyBinding、ActionWindow、调度配置和 advance 状态。
+`SimulationState` v9 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交与语义历史。`WorldInstanceDocument` v13 在其外层保存 Participant、持久 Arrival、Participant intent、PolicyBinding、ActionWindow、调度配置和 advance 状态。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -69,13 +69,13 @@ required Agent 的提交以 `submissionId` 幂等。相同 ID 与相同文本重
 
 batch 在没有 external Agent 时连续调用步骤；遇到行动窗口即返回。realtime 严格串行，并在步骤终止后安排下一 tick。scheduler generation 使暂停、重新启用和重启前的 timer 失效；重启不补算离线时间。
 
-## Participant 准入
+## Participant 准入与控制转移
 
-Participant 以 principal 身份控制一个 external Agent。认领已有 Agent 只在 revision 边界完成；当时的 prepared action 作为历史承诺保留并记录 `suppressedActionId`，external 策略绝不收集或执行它。真人获得该 Agent 的角色视角和历史观察，但不会获得 bindings、其他 Agent 认知或 canonical truth。
+Participant 以 principal 身份控制一个 external Agent。普通新游戏只能通过 Origin 创建新 Agent；Observer 可以在 revision 边界接管任意存活且未被 external 策略控制的 Agent。当时的 prepared action 作为历史承诺保留并记录 `suppressedActionId`，external 策略绝不收集或执行它。真人获得该 Agent 的角色视角和历史观察，但不会获得 bindings、其他 Agent 认知或 canonical truth。
 
 Origin 准入确定性创建 Entity、Agent、placement、资源和自由动机 goal，并形成独立 admission revision。显示名称、外观和动机不能改变剧本的数值、出生点或资源。Arrival Generator 在准入提交后运行，只读该角色视角并返回标题、第一人称场景和三条建议；失败使用剧本回退文本，不能回滚准入。
 
-释放时选择 model 或 idle。model 策略先以该角色控制期间收到的 observations 恢复 AgentMind，再参与下一联合行动。释放后的 Agent 可再次认领。
+控制转移以一个 revision CAS 同时释放当前角色并选择 Observer 或另一 Agent。释放角色恢复 model 策略，并以 `resumeFromRevision` 标记需要消化的控制期 observations；被接管角色生成新的持久 Arrival。Participant 的自然语言提交由服务端创建 `participant_action` advance 与 ActionWindow，一次提交最多推进一步。
 
 ## 提交与重放
 

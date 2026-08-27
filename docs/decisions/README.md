@@ -128,5 +128,6 @@
 - [0059 — 统一执行内核与 Execution Ledger](0059-unified-execution-kernel-and-ledger.md)
 - [0060 — 模型输出字段所有权与动态 Agent Profile 来源](0060-model-output-field-ownership.md)
 - [0061 — 统一 Agent 与外部策略](0061-unified-agent-and-external-policy.md)
-- [0062 — World Instance、Participant 与 ActionWindow](0062-world-instance-participation-and-action-window.md)
+- [0062 — World Instance、Participant 与 ActionWindow（由 0064 取代）](0062-world-instance-participation-and-action-window.md)
 - [0063 — Eager Reference 执行算法](0063-eager-reference-execution.md)
+- [0064 — 会话核心与 Agent 视角旁观](0064-conversation-core-and-agent-perspective-observer.md)

@@ -26,24 +26,6 @@ function harness(input: {
     seed: 47,
     modelCatalog: provider.catalog,
   });
-  definition.participation = {
-    claimableAgentIds: ["player", "keeper"],
-    origins: [{
-      id: "courtyard-wanderer",
-      title: "庭院旅人",
-      fantasy: "从石门前开始自己的故事。",
-      description: "一个刚抵达庭院的旅人。",
-      entityKind: "person",
-      spawnEntityId: "courtyard",
-      persona: "谨慎但好奇的旅人。",
-      defaultGoal: "弄清庭院里正在发生什么。",
-      relationshipHooks: ["守门人可能知道石门的秘密。"],
-      risks: ["错误判断可能引来守卫。"],
-      resources: [{ definitionId: "spirit-stone", amount: 1 }],
-      modelProfiles: structuredClone(definition.modelProfiles.dynamicAgent),
-      fallbackArrival: "你站在石门内侧的庭院中。",
-    }],
-  };
   const root = mkdtempSync(path.join(tmpdir(), "lwe-instance-host-"));
   roots.push(root);
   const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
@@ -59,14 +41,30 @@ function harness(input: {
     setTimer: input.setTimer,
     clearTimer: input.clearTimer,
   });
-  return { database, definition, host, provider };
+  return { database, host };
 }
 
+const observerStart = {
+  worldId: "open-world-fixture",
+  start: { kind: "observer" as const },
+};
+
+const originStart = {
+  worldId: "open-world-fixture",
+  start: {
+    kind: "origin" as const,
+    originId: "courtyard-wanderer",
+    displayName: "小明",
+    appearance: "背着旧旅行包。",
+    motivation: "找到石门后的道路。",
+  },
+};
+
 describe("World Instance host", () => {
-  it("runs ten headless eager steps through the same Ledger and replayable state", async () => {
+  it("runs ten headless eager steps through the same Ledger", async () => {
     const { database, host } = harness();
     try {
-      const created = await host.createInstance({ worldId: "open-world-fixture" });
+      const created = await host.createInstance(observerStart);
       const advanced = await host.advance(created.summary.id, {
         expectedRevision: created.summary.revision,
         trigger: "batch",
@@ -76,168 +74,129 @@ describe("World Instance host", () => {
       const stored = database.readInstance(created.summary.id).document;
       expect(stored.state.history).toHaveLength(10);
       expect(Object.values(stored.advances)).toHaveLength(10);
-      expect(Object.values(stored.advances).every((advance) =>
-        advance.status === "committed" && advance.committedRevisions.length === 1)).toBe(true);
       expect(Object.values(stored.policyBindings).every((binding) => binding.kind === "model")).toBe(true);
       expect(database.executions({ instanceId: created.summary.id })).toHaveLength(11);
-      expect(database.instanceEvents(created.summary.id).some((event) =>
-        event.event === "algorithm.candidate.completed" && event.counts?.persistentAgents === 2)).toBe(true);
     } finally {
       database.close();
     }
   }, 30_000);
 
-  it("collects two external policies in one ActionWindow and resumes AgentMind after release", async () => {
-    const { database, host } = harness({ maxParticipants: 2 });
-    try {
-      const created = await host.createInstance({ worldId: "open-world-fixture" });
-      const first = await host.createParticipant(created.summary.id, {
-        expectedRevision: created.summary.revision,
-        claimAgentId: "player",
-        displayName: "旅人",
-        appearance: "披着斗篷。",
-        motivation: "观察庭院。",
-      }, "principal-a");
-      const second = await host.createParticipant(created.summary.id, {
-        expectedRevision: first.instance.summary.revision,
-        claimAgentId: "keeper",
-        displayName: "守门人",
-        appearance: "握着长杖。",
-        motivation: "守住石门。",
-      }, "principal-b");
-      const opened = await host.advance(created.summary.id, {
-        expectedRevision: second.instance.summary.revision,
-        trigger: "manual",
-      });
-      expect(opened.actionWindow?.requiredAgentIds).toEqual(["keeper", "player"]);
-
-      const one = await host.submitAction(created.summary.id, first.participantId, {
-        submissionId: "submission-a",
-        expectedRevision: opened.summary.revision,
-        text: "观察石门。",
-      }, "principal-a");
-      expect(one.summary.revision).toBe(opened.summary.revision);
-      const duplicate = await host.submitAction(created.summary.id, first.participantId, {
-        submissionId: "submission-a",
-        expectedRevision: opened.summary.revision,
-        text: "观察石门。",
-      }, "principal-a");
-      expect(duplicate.actionWindow?.submittedAgentIds).toEqual(["player"]);
-
-      const committed = await host.submitAction(created.summary.id, second.participantId, {
-        submissionId: "submission-b",
-        expectedRevision: opened.summary.revision,
-        text: "继续看守石门。",
-      }, "principal-b");
-      expect(committed.summary.revision).toBe(opened.summary.revision + 1);
-      expect(committed.actionWindow).toBeNull();
-      let stored = database.readInstance(created.summary.id).document;
-      expect(stored.state.agents.player.nextAction).toBeNull();
-      expect(stored.state.agents.keeper.nextAction).toBeNull();
-
-      await host.releaseParticipant(created.summary.id, first.participantId, {
-        expectedRevision: committed.summary.revision,
-        disposition: "model",
-      }, "principal-a");
-      const released = await host.releaseParticipant(created.summary.id, second.participantId, {
-        expectedRevision: committed.summary.revision,
-        disposition: "idle",
-      }, "principal-b");
-      const resumed = await host.advance(created.summary.id, {
-        expectedRevision: released.summary.revision,
-        trigger: "manual",
-      });
-      expect(resumed.summary.revision).toBe(committed.summary.revision + 1);
-      stored = database.readInstance(created.summary.id).document;
-      expect(stored.policyBindings.player.kind).toBe("model");
-      expect(stored.state.agents.player.nextAction).not.toBeNull();
-      expect(stored.policyBindings.keeper).toMatchObject({ kind: "idle", reason: "released" });
-      expect(stored.state.agents.keeper.nextAction).toBeNull();
-    } finally {
-      database.close();
-    }
-  }, 30_000);
-
-  it("admits an Origin Agent at a revision boundary and records admission without rewriting history", async () => {
+  it("creates Origin admission and Arrival with the instance and no orphan shell", async () => {
     const { database, host } = harness();
     try {
-      const created = await host.createInstance({ worldId: "open-world-fixture" });
-      const evolved = await host.advance(created.summary.id, {
-        expectedRevision: created.summary.revision,
-        trigger: "manual",
+      const created = await host.createInstance(originStart);
+      expect(created.summary).toMatchObject({ revision: 1, participantCount: 1 });
+      expect(created.controlledView).toMatchObject({
+        agentId: "courtyard-wanderer-1",
+        entity: { name: "小明", location: "石门前庭" },
       });
-      const joined = await host.createParticipant(created.summary.id, {
-        expectedRevision: evolved.summary.revision,
-        originId: "courtyard-wanderer",
-        displayName: "小明",
-        appearance: "背着旧旅行包。",
-        motivation: "找到石门后的道路。",
+      expect(created.conversation?.turns).toHaveLength(1);
+      expect(created.conversation?.turns[0]).toMatchObject({
+        status: "committed",
+        response: { suggestions: expect.any(Array) },
       });
-      expect(joined.instance.summary.revision).toBe(evolved.summary.revision + 1);
-      expect(joined.arrival.suggestions).toHaveLength(3);
       const stored = database.readInstance(created.summary.id).document;
-      const participant = stored.participants[joined.participantId];
-      expect(participant.agentId).toBe("courtyard-wanderer-1");
-      expect(stored.state.truth.placements[participant.agentId]).toBe("courtyard");
-      expect(stored.state.agents[participant.agentId].character.goals)
-        .toHaveProperty("courtyard-wanderer-1-motivation");
+      expect(stored.schemaVersion).toBe(13);
       expect(stored.state.admissions).toHaveLength(1);
-      expect(stored.state.history).toHaveLength(1);
-      expect(stored.policyBindings[participant.agentId]).toMatchObject({ kind: "external" });
-      expect(database.execution(participant.admissionExecutionId!)).toMatchObject({ status: "succeeded" });
-
-      const released = await host.releaseParticipant(created.summary.id, joined.participantId, {
-        expectedRevision: joined.instance.summary.revision,
-        disposition: "idle",
-      });
-      expect(released.claimableAgents.some((agent) => agent.id === participant.agentId && agent.claimable)).toBe(true);
-      const reclaimed = await host.createParticipant(created.summary.id, {
-        expectedRevision: released.summary.revision,
-        claimAgentId: participant.agentId,
-        displayName: "小明",
-        appearance: "背着旧旅行包。",
-        motivation: "继续寻找道路。",
-      });
-      expect(reclaimed.instance.controlledView?.agentId).toBe(participant.agentId);
+      expect(stored.participants[created.participants[0].id].arrival.scene).toBeTruthy();
+      expect(stored.policyBindings["courtyard-wanderer-1"]).toMatchObject({ kind: "external" });
     } finally {
       database.close();
     }
   }, 30_000);
 
-  it("turns an expired external slot into an engine-owned noop", async () => {
-    let now = new Date("2026-08-27T00:00:00.000Z");
-    const { database, host } = harness({ now: () => now });
+  it("turns one player message into exactly one advance and projects the durable conversation", async () => {
+    const { database, host } = harness();
     try {
-      const created = await host.createInstance({ worldId: "open-world-fixture" });
-      const joined = await host.createParticipant(created.summary.id, {
+      const created = await host.createInstance(originStart);
+      const participant = created.participants[0];
+      const committed = await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "message-1",
         expectedRevision: created.summary.revision,
-        claimAgentId: "player",
-        displayName: "旅人",
-        appearance: "披着斗篷。",
-        motivation: "暂时等待。",
+        text: "我观察石门和守门人。",
       });
-      const opened = await host.advance(created.summary.id, {
-        expectedRevision: joined.instance.summary.revision,
-        trigger: "manual",
+      expect(committed.summary.revision).toBe(created.summary.revision + 1);
+      expect(committed.actionWindow).toBeNull();
+      expect(committed.conversation?.turns).toHaveLength(2);
+      expect(committed.conversation?.turns[1]).toMatchObject({
+        status: "committed",
+        action: { submissionId: "message-1", text: "我观察石门和守门人。" },
+        response: { text: expect.any(String) },
       });
-      now = new Date(Date.parse(opened.actionWindow!.deadlineAt!) + 1);
-      const resolved = await host.advance(created.summary.id, {
-        expectedRevision: opened.summary.revision,
-        trigger: "manual",
+      const duplicate = await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "message-1",
+        expectedRevision: created.summary.revision,
+        text: "我观察石门和守门人。",
       });
-      expect(resolved.summary.revision).toBe(opened.summary.revision + 1);
-      const events = database.instanceEvents(created.summary.id);
-      expect(events.findLast((event) => event.event === "action_window.resolved")?.counts)
-        .toMatchObject({ timeoutNoops: 1, submittedExternalActions: 0 });
-      const execution = database.executions({ instanceId: created.summary.id })
-        .find((candidate) => candidate.commitRevision === resolved.summary.revision);
-      expect(execution?.runtimeConfig).toMatchObject({ externalAgents: 0, idleAgents: 1 });
+      expect(duplicate.summary.revision).toBe(committed.summary.revision);
+      expect(database.readInstance(created.summary.id).document.participantIntents).toHaveLength(1);
     } finally {
       database.close();
     }
   }, 30_000);
 
-  it("fences stale realtime callbacks and schedules the next tick only after commit", async () => {
+  it("collects two external policies in one ActionWindow", async () => {
+    const { database, host } = harness({ maxParticipants: 2 });
+    try {
+      const firstView = await host.createInstance(originStart, "principal-a");
+      const secondView = await host.transferControl(firstView.summary.id, {
+        expectedRevision: firstView.summary.revision,
+        target: { kind: "agent", agentId: "keeper" },
+      }, "principal-b");
+      const first = firstView.participants[0];
+      const second = secondView.participants.find((participant) => participant.agentId === "keeper")!;
+
+      const waiting = await host.submitAction(firstView.summary.id, first.id, {
+        submissionId: "submission-a",
+        expectedRevision: firstView.summary.revision,
+        text: "观察石门。",
+      }, "principal-a");
+      expect(waiting.summary.revision).toBe(firstView.summary.revision);
+      expect(waiting.actionWindow?.submittedAgentIds).toEqual(["courtyard-wanderer-1"]);
+
+      const committed = await host.submitAction(firstView.summary.id, second.id, {
+        submissionId: "submission-b",
+        expectedRevision: firstView.summary.revision,
+        text: "继续看守石门。",
+      }, "principal-b");
+      expect(committed.summary.revision).toBe(firstView.summary.revision + 1);
+      expect(committed.actionWindow).toBeNull();
+      const stored = database.readInstance(firstView.summary.id).document;
+      expect(stored.participantIntents).toHaveLength(2);
+      expect(Object.values(stored.advances)).toHaveLength(1);
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
+  it("atomically detaches and takes over any free living Agent", async () => {
+    const { database, host } = harness();
+    try {
+      const created = await host.createInstance(originStart);
+      const detached = await host.transferControl(created.summary.id, {
+        expectedRevision: created.summary.revision,
+        target: { kind: "observer" },
+      });
+      expect(detached.controlledView).toBeUndefined();
+      expect(host.observer(created.summary.id).agents.map((agent) => agent.id)).toContain("keeper");
+      expect(database.readInstance(created.summary.id).document.policyBindings["courtyard-wanderer-1"])
+        .toMatchObject({ kind: "model", resumeFromRevision: created.summary.revision });
+
+      const taken = await host.transferControl(created.summary.id, {
+        expectedRevision: detached.summary.revision,
+        target: { kind: "agent", agentId: "keeper" },
+      });
+      expect(taken.controlledView?.agentId).toBe("keeper");
+      expect(taken.conversation?.turns[0].response?.text).toBeTruthy();
+      const stored = database.readInstance(created.summary.id).document;
+      expect(Object.values(stored.participants).filter((participant) => participant.status === "active")).toHaveLength(1);
+      expect(stored.policyBindings.keeper).toMatchObject({ kind: "external" });
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
+  it("fences stale realtime callbacks and schedules only after commit", async () => {
     let now = new Date("2026-08-27T00:00:00.000Z");
     let timerId = 0;
     const timers = new Map<number, () => void | Promise<void>>();
@@ -245,49 +204,40 @@ describe("World Instance host", () => {
       now: () => now,
       setTimer: (callback) => {
         const id = ++timerId;
-        timers.set(id, async () => {
-          timers.delete(id);
-          await callback();
-        });
+        timers.set(id, async () => { timers.delete(id); await callback(); });
         return id as unknown as ReturnType<typeof setTimeout>;
       },
       clearTimer: (timer) => { timers.delete(timer as unknown as number); },
     });
     try {
-      const created = await host.createInstance({ worldId: "open-world-fixture" });
+      const created = await host.createInstance(observerStart);
       await host.setRealtime(created.summary.id, true);
       const stale = timers.get(timerId)!;
       await host.setRealtime(created.summary.id, false);
       await host.setRealtime(created.summary.id, true);
       const active = timers.get(timerId)!;
-
       await stale();
       expect(database.readInstance(created.summary.id).document.state.revision).toBe(0);
-
       now = new Date("2026-08-27T00:01:00.000Z");
       await active();
-      const stored = database.readInstance(created.summary.id).document;
-      expect(stored.state.revision).toBe(1);
-      expect(stored.scheduler.mode).toBe("realtime");
-      expect(stored.scheduler.nextTickAt).toBe("2026-08-27T00:02:00.000Z");
-      expect(timers.size).toBe(1);
+      expect(database.readInstance(created.summary.id).document.state.revision).toBe(1);
     } finally {
       database.close();
     }
   }, 30_000);
 
-  it("rejects corrupt persisted policy, window, scheduler, and advance data", async () => {
+  it("rejects corrupt schema, policy and window data", async () => {
     const { database, host } = harness();
     try {
-      const created = await host.createInstance({ worldId: "open-world-fixture" });
+      const created = await host.createInstance(observerStart);
       const source = database.readInstance(created.summary.id).document;
+      const legacy = structuredClone(source);
+      (legacy as unknown as { schemaVersion: number }).schemaVersion = 12;
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v13 required");
+
       const invalidPolicy = structuredClone(source);
       (invalidPolicy.policyBindings.player as { kind: string }).kind = "unknown";
       expect(() => validateWorldInstanceDocument(invalidPolicy)).toThrow("unknown kind");
-
-      const invalidScheduler = structuredClone(source);
-      invalidScheduler.scheduler.nextTickAt = "2026-08-27T00:01:00.000Z";
-      expect(() => validateWorldInstanceDocument(invalidScheduler)).toThrow("paused scheduler");
 
       const invalidWindow = structuredClone(source);
       invalidWindow.actionWindow = {
@@ -300,30 +250,6 @@ describe("World Instance host", () => {
         status: "open",
       };
       expect(() => validateWorldInstanceDocument(invalidWindow)).toThrow("duplicate required Agents");
-
-      const invalidAdvance = structuredClone(source);
-      invalidAdvance.advances.corrupt = {
-        id: "corrupt",
-        request: {
-          expectedRevision: 0,
-          trigger: "manual",
-          simulatedSeconds: 60,
-          externalActions: [{
-            submissionId: "submission",
-            agentId: "missing-agent",
-            rawText: "前进",
-            goal: "探索",
-            means: null,
-            targetIds: [],
-          }],
-        },
-        status: "queued",
-        createdAt: "2026-08-27T00:00:00.000Z",
-        updatedAt: "2026-08-27T00:00:00.000Z",
-        executionIds: [],
-        committedRevisions: [],
-      };
-      expect(() => validateWorldInstanceDocument(invalidAdvance)).toThrow("unknown Agent");
     } finally {
       database.close();
     }

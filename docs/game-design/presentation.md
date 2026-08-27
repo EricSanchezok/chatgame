@@ -1,61 +1,67 @@
-# World Instance API 与参与体验
+# World Instance API 与会话体验
 
-## 安全边界
+## 投影边界
 
-普通产品界面只使用 `src/shared/world-api.ts`。公开 DTO 包含 World Instance 摘要、公共事件、Participant 摘要、公开 Origin/角色预览以及当前 Principal 所控制角色的授权视角；不包含 canonical truth、canonical binding、其他 Agent belief、隐藏检定或完整模型审计。
+公共产品契约为 `src/shared/world-api.ts`（API v7）。Participant DTO 只包含本人控制角色的 Arrival、行动、Observation 与授权私有状态；对话由这些持久事实投影，不保存独立聊天记录。
 
-本地受信任 Inspector 使用独立的 `src/shared/world-inspector-api.ts` 和 Inspector 路由。Inspector 数据不能回流到公开事件、角色视角或行动上下文。
+Observer 契约为 `src/shared/world-observer-api.ts`。它每次只返回所选 Agent 的行动、Observation、character 与 belief，并移除 canonical binding；切换 Agent 不形成跨主体认知聚合。
 
-当前 Principal Resolver 从 `x-lwe-principal` 读取稳定身份，本地默认值为 `local`。产品入口限制一个 active Participant；持久状态、ActionWindow 和服务端投影以复数 Participant 建模。
+本地受信任 Inspector 使用 `src/shared/world-inspector-api.ts`。它可以读取 canonical truth、隐藏检定、全部认知和 Execution Ledger，因此默认不可见，数据不能进入 Participant 或 Observer 投影。
+
+当前 Principal Resolver 从 `x-lwe-principal` 读取稳定身份，本地默认值为 `local`。产品入口限制一个 active Participant；World Instance、PolicyBinding 和 ActionWindow 以复数 Participant 建模。
 
 ## HTTP 资源
 
 | 方法与路径 | 语义 |
 |---|---|
-| `GET /api/worlds` | 列出已安装的 schema v8 世界及 headless/open 参与能力 |
+| `GET /api/worlds` | 列出已安装的 schema v9 世界 |
 | `POST /api/worlds/import` | 导入或显式替换世界 ZIP |
 | `DELETE /api/worlds/:id` | 在没有关联实例时卸载世界 |
-| `GET /api/worlds/:id/assets/:hash` | 以不可变 content hash 读取已验证静态图片 |
-| `GET /api/instances` | 按更新时间列出 World Instance |
-| `POST /api/instances` | 以 `worldId`、可选标题和可选 uint32 seed 创建实例 |
-| `GET /api/instances/:id` | 读取 Principal 权限下的公开实例详情 |
-| `PATCH /api/instances/:id` | 重命名实例 |
-| `DELETE /api/instances/:id` | 删除实例 |
-| `POST /api/instances/:id/advance` | 按 expected revision 执行单步、批量或 realtime 触发 |
-| `PUT /api/instances/:id/realtime` | 启动或暂停严格串行实时调度 |
-| `POST /api/instances/:id/participants` | 从 Origin 创建角色或认领已有 Agent |
-| `POST /api/instances/:id/participants/:participantId/actions` | 幂等提交当前 ActionWindow 的外部行动 |
-| `POST /api/instances/:id/participants/:participantId/release` | 将角色交还 model 策略或置为 idle |
-| `GET /api/instances/:id/inspector` | 分页读取 committed 图谱、Agent 与 execution attempt |
-| `GET /api/instances/:id/inspector/steps/:revision` | 读取一个 revision 的提交证据 |
-| `GET /api/instances/:id/inspector/attempts/:executionId` | 读取成功、失败或回滚 execution 的事件 |
-| `GET /api/instances/:id/inspector/runtime-events/:eventId` | 读取一条 Ledger RuntimeEvent 的完整 payload |
-| `GET /api/instances/:id/inspector/events` | 订阅本地调试 SSE；断线不重新执行世界 |
+| `GET /api/worlds/:id/start-options` | 读取 Origin 与 Observer 准入选项 |
+| `GET /api/worlds/:id/assets/:hash` | 读取已验证的不可变静态图片 |
+| `GET /api/instances` | 列出 World Instance |
+| `POST /api/instances` | 以 Origin 或 Observer 原子创建实例 |
+| `GET/PATCH/DELETE /api/instances/:id` | 读取、重命名或删除实例 |
+| `POST /api/instances/:id/advance` | Observer 单步或批量推进 |
+| `PUT /api/instances/:id/realtime` | Observer 启停严格串行实时调度 |
+| `GET /api/instances/:id/observer` | 按 AgentId 读取单主体 Observer 投影 |
+| `GET/PUT /api/instances/:id/control` | 读取可接管 Agent 或原子转移控制权 |
+| `POST /api/instances/:id/participants/:participantId/actions` | 幂等提交自然语言行动并自动推进一次 |
+| `GET /api/instances/:id/events` | 订阅只含重新读取提示的实例更新 SSE |
+| `GET /api/instances/:id/inspector/**` | 读取本地受信任 Inspector 投影与 Ledger 证据 |
 
-所有改变世界或参与状态的请求使用 revision CAS。模型、持久化、验证或调度失败不得推进 revision；失败 execution 仍保存在 Execution Ledger。外部行动以 `submissionId` 幂等，同一 revision 的冲突提交返回冲突而不是覆盖。
+所有改变世界或控制状态的请求使用 revision CAS。行动以 `submissionId` 幂等；重复请求返回已投影结果，不重复推进。失败步骤保留安全失败消息、关闭 ActionWindow 且不推进 revision；内部错误只存在于 Ledger 和 Inspector。
 
-## 世界推进
+## 创建与控制
 
-单步只调用一次统一推进入口。批量推进重复该入口，遇到外部 ActionWindow 就停在可恢复边界。实时调度在上一步结束后才安排下一次触发；重启只从当前时间恢复，不补算离线 backlog。
+世界详情页的“开始新游戏”在当前 URL 打开两阶段准入对话框。第一阶段是可横向切换的身份牌组，全部 Origin 与 Observer 作为同级卡片；Origin 有图片资产时显示图片，缺失时由宿主显示默认身份卡面。选定 Origin 后，第二阶段才收集名字、外观和动机。取消不创建实例；确认后执行 bootstrap、Origin admission、Arrival 与实例持久化，再进入 `/play/:instanceId`。Arrival 失败使用 Origin 回退旁白。
 
-零 active Participant 时，所有 model/idle/replay 策略直接产生行动并推进。有 external 策略时，引擎为当前 revision 打开唯一 ActionWindow；收齐所有必需 Agent 的提交后推进，deadline 到期则为缺失者生成 typed noop。
+Observer 创建不生成 Participant。Observer 可以推进无人世界、选择任一 Agent 的视角，并接管任意存活且未被 external 策略占用的 Agent。接管持久化新的视角 Arrival；退出或切换角色在一个 CAS 中把原角色恢复为 model 策略。
 
-## 浏览器流程
+缺失 `participation.yaml` 的世界没有 Origin，但仍支持 Observer 与接管已有 Agent。
 
-`/worlds/:worldId` 创建或打开 World Instance；`/play/:instanceId` 是唯一世界体验页。页面由公共世界舞台、演化控制和 Participant 侧栏组成，不维护独立于服务端状态的会话事实。
+## Participant 会话
 
-旁观者可以查看公共事件，并执行单步、十步、实时或暂停。没有 `participation.yaml` 的世界只显示旁观能力。公共事件只包含所有主体均获授权的事件，不暴露某个 Agent 的私有 Observation。
+Participant 页面使用 44rem 单轴 assistant-ui 消息流。第一条 World 消息是持久 Arrival；玩家行动为右侧自适应气泡，World Observation 为无气泡正文。Arrival 的三条建议只填入 composer。
 
-“进入世界”展示可认领 Agent 和 Origin。认领前只展示公开名称、描述和位置；成功后才返回该角色的 character、belief 和 Observation。Origin 允许填写显示名称、外观描述和一个自由动机；出生点、资源、角色基础和 Agent ID 由剧本与内核确定。
+composer 只负责发送、失败重试和可选的高级 detach，不提供单步、批量或实时按钮。发送行动时，服务端自动创建 `participant_action` advance 和当前 revision 的 ActionWindow；收集完整后只执行一次统一推进入口。
 
-准入成功后，Arrival Generator 只读取新角色获授权的视角，输出标题、第一人称场景和三条可编辑建议。建议只填充行动输入，不自动提交；生成失败显示 Origin 的回退文本，已经成功的角色准入不会回滚。
+对话 projection 依次关联 Participant intent、advance 和 committed Observation。刷新、重复提交和服务重启不会新增消息或重复行动。
 
-真人控制时，Agent 保留位置、历史和私有认知，但不运行 AgentMind。释放时可以交给 AgentMind 继续生活或保持 idle；托管先消化控制期间遗漏的本角色 Observation，再恢复 model 策略。释放后的角色可以再次认领。
+## Observer 会话
+
+Observer 使用同一消息布局的只读形式。每条记录由所选 Agent 在某个 revision 的行动与收到的 Observation 构成；footer 提供 Agent 切换、单步、十步、实时、角色信息和接管。
+
+Observer 不能提交角色行动。接管成功后页面切换为 Participant 会话，并以新的持久 Arrival 开始当前控制阶段。
+
+## 控制球与 Inspector
+
+可拖动控制球提供主菜单、存档、设置和角色工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定和全部认知。
+
+工具使用注册槽位扩展；没有数据的工具不显示。弹层关闭后焦点返回触发控件，控制球位置在浏览器偏好中恢复。
 
 ## 界面约束
 
-界面只使用内置组件、Lucide 图标和 `--cg-*` 颜色 token，世界包不能注入 UI。所有流程支持键盘、可见焦点、触控目标、320 px 宽度、200% 缩放、RTL、减少动态效果和无图片回退。
+界面只使用内置组件、Lucide 图标和 `--cg-*` token；世界包不能注入 UI。体验支持键盘、可见焦点、触控目标、320 px、200% 缩放、RTL、reduced motion、forced colors 和无图片回退。长 ID、错误与 JSON 必须在自身容器内换行或滚动，不能扩大侧栏或对话框。
 
-长 execution ID、错误、canonical/runtime ID 和 JSON 必须在自身容器内换行或滚动，不能扩大 Participant 侧栏或 Inspector 对话框。模态框关闭后焦点返回触发控件；Arrival 建议和世界控制必须公开可理解的可访问名称。
-
-设计依据见 [0061](../decisions/0061-unified-agent-and-external-policy.md)、[0062](../decisions/0062-world-instance-participation-and-action-window.md) 与 [0063](../decisions/0063-eager-reference-execution.md)。
+设计依据见 [0061](../decisions/0061-unified-agent-and-external-policy.md)、[0063](../decisions/0063-eager-reference-execution.md)与 [0064](../decisions/0064-conversation-core-and-agent-perspective-observer.md)。

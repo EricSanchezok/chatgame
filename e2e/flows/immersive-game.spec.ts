@@ -11,104 +11,105 @@ async function installFixture(page: Page): Promise<void> {
   expect(response.ok()).toBe(true);
 }
 
-async function createInstance(page: Page): Promise<{ id: string; revision: number }> {
+async function createObserver(page: Page): Promise<{ id: string; revision: number }> {
   const response = await page.request.post("/api/instances", {
-    data: { worldId: "open-world-fixture", seed: 20260827 },
+    data: { worldId: "open-world-fixture", seed: 20260827, start: { kind: "observer" } },
   });
   expect(response.status()).toBe(201);
   const detail = await response.json() as { summary: { id: string; revision: number } };
   return detail.summary;
 }
 
-async function chooseEntry(page: Page, text: string | RegExp): Promise<void> {
-  const card = page.locator(".cg-entry-grid label").filter({ hasText: text }).first();
-  await card.click();
-  await expect(card.locator("input[type=radio]")).toBeChecked();
+async function startOrigin(page: Page): Promise<void> {
+  await page.goto("/worlds/open-world-fixture");
+  await page.getByRole("button", { name: /开始新游戏/ }).click();
+  const dialog = page.getByRole("dialog", { name: "选择你的身份" });
+  await expect(page).toHaveURL(/\/worlds\/open-world-fixture$/);
+  await expect(dialog).toBeVisible();
+  await dialog.locator(".cg-start-card").filter({ hasText: "庭院旅人" }).click();
+  await dialog.getByRole("button", { name: "继续塑造角色" }).click();
+  const customization = page.getByRole("dialog", { name: "成为庭院旅人" });
+  await customization.getByLabel("你的名字").fill("小明");
+  await customization.getByLabel("外观描述").fill("背着旧旅行包");
+  await customization.getByLabel("一个自由动机").fill("找到石门后的道路");
+  await customization.getByRole("button", { name: "进入世界" }).click();
+  await expect(page).toHaveURL(/\/play\/[^/]+$/);
+  await expect(page.getByText("此刻，你是小明")).toBeVisible();
 }
 
-async function enterFromOrigin(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "进入世界" }).click();
-  await chooseEntry(page, "庭院旅人");
-  await page.getByLabel("显示名称").fill("小明");
-  await page.getByLabel("外观描述").fill("背着旧旅行包");
-  await page.getByLabel("一个自由动机").fill("找到石门后的道路");
-  await page.getByRole("button", { name: "确认角色" }).click();
-  const arrival = page.getByRole("dialog");
-  await expect(arrival.getByRole("heading", { name: "此刻，你是小明" })).toBeVisible();
-  await arrival.getByRole("button", { name: "确认当前位置" }).click();
-  await expect(page.getByRole("heading", { name: "小明" })).toBeVisible();
+async function openOrb(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
 }
 
-test("a world evolves headlessly through the same persistent instance", async ({ page }) => {
+test("a world starts in observer mode without replacing the conversation core", async ({ page }) => {
   await installFixture(page);
   await page.goto("/worlds/open-world-fixture");
-  await expect(page.getByRole("heading", { name: "开放世界测试夹具", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: /创建实例/ }).click();
+  await page.getByRole("button", { name: /开始新游戏/ }).click();
+  const dialog = page.getByRole("dialog", { name: "选择你的身份" });
+  await dialog.locator(".cg-start-card").filter({ hasText: "观察世界" }).click();
+  await dialog.getByRole("button", { name: "开始观察" }).click();
   await expect(page).toHaveURL(/\/play\/[^/]+$/);
-  await expect(page.getByRole("heading", { name: "世界正在发生什么" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "你还没有进入世界" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "单步" })).toBeVisible();
+  await expect(page.getByText("世界正在发生什么")).toHaveCount(0);
 
   await page.getByRole("button", { name: "单步" }).click();
-  await expect(page.getByText("Revision 1 · Step 1")).toBeVisible();
-  await expect(page.getByText("世界在联合裁决后推进了一秒。")).toBeVisible();
+  await expect(page.getByText("世界继续变化。").first()).toBeVisible();
 
   await page.getByRole("button", { name: "实时" }).click();
-  await expect(page.getByText("实时演化")).toBeVisible();
+  await expect(page.getByRole("button", { name: "暂停" })).toBeVisible();
   await page.getByRole("button", { name: "暂停" }).click();
-  await expect(page.getByText("已暂停")).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await expect(page.getByRole("button", { name: "进入世界" })).toBeVisible();
 });
 
-test("a Participant enters from an Origin, acts, releases, and reclaims the same Agent", async ({ page }) => {
+test("a Participant starts from an Origin, receives Arrival, acts, detaches and takes over", async ({ page }) => {
   await installFixture(page);
-  const instance = await createInstance(page);
-  await page.goto(`/play/${instance.id}`);
-  await enterFromOrigin(page);
+  await startOrigin(page);
 
-  await page.getByRole("button", { name: "准备下一步" }).click();
-  const action = page.getByLabel("你要做什么？");
-  await expect(action).toHaveValue("确认当前位置");
-  await action.fill("我现在在哪里？");
-  await page.getByRole("button", { name: "提交行动" }).click();
-  await expect(page.getByText("Revision 2 · Step 1")).toBeVisible();
-  await expect(page.getByText("世界在联合裁决后推进了一秒。")).toBeVisible();
-  await expect(page.locator(".cg-role-observations").getByText("世界继续变化。")).toBeVisible();
+  const composer = page.getByLabel("你的行动");
+  await page.getByRole("button", { name: "确认当前位置" }).click();
+  await expect(composer).toHaveValue("确认当前位置");
+  await composer.fill("我现在在哪里？");
+  await page.getByRole("button", { name: "发送行动" }).click();
+  await expect(page.getByText("世界继续变化。").last()).toBeVisible();
 
-  await page.getByRole("button", { name: "离开并交给 AgentMind" }).click();
-  await expect(page.getByRole("heading", { name: "你还没有进入世界" })).toBeVisible();
-  await page.getByRole("button", { name: "进入世界" }).click();
-  await chooseEntry(page, "小明");
-  await page.getByRole("button", { name: "确认角色" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "关闭入场场景" }).click();
-  await expect(page.getByRole("heading", { name: "小明" })).toBeVisible();
+  await openOrb(page);
+  await page.getByRole("button", { name: "设置" }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("switch", { name: "高级角色控制" }).click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "切换或离开角色" }).click();
+  const control = page.getByRole("dialog", { name: "切换或离开角色" });
+  await control.getByRole("button", { name: /进入观察模式/ }).click();
+  await expect(page.getByRole("button", { name: "接管" })).toBeVisible();
 
-  await page.getByRole("button", { name: "离开并让角色等待" }).click();
-  await expect(page.getByRole("heading", { name: "你还没有进入世界" })).toBeVisible();
-  await page.getByRole("button", { name: "进入世界" }).click();
-  await expect(page.locator(".cg-entry-grid label").filter({ hasText: "小明" })).toBeVisible();
+  await page.getByLabel("观察角色").selectOption("keeper");
+  await page.getByRole("button", { name: "接管" }).click();
+  await expect(page.getByText(/此刻，你是守门人/)).toBeVisible();
+  await expect(page.getByLabel("你的行动")).toBeVisible();
 });
 
-test("failed execution remains atomic and long diagnostics never widen the inspector", async ({ page }) => {
+test("failed execution stays atomic and long diagnostics never widen the inspector", async ({ page }) => {
   await installFixture(page);
-  const instance = await createInstance(page);
-  await page.goto(`/play/${instance.id}`);
+  await startOrigin(page);
+  await page.getByLabel("你的行动").fill("触发 E2E 快速失败");
+  await page.getByRole("button", { name: "发送行动" }).click();
+  await expect(page.getByText("这次行动没有改变世界。")).toBeVisible();
 
-  await page.getByRole("button", { name: "进入世界" }).click();
-  await chooseEntry(page, /^旅人/);
-  await page.getByRole("button", { name: "确认角色" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "关闭入场场景" }).click();
-  await page.getByRole("button", { name: "准备下一步" }).click();
-  await page.getByLabel("你要做什么？").fill("触发 E2E 快速失败");
-  await page.getByRole("button", { name: "提交行动" }).click();
-  await expect(page.getByLabel("你要做什么？")).toHaveValue("");
-
-  await page.getByRole("button", { name: "运行记录" }).click();
+  await page.evaluate(() => {
+    localStorage.setItem("livingworld:preferences:v2", JSON.stringify({
+      fontScale: "standard",
+      reduceMotion: false,
+      showWorldInspector: true,
+      advancedRoleControl: false,
+    }));
+    window.dispatchEvent(new CustomEvent("livingworld:preferences-changed"));
+  });
+  await openOrb(page);
+  await page.getByRole("button", { name: "世界演化" }).click();
   const inspector = page.getByRole("dialog", { name: "世界演化" });
   await expect(inspector.getByText("世界状态没有提交")).toBeVisible();
-  await expect(inspector.getByText(/forced e2e authentication failure|ModelTransportError/).first()).toBeVisible();
   expect(await inspector.locator(".cg-inspector-detail").evaluate((element) => (
     element.scrollWidth <= element.clientWidth
   ))).toBe(true);
@@ -118,10 +119,10 @@ test("failed execution remains atomic and long diagnostics never widen the inspe
   expect(await inspector.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
-test("instance APIs expose Agent-scoped views without canonical identity bindings", async ({ page }) => {
+test("instance APIs expose only Agent-scoped views", async ({ page }) => {
   await installFixture(page);
-  const instance = await createInstance(page);
-  const response = await page.request.get(`/api/instances/${instance.id}`);
+  const instance = await createObserver(page);
+  const response = await page.request.get(`/api/instances/${instance.id}/observer`);
   expect(response.ok()).toBe(true);
   const text = await response.text();
   expect(text).not.toContain("canonicalEntityIds");

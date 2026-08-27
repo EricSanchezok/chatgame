@@ -93,6 +93,27 @@ export function SettingsPanel() {
             </button>
           </div>
         </div>
+        <div className="cg-setting-row">
+          <span>
+            <strong>高级角色控制</strong>
+            <small>显示离开当前角色、切换视角和接管其他 Agent 的入口。</small>
+          </span>
+          <div className="cg-setting-row__control">
+            <button
+              aria-checked={preferences.advancedRoleControl}
+              aria-label="高级角色控制"
+              className="cg-switch"
+              onClick={() => writePreferences({
+                ...preferences,
+                advancedRoleControl: !preferences.advancedRoleControl,
+              })}
+              role="switch"
+              type="button"
+            >
+              <span aria-hidden="true" />
+            </button>
+          </div>
+        </div>
       </section>
     </div>
   );

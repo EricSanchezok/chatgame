@@ -6,13 +6,13 @@ Living World Engine 维护一个 canonical world 和多个具有私有认知的 
 
 | 层 | 目录 | 职责 |
 |---|---|---|
-| 世界契约 | `src/script/` | 读取 schema v8 世界包，校验资源并构造 `WorldDefinition` 与 `SimulationState` v9 |
+| 世界契约 | `src/script/` | 读取 schema v9 世界包，校验资源并构造 `WorldDefinition` 与 `SimulationState` v9 |
 | 执行算法 | `src/engine/eager-reference.ts` | 全量策略激活、逐行动 grounding、冲突分量裁决、观察分批与 AgentMind 更新 |
 | 固定内核 | `src/engine/canonical-committer.ts` | 验证候选、认知隔离、因果、守恒、完整覆盖与原子状态构造 |
 | 模型网关 | `src/engine/model-*` | Profile、供应商适配、严格结构化输出、公平调度与调用审计 |
-| 实例宿主 | `src/server/world-host.ts` | `WorldInstanceDocument` v12、Participant、ActionWindow、调度与 generation fencing |
+| 实例宿主 | `src/server/world-host.ts` | `WorldInstanceDocument` v13、Participant、ActionWindow、会话投影、调度与 generation fencing |
 | 执行证据 | `src/server/execution-ledger.ts` | execution、事件、artifact、实验、重放与 Inspector 的唯一持久事实源 |
-| HTTP 与浏览器 | `src/app/` | API v6、世界库、无人演化控制、Participant 准入、角色视角和只读 Inspector |
+| HTTP 与浏览器 | `src/app/` | API v7、世界库、assistant-ui 会话、Agent 视角 Observer、控制球和只读 Inspector |
 | 公共契约 | `src/shared/` | 浏览器安全 DTO 与本地受信任 Inspector DTO |
 
 依赖方向为：浏览器 → Route Handler → WorldHost → SimulationEngine → WorldExecutionAlgorithm → CanonicalCommitter。算法只能返回候选，不能持有 canonical state 的写能力。引擎与世界 YAML 只在服务端加载。
@@ -47,7 +47,9 @@ Living World Engine 维护一个 canonical world 和多个具有私有认知的 
 
 Scheduler 保证同一实例严格串行。realtime 的下一触发点只在前一步结束后计算；暂停或重新启用会增加 generation，使陈旧 timer 失效。进程恢复从当前时间安排下一步，不补算离线 backlog。batch 遇到外部行动窗口时停在可恢复边界。
 
-可选 `participation.yaml` 声明可认领 Agent、Origin 与静态图片。Origin 定义固定出身、出生点、资源、关系钩子、风险、托管 Profile 与回退入场文本；真人只填写显示名称、外观和自由动机。准入在 revision 边界形成独立 canonical admission commit。Arrival Generator 只读该 Agent 获授权的私有视角，只返回入场叙事与三条可编辑建议，不产生 world operation。
+可选 `participation.yaml` 声明 Origin 与静态图片。Origin 定义固定出身、出生点、资源、关系钩子、风险、托管 Profile 与回退入场文本；真人只填写显示名称、外观和自由动机。普通新游戏通过 Origin 创建新 Agent；Observer 可在 revision 边界接管任意存活且空闲的 Agent。Arrival Generator 只读该 Agent 获授权的私有视角，只返回入场叙事与三条可编辑建议，不产生 world operation。
+
+Participant 会话由持久 Arrival、Participant intent、advance 与 committed Observation 投影，不保存第二份消息事实。Observer 从所选 Agent 的行动、Observation、character 与 belief 生成只读消息流；WorldInspector 使用独立的本地受信任投影。
 
 ## 世界身份与持久化
 
@@ -67,4 +69,4 @@ Scheduler 保证同一实例严格串行。realtime 的下一触发点只在前�
 - external Agent 不执行 AgentMind；model Agent 和本步创建的 Agent 恰好提交一次 mind commit。
 - 普通 API 不返回 canonical truth、bindings、其他 Agent 认知、模型配置或内部错误材料。
 
-世界包、运行时、表现层与 Ledger 的细节分别见[剧本格式](game-design/script-format.md)、[引擎运行时](game-design/engine-runtime.md)、[表现层](game-design/presentation.md)和[执行证据](game-design/runtime-observability.md)。架构选择见 [0061](decisions/0061-unified-agent-and-external-policy.md)、[0062](decisions/0062-world-instance-participation-and-action-window.md)与 [0063](decisions/0063-eager-reference-execution.md)。
+世界包、运行时、表现层与 Ledger 的细节分别见[剧本格式](game-design/script-format.md)、[引擎运行时](game-design/engine-runtime.md)、[表现层](game-design/presentation.md)和[执行证据](game-design/runtime-observability.md)。架构选择见 [0061](decisions/0061-unified-agent-and-external-policy.md)、[0063](decisions/0063-eager-reference-execution.md)与 [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md)。

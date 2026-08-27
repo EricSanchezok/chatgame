@@ -1,7 +1,7 @@
 # World Instance、Participant 与 ActionWindow
 
 ## Status
-Accepted
+Superseded by [0064](0064-conversation-core-and-agent-perspective-observer.md)
 Class: architecture
 
 ## Context and Problem Statement

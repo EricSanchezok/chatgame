@@ -8,8 +8,10 @@ import { MemoryWorldRepository } from "../../../script/world-repository";
 import { LocalDatabase } from "../../../server/local-database";
 import { WorldHost } from "../../../server/world-host";
 import { POST as advanceInstance } from "../instances/[id]/advance/route";
+import { GET as getInstanceEvents } from "../instances/[id]/events/route";
+import { POST as submitAction } from "../instances/[id]/participants/[participantId]/actions/route";
 import { GET as getInstance } from "../instances/[id]/route";
-import { POST as createParticipant } from "../instances/[id]/participants/route";
+import { GET as getObserver } from "../instances/[id]/observer/route";
 import { POST as createInstance } from "../instances/route";
 
 let root: string;
@@ -46,49 +48,86 @@ function jsonRequest(url: string, value: unknown): Request {
 }
 
 describe("World Instance Route Handlers", () => {
-  it("uses the production headless and Participant entry path without exposing canonical bindings", async () => {
-    const createdResponse = await createInstance(jsonRequest("http://local/api/instances", {
+  it("uses the production observer and transactional Origin paths", async () => {
+    const headlessResponse = await createInstance(jsonRequest("http://local/api/instances", {
       worldId: "open-world-fixture",
       seed: 71,
+      start: { kind: "observer" },
     }));
-    expect(createdResponse.status).toBe(201);
-    const created = await createdResponse.json();
+    expect(headlessResponse.status).toBe(201);
+    const headless = await headlessResponse.json();
 
     const advancedResponse = await advanceInstance(jsonRequest(
-      `http://local/api/instances/${created.summary.id}/advance`,
+      `http://local/api/instances/${headless.summary.id}/advance`,
       { expectedRevision: 0, trigger: "manual" },
-    ), { params: Promise.resolve({ id: created.summary.id }) });
+    ), { params: Promise.resolve({ id: headless.summary.id }) });
     expect(advancedResponse.status).toBe(200);
-    const advanced = await advancedResponse.json();
-    expect(advanced.summary).toMatchObject({ revision: 1, step: 1, participantCount: 0 });
+    expect(await advancedResponse.json()).toMatchObject({
+      summary: { revision: 1, step: 1, participantCount: 0 },
+    });
 
-    const joinedResponse = await createParticipant(jsonRequest(
-      `http://local/api/instances/${created.summary.id}/participants`,
-      {
-        expectedRevision: 1,
+    const observerResponse = await getObserver(
+      new Request(`http://local/api/instances/${headless.summary.id}/observer`),
+      { params: Promise.resolve({ id: headless.summary.id }) },
+    );
+    expect(observerResponse.status).toBe(200);
+    const observer = await observerResponse.json();
+    expect(observer.agents).toHaveLength(2);
+    expect(JSON.stringify(observer)).not.toContain("canonicalEntityIds");
+
+    const originResponse = await createInstance(jsonRequest("http://local/api/instances", {
+      worldId: "open-world-fixture",
+      start: {
+        kind: "origin",
         originId: "courtyard-wanderer",
         displayName: "小明",
         appearance: "背着旧旅行包。",
         motivation: "找到石门后的道路。",
       },
-    ), { params: Promise.resolve({ id: created.summary.id }) });
-    expect(joinedResponse.status).toBe(201);
-    const joined = await joinedResponse.json();
-    expect(joined.arrival.suggestions).toHaveLength(3);
-    expect(joined.instance.controlledView.entity).toMatchObject({ name: "小明", location: "石门前庭" });
-    expect(JSON.stringify(joined)).not.toContain("canonicalEntityIds");
+    }));
+    expect(originResponse.status).toBe(201);
+    const origin = await originResponse.json();
+    expect(origin.controlledView.entity).toMatchObject({ name: "小明", location: "石门前庭" });
+    expect(origin.conversation.turns[0].response.suggestions).toHaveLength(3);
+    expect(JSON.stringify(origin)).not.toContain("canonicalEntityIds");
+
+    const participant = origin.participants[0];
+    const actionResponse = await submitAction(jsonRequest(
+      `http://local/api/instances/${origin.summary.id}/participants/${participant.id}/actions`,
+      {
+        submissionId: "route-action",
+        expectedRevision: origin.summary.revision,
+        text: "我观察周围。",
+      },
+    ), { params: Promise.resolve({ id: origin.summary.id, participantId: participant.id }) });
+    expect(actionResponse.status).toBe(200);
+    const acted = await actionResponse.json();
+    expect(acted.summary.revision).toBe(origin.summary.revision + 1);
+    expect(acted.conversation.turns).toHaveLength(2);
 
     const readResponse = await getInstance(
-      new Request(`http://local/api/instances/${created.summary.id}`),
-      { params: Promise.resolve({ id: created.summary.id }) },
+      new Request(`http://local/api/instances/${origin.summary.id}`),
+      { params: Promise.resolve({ id: origin.summary.id }) },
     );
     expect(readResponse.status).toBe(200);
-    expect(await readResponse.json()).toMatchObject({ summary: { revision: 2, participantCount: 1 } });
+    expect(await readResponse.json()).toMatchObject({
+      summary: { revision: origin.summary.revision + 1, participantCount: 1 },
+    });
   }, 30_000);
 
   it("rejects malformed requests before they reach the host", async () => {
-    const response = await createInstance(jsonRequest("http://local/api/instances", { worldId: "" }));
+    const response = await createInstance(jsonRequest("http://local/api/instances", {
+      worldId: "",
+      start: { kind: "observer" },
+    }));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "worldId is required" });
+
+    const missingEvents = await getInstanceEvents(
+      new Request("http://local/api/instances/missing/events"),
+      { params: Promise.resolve({ id: "missing" }) },
+    );
+    expect(missingEvents.status).toBe(404);
+    expect(await missingEvents.json()).toEqual({ error: "world instance not found: missing" });
   });
 });

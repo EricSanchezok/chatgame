@@ -1,4 +1,4 @@
-# 世界剧本格式 v8
+# 世界剧本格式 v9
 
 世界包定义初始世界、法则、机制和可选的参与方式。它不定义玩家动作，不携带可执行代码，也不能提供自定义客户端 UI。
 
@@ -23,7 +23,7 @@ world-id/
 ## `script.yaml`
 
 ```yaml
-schema_version: 8
+schema_version: 9
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
@@ -156,10 +156,9 @@ Character 的 persona summary 必填，其他 facets 可为空。Belief 的 loca
 
 ## `participation.yaml`
 
-缺失该文件时，世界为 headless-only：可以旁观、单步、批量和实时演化，但不能创建 Participant。
+缺失该文件时，世界没有 Origin：可以以 Observer 身份单步、批量和实时演化，也可以接管已有 Agent，但不能通过普通新游戏创建角色。
 
 ```yaml
-claimable_agents: [gatekeeper]
 origins:
   - id: courtyard-wanderer
     title: 庭院旅人
@@ -178,7 +177,7 @@ origins:
     fallback_arrival: 你站在石门庭院里，周围的世界仍在自行运转。
 ```
 
-`claimable_agents` 只能引用初始 Agent。Origin 定义身份幻想、出生位置、初始 persona、默认 goal、关系钩子、风险、资源、可选 Agent Profile、可选静态图片和入场生成失败时的回退文本。Participant 只能提供显示名称、外观描述和自由动机；引擎确定性创建 Entity、Agent、goal、资源和语义 ID，不让 LLM 修改出生点或数值。
+Origin 定义身份幻想、出生位置、初始 persona、默认 goal、关系钩子、风险、资源、可选 Agent Profile、可选静态图片和入场生成失败时的回退文本。Participant 只能提供显示名称、外观描述和自由动机；引擎确定性创建 Entity、Agent、goal、资源和语义 ID，不让 LLM 修改出生点或数值。Observer 接管初始或运行时创建的存活 Agent 不依赖 Origin。
 
 ## 静态资源
 
@@ -190,4 +189,4 @@ origins:
 
 loader 验证 Entity、placement 无环、Fact、Agent self binding、character/belief 局部引用、Meter/Quantity/Rating、random distribution、Profile、Origin spawn/resource/image、数量和所有 ID 唯一性。初始 Agent 的 `nextAction` 由引擎设为 null；初始 lifecycle、Fact provenance、character 时间戳和运行时身份由引擎注入。
 
-loader 只接受 `schema_version: 8`。旧世界包直接拒绝，不提供迁移或兼容层。
+loader 只接受 `schema_version: 9`。旧世界包直接拒绝，不提供迁移或兼容层。

@@ -1,13 +1,15 @@
 import type {
   AdvanceWorldInput,
-  ArrivalView,
-  CreateParticipantInput,
+  ControlTransferInput,
+  ControlOptions,
+  CreateInstanceInput,
   PublicInstanceDetail,
   PublicInstanceSummary,
-  ReleaseParticipantInput,
   SubmitExternalActionInput,
+  WorldStartOptions,
   WorldSummary,
 } from "../../shared/world-api";
+import type { WorldObserverDetail } from "../../shared/world-observer-api";
 import { requestJson } from "./api-client";
 
 export { WorldApiError } from "./api-client";
@@ -19,9 +21,15 @@ function body(method: "POST" | "PUT" | "PATCH", value: unknown): RequestInit {
 export const worldApi = {
   worlds: () => requestJson<{ worlds: WorldSummary[] }>("/api/worlds"),
   instances: () => requestJson<{ instances: PublicInstanceSummary[] }>("/api/instances"),
-  createInstance: (worldId: string, seed?: number) =>
-    requestJson<PublicInstanceDetail>("/api/instances", body("POST", { worldId, seed })),
+  worldStartOptions: (worldId: string) =>
+    requestJson<WorldStartOptions>(`/api/worlds/${encodeURIComponent(worldId)}/start-options`),
+  createInstance: (input: CreateInstanceInput) =>
+    requestJson<PublicInstanceDetail>("/api/instances", body("POST", input)),
   instance: (id: string) => requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}`),
+  observer: (id: string, agentId?: string) => requestJson<WorldObserverDetail>(
+    `/api/instances/${encodeURIComponent(id)}/observer${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ""}`,
+  ),
+  instanceEventsUrl: (id: string) => `/api/instances/${encodeURIComponent(id)}/events`,
   renameInstance: (id: string, title: string) =>
     requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}`, body("PATCH", { title })),
   deleteInstance: (id: string) =>
@@ -30,19 +38,13 @@ export const worldApi = {
     requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/advance`, body("POST", input)),
   realtime: (id: string, enabled: boolean) =>
     requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/realtime`, body("PUT", { enabled })),
-  createParticipant: (id: string, input: CreateParticipantInput) =>
-    requestJson<{ instance: PublicInstanceDetail; participantId: string; arrival: ArrivalView }>(
-      `/api/instances/${encodeURIComponent(id)}/participants`,
-      body("POST", input),
-    ),
+  transferControl: (id: string, input: ControlTransferInput) =>
+    requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/control`, body("PUT", input)),
+  controlOptions: (id: string) =>
+    requestJson<ControlOptions>(`/api/instances/${encodeURIComponent(id)}/control`),
   submitAction: (id: string, participantId: string, input: SubmitExternalActionInput) =>
     requestJson<PublicInstanceDetail>(
       `/api/instances/${encodeURIComponent(id)}/participants/${encodeURIComponent(participantId)}/actions`,
-      body("POST", input),
-    ),
-  releaseParticipant: (id: string, participantId: string, input: ReleaseParticipantInput) =>
-    requestJson<PublicInstanceDetail>(
-      `/api/instances/${encodeURIComponent(id)}/participants/${encodeURIComponent(participantId)}/release`,
       body("POST", input),
     ),
   importWorld: (file: File, options: { replace?: boolean; expectedWorldId?: string } = {}) => {

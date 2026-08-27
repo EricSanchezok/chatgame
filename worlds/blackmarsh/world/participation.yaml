@@ -1,5 +1,3 @@
-claimable_agents:
-  - player
 origins:
   - id: harbor-wayfarer
     title: 风暴前的外来旅人

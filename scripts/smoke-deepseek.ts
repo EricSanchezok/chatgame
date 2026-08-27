@@ -63,36 +63,45 @@ async function main(): Promise<void> {
   });
 
   try {
-    let instance = await host.createInstance({ worldId: definition.id, seed: 20260827, title: "DeepSeek 烟测" });
-    instance = await host.advance(instance.summary.id, {
-      expectedRevision: instance.summary.revision,
+    let headless = await host.createInstance({
+      worldId: definition.id,
+      seed: 20260827,
+      title: "DeepSeek 无人烟测",
+      start: { kind: "observer" },
+    });
+    headless = await host.advance(headless.summary.id, {
+      expectedRevision: headless.summary.revision,
       trigger: "manual",
       steps: 1,
     });
-    if (instance.summary.revision < 1) {
-      throw new Error(`headless step did not commit: ${failedAdvanceDiagnostic(database, instance.summary.id)}`);
+    if (headless.summary.revision < 1) {
+      throw new Error(`headless step did not commit: ${failedAdvanceDiagnostic(database, headless.summary.id)}`);
     }
-    const headlessRevision = instance.summary.revision;
+    const headlessRevision = headless.summary.revision;
 
-    const joined = await host.createParticipant(instance.summary.id, {
-      expectedRevision: instance.summary.revision,
-      originId: "harbor-wayfarer",
-      displayName: "远行者",
-      appearance: "披着被海风打湿的深色斗篷。",
-      motivation: "弄清自己身在何处，并寻找今晚可以落脚的地方。",
+    let instance = await host.createInstance({
+      worldId: definition.id,
+      seed: 20260827,
+      title: "DeepSeek 角色烟测",
+      start: {
+        kind: "origin",
+        originId: "harbor-wayfarer",
+        displayName: "远行者",
+        appearance: "披着被海风打湿的深色斗篷。",
+        motivation: "弄清自己身在何处，并寻找今晚可以落脚的地方。",
+      },
     });
-    instance = await host.advance(instance.summary.id, {
-      expectedRevision: joined.instance.summary.revision,
-      trigger: "manual",
-      steps: 1,
-    });
-    if (!instance.actionWindow) throw new Error("participant step did not open an ActionWindow");
-    instance = await host.submitAction(instance.summary.id, joined.participantId, {
+    const participant = instance.participants[0];
+    if (!participant || !instance.conversation?.turns[0]?.response) {
+      throw new Error("Origin admission did not persist the Arrival conversation");
+    }
+    const beforeAction = instance.summary.revision;
+    instance = await host.submitAction(instance.summary.id, participant.id, {
       submissionId: randomUUID(),
       expectedRevision: instance.summary.revision,
       text: "我现在在哪里？我先观察周围的地标、人群和天气。",
     });
-    if (instance.summary.revision <= joined.instance.summary.revision) {
+    if (instance.summary.revision <= beforeAction) {
       throw new Error(
         `participant action did not commit: ${failedAdvanceDiagnostic(database, instance.summary.id)}`,
       );
