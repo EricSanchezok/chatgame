@@ -516,6 +516,63 @@ export function validateTemporalPlan(
   if (plan.stages.length > 0 && plan.completionAtSeconds !== priorEnd) {
     throw new Error(`temporal plan ${plan.id} stages do not reach completion`);
   }
+  if (plan.basis.kind === "mechanic") {
+    const mechanicBasis = plan.basis;
+    if (!mechanicBasis.invocationId.trim() ||
+      !plan.causes.some((cause) => cause.kind === "mechanic" && cause.id === mechanicBasis.invocationId)) {
+      throw new Error(`temporal plan ${plan.id} has an untrusted mechanic basis`);
+    }
+    if (mechanicBasis.durationSeconds !== null) {
+      assertPositiveInteger(mechanicBasis.durationSeconds, `temporal plan ${plan.id} mechanic duration`);
+    }
+    assertPositiveInteger(mechanicBasis.checkpointSeconds, `temporal plan ${plan.id} mechanic checkpoint`);
+    if (mechanicBasis.progress) {
+      if (!mechanicBasis.progress.unit.trim()) throw new Error(`temporal plan ${plan.id} has an invalid mechanic unit`);
+      assertPositiveFinite(mechanicBasis.progress.target, `temporal plan ${plan.id} mechanic progress target`);
+    }
+    const mechanicCompletion = mechanicBasis.durationSeconds === null
+      ? null
+      : plan.startsAtSeconds + mechanicBasis.durationSeconds;
+    if (plan.completionAtSeconds !== mechanicCompletion || plan.checkpointSeconds !== mechanicBasis.checkpointSeconds ||
+      !sameCanonicalValue(plan.progress, mechanicBasis.progress) || plan.stages.length > 0 ||
+      plan.conditionAssertions.length > 0) {
+      throw new Error(`temporal plan ${plan.id} does not match its mechanic result`);
+    }
+  } else {
+    if (plan.basis.kind === "explicit_duration" &&
+      (profile.kind !== "fixed" || !profile.allowExplicitDuration)) {
+      throw new Error(`temporal plan ${plan.id} uses an unauthorized explicit duration`);
+    }
+    if (plan.basis.kind === "explicit_quantity" && profile.kind !== "rate") {
+      throw new Error(`temporal plan ${plan.id} uses quantity with a non-rate profile`);
+    }
+    if (plan.basis.kind === "profile" && profile.kind === "rate") {
+      throw new Error(`temporal plan ${plan.id} omits the required explicit quantity`);
+    }
+    const schedule = derivedSchedule(profile, plan.startsAtSeconds, plan.basis);
+    if (plan.completionAtSeconds !== schedule.completionAtSeconds ||
+      plan.checkpointSeconds !== schedule.checkpointSeconds ||
+      !sameCanonicalValue(plan.progress, schedule.progress) ||
+      !sameCanonicalValue(plan.stages, schedule.stages)) {
+      throw new Error(`temporal plan ${plan.id} does not match its trusted profile schedule`);
+    }
+  }
+  if (plan.interruptible !== profile.interruptible ||
+    !sameCanonicalValue(plan.resourceClaims, profile.resourceClaims)) {
+    throw new Error(`temporal plan ${plan.id} changes authored profile authority`);
+  }
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, canonicalValue(entry)]));
+}
+
+function sameCanonicalValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalValue(left)) === JSON.stringify(canonicalValue(right));
 }
 
 export function validateActivityState(
@@ -531,6 +588,40 @@ export function validateActivityState(
     throw new Error(`invalid activity ${activity.id}`);
   }
   validateTemporalPlan(activity.plan, profiles, resources);
+  if (activity.plan.basis.kind !== "mechanic") {
+    const basis: TemporalPlanDraft["basis"] = activity.plan.basis.kind === "profile"
+      ? { kind: "profile" }
+      : activity.plan.basis.kind === "explicit_duration"
+        ? {
+            kind: "explicit_duration",
+            seconds: activity.plan.basis.seconds,
+            sourceText: activity.plan.basis.sourceText,
+          }
+        : {
+            kind: "explicit_quantity",
+            amount: activity.plan.basis.amount,
+            unit: activity.plan.basis.unit,
+            sourceText: activity.plan.basis.sourceText,
+          };
+    const grounded = materializeTemporalPlan({
+      id: activity.plan.id,
+      actionId: activity.plan.actionId,
+      actorId: activity.plan.actorId,
+      rawText: activity.sourceAction.rawText,
+      startsAtSeconds: activity.plan.startsAtSeconds,
+      draft: {
+        profileId: activity.plan.profileId,
+        basis,
+        description: activity.plan.description,
+        conditionAssertions: activity.plan.conditionAssertions,
+        causes: activity.plan.causes,
+      },
+      profiles,
+    });
+    if (!sameCanonicalValue(grounded, activity.plan)) {
+      throw new Error(`activity ${activity.id} temporal authority is not grounded in its source action`);
+    }
+  }
   if (!Number.isSafeInteger(activity.startedAtSeconds) || activity.startedAtSeconds !== activity.plan.startsAtSeconds ||
     !Number.isSafeInteger(activity.updatedAtSeconds) || activity.updatedAtSeconds < activity.startedAtSeconds ||
     activity.updatedAtSeconds > elapsedSeconds ||

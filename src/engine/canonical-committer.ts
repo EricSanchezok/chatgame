@@ -25,6 +25,13 @@ import {
   pendingObservationsFor,
   validateObservations,
 } from "./observation";
+import {
+  cancelActivity,
+  createActivity,
+  selectTemporalBoundary,
+  validateActivityResources,
+  validateTemporalPlan,
+} from "./temporal";
 import { applyAdmissionCommit, applyTransitionProposal, validateSimulationState } from "./transaction";
 
 export function semanticStepHash(step: Readonly<CommittedStep>): string {
@@ -72,6 +79,7 @@ function validateCandidateBoundary(
   actions: readonly AgentActionProposal[],
   candidate: WorldStepCandidate,
   transitioned: SimulationState,
+  maxAutonomousSpanSeconds: number,
 ): void {
   if (candidate.sourceStateHash !== contentHash(source)) throw new Error("execution candidate uses another source state");
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
@@ -93,6 +101,64 @@ function validateCandidateBoundary(
   if (contentHash(candidate.temporalState.activities) !== contentHash(transitioned.truth.activities) ||
     contentHash(candidate.temporalState.timers) !== contentHash(transitioned.truth.timers)) {
     throw new Error("candidate temporal state was not applied atomically");
+  }
+  const planIds = candidate.temporalPlans.map((plan) => plan.id);
+  if (new Set(planIds).size !== planIds.length) throw new Error("candidate contains duplicate temporal plans");
+  const planningActivities = structuredClone(source.truth.activities);
+  for (const transition of candidate.activityTransitions) {
+    if (transition.fromElapsedSeconds !== source.truth.elapsedSeconds ||
+      transition.toElapsedSeconds !== source.truth.elapsedSeconds) continue;
+    if (transition.kind !== "cancelled") {
+      throw new Error(`candidate has unsupported zero-time activity transition ${transition.kind}`);
+    }
+    const existing = planningActivities[transition.activityId];
+    if (!existing || existing.actorId !== transition.actorId) {
+      throw new Error(`candidate cancels unknown activity ${transition.activityId}`);
+    }
+    const cancelled = cancelActivity(existing, source.truth.elapsedSeconds);
+    if (contentHash(cancelled.transition) !== contentHash(transition)) {
+      throw new Error(`candidate cancellation does not match activity ${transition.activityId}`);
+    }
+    planningActivities[transition.activityId] = cancelled.activity;
+  }
+  for (const plan of candidate.temporalPlans) {
+    validateTemporalPlan(
+      plan,
+      source.truth.mechanics.temporalProfiles,
+      source.truth.mechanics.activityResources,
+    );
+    if (plan.startsAtSeconds !== source.truth.elapsedSeconds) {
+      throw new Error(`candidate temporal plan ${plan.id} does not start at the current clock`);
+    }
+    const persisted = Object.values(candidate.temporalState.activities)
+      .filter((activity) => activity.plan.id === plan.id);
+    if (persisted.length !== 1 || contentHash(persisted[0]!.plan) !== contentHash(plan)) {
+      throw new Error(`candidate temporal plan ${plan.id} has no unique matching activity`);
+    }
+    const finalActivity = persisted[0]!;
+    if (planningActivities[finalActivity.id]) {
+      throw new Error(`candidate temporal plan reuses activity ${finalActivity.id}`);
+    }
+    planningActivities[finalActivity.id] = createActivity({
+      id: finalActivity.id,
+      plan,
+      sourceAction: finalActivity.sourceAction,
+      participantAgentIds: finalActivity.participantAgentIds,
+    });
+  }
+  validateActivityResources(planningActivities, source.truth.mechanics.activityResources);
+  const conditionExpiries = Object.fromEntries(Object.values(source.truth.conditions)
+    .filter((condition) => condition.expiresAtElapsedSeconds !== null)
+    .map((condition) => [condition.id, condition.expiresAtElapsedSeconds!]));
+  const expectedBoundary = selectTemporalBoundary({
+    elapsedSeconds: source.truth.elapsedSeconds,
+    maxAutonomousSpanSeconds,
+    activities: planningActivities,
+    timers: source.truth.timers,
+    conditionExpiries,
+  });
+  if (contentHash(expectedBoundary) !== contentHash(candidate.temporalBoundary)) {
+    throw new Error("candidate did not select the earliest trusted temporal boundary");
   }
 }
 
@@ -168,6 +234,7 @@ export class CanonicalCommitter {
     sourceState: Readonly<SimulationState>,
     candidateInput: Readonly<WorldStepCandidate>,
     policyRoster: Readonly<Record<string, PolicyBinding>>,
+    maxAutonomousSpanSeconds: number,
   ): {
     committed: CommittedStep;
     state: SimulationState;
@@ -178,7 +245,13 @@ export class CanonicalCommitter {
       .sort((left, right) => left.agentId.localeCompare(right.agentId));
     const resolution = candidate.resolution;
     const transitioned = applyTransitionProposal(source, resolution.proposal, candidate.temporalState);
-    validateCandidateBoundary(source, resolution.actions, candidate, transitioned);
+    validateCandidateBoundary(
+      source,
+      resolution.actions,
+      candidate,
+      transitioned,
+      maxAutonomousSpanSeconds,
+    );
     transitioned.truth.rng = structuredClone(resolution.rng);
     for (const agentId of Object.keys(transitioned.agents)) {
       transitioned.agents[agentId] = applyObservationBindings(

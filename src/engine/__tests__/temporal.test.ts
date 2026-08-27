@@ -6,11 +6,14 @@ import {
   cancelActivity,
   explicitDurationSeconds,
   materializeTemporalPlan,
+  materializeTrustedTemporalPlan,
   pauseActivity,
   resumeActivity,
   reconcileTemporalOutcomes,
   selectTemporalBoundary,
+  validateActivityState,
   validateActivityResources,
+  validateTemporalPlan,
   validateTemporalProfile,
   type ActivityResourceDefinition,
   type TemporalPlanDraft,
@@ -105,6 +108,80 @@ describe("event-boundary temporal kernel", () => {
       }),
       profiles: { "explicit-rest": explicit },
     })).toThrow("not grounded");
+  });
+
+  it("re-derives persisted schedules and source grounding at the canonical boundary", () => {
+    const explicit = fixedProfile({
+      id: "explicit-rest",
+      name: "明确休息",
+      durationSeconds: 60,
+      checkpointSeconds: 3_600,
+      allowExplicitDuration: true,
+    });
+    const plan = materializeTemporalPlan({
+      id: "plan-rest",
+      actionId: "action-a",
+      actorId: "agent-a",
+      rawText: "我要睡一天觉",
+      startsAtSeconds: 100,
+      draft: draft("explicit-rest", {
+        kind: "explicit_duration",
+        seconds: 86_400,
+        sourceText: "一天",
+      }),
+      profiles: { "explicit-rest": explicit },
+    });
+    const action = { ...sourceAction(plan), rawText: "我要睡一天觉" };
+    const activity = createActivity({ id: "activity-rest", plan, sourceAction: action });
+    expect(() => validateActivityState(
+      activity,
+      100,
+      { "explicit-rest": explicit },
+      resources,
+    )).not.toThrow();
+
+    const forgedSchedule = structuredClone(plan);
+    forgedSchedule.completionAtSeconds = 101;
+    expect(() => validateTemporalPlan(
+      forgedSchedule,
+      { "explicit-rest": explicit },
+      resources,
+    )).toThrow("trusted profile schedule");
+
+    const forgedSource = structuredClone(activity);
+    forgedSource.sourceAction.rawText = "我要休息";
+    expect(() => validateActivityState(
+      forgedSource,
+      100,
+      { "explicit-rest": explicit },
+      resources,
+    )).toThrow("not grounded");
+  });
+
+  it("accepts only self-consistent Rule Package temporal results with mechanic provenance", () => {
+    const profile = fixedProfile({ durationSeconds: 10, checkpointSeconds: 5 });
+    const plan = materializeTrustedTemporalPlan({
+      id: "plan-mechanic",
+      actionId: "action-a",
+      actorId: "agent-a",
+      startsAtSeconds: 20,
+      profile,
+      invocationId: "invoke-a",
+      durationSeconds: 7,
+      checkpointSeconds: 2,
+      progress: null,
+      description: "规则结算",
+      causes: [{ kind: "mechanic", id: "invoke-a" }],
+    });
+    expect(() => validateTemporalPlan(plan, { brief: profile }, resources)).not.toThrow();
+    const forged = structuredClone(plan);
+    forged.completionAtSeconds = 99;
+    expect(() => validateTemporalPlan(forged, { brief: profile }, resources))
+      .toThrow("mechanic result");
+    const unproven = structuredClone(plan);
+    unproven.causes = actionCause;
+    expect(() => validateTemporalPlan(unproven, { brief: profile }, resources))
+      .toThrow("untrusted mechanic basis");
   });
 
   it("derives rate duration and progress from an explicit action quantity", () => {

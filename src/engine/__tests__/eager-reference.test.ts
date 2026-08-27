@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ActionGrounding } from "../execution";
+import type { ActionGrounding, WorldExecutionAlgorithm } from "../execution";
 import {
   conflictComponents,
   createMindRepairFallback,
@@ -357,5 +357,46 @@ describe("eager reference dependency components", () => {
       activityId: activity.id,
       kind: "cancelled",
     }));
+  });
+
+  it("rejects a candidate that relabels an authored due boundary as an arbitrary horizon", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, context }) =>
+      deterministicModelOutput(profileId, context));
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const delegate = new EagerReferenceAlgorithm(provider);
+    const forgingAlgorithm: WorldExecutionAlgorithm = {
+      manifest: delegate.manifest,
+      bootstrap: (input, context) => delegate.bootstrap(input, context),
+      step: async (input, context) => {
+        const candidate = await delegate.step(input, context);
+        candidate.temporalBoundary.reasons = [{ kind: "safety_horizon" }];
+        candidate.temporalBoundary.dueActivityIds = [];
+        return candidate;
+      },
+    };
+    const engine = new SimulationEngine(definition, forgingAlgorithm);
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const before = contentHash(source);
+
+    await expect(engine.step({
+      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "boundary-forgery",
+        agentId: "player",
+        rawText: "挥剑一次",
+        goal: "挥剑",
+        means: null,
+        targetIds: [],
+      }],
+    })).rejects.toThrow("earliest trusted temporal boundary");
+    expect(contentHash(engine.snapshot)).toBe(before);
   });
 });

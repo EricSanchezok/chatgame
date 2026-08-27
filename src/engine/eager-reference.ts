@@ -987,7 +987,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       maxAutonomousSpanSeconds: input.definition.runtimeDefaults.maxAutonomousSpanSeconds,
       activities: planningState.truth.activities,
       timers: planningState.truth.timers,
-      conditionExpiries: {},
+      conditionExpiries: Object.fromEntries(Object.values(planningState.truth.conditions)
+        .filter((condition) => condition.expiresAtElapsedSeconds !== null)
+        .map((condition) => [condition.id, condition.expiresAtElapsedSeconds!])),
     });
     let temporal = advanceTemporalState({
       boundary: temporalBoundary,

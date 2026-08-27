@@ -327,7 +327,12 @@ export class SimulationEngine {
       context.trace.flush();
       const validationStartedAt = performance.now();
       context.trace.emit({ event: "canonical.validation.started", attributes: { phase: "step" } });
-      const result = this.committer.step(source, candidate, policyRoster);
+      const result = this.committer.step(
+        source,
+        candidate,
+        policyRoster,
+        this.definition.runtimeDefaults.maxAutonomousSpanSeconds,
+      );
       context.trace.emit({
         event: "canonical.validation.completed",
         attributes: {

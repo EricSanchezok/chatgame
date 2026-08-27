@@ -451,6 +451,38 @@ describe("open world kernel", () => {
     expect(next.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "player")].amount).toBe(8);
   });
 
+  it("expires elapsed-time conditions atomically when their boundary is committed", () => {
+    const source = worldState();
+    source.truth.mechanics.durationProfiles.brief = {
+      id: "brief",
+      name: "短暂",
+      kind: "elapsed",
+      seconds: 1,
+    };
+    source.truth.conditions.fever = {
+      id: "fever",
+      subjectId: "player",
+      label: "发热",
+      description: "短暂发热。",
+      magnitude: "minor",
+      durationProfileId: "brief",
+      conditionProfileId: null,
+      stackingKey: null,
+      remainingUses: null,
+      expiresAtElapsedSeconds: 1,
+      access: { kind: "private" },
+      provenance: causalAction,
+    };
+    validateSimulationState(source);
+
+    const next = applyTransitionProposal(source, proposal([]));
+
+    expect(source.truth.conditions.fever).toBeDefined();
+    expect(next.truth.elapsedSeconds).toBe(1);
+    expect(next.truth.conditions.fever).toBeUndefined();
+    expect(() => validateSimulationState(next)).not.toThrow();
+  });
+
   it("rejects unsupported matter creation atomically", () => {
     const source = worldState();
     expect(() =>

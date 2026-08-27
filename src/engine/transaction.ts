@@ -512,6 +512,9 @@ export function replaySimulationState(
     }
     for (const plan of step.temporalPlans) {
       validateTemporalPlan(plan, replay.truth.mechanics.temporalProfiles, replay.truth.mechanics.activityResources);
+      if (plan.startsAtSeconds !== step.temporalBoundary.fromElapsedSeconds) {
+        throw new Error(`history step ${step.step} temporal plan starts from another clock`);
+      }
       const activity = Object.values(step.temporalState.activities)
         .find((candidate) => candidate.plan.id === plan.id);
       if (!activity || activity.sourceActionId !== plan.actionId) {
@@ -741,7 +744,8 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     conditionStateSchema.parse(condition);
     if (condition.id !== id || !state.truth.entities[condition.subjectId] ||
       !state.truth.mechanics.durationProfiles[condition.durationProfileId] ||
-      (condition.conditionProfileId !== null && !state.truth.mechanics.conditionProfiles[condition.conditionProfileId])) {
+      (condition.conditionProfileId !== null && !state.truth.mechanics.conditionProfiles[condition.conditionProfileId]) ||
+      (condition.expiresAtElapsedSeconds !== null && condition.expiresAtElapsedSeconds <= state.truth.elapsedSeconds)) {
       throw new Error(`invalid condition ${id}`);
     }
   }
@@ -855,6 +859,12 @@ export function applyTransitionProposal(
   }
   if (issues.length === 0) {
     try {
+      for (const [conditionId, condition] of Object.entries(next.truth.conditions)) {
+        if (condition.expiresAtElapsedSeconds !== null &&
+          condition.expiresAtElapsedSeconds <= next.truth.elapsedSeconds) {
+          delete next.truth.conditions[conditionId];
+        }
+      }
       if (temporalState) {
         next.truth.activities = structuredClone(temporalState.activities);
         next.truth.timers = structuredClone(temporalState.timers);
