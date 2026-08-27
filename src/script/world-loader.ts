@@ -13,6 +13,7 @@ import type {
 import { historyReplayBaseHash } from "../engine/history-replay";
 import { createSeededRng, validateDiscreteRandomDefinitions } from "../engine/random";
 import { validateImpactProfile } from "../engine/resolution";
+import { validateTemporalProfile, type TemporalProfileDefinition } from "../engine/temporal";
 import { quantityId } from "../engine/runtime-id";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { validateSimulationState } from "../engine/transaction";
@@ -95,6 +96,57 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
   }));
   for (const profile of impactProfiles) validateImpactProfile(profile);
   const durationProfiles = document.duration_profiles.map((profile) => structuredClone(profile));
+  const activityResources = document.activity_resources.map((resource) => ({
+    id: resource.id,
+    name: resource.name,
+    capacity: resource.capacity,
+  }));
+  const activityResourceRecord = uniqueRecord(activityResources, "activity resource");
+  const temporalProfiles = document.temporal_profiles.map((profile): TemporalProfileDefinition => {
+    const base = {
+      id: profile.id,
+      name: profile.name,
+      interruptible: profile.interruptible,
+      resourceClaims: profile.resource_claims.map((claim) => ({
+        resourceId: claim.resource_id,
+        amount: claim.amount,
+      })),
+    };
+    if (profile.kind === "fixed") return {
+      ...base,
+      kind: profile.kind,
+      durationSeconds: profile.duration_seconds,
+      checkpointSeconds: profile.checkpoint_seconds,
+      allowExplicitDuration: profile.allow_explicit_duration,
+    };
+    if (profile.kind === "rate") return {
+      ...base,
+      kind: profile.kind,
+      unit: profile.unit,
+      unitAliases: [...profile.unit_aliases],
+      unitsPerPeriod: profile.units_per_period,
+      periodSeconds: profile.period_seconds,
+      checkpointUnits: profile.checkpoint_units,
+    };
+    if (profile.kind === "staged") return {
+      ...base,
+      kind: profile.kind,
+      stages: profile.stages.map((stage) => ({
+        id: stage.id,
+        name: stage.name,
+        durationSeconds: stage.duration_seconds,
+        checkpointSeconds: stage.checkpoint_seconds,
+      })),
+    };
+    if (profile.kind === "conditional") return {
+      ...base,
+      kind: profile.kind,
+      checkEverySeconds: profile.check_every_seconds,
+    };
+    return { ...base, kind: profile.kind, checkpointSeconds: profile.checkpoint_seconds };
+  });
+  const temporalProfileRecord = uniqueRecord(temporalProfiles, "temporal profile");
+  for (const profile of temporalProfiles) validateTemporalProfile(profile, activityResourceRecord);
   const conditionProfiles = document.condition_profiles.map((profile) => ({
     id: profile.id,
     name: profile.name,
@@ -136,9 +188,26 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
       effect: calibration.effect,
       explanation: calibration.explanation,
     })),
+    activityResources: activityResourceRecord,
+    temporalProfiles: temporalProfileRecord,
+    temporalCalibrations: document.temporal_calibrations.map((calibration) => ({
+      id: calibration.id,
+      situation: calibration.situation,
+      profileId: calibration.profile_id,
+      explanation: calibration.explanation,
+    })),
   };
   const calibrationIds = catalog.adjudicationCalibrations.map((calibration) => calibration.id);
   if (new Set(calibrationIds).size !== calibrationIds.length) throw new Error("duplicate adjudication calibration id");
+  const temporalCalibrationIds = catalog.temporalCalibrations.map((calibration) => calibration.id);
+  if (new Set(temporalCalibrationIds).size !== temporalCalibrationIds.length) {
+    throw new Error("duplicate temporal calibration id");
+  }
+  for (const calibration of catalog.temporalCalibrations) {
+    if (!catalog.temporalProfiles[calibration.profileId]) {
+      throw new Error(`temporal calibration ${calibration.id} has unknown profile ${calibration.profileId}`);
+    }
+  }
   for (const profile of Object.values(catalog.impactProfiles)) {
     if (!catalog.meters[profile.meterDefinitionId]) {
       throw new Error(`impact profile ${profile.id} has unknown meter ${profile.meterDefinitionId}`);
@@ -426,7 +495,7 @@ export function buildWorldDefinition(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 10,
+      schemaVersion: 11,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),
@@ -445,6 +514,8 @@ export function buildWorldDefinition(
         quantities: {},
         ratings: {},
         conditions: {},
+        activities: {},
+        timers: {},
       },
       agents: {},
       admissions: [],
@@ -513,7 +584,7 @@ export function buildWorldDefinition(
       manifestVersion: manifest.version,
       description: manifest.description,
       runtimeDefaults: {
-        simulatedSeconds: manifest.runtime_defaults.simulated_seconds,
+        maxAutonomousSpanSeconds: manifest.runtime_defaults.max_autonomous_span_seconds,
         realtimeIntervalMs: manifest.runtime_defaults.realtime_interval_ms,
         actionWindowMs: manifest.runtime_defaults.action_window_ms,
       },

@@ -68,7 +68,7 @@ describe("open world script loader", () => {
       version: "2.0.0",
       config: {},
     })]);
-    expect(definition.initialState.schemaVersion).toBe(10);
+    expect(definition.initialState.schemaVersion).toBe(11);
     expect(definition.initialState.truth.mechanics.impactProfiles.harm.amounts).toEqual({
       none: 0, minor: 2, standard: 5, major: 10, decisive: 20,
     });
@@ -140,7 +140,7 @@ describe("open world script loader", () => {
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 10", "schema_version: 9"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 11", "schema_version: 10"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();

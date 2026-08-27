@@ -1,4 +1,4 @@
-# 世界剧本格式 v10
+# 世界剧本格式 v11
 
 世界包定义初始世界、法则、机制和可选的参与方式。它不定义玩家动作，不携带可执行代码，也不能提供自定义客户端 UI。
 
@@ -23,13 +23,13 @@ world-id/
 ## `script.yaml`
 
 ```yaml
-schema_version: 10
+schema_version: 11
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
 description: 横跨多个大陆与宗门的修行世界。
 runtime_defaults:
-  simulated_seconds: 1
+  max_autonomous_span_seconds: 300
   realtime_interval_ms: 30000
   action_window_ms: 60000
 model_profiles:
@@ -47,7 +47,7 @@ model_profiles:
     reaction: agent-fast
 ```
 
-`id` 匹配 `[a-z0-9][a-z0-9-]*`；目录名不承担世界身份。`runtime_defaults` 分别规定默认模拟步长、实时触发间隔和外部行动窗口，World Instance 或实验 manifest 可以覆盖它们。三个值都是正整数，并受 schema 上限约束。
+`id` 匹配 `[a-z0-9][a-z0-9-]*`；目录名不承担世界身份。`max_autonomous_span_seconds` 是没有更早活动检查点、定时器、Condition 到期或其他语义边界时的一次模拟推进上限，不是动作时长。`realtime_interval_ms` 只规定现实世界唤醒间隔，`action_window_ms` 规定外部行动窗口。三个值都是正整数并受 schema 上限约束。
 
 Profile 分别绑定 perception、reaction routing、resolution、transition、causal verifier、action grounding、observation renderer、arrival generator 和动态 Agent 的 bootstrap/mind/reaction 角色。所有字段必填并由模型目录验证；Truth 不能从模型输出中改写供应商、模型或 Profile。
 
@@ -101,6 +101,32 @@ impact_profiles:
 duration_profiles:
   - { id: brief, name: 短暂, kind: uses, uses: 1 }
   - { id: ongoing, name: 持续, kind: until_cleared }
+activity_resources:
+  - { id: foreground, name: 前台行动, capacity: 1 }
+temporal_profiles:
+  - id: brief-action
+    name: 一秒短动作
+    kind: fixed
+    duration_seconds: 1
+    checkpoint_seconds: 1
+    allow_explicit_duration: false
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+  - id: measured-travel
+    name: 可量化移动
+    kind: rate
+    unit: km
+    unit_aliases: [公里, kilometer, kilometers]
+    units_per_period: 5
+    period_seconds: 3600
+    checkpoint_units: 1
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+temporal_calibrations:
+  - id: ordinary-strike-time
+    situation: 完成一次挥击、格挡或闪避。
+    profile_id: brief-action
+    explanation: 单次短动作在一秒边界结算。
 condition_profiles:
   - id: obscured-vision
     name: 视线受阻
@@ -127,7 +153,9 @@ random_distributions: []
 
 `rule_packages` 至少引用一个服务端注册的精确版本；世界不能提供规则代码。Meter 阈值可以设置 lifecycle 或 Fact。Quantity 的生产与消耗分别由法则授权，转移保持守恒。Rating 是通用 aptitude 或对抗强度；一次检定最多使用一个归属于 actor 的 Rating，number Fact 不会自动成为 modifier。
 
-所有剧本共享 `none | minor | standard | major | decisive` 效果档。`impact_profiles` 将档位映射为 Meter 的确定性增减并在边界 clamp；`duration_profiles` 定义使用次数、模拟秒数或持续至解除；`condition_profiles` 可为重要自由语义状态声明 stacking key、持续影响、恢复说明和阈值。没有 profile 的状态仍可存在并参与后续语义裁决。`entity_mechanics_profiles` 是出生角色的 Meter、Quantity、Rating 模板，`adjudication_calibrations` 同时约束 planner、verifier 与测试，不是动作白名单。
+所有剧本共享 `none | minor | standard | major | decisive` 效果档。`impact_profiles` 将档位映射为 Meter 的确定性增减并在边界 clamp；`duration_profiles` 只定义 Condition 的使用次数、模拟秒数或持续至解除；`condition_profiles` 可为重要自由语义状态声明 stacking key、持续影响、恢复说明和阈值。没有 profile 的状态仍可存在并参与后续语义裁决。`entity_mechanics_profiles` 是出生角色的 Meter、Quantity、Rating 模板，`adjudication_calibrations` 同时约束 planner、verifier 与测试，不是动作白名单。
+
+`activity_resources` 声明每名 Agent 可被活动占用的通用容量；引擎不内置手、移动、战斗或治疗槽位。`temporal_profiles` 定义活动的 fixed、rate、staged、conditional 或 ongoing 时间形态、检查点、是否可中断以及资源占用。rate 的总量必须来自可验证的行动文本或受信任规则；fixed 只有显式允许时才可采用行动文本中的明确时长。`temporal_calibrations` 帮助语义 planner 选择已声明 profile；模型不能提交原始世界时钟增量、最终进度或完成效果。
 
 离散随机分布由有序 step 组成。每个 step 声明等概率 outcome 槽位、抽取次数、`first | sum | values` 聚合和可选的前序条件；重复槽位表达权重。运行时在抽取前固定请求，并用 seeded RNG 执行。完整预算和提交语义见[Truth 与随机承诺](engine-runtime.md#truth-与随机承诺)。
 
@@ -221,4 +249,4 @@ Origin 定义身份幻想、出生位置、初始 persona、默认 goal、关系
 
 loader 验证 Entity、placement 无环、Fact、Agent self binding、character/belief 局部引用、全部 Mechanics Profile 引用与范围、random distribution、模型 Profile、Origin spawn/mechanics/image、数量和所有 ID 唯一性。初始 Agent 的 `nextAction` 由引擎设为 null；初始 lifecycle、Fact provenance、character 时间戳和运行时身份由引擎注入。
 
-loader 只接受 `schema_version: 10`。旧世界包、状态和存档直接拒绝，不提供迁移或兼容层。
+loader 只接受 `schema_version: 11`。旧世界包、状态和存档直接拒绝，不提供迁移或兼容层。

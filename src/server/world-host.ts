@@ -514,7 +514,7 @@ export class WorldHost {
       seed: document.state.historyBase?.truth.rng.seed ?? document.state.truth.rng.seed,
       runtimeConfig: {
         trigger,
-        simulatedSeconds: document.runtime.simulatedSeconds,
+        simulatedSeconds: document.runtime.maxAutonomousSpanSeconds,
         realtimeIntervalMs: document.runtime.realtimeIntervalMs,
         actionWindowMs: document.runtime.actionWindowMs,
         policyRosterHash: contentHash(policyBindings),
@@ -916,7 +916,7 @@ export class WorldHost {
           request: {
             expectedRevision: document.state.revision,
             trigger: input.trigger,
-            simulatedSeconds: input.simulatedSeconds ?? document.runtime.simulatedSeconds,
+            simulatedSeconds: input.simulatedSeconds ?? document.runtime.maxAutonomousSpanSeconds,
             externalActions: [],
           },
           status: externalIds.length > 0 ? "awaiting_actions" : "queued",
@@ -1123,7 +1123,7 @@ export class WorldHost {
           request: {
             expectedRevision: document.state.revision,
             trigger: "participant_action",
-            simulatedSeconds: document.runtime.simulatedSeconds,
+            simulatedSeconds: document.runtime.maxAutonomousSpanSeconds,
             externalActions: [],
           },
           status: "awaiting_actions",

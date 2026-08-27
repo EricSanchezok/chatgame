@@ -15,7 +15,7 @@ export interface MechanicalDisclosurePolicy {
 }
 
 export interface WorldRuntimeDefaults {
-  simulatedSeconds: number;
+  maxAutonomousSpanSeconds: number;
   realtimeIntervalMs: number;
   actionWindowMs: number;
 }

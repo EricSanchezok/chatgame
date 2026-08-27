@@ -49,6 +49,12 @@ import {
 } from "./state-schemas";
 import { isRuntimeId, quantityId, runtimeId } from "./runtime-id";
 import { validateImpactProfile } from "./resolution";
+import {
+  validateActivityResources,
+  validateActivityState,
+  validateTemporalProfile,
+  validateWorldTimer,
+} from "./temporal";
 
 function assertExactKeys(value: object, required: readonly string[], optional: readonly string[] = [], label = "object"): void {
   const keys = Object.keys(value);
@@ -445,7 +451,7 @@ export function replaySimulationState(
     return structuredClone(state);
   }
   const replay: SimulationState = {
-    schemaVersion: 10,
+    schemaVersion: 11,
     worldId: state.worldId,
     worldHash: state.worldHash,
     lawIds: structuredClone(state.lawIds),
@@ -578,7 +584,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents", "admissions", "history",
     "bootstrapAgentCommits",
   ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
-  if (state.schemaVersion !== 10 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 11 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
@@ -586,11 +592,12 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     !Number.isSafeInteger(state.truth.elapsedSeconds) || state.truth.elapsedSeconds < 0) throw new Error("invalid world clock");
   assertExactKeys(state.truth, [
     "elapsedSeconds", "rng", "events", "entities", "placements", "facts", "factTombstones", "mechanics",
-    "meters", "quantities", "ratings", "conditions",
+    "meters", "quantities", "ratings", "conditions", "activities", "timers",
   ], [], "canonical truth");
   assertExactKeys(state.truth.mechanics, [
     "meters", "quantities", "ratings", "impactProfiles", "durationProfiles", "conditionProfiles",
-    "entityMechanicsProfiles", "adjudicationCalibrations",
+    "entityMechanicsProfiles", "adjudicationCalibrations", "activityResources", "temporalProfiles",
+    "temporalCalibrations",
   ], [], "mechanics catalog");
   for (const [id, definition] of Object.entries(state.truth.mechanics.meters)) {
     if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
@@ -602,6 +609,22 @@ export function validateSimulationState(state: SimulationState, requireNextActio
   for (const [id, definition] of Object.entries(state.truth.mechanics.ratings)) {
     if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
       !Number.isFinite(definition.max) || definition.max < definition.min) throw new Error(`invalid rating definition ${id}`);
+  }
+  for (const [id, resource] of Object.entries(state.truth.mechanics.activityResources)) {
+    if (resource.id !== id || !resource.name.trim() || !Number.isFinite(resource.capacity) || resource.capacity <= 0) {
+      throw new Error(`invalid activity resource ${id}`);
+    }
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.temporalProfiles)) {
+    if (profile.id !== id) throw new Error(`temporal profile key mismatch ${id}`);
+    validateTemporalProfile(profile, state.truth.mechanics.activityResources);
+  }
+  assertUnique(state.truth.mechanics.temporalCalibrations.map((entry) => entry.id), "temporal calibrations");
+  for (const calibration of state.truth.mechanics.temporalCalibrations) {
+    if (!calibration.id.trim() || !calibration.situation.trim() || !calibration.explanation.trim() ||
+      !state.truth.mechanics.temporalProfiles[calibration.profileId]) {
+      throw new Error(`invalid temporal calibration ${calibration.id}`);
+    }
   }
   for (const [id, profile] of Object.entries(state.truth.mechanics.impactProfiles)) {
     if (profile.id !== id || !state.truth.mechanics.meters[profile.meterDefinitionId]) {
@@ -688,6 +711,23 @@ export function validateSimulationState(state: SimulationState, requireNextActio
       !state.truth.mechanics.durationProfiles[condition.durationProfileId] ||
       (condition.conditionProfileId !== null && !state.truth.mechanics.conditionProfiles[condition.conditionProfileId])) {
       throw new Error(`invalid condition ${id}`);
+    }
+  }
+  for (const [id, activity] of Object.entries(state.truth.activities)) {
+    if (activity.id !== id) throw new Error(`activity key mismatch ${id}`);
+    validateActivityState(
+      activity,
+      state.truth.elapsedSeconds,
+      state.truth.mechanics.temporalProfiles,
+      state.truth.mechanics.activityResources,
+    );
+  }
+  validateActivityResources(state.truth.activities, state.truth.mechanics.activityResources);
+  for (const [id, timer] of Object.entries(state.truth.timers)) {
+    if (timer.id !== id) throw new Error(`timer key mismatch ${id}`);
+    validateWorldTimer(timer, state.truth.elapsedSeconds);
+    if (timer.wakeAgentIds.some((agentId) => !state.agents[agentId])) {
+      throw new Error(`timer ${id} wakes unknown Agent`);
     }
   }
   const ownedEntities = new Set<string>();

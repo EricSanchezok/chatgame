@@ -1,10 +1,10 @@
-schema_version: 10
+schema_version: 11
 id: open-world-fixture
 name: 开放世界测试夹具
 version: 1.0.0
 description: 只用于验证新世界契约的最小测试数据。
 runtime_defaults:
-  simulated_seconds: 60
+  max_autonomous_span_seconds: 60
   realtime_interval_ms: 60000
   action_window_ms: 30000
 model_profiles:

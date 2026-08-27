@@ -37,6 +37,59 @@ impact_profiles:
 duration_profiles:
   - { id: brief, name: 短暂, kind: uses, uses: 1 }
   - { id: ongoing, name: 持续, kind: until_cleared }
+activity_resources:
+  - { id: foreground, name: 前台行动, capacity: 1 }
+temporal_profiles:
+  - id: brief-action
+    name: 一秒短动作
+    kind: fixed
+    duration_seconds: 1
+    checkpoint_seconds: 1
+    allow_explicit_duration: false
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+  - id: explicit-duration
+    name: 明确时长行动
+    kind: fixed
+    duration_seconds: 60
+    checkpoint_seconds: 60
+    allow_explicit_duration: true
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+  - id: measured-travel
+    name: 可量化移动
+    kind: rate
+    unit: km
+    unit_aliases: [公里, kilometer, kilometers]
+    units_per_period: 5
+    period_seconds: 3600
+    checkpoint_units: 1
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+  - id: staged-treatment
+    name: 分阶段处理
+    kind: staged
+    stages:
+      - { id: assess, name: 检查, duration_seconds: 60, checkpoint_seconds: 60 }
+      - { id: treat, name: 处理, duration_seconds: 300, checkpoint_seconds: 120 }
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+  - id: wait-condition
+    name: 等待条件
+    kind: conditional
+    check_every_seconds: 60
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+  - id: ongoing-action
+    name: 持续行动
+    kind: ongoing
+    checkpoint_seconds: 60
+    interruptible: true
+    resource_claims: [{ resource_id: foreground, amount: 1 }]
+temporal_calibrations:
+  - { id: fixture-strike, situation: 挥动手中武器完成一次攻击。, profile_id: brief-action, explanation: 单次短动作使用一秒边界。 }
+  - { id: fixture-rest, situation: 按行动文本明确的时长休息。, profile_id: explicit-duration, explanation: 明确时长由行动文本验证。 }
+  - { id: fixture-travel, situation: 前往行动文本明确距离的地点。, profile_id: measured-travel, explanation: 距离按声明速率逐检查点推进。 }
 condition_profiles:
   - id: obscured-vision
     name: 视线受阻

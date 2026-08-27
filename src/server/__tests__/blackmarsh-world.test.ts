@@ -521,7 +521,7 @@ describe("Blackmarsh reference world", () => {
     const completed = await engine.step(roster, {
       expectedRevision: state.revision,
       trigger: "manual",
-      simulatedSeconds: definition.runtimeDefaults.simulatedSeconds,
+      simulatedSeconds: definition.runtimeDefaults.maxAutonomousSpanSeconds,
       externalActions: [],
     });
     expect(completed.state).toMatchObject({ revision: 1, step: 1 });

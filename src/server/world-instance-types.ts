@@ -44,7 +44,7 @@ export interface ActionWindow {
 }
 
 export interface InstanceRuntimeConfig {
-  simulatedSeconds: number;
+  maxAutonomousSpanSeconds: number;
   realtimeIntervalMs: number;
   actionWindowMs: number;
 }

@@ -226,7 +226,7 @@ describe("eager reference dependency components", () => {
     const result = await engine.step(roster, {
       expectedRevision: state.revision,
       trigger: "manual",
-      simulatedSeconds: definition.runtimeDefaults.simulatedSeconds,
+      simulatedSeconds: definition.runtimeDefaults.maxAutonomousSpanSeconds,
       externalActions: [],
     });
 
