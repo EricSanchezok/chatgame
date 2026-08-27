@@ -426,17 +426,23 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
         <ControlOrb
           composerDocked={messages.length > 0}
           inspectorEnabled={preferences.showWorldInspector}
+          notice={error
+            ? { id: `error:${error}`, message: error, tone: "error" }
+            : streamWarning
+              ? { id: `warning:${streamWarning}`, message: streamWarning, tone: "warning" }
+              : undefined}
           onAction={(kind) => {
             if (kind === "exit") router.push("/");
             else void openOverlay(kind);
           }}
-          onOpenCharacter={() => setOverlay("character")}
           onOpenInspector={() => setInspectorOpen(true)}
+          reduceMotion={preferences.reduceMotion}
           status={{
             elapsedSeconds: detail.summary.elapsedSeconds,
             phase: orbPhase,
             sessionTitle: detail.summary.title,
             step: detail.summary.step,
+            worldContentHash: detail.world.contentHash,
             worldName: detail.world.name,
           }}
         />

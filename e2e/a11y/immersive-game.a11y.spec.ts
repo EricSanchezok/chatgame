@@ -48,8 +48,9 @@ test("menu, world library, Origin dialog and observer conversation are accessibl
   await page.keyboard.press("Escape");
   await expect(settingsTrigger).toBeFocused();
 
-  await installFixture(page);
+  await createInstance(page);
   await page.goto("/worlds/open-world-fixture");
+  await expectNoViolations(page);
   const startTrigger = page.getByRole("button", { name: /开始新游戏/ });
   await startTrigger.click();
   await expectNoViolations(page);
@@ -72,19 +73,113 @@ test("Arrival, player composer, role and control overlays remain accessible", as
   await page.goto(`/play/${instanceId}`);
   await expect(page.getByText("此刻，你是小明")).toBeVisible();
   await expect(page.getByLabel("你的行动")).toBeVisible();
+  const suggestionPanel = page.getByRole("region", { name: "可选的行动建议" });
+  await expect(suggestionPanel.getByRole("button")).toHaveCount(3);
   await expectNoViolations(page);
 
+  await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.evaluate(() => {
+    document.documentElement.dir = "rtl";
+    document.documentElement.style.fontSize = "200%";
+  });
+  await expect.poll(() => page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth,
+  )).toBe(true);
+  expect(await suggestionPanel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expectNoViolations(page);
+  await page.evaluate(() => {
+    document.documentElement.dir = "ltr";
+    document.documentElement.style.removeProperty("font-size");
+  });
+  await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 1_280, height: 720 });
+
   await page.getByRole("button", { name: /打开游戏控制/ }).click();
-  await page.getByRole("button", { name: /视角.*随身存在/ }).click();
+  await expect(page.locator(".cg-orb__menu").getByRole("button")).toHaveCount(4);
+  await expect(page.locator(".cg-orb__card")).toHaveCount(0);
+  await page.getByRole("button", { name: "视角" }).click();
   await expect(page.getByRole("dialog", { name: "视角" })).toBeVisible();
   await expect(page.getByRole("region", { name: "角色关系星图" })).toBeVisible();
-  await expect(page.locator(".cg-orb__card")).toBeHidden();
+  await expect(page.locator(".cg-orb__menu").getByRole("button")).toHaveCount(0);
   await expectNoViolations(page);
   await page.setViewportSize({ width: 320, height: 720 });
   await expect(page.getByRole("heading", { name: "关系列表" })).toBeVisible();
   await expectNoViolations(page);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  const mobileControls = page.locator(".cg-sheet-surface");
+  await expect(mobileControls.getByRole("button", { name: /^视角/ })).toBeVisible();
+  await expectNoViolations(page);
+  await mobileControls.getByRole("button", { name: /^视角/ }).click();
+  await expect(page.getByRole("dialog", { name: "视角" })).toBeVisible();
+  await expectNoViolations(page);
+});
+
+test("world awakening remains accessible when motion, color and space are constrained", async ({ page }) => {
+  await installFixture(page);
+  await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto("/worlds/open-world-fixture");
+  await page.evaluate(() => {
+    localStorage.setItem("livingworld:preferences:v2", JSON.stringify({
+      fontScale: "standard",
+      reduceMotion: true,
+      showWorldInspector: false,
+      advancedRoleControl: false,
+    }));
+    window.dispatchEvent(new CustomEvent("livingworld:preferences-changed"));
+  });
+  await page.getByRole("button", { name: /开始新游戏/ }).click();
+  const chooser = page.getByRole("dialog", { name: "选择你的身份" });
+  await chooser.locator(".cg-start-card").filter({ hasText: "庭院旅人" }).click();
+  await chooser.getByRole("button", { name: "继续塑造角色" }).click();
+  const customization = page.getByRole("dialog", { name: "成为庭院旅人" });
+  await customization.getByLabel("你的名字").fill("小明");
+
+  let releaseRequest!: () => void;
+  let markIntercepted!: () => void;
+  const intercepted = new Promise<void>((resolve) => { markIntercepted = resolve; });
+  const requestGate = new Promise<void>((resolve) => { releaseRequest = resolve; });
+  await page.route("**/api/instances", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    markIntercepted();
+    await requestGate;
+    await route.fulfill({
+      body: JSON.stringify({ error: "forced creation failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
+
+  await customization.getByRole("button", { name: "进入世界" }).click();
+  await intercepted;
+  const awakening = page.getByRole("dialog", { name: "世界正在苏醒" });
+  await expect(awakening).toBeVisible();
+  const stationaryOrbit = awakening.locator(".cg-world-weave__svg > g").first();
+  await page.waitForTimeout(200);
+  const reducedMotionTransform = await stationaryOrbit.evaluate((element) => getComputedStyle(element).transform);
+  await page.waitForTimeout(350);
+  expect(await stationaryOrbit.evaluate((element) => getComputedStyle(element).transform)).toBe(reducedMotionTransform);
+  await expectNoViolations(page);
+
+  await page.evaluate(() => {
+    document.documentElement.dir = "rtl";
+    document.documentElement.style.fontSize = "200%";
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await awakening.locator(".cg-awakening").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expectNoViolations(page);
+  releaseRequest();
+  await expect(customization.getByRole("alert")).toHaveText(
+    "世界没能被唤醒。你的角色信息仍在，可以检查后重试。",
+  );
 });
 
 test("the inspector is accessible in forced colors and at 200 percent zoom", async ({ page }) => {

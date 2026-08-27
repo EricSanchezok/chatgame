@@ -107,3 +107,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0066 — Upgrade to Progressive Repo-seed Governance](0066-upgrade-progressive-repo-seed-governance.md)
 - [0067 — Open Semantic Resolution Plans](0067-open-semantic-resolution-plans.md)
 - [0068 — Unified Agent Perspective](0068-unified-agent-perspective.md)
+- [0069 — Blobatar World Spirit](0069-blobatar-world-spirit.md)

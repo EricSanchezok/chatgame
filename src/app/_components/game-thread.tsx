@@ -6,12 +6,12 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
-  unstable_useComposerInput,
+  useAui,
   useAuiState,
   type TextMessagePartComponent,
 } from "@assistant-ui/react";
-import { ArrowDown, ArrowUp, Check, Copy } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, Check, Copy, CornerDownRight } from "lucide-react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { cn } from "@/lib/cn";
 
@@ -41,7 +41,16 @@ function UserMessage() {
   );
 }
 
-function AssistantMessage() {
+function AssistantMessage({
+  busy,
+  inputId,
+  suggestions,
+}: {
+  busy: boolean;
+  inputId: string;
+  suggestions: readonly string[];
+}) {
+  const isLast = useAuiState((state) => state.message.isLast);
   return (
     <MessagePrimitive.Root
       className="animate-in fade-in slide-in-from-bottom-1 relative -mb-7.5 pb-7.5 duration-150 motion-reduce:animate-none"
@@ -68,13 +77,24 @@ function AssistantMessage() {
           </ActionBarPrimitive.Copy>
         </ActionBarPrimitive.Root>
       </div>
+      {isLast && !busy ? <SuggestionFollowups inputId={inputId} suggestions={suggestions} /> : null}
     </MessagePrimitive.Root>
   );
 }
 
-function ThreadMessage() {
+function ThreadMessage({
+  busy,
+  inputId,
+  suggestions,
+}: {
+  busy: boolean;
+  inputId: string;
+  suggestions: readonly string[];
+}) {
   const role = useAuiState((state) => state.message.role);
-  return role === "user" ? <UserMessage /> : <AssistantMessage />;
+  return role === "user"
+    ? <UserMessage />
+    : <AssistantMessage busy={busy} inputId={inputId} suggestions={suggestions} />;
 }
 
 function useDesktopAutoFocus(): boolean {
@@ -89,38 +109,51 @@ function useDesktopAutoFocus(): boolean {
   return enabled;
 }
 
-function SuggestionChips({ suggestions }: { suggestions: readonly string[] }) {
-  const composer = unstable_useComposerInput();
+function SuggestionFollowups({ inputId, suggestions }: { inputId: string; suggestions: readonly string[] }) {
+  const aui = useAui();
   if (suggestions.length === 0) return null;
   return (
-    <div className="cg-thread-suggestions" aria-label="行动建议">
-      {suggestions.map((suggestion) => (
-        <button key={suggestion} onClick={() => composer.setText(suggestion)} type="button">
-          {suggestion}
-        </button>
-      ))}
-    </div>
+    <section aria-label="可选的行动建议" className="cg-message-suggestions">
+      <ul>
+        {suggestions.map((suggestion) => (
+          <li key={suggestion}>
+            <button
+              aria-label={suggestion}
+              className="cg-message-suggestion"
+              onClick={() => {
+                aui.thread.composer().setText(suggestion);
+                document.getElementById(inputId)?.focus();
+              }}
+              type="button"
+            >
+              <CornerDownRight aria-hidden="true" />
+              <span>{suggestion}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
-function Composer({ busy, suggestions }: { busy: boolean; suggestions: readonly string[] }) {
+function Composer({ busy, inputId }: { busy: boolean; inputId: string }) {
   const autoFocus = useDesktopAutoFocus();
   return (
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
-      <SuggestionChips suggestions={suggestions} />
-      <div className="aui-composer-shell flex w-full cursor-text flex-col gap-2 rounded-3xl border border-border bg-card p-2">
+      <div className="aui-composer-shell flex w-full cursor-text items-end gap-2 rounded-3xl border border-border bg-card p-2">
         <ComposerPrimitive.Input
           aria-label="你的行动"
           autoFocus={autoFocus}
-          className="max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
+          className="max-h-48 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
           enterKeyHint="send"
+          id={inputId}
           maxLength={4000}
-          placeholder="说出你的行动…"
+          placeholder="自由描述你的行动…"
           rows={1}
           submitMode="enter"
           unstable_insertNewlineOnTouchEnter
         />
-        <div className="flex min-h-8 items-center justify-end">
+        <div className="flex min-h-10 items-center justify-end">
           <ComposerPrimitive.Send asChild>
             <TooltipIconButton
               aria-label={busy ? "世界正在推演" : "发送行动"}
@@ -159,6 +192,8 @@ export function GameThread({
   suggestions = [],
 }: GameThreadProps) {
   const isEmpty = useAuiState((state) => state.thread.messages.length === 0);
+  const inputId = useId();
+  const activeSuggestions = readOnly ? [] : suggestions;
   return (
     <ThreadPrimitive.Root
       className="aui-root flex h-full flex-col bg-background"
@@ -180,7 +215,9 @@ export function GameThread({
             </section>
           ) : null}
           <div className="mb-14 flex flex-col gap-y-6 empty:hidden">
-            <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+            <ThreadPrimitive.Messages>{() => (
+              <ThreadMessage busy={busy} inputId={inputId} suggestions={activeSuggestions} />
+            )}</ThreadPrimitive.Messages>
           </div>
           <ThreadPrimitive.ViewportFooter
             data-docked={!isEmpty}
@@ -204,7 +241,7 @@ export function GameThread({
               </div>
             ) : null}
             {footer}
-            {!readOnly ? <Composer busy={busy} suggestions={suggestions} /> : null}
+            {!readOnly ? <Composer busy={busy} inputId={inputId} /> : null}
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
