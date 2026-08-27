@@ -47,7 +47,9 @@ Observation 使用观察者局部实体 ID。新对象必须在同一 packet 的
 
 Observation Renderer 是受信任的模型角色，可以依据候选世界变化决定可见表象，但输出必须通过固定槽位、事件引用、局部身份、权限和完整覆盖校验。Truth transition 不生成 observation，因此全局裁决不会同时承担全体自然语言观察输出。
 
-AgentMind 只收到自己的 character、belief、去 canonical identity 的 self view、自己的行动结果状态和自己的 observations。CharacterPatch 只能使用本步 eligible observation 作为证据；没有合格来源时必须为空。
+AgentMind、reaction、grounding、Observation Renderer 与 Arrival Generator 都通过 `projectAgentPerspective` 读取同一个去 canonical identity 视角。该视角同时包含精确自身 mechanics、随身 containment、授权 Fact、character、belief、evidence 和完整 subjective history；精确关系与主观 claim 冲突时并存。CharacterPatch 只能使用本步 eligible observation 作为证据；没有合格来源时必须为空。
+
+成功或部分成功的本人行动若创建 Entity、把 Entity 移入自身 containment，或创建涉及自身且授权自身读取的 Entity-valued Fact，Observation 必须为尚无合法 binding 的关联 Entity 提供 introduction。提交内核拒绝“状态已经成功但主体无法识别后果”的候选。
 
 ## ActionWindow
 
@@ -71,7 +73,7 @@ batch 在没有 external Agent 时连续调用步骤；遇到行动窗口即返�
 
 ## Participant 准入与控制转移
 
-Participant 以 principal 身份控制一个 external Agent。普通新游戏只能通过 Origin 创建新 Agent；Observer 可以在 revision 边界接管任意存活且未被 external 策略控制的 Agent。当时的 prepared action 作为历史承诺保留并记录 `suppressedActionId`，external 策略绝不收集或执行它。真人获得该 Agent 的角色视角和历史观察，但不会获得 bindings、其他 Agent 认知或 canonical truth。
+Participant 以 principal 身份控制一个 external Agent。普通新游戏只能通过 Origin 创建新 Agent；Observer 可以在 revision 边界接管任意存活且未被 external 策略控制的 Agent。当时的 prepared action 作为历史承诺保留并记录 `suppressedActionId`，external 策略绝不收集或执行它。真人和 AgentMind 读取同一 `AgentPerspectiveView`，但不会获得 bindings、其他 Agent 认知或 canonical truth。
 
 Origin 准入确定性创建 Entity、Agent、placement、资源和自由动机 goal，并形成独立 admission revision。显示名称、外观和动机不能改变剧本的数值、出生点或资源。Arrival Generator 在准入提交后运行，只读该角色视角并返回标题、第一人称场景和三条建议；失败使用剧本回退文本，不能回滚准入。
 

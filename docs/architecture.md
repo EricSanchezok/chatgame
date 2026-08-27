@@ -12,14 +12,14 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 | Model gateway | `src/engine/model-*` | Profiles, provider adapters, strict structured output, fair scheduling, and invocation audit |
 | Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v13, Participants, ActionWindow, session projections, scheduling, and generation fencing |
 | Execution evidence | `src/server/execution-ledger.ts` | The sole persisted source for executions, events, artifacts, experiments, replay, and Inspector data |
-| HTTP and browser | `src/app/` | API v7, world library, assistant-ui sessions, Agent-perspective Observer, control orb, and read-only Inspector |
+| HTTP and browser | `src/app/` | API v8, world library, assistant-ui sessions, unified Agent Perspective HUD, control orb, and read-only Inspector |
 | Shared contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |
 
 Dependencies flow browser → Route Handler → WorldHost → SimulationEngine → WorldExecutionAlgorithm → CanonicalCommitter. An algorithm returns candidates but never holds authority to mutate canonical state. The engine and world YAML load only on the server.
 
 ## State and policies
 
-`SimulationState` contains the sole `CanonicalWorldState`, Agents, admission commits, and semantic history. Every `AgentState` binds one active Entity and owns an independent `AgentBeliefState`, `AgentCharacterState`, epistemic bindings, and next action. The closed-loop state combines world state with all private Agent control state.
+`SimulationState` contains the sole `CanonicalWorldState`, Agents, admission commits, and semantic history. Every `AgentState` binds one active Entity and owns an independent `AgentBeliefState`, `AgentCharacterState`, epistemic bindings, and next action. The closed-loop state combines world state with all private Agent control state. `projectAgentPerspective` derives the same policy-independent, de-identified read model for AgentMind, reaction, grounding, Observation rendering, Arrival, Participant, and Observer without persisting another state.
 
 `PolicyBinding` selects `model | external | idle | replay` for every Agent. External control does not create a PlayerState; the Agent's position, identity, history, and private observations remain unchanged. AgentMind does not run during external control and does not infer a human's beliefs, emotions, or next action. Release may move the Agent to idle or let AgentMind consume observations received during control before restoring model policy.
 
@@ -49,7 +49,7 @@ The scheduler serializes each instance. Realtime schedules the next trigger only
 
 Optional `participation.yaml` declares Origins and static images. An Origin fixes background, spawn point, resources, relationship hooks, risks, managed Profile, and fallback arrival text; the human supplies display name, appearance, and free-form motivation. A normal new game creates an Agent from an Origin. At a revision boundary, Observer may take control of any living idle Agent. Arrival Generator reads only that Agent's authorized private perspective and returns arrival narration plus three editable suggestions; it never produces world operations.
 
-A Participant session projects persisted Arrival, Participant intent, advance, and committed Observation rather than storing a second message truth. Observer projects read-only messages from the selected Agent's action, Observation, character, and belief. WorldInspector uses a separate trusted-local projection.
+A Participant session projects persisted Arrival, Participant intent, advance, and committed Observation rather than storing a second message truth. Participant `controlledView` and Observer `selected.perspective` expose the same revision-scoped `AgentPerspectiveView`; changing `PolicyBinding` does not change its contents. WorldInspector uses a separate trusted-local projection.
 
 ## World identity and persistence
 
@@ -69,7 +69,7 @@ World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_RO
 - External Agents do not run AgentMind; model Agents and Agents created in the step commit exactly one mind update.
 - Ordinary APIs never expose canonical truth, bindings, another Agent's cognition, model configuration, or internal error material.
 
-World package, runtime, presentation, and Ledger details live in [Script format](game-design/script-format.md), [Engine runtime](game-design/engine-runtime.md), [Presentation](game-design/presentation.md), and [Runtime observability](game-design/runtime-observability.md). Architectural rationale lives in [0061](decisions/0061-unified-agent-and-external-policy.md), [0063](decisions/0063-eager-reference-execution.md), and [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md).
+World package, runtime, presentation, and Ledger details live in [Script format](game-design/script-format.md), [Engine runtime](game-design/engine-runtime.md), [Presentation](game-design/presentation.md), and [Runtime observability](game-design/runtime-observability.md). Architectural rationale lives in [0061](decisions/0061-unified-agent-and-external-policy.md), [0063](decisions/0063-eager-reference-execution.md), [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md), and [0067](decisions/0067-unified-agent-perspective.md).
 
 ## Change procedure
 

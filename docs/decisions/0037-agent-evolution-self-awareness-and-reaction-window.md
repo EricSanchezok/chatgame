@@ -29,7 +29,7 @@ Class: architecture
 
 每个 Agent 使用分层 `AgentCharacterState`，包含 persona、traits、values、emotions、attitudes、goals 与 commitments。AgentMind 的常规输出按 `BeliefPatch → CharacterPatch → nextAction` 应用；角色操作必须引用本步骤属于该 Agent 的 observation 和有效 evidence。persona 只能由 transformative 事件替换，长期、短期与动机数值分别按 ordinary/significant/transformative 影响级别限制变化幅度；语义身份、目标、承诺与状态变化至少需要 significant 事件，retire/resolve 还必须通过对应数值归零的幅度校验。目标与承诺使用不可重新打开的终态。时间和 provenance 字段由内核写入，不提供物理删除操作。`modelProfiles.bootstrap/mind/reaction` 保持部署配置身份，不属于角色演化；精确角色契约见 [0042](0042-causal-assurance-and-staged-model-profiles.md)。
 
-服务端从 canonical truth 派生 `AgentSelfStateView`。视图包含局部 self identity、生命周期、世界时间、位置名称与描述、自身 Meter/Quantity/Rating 和有权读取的自身 Fact；canonical entity、placement、meter、rating identity、private Fact 和其他实体状态不进入视图。每个初始或动态 Agent 都必须恰好有一个局部实体绑定自身 canonical entity。
+服务端按 [0067](0067-unified-agent-perspective.md) 从 canonical truth 与当前 Agent 状态派生 `AgentPerspectiveView`。视图保留本决策要求的精确自身 mechanics，并扩展为统一 containment、授权关系、character、belief 与完整主观历史；canonical identity、remote placement、mechanic state identity、private Fact 和其他主体认知不进入视图。每个初始或动态 Agent 都必须恰好有一个局部实体绑定自身 canonical entity。
 
 世界步骤保留同 revision 预提交和最终联合裁决，在两者之间加入至多一轮 reaction window。Truth Engine 可以先请求 perception checks，再为本步骤 player action 返回 `request_reactions`；被请求 Agent 并发返回 keep 或同 actor、同 revision 的 replacement action。任何 resolution check 开始后窗口永久关闭，窗口后不再允许 perception check、第二轮 reaction 或反应链。未被请求的 Agent 保留预备行动，最终每个 actor 仍只有一个行动。
 
