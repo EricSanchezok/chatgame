@@ -2,7 +2,7 @@
 
 ## 投影边界
 
-公共产品契约为 `src/shared/world-api.ts`（API v7）。Participant DTO 只包含本人控制角色的 Arrival、行动、Observation 与授权私有状态；对话由这些持久事实投影，不保存独立聊天记录。
+公共产品契约为 `src/shared/world-api.ts`（API v9）。Participant DTO 只包含本人控制角色的 Arrival、行动、Observation、授权 Activity 进度与私有状态；对话由这些持久事实投影，不保存独立聊天记录。
 
 Observer 契约为 `src/shared/world-observer-api.ts`。它每次只返回所选 Agent 的行动、Observation、character 与 belief，并移除 canonical binding；切换 Agent 不形成跨主体认知聚合。
 
@@ -14,7 +14,7 @@ Observer 契约为 `src/shared/world-observer-api.ts`。它每次只返回所选
 
 | 方法与路径 | 语义 |
 |---|---|
-| `GET /api/worlds` | 列出已安装的 schema v10 世界 |
+| `GET /api/worlds` | 列出已安装的 schema v11 世界 |
 | `POST /api/worlds/import` | 导入或显式替换世界 ZIP |
 | `DELETE /api/worlds/:id` | 在没有关联实例时卸载世界 |
 | `GET /api/worlds/:id/start-options` | 读取 Origin 与 Observer 准入选项 |
@@ -22,15 +22,17 @@ Observer 契约为 `src/shared/world-observer-api.ts`。它每次只返回所选
 | `GET /api/instances` | 列出 World Instance |
 | `POST /api/instances` | 以 Origin 或 Observer 原子创建实例 |
 | `GET/PATCH/DELETE /api/instances/:id` | 读取、重命名或删除实例 |
-| `POST /api/instances/:id/advance` | Observer 单步或批量推进 |
+| `POST /api/instances/:id/advance` | Observer 推进一个或指定数量的时间边界 |
 | `PUT /api/instances/:id/realtime` | Observer 启停严格串行实时调度 |
 | `GET /api/instances/:id/observer` | 按 AgentId 读取单主体 Observer 投影 |
 | `GET/PUT /api/instances/:id/control` | 读取可接管 Agent 或原子转移控制权 |
-| `POST /api/instances/:id/participants/:participantId/actions` | 幂等提交自然语言行动并自动推进一次 |
+| `POST /api/instances/:id/participants/:participantId/actions` | 幂等持久化自然语言根意图并启动逐边界 WorldRun |
+| `POST /api/instances/:id/run/pause` | 在提交边界暂停指定 generation 的 WorldRun |
+| `POST /api/instances/:id/run/resume` | 为 paused 或 budget-paused WorldRun 创建新 lease 并恢复 |
 | `GET /api/instances/:id/events` | 订阅只含重新读取提示的实例更新 SSE |
 | `GET /api/instances/:id/inspector/**` | 读取本地受信任 Inspector 投影与 Ledger 证据 |
 
-所有改变世界或控制状态的请求使用 revision CAS。行动以 `submissionId` 幂等；重复请求返回已投影结果，不重复推进。失败步骤保留安全失败消息、关闭 ActionWindow 且不推进 revision；内部错误只存在于 Ledger 和 Inspector。
+所有改变世界或控制状态的请求使用 revision 或 WorldRun generation CAS。行动以 `submissionId` 幂等；重复请求返回已投影结果，不重复推进。失败、取消、暂停和迟到尝试不推进 revision；内部错误只存在于 Ledger 和 Inspector。
 
 ## 创建与控制
 
@@ -44,9 +46,9 @@ Observer 创建不生成 Participant。Observer 可以推进无人世界、选�
 
 Participant 页面使用 44rem 单轴 assistant-ui 消息流。第一条 World 消息是持久 Arrival；玩家行动为右侧自适应气泡，World Observation 为无气泡正文。Arrival 的三条建议只填入 composer。
 
-composer 只负责发送、失败重试和可选的高级 detach，不提供单步、批量或实时按钮。发送行动时，服务端自动创建 `participant_action` advance 和当前 revision 的 ActionWindow；收集完整后只执行一次统一推进入口。
+composer 只负责发送、失败重试和可选的高级 detach，不提供单步、批量或实时按钮。发送行动时，服务端先持久化 intent 和当前 decision point 的 ActionWindow，再由后台 WorldRun 逐个最早时间边界推进，直到活动完成、失败、中断、需要选择、玩家暂停或运行预算耗尽。
 
-对话 projection 依次关联 Participant intent、advance 和 committed Observation。刷新、重复提交和服务重启不会新增消息或重复行动。
+同一个 Participant intent 可以投影多条 committed Observation；每条显示对应世界时间、Activity 阶段和授权进度。WorldRun 自动执行时 composer 切换为运行控制台并提供暂停；paused 后可以恢复，也可以发送普通自然语言行动取消或改变当前 Activity。刷新、重复提交和服务重启不会新增消息或重复行动，进程恢复后的 run 保持 paused。
 
 ## Observer 会话
 
@@ -56,7 +58,7 @@ Observer 不能提交角色行动。接管成功后页面切换为 Participant �
 
 ## 控制球与 Inspector
 
-可拖动控制球提供主菜单、存档、设置和角色工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定和全部认知。
+可拖动控制球提供主菜单、存档、设置和角色工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定、全部认知和完整时间因果证据。Inspector 的时间视图显示动态 Δt、边界来源、同刻到期集合、TemporalPlan、Activity 转换、Timer、决策点和提交前后快照。
 
 工具使用注册槽位扩展；没有数据的工具不显示。弹层关闭后焦点返回触发控件，控制球位置在浏览器偏好中恢复。
 

@@ -34,7 +34,7 @@ npm run dev                                      # Local open-world workbench
 npm run build                                    # Production build
 npm run lint                                     # ESLint
 npm test                                         # Vitest unit/integration projects
-npm run world:validate -- <world-directory>      # Validate a schema v9 world
+npm run world:validate -- <world-directory>      # Validate a schema v11 world
 npm run world:import -- <zip> [--replace]        # Import through the shared web/CLI core
 node scripts/run-gates.mjs                       # Manifest-selected governance gates
 ```

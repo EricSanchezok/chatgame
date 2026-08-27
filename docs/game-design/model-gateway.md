@@ -21,7 +21,7 @@ profiles:
     provider_id: deepseek
     model: deepseek-v4-flash
     description: 高吞吐世界真值裁决
-    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-grounding, observation-renderer, causal-verifier, arrival-generator]
+    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, temporal-planner, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
     max_output_tokens: 32768
     max_input_bytes: 524288
@@ -31,7 +31,7 @@ profiles:
       top_p: null
 ```
 
-provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；目录中的 provider 是可选能力注册项，未被当前世界引用时允许没有密钥。创建或加载 World Instance 会在模型调用前预检世界与全部 Agent Profile；缺少实际引用 provider 的密钥会显式失败。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 覆盖 Truth、action grounding、Observation renderer、causal verifier、Arrival Generator 和 AgentMind 系列角色；每个调用按精确角色校验。`max_input_bytes` 是序列化 context 的硬上限，也是 Observation 分批的输入预算。
+provider ID 与 profile ID 都使用小写 kebab-case。`api_key_env` 必须是大写环境变量名；目录中的 provider 是可选能力注册项，未被当前世界引用时允许没有密钥。创建或加载 World Instance 会在模型调用前预检世界与全部 Agent Profile；缺少实际引用 provider 的密钥会显式失败。profile 的 `model` 是传给供应商的不透明 ID；引擎不替换别名、不推导默认模型。`allowed_roles` 覆盖 Truth、temporal planner、action grounding、Observation renderer、causal verifier、Arrival Generator 和 AgentMind 系列角色；每个调用按精确角色校验。`max_input_bytes` 是序列化 context 的硬上限，也是 Observation 分批的输入预算。
 
 `inference` 是 provider 原生判别联合：
 
@@ -55,7 +55,7 @@ DeepSeek 调用 Chat Completions，启用稳定 `json_object` 模式，在用户
 
 `FairModelScheduler` 是 WorldHost 进程内的唯一模型调度器。它将实际 HTTP 执行限制在 `global_concurrency` 与对应 provider `max_concurrency` 的交集内。每个 instance/workload 是 FIFO lane，lane 之间公平轮转；Truth 不获得隐藏优先级。队列满或超过等待上限会返回 `ModelOverloadedError`。取消会移除尚未执行的任务，并将同一 `AbortSignal` 传递到在途 provider 请求。
 
-Eager reference 为每个行动执行 grounding，按冲突分量运行 Truth，并按输入字节预算分批生成 Observation；无法证明局部独立时扩大为全局分量。通过 Observation 后并发请求全部 model 策略 AgentMind。AgentMind 批次使用完整 settlement：语义 repair 耗尽的单个 Agent 产生可计数的空 patch 与 idle action；网络、配置、取消、Ledger 或其他终端失败会丢弃整份候选并保持 revision 不变。
+Eager reference 先为新行动调用 temporal planner，再对到期行动执行 grounding，按冲突分量运行 Truth，并按输入字节预算分批生成 Observation；无法证明局部独立时扩大为全局分量。只有新决策点上的 model Agent 并发调用 AgentMind，并一次消费 observation cursor 之后的完整 settlement。语义 repair 耗尽的单个 eligible Agent 产生可计数的空 patch 与 idle action；网络、配置、取消、Ledger 或其他终端失败会丢弃整份候选并保持 revision 不变。
 
 ## 审计
 
