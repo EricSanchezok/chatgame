@@ -76,6 +76,8 @@ test("Arrival, player composer, role and control overlays remain accessible", as
 
   await page.getByRole("button", { name: /打开游戏控制/ }).click();
   await page.getByRole("button", { name: "角色" }).click();
+  await expect(page.getByRole("dialog", { name: "角色" })).toBeVisible();
+  await expect(page.locator(".cg-orb__card")).toBeHidden();
   await expectNoViolations(page);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: /打开游戏控制/ })).toBeFocused();

@@ -41,6 +41,7 @@
 - Participant 会话测试证明一次自然语言提交自动创建一个 advance、最多推进一步，并在刷新、重复请求、失败和重启后保持相同消息投影。Participant composer 不得出现 batch 或 realtime 控制。
 - Observer 测试逐 Agent 验证行动、Observation、character 与 belief 投影，搜索 canonical binding 和其他 Agent 私有状态泄漏；接管、退出和直接切换必须在一个 revision CAS 中恢复原角色 model 策略。
 - 控制球测试覆盖拖动恢复、移动 Sheet、存档、设置、角色工具、焦点返回，以及高级 detach 和 Inspector 默认隐藏。
+- 关闭的浮层必须在打开后续 Dialog 前退出绘制与命中测试；无障碍扫描显式等待该状态，避免透明退出动画改变底层内容的对比度计算。
 - 静态资源测试覆盖真实 MIME、动画、尺寸、单文件/总预算、路径穿越、Unicode/大小写冲突、符号链接和恶意 ZIP。
 - 持久化测试覆盖跨连接恢复、generation 冲突、损坏 document 拒绝、校验缓存、WorldRuntimeContract 与 content-addressed world hash 锁定。
 
