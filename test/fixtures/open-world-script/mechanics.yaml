@@ -1,8 +1,7 @@
 rule_packages:
-  - id: core-d20
-    version: 1.1.0
-    config:
-      damageUsesMeters: true
+  - id: core-resolution
+    version: 2.0.0
+    config: {}
 meters:
   - id: health
     name: 生命
@@ -24,6 +23,44 @@ ratings:
     name: 决心
     min: -5
     max: 10
+impact_profiles:
+  - id: harm
+    name: 伤害
+    meter_definition_id: health
+    direction: decrease
+    amounts: { none: 0, minor: 2, standard: 5, major: 10, decisive: 20 }
+  - id: recovery
+    name: 恢复
+    meter_definition_id: health
+    direction: increase
+    amounts: { none: 0, minor: 2, standard: 5, major: 10, decisive: 20 }
+duration_profiles:
+  - { id: brief, name: 短暂, kind: uses, uses: 1 }
+  - { id: ongoing, name: 持续, kind: until_cleared }
+condition_profiles:
+  - id: obscured-vision
+    name: 视线受阻
+    stacking_key: obscured-vision
+    default_duration_profile_id: brief
+    recurring_impact_profile_id: null
+    recovery: 清理眼睛或离开干扰源。
+    thresholds: []
+entity_mechanics_profiles:
+  - id: wanderer
+    name: 庭院旅人
+    meters:
+      - { definition_id: health, current: 20 }
+    quantities:
+      - { definition_id: spirit-stone, amount: 1 }
+    ratings:
+      - { definition_id: resolve, value: 1 }
+adjudication_calibrations:
+  - id: improvised-sand
+    situation: 从庭院地面抓起沙土撒向对手的眼睛。
+    difficulty: opposed
+    risk: risky
+    effect: standard
+    explanation: 沙土是有环境依据的一次性手段，成功制造视线受阻而不创建物品实体。
 random_distributions:
   - id: four-six-sum
     description: 四次独立六结果抽样之和。

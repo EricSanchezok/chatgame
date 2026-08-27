@@ -6,11 +6,11 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 
 | Layer | Location | Responsibility |
 |---|---|---|
-| World contract | `src/script/` | Read schema v9 world packages, validate assets, and construct `WorldDefinition` and `SimulationState` v9 |
+| World contract | `src/script/` | Read schema v10 world packages, validate assets and mechanics profiles, and construct `WorldDefinition` and `SimulationState` v10 |
 | Execution algorithm | `src/engine/eager-reference.ts` | Activate all policies, ground each action, adjudicate conflict components, batch observations, and update AgentMind |
 | Fixed kernel | `src/engine/canonical-committer.ts` | Validate candidates, cognitive isolation, causality, conservation, complete coverage, and atomic state construction |
 | Model gateway | `src/engine/model-*` | Profiles, provider adapters, strict structured output, fair scheduling, and invocation audit |
-| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v13, Participants, ActionWindow, session projections, scheduling, and generation fencing |
+| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v14, Participants, ActionWindow, session projections, scheduling, and generation fencing |
 | Execution evidence | `src/server/execution-ledger.ts` | The sole persisted source for executions, events, artifacts, experiments, replay, and Inspector data |
 | HTTP and browser | `src/app/` | API v7, world library, assistant-ui sessions, Agent-perspective Observer, control orb, and read-only Inspector |
 | Shared contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |
@@ -23,7 +23,7 @@ Dependencies flow browser → Route Handler → WorldHost → SimulationEngine �
 
 `PolicyBinding` selects `model | external | idle | replay` for every Agent. External control does not create a PlayerState; the Agent's position, identity, history, and private observations remain unchanged. AgentMind does not run during external control and does not infer a human's beliefs, emotions, or next action. Release may move the Agent to idle or let AgentMind consume observations received during control before restoring model policy.
 
-Models produce semantic drafts only. Agent, Entity, Fact, Meter, Rating, and subject-private cognition records use world semantic IDs. The engine deterministically assigns runtime identities for actions, checks, random draws, mechanics, events, outcomes, observations, and apparent claims. It materializes revisions, steps, phases, lifecycle, provenance, Profiles, and timestamps.
+Models produce semantic drafts only. Agent, Entity, Fact, Meter, Rating, Condition, and subject-private cognition records use world semantic IDs. The engine deterministically assigns runtime identities for actions, Resolution Plans and Receipts, checks, random draws, mechanics, events, outcomes, observations, and apparent claims. It materializes revisions, steps, phases, lifecycle, provenance, Profiles, and timestamps.
 
 ## `eager-reference@1`
 
@@ -47,7 +47,7 @@ An instance with no Participant can advance by step, batch, or realtime. When an
 
 The scheduler serializes each instance. Realtime schedules the next trigger only after the prior step completes. Pausing or restarting increments generation so stale timers expire. Process recovery schedules from the current time and never replays an offline backlog. Batch stops at a recoverable boundary when it encounters an external ActionWindow.
 
-Optional `participation.yaml` declares Origins and static images. An Origin fixes background, spawn point, resources, relationship hooks, risks, managed Profile, and fallback arrival text; the human supplies display name, appearance, and free-form motivation. A normal new game creates an Agent from an Origin. At a revision boundary, Observer may take control of any living idle Agent. Arrival Generator reads only that Agent's authorized private perspective and returns arrival narration plus three editable suggestions; it never produces world operations.
+Optional `participation.yaml` declares Origins and static images. An Origin fixes background, spawn point, an Entity Mechanics Profile, relationship hooks, risks, managed Profile, and fallback arrival text; the human supplies display name, appearance, and free-form motivation. A normal new game creates an Agent with its full Meter, Quantity, and Rating state from that profile. At a revision boundary, Observer may take control of any living idle Agent. Arrival Generator reads only that Agent's authorized private perspective and returns arrival narration plus three editable suggestions; it never produces world operations.
 
 A Participant session projects persisted Arrival, Participant intent, advance, and committed Observation rather than storing a second message truth. Observer projects read-only messages from the selected Agent's action, Observation, character, and belief. WorldInspector uses a separate trusted-local projection.
 

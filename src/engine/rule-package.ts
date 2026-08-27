@@ -2,7 +2,6 @@ import { z } from "zod";
 import { worldDeltaOperationSchema } from "./llm-schemas";
 import type {
   AgentActionProposal,
-  CausalAssertion,
   D20CheckRequest,
   D20CheckResult,
   DiscreteRandomRequest,
@@ -187,75 +186,23 @@ export class RulePackageRegistry {
   }
 }
 
-const meterImpactInputSchema = z.strictObject({
-  checkId: z.string().min(1),
-  expected: z.enum(["succeeded", "failed"]),
-  recipient: z.enum(["actor", "target"]),
-  meterId: z.string().min(1),
-  amount: z.number().finite().refine((amount) => amount !== 0, "amount must be non-zero"),
-});
+const coreResolutionConfigSchema = z.strictObject({});
 
-type MeterImpactInput = z.infer<typeof meterImpactInputSchema>;
-const coreD20ConfigSchema = z.strictObject({
-  damageUsesMeters: z.boolean().default(true),
-});
-
-const applyMeterImpact: MechanicRule = {
-  id: "apply-meter-impact",
-  description: "在已提交的 resolution 检定结果满足断言时，对 actor 或 target 的 meter 施加确定性变化。",
-  inputSchema: meterImpactInputSchema,
-  resolve: (context, config, input, invocation) => {
-    const coreConfig = config as z.infer<typeof coreD20ConfigSchema>;
-    const meterInput = input as MeterImpactInput;
-    if (!coreConfig.damageUsesMeters) throw new Error("core-d20 meter impacts are disabled by world config");
-    const request = context.checkRequests.find((candidate) => candidate.id === meterInput.checkId);
-    const result = context.checkResults.find((candidate) => candidate.requestId === meterInput.checkId);
-    if (!request || request.phase !== "resolution" || !result) {
-      throw new Error(`meter impact requires committed resolution check ${meterInput.checkId}`);
-    }
-    const observed = result.succeeded ? "succeeded" : "failed";
-    if (observed !== meterInput.expected) throw new Error(`meter impact contradicts check ${meterInput.checkId}`);
-    const entityId = meterInput.recipient === "actor" ? request.actorId : request.targetId;
-    if (!entityId) throw new Error(`check ${meterInput.checkId} has no target recipient`);
-    const meter = context.state.truth.meters[meterInput.meterId];
-    if (!meter || meter.entityId !== entityId) {
-      throw new Error(`meter ${meterInput.meterId} does not belong to the declared recipient`);
-    }
-    const assertion: CausalAssertion = {
-      kind: "check_result",
-      checkId: meterInput.checkId,
-      expected: meterInput.expected,
-    };
-    return {
-      code: "meter-impact-applied",
-      data: { meterId: meterInput.meterId, amount: meterInput.amount, recipientEntityId: entityId },
-      operations: [{
-        kind: "adjust_meter",
-        meterId: meterInput.meterId,
-        amount: meterInput.amount,
-        causes: structuredClone(invocation.causes),
-        assertions: [assertion],
-      }],
-    };
-  },
-};
-
-export const coreD20RulePackage: RulePackage = {
-  id: "core-d20",
-  version: "1.1.0",
-  adjudication: "需要不确定性且结果有实质风险时使用 d20 检定。normal 掷 1d20；advantage/disadvantage 掷 2d20 并分别取高/低。总值为 kept + modifier，与 DC 比较；所有 modifier 必须来自结构化 rating 或 number fact。检定导致 meter 变化时必须调用 apply-meter-impact，禁止直接绕过规则。",
-  configSchema: coreD20ConfigSchema,
-  rules: [applyMeterImpact],
-  validateDirectOperations: (_context, config, operations) => {
-    if (!(config as z.infer<typeof coreD20ConfigSchema>).damageUsesMeters) return;
+export const coreResolutionRulePackage: RulePackage = {
+  id: "core-resolution",
+  version: "2.0.0",
+  adjudication: "先提交 ResolutionPlan，再由引擎把命名难度、风险和效果档确定性映射为 d20 检定与规则效果。模型不得提交 raw DC、modifier、Meter delta、Condition 强度或 Rating 数值。",
+  configSchema: coreResolutionConfigSchema,
+  rules: [],
+  validateDirectOperations: (_context, _config, operations) => {
     for (const operation of operations) {
-      if (operation.kind === "adjust_meter" && operation.causes.some((cause) => cause.kind === "check")) {
-        throw new Error("check-driven meter changes must use core-d20/apply-meter-impact");
+      if (operation.kind === "adjust_meter" || operation.kind === "set_meter" || operation.kind === "set_rating") {
+        throw new Error(`${operation.kind} must be derived by a trusted core-resolution rule`);
       }
     }
   },
 };
 
 export function createCoreRulePackageRegistry(): RulePackageRegistry {
-  return new RulePackageRegistry([coreD20RulePackage]);
+  return new RulePackageRegistry([coreResolutionRulePackage]);
 }

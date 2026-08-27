@@ -77,7 +77,7 @@ export interface ParticipantIntentRecord {
 }
 
 export interface WorldInstanceDocument {
-  schemaVersion: 13;
+  schemaVersion: 14;
   id: string;
   world: WorldRuntimeContract;
   title: string;

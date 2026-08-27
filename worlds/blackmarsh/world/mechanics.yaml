@@ -1,8 +1,7 @@
 rule_packages:
-  - id: core-d20
-    version: 1.1.0
-    config:
-      damageUsesMeters: true
+  - id: core-resolution
+    version: 2.0.0
+    config: {}
 random_distributions:
   - id: moon-shell-viz-yield
     description: 每次满月的月贝 Viz 产量。
@@ -67,3 +66,84 @@ ratings:
   - { id: command, name: 统率, min: -3, max: 8 }
   - { id: magic, name: 魔法, min: -3, max: 8 }
   - { id: seamanship, name: 航海, min: -3, max: 8 }
+impact_profiles:
+  - id: harm
+    name: 伤害
+    meter_definition_id: vitality
+    direction: decrease
+    amounts: { none: 0, minor: 2, standard: 5, major: 10, decisive: 30 }
+  - id: recovery
+    name: 恢复
+    meter_definition_id: vitality
+    direction: increase
+    amounts: { none: 0, minor: 2, standard: 5, major: 10, decisive: 30 }
+duration_profiles:
+  - { id: brief, name: 短暂, kind: uses, uses: 1 }
+  - { id: scene, name: 当前场景, kind: uses, uses: 3 }
+  - { id: one-hour, name: 一小时, kind: elapsed, seconds: 3600 }
+  - { id: ongoing, name: 持续至解除, kind: until_cleared }
+condition_profiles:
+  - id: obscured-vision
+    name: 视线受阻
+    stacking_key: obscured-vision
+    default_duration_profile_id: brief
+    recurring_impact_profile_id: null
+    recovery: 清理眼睛、等待沙尘散去或离开遮蔽物。
+    thresholds: []
+  - id: burning
+    name: 燃烧
+    stacking_key: burning
+    default_duration_profile_id: scene
+    recurring_impact_profile_id: harm
+    recovery: 扑灭火焰、浸水或得到他人协助。
+    thresholds:
+      - { at: major, description: 火势已足以迅速危及生命与装备。 }
+  - id: terrified
+    name: 恐惧
+    stacking_key: terrified
+    default_duration_profile_id: scene
+    recurring_impact_profile_id: null
+    recovery: 脱离威胁并恢复镇定。
+    thresholds: []
+  - id: publicly-discredited
+    name: 公开失信
+    stacking_key: publicly-discredited
+    default_duration_profile_id: ongoing
+    recurring_impact_profile_id: null
+    recovery: 提供可信证据、赔偿或公开挽回声誉。
+    thresholds: []
+entity_mechanics_profiles:
+  - id: harbor-wayfarer
+    name: 港口旅人
+    meters:
+      - { definition_id: vitality, current: 30 }
+    quantities:
+      - { definition_id: coin, amount: 20 }
+      - { definition_id: provisions, amount: 3 }
+      - { definition_id: viz, amount: 0 }
+    ratings:
+      - { definition_id: force, value: 1 }
+      - { definition_id: finesse, value: 1 }
+      - { definition_id: resolve, value: 1 }
+      - { definition_id: insight, value: 1 }
+      - { definition_id: influence, value: 1 }
+      - { definition_id: craft, value: 1 }
+      - { definition_id: wilderness, value: 1 }
+      - { definition_id: command, value: 0 }
+      - { definition_id: magic, value: 0 }
+      - { definition_id: seamanship, value: 0 }
+adjudication_calibrations:
+  - { id: club-strike, situation: 用临时木棒击打一名普通人。, difficulty: opposed, risk: risky, effect: minor, explanation: 木棒能造成真实伤害，但缺少锋刃与专门构造。 }
+  - { id: sword-strike, situation: 用手中的普通剑攻击一名普通人。, difficulty: opposed, risk: risky, effect: standard, explanation: 剑是有因果依据的有效杀伤手段，不要求 Weapon 类型。 }
+  - { id: enchanted-warhammer, situation: 用矮人附魔战锤正面攻击披甲目标。, difficulty: opposed, risk: risky, effect: major, explanation: 作者明确的附魔与破甲能力为可信 potency 覆盖。 }
+  - { id: lethal-holy-sword, situation: 让致命圣剑接触曾经触碰过它的人。, difficulty: opposed, risk: dire, effect: decisive, explanation: 圣剑的接触史法则决定致命效果，且其隐藏代价使风险极高。 }
+  - { id: flaming-sword, situation: 用缠绕火焰的剑攻击未着火的目标。, difficulty: opposed, risk: risky, effect: standard, explanation: 主要效果为 standard 伤害，火焰只作为 minor burning 次要效果。 }
+  - { id: armored-target, situation: 用普通剑劈砍穿着完好重甲的目标。, difficulty: opposed, risk: risky, effect: minor, explanation: 护甲仅在 physical-harm 通道承担 protection，不重复提高命中难度。 }
+  - { id: sand-present, situation: 从脚下沙地抓沙撒向近处敌人的眼睛。, difficulty: opposed, risk: risky, effect: standard, explanation: 地面沙土是 canonical 临时 means，成功制造 obscured-vision。 }
+  - { id: sand-absent, situation: 在干净石室里凭空抓沙撒向敌人。, difficulty: blocked, risk: safe, effect: none, explanation: 没有 Entity、Fact、Condition、位置或法则支持这种手段。 }
+  - { id: field-healing, situation: 用干净绷带和草药处理一处严重伤口。, difficulty: challenging, risk: risky, effect: standard, explanation: 治疗使用 recovery profile，失败威胁可为感染或资源消耗。 }
+  - { id: pick-lock, situation: 用合适工具撬开结构良好的普通锁。, difficulty: challenging, risk: risky, effect: standard, explanation: 结果改变通行权限而非造成伤害。 }
+  - { id: foot-chase, situation: 在拥挤港区追上体能相近的逃跑者。, difficulty: opposed, risk: risky, effect: standard, explanation: 追逐使用相关 Rating 对抗并产生位置或状态效果。 }
+  - { id: persuasion, situation: 用可信证据说服中立守卫提供有限协助。, difficulty: opposed, risk: risky, effect: standard, explanation: 证据提供 permission 或 control，但 number Fact 不成为 modifier。 }
+  - { id: fair-trade, situation: 按双方同意的明确价格购买三日口粮。, difficulty: automatic, risk: safe, effect: standard, explanation: 数量来自明确行动金额与既有库存，交易无需随机检定。 }
+  - { id: long-project, situation: 花费数日组织工匠修复港口防波堤的一阶段。, difficulty: hard, risk: risky, effect: standard, explanation: 效果可表现为自由语义进度状态，后续剧本可提供专用 profile。 }

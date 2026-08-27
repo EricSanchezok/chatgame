@@ -76,6 +76,23 @@ export function projectAgentSelfState(state: SimulationState, agent: AgentState)
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name)),
+    conditions: Object.values(state.truth.conditions)
+      .filter((condition) => condition.subjectId === agent.entityId)
+      .filter((condition) => condition.access.kind === "public" ||
+        (condition.access.kind === "agents" && condition.access.agentIds.includes(agent.id)))
+      .map((condition) => ({
+        id: condition.id,
+        label: condition.label,
+        description: condition.description,
+        magnitude: condition.magnitude,
+        durationProfileId: condition.durationProfileId,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    resolutionReceipts: state.history
+      .flatMap((step) => step.resolutionReceipts)
+      .filter((receipt) => receipt.plan.visibility !== "hidden")
+      .filter((receipt) => receipt.plan.actorId === agent.entityId || receipt.plan.targetIds.includes(agent.entityId))
+      .map((receipt) => structuredClone(receipt)),
     facts,
   };
 }

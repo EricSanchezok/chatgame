@@ -398,7 +398,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v13",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v14",
       );
       const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
@@ -566,7 +566,7 @@ export class WorldHost {
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 13,
+      schemaVersion: 14,
       id,
       world: toWorldRuntimeContract(definition),
       title: input.title?.trim() || definition.name,
@@ -609,6 +609,8 @@ export class WorldHost {
         let agentId: string;
         do agentId = `${origin.id}-${ordinal++}`; while (initial.state.agents[agentId]);
         const agent = agentStateFromOrigin(initial.state, origin, agentId, displayName, appearance, motivation);
+        const mechanicsProfile = initial.state.truth.mechanics.entityMechanicsProfiles[origin.mechanicsProfileId];
+        if (!mechanicsProfile) throw new WorldHostError("origin mechanics profile is unavailable", 500);
         const admitted = this.committer.admit(initial.state, {
           entity: {
             id: agentId,
@@ -620,12 +622,26 @@ export class WorldHost {
           },
           placementId: origin.spawnEntityId,
           agent,
-          quantities: origin.resources.map((resource) => ({
-            id: quantityId(initial.state.worldHash, resource.definitionId, agentId),
-            definitionId: resource.definitionId,
-            holderId: agentId,
-            amount: resource.amount,
+          meters: mechanicsProfile.meters.map((entry) => ({
+            id: `${agentId}-${entry.definitionId}`,
+            definitionId: entry.definitionId,
+            entityId: agentId,
+            current: entry.current,
+            firedThresholdIds: [],
           })),
+          quantities: mechanicsProfile.quantities.map((entry) => ({
+            id: quantityId(initial.state.worldHash, entry.definitionId, agentId),
+            definitionId: entry.definitionId,
+            holderId: agentId,
+            amount: entry.amount,
+          })),
+          ratings: mechanicsProfile.ratings.map((entry) => ({
+            id: `${agentId}-${entry.definitionId}`,
+            definitionId: entry.definitionId,
+            entityId: agentId,
+            value: entry.value,
+          })),
+          conditions: [],
         });
         initial.state = admitted.state;
         initial.policyBindings = policyRoster(initial.state);

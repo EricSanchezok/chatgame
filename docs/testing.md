@@ -5,7 +5,7 @@ Tests are executable evidence that a meaningful regression becomes visible befor
 ## Test topology
 
 - Vitest tests are colocated as `src/**/__tests__/*.test.ts`, `src/**/*.test.tsx`, and focused library tests under `src/app/_lib/__tests__/`; `vitest.config.ts` selects the unit project and `test/setup.ts` owns shared jsdom setup.
-- `test/fixtures/open-world-script/` is the shared schema v9 world fixture. It proves the generic contract and is not built-in playable content.
+- `test/fixtures/open-world-script/` is the shared schema v10 world fixture. It proves the generic contract and is not built-in playable content.
 - Playwright flows live under `e2e/flows/`, accessibility coverage under `e2e/a11y/`, shared support under `e2e/support/`, and platform-specific visual baselines beside the owning visual flow. `playwright.config.ts` selects the e2e and a11y projects.
 - `worlds/blackmarsh/` is the real reference-world entry used for structural and live compatibility checks.
 
@@ -37,7 +37,7 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 
 - A headless world supports single-step, ten-step batch, realtime start/pause, and restart recovery. Scheduler tests use a fake clock to prove no reentry, no offline backlog, generation fencing, and scheduling only after the prior commit.
 - ActionWindow uses internal two-Participant tests for collection, idempotent retry, conflicting submissions, deadline noops, disconnect, and revision CAS; the product UI still allows one active Principal.
-- Origin tests prove opening the dialog does not change the URL, cancellation leaves no orphan instance, and confirmation produces deterministic identity, spawn point, resources, persona, goal, and display customization.
+- Origin tests prove opening the dialog does not change the URL, cancellation leaves no orphan instance, and confirmation produces deterministic identity, spawn point, complete Mechanics Profile state, persona, goal, and display customization.
 - Arrival tests prove it is the first persisted World message, reads only the authorized perspective, returns three suggestions without submitting them, falls back deterministically on failure, records complete Ledger evidence, and leaves semantic/state hashes unchanged.
 - Participant-session tests prove one natural-language submission creates one advance, moves at most one step, and preserves the same message projection through refresh, retry, failure, and restart. Participant composer never exposes batch or realtime controls.
 - Observer tests verify per-Agent projections of actions, Observations, character, and belief, and search for canonical bindings or another Agent's private state. Takeover, exit, and direct switch restore model policy in one revision CAS.

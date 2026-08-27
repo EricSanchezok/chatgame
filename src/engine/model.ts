@@ -1,4 +1,14 @@
 import type { ModelInferenceConfig } from "./model-catalog";
+import type {
+  AdjudicationCalibration,
+  ConditionProfileDefinition,
+  ConditionState,
+  DurationProfileDefinition,
+  EntityMechanicsProfileDefinition,
+  ImpactProfileDefinition,
+  ResolutionPlan,
+  ResolutionReceipt,
+} from "./resolution";
 
 export type EntityId = string;
 export type AgentId = string;
@@ -124,6 +134,11 @@ export interface MechanicsCatalog {
   meters: Record<string, MeterDefinition>;
   quantities: Record<string, QuantityDefinition>;
   ratings: Record<string, RatingDefinition>;
+  impactProfiles: Record<string, ImpactProfileDefinition>;
+  durationProfiles: Record<string, DurationProfileDefinition>;
+  conditionProfiles: Record<string, ConditionProfileDefinition>;
+  entityMechanicsProfiles: Record<string, EntityMechanicsProfileDefinition>;
+  adjudicationCalibrations: AdjudicationCalibration[];
 }
 
 export type DiscreteRandomValue = string | number | boolean | null;
@@ -180,6 +195,7 @@ export interface CanonicalWorldState {
   meters: Record<string, MeterState>;
   quantities: Record<string, QuantityState>;
   ratings: Record<string, RatingState>;
+  conditions: Record<string, ConditionState>;
 }
 
 export interface HistoryReplayBase {
@@ -382,6 +398,14 @@ export interface AgentSelfStateView {
     min: number;
     max: number;
   }>;
+  conditions: Array<{
+    id: string;
+    label: string;
+    description: string;
+    magnitude: import("./resolution").MagnitudeBand;
+    durationProfileId: string;
+  }>;
+  resolutionReceipts: ResolutionReceipt[];
   facts: Array<{
     predicate: string;
     value: BeliefValue;
@@ -421,14 +445,17 @@ export interface AgentAdmissionCommit {
   entity: WorldEntity;
   placementId: EntityId | null;
   agent: AgentState;
+  meters: MeterState[];
   quantities: QuantityState[];
+  ratings: RatingState[];
+  conditions: ConditionState[];
   invalidatedActionIds: string[];
 }
 
 export type WorldEventDraft = Omit<WorldEvent, "step">;
 
 export interface SimulationState {
-  schemaVersion: 9;
+  schemaVersion: 10;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -927,6 +954,8 @@ export interface CommittedStep {
   actions: AgentActionProposal[];
   rngBefore: SeededRngState;
   rngAfter: SeededRngState;
+  resolutionPlans: ResolutionPlan[];
+  resolutionReceipts: ResolutionReceipt[];
   checkRequests: D20CheckRequest[];
   checks: D20CheckResult[];
   randomRequests: DiscreteRandomRequest[];

@@ -11,6 +11,5 @@ origins:
       - 守门人可能知道石门的秘密。
     risks:
       - 仓促的行动可能引起守门人的警觉。
-    resources:
-      - { definition_id: spirit-stone, amount: 1 }
+    mechanics_profile_id: wanderer
     fallback_arrival: 你站在石门内侧的庭院中。风穿过门缝，守门人正留意着周围的动静。

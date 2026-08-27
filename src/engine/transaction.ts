@@ -35,6 +35,7 @@ import {
   actionProposalSchema,
   agentStateSchema,
   commitmentRoundsSchema,
+  conditionStateSchema,
   discreteRandomRequestSchema,
   discreteRandomResultSchema,
   d20CheckResultSchema,
@@ -47,6 +48,7 @@ import {
   ratingSchema,
 } from "./state-schemas";
 import { isRuntimeId, quantityId, runtimeId } from "./runtime-id";
+import { validateImpactProfile } from "./resolution";
 
 function assertExactKeys(value: object, required: readonly string[], optional: readonly string[] = [], label = "object"): void {
   const keys = Object.keys(value);
@@ -330,7 +332,10 @@ function validateAdmissionShape(commit: AgentAdmissionCommit): void {
   if (commit.executionRef) validateExecutionRef(commit.executionRef, `Agent admission ${commit.revision} executionRef`);
   entitySchema.parse(commit.entity);
   agentStateSchema.parse(commit.agent);
+  commit.meters.forEach((meter) => meterSchema.parse(meter));
   commit.quantities.forEach((quantity) => quantityStateSchema.parse(quantity));
+  commit.ratings.forEach((rating) => ratingSchema.parse(rating));
+  commit.conditions.forEach((condition) => conditionStateSchema.parse(condition));
 }
 
 export function applyAdmissionCommit(state: SimulationState, input: Readonly<AgentAdmissionCommit>): void {
@@ -360,6 +365,13 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
   state.truth.entities[commit.entity.id] = structuredClone(commit.entity);
   state.truth.placements[commit.entity.id] = commit.placementId;
   state.agents[commit.agent.id] = structuredClone(commit.agent);
+  for (const meter of commit.meters) {
+    if (meter.entityId !== commit.entity.id || state.truth.meters[meter.id]) {
+      throw new Error(`Agent admission has invalid meter ${meter.id}`);
+    }
+    validateMeter(state, meter);
+    state.truth.meters[meter.id] = structuredClone(meter);
+  }
   for (const quantity of commit.quantities) {
     const expectedId = quantityId(state.worldHash, quantity.definitionId, commit.entity.id);
     if (quantity.id !== expectedId || quantity.holderId !== commit.entity.id ||
@@ -367,6 +379,20 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
       throw new Error(`Agent admission has invalid quantity ${quantity.id}`);
     }
     state.truth.quantities[quantity.id] = structuredClone(quantity);
+  }
+  for (const rating of commit.ratings) {
+    const definition = state.truth.mechanics.ratings[rating.definitionId];
+    if (rating.entityId !== commit.entity.id || state.truth.ratings[rating.id] || !definition ||
+      rating.value < definition.min || rating.value > definition.max) {
+      throw new Error(`Agent admission has invalid rating ${rating.id}`);
+    }
+    state.truth.ratings[rating.id] = structuredClone(rating);
+  }
+  for (const condition of commit.conditions) {
+    if (condition.subjectId !== commit.entity.id || state.truth.conditions[condition.id]) {
+      throw new Error(`Agent admission has invalid condition ${condition.id}`);
+    }
+    state.truth.conditions[condition.id] = structuredClone(condition);
   }
   state.revision = commit.revision;
   state.admissions.push(commit);
@@ -419,7 +445,7 @@ export function replaySimulationState(
     return structuredClone(state);
   }
   const replay: SimulationState = {
-    schemaVersion: 9,
+    schemaVersion: 10,
     worldId: state.worldId,
     worldHash: state.worldHash,
     lawIds: structuredClone(state.lawIds),
@@ -552,12 +578,78 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents", "admissions", "history",
     "bootstrapAgentCommits",
   ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
-  if (state.schemaVersion !== 9 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 10 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
   if (!Number.isSafeInteger(state.revision) || state.revision < 0 || !Number.isSafeInteger(state.step) || state.step < 0 ||
     !Number.isSafeInteger(state.truth.elapsedSeconds) || state.truth.elapsedSeconds < 0) throw new Error("invalid world clock");
+  assertExactKeys(state.truth, [
+    "elapsedSeconds", "rng", "events", "entities", "placements", "facts", "factTombstones", "mechanics",
+    "meters", "quantities", "ratings", "conditions",
+  ], [], "canonical truth");
+  assertExactKeys(state.truth.mechanics, [
+    "meters", "quantities", "ratings", "impactProfiles", "durationProfiles", "conditionProfiles",
+    "entityMechanicsProfiles", "adjudicationCalibrations",
+  ], [], "mechanics catalog");
+  for (const [id, definition] of Object.entries(state.truth.mechanics.meters)) {
+    if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
+      !Number.isFinite(definition.max) || definition.max <= definition.min) throw new Error(`invalid meter definition ${id}`);
+  }
+  for (const [id, definition] of Object.entries(state.truth.mechanics.quantities)) {
+    if (definition.id !== id || !definition.name.trim() || !definition.unit.trim()) throw new Error(`invalid quantity definition ${id}`);
+  }
+  for (const [id, definition] of Object.entries(state.truth.mechanics.ratings)) {
+    if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
+      !Number.isFinite(definition.max) || definition.max < definition.min) throw new Error(`invalid rating definition ${id}`);
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.impactProfiles)) {
+    if (profile.id !== id || !state.truth.mechanics.meters[profile.meterDefinitionId]) {
+      throw new Error(`invalid impact profile ${id}`);
+    }
+    validateImpactProfile(profile);
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.durationProfiles)) {
+    if (profile.id !== id || !profile.name.trim() ||
+      (profile.kind === "uses" && (!Number.isSafeInteger(profile.uses) || profile.uses <= 0)) ||
+      (profile.kind === "elapsed" && (!Number.isSafeInteger(profile.seconds) || profile.seconds <= 0))) {
+      throw new Error(`invalid duration profile ${id}`);
+    }
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.conditionProfiles)) {
+    if (profile.id !== id || !state.truth.mechanics.durationProfiles[profile.defaultDurationProfileId] ||
+      (profile.recurringImpactProfileId !== null && !state.truth.mechanics.impactProfiles[profile.recurringImpactProfileId])) {
+      throw new Error(`invalid condition profile ${id}`);
+    }
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.entityMechanicsProfiles)) {
+    if (profile.id !== id || !profile.name.trim()) throw new Error(`invalid entity mechanics profile ${id}`);
+    const refs = [
+      ...profile.meters.map((entry) => `meter:${entry.definitionId}`),
+      ...profile.quantities.map((entry) => `quantity:${entry.definitionId}`),
+      ...profile.ratings.map((entry) => `rating:${entry.definitionId}`),
+    ];
+    assertUnique(refs, `entity mechanics profile ${id}`);
+    for (const entry of profile.meters) {
+      const definition = state.truth.mechanics.meters[entry.definitionId];
+      if (!definition || entry.current < definition.min || entry.current > definition.max) {
+        throw new Error(`invalid entity mechanics profile ${id} meter ${entry.definitionId}`);
+      }
+    }
+    for (const entry of profile.quantities) {
+      if (!state.truth.mechanics.quantities[entry.definitionId] || !Number.isFinite(entry.amount) || entry.amount < 0) {
+        throw new Error(`invalid entity mechanics profile ${id} quantity ${entry.definitionId}`);
+      }
+    }
+    for (const entry of profile.ratings) {
+      const definition = state.truth.mechanics.ratings[entry.definitionId];
+      if (!definition || entry.value < definition.min || entry.value > definition.max) {
+        throw new Error(`invalid entity mechanics profile ${id} rating ${entry.definitionId}`);
+      }
+    }
+  }
+  const calibrationIds = state.truth.mechanics.adjudicationCalibrations.map((entry) => entry.id);
+  assertUnique(calibrationIds, "adjudication calibrations");
   assertUnique(state.lawIds, "world laws");
   validatePlacementCycles(state);
   for (const [id, entity] of Object.entries(state.truth.entities)) {
@@ -589,6 +681,14 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     const definition = state.truth.mechanics.ratings[rating.definitionId];
     if (rating.id !== id || !definition || !state.truth.entities[rating.entityId] ||
       rating.value < definition.min || rating.value > definition.max) throw new Error(`invalid rating ${id}`);
+  }
+  for (const [id, condition] of Object.entries(state.truth.conditions)) {
+    conditionStateSchema.parse(condition);
+    if (condition.id !== id || !state.truth.entities[condition.subjectId] ||
+      !state.truth.mechanics.durationProfiles[condition.durationProfileId] ||
+      (condition.conditionProfileId !== null && !state.truth.mechanics.conditionProfiles[condition.conditionProfileId])) {
+      throw new Error(`invalid condition ${id}`);
+    }
   }
   const ownedEntities = new Set<string>();
   const actionIds = new Set<string>();

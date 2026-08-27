@@ -72,7 +72,7 @@ function oversizedDeclaredArchive(): Buffer {
 }
 
 describe("world import", () => {
-  it("atomically imports one validated schema v9 world", () => {
+  it("atomically imports one validated schema v10 world", () => {
     const root = temporaryRoot();
     const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
     const result = database.importWorld(zipDirectory(fixture).toBuffer(), modelCatalog);
@@ -96,13 +96,13 @@ describe("world import", () => {
     const root = temporaryRoot();
     const archive = zipDirectory(fixture);
     const mechanics = readFileSync(path.join(fixture, "mechanics.yaml"), "utf8")
-      .replace("core-d20", "test-rules")
-      .replace("version: 1.1.0", "version: 1.0.0");
+      .replace("core-resolution", "test-rules")
+      .replace("version: 2.0.0", "version: 1.0.0");
     archive.updateFile("world/mechanics.yaml", Buffer.from(mechanics));
     const rulePackages = new RulePackageRegistry([{
       id: "test-rules",
       version: "1.0.0",
-      configSchema: z.strictObject({ damageUsesMeters: z.boolean() }),
+      configSchema: z.strictObject({}),
       adjudication: "测试规则目录。",
       rules: [],
     }]);

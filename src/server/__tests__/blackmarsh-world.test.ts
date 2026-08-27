@@ -192,11 +192,17 @@ describe("Blackmarsh reference world", () => {
     expect(definition).toMatchObject({
       id: "blackmarsh",
       manifestVersion: "1.1.0",
-      rulePackages: [expect.objectContaining({ id: "core-d20", version: "1.1.0" })],
+      rulePackages: [expect.objectContaining({ id: "core-resolution", version: "2.0.0" })],
     });
     expect(definition.description).toContain("Robert Conley");
     expect(definition.description).toContain("batintheattic.blogspot.com");
     expect(definition.description).toContain("creativecommons.org/licenses/by/4.0");
+    expect(truth.mechanics.impactProfiles.harm.amounts).toEqual({
+      none: 0, minor: 2, standard: 5, major: 10, decisive: 30,
+    });
+    expect(truth.mechanics.adjudicationCalibrations.map((entry) => entry.id)).toEqual(
+      expect.arrayContaining(["club-strike", "sword-strike", "flaming-sword", "sand-present", "sand-absent", "fair-trade"]),
+    );
 
     expect(Object.keys(definition.initialState.agents).sort()).toEqual([...agentIds].sort());
     for (const agent of Object.values(definition.initialState.agents)) {

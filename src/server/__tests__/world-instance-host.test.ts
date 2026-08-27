@@ -96,8 +96,23 @@ describe("World Instance host", () => {
         response: { suggestions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(13);
+      expect(stored.schemaVersion).toBe(14);
       expect(stored.state.admissions).toHaveLength(1);
+      expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
+        entityId: "courtyard-wanderer-1",
+        definitionId: "health",
+        current: 20,
+      }));
+      expect(Object.values(stored.state.truth.ratings)).toContainEqual(expect.objectContaining({
+        entityId: "courtyard-wanderer-1",
+        definitionId: "resolve",
+        value: 1,
+      }));
+      expect(Object.values(stored.state.truth.quantities)).toContainEqual(expect.objectContaining({
+        holderId: "courtyard-wanderer-1",
+        definitionId: "spirit-stone",
+        amount: 1,
+      }));
       expect(stored.participants[created.participants[0].id].arrival.scene).toBeTruthy();
       expect(stored.policyBindings["courtyard-wanderer-1"]).toMatchObject({ kind: "external" });
     } finally {
@@ -232,8 +247,8 @@ describe("World Instance host", () => {
       const created = await host.createInstance(observerStart);
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
-      (legacy as unknown as { schemaVersion: number }).schemaVersion = 12;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v13 required");
+      (legacy as unknown as { schemaVersion: number }).schemaVersion = 13;
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v14 required");
 
       const invalidPolicy = structuredClone(source);
       (invalidPolicy.policyBindings.player as { kind: string }).kind = "unknown";
