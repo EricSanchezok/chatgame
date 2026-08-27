@@ -228,6 +228,40 @@ describe("World Instance host", () => {
     }
   }, 30_000);
 
+  it("detaches at an open external decision boundary without mutating world time", async () => {
+    const { database, host } = harness();
+    try {
+      const created = await host.createInstance(originStart);
+      const participant = created.participants[0];
+      await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "act-before-detach",
+        expectedRevision: created.summary.revision,
+        text: "我确认当前位置。",
+      });
+      const committed = await waitForRevision(host, created.summary.id, created.summary.revision + 1);
+      expect(committed.actionWindow).not.toBeNull();
+      expect(committed.run).toMatchObject({ status: "awaiting-decision" });
+      const elapsedSeconds = committed.summary.elapsedSeconds;
+
+      const detached = await host.transferControl(committed.summary.id, {
+        expectedRevision: committed.summary.revision,
+        target: { kind: "observer" },
+      });
+
+      expect(detached.controlledView).toBeUndefined();
+      expect(detached.actionWindow).toBeNull();
+      expect(detached.summary).toMatchObject({
+        revision: committed.summary.revision,
+        elapsedSeconds,
+      });
+      expect(detached.run).toMatchObject({ status: "completed", stopReason: "control-transferred" });
+      expect(host.observer(created.summary.id).agents.map((agent) => agent.id)).toContain("keeper");
+      validateWorldInstanceDocument(database.readInstance(created.summary.id).document);
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
   it("fences stale realtime callbacks and schedules only after commit", async () => {
     let now = new Date("2026-08-27T00:00:00.000Z");
     let timerId = 0;

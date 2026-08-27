@@ -1406,7 +1406,9 @@ export class WorldHost {
       if (input.expectedRevision !== document.state.revision) {
         throw new WorldHostError("world revision changed", 409);
       }
-      if (document.actionWindow || ["queued", "running", "pausing"].includes(currentRun(document)?.status ?? "")) {
+      const activeRun = currentRun(document);
+      if (["queued", "running", "pausing"].includes(activeRun?.status ?? "") ||
+        (document.actionWindow && document.actionWindow.status !== "open")) {
         throw new WorldHostError("control can change only at a committed revision boundary", 409);
       }
       const current = activeParticipants(document)
@@ -1414,6 +1416,34 @@ export class WorldHost {
       if (input.target.kind === "agent" && current?.agentId === input.target.agentId) {
         return this.project(document, principalId);
       }
+      const reconcileActionWindow = (): string | null => {
+        const window = document.actionWindow;
+        if (!window) return null;
+        const requiredAgentIds = externalDecisionAgentIds(document);
+        if (requiredAgentIds.length === 0) {
+          document.actionWindow = null;
+          if (activeRun?.status === "awaiting-decision") {
+            activeRun.status = "completed";
+            activeRun.stopReason = "control-transferred";
+            activeRun.updatedAt = this.now().toISOString();
+          }
+          return null;
+        }
+        window.requiredAgentIds = requiredAgentIds;
+        window.submissions = Object.fromEntries(Object.entries(window.submissions)
+          .filter(([agentId]) => requiredAgentIds.includes(agentId)));
+        window.generation += 1;
+        const complete = requiredAgentIds.every((agentId) => window.submissions[agentId]);
+        if (!complete || activeRun?.status !== "awaiting-decision") return null;
+        window.status = "resolving";
+        activeRun.rootIntents = requiredAgentIds.map((agentId) => structuredClone(window.submissions[agentId]!));
+        activeRun.status = "queued";
+        activeRun.stopReason = null;
+        activeRun.lease = null;
+        activeRun.generation += 1;
+        activeRun.updatedAt = this.now().toISOString();
+        return activeRun.id;
+      };
       if (current) {
         current.status = "released";
         current.updatedAt = this.now().toISOString();
@@ -1426,8 +1456,11 @@ export class WorldHost {
         };
       }
       if (input.target.kind === "observer") {
+        const runToSchedule = reconcileActionWindow();
         document.updatedAt = this.now().toISOString();
-        return this.project(this.persist(stored, document).document, principalId);
+        const persisted = this.persist(stored, document).document;
+        if (runToSchedule) this.scheduleRun(instanceId, runToSchedule);
+        return this.project(persisted, principalId);
       }
       const agentId = input.target.agentId;
       const agent = document.state.agents[agentId];
@@ -1466,6 +1499,7 @@ export class WorldHost {
         arrival: fallback,
       };
       document.policyBindings[agentId] = { kind: "external", agentId, participantId };
+      const runToSchedule = reconcileActionWindow();
       document.scheduler.mode = "paused";
       document.scheduler.generation += 1;
       document.scheduler.nextTickAt = null;
@@ -1479,7 +1513,9 @@ export class WorldHost {
         generated: arrival.generated,
       };
       document.updatedAt = this.now().toISOString();
-      return this.project(this.persist(stored, document).document, principalId);
+      const persisted = this.persist(stored, document).document;
+      if (runToSchedule) this.scheduleRun(instanceId, runToSchedule);
+      return this.project(persisted, principalId);
     });
   }
 
