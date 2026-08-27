@@ -14,7 +14,7 @@ import type {
   WorldStepCandidate,
   WorldStepInput,
 } from "./execution";
-import { actionGroundingSchema } from "./llm-schemas";
+import { actionGroundingSchema, temporalPlanDraftSchema } from "./llm-schemas";
 import type { AgentMindOutput } from "./llm-schemas";
 import type {
   AgentActionProposal,
@@ -35,6 +35,7 @@ import {
   modelInvocationIdentity,
   setModelInvocationOutcome,
   setModelInvocationResultKind,
+  combineModelExecutionAudits,
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "./model-provider";
@@ -45,8 +46,20 @@ import { quantityId, runtimeId } from "./runtime-id";
 import { projectAgentSelfState } from "./self-state";
 import { applyTransitionProposal } from "./transaction";
 import { TruthEngine, type TruthResolution } from "./truth-engine";
+import {
+  createActivity,
+  advanceTemporalState,
+  materializeTemporalPlan,
+  selectTemporalBoundary,
+  validateActivityResources,
+  type ActivityState,
+  type TemporalAdvanceResult,
+  type TemporalBoundary,
+  type TemporalPlan,
+} from "./temporal";
 
 const groundingComponent = { id: "action-grounding", version: "1", config: { repairAttempts: 2 } } as const;
+const temporalComponent = { id: "temporal-planner", version: "1", config: { repairAttempts: 2 } } as const;
 const truthComponent = { id: "truth-conflict-component", version: "1", config: { fallback: "global" } } as const;
 const mindComponent = {
   id: "agent-mind",
@@ -55,7 +68,7 @@ const mindComponent = {
 } as const;
 const manifestBody = {
   id: "eager-reference",
-  version: "1",
+  version: "2",
   config: {
     activation: "all-model-agents",
     grounding: "per-action",
@@ -63,7 +76,7 @@ const manifestBody = {
     observation: "component-bounded",
     mindUpdate: "all-model-agents",
   },
-  components: [groundingComponent, truthComponent, mindComponent].map((component) => ({
+  components: [temporalComponent, groundingComponent, truthComponent, mindComponent].map((component) => ({
     ...component,
     hash: contentHash(component),
   })),
@@ -81,6 +94,139 @@ const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。�
 行动与 actor 身份由调用槽位固定，不要输出。只输出 schema 指定的 JSON。`;
 
 const GROUNDING_PROMPT_VERSION = "action-grounding-v1";
+
+const TEMPORAL_PLANNER_SYSTEM = `你是 Living World Engine 的语义时间计划器。你只能为给定行动选择剧本列出的一个 temporal profile，并说明选择依据。
+
+禁止直接估算、发明或填写任意世界时间。profile basis 不包含秒数；只有当玩家原文明确写出时长时才可使用 explicit_duration，并逐字引用 sourceText。只有当玩家原文明确写出 profile 对应单位的数量时才可使用 explicit_quantity，并逐字引用 sourceText。引擎会独立解析原文并拒绝不一致数值。
+不得创建 ID，不得输出状态 delta，不得把未来完成效果写入计划。causes 必须只引用当前行动。只输出 schema 指定的 JSON。`;
+
+const TEMPORAL_PLANNER_PROMPT_VERSION = "temporal-plan-v1";
+
+function temporalPlannerContext(
+  state: Readonly<SimulationState>,
+  action: AgentActionProposal,
+  issues: readonly string[],
+): unknown {
+  return {
+    contractVersion: 1,
+    temporalAction: structuredClone(action),
+    currentElapsedSeconds: state.truth.elapsedSeconds,
+    temporalProfiles: Object.values(state.truth.mechanics.temporalProfiles)
+      .map((profile) => structuredClone(profile))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    temporalCalibrations: structuredClone(state.truth.mechanics.temporalCalibrations)
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    existingActivities: Object.values(state.truth.activities)
+      .filter((activity) => activity.participantAgentIds.includes(action.actorId) &&
+        (activity.status === "active" || activity.status === "paused"))
+      .map(({ id, status, plan, progress }) => ({
+        id,
+        status,
+        profileId: plan.profileId,
+        description: plan.description,
+        progress,
+      })),
+    validationIssues: issues,
+  };
+}
+
+async function generateTemporalActivity(
+  provider: StructuredModelProvider,
+  state: Readonly<SimulationState>,
+  action: AgentActionProposal,
+  scope: ModelExecutionScope,
+  profileId: string,
+): Promise<{ plan: TemporalPlan; activity: ActivityState; audit: ModelExecutionAudit }> {
+  const audits: ModelExecutionAudit[] = [];
+  let issues: string[] = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const identity = modelInvocationIdentity(scope, "temporal-planner", action.actorId, attempt + 1);
+    try {
+      const generated = await provider.generateStructured({
+        profileId,
+        workloadId: scope.workloadId,
+        batchId: scope.batchId,
+        abortSignal: scope.abortSignal,
+        correlation: scope.correlation,
+        observer: scope.observer,
+        ...identity,
+        role: "temporal-planner",
+        subjectId: action.actorId,
+        promptVersion: TEMPORAL_PLANNER_PROMPT_VERSION,
+        schemaName: "temporal_plan",
+        system: TEMPORAL_PLANNER_SYSTEM,
+        context: temporalPlannerContext(state, action, issues),
+        schema: temporalPlanDraftSchema,
+      });
+      audits.push(generated.audit);
+      const plan = materializeTemporalPlan({
+        id: runtimeId({
+          worldHash: state.worldHash,
+          revision: state.revision,
+          kind: "temporal-plan",
+          stage: "action-plan",
+          owner: action.id,
+          round: 0,
+          ordinal: 0,
+        }),
+        actionId: action.id,
+        actorId: action.actorId,
+        rawText: action.rawText,
+        startsAtSeconds: state.truth.elapsedSeconds,
+        draft: {
+          ...structuredClone(generated.value),
+          causes: [{ kind: "action", id: action.id }],
+        },
+        profiles: state.truth.mechanics.temporalProfiles,
+      });
+      const activity = createActivity({
+        id: runtimeId({
+          worldHash: state.worldHash,
+          revision: state.revision,
+          kind: "activity",
+          stage: "action-plan",
+          owner: action.id,
+          round: 0,
+          ordinal: 0,
+        }),
+        plan,
+        sourceAction: action,
+      });
+      setModelInvocationResultKind(generated.audit, "temporal_plan");
+      setModelInvocationOutcome(generated.audit, "accepted");
+      return { plan, activity, audit: combineModelExecutionAudits(audits) };
+    } catch (error) {
+      if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
+      issues = [error instanceof Error ? error.message : String(error)];
+      const last = audits.at(-1);
+      if (last?.invocations.length) setModelInvocationOutcome(last, "rejected", ["invalid_temporal_plan"]);
+      contextlessEmit(scope, action, identity, issues[0]!);
+      if (attempt === 2) {
+        throw new ModelSemanticRepairError(
+          "temporal-planner",
+          `temporal planning failed after repairs for ${action.actorId}: ${issues[0]}`,
+          { cause: error, audit: audits.length > 0 ? combineModelExecutionAudits(audits) : undefined },
+        );
+      }
+    }
+  }
+  throw new Error("unreachable temporal planning loop");
+}
+
+function contextlessEmit(
+  scope: ModelExecutionScope,
+  action: AgentActionProposal,
+  identity: ReturnType<typeof modelInvocationIdentity>,
+  message: string,
+): void {
+  scope.observer?.emit({
+    event: "model.semantic.rejected",
+    level: "warn",
+    correlation: modelInvocationCorrelation(scope, "temporal-planner", action.actorId, identity),
+    attributes: { resultKind: "temporal_plan" },
+    error: { name: "TemporalPlanError", message },
+  });
+}
 
 function observationsFor(packets: readonly ObservationPacket[], observerId: string): ObservationPacket[] {
   return packets.filter((packet) => packet.observerId === observerId);
@@ -375,6 +521,7 @@ function materializeExternalAction(
 function collectActions(
   input: Readonly<WorldStepInput>,
   preparedActions: ReadonlyMap<AgentId, AgentActionProposal>,
+  eligibleAgentIds: readonly AgentId[],
 ): AgentActionProposal[] {
   const state = input.state;
   const agentIds = Object.keys(state.agents).sort();
@@ -385,40 +532,36 @@ function collectActions(
     if (externalByAgent.has(external.agentId)) throw new Error(`duplicate external action for ${external.agentId}`);
     externalByAgent.set(external.agentId, external);
   }
-  const actions = agentIds.map((agentId, ordinal) => {
+  const eligible = new Set(eligibleAgentIds);
+  const actions = agentIds.flatMap((agentId, ordinal) => {
     const binding = input.policyRoster[agentId];
     if (!binding || binding.agentId !== agentId) throw new Error(`invalid policy binding for ${agentId}`);
+    if (!eligible.has(agentId)) return [];
     if (binding.kind === "model") {
       const prepared = preparedActions.get(agentId) ?? state.agents[agentId].nextAction;
       if (!prepared) throw new Error(`model Agent ${agentId} has not prepared an action`);
-      return structuredClone(prepared);
+      return [structuredClone(prepared)];
     }
     if (binding.kind === "external" || binding.kind === "replay") {
       const external = externalByAgent.get(agentId);
       if (!external) throw new Error(`${binding.kind} Agent ${agentId} has no supplied action`);
       externalByAgent.delete(agentId);
-      return materializeExternalAction(state, external, ordinal, binding.kind);
+      return [materializeExternalAction(state, external, ordinal, binding.kind)];
     }
-    return {
-      id: runtimeId({
-        worldHash: state.worldHash,
-        revision: state.revision,
-        kind: "action",
-        stage: "idle",
-        owner: agentId,
-        round: 0,
-        ordinal,
-      }),
-      actorId: agentId,
-      baseRevision: state.revision,
-      rawText: `保持空闲（${binding.reason}）`,
-      goal: "本步骤不采取主动行动",
-      means: null,
-      targetIds: [],
-    };
+    return [];
   });
   if (externalByAgent.size > 0) throw new Error(`external action targets non-external Agent ${externalByAgent.keys().next().value}`);
   return actions;
+}
+
+function decisionEligibleAgentIds(state: Readonly<SimulationState>): AgentId[] {
+  const decisionAgents = new Set(state.history.at(-1)?.decisionPoints.map((point) => point.agentId) ?? []);
+  const busyAgents = new Set(Object.values(state.truth.activities)
+    .filter((activity) => activity.status === "active" || activity.status === "paused")
+    .flatMap((activity) => activity.participantAgentIds));
+  return Object.keys(state.agents)
+    .filter((agentId) => !busyAgents.has(agentId) || decisionAgents.has(agentId))
+    .sort();
 }
 
 function conflicts(left: ActionGrounding, right: ActionGrounding): boolean {
@@ -542,7 +685,8 @@ function exceedsDeclaredFootprint(
 function mergeResolutions(
   source: Readonly<SimulationState>,
   resolutions: readonly TruthResolution[],
-  simulatedSeconds: number,
+  boundary: Readonly<TemporalBoundary>,
+  fallbackCause: import("./model").CausalRef,
 ): TruthResolution {
   const actions = resolutions.flatMap((resolution) => structuredClone(resolution.actions));
   const proposal: TransitionProposal = {
@@ -555,8 +699,10 @@ function mergeResolutions(
         .map((operation) => structuredClone(operation))),
       {
         kind: "advance_time",
-        seconds: simulatedSeconds,
-        causes: actions.map((action) => ({ kind: "action" as const, id: action.id })),
+        seconds: boundary.deltaSeconds,
+        causes: actions.length > 0
+          ? actions.map((action) => ({ kind: "action" as const, id: action.id }))
+          : [structuredClone(fallbackCause)],
         assertions: [{
           kind: "elapsed_seconds_compare" as const,
           operator: "eq" as const,
@@ -648,46 +794,73 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     rngState: SimulationState["truth"]["rng"],
     context: ExecutionContext,
     globalFallback: boolean,
+    temporal: Readonly<TemporalAdvanceResult>,
+    newActionIds: ReadonlySet<string>,
   ): Promise<TruthResolution> {
     const scopedState = structuredClone(input.state);
     scopedState.truth.rng = structuredClone(rngState);
     scopedState.agents = Object.fromEntries(actorIds.map((agentId) => [agentId, structuredClone(input.state.agents[agentId])]));
     const scopedActions = actions.filter((action) => actorIds.includes(action.actorId));
     const scopedGroundings = groundings.filter((grounding) => actorIds.includes(grounding.actorId));
+    const scopedTemporal: TemporalAdvanceResult = {
+      ...structuredClone(temporal),
+      activities: Object.fromEntries(Object.entries(temporal.activities)
+        .filter(([, activity]) => actorIds.includes(activity.actorId))
+        .map(([id, activity]) => [id, structuredClone(activity)])),
+      timers: Object.fromEntries(Object.entries(temporal.timers)
+        .filter(([, timer]) => timer.wakeAgentIds.every((agentId) => actorIds.includes(agentId)))
+        .map(([id, timer]) => [id, structuredClone(timer)])),
+      transitions: temporal.transitions.filter((transition) => actorIds.includes(transition.actorId))
+        .map((transition) => structuredClone(transition)),
+      decisionPoints: temporal.decisionPoints.filter((point) => actorIds.includes(point.agentId))
+        .map((point) => structuredClone(point)),
+    };
     const identityOwner = globalFallback ? "component-global" : `component-${actorIds.join("+")}`;
     let transitionCandidate: SimulationState | undefined;
     const resolution = await this.truthEngine.resolve({
       definition: input.definition,
       state: scopedState,
       initialActions: scopedActions.map((action) => structuredClone(action)),
-      simulatedSeconds: input.request.simulatedSeconds,
+      temporalBoundary: temporal.boundary,
       identityOwner,
       groundings: scopedGroundings,
       resolveReactions: async (requests) => {
+        const continuing = requests.filter((request) => !newActionIds.has(request.sourceActionId));
         const outputs = await settledValues(requests.map((request) => {
+          if (continuing.includes(request)) return Promise.resolve(null);
           const agent = applyObservationBindings(scopedState.agents[request.agentId], [request.stimulus]);
           const originalAction = scopedActions.find((action) => action.actorId === request.agentId);
           if (!originalAction) throw new Error(`reaction Agent ${request.agentId} has no prepared action`);
           return this.agentMind.react(scopedState, agent, originalAction, request.stimulus, context.modelScope);
         }), "Agent reaction");
+        const reactiveOutputs = outputs.filter((output): output is Exclude<typeof output, null> => output !== null);
         return {
-          decisions: outputs.map((output) => output.kind === "keep" ? {
+          decisions: requests.map((request) => {
+            const output = reactiveOutputs.find((candidate) => candidate.agentId === request.agentId);
+            if (!output) return {
+              agentId: request.agentId,
+              baseRevision: scopedState.revision,
+              originalProposalId: request.sourceActionId,
+              kind: "keep" as const,
+            };
+            return output.kind === "keep" ? {
             agentId: output.agentId,
             baseRevision: output.baseRevision,
             originalProposalId: output.originalProposalId,
             kind: output.kind,
-          } : {
+            } : {
             agentId: output.agentId,
             baseRevision: output.baseRevision,
             originalProposalId: output.originalProposalId,
             kind: output.kind,
             replacementAction: output.replacementAction,
+            };
           }),
-          modelAudits: outputs.map((output) => output.modelAudit),
+          modelAudits: reactiveOutputs.map((output) => output.modelAudit),
         };
       },
       renderObservations: async (proposal, finalActions, transitionAttempt) => {
-        const transitioned = applyTransitionProposal(scopedState, proposal);
+        const transitioned = applyTransitionProposal(scopedState, proposal, scopedTemporal);
         const observationIdentityOwner = `${identityOwner}:transition-${transitionAttempt}`;
         const rendered = await this.observationRenderer.render({
           definition: input.definition,
@@ -696,6 +869,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           actions: structuredClone(finalActions),
           observerIds: Object.keys(transitioned.agents).sort(),
           identityOwner: observationIdentityOwner,
+          temporalState: scopedTemporal,
         }, context.modelScope);
         context.trace.emit({
           event: "observation.rendering.completed",
@@ -708,7 +882,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         return rendered;
       },
       validateProposal: (proposal, _checks, _randomResults, finalActions, stimulus) => {
-        const candidate = applyTransitionProposal(scopedState, proposal);
+        const candidate = applyTransitionProposal(scopedState, proposal, scopedTemporal);
         validateObservations(candidate, [...stimulus, ...proposal.observations], candidate.step);
         const observers = new Set(proposal.observations
           .filter((packet) => packet.kind === "outcome")
@@ -717,6 +891,26 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           if (!observers.has(agentId)) throw new Error(`component transition omitted observation for ${agentId}`);
         }
         if (finalActions.length !== actorIds.length) throw new Error("component transition changed action cardinality");
+        const continuingActionIds = new Set(Object.values(scopedTemporal.activities)
+          .filter((activity) => activity.status === "active")
+          .map((activity) => activity.sourceActionId));
+        for (const actionId of continuingActionIds) {
+          const outcome = proposal.outcomes.find((entry) => entry.proposalId === actionId);
+          if (outcome && outcome.status !== "continuing") {
+            throw new Error(`activity action ${actionId} must remain continuing before completion`);
+          }
+        }
+        for (const operation of proposal.operations) {
+          if (operation.kind === "advance_time") continue;
+          if (operation.causes.some((cause) => cause.kind === "action" && continuingActionIds.has(cause.id))) {
+            throw new Error("continuing activity cannot commit semantic completion effects before its boundary");
+          }
+        }
+        for (const event of proposal.events) {
+          if (event.causes.some((cause) => cause.kind === "action" && continuingActionIds.has(cause.id))) {
+            throw new Error("continuing activity cannot emit completion events before its boundary");
+          }
+        }
         transitionCandidate = candidate;
       },
     }, context.modelScope);
@@ -726,8 +920,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
 
   async step(input: Readonly<WorldStepInput>, context: ExecutionContext): Promise<WorldStepCandidate> {
     const source = structuredClone(input.state);
+    const eligibleAgentIds = decisionEligibleAgentIds(source);
+    const eligibleAgents = new Set(eligibleAgentIds);
     const resumedAgentIds = Object.entries(input.policyRoster)
-      .filter(([agentId, binding]) => binding.kind === "model" &&
+      .filter(([agentId, binding]) => eligibleAgents.has(agentId) && binding.kind === "model" &&
         (binding.resumeFromRevision !== undefined || source.agents[agentId]?.nextAction === null))
       .map(([agentId]) => agentId)
       .sort();
@@ -751,11 +947,50 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       agentId,
       resumedOutputs[index].nextAction,
     ]));
-    const actions = collectActions(input, preparedActions);
+    const newActions = collectActions(input, preparedActions, eligibleAgentIds);
+    const temporalPlanning = await settledValues(newActions.map((action) => generateTemporalActivity(
+      this.provider,
+      source,
+      action,
+      context.modelScope,
+      input.definition.modelProfiles.resolution,
+    )), "temporal planning");
+    const planningState = structuredClone(source);
+    for (const result of temporalPlanning) {
+      if (planningState.truth.activities[result.activity.id]) {
+        throw new Error(`duplicate activity identity ${result.activity.id}`);
+      }
+      planningState.truth.activities[result.activity.id] = structuredClone(result.activity);
+    }
+    validateActivityResources(
+      planningState.truth.activities,
+      planningState.truth.mechanics.activityResources,
+    );
+    const temporalBoundary = selectTemporalBoundary({
+      elapsedSeconds: source.truth.elapsedSeconds,
+      maxAutonomousSpanSeconds: input.definition.runtimeDefaults.maxAutonomousSpanSeconds,
+      activities: planningState.truth.activities,
+      timers: planningState.truth.timers,
+      conditionExpiries: {},
+    });
+    const temporal = advanceTemporalState({
+      boundary: temporalBoundary,
+      activities: planningState.truth.activities,
+      timers: planningState.truth.timers,
+    });
+    const dueActions = temporalBoundary.dueActivityIds.flatMap((activityId) => {
+      const activity = planningState.truth.activities[activityId];
+      if (!activity) throw new Error(`temporal boundary references unknown activity ${activityId}`);
+      return [{ ...structuredClone(activity.sourceAction), baseRevision: source.revision }];
+    });
+    const actions = [...new Map([...newActions, ...dueActions].map((action) => [action.id, action])).values()]
+      .sort((left, right) => left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
+    const newActionIds = new Set(newActions.map((action) => action.id));
+    const temporalInput: WorldStepInput = { ...input, state: planningState };
     const groundingResults = await settledValues(actions.map((action) =>
       generateGrounding(
         this.provider,
-        source,
+        planningState,
         action,
         context.modelScope,
         input.definition.modelProfiles.grounding,
@@ -765,7 +1000,17 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     let resolutions: TruthResolution[] = [];
     let rng = structuredClone(source.truth.rng);
     for (const component of components) {
-      const resolution = await this.resolveComponent(input, actions, groundings, component, rng, context, false);
+      const resolution = await this.resolveComponent(
+        temporalInput,
+        actions,
+        groundings,
+        component,
+        rng,
+        context,
+        false,
+        temporal,
+        newActionIds,
+      );
       resolutions.push(resolution);
       rng = structuredClone(resolution.rng);
     }
@@ -782,7 +1027,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     if (fallback) {
       components = [actions.map((action) => action.actorId).sort()];
       resolutions = [await this.resolveComponent(
-        input,
+        temporalInput,
         actions,
         groundings.map((grounding) => ({
           ...grounding,
@@ -794,19 +1039,29 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         source.truth.rng,
         context,
         true,
+        temporal,
+        newActionIds,
       )];
     }
-    const resolution = mergeResolutions(source, resolutions, input.request.simulatedSeconds);
+    const fallbackLaw = input.definition.laws[0];
+    if (!fallbackLaw) throw new Error("temporal advancement requires at least one world law");
+    const resolution = mergeResolutions(
+      planningState,
+      resolutions,
+      temporalBoundary,
+      { kind: "law", id: fallbackLaw.id },
+    );
     const globalObservationAudits: ModelExecutionAudit[] = [];
     if (components.length > 1) {
-      const preview = applyTransitionProposal(source, resolution.proposal);
+      const preview = applyTransitionProposal(planningState, resolution.proposal, temporal);
       const rendered = await this.observationRenderer.render({
         definition: input.definition,
-        state: source,
+        state: planningState,
         proposal: structuredClone(resolution.proposal),
         actions: structuredClone(resolution.actions),
         observerIds: Object.keys(preview.agents).sort(),
         identityOwner: "step-global-observation",
+        temporalState: temporal,
       }, context.modelScope);
       resolution.proposal.observations = structuredClone(rendered.packets);
       globalObservationAudits.push(...structuredClone(rendered.modelAudits));
@@ -820,12 +1075,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         },
       });
     }
-    const candidate = applyTransitionProposal(source, resolution.proposal);
+    const candidate = applyTransitionProposal(source, resolution.proposal, temporal);
     candidate.truth.rng = structuredClone(resolution.rng);
     const observations = [...resolution.stimulusObservations, ...resolution.proposal.observations];
     validateObservations(candidate, observations, candidate.step);
+    const postBoundaryDecisionAgents = new Set(temporal.decisionPoints.map((point) => point.agentId));
+    const busyAfterBoundary = new Set(Object.values(temporal.activities)
+      .filter((activity) => activity.status === "active" || activity.status === "paused")
+      .flatMap((activity) => activity.participantAgentIds));
     const modelAgentIds = Object.keys(candidate.agents)
-      .filter((agentId) => !source.agents[agentId] || input.policyRoster[agentId]?.kind === "model")
+      .filter((agentId) => !source.agents[agentId] ||
+        input.policyRoster[agentId]?.kind === "model" &&
+        (!busyAfterBoundary.has(agentId) || postBoundaryDecisionAgents.has(agentId)))
       .sort();
     const outputs = await settledValues(modelAgentIds.map((agentId) => {
       let agent = applyObservationBindings(candidate.agents[agentId], observationsFor(observations, agentId));
@@ -859,13 +1120,13 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       return counts;
     }, {} as Record<PolicyBinding["kind"], number>);
     const persistentAgents = Object.keys(source.agents).length;
-    const activatedAgents = policyCounts.model ?? 0;
+    const activatedAgents = modelAgentIds.length;
     context.trace.emit({
       event: "algorithm.activation.completed",
-      attributes: { phase: "step", policy: "all-model-agents" },
+      attributes: { phase: "step", policy: "decision-points-only" },
       counts: {
         persistentAgents,
-        eligibleAgents: activatedAgents,
+        eligibleAgents: eligibleAgentIds.length,
         activatedAgents,
         skippedAgents: persistentAgents - activatedAgents,
         reusedAgents: 0,
@@ -937,6 +1198,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       }),
       modelAudits: [
         ...resumedOutputs.map((output) => output.modelAudit),
+        ...temporalPlanning.map((result) => result.audit),
         ...groundingResults.map((result) => result.audit),
         ...resolution.modelAudits,
         ...resolution.reactionModelAudits,
@@ -945,6 +1207,14 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       ],
       groundings,
       components,
+      temporalPlans: temporalPlanning.map((result) => structuredClone(result.plan)),
+      temporalBoundary: structuredClone(temporalBoundary),
+      temporalState: {
+        activities: structuredClone(temporal.activities),
+        timers: structuredClone(temporal.timers),
+      },
+      activityTransitions: structuredClone(temporal.transitions),
+      decisionPoints: structuredClone(temporal.decisionPoints),
     };
   }
 }

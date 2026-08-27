@@ -80,8 +80,18 @@ function validateCandidateBoundary(
   const outcomeObservers = new Set(candidate.resolution.proposal.observations
     .filter((packet) => packet.kind === "outcome")
     .map((packet) => packet.observerId));
-  for (const agentId of Object.keys(transitioned.agents)) {
+  for (const agentId of new Set(actions.map((action) => action.actorId))) {
     if (!outcomeObservers.has(agentId)) throw new Error(`transition must provide an outcome observation for agent ${agentId}`);
+  }
+  const advance = advances[0]!;
+  if (advance.seconds !== candidate.temporalBoundary.deltaSeconds ||
+    candidate.temporalBoundary.fromElapsedSeconds !== source.truth.elapsedSeconds ||
+    candidate.temporalBoundary.toElapsedSeconds !== transitioned.truth.elapsedSeconds) {
+    throw new Error("candidate time advance does not match its temporal boundary");
+  }
+  if (contentHash(candidate.temporalState.activities) !== contentHash(transitioned.truth.activities) ||
+    contentHash(candidate.temporalState.timers) !== contentHash(transitioned.truth.timers)) {
+    throw new Error("candidate temporal state was not applied atomically");
   }
 }
 
@@ -166,7 +176,7 @@ export class CanonicalCommitter {
     const mindCommits = candidate.mindCommits
       .sort((left, right) => left.agentId.localeCompare(right.agentId));
     const resolution = candidate.resolution;
-    const transitioned = applyTransitionProposal(source, resolution.proposal);
+    const transitioned = applyTransitionProposal(source, resolution.proposal, candidate.temporalState);
     validateCandidateBoundary(source, resolution.actions, candidate, transitioned);
     transitioned.truth.rng = structuredClone(resolution.rng);
     for (const agentId of Object.keys(transitioned.agents)) {
@@ -175,12 +185,14 @@ export class CanonicalCommitter {
         observationsFor(candidate.observations, agentId),
       );
     }
-    const expectedAgents = Object.keys(transitioned.agents)
-      .filter((agentId) => !source.agents[agentId] || policyRoster[agentId]?.kind === "model")
-      .sort((left, right) => left.localeCompare(right));
     const committedAgents = mindCommits.map((commit) => commit.agentId);
-    if (contentHash(expectedAgents) !== contentHash(committedAgents)) {
-      throw new Error("step candidate does not update every agent exactly once");
+    if (new Set(committedAgents).size !== committedAgents.length) {
+      throw new Error("step candidate contains duplicate AgentMind commits");
+    }
+    for (const agentId of committedAgents) {
+      if (!transitioned.agents[agentId] || source.agents[agentId] && policyRoster[agentId]?.kind !== "model") {
+        throw new Error(`step candidate cannot update AgentMind for ${agentId}`);
+      }
     }
     for (const commit of mindCommits) {
       const observed = observationsFor(candidate.observations, commit.agentId);
@@ -206,18 +218,11 @@ export class CanonicalCommitter {
       rngAfter: structuredClone(transitioned.truth.rng),
       resolutionPlans: [],
       resolutionReceipts: [],
-      temporalPlans: [],
-      temporalBoundary: {
-        fromElapsedSeconds: source.truth.elapsedSeconds,
-        toElapsedSeconds: transitioned.truth.elapsedSeconds,
-        deltaSeconds: transitioned.truth.elapsedSeconds - source.truth.elapsedSeconds,
-        reasons: [{ kind: "safety_horizon" }],
-        dueActivityIds: [],
-        dueTimerIds: [],
-        dueConditionIds: [],
-      },
-      activityTransitions: [],
-      decisionPoints: [],
+      temporalPlans: structuredClone(candidate.temporalPlans),
+      temporalBoundary: structuredClone(candidate.temporalBoundary),
+      temporalState: structuredClone(candidate.temporalState),
+      activityTransitions: structuredClone(candidate.activityTransitions),
+      decisionPoints: structuredClone(candidate.decisionPoints),
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
       randomRequests: structuredClone(resolution.randomRequests),

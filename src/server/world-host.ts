@@ -514,7 +514,6 @@ export class WorldHost {
       seed: document.state.historyBase?.truth.rng.seed ?? document.state.truth.rng.seed,
       runtimeConfig: {
         trigger,
-        simulatedSeconds: document.runtime.maxAutonomousSpanSeconds,
         realtimeIntervalMs: document.runtime.realtimeIntervalMs,
         actionWindowMs: document.runtime.actionWindowMs,
         policyRosterHash: contentHash(policyBindings),
@@ -916,7 +915,6 @@ export class WorldHost {
           request: {
             expectedRevision: document.state.revision,
             trigger: input.trigger,
-            simulatedSeconds: input.simulatedSeconds ?? document.runtime.maxAutonomousSpanSeconds,
             externalActions: [],
           },
           status: externalIds.length > 0 ? "awaiting_actions" : "queued",
@@ -983,7 +981,6 @@ export class WorldHost {
     const request: WorldAdvanceRequest = {
       expectedRevision: document.state.revision,
       trigger: advanceRecord.request.trigger,
-      simulatedSeconds: advanceRecord.request.simulatedSeconds,
       externalActions,
     };
     advanceRecord.request.externalActions = structuredClone(externalActions);
@@ -1123,7 +1120,6 @@ export class WorldHost {
           request: {
             expectedRevision: document.state.revision,
             trigger: "participant_action",
-            simulatedSeconds: document.runtime.maxAutonomousSpanSeconds,
             externalActions: [],
           },
           status: "awaiting_actions",

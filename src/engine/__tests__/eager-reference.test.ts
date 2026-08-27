@@ -8,6 +8,7 @@ import {
   normalizeGrounding,
 } from "../eager-reference";
 import { historyReplayBaseHash } from "../history-replay";
+import { replaySimulationState } from "../transaction";
 import type { AgentActionProposal, SimulationState } from "../model";
 import { contentHash } from "../model-audit";
 import { SimulationEngine } from "../simulation";
@@ -226,7 +227,6 @@ describe("eager reference dependency components", () => {
     const result = await engine.step(roster, {
       expectedRevision: state.revision,
       trigger: "manual",
-      simulatedSeconds: definition.runtimeDefaults.maxAutonomousSpanSeconds,
       externalActions: [],
     });
 
@@ -235,5 +235,79 @@ describe("eager reference dependency components", () => {
     const globalProjection = provider.requests.find((request) =>
       request.role === "observation-renderer" && request.subjectId.startsWith("step-global-observation"));
     expect((globalProjection?.context as { observationSlots?: unknown[] }).observationSlots).toHaveLength(2);
+  });
+
+  it("uses the earliest authored activity checkpoint instead of a fixed step duration", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "temporal-planner") {
+        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+        if (action.rawText.includes("100公里")) {
+          return {
+            profileId: "measured-travel",
+            basis: {
+              kind: "explicit_quantity",
+              amount: 100,
+              unit: "公里",
+              sourceText: "100公里",
+            },
+            description: "沿道路逐段前往一百公里外的地点",
+            conditionAssertions: [],
+            causes: [{ kind: "action", id: action.id }],
+          };
+        }
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.runtimeDefaults.maxAutonomousSpanSeconds = 10_000;
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const result = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "travel-100km",
+        agentId: "player",
+        rawText: "沿道路走到100公里外的城镇",
+        goal: "抵达一百公里外的城镇",
+        means: "步行",
+        targetIds: [],
+      }],
+    });
+
+    expect(result.committed.temporalBoundary.deltaSeconds).toBe(720);
+    expect(result.state.truth.elapsedSeconds).toBe(720);
+    const activity = Object.values(result.state.truth.activities)[0]!;
+    expect(activity).toMatchObject({ status: "active", progress: { current: 1, target: 100, unit: "km" } });
+    expect(result.committed.outcomes).toHaveLength(1);
+    expect(result.committed.outcomes[0]!.status).toBe("continuing");
+    expect(result.committed.decisionPoints).toEqual([]);
+    expect(result.committed.beliefPatches).toEqual([]);
+
+    const second = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: result.state.revision,
+      trigger: "batch",
+      externalActions: [],
+    });
+    expect(second.committed.temporalPlans).toEqual([]);
+    expect(second.committed.temporalBoundary.deltaSeconds).toBe(720);
+    expect(second.state.truth.elapsedSeconds).toBe(1_440);
+    expect(Object.values(second.state.truth.activities)[0]!.progress?.current).toBe(2);
+    expect(second.committed.beliefPatches).toEqual([]);
+    expect(provider.requests.filter((request) => request.role === "temporal-planner")).toHaveLength(1);
+
+    const replayed = replaySimulationState(second.state);
+    expect(contentHash(replayed.truth)).toBe(contentHash(second.state.truth));
+    expect(contentHash(replayed.agents)).toBe(contentHash(second.state.agents));
   });
 });

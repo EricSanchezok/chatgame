@@ -138,7 +138,6 @@ export interface AdvanceWorldInput {
   expectedRevision: number;
   trigger: "manual" | "batch" | "realtime";
   steps?: number;
-  simulatedSeconds?: number;
 }
 
 export interface ControlTransferInput {

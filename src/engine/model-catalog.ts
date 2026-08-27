@@ -11,6 +11,7 @@ export const modelRoles = [
   "truth-reaction-routing",
   "truth-resolution",
   "truth-transition",
+  "temporal-planner",
   "action-grounding",
   "observation-renderer",
   "causal-verifier",

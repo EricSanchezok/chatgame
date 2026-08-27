@@ -27,6 +27,7 @@ import { projectAgentSelfState } from "./self-state";
 import { materializeObservationPackets } from "./truth-engine";
 import { applyTransitionProposal } from "./transaction";
 import type { WorldDefinition } from "./world-definition";
+import type { TemporalStateSnapshot } from "./temporal";
 
 const OBSERVATION_PROMPT_VERSION = "observation-renderer-v1";
 const OBSERVATION_SYSTEM = `你是 Living World Engine 的观察渲染器。
@@ -47,6 +48,7 @@ interface RenderInput {
   actions: readonly AgentActionProposal[];
   observerIds: readonly string[];
   identityOwner: string;
+  temporalState?: Readonly<TemporalStateSnapshot>;
 }
 
 interface ObservationBatch {
@@ -55,7 +57,7 @@ interface ObservationBatch {
 }
 
 function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[]) {
-  const candidate = applyTransitionProposal(input.state, input.proposal);
+  const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
   const visibleFacts = (observerId: string) => Object.values(candidate.truth.facts)
     .filter((fact) => fact.access.kind === "public" ||
       fact.access.kind === "agents" && fact.access.agentIds.includes(observerId));
@@ -217,7 +219,7 @@ function materializeBatch(
   }
   const eventIds = new Set(input.proposal.events.map((event) => event.id));
   const eventNormalized = normalizeObservationSourceEventIds(drafts, eventIds);
-  const candidate = applyTransitionProposal(input.state, input.proposal);
+  const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
   const localNormalized = normalizeObservationLocalReferences(
     candidate,
     observerIds,

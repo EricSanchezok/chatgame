@@ -974,6 +974,7 @@ export interface CommittedStep {
   resolutionReceipts: ResolutionReceipt[];
   temporalPlans: TemporalPlan[];
   temporalBoundary: TemporalBoundary;
+  temporalState: import("./temporal").TemporalStateSnapshot;
   activityTransitions: ActivityTransition[];
   decisionPoints: DecisionPoint[];
   checkRequests: D20CheckRequest[];

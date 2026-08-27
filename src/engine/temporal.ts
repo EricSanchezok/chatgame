@@ -183,6 +183,11 @@ export interface TemporalAdvanceResult {
   decisionPoints: DecisionPoint[];
 }
 
+export interface TemporalStateSnapshot {
+  activities: Record<string, ActivityState>;
+  timers: Record<string, WorldTimer>;
+}
+
 const durationUnits: Array<{ pattern: RegExp; seconds: number }> = [
   { pattern: /(?:秒|seconds?|secs?)/iu, seconds: 1 },
   { pattern: /(?:分钟|分(?:钟)?|minutes?|mins?)/iu, seconds: 60 },

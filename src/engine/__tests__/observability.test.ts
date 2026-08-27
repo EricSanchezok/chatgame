@@ -96,7 +96,6 @@ describe("model context measurements", () => {
       await engine.step(roster, {
         expectedRevision: state.revision,
         trigger: "manual",
-        simulatedSeconds: 1,
         externalActions: [],
       }, {
         ...scope,

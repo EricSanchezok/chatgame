@@ -52,6 +52,7 @@ import { validateImpactProfile } from "./resolution";
 import {
   validateActivityResources,
   validateActivityState,
+  validateTemporalPlan,
   validateTemporalProfile,
   validateWorldTimer,
 } from "./temporal";
@@ -425,6 +426,21 @@ function validateCommittedStepShape(step: CommittedStep): void {
   step.beliefPatches.forEach((entry) => beliefPatchSchema.parse(entry));
   step.characterPatches.forEach((entry) => characterPatchSchema.parse(entry));
   step.nextActions.forEach((entry) => actionProposalSchema.parse(entry));
+  if (!Number.isSafeInteger(step.temporalBoundary.fromElapsedSeconds) ||
+    !Number.isSafeInteger(step.temporalBoundary.toElapsedSeconds) ||
+    !Number.isSafeInteger(step.temporalBoundary.deltaSeconds) || step.temporalBoundary.deltaSeconds <= 0 ||
+    step.temporalBoundary.toElapsedSeconds !== step.temporalBoundary.fromElapsedSeconds + step.temporalBoundary.deltaSeconds ||
+    step.temporalBoundary.reasons.length === 0) {
+    throw new Error(`step ${step.step} has an invalid temporal boundary`);
+  }
+  const timeOperations = step.operations.filter((operation) => operation.kind === "advance_time");
+  if (timeOperations.length !== 1 || timeOperations[0]!.seconds !== step.temporalBoundary.deltaSeconds) {
+    throw new Error(`step ${step.step} time operation does not match temporal boundary`);
+  }
+  assertUnique(step.temporalPlans.map((plan) => plan.id), `step ${step.step} temporal plans`);
+  assertUnique(step.activityTransitions.map((transition) => transition.activityId), `step ${step.step} activity transitions`);
+  assertUnique(step.decisionPoints.map((point) =>
+    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`), `step ${step.step} decision points`);
   persistedTransitionProposalSchema.parse({
     baseRevision: step.baseRevision,
     outcomes: step.outcomes,
@@ -486,10 +502,22 @@ export function replaySimulationState(
     if (step.baseRevision !== replay.revision || step.revision !== replay.revision + 1 || step.step !== replay.step + 1) {
       throw new Error(`history step ${step.step} is not contiguous`);
     }
-    if (contentHash(step.initialActions.map((action) => action.actorId).sort()) !== contentHash(Object.keys(replay.agents).sort())) {
-      throw new Error(`history step ${step.step} does not cover every active Agent`);
-    }
     assertUnique(step.initialActions.map((action) => action.id), `history step ${step.step} initial actions`);
+    assertUnique(step.initialActions.map((action) => action.actorId), `history step ${step.step} initial actors`);
+    for (const action of step.initialActions) {
+      if (!replay.agents[action.actorId]) throw new Error(`history step ${step.step} action targets unknown Agent`);
+    }
+    if (step.temporalBoundary.fromElapsedSeconds !== replay.truth.elapsedSeconds) {
+      throw new Error(`history step ${step.step} temporal boundary starts from another clock`);
+    }
+    for (const plan of step.temporalPlans) {
+      validateTemporalPlan(plan, replay.truth.mechanics.temporalProfiles, replay.truth.mechanics.activityResources);
+      const activity = Object.values(step.temporalState.activities)
+        .find((candidate) => candidate.plan.id === plan.id);
+      if (!activity || activity.sourceActionId !== plan.actionId) {
+        throw new Error(`history step ${step.step} temporal plan has no persisted activity`);
+      }
+    }
     const outcomes = step.outcomes.map((outcome) => outcome.proposalId).sort();
     if (contentHash(outcomes) !== contentHash(step.actions.map((action) => action.id).sort())) {
       throw new Error(`history step ${step.step} outcome slots do not match actions`);
@@ -507,7 +535,7 @@ export function replaySimulationState(
     if (contentHash(assertionResults) !== contentHash(step.causalAssertionResults)) {
       throw new Error(`history step ${step.step} causal assertions do not replay`);
     }
-    const advanced = applyTransitionProposal(replay, proposal);
+    const advanced = applyTransitionProposal(replay, proposal, step.temporalState);
     advanced.truth.rng = structuredClone(step.rngAfter);
     validateObservations(advanced, step.observations, advanced.step);
     for (const agentId of Object.keys(advanced.agents)) {
@@ -715,6 +743,10 @@ export function validateSimulationState(state: SimulationState, requireNextActio
   }
   for (const [id, activity] of Object.entries(state.truth.activities)) {
     if (activity.id !== id) throw new Error(`activity key mismatch ${id}`);
+    actionProposalSchema.parse(activity.sourceAction);
+    if (!state.agents[activity.actorId] || activity.participantAgentIds.some((agentId) => !state.agents[agentId])) {
+      throw new Error(`activity ${id} references unknown Agent`);
+    }
     validateActivityState(
       activity,
       state.truth.elapsedSeconds,
@@ -791,7 +823,11 @@ export class TransitionValidationError extends Error {
   }
 }
 
-export function applyTransitionProposal(source: SimulationState, proposal: TransitionProposal): SimulationState {
+export function applyTransitionProposal(
+  source: SimulationState,
+  proposal: TransitionProposal,
+  temporalState?: Readonly<import("./temporal").TemporalStateSnapshot>,
+): SimulationState {
   const issues: string[] = [];
   if (proposal.baseRevision !== source.revision) issues.push(`stale proposal revision ${proposal.baseRevision}; expected ${source.revision}`);
   try {
@@ -815,6 +851,10 @@ export function applyTransitionProposal(source: SimulationState, proposal: Trans
   }
   if (issues.length === 0) {
     try {
+      if (temporalState) {
+        next.truth.activities = structuredClone(temporalState.activities);
+        next.truth.timers = structuredClone(temporalState.timers);
+      }
       next.revision += 1;
       next.step += 1;
       next.truth.events.push(...structuredClone(proposal.events));

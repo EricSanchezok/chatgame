@@ -181,7 +181,7 @@ export async function replayThroughAlgorithm(
   stateHash: string;
   revision: number;
 }> {
-  if (original.manifest.id !== "eager-reference" || original.manifest.version !== "1") {
+  if (original.manifest.id !== "eager-reference" || original.manifest.version !== "2") {
     throw new Error(`recorded replay does not support algorithm ${original.manifest.id}@${original.manifest.version}`);
   }
   const definitionEvent = event(events, "execution.world_definition.persisted");

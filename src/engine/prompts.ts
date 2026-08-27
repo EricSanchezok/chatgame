@@ -23,6 +23,7 @@ import type { ActionGrounding } from "./execution";
 import { ObservationValidationError } from "./observation";
 import { projectAgentSelfState } from "./self-state";
 import type { WorldDefinition } from "./world-definition";
+import type { TemporalBoundary } from "./temporal";
 
 export const TRUTH_PROMPT_VERSION = "truth-engine-v9";
 export const CAUSAL_VERIFIER_PROMPT_VERSION = "causal-verifier-v3";
@@ -66,7 +67,7 @@ export const TRUTH_SYSTEM = `你是开放世界游戏唯一的 Truth Engine，�
 
 认知隔离：Truth transition 不生成 Observation，也不描述任何主体的私有认知。主体可见表象由独立 Observation Renderer 按固定槽位生成，再与 transition 一起接受校验。
 
-完整性：reaction 只可针对本步骤其他主体的 action；同地、Agent 可访问的通信/感知事实或成功 perception check 才能作为 basis。transition 恰好覆盖每个最终联合行动一个 outcome，只描述本分量的世界变化与事件。正数时间推进由引擎统一注入。动态 Agent 必须带唯一 self binding；其模型 Profile、初始 nextAction 与全部时间字段由引擎注入。
+完整性：reaction 只可针对本步骤其他主体的 action；同地、Agent 可访问的通信/感知事实或成功 perception check 才能作为 basis。transition 恰好覆盖每个最终联合行动一个 outcome，只描述本分量的世界变化与事件。正数时间推进由引擎根据 context.temporalBoundary 统一注入。活动尚未到 completion 边界时必须返回 continuing，且只能结算截至该检查点已经真实发生的进度，不得提前写入最终到达、完成治疗、命中或其他完成效果。动态 Agent 必须带唯一 self binding；其模型 Profile、初始 nextAction 与全部时间字段由引擎注入。
 
 身份边界：Agent、Entity、Fact、Meter、Rating 与主体私有认知记录的 id 是世界语义名称，可由你创建；已有语义 id 必须原样引用。check、random、mechanic 与 event id 只是本次响应内的局部 alias，可在同一候选中复用，但不得冒充持久身份。reaction stimulus 和 apparent claim 不输出 id。base revision、step、检定 phase、reaction source action、实体生命周期与创建时间、Fact provenance、Meter threshold ledger、动态 Agent Profile 和角色时间字段均由引擎注入。引擎会在校验前统一分配 rt: 技术身份并重写局部引用；上下文已有的 rt: id 必须原样引用。
 
@@ -159,6 +160,7 @@ export function buildTruthContext(input: {
   randomResults: readonly DiscreteRandomResult[];
   commitmentRounds: readonly CommitmentRound[];
   groundings: readonly ActionGrounding[];
+  temporalBoundary: TemporalBoundary;
   instanceId: string;
   advanceId: string;
   issues: readonly PromptValidationIssue[];
@@ -198,6 +200,7 @@ export function buildTruthContext(input: {
     initialActions: input.initialActions,
     jointActions: input.actions,
     groundings: input.groundings,
+    temporalBoundary: input.temporalBoundary,
     reactionRequests: input.reactionRequests,
     reactionDecisions: input.reactionDecisions,
     reactionWindow: input.reactionWindow,

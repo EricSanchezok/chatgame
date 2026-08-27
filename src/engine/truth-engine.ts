@@ -75,6 +75,7 @@ import { createCoreRulePackageRegistry, type RulePackageRegistry } from "./rule-
 import type { WorldDefinition } from "./world-definition";
 import type { ModelRole } from "./model-catalog";
 import { runtimeId } from "./runtime-id";
+import type { TemporalBoundary } from "./temporal";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
@@ -110,7 +111,7 @@ export interface TruthResolutionInput {
   definition: WorldDefinition;
   state: SimulationState;
   initialActions: AgentActionProposal[];
-  simulatedSeconds: number;
+  temporalBoundary: TemporalBoundary;
   identityOwner: string;
   groundings: readonly ActionGrounding[];
   resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
@@ -890,8 +891,10 @@ export class TruthEngine {
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
     const truthSubject = input.identityOwner;
     let actions = input.initialActions.map((action) => structuredClone(action));
-    if (!Number.isSafeInteger(input.simulatedSeconds) || input.simulatedSeconds <= 0) {
-      throw new Error("truth resolution requires positive simulatedSeconds");
+    if (input.temporalBoundary.fromElapsedSeconds !== input.state.truth.elapsedSeconds ||
+      input.temporalBoundary.toElapsedSeconds !== input.state.truth.elapsedSeconds + input.temporalBoundary.deltaSeconds ||
+      !Number.isSafeInteger(input.temporalBoundary.deltaSeconds) || input.temporalBoundary.deltaSeconds <= 0) {
+      throw new Error("truth resolution requires an engine-selected future temporal boundary");
     }
     const allowedForCommitments: Record<CausalRef["kind"], Set<string>> = {
       action: new Set(actions.map((action) => action.id)),
@@ -939,6 +942,7 @@ export class TruthEngine {
       randomResults,
       commitmentRounds,
       groundings: input.groundings,
+      temporalBoundary: input.temporalBoundary,
       instanceId: scope.workloadId,
       advanceId: scope.batchId,
       issues,
@@ -1292,7 +1296,7 @@ export class TruthEngine {
             ...mechanics.operations,
             {
               kind: "advance_time",
-              seconds: input.simulatedSeconds,
+              seconds: input.temporalBoundary.deltaSeconds,
               causes: actions.map((action) => ({ kind: "action" as const, id: action.id })),
               assertions: [{
                 kind: "elapsed_seconds_compare" as const,

@@ -214,8 +214,7 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
     if (!Number.isFinite(Date.parse(advance.createdAt)) || !Number.isFinite(Date.parse(advance.updatedAt))) {
       throw new Error(`advance ${advanceId} timestamps must be ISO dates`);
     }
-    if (!Number.isSafeInteger(advance.request.expectedRevision) || advance.request.expectedRevision < 0 ||
-      !Number.isSafeInteger(advance.request.simulatedSeconds) || advance.request.simulatedSeconds <= 0) {
+    if (!Number.isSafeInteger(advance.request.expectedRevision) || advance.request.expectedRevision < 0) {
       throw new Error(`advance ${advanceId} has an invalid request`);
     }
     if (!["manual", "batch", "realtime", "participant_action"].includes(advance.request.trigger)) {
