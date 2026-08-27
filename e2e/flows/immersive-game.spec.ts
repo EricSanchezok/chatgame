@@ -79,6 +79,12 @@ test("world awakening locks the committed identity and restores it after failure
   await expect(awakening).toBeVisible();
   await expect(awakening).toHaveAttribute("aria-busy", "true");
   await expect(awakening.getByText(/正在将「小明」带到「石门前庭」/)).toBeVisible();
+  const movingOrbit = awakening.locator(".cg-world-weave__svg > g").first();
+  const initialOrbitTransform = await movingOrbit.evaluate((element) => getComputedStyle(element).transform);
+  await expect.poll(
+    () => movingOrbit.evaluate((element) => getComputedStyle(element).transform),
+    { timeout: 2_000 },
+  ).not.toBe(initialOrbitTransform);
   await expect(page.getByRole("button", { name: "取消开始新游戏" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "进入世界" })).toHaveCount(0);
   await page.locator(".cg-modal-overlay").click({ force: true, position: { x: 2, y: 2 } });

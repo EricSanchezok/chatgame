@@ -58,6 +58,8 @@ describe("world start flow", () => {
     expect(different).not.toEqual(first);
     expect(first.nodes).toHaveLength(8);
     expect(first.nodes.every((node) => node.x >= 20 && node.x <= 300 && node.y >= 20 && node.y <= 300)).toBe(true);
+    expect(first.orbitDirections.every((direction) => direction === 1 || direction === -1)).toBe(true);
+    expect(first.orbitDurations.every((duration) => duration >= 9 && duration <= 22)).toBe(true);
   });
 
   it("warns only while the awakening guard is mounted", () => {

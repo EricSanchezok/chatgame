@@ -126,6 +126,11 @@ test("world awakening remains accessible when motion, color and space are constr
   await intercepted;
   const awakening = page.getByRole("dialog", { name: "世界正在苏醒" });
   await expect(awakening).toBeVisible();
+  const stationaryOrbit = awakening.locator(".cg-world-weave__svg > g").first();
+  await page.waitForTimeout(200);
+  const reducedMotionTransform = await stationaryOrbit.evaluate((element) => getComputedStyle(element).transform);
+  await page.waitForTimeout(350);
+  expect(await stationaryOrbit.evaluate((element) => getComputedStyle(element).transform)).toBe(reducedMotionTransform);
   await expectNoViolations(page);
 
   await page.evaluate(() => {

@@ -12,6 +12,8 @@ const premiumEase = [0.4, 0, 0.2, 1] as const;
 export interface WorldWeaveSignature {
   arcs: [number, number, number];
   nodes: Array<{ delay: number; radius: number; size: number; x: number; y: number }>;
+  orbitDirections: [1 | -1, 1 | -1, 1 | -1];
+  orbitDurations: [number, number, number];
   paths: [string, string];
   pulseScale: number;
 }
@@ -47,11 +49,17 @@ export function worldWeaveSignature(contentHash: string): WorldWeaveSignature {
   return {
     arcs: [bytes[9] % 70 - 35, bytes[10] % 70 - 35, bytes[11] % 70 - 35],
     nodes,
+    orbitDirections: [
+      bytes[0] % 2 === 0 ? 1 : -1,
+      bytes[1] % 2 === 0 ? 1 : -1,
+      bytes[2] % 2 === 0 ? 1 : -1,
+    ],
+    orbitDurations: [9 + bytes[3] % 4, 13 + bytes[4] % 5, 17 + bytes[5] % 6],
     paths: [
       `M 38 160 C ${horizontalBend} ${64 + bytes[14] % 58}, ${214 - bytes[15] % 48} ${246 - bytes[6] % 52}, 282 160`,
       `M 160 38 C ${250 - bytes[4] % 62} ${verticalBend}, ${65 + bytes[5] % 58} ${211 - bytes[7] % 42}, 160 282`,
     ],
-    pulseScale: 1.018 + (bytes[8] % 8) / 1000,
+    pulseScale: 1.034 + (bytes[8] % 7) / 1000,
   };
 }
 
@@ -87,43 +95,77 @@ function WorldWeave({
       transition={{ duration: shouldReduceMotion ? 0.12 : 0.76, ease: premiumEase }}
     >
       <m.svg aria-hidden="true" className="cg-world-weave__svg" viewBox="0 0 320 320">
-        <circle className="cg-world-weave__boundary" cx="160" cy="160" r="148" />
+        <m.circle
+          animate={shouldReduceMotion ? { strokeDashoffset: 0 } : { strokeDashoffset: [0, -36] }}
+          className="cg-world-weave__boundary"
+          cx="160"
+          cy="160"
+          r="148"
+          transition={shouldReduceMotion
+            ? { duration: 0.12 }
+            : { duration: 3.6, ease: "linear", repeat: Infinity }}
+        />
         {[72, 106, 138].map((radius, index) => (
-          <m.ellipse
-            animate={shouldReduceMotion
-              ? { opacity: 0.58, pathLength: 1, rotate: signature.arcs[index] }
-              : {
-                  opacity: 0.58,
-                  pathLength: 1,
-                  rotate: [signature.arcs[index] - 2, signature.arcs[index] + 2, signature.arcs[index] - 2],
-                }}
-            className="cg-world-weave__orbit"
-            cx="160"
-            cy="160"
-            initial={{ opacity: 0, pathLength: 0, rotate: signature.arcs[index] }}
+          <m.g
+            animate={{
+              rotate: shouldReduceMotion
+                ? signature.arcs[index]
+                : signature.arcs[index] + signature.orbitDirections[index] * 360,
+            }}
+            initial={{ rotate: signature.arcs[index] }}
             key={radius}
-            rx={radius}
-            ry={Math.round(radius * (0.54 + index * 0.08))}
             style={{ transformOrigin: "160px 160px" }}
             transition={shouldReduceMotion
               ? { duration: 0.12 }
-              : {
-                  opacity: { duration: 0.42, delay: index * 0.08 },
-                  pathLength: { duration: 0.76, delay: index * 0.08, ease: premiumEase },
-                  rotate: { duration: 12 + index * 3, ease: "easeInOut", repeat: Infinity },
-                }}
-          />
+              : { duration: signature.orbitDurations[index], ease: "linear", repeat: Infinity }}
+          >
+            <m.ellipse
+              animate={{ opacity: 0.58, pathLength: 1 }}
+              className="cg-world-weave__orbit"
+              cx="160"
+              cy="160"
+              initial={{ opacity: 0, pathLength: shouldReduceMotion ? 1 : 0 }}
+              rx={radius}
+              ry={Math.round(radius * (0.54 + index * 0.08))}
+              transition={shouldReduceMotion
+                ? { duration: 0.12 }
+                : {
+                    opacity: { duration: 0.42, delay: index * 0.08 },
+                    pathLength: { duration: 0.76, delay: index * 0.08, ease: premiumEase },
+                  }}
+            />
+            <m.circle
+              animate={shouldReduceMotion
+                ? { opacity: 0.72, scale: 1 }
+                : { opacity: [0.3, 1, 0.3], scale: [0.78, 1.28, 0.78] }}
+              className="cg-world-weave__beacon"
+              cx={160 + radius}
+              cy="160"
+              initial={{ opacity: 0, scale: shouldReduceMotion ? 1 : 0.7 }}
+              r={3.1 - index * 0.35}
+              style={{ transformOrigin: `${160 + radius}px 160px` }}
+              transition={shouldReduceMotion
+                ? { duration: 0.12 }
+                : { delay: index * 0.2, duration: 1.5 + index * 0.25, ease: "easeInOut", repeat: Infinity }}
+            />
+          </m.g>
         ))}
         {signature.paths.map((path, index) => (
           <m.path
-            animate={{ opacity: 0.72, pathLength: 1 }}
+            animate={shouldReduceMotion
+              ? { opacity: 0.72, pathLength: 1, strokeDashoffset: 0 }
+              : { opacity: 0.72, pathLength: 1, strokeDashoffset: [0, -42] }}
             className="cg-world-weave__path"
             d={path}
-            initial={{ opacity: 0, pathLength: shouldReduceMotion ? 1 : 0 }}
+            initial={{ opacity: 0, pathLength: shouldReduceMotion ? 1 : 0, strokeDashoffset: 0 }}
             key={path}
             transition={shouldReduceMotion
               ? { duration: 0.12 }
-              : { delay: 0.12 + index * 0.1, duration: 0.76, ease: premiumEase }}
+              : {
+                  opacity: { delay: 0.12 + index * 0.1, duration: 0.76, ease: premiumEase },
+                  pathLength: { delay: 0.12 + index * 0.1, duration: 0.76, ease: premiumEase },
+                  strokeDashoffset: { duration: 2.4 + index * 0.45, ease: "linear", repeat: Infinity },
+                }}
           />
         ))}
         {signature.nodes.map((node, index) => (
@@ -149,6 +191,17 @@ function WorldWeave({
           />
         ))}
       </m.svg>
+      <m.span
+        animate={shouldReduceMotion
+          ? { opacity: 0.32, scale: 1 }
+          : { opacity: [0.38, 0, 0.38], scale: [0.82, 1.26, 0.82] }}
+        aria-hidden="true"
+        className="cg-world-weave__pulse"
+        initial={{ opacity: 0, scale: 0.82 }}
+        transition={shouldReduceMotion
+          ? { duration: 0.12 }
+          : { delay: 0.3, duration: 2.8, ease: "easeInOut", repeat: Infinity }}
+      />
       <m.div
         animate={shouldReduceMotion
           ? { opacity: 1, scale: 1 }
@@ -228,7 +281,20 @@ export function WorldAwakening({
         </div>
       </div>
       <p className="cg-awakening__notice" role="status" aria-live="polite">
-        唤醒完成前请保持此页面开启。
+        <span>唤醒完成前请保持此页面开启</span>
+        <span aria-hidden="true" className="cg-awakening__working">
+          {[0, 1, 2].map((index) => (
+            <m.i
+              animate={shouldReduceMotion
+                ? { opacity: 0.62, scale: 1 }
+                : { opacity: [0.26, 1, 0.26], scale: [0.78, 1.18, 0.78] }}
+              key={index}
+              transition={shouldReduceMotion
+                ? { duration: 0.12 }
+                : { delay: index * 0.18, duration: 1.2, ease: "easeInOut", repeat: Infinity }}
+            />
+          ))}
+        </span>
       </p>
     </m.div>
   );

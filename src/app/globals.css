@@ -1024,8 +1024,10 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-world-weave__boundary, .cg-world-weave__orbit, .cg-world-weave__path { fill: none; vector-effect: non-scaling-stroke; }
 .cg-world-weave__boundary { stroke: color-mix(in oklab, var(--cg-border) 82%, var(--cg-transparent)); stroke-width: 1; stroke-dasharray: 1 8; }
 .cg-world-weave__orbit { stroke: color-mix(in oklab, var(--cg-muted-foreground) 48%, var(--cg-transparent)); stroke-width: 1; }
-.cg-world-weave__path { stroke: color-mix(in oklab, var(--cg-ring) 68%, var(--cg-foreground)); stroke-width: 1.25; }
+.cg-world-weave__path { stroke: color-mix(in oklab, var(--cg-ring) 68%, var(--cg-foreground)); stroke-width: 1.25; stroke-dasharray: 5 9; }
+.cg-world-weave__beacon { fill: var(--cg-foreground); stroke: var(--cg-background); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .cg-world-weave__node { fill: var(--cg-foreground); stroke: var(--cg-background); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.cg-world-weave__pulse { position: absolute; width: 25%; aspect-ratio: 1; inset: 50% auto auto 50%; border: 1px solid color-mix(in oklab, var(--cg-ring) 62%, var(--cg-foreground)); border-radius: 50%; pointer-events: none; translate: -50% -50%; }
 .cg-world-weave__mark { position: absolute; width: 24%; min-width: 4.75rem; aspect-ratio: 1; inset: 50% auto auto 50%; display: grid; place-items: center; border: 1px solid color-mix(in oklab, var(--cg-foreground) 78%, var(--cg-border)); border-radius: 50%; background: var(--cg-background); color: var(--cg-foreground); box-shadow: 0 0 0 0.65rem color-mix(in oklab, var(--cg-background) 72%, var(--cg-transparent)), 0 1.5rem 4rem color-mix(in oklab, var(--cg-overlay) 28%, var(--cg-transparent)); translate: -50% -50%; }
 .cg-world-weave__mark span { font-size: clamp(2.25rem, 6vmin, 4.25rem); font-weight: 520; letter-spacing: -0.08em; }
 .cg-world-weave__mark svg { width: 38%; height: 38%; stroke-width: 1.25; }
@@ -1035,7 +1037,9 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-awakening__identity { width: max-content; max-width: 100%; display: flex; align-items: baseline; justify-content: center; gap: 0.55rem; margin: 1.25rem auto 0; border-top: 1px solid var(--cg-border); padding-top: 0.75rem; }
 .cg-awakening__identity strong { overflow: hidden; max-width: 18rem; font-size: 0.85rem; text-overflow: ellipsis; white-space: nowrap; }
 .cg-awakening__identity span { overflow: hidden; max-width: 28rem; color: var(--cg-muted-foreground); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
-.cg-awakening__notice { margin: 0; color: var(--cg-muted-foreground); font-size: 0.72rem; text-align: center; }
+.cg-awakening__notice { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; margin: 0; color: var(--cg-muted-foreground); font-size: 0.72rem; text-align: center; }
+.cg-awakening__working { display: inline-flex; align-items: center; gap: 0.22rem; }
+.cg-awakening__working i { width: 0.25rem; aspect-ratio: 1; display: block; border-radius: 50%; background: currentColor; }
 
 @keyframes cg-orb-spin { to { rotate: 360deg; } }
 
