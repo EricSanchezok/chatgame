@@ -51,6 +51,18 @@ function truthOutput(context: Record<string, unknown>) {
       globalFallback: true,
     };
   }
+  if (context.perspective && typeof context.perspective === "object" && context.revision === undefined) {
+    const perspective = context.perspective as {
+      self: { name: string; location: { name: string } | null };
+    };
+    return {
+      title: `此刻，你是${perspective.self.name}`,
+      scene: perspective.self.location
+        ? `你在${perspective.self.location.name}恢复了对周围的注意。`
+        : "你暂时无法确认所在位置。",
+      suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
+    };
+  }
   if (context.entity && typeof context.entity === "object") {
     const entity = context.entity as { name: string; location: string | null };
     return {

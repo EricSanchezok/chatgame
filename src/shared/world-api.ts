@@ -1,4 +1,6 @@
-export const WORLD_API_VERSION = 7 as const;
+import type { AgentPerspectiveView } from "../engine/model";
+
+export const WORLD_API_VERSION = 8 as const;
 
 export interface WorldSummary {
   id: string;
@@ -72,18 +74,6 @@ export interface WorldStartOptions {
   observerAvailable: true;
 }
 
-export interface AgentPrivateView {
-  agentId: string;
-  entity: {
-    name: string;
-    description: string;
-    location: string | null;
-  };
-  character: unknown;
-  belief: unknown;
-  observations: Array<{ step: number; summary: string }>;
-}
-
 export interface PublicConversationTurn {
   id: string;
   agentId: string;
@@ -117,7 +107,7 @@ export interface PublicInstanceDetail {
   participants: ParticipantSummary[];
   actionWindow: PublicActionWindow | null;
   origins: OriginView[];
-  controlledView?: AgentPrivateView;
+  controlledView?: AgentPerspectiveView;
   conversation?: PublicConversation;
 }
 

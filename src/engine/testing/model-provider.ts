@@ -296,7 +296,10 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         step?: number;
         baseRevision?: number;
         agent?: { id: string };
-        perspective?: { agentId: string };
+        perspective?: {
+          agentId: string;
+          self: { name: string; location: { name: string } | null };
+        };
         action?: { id: string; actorId: string };
         entity?: { name: string; location: string | null };
         world?: { laws: Array<{ id: string }> };
@@ -311,6 +314,15 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: [input.action.actorId],
           globalFallback: true,
+        };
+      }
+      if (input.perspective && input.revision === undefined) {
+        return {
+          title: `此刻，你是${input.perspective.self.name}`,
+          scene: input.perspective.self.location
+            ? `你在${input.perspective.self.location.name}恢复了对周围的注意。`
+            : "你恢复了对周围的注意，但还不能确定当前位置。",
+          suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
         };
       }
       if (input.entity) {

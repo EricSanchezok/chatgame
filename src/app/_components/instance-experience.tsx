@@ -31,7 +31,7 @@ import type {
   PublicInstanceDetail,
   PublicInstanceSummary,
 } from "../../shared/world-api";
-import type { ObserverTurn, WorldObserverDetail } from "../../shared/world-observer-api";
+import type { WorldObserverDetail } from "../../shared/world-observer-api";
 import {
   parsePreferences,
   preferencesSnapshot,
@@ -40,6 +40,7 @@ import {
 } from "../_lib/browser-state";
 import { worldApi } from "../lib/world-api-client";
 import { ControlOrb, type ControlOrbPhase } from "./control-orb";
+import { AgentPerspectiveWorkspace, perspectiveMessages } from "./agent-perspective-workspace";
 import { GameThread } from "./game-thread";
 import { SettingsPanel } from "./settings-panel";
 import WorldInspectorDialog from "./world-inspector-dialog";
@@ -94,26 +95,13 @@ function participantMessages(
   return messages;
 }
 
-function observerMessages(turns: readonly ObserverTurn[]): ThreadMessageLike[] {
-  return turns.flatMap((turn): ThreadMessageLike[] => {
-    const messages: ThreadMessageLike[] = [];
-    if (turn.action) {
-      messages.push({
-        id: `${turn.id}:action`,
-        role: "user",
-        content: [{ type: "text", text: turn.action }],
-      });
-    }
-    if (turn.observation) {
-      messages.push({
-        id: `${turn.id}:observation`,
-        role: "assistant",
-        content: [{ type: "text", text: turn.observation }],
-        status: { type: "complete", reason: "stop" },
-      });
-    }
-    return messages;
-  });
+function observerMessages(observer?: WorldObserverDetail): ThreadMessageLike[] {
+  return perspectiveMessages(observer?.selected?.perspective).map((message) => ({
+    id: message.id,
+    role: message.role,
+    content: [{ type: "text", text: message.text }],
+    ...(message.role === "assistant" ? { status: { type: "complete" as const, reason: "stop" as const } } : {}),
+  }));
 }
 
 function GameOverlay({
@@ -183,30 +171,6 @@ function SaveManager({
   );
 }
 
-function CharacterPanel({
-  name,
-  location,
-  character,
-  belief,
-}: {
-  name: string;
-  location: string | null;
-  character: unknown;
-  belief: unknown;
-}) {
-  return (
-    <section className="cg-overlay-section">
-      <p className="cg-eyebrow">角色视角</p>
-      <h2>{name}</h2>
-      <p>{location ?? "位置未知"}</p>
-      <div className="cg-character-grid">
-        <section><h3>内在状态与目标</h3><pre aria-label="角色内在状态与目标" tabIndex={0}>{JSON.stringify(character, null, 2)}</pre></section>
-        <section><h3>记忆与认知</h3><pre aria-label="角色记忆与认知" tabIndex={0}>{JSON.stringify(belief, null, 2)}</pre></section>
-      </div>
-    </section>
-  );
-}
-
 function ObserverConsole({
   busy,
   detail,
@@ -243,7 +207,7 @@ function ObserverConsole({
         {detail.summary.schedulerMode === "realtime" ? <Pause aria-hidden="true" /> : <Radio aria-hidden="true" />}
         {detail.summary.schedulerMode === "realtime" ? "暂停" : "实时"}
       </button>
-      <button disabled={!observer?.selected} onClick={onOpenCharacter} type="button"><UserRound aria-hidden="true" />角色</button>
+      <button disabled={!observer?.selected} onClick={onOpenCharacter} type="button"><UserRound aria-hidden="true" />视角</button>
       <button className="cg-observer-console__primary" disabled={busy || !observer?.selected} onClick={onTakeOver} type="button">
         接管
       </button>
@@ -326,7 +290,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
   const messages = useMemo(
     () => detail?.controlledView
       ? participantMessages(detail, optimistic)
-      : observerMessages(observer?.selected?.turns ?? []),
+      : observerMessages(observer),
     [detail, observer, optimistic],
   );
   const participant = detail?.controlledView
@@ -403,21 +367,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
     return <main className="cg-game-loading" aria-live="polite">{error || "正在唤醒世界…"}</main>;
   }
 
-  const roleView = detail.controlledView
-    ? {
-        name: detail.controlledView.entity.name,
-        location: detail.controlledView.entity.location,
-        character: detail.controlledView.character,
-        belief: detail.controlledView.belief,
-      }
-    : observer?.selected
-      ? {
-          name: observer.selected.agent.name,
-          location: observer.selected.agent.location,
-          character: observer.selected.character,
-          belief: observer.selected.belief,
-        }
-      : undefined;
+  const roleView = detail.controlledView ?? observer?.selected?.perspective;
   const suggestions = detail.conversation?.turns.find((turn) => !turn.action)?.response?.suggestions ?? [];
   const orbPhase: ControlOrbPhase = isRunning ? "running" : busy ? "confirming" : "saved";
 
@@ -502,9 +452,11 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
           description="这里只显示当前角色被允许知道的内容。"
           onOpenChange={(open) => { if (!open) setOverlay(null); }}
           open={overlay === "character"}
-          title="角色"
+          title="视角"
         >
-          {roleView ? <CharacterPanel {...roleView} /> : <p className="cg-muted">请先选择一个 Agent 视角。</p>}
+          {roleView ? (
+            <AgentPerspectiveWorkspace perspective={roleView} reduceMotion={preferences.reduceMotion} />
+          ) : <p className="cg-muted">请先选择一个 Agent 视角。</p>}
         </GameOverlay>
         <GameOverlay
           description="控制转移只会在当前 Revision 边界原子完成。"

@@ -3,9 +3,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.LIVINGWORLD_E2E_PORT ?? 32127);
 const baseURL = `http://127.0.0.1:${port}`;
-const dataRoot = path.resolve("e2e/artifacts/runtime-data");
-const modelCatalog = path.resolve("e2e/support/models.yaml");
-const modelServerURL = "http://127.0.0.1:32128";
+const dataRoot = path.resolve(process.env.LIVINGWORLD_E2E_DATA_ROOT ?? "e2e/artifacts/runtime-data");
+const modelCatalog = path.resolve(
+  process.env.LIVINGWORLD_E2E_MODEL_CATALOG_PATH ?? "e2e/artifacts/runtime-models.yaml",
+);
+const modelPort = Number(process.env.LIVINGWORLD_E2E_MODEL_PORT ?? 32128);
+const modelServerURL = `http://127.0.0.1:${modelPort}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -32,6 +35,7 @@ export default defineConfig({
       url: `${modelServerURL}/health`,
       reuseExistingServer: false,
       timeout: 30_000,
+      env: { LIVINGWORLD_E2E_MODEL_PORT: String(modelPort) },
     },
     {
       command: `npm run start -- --port ${port}`,

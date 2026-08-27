@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { projectAgentPerspective } from "../engine/agent-perspective";
 import { CanonicalCommitter } from "../engine/canonical-committer";
 import { EagerReferenceAlgorithm, EAGER_REFERENCE_MANIFEST } from "../engine/eager-reference";
 import type {
@@ -13,6 +14,7 @@ import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
 import { contentHash } from "../engine/model-audit";
 import { modelInvocationIdentity, type StructuredModelProvider } from "../engine/model-provider";
+import { MODEL_CONTEXT_CONTRACT_VERSION } from "../engine/prompts";
 import {
   NOOP_RUNTIME_OBSERVER,
   type RuntimeCorrelation,
@@ -31,7 +33,6 @@ import type { AgentState, SimulationState } from "../engine/model";
 import type { WorldRepository } from "../script/world-repository";
 import type {
   AdvanceWorldInput,
-  AgentPrivateView,
   ArrivalView,
   ControlTransferInput,
   ControlOptions,
@@ -179,24 +180,10 @@ function publicWorld(document: WorldInstanceDocument) {
   };
 }
 
-function privateView(document: WorldInstanceDocument, agentId: string): AgentPrivateView {
+function agentPerspective(document: WorldInstanceDocument, agentId: string) {
   const agent = document.state.agents[agentId];
   if (!agent) throw new WorldHostError(`Agent not found: ${agentId}`, 404);
-  const entity = document.state.truth.entities[agent.entityId];
-  const placementId = document.state.truth.placements[agent.entityId];
-  return {
-    agentId,
-    entity: {
-      name: entity.name,
-      description: entity.description,
-      location: placementId ? document.state.truth.entities[placementId]?.name ?? null : null,
-    },
-    character: structuredClone(agent.character),
-    belief: structuredClone(agent.belief),
-    observations: document.state.history.flatMap((step) => step.observations
-      .filter((packet) => packet.observerId === agentId)
-      .map((packet) => ({ step: packet.step, summary: packet.summary }))),
-  };
+  return projectAgentPerspective(document.state, agent);
 }
 
 function conversationFor(
@@ -256,14 +243,13 @@ function conversationFor(
 
 function observerAgent(document: WorldInstanceDocument, agentId: string): ObserverAgentSummary {
   const agent = document.state.agents[agentId];
-  const entity = document.state.truth.entities[agent.entityId];
-  const placementId = document.state.truth.placements[agent.entityId];
+  const perspective = projectAgentPerspective(document.state, agent);
   const binding = document.policyBindings[agentId];
   return {
     id: agentId,
-    name: entity.name,
-    description: entity.description,
-    location: placementId ? document.state.truth.entities[placementId]?.name ?? null : null,
+    name: perspective.self.name,
+    description: perspective.self.description,
+    location: perspective.self.location?.name ?? null,
     policy: binding.kind === "external" ? "model" : binding.kind,
   };
 }
@@ -271,25 +257,9 @@ function observerAgent(document: WorldInstanceDocument, agentId: string): Observ
 function observerPerspective(document: WorldInstanceDocument, agentId: string): ObserverAgentPerspective {
   const agent = document.state.agents[agentId];
   if (!agent) throw new WorldHostError(`Agent not found: ${agentId}`, 404);
-  const turns = document.state.history.flatMap((step) => {
-    const action = step.actions.find((candidate) => candidate.actorId === agentId);
-    const observations = step.observations
-      .filter((observation) => observation.observerId === agentId)
-      .map((observation) => observation.summary);
-    if (!action && observations.length === 0) return [];
-    return [{
-      id: `perspective:${agentId}:${step.revision}`,
-      revision: step.revision,
-      step: step.step,
-      action: action?.rawText ?? null,
-      observation: observations.length > 0 ? observations.join("\n\n") : null,
-    }];
-  });
   return {
     agent: observerAgent(document, agentId),
-    character: structuredClone(agent.character),
-    belief: structuredClone(agent.belief),
-    turns,
+    perspective: projectAgentPerspective(document.state, agent),
   };
 }
 
@@ -855,7 +825,7 @@ export class WorldHost {
         ...(origin.image ? { image: structuredClone(origin.image) } : {}),
       })),
       ...(controlled ? {
-        controlledView: privateView(document, controlled.agentId),
+        controlledView: agentPerspective(document, controlled.agentId),
         conversation: conversationFor(document, controlled),
       } : {}),
     };
@@ -1270,10 +1240,13 @@ export class WorldHost {
         profileId: definition.modelProfiles.arrival,
         role: "arrival-generator",
         subjectId: participant.agentId,
-        promptVersion: "arrival-v1",
+        promptVersion: "arrival-v2",
         schemaName: "arrival",
         system: ARRIVAL_SYSTEM,
-        context: privateView(document, participant.agentId),
+        context: {
+          contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
+          perspective: agentPerspective(document, participant.agentId),
+        },
         schema: arrivalDraftSchema,
       });
       execution?.trace.emit({ event: "arrival.generated", attributes: { status: "accepted" }, payload: result.value });
