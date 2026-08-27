@@ -15,7 +15,7 @@ export default defineConfig({
   workers: 1,
   globalSetup: "./e2e/support/global-setup.ts",
   outputDir: "e2e/artifacts/test-results",
-  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}-{platform}{ext}",
   reporter: process.env.CI
     ? [["github"], ["html", { outputFolder: "e2e/artifacts/report", open: "never" }]]
     : [["line"], ["html", { outputFolder: "e2e/artifacts/report", open: "never" }]],

@@ -10,7 +10,7 @@ async function install(page: Page): Promise<void> {
       replace: "true",
     },
   });
-  expect(imported.ok()).toBe(true);
+  expect(imported.ok(), await imported.text()).toBe(true);
 }
 
 async function preparedInstance(page: Page, kind: "observer" | "origin"): Promise<string> {

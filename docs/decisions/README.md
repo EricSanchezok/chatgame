@@ -131,3 +131,4 @@
 - [0062 — World Instance、Participant 与 ActionWindow（由 0064 取代）](0062-world-instance-participation-and-action-window.md)
 - [0063 — Eager Reference 执行算法](0063-eager-reference-execution.md)
 - [0064 — 会话核心与 Agent 视角旁观](0064-conversation-core-and-agent-perspective-observer.md)
+- [0065 — 跨平台视觉基线与确定性布局](0065-platform-visual-baselines-and-deterministic-layout.md)
