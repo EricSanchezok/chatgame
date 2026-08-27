@@ -10,7 +10,7 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(9),
+  schema_version: z.literal(10),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
@@ -54,10 +54,7 @@ export const participationFileSchema = z.object({
     default_goal: z.string().trim().min(1).max(500),
     relationship_hooks: z.array(z.string().trim().min(1).max(300)).max(8).default([]),
     risks: z.array(z.string().trim().min(1).max(300)).max(8).default([]),
-    resources: z.array(z.object({
-      definition_id: safeIdSchema,
-      amount: z.number().nonnegative().finite(),
-    }).strict()).max(32).default([]),
+    mechanics_profile_id: safeIdSchema,
     model_profiles: z.object({
       bootstrap: safeIdSchema,
       mind: safeIdSchema,
@@ -93,6 +90,14 @@ const thresholdEffectSchema = z.discriminatedUnion("kind", [
   }).strict(),
 ]);
 
+const magnitudeBandSchema = z.enum(["none", "minor", "standard", "major", "decisive"]);
+
+const durationProfileSchema = z.discriminatedUnion("kind", [
+  z.object({ id: safeIdSchema, name: z.string().min(1), kind: z.literal("uses"), uses: z.number().int().positive() }).strict(),
+  z.object({ id: safeIdSchema, name: z.string().min(1), kind: z.literal("elapsed"), seconds: z.number().int().positive() }).strict(),
+  z.object({ id: safeIdSchema, name: z.string().min(1), kind: z.literal("until_cleared") }).strict(),
+]);
+
 export const mechanicsFileSchema = z.object({
   rule_packages: z.array(z.object({
     id: safeIdSchema,
@@ -125,6 +130,56 @@ export const mechanicsFileSchema = z.object({
     name: z.string().min(1),
     min: z.number().finite(),
     max: z.number().finite(),
+  }).strict()),
+  impact_profiles: z.array(z.object({
+    id: safeIdSchema,
+    name: z.string().min(1),
+    meter_definition_id: safeIdSchema,
+    direction: z.enum(["increase", "decrease"]),
+    amounts: z.object({
+      none: z.number().nonnegative().finite(),
+      minor: z.number().nonnegative().finite(),
+      standard: z.number().nonnegative().finite(),
+      major: z.number().nonnegative().finite(),
+      decisive: z.number().nonnegative().finite(),
+    }).strict(),
+  }).strict()),
+  duration_profiles: z.array(durationProfileSchema),
+  condition_profiles: z.array(z.object({
+    id: safeIdSchema,
+    name: z.string().min(1),
+    stacking_key: safeIdSchema.nullable().default(null),
+    default_duration_profile_id: safeIdSchema,
+    recurring_impact_profile_id: safeIdSchema.nullable().default(null),
+    recovery: z.string().min(1).nullable().default(null),
+    thresholds: z.array(z.object({
+      at: magnitudeBandSchema,
+      description: z.string().min(1),
+    }).strict()).default([]),
+  }).strict()),
+  entity_mechanics_profiles: z.array(z.object({
+    id: safeIdSchema,
+    name: z.string().min(1),
+    meters: z.array(z.object({
+      definition_id: safeIdSchema,
+      current: z.number().finite(),
+    }).strict()),
+    quantities: z.array(z.object({
+      definition_id: safeIdSchema,
+      amount: z.number().nonnegative().finite(),
+    }).strict()),
+    ratings: z.array(z.object({
+      definition_id: safeIdSchema,
+      value: z.number().finite(),
+    }).strict()),
+  }).strict()),
+  adjudication_calibrations: z.array(z.object({
+    id: safeIdSchema,
+    situation: z.string().min(1),
+    difficulty: z.enum(["trivial", "easy", "challenging", "hard", "extreme", "opposed", "automatic", "blocked"]),
+    risk: z.enum(["safe", "risky", "dire"]),
+    effect: magnitudeBandSchema,
+    explanation: z.string().min(1),
   }).strict()),
   random_distributions: z.array(z.object({
     id: safeIdSchema,

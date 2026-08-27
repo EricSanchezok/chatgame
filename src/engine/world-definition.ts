@@ -31,7 +31,7 @@ export interface WorldOrigin {
   defaultGoal: string;
   relationshipHooks: string[];
   risks: string[];
-  resources: Array<{ definitionId: string; amount: number }>;
+  mechanicsProfileId: string;
   modelProfiles: { bootstrap: string; mind: string; reaction: string };
   image?: { hash: string; alt: string };
   fallbackArrival: string;
@@ -121,6 +121,10 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
     }
     packageIds.add(rulePackage.id);
   }
+  const coreResolution = definition.rulePackages.find((rulePackage) => rulePackage.id === "core-resolution");
+  if (coreResolution?.version !== "2.0.0") {
+    throw new Error("schema v10 worlds require core-resolution@2.0.0");
+  }
   validateDiscreteRandomDefinitions(definition.randomDistributions);
   if (definition.participation) {
     const origins = new Set<string>();
@@ -130,10 +134,8 @@ export function validateWorldDefinition(definition: WorldDefinition): void {
       if (!(origin.spawnEntityId in definition.initialState.truth.entities)) {
         throw new Error(`origin ${origin.id} has unknown spawn entity ${origin.spawnEntityId}`);
       }
-      for (const resource of origin.resources) {
-        if (!(resource.definitionId in definition.initialState.truth.mechanics.quantities)) {
-          throw new Error(`origin ${origin.id} has unknown resource ${resource.definitionId}`);
-        }
+      if (!(origin.mechanicsProfileId in definition.initialState.truth.mechanics.entityMechanicsProfiles)) {
+        throw new Error(`origin ${origin.id} has unknown mechanics profile ${origin.mechanicsProfileId}`);
       }
       if (origin.image && !(origin.image.hash in definition.assetData)) {
         throw new Error(`origin ${origin.id} has unknown image ${origin.image.hash}`);

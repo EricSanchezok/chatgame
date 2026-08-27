@@ -236,4 +236,73 @@ describe("eager reference dependency components", () => {
       request.role === "observation-renderer" && request.subjectId.startsWith("step-global-observation"));
     expect((globalProjection?.context as { observationSlots?: unknown[] }).observationSlots).toHaveLength(2);
   });
+
+  it("re-grounds an Agent action that is replaced during the reaction window", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-grounding") {
+        return {
+          reads: [{ kind: "global", id: "world" }],
+          writes: [{ kind: "global", id: "world" }],
+          audienceAgentIds: ["keeper", "player"],
+          globalFallback: true,
+        };
+      }
+      if (role === "truth-perception") {
+        const playerAction = (context as { jointActions: AgentActionProposal[] }).jointActions
+          .find((action) => action.actorId === "player")!;
+        return {
+          kind: "request_reactions",
+          requests: [{
+            agentId: "keeper",
+            sourceActionId: playerAction.id,
+            stimulus: {
+              summary: "旅人突然有所动作。",
+              introductions: [],
+              apparentClaims: [],
+            },
+            basis: [{ kind: "shared_placement", placementId: "courtyard" }],
+          }],
+        };
+      }
+      if (role === "agent-reaction") {
+        return {
+          kind: "replace",
+          replacementAction: {
+            rawText: "抓起庭院沙土戒备",
+            goal: "利用现场沙土做好防备",
+            means: "庭院地面的沙土",
+            targetIds: [],
+          },
+        };
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const state = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    const result = await engine.step(roster, {
+      expectedRevision: state.revision,
+      trigger: "manual",
+      simulatedSeconds: definition.runtimeDefaults.simulatedSeconds,
+      externalActions: [],
+    });
+
+    expect(result.committed.actions.find((action) => action.actorId === "keeper")?.rawText)
+      .toBe("抓起庭院沙土戒备");
+    expect(provider.requests.filter((request) => request.role === "action-grounding"))
+      .toHaveLength(3);
+    expect(provider.requests.filter((request) => request.role === "action-grounding")
+      .map((request) => (request.context as { action: AgentActionProposal }).action.rawText))
+      .toContain("抓起庭院沙土戒备");
+  });
 });

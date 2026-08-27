@@ -13,7 +13,9 @@ import type {
   AgentState,
   CommittedStep,
   ObservationPacket,
+  MeterState,
   QuantityState,
+  RatingState,
   SimulationState,
   WorldEntity,
 } from "./model";
@@ -88,7 +90,10 @@ export class CanonicalCommitter {
     entity: WorldEntity;
     placementId: string | null;
     agent: AgentState;
+    meters: MeterState[];
     quantities: QuantityState[];
+    ratings: RatingState[];
+    conditions: import("./resolution").ConditionState[];
   }>): { committed: AgentAdmissionCommit; state: SimulationState } {
     const source = structuredClone(sourceState) as SimulationState;
     const semantic = {
@@ -98,7 +103,10 @@ export class CanonicalCommitter {
       entity: structuredClone(candidate.entity),
       placementId: candidate.placementId,
       agent: structuredClone(candidate.agent),
+      meters: structuredClone(candidate.meters),
       quantities: structuredClone(candidate.quantities),
+      ratings: structuredClone(candidate.ratings),
+      conditions: structuredClone(candidate.conditions),
       invalidatedActionIds: Object.values(source.agents)
         .flatMap((agent) => agent.nextAction ? [agent.nextAction.id] : [])
         .sort(),
@@ -196,6 +204,8 @@ export class CanonicalCommitter {
       actions: structuredClone(resolution.actions),
       rngBefore: structuredClone(source.truth.rng),
       rngAfter: structuredClone(transitioned.truth.rng),
+      resolutionPlans: structuredClone(resolution.resolutionPlans),
+      resolutionReceipts: structuredClone(resolution.resolutionReceipts),
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
       randomRequests: structuredClone(resolution.randomRequests),

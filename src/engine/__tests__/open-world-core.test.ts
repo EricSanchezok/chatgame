@@ -26,7 +26,7 @@ import { agentMindOutputSchema, characterPatchSchema } from "../llm-schemas";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
     worldId: "test-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],
@@ -119,6 +119,11 @@ function worldState(): SimulationState {
         ratings: {
           force: { id: "force", name: "力量", min: -5, max: 10 },
         },
+        impactProfiles: {},
+        durationProfiles: {},
+        conditionProfiles: {},
+        entityMechanicsProfiles: {},
+        adjudicationCalibrations: [],
       },
       meters: {
         "health:keeper": {
@@ -151,6 +156,7 @@ function worldState(): SimulationState {
           value: 2,
         },
       },
+      conditions: {},
     },
     agents: {
       keeper: {

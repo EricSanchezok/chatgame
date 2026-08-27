@@ -9,6 +9,7 @@ import {
   reactionDecisionDraftSchema,
   reactionRoutingOutputSchema,
   resolutionDirectiveSchema,
+  resolutionPlanVerificationSchema,
   transitionProposalSchema,
 } from "../llm-schemas";
 
@@ -48,6 +49,7 @@ describe("LLM output field ownership", () => {
       perception: z.toJSONSchema(perceptionDirectiveSchema, { target: "draft-07" }),
       reactionRouting: z.toJSONSchema(reactionRoutingOutputSchema, { target: "draft-07" }),
       resolution: z.toJSONSchema(resolutionDirectiveSchema, { target: "draft-07" }),
+      resolutionPlanVerifier: z.toJSONSchema(resolutionPlanVerificationSchema, { target: "draft-07" }),
       transition: z.toJSONSchema(transitionProposalSchema, { target: "draft-07" }),
       observation: z.toJSONSchema(observationBatchSchema, { target: "draft-07" }),
       causalVerifier: z.toJSONSchema(causalVerificationSchema, { target: "draft-07" }),
@@ -60,6 +62,8 @@ describe("LLM output field ownership", () => {
     }
     expect(JSON.stringify(schemas.perception)).not.toContain('"phase"');
     expect(JSON.stringify(schemas.resolution)).not.toContain('"phase"');
+    expect(JSON.stringify(schemas.resolution)).not.toContain('"dc"');
+    expect(JSON.stringify(schemas.resolution)).not.toContain('"modifier"');
     const transitionSchema = JSON.stringify(schemas.transition);
     for (const field of [
       "baseRevision",
@@ -171,11 +175,6 @@ describe("LLM output field ownership", () => {
         ...causalSource,
       },
       {
-        kind: "set_meter",
-        meter: { id: "health:xiaoming", definitionId: "health", entityId: "xiaoming-body", current: 10 },
-        ...causalSource,
-      },
-      {
         kind: "create_agent",
         agent: {
           id: "agent-xiaoming",
@@ -196,6 +195,15 @@ describe("LLM output field ownership", () => {
 
     for (const operation of semanticOperations) {
       expect(transitionProposalSchema.safeParse(transitionWith(operation)).success).toBe(true);
+    }
+    for (const operation of [
+      { kind: "set_meter", meter: { id: "health:xiaoming", definitionId: "health", entityId: "xiaoming-body", current: 10 } },
+      { kind: "adjust_meter", meterId: "health:xiaoming", amount: -5 },
+      { kind: "set_rating", rating: { id: "force:xiaoming", definitionId: "force", entityId: "xiaoming-body", value: 2 } },
+      { kind: "transfer_quantity", definitionId: "coin", fromHolderId: "a", toHolderId: "b", amount: 2 },
+      { kind: "set_condition", condition: { id: "burning", magnitude: "major" } },
+    ]) {
+      expect(transitionProposalSchema.safeParse(transitionWith({ ...operation, ...causalSource })).success).toBe(false);
     }
 
     const base = transitionWith();
@@ -218,12 +226,8 @@ describe("LLM output field ownership", () => {
     })).success).toBe(false);
     expect(transitionProposalSchema.safeParse(transitionWith({
       ...semanticOperations[2],
-      meter: { ...(semanticOperations[2] as { meter: object }).meter, firedThresholdIds: [] },
-    })).success).toBe(false);
-    expect(transitionProposalSchema.safeParse(transitionWith({
-      ...semanticOperations[3],
       agent: {
-        ...(semanticOperations[3] as { agent: object }).agent,
+        ...(semanticOperations[2] as { agent: object }).agent,
         modelProfiles: { bootstrap: "forged", mind: "forged", reaction: "forged" },
         nextAction: null,
       },

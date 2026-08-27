@@ -13,8 +13,5 @@ origins:
     risks:
       - 风暴正在逼近，港区很快会变得混乱。
       - 陌生人的身份既带来自由，也意味着没有势力会无条件保护你。
-    resources:
-      - { definition_id: coin, amount: 20 }
-      - { definition_id: provisions, amount: 3 }
-      - { definition_id: viz, amount: 0 }
+    mechanics_profile_id: harbor-wayfarer
     fallback_arrival: 海风把雨意推过灰色水面。你站在黑沼堡港区潮湿的石阶上，身后的客船已经开始收缆；前方是行会旗帜、守卫火盆与通往城内的拱门。这里没有人为你安排下一步。

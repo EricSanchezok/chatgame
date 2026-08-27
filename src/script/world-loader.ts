@@ -12,6 +12,7 @@ import type {
 } from "../engine/model";
 import { historyReplayBaseHash } from "../engine/history-replay";
 import { createSeededRng, validateDiscreteRandomDefinitions } from "../engine/random";
+import { validateImpactProfile } from "../engine/resolution";
 import { quantityId } from "../engine/runtime-id";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { validateSimulationState } from "../engine/transaction";
@@ -85,7 +86,32 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
   for (const rating of document.ratings) {
     if (rating.max < rating.min) throw new Error(`rating ${rating.id} requires max >= min`);
   }
-  return {
+  const impactProfiles = document.impact_profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    meterDefinitionId: profile.meter_definition_id,
+    direction: profile.direction,
+    amounts: structuredClone(profile.amounts),
+  }));
+  for (const profile of impactProfiles) validateImpactProfile(profile);
+  const durationProfiles = document.duration_profiles.map((profile) => structuredClone(profile));
+  const conditionProfiles = document.condition_profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    stackingKey: profile.stacking_key,
+    defaultDurationProfileId: profile.default_duration_profile_id,
+    recurringImpactProfileId: profile.recurring_impact_profile_id,
+    recovery: profile.recovery,
+    thresholds: structuredClone(profile.thresholds),
+  }));
+  const entityMechanicsProfiles = document.entity_mechanics_profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    meters: profile.meters.map((entry) => ({ definitionId: entry.definition_id, current: entry.current })),
+    quantities: profile.quantities.map((entry) => ({ definitionId: entry.definition_id, amount: entry.amount })),
+    ratings: profile.ratings.map((entry) => ({ definitionId: entry.definition_id, value: entry.value })),
+  }));
+  const catalog: MechanicsCatalog = {
     meters: uniqueRecord(document.meters, "meter"),
     quantities: uniqueRecord(
       document.quantities.map((quantity) => ({
@@ -98,7 +124,59 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
       "quantity",
     ),
     ratings: uniqueRecord(document.ratings, "rating"),
+    impactProfiles: uniqueRecord(impactProfiles, "impact profile"),
+    durationProfiles: uniqueRecord(durationProfiles, "duration profile"),
+    conditionProfiles: uniqueRecord(conditionProfiles, "condition profile"),
+    entityMechanicsProfiles: uniqueRecord(entityMechanicsProfiles, "entity mechanics profile"),
+    adjudicationCalibrations: document.adjudication_calibrations.map((calibration) => ({
+      id: calibration.id,
+      situation: calibration.situation,
+      difficulty: calibration.difficulty,
+      risk: calibration.risk,
+      effect: calibration.effect,
+      explanation: calibration.explanation,
+    })),
   };
+  const calibrationIds = catalog.adjudicationCalibrations.map((calibration) => calibration.id);
+  if (new Set(calibrationIds).size !== calibrationIds.length) throw new Error("duplicate adjudication calibration id");
+  for (const profile of Object.values(catalog.impactProfiles)) {
+    if (!catalog.meters[profile.meterDefinitionId]) {
+      throw new Error(`impact profile ${profile.id} has unknown meter ${profile.meterDefinitionId}`);
+    }
+  }
+  for (const profile of Object.values(catalog.conditionProfiles)) {
+    if (!catalog.durationProfiles[profile.defaultDurationProfileId]) {
+      throw new Error(`condition profile ${profile.id} has unknown duration ${profile.defaultDurationProfileId}`);
+    }
+    if (profile.recurringImpactProfileId && !catalog.impactProfiles[profile.recurringImpactProfileId]) {
+      throw new Error(`condition profile ${profile.id} has unknown recurring impact ${profile.recurringImpactProfileId}`);
+    }
+  }
+  for (const profile of Object.values(catalog.entityMechanicsProfiles)) {
+    const meterIds = profile.meters.map((entry) => entry.definitionId);
+    const quantityIds = profile.quantities.map((entry) => entry.definitionId);
+    const ratingIds = profile.ratings.map((entry) => entry.definitionId);
+    if (new Set(meterIds).size !== meterIds.length || new Set(quantityIds).size !== quantityIds.length ||
+      new Set(ratingIds).size !== ratingIds.length) throw new Error(`mechanics profile ${profile.id} repeats a definition`);
+    for (const entry of profile.meters) {
+      const definition = catalog.meters[entry.definitionId];
+      if (!definition || entry.current < definition.min || entry.current > definition.max) {
+        throw new Error(`mechanics profile ${profile.id} has invalid meter ${entry.definitionId}`);
+      }
+    }
+    for (const entry of profile.quantities) {
+      if (!catalog.quantities[entry.definitionId]) {
+        throw new Error(`mechanics profile ${profile.id} has unknown quantity ${entry.definitionId}`);
+      }
+    }
+    for (const entry of profile.ratings) {
+      const definition = catalog.ratings[entry.definitionId];
+      if (!definition || entry.value < definition.min || entry.value > definition.max) {
+        throw new Error(`mechanics profile ${profile.id} has invalid rating ${entry.definitionId}`);
+      }
+    }
+  }
+  return catalog;
 }
 
 function randomDistributions(document: MechanicsDocument): DiscreteRandomDefinition[] {
@@ -348,7 +426,7 @@ export function buildWorldDefinition(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 9,
+      schemaVersion: 10,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),
@@ -366,6 +444,7 @@ export function buildWorldDefinition(
         meters: {},
         quantities: {},
         ratings: {},
+        conditions: {},
       },
       agents: {},
       admissions: [],
@@ -455,10 +534,7 @@ export function buildWorldDefinition(
             defaultGoal: origin.default_goal,
             relationshipHooks: [...origin.relationship_hooks],
             risks: [...origin.risks],
-            resources: origin.resources.map((resource) => ({
-              definitionId: resource.definition_id,
-              amount: resource.amount,
-            })),
+            mechanicsProfileId: origin.mechanics_profile_id,
             modelProfiles: origin.model_profiles ?? {
               bootstrap: manifest.model_profiles.dynamic_agent.bootstrap,
               mind: manifest.model_profiles.dynamic_agent.mind,

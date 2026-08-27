@@ -30,6 +30,7 @@ import type {
 import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import { isRuntimeId } from "./runtime-id";
+import type { ConditionState } from "./resolution";
 
 const reservedRecordKeys = new Set([
   ...Object.getOwnPropertyNames(Object.prototype),
@@ -361,6 +362,21 @@ export const quantityStateSchema = z.strictObject({
   holderId: semanticIdSchema,
   amount: z.number().finite().nonnegative(),
 }) as z.ZodType<QuantityState>;
+
+export const conditionStateSchema = z.strictObject({
+  id: semanticIdSchema,
+  subjectId: semanticIdSchema,
+  label: z.string().min(1),
+  description: z.string().min(1),
+  magnitude: z.enum(["none", "minor", "standard", "major", "decisive"]),
+  durationProfileId: semanticIdSchema,
+  conditionProfileId: semanticIdSchema.nullable(),
+  stackingKey: semanticIdSchema.nullable(),
+  remainingUses: z.number().int().nonnegative().nullable(),
+  expiresAtElapsedSeconds: z.number().int().nonnegative().nullable(),
+  access: accessSchema,
+  provenance: z.array(causalRefSchema).min(1),
+}) as z.ZodType<ConditionState>;
 
 export const semanticBeliefStateSchema = z.strictObject({
   localEntities: z.record(semanticIdSchema, localEntitySchema),

@@ -1,7 +1,7 @@
 # 开放事实世界与通用 d20 内核
 
 ## Status
-Accepted
+Superseded by [0067](0067-open-semantic-resolution-plans.md)
 Class: architecture
 
 ## Context and Problem Statement

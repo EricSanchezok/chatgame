@@ -161,7 +161,7 @@ function validateActionWindow(document: WorldInstanceDocument): void {
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 13) throw new Error("world instance schema v13 required");
+  if (document.schemaVersion !== 14) throw new Error("world instance schema v14 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
   if (document.title.length > 80) throw new Error("instance title exceeds 80 characters");

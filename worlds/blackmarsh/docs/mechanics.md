@@ -4,6 +4,8 @@
 
 黑沼不移植 D&D 的职业、等级、六维属性、AC、法术位、先攻或固定怪物 HD。所有自然语言行动保持开放；只有会因精确数值、守恒、阈值或随机承诺而受益的状态进入 [`world/mechanics.yaml`](../world/mechanics.yaml)。
 
+行动先由语义裁决为 `none/minor/standard/major/decisive` 效果档，再由 `harm` 或 `recovery` impact profile 映射为 vitality 变化。木棒、剑、火焰、护甲和沙土不是核心类型：它们只有在 ActionFrame 明确使用且能落到 Entity、Fact、Condition、placement 或法则时才承担 permission、control、potency、protection、secondary 或 risk 中的唯一角色。校准语料是 planner、verifier 与测试共享的世界标尺；它不把示例变成封闭动作列表。
+
 ## 生命 Meter
 
 `vitality` 范围为 0–30，零触发 `retired`。它表示继续作为活动主体承受危险的能力，不把每次擦伤解释成肉体创口；Truth Engine 仍须依据武器、体型、防护、环境和检定说明伤害因果。

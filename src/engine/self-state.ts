@@ -1,4 +1,14 @@
-import type { AgentSelfStateView, AgentState, BeliefValue, FactValue, SimulationState } from "./model";
+import type {
+  AgentResolutionEffectView,
+  AgentResolutionReceiptView,
+  AgentSelfStateView,
+  AgentState,
+  BeliefValue,
+  FactValue,
+  SimulationState,
+  WorldFact,
+} from "./model";
+import type { ResolutionReceipt, ResolutionSourceRef } from "./resolution";
 
 function localIdFor(agent: AgentState, canonicalId: string): string | undefined {
   return Object.values(agent.bindings)
@@ -11,6 +21,111 @@ function beliefValueFor(agent: AgentState, value: FactValue): BeliefValue | unde
   if (value.kind !== "entity") return structuredClone(value);
   const localEntityId = localIdFor(agent, value.entityId);
   return localEntityId ? { kind: "local_entity", localEntityId } : undefined;
+}
+
+function canAccess(access: WorldFact["access"], agentId: string): boolean {
+  return access.kind === "public" || (access.kind === "agents" && access.agentIds.includes(agentId));
+}
+
+function sourceIsVisible(
+  state: SimulationState,
+  agent: AgentState,
+  receipt: ResolutionReceipt,
+  source: ResolutionSourceRef,
+): boolean {
+  switch (source.kind) {
+    case "action": return source.id === receipt.plan.actionId;
+    case "entity": return source.id === agent.entityId || Boolean(localIdFor(agent, source.id));
+    case "fact": {
+      const fact = state.truth.facts[source.id];
+      return Boolean(fact && canAccess(fact.access, agent.id));
+    }
+    case "condition": {
+      const condition = state.truth.conditions[source.id];
+      return Boolean(condition && canAccess(condition.access, agent.id));
+    }
+    case "rating": return state.truth.ratings[source.id]?.entityId === agent.entityId;
+    case "law": return state.lawIds.includes(source.id);
+    case "placement": return source.id === state.truth.placements[agent.entityId] || Boolean(localIdFor(agent, source.id));
+  }
+}
+
+function projectEffects(
+  agent: AgentState,
+  receipt: ResolutionReceipt,
+): AgentResolutionEffectView[] {
+  const isActor = receipt.plan.actorId === agent.entityId;
+  return receipt.effects.flatMap((effect) => {
+    const visible = effect.intent.kind === "condition"
+      ? canAccess(effect.intent.access, agent.id)
+      : isActor || effect.intent.targetId === agent.entityId;
+    return visible ? [{
+      role: effect.role,
+      kind: effect.intent.kind,
+      magnitude: effect.magnitude,
+      channel: effect.intent.channel,
+      label: effect.intent.label,
+      description: effect.intent.description,
+    }] : [];
+  });
+}
+
+export function projectAgentResolutionReceipt(
+  state: SimulationState,
+  agent: AgentState,
+  receipt: ResolutionReceipt,
+): AgentResolutionReceiptView | null {
+  if (receipt.plan.visibility === "hidden" ||
+    (receipt.plan.actorId !== agent.entityId && !receipt.plan.targetIds.includes(agent.entityId))) return null;
+  const base = {
+    id: receipt.id,
+    actionId: receipt.plan.actionId,
+    outcome: receipt.outcome,
+    effects: projectEffects(agent, receipt),
+  };
+  if (receipt.plan.visibility === "result_only") return { ...base, visibility: "result_only" };
+  const actorRating = receipt.plan.actorRatingId
+    ? state.truth.ratings[receipt.plan.actorRatingId]
+    : null;
+  const isActor = receipt.plan.actorId === agent.entityId;
+  const canSeeDc = receipt.plan.difficulty?.kind !== "opposed" ||
+    state.truth.ratings[receipt.plan.difficulty.ratingId]?.entityId === agent.entityId;
+  return {
+    ...base,
+    visibility: "full",
+    plan: {
+      goal: receipt.plan.goal,
+      means: receipt.plan.means
+        .filter((mean) => sourceIsVisible(state, agent, receipt, mean.source))
+        .map((mean) => mean.description),
+      mode: receipt.plan.mode,
+      difficulty: receipt.plan.difficulty?.kind === "environment"
+        ? { kind: "environment", band: receipt.plan.difficulty.band }
+        : receipt.plan.difficulty ? { kind: "opposed" } : null,
+      actorRating: actorRating?.entityId === agent.entityId
+        ? { name: state.truth.mechanics.ratings[actorRating.definitionId].name, value: actorRating.value }
+        : null,
+      factors: receipt.plan.factors
+        .filter((factor) => sourceIsVisible(state, agent, receipt, factor.source))
+        .map((factor) => ({
+          role: factor.role,
+          direction: factor.direction,
+          steps: factor.steps,
+          explanation: factor.explanation,
+        })),
+      risk: receipt.plan.risk,
+      baseEffect: receipt.plan.baseEffect,
+    },
+    check: {
+      dc: canSeeDc ? receipt.dc : null,
+      modifier: isActor ? receipt.modifier : null,
+      mode: receipt.checkMode,
+      dice: [...receipt.dice],
+      kept: receipt.kept,
+      total: isActor ? receipt.total : null,
+      margin: isActor ? receipt.margin : null,
+    },
+  };
 }
 
 export function projectAgentSelfState(state: SimulationState, agent: AgentState): AgentSelfStateView {
@@ -76,6 +191,22 @@ export function projectAgentSelfState(state: SimulationState, agent: AgentState)
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name)),
+    conditions: Object.values(state.truth.conditions)
+      .filter((condition) => condition.subjectId === agent.entityId)
+      .filter((condition) => condition.access.kind === "public" ||
+        (condition.access.kind === "agents" && condition.access.agentIds.includes(agent.id)))
+      .map((condition) => ({
+        id: condition.id,
+        label: condition.label,
+        description: condition.description,
+        magnitude: condition.magnitude,
+        durationProfileId: condition.durationProfileId,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    resolutionReceipts: state.history
+      .flatMap((step) => step.resolutionReceipts)
+      .map((receipt) => projectAgentResolutionReceipt(state, agent, receipt))
+      .filter((receipt): receipt is AgentResolutionReceiptView => receipt !== null),
     facts,
   };
 }

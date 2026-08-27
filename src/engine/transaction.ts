@@ -27,14 +27,24 @@ import {
   persistedTransitionProposalSchema,
   reactionDecisionSchema,
   reactionRequestSchema,
+  resolutionPlanSchema,
+  resolutionReceiptSchema,
 } from "./llm-schemas";
 import { modelInferenceSchema, modelRoles } from "./model-catalog";
 import { contentHash, isSha256 } from "./model-audit";
 import { applyObservationBindings, validateObservations } from "./observation";
+import { resolveD20Checks, resolveDiscreteRandomRequests } from "./random";
+import {
+  deriveCheck,
+  deriveResolutionReceipt,
+  validateResolutionPlan,
+  type ResolutionEvidenceIndex,
+} from "./resolution";
 import {
   actionProposalSchema,
   agentStateSchema,
   commitmentRoundsSchema,
+  conditionStateSchema,
   discreteRandomRequestSchema,
   discreteRandomResultSchema,
   d20CheckResultSchema,
@@ -47,6 +57,7 @@ import {
   ratingSchema,
 } from "./state-schemas";
 import { isRuntimeId, quantityId, runtimeId } from "./runtime-id";
+import { validateImpactProfile } from "./resolution";
 
 function assertExactKeys(value: object, required: readonly string[], optional: readonly string[] = [], label = "object"): void {
   const keys = Object.keys(value);
@@ -235,6 +246,17 @@ export function applyWorldDeltaOperation(state: SimulationState, operation: Worl
       quantity.amount += operation.kind === "produce_quantity" ? operation.amount : -operation.amount;
       return;
     }
+    case "set_quantity": {
+      const quantity = operation.quantity;
+      const expectedId = quantityId(state.worldHash, quantity.definitionId, quantity.holderId);
+      if (quantity.id !== expectedId || state.truth.quantities[quantity.id] ||
+        !state.truth.mechanics.quantities[quantity.definitionId] || !state.truth.entities[quantity.holderId] ||
+        !Number.isFinite(quantity.amount) || quantity.amount < 0) {
+        throw new Error(`invalid quantity initialization ${quantity.id}`);
+      }
+      state.truth.quantities[quantity.id] = structuredClone(quantity);
+      return;
+    }
     case "set_rating": {
       const existing = state.truth.ratings[operation.rating.id];
       if (existing && (existing.definitionId !== operation.rating.definitionId || existing.entityId !== operation.rating.entityId)) {
@@ -246,6 +268,24 @@ export function applyWorldDeltaOperation(state: SimulationState, operation: Worl
       state.truth.ratings[operation.rating.id] = structuredClone(operation.rating);
       return;
     }
+    case "set_condition": {
+      conditionStateSchema.parse(operation.condition);
+      const existing = state.truth.conditions[operation.condition.id];
+      if (!state.truth.entities[operation.condition.subjectId] ||
+        (existing && existing.subjectId !== operation.condition.subjectId) ||
+        !state.truth.mechanics.durationProfiles[operation.condition.durationProfileId] ||
+        (operation.condition.conditionProfileId !== null &&
+          !state.truth.mechanics.conditionProfiles[operation.condition.conditionProfileId]) ||
+        contentHash(operation.condition.provenance) !== contentHash(operation.causes)) {
+        throw new Error(`invalid condition ${operation.condition.id}`);
+      }
+      state.truth.conditions[operation.condition.id] = structuredClone(operation.condition);
+      return;
+    }
+    case "remove_condition":
+      if (!state.truth.conditions[operation.conditionId]) throw new Error(`unknown condition ${operation.conditionId}`);
+      delete state.truth.conditions[operation.conditionId];
+      return;
     case "advance_time":
       if (!Number.isSafeInteger(operation.seconds) || operation.seconds <= 0) throw new Error("time advance must be positive seconds");
       state.truth.elapsedSeconds += operation.seconds;
@@ -330,7 +370,10 @@ function validateAdmissionShape(commit: AgentAdmissionCommit): void {
   if (commit.executionRef) validateExecutionRef(commit.executionRef, `Agent admission ${commit.revision} executionRef`);
   entitySchema.parse(commit.entity);
   agentStateSchema.parse(commit.agent);
+  commit.meters.forEach((meter) => meterSchema.parse(meter));
   commit.quantities.forEach((quantity) => quantityStateSchema.parse(quantity));
+  commit.ratings.forEach((rating) => ratingSchema.parse(rating));
+  commit.conditions.forEach((condition) => conditionStateSchema.parse(condition));
 }
 
 export function applyAdmissionCommit(state: SimulationState, input: Readonly<AgentAdmissionCommit>): void {
@@ -360,6 +403,13 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
   state.truth.entities[commit.entity.id] = structuredClone(commit.entity);
   state.truth.placements[commit.entity.id] = commit.placementId;
   state.agents[commit.agent.id] = structuredClone(commit.agent);
+  for (const meter of commit.meters) {
+    if (meter.entityId !== commit.entity.id || state.truth.meters[meter.id]) {
+      throw new Error(`Agent admission has invalid meter ${meter.id}`);
+    }
+    validateMeter(state, meter);
+    state.truth.meters[meter.id] = structuredClone(meter);
+  }
   for (const quantity of commit.quantities) {
     const expectedId = quantityId(state.worldHash, quantity.definitionId, commit.entity.id);
     if (quantity.id !== expectedId || quantity.holderId !== commit.entity.id ||
@@ -368,11 +418,86 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
     }
     state.truth.quantities[quantity.id] = structuredClone(quantity);
   }
+  for (const rating of commit.ratings) {
+    const definition = state.truth.mechanics.ratings[rating.definitionId];
+    if (rating.entityId !== commit.entity.id || state.truth.ratings[rating.id] || !definition ||
+      rating.value < definition.min || rating.value > definition.max) {
+      throw new Error(`Agent admission has invalid rating ${rating.id}`);
+    }
+    state.truth.ratings[rating.id] = structuredClone(rating);
+  }
+  for (const condition of commit.conditions) {
+    if (condition.subjectId !== commit.entity.id || state.truth.conditions[condition.id]) {
+      throw new Error(`Agent admission has invalid condition ${condition.id}`);
+    }
+    state.truth.conditions[condition.id] = structuredClone(condition);
+  }
   state.revision = commit.revision;
   state.admissions.push(commit);
 }
 
-function validateCommittedStepShape(step: CommittedStep): void {
+function validateCommittedRandomTranscript(step: CommittedStep, state: SimulationState): void {
+  if (contentHash(step.rngBefore) !== contentHash(state.truth.rng)) {
+    throw new Error(`step ${step.step} RNG does not continue canonical state`);
+  }
+  const checkRoundIds = step.commitmentRounds
+    .filter((round) => round.kind === "check")
+    .flatMap((round) => round.requestIds);
+  const randomRoundIds = step.commitmentRounds
+    .filter((round) => round.kind === "random")
+    .flatMap((round) => round.requestIds);
+  assertUnique(checkRoundIds, `step ${step.step} committed check rounds`);
+  assertUnique(randomRoundIds, `step ${step.step} committed random rounds`);
+  assertUnique(step.checkRequests.map((request) => request.id), `step ${step.step} check requests`);
+  assertUnique(step.checks.map((result) => result.requestId), `step ${step.step} check results`);
+  assertUnique(step.randomRequests.map((request) => request.id), `step ${step.step} random requests`);
+  assertUnique(step.randomResults.map((result) => result.requestId), `step ${step.step} random results`);
+  if (contentHash([...checkRoundIds].sort()) !== contentHash(step.checkRequests.map((request) => request.id).sort()) ||
+    contentHash([...checkRoundIds].sort()) !== contentHash(step.checks.map((result) => result.requestId).sort()) ||
+    contentHash([...randomRoundIds].sort()) !== contentHash(step.randomRequests.map((request) => request.id).sort()) ||
+    contentHash([...randomRoundIds].sort()) !== contentHash(step.randomResults.map((result) => result.requestId).sort())) {
+    throw new Error(`step ${step.step} commitment rounds do not cover their random transcript`);
+  }
+  let rng = structuredClone(step.rngBefore);
+  let phase: "perception" | "resolution" | "random" = "perception";
+  for (const round of step.commitmentRounds) {
+    if (round.kind === "check") {
+      if (phase === "random" || (phase === "resolution" && round.phase === "perception")) {
+        throw new Error(`step ${step.step} has an invalid commitment phase order`);
+      }
+      phase = round.phase;
+      const requests = round.requestIds.map((id) => {
+        const request = step.checkRequests.find((candidate) => candidate.id === id);
+        if (!request || request.phase !== round.phase) throw new Error(`step ${step.step} has an invalid check round`);
+        return request;
+      });
+      const resolved = resolveD20Checks(rng, requests);
+      const recorded = round.requestIds.map((id) => step.checks.find((candidate) => candidate.requestId === id));
+      if (recorded.some((result) => !result) || contentHash(resolved.results) !== contentHash(recorded)) {
+        throw new Error(`step ${step.step} has a non-deterministic d20 transcript`);
+      }
+      rng = resolved.rng;
+      continue;
+    }
+    phase = "random";
+    const requests = round.requestIds.map((id) => {
+      const request = step.randomRequests.find((candidate) => candidate.id === id);
+      if (!request) throw new Error(`step ${step.step} has an invalid discrete random round`);
+      return request;
+    });
+    const resolved = resolveDiscreteRandomRequests(rng, requests);
+    const recorded = round.requestIds.map((id) => step.randomResults.find((candidate) => candidate.requestId === id));
+    if (recorded.some((result) => !result) || contentHash(resolved.results) !== contentHash(recorded)) {
+      throw new Error(`step ${step.step} has a non-deterministic discrete random transcript`);
+    }
+    rng = resolved.rng;
+  }
+  if (contentHash(rng) !== contentHash(step.rngAfter)) {
+    throw new Error(`step ${step.step} has an invalid RNG continuation`);
+  }
+}
+
+function validateCommittedStepShape(step: CommittedStep, state: SimulationState): void {
   if (step.semanticHash !== semanticStepHash(step)) throw new Error(`step ${step.step} semantic hash mismatch`);
   const payload = structuredClone(step) as Partial<CommittedStep>;
   delete payload.contentHash;
@@ -384,10 +509,102 @@ function validateCommittedStepShape(step: CommittedStep): void {
   step.reactionDecisions.forEach((decision) => reactionDecisionSchema.parse(decision));
   step.checkRequests.forEach((request) => persistedCheckRequestSchema.parse(request));
   step.checks.forEach((result) => d20CheckResultSchema.parse(result));
+  step.resolutionPlans.forEach((plan) => resolutionPlanSchema.parse(plan));
+  step.resolutionReceipts.forEach((receipt) => resolutionReceiptSchema.parse(receipt));
+  assertUnique(step.resolutionPlans.map((plan) => plan.id), `step ${step.step} resolution plans`);
+  assertUnique(step.resolutionReceipts.map((receipt) => receipt.id), `step ${step.step} resolution receipts`);
+  if (contentHash(step.resolutionPlans.map((plan) => plan.actionId).sort()) !==
+    contentHash(step.actions.map((action) => action.id).sort())) {
+    throw new Error(`step ${step.step} resolution plans do not cover actions`);
+  }
+  if (step.resolutionReceipts.length !== step.resolutionPlans.length) {
+    throw new Error(`step ${step.step} resolution receipts do not cover plans`);
+  }
+  const evidence: ResolutionEvidenceIndex = {
+    actions: new Set(step.actions.map((action) => action.id)),
+    entities: new Set(Object.keys(state.truth.entities)),
+    facts: new Set(Object.keys(state.truth.facts)),
+    conditions: new Set(Object.keys(state.truth.conditions)),
+    laws: new Set(state.lawIds),
+    placements: new Set(Object.keys(state.truth.entities)),
+    ratingOwners: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.entityId])),
+    ratingValues: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.value])),
+  };
+  for (const plan of step.resolutionPlans) {
+    validateResolutionPlan(plan, evidence);
+    const receipt = step.resolutionReceipts.find((candidate) => candidate.plan.id === plan.id);
+    if (!receipt || contentHash(receipt.plan) !== contentHash(plan)) {
+      throw new Error(`step ${step.step} resolution receipt does not pin plan ${plan.id}`);
+    }
+    const request = receipt.checkRequestId
+      ? step.checkRequests.find((candidate) => candidate.id === receipt.checkRequestId)
+      : null;
+    const result = receipt.checkRequestId
+      ? step.checks.find((candidate) => candidate.requestId === receipt.checkRequestId)
+      : null;
+    const check = plan.mode === "check" ? deriveCheck(plan, evidence) : null;
+    const expectedTargetId = plan.difficulty?.kind === "opposed"
+      ? plan.difficulty.targetId
+      : plan.primaryEffect?.targetId ?? plan.targetIds[0] ?? null;
+    const expectedModifierSources = plan.actorRatingId
+      ? [{ kind: "rating" as const, id: plan.actorRatingId, amount: check!.modifier }]
+      : [];
+    if (plan.mode === "check" && (!request || !result || request.phase !== "resolution" ||
+      request.actorId !== plan.actorId || request.targetId !== expectedTargetId ||
+      request.ratingId !== plan.actorRatingId || request.visibility !== plan.visibility ||
+      request.dc !== check!.dc || request.modifier !== check!.modifier || request.mode !== check!.mode ||
+      request.stakes !== `${plan.risk}: ${plan.primaryEffect?.description ?? plan.goal}` ||
+      contentHash(request.modifierSources) !== contentHash(expectedModifierSources) ||
+      contentHash(request.causes) !== contentHash(plan.causes))) {
+      throw new Error(`step ${step.step} receipt ${receipt.id} has an invalid committed check`);
+    }
+    const derived = deriveResolutionReceipt({
+      receiptId: receipt.id,
+      plan,
+      checkRequestId: receipt.checkRequestId,
+      check,
+      result: result ?? null,
+    });
+    const expectedReceipt = { ...derived, operations: receipt.operations };
+    if (contentHash(expectedReceipt) !== contentHash(receipt)) {
+      throw new Error(`step ${step.step} resolution receipt ${receipt.id} is not deterministic`);
+    }
+  }
   step.randomRequests.forEach((request) => discreteRandomRequestSchema.parse(request));
   step.randomResults.forEach((result) => discreteRandomResultSchema.parse(result));
   commitmentRoundsSchema.parse(step.commitmentRounds);
+  validateCommittedRandomTranscript(step, state);
   step.mechanicResults.forEach((result) => mechanicResultSchema.parse(result));
+  const receiptInvocations = step.mechanicInvocations.filter((invocation) =>
+    invocation.packageId === "core-resolution" && invocation.ruleId === "apply-receipt");
+  if (receiptInvocations.length !== step.resolutionReceipts.length) {
+    throw new Error(`step ${step.step} has an invalid apply-receipt invocation count`);
+  }
+  for (const receipt of step.resolutionReceipts) {
+    const invocations = receiptInvocations.filter((invocation) =>
+      (invocation.input as { receiptId?: unknown }).receiptId === receipt.id);
+    if (invocations.length !== 1) throw new Error(`step ${step.step} does not uniquely apply receipt ${receipt.id}`);
+    const result = step.mechanicResults.find((candidate) => candidate.invocationId === invocations[0].id);
+    if (!result || result.packageId !== "core-resolution" || result.ruleId !== "apply-receipt" ||
+      contentHash(result.operations) !== contentHash(receipt.operations) ||
+      receipt.operations.some((receiptOperation) => !step.operations.some((operation) =>
+        contentHash(operation) === contentHash(receiptOperation)))) {
+      throw new Error(`step ${step.step} receipt ${receipt.id} is not pinned to its trusted operations`);
+    }
+  }
+  const conditionAdvanceInvocations = step.mechanicInvocations.filter((invocation) =>
+    invocation.packageId === "core-resolution" && invocation.ruleId === "advance-conditions");
+  const timeAdvance = step.operations.find((operation) => operation.kind === "advance_time");
+  const conditionAdvance = conditionAdvanceInvocations[0];
+  const conditionAdvanceResult = conditionAdvance
+    ? step.mechanicResults.find((result) => result.invocationId === conditionAdvance.id)
+    : null;
+  if (conditionAdvanceInvocations.length !== 1 || !conditionAdvanceResult || !timeAdvance ||
+    (conditionAdvance.input as { seconds?: unknown }).seconds !== timeAdvance.seconds ||
+    conditionAdvanceResult.operations.some((conditionOperation) => !step.operations.some((operation) =>
+      contentHash(operation) === contentHash(conditionOperation)))) {
+    throw new Error(`step ${step.step} does not pin deterministic condition advancement`);
+  }
   step.causalAssertionResults.forEach((result) => causalAssertionResultSchema.parse(result));
   causalVerificationSchema.parse(step.causalVerification);
   step.beliefPatches.forEach((entry) => beliefPatchSchema.parse(entry));
@@ -419,7 +636,7 @@ export function replaySimulationState(
     return structuredClone(state);
   }
   const replay: SimulationState = {
-    schemaVersion: 9,
+    schemaVersion: 10,
     worldId: state.worldId,
     worldHash: state.worldHash,
     lawIds: structuredClone(state.lawIds),
@@ -450,7 +667,7 @@ export function replaySimulationState(
       continue;
     }
     const step = entry.value;
-    validateCommittedStepShape(step);
+    validateCommittedStepShape(step, replay);
     if (step.baseRevision !== replay.revision || step.revision !== replay.revision + 1 || step.step !== replay.step + 1) {
       throw new Error(`history step ${step.step} is not contiguous`);
     }
@@ -552,12 +769,78 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents", "admissions", "history",
     "bootstrapAgentCommits",
   ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
-  if (state.schemaVersion !== 9 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 10 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
   if (!Number.isSafeInteger(state.revision) || state.revision < 0 || !Number.isSafeInteger(state.step) || state.step < 0 ||
     !Number.isSafeInteger(state.truth.elapsedSeconds) || state.truth.elapsedSeconds < 0) throw new Error("invalid world clock");
+  assertExactKeys(state.truth, [
+    "elapsedSeconds", "rng", "events", "entities", "placements", "facts", "factTombstones", "mechanics",
+    "meters", "quantities", "ratings", "conditions",
+  ], [], "canonical truth");
+  assertExactKeys(state.truth.mechanics, [
+    "meters", "quantities", "ratings", "impactProfiles", "durationProfiles", "conditionProfiles",
+    "entityMechanicsProfiles", "adjudicationCalibrations",
+  ], [], "mechanics catalog");
+  for (const [id, definition] of Object.entries(state.truth.mechanics.meters)) {
+    if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
+      !Number.isFinite(definition.max) || definition.max <= definition.min) throw new Error(`invalid meter definition ${id}`);
+  }
+  for (const [id, definition] of Object.entries(state.truth.mechanics.quantities)) {
+    if (definition.id !== id || !definition.name.trim() || !definition.unit.trim()) throw new Error(`invalid quantity definition ${id}`);
+  }
+  for (const [id, definition] of Object.entries(state.truth.mechanics.ratings)) {
+    if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
+      !Number.isFinite(definition.max) || definition.max < definition.min) throw new Error(`invalid rating definition ${id}`);
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.impactProfiles)) {
+    if (profile.id !== id || !state.truth.mechanics.meters[profile.meterDefinitionId]) {
+      throw new Error(`invalid impact profile ${id}`);
+    }
+    validateImpactProfile(profile);
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.durationProfiles)) {
+    if (profile.id !== id || !profile.name.trim() ||
+      (profile.kind === "uses" && (!Number.isSafeInteger(profile.uses) || profile.uses <= 0)) ||
+      (profile.kind === "elapsed" && (!Number.isSafeInteger(profile.seconds) || profile.seconds <= 0))) {
+      throw new Error(`invalid duration profile ${id}`);
+    }
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.conditionProfiles)) {
+    if (profile.id !== id || !state.truth.mechanics.durationProfiles[profile.defaultDurationProfileId] ||
+      (profile.recurringImpactProfileId !== null && !state.truth.mechanics.impactProfiles[profile.recurringImpactProfileId])) {
+      throw new Error(`invalid condition profile ${id}`);
+    }
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.entityMechanicsProfiles)) {
+    if (profile.id !== id || !profile.name.trim()) throw new Error(`invalid entity mechanics profile ${id}`);
+    const refs = [
+      ...profile.meters.map((entry) => `meter:${entry.definitionId}`),
+      ...profile.quantities.map((entry) => `quantity:${entry.definitionId}`),
+      ...profile.ratings.map((entry) => `rating:${entry.definitionId}`),
+    ];
+    assertUnique(refs, `entity mechanics profile ${id}`);
+    for (const entry of profile.meters) {
+      const definition = state.truth.mechanics.meters[entry.definitionId];
+      if (!definition || entry.current < definition.min || entry.current > definition.max) {
+        throw new Error(`invalid entity mechanics profile ${id} meter ${entry.definitionId}`);
+      }
+    }
+    for (const entry of profile.quantities) {
+      if (!state.truth.mechanics.quantities[entry.definitionId] || !Number.isFinite(entry.amount) || entry.amount < 0) {
+        throw new Error(`invalid entity mechanics profile ${id} quantity ${entry.definitionId}`);
+      }
+    }
+    for (const entry of profile.ratings) {
+      const definition = state.truth.mechanics.ratings[entry.definitionId];
+      if (!definition || entry.value < definition.min || entry.value > definition.max) {
+        throw new Error(`invalid entity mechanics profile ${id} rating ${entry.definitionId}`);
+      }
+    }
+  }
+  const calibrationIds = state.truth.mechanics.adjudicationCalibrations.map((entry) => entry.id);
+  assertUnique(calibrationIds, "adjudication calibrations");
   assertUnique(state.lawIds, "world laws");
   validatePlacementCycles(state);
   for (const [id, entity] of Object.entries(state.truth.entities)) {
@@ -589,6 +872,14 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     const definition = state.truth.mechanics.ratings[rating.definitionId];
     if (rating.id !== id || !definition || !state.truth.entities[rating.entityId] ||
       rating.value < definition.min || rating.value > definition.max) throw new Error(`invalid rating ${id}`);
+  }
+  for (const [id, condition] of Object.entries(state.truth.conditions)) {
+    conditionStateSchema.parse(condition);
+    if (condition.id !== id || !state.truth.entities[condition.subjectId] ||
+      !state.truth.mechanics.durationProfiles[condition.durationProfileId] ||
+      (condition.conditionProfileId !== null && !state.truth.mechanics.conditionProfiles[condition.conditionProfileId])) {
+      throw new Error(`invalid condition ${id}`);
+    }
   }
   const ownedEntities = new Set<string>();
   const actionIds = new Set<string>();

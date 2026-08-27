@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
-import { RulePackageRegistry } from "../../engine/rule-package";
+import { coreResolutionRulePackage, RulePackageRegistry } from "../../engine/rule-package";
 import {
   MAX_RANDOM_DISTRIBUTION_UTF8_BYTES,
   MAX_RANDOM_DISTRIBUTIONS_PER_WORLD,
@@ -64,10 +64,15 @@ describe("open world script loader", () => {
     ].amount).toBe(20);
     expect(definition.initialState.truth.rng.seed).toBe(91);
     expect(definition.rulePackages).toEqual([expect.objectContaining({
-      id: "core-d20",
-      version: "1.1.0",
-      config: { damageUsesMeters: true },
+      id: "core-resolution",
+      version: "2.0.0",
+      config: {},
     })]);
+    expect(definition.initialState.schemaVersion).toBe(10);
+    expect(definition.initialState.truth.mechanics.impactProfiles.harm.amounts).toEqual({
+      none: 0, minor: 2, standard: 5, major: 10, decisive: 20,
+    });
+    expect(definition.participation?.origins[0].mechanicsProfileId).toBe("wanderer");
     expect(definition.randomDistributions).toEqual([
       expect.objectContaining({
         id: "four-six-sum",
@@ -130,12 +135,12 @@ describe("open world script loader", () => {
     });
   });
 
-  it("rejects schema v7 worlds and missing or duplicate Agent self bindings", () => {
+  it("rejects schema v9 worlds and missing or duplicate Agent self bindings", () => {
     const oldWorld = copiedFixture();
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 9", "schema_version: 8"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 10", "schema_version: 9"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
@@ -157,23 +162,35 @@ describe("open world script loader", () => {
     const world = copiedFixture();
     const mechanicsFile = path.join(world, "mechanics.yaml");
     const mechanics = readFileSync(mechanicsFile, "utf8")
-      .replace("core-d20", "cultivation-d20")
-      .replace("version: 1.1.0", "version: 2.0.0");
+      .replace(
+        "    config: {}\nmeters:",
+        "    config: {}\n  - id: cultivation-resolution\n    version: 2.0.0\n    config: {}\nmeters:",
+      );
     writeFileSync(mechanicsFile, mechanics, "utf8");
 
-    expect(() => loadWorldScript(world, { modelCatalog })).toThrow("unknown rule package cultivation-d20");
+    expect(() => loadWorldScript(world, { modelCatalog })).toThrow("unknown rule package cultivation-resolution");
 
-    const registry = new RulePackageRegistry([{
-      id: "cultivation-d20",
+    const registry = new RulePackageRegistry([coreResolutionRulePackage, {
+      id: "cultivation-resolution",
       version: "2.0.0",
       adjudication: "使用修仙世界检定。",
-      configSchema: z.object({ damageUsesMeters: z.boolean() }).strict(),
+      configSchema: z.strictObject({}),
       rules: [],
     }]);
-    expect(loadWorldScript(world, { seed: 1, rulePackages: registry, modelCatalog }).rulePackages[0]).toMatchObject({
-      id: "cultivation-d20",
+    expect(loadWorldScript(world, { seed: 1, rulePackages: registry, modelCatalog }).rulePackages[1]).toMatchObject({
+      id: "cultivation-resolution",
       version: "2.0.0",
     });
+
+    const missingCore = copiedFixture();
+    const missingCoreFile = path.join(missingCore, "mechanics.yaml");
+    writeFileSync(
+      missingCoreFile,
+      readFileSync(missingCoreFile, "utf8").replace("core-resolution", "cultivation-resolution"),
+      "utf8",
+    );
+    expect(() => loadWorldScript(missingCore, { seed: 1, rulePackages: registry, modelCatalog }))
+      .toThrow("schema v10 worlds require core-resolution@2.0.0");
   });
 
   it("enforces the exact canonical UTF-8 distribution budget during world loading", () => {

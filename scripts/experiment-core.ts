@@ -58,7 +58,8 @@ const deterministicAdapter: ModelProviderAdapter = {
     const context = JSON.parse(contextJson);
     let value: unknown;
     if (request.role === "causal-verifier") value = { verdict: "accept", findings: [] };
-    else if (request.role === "truth-perception" || request.role === "truth-resolution") value = { kind: "done" };
+    else if (request.role === "truth-perception") value = { kind: "done" };
+    else if (request.role === "truth-resolution") value = deterministicModelOutput(request.profileId, context);
     else if (request.role === "truth-reaction-routing") value = { requests: [] };
     else if (request.role === "truth-transition") {
       const generated = deterministicModelOutput(request.profileId, context) as { kind: "transition"; proposal: unknown };

@@ -128,6 +128,40 @@ export type ScriptedModelHandler = (
   request: ScriptedModelHandlerRequest,
 ) => unknown | Promise<unknown>;
 
+function automaticPlanDirective(context: unknown): unknown {
+  const input = context as {
+    jointActions?: Array<{ id: string; actorId: string; goal: string }>;
+    actors?: Record<string, { entityId: string }>;
+    world?: { disclosure?: { defaultCheckVisibility?: "full" | "result_only" | "hidden" } };
+  };
+  return {
+    kind: "commit_plans",
+    plans: (input.jointActions ?? []).map((action, index) => {
+      const actorId = input.actors?.[action.actorId]?.entityId;
+      if (!actorId) throw new Error(`deterministic plan has no actor entity for ${action.actorId}`);
+      return {
+        id: `plan-${index}`,
+        actionId: action.id,
+        actorId,
+        targetIds: [actorId],
+        goal: action.goal,
+        means: [],
+        mode: "automatic",
+        difficulty: null,
+        actorRatingId: null,
+        factors: [],
+        risk: "safe",
+        baseEffect: "none",
+        primaryEffect: null,
+        secondaryEffect: null,
+        threatenedEffect: null,
+        visibility: input.world?.disclosure?.defaultCheckVisibility ?? "full",
+        causes: [{ kind: "action", id: action.id }],
+      };
+    }),
+  };
+}
+
 export class ScriptedModelProvider implements StructuredModelProvider {
   readonly requests: ScriptedModelHandlerRequest[] = [];
   private pendingTransition: unknown;
@@ -160,6 +194,8 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       return value;
     }
     if (request.role === "truth-resolution" && this.pendingResolution !== undefined) {
+      const context = request.context as { committedResolutionPlans?: unknown[] };
+      if (!context.committedResolutionPlans?.length) return automaticPlanDirective(request.context);
       const value = this.pendingResolution;
       this.pendingResolution = undefined;
       return value;
@@ -174,7 +210,8 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       return { requests: [] };
     }
     if (request.role === "truth-resolution" && this.pendingTransition !== undefined) {
-      return { kind: "done" };
+      const context = request.context as { committedResolutionPlans?: unknown[] };
+      return context.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(request.context);
     }
 
     const value = await this.handler(request) as {
@@ -199,7 +236,12 @@ export class ScriptedModelProvider implements StructuredModelProvider {
     }
     if (request.role === "truth-resolution") {
       if (value.kind === "request_checks" || value.kind === "request_random") return value;
-      if (value.kind === "transition") this.pendingTransition = value.proposal;
+      if (value.kind === "commit_plans") return value;
+      if (value.kind === "transition") {
+        this.pendingTransition = value.proposal;
+        const context = request.context as { committedResolutionPlans?: unknown[] };
+        return context.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(request.context);
+      }
       return { kind: "done" };
     }
     if (value.kind === "transition") return value.proposal;
@@ -292,6 +334,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
 
 export function deterministicModelOutput(profileId: string, context: unknown): unknown {
       const input = context as {
+        stage?: "perception" | "reaction-routing" | "resolution" | "transition";
         revision?: number;
         step?: number;
         baseRevision?: number;
@@ -303,6 +346,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         jointActions?: Array<{ id: string }>;
         observationSlots?: Array<{ observer: { agentId: string } }>;
         currentEvents?: Array<{ id: string }>;
+        committedResolutionPlans?: unknown[];
       };
       if (input.action) {
         return {
@@ -332,6 +376,11 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         };
       }
       if (profileId === "truth-engine" || profileId === "truth-deepseek") {
+        if (input.stage === "perception") return { kind: "done" };
+        if (input.stage === "reaction-routing") return { requests: [] };
+        if (input.stage === "resolution") {
+          return input.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(context);
+        }
         const step = input.step;
         const revision = input.baseRevision;
         const lawId = input.world?.laws[0]?.id;

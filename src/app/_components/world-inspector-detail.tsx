@@ -294,6 +294,16 @@ function Causality({ detail }: { detail: WorldInspectorStepDetail }) {
       value: { requests: detail.committed.reactionRequests, decisions: detail.committed.reactionDecisions },
     },
     {
+      title: "裁决计划与收据",
+      description: "随机前固定的语义依据与确定性数值结算",
+      icon: Braces,
+      count: detail.committed.resolutionPlans.length + detail.committed.resolutionReceipts.length,
+      value: {
+        plans: detail.committed.resolutionPlans,
+        receipts: detail.committed.resolutionReceipts,
+      },
+    },
+    {
       title: "能力检定",
       description: "不确定行动的难度与结果",
       icon: BadgeCheck,
