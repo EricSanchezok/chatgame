@@ -73,7 +73,26 @@ test("Arrival, player composer, role and control overlays remain accessible", as
   await page.goto(`/play/${instanceId}`);
   await expect(page.getByText("此刻，你是小明")).toBeVisible();
   await expect(page.getByLabel("你的行动")).toBeVisible();
+  const suggestionPanel = page.getByRole("region", { name: "行动灵感" });
+  await expect(suggestionPanel.getByRole("button")).toHaveCount(3);
+  await expect(suggestionPanel.getByRole("button").last()).toHaveCSS("opacity", "1");
   await expectNoViolations(page);
+
+  await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.evaluate(() => {
+    document.documentElement.dir = "rtl";
+    document.documentElement.style.fontSize = "200%";
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await suggestionPanel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expectNoViolations(page);
+  await page.evaluate(() => {
+    document.documentElement.dir = "ltr";
+    document.documentElement.style.removeProperty("font-size");
+  });
+  await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 1_280, height: 720 });
 
   await page.getByRole("button", { name: /打开游戏控制/ }).click();
   await page.getByRole("button", { name: "角色" }).click();

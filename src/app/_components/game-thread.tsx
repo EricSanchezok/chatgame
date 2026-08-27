@@ -10,8 +10,8 @@ import {
   useAuiState,
   type TextMessagePartComponent,
 } from "@assistant-ui/react";
-import { ArrowDown, ArrowUp, Check, Copy } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, Check, Copy, Waypoints } from "lucide-react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { cn } from "@/lib/cn";
 
@@ -89,31 +89,56 @@ function useDesktopAutoFocus(): boolean {
   return enabled;
 }
 
-function SuggestionChips({ suggestions }: { suggestions: readonly string[] }) {
+const suggestionMarks = ["Ⅰ", "Ⅱ", "Ⅲ"] as const;
+
+function SuggestionPaths({ inputId, suggestions }: { inputId: string; suggestions: readonly string[] }) {
   const composer = unstable_useComposerInput();
+  const headingId = useId();
   if (suggestions.length === 0) return null;
   return (
-    <div className="cg-thread-suggestions" aria-label="行动建议">
-      {suggestions.map((suggestion) => (
-        <button key={suggestion} onClick={() => composer.setText(suggestion)} type="button">
-          {suggestion}
-        </button>
-      ))}
-    </div>
+    <section className="cg-thread-suggestions" aria-labelledby={headingId}>
+      <header className="cg-thread-suggestions__heading">
+        <p id={headingId}><Waypoints aria-hidden="true" />行动灵感</p>
+        <small>选择一条填入，或自由描述</small>
+      </header>
+      <ol>
+        {suggestions.map((suggestion, index) => (
+          <li key={suggestion}>
+            <button
+              aria-label={suggestion}
+              className="cg-thread-suggestion"
+              onClick={() => {
+                composer.setText(suggestion);
+                document.getElementById(inputId)?.focus();
+              }}
+              type="button"
+            >
+              <span aria-hidden="true" className="cg-thread-suggestion__mark">
+                {suggestionMarks[index] ?? String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="cg-thread-suggestion__copy">{suggestion}</span>
+              <ArrowDown aria-hidden="true" className="cg-thread-suggestion__arrow" />
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
 function Composer({ busy, suggestions }: { busy: boolean; suggestions: readonly string[] }) {
   const autoFocus = useDesktopAutoFocus();
+  const inputId = useId();
   return (
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
-      <SuggestionChips suggestions={suggestions} />
+      <SuggestionPaths inputId={inputId} suggestions={suggestions} />
       <div className="aui-composer-shell flex w-full cursor-text flex-col gap-2 rounded-3xl border border-border bg-card p-2">
         <ComposerPrimitive.Input
           aria-label="你的行动"
           autoFocus={autoFocus}
           className="max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
           enterKeyHint="send"
+          id={inputId}
           maxLength={4000}
           placeholder="说出你的行动…"
           rows={1}

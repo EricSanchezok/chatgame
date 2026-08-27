@@ -206,8 +206,14 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await startOrigin(page);
 
   const composer = page.getByLabel("你的行动");
+  const suggestionPanel = page.getByRole("region", { name: "行动灵感" });
+  await expect(suggestionPanel).toBeVisible();
+  await expect(suggestionPanel.getByRole("button")).toHaveCount(3);
+  await expect(suggestionPanel.getByText("选择一条填入，或自由描述")).toBeVisible();
+  expect(await suggestionPanel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await page.getByRole("button", { name: "确认当前位置" }).click();
   await expect(composer).toHaveValue("确认当前位置");
+  await expect(composer).toBeFocused();
   await composer.fill("我现在在哪里？");
   await page.getByRole("button", { name: "发送行动" }).click();
   await expect(page.getByText("世界继续变化。").last()).toBeVisible();
