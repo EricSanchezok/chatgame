@@ -155,6 +155,12 @@ test("world detail keeps historical saves in a scrollable middle panel", async (
   await page.setViewportSize({ width: 320, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(await history.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  const mobileHistoryBox = await page.locator(".cg-world-saves").boundingBox();
+  const mobileDeleteBox = await firstRow.locator(".cg-instance-delete").boundingBox();
+  expect(mobileHistoryBox).not.toBeNull();
+  expect(mobileDeleteBox).not.toBeNull();
+  expect(mobileHistoryBox!.x + mobileHistoryBox!.width).toBeLessThanOrEqual(320);
+  expect(mobileDeleteBox!.x + mobileDeleteBox!.width).toBeLessThanOrEqual(320);
 });
 
 test("a world starts in observer mode without replacing the conversation core", async ({ page }) => {

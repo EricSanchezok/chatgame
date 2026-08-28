@@ -241,7 +241,7 @@ export function WorldDetail({
       </header>
       <section className="cg-world-saves" aria-labelledby="world-instances-title">
         <div className="cg-world-saves__heading">
-          <div><p className="cg-eyebrow">游玩记录</p><h2 id="world-instances-title">历史存档</h2></div>
+          <h2 id="world-instances-title">历史存档</h2>
           <p><strong>{instances.length}</strong> 个存档</p>
         </div>
         <div
@@ -271,6 +271,7 @@ export function WorldDetail({
                     type="button"
                   >
                     <Trash2 aria-hidden="true" />
+                    <span>删除</span>
                   </button>
                 </li>
               ))}
@@ -282,7 +283,7 @@ export function WorldDetail({
         <div className="cg-world-package__header">
           <div><p className="cg-eyebrow">世界包</p><h2 id="world-package-title">版本与内容</h2></div>
           <button
-            className="cg-button--quiet cg-button--danger"
+            className="cg-button--quiet cg-button--danger cg-world-package__delete"
             disabled={instances.length > 0}
             onClick={() => setConfirmDelete(true)}
             type="button"
