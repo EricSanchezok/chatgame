@@ -154,9 +154,17 @@ function useComposerReservedSpace(docked: boolean): number {
 
   useEffect(() => {
     let frame: number | undefined;
-    const footer = document.querySelector<HTMLElement>('[data-slot="aui-thread-viewport-footer"]');
+    let footer: HTMLElement | undefined;
+    let resizeObserver: ResizeObserver | undefined;
     const measure = () => {
       frame = undefined;
+      const nextFooter = document.querySelector<HTMLElement>('[data-slot="aui-thread-viewport-footer"]') ?? undefined;
+      if (nextFooter !== footer) {
+        resizeObserver?.disconnect();
+        footer = nextFooter;
+        resizeObserver = footer ? new ResizeObserver(schedule) : undefined;
+        if (resizeObserver && footer) resizeObserver.observe(footer);
+      }
       const next = docked && footer
         ? Math.max(minimumComposerSpace, Math.ceil(window.innerHeight - footer.getBoundingClientRect().top + 16))
         : minimumComposerSpace;
@@ -166,13 +174,14 @@ function useComposerReservedSpace(docked: boolean): number {
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(measure);
     };
-    const observer = footer ? new ResizeObserver(schedule) : undefined;
-    if (footer) observer?.observe(footer);
+    const mutationObserver = new MutationObserver(schedule);
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", schedule);
     schedule();
     return () => {
       if (frame !== undefined) cancelAnimationFrame(frame);
-      observer?.disconnect();
+      resizeObserver?.disconnect();
+      mutationObserver.disconnect();
       window.removeEventListener("resize", schedule);
     };
   }, [docked]);
