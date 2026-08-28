@@ -588,7 +588,9 @@ function materializeResolutionPlans(input: {
   allowedCauses: Record<CausalRef["kind"], Set<string>>;
 }): ResolutionPlan[] {
   if (input.drafts.length !== input.actions.length) {
-    throw new Error("resolution plans must cover every final joint action exactly once");
+    throw new Error(
+      `resolution plans must cover every final joint action exactly once (expected ${input.actions.length}, received ${input.drafts.length})`,
+    );
   }
   const aliases = new Set<string>();
   const actionIds = new Set<string>();
