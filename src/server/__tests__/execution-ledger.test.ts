@@ -81,6 +81,38 @@ function candidateCounts(overrides: Partial<Record<string, number>> = {}) {
 }
 
 describe("Execution Ledger", () => {
+  it("rejects an unexpired lease held by a live process", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "lwe-live-database-owner-"));
+    const file = path.join(root, "livingworld.sqlite");
+    const first = new LocalDatabase(file, { heartbeat: false, ownerId: "live-owner" });
+    try {
+      expect(() => new LocalDatabase(file, {
+        heartbeat: false,
+        ownerId: "contending-owner",
+        isProcessAlive: () => true,
+      })).toThrow("already owned by another Living World Engine instance");
+    } finally {
+      first.close();
+    }
+  });
+
+  it("immediately reclaims an unexpired lease from a dead process", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "lwe-dead-database-owner-"));
+    const file = path.join(root, "livingworld.sqlite");
+    const first = new LocalDatabase(file, { heartbeat: false, ownerId: "dead-owner" });
+    const recovered = new LocalDatabase(file, {
+      heartbeat: false,
+      ownerId: "recovered-owner",
+      isProcessAlive: () => false,
+    });
+    try {
+      expect(recovered.list()).toEqual([]);
+    } finally {
+      recovered.close();
+      first.close();
+    }
+  });
+
   it("rejects an older database without migrating or deleting it", () => {
     const root = mkdtempSync(path.join(tmpdir(), "lwe-old-database-"));
     const file = path.join(root, "livingworld.sqlite");

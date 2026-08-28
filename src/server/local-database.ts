@@ -67,6 +67,7 @@ interface LocalDatabaseOptions {
   ownerId?: string;
   now?: () => number;
   heartbeat?: boolean;
+  isProcessAlive?: (pid: number) => boolean;
   rulePackages?: RulePackageRegistry;
   observer?: RuntimeObserver;
 }
@@ -98,6 +99,7 @@ interface ValidatedInstanceCacheEntry {
 
 interface LockRow {
   owner_id: string;
+  pid: number;
   expires_at: number;
 }
 
@@ -243,12 +245,23 @@ export class LocalDatabaseInUseError extends Error {
   }
 }
 
+function isLocalProcessAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid < 1) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 export class LocalDatabase implements WorldRepository, WorldInstanceStore, ExecutionLedger {
   readonly created: boolean;
   readonly rulePackages: RulePackageRegistry;
   private readonly connection: Database.Database;
   private readonly ownerId: string;
   private readonly now: () => number;
+  private readonly isProcessAlive: (pid: number) => boolean;
   private readonly heartbeatTimer?: NodeJS.Timeout;
   private readonly observer: RuntimeObserver;
   private readonly observe: ReturnType<typeof runtimeEventEmitter>;
@@ -262,6 +275,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     this.connection = new Database(file, { timeout: 5_000 });
     this.ownerId = options.ownerId ?? `${process.pid}:${randomUUID()}`;
     this.now = options.now ?? Date.now;
+    this.isProcessAlive = options.isProcessAlive ?? isLocalProcessAlive;
     this.rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
     this.observer = options.observer ?? NOOP_RUNTIME_OBSERVER;
     this.observe = runtimeEventEmitter(this.observer);
@@ -888,9 +902,9 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   private acquireInstanceLease(): void {
     this.connection.transaction(() => {
       const now = this.now();
-      const lock = this.connection.prepare("SELECT owner_id, expires_at FROM instance_lock WHERE singleton = 1")
+      const lock = this.connection.prepare("SELECT owner_id, pid, expires_at FROM instance_lock WHERE singleton = 1")
         .get() as LockRow | undefined;
-      if (lock && lock.owner_id !== this.ownerId && lock.expires_at > now) {
+      if (lock && lock.owner_id !== this.ownerId && lock.expires_at > now && this.isProcessAlive(lock.pid)) {
         throw new LocalDatabaseInUseError(this.file);
       }
       this.connection.prepare(`
