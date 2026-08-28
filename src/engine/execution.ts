@@ -263,7 +263,6 @@ export interface ExecutionTraceWriter extends RuntimeObserver {
 }
 
 export interface ExecutionContext {
-  abortSignal?: AbortSignal;
   modelScope: ModelExecutionScope;
   instrumentation: AlgorithmInstrumentation;
 }

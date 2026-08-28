@@ -175,7 +175,6 @@ function createExecutionContext(scope: ModelExecutionScope, source: SimulationSt
     trace,
     work,
     context: {
-      abortSignal: scope.abortSignal,
       modelScope,
       instrumentation: { emit: (input) => algorithmObserver.emit(input) },
     },
