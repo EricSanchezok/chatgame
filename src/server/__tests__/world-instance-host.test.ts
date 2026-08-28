@@ -499,16 +499,15 @@ describe("World Instance host", () => {
       const stored = setup.database.readInstance(created.summary.id).document;
       expect(stored.executionAlgorithm).toEqual(algorithmRef(customManifest));
 
-      const stateHash = contentHash(stored.state);
-      const missingRegistration = new WorldHost({
-        repository: setup.repository,
-        store: setup.database,
-        ledger: setup.database,
-        provider: setup.provider,
-      });
-      expect(() => missingRegistration.instance(created.summary.id))
+      const storedHash = contentHash(stored);
+      expect(() => new WorldHost({
+          repository: setup.repository,
+          store: setup.database,
+          ledger: setup.database,
+          provider: setup.provider,
+        }))
         .toThrow("execution algorithm is not registered: wrapped-eager@1");
-      expect(contentHash(setup.database.readInstance(created.summary.id).document.state)).toBe(stateHash);
+      expect(contentHash(setup.database.readInstance(created.summary.id).document)).toBe(storedHash);
 
       const recovered = new WorldHost({
         repository: setup.repository,

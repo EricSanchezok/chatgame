@@ -420,7 +420,12 @@ export class WorldHost {
     }
     this.setTimer = options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = options.clearTimer ?? clearTimeout;
-    for (const stored of options.store.listInstances()) this.restoreSchedule(stored);
+    const storedInstances = options.store.listInstances();
+    for (const stored of storedInstances) {
+      this.assertExecutionAlgorithmAvailable(stored.document);
+      this.definition(stored.document);
+    }
+    for (const stored of storedInstances) this.restoreSchedule(stored);
   }
 
   static get(): WorldHost {
@@ -488,15 +493,19 @@ export class WorldHost {
     return definition;
   }
 
+  private assertExecutionAlgorithmAvailable(document: WorldInstanceDocument): void {
+    if (!this.registry.has(document.executionAlgorithm)) {
+      throw new Error(
+        `execution algorithm is not registered: ${document.executionAlgorithm.id}` +
+        `@${document.executionAlgorithm.version}`,
+      );
+    }
+  }
+
   private read(id: string): StoredWorldInstance {
     try {
       const stored = this.options.store.readInstance(id, { instanceId: id });
-      if (!this.registry.has(stored.document.executionAlgorithm)) {
-        throw new Error(
-          `execution algorithm is not registered: ${stored.document.executionAlgorithm.id}` +
-          `@${stored.document.executionAlgorithm.version}`,
-        );
-      }
+      this.assertExecutionAlgorithmAvailable(stored.document);
       this.definition(stored.document);
       return stored;
     } catch (error) {
