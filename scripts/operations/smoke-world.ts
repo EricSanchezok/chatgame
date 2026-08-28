@@ -18,6 +18,7 @@ import { LocalDatabase } from "../../src/server/local-database";
 import { WorldHost } from "../../src/server/world-host";
 
 type SmokeProfileSet = "glm" | "deepseek";
+type SmokeWorld = "blackmarsh" | "fixture";
 
 function profileSetArgument(argv: readonly string[]): SmokeProfileSet {
   const index = argv.indexOf("--profile-set");
@@ -37,6 +38,15 @@ function stepsArgument(argv: readonly string[]): number {
   return value;
 }
 
+function worldArgument(argv: readonly string[]): SmokeWorld {
+  const index = argv.indexOf("--world");
+  const value = index >= 0 ? argv[index + 1]?.trim() : undefined;
+  if (value && value !== "blackmarsh" && value !== "fixture") {
+    throw new Error("world must be blackmarsh or fixture");
+  }
+  return (value as SmokeWorld | undefined) ?? "blackmarsh";
+}
+
 function yamlFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
@@ -45,16 +55,21 @@ function yamlFiles(directory: string): string[] {
   });
 }
 
-function smokeWorldDirectory(root: string, profileSet: SmokeProfileSet): string {
-  const source = path.resolve("worlds/blackmarsh/world");
-  if (profileSet === "glm") return source;
-  const copy = path.join(root, "world-deepseek");
+function smokeWorldDirectory(root: string, profileSet: SmokeProfileSet, world: SmokeWorld): string {
+  const source = path.resolve(world === "blackmarsh"
+    ? "worlds/blackmarsh/world"
+    : "test/fixtures/open-world-script");
+  const copy = path.join(root, `world-${world}-${profileSet}`);
   cpSync(source, copy, { recursive: true });
+  const truthProfile = profileSet === "glm" ? "truth-zhipu-coding" : "truth-deepseek";
+  const agentProfile = profileSet === "glm" ? "agent-zhipu-coding" : "agent-deepseek";
   for (const file of yamlFiles(copy)) {
     const contents = readFileSync(file, "utf8");
     writeFileSync(file, contents
-      .replaceAll("truth-zhipu-coding", "truth-deepseek")
-      .replaceAll("agent-zhipu-coding", "agent-deepseek"), "utf8");
+      .replaceAll("truth-zhipu-coding", truthProfile)
+      .replaceAll("truth-deepseek", truthProfile)
+      .replaceAll("agent-zhipu-coding", agentProfile)
+      .replaceAll("agent-deepseek", agentProfile), "utf8");
   }
   return copy;
 }
@@ -200,11 +215,12 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const profileSet = profileSetArgument(argv);
   const requestedSteps = stepsArgument(argv);
+  const world = worldArgument(argv);
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
   const root = mkdtempSync(path.join(tmpdir(), `lwe-${profileSet}-smoke-`));
   const registry = new ModelRegistry(catalog, root);
   const provider = createModelGateway(catalog, process.env, { registry });
-  const definition = loadWorldScript(smokeWorldDirectory(root, profileSet), {
+  const definition = loadWorldScript(smokeWorldDirectory(root, profileSet, world), {
     seed: 20260827,
     modelCatalog: catalog,
   });
@@ -231,6 +247,8 @@ async function main(): Promise<void> {
   });
 
   try {
+    const origin = definition.participation?.origins[0];
+    if (!origin) throw new Error(`smoke world ${definition.id} has no playable origin`);
     let headless = await host.createInstance({
       worldId: definition.id,
       seed: 20260827,
@@ -255,7 +273,7 @@ async function main(): Promise<void> {
       title: `${profileSet.toUpperCase()} 角色烟测`,
       start: {
         kind: "origin",
-        originId: "harbor-wayfarer",
+        originId: origin.id,
         displayName: "远行者",
         appearance: "披着被海风打湿的深色斗篷。",
         motivation: "弄清自己身在何处，并寻找今晚可以落脚的地方。",
@@ -292,6 +310,7 @@ async function main(): Promise<void> {
     process.stdout.write([
       `${profileSet.toUpperCase()} eager-reference smoke passed`,
       `world=${definition.id}`,
+      `scenario=${world}`,
       `agents=${Object.keys(database.readInstance(instance.summary.id).document.state.agents).length}`,
       `headlessRevision=${headlessRevision}`,
       `participantRevision=${instance.summary.revision}`,
