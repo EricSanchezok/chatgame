@@ -77,6 +77,28 @@ describe("execution kernel boundary", () => {
         { id: "same", version: "2", config: {} },
       ],
     })).toThrow("duplicate component id");
+    expect(() => defineAlgorithmManifest({
+      id: "blank-version",
+      version: " ",
+      config: {},
+      components: [],
+    })).toThrow("version is required");
+    const symbolConfig = { visible: true } as Record<PropertyKey, unknown>;
+    symbolConfig[Symbol("hidden")] = "not-hashed";
+    expect(() => defineAlgorithmManifest({
+      id: "symbol-config",
+      version: "1",
+      config: symbolConfig as never,
+      components: [],
+    })).toThrow("symbol keys");
+    const hiddenConfig = {};
+    Object.defineProperty(hiddenConfig, "hidden", { value: true, enumerable: false });
+    expect(() => defineAlgorithmManifest({
+      id: "hidden-config",
+      version: "1",
+      config: hiddenConfig,
+      components: [],
+    })).toThrow("enumerable data property");
   });
 
   it("rejects unsupported contracts, unknown hashes, and wrong factory manifests", () => {
@@ -93,5 +115,16 @@ describe("execution kernel boundary", () => {
       ...algorithmRef(registered),
       manifestHash: "sha256:unknown",
     }, { provider: {} as never })).toThrow("manifest is not registered");
+  });
+
+  it("requires a fresh algorithm instance from every factory call", () => {
+    const manifest = algorithmManifest("fresh-instance");
+    const singleton = new MutatingAlgorithm(manifest);
+    const registry = new WorldExecutionAlgorithmRegistry();
+    registry.register(manifest, () => singleton);
+
+    registry.create(algorithmRef(manifest), { provider: {} as never });
+    expect(() => registry.create(algorithmRef(manifest), { provider: {} as never }))
+      .toThrow("reused an algorithm instance");
   });
 });

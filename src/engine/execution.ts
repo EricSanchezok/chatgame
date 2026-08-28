@@ -98,18 +98,32 @@ function assertJsonValue(value: unknown, label: string, seen = new Set<object>()
   if (seen.has(value)) throw new Error(`${label} must not contain cycles`);
   seen.add(value);
   if (Array.isArray(value)) {
+    const allowedKeys = new Set<PropertyKey>([
+      "length",
+      ...Array.from({ length: value.length }, (_, index) => String(index)),
+    ]);
+    for (const key of Reflect.ownKeys(value)) {
+      if (!allowedKeys.has(key)) throw new Error(`${label} must not contain non-JSON array properties`);
+    }
     for (let index = 0; index < value.length; index += 1) {
       if (!(index in value)) throw new Error(`${label} must not contain sparse arrays`);
-      assertJsonValue(value[index], `${label}[${index}]`, seen);
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor)) throw new Error(`${label}[${index}] must be a data property`);
+      assertJsonValue(descriptor.value, `${label}[${index}]`, seen);
     }
   } else {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) {
       throw new Error(`${label} must contain only plain objects`);
     }
-    for (const [key, entry] of Object.entries(value)) {
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") throw new Error(`${label} must not contain symbol keys`);
       if (!key.trim()) throw new Error(`${label} keys must be non-empty`);
-      assertJsonValue(entry, `${label}.${key}`, seen);
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+        throw new Error(`${label}.${key} must be an enumerable data property`);
+      }
+      assertJsonValue(descriptor.value, `${label}.${key}`, seen);
     }
   }
   seen.delete(value);
@@ -421,6 +435,7 @@ export class WorldExecutionAlgorithmRegistry {
     manifestHash: string;
     factory: WorldExecutionAlgorithmFactory;
   }>();
+  private readonly instances = new WeakSet<WorldExecutionAlgorithm>();
 
   register(manifest: AlgorithmManifest, factory: WorldExecutionAlgorithmFactory): void {
     const key = `${manifest.id}@${manifest.version}`;
@@ -444,6 +459,9 @@ export class WorldExecutionAlgorithmRegistry {
       throw new Error(`execution algorithm manifest is not registered: ${key}#${ref.manifestHash}`);
     }
     const algorithm = registered.factory(services);
+    if (!algorithm || typeof algorithm !== "object") {
+      throw new Error(`execution algorithm factory did not return an algorithm instance: ${key}`);
+    }
     if (algorithm.manifest.id !== ref.id || algorithm.manifest.version !== ref.version ||
       algorithm.manifest.contractVersion !== ref.contractVersion ||
       algorithm.manifest.hash !== registered.manifestHash ||
@@ -451,6 +469,10 @@ export class WorldExecutionAlgorithmRegistry {
       throw new Error(`execution algorithm factory returned the wrong manifest: ${key}`);
     }
     validateExecutionProducerManifest(algorithm.manifest);
+    if (this.instances.has(algorithm)) {
+      throw new Error(`execution algorithm factory reused an algorithm instance: ${key}`);
+    }
+    this.instances.add(algorithm);
     return algorithm;
   }
 }

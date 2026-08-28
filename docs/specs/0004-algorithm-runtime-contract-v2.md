@@ -49,11 +49,11 @@ Implemented by the following independently verified commits:
 
 Primary executable evidence lives in [`execution-kernel.test.ts`](../../src/engine/__tests__/execution-kernel.test.ts), [`observability.test.ts`](../../src/engine/__tests__/observability.test.ts), [`action-dependency.test.ts`](../../src/engine/__tests__/action-dependency.test.ts), [`eager-reference.test.ts`](../../src/engine/__tests__/eager-reference.test.ts), [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts), and [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts).
 
-The final semantic review added committer-side re-derivation of the dependency conflict graph so algorithm diagnostics cannot falsify stable component metrics.
+The final semantic review added committer-side re-derivation of the dependency conflict graph, exact JSON-property validation, and fresh-instance enforcement for registry factories.
 
 Final verification completed on 2026-08-28:
 
-- `npm test`: 35 test files and 219 tests passed.
+- `npm test`: 35 test files and 220 tests passed.
 - `npm run world:validate -- worlds/blackmarsh/world`: 232 entities and 48 Agents validated.
 - `npm run build`: the production Next.js build and all routes compiled successfully.
 - `npm run check:ui`: all 11 product/browser flows and all 4 accessibility flows passed.
