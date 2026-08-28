@@ -1,37 +1,58 @@
-schema_version: 2
+schema_version: 3
 
 scheduler:
   global_concurrency: 16
   max_queued_requests: 1024
   queue_timeout_ms: 300000
 
-providers:
+registry:
+  refresh_interval_ms: 3600000
+  request_timeout_ms: 10000
+  stale_after_ms: 86400000
+
+accounts:
   deepseek-e2e:
-    kind: deepseek
+    channel: api
+    region: local
+    protocol: openai-chat
+    dialect: deepseek
+    models_dev_provider_id: deepseek
     base_url: http://127.0.0.1:32128
     api_key_env: E2E_MODEL_API_KEY
     max_concurrency: 16
 
 profiles:
   truth-deepseek:
-    provider_id: deepseek-e2e
-    model: e2e-truth
+    account_id: deepseek-e2e
+    selector: { kind: exact, model_id: e2e-truth }
     description: E2E Truth Engine through the production DeepSeek adapter
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, temporal-planner, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 10000
     max_output_tokens: 32768
-    max_input_bytes: 262144
+    max_input_bytes: 524288
     inference:
-      kind: deepseek-thinking
+      thinking: enabled
       effort: max
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: auto
+      top_p: auto
   agent-deepseek:
-    provider_id: deepseek-e2e
-    model: e2e-agent
+    account_id: deepseek-e2e
+    selector: { kind: exact, model_id: e2e-agent }
     description: E2E AgentMind through the production DeepSeek adapter
     allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
     request_timeout_ms: 10000
     max_output_tokens: 8192
     max_input_bytes: 131072
     inference:
-      kind: deepseek-thinking
+      thinking: enabled
       effort: high
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: auto
+      top_p: auto
+
+model_overrides: {}

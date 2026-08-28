@@ -1,7 +1,29 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { loadModelCatalog } from "../../src/engine/model-catalog";
+import { ModelRegistry } from "../../src/engine/model-registry";
 
-export default function globalSetup(): void {
+function model(id: string) {
+  return {
+    id,
+    name: id,
+    family: "e2e",
+    reasoning: true,
+    reasoning_options: [
+      { type: "toggle" },
+      { type: "effort", values: ["high", "max"] },
+    ],
+    tool_call: true,
+    structured_output: true,
+    temperature: true,
+    release_date: "2026-01-01",
+    last_updated: "2026-01-01",
+    modalities: { input: ["text"], output: ["text"] },
+    limit: { context: 262_144, output: 32_768 },
+  };
+}
+
+export default async function globalSetup(): Promise<void> {
   const dataRoot = path.resolve(process.env.LIVINGWORLD_E2E_DATA_ROOT ?? "e2e/artifacts/runtime-data");
   const modelCatalog = path.resolve(
     process.env.LIVINGWORLD_E2E_MODEL_CATALOG_PATH ?? "e2e/artifacts/runtime-models.yaml",
@@ -11,4 +33,23 @@ export default function globalSetup(): void {
   mkdirSync(path.dirname(modelCatalog), { recursive: true });
   const template = readFileSync(path.resolve("e2e/support/models.yaml"), "utf8");
   writeFileSync(modelCatalog, template.replace("http://127.0.0.1:32128", `http://127.0.0.1:${modelPort}`));
+
+  const catalog = loadModelCatalog(modelCatalog);
+  const registry = new ModelRegistry(catalog, dataRoot, {
+    minimumRefreshIntervalMs: 0,
+    fetch: async () => new Response(JSON.stringify({
+      deepseek: {
+        id: "deepseek",
+        name: "E2E DeepSeek",
+        models: {
+          "e2e-truth": model("e2e-truth"),
+          "e2e-agent": model("e2e-agent"),
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json", etag: '"e2e-models-v1"' },
+    }),
+  });
+  await registry.refresh({ reason: "capture" });
 }

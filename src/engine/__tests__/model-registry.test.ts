@@ -140,6 +140,33 @@ function jsonResponse(body: unknown, options: ResponseInit = {}): Response {
   });
 }
 
+describe("trusted provider transport configuration", () => {
+  it("allows loopback HTTP for local harnesses but rejects remote plaintext endpoints", () => {
+    const configured = catalog();
+    const document = {
+      schema_version: 3 as const,
+      scheduler: configured.scheduler,
+      registry: configured.registry,
+      profiles: configured.profiles,
+      model_overrides: configured.modelOverrides,
+    };
+    const account = configured.account("deepseek-api");
+
+    expect(() => parseModelCatalog({
+      ...document,
+      accounts: {
+        "deepseek-api": { ...account, base_url: "http://127.0.0.1:32128" },
+      },
+    })).not.toThrow();
+    expect(() => parseModelCatalog({
+      ...document,
+      accounts: {
+        "deepseek-api": { ...account, base_url: "http://models.example.test/v1" },
+      },
+    })).toThrow("provider base URL must use HTTPS, or loopback HTTP");
+  });
+});
+
 describe("models.dev registry", () => {
   it("creates a content-addressed first snapshot without trusting remote transport metadata", async () => {
     let requestedUrl = "";

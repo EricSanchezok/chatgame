@@ -14,8 +14,11 @@ const modelIdSchema = z.string().min(1).max(256).refine(
 );
 const trustedBaseUrlSchema = z.url().refine((value) => {
   const url = new URL(value);
-  return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash;
-}, "provider base URL must be an HTTPS URL without credentials, query, or fragment");
+  const loopbackHttp = url.protocol === "http:" &&
+    ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  return (url.protocol === "https:" || loopbackHttp) &&
+    !url.username && !url.password && !url.search && !url.hash;
+}, "provider base URL must use HTTPS, or loopback HTTP, without credentials, query, or fragment");
 
 export const modelRoles = [
   "truth-perception",

@@ -12,8 +12,12 @@ function contextFrom(body: Record<string, unknown>): Record<string, unknown> {
   const messages = body.messages as Array<{ role: string; content: string }>;
   const prompt = messages.findLast((message) => message.role === "user")?.content;
   if (!prompt) throw new Error("DeepSeek-compatible request has no user prompt");
-  const [json] = prompt.split("\n\nReturn exactly one json object.", 1);
-  return JSON.parse(json) as Record<string, unknown>;
+  const instruction = "\n\nReturn exactly one JSON object matching the supplied schema.";
+  const instructionOffset = prompt.indexOf(instruction);
+  if (instructionOffset < 0) {
+    throw new Error("DeepSeek-compatible request has no structured-output instruction");
+  }
+  return JSON.parse(prompt.slice(0, instructionOffset)) as Record<string, unknown>;
 }
 
 function agentOutput() {
