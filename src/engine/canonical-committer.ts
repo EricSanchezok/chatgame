@@ -5,6 +5,7 @@ import type {
   PolicyBinding,
   WorldStepCandidate,
 } from "./execution";
+import { actionDependencyComponents } from "./action-dependency";
 import {
   resolutionObservations,
   WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
@@ -191,6 +192,10 @@ function validateStepDiagnostics(
   if (new Set(componentAgentIds).size !== componentAgentIds.length ||
     contentHash([...componentAgentIds].sort()) !== contentHash(actionAgentIds)) {
     throw new Error("dependency diagnostics must partition final action actors");
+  }
+  if (contentHash(diagnostics.dependencyComponents) !==
+    contentHash(actionDependencyComponents(candidate.actionDependencies))) {
+    throw new Error("dependency diagnostics do not match the final action dependency graph");
   }
   if (diagnostics.globalReadjudication && actions.length > 0 && diagnostics.dependencyComponents.length !== 1) {
     throw new Error("global readjudication diagnostics require one dependency component");

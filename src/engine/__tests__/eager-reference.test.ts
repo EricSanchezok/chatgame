@@ -377,6 +377,47 @@ describe("eager reference safeguards", () => {
     expect(contentHash(engine.snapshot)).toBe(before);
   });
 
+  it("rejects dependency component diagnostics that disagree with the final dependency graph", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, context }) =>
+      deterministicModelOutput(profileId, context));
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 48,
+      modelCatalog: provider.catalog,
+    });
+    const delegate = new EagerReferenceAlgorithm(provider);
+    const forgingAlgorithm: WorldExecutionAlgorithm = {
+      manifest: delegate.manifest,
+      bootstrap: (input, context) => delegate.bootstrap(input, context),
+      step: async (input, context) => {
+        const candidate = await delegate.step(input, context);
+        const dependency = candidate.actionDependencies[0]!;
+        dependency.reads = [{ kind: "global", id: "world" }];
+        dependency.writes = [{ kind: "global", id: "world" }];
+        dependency.globalFallback = true;
+        candidate.diagnostics.dependencyComponents = candidate.actionDependencies
+          .map((entry) => [entry.actorId]);
+        candidate.diagnostics.globalReadjudication = false;
+        return candidate;
+      },
+    };
+    const engine = new SimulationEngine(definition, forgingAlgorithm);
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const before = contentHash(source);
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await expect(engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    })).rejects.toThrow("do not match the final action dependency graph");
+    expect(contentHash(engine.snapshot)).toBe(before);
+  });
+
   it("jointly commits an authored Timer with every activity due at the same instant", async () => {
     const provider = new ScriptedModelProvider(({ profileId, context }) =>
       deterministicModelOutput(profileId, context));
