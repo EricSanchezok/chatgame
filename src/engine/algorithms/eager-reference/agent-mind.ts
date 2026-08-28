@@ -163,6 +163,15 @@ function validateMindOutput(
     operations: structuredClone(output.characterPatch.operations),
   };
   const belief = applyBeliefPatch(agent.belief, beliefPatch);
+  // Local identity is an Agent-owned namespace. A model may describe a
+  // canonical entity, but it must choose a distinct local alias (for example
+  // `守门人` rather than canonical entity id `keeper`). Catch collisions here
+  // so the slot can be repaired before a candidate reaches canonical commit.
+  for (const localEntityId of Object.keys(belief.localEntities)) {
+    if (state.truth.entities[localEntityId]) {
+      throw new Error(`AgentMind ${agent.id} local entity ${localEntityId} collides with canonical entity id; choose a local alias`);
+    }
+  }
   applyCharacterPatch(agent.character, belief, characterPatch, step, observations, events);
   for (const targetId of output.nextAction.targetIds) {
     if (!belief.localEntities[targetId]) {
