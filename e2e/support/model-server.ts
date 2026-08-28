@@ -92,6 +92,7 @@ function truthOutput(context: Record<string, unknown>) {
       reads: [{ kind: "global", id: "world" }],
       writes: [{ kind: "global", id: "world" }],
       audienceAgentIds: [action.actorId],
+      sharedResourceClaims: [],
       globalFallback: true,
     };
   }
