@@ -16,6 +16,7 @@
     "world:validate": "tsx scripts/validate-world.ts",
     "world:import": "tsx scripts/import-world.ts",
     "experiment:run": "tsx scripts/experiment-run.ts",
+    "benchmark:causal": "tsx scripts/causal-activity-benchmark.ts",
     "execution:replay": "tsx scripts/execution-command.ts replay",
     "execution:compare": "tsx scripts/execution-command.ts compare",
     "execution:export": "tsx scripts/execution-command.ts export",
