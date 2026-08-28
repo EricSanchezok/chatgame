@@ -1,7 +1,7 @@
 import type { AgentPerspectiveView } from "../engine/model";
 export type { AgentPerspectiveView, BeliefValue, PerspectiveFactValue } from "../engine/model";
 
-export const WORLD_API_VERSION = 11 as const;
+export const WORLD_API_VERSION = 12 as const;
 
 export interface WorldSummary {
   id: string;
@@ -180,6 +180,10 @@ export type CreateInstanceInput = {
   worldId: string;
   title?: string;
   seed?: number;
+  executionTuning?: {
+    actionCompilationMaxSlots?: number;
+    agentMindMaxSlots?: number;
+  };
   start: {
     kind: "origin";
     originId: string;

@@ -53,10 +53,15 @@ describe("World Instance Route Handlers", () => {
     const headlessResponse = await createInstance(jsonRequest("http://local/api/instances", {
       worldId: "open-world-fixture",
       seed: 71,
+      executionTuning: { actionCompilationMaxSlots: 3, agentMindMaxSlots: 2 },
       start: { kind: "observer" },
     }));
     expect(headlessResponse.status).toBe(201);
     const headless = await headlessResponse.json();
+    expect(database.readInstance(headless.summary.id).document.executionAlgorithm.config).toEqual({
+      actionCompilationMaxSlots: 3,
+      agentMindMaxSlots: 2,
+    });
 
     const advancedResponse = await advanceInstance(jsonRequest(
       `http://local/api/instances/${headless.summary.id}/advance`,
@@ -130,6 +135,24 @@ describe("World Instance Route Handlers", () => {
     }));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "worldId is required" });
+
+    const invalidTuning = await createInstance(jsonRequest("http://local/api/instances", {
+      worldId: "open-world-fixture",
+      executionTuning: { actionCompilationMaxSlots: 65 },
+      start: { kind: "observer" },
+    }));
+    expect(invalidTuning.status).toBe(400);
+    expect(await invalidTuning.json()).toEqual({
+      error: "actionCompilationMaxSlots must be an integer from 1 through 64",
+    });
+
+    const unknownTuning = await createInstance(jsonRequest("http://local/api/instances", {
+      worldId: "open-world-fixture",
+      executionTuning: { unexpected: 2 },
+      start: { kind: "observer" },
+    }));
+    expect(unknownTuning.status).toBe(400);
+    expect(await unknownTuning.json()).toEqual({ error: "unknown executionTuning field: unexpected" });
 
     const missingEvents = await getInstanceEvents(
       new Request("http://local/api/instances/missing/events"),

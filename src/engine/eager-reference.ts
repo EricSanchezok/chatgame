@@ -88,27 +88,66 @@ import {
 } from "./shared-resource-allocation";
 
 const groundingComponent = { id: "interaction-grounding", version: "3", config: { repairAttempts: 2 } } as const;
-const compilationComponent = { id: "action-compilation", version: "1", config: { repairAttempts: 2 } } as const;
+const compilationComponent = { id: "action-compilation", version: "2", config: { repairAttempts: 2 } } as const;
 const truthComponent = { id: "truth-interaction-component", version: "2", config: { fallback: "global" } } as const;
 const mindComponent = {
   id: "agent-mind",
-  version: "4",
+  version: "5",
   config: { externalUpdates: false, repairExhaustion: "empty-patch-and-idle-action" },
 } as const;
-export const EAGER_REFERENCE_MANIFEST = defineAlgorithmManifest({
-  id: "eager-reference",
-  version: "6",
-  config: {
-    activation: "decision-eligible-model-agents",
-    compilation: "joint-temporal-plan-and-interaction-dependency",
-    grounding: "persisted-interaction-footprints",
-    sharedResourceAllocation: "script-policy-with-kernel-capacity",
-    resolution: "interaction-components-with-global-fallback",
-    observation: "component-bounded",
-    mindUpdate: "decision-eligible-model-agents",
-  },
-  components: [compilationComponent, groundingComponent, truthComponent, mindComponent],
+
+export interface EagerReferenceAlgorithmConfig {
+  actionCompilationMaxSlots: number;
+  agentMindMaxSlots: number;
+}
+
+export const DEFAULT_EAGER_REFERENCE_CONFIG: Readonly<EagerReferenceAlgorithmConfig> = Object.freeze({
+  actionCompilationMaxSlots: 12,
+  agentMindMaxSlots: 8,
 });
+
+function slotLimit(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > 64) {
+    throw new Error(`${label} must be an integer from 1 through 64`);
+  }
+  return Number(value);
+}
+
+export function parseEagerReferenceAlgorithmConfig(value: unknown): EagerReferenceAlgorithmConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("eager-reference config must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  const expected = ["actionCompilationMaxSlots", "agentMindMaxSlots"];
+  const keys = Object.keys(input).sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new Error(`eager-reference config fields must be exactly: ${expected.join(", ")}`);
+  }
+  return {
+    actionCompilationMaxSlots: slotLimit(
+      input.actionCompilationMaxSlots,
+      "actionCompilationMaxSlots",
+    ),
+    agentMindMaxSlots: slotLimit(input.agentMindMaxSlots, "agentMindMaxSlots"),
+  };
+}
+
+export function createEagerReferenceManifest(
+  value: unknown = DEFAULT_EAGER_REFERENCE_CONFIG,
+) {
+  const config = parseEagerReferenceAlgorithmConfig(value);
+  return defineAlgorithmManifest({
+    id: "eager-reference",
+    version: "7",
+    config: {
+      actionCompilationMaxSlots: config.actionCompilationMaxSlots,
+      agentMindMaxSlots: config.agentMindMaxSlots,
+    },
+    components: [compilationComponent, groundingComponent, truthComponent, mindComponent],
+  });
+}
+
+export const EAGER_REFERENCE_MANIFEST = createEagerReferenceManifest();
 
 function observationsFor(packets: readonly ObservationPacket[], observerId: string): ObservationPacket[] {
   return packets.filter((packet) => packet.observerId === observerId);
@@ -603,14 +642,20 @@ function mergeResolutions(
 }
 
 export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
-  readonly manifest = EAGER_REFERENCE_MANIFEST;
+  readonly manifest;
   private readonly truthEngine: TruthEngine;
   private readonly agentMind: AgentMind;
   private readonly observationRenderer: ObservationRenderer;
   private readonly provider: StructuredModelProvider;
   private readonly rulePackages: RulePackageRegistry;
 
-  constructor(provider: StructuredModelProvider, rulePackages?: RulePackageRegistry) {
+  constructor(
+    provider: StructuredModelProvider,
+    rulePackages?: RulePackageRegistry,
+    readonly config: Readonly<EagerReferenceAlgorithmConfig> = DEFAULT_EAGER_REFERENCE_CONFIG,
+  ) {
+    this.config = Object.freeze(parseEagerReferenceAlgorithmConfig(config));
+    this.manifest = createEagerReferenceManifest(this.config);
     this.provider = provider;
     this.rulePackages = rulePackages ?? createCoreRulePackageRegistry();
     this.truthEngine = new TruthEngine(provider, { rulePackages: this.rulePackages });

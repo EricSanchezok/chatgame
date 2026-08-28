@@ -465,7 +465,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v18",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v19",
       );
       const databaseFile = path.join(dataRoot, "livingworld.sqlite");
       const database = new LocalDatabase(databaseFile);
@@ -649,16 +649,20 @@ export class WorldHost {
     };
   }
 
-  async createInstance(input: CreateInstanceInput, principalId = "local"): Promise<PublicInstanceDetail> {
+  async createInstance(
+    input: CreateInstanceInput,
+    principalId = "local",
+    executionAlgorithm: AlgorithmRef = this.defaultAlgorithmRef,
+  ): Promise<PublicInstanceDetail> {
     const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
     this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 18,
+      schemaVersion: 19,
       id,
       world: toWorldRuntimeContract(definition),
-      executionAlgorithm: structuredClone(this.defaultAlgorithmRef),
+      executionAlgorithm: structuredClone(executionAlgorithm),
       title: input.title?.trim() || definition.name,
       createdAt: now,
       updatedAt: now,
@@ -672,6 +676,12 @@ export class WorldHost {
       participantIntents: [],
       reactionSubmissions: [],
     };
+    if (!this.registry.has(initial.executionAlgorithm)) {
+      throw new WorldHostError(
+        `execution algorithm is not registered: ${initial.executionAlgorithm.id}@${initial.executionAlgorithm.version}`,
+        400,
+      );
+    }
     const algorithm = this.registry.create(initial.executionAlgorithm, {
       provider: this.options.provider,
       rulePackages: this.options.repository.rulePackages,

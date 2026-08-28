@@ -75,6 +75,30 @@ describe("execution kernel boundary", () => {
       .toThrow("manifest hash mismatch");
   });
 
+  it("resolves multiple opaque configurations through one algorithm definition", () => {
+    const registry = new WorldExecutionAlgorithmRegistry();
+    const configuredManifest = (config: import("../execution").JsonObject) => defineAlgorithmManifest({
+      id: "configured",
+      version: "1",
+      config,
+      components: [],
+    });
+    registry.registerDefinition({
+      id: "configured",
+      version: "1",
+      manifest: configuredManifest,
+      create: (config) => new MutatingAlgorithm(configuredManifest(config)),
+    });
+    const first = algorithmRef(configuredManifest({ slots: 2 }));
+    const second = algorithmRef(configuredManifest({ slots: 7 }));
+
+    expect(registry.has(first)).toBe(true);
+    expect(registry.has(second)).toBe(true);
+    expect(registry.create(first, { provider: {} as never }).manifest.config).toEqual({ slots: 2 });
+    expect(registry.create(second, { provider: {} as never }).manifest.config).toEqual({ slots: 7 });
+    expect(registry.has({ ...first, config: { slots: 3 } })).toBe(false);
+  });
+
   it("rejects malformed manifest configuration and component identities", () => {
     expect(() => defineAlgorithmManifest({
       id: "invalid-json",

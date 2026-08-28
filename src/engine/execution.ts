@@ -42,7 +42,7 @@ import type { SharedResourceAdmission } from "./shared-resource-allocation";
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
-export const WORLD_EXECUTION_CONTRACT_VERSION = 4 as const;
+export const WORLD_EXECUTION_CONTRACT_VERSION = 5 as const;
 export const ENGINE_OPERATION_CONTRACT_VERSION = 1 as const;
 export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 4 as const;
 export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 2 as const;
@@ -96,6 +96,7 @@ export interface AlgorithmRef {
   id: string;
   version: string;
   contractVersion: typeof WORLD_EXECUTION_CONTRACT_VERSION;
+  config: JsonObject;
   manifestHash: string;
 }
 
@@ -250,6 +251,7 @@ export function algorithmRef(manifest: AlgorithmManifest): AlgorithmRef {
     id: manifest.id,
     version: manifest.version,
     contractVersion: manifest.contractVersion,
+    config: manifest.config,
     manifestHash: manifest.hash,
   });
 }
@@ -259,6 +261,7 @@ export function validateAlgorithmRef(ref: AlgorithmRef): void {
   requireManifestText(ref.id, "execution algorithm reference id");
   requireManifestText(ref.version, "execution algorithm reference version");
   requireManifestText(ref.manifestHash, "execution algorithm reference manifest hash");
+  assertJsonValue(ref.config, "execution algorithm reference config");
   if (ref.contractVersion !== WORLD_EXECUTION_CONTRACT_VERSION) {
     throw new Error(`unsupported execution algorithm contract version: ${ref.contractVersion}`);
   }
@@ -495,35 +498,79 @@ export type WorldExecutionAlgorithmFactory = (
   services: Readonly<WorldExecutionAlgorithmServices>,
 ) => WorldExecutionAlgorithm;
 
+export interface WorldExecutionAlgorithmDefinition {
+  id: string;
+  version: string;
+  manifest(config: JsonObject): AlgorithmManifest;
+  create(
+    config: JsonObject,
+    services: Readonly<WorldExecutionAlgorithmServices>,
+  ): WorldExecutionAlgorithm;
+}
+
 export class WorldExecutionAlgorithmRegistry {
-  private readonly factories = new Map<string, {
-    manifestHash: string;
-    factory: WorldExecutionAlgorithmFactory;
-  }>();
+  private readonly definitions = new Map<string, WorldExecutionAlgorithmDefinition>();
   private readonly instances = new WeakSet<WorldExecutionAlgorithm>();
 
   register(manifest: AlgorithmManifest, factory: WorldExecutionAlgorithmFactory): void {
-    const key = `${manifest.id}@${manifest.version}`;
     validateExecutionProducerManifest(manifest);
-    if (this.factories.has(key)) throw new Error(`execution algorithm is already registered: ${key}`);
-    this.factories.set(key, { manifestHash: manifest.hash, factory });
+    this.registerDefinition({
+      id: manifest.id,
+      version: manifest.version,
+      manifest: (config) => {
+        if (contentHash(config) !== contentHash(manifest.config)) {
+          throw new Error(`execution algorithm config is not registered: ${manifest.id}@${manifest.version}`);
+        }
+        return manifest;
+      },
+      create: (_config, services) => factory(services),
+    });
+  }
+
+  registerDefinition(definition: WorldExecutionAlgorithmDefinition): void {
+    requireManifestText(definition.id, "execution algorithm definition id");
+    requireManifestText(definition.version, "execution algorithm definition version");
+    if (typeof definition.manifest !== "function" || typeof definition.create !== "function") {
+      throw new Error("execution algorithm definition requires manifest and create functions");
+    }
+    const key = `${definition.id}@${definition.version}`;
+    if (this.definitions.has(key)) throw new Error(`execution algorithm is already registered: ${key}`);
+    this.definitions.set(key, definition);
   }
 
   has(ref: AlgorithmRef): boolean {
     validateAlgorithmRef(ref);
-    const registered = this.factories.get(`${ref.id}@${ref.version}`);
-    return registered?.manifestHash === ref.manifestHash;
+    const definition = this.definitions.get(`${ref.id}@${ref.version}`);
+    if (!definition) return false;
+    try {
+      const manifest = definition.manifest(ref.config);
+      validateExecutionProducerManifest(manifest);
+      return manifest.id === ref.id && manifest.version === ref.version &&
+        manifest.contractVersion === ref.contractVersion && manifest.hash === ref.manifestHash &&
+        contentHash(manifest.config) === contentHash(ref.config);
+    } catch {
+      return false;
+    }
   }
 
   create(ref: AlgorithmRef, services: Readonly<WorldExecutionAlgorithmServices>): WorldExecutionAlgorithm {
     validateAlgorithmRef(ref);
     const key = `${ref.id}@${ref.version}`;
-    const registered = this.factories.get(key);
-    if (!registered) throw new Error(`execution algorithm is not registered: ${key}`);
-    if (registered.manifestHash !== ref.manifestHash) {
+    const definition = this.definitions.get(key);
+    if (!definition) throw new Error(`execution algorithm is not registered: ${key}`);
+    let manifest: AlgorithmManifest;
+    try {
+      manifest = definition.manifest(ref.config);
+      validateExecutionProducerManifest(manifest);
+    } catch (error) {
+      throw new Error(`execution algorithm config is not registered: ${key}`, { cause: error });
+    }
+    if (manifest.id !== ref.id || manifest.version !== ref.version ||
+      manifest.contractVersion !== ref.contractVersion || manifest.hash !== ref.manifestHash ||
+      contentHash(manifest.config) !== contentHash(ref.config)) {
       throw new Error(`execution algorithm manifest is not registered: ${key}#${ref.manifestHash}`);
     }
-    const algorithm = registered.factory(services);
+    const algorithm = definition.create(ref.config, services);
     if (!algorithm || typeof algorithm !== "object") {
       throw new Error(`execution algorithm factory did not return an algorithm instance: ${key}`);
     }
@@ -533,7 +580,7 @@ export class WorldExecutionAlgorithmRegistry {
     }
     if (algorithm.manifest.id !== ref.id || algorithm.manifest.version !== ref.version ||
       algorithm.manifest.contractVersion !== ref.contractVersion ||
-      algorithm.manifest.hash !== registered.manifestHash ||
+      algorithm.manifest.hash !== manifest.hash ||
       algorithm.manifest.hash !== ref.manifestHash) {
       throw new Error(`execution algorithm factory returned the wrong manifest: ${key}`);
     }

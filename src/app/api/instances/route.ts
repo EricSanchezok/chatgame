@@ -1,4 +1,9 @@
 import type { CreateInstanceInput } from "../../../shared/world-api";
+import {
+  DEFAULT_EAGER_REFERENCE_CONFIG,
+  parseEagerReferenceAlgorithmConfig,
+} from "../../../engine/eager-reference";
+import { eagerReferenceAlgorithmRef } from "../../../engine/builtin-algorithms";
 import { WorldHost } from "../../../server/world-host";
 import { json, observeHttpJsonBody, observedRoute, principalId, readJson } from "../h";
 
@@ -22,6 +27,27 @@ export async function POST(request: Request): Promise<Response> {
         typeof body.start.appearance !== "string" || typeof body.start.motivation !== "string")) {
       return json({ error: "invalid Origin start" }, 400);
     }
-    return json(await WorldHost.get().createInstance(body, principalId(request)), 201);
+    let executionAlgorithm;
+    if (body.executionTuning !== undefined) {
+      try {
+        if (!body.executionTuning || typeof body.executionTuning !== "object" ||
+          Array.isArray(body.executionTuning)) throw new Error("executionTuning must be an object");
+        const unknownKeys = Object.keys(body.executionTuning)
+          .filter((key) => !["actionCompilationMaxSlots", "agentMindMaxSlots"].includes(key));
+        if (unknownKeys.length > 0) throw new Error(`unknown executionTuning field: ${unknownKeys[0]}`);
+        const config = parseEagerReferenceAlgorithmConfig({
+          ...DEFAULT_EAGER_REFERENCE_CONFIG,
+          ...body.executionTuning,
+        });
+        executionAlgorithm = eagerReferenceAlgorithmRef(config);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+      }
+    }
+    return json(await WorldHost.get().createInstance(
+      body,
+      principalId(request),
+      executionAlgorithm,
+    ), 201);
   });
 }
