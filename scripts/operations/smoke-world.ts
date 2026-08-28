@@ -118,13 +118,10 @@ async function waitForRevision(
       "queued",
       "running",
       "pausing",
-      "paused",
-      "budget-paused",
-      "awaiting-decision",
-      "awaiting-reaction",
     ].includes(run.status);
-    // A commit becomes visible before WorldHost records the run as settled.
-    // Wait for both so the next smoke action cannot race the prior lease.
+    // A commit becomes visible before WorldHost records a queued/running run
+    // as settled. Awaiting-decision/reaction are usable boundaries: the next
+    // participant submission is precisely what resumes them.
     if (document.state.revision >= expectedRevision && !active) return document;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
