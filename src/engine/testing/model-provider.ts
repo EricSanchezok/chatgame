@@ -46,7 +46,7 @@ export function createTestModelCatalog(
             "truth-reaction-routing",
             "truth-resolution",
             "truth-transition",
-            "temporal-planner",
+            "action-compilation",
             "action-grounding",
             "observation-renderer",
             "causal-verifier",
@@ -342,7 +342,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           agentId: string;
           self: { name: string; location: { name: string } | null };
         };
-        action?: { id: string; actorId: string };
+        action?: { id: string; actorId: string; rawText: string };
         entity?: { name: string; location: string | null };
         world?: { laws: Array<{ id: string }> };
         actors?: Record<string, unknown>;
@@ -350,22 +350,30 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         observationSlots?: Array<{ observer: { agentId: string } }>;
         currentEvents?: Array<{ id: string }>;
         committedResolutionPlans?: unknown[];
-        temporalAction?: { id: string; actorId: string; rawText: string };
         temporalProfiles?: Array<{ id: string; kind: string; allowExplicitDuration?: boolean }>;
         temporalBoundary?: { toElapsedSeconds: number };
         canonicalTruth?: {
           activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
         };
       };
-      if (input.temporalAction && input.temporalProfiles) {
+      if (input.action && input.temporalProfiles) {
         const profile = input.temporalProfiles[0];
-        if (!profile) throw new Error("deterministic temporal planner has no profile");
+        if (!profile) throw new Error("deterministic action compiler has no temporal profile");
         return {
-          profileId: profile.id,
-          basis: { kind: "profile" },
-          description: input.temporalAction.rawText,
-          continuationAssertions: [],
-          causes: [{ kind: "action", id: input.temporalAction.id }],
+          temporalPlan: {
+            profileId: profile.id,
+            basis: { kind: "profile" },
+            description: input.action.rawText,
+            continuationAssertions: [],
+            causes: [{ kind: "action", id: input.action.id }],
+          },
+          interactionDependency: {
+            reads: [{ kind: "global", id: "world" }],
+            writes: [{ kind: "global", id: "world" }],
+            audienceAgentIds: [input.action.actorId],
+            sharedResourceClaims: [],
+            globalFallback: true,
+          },
         };
       }
       if (input.action) {

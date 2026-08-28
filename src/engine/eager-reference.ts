@@ -1,4 +1,5 @@
 import { AgentMind } from "./agent-mind";
+import { compileAction, type PlannedTemporalActivity } from "./action-compiler";
 import {
   ActivityFootprintIndex,
   interactionDependencyComponents,
@@ -85,12 +86,9 @@ import {
   promoteSharedResourceQueues,
   type SharedResourceAdmission,
 } from "./shared-resource-allocation";
-import {
-  planTemporalActivity,
-} from "./temporal-planner";
 
 const groundingComponent = { id: "interaction-grounding", version: "3", config: { repairAttempts: 2 } } as const;
-const temporalComponent = { id: "temporal-planner", version: "2", config: { repairAttempts: 2 } } as const;
+const compilationComponent = { id: "action-compilation", version: "1", config: { repairAttempts: 2 } } as const;
 const truthComponent = { id: "truth-interaction-component", version: "2", config: { fallback: "global" } } as const;
 const mindComponent = {
   id: "agent-mind",
@@ -99,16 +97,17 @@ const mindComponent = {
 } as const;
 export const EAGER_REFERENCE_MANIFEST = defineAlgorithmManifest({
   id: "eager-reference",
-  version: "5",
+  version: "6",
   config: {
     activation: "decision-eligible-model-agents",
+    compilation: "joint-temporal-plan-and-interaction-dependency",
     grounding: "persisted-interaction-footprints",
     sharedResourceAllocation: "script-policy-with-kernel-capacity",
     resolution: "interaction-components-with-global-fallback",
     observation: "component-bounded",
     mindUpdate: "decision-eligible-model-agents",
   },
-  components: [temporalComponent, groundingComponent, truthComponent, mindComponent],
+  components: [compilationComponent, groundingComponent, truthComponent, mindComponent],
 });
 
 function observationsFor(packets: readonly ObservationPacket[], observerId: string): ObservationPacket[] {
@@ -246,14 +245,13 @@ function collectActions(
 
 interface PreparedInteractionDependency {
   dependency: InteractionDependency;
-  audit: ModelExecutionAudit;
 }
 
 interface EagerStepPreparationPayload {
   resumedAgentIds: AgentId[];
   resumedOutputs: EagerMindOutput[];
   newActions: AgentActionProposal[];
-  temporalPlanning: import("./temporal-planner").PlannedTemporalActivity[];
+  temporalPlanning: PlannedTemporalActivity[];
   dependencyResults: PreparedInteractionDependency[];
   planningState: SimulationState;
   interruptionTransitions: ActivityTransition[];
@@ -938,23 +936,20 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       resumedOutputs[index].nextAction,
     ]));
     const newActions = collectActions(input, preparedActions, eligibleAgentIds);
-    const [initialTemporalPlanning, newDependencyResults] = await Promise.all([
-      settledValues(newActions.map((action) => planTemporalActivity(
-        this.provider,
-        planningState,
-        action,
-        context.modelScope,
-        input.definition.modelProfiles.resolution,
-      )), "temporal planning"),
-      settledValues(newActions.map((action) => generateInteractionDependency(
-        this.provider,
-        source,
-        action,
-        context.modelScope,
-        input.definition.modelProfiles.grounding,
-      )), "action onset grounding"),
-    ]);
-    const temporalPlanning = initialTemporalPlanning;
+    const actionCompilations = await settledValues(newActions.map((action) => compileAction(
+      this.provider,
+      planningState,
+      action,
+      context.modelScope,
+      input.definition.modelProfiles.grounding,
+    )), "action compilation");
+    const temporalPlanning: PlannedTemporalActivity[] = actionCompilations.map((result) => ({
+      plan: structuredClone(result.plan),
+      activity: structuredClone(result.activity),
+    }));
+    const newDependencyResults: PreparedInteractionDependency[] = actionCompilations.map((result) => ({
+      dependency: structuredClone(result.dependency),
+    }));
     const interruptionTransitions = [...readyTransitions];
     for (const action of newActions) {
       for (const activity of Object.values(planningState.truth.activities)
@@ -1125,8 +1120,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       preparedReactionDecisions: structuredClone(preparedReactionDecisions),
       modelAudits: [
         ...resumedOutputs.map((output) => structuredClone(output.modelAudit)),
-        ...temporalPlanning.map((result) => structuredClone(result.audit)),
-        ...newDependencyResults.map((result) => structuredClone(result.audit)),
+        ...actionCompilations.map((result) => structuredClone(result.audit)),
         ...(onsetPerception ? [structuredClone(onsetPerception.modelAudit)] : []),
         ...reactionResults.flatMap((result) => result?.audit ? [structuredClone(result.audit)] : []),
       ],
@@ -1204,24 +1198,21 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     }
 
     const replacementDecisions = reactionDecisions.filter((decision) => decision.kind === "replace");
-    const [replacementPlanning, replacementDependencies] = await Promise.all([
-      settledValues(replacementDecisions.map((decision) => planTemporalActivity(
-        this.provider,
-        planningState,
-        decision.replacementAction,
-        context.modelScope,
-        input.definition.modelProfiles.resolution,
-        3,
-      )), "reaction temporal planning"),
-      settledValues(replacementDecisions.map((decision) => generateInteractionDependency(
-        this.provider,
-        planningState,
-        decision.replacementAction,
-        context.modelScope,
-        input.definition.modelProfiles.grounding,
-        3,
-      )), "reaction action grounding"),
-    ]);
+    const replacementCompilations = await settledValues(replacementDecisions.map((decision) => compileAction(
+      this.provider,
+      planningState,
+      decision.replacementAction,
+      context.modelScope,
+      input.definition.modelProfiles.grounding,
+      3,
+    )), "reaction action compilation");
+    const replacementPlanning: PlannedTemporalActivity[] = replacementCompilations.map((result) => ({
+      plan: structuredClone(result.plan),
+      activity: structuredClone(result.activity),
+    }));
+    const replacementDependencies: PreparedInteractionDependency[] = replacementCompilations.map((result) => ({
+      dependency: structuredClone(result.dependency),
+    }));
     for (const [index, decision] of replacementDecisions.entries()) {
       const request = payload.reactionRequests.find((entry) => entry.id === decision.requestId)!;
       const generated = replacementPlanning[index]!;
@@ -1375,15 +1366,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         id: activity.sourceActionId,
       },
     ]));
-    const dependencyResults = await settledValues(actions.map((action) => {
+    const dependencyResults = await settledValues(actions.map(async (action): Promise<{
+      dependency: InteractionDependency;
+      audit: ModelExecutionAudit | null;
+    }> => {
       const existing = newDependencyByAction.get(action.id);
-      if (existing) return Promise.resolve(existing);
+      if (existing) return { dependency: existing.dependency, audit: null };
       const holderDependency = holderDependencyByAction.get(action.id);
       if (holderDependency) {
-        return Promise.resolve({
+        return {
           dependency: holderDependency,
-          audit: newDependencyResults[0]!.audit,
-        });
+          audit: null,
+        };
       }
       return generateInteractionDependency(
         this.provider,
@@ -1701,8 +1695,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       }),
       modelAudits: [
         ...structuredClone(preparation.modelAudits),
-        ...replacementPlanning.map((result) => structuredClone(result.audit)),
-        ...replacementDependencies.map((result) => structuredClone(result.audit)),
+        ...replacementCompilations.map((result) => structuredClone(result.audit)),
+        ...dependencyResults.flatMap((result) => result.audit ? [structuredClone(result.audit)] : []),
         ...resolutionModelAudits,
         ...reactionModelAudits,
         ...globalObservationAudits,

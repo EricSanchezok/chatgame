@@ -339,6 +339,7 @@ function eventActors(events: readonly RuntimeEvent[], knownAgents: ReadonlySet<s
 }
 
 const stageLabels: Readonly<Record<string, string>> = {
+  "action-compilation": "行动编译",
   "action-grounding": "行动 Grounding",
   "truth-perception": "感知裁决",
   "truth-reaction-routing": "反应路由",

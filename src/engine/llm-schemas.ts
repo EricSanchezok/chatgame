@@ -22,7 +22,7 @@ import type {
   WorldDeltaOperationDraft,
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
-import type { InteractionDependencyDraft } from "./execution";
+import type { ActionCompilationDraft, InteractionDependencyDraft } from "./execution";
 import type { TemporalPlanDraft } from "./temporal";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import { isRuntimeId } from "./runtime-id";
@@ -782,6 +782,11 @@ export const temporalPlanDraftSchema = z.strictObject({
   continuationAssertions: z.array(causalAssertionSchema),
   causes: z.array(causalRefSchema).min(1),
 }) as z.ZodType<TemporalPlanDraft>;
+
+export const actionCompilationSchema = z.strictObject({
+  temporalPlan: temporalPlanDraftSchema,
+  interactionDependency: actionGroundingSchema,
+}) as z.ZodType<ActionCompilationDraft>;
 
 export interface ArrivalDraft {
   title: string;

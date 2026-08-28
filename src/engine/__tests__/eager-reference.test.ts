@@ -1,6 +1,10 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolutionObservations, type WorldExecutionAlgorithm } from "../execution";
+import {
+  resolutionObservations,
+  type ActionCompilationDraft,
+  type WorldExecutionAlgorithm,
+} from "../execution";
 import {
   createMindRepairFallback,
   EagerReferenceAlgorithm,
@@ -23,27 +27,31 @@ import {
 import { normalizeOutcomeAlternativeEvidence } from "../truth-engine";
 import { loadWorldScript } from "../../script/world-loader";
 
+function defaultActionCompilation(profileId: string, context: unknown): ActionCompilationDraft {
+  return deterministicModelOutput(profileId, context) as ActionCompilationDraft;
+}
+
 describe("eager reference safeguards", () => {
   it("adjudicates a unique resource with its incumbent and commits only a capacity-legal winner", async () => {
     let poolId = "";
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "action-grounding") {
+      if (role === "action-compilation") {
+        const action = (context as { action: AgentActionProposal }).action;
         return {
-          reads: [{ kind: "shared_resource_pool", id: poolId }],
-          writes: [{ kind: "shared_resource_pool", id: poolId }],
-          audienceAgentIds: ["keeper", "player"],
-          sharedResourceClaims: [{ poolId, basis: { kind: "default" } }],
-          globalFallback: false,
-        };
-      }
-      if (role === "temporal-planner") {
-        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
-        return {
-          profileId: "ongoing-action",
-          basis: { kind: "profile" },
-          description: action.rawText,
-          continuationAssertions: [],
-          causes: [{ kind: "action", id: action.id }],
+          temporalPlan: {
+            profileId: "ongoing-action",
+            basis: { kind: "profile" },
+            description: action.rawText,
+            continuationAssertions: [],
+            causes: [{ kind: "action", id: action.id }],
+          },
+          interactionDependency: {
+            reads: [{ kind: "shared_resource_pool", id: poolId }],
+            writes: [{ kind: "shared_resource_pool", id: poolId }],
+            audienceAgentIds: ["keeper", "player"],
+            sharedResourceClaims: [{ poolId, basis: { kind: "default" } }],
+            globalFallback: false,
+          },
         };
       }
       if (role === "truth-resolution") {
@@ -148,30 +156,21 @@ describe("eager reference safeguards", () => {
     ]));
     expect(contested.state.truth.activities[holder.id]?.status).toBe("active");
     expect(contested.state.truth.activities[contender.id]?.status).toBe("blocked");
-    expect(provider.requests.filter((request) => request.role === "action-grounding")).toHaveLength(2);
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
     expect(() => replaySimulationState(contested.state)).not.toThrow();
   });
 
   it("commits a capacity-safe FIFO queue without sending the blocked contender to Truth", async () => {
     let workbenchPoolId = "";
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "action-grounding") {
+      if (role === "action-compilation") {
         const action = (context as { action: AgentActionProposal }).action;
         const claims = action.rawText.includes("工作台")
           ? [{ poolId: workbenchPoolId, basis: { kind: "default" as const } }]
           : [];
-        return {
-          reads: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
-          writes: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
-          audienceAgentIds: [action.actorId],
-          sharedResourceClaims: claims,
-          globalFallback: false,
-        };
-      }
-      if (role === "temporal-planner") {
-        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+        const compilation = defaultActionCompilation(profileId, context);
         if (action.rawText.includes("工作台")) {
-          return {
+          compilation.temporalPlan = {
             profileId: "ongoing-action",
             basis: { kind: "profile" },
             description: action.rawText,
@@ -179,6 +178,14 @@ describe("eager reference safeguards", () => {
             causes: [{ kind: "action", id: action.id }],
           };
         }
+        compilation.interactionDependency = {
+          reads: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
+          writes: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
+          audienceAgentIds: [action.actorId],
+          sharedResourceClaims: claims,
+          globalFallback: false,
+        };
+        return compilation;
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -410,15 +417,17 @@ describe("eager reference safeguards", () => {
 
   it("projects the merged candidate to every Agent after independent components resolve", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "action-grounding") {
+      if (role === "action-compilation") {
         const action = (context as { action: AgentActionProposal }).action;
-        return {
+        const compilation = defaultActionCompilation(profileId, context);
+        compilation.interactionDependency = {
           reads: [],
           writes: [{ kind: "entity", id: action.actorId }],
           audienceAgentIds: [action.actorId],
           sharedResourceClaims: [],
           globalFallback: false,
         };
+        return compilation;
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -452,10 +461,11 @@ describe("eager reference safeguards", () => {
 
   it("uses the earliest authored activity checkpoint instead of a fixed step duration", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "temporal-planner") {
-        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+      if (role === "action-compilation") {
+        const action = (context as { action: AgentActionProposal }).action;
         if (action.rawText.includes("100公里")) {
-          return {
+          const compilation = defaultActionCompilation(profileId, context);
+          compilation.temporalPlan = {
             profileId: "measured-travel",
             basis: {
               kind: "explicit_quantity",
@@ -467,6 +477,7 @@ describe("eager reference safeguards", () => {
             continuationAssertions: [],
             causes: [{ kind: "action", id: action.id }],
           };
+          return compilation;
         }
       }
       return deterministicModelOutput(profileId, context);
@@ -543,7 +554,7 @@ describe("eager reference safeguards", () => {
       timerId: null,
     }]);
     expect(second.committed.beliefPatches).toHaveLength(1);
-    expect(provider.requests.filter((request) => request.role === "temporal-planner")).toHaveLength(1);
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
     const finalMind = provider.requests.filter((request) =>
       request.role === "agent-mind" && request.subjectId === "player").at(-1);
     expect((finalMind?.context as { observations?: unknown[] }).observations).toHaveLength(2);
@@ -625,9 +636,10 @@ describe("eager reference safeguards", () => {
 
   it("records continuation assertions before and after an affected boundary", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "temporal-planner") {
-        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
-        return {
+      if (role === "action-compilation") {
+        const action = (context as { action: AgentActionProposal }).action;
+        const compilation = defaultActionCompilation(profileId, context);
+        compilation.temporalPlan = {
           profileId: "brief-action",
           basis: { kind: "profile" },
           description: action.rawText,
@@ -638,6 +650,7 @@ describe("eager reference safeguards", () => {
           }],
           causes: [{ kind: "action", id: action.id }],
         };
+        return compilation;
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -912,10 +925,11 @@ describe("eager reference safeguards", () => {
 
   it("creates a decision point when another action produces an authorized relevant observation", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "temporal-planner") {
-        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+      if (role === "action-compilation") {
+        const action = (context as { action: AgentActionProposal }).action;
+        const compilation = defaultActionCompilation(profileId, context);
         if (action.rawText.includes("100公里")) {
-          return {
+          compilation.temporalPlan = {
             profileId: "measured-travel",
             basis: {
               kind: "explicit_quantity",
@@ -928,16 +942,14 @@ describe("eager reference safeguards", () => {
             causes: [{ kind: "action", id: action.id }],
           };
         }
-      }
-      if (role === "action-grounding") {
-        const action = (context as { action: AgentActionProposal }).action;
-        return {
+        compilation.interactionDependency = {
           reads: [],
           writes: [{ kind: "entity", id: action.actorId }],
           audienceAgentIds: action.actorId === "keeper" ? ["keeper", "player"] : [action.actorId],
           sharedResourceClaims: [],
           globalFallback: false,
         };
+        return compilation;
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -1028,14 +1040,16 @@ describe("eager reference safeguards", () => {
 
   it("re-grounds an Agent action that is replaced during the reaction window", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "action-grounding") {
-        return {
+      if (role === "action-compilation") {
+        const compilation = defaultActionCompilation(profileId, context);
+        compilation.interactionDependency = {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
           sharedResourceClaims: [],
           globalFallback: true,
         };
+        return compilation;
       }
       if (role === "truth-perception") {
         const playerAction = (context as { jointActions: AgentActionProposal[] }).jointActions
@@ -1100,11 +1114,9 @@ describe("eager reference safeguards", () => {
       plan: { actionId: replacement.id },
     });
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
-    expect(provider.requests.filter((request) => request.role === "action-grounding"))
+    expect(provider.requests.filter((request) => request.role === "action-compilation"))
       .toHaveLength(4);
-    expect(provider.requests.filter((request) => request.role === "temporal-planner"))
-      .toHaveLength(4);
-    expect(provider.requests.filter((request) => request.role === "action-grounding")
+    expect(provider.requests.filter((request) => request.role === "action-compilation")
       .map((request) => (request.context as { action: AgentActionProposal }).action.rawText))
       .toContain("抓起庭院沙土戒备");
   });
@@ -1117,10 +1129,11 @@ describe("eager reference safeguards", () => {
     expectedBoundary,
   }) => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "temporal-planner") {
-        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+      if (role === "action-compilation") {
+        const action = (context as { action: AgentActionProposal }).action;
+        const compilation = defaultActionCompilation(profileId, context);
         if (action.rawText === `进行${replacementSeconds}秒的紧急戒备`) {
-          return {
+          compilation.temporalPlan = {
             profileId: "explicit-duration",
             basis: {
               kind: "explicit_duration",
@@ -1132,15 +1145,14 @@ describe("eager reference safeguards", () => {
             causes: [{ kind: "action", id: action.id }],
           };
         }
-      }
-      if (role === "action-grounding") {
-        return {
+        compilation.interactionDependency = {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
           sharedResourceClaims: [],
           globalFallback: true,
         };
+        return compilation;
       }
       if (role === "agent-reaction") {
         return {
@@ -1213,14 +1225,16 @@ describe("eager reference safeguards", () => {
   it("opens an onset reaction only after a committed perception check succeeds", async () => {
     let perceptionRounds = 0;
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "action-grounding") {
-        return {
+      if (role === "action-compilation") {
+        const compilation = defaultActionCompilation(profileId, context);
+        compilation.interactionDependency = {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
           sharedResourceClaims: [],
           globalFallback: true,
         };
+        return compilation;
       }
       if (role === "truth-perception") {
         perceptionRounds += 1;
@@ -1305,14 +1319,16 @@ describe("eager reference safeguards", () => {
     { mode: "non-interruptible" as const, interruptible: false },
   ])("does not open a reaction round for a $mode action onset", async ({ mode, interruptible }) => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-      if (role === "action-grounding") {
-        return {
+      if (role === "action-compilation") {
+        const compilation = defaultActionCompilation(profileId, context);
+        compilation.interactionDependency = {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
           sharedResourceClaims: [],
           globalFallback: true,
         };
+        return compilation;
       }
       return deterministicModelOutput(profileId, context);
     });

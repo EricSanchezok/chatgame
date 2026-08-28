@@ -30,10 +30,13 @@ import { quantityId } from "./runtime-id";
 import type { TruthResolution } from "./truth-engine";
 import { materializeSharedActivityResourceClaims } from "./shared-activity-resources";
 
-const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。只判断给定行动可能读取、写入和影响哪些已列出的 canonical 资源与 Agent，并选择行动实际占用的共享物理资源池。
+export const INTERACTION_DEPENDENCY_INSTRUCTIONS = `只判断给定行动可能读取、写入和影响哪些已列出的 canonical 资源与 Agent，并选择行动实际占用的共享物理资源池。
 
 必须保守：只要自然语言可能触及目录外资源、远程传播、规则全局状态或无法确定边界，就令 globalFallback=true，并在 reads 与 writes 中加入 {"kind":"global","id":"world"}。
 不得创建 ID，不得输出状态修改、结果或叙事。共享资源 claim 只能选择目录中的 poolId；通常使用 default，只有定义允许且行动原文明确写出数量和单位时才能使用 explicit_quantity。actor 的私有认知只用于理解本行动，不是 canonical Fact；任何私有 claim、evidence 或 goal ID 都不得作为 footprint id。
+`;
+
+const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。${INTERACTION_DEPENDENCY_INSTRUCTIONS}
 行动与 actor 身份由调用槽位固定，不要输出。只输出 schema 指定的 JSON。`;
 
 const GROUNDING_PROMPT_VERSION = "action-grounding-v3";
@@ -355,7 +358,7 @@ function enrichDependency(
   };
 }
 
-function acceptedDependency(
+export function materializeInteractionDependency(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   value: InteractionDependencyDraft,
@@ -378,11 +381,11 @@ function acceptedDependency(
   return enrichDependency(state, action, normalized.dependency);
 }
 
-function groundingContext(
+export function actionGroundingContext(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   issues: readonly string[],
-): unknown {
+) {
   const agent = state.agents[action.actorId];
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
@@ -437,7 +440,7 @@ export async function generateInteractionDependency(
         promptVersion: GROUNDING_PROMPT_VERSION,
         schemaName: "action_grounding",
         system: GROUNDING_SYSTEM,
-        context: groundingContext(state, action, issues),
+        context: actionGroundingContext(state, action, issues),
         schema: actionGroundingSchema,
       });
       audits.push(generated.audit);
@@ -447,7 +450,7 @@ export async function generateInteractionDependency(
         ...structuredClone(audits[0]),
         invocations: audits.flatMap((entry) => structuredClone(entry.invocations)),
       };
-      return { dependency: acceptedDependency(state, action, generated.value, scope), audit };
+      return { dependency: materializeInteractionDependency(state, action, generated.value, scope), audit };
     } catch (error) {
       if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
       const last = audits.at(-1);

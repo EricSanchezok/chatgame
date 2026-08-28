@@ -150,6 +150,7 @@ export function validateWorldModelProfiles(definition: WorldDefinition, catalog:
   catalog.assertProfile(definition.modelProfiles.resolution, "truth-resolution");
   catalog.assertProfile(definition.modelProfiles.transition, "truth-transition");
   catalog.assertProfile(definition.modelProfiles.causalVerifier, "causal-verifier");
+  catalog.assertProfile(definition.modelProfiles.grounding, "action-compilation");
   catalog.assertProfile(definition.modelProfiles.grounding, "action-grounding");
   catalog.assertProfile(definition.modelProfiles.observation, "observation-renderer");
   catalog.assertProfile(definition.modelProfiles.arrival, "arrival-generator");

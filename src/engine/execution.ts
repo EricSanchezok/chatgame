@@ -31,6 +31,7 @@ import type {
   DecisionPoint,
   TemporalBoundary,
   TemporalPlan,
+  TemporalPlanDraft,
   TemporalStateSnapshot,
 } from "./temporal";
 import type {
@@ -458,6 +459,11 @@ export interface InteractionDependency {
 export type InteractionDependencyDraft = Omit<InteractionDependency, "kind" | "id" | "actorId" | "sharedResourceClaims"> & {
   sharedResourceClaims: SharedActivityResourceClaimDraft[];
 };
+
+export interface ActionCompilationDraft {
+  temporalPlan: TemporalPlanDraft;
+  interactionDependency: InteractionDependencyDraft;
+}
 
 export interface WorldExecutionAlgorithm {
   readonly manifest: AlgorithmManifest;

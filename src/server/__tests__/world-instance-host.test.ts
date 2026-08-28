@@ -8,6 +8,7 @@ import {
   defineAlgorithmManifest,
   WorldExecutionAlgorithmRegistry,
   type AlgorithmRef,
+  type ActionCompilationDraft,
   type BootstrapCandidate,
   type BootstrapInput,
   type ExecutionContext,
@@ -117,13 +118,14 @@ function reactionHarness(input: {
   setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
 } = {}) {
-  let keeperGroundings = 0;
+  let keeperCompilations = 0;
   const travelerId = "courtyard-wanderer-1";
   const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
-    if (role === "temporal-planner") {
-      const action = (context as { temporalAction: { id: string; rawText: string } }).temporalAction;
+    if (role === "action-compilation") {
+      const action = (context as { action: { id: string; actorId: string; rawText: string } }).action;
+      const compilation = deterministicModelOutput(profileId, context) as ActionCompilationDraft;
       if (action.rawText.includes("100公里")) {
-        return {
+        compilation.temporalPlan = {
           profileId: "measured-travel",
           basis: {
             kind: "explicit_quantity",
@@ -136,20 +138,18 @@ function reactionHarness(input: {
           causes: [{ kind: "action", id: action.id }],
         };
       }
-    }
-    if (role === "action-grounding") {
-      const action = (context as { action: { actorId: string } }).action;
       const isKeeper = action.actorId === "keeper";
-      if (isKeeper) keeperGroundings += 1;
-      return {
+      if (isKeeper) keeperCompilations += 1;
+      compilation.interactionDependency = {
         reads: [{ kind: "global", id: "world" }],
         writes: [{ kind: "global", id: "world" }],
-        audienceAgentIds: isKeeper && keeperGroundings > 1
+        audienceAgentIds: isKeeper && keeperCompilations > 1
           ? ["keeper", travelerId]
           : [action.actorId],
         sharedResourceClaims: [],
         globalFallback: true,
       };
+      return compilation;
     }
     return deterministicModelOutput(profileId, context);
   });
@@ -219,7 +219,7 @@ describe("World Instance host", () => {
       });
       const stored = database.readInstance(created.summary.id).document;
       expect(stored.schemaVersion).toBe(18);
-      expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "5", contractVersion: 4 });
+      expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "6", contractVersion: 4 });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
         entityId: "courtyard-wanderer-1",
