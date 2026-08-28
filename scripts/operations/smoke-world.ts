@@ -103,7 +103,19 @@ async function waitForRevision(
     const document = database.readInstance(instanceId).document;
     const failure = runFailure(document);
     if (failure) throw new Error(`run failed: ${failure}`);
-    if (document.state.revision >= expectedRevision) return document;
+    const run = Object.values(document.runs).at(-1);
+    const active = run && [
+      "queued",
+      "running",
+      "pausing",
+      "paused",
+      "budget-paused",
+      "awaiting-decision",
+      "awaiting-reaction",
+    ].includes(run.status);
+    // A commit becomes visible before WorldHost records the run as settled.
+    // Wait for both so the next smoke action cannot race the prior lease.
+    if (document.state.revision >= expectedRevision && !active) return document;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(
