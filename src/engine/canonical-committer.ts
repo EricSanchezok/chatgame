@@ -609,6 +609,16 @@ function validateCandidateBoundary(
   if (contentHash(expectedAdmissions) !== contentHash(candidate.sharedResourceAdmissions)) {
     throw new Error("candidate shared resource admissions do not match trusted capacity allocation");
   }
+  const expectedAdjudicationActionIds = [...new Set(expectedAdmissions.flatMap((admission) =>
+    admission.kind === "adjudicate" ? admission.competingActivityIds.map((activityId) => {
+      const activity = planningActivities[activityId];
+      if (!activity) throw new Error(`adjudication references unknown holder Activity ${activityId}`);
+      return activity.sourceActionId;
+    }) : []))].sort();
+  const actualActionIds = new Set(actions.map((action) => action.id));
+  if (expectedAdjudicationActionIds.some((actionId) => !actualActionIds.has(actionId))) {
+    throw new Error("shared resource adjudication omitted a competing holder action");
+  }
   const appliedAdmissions = applySharedResourceAdmissions({
     activities: planningActivities,
     admissions: expectedAdmissions,

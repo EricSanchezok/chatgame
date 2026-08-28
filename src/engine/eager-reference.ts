@@ -1344,8 +1344,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     const deferredActionIds = new Set(appliedAdmissions.deferredActionIds);
     const adjudicatedNewActions = newActions.filter((action) =>
       !timerActionActors.has(action.actorId) && !deferredActionIds.has(action.id));
+    const adjudicatedHolderActivities = [...new Set(sharedResourceAdmissions.flatMap((admission) =>
+      admission.kind === "adjudicate" ? admission.competingActivityIds : []))]
+      .map((activityId) => planningState.truth.activities[activityId])
+      .filter((activity): activity is ScheduledActivityState => Boolean(activity) && activity.status !== "queued" &&
+        activity.status !== "ready")
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const adjudicatedHolderActions = adjudicatedHolderActivities
+      .filter((activity) => !timerActionActors.has(activity.actorId))
+      .map((activity) => ({ ...structuredClone(activity.sourceAction), baseRevision: source.revision }));
     let actions = [...new Map([
       ...adjudicatedNewActions,
+      ...adjudicatedHolderActions,
       ...dueActions,
       ...timerActions,
     ].map((action) => [action.id, action])).values()]
@@ -1357,9 +1367,25 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       result.dependency.id,
       result,
     ]));
+    const holderDependencyByAction = new Map(adjudicatedHolderActivities.map((activity) => [
+      activity.sourceActionId,
+      {
+        ...structuredClone(activity.interactionFootprint),
+        kind: "action" as const,
+        id: activity.sourceActionId,
+      },
+    ]));
     const dependencyResults = await settledValues(actions.map((action) => {
       const existing = newDependencyByAction.get(action.id);
-      return existing ? Promise.resolve(existing) : generateInteractionDependency(
+      if (existing) return Promise.resolve(existing);
+      const holderDependency = holderDependencyByAction.get(action.id);
+      if (holderDependency) {
+        return Promise.resolve({
+          dependency: holderDependency,
+          audit: newDependencyResults[0]!.audit,
+        });
+      }
+      return generateInteractionDependency(
         this.provider,
         planningState,
         action,

@@ -24,6 +24,134 @@ import { normalizeOutcomeAlternativeEvidence } from "../truth-engine";
 import { loadWorldScript } from "../../script/world-loader";
 
 describe("eager reference safeguards", () => {
+  it("adjudicates a unique resource with its incumbent and commits only a capacity-legal winner", async () => {
+    let poolId = "";
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-grounding") {
+        return {
+          reads: [{ kind: "shared_resource_pool", id: poolId }],
+          writes: [{ kind: "shared_resource_pool", id: poolId }],
+          audienceAgentIds: ["keeper", "player"],
+          sharedResourceClaims: [{ poolId, basis: { kind: "default" } }],
+          globalFallback: false,
+        };
+      }
+      if (role === "temporal-planner") {
+        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+        return {
+          profileId: "ongoing-action",
+          basis: { kind: "profile" },
+          description: action.rawText,
+          continuationAssertions: [],
+          causes: [{ kind: "action", id: action.id }],
+        };
+      }
+      if (role === "truth-resolution") {
+        const input = context as {
+          committedResolutionPlans?: unknown[];
+          jointActions: AgentActionProposal[];
+          actors: Record<string, { entityId: string }>;
+          world: { disclosure: { defaultCheckVisibility: "full" | "result_only" | "hidden" } };
+        };
+        if (input.committedResolutionPlans?.length) return { kind: "done" };
+        return {
+          kind: "commit_plans",
+          plans: input.jointActions.map((action, index) => ({
+            id: `resource-plan-${index}`,
+            actionId: action.id,
+            actorId: input.actors[action.actorId]!.entityId,
+            targetIds: [input.actors[action.actorId]!.entityId],
+            goal: action.goal,
+            means: [],
+            mode: action.actorId === "keeper" ? "blocked" : "automatic",
+            difficulty: null,
+            actorRatingId: null,
+            factors: [],
+            risk: "safe",
+            baseEffect: "none",
+            primaryEffect: null,
+            secondaryEffect: null,
+            threatenedEffect: null,
+            visibility: input.world.disclosure.defaultCheckVisibility,
+            causes: [{ kind: "action", id: action.id }],
+          })),
+        };
+      }
+      const output = deterministicModelOutput(profileId, context);
+      if (role === "truth-transition") {
+        const transition = structuredClone(output) as {
+          proposal: { outcomes: Array<{ proposalId: string; status: string; summary: string }> };
+        };
+        const actions = (context as { jointActions: AgentActionProposal[] }).jointActions;
+        const contender = actions.find((action) => action.actorId === "keeper");
+        const outcome = contender && transition.proposal.outcomes.find((entry) => entry.proposalId === contender.id);
+        if (outcome) {
+          outcome.status = "blocked";
+          outcome.summary = "现有持有者保住了唯一资源。";
+        }
+        return transition;
+      }
+      return output;
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const sharedDefinition = definition.initialState.truth.mechanics.sharedActivityResources["fixture-workbench"]!;
+    sharedDefinition.contention = "adjudicate";
+    sharedDefinition.pausedRetention = "retain";
+    poolId = Object.values(definition.initialState.truth.sharedActivityResourcePools)[0]!.id;
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const held = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "player-participant" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "hold-unique-resource",
+        agentId: "player",
+        rawText: "持续占用唯一工作台",
+        goal: "占用工作台",
+        means: "工作台",
+        targetIds: [],
+      }],
+    });
+    const holder = Object.values(held.state.truth.activities).find((activity) => activity.actorId === "player")!;
+    const contested = await engine.step({
+      player: { kind: "idle", agentId: "player", reason: "explicit" },
+      keeper: { kind: "external", agentId: "keeper", participantId: "keeper-participant" },
+    }, {
+      expectedRevision: held.state.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "contest-unique-resource",
+        agentId: "keeper",
+        rawText: "争夺唯一工作台并持续使用",
+        goal: "取得工作台",
+        means: "争夺",
+        targetIds: [],
+      }],
+    });
+    const contender = Object.values(contested.state.truth.activities).find((activity) => activity.actorId === "keeper")!;
+    expect(contested.committed.sharedResourceAdmissions).toContainEqual(expect.objectContaining({
+      kind: "adjudicate",
+      activityId: contender.id,
+      competingActivityIds: [holder.id],
+    }));
+    expect(contested.committed.actions.map((action) => action.id)).toEqual(expect.arrayContaining([
+      holder.sourceActionId,
+      contender.sourceActionId,
+    ]));
+    expect(contested.state.truth.activities[holder.id]?.status).toBe("active");
+    expect(contested.state.truth.activities[contender.id]?.status).toBe("blocked");
+    expect(provider.requests.filter((request) => request.role === "action-grounding")).toHaveLength(2);
+    expect(() => replaySimulationState(contested.state)).not.toThrow();
+  });
+
   it("commits a capacity-safe FIFO queue without sending the blocked contender to Truth", async () => {
     let workbenchPoolId = "";
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
