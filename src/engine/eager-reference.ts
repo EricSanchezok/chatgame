@@ -63,11 +63,14 @@ import { applyTransitionProposal } from "./transaction";
 import { TruthEngine, type OnsetPerceptionResult, type TruthResolution } from "./truth-engine";
 import {
   cancelActivity,
+  cancelDeferredActivity,
   advanceTemporalState,
+  blockScheduledActivity,
   pauseActivity,
   reconcileTemporalOutcomes,
   selectTemporalBoundary,
   settleActivityContexts,
+  startReadyActivity,
   validateActivityResources,
   evaluateActivityContinuation,
   type TemporalAdvanceResult,
@@ -75,6 +78,13 @@ import {
   type ActivityTransition,
   type ScheduledActivityState,
 } from "./temporal";
+import {
+  applySharedResourceAdmissions,
+  materializeSharedResourceAdmissionOutcomes,
+  planSharedResourceAdmissions,
+  promoteSharedResourceQueues,
+  type SharedResourceAdmission,
+} from "./shared-resource-allocation";
 import {
   planTemporalActivity,
 } from "./temporal-planner";
@@ -247,6 +257,9 @@ interface EagerStepPreparationPayload {
   dependencyResults: PreparedInteractionDependency[];
   planningState: SimulationState;
   interruptionTransitions: ActivityTransition[];
+  sharedResourceAdmissions: SharedResourceAdmission[];
+  resourceDecisionPoints: import("./temporal").DecisionPoint[];
+  readyTemporalPlans: import("./temporal").TemporalPlan[];
   reactionRequests: ReactionRequest[];
   onsetPerception: {
     requests: D20CheckRequest[];
@@ -266,6 +279,8 @@ function eagerPreparationPayload(preparation: Readonly<WorldStepPreparation>): E
     !Array.isArray(payload.newActions) || !Array.isArray(payload.temporalPlanning) ||
     !Array.isArray(payload.dependencyResults) || !payload.planningState ||
     typeof payload.planningState !== "object" || !Array.isArray(payload.interruptionTransitions) ||
+    !Array.isArray(payload.sharedResourceAdmissions) || !Array.isArray(payload.resourceDecisionPoints) ||
+    !Array.isArray(payload.readyTemporalPlans) ||
     !Array.isArray(payload.reactionRequests) || !payload.onsetPerception ||
     typeof payload.onsetPerception !== "object" || !Array.isArray(payload.onsetPerception.requests) ||
     !Array.isArray(payload.onsetPerception.checks) ||
@@ -874,6 +889,28 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
 
   async prepareStep(input: Readonly<WorldStepInput>, context: ExecutionContext): Promise<WorldStepPreparation> {
     const source = structuredClone(input.state);
+    const planningState = structuredClone(source);
+    const readyTemporalPlans: import("./temporal").TemporalPlan[] = [];
+    const readyTransitions: ActivityTransition[] = [];
+    const readyDecisionPoints: import("./temporal").DecisionPoint[] = [];
+    for (const ready of Object.values(planningState.truth.activities)
+      .filter((activity): activity is import("./temporal").ReadyActivityState => activity.status === "ready")
+      .sort((left, right) => left.id.localeCompare(right.id))) {
+      const started = startReadyActivity({
+        activity: ready,
+        atSeconds: source.truth.elapsedSeconds,
+        profiles: planningState.truth.mechanics.temporalProfiles,
+      });
+      planningState.truth.activities[ready.id] = started.activity;
+      readyTemporalPlans.push(structuredClone(started.activity.plan));
+      readyTransitions.push(started.transition);
+      if (evaluateActivityContinuation(planningState, started.activity).some((result) => !result.passed)) {
+        const blocked = blockScheduledActivity(started.activity, source.truth.elapsedSeconds);
+        planningState.truth.activities[ready.id] = blocked.activity;
+        readyTransitions.push(blocked.transition);
+        readyDecisionPoints.push(blocked.decisionPoint);
+      }
+    }
     const eligibleAgentIds = [...input.decisionEligibleAgentIds];
     const eligibleAgents = new Set(eligibleAgentIds);
     const resumedAgentIds = Object.entries(input.policyRoster)
@@ -904,7 +941,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     const [initialTemporalPlanning, newDependencyResults] = await Promise.all([
       settledValues(newActions.map((action) => planTemporalActivity(
         this.provider,
-        source,
+        planningState,
         action,
         context.modelScope,
         input.definition.modelProfiles.resolution,
@@ -918,15 +955,22 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       )), "action onset grounding"),
     ]);
     const temporalPlanning = initialTemporalPlanning;
-    const planningState = structuredClone(source);
-    const interruptionTransitions = newActions.flatMap((action) => Object.values(planningState.truth.activities)
-      .filter((activity): activity is ScheduledActivityState => activity.actorId === action.actorId &&
-        (activity.status === "active" || activity.status === "paused"))
-      .map((activity) => {
-        const cancelled = cancelActivity(activity, source.truth.elapsedSeconds);
-        planningState.truth.activities[activity.id] = cancelled.activity;
-        return cancelled.transition;
-      }));
+    const interruptionTransitions = [...readyTransitions];
+    for (const action of newActions) {
+      for (const activity of Object.values(planningState.truth.activities)
+        .filter((candidate) => candidate.actorId === action.actorId &&
+          (candidate.status === "active" || candidate.status === "paused" || candidate.status === "queued" ||
+            candidate.status === "ready"))) {
+        if (activity.status === "queued" || activity.status === "ready") {
+          interruptionTransitions.push(cancelDeferredActivity(activity, source.truth.elapsedSeconds));
+          delete planningState.truth.activities[activity.id];
+        } else {
+          const cancelled = cancelActivity(activity, source.truth.elapsedSeconds);
+          planningState.truth.activities[activity.id] = cancelled.activity;
+          interruptionTransitions.push(cancelled.transition);
+        }
+      }
+    }
     for (const [index, result] of temporalPlanning.entries()) {
       if (planningState.truth.activities[result.activity.id]) {
         throw new Error(`duplicate activity identity ${result.activity.id}`);
@@ -940,11 +984,26 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         result.activity,
         dependency,
       );
+      result.activity.sharedResourceClaims = structuredClone(result.activity.interactionFootprint.sharedResourceClaims);
       if (evaluateActivityContinuation(source, result.activity).some((entry) => !entry.passed)) {
         throw new Error(`temporal activity ${result.activity.id} starts with a failed continuation assertion`);
       }
       planningState.truth.activities[result.activity.id] = structuredClone(result.activity);
     }
+    const sharedResourceAdmissions = planSharedResourceAdmissions({
+      activities: planningState.truth.activities,
+      proposalActivityIds: temporalPlanning.map((result) => result.activity.id),
+      pools: planningState.truth.sharedActivityResourcePools,
+      definitions: planningState.truth.mechanics.sharedActivityResources,
+      entities: planningState.truth.entities,
+    }).admissions;
+    const appliedAdmissions = applySharedResourceAdmissions({
+      activities: planningState.truth.activities,
+      admissions: sharedResourceAdmissions,
+      atSeconds: source.truth.elapsedSeconds,
+    });
+    planningState.truth.activities = appliedAdmissions.activities;
+    interruptionTransitions.push(...appliedAdmissions.transitions);
     validateActivityResources(
       planningState.truth.activities,
       planningState.truth.mechanics.activityResources,
@@ -1036,6 +1095,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       dependencyResults: structuredClone(newDependencyResults),
       planningState: structuredClone(planningState),
       interruptionTransitions: structuredClone(interruptionTransitions),
+      sharedResourceAdmissions: structuredClone(sharedResourceAdmissions),
+      resourceDecisionPoints: structuredClone([...readyDecisionPoints, ...appliedAdmissions.decisionPoints]),
+      readyTemporalPlans: structuredClone(readyTemporalPlans),
       reactionRequests: structuredClone(reactionRequests),
       onsetPerception: {
         requests: structuredClone(onsetPerceptionTranscript.requests),
@@ -1114,7 +1176,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     let temporalPlanning = structuredClone(payload.temporalPlanning);
     let newDependencyResults = structuredClone(payload.dependencyResults);
     const planningState = structuredClone(payload.planningState);
-    const interruptionTransitions = structuredClone(payload.interruptionTransitions);
+    const preparedAdmissionActivityIds = new Set(payload.sharedResourceAdmissions.map((admission) => admission.activityId));
+    let interruptionTransitions = structuredClone(payload.interruptionTransitions)
+      .filter((transition) => transition.kind !== "queued" &&
+        !(transition.kind === "blocked" && preparedAdmissionActivityIds.has(transition.activityId)));
     const reactionDecisionPoints: import("./temporal").DecisionPoint[] = [];
     const reactionActivityIds = new Set<string>();
 
@@ -1166,6 +1231,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         generated.activity,
         dependency,
       );
+      generated.activity.sharedResourceClaims = structuredClone(generated.activity.interactionFootprint.sharedResourceClaims);
       if (evaluateActivityContinuation(planningState, generated.activity).some((entry) => !entry.passed)) {
         throw new Error(`reaction Activity ${generated.activity.id} starts with a failed continuation assertion`);
       }
@@ -1193,6 +1259,23 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       planningState.truth.activities[generated.activity.id] = structuredClone(generated.activity);
     }
     newActions.sort((left, right) => left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
+    for (const result of temporalPlanning) {
+      planningState.truth.activities[result.activity.id] = structuredClone(result.activity);
+    }
+    const sharedResourceAdmissions = planSharedResourceAdmissions({
+      activities: planningState.truth.activities,
+      proposalActivityIds: temporalPlanning.map((result) => result.activity.id),
+      pools: planningState.truth.sharedActivityResourcePools,
+      definitions: planningState.truth.mechanics.sharedActivityResources,
+      entities: planningState.truth.entities,
+    }).admissions;
+    const appliedAdmissions = applySharedResourceAdmissions({
+      activities: planningState.truth.activities,
+      admissions: sharedResourceAdmissions,
+      atSeconds: source.truth.elapsedSeconds,
+    });
+    planningState.truth.activities = appliedAdmissions.activities;
+    interruptionTransitions = [...interruptionTransitions, ...appliedAdmissions.transitions];
     validateActivityResources(
       planningState.truth.activities,
       planningState.truth.mechanics.activityResources,
@@ -1215,6 +1298,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     temporal.decisionPoints = [...new Map([
       ...temporal.decisionPoints,
       ...reactionDecisionPoints,
+      ...payload.resourceDecisionPoints.filter((point) =>
+        !point.activityId || !preparedAdmissionActivityIds.has(point.activityId)),
+      ...appliedAdmissions.decisionPoints,
     ].map((point) => [
       `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
       point,
@@ -1255,7 +1341,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         targetIds: [],
       }));
     const timerActionActors = new Set(timerActions.map((action) => action.actorId));
-    const adjudicatedNewActions = newActions.filter((action) => !timerActionActors.has(action.actorId));
+    const deferredActionIds = new Set(appliedAdmissions.deferredActionIds);
+    const adjudicatedNewActions = newActions.filter((action) =>
+      !timerActionActors.has(action.actorId) && !deferredActionIds.has(action.id));
     let actions = [...new Map([
       ...adjudicatedNewActions,
       ...dueActions,
@@ -1279,14 +1367,19 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         input.definition.modelProfiles.grounding,
       );
     }), "action grounding");
-    const actionDependencies = dependencyResults.map((result) => result.dependency);
+    const actionDependencies = [
+      ...dependencyResults.map((result) => result.dependency),
+      ...newDependencyResults
+        .filter((result) => deferredActionIds.has(result.dependency.id))
+        .map((result) => result.dependency),
+    ].sort((left, right) => left.id.localeCompare(right.id));
     const temporalContextDependencies: InteractionDependency[] = [
       ...temporalBoundary.dueTimerIds.map((timerId) =>
         interactionDependencyForTimer(planningState, planningState.truth.timers[timerId]!)),
       ...temporalBoundary.dueConditionIds.map((conditionId) =>
         interactionDependencyForCondition(planningState, planningState.truth.conditions[conditionId]!)),
     ];
-    const actionIds = new Set(actions.map((action) => action.id));
+    const actionIds = new Set(actionDependencies.map((dependency) => dependency.id));
     const affectedActivityIds = new ActivityFootprintIndex(planningState.truth.activities)
       .affectedBy([...actionDependencies, ...temporalContextDependencies])
       .filter((activityId) => {
@@ -1301,8 +1394,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         structuredClone(planningState.truth.activities[activityId]!.interactionFootprint)),
     ].sort((left, right) => left.id.localeCompare(right.id));
     let components = interactionDependencyComponents(interactionDependencies);
+    const resolvingActionIds = new Set(actions.map((action) => action.id));
     let adjudicatedComponents = components.filter((component) => component.some((interactionId) =>
-      actionDependencies.some((dependency) => dependency.id === interactionId)));
+      resolvingActionIds.has(interactionId)));
     let componentResults: ComponentResolution[] = [];
     let rng = structuredClone(payload.onsetPerception.rng);
     for (const component of adjudicatedComponents) {
@@ -1368,6 +1462,28 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       temporalBoundary,
       { kind: "law", id: fallbackLaw.id },
     );
+    const deterministicResourceActions = newActions
+      .filter((action) => deferredActionIds.has(action.id))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const deterministicResourceOutcomes = materializeSharedResourceAdmissionOutcomes({
+      worldHash: source.worldHash,
+      revision: source.revision,
+      actions: deterministicResourceActions,
+      admissions: sharedResourceAdmissions,
+      activities: planningState.truth.activities,
+      pools: planningState.truth.sharedActivityResourcePools,
+      definitions: planningState.truth.mechanics.sharedActivityResources,
+    });
+    resolution.actions = [...resolution.actions, ...structuredClone(deterministicResourceActions)]
+      .sort((left, right) => left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
+    resolution.proposal.outcomes = [...resolution.proposal.outcomes, ...deterministicResourceOutcomes]
+      .sort((left, right) => left.proposalId.localeCompare(right.proposalId));
+    resolution.causalAssertionResults = evaluateProposalCausality(
+      planningState,
+      resolution.checks,
+      resolution.randomResults,
+      resolution.proposal,
+    );
     resolution.requests = [
       ...structuredClone(payload.onsetPerception.requests),
       ...resolution.requests,
@@ -1392,7 +1508,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       structuredClone(request.stimulus));
     temporal = reconcileTemporalOutcomes(temporal, resolution.proposal.outcomes);
     const globalObservationAudits: ModelExecutionAudit[] = [];
-    if (components.length > 1) {
+    if (components.length > 1 || deterministicResourceActions.length > 0) {
       const preview = applyTransitionProposal(planningState, resolution.proposal, temporal);
       const rendered = await this.observationRenderer.render({
         definition: input.definition,
@@ -1447,12 +1563,22 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     });
     temporal = contextSettlement.temporal;
     const activityDispositions = contextSettlement.dispositions;
+    const promotionState = applyTransitionProposal(source, resolution.proposal, temporal);
+    const queuePromotion = promoteSharedResourceQueues({
+      activities: temporal.activities,
+      pools: promotionState.truth.sharedActivityResourcePools,
+      definitions: promotionState.truth.mechanics.sharedActivityResources,
+      entities: promotionState.truth.entities,
+      atSeconds: temporalBoundary.toElapsedSeconds,
+    });
+    temporal.activities = queuePromotion.activities;
+    temporal.transitions = [...temporal.transitions, ...queuePromotion.transitions];
     const temporallyTerminated = new Set(activityDispositions.flatMap((disposition) => {
       if (disposition.kind !== "block" && disposition.kind !== "fail" && disposition.kind !== "cancel") return [];
       const activity = temporal.activities[disposition.activityId];
       return activity ? [activity.sourceActionId] : [];
     }));
-    if (temporallyTerminated.size > 0) {
+    if (temporallyTerminated.size > 0 || queuePromotion.reservedActivityIds.length > 0) {
       const preview = applyTransitionProposal(source, resolution.proposal, temporal);
       const rendered = await this.observationRenderer.render({
         definition: input.definition,
@@ -1472,7 +1598,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     candidate.truth.rng = structuredClone(resolution.rng);
     const postBoundaryDecisionAgents = new Set(temporal.decisionPoints.map((point) => point.agentId));
     const busyAfterBoundary = new Set(Object.values(temporal.activities)
-      .filter((activity) => activity.status === "active" || activity.status === "paused")
+      .filter((activity) => activity.status === "active" || activity.status === "paused" ||
+        activity.status === "queued" || activity.status === "ready")
       .flatMap((activity) => activity.participantAgentIds));
     const modelAgentIds = Object.keys(candidate.agents)
       .filter((agentId) => !source.agents[agentId] ||
@@ -1563,7 +1690,12 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         dependencyComponents: structuredClone(components),
         globalReadjudication: fallback,
       },
-      temporalPlans: temporalPlanning.map((result) => structuredClone(result.plan)),
+      temporalPlans: [
+        ...structuredClone(payload.readyTemporalPlans),
+        ...temporalPlanning
+          .filter((result) => planningState.truth.activities[result.activity.id]?.status !== "queued")
+          .map((result) => structuredClone(result.plan)),
+      ],
       temporalBoundary: structuredClone(temporalBoundary),
       temporalState: {
         activities: structuredClone(temporal.activities),
@@ -1571,6 +1703,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       },
       activityTransitions: structuredClone(temporal.transitions),
       activityDispositions: structuredClone(activityDispositions),
+      sharedResourceAdmissions: structuredClone(sharedResourceAdmissions),
       decisionPoints: structuredClone(temporal.decisionPoints),
     };
   }

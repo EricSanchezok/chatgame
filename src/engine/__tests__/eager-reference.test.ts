@@ -10,6 +10,7 @@ import { replaySimulationState } from "../transaction";
 import type { AgentActionProposal, SimulationState } from "../model";
 import { contentHash } from "../model-audit";
 import { SimulationEngine } from "../simulation";
+import { CanonicalCommitter } from "../canonical-committer";
 import {
   createTestModelAudit,
   deterministicModelOutput,
@@ -23,6 +24,156 @@ import { normalizeOutcomeAlternativeEvidence } from "../truth-engine";
 import { loadWorldScript } from "../../script/world-loader";
 
 describe("eager reference safeguards", () => {
+  it("commits a capacity-safe FIFO queue without sending the blocked contender to Truth", async () => {
+    let workbenchPoolId = "";
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-grounding") {
+        const action = (context as { action: AgentActionProposal }).action;
+        const claims = action.rawText.includes("工作台")
+          ? [{ poolId: workbenchPoolId, basis: { kind: "default" as const } }]
+          : [];
+        return {
+          reads: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
+          writes: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
+          audienceAgentIds: [action.actorId],
+          sharedResourceClaims: claims,
+          globalFallback: false,
+        };
+      }
+      if (role === "temporal-planner") {
+        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+        if (action.rawText.includes("工作台")) {
+          return {
+            profileId: "ongoing-action",
+            basis: { kind: "profile" },
+            description: action.rawText,
+            continuationAssertions: [],
+            causes: [{ kind: "action", id: action.id }],
+          };
+        }
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    workbenchPoolId = Object.values(definition.initialState.truth.sharedActivityResourcePools)[0]!.id;
+    const delegate = new EagerReferenceAlgorithm(provider);
+    let latestCandidate: import("../execution").WorldStepCandidate | undefined;
+    const algorithm: WorldExecutionAlgorithm = {
+      manifest: delegate.manifest,
+      bootstrap: (input, context) => delegate.bootstrap(input, context),
+      prepareStep: (input, context) => delegate.prepareStep(input, context),
+      completeStep: async (input, preparation, reactions, context) => {
+        latestCandidate = await delegate.completeStep(input, preparation, reactions, context);
+        return latestCandidate;
+      },
+    };
+    const engine = new SimulationEngine(definition, algorithm);
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const first = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "player-participant" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "take-workbench",
+        agentId: "player",
+        rawText: "持续使用工作台修理工具",
+        goal: "修理工具",
+        means: "工作台",
+        targetIds: [],
+      }],
+    });
+    const holder = Object.values(first.state.truth.activities).find((activity) => activity.actorId === "player")!;
+    expect(holder).toMatchObject({ status: "active", sharedResourceClaims: [{ poolId: workbenchPoolId, amount: 1 }] });
+
+    const secondRoster = {
+      player: { kind: "idle", agentId: "player", reason: "explicit" },
+      keeper: { kind: "external", agentId: "keeper", participantId: "keeper-participant" },
+    } as const;
+    const second = await engine.step(secondRoster, {
+      expectedRevision: first.state.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "queue-workbench",
+        agentId: "keeper",
+        rawText: "持续使用工作台打磨零件",
+        goal: "打磨零件",
+        means: "工作台",
+        targetIds: [],
+      }],
+    });
+
+    const queued = Object.values(second.state.truth.activities).find((activity) => activity.actorId === "keeper")!;
+    expect(queued).toMatchObject({ status: "queued", enqueuedAtSeconds: first.state.truth.elapsedSeconds });
+    expect(second.committed.sharedResourceAdmissions).toContainEqual(expect.objectContaining({
+      kind: "queue",
+      activityId: queued.id,
+      shortagePoolIds: [workbenchPoolId],
+    }));
+    expect(second.committed.outcomes).toContainEqual(expect.objectContaining({
+      proposalId: queued.sourceActionId,
+      status: "continuing",
+      summary: "等待共享资源：庭院工作台",
+    }));
+    expect(second.committed.resolutionPlans.some((plan) => plan.actionId === queued.sourceActionId)).toBe(false);
+    expect(() => replaySimulationState(second.state)).not.toThrow();
+    if (!latestCandidate) throw new Error("test algorithm did not capture its candidate");
+    const forged = structuredClone(latestCandidate);
+    const queueAdmission = forged.sharedResourceAdmissions.find((admission) => admission.activityId === queued.id)!;
+    if (queueAdmission.kind !== "queue") throw new Error("test candidate did not queue its contender");
+    forged.sharedResourceAdmissions = forged.sharedResourceAdmissions.map((admission) =>
+      admission.activityId === queued.id
+        ? { kind: "reject" as const, activityId: admission.activityId, shortagePoolIds: queueAdmission.shortagePoolIds }
+        : admission);
+    expect(() => new CanonicalCommitter().step(
+      first.state,
+      forged,
+      secondRoster,
+      definition.runtimeDefaults.maxAutonomousSpanSeconds,
+    )).toThrow("admissions do not match trusted capacity allocation");
+
+    const released = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "player-participant" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: second.state.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "release-workbench",
+        agentId: "player",
+        rawText: "停止修理并在一旁休息",
+        goal: "结束修理",
+        means: null,
+        targetIds: [],
+      }],
+    });
+    const ready = released.state.truth.activities[queued.id]!;
+    expect(ready).toMatchObject({ status: "ready", reservedAtSeconds: released.state.truth.elapsedSeconds });
+    expect(released.committed.activityTransitions.map((transition) => transition.kind)).toContain("reserved");
+
+    const started = await engine.step({
+      player: { kind: "idle", agentId: "player", reason: "explicit" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: released.state.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+    const resumed = started.state.truth.activities[queued.id]!;
+    expect(resumed).toMatchObject({ status: "active", startedAtSeconds: released.state.truth.elapsedSeconds });
+    expect(started.committed.temporalPlans).toContainEqual(expect.objectContaining({
+      actionId: queued.sourceActionId,
+      startsAtSeconds: released.state.truth.elapsedSeconds,
+    }));
+    expect(resumed.updatedAtSeconds).toBeGreaterThan(released.state.truth.elapsedSeconds);
+    expect(() => replaySimulationState(started.state)).not.toThrow();
+  });
+
   it("drops invalid or duplicate observation event references without changing narration", () => {
     const normalized = normalizeObservationSourceEventIds([{
       summary: "钟声从港口传来。",

@@ -168,6 +168,10 @@ describe("shared physical resource allocator", () => {
     const afterRelease = promoteSharedResourceQueues({ ...input, activities: released, atSeconds: 60 });
     expect(afterRelease.activities[first.id]?.status).toBe("ready");
     expect(afterRelease.activities[second.id]?.status).toBe("queued");
+    const afterHeadCancellation = structuredClone(afterRelease.activities);
+    delete afterHeadCancellation[first.id];
+    const advanced = promoteSharedResourceQueues({ ...input, activities: afterHeadCancellation, atSeconds: 90 });
+    expect(advanced.activities[second.id]?.status).toBe("ready");
   });
 
   it("routes mixed claims by adjudicate > queue > reject while retaining hard capacity", () => {

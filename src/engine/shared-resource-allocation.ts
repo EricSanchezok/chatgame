@@ -1,4 +1,5 @@
-import type { WorldEntity } from "./model";
+import type { ActionOutcome, AgentActionProposal, WorldEntity } from "./model";
+import { runtimeId } from "./runtime-id";
 import {
   type SharedActivityResourceClaim,
   type SharedActivityResourceContention,
@@ -9,7 +10,10 @@ import {
 import {
   type ActivityState,
   type ActivityTransition,
+  blockScheduledActivity,
+  type DecisionPoint,
   type QueuedActivityState,
+  queueScheduledActivity,
   reserveQueuedActivity,
 } from "./temporal";
 
@@ -41,6 +45,13 @@ export interface SharedResourceQueuePromotionResult {
   transitions: ActivityTransition[];
   reservedActivityIds: string[];
   stoppedComponentHeads: string[];
+}
+
+export interface AppliedSharedResourceAdmissions {
+  activities: Record<string, ActivityState>;
+  transitions: ActivityTransition[];
+  decisionPoints: DecisionPoint[];
+  deferredActionIds: string[];
 }
 
 function contentionRank(contention: SharedActivityResourceContention): number {
@@ -239,6 +250,88 @@ export function planSharedResourceAdmissions(input: {
     }
   }
   return { admissions, usageBefore };
+}
+
+export function applySharedResourceAdmissions(input: {
+  activities: Readonly<Record<string, ActivityState>>;
+  admissions: readonly SharedResourceAdmission[];
+  atSeconds: number;
+}): AppliedSharedResourceAdmissions {
+  const activities = structuredClone(input.activities) as Record<string, ActivityState>;
+  const transitions: ActivityTransition[] = [];
+  const decisionPoints: DecisionPoint[] = [];
+  const deferredActionIds: string[] = [];
+  for (const admission of [...input.admissions].sort((left, right) => left.activityId.localeCompare(right.activityId))) {
+    const activity = activities[admission.activityId];
+    if (!activity || activity.status !== "active") {
+      throw new Error(`shared resource admission ${admission.activityId} has no active proposal Activity`);
+    }
+    if (admission.kind === "granted" || admission.kind === "adjudicate") continue;
+    deferredActionIds.push(activity.sourceActionId);
+    if (admission.kind === "queue") {
+      const queued = queueScheduledActivity(activity, input.atSeconds);
+      activities[activity.id] = queued.activity;
+      transitions.push(queued.transition);
+    } else {
+      const blocked = blockScheduledActivity(activity, input.atSeconds);
+      activities[activity.id] = blocked.activity;
+      transitions.push(blocked.transition);
+      decisionPoints.push(blocked.decisionPoint);
+    }
+  }
+  return {
+    activities,
+    transitions,
+    decisionPoints,
+    deferredActionIds: deferredActionIds.sort(),
+  };
+}
+
+export function materializeSharedResourceAdmissionOutcomes(input: {
+  worldHash: string;
+  revision: number;
+  actions: readonly AgentActionProposal[];
+  admissions: readonly SharedResourceAdmission[];
+  activities: Readonly<Record<string, ActivityState>>;
+  pools: Readonly<Record<string, SharedActivityResourcePool>>;
+  definitions: Readonly<Record<string, SharedActivityResourceDefinition>>;
+}): ActionOutcome[] {
+  const actionById = new Map(input.actions.map((action) => [action.id, action]));
+  return input.admissions.filter((admission) => admission.kind === "queue" || admission.kind === "reject")
+    .sort((left, right) => left.activityId.localeCompare(right.activityId))
+    .map((admission, ordinal) => {
+      const activity = input.activities[admission.activityId];
+      const action = activity ? actionById.get(activity.sourceActionId) : undefined;
+      if (!activity || !action) throw new Error(`deferred resource Activity ${admission.activityId} has no action`);
+      const names = admission.shortagePoolIds.map((poolId) => {
+        const pool = input.pools[poolId];
+        return pool ? input.definitions[pool.definitionId]?.name : null;
+      }).filter((name): name is string => Boolean(name));
+      return {
+        id: runtimeId({
+          worldHash: input.worldHash,
+          revision: input.revision,
+          kind: "outcome",
+          stage: "shared-resource-admission",
+          owner: action.id,
+          round: 0,
+          ordinal,
+        }),
+        proposalId: action.id,
+        status: admission.kind === "queue" ? "continuing" : "blocked",
+        summary: admission.kind === "queue"
+          ? `等待共享资源：${names.join("、") || "资源池"}`
+          : `共享资源容量不足：${names.join("、") || "资源池"}`,
+        causeRefs: [{ kind: "action", id: action.id }],
+        assertions: admission.shortagePoolIds.map((poolId) => ({
+          kind: "shared_resource_capacity_compare" as const,
+          poolId,
+          operator: "eq" as const,
+          value: input.pools[poolId]?.capacity ?? -1,
+        })),
+        knownAlternatives: [],
+      } satisfies ActionOutcome;
+    });
 }
 
 export function promoteSharedResourceQueues(input: {

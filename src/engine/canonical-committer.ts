@@ -40,17 +40,29 @@ import {
 } from "./observation";
 import {
   advanceTemporalState,
+  blockScheduledActivity,
   cancelActivity,
+  cancelDeferredActivity,
   createActivity,
+  evaluateActivityContinuation,
+  materializeDeferredTemporalPlan,
   reconcileTemporalOutcomes,
   selectTemporalBoundary,
   settleActivityContexts,
+  startReadyActivity,
   pauseActivity,
   validateActivityResources,
   validateTemporalPlan,
 } from "./temporal";
 import { applyAdmissionCommit, applyTransitionProposal, validateSimulationState } from "./transaction";
 import { validateSharedActivityResourceClaimForAction } from "./shared-activity-resources";
+import {
+  applySharedResourceAdmissions,
+  materializeSharedResourceAdmissionOutcomes,
+  planSharedResourceAdmissions,
+  promoteSharedResourceQueues,
+  validateSharedResourceCapacity,
+} from "./shared-resource-allocation";
 
 export function semanticStepHash(step: Readonly<CommittedStep>): string {
   const semantic = structuredClone(step) as Partial<CommittedStep>;
@@ -469,16 +481,58 @@ function validateCandidateBoundary(
   if (new Set(planIds).size !== planIds.length) throw new Error("candidate contains duplicate temporal plans");
   const planningActivities = structuredClone(source.truth.activities);
   const preBoundaryTransitions = [] as typeof candidate.activityTransitions;
+  const readyPlans: import("./temporal").TemporalPlan[] = [];
+  const readyDecisionPoints: import("./temporal").DecisionPoint[] = [];
+  const readyEvaluationState = structuredClone(source);
+  for (const ready of Object.values(planningActivities)
+    .filter((activity): activity is import("./temporal").ReadyActivityState => activity.status === "ready")
+    .sort((left, right) => left.id.localeCompare(right.id))) {
+    const started = startReadyActivity({
+      activity: ready,
+      atSeconds: source.truth.elapsedSeconds,
+      profiles: source.truth.mechanics.temporalProfiles,
+    });
+    planningActivities[ready.id] = started.activity;
+    readyEvaluationState.truth.activities[ready.id] = structuredClone(started.activity);
+    readyPlans.push(structuredClone(started.activity.plan));
+    preBoundaryTransitions.push(started.transition);
+    if (evaluateActivityContinuation(readyEvaluationState, started.activity).some((result) => !result.passed)) {
+      const blocked = blockScheduledActivity(started.activity, source.truth.elapsedSeconds);
+      planningActivities[ready.id] = blocked.activity;
+      readyEvaluationState.truth.activities[ready.id] = structuredClone(blocked.activity);
+      preBoundaryTransitions.push(blocked.transition);
+      readyDecisionPoints.push(blocked.decisionPoint);
+    }
+  }
+  const actualReadyTransitions = candidate.activityTransitions.filter((transition) =>
+    transition.fromElapsedSeconds === source.truth.elapsedSeconds &&
+    transition.toElapsedSeconds === source.truth.elapsedSeconds && Boolean(source.truth.activities[transition.activityId]?.status === "ready") &&
+    (transition.kind === "started" || transition.kind === "blocked"));
+  if (contentHash(actualReadyTransitions) !== contentHash(preBoundaryTransitions)) {
+    throw new Error("candidate ready Activity starts do not match trusted reservations");
+  }
   for (const transition of candidate.activityTransitions) {
     if (transition.fromElapsedSeconds !== source.truth.elapsedSeconds ||
       transition.toElapsedSeconds !== source.truth.elapsedSeconds) continue;
+    if (transition.kind === "queued" || transition.kind === "blocked" || transition.kind === "started") continue;
     if (transition.kind !== "cancelled" && transition.kind !== "paused") {
       throw new Error(`candidate has unsupported zero-time activity transition ${transition.kind}`);
     }
     const existing = planningActivities[transition.activityId];
-    if (!existing || existing.actorId !== transition.actorId ||
-      existing.status === "queued" || existing.status === "ready") {
+    if (!existing || existing.actorId !== transition.actorId) {
       throw new Error(`candidate cancels unknown activity ${transition.activityId}`);
+    }
+    if (transition.kind === "cancelled" && (existing.status === "queued" || existing.status === "ready")) {
+      const expected = cancelDeferredActivity(existing, source.truth.elapsedSeconds);
+      if (contentHash(expected) !== contentHash(transition)) {
+        throw new Error(`candidate pre-boundary transition does not match deferred Activity ${transition.activityId}`);
+      }
+      delete planningActivities[transition.activityId];
+      preBoundaryTransitions.push(structuredClone(expected));
+      continue;
+    }
+    if (existing.status === "queued" || existing.status === "ready") {
+      throw new Error(`candidate cannot pause deferred Activity ${transition.activityId}`);
     }
     const settled = transition.kind === "cancelled"
       ? cancelActivity(existing, source.truth.elapsedSeconds)
@@ -506,7 +560,11 @@ function validateCandidateBoundary(
     }
     const finalActivity = persisted[0]!;
     if (planningActivities[finalActivity.id]) {
-      throw new Error(`candidate temporal plan reuses activity ${finalActivity.id}`);
+      const readyPlan = readyPlans.find((candidatePlan) => candidatePlan.id === plan.id);
+      if (!readyPlan || contentHash(readyPlan) !== contentHash(plan)) {
+        throw new Error(`candidate temporal plan reuses activity ${finalActivity.id}`);
+      }
+      continue;
     }
     planningActivities[finalActivity.id] = createActivity({
       id: finalActivity.id,
@@ -516,6 +574,76 @@ function validateCandidateBoundary(
       interactionFootprint: finalActivity.interactionFootprint,
     });
   }
+  for (const admission of candidate.sharedResourceAdmissions) {
+    if (planningActivities[admission.activityId]) continue;
+    const persisted = candidate.temporalState.activities[admission.activityId];
+    if (!persisted || (persisted.status !== "queued" && persisted.status !== "ready")) {
+      throw new Error(`resource admission references unknown deferred Activity ${admission.activityId}`);
+    }
+    const plan = materializeDeferredTemporalPlan({
+      draft: persisted.planDraft,
+      sourceAction: persisted.sourceAction,
+      startsAtSeconds: source.truth.elapsedSeconds,
+      profiles: source.truth.mechanics.temporalProfiles,
+    });
+    validateTemporalPlan(plan, source.truth.mechanics.temporalProfiles, source.truth.mechanics.activityResources);
+    planningActivities[persisted.id] = createActivity({
+      id: persisted.id,
+      plan,
+      sourceAction: persisted.sourceAction,
+      participantAgentIds: persisted.participantAgentIds,
+      interactionFootprint: persisted.interactionFootprint,
+    });
+  }
+  const proposedActivityIds = Object.values(planningActivities)
+    .filter((activity) => !source.truth.activities[activity.id])
+    .map((activity) => activity.id)
+    .sort();
+  const expectedAdmissions = planSharedResourceAdmissions({
+    activities: planningActivities,
+    proposalActivityIds: proposedActivityIds,
+    pools: source.truth.sharedActivityResourcePools,
+    definitions: source.truth.mechanics.sharedActivityResources,
+    entities: source.truth.entities,
+  }).admissions;
+  if (contentHash(expectedAdmissions) !== contentHash(candidate.sharedResourceAdmissions)) {
+    throw new Error("candidate shared resource admissions do not match trusted capacity allocation");
+  }
+  const appliedAdmissions = applySharedResourceAdmissions({
+    activities: planningActivities,
+    admissions: expectedAdmissions,
+    atSeconds: source.truth.elapsedSeconds,
+  });
+  const actualAdmissionTransitions = candidate.activityTransitions.filter((transition) =>
+    transition.fromElapsedSeconds === source.truth.elapsedSeconds &&
+    transition.toElapsedSeconds === source.truth.elapsedSeconds &&
+    (transition.kind === "queued" || transition.kind === "blocked"));
+  if (contentHash(actualAdmissionTransitions) !== contentHash(appliedAdmissions.transitions)) {
+    throw new Error("candidate shared resource admission transitions do not match trusted allocation");
+  }
+  const deferredActionIds = new Set(appliedAdmissions.deferredActionIds);
+  const expectedResourceOutcomes = materializeSharedResourceAdmissionOutcomes({
+    worldHash: source.worldHash,
+    revision: source.revision,
+    actions,
+    admissions: expectedAdmissions,
+    activities: appliedAdmissions.activities,
+    pools: source.truth.sharedActivityResourcePools,
+    definitions: source.truth.mechanics.sharedActivityResources,
+  });
+  const actualResourceOutcomes = candidate.resolution.proposal.outcomes
+    .filter((outcome) => deferredActionIds.has(outcome.proposalId))
+    .sort((left, right) => left.proposalId.localeCompare(right.proposalId));
+  if (contentHash(expectedResourceOutcomes) !== contentHash(actualResourceOutcomes) ||
+    candidate.resolution.resolutionPlans.some((plan) => deferredActionIds.has(plan.actionId)) ||
+    candidate.resolution.proposal.operations.some((operation) => operation.causes.some((cause) =>
+      cause.kind === "action" && deferredActionIds.has(cause.id)) && operation.kind !== "advance_time") ||
+    candidate.resolution.proposal.events.some((event) => event.causes.some((cause) =>
+      cause.kind === "action" && deferredActionIds.has(cause.id)))) {
+    throw new Error("deferred shared resource actions cannot be semantically adjudicated");
+  }
+  Object.assign(planningActivities, appliedAdmissions.activities);
+  preBoundaryTransitions.push(...structuredClone(appliedAdmissions.transitions));
   for (const transition of preBoundaryTransitions.filter((entry) => entry.kind === "cancelled")) {
     const authorizedReaction = candidate.resolution.reactionRequests.some((request) =>
       request.originalIntent.kind === "ongoing_activity" &&
@@ -621,6 +749,8 @@ function validateCandidateBoundary(
   expectedTemporal.decisionPoints = [...new Map([
     ...expectedTemporal.decisionPoints,
     ...reactionDecisionPoints,
+    ...readyDecisionPoints,
+    ...appliedAdmissions.decisionPoints,
   ].map((point) => [
     `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
     point,
@@ -686,6 +816,22 @@ function validateCandidateBoundary(
     preserveActiveActivityIds,
   });
   expectedTemporal = settled.temporal;
+  const promotionState = applyTransitionProposal(source, candidate.resolution.proposal, expectedTemporal);
+  const expectedPromotion = promoteSharedResourceQueues({
+    activities: expectedTemporal.activities,
+    pools: promotionState.truth.sharedActivityResourcePools,
+    definitions: promotionState.truth.mechanics.sharedActivityResources,
+    entities: promotionState.truth.entities,
+    atSeconds: expectedBoundary.toElapsedSeconds,
+  });
+  expectedTemporal.activities = expectedPromotion.activities;
+  expectedTemporal.transitions = [...expectedTemporal.transitions, ...expectedPromotion.transitions];
+  validateSharedResourceCapacity({
+    activities: expectedTemporal.activities,
+    pools: promotionState.truth.sharedActivityResourcePools,
+    definitions: promotionState.truth.mechanics.sharedActivityResources,
+    entities: promotionState.truth.entities,
+  });
   if (contentHash(expectedTemporal.activities) !== contentHash(candidate.temporalState.activities) ||
     contentHash(expectedTemporal.timers) !== contentHash(candidate.temporalState.timers) ||
     contentHash(expectedTemporal.transitions) !== contentHash(candidate.activityTransitions) ||
@@ -864,6 +1010,7 @@ export class CanonicalCommitter {
       temporalState: structuredClone(candidate.temporalState),
       activityTransitions: structuredClone(candidate.activityTransitions),
       activityDispositions: structuredClone(candidate.activityDispositions),
+      sharedResourceAdmissions: structuredClone(candidate.sharedResourceAdmissions),
       decisionPoints: structuredClone(candidate.decisionPoints),
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),

@@ -541,8 +541,16 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
   step.resolutionReceipts.forEach((receipt) => resolutionReceiptSchema.parse(receipt));
   assertUnique(step.resolutionPlans.map((plan) => plan.id), `step ${step.step} resolution plans`);
   assertUnique(step.resolutionReceipts.map((receipt) => receipt.id), `step ${step.step} resolution receipts`);
+  assertUnique(step.sharedResourceAdmissions.map((admission) => admission.activityId),
+    `step ${step.step} shared resource admissions`);
+  const deferredActionIds = new Set(step.sharedResourceAdmissions.flatMap((admission) => {
+    if (admission.kind !== "queue" && admission.kind !== "reject") return [];
+    const activity = step.temporalState.activities[admission.activityId];
+    if (!activity) throw new Error(`step ${step.step} shared resource admission lost Activity ${admission.activityId}`);
+    return [activity.sourceActionId];
+  }));
   if (contentHash(step.resolutionPlans.map((plan) => plan.actionId).sort()) !==
-    contentHash(step.actions.map((action) => action.id).sort())) {
+    contentHash(step.actions.filter((action) => !deferredActionIds.has(action.id)).map((action) => action.id).sort())) {
     throw new Error(`step ${step.step} resolution plans do not cover actions`);
   }
   if (step.resolutionReceipts.length !== step.resolutionPlans.length) {
@@ -719,7 +727,9 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
     throw new Error(`step ${step.step} time operation does not match temporal boundary`);
   }
   assertUnique(step.temporalPlans.map((plan) => plan.id), `step ${step.step} temporal plans`);
-  assertUnique(step.activityTransitions.map((transition) => transition.activityId), `step ${step.step} activity transitions`);
+  assertUnique(step.activityTransitions.map((transition) =>
+    `${transition.activityId}:${transition.kind}:${transition.fromStatus}:${transition.toStatus}:${transition.fromElapsedSeconds}:${transition.toElapsedSeconds}`),
+  `step ${step.step} activity transitions`);
   assertUnique(step.activityDispositions.map((disposition) => disposition.activityId),
     `step ${step.step} Activity dispositions`);
   assertUnique(step.decisionPoints.map((point) =>

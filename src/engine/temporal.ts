@@ -1488,3 +1488,22 @@ export function cancelActivity(activity: Readonly<ScheduledActivityState>, atSec
     },
   };
 }
+
+export function cancelDeferredActivity(
+  activity: Readonly<QueuedActivityState | ReadyActivityState>,
+  atSeconds: number,
+): ActivityTransition {
+  if (atSeconds < activity.updatedAtSeconds) {
+    throw new Error(`deferred Activity ${activity.id} cannot be cancelled at ${atSeconds}`);
+  }
+  return {
+    activityId: activity.id,
+    actorId: activity.actorId,
+    kind: "cancelled",
+    fromStatus: activity.status,
+    toStatus: "cancelled",
+    fromElapsedSeconds: atSeconds,
+    toElapsedSeconds: atSeconds,
+    progress: null,
+  };
+}

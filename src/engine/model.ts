@@ -1075,6 +1075,7 @@ export interface CommittedStep {
   temporalState: import("./temporal").TemporalStateSnapshot;
   activityTransitions: ActivityTransition[];
   activityDispositions: import("./temporal").ActivityDisposition[];
+  sharedResourceAdmissions: import("./shared-resource-allocation").SharedResourceAdmission[];
   decisionPoints: DecisionPoint[];
   checkRequests: D20CheckRequest[];
   checks: D20CheckResult[];

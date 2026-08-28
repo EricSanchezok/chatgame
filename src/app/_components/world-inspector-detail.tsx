@@ -310,6 +310,13 @@ function TemporalAudit({ actorId, detail }: { actorId: string; detail: WorldInsp
   const transitions = detail.committed.activityTransitions.filter((transition) => relevant(transition.actorId));
   const decisions = detail.committed.decisionPoints.filter((point) => relevant(point.agentId));
   const dispositions = detail.committed.activityDispositions.filter((entry) => relevant(entry.actorId));
+  const resourceAdmissions = detail.committed.sharedResourceAdmissions.filter((admission) => {
+    const activity = detail.committed.temporalState.activities[admission.activityId] ??
+      detail.before.truth.activities[admission.activityId];
+    return activity ? relevant(activity.actorId) : actorId === "world";
+  });
+  const resourceActivities = Object.values(detail.committed.temporalState.activities)
+    .filter((activity) => activity.sharedResourceClaims.length > 0 && relevant(activity.actorId));
   const activitySnapshots = (activities: typeof detail.committed.temporalState.activities) => Object.fromEntries(
     Object.entries(activities).filter(([, activity]) => relevant(activity.actorId)),
   );
@@ -351,6 +358,20 @@ function TemporalAudit({ actorId, detail }: { actorId: string; detail: WorldInsp
             },
           }}
         />
+      </DetailSection>
+      <DetailSection
+        count={`${resourceAdmissions.length} 项`}
+        description="内核按剧本策略分配实体资源池，并在提交前重新核对容量与 FIFO 顺序"
+        icon={Waypoints}
+        title="共享资源分配"
+      >
+        {resourceAdmissions.length > 0 || resourceActivities.length > 0
+          ? <JsonBlock label="查看容量、claims、队列与裁决证据" value={{
+              admissions: resourceAdmissions,
+              pools: actorId === "world" ? detail.after.truth.sharedActivityResourcePools : undefined,
+              activities: resourceActivities,
+            }} />
+          : <p className="cg-inspector-inline-empty">本次提交没有共享资源竞争。</p>}
       </DetailSection>
       <DetailSection
         count={`${plans.length} 个`}

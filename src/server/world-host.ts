@@ -282,7 +282,11 @@ function conversationFor(
       const projectedActivity = activity ? publicActivity(document, activity) : null;
       const progressText = projectedActivity?.progress
         ? `${projectedActivity.description}：${projectedActivity.progress.current}/${projectedActivity.progress.target} ${projectedActivity.progress.unit}`
-        : projectedActivity ? `${projectedActivity.description}：${projectedActivity.status}` : "世界时间继续推进。";
+        : projectedActivity?.status === "queued"
+          ? `${projectedActivity.description}：正在等待${projectedActivity.resourceNames.join("、") || "共享资源"}，队列第 ${projectedActivity.queuePosition ?? 1} 位。`
+          : projectedActivity?.status === "ready"
+            ? `${projectedActivity.description}：资源已预留，将在下一次时间推进开始。`
+            : projectedActivity ? `${projectedActivity.description}：${projectedActivity.status}` : "世界时间继续推进。";
       return {
         revision: committed.revision,
         step: committed.step,
@@ -1342,6 +1346,7 @@ export class WorldHost {
           .filter((activity) => activity.status !== "queued" && activity.status !== "ready" &&
             activity.plan.id === plan.id)
           .map((activity) => activity.id)),
+        ...result.committed.sharedResourceAdmissions.map((admission) => admission.activityId),
       ])].sort();
       runRecord.lease.commitCount += 1;
       runRecord.updatedAt = this.now().toISOString();

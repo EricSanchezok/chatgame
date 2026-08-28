@@ -78,15 +78,20 @@ function PlayerRunConsole({
   const resumable = run.status === "paused" || run.status === "budget-paused" ||
     run.status === "preparation-invalidated";
   const progress = run.activity?.progress;
+  const activityStatus = run.activity?.status === "queued"
+    ? `正在等待${run.activity.resourceNames.join("、") || "共享资源"} · 队列第 ${run.activity.queuePosition ?? 1} 位`
+    : run.activity?.status === "ready"
+      ? "资源已预留 · 下一次时间推进开始"
+      : null;
   return (
     <div className="cg-observer-console" aria-label="世界运行控制台">
       <div>
         <strong>{run.status === "preparation-invalidated"
           ? "上次反应预演已失效，需要重新准备"
           : run.activity?.description ?? "世界正在自主推进"}</strong>
-        <span>{progress
+        <span>{activityStatus ?? (progress
           ? `${progress.current.toFixed(2)} / ${progress.target} ${progress.unit}`
-          : `${run.lease?.commitCount ?? 0} 个边界已提交`}</span>
+          : `${run.lease?.commitCount ?? 0} 个边界已提交`)}</span>
       </div>
       <button disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
         {resumable ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}

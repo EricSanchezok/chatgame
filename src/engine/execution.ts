@@ -37,6 +37,7 @@ import type {
   SharedActivityResourceClaim,
   SharedActivityResourceClaimDraft,
 } from "./shared-activity-resources";
+import type { SharedResourceAdmission } from "./shared-resource-allocation";
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
@@ -415,6 +416,7 @@ export interface WorldStepCandidate {
   temporalState: TemporalStateSnapshot;
   activityTransitions: ActivityTransition[];
   activityDispositions: ActivityDisposition[];
+  sharedResourceAdmissions: SharedResourceAdmission[];
   decisionPoints: DecisionPoint[];
 }
 
