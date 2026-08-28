@@ -322,14 +322,18 @@ async function main(): Promise<void> {
     }
     assertCommittedStep(participantDocument, beforeAction + 1);
     for (let step = 1; step < requestedSteps; step += 1) {
-      const beforeAdvance = participantDocument.state.revision;
-      await host.advance(instance.summary.id, {
-        expectedRevision: beforeAdvance,
-        trigger: "manual",
-        steps: 1,
+      const beforeActionRevision = participantDocument.state.revision;
+      const detail = host.instance(instance.summary.id);
+      if (!detail.actionWindow || !detail.actionWindow.requiredAgentIds.includes(participant.agentId)) {
+        throw new Error("participant step did not open the expected action window");
+      }
+      await host.submitAction(instance.summary.id, participant.id, {
+        submissionId: randomUUID(),
+        expectedRevision: beforeActionRevision,
+        text: "我继续观察眼前环境，并确认下一步可以安全采取的行动。",
       });
-      participantDocument = await waitForRevision(database, instance.summary.id, beforeAdvance + 1);
-      assertCommittedStep(participantDocument, beforeAdvance + 1);
+      participantDocument = await waitForRevision(database, instance.summary.id, beforeActionRevision + 1);
+      assertCommittedStep(participantDocument, beforeActionRevision + 1);
     }
     instance = host.instance(instance.summary.id);
     process.stdout.write([
