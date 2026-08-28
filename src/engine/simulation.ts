@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
+import { actionDependencyEdgeCount, actionDependencyKey } from "./action-dependency";
 import { CanonicalCommitter } from "./canonical-committer";
 import type {
-  ActionDependency,
   ExecutionContext,
   ExecutionTraceWriter,
   PolicyBinding,
@@ -212,31 +212,6 @@ function validateCandidateModelAudits(
   }
 }
 
-function dependencyKey(dependency: ActionDependency["reads"][number]): string {
-  return `${dependency.kind}:${dependency.id}`;
-}
-
-function dependenciesConflict(left: ActionDependency, right: ActionDependency): boolean {
-  if (left.globalFallback || right.globalFallback) return true;
-  const leftWrites = new Set(left.writes.map(dependencyKey));
-  const rightWrites = new Set(right.writes.map(dependencyKey));
-  const leftReads = new Set(left.reads.map(dependencyKey));
-  const rightReads = new Set(right.reads.map(dependencyKey));
-  return [...leftWrites].some((key) => rightWrites.has(key) || rightReads.has(key)) ||
-    [...rightWrites].some((key) => leftReads.has(key)) ||
-    left.audienceAgentIds.includes(right.actorId) || right.audienceAgentIds.includes(left.actorId);
-}
-
-function dependencyEdgeCount(dependencies: readonly ActionDependency[]): number {
-  let edges = 0;
-  for (let left = 0; left < dependencies.length; left += 1) {
-    for (let right = left + 1; right < dependencies.length; right += 1) {
-      if (dependenciesConflict(dependencies[left], dependencies[right])) edges += 1;
-    }
-  }
-  return edges;
-}
-
 function emitEngineStableEvent(trace: ExecutionTraceWriter, input: EngineStableRuntimeEventInput): void {
   trace.emit(input);
 }
@@ -327,7 +302,7 @@ function emitStepMetrics(
       decisionPoints: candidate.decisionPoints.length,
       temporalDeltaSeconds: candidate.temporalBoundary.deltaSeconds,
       dependencyNodes: candidate.actionDependencies.length,
-      dependencyEdges: dependencyEdgeCount(candidate.actionDependencies),
+      dependencyEdges: actionDependencyEdgeCount(candidate.actionDependencies),
       dependencyComponents: candidate.diagnostics.dependencyComponents.length,
       maxDependencyComponent: Math.max(
         0,
@@ -336,7 +311,7 @@ function emitStepMetrics(
       globalDependencies: candidate.actionDependencies.filter((dependency) => dependency.globalFallback).length,
       globalReadjudications: candidate.diagnostics.globalReadjudication ? 1 : 0,
       footprintCardinality: candidate.actionDependencies.reduce((total, dependency) =>
-        total + new Set([...dependency.reads, ...dependency.writes].map(dependencyKey)).size, 0),
+        total + new Set([...dependency.reads, ...dependency.writes].map(actionDependencyKey)).size, 0),
       audienceCardinality: candidate.actionDependencies.reduce(
         (total, dependency) => total + dependency.audienceAgentIds.length,
         0,

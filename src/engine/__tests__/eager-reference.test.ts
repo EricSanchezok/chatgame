@@ -1,11 +1,9 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolutionObservations, type ActionDependency, type WorldExecutionAlgorithm } from "../execution";
+import { resolutionObservations, type WorldExecutionAlgorithm } from "../execution";
 import {
-  conflictComponents,
   createMindRepairFallback,
   EagerReferenceAlgorithm,
-  normalizeGrounding,
 } from "../eager-reference";
 import { historyReplayBaseHash } from "../history-replay";
 import { replaySimulationState } from "../transaction";
@@ -24,72 +22,7 @@ import {
 import { normalizeOutcomeAlternativeEvidence } from "../truth-engine";
 import { loadWorldScript } from "../../script/world-loader";
 
-function grounding(
-  actorId: string,
-  reads: ActionDependency["reads"],
-  writes: ActionDependency["writes"],
-  audienceAgentIds: string[] = [],
-  globalFallback = false,
-): ActionDependency {
-  return { actionId: `action-${actorId}`, actorId, reads, writes, audienceAgentIds, globalFallback };
-}
-
-describe("eager reference dependency components", () => {
-  it("keeps independent footprints separate and joins read/write or audience dependencies", () => {
-    expect(conflictComponents([
-      grounding("a", [], [{ kind: "entity", id: "entity-a" }]),
-      grounding("b", [], [{ kind: "entity", id: "entity-b" }]),
-    ])).toEqual([["a"], ["b"]]);
-
-    expect(conflictComponents([
-      grounding("a", [], [{ kind: "entity", id: "shared" }]),
-      grounding("b", [{ kind: "entity", id: "shared" }], []),
-    ])).toEqual([["a", "b"]]);
-
-    expect(conflictComponents([
-      grounding("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
-      grounding("b", [], [{ kind: "entity", id: "entity-b" }]),
-    ])).toEqual([["a", "b"]]);
-  });
-
-  it("puts every action in one component when any footprint requires global fallback", () => {
-    expect(conflictComponents([
-      grounding("a", [{ kind: "global", id: "world" }], [{ kind: "global", id: "world" }], [], true),
-      grounding("b", [], [{ kind: "entity", id: "entity-b" }]),
-      grounding("c", [], [{ kind: "entity", id: "entity-c" }]),
-    ])).toEqual([["a", "b", "c"]]);
-  });
-
-  it("turns unknown dependency hints into a conservative global footprint", () => {
-    const state = {
-      agents: { a: { id: "a", entityId: "entity-a" } },
-      truth: {
-        entities: { "entity-a": { id: "entity-a" } },
-        facts: {},
-        meters: {},
-        quantities: {},
-        ratings: {},
-      },
-    } as unknown as SimulationState;
-    const action = { id: "action-a", actorId: "a" } as AgentActionProposal;
-    const normalized = normalizeGrounding(state, action, grounding(
-      "a",
-      [{ kind: "entity", id: "weather" }],
-      [],
-      ["unknown-group"],
-    ));
-
-    expect(normalized.grounding).toEqual({
-      actionId: "action-a",
-      actorId: "a",
-      reads: [{ kind: "global", id: "world" }],
-      writes: [{ kind: "global", id: "world" }],
-      audienceAgentIds: [],
-      globalFallback: true,
-    });
-    expect(normalized.fallbackReasons).toEqual(["unknown_audience_agent", "unknown_entity"]);
-  });
-
+describe("eager reference safeguards", () => {
   it("drops invalid or duplicate observation event references without changing narration", () => {
     const normalized = normalizeObservationSourceEventIds([{
       summary: "钟声从港口传来。",
