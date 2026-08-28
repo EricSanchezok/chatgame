@@ -20,6 +20,10 @@ import type {
   TemporalProfileDefinition,
   WorldTimer,
 } from "./temporal";
+import type {
+  SharedActivityResourceDefinition,
+  SharedActivityResourcePool,
+} from "./shared-activity-resources";
 
 export type EntityId = string;
 export type AgentId = string;
@@ -68,6 +72,7 @@ export type CausalAssertion =
       value: number;
     }
   | { kind: "rating_compare"; ratingId: string; operator: NumericComparison; value: number }
+  | { kind: "shared_resource_capacity_compare"; poolId: string; operator: NumericComparison; value: number }
   | { kind: "elapsed_seconds_compare"; operator: NumericComparison; value: number };
 
 export interface CausalSource {
@@ -151,6 +156,7 @@ export interface MechanicsCatalog {
   entityMechanicsProfiles: Record<string, EntityMechanicsProfileDefinition>;
   adjudicationCalibrations: AdjudicationCalibration[];
   activityResources: Record<string, ActivityResourceDefinition>;
+  sharedActivityResources: Record<string, SharedActivityResourceDefinition>;
   temporalProfiles: Record<string, TemporalProfileDefinition>;
   temporalCalibrations: TemporalCalibration[];
 }
@@ -211,6 +217,7 @@ export interface CanonicalWorldState {
   ratings: Record<string, RatingState>;
   conditions: Record<string, ConditionState>;
   activities: Record<string, ActivityState>;
+  sharedActivityResourcePools: Record<string, SharedActivityResourcePool>;
   timers: Record<string, WorldTimer>;
 }
 
@@ -576,7 +583,7 @@ export interface AgentAdmissionCommit {
 export type WorldEventDraft = Omit<WorldEvent, "step">;
 
 export interface SimulationState {
-  schemaVersion: 12;
+  schemaVersion: 13;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -880,6 +887,7 @@ export type WorldDeltaOperation = CausalSource & (
   | { kind: "set_rating"; rating: RatingState }
   | { kind: "set_condition"; condition: ConditionState }
   | { kind: "remove_condition"; conditionId: string }
+  | { kind: "set_shared_activity_resource_capacity"; poolId: string; capacity: number }
   | { kind: "advance_time"; seconds: number }
   | { kind: "create_agent"; agent: AgentState }
   | { kind: "remove_agent"; agentId: AgentId }

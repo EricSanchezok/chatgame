@@ -12,3 +12,5 @@ facts:
 meters: []
 quantities: []
 ratings: []
+shared_activity_resources:
+  - { definition_id: fixture-workbench, capacity: 1 }

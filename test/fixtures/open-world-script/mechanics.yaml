@@ -39,6 +39,14 @@ duration_profiles:
   - { id: ongoing, name: 持续, kind: until_cleared }
 activity_resources:
   - { id: foreground, name: 前台行动, capacity: 1 }
+shared_activity_resources:
+  - id: fixture-workbench
+    name: 庭院工作台
+    unit: 席
+    default_claim_amount: 1
+    allow_explicit_amount: true
+    contention: queue
+    paused_retention: release
 temporal_profiles:
   - id: brief-action
     name: 一秒短动作

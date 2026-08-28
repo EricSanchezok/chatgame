@@ -18,7 +18,16 @@ function dependency(
   audienceAgentIds: string[] = [],
   globalFallback = false,
 ): InteractionDependency {
-  return { kind: "action", id: `action-${actorId}`, actorId, reads, writes, audienceAgentIds, globalFallback };
+  return {
+    kind: "action",
+    id: `action-${actorId}`,
+    actorId,
+    reads,
+    writes,
+    audienceAgentIds,
+    sharedResourceClaims: [],
+    globalFallback,
+  };
 }
 
 describe("action dependencies", () => {
@@ -37,6 +46,43 @@ describe("action dependencies", () => {
       dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
       dependency("b", [], [{ kind: "entity", id: "entity-b" }]),
     ])).toEqual([["action-a", "action-b"]]);
+  });
+
+  it("joins claimants and capacity writers through the shared resource pool key", () => {
+    const claim = {
+      poolId: "pool-workbench",
+      definitionId: "workbench",
+      entityId: "bench",
+      amount: 1,
+      basis: { kind: "default" as const },
+    };
+    const holder = {
+      ...dependency("holder", [], []),
+      kind: "activity" as const,
+      id: "activity-holder",
+      sharedResourceClaims: [claim],
+    };
+    const claimant = {
+      ...dependency("claimant", [], []),
+      sharedResourceClaims: [claim],
+    };
+    const capacityWriter = dependency(
+      "mechanic",
+      [],
+      [{ kind: "shared_resource_pool", id: claim.poolId }],
+    );
+
+    expect(interactionDependencyComponents([holder, claimant, capacityWriter])).toEqual([
+      ["action-claimant", "action-mechanic", "activity-holder"],
+    ]);
+    expect(new ActivityFootprintIndex({
+      [holder.id]: {
+        id: holder.id,
+        actorId: holder.actorId,
+        status: "active",
+        interactionFootprint: holder,
+      } as ActivityState,
+    }).affectedBy([claimant])).toEqual([holder.id]);
   });
 
   it("puts every action in one component when any footprint requires global fallback", () => {
@@ -73,6 +119,7 @@ describe("action dependencies", () => {
       reads: [{ kind: "global", id: "world" }],
       writes: [{ kind: "global", id: "world" }],
       audienceAgentIds: [],
+      sharedResourceClaims: [],
       globalFallback: true,
     });
     expect(normalized.fallbackReasons).toEqual(["unknown_audience_agent", "unknown_entity"]);
@@ -109,6 +156,7 @@ describe("action dependencies", () => {
       reads: [{ kind: "fact", id: "dawn" }],
       writes: [],
       audienceAgentIds: ["a"],
+      sharedResourceClaims: [],
       globalFallback: false,
     });
     expect(interactionDependencyForCondition(state, state.truth.conditions.alert!)).toEqual({
@@ -118,6 +166,7 @@ describe("action dependencies", () => {
       reads: [{ kind: "condition", id: "alert" }],
       writes: [{ kind: "condition", id: "alert" }],
       audienceAgentIds: ["a"],
+      sharedResourceClaims: [],
       globalFallback: false,
     });
     const activity = {
@@ -131,6 +180,7 @@ describe("action dependencies", () => {
         reads: [{ kind: "condition", id: "alert" }],
         writes: [],
         audienceAgentIds: ["a"],
+        sharedResourceClaims: [],
         globalFallback: false,
       },
     } as unknown as ActivityState;
@@ -163,6 +213,7 @@ describe("action dependencies", () => {
           reads: globalFallback ? [global] : choose(refs),
           writes: globalFallback ? [global] : choose(refs),
           audienceAgentIds: [...new Set([actorId, ...choose(agents)])].sort(),
+          sharedResourceClaims: [],
           globalFallback,
         };
         return [footprint.id, {
@@ -183,6 +234,7 @@ describe("action dependencies", () => {
           reads: globalFallback ? [global] : choose(refs),
           writes: globalFallback ? [global] : choose(refs),
           audienceAgentIds: [...new Set([actorId, ...choose(agents)])].sort(),
+          sharedResourceClaims: [],
           globalFallback,
         };
       });

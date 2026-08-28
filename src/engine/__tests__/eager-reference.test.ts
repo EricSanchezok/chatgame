@@ -137,6 +137,7 @@ describe("eager reference safeguards", () => {
           reads: [],
           writes: [{ kind: "entity", id: action.actorId }],
           audienceAgentIds: [action.actorId],
+          sharedResourceClaims: [],
           globalFallback: false,
         };
       }
@@ -655,6 +656,7 @@ describe("eager reference safeguards", () => {
           reads: [],
           writes: [{ kind: "entity", id: action.actorId }],
           audienceAgentIds: action.actorId === "keeper" ? ["keeper", "player"] : [action.actorId],
+          sharedResourceClaims: [],
           globalFallback: false,
         };
       }
@@ -751,6 +753,7 @@ describe("eager reference safeguards", () => {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
+          sharedResourceClaims: [],
           globalFallback: true,
         };
       }
@@ -854,6 +857,7 @@ describe("eager reference safeguards", () => {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
+          sharedResourceClaims: [],
           globalFallback: true,
         };
       }
@@ -933,6 +937,7 @@ describe("eager reference safeguards", () => {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
+          sharedResourceClaims: [],
           globalFallback: true,
         };
       }
@@ -1024,6 +1029,7 @@ describe("eager reference safeguards", () => {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: ["keeper", "player"],
+          sharedResourceClaims: [],
           globalFallback: true,
         };
       }

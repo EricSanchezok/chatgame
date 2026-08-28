@@ -19,14 +19,16 @@ import {
 } from "../transaction";
 import { TEST_WORLD_HASH } from "../testing/world";
 import { createTestModelAudit } from "../testing/model-provider";
-import { quantityId, runtimeId } from "../runtime-id";
+import { quantityId, runtimeId, sharedActivityResourcePoolId } from "../runtime-id";
+import { evaluateCausalAssertion } from "../causality";
 import { createHistoryReplayBase } from "../history-replay";
 import { beliefClaimSchema, evidenceSchema, semanticIdSchema } from "../state-schemas";
 import { agentMindOutputSchema, characterPatchSchema } from "../llm-schemas";
 
 function worldState(): SimulationState {
+  const workbenchPoolId = sharedActivityResourcePoolId(TEST_WORLD_HASH, "workbench", "gate");
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     worldId: "test-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],
@@ -125,6 +127,17 @@ function worldState(): SimulationState {
         entityMechanicsProfiles: {},
         adjudicationCalibrations: [],
         activityResources: {},
+        sharedActivityResources: {
+          workbench: {
+            id: "workbench",
+            name: "工作台",
+            unit: "席",
+            defaultClaimAmount: 1,
+            allowExplicitAmount: false,
+            contention: "queue",
+            pausedRetention: "release",
+          },
+        },
         temporalProfiles: {},
         temporalCalibrations: [],
       },
@@ -161,6 +174,14 @@ function worldState(): SimulationState {
       },
       conditions: {},
       activities: {},
+      sharedActivityResourcePools: {
+        [workbenchPoolId]: {
+          id: workbenchPoolId,
+          definitionId: "workbench",
+          entityId: "gate",
+          capacity: 1,
+        },
+      },
       timers: {},
     },
     agents: {
@@ -449,6 +470,38 @@ describe("open world kernel", () => {
     expect(source.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "keeper")].amount).toBe(7);
     expect(next.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "keeper")].amount).toBe(2);
     expect(next.truth.quantities[quantityId(TEST_WORLD_HASH, "spirit_stone", "player")].amount).toBe(8);
+  });
+
+  it("changes typed shared capacity only through an asserted canonical operation", () => {
+    const state = worldState();
+    const pool = Object.values(state.truth.sharedActivityResourcePools)[0]!;
+    expect(evaluateCausalAssertion(state, {
+      kind: "shared_resource_capacity_compare",
+      poolId: pool.id,
+      operator: "eq",
+      value: 1,
+    })).toEqual({ passed: true, observed: 1 });
+
+    applyWorldDeltaOperation(state, {
+      kind: "set_shared_activity_resource_capacity",
+      poolId: pool.id,
+      capacity: 2,
+      causes: [{ kind: "law", id: "worldgen" }],
+      assertions: [{
+        kind: "shared_resource_capacity_compare",
+        poolId: pool.id,
+        operator: "eq",
+        value: 1,
+      }],
+    });
+    expect(state.truth.sharedActivityResourcePools[pool.id]?.capacity).toBe(2);
+    expect(() => applyWorldDeltaOperation(state, {
+      kind: "set_shared_activity_resource_capacity",
+      poolId: pool.id,
+      capacity: -1,
+      causes: [{ kind: "law", id: "worldgen" }],
+      assertions: [{ kind: "entity_lifecycle", entityId: "gate", expected: "active" }],
+    })).toThrow("capacity must be non-negative");
   });
 
   it("expires elapsed-time conditions atomically when their boundary is committed", () => {

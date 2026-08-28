@@ -84,6 +84,7 @@ duration_profiles:
   - { id: ongoing, name: 持续至解除, kind: until_cleared }
 activity_resources:
   - { id: foreground, name: 前台行动, capacity: 1 }
+shared_activity_resources: []
 temporal_profiles:
   - id: momentary-action
     name: 瞬时行动

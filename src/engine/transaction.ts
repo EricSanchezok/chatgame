@@ -60,6 +60,7 @@ import {
   persistedFactSchema,
   quantityStateSchema,
   ratingSchema,
+  sharedActivityResourcePoolSchema,
 } from "./state-schemas";
 import { isRuntimeId, quantityId, runtimeId } from "./runtime-id";
 import { validateImpactProfile } from "./resolution";
@@ -70,6 +71,11 @@ import {
   validateTemporalProfile,
   validateWorldTimer,
 } from "./temporal";
+import {
+  validateSharedActivityResourceClaimForAction,
+  validateSharedActivityResourceDefinition,
+  validateSharedActivityResourcePool,
+} from "./shared-activity-resources";
 
 function assertExactKeys(value: object, required: readonly string[], optional: readonly string[] = [], label = "object"): void {
   const keys = Object.keys(value);
@@ -298,6 +304,15 @@ export function applyWorldDeltaOperation(state: SimulationState, operation: Worl
       if (!state.truth.conditions[operation.conditionId]) throw new Error(`unknown condition ${operation.conditionId}`);
       delete state.truth.conditions[operation.conditionId];
       return;
+    case "set_shared_activity_resource_capacity": {
+      const pool = state.truth.sharedActivityResourcePools[operation.poolId];
+      if (!pool) throw new Error(`unknown shared activity resource pool ${operation.poolId}`);
+      if (!Number.isFinite(operation.capacity) || operation.capacity < 0) {
+        throw new Error("shared activity resource capacity must be non-negative");
+      }
+      pool.capacity = operation.capacity;
+      return;
+    }
     case "advance_time":
       if (!Number.isSafeInteger(operation.seconds) || operation.seconds <= 0) throw new Error("time advance must be positive seconds");
       state.truth.elapsedSeconds += operation.seconds;
@@ -734,7 +749,7 @@ export function replaySimulationState(
     return structuredClone(state);
   }
   const replay: SimulationState = {
-    schemaVersion: 12,
+    schemaVersion: 13,
     worldId: state.worldId,
     worldHash: state.worldHash,
     lawIds: structuredClone(state.lawIds),
@@ -886,7 +901,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents", "admissions", "history",
     "bootstrapAgentCommits",
   ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
-  if (state.schemaVersion !== 12 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 13 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
@@ -894,12 +909,12 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     !Number.isSafeInteger(state.truth.elapsedSeconds) || state.truth.elapsedSeconds < 0) throw new Error("invalid world clock");
   assertExactKeys(state.truth, [
     "elapsedSeconds", "rng", "events", "entities", "placements", "facts", "factTombstones", "mechanics",
-    "meters", "quantities", "ratings", "conditions", "activities", "timers",
+    "meters", "quantities", "ratings", "conditions", "activities", "sharedActivityResourcePools", "timers",
   ], [], "canonical truth");
   assertExactKeys(state.truth.mechanics, [
     "meters", "quantities", "ratings", "impactProfiles", "durationProfiles", "conditionProfiles",
     "entityMechanicsProfiles", "adjudicationCalibrations", "activityResources", "temporalProfiles",
-    "temporalCalibrations",
+    "sharedActivityResources", "temporalCalibrations",
   ], [], "mechanics catalog");
   for (const [id, definition] of Object.entries(state.truth.mechanics.meters)) {
     if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
@@ -916,6 +931,10 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     if (resource.id !== id || !resource.name.trim() || !Number.isFinite(resource.capacity) || resource.capacity <= 0) {
       throw new Error(`invalid activity resource ${id}`);
     }
+  }
+  for (const [id, resource] of Object.entries(state.truth.mechanics.sharedActivityResources)) {
+    if (resource.id !== id) throw new Error(`shared activity resource key mismatch ${id}`);
+    validateSharedActivityResourceDefinition(resource);
   }
   for (const [id, profile] of Object.entries(state.truth.mechanics.temporalProfiles)) {
     if (profile.id !== id) throw new Error(`temporal profile key mismatch ${id}`);
@@ -981,6 +1000,23 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     entitySchema.parse(entity);
     if (entity.id !== id) throw new Error(`entity key does not match ${entity.id}`);
   }
+  const entityIds = new Set(Object.keys(state.truth.entities));
+  const entityResourceDefinitions = new Set<string>();
+  for (const [id, pool] of Object.entries(state.truth.sharedActivityResourcePools)) {
+    sharedActivityResourcePoolSchema.parse(pool);
+    if (pool.id !== id) throw new Error(`shared activity resource pool key mismatch ${id}`);
+    validateSharedActivityResourcePool(
+      state.worldHash,
+      pool,
+      state.truth.mechanics.sharedActivityResources,
+      entityIds,
+    );
+    const entityDefinitionKey = `${pool.entityId}\u0000${pool.definitionId}`;
+    if (entityResourceDefinitions.has(entityDefinitionKey)) {
+      throw new Error(`duplicate shared activity resource pool for ${pool.entityId} ${pool.definitionId}`);
+    }
+    entityResourceDefinitions.add(entityDefinitionKey);
+  }
   for (const [id, fact] of Object.entries(state.truth.facts)) {
     persistedFactSchema.parse(fact);
     if (fact.id !== id || !state.truth.entities[fact.subjectId] || fact.provenance.length === 0) throw new Error(`invalid Fact ${id}`);
@@ -1035,8 +1071,21 @@ export function validateSimulationState(state: SimulationState, requireNextActio
         ref.kind === "meter" && Boolean(state.truth.meters[ref.id]) ||
         ref.kind === "quantity" && Boolean(state.truth.quantities[ref.id]) ||
         ref.kind === "rating" && Boolean(state.truth.ratings[ref.id]) ||
-        ref.kind === "condition" && Boolean(state.truth.conditions[ref.id]);
+        ref.kind === "condition" && Boolean(state.truth.conditions[ref.id]) ||
+        ref.kind === "shared_resource_pool" && Boolean(state.truth.sharedActivityResourcePools[ref.id]);
       if (!known) throw new Error(`activity ${id} footprint references unknown ${ref.kind} ${ref.id}`);
+    }
+    const claimPoolIds = new Set<string>();
+    for (const claim of activity.interactionFootprint.sharedResourceClaims) {
+      if (claimPoolIds.has(claim.poolId)) throw new Error(`activity ${id} repeats shared resource claim ${claim.poolId}`);
+      claimPoolIds.add(claim.poolId);
+      validateSharedActivityResourceClaimForAction(
+        claim,
+        activity.sourceAction.rawText,
+        state.truth.sharedActivityResourcePools,
+        state.truth.mechanics.sharedActivityResources,
+        new Set(activity.plan.causes.filter((cause) => cause.kind === "mechanic").map((cause) => cause.id)),
+      );
     }
     const unknownAudienceAgentId = activity.interactionFootprint.audienceAgentIds
       .find((agentId) => !state.agents[agentId]);

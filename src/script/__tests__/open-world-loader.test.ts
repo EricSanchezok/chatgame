@@ -11,7 +11,7 @@ import {
 } from "../../engine/random-limits";
 import type { DiscreteRandomDefinition } from "../../engine/model";
 import { createTestModelCatalog } from "../../engine/testing/model-provider";
-import { quantityId } from "../../engine/runtime-id";
+import { quantityId, sharedActivityResourcePoolId } from "../../engine/runtime-id";
 import { loadWorldScript } from "../world-loader";
 
 const fixture = path.resolve("test/fixtures/open-world-script");
@@ -68,7 +68,27 @@ describe("open world script loader", () => {
       version: "2.0.0",
       config: {},
     })]);
-    expect(definition.initialState.schemaVersion).toBe(12);
+    expect(definition.initialState.schemaVersion).toBe(13);
+    expect(definition.initialState.truth.mechanics.sharedActivityResources["fixture-workbench"]).toEqual({
+      id: "fixture-workbench",
+      name: "庭院工作台",
+      unit: "席",
+      defaultClaimAmount: 1,
+      allowExplicitAmount: true,
+      contention: "queue",
+      pausedRetention: "release",
+    });
+    const workbenchPoolId = sharedActivityResourcePoolId(
+      definition.contentHash,
+      "fixture-workbench",
+      "courtyard",
+    );
+    expect(definition.initialState.truth.sharedActivityResourcePools[workbenchPoolId]).toEqual({
+      id: workbenchPoolId,
+      definitionId: "fixture-workbench",
+      entityId: "courtyard",
+      capacity: 1,
+    });
     expect(definition.initialState.truth.mechanics.impactProfiles.harm.amounts).toEqual({
       none: 0, minor: 2, standard: 5, major: 10, decisive: 20,
     });
@@ -113,6 +133,30 @@ describe("open world script loader", () => {
 
     expect(loadWorldScript(renamed, { modelCatalog }).contentHash)
       .toBe(loadWorldScript(fixture, { modelCatalog }).contentHash);
+  });
+
+  it("rejects unknown, duplicate, and negative Entity resource pools", () => {
+    const unknown = copiedFixture();
+    const unknownEntity = path.join(unknown, "entities/courtyard.yaml");
+    writeFileSync(unknownEntity, readFileSync(unknownEntity, "utf8").replace(
+      "definition_id: fixture-workbench",
+      "definition_id: missing-workbench",
+    ), "utf8");
+    expect(() => loadWorldScript(unknown, { modelCatalog })).toThrow("unknown shared activity resource");
+
+    const duplicate = copiedFixture();
+    const duplicateEntity = path.join(duplicate, "entities/courtyard.yaml");
+    writeFileSync(duplicateEntity, `${readFileSync(duplicateEntity, "utf8")}` +
+      "  - { definition_id: fixture-workbench, capacity: 1 }\n", "utf8");
+    expect(() => loadWorldScript(duplicate, { modelCatalog })).toThrow("repeats shared activity resource");
+
+    const negative = copiedFixture();
+    const negativeEntity = path.join(negative, "entities/courtyard.yaml");
+    writeFileSync(negativeEntity, readFileSync(negativeEntity, "utf8").replace(
+      "capacity: 1",
+      "capacity: -1",
+    ), "utf8");
+    expect(() => loadWorldScript(negative, { modelCatalog })).toThrow();
   });
 
   it("materializes authored absolute timers only for known laws and Agents", () => {
@@ -174,12 +218,12 @@ describe("open world script loader", () => {
     });
   });
 
-  it("rejects schema v9 worlds and missing or duplicate Agent self bindings", () => {
+  it("rejects schema v12 worlds and missing or duplicate Agent self bindings", () => {
     const oldWorld = copiedFixture();
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 12", "schema_version: 11"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 13", "schema_version: 12"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
@@ -229,7 +273,7 @@ describe("open world script loader", () => {
       "utf8",
     );
     expect(() => loadWorldScript(missingCore, { seed: 1, rulePackages: registry, modelCatalog }))
-      .toThrow("schema v12 worlds require core-resolution@2.0.0");
+      .toThrow("schema v13 worlds require core-resolution@2.0.0");
   });
 
   it("enforces the exact canonical UTF-8 distribution budget during world loading", () => {

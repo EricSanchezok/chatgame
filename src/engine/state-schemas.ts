@@ -31,6 +31,7 @@ import { MAX_COMMITMENT_ROUNDS_PER_STEP } from "./commitment-rounds";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import { isRuntimeId } from "./runtime-id";
 import type { ConditionState } from "./resolution";
+import type { SharedActivityResourcePool } from "./shared-activity-resources";
 
 const reservedRecordKeys = new Set([
   ...Object.getOwnPropertyNames(Object.prototype),
@@ -230,6 +231,12 @@ export const causalAssertionSchema = z.discriminatedUnion("kind", [
     value: z.number().finite(),
   }),
   z.strictObject({
+    kind: z.literal("shared_resource_capacity_compare"),
+    poolId: runtimeIdSchema.refine((id) => isRuntimeId(id, "shared-resource-pool")),
+    operator: numericComparisonSchema,
+    value: z.number().finite(),
+  }),
+  z.strictObject({
     kind: z.literal("elapsed_seconds_compare"),
     operator: numericComparisonSchema,
     value: z.number().finite(),
@@ -362,6 +369,13 @@ export const quantityStateSchema = z.strictObject({
   holderId: semanticIdSchema,
   amount: z.number().finite().nonnegative(),
 }) as z.ZodType<QuantityState>;
+
+export const sharedActivityResourcePoolSchema = z.strictObject({
+  id: runtimeIdSchema.refine((id) => isRuntimeId(id, "shared-resource-pool")),
+  definitionId: semanticIdSchema,
+  entityId: semanticIdSchema,
+  capacity: z.number().finite().nonnegative(),
+}) as z.ZodType<SharedActivityResourcePool>;
 
 export const conditionStateSchema = z.strictObject({
   id: semanticIdSchema,

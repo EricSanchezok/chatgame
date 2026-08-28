@@ -117,6 +117,7 @@ function activityFor(type: CausalActivityType, density: CausalConflictDensity, i
       : footprintRef(density, index, "activity")],
     writes: [],
     audienceAgentIds: [plan.actorId],
+    sharedResourceClaims: [],
     globalFallback,
   };
   return {
@@ -149,6 +150,7 @@ function incomingFor(density: CausalConflictDensity, index: number): Interaction
       ? { kind: "global", id: "world" }
       : footprintRef(density, index, "incoming")],
     audienceAgentIds: [`trigger-${index}`],
+    sharedResourceClaims: [],
     globalFallback,
   };
 }

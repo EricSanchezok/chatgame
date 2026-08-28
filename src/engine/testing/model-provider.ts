@@ -373,6 +373,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: [input.action.actorId],
+          sharedResourceClaims: [],
           globalFallback: true,
         };
       }

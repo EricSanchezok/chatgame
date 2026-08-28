@@ -10,7 +10,7 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(12),
+  schema_version: z.literal(13),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
@@ -202,6 +202,15 @@ export const mechanicsFileSchema = z.object({
     name: z.string().min(1),
     capacity: z.number().positive().finite(),
   }).strict()).min(1),
+  shared_activity_resources: z.array(z.object({
+    id: safeIdSchema,
+    name: z.string().min(1),
+    unit: z.string().min(1),
+    default_claim_amount: z.number().positive().finite(),
+    allow_explicit_amount: z.boolean().default(false),
+    contention: z.enum(["reject", "queue", "adjudicate"]),
+    paused_retention: z.enum(["retain", "release"]),
+  }).strict()).default([]),
   temporal_profiles: z.array(temporalProfileSchema).min(1),
   temporal_calibrations: z.array(z.object({
     id: safeIdSchema,
@@ -370,6 +379,10 @@ export const entityDocumentSchema = z.object({
     id: safeIdSchema,
     definition_id: safeIdSchema,
     value: z.number().finite(),
+  }).strict()).default([]),
+  shared_activity_resources: z.array(z.object({
+    definition_id: safeIdSchema,
+    capacity: z.number().nonnegative().finite(),
   }).strict()).default([]),
   agent: z.object({
     id: safeIdSchema,

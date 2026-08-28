@@ -50,6 +50,7 @@ import {
   validateTemporalPlan,
 } from "./temporal";
 import { applyAdmissionCommit, applyTransitionProposal, validateSimulationState } from "./transaction";
+import { validateSharedActivityResourceClaimForAction } from "./shared-activity-resources";
 
 export function semanticStepHash(step: Readonly<CommittedStep>): string {
   const semantic = structuredClone(step) as Partial<CommittedStep>;
@@ -129,6 +130,7 @@ function validateInteractionDependencies(
     quantity: source.truth.quantities,
     rating: source.truth.ratings,
     condition: source.truth.conditions,
+    shared_resource_pool: source.truth.sharedActivityResourcePools,
   };
   for (const dependency of dependencies) {
     const expectedActorId = dependency.kind === "action"
@@ -156,6 +158,21 @@ function validateInteractionDependencies(
     }
     if (new Set(dependency.audienceAgentIds).size !== dependency.audienceAgentIds.length) {
       throw new Error(`interaction dependency ${dependency.id} contains duplicate audiences`);
+    }
+    const claimPoolIds = new Set<string>();
+    for (const claim of dependency.sharedResourceClaims) {
+      if (claimPoolIds.has(claim.poolId)) {
+        throw new Error(`interaction dependency ${dependency.id} contains duplicate shared resource claims`);
+      }
+      claimPoolIds.add(claim.poolId);
+      const action = dependency.kind === "action" ? actionById.get(dependency.id) : activities[dependency.id]?.sourceAction;
+      if (!action) throw new Error(`interaction dependency ${dependency.id} has no claim source action`);
+      validateSharedActivityResourceClaimForAction(
+        claim,
+        action.rawText,
+        source.truth.sharedActivityResourcePools,
+        source.truth.mechanics.sharedActivityResources,
+      );
     }
     for (const agentId of dependency.audienceAgentIds) {
       if (!source.agents[agentId]) {
@@ -407,6 +424,19 @@ function validateCandidateBoundary(
     throw new Error("execution candidate contains multiple actions for one Agent");
   }
   validateInteractionDependencies(source, actions, candidate.interactionDependencies, candidate.temporalState.activities);
+  const trustedCapacityOperations = new Map<string, number>();
+  for (const operation of candidate.resolution.mechanicResults.flatMap((result) => result.operations)) {
+    if (operation.kind !== "set_shared_activity_resource_capacity") continue;
+    const hash = contentHash(operation);
+    trustedCapacityOperations.set(hash, (trustedCapacityOperations.get(hash) ?? 0) + 1);
+  }
+  for (const operation of candidate.resolution.proposal.operations) {
+    if (operation.kind !== "set_shared_activity_resource_capacity") continue;
+    const hash = contentHash(operation);
+    const remaining = trustedCapacityOperations.get(hash) ?? 0;
+    if (remaining <= 0) throw new Error("shared activity resource capacity must come from a trusted mechanic result");
+    trustedCapacityOperations.set(hash, remaining - 1);
+  }
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
   validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);

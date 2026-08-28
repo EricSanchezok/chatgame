@@ -89,7 +89,7 @@ describe("LLM output field ownership", () => {
     expect(observationBatchSchema.safeParse({
       observations: [{ ...observation, id: "forged", observerId: "agent", step: 1, kind: "outcome" }],
     }).success).toBe(false);
-    const grounding = { reads: [], writes: [], audienceAgentIds: [], globalFallback: false };
+    const grounding = { reads: [], writes: [], audienceAgentIds: [], sharedResourceClaims: [], globalFallback: false };
     expect(actionGroundingSchema.safeParse(grounding).success).toBe(true);
     expect(actionGroundingSchema.safeParse({
       ...grounding,
@@ -202,6 +202,7 @@ describe("LLM output field ownership", () => {
       { kind: "set_rating", rating: { id: "force:xiaoming", definitionId: "force", entityId: "xiaoming-body", value: 2 } },
       { kind: "transfer_quantity", definitionId: "coin", fromHolderId: "a", toHolderId: "b", amount: 2 },
       { kind: "set_condition", condition: { id: "burning", magnitude: "major" } },
+      { kind: "set_shared_activity_resource_capacity", poolId: "rt:shared-resource-pool:forged", capacity: 99 },
     ]) {
       expect(transitionProposalSchema.safeParse(transitionWith({ ...operation, ...causalSource })).success).toBe(false);
     }

@@ -101,6 +101,13 @@ export function evaluateCausalAssertion(
         observed: actual ?? null,
       };
     }
+    case "shared_resource_capacity_compare": {
+      const actual = state.truth.sharedActivityResourcePools[assertion.poolId]?.capacity;
+      return {
+        passed: actual !== undefined && compare(actual, assertion.operator, assertion.value),
+        observed: actual ?? null,
+      };
+    }
     case "elapsed_seconds_compare": {
       const actual = state.truth.elapsedSeconds;
       return { passed: compare(actual, assertion.operator, assertion.value), observed: actual };

@@ -9,7 +9,7 @@ import type {
 } from "../engine/observability";
 import type { InteractionDependency } from "../engine/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 4 as const;
+export const WORLD_INSPECTOR_API_VERSION = 5 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"

@@ -13,6 +13,7 @@ export type RuntimeIdKind =
   | "claim"
   | "evidence"
   | "quantity"
+  | "shared-resource-pool"
   | "fact"
   | "model-audit"
   | "temporal-plan"
@@ -69,6 +70,22 @@ export function quantityId(worldHash: string, definitionId: string, holderId: st
     kind: "quantity",
     stage: "canonical-quantity",
     owner: [definitionId, holderId],
+    round: 0,
+    ordinal: 0,
+  });
+}
+
+export function sharedActivityResourcePoolId(
+  worldHash: string,
+  definitionId: string,
+  entityId: string,
+): string {
+  return runtimeId({
+    worldHash,
+    revision: 0,
+    kind: "shared-resource-pool",
+    stage: "canonical-shared-activity-resource-pool",
+    owner: [definitionId, entityId],
     round: 0,
     ordinal: 0,
   });

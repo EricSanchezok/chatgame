@@ -25,6 +25,7 @@ import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
 import type { InteractionDependencyDraft } from "./execution";
 import type { TemporalPlanDraft } from "./temporal";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
+import { isRuntimeId } from "./runtime-id";
 import {
   actionProposalSchema,
   accessSchema,
@@ -497,6 +498,12 @@ export const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("set_rating"), rating: ratingSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("set_condition"), condition: conditionStateSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("remove_condition"), conditionId: semanticIdSchema, ...causalSourceShape }),
+  z.strictObject({
+    kind: z.literal("set_shared_activity_resource_capacity"),
+    poolId: runtimeIdSchema.refine((id) => isRuntimeId(id, "shared-resource-pool")),
+    capacity: z.number().finite().nonnegative(),
+    ...causalSourceShape,
+  }),
   z.strictObject({ kind: z.literal("advance_time"), seconds: z.number().int().positive(), ...causalSourceShape }),
   z.strictObject({ kind: z.literal("create_agent"), agent: agentStateSchema, ...causalSourceShape }),
   z.strictObject({ kind: z.literal("remove_agent"), agentId: semanticIdSchema, ...causalSourceShape }),
@@ -727,13 +734,31 @@ const footprintRefSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("quantity"), id: runtimeIdSchema }),
   z.strictObject({ kind: z.literal("rating"), id: semanticIdSchema }),
   z.strictObject({ kind: z.literal("condition"), id: semanticIdSchema }),
+  z.strictObject({
+    kind: z.literal("shared_resource_pool"),
+    id: runtimeIdSchema.refine((id) => isRuntimeId(id, "shared-resource-pool")),
+  }),
   z.strictObject({ kind: z.literal("global"), id: z.literal("world") }),
 ]);
+
+const sharedActivityResourceClaimDraftSchema = z.strictObject({
+  poolId: runtimeIdSchema.refine((id) => isRuntimeId(id, "shared-resource-pool")),
+  basis: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("default") }),
+    z.strictObject({
+      kind: z.literal("explicit_quantity"),
+      amount: z.number().positive().finite(),
+      unit: z.string().min(1),
+      sourceText: z.string().min(1),
+    }),
+  ]),
+});
 
 export const actionGroundingSchema = z.strictObject({
   reads: z.array(footprintRefSchema),
   writes: z.array(footprintRefSchema),
   audienceAgentIds: z.array(semanticIdSchema),
+  sharedResourceClaims: z.array(sharedActivityResourceClaimDraftSchema),
   globalFallback: z.boolean(),
 }) as z.ZodType<InteractionDependencyDraft>;
 

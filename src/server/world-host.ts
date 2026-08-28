@@ -443,7 +443,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v17",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v18",
       );
       const databaseFile = path.join(dataRoot, "livingworld.sqlite");
       const database = new LocalDatabase(databaseFile);
@@ -633,7 +633,7 @@ export class WorldHost {
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 17,
+      schemaVersion: 18,
       id,
       world: toWorldRuntimeContract(definition),
       executionAlgorithm: structuredClone(this.defaultAlgorithmRef),

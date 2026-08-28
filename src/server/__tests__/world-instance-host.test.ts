@@ -147,6 +147,7 @@ function reactionHarness(input: {
         audienceAgentIds: isKeeper && keeperGroundings > 1
           ? ["keeper", travelerId]
           : [action.actorId],
+        sharedResourceClaims: [],
         globalFallback: true,
       };
     }
@@ -217,8 +218,8 @@ describe("World Instance host", () => {
         response: { suggestions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(17);
-      expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "4", contractVersion: 3 });
+      expect(stored.schemaVersion).toBe(18);
+      expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "5", contractVersion: 4 });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
         entityId: "courtyard-wanderer-1",
@@ -807,8 +808,8 @@ describe("World Instance host", () => {
       const created = await host.createInstance(observerStart);
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
-      (legacy as unknown as { schemaVersion: number }).schemaVersion = 13;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v17 required");
+      (legacy as unknown as { schemaVersion: number }).schemaVersion = 17;
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v18 required");
 
       const invalidPolicy = structuredClone(source);
       (invalidPolicy.policyBindings.player as { kind: string }).kind = "unknown";

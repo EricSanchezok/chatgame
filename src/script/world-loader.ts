@@ -15,6 +15,11 @@ import { createSeededRng, validateDiscreteRandomDefinitions } from "../engine/ra
 import { validateImpactProfile } from "../engine/resolution";
 import { validateTemporalProfile, type TemporalProfileDefinition } from "../engine/temporal";
 import { quantityId } from "../engine/runtime-id";
+import { sharedActivityResourcePoolId } from "../engine/runtime-id";
+import {
+  validateSharedActivityResourceDefinition,
+  type SharedActivityResourceDefinition,
+} from "../engine/shared-activity-resources";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
 import { validateSimulationState } from "../engine/transaction";
 import type { WorldDefinition } from "../engine/world-definition";
@@ -102,6 +107,17 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
     capacity: resource.capacity,
   }));
   const activityResourceRecord = uniqueRecord(activityResources, "activity resource");
+  const sharedActivityResources = document.shared_activity_resources.map((resource): SharedActivityResourceDefinition => ({
+    id: resource.id,
+    name: resource.name,
+    unit: resource.unit,
+    defaultClaimAmount: resource.default_claim_amount,
+    allowExplicitAmount: resource.allow_explicit_amount,
+    contention: resource.contention,
+    pausedRetention: resource.paused_retention,
+  }));
+  const sharedActivityResourceRecord = uniqueRecord(sharedActivityResources, "shared activity resource");
+  sharedActivityResources.forEach(validateSharedActivityResourceDefinition);
   const temporalProfiles = document.temporal_profiles.map((profile): TemporalProfileDefinition => {
     const base = {
       id: profile.id,
@@ -190,6 +206,7 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
       explanation: calibration.explanation,
     })),
     activityResources: activityResourceRecord,
+    sharedActivityResources: sharedActivityResourceRecord,
     temporalProfiles: temporalProfileRecord,
     temporalCalibrations: document.temporal_calibrations.map((calibration) => ({
       id: calibration.id,
@@ -497,7 +514,7 @@ export function buildWorldDefinition(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 12,
+      schemaVersion: 13,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),
@@ -517,6 +534,7 @@ export function buildWorldDefinition(
         ratings: {},
         conditions: {},
         activities: {},
+        sharedActivityResourcePools: {},
         timers: {},
       },
       agents: {},
@@ -571,6 +589,24 @@ export function buildWorldDefinition(
           definitionId: rating.definition_id,
           entityId: document.id,
           value: rating.value,
+        };
+      }
+      const sharedDefinitionIds = new Set<string>();
+      for (const resource of document.shared_activity_resources) {
+        if (sharedDefinitionIds.has(resource.definition_id)) {
+          throw new Error(`entity ${document.id} repeats shared activity resource ${resource.definition_id}`);
+        }
+        sharedDefinitionIds.add(resource.definition_id);
+        if (!mechanics.sharedActivityResources[resource.definition_id]) {
+          throw new Error(`entity ${document.id} has unknown shared activity resource ${resource.definition_id}`);
+        }
+        const id = sharedActivityResourcePoolId(worldHash, resource.definition_id, document.id);
+        if (state.truth.sharedActivityResourcePools[id]) throw new Error(`duplicate shared activity resource pool ${id}`);
+        state.truth.sharedActivityResourcePools[id] = {
+          id,
+          definitionId: resource.definition_id,
+          entityId: document.id,
+          capacity: resource.capacity,
         };
       }
       const agent = agentFrom(document);

@@ -28,14 +28,15 @@ import { projectAgentPerspective } from "./agent-perspective";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "./prompts";
 import { quantityId } from "./runtime-id";
 import type { TruthResolution } from "./truth-engine";
+import { materializeSharedActivityResourceClaims } from "./shared-activity-resources";
 
-const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。只判断给定行动可能读取、写入和影响哪些已列出的 canonical 资源与 Agent。
+const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。只判断给定行动可能读取、写入和影响哪些已列出的 canonical 资源与 Agent，并选择行动实际占用的共享物理资源池。
 
 必须保守：只要自然语言可能触及目录外资源、远程传播、规则全局状态或无法确定边界，就令 globalFallback=true，并在 reads 与 writes 中加入 {"kind":"global","id":"world"}。
-不得创建 ID，不得输出状态修改、结果或叙事。actor 的私有认知只用于理解本行动，不是 canonical Fact；任何私有 claim、evidence 或 goal ID 都不得作为 footprint id。
+不得创建 ID，不得输出状态修改、结果或叙事。共享资源 claim 只能选择目录中的 poolId；通常使用 default，只有定义允许且行动原文明确写出数量和单位时才能使用 explicit_quantity。actor 的私有认知只用于理解本行动，不是 canonical Fact；任何私有 claim、evidence 或 goal ID 都不得作为 footprint id。
 行动与 actor 身份由调用槽位固定，不要输出。只输出 schema 指定的 JSON。`;
 
-const GROUNDING_PROMPT_VERSION = "action-grounding-v2";
+const GROUNDING_PROMPT_VERSION = "action-grounding-v3";
 
 export function footprintRefKey(ref: FootprintRef): string {
   return `${ref.kind}:${ref.id}`;
@@ -80,6 +81,8 @@ export function causalAssertionFootprintRefs(
         }];
       case "rating_compare":
         return [{ kind: "rating", id: assertion.ratingId }];
+      case "shared_resource_capacity_compare":
+        return [{ kind: "shared_resource_pool", id: assertion.poolId }];
       case "elapsed_seconds_compare":
         return [];
     }
@@ -97,6 +100,7 @@ export function interactionDependencyForTimer(
     reads: stableRefs(causalAssertionFootprintRefs(state, timer.assertions)),
     writes: [],
     audienceAgentIds: [...new Set(timer.wakeAgentIds)].sort(),
+    sharedResourceClaims: [],
     globalFallback: false,
   };
 }
@@ -117,6 +121,7 @@ export function interactionDependencyForCondition(
     reads: [{ kind: "condition", id: condition.id }],
     writes: [{ kind: "condition", id: condition.id }],
     audienceAgentIds,
+    sharedResourceClaims: [],
     globalFallback: false,
   };
 }
@@ -133,6 +138,7 @@ export function unresolvedActivityInteractionFootprint(
     reads: [global],
     writes: [global],
     audienceAgentIds: [actorId],
+    sharedResourceClaims: [],
     globalFallback: true,
   };
 }
@@ -158,6 +164,7 @@ export function interactionDependencyForActivity(
       ...source.audienceAgentIds,
       ...activity.participantAgentIds,
     ])].sort(),
+    sharedResourceClaims: structuredClone(source.sharedResourceClaims),
     globalFallback: source.globalFallback,
   };
 }
@@ -200,6 +207,8 @@ export class ActivityFootprintIndex {
       if (footprint.globalFallback) this.globalIds.add(activity.id);
       footprint.reads.forEach((ref) => add(this.readers, footprintRefKey(ref), activity.id));
       footprint.writes.forEach((ref) => add(this.writers, footprintRefKey(ref), activity.id));
+      footprint.sharedResourceClaims.forEach((claim) =>
+        add(this.writers, `shared_resource_pool:${claim.poolId}`, activity.id));
       add(this.actors, activity.actorId, activity.id);
       footprint.audienceAgentIds.forEach((agentId) => add(this.audiences, agentId, activity.id));
     }
@@ -210,8 +219,11 @@ export class ActivityFootprintIndex {
     const affected = new Set(this.globalIds);
     const include = (values: ReadonlySet<string> | undefined): void => values?.forEach((id) => affected.add(id));
     for (const dependency of incoming) {
-      dependency.writes.forEach((ref) => {
-        const key = footprintRefKey(ref);
+      const writeKeys = [
+        ...dependency.writes.map(footprintRefKey),
+        ...dependency.sharedResourceClaims.map((claim) => `shared_resource_pool:${claim.poolId}`),
+      ];
+      writeKeys.forEach((key) => {
         include(this.readers.get(key));
         include(this.writers.get(key));
       });
@@ -239,6 +251,7 @@ export function normalizeInteractionDependency(
     quantity: state.truth.quantities,
     rating: state.truth.ratings,
     condition: state.truth.conditions,
+    shared_resource_pool: state.truth.sharedActivityResourcePools,
   };
   const fallbackReasons: string[] = [];
   const validRefs = (refs: readonly FootprintRef[]): FootprintRef[] => refs.filter((ref) => {
@@ -265,6 +278,7 @@ export function normalizeInteractionDependency(
       reads: stableRefs(globalFallback ? [...reads, globalRef] : reads),
       writes: stableRefs(globalFallback ? [...writes, globalRef] : writes),
       audienceAgentIds: [...new Set(audienceAgentIds)].sort(),
+      sharedResourceClaims: structuredClone(value.sharedResourceClaims),
       globalFallback,
     },
     fallbackReasons: [...new Set(fallbackReasons)].sort(),
@@ -304,6 +318,7 @@ function enrichDependency(
     reads: stableRefs([...dependency.reads, ...mandatory]),
     writes: stableRefs([...dependency.writes, { kind: "entity", id: agent.entityId }]),
     audienceAgentIds: [...new Set([action.actorId, ...dependency.audienceAgentIds])].sort(),
+    sharedResourceClaims: structuredClone(dependency.sharedResourceClaims),
     globalFallback: dependency.globalFallback,
   };
 }
@@ -314,11 +329,18 @@ function acceptedDependency(
   value: InteractionDependencyDraft,
   scope: ModelExecutionScope,
 ): InteractionDependency {
+  const sharedResourceClaims = materializeSharedActivityResourceClaims({
+    drafts: value.sharedResourceClaims,
+    rawText: action.rawText,
+    pools: state.truth.sharedActivityResourcePools,
+    definitions: state.truth.mechanics.sharedActivityResources,
+  });
   const normalized = normalizeInteractionDependency(state, action, {
     kind: "action",
     id: action.id,
     actorId: action.actorId,
     ...structuredClone(value),
+    sharedResourceClaims,
   });
   emitFallback(scope, action, normalized.fallbackReasons);
   return enrichDependency(state, action, normalized.dependency);
@@ -346,6 +368,11 @@ function groundingContext(
       quantities: state.truth.quantities,
       ratings: state.truth.ratings,
       conditions: state.truth.conditions,
+      sharedActivityResourcePools: Object.values(state.truth.sharedActivityResourcePools).map((pool) => ({
+        ...structuredClone(pool),
+        definition: structuredClone(state.truth.mechanics.sharedActivityResources[pool.definitionId]),
+        entityLifecycle: state.truth.entities[pool.entityId]?.lifecycle ?? "retired",
+      })),
       agents: Object.values(state.agents).map(({ id, entityId }) => ({ id, entityId })),
     },
     validationIssues: issues,
@@ -437,8 +464,10 @@ export function replaceInteractionDependencies(
 
 export function interactionDependenciesConflict(left: InteractionDependency, right: InteractionDependency): boolean {
   if (left.globalFallback || right.globalFallback) return true;
-  const leftWrites = new Set(left.writes.map(footprintRefKey));
-  const rightWrites = new Set(right.writes.map(footprintRefKey));
+  const claimKeys = (dependency: InteractionDependency): string[] =>
+    dependency.sharedResourceClaims.map((claim) => `shared_resource_pool:${claim.poolId}`);
+  const leftWrites = new Set([...left.writes.map(footprintRefKey), ...claimKeys(left)]);
+  const rightWrites = new Set([...right.writes.map(footprintRefKey), ...claimKeys(right)]);
   const leftReads = new Set(left.reads.map(footprintRefKey));
   const rightReads = new Set(right.reads.map(footprintRefKey));
   return [...leftWrites].some((key) => rightWrites.has(key) || rightReads.has(key)) ||

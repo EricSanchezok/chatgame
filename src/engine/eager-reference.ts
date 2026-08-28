@@ -78,7 +78,7 @@ import {
   planTemporalActivity,
 } from "./temporal-planner";
 
-const groundingComponent = { id: "interaction-grounding", version: "2", config: { repairAttempts: 2 } } as const;
+const groundingComponent = { id: "interaction-grounding", version: "3", config: { repairAttempts: 2 } } as const;
 const temporalComponent = { id: "temporal-planner", version: "2", config: { repairAttempts: 2 } } as const;
 const truthComponent = { id: "truth-interaction-component", version: "2", config: { fallback: "global" } } as const;
 const mindComponent = {
@@ -88,10 +88,11 @@ const mindComponent = {
 } as const;
 export const EAGER_REFERENCE_MANIFEST = defineAlgorithmManifest({
   id: "eager-reference",
-  version: "4",
+  version: "5",
   config: {
     activation: "decision-eligible-model-agents",
     grounding: "persisted-interaction-footprints",
+    sharedResourceAllocation: "script-policy-with-kernel-capacity",
     resolution: "interaction-components-with-global-fallback",
     observation: "component-bounded",
     mindUpdate: "decision-eligible-model-agents",

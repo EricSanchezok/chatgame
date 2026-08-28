@@ -77,6 +77,7 @@ function operationLabel(operation: WorldDeltaOperation): string {
     case "set_rating": return `设置评级 · ${operation.rating.id}`;
     case "set_condition": return `设置状态 · ${operation.condition.label}`;
     case "remove_condition": return `移除状态 · ${operation.conditionId}`;
+    case "set_shared_activity_resource_capacity": return `调整共享容量 · ${operation.poolId}`;
     case "advance_time": return `推进时间 · ${operation.seconds} 秒`;
     case "create_agent": return `创建 Agent · ${operation.agent.id}`;
     case "remove_agent": return `移除 Agent · ${operation.agentId}`;

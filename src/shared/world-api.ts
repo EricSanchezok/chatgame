@@ -1,7 +1,7 @@
 import type { AgentPerspectiveView } from "../engine/model";
 export type { AgentPerspectiveView, BeliefValue, PerspectiveFactValue } from "../engine/model";
 
-export const WORLD_API_VERSION = 10 as const;
+export const WORLD_API_VERSION = 11 as const;
 
 export interface WorldSummary {
   id: string;

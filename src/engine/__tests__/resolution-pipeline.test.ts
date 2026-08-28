@@ -32,6 +32,7 @@ describe("resolution pipeline", () => {
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: [action.actorId],
+          sharedResourceClaims: [],
           globalFallback: true,
         };
       }

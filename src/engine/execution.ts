@@ -33,13 +33,17 @@ import type {
   TemporalPlan,
   TemporalStateSnapshot,
 } from "./temporal";
+import type {
+  SharedActivityResourceClaim,
+  SharedActivityResourceClaimDraft,
+} from "./shared-activity-resources";
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
-export const WORLD_EXECUTION_CONTRACT_VERSION = 3 as const;
+export const WORLD_EXECUTION_CONTRACT_VERSION = 4 as const;
 export const ENGINE_OPERATION_CONTRACT_VERSION = 1 as const;
-export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 3 as const;
-export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 1 as const;
+export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 4 as const;
+export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 2 as const;
 
 export class StepPreparationInvalidatedError extends Error {
   constructor(message = "step preparation no longer matches its execution inputs") {
@@ -434,6 +438,7 @@ export type FootprintRef =
   | { kind: "quantity"; id: string }
   | { kind: "rating"; id: string }
   | { kind: "condition"; id: string }
+  | { kind: "shared_resource_pool"; id: string }
   | { kind: "global"; id: "world" };
 
 export interface InteractionDependency {
@@ -443,10 +448,13 @@ export interface InteractionDependency {
   reads: FootprintRef[];
   writes: FootprintRef[];
   audienceAgentIds: AgentId[];
+  sharedResourceClaims: SharedActivityResourceClaim[];
   globalFallback: boolean;
 }
 
-export type InteractionDependencyDraft = Omit<InteractionDependency, "kind" | "id" | "actorId">;
+export type InteractionDependencyDraft = Omit<InteractionDependency, "kind" | "id" | "actorId" | "sharedResourceClaims"> & {
+  sharedResourceClaims: SharedActivityResourceClaimDraft[];
+};
 
 export interface WorldExecutionAlgorithm {
   readonly manifest: AlgorithmManifest;
