@@ -12,7 +12,7 @@ import {
   type ResolutionPlanDraft,
 } from "./llm-schemas";
 import type {
-  ActionDependency,
+  InteractionDependency,
   WorldResolutionCandidate,
 } from "./execution";
 import type {
@@ -93,7 +93,7 @@ import type { TemporalBoundary } from "./temporal";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
-  groundings: ActionDependency[];
+  groundings: InteractionDependency[];
   modelAudits: ModelExecutionAudit[];
 }
 
@@ -113,7 +113,7 @@ export interface TruthResolutionInput {
   initialActions: AgentActionProposal[];
   temporalBoundary: TemporalBoundary;
   identityOwner: string;
-  groundings: readonly ActionDependency[];
+  groundings: readonly InteractionDependency[];
   resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
   renderObservations: (
     proposal: Readonly<TransitionProposal>,
@@ -363,7 +363,7 @@ function resolutionEvidenceIndex(
   };
 }
 
-function groundingContainsSource(grounding: ActionDependency, source: ResolutionSourceRef): boolean {
+function groundingContainsSource(grounding: InteractionDependency, source: ResolutionSourceRef): boolean {
   if (grounding.globalFallback || source.kind === "action" || source.kind === "law") return true;
   const kind = source.kind === "entity" || source.kind === "fact" || source.kind === "condition" ||
     source.kind === "rating" || source.kind === "placement"
@@ -404,7 +404,7 @@ function materializeResolutionPlans(input: {
   state: SimulationState;
   definition: WorldDefinition;
   actions: readonly AgentActionProposal[];
-  groundings: readonly ActionDependency[];
+  groundings: readonly InteractionDependency[];
   identityOwner: string;
   drafts: readonly ResolutionPlanDraft[];
   allowedCauses: Record<CausalRef["kind"], Set<string>>;
@@ -440,7 +440,8 @@ function materializeResolutionPlans(input: {
         ordinal,
       }),
     };
-    const grounding = input.groundings.find((candidate) => candidate.actionId === action.id);
+    const grounding = input.groundings.find((candidate) =>
+      candidate.kind === "action" && candidate.id === action.id);
     if (!grounding) throw new Error(`resolution plan ${plan.id} has no action grounding`);
     for (const mean of plan.means) {
       if (!groundingContainsSource(grounding, mean.source)) {
@@ -1350,20 +1351,23 @@ export class TruthEngine {
         const replacedActorIds = new Set(reactionDecisions
           .filter((decision) => decision.kind === "replace")
           .map((decision) => decision.agentId));
-        const groundedActorIds = new Set(resolved.groundings.map((grounding) => grounding.actorId));
+        const groundedActorIds = new Set(resolved.groundings.flatMap((grounding) =>
+          grounding.actorId === null ? [] : [grounding.actorId]));
         if (resolved.groundings.length !== replacedActorIds.size ||
           groundedActorIds.size !== replacedActorIds.size ||
           [...replacedActorIds].some((actorId) => !groundedActorIds.has(actorId)) ||
           resolved.groundings.some((grounding) => {
             const action = actions.find((candidate) => candidate.actorId === grounding.actorId);
-            return !action || !replacedActorIds.has(grounding.actorId) || grounding.actionId !== action.id;
+            return grounding.actorId === null || !action || !replacedActorIds.has(grounding.actorId) ||
+              grounding.kind !== "action" || grounding.id !== action.id;
           })) {
           throw new Error("reaction replacement groundings do not cover replaced actions");
         }
         groundings = [
-          ...groundings.filter((grounding) => !replacedActorIds.has(grounding.actorId)),
+          ...groundings.filter((grounding) => grounding.actorId === null ||
+            !replacedActorIds.has(grounding.actorId)),
           ...resolved.groundings.map((grounding) => structuredClone(grounding)),
-        ].sort((left, right) => left.actorId.localeCompare(right.actorId));
+        ].sort((left, right) => left.id.localeCompare(right.id));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new ReactionExecutionError(`reaction execution failed: ${message}`, { cause: error });

@@ -1,11 +1,14 @@
 import type {
-  ActionDependency,
+  InteractionDependency,
   BootstrapCandidate,
   ExecutionRef,
   PolicyBinding,
   WorldStepCandidate,
 } from "./execution";
-import { actionDependencyComponents } from "./action-dependency";
+import {
+  ActivityFootprintIndex,
+  interactionDependencyComponents,
+} from "./action-dependency";
 import {
   resolutionObservations,
   WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
@@ -39,6 +42,7 @@ import {
   createActivity,
   reconcileTemporalOutcomes,
   selectTemporalBoundary,
+  settleActivityContexts,
   validateActivityResources,
   validateTemporalPlan,
 } from "./temporal";
@@ -95,22 +99,26 @@ function validateUniqueAgentIds(
   }
 }
 
-function validateActionDependencies(
+function validateInteractionDependencies(
   source: Readonly<SimulationState>,
   actions: readonly AgentActionProposal[],
-  dependencies: readonly ActionDependency[],
+  dependencies: readonly InteractionDependency[],
+  activities: Readonly<Record<string, import("./temporal").ActivityState>>,
 ): void {
   const actionById = new Map(actions.map((action) => [action.id, action]));
   if (actionById.size !== actions.length) throw new Error("execution candidate contains duplicate action ids");
-  if (new Set(dependencies.map((dependency) => dependency.actionId)).size !== dependencies.length) {
-    throw new Error("execution candidate contains duplicate action dependencies");
+  if (new Set(dependencies.map((dependency) => `${dependency.kind}:${dependency.id}`)).size !== dependencies.length) {
+    throw new Error("execution candidate contains duplicate interaction dependencies");
   }
   const expectedIds = [...actionById.keys()].sort();
-  const actualIds = dependencies.map((dependency) => dependency.actionId).sort();
+  const actualIds = dependencies.filter((dependency) => dependency.kind === "action")
+    .map((dependency) => dependency.id).sort();
   if (contentHash(expectedIds) !== contentHash(actualIds)) {
-    throw new Error("execution candidate action dependencies must cover every final action exactly once");
+    throw new Error(
+      `execution candidate interaction dependencies must cover every final action exactly once; expected=${expectedIds.join(",")}; actual=${actualIds.join(",")}`,
+    );
   }
-  const catalogs: Record<Exclude<ActionDependency["reads"][number]["kind"], "global">, Readonly<Record<string, unknown>>> = {
+  const catalogs: Record<Exclude<InteractionDependency["reads"][number]["kind"], "global">, Readonly<Record<string, unknown>>> = {
     entity: source.truth.entities,
     fact: source.truth.facts,
     placement: source.truth.entities,
@@ -120,35 +128,43 @@ function validateActionDependencies(
     condition: source.truth.conditions,
   };
   for (const dependency of dependencies) {
-    const action = actionById.get(dependency.actionId)!;
-    if (dependency.actorId !== action.actorId) {
-      throw new Error(`action dependency actor mismatch for ${dependency.actionId}`);
+    const expectedActorId = dependency.kind === "action"
+      ? actionById.get(dependency.id)?.actorId
+      : dependency.kind === "activity"
+        ? activities[dependency.id]?.actorId
+        : null;
+    if (expectedActorId === undefined || dependency.actorId !== expectedActorId) {
+      throw new Error(`interaction dependency actor mismatch for ${dependency.kind}:${dependency.id}`);
+    }
+    if ((dependency.kind === "timer" && !source.truth.timers[dependency.id]) ||
+      (dependency.kind === "condition" && !source.truth.conditions[dependency.id])) {
+      throw new Error(`interaction dependency references unknown ${dependency.kind} ${dependency.id}`);
     }
     for (const [label, refs] of [["reads", dependency.reads], ["writes", dependency.writes]] as const) {
       const keys = refs.map((ref) => `${ref.kind}:${ref.id}`);
       if (new Set(keys).size !== keys.length) {
-        throw new Error(`action dependency ${dependency.actionId} contains duplicate ${label}`);
+        throw new Error(`interaction dependency ${dependency.id} contains duplicate ${label}`);
       }
       for (const ref of refs) {
         if (ref.kind !== "global" && !catalogs[ref.kind][ref.id]) {
-          throw new Error(`action dependency ${dependency.actionId} references unknown ${ref.kind} ${ref.id}`);
+          throw new Error(`interaction dependency ${dependency.id} references unknown ${ref.kind} ${ref.id}`);
         }
       }
     }
     if (new Set(dependency.audienceAgentIds).size !== dependency.audienceAgentIds.length) {
-      throw new Error(`action dependency ${dependency.actionId} contains duplicate audiences`);
+      throw new Error(`interaction dependency ${dependency.id} contains duplicate audiences`);
     }
     for (const agentId of dependency.audienceAgentIds) {
       if (!source.agents[agentId]) {
-        throw new Error(`action dependency ${dependency.actionId} references unknown audience Agent ${agentId}`);
+        throw new Error(`interaction dependency ${dependency.id} references unknown audience Agent ${agentId}`);
       }
     }
-    if (!dependency.audienceAgentIds.includes(dependency.actorId)) {
-      throw new Error(`action dependency ${dependency.actionId} must include its actor in the audience`);
+    if (dependency.actorId !== null && !dependency.audienceAgentIds.includes(dependency.actorId)) {
+      throw new Error(`interaction dependency ${dependency.id} must include its actor in the audience`);
     }
     const hasGlobal = [...dependency.reads, ...dependency.writes].some((ref) => ref.kind === "global");
     if (dependency.globalFallback !== hasGlobal) {
-      throw new Error(`action dependency ${dependency.actionId} has inconsistent global fallback evidence`);
+      throw new Error(`interaction dependency ${dependency.id} has inconsistent global fallback evidence`);
     }
   }
 }
@@ -184,18 +200,18 @@ function validateStepDiagnostics(
   if (typeof diagnostics.globalReadjudication !== "boolean") {
     throw new Error("global readjudication diagnostic must be boolean");
   }
-  const componentAgentIds = diagnostics.dependencyComponents.flatMap((component) => {
+  const componentInteractionIds = diagnostics.dependencyComponents.flatMap((component) => {
     if (component.length === 0) throw new Error("dependency diagnostics contain an empty component");
     return component;
   });
-  const actionAgentIds = actions.map((action) => action.actorId).sort();
-  if (new Set(componentAgentIds).size !== componentAgentIds.length ||
-    contentHash([...componentAgentIds].sort()) !== contentHash(actionAgentIds)) {
-    throw new Error("dependency diagnostics must partition final action actors");
+  const expectedInteractionIds = candidate.interactionDependencies.map((dependency) => dependency.id).sort();
+  if (new Set(componentInteractionIds).size !== componentInteractionIds.length ||
+    contentHash([...componentInteractionIds].sort()) !== contentHash(expectedInteractionIds)) {
+    throw new Error("dependency diagnostics must partition final interactions");
   }
   if (contentHash(diagnostics.dependencyComponents) !==
-    contentHash(actionDependencyComponents(candidate.actionDependencies))) {
-    throw new Error("dependency diagnostics do not match the final action dependency graph");
+    contentHash(interactionDependencyComponents(candidate.interactionDependencies))) {
+    throw new Error("dependency diagnostics do not match the final interaction dependency graph");
   }
   if (diagnostics.globalReadjudication && actions.length > 0 && diagnostics.dependencyComponents.length !== 1) {
     throw new Error("global readjudication diagnostics require one dependency component");
@@ -275,7 +291,7 @@ function validateCandidateBoundary(
   if (new Set(actions.map((action) => action.actorId)).size !== actions.length) {
     throw new Error("execution candidate contains multiple actions for one Agent");
   }
-  validateActionDependencies(source, actions, candidate.actionDependencies);
+  validateInteractionDependencies(source, actions, candidate.interactionDependencies, candidate.temporalState.activities);
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
   validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);
@@ -347,6 +363,7 @@ function validateCandidateBoundary(
       plan,
       sourceAction: finalActivity.sourceAction,
       participantAgentIds: finalActivity.participantAgentIds,
+      interactionFootprint: finalActivity.interactionFootprint,
     });
   }
   for (const transition of cancellationTransitions) {
@@ -415,32 +432,59 @@ function validateCandidateBoundary(
   });
   expectedTemporal.transitions = [...cancellationTransitions, ...expectedTemporal.transitions];
   expectedTemporal = reconcileTemporalOutcomes(expectedTemporal, candidate.resolution.proposal.outcomes);
+
+  const actionDependencies = candidate.interactionDependencies
+    .filter((dependency) => dependency.kind === "action");
+  const currentActionIds = new Set(actions.map((action) => action.id));
+  const expectedAffectedActivityIds = new ActivityFootprintIndex(planningActivities)
+    .affectedBy(actionDependencies)
+    .filter((activityId) => !currentActionIds.has(planningActivities[activityId]!.sourceActionId));
+  const actualActivityDependencies = candidate.interactionDependencies
+    .filter((dependency) => dependency.kind === "activity")
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (contentHash(actualActivityDependencies.map((dependency) => dependency.id)) !==
+    contentHash(expectedAffectedActivityIds)) {
+    throw new Error("candidate Activity interaction dependencies do not match the trusted footprint index");
+  }
+  for (const dependency of actualActivityDependencies) {
+    const expected = planningActivities[dependency.id]?.interactionFootprint;
+    if (!expected || contentHash(dependency) !== contentHash(expected)) {
+      throw new Error(`candidate changes the persisted footprint of Activity ${dependency.id}`);
+    }
+  }
+
   const observedAgentIds = new Set(observations.map((observation) => observation.observerId));
-  const relevantExternalObservers = new Set(candidate.actionDependencies.flatMap((dependency) =>
+  const relevantExternalObservers = new Set(candidate.interactionDependencies.flatMap((dependency) =>
     dependency.audienceAgentIds.filter((agentId) =>
       agentId !== dependency.actorId && observedAgentIds.has(agentId))));
-  const interruptionPoints = Object.values(expectedTemporal.activities)
-    .filter((activity) => activity.status === "active" || activity.status === "paused")
-    .flatMap((activity) => activity.participantAgentIds
-      .filter((agentId) => relevantExternalObservers.has(agentId))
-      .map((agentId) => ({
-        agentId,
-        reason: "activity_interrupted" as const,
-        activityId: activity.id,
-        timerId: null,
-      })));
-  expectedTemporal.decisionPoints = [...new Map([
-    ...expectedTemporal.decisionPoints,
-    ...interruptionPoints,
-  ].map((point) => [
-    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
-    point,
-  ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
+  const contextActivityIds = [...new Set([
+    ...expectedAffectedActivityIds,
+    ...expectedBoundary.dueActivityIds,
+  ])].sort();
+  const preContextState = applyTransitionProposal(source, candidate.resolution.proposal, {
+    activities: expectedTemporal.activities,
+    timers: expectedTemporal.timers,
+  });
+  const settled = settleActivityContexts({
+    state: preContextState,
+    temporal: expectedTemporal,
+    activityIds: contextActivityIds,
+    relevantObserverIds: relevantExternalObservers,
+  });
+  expectedTemporal = settled.temporal;
   if (contentHash(expectedTemporal.activities) !== contentHash(candidate.temporalState.activities) ||
     contentHash(expectedTemporal.timers) !== contentHash(candidate.temporalState.timers) ||
     contentHash(expectedTemporal.transitions) !== contentHash(candidate.activityTransitions) ||
-    contentHash(expectedTemporal.decisionPoints) !== contentHash(candidate.decisionPoints)) {
+    contentHash(expectedTemporal.decisionPoints) !== contentHash(candidate.decisionPoints) ||
+    contentHash(settled.dispositions) !== contentHash(candidate.activityDispositions)) {
     throw new Error("candidate temporal transitions do not match the trusted boundary result");
+  }
+  for (const point of expectedTemporal.decisionPoints) {
+    const occupying = Object.values(expectedTemporal.activities).find((activity) =>
+      activity.status === "active" && activity.participantAgentIds.includes(point.agentId));
+    if (occupying) {
+      throw new Error(`decision point for ${point.agentId} conflicts with active Activity ${occupying.id}`);
+    }
   }
 }
 
@@ -604,6 +648,7 @@ export class CanonicalCommitter {
       temporalBoundary: structuredClone(candidate.temporalBoundary),
       temporalState: structuredClone(candidate.temporalState),
       activityTransitions: structuredClone(candidate.activityTransitions),
+      activityDispositions: structuredClone(candidate.activityDispositions),
       decisionPoints: structuredClone(candidate.decisionPoints),
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),

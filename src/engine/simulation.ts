@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { actionDependencyEdgeCount, actionDependencyKey } from "./action-dependency";
+import { interactionDependencyEdgeCount, footprintRefKey } from "./action-dependency";
 import { CanonicalCommitter } from "./canonical-committer";
 import type {
   ExecutionContext,
@@ -301,18 +301,18 @@ function emitStepMetrics(
       dueConditions: candidate.temporalBoundary.dueConditionIds.length,
       decisionPoints: candidate.decisionPoints.length,
       temporalDeltaSeconds: candidate.temporalBoundary.deltaSeconds,
-      dependencyNodes: candidate.actionDependencies.length,
-      dependencyEdges: actionDependencyEdgeCount(candidate.actionDependencies),
+      dependencyNodes: candidate.interactionDependencies.length,
+      dependencyEdges: interactionDependencyEdgeCount(candidate.interactionDependencies),
       dependencyComponents: candidate.diagnostics.dependencyComponents.length,
       maxDependencyComponent: Math.max(
         0,
         ...candidate.diagnostics.dependencyComponents.map((component) => component.length),
       ),
-      globalDependencies: candidate.actionDependencies.filter((dependency) => dependency.globalFallback).length,
+      globalDependencies: candidate.interactionDependencies.filter((dependency) => dependency.globalFallback).length,
       globalReadjudications: candidate.diagnostics.globalReadjudication ? 1 : 0,
-      footprintCardinality: candidate.actionDependencies.reduce((total, dependency) =>
-        total + new Set([...dependency.reads, ...dependency.writes].map(actionDependencyKey)).size, 0),
-      audienceCardinality: candidate.actionDependencies.reduce(
+      footprintCardinality: candidate.interactionDependencies.reduce((total, dependency) =>
+        total + new Set([...dependency.reads, ...dependency.writes].map(footprintRefKey)).size, 0),
+      audienceCardinality: candidate.interactionDependencies.reduce(
         (total, dependency) => total + dependency.audienceAgentIds.length,
         0,
       ),

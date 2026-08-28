@@ -184,7 +184,7 @@ describe("eager reference safeguards", () => {
               sourceText: "100公里",
             },
             description: "沿道路逐段前往一百公里外的地点",
-            conditionAssertions: [],
+            continuationAssertions: [],
             causes: [{ kind: "action", id: action.id }],
           };
         }
@@ -355,7 +355,7 @@ describe("eager reference safeguards", () => {
       bootstrap: (input, context) => delegate.bootstrap(input, context),
       step: async (input, context) => {
         const candidate = await delegate.step(input, context);
-        candidate.actionDependencies = candidate.actionDependencies.slice(1);
+        candidate.interactionDependencies = candidate.interactionDependencies.slice(1);
         return candidate;
       },
     };
@@ -390,12 +390,12 @@ describe("eager reference safeguards", () => {
       bootstrap: (input, context) => delegate.bootstrap(input, context),
       step: async (input, context) => {
         const candidate = await delegate.step(input, context);
-        const dependency = candidate.actionDependencies[0]!;
+        const dependency = candidate.interactionDependencies[0]!;
         dependency.reads = [{ kind: "global", id: "world" }];
         dependency.writes = [{ kind: "global", id: "world" }];
         dependency.globalFallback = true;
-        candidate.diagnostics.dependencyComponents = candidate.actionDependencies
-          .map((entry) => [entry.actorId]);
+        candidate.diagnostics.dependencyComponents = candidate.interactionDependencies
+          .map((entry) => [entry.id]);
         candidate.diagnostics.globalReadjudication = false;
         return candidate;
       },
@@ -414,7 +414,7 @@ describe("eager reference safeguards", () => {
       expectedRevision: source.revision,
       trigger: "manual",
       externalActions: [],
-    })).rejects.toThrow("do not match the final action dependency graph");
+    })).rejects.toThrow("do not match the final interaction dependency graph");
     expect(contentHash(engine.snapshot)).toBe(before);
   });
 
@@ -511,7 +511,7 @@ describe("eager reference safeguards", () => {
       rawText: expect.stringContaining("石门值守截止"),
     }));
     expect(result.committed.actions.map((action) => action.id)).not.toContain(keeperActivity.sourceActionId);
-    expect(keeperActivity).toMatchObject({ status: "active", nextBoundaryAtSeconds: 10 });
+    expect(keeperActivity).toMatchObject({ status: "paused", nextBoundaryAtSeconds: null });
     expect(result.committed.decisionPoints).toContainEqual(expect.objectContaining({
       agentId: "keeper",
       reason: "timer",
@@ -532,7 +532,7 @@ describe("eager reference safeguards", () => {
               sourceText: "100公里",
             },
             description: "持续前往远方",
-            conditionAssertions: [],
+            continuationAssertions: [],
             causes: [{ kind: "action", id: action.id }],
           };
         }
@@ -608,10 +608,10 @@ describe("eager reference safeguards", () => {
 
     const interrupted = Object.values(second.state.truth.activities)
       .find((candidate) => candidate.id === activity.id)!;
-    expect(interrupted).toMatchObject({ status: "active", progress: { target: 100 } });
+    expect(interrupted).toMatchObject({ status: "paused", progress: { target: 100 } });
     expect(interrupted.progress!.current).toBeGreaterThan(25);
     expect(interrupted.progress!.current).toBeLessThan(26);
-    expect(latestCandidate?.actionDependencies).toContainEqual(expect.objectContaining({
+    expect(latestCandidate?.interactionDependencies).toContainEqual(expect.objectContaining({
       actorId: "keeper",
       audienceAgentIds: ["keeper", "player"],
     }));
@@ -719,7 +719,7 @@ describe("eager reference safeguards", () => {
             profileId: "explicit-duration",
             basis: { kind: "profile" },
             description: "开始一段更长的戒备",
-            conditionAssertions: [],
+            continuationAssertions: [],
             causes: [{ kind: "action", id: action.id }],
           };
         }

@@ -20,7 +20,7 @@ import type {
   WorldEvent,
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
-import type { ActionDependency } from "./execution";
+import type { InteractionDependency } from "./execution";
 import { ObservationValidationError } from "./observation";
 import { projectAgentPerspective } from "./agent-perspective";
 import type { WorldDefinition } from "./world-definition";
@@ -153,7 +153,7 @@ export function buildTruthContext(input: {
   commitmentRounds: readonly CommitmentRound[];
   resolutionPlans: readonly ResolutionPlan[];
   resolutionReceipts: readonly ResolutionReceipt[];
-  groundings: readonly ActionDependency[];
+  groundings: readonly InteractionDependency[];
   temporalBoundary: TemporalBoundary;
   instanceId: string;
   advanceId: string;
@@ -265,7 +265,7 @@ export function buildResolutionPlanVerificationContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
   actions: readonly AgentActionProposal[];
-  groundings: readonly ActionDependency[];
+  groundings: readonly InteractionDependency[];
   plans: readonly ResolutionPlan[];
   commitmentRounds: readonly CommitmentRound[];
   instanceId: string;

@@ -26,7 +26,7 @@ import { agentMindOutputSchema, characterPatchSchema } from "../llm-schemas";
 
 function worldState(): SimulationState {
   return {
-    schemaVersion: 11,
+    schemaVersion: 12,
     worldId: "test-world",
     worldHash: TEST_WORLD_HASH,
     lawIds: ["worldgen", "time-passes", "necromancy"],

@@ -71,7 +71,7 @@ function truthOutput(context: Record<string, unknown>) {
       profileId: profile.id,
       basis,
       description: action.rawText,
-      conditionAssertions: [],
+      continuationAssertions: [],
       causes: [{ kind: "action", id: action.id }],
     };
   }

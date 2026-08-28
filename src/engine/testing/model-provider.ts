@@ -366,7 +366,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           profileId: profile.id,
           basis: { kind: "profile" },
           description: input.temporalAction.rawText,
-          conditionAssertions: [],
+          continuationAssertions: [],
           causes: [{ kind: "action", id: input.temporalAction.id }],
         };
       }

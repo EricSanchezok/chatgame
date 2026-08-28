@@ -179,7 +179,7 @@ describe("open world script loader", () => {
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 11", "schema_version: 10"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 12", "schema_version: 11"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
@@ -229,7 +229,7 @@ describe("open world script loader", () => {
       "utf8",
     );
     expect(() => loadWorldScript(missingCore, { seed: 1, rulePackages: registry, modelCatalog }))
-      .toThrow("schema v11 worlds require core-resolution@2.0.0");
+      .toThrow("schema v12 worlds require core-resolution@2.0.0");
   });
 
   it("enforces the exact canonical UTF-8 distribution budget during world loading", () => {

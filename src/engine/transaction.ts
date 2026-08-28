@@ -696,6 +696,8 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
   }
   assertUnique(step.temporalPlans.map((plan) => plan.id), `step ${step.step} temporal plans`);
   assertUnique(step.activityTransitions.map((transition) => transition.activityId), `step ${step.step} activity transitions`);
+  assertUnique(step.activityDispositions.map((disposition) => disposition.activityId),
+    `step ${step.step} Activity dispositions`);
   assertUnique(step.decisionPoints.map((point) =>
     `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`), `step ${step.step} decision points`);
   persistedTransitionProposalSchema.parse({
@@ -724,7 +726,7 @@ export function replaySimulationState(
     return structuredClone(state);
   }
   const replay: SimulationState = {
-    schemaVersion: 11,
+    schemaVersion: 12,
     worldId: state.worldId,
     worldHash: state.worldHash,
     lawIds: structuredClone(state.lawIds),
@@ -876,7 +878,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents", "admissions", "history",
     "bootstrapAgentCommits",
   ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
-  if (state.schemaVersion !== 11 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 12 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
@@ -1018,8 +1020,28 @@ export function validateSimulationState(state: SimulationState, requireNextActio
       state.truth.mechanics.temporalProfiles,
       state.truth.mechanics.activityResources,
     );
+    for (const ref of [...activity.interactionFootprint.reads, ...activity.interactionFootprint.writes]) {
+      const known = ref.kind === "global" ||
+        (ref.kind === "entity" || ref.kind === "placement") && Boolean(state.truth.entities[ref.id]) ||
+        ref.kind === "fact" && Boolean(state.truth.facts[ref.id]) ||
+        ref.kind === "meter" && Boolean(state.truth.meters[ref.id]) ||
+        ref.kind === "quantity" && Boolean(state.truth.quantities[ref.id]) ||
+        ref.kind === "rating" && Boolean(state.truth.ratings[ref.id]) ||
+        ref.kind === "condition" && Boolean(state.truth.conditions[ref.id]);
+      if (!known) throw new Error(`activity ${id} footprint references unknown ${ref.kind} ${ref.id}`);
+    }
+    if (activity.interactionFootprint.audienceAgentIds.some((agentId) => !state.agents[agentId])) {
+      throw new Error(`activity ${id} footprint references unknown audience Agent`);
+    }
   }
   validateActivityResources(state.truth.activities, state.truth.mechanics.activityResources);
+  for (const point of state.history.at(-1)?.decisionPoints ?? []) {
+    const occupying = Object.values(state.truth.activities).find((activity) =>
+      activity.status === "active" && activity.participantAgentIds.includes(point.agentId));
+    if (occupying) {
+      throw new Error(`decision point for ${point.agentId} conflicts with active Activity ${occupying.id}`);
+    }
+  }
   for (const [id, timer] of Object.entries(state.truth.timers)) {
     if (timer.id !== id) throw new Error(`timer key mismatch ${id}`);
     validateWorldTimer(timer, state.truth.elapsedSeconds);

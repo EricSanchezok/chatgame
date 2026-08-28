@@ -24,11 +24,11 @@ function compare(actual: number, operator: NumericComparison, expected: number):
   }
 }
 
-function evaluate(
-  state: SimulationState,
-  checks: ReadonlyMap<string, D20CheckResult>,
-  randomResults: ReadonlyMap<string, DiscreteRandomResult>,
+export function evaluateCausalAssertion(
+  state: Readonly<SimulationState>,
   assertion: CausalAssertion,
+  checks: ReadonlyMap<string, D20CheckResult> = new Map(),
+  randomResults: ReadonlyMap<string, DiscreteRandomResult> = new Map(),
 ): Pick<CausalAssertionResult, "passed" | "observed"> {
   switch (assertion.kind) {
     case "check_result": {
@@ -139,7 +139,7 @@ function evaluateSource(
   return source.assertions.map((assertion) => ({
     target,
     assertion: structuredClone(assertion),
-    ...evaluate(state, checks, randomResults, assertion),
+    ...evaluateCausalAssertion(state, assertion, checks, randomResults),
   }));
 }
 

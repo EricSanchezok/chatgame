@@ -1,4 +1,15 @@
-import type { ActionOutcome, AgentActionProposal, AgentId, CausalAssertion, CausalRef } from "./model";
+import { evaluateCausalAssertion } from "./causality";
+import { unresolvedActivityInteractionFootprint } from "./action-dependency";
+import type { InteractionDependency } from "./execution";
+import type {
+  ActionOutcome,
+  AgentActionProposal,
+  AgentId,
+  CausalAssertion,
+  CausalAssertionResult,
+  CausalRef,
+  SimulationState,
+} from "./model";
 
 export interface ActivityResourceDefinition {
   id: string;
@@ -15,6 +26,7 @@ interface TemporalProfileBase {
   id: string;
   name: string;
   interruptible: boolean;
+  reactionFallback: "continue_if_valid" | "pause" | "cancel";
   resourceClaims: ActivityResourceClaim[];
 }
 
@@ -79,7 +91,7 @@ export interface TemporalPlanDraft {
     | { kind: "explicit_duration"; seconds: number; sourceText: string }
     | { kind: "explicit_quantity"; amount: number; unit: string; sourceText: string };
   description: string;
-  conditionAssertions: CausalAssertion[];
+  continuationAssertions: CausalAssertion[];
   causes: CausalRef[];
 }
 
@@ -104,7 +116,7 @@ export interface TemporalPlan {
   checkpointSeconds: number;
   progress: { unit: string; target: number } | null;
   stages: TemporalStagePlan[];
-  conditionAssertions: CausalAssertion[];
+  continuationAssertions: CausalAssertion[];
   interruptible: boolean;
   resourceClaims: ActivityResourceClaim[];
   causes: CausalRef[];
@@ -127,6 +139,18 @@ export interface ActivityState {
   completionAtSeconds: number | null;
   progress: { current: number; target: number; unit: string } | null;
   resourceClaims: ActivityResourceClaim[];
+  interactionFootprint: InteractionDependency;
+}
+
+export type ActivityDispositionKind = "continue" | "pause" | "complete" | "block" | "fail" | "cancel";
+
+export interface ActivityDisposition {
+  activityId: string;
+  actorId: AgentId;
+  kind: ActivityDispositionKind;
+  reason: string;
+  effectiveAtSeconds: number;
+  assertionResults: CausalAssertionResult[];
 }
 
 export interface WorldTimer {
@@ -145,6 +169,7 @@ export type TemporalBoundaryReason =
   | { kind: "activity_completion"; activityId: string }
   | { kind: "timer"; timerId: string }
   | { kind: "condition_expiry"; conditionId: string }
+  | { kind: "activity_assertion"; activityId: string }
   | { kind: "safety_horizon" };
 
 export interface TemporalBoundary {
@@ -258,6 +283,9 @@ export function validateTemporalProfile(
   resources: Readonly<Record<string, ActivityResourceDefinition>>,
 ): void {
   if (!profile.id.trim() || !profile.name.trim()) throw new Error("temporal profile identity is required");
+  if (!profile.interruptible && profile.reactionFallback !== "continue_if_valid") {
+    throw new Error(`non-interruptible temporal profile ${profile.id} cannot declare a reaction fallback`);
+  }
   const seen = new Set<string>();
   for (const claim of profile.resourceClaims) {
     assertPositiveFinite(claim.amount, `temporal profile ${profile.id} resource amount`);
@@ -399,7 +427,7 @@ export function materializeTemporalPlan(input: {
     basis,
     startsAtSeconds: input.startsAtSeconds,
     ...schedule,
-    conditionAssertions: structuredClone(input.draft.conditionAssertions),
+    continuationAssertions: structuredClone(input.draft.continuationAssertions),
     interruptible: profile.interruptible,
     resourceClaims: structuredClone(profile.resourceClaims),
     causes: structuredClone(input.draft.causes),
@@ -442,7 +470,7 @@ export function materializeTrustedTemporalPlan(input: {
     checkpointSeconds: input.checkpointSeconds,
     progress: structuredClone(input.progress),
     stages: [],
-    conditionAssertions: [],
+    continuationAssertions: [],
     interruptible: input.profile.interruptible,
     resourceClaims: structuredClone(input.profile.resourceClaims),
     causes: structuredClone(input.causes),
@@ -454,6 +482,7 @@ export function createActivity(input: {
   plan: TemporalPlan;
   sourceAction: AgentActionProposal;
   participantAgentIds?: AgentId[];
+  interactionFootprint?: InteractionDependency;
 }): ActivityState {
   if (input.sourceAction.id !== input.plan.actionId || input.sourceAction.actorId !== input.plan.actorId) {
     throw new Error("activity source action does not match temporal plan");
@@ -462,6 +491,12 @@ export function createActivity(input: {
   const nextBoundaryAtSeconds = input.plan.completionAtSeconds === null
     ? input.plan.startsAtSeconds + input.plan.checkpointSeconds
     : Math.min(input.plan.completionAtSeconds, input.plan.startsAtSeconds + input.plan.checkpointSeconds);
+  const interactionFootprint = structuredClone(input.interactionFootprint ??
+    unresolvedActivityInteractionFootprint(input.id, input.plan.actorId));
+  if (interactionFootprint.kind !== "activity" || interactionFootprint.id !== input.id ||
+    interactionFootprint.actorId !== input.plan.actorId) {
+    throw new Error(`activity ${input.id} has a mismatched interaction footprint`);
+  }
   return {
     id: input.id,
     sourceActionId: input.plan.actionId,
@@ -477,7 +512,38 @@ export function createActivity(input: {
     completionAtSeconds: input.plan.completionAtSeconds,
     progress: input.plan.progress ? { current: 0, target: input.plan.progress.target, unit: input.plan.progress.unit } : null,
     resourceClaims: structuredClone(input.plan.resourceClaims),
+    interactionFootprint,
   };
+}
+
+export function evaluateActivityContinuation(
+  state: Readonly<SimulationState>,
+  activity: Readonly<ActivityState>,
+): CausalAssertionResult[] {
+  return activity.plan.continuationAssertions.map((assertion) => ({
+    target: { kind: "activity", id: activity.id },
+    assertion: structuredClone(assertion),
+    ...evaluateCausalAssertion(state, assertion),
+  }));
+}
+
+export function activityContinuationBoundary(
+  activity: Readonly<ActivityState>,
+  elapsedSeconds: number,
+): number | null {
+  let earliest: number | null = null;
+  for (const assertion of activity.plan.continuationAssertions) {
+    if (assertion.kind !== "elapsed_seconds_compare") continue;
+    const at = assertion.operator === "lt"
+      ? assertion.value
+      : assertion.operator === "lte"
+        ? assertion.value + 1
+        : null;
+    if (at !== null && Number.isSafeInteger(at) && at > elapsedSeconds) {
+      earliest = earliest === null ? at : Math.min(earliest, at);
+    }
+  }
+  return earliest;
 }
 
 export function validateTemporalPlan(
@@ -498,6 +564,16 @@ export function validateTemporalPlan(
   assertPositiveInteger(plan.checkpointSeconds, `temporal plan ${plan.id} checkpoint`);
   if (plan.progress) assertPositiveFinite(plan.progress.target, `temporal plan ${plan.id} progress target`);
   if (plan.causes.length === 0) throw new Error(`temporal plan ${plan.id} requires causes`);
+  for (const assertion of plan.continuationAssertions) {
+    if (assertion.kind === "check_result" || assertion.kind === "random_result") {
+      throw new Error(`temporal plan ${plan.id} has a non-durable continuation assertion`);
+    }
+    if (assertion.kind === "elapsed_seconds_compare" &&
+      (assertion.operator === "eq" || assertion.operator === "ne" ||
+        !Number.isSafeInteger(assertion.value) || assertion.value < 0)) {
+      throw new Error(`temporal plan ${plan.id} has a non-monotone time continuation assertion`);
+    }
+  }
   for (const claim of plan.resourceClaims) {
     const resource = resources[claim.resourceId];
     if (!resource || !Number.isFinite(claim.amount) || claim.amount <= 0 || claim.amount > resource.capacity) {
@@ -535,7 +611,7 @@ export function validateTemporalPlan(
       : plan.startsAtSeconds + mechanicBasis.durationSeconds;
     if (plan.completionAtSeconds !== mechanicCompletion || plan.checkpointSeconds !== mechanicBasis.checkpointSeconds ||
       !sameCanonicalValue(plan.progress, mechanicBasis.progress) || plan.stages.length > 0 ||
-      plan.conditionAssertions.length > 0) {
+      plan.continuationAssertions.length > 0) {
       throw new Error(`temporal plan ${plan.id} does not match its mechanic result`);
     }
   } else {
@@ -584,8 +660,24 @@ export function validateActivityState(
   if (!activity.id.trim() || activity.sourceActionId !== activity.plan.actionId || activity.actorId !== activity.plan.actorId ||
     activity.sourceAction.id !== activity.sourceActionId || activity.sourceAction.actorId !== activity.actorId ||
     !activity.participantAgentIds.includes(activity.actorId) ||
-    new Set(activity.participantAgentIds).size !== activity.participantAgentIds.length) {
+    new Set(activity.participantAgentIds).size !== activity.participantAgentIds.length ||
+    activity.interactionFootprint.kind !== "activity" || activity.interactionFootprint.id !== activity.id ||
+    activity.interactionFootprint.actorId !== activity.actorId ||
+    !activity.interactionFootprint.audienceAgentIds.includes(activity.actorId)) {
     throw new Error(`invalid activity ${activity.id}`);
+  }
+  for (const refs of [activity.interactionFootprint.reads, activity.interactionFootprint.writes]) {
+    const keys = refs.map((ref) => `${ref.kind}:${ref.id}`);
+    if (new Set(keys).size !== keys.length) throw new Error(`activity ${activity.id} has duplicate footprint refs`);
+  }
+  const hasGlobal = [
+    ...activity.interactionFootprint.reads,
+    ...activity.interactionFootprint.writes,
+  ].some((ref) => ref.kind === "global");
+  if (hasGlobal !== activity.interactionFootprint.globalFallback ||
+    new Set(activity.interactionFootprint.audienceAgentIds).size !==
+      activity.interactionFootprint.audienceAgentIds.length) {
+    throw new Error(`activity ${activity.id} has inconsistent footprint evidence`);
   }
   validateTemporalPlan(activity.plan, profiles, resources);
   if (activity.plan.basis.kind !== "mechanic") {
@@ -613,7 +705,7 @@ export function validateActivityState(
         profileId: activity.plan.profileId,
         basis,
         description: activity.plan.description,
-        conditionAssertions: activity.plan.conditionAssertions,
+        continuationAssertions: activity.plan.continuationAssertions,
         causes: activity.plan.causes,
       },
       profiles,
@@ -708,6 +800,13 @@ export function selectTemporalBoundary(input: {
         ? { kind: "activity_completion", activityId: activity.id }
         : { kind: "activity_checkpoint", activityId: activity.id },
     });
+    const assertionBoundary = activityContinuationBoundary(activity, input.elapsedSeconds);
+    if (assertionBoundary !== null) {
+      candidates.push({
+        at: assertionBoundary,
+        reason: { kind: "activity_assertion", activityId: activity.id },
+      });
+    }
   }
   for (const timer of Object.values(input.timers)) {
     if (timer.status !== "scheduled") continue;
@@ -871,6 +970,139 @@ export function reconcileTemporalOutcomes(
     point,
   ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
   return next;
+}
+
+function replaceActivityTransition(
+  temporal: TemporalAdvanceResult,
+  activity: Readonly<ActivityState>,
+  kind: ActivityTransition["kind"],
+  fromStatus: ActivityStatus,
+): void {
+  temporal.transitions = [
+    ...temporal.transitions.filter((transition) => transition.activityId !== activity.id),
+    {
+      activityId: activity.id,
+      actorId: activity.actorId,
+      kind,
+      fromStatus,
+      toStatus: activity.status,
+      fromElapsedSeconds: temporal.boundary.fromElapsedSeconds,
+      toElapsedSeconds: temporal.boundary.toElapsedSeconds,
+      progress: structuredClone(activity.progress),
+    },
+  ].sort((left, right) => left.activityId.localeCompare(right.activityId));
+}
+
+export function settleActivityContexts(input: {
+  state: Readonly<SimulationState>;
+  temporal: Readonly<TemporalAdvanceResult>;
+  activityIds: readonly string[];
+  relevantObserverIds: ReadonlySet<AgentId>;
+}): { temporal: TemporalAdvanceResult; dispositions: ActivityDisposition[] } {
+  const temporal = structuredClone(input.temporal) as TemporalAdvanceResult;
+  const relevantActivityIds = new Set(input.activityIds);
+  const dispositions: ActivityDisposition[] = [];
+  const dispositionByActivity = new Map<string, ActivityDisposition>();
+
+  const addDisposition = (
+    activity: Readonly<ActivityState>,
+    kind: ActivityDispositionKind,
+    reason: string,
+    assertionResults: CausalAssertionResult[],
+  ): void => {
+    const disposition = {
+      activityId: activity.id,
+      actorId: activity.actorId,
+      kind,
+      reason,
+      effectiveAtSeconds: temporal.boundary.toElapsedSeconds,
+      assertionResults: structuredClone(assertionResults),
+    } satisfies ActivityDisposition;
+    dispositionByActivity.set(activity.id, disposition);
+  };
+
+  for (const activityId of [...relevantActivityIds].sort()) {
+    let activity = temporal.activities[activityId];
+    if (!activity) throw new Error(`activity context references unknown activity ${activityId}`);
+    const evaluationState = structuredClone(input.state) as SimulationState;
+    evaluationState.truth.activities = structuredClone(temporal.activities);
+    const assertionResults = evaluateActivityContinuation(evaluationState, activity);
+    if (activity.status === "active" && assertionResults.some((result) => !result.passed)) {
+      const fromStatus = activity.status;
+      activity = structuredClone(activity);
+      activity.status = "blocked";
+      activity.nextBoundaryAtSeconds = null;
+      temporal.activities[activityId] = activity;
+      replaceActivityTransition(temporal, activity, "blocked", fromStatus);
+      temporal.decisionPoints.push({
+        agentId: activity.actorId,
+        reason: "activity_blocked",
+        activityId,
+        timerId: null,
+      });
+      addDisposition(activity, "block", "continuation_assertion_failed", assertionResults);
+      continue;
+    }
+    if (activity.status === "active" && activity.plan.interruptible &&
+      activity.participantAgentIds.some((agentId) => input.relevantObserverIds.has(agentId))) {
+      const fromStatus = activity.status;
+      activity = structuredClone(activity);
+      activity.status = "paused";
+      activity.nextBoundaryAtSeconds = null;
+      temporal.activities[activityId] = activity;
+      replaceActivityTransition(temporal, activity, "paused", fromStatus);
+      temporal.decisionPoints.push({
+        agentId: activity.actorId,
+        reason: "activity_interrupted",
+        activityId,
+        timerId: null,
+      });
+      addDisposition(activity, "pause", "relevant_committed_observation", assertionResults);
+      continue;
+    }
+    const kind: ActivityDispositionKind = activity.status === "completed"
+      ? "complete"
+      : activity.status === "blocked"
+        ? "block"
+        : activity.status === "failed"
+          ? "fail"
+          : activity.status === "cancelled"
+            ? "cancel"
+            : activity.status === "paused"
+              ? "pause"
+              : "continue";
+    addDisposition(activity, kind, kind === "continue" ? "continuation_valid" : `activity_${activity.status}`, assertionResults);
+  }
+
+  const retainedDecisionPoints: DecisionPoint[] = [];
+  for (const point of temporal.decisionPoints) {
+    const occupying = Object.values(temporal.activities)
+      .filter((activity) => activity.status === "active" && activity.participantAgentIds.includes(point.agentId));
+    if (occupying.length === 0) {
+      retainedDecisionPoints.push(point);
+      continue;
+    }
+    const interruptible = occupying.filter((activity) => activity.plan.interruptible);
+    if (interruptible.length !== occupying.length) continue;
+    for (const current of interruptible) {
+      const paused = structuredClone(current);
+      paused.status = "paused";
+      paused.nextBoundaryAtSeconds = null;
+      temporal.activities[current.id] = paused;
+      replaceActivityTransition(temporal, paused, "paused", current.status);
+      if (!dispositionByActivity.has(current.id)) {
+        addDisposition(paused, "pause", `decision_point:${point.reason}`, evaluateActivityContinuation(input.state, current));
+      }
+    }
+    retainedDecisionPoints.push(point);
+  }
+  temporal.decisionPoints = [...new Map(retainedDecisionPoints.map((point) => [
+    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
+    point,
+  ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
+  dispositions.push(...[...dispositionByActivity.values()].sort((left, right) =>
+    left.activityId.localeCompare(right.activityId)));
+  return { temporal, dispositions };
 }
 
 export function pauseActivity(activity: Readonly<ActivityState>, atSeconds: number): {

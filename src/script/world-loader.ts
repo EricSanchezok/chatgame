@@ -107,6 +107,7 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
       id: profile.id,
       name: profile.name,
       interruptible: profile.interruptible,
+      reactionFallback: profile.reaction_fallback,
       resourceClaims: profile.resource_claims.map((claim) => ({
         resourceId: claim.resource_id,
         amount: claim.amount,
@@ -496,7 +497,7 @@ export function buildWorldDefinition(
   try {
     const mechanics = mechanicsCatalog(mechanicsDocument);
     const state: SimulationState = {
-      schemaVersion: 11,
+      schemaVersion: 12,
       worldId: manifest.id,
       worldHash,
       lawIds: laws.laws.map((law) => law.id),

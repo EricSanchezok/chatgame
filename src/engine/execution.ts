@@ -26,6 +26,7 @@ import type { RulePackageRegistry } from "./rule-package";
 import type { WorldDefinition } from "./world-definition";
 import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
 import type {
+  ActivityDisposition,
   ActivityTransition,
   DecisionPoint,
   TemporalBoundary,
@@ -35,9 +36,9 @@ import type {
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
-export const WORLD_EXECUTION_CONTRACT_VERSION = 2 as const;
+export const WORLD_EXECUTION_CONTRACT_VERSION = 3 as const;
 export const ENGINE_OPERATION_CONTRACT_VERSION = 1 as const;
-export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 2 as const;
+export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 3 as const;
 
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
@@ -366,7 +367,7 @@ export interface AlgorithmCandidateDiagnostics {
 }
 
 export interface WorldStepDiagnostics extends AlgorithmCandidateDiagnostics {
-  dependencyComponents: AgentId[][];
+  dependencyComponents: string[][];
   globalReadjudication: boolean;
 }
 
@@ -376,12 +377,13 @@ export interface WorldStepCandidate {
   resolution: WorldResolutionCandidate;
   mindCommits: Array<AgentMindOutput & { agentId: string }>;
   modelAudits: ModelExecutionAudit[];
-  actionDependencies: ActionDependency[];
+  interactionDependencies: InteractionDependency[];
   diagnostics: WorldStepDiagnostics;
   temporalPlans: TemporalPlan[];
   temporalBoundary: TemporalBoundary;
   temporalState: TemporalStateSnapshot;
   activityTransitions: ActivityTransition[];
+  activityDispositions: ActivityDisposition[];
   decisionPoints: DecisionPoint[];
 }
 
@@ -395,16 +397,17 @@ export type FootprintRef =
   | { kind: "condition"; id: string }
   | { kind: "global"; id: "world" };
 
-export interface ActionDependency {
-  actionId: string;
-  actorId: AgentId;
+export interface InteractionDependency {
+  kind: "action" | "activity" | "timer" | "condition";
+  id: string;
+  actorId: AgentId | null;
   reads: FootprintRef[];
   writes: FootprintRef[];
   audienceAgentIds: AgentId[];
   globalFallback: boolean;
 }
 
-export type ActionDependencyDraft = Omit<ActionDependency, "actionId" | "actorId">;
+export type InteractionDependencyDraft = Omit<InteractionDependency, "kind" | "id" | "actorId">;
 
 export interface WorldExecutionAlgorithm {
   readonly manifest: AlgorithmManifest;

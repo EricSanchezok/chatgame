@@ -1,16 +1,18 @@
 import { actionGroundingSchema } from "./llm-schemas";
 import type {
-  ActionDependency,
-  ActionDependencyDraft,
+  InteractionDependency,
+  InteractionDependencyDraft,
   FootprintRef,
 } from "./execution";
 import type {
   AgentActionProposal,
   AgentId,
+  CausalAssertion,
   ModelExecutionAudit,
   SimulationState,
   WorldDeltaOperation,
 } from "./model";
+import type { ActivityState } from "./temporal";
 import {
   ModelOutputError,
   ModelSemanticRepairError,
@@ -34,22 +36,164 @@ const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。�
 
 const GROUNDING_PROMPT_VERSION = "action-grounding-v2";
 
-export function actionDependencyKey(ref: FootprintRef): string {
+export function footprintRefKey(ref: FootprintRef): string {
   return `${ref.kind}:${ref.id}`;
 }
 
 function stableRefs(refs: readonly FootprintRef[]): FootprintRef[] {
-  return [...new Map(refs.map((ref) => [actionDependencyKey(ref), structuredClone(ref)])).values()]
-    .sort((left, right) => actionDependencyKey(left).localeCompare(actionDependencyKey(right)));
+  return [...new Map(refs.map((ref) => [footprintRefKey(ref), structuredClone(ref)])).values()]
+    .sort((left, right) => footprintRefKey(left).localeCompare(footprintRefKey(right)));
 }
 
-export function normalizeActionDependency(
+function continuationAssertionRefs(
+  state: Readonly<SimulationState>,
+  assertions: readonly CausalAssertion[],
+): FootprintRef[] {
+  return assertions.flatMap((assertion): FootprintRef[] => {
+    switch (assertion.kind) {
+      case "check_result":
+      case "random_result":
+        throw new Error(`${assertion.kind} cannot be a durable Activity continuation assertion`);
+      case "fact_matches":
+      case "fact_absent":
+        return [{ kind: "fact", id: assertion.factId }];
+      case "entity_absent":
+      case "entity_lifecycle":
+        return [{ kind: "entity", id: assertion.entityId }];
+      case "placement_equals":
+        return [
+          { kind: "entity", id: assertion.entityId },
+          ...(assertion.placementId ? [{ kind: "placement" as const, id: assertion.placementId }] : []),
+        ];
+      case "shared_placement":
+        return [
+          { kind: "entity", id: assertion.leftEntityId },
+          { kind: "entity", id: assertion.rightEntityId },
+        ];
+      case "meter_compare":
+        return [{ kind: "meter", id: assertion.meterId }];
+      case "quantity_compare":
+        return [{
+          kind: "quantity",
+          id: quantityId(state.worldHash, assertion.definitionId, assertion.holderId),
+        }];
+      case "rating_compare":
+        return [{ kind: "rating", id: assertion.ratingId }];
+      case "elapsed_seconds_compare":
+        return [];
+    }
+  });
+}
+
+export function unresolvedActivityInteractionFootprint(
+  activityId: string,
+  actorId: AgentId,
+): InteractionDependency {
+  const global: FootprintRef = { kind: "global", id: "world" };
+  return {
+    kind: "activity",
+    id: activityId,
+    actorId,
+    reads: [global],
+    writes: [global],
+    audienceAgentIds: [actorId],
+    globalFallback: true,
+  };
+}
+
+export function interactionDependencyForActivity(
+  state: Readonly<SimulationState>,
+  activity: Readonly<ActivityState>,
+  source: Readonly<InteractionDependency>,
+): InteractionDependency {
+  if (source.kind !== "action" || source.id !== activity.sourceActionId || source.actorId !== activity.actorId) {
+    throw new Error(`activity ${activity.id} footprint source does not match its action`);
+  }
+  return {
+    kind: "activity",
+    id: activity.id,
+    actorId: activity.actorId,
+    reads: stableRefs([
+      ...source.reads,
+      ...continuationAssertionRefs(state, activity.plan.continuationAssertions),
+    ]),
+    writes: stableRefs(source.writes),
+    audienceAgentIds: [...new Set([
+      ...source.audienceAgentIds,
+      ...activity.participantAgentIds,
+    ])].sort(),
+    globalFallback: source.globalFallback,
+  };
+}
+
+export function affectedActivityIdsExhaustive(
+  activities: Readonly<Record<string, ActivityState>>,
+  incoming: readonly InteractionDependency[],
+): string[] {
+  return Object.values(activities)
+    .filter((activity) => activity.status === "active")
+    .filter((activity) => incoming.some((dependency) =>
+      interactionDependenciesConflict(activity.interactionFootprint, dependency)))
+    .map((activity) => activity.id)
+    .sort();
+}
+
+export class ActivityFootprintIndex {
+  private readonly activeIds: string[];
+  private readonly globalIds = new Set<string>();
+  private readonly readers = new Map<string, Set<string>>();
+  private readonly writers = new Map<string, Set<string>>();
+  private readonly actors = new Map<AgentId, Set<string>>();
+  private readonly audiences = new Map<AgentId, Set<string>>();
+
+  constructor(activities: Readonly<Record<string, ActivityState>>) {
+    const active = Object.values(activities)
+      .filter((activity) => activity.status === "active")
+      .sort((left, right) => left.id.localeCompare(right.id));
+    this.activeIds = active.map((activity) => activity.id);
+    const add = (index: Map<string, Set<string>>, key: string, activityId: string): void => {
+      const values = index.get(key) ?? new Set<string>();
+      values.add(activityId);
+      index.set(key, values);
+    };
+    for (const activity of active) {
+      const footprint = activity.interactionFootprint;
+      if (footprint.kind !== "activity" || footprint.id !== activity.id || footprint.actorId !== activity.actorId) {
+        throw new Error(`activity ${activity.id} has an invalid interaction footprint identity`);
+      }
+      if (footprint.globalFallback) this.globalIds.add(activity.id);
+      footprint.reads.forEach((ref) => add(this.readers, footprintRefKey(ref), activity.id));
+      footprint.writes.forEach((ref) => add(this.writers, footprintRefKey(ref), activity.id));
+      add(this.actors, activity.actorId, activity.id);
+      footprint.audienceAgentIds.forEach((agentId) => add(this.audiences, agentId, activity.id));
+    }
+  }
+
+  affectedBy(incoming: readonly InteractionDependency[]): string[] {
+    if (incoming.some((dependency) => dependency.globalFallback)) return [...this.activeIds];
+    const affected = new Set(this.globalIds);
+    const include = (values: ReadonlySet<string> | undefined): void => values?.forEach((id) => affected.add(id));
+    for (const dependency of incoming) {
+      dependency.writes.forEach((ref) => {
+        const key = footprintRefKey(ref);
+        include(this.readers.get(key));
+        include(this.writers.get(key));
+      });
+      dependency.reads.forEach((ref) => include(this.writers.get(footprintRefKey(ref))));
+      dependency.audienceAgentIds.forEach((agentId) => include(this.actors.get(agentId)));
+      if (dependency.actorId !== null) include(this.audiences.get(dependency.actorId));
+    }
+    return [...affected].sort();
+  }
+}
+
+export function normalizeInteractionDependency(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
-  value: ActionDependency,
-): { dependency: ActionDependency; fallbackReasons: string[] } {
-  if (value.actionId !== action.id || value.actorId !== action.actorId) {
-    throw new Error("action dependency changed action or actor identity");
+  value: InteractionDependency,
+): { dependency: InteractionDependency; fallbackReasons: string[] } {
+  if (value.kind !== "action" || value.id !== action.id || value.actorId !== action.actorId) {
+    throw new Error("interaction dependency changed action or actor identity");
   }
   const catalogs: Record<Exclude<FootprintRef["kind"], "global">, Readonly<Record<string, unknown>>> = {
     entity: state.truth.entities,
@@ -79,7 +223,8 @@ export function normalizeActionDependency(
   const globalRef: FootprintRef = { kind: "global", id: "world" };
   return {
     dependency: {
-      actionId: action.id,
+      kind: "action",
+      id: action.id,
       actorId: action.actorId,
       reads: stableRefs(globalFallback ? [...reads, globalRef] : reads),
       writes: stableRefs(globalFallback ? [...writes, globalRef] : writes),
@@ -108,8 +253,8 @@ function emitFallback(
 function enrichDependency(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
-  dependency: ActionDependency,
-): ActionDependency {
+  dependency: InteractionDependency,
+): InteractionDependency {
   const agent = state.agents[action.actorId];
   const placementId = state.truth.placements[agent.entityId];
   const mandatory: FootprintRef[] = [
@@ -117,7 +262,8 @@ function enrichDependency(
     ...(placementId ? [{ kind: "placement" as const, id: placementId }] : []),
   ];
   return {
-    actionId: action.id,
+    kind: "action",
+    id: action.id,
     actorId: action.actorId,
     reads: stableRefs([...dependency.reads, ...mandatory]),
     writes: stableRefs([...dependency.writes, { kind: "entity", id: agent.entityId }]),
@@ -129,11 +275,12 @@ function enrichDependency(
 function acceptedDependency(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
-  value: ActionDependencyDraft,
+  value: InteractionDependencyDraft,
   scope: ModelExecutionScope,
-): ActionDependency {
-  const normalized = normalizeActionDependency(state, action, {
-    actionId: action.id,
+): InteractionDependency {
+  const normalized = normalizeInteractionDependency(state, action, {
+    kind: "action",
+    id: action.id,
     actorId: action.actorId,
     ...structuredClone(value),
   });
@@ -169,14 +316,14 @@ function groundingContext(
   };
 }
 
-export async function generateActionDependency(
+export async function generateInteractionDependency(
   provider: StructuredModelProvider,
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   scope: ModelExecutionScope,
   profileId: string,
   invocationOffset = 0,
-): Promise<{ dependency: ActionDependency; audit: ModelExecutionAudit }> {
+): Promise<{ dependency: InteractionDependency; audit: ModelExecutionAudit }> {
   const audits: ModelExecutionAudit[] = [];
   let issues: string[] = [];
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -230,7 +377,7 @@ export async function generateActionDependency(
   throw new Error("unreachable grounding loop");
 }
 
-export function forceGlobalActionDependency(dependency: Readonly<ActionDependency>): ActionDependency {
+export function forceGlobalInteractionDependency(dependency: Readonly<InteractionDependency>): InteractionDependency {
   const globalRef: FootprintRef = { kind: "global", id: "world" };
   return {
     ...structuredClone(dependency),
@@ -240,29 +387,31 @@ export function forceGlobalActionDependency(dependency: Readonly<ActionDependenc
   };
 }
 
-export function replaceActionDependencies(
-  current: readonly ActionDependency[],
-  replacements: readonly { actorId: AgentId; dependency: ActionDependency }[],
-): ActionDependency[] {
+export function replaceInteractionDependencies(
+  current: readonly InteractionDependency[],
+  replacements: readonly { actorId: AgentId; dependency: InteractionDependency }[],
+): InteractionDependency[] {
   const replacedActors = new Set(replacements.map((replacement) => replacement.actorId));
   return [
-    ...current.filter((dependency) => !replacedActors.has(dependency.actorId)),
+    ...current.filter((dependency) => dependency.kind !== "action" ||
+      dependency.actorId === null || !replacedActors.has(dependency.actorId)),
     ...replacements.map((replacement) => structuredClone(replacement.dependency)),
-  ].sort((left, right) => left.actorId.localeCompare(right.actorId));
+  ].sort((left, right) => left.id.localeCompare(right.id));
 }
 
-export function actionDependenciesConflict(left: ActionDependency, right: ActionDependency): boolean {
+export function interactionDependenciesConflict(left: InteractionDependency, right: InteractionDependency): boolean {
   if (left.globalFallback || right.globalFallback) return true;
-  const leftWrites = new Set(left.writes.map(actionDependencyKey));
-  const rightWrites = new Set(right.writes.map(actionDependencyKey));
-  const leftReads = new Set(left.reads.map(actionDependencyKey));
-  const rightReads = new Set(right.reads.map(actionDependencyKey));
+  const leftWrites = new Set(left.writes.map(footprintRefKey));
+  const rightWrites = new Set(right.writes.map(footprintRefKey));
+  const leftReads = new Set(left.reads.map(footprintRefKey));
+  const rightReads = new Set(right.reads.map(footprintRefKey));
   return [...leftWrites].some((key) => rightWrites.has(key) || rightReads.has(key)) ||
     [...rightWrites].some((key) => leftReads.has(key)) ||
-    left.audienceAgentIds.includes(right.actorId) || right.audienceAgentIds.includes(left.actorId);
+    (right.actorId !== null && left.audienceAgentIds.includes(right.actorId)) ||
+    (left.actorId !== null && right.audienceAgentIds.includes(left.actorId));
 }
 
-export function actionDependencyComponents(dependencies: readonly ActionDependency[]): AgentId[][] {
+export function interactionDependencyComponents(dependencies: readonly InteractionDependency[]): string[][] {
   const parent = dependencies.map((_, index) => index);
   const root = (index: number): number => {
     while (parent[index] !== index) {
@@ -278,23 +427,23 @@ export function actionDependencyComponents(dependencies: readonly ActionDependen
   };
   for (let left = 0; left < dependencies.length; left += 1) {
     for (let right = left + 1; right < dependencies.length; right += 1) {
-      if (actionDependenciesConflict(dependencies[left], dependencies[right])) union(left, right);
+      if (interactionDependenciesConflict(dependencies[left], dependencies[right])) union(left, right);
     }
   }
-  const groups = new Map<number, AgentId[]>();
+  const groups = new Map<number, string[]>();
   dependencies.forEach((dependency, index) => {
     const group = groups.get(root(index)) ?? [];
-    group.push(dependency.actorId);
+    group.push(dependency.id);
     groups.set(root(index), group);
   });
   return [...groups.values()].map((group) => group.sort()).sort((left, right) => left[0].localeCompare(right[0]));
 }
 
-export function actionDependencyEdgeCount(dependencies: readonly ActionDependency[]): number {
+export function interactionDependencyEdgeCount(dependencies: readonly InteractionDependency[]): number {
   let edges = 0;
   for (let left = 0; left < dependencies.length; left += 1) {
     for (let right = left + 1; right < dependencies.length; right += 1) {
-      if (actionDependenciesConflict(dependencies[left], dependencies[right])) edges += 1;
+      if (interactionDependenciesConflict(dependencies[left], dependencies[right])) edges += 1;
     }
   }
   return edges;
@@ -365,11 +514,11 @@ export function resolvedComponentsConflict(
 export function resolutionExceedsDeclaredDependencies(
   state: Readonly<SimulationState>,
   resolution: TruthResolution,
-  dependencies: readonly ActionDependency[],
+  dependencies: readonly InteractionDependency[],
 ): boolean {
   if (dependencies.some((dependency) => dependency.globalFallback)) return false;
   const declared = new Set(dependencies.flatMap((dependency) =>
-    [...dependency.reads, ...dependency.writes].map(actionDependencyKey)));
+    [...dependency.reads, ...dependency.writes].map(footprintRefKey)));
   const actual = actualComponentFootprint(state, resolution);
   return [...actual.reads, ...actual.writes].some((key) => !declared.has(key));
 }

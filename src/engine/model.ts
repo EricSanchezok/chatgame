@@ -576,7 +576,7 @@ export interface AgentAdmissionCommit {
 export type WorldEventDraft = Omit<WorldEvent, "step">;
 
 export interface SimulationState {
-  schemaVersion: 11;
+  schemaVersion: 12;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -906,7 +906,7 @@ export interface MechanicResult {
 }
 
 export interface CausalTarget {
-  kind: "check" | "random" | "operation" | "mechanic" | "event" | "outcome" | "observation";
+  kind: "check" | "random" | "operation" | "mechanic" | "event" | "outcome" | "observation" | "activity";
   id: string;
 }
 
@@ -1057,6 +1057,7 @@ export interface CommittedStep {
   temporalBoundary: TemporalBoundary;
   temporalState: import("./temporal").TemporalStateSnapshot;
   activityTransitions: ActivityTransition[];
+  activityDispositions: import("./temporal").ActivityDisposition[];
   decisionPoints: DecisionPoint[];
   checkRequests: D20CheckRequest[];
   checks: D20CheckResult[];

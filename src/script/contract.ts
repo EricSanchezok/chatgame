@@ -10,7 +10,7 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(11),
+  schema_version: z.literal(12),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
@@ -107,6 +107,7 @@ const temporalProfileBase = {
   id: safeIdSchema,
   name: z.string().min(1),
   interruptible: z.boolean(),
+  reaction_fallback: z.enum(["continue_if_valid", "pause", "cancel"]).default("continue_if_valid"),
   resource_claims: z.array(activityResourceClaimSchema).min(1),
 };
 

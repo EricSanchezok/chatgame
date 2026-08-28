@@ -36,6 +36,7 @@ function fixedProfile(overrides: Partial<Extract<TemporalProfileDefinition, { ki
     checkpointSeconds: 1,
     allowExplicitDuration: false,
     interruptible: true,
+    reactionFallback: "continue_if_valid",
     resourceClaims: [{ resourceId: "foreground", amount: 1 }],
     ...overrides,
   };
@@ -46,7 +47,7 @@ function draft(profileId: string, basis: TemporalPlanDraft["basis"] = { kind: "p
     profileId,
     basis,
     description: "执行行动",
-    conditionAssertions: [],
+    continuationAssertions: [],
     causes: actionCause,
   };
 }
@@ -195,6 +196,7 @@ describe("event-boundary temporal kernel", () => {
       periodSeconds: 3_600,
       checkpointUnits: 10,
       interruptible: true,
+      reactionFallback: "continue_if_valid",
       resourceClaims: [{ resourceId: "foreground", amount: 1 }],
     };
     validateTemporalProfile(travel, resources);
@@ -283,6 +285,7 @@ describe("event-boundary temporal kernel", () => {
         { id: "treatment", name: "处理", durationSeconds: 300, checkpointSeconds: 120 },
       ],
       interruptible: true,
+      reactionFallback: "continue_if_valid",
       resourceClaims: [{ resourceId: "foreground", amount: 1 }],
     };
     const plan = materializeTemporalPlan({
@@ -362,6 +365,7 @@ describe("event-boundary temporal kernel", () => {
       kind: "conditional",
       checkEverySeconds: 60,
       interruptible: true,
+      reactionFallback: "continue_if_valid",
       resourceClaims: [{ resourceId: "foreground", amount: 1 }],
     };
     const plan = materializeTemporalPlan({
