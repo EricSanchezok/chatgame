@@ -7,8 +7,9 @@ import type {
 import type {
   RuntimeEvent,
 } from "../engine/observability";
+import type { InteractionDependency } from "../engine/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 3 as const;
+export const WORLD_INSPECTOR_API_VERSION = 4 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -189,6 +190,11 @@ export interface WorldInspectorStepDetail {
   apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
   summary: WorldInspectorStepSummary;
   committed: CommittedStep & { modelAudits: ModelExecutionAudit[] };
+  interaction: {
+    dependencies: InteractionDependency[];
+    components: string[][];
+    globalReadjudication: boolean;
+  };
   before: WorldInspectorStateSnapshot;
   after: WorldInspectorStateSnapshot;
   runtimeEvents: WorldInspectorRuntimeEventSummary[];

@@ -6,6 +6,7 @@ import type {
   PublicInstanceDetail,
   PublicInstanceSummary,
   SubmitExternalActionInput,
+  SubmitExternalReactionInput,
   WorldStartOptions,
   WorldSummary,
   WorldRunControlInput,
@@ -46,6 +47,11 @@ export const worldApi = {
   submitAction: (id: string, participantId: string, input: SubmitExternalActionInput) =>
     requestJson<PublicInstanceDetail>(
       `/api/instances/${encodeURIComponent(id)}/participants/${encodeURIComponent(participantId)}/actions`,
+      body("POST", input),
+    ),
+  submitReaction: (id: string, participantId: string, input: SubmitExternalReactionInput) =>
+    requestJson<PublicInstanceDetail>(
+      `/api/instances/${encodeURIComponent(id)}/participants/${encodeURIComponent(participantId)}/reactions`,
       body("POST", input),
     ),
   pauseRun: (id: string, input: WorldRunControlInput) =>

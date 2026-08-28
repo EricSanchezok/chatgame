@@ -10,6 +10,7 @@ import { WorldHost } from "../../../server/world-host";
 import { POST as advanceInstance } from "../instances/[id]/advance/route";
 import { GET as getInstanceEvents } from "../instances/[id]/events/route";
 import { POST as submitAction } from "../instances/[id]/participants/[participantId]/actions/route";
+import { POST as submitReaction } from "../instances/[id]/participants/[participantId]/reactions/route";
 import { GET as getInstance } from "../instances/[id]/route";
 import { GET as getObserver } from "../instances/[id]/observer/route";
 import { POST as createInstance } from "../instances/route";
@@ -136,5 +137,12 @@ describe("World Instance Route Handlers", () => {
     );
     expect(missingEvents.status).toBe(404);
     expect(await missingEvents.json()).toEqual({ error: "world instance not found: missing" });
+
+    const malformedReaction = await submitReaction(jsonRequest(
+      "http://local/api/instances/instance/participants/participant/reactions",
+      { submissionId: "reaction", kind: "replace" },
+    ), { params: Promise.resolve({ id: "instance", participantId: "participant" }) });
+    expect(malformedReaction.status).toBe(400);
+    expect(await malformedReaction.json()).toEqual({ error: "invalid external reaction" });
   });
 });

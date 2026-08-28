@@ -39,6 +39,14 @@ export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay
 export const WORLD_EXECUTION_CONTRACT_VERSION = 3 as const;
 export const ENGINE_OPERATION_CONTRACT_VERSION = 1 as const;
 export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 3 as const;
+export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 1 as const;
+
+export class StepPreparationInvalidatedError extends Error {
+  constructor(message = "step preparation no longer matches its execution inputs") {
+    super(message);
+    this.name = "StepPreparationInvalidatedError";
+  }
+}
 
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
@@ -311,6 +319,24 @@ export interface ExternalActionInput {
   targetIds: string[];
 }
 
+export type ExternalReactionInput =
+  | {
+      submissionId: string;
+      requestId: string;
+      agentId: AgentId;
+      kind: "keep";
+    }
+  | {
+      submissionId: string;
+      requestId: string;
+      agentId: AgentId;
+      kind: "replace";
+      rawText: string;
+      goal: string;
+      means: string | null;
+      targetIds: string[];
+    };
+
 export interface WorldAdvanceRequest {
   expectedRevision: number;
   trigger: "manual" | "batch" | "realtime" | "participant_action";
@@ -387,6 +413,19 @@ export interface WorldStepCandidate {
   decisionPoints: DecisionPoint[];
 }
 
+export interface WorldStepPreparation {
+  schemaVersion: typeof WORLD_STEP_PREPARATION_SCHEMA_VERSION;
+  id: string;
+  sourceStateHash: string;
+  algorithmManifestHash: string;
+  policyRosterHash: string;
+  requestHash: string;
+  pendingReactionRequests: ReactionRequest[];
+  preparedReactionDecisions: ReactionDecision[];
+  modelAudits: ModelExecutionAudit[];
+  payload: JsonObject;
+}
+
 export type FootprintRef =
   | { kind: "entity"; id: string }
   | { kind: "fact"; id: string }
@@ -417,8 +456,15 @@ export interface WorldExecutionAlgorithm {
     context: ExecutionContext,
   ): Promise<BootstrapCandidate>;
 
-  step(
+  prepareStep(
     input: Readonly<WorldStepInput>,
+    context: ExecutionContext,
+  ): Promise<WorldStepPreparation>;
+
+  completeStep(
+    input: Readonly<WorldStepInput>,
+    preparation: Readonly<WorldStepPreparation>,
+    reactions: readonly ExternalReactionInput[],
     context: ExecutionContext,
   ): Promise<WorldStepCandidate>;
 }
@@ -464,7 +510,8 @@ export class WorldExecutionAlgorithmRegistry {
     if (!algorithm || typeof algorithm !== "object") {
       throw new Error(`execution algorithm factory did not return an algorithm instance: ${key}`);
     }
-    if (typeof algorithm.bootstrap !== "function" || typeof algorithm.step !== "function") {
+    if (typeof algorithm.bootstrap !== "function" || typeof algorithm.prepareStep !== "function" ||
+      typeof algorithm.completeStep !== "function") {
       throw new Error(`execution algorithm factory returned an incomplete algorithm contract: ${key}`);
     }
     if (algorithm.manifest.id !== ref.id || algorithm.manifest.version !== ref.version ||

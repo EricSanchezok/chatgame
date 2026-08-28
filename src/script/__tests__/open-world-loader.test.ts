@@ -68,7 +68,7 @@ describe("open world script loader", () => {
       version: "2.0.0",
       config: {},
     })]);
-    expect(definition.initialState.schemaVersion).toBe(11);
+    expect(definition.initialState.schemaVersion).toBe(12);
     expect(definition.initialState.truth.mechanics.impactProfiles.harm.amounts).toEqual({
       none: 0, minor: 2, standard: 5, major: 10, decisive: 20,
     });

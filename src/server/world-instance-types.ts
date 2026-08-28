@@ -1,10 +1,13 @@
 import type {
   AlgorithmRef,
   ExternalActionInput,
+  ExternalReactionInput,
   ParticipantId,
   PolicyBinding,
+  WorldAdvanceRequest,
 } from "../engine/execution";
 import type { AgentId, SimulationState } from "../engine/model";
+import type { ReactionRequest } from "../engine/model";
 import type { WorldRuntimeContract } from "../engine/world-definition";
 
 export interface ParticipantRecord {
@@ -33,15 +36,35 @@ export interface ParticipantArrivalRecord {
   executionId?: string;
 }
 
-export interface ActionWindow {
+interface ActionWindowBase {
   id: string;
   generation: number;
   baseRevision: number;
   requiredAgentIds: AgentId[];
-  submissions: Record<AgentId, ExternalActionInput>;
   deadlineAt: string | null;
   status: "open" | "resolving" | "committed" | "cancelled";
 }
+
+export interface DecisionActionWindow extends ActionWindowBase {
+  kind: "decision";
+  submissions: Record<AgentId, ExternalActionInput>;
+}
+
+export interface ReactionActionWindow extends ActionWindowBase {
+  kind: "reaction";
+  preparedStepId: string;
+  preparationArtifactHash: string;
+  preparationExecutionId: string;
+  sourceStateHash: string;
+  algorithmManifestHash: string;
+  policyRosterHash: string;
+  policyRoster: Record<AgentId, PolicyBinding>;
+  advanceRequest: WorldAdvanceRequest;
+  requests: Record<AgentId, ReactionRequest>;
+  submissions: Record<AgentId, ExternalReactionInput>;
+}
+
+export type ActionWindow = DecisionActionWindow | ReactionActionWindow;
 
 export interface InstanceRuntimeConfig {
   maxAutonomousSpanSeconds: number;
@@ -61,6 +84,8 @@ export type WorldRunStatus =
   | "pausing"
   | "paused"
   | "awaiting-decision"
+  | "awaiting-reaction"
+  | "preparation-invalidated"
   | "completed"
   | "failed"
   | "budget-paused";
@@ -101,8 +126,20 @@ export interface ParticipantIntentRecord {
   submittedAt: string;
 }
 
+export interface ParticipantReactionRecord {
+  participantId: ParticipantId;
+  agentId: AgentId;
+  runId: string;
+  preparedStepId: string;
+  requestId: string;
+  submissionId: string;
+  kind: "keep" | "replace";
+  text: string | null;
+  submittedAt: string;
+}
+
 export interface WorldInstanceDocument {
-  schemaVersion: 16;
+  schemaVersion: 17;
   id: string;
   world: WorldRuntimeContract;
   executionAlgorithm: AlgorithmRef;
@@ -117,6 +154,7 @@ export interface WorldInstanceDocument {
   scheduler: SchedulerState;
   runs: Record<string, WorldRunRecord>;
   participantIntents: ParticipantIntentRecord[];
+  reactionSubmissions: ParticipantReactionRecord[];
 }
 
 export interface StoredWorldInstance {

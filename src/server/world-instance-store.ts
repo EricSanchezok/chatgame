@@ -1,4 +1,5 @@
 import { validateAlgorithmRef, type PolicyBinding } from "../engine/execution";
+import { reactionRequestSchema } from "../engine/llm-schemas";
 import { contentHash } from "../engine/model-audit";
 import type { RuntimeCorrelation } from "../engine/observability";
 import { validateSimulationState } from "../engine/transaction";
@@ -156,12 +157,57 @@ function validateActionWindow(document: WorldInstanceDocument): void {
     if (!window.requiredAgentIds.includes(agentId) || action.agentId !== agentId) {
       throw new Error(`invalid action window submission for ${agentId}`);
     }
-    validateExternalAction(action, `action window submission ${agentId}`);
+    if (window.kind === "decision") {
+      validateExternalAction(action, `action window submission ${agentId}`);
+    } else {
+      requireText(action.submissionId, `reaction window submission ${agentId} id`);
+      requireText(action.requestId, `reaction window submission ${agentId} request`);
+      if (action.requestId !== window.requests[agentId]?.id ||
+        action.kind !== "keep" && action.kind !== "replace") {
+        throw new Error(`invalid reaction window submission for ${agentId}`);
+      }
+      if (action.kind === "replace") {
+        requireText(action.rawText, `reaction window submission ${agentId} text`);
+        requireText(action.goal, `reaction window submission ${agentId} goal`);
+        if (action.means !== null) requireText(action.means, `reaction window submission ${agentId} means`);
+        if (new Set(action.targetIds).size !== action.targetIds.length) {
+          throw new Error(`reaction window submission ${agentId} repeats target ids`);
+        }
+      }
+    }
+  }
+  if (window.kind === "reaction") {
+    requireText(window.preparedStepId, "reaction window prepared step id");
+    requireText(window.preparationArtifactHash, "reaction window artifact hash");
+    requireText(window.preparationExecutionId, "reaction window execution id");
+    requireText(window.sourceStateHash, "reaction window source state hash");
+    requireText(window.algorithmManifestHash, "reaction window algorithm manifest hash");
+    requireText(window.policyRosterHash, "reaction window policy roster hash");
+    if (contentHash(window.policyRoster) !== window.policyRosterHash) {
+      throw new Error("reaction window policy roster hash does not match its frozen roster");
+    }
+    for (const [agentId, binding] of Object.entries(window.policyRoster)) {
+      validateBinding(agentId, binding, document);
+    }
+    if (window.advanceRequest.expectedRevision !== window.baseRevision ||
+      !["manual", "batch", "realtime", "participant_action"].includes(window.advanceRequest.trigger)) {
+      throw new Error("reaction window advance request does not match its base revision");
+    }
+    for (const [index, action] of window.advanceRequest.externalActions.entries()) {
+      validateExternalAction(action, `reaction window advance request action ${index}`);
+    }
+    if (contentHash(Object.keys(window.requests).sort()) !== contentHash([...window.requiredAgentIds].sort())) {
+      throw new Error("reaction window requests must cover every required Agent");
+    }
+    for (const [agentId, request] of Object.entries(window.requests)) {
+      reactionRequestSchema.parse(request);
+      if (request.agentId !== agentId) throw new Error(`reaction window request key mismatch for ${agentId}`);
+    }
   }
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 16) throw new Error("world instance schema v16 required");
+  if (document.schemaVersion !== 17) throw new Error("world instance schema v17 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
   validateAlgorithmRef(document.executionAlgorithm);
@@ -209,7 +255,8 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
   }
   for (const [runId, run] of Object.entries(document.runs)) {
     if (run.id !== runId) throw new Error(`run key mismatch for ${runId}`);
-    if (!["queued", "running", "pausing", "paused", "awaiting-decision", "completed", "failed", "budget-paused"]
+    if (!["queued", "running", "pausing", "paused", "awaiting-decision", "awaiting-reaction",
+      "preparation-invalidated", "completed", "failed", "budget-paused"]
       .includes(run.status)) throw new Error(`run ${runId} has an invalid status`);
     if (!Number.isSafeInteger(run.generation) || run.generation < 1 ||
       !Number.isFinite(Date.parse(run.createdAt)) || !Number.isFinite(Date.parse(run.updatedAt))) {
@@ -279,6 +326,26 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
     }
     if (!Number.isFinite(Date.parse(intent.submittedAt))) {
       throw new Error(`participant intent ${intent.submissionId} timestamp must be an ISO date`);
+    }
+  }
+  const reactionSubmissionIds = new Set<string>();
+  for (const reaction of document.reactionSubmissions) {
+    requireText(reaction.participantId, "reaction submission participant id");
+    requireText(reaction.agentId, "reaction submission agent id");
+    requireText(reaction.runId, "reaction submission run id");
+    requireText(reaction.preparedStepId, "reaction submission prepared step id");
+    requireText(reaction.requestId, "reaction submission request id");
+    requireText(reaction.submissionId, "reaction submission id");
+    if (reactionSubmissionIds.has(reaction.submissionId)) {
+      throw new Error(`duplicate reaction submission ${reaction.submissionId}`);
+    }
+    reactionSubmissionIds.add(reaction.submissionId);
+    if (!(reaction.participantId in document.participants) || !(reaction.agentId in document.state.agents) ||
+      !(reaction.runId in document.runs) || !["keep", "replace"].includes(reaction.kind) ||
+      (reaction.kind === "replace" && !reaction.text?.trim()) ||
+      (reaction.kind === "keep" && reaction.text !== null) ||
+      !Number.isFinite(Date.parse(reaction.submittedAt))) {
+      throw new Error(`reaction submission ${reaction.submissionId} is invalid`);
     }
   }
 }

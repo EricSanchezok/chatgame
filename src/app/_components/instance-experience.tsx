@@ -75,19 +75,44 @@ function PlayerRunConsole({
   onPause: () => void;
   onResume: () => void;
 }) {
-  const paused = run.status === "paused" || run.status === "budget-paused";
+  const resumable = run.status === "paused" || run.status === "budget-paused" ||
+    run.status === "preparation-invalidated";
   const progress = run.activity?.progress;
   return (
     <div className="cg-observer-console" aria-label="世界运行控制台">
       <div>
-        <strong>{run.activity?.description ?? "世界正在自主推进"}</strong>
+        <strong>{run.status === "preparation-invalidated"
+          ? "上次反应预演已失效，需要重新准备"
+          : run.activity?.description ?? "世界正在自主推进"}</strong>
         <span>{progress
           ? `${progress.current.toFixed(2)} / ${progress.target} ${progress.unit}`
           : `${run.lease?.commitCount ?? 0} 个边界已提交`}</span>
       </div>
-      <button disabled={busy || run.status === "pausing"} onClick={paused ? onResume : onPause} type="button">
-        {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
-        {paused ? "恢复" : "暂停"}
+      <button disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
+        {resumable ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+        {run.status === "preparation-invalidated" ? "重新准备" : resumable ? "恢复" : "暂停"}
+      </button>
+    </div>
+  );
+}
+
+function ReactionConsole({
+  busy,
+  stimulus,
+  onKeep,
+}: {
+  busy: boolean;
+  stimulus: string;
+  onKeep: () => void;
+}) {
+  return (
+    <div className="cg-observer-console" aria-label="行动反应窗口">
+      <div>
+        <strong>世界时间已冻结，等待你的反应</strong>
+        <span>{stimulus} 直接在输入框描述新行动，或保持当前行动。</span>
+      </div>
+      <button disabled={busy} onClick={onKeep} type="button">
+        <Play aria-hidden="true" />保持当前行动
       </button>
     </div>
   );
@@ -349,9 +374,13 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
     ? detail.participants.find((candidate) => candidate.agentId === detail.controlledView!.agentId)
     : undefined;
   const latestTurn = detail?.conversation?.turns.at(-1);
+  const reactionWindow = detail?.actionWindow?.kind === "reaction" && detail.actionWindow.reaction &&
+    !detail.actionWindow.submittedAgentIds.includes(participant?.agentId ?? "")
+    ? detail.actionWindow
+    : undefined;
   const runActive = detail?.run && ["queued", "running", "pausing"].includes(detail.run.status);
-  const isRunning = Boolean(busy === "action" || runActive ||
-    latestTurn?.status === "running" || latestTurn?.status === "awaiting");
+  const isRunning = Boolean(!reactionWindow && (busy === "action" || runActive ||
+    latestTurn?.status === "running" || latestTurn?.status === "awaiting"));
 
   const submit = useCallback(async (message: AppendMessage) => {
     const text = message.content
@@ -365,11 +394,19 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
     setBusy("action");
     setError("");
     try {
-      const next = await worldApi.submitAction(instanceId, participant.id, {
+      const next = reactionWindow ? await worldApi.submitReaction(instanceId, participant.id, {
         submissionId: id,
+        windowId: reactionWindow.id,
+        generation: reactionWindow.generation,
+        preparedStepId: reactionWindow.reaction!.preparedStepId,
         expectedRevision: detail.summary.revision,
+        kind: "replace",
         text,
-      });
+      }) : await worldApi.submitAction(instanceId, participant.id, {
+          submissionId: id,
+          expectedRevision: detail.summary.revision,
+          text,
+        });
       setDetail(next);
       setStreamWarning("");
     } catch {
@@ -379,7 +416,29 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
       setOptimistic(undefined);
       setBusy("");
     }
-  }, [busy, detail, instanceId, participant, refresh]);
+  }, [busy, detail, instanceId, participant, reactionWindow, refresh]);
+
+  const keepReaction = useCallback(async () => {
+    if (!detail || !participant || !reactionWindow || busy) return;
+    setBusy("reaction");
+    setError("");
+    try {
+      const next = await worldApi.submitReaction(instanceId, participant.id, {
+        submissionId: crypto.randomUUID(),
+        windowId: reactionWindow.id,
+        generation: reactionWindow.generation,
+        preparedStepId: reactionWindow.reaction!.preparedStepId,
+        expectedRevision: detail.summary.revision,
+        kind: "keep",
+      });
+      setDetail(next);
+    } catch {
+      await refresh().catch(() => undefined);
+      setError("反应暂时无法提交。请刷新后重试。");
+    } finally {
+      setBusy("");
+    }
+  }, [busy, detail, instanceId, participant, reactionWindow, refresh]);
 
   const runtime = useExternalStoreRuntime({
     messages,
@@ -459,7 +518,20 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
                 detail.summary.schedulerMode !== "realtime",
               ))}
             />
-          ) : detail.run && ["queued", "running", "pausing", "paused", "budget-paused"].includes(detail.run.status) ? (
+          ) : reactionWindow ? (
+            <ReactionConsole
+              busy={Boolean(busy)}
+              onKeep={() => void keepReaction()}
+              stimulus={reactionWindow.reaction!.stimulus}
+            />
+          ) : detail.run && [
+            "queued",
+            "running",
+            "pausing",
+            "paused",
+            "budget-paused",
+            "preparation-invalidated",
+          ].includes(detail.run.status) ? (
             <PlayerRunConsole
               busy={Boolean(busy)}
               onPause={() => void perform("pause-run", () => worldApi.pauseRun(instanceId, {

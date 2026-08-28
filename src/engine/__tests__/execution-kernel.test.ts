@@ -12,6 +12,7 @@ import {
   type WorldExecutionAlgorithm,
   type WorldStepCandidate,
   type WorldStepInput,
+  type WorldStepPreparation,
 } from "../execution";
 import { contentHash } from "../model-audit";
 import { SimulationEngine } from "../simulation";
@@ -32,8 +33,21 @@ class MutatingAlgorithm implements WorldExecutionAlgorithm {
     throw new Error("candidate generation failed");
   }
 
-  async step(input: Readonly<WorldStepInput>, context: ExecutionContext): Promise<WorldStepCandidate> {
+  async prepareStep(input: Readonly<WorldStepInput>, context: ExecutionContext): Promise<WorldStepPreparation> {
     void input;
+    void context;
+    throw new Error("unused");
+  }
+
+  async completeStep(
+    input: Readonly<WorldStepInput>,
+    preparation: Readonly<WorldStepPreparation>,
+    reactions: readonly import("../execution").ExternalReactionInput[],
+    context: ExecutionContext,
+  ): Promise<WorldStepCandidate> {
+    void input;
+    void preparation;
+    void reactions;
     void context;
     throw new Error("unused");
   }

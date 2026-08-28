@@ -8,6 +8,8 @@ import type {
 import {
   ActivityFootprintIndex,
   interactionDependencyComponents,
+  interactionDependencyForCondition,
+  interactionDependencyForTimer,
 } from "./action-dependency";
 import {
   resolutionObservations,
@@ -43,6 +45,7 @@ import {
   reconcileTemporalOutcomes,
   selectTemporalBoundary,
   settleActivityContexts,
+  pauseActivity,
   validateActivityResources,
   validateTemporalPlan,
 } from "./temporal";
@@ -276,6 +279,116 @@ export function validateSelfConsequenceIntroductions(
   }
 }
 
+function validateCandidateReactions(
+  source: Readonly<SimulationState>,
+  candidate: Readonly<WorldStepCandidate>,
+  policyRoster: Readonly<Record<string, PolicyBinding>>,
+): void {
+  const requests = candidate.resolution.reactionRequests;
+  const decisions = candidate.resolution.reactionDecisions;
+  if (requests.length !== decisions.length ||
+    new Set(requests.map((request) => request.id)).size !== requests.length ||
+    new Set(requests.map((request) => request.agentId)).size !== requests.length ||
+    new Set(decisions.map((decision) => decision.requestId)).size !== decisions.length) {
+    throw new Error("reaction decisions must cover one frozen request per Agent");
+  }
+  const initialActionById = new Map(candidate.resolution.initialActions.map((action) => [action.id, action]));
+  const decisionByRequest = new Map(decisions.map((decision) => [decision.requestId, decision]));
+  const checkRequestById = new Map(candidate.resolution.requests.map((request) => [request.id, request]));
+  const checkResultById = new Map(candidate.resolution.checks.map((result) => [result.requestId, result]));
+
+  for (const request of requests) {
+    const observer = source.agents[request.agentId];
+    const trigger = initialActionById.get(request.triggerActionId);
+    const triggerAgent = trigger && source.agents[trigger.actorId];
+    if (!observer || !trigger || !triggerAgent || trigger.actorId === request.agentId ||
+      request.stimulus.observerId !== request.agentId || request.stimulus.kind !== "stimulus" ||
+      request.stimulus.step !== source.step + 1 || request.stimulus.sourceEventIds.length !== 0) {
+      throw new Error(`reaction request ${request.id} has invalid onset identity or stimulus`);
+    }
+    let originalProposalId: string;
+    if (request.originalIntent.kind === "prepared_action") {
+      const original = initialActionById.get(request.originalIntent.actionId);
+      if (!original || original.actorId !== request.agentId) {
+        throw new Error(`reaction request ${request.id} has no matching prepared action`);
+      }
+      originalProposalId = original.id;
+    } else {
+      const activity = source.truth.activities[request.originalIntent.activityId];
+      if (!activity || activity.status !== "active" || !activity.plan.interruptible ||
+        activity.actorId !== request.agentId || activity.sourceActionId !== request.originalIntent.sourceActionId) {
+        throw new Error(`reaction request ${request.id} has no matching interruptible Activity`);
+      }
+      originalProposalId = activity.sourceActionId;
+    }
+
+    const basisIds = new Set<string>();
+    for (const basis of request.basis) {
+      const key = basis.kind === "shared_placement"
+        ? `${basis.kind}:${basis.placementId}`
+        : basis.kind === "fact"
+          ? `${basis.kind}:${basis.factId}`
+          : `${basis.kind}:${basis.checkId}`;
+      if (basisIds.has(key)) throw new Error(`reaction request ${request.id} repeats basis ${key}`);
+      basisIds.add(key);
+      if (basis.kind === "shared_placement") {
+        const triggerPlacement = source.truth.placements[triggerAgent.entityId];
+        const observerPlacement = source.truth.placements[observer.entityId];
+        if (!triggerPlacement || triggerPlacement !== observerPlacement || triggerPlacement !== basis.placementId) {
+          throw new Error(`reaction request ${request.id} has no shared placement basis`);
+        }
+      } else if (basis.kind === "fact") {
+        const fact = source.truth.facts[basis.factId];
+        const accessible = fact && (fact.access.kind === "public" ||
+          fact.access.kind === "agents" && fact.access.agentIds.includes(request.agentId));
+        const endpoints = fact?.value.kind === "entity"
+          ? new Set([fact.subjectId, fact.value.entityId])
+          : new Set<string>();
+        if (!accessible || !endpoints.has(triggerAgent.entityId) || !endpoints.has(observer.entityId)) {
+          throw new Error(`reaction request ${request.id} has no accessible relational Fact basis`);
+        }
+      } else {
+        const checkRequest = checkRequestById.get(basis.checkId);
+        const result = checkResultById.get(basis.checkId);
+        if (!checkRequest || checkRequest.phase !== "perception" ||
+          checkRequest.actorId !== observer.entityId || !result?.succeeded ||
+          !checkRequest.causes.some((cause) => cause.kind === "action" && cause.id === trigger.id) ||
+          !checkRequest.causes.some((cause) => cause.kind === "fact" || cause.kind === "law")) {
+          throw new Error(`reaction request ${request.id} has no successful perception basis`);
+        }
+      }
+    }
+
+    const decision = decisionByRequest.get(request.id);
+    const binding = policyRoster[request.agentId];
+    if (!decision || decision.agentId !== request.agentId || decision.baseRevision !== source.revision ||
+      decision.originalProposalId !== originalProposalId ||
+      decision.source === "model" && binding?.kind !== "model" ||
+      decision.source === "external" && binding?.kind !== "external" ||
+      decision.source === "replay" && binding?.kind !== "replay") {
+      throw new Error(`reaction decision for ${request.id} has invalid identity or policy provenance`);
+    }
+    if (decision.kind === "keep") {
+      if (request.originalIntent.kind === "prepared_action" && decision.ongoingActivityDisposition !== "continue") {
+        throw new Error(`prepared action reaction ${request.id} cannot pause or cancel an uncommitted Activity`);
+      }
+      if (decision.source === "profile_fallback" && request.originalIntent.kind === "ongoing_activity") {
+        const activity = source.truth.activities[request.originalIntent.activityId]!;
+        const profile = source.truth.mechanics.temporalProfiles[activity.plan.profileId]!;
+        const expected = profile.reactionFallback === "pause"
+          ? "pause"
+          : profile.reactionFallback === "cancel" ? "cancel" : "continue";
+        if (decision.ongoingActivityDisposition !== expected) {
+          throw new Error(`reaction fallback for ${request.id} contradicts its Temporal Profile`);
+        }
+      }
+    } else if (!candidate.resolution.actions.some((action) =>
+      action.id === decision.replacementAction.id && action.actorId === request.agentId)) {
+      throw new Error(`reaction replacement for ${request.id} is absent from final actions`);
+    }
+  }
+}
+
 function validateCandidateBoundary(
   source: SimulationState,
   actions: readonly AgentActionProposal[],
@@ -283,11 +396,13 @@ function validateCandidateBoundary(
   transitioned: SimulationState,
   maxAutonomousSpanSeconds: number,
   observations: readonly ObservationPacket[],
+  policyRoster: Readonly<Record<string, PolicyBinding>>,
 ): void {
   if (candidate.schemaVersion !== WORLD_STEP_CANDIDATE_SCHEMA_VERSION) {
     throw new Error(`world step candidate schema v${WORLD_STEP_CANDIDATE_SCHEMA_VERSION} required`);
   }
   if (candidate.sourceStateHash !== contentHash(source)) throw new Error("execution candidate uses another source state");
+  validateCandidateReactions(source, candidate, policyRoster);
   if (new Set(actions.map((action) => action.actorId)).size !== actions.length) {
     throw new Error("execution candidate contains multiple actions for one Agent");
   }
@@ -322,23 +437,25 @@ function validateCandidateBoundary(
   const planIds = candidate.temporalPlans.map((plan) => plan.id);
   if (new Set(planIds).size !== planIds.length) throw new Error("candidate contains duplicate temporal plans");
   const planningActivities = structuredClone(source.truth.activities);
-  const cancellationTransitions = [] as typeof candidate.activityTransitions;
+  const preBoundaryTransitions = [] as typeof candidate.activityTransitions;
   for (const transition of candidate.activityTransitions) {
     if (transition.fromElapsedSeconds !== source.truth.elapsedSeconds ||
       transition.toElapsedSeconds !== source.truth.elapsedSeconds) continue;
-    if (transition.kind !== "cancelled") {
+    if (transition.kind !== "cancelled" && transition.kind !== "paused") {
       throw new Error(`candidate has unsupported zero-time activity transition ${transition.kind}`);
     }
     const existing = planningActivities[transition.activityId];
     if (!existing || existing.actorId !== transition.actorId) {
       throw new Error(`candidate cancels unknown activity ${transition.activityId}`);
     }
-    const cancelled = cancelActivity(existing, source.truth.elapsedSeconds);
-    if (contentHash(cancelled.transition) !== contentHash(transition)) {
-      throw new Error(`candidate cancellation does not match activity ${transition.activityId}`);
+    const settled = transition.kind === "cancelled"
+      ? cancelActivity(existing, source.truth.elapsedSeconds)
+      : pauseActivity(existing, source.truth.elapsedSeconds);
+    if (contentHash(settled.transition) !== contentHash(transition)) {
+      throw new Error(`candidate pre-boundary transition does not match activity ${transition.activityId}`);
     }
-    planningActivities[transition.activityId] = cancelled.activity;
-    cancellationTransitions.push(structuredClone(cancelled.transition));
+    planningActivities[transition.activityId] = settled.activity;
+    preBoundaryTransitions.push(structuredClone(settled.transition));
   }
   for (const plan of candidate.temporalPlans) {
     validateTemporalPlan(
@@ -366,8 +483,16 @@ function validateCandidateBoundary(
       interactionFootprint: finalActivity.interactionFootprint,
     });
   }
-  for (const transition of cancellationTransitions) {
-    if (!candidate.temporalPlans.some((plan) => plan.actorId === transition.actorId)) {
+  for (const transition of preBoundaryTransitions.filter((entry) => entry.kind === "cancelled")) {
+    const authorizedReaction = candidate.resolution.reactionRequests.some((request) =>
+      request.originalIntent.kind === "ongoing_activity" &&
+      request.originalIntent.activityId === transition.activityId) &&
+      candidate.resolution.reactionDecisions.some((decision) =>
+        decision.requestId === candidate.resolution.reactionRequests.find((request) =>
+          request.originalIntent.kind === "ongoing_activity" &&
+          request.originalIntent.activityId === transition.activityId)?.id &&
+        (decision.kind === "replace" || decision.ongoingActivityDisposition === "cancel"));
+    if (!candidate.temporalPlans.some((plan) => plan.actorId === transition.actorId) && !authorizedReaction) {
       throw new Error(`candidate cancels activity ${transition.activityId} without a replacement plan`);
     }
   }
@@ -384,6 +509,20 @@ function validateCandidateBoundary(
   });
   if (contentHash(expectedBoundary) !== contentHash(candidate.temporalBoundary)) {
     throw new Error("candidate did not select the earliest trusted temporal boundary");
+  }
+  const expectedTimerDependencies = expectedBoundary.dueTimerIds.map((timerId) =>
+    interactionDependencyForTimer(source, source.truth.timers[timerId]!));
+  const actualTimerDependencies = candidate.interactionDependencies
+    .filter((dependency) => dependency.kind === "timer");
+  if (contentHash(actualTimerDependencies) !== contentHash(expectedTimerDependencies)) {
+    throw new Error("candidate Timer interaction dependencies do not match the trusted boundary");
+  }
+  const expectedConditionDependencies = expectedBoundary.dueConditionIds.map((conditionId) =>
+    interactionDependencyForCondition(source, source.truth.conditions[conditionId]!));
+  const actualConditionDependencies = candidate.interactionDependencies
+    .filter((dependency) => dependency.kind === "condition");
+  if (contentHash(actualConditionDependencies) !== contentHash(expectedConditionDependencies)) {
+    throw new Error("candidate Condition interaction dependencies do not match the trusted boundary");
   }
   const dueActivityActors = new Set(expectedBoundary.dueActivityIds.map((activityId) => {
     const activity = planningActivities[activityId];
@@ -430,14 +569,40 @@ function validateCandidateBoundary(
     activities: planningActivities,
     timers: source.truth.timers,
   });
-  expectedTemporal.transitions = [...cancellationTransitions, ...expectedTemporal.transitions];
+  expectedTemporal.transitions = [...preBoundaryTransitions, ...expectedTemporal.transitions];
+  const reactionDecisionPoints = preBoundaryTransitions.flatMap((transition) => {
+    const request = candidate.resolution.reactionRequests.find((entry) =>
+      entry.originalIntent.kind === "ongoing_activity" &&
+      entry.originalIntent.activityId === transition.activityId);
+    const decision = request && candidate.resolution.reactionDecisions.find((entry) =>
+      entry.requestId === request.id);
+    return decision?.kind === "keep" && decision.ongoingActivityDisposition !== "continue"
+      ? [{
+          agentId: transition.actorId,
+          reason: "activity_interrupted" as const,
+          activityId: transition.activityId,
+          timerId: null,
+        }]
+      : [];
+  });
+  expectedTemporal.decisionPoints = [...new Map([
+    ...expectedTemporal.decisionPoints,
+    ...reactionDecisionPoints,
+  ].map((point) => [
+    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
+    point,
+  ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
   expectedTemporal = reconcileTemporalOutcomes(expectedTemporal, candidate.resolution.proposal.outcomes);
 
   const actionDependencies = candidate.interactionDependencies
     .filter((dependency) => dependency.kind === "action");
   const currentActionIds = new Set(actions.map((action) => action.id));
   const expectedAffectedActivityIds = new ActivityFootprintIndex(planningActivities)
-    .affectedBy(actionDependencies)
+    .affectedBy([
+      ...actionDependencies,
+      ...expectedTimerDependencies,
+      ...expectedConditionDependencies,
+    ])
     .filter((activityId) => !currentActionIds.has(planningActivities[activityId]!.sourceActionId));
   const actualActivityDependencies = candidate.interactionDependencies
     .filter((dependency) => dependency.kind === "activity")
@@ -460,16 +625,32 @@ function validateCandidateBoundary(
   const contextActivityIds = [...new Set([
     ...expectedAffectedActivityIds,
     ...expectedBoundary.dueActivityIds,
+    ...candidate.resolution.reactionRequests.flatMap((request) =>
+      request.originalIntent.kind === "ongoing_activity" ? [request.originalIntent.activityId] : []),
   ])].sort();
   const preContextState = applyTransitionProposal(source, candidate.resolution.proposal, {
     activities: expectedTemporal.activities,
     timers: expectedTemporal.timers,
   });
+  const preTransitionState = structuredClone(source);
+  preTransitionState.truth.activities = structuredClone(planningActivities);
+  const preserveActiveActivityIds = new Set(candidate.resolution.reactionDecisions.flatMap((decision) => {
+    if (decision.kind !== "keep" || decision.ongoingActivityDisposition !== "continue") return [];
+    const request = candidate.resolution.reactionRequests.find((entry) => entry.id === decision.requestId);
+    if (!request) return [];
+    if (request.originalIntent.kind === "ongoing_activity") return [request.originalIntent.activityId];
+    const preparedActionId = request.originalIntent.actionId;
+    const activity = Object.values(expectedTemporal.activities).find((entry) =>
+      entry.sourceActionId === preparedActionId);
+    return activity ? [activity.id] : [];
+  }));
   const settled = settleActivityContexts({
+    preTransitionState,
     state: preContextState,
     temporal: expectedTemporal,
     activityIds: contextActivityIds,
     relevantObserverIds: relevantExternalObservers,
+    preserveActiveActivityIds,
   });
   expectedTemporal = settled.temporal;
   if (contentHash(expectedTemporal.activities) !== contentHash(candidate.temporalState.activities) ||
@@ -592,6 +773,7 @@ export class CanonicalCommitter {
       transitioned,
       maxAutonomousSpanSeconds,
       observations,
+      policyRoster,
     );
     validateStepDiagnostics(
       source,

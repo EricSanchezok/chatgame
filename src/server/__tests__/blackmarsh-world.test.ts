@@ -226,7 +226,7 @@ describe("Blackmarsh reference world", () => {
       },
       rulePackages: [expect.objectContaining({ id: "core-resolution", version: "2.0.0" })],
     });
-    expect(definition.initialState.schemaVersion).toBe(11);
+    expect(definition.initialState.schemaVersion).toBe(12);
     expect(definition.description).toContain("Robert Conley");
     expect(definition.description).toContain("batintheattic.blogspot.com");
     expect(definition.description).toContain("creativecommons.org/licenses/by/4.0");
@@ -587,6 +587,6 @@ describe("Blackmarsh reference world", () => {
     });
     expect(completed.state).toMatchObject({ revision: 1, step: 1 });
     expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(48);
-    expect(provider.requests.some((request) => request.role === "truth-perception")).toBe(true);
+    expect(provider.requests.some((request) => request.role === "truth-perception")).toBe(false);
   }, 30_000);
 });

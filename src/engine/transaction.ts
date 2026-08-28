@@ -588,10 +588,18 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
       throw new Error(`step ${step.step} resolution receipt ${receipt.id} is not deterministic`);
     }
     const outcome = step.outcomes.find((candidate) => candidate.proposalId === plan.actionId);
-    const activityIsContinuing = Object.values(step.temporalState.activities).some((activity) =>
-      activity.sourceActionId === plan.actionId &&
-      (activity.status === "active" || activity.status === "paused"));
-    if (!outcome || outcome.status !== expectedActionStatus(receipt) || activityIsContinuing === receipt.settled) {
+    const actionActivity = Object.values(step.temporalState.activities).find((activity) =>
+      activity.sourceActionId === plan.actionId);
+    const activityIsContinuing = Boolean(actionActivity &&
+      (actionActivity.status === "active" || actionActivity.status === "paused"));
+    const disposition = actionActivity && step.activityDispositions.find((entry) =>
+      entry.activityId === actionActivity.id);
+    const temporallyTerminated = disposition?.kind === "block" || disposition?.kind === "fail" ||
+      disposition?.kind === "cancel";
+    const validTemporalTermination = temporallyTerminated && !receipt.settled && receipt.operations.length === 0 &&
+      outcome?.status === expectedActionStatus(receipt);
+    if (!outcome || (!validTemporalTermination &&
+      (outcome.status !== expectedActionStatus(receipt) || activityIsContinuing === receipt.settled))) {
       throw new Error(`step ${step.step} resolution receipt ${receipt.id} contradicts temporal settlement`);
     }
   }
@@ -1030,8 +1038,10 @@ export function validateSimulationState(state: SimulationState, requireNextActio
         ref.kind === "condition" && Boolean(state.truth.conditions[ref.id]);
       if (!known) throw new Error(`activity ${id} footprint references unknown ${ref.kind} ${ref.id}`);
     }
-    if (activity.interactionFootprint.audienceAgentIds.some((agentId) => !state.agents[agentId])) {
-      throw new Error(`activity ${id} footprint references unknown audience Agent`);
+    const unknownAudienceAgentId = activity.interactionFootprint.audienceAgentIds
+      .find((agentId) => !state.agents[agentId]);
+    if (unknownAudienceAgentId) {
+      throw new Error(`activity ${id} footprint references unknown audience Agent ${unknownAudienceAgentId}`);
     }
   }
   validateActivityResources(state.truth.activities, state.truth.mechanics.activityResources);

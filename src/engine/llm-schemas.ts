@@ -630,8 +630,17 @@ export const persistedObservationSchema = z.strictObject({
 });
 
 export const reactionRequestSchema = z.strictObject({
+  id: runtimeIdSchema,
   agentId: semanticIdSchema,
-  sourceActionId: safeIdSchema,
+  triggerActionId: safeIdSchema,
+  originalIntent: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("prepared_action"), actionId: safeIdSchema }),
+    z.strictObject({
+      kind: z.literal("ongoing_activity"),
+      activityId: runtimeIdSchema,
+      sourceActionId: safeIdSchema,
+    }),
+  ]),
   stimulus: persistedObservationSchema,
   basis: z.array(z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("shared_placement"), placementId: safeIdSchema }),
@@ -659,12 +668,17 @@ export type ReactionRequestDraft = z.infer<typeof reactionRequestDraftSchema>;
 
 export const reactionDecisionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
+    requestId: runtimeIdSchema,
+    source: z.enum(["model", "external", "replay", "profile_fallback"]),
     agentId: semanticIdSchema,
     baseRevision: z.number().int().nonnegative(),
     originalProposalId: safeIdSchema,
     kind: z.literal("keep"),
+    ongoingActivityDisposition: z.enum(["continue", "pause", "cancel"]),
   }),
   z.strictObject({
+    requestId: runtimeIdSchema,
+    source: z.enum(["model", "external", "replay", "profile_fallback"]),
     agentId: semanticIdSchema,
     baseRevision: z.number().int().nonnegative(),
     originalProposalId: safeIdSchema,

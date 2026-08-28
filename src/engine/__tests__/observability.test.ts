@@ -204,7 +204,7 @@ describe("model context measurements", () => {
     const failingAlgorithm: WorldExecutionAlgorithm = {
       manifest: eager.manifest,
       bootstrap: eager.bootstrap.bind(eager),
-      async step(_input, context) {
+      async prepareStep(_input, context) {
         context.modelScope.observer?.emit({
           event: "model.invocation.started",
           correlation: { modelInvocationId: "discarded-invocation", modelRole: "agent-mind" },
@@ -223,6 +223,7 @@ describe("model context measurements", () => {
           .toThrow("runtime event is engine-owned: step.committed");
         throw new Error("candidate generation interrupted");
       },
+      completeStep: eager.completeStep.bind(eager),
     };
     const observer = new RecordingRuntimeObserver({ mode: "metrics" });
     const engine = new SimulationEngine(definition, failingAlgorithm);

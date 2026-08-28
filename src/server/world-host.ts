@@ -8,11 +8,15 @@ import type {
   AlgorithmRef,
   ExecutionProducerManifest,
   ExternalActionInput,
+  ExternalReactionInput,
   PolicyBinding,
   WorldAdvanceRequest,
+  WorldStepPreparation,
 } from "../engine/execution";
 import {
   defineEngineOperationManifest,
+  StepPreparationInvalidatedError,
+  WORLD_STEP_PREPARATION_SCHEMA_VERSION,
   WorldExecutionAlgorithmRegistry,
 } from "../engine/execution";
 import { arrivalDraftSchema } from "../engine/llm-schemas";
@@ -48,6 +52,7 @@ import type {
   PublicInstanceDetail,
   PublicInstanceSummary,
   SubmitExternalActionInput,
+  SubmitExternalReactionInput,
   WorldRunControlInput,
   WorldStartOptions,
 } from "../shared/world-api";
@@ -273,7 +278,8 @@ function conversationFor(
       ? "committed"
       : run?.status === "failed"
         ? "failed"
-        : run?.status === "paused" || run?.status === "budget-paused"
+        : run?.status === "paused" || run?.status === "budget-paused" ||
+          run?.status === "preparation-invalidated"
           ? "paused"
         : run?.status === "running" || run?.status === "queued" || run?.status === "pausing"
           ? "running"
@@ -437,7 +443,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v16",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v17",
       );
       const databaseFile = path.join(dataRoot, "livingworld.sqlite");
       const database = new LocalDatabase(databaseFile);
@@ -556,6 +562,7 @@ export class WorldHost {
     trigger: string,
     manifest: ExecutionProducerManifest,
     policyBindings: Readonly<Record<string, PolicyBinding>> = document.policyBindings,
+    parentExecutionId?: string,
   ) {
     if (!this.options.ledger) return undefined;
     const id = randomUUID();
@@ -564,6 +571,7 @@ export class WorldHost {
     const trace = this.options.ledger.beginExecution({
       id,
       kind,
+      ...(parentExecutionId ? { parentExecutionId } : {}),
       instanceId: document.id,
       step: document.state.step,
       manifest,
@@ -625,7 +633,7 @@ export class WorldHost {
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 16,
+      schemaVersion: 17,
       id,
       world: toWorldRuntimeContract(definition),
       executionAlgorithm: structuredClone(this.defaultAlgorithmRef),
@@ -640,6 +648,7 @@ export class WorldHost {
       scheduler: { mode: "paused", generation: 1, nextTickAt: null },
       runs: {},
       participantIntents: [],
+      reactionSubmissions: [],
     };
     const algorithm = this.registry.create(initial.executionAlgorithm, {
       provider: this.options.provider,
@@ -906,6 +915,10 @@ export class WorldHost {
     const allAgents = Object.keys(document.state.agents).length;
     const active = activeParticipants(document);
     const controlled = active.find((participant) => participant.principalId === principalId);
+    const visibleReactionAgentId = document.actionWindow?.kind === "reaction" && controlled &&
+      document.actionWindow.requests[controlled.agentId]
+      ? controlled.agentId
+      : null;
     const run = currentRun(document);
     const activity = controlled ? Object.values(document.state.truth.activities)
       .filter((candidate) => candidate.actorId === controlled.agentId)
@@ -921,12 +934,27 @@ export class WorldHost {
       })),
       actionWindow: document.actionWindow && document.actionWindow.status !== "committed" &&
         document.actionWindow.status !== "cancelled" ? {
+          kind: document.actionWindow.kind,
           id: document.actionWindow.id,
+          generation: document.actionWindow.generation,
           baseRevision: document.actionWindow.baseRevision,
-          requiredAgentIds: [...document.actionWindow.requiredAgentIds],
-          submittedAgentIds: Object.keys(document.actionWindow.submissions).sort(),
+          requiredAgentIds: document.actionWindow.kind === "reaction"
+            ? visibleReactionAgentId ? [visibleReactionAgentId] : []
+            : [...document.actionWindow.requiredAgentIds],
+          submittedAgentIds: document.actionWindow.kind === "reaction"
+            ? visibleReactionAgentId && document.actionWindow.submissions[visibleReactionAgentId]
+              ? [visibleReactionAgentId]
+              : []
+            : Object.keys(document.actionWindow.submissions).sort(),
           deadlineAt: document.actionWindow.deadlineAt,
           status: document.actionWindow.status,
+          ...(document.actionWindow.kind === "reaction" && visibleReactionAgentId ? {
+              reaction: {
+                requestId: document.actionWindow.requests[visibleReactionAgentId].id,
+                preparedStepId: document.actionWindow.preparedStepId,
+                stimulus: document.actionWindow.requests[visibleReactionAgentId].stimulus.summary,
+              },
+            } : {}),
         } : null,
       origins: (definition.participation?.origins ?? []).map((origin) => ({
         id: origin.id,
@@ -977,7 +1005,16 @@ export class WorldHost {
       }
       const document = structuredClone(stored.document);
       const existing = currentRun(document);
-      if (existing && ["queued", "running", "pausing", "paused", "budget-paused"].includes(existing.status)) {
+      if (existing && [
+        "queued",
+        "running",
+        "pausing",
+        "paused",
+        "budget-paused",
+        "awaiting-decision",
+        "awaiting-reaction",
+        "preparation-invalidated",
+      ].includes(existing.status)) {
         throw new WorldHostError("another world run is already in progress", 409);
       }
       const requiredAgentIds = externalDecisionAgentIds(document);
@@ -1001,6 +1038,7 @@ export class WorldHost {
       ? new Date(this.now().getTime() + document.runtime.actionWindowMs).toISOString()
       : null;
     return {
+      kind: "decision",
       id: this.idFactory(),
       generation: 1,
       baseRevision: document.state.revision,
@@ -1093,10 +1131,13 @@ export class WorldHost {
     }
     const runGeneration = runRecord.generation;
     const window = document.actionWindow;
-    const effectiveRoster = structuredClone(document.policyBindings);
+    const effectiveRoster = structuredClone(
+      window?.kind === "reaction" ? window.policyRoster : document.policyBindings,
+    );
     const externalActions: ExternalActionInput[] = [];
+    const externalReactions: ExternalReactionInput[] = [];
     let timeoutNoops = 0;
-    if (window) {
+    if (window?.kind === "decision") {
       window.status = "resolving";
       for (const agentId of window.requiredAgentIds) {
         const submission = window.submissions[agentId];
@@ -1106,6 +1147,14 @@ export class WorldHost {
           timeoutNoops += 1;
         }
       }
+    } else if (window?.kind === "reaction") {
+      window.status = "resolving";
+      externalReactions.push(...window.requiredAgentIds.flatMap((agentId) => {
+        const submission = window.submissions[agentId];
+        if (submission) return [structuredClone(submission)];
+        timeoutNoops += 1;
+        return [];
+      }));
     }
     const algorithm = this.registry.create(document.executionAlgorithm, {
       provider: this.options.provider,
@@ -1117,6 +1166,7 @@ export class WorldHost {
       runRecord.trigger,
       algorithm.manifest,
       effectiveRoster,
+      window?.kind === "reaction" ? window.preparationExecutionId : undefined,
     );
     if (execution) runRecord.executionIds.push(execution.id);
     const definition = this.definition(document);
@@ -1128,10 +1178,30 @@ export class WorldHost {
     const request: WorldAdvanceRequest = {
       expectedRevision: document.state.revision,
       trigger: runRecord.trigger,
-      externalActions,
+      externalActions: window?.kind === "reaction"
+        ? structuredClone(window.advanceRequest.externalActions)
+        : window?.kind === "decision"
+          ? externalActions
+          : runRecord.committedRevisions.length === 0
+            ? structuredClone(runRecord.rootIntents)
+          : [],
     };
     const controller = new AbortController();
     this.runControllers.set(runId, controller);
+    const modelScope = {
+      workloadId: document.id,
+      batchId: window?.kind === "reaction"
+        ? `complete:${window.preparedStepId}`
+        : `prepare:${document.state.revision + 1}`,
+      correlation: {
+        executionId: execution?.id,
+        instanceId: document.id,
+        revision: document.state.revision,
+        step: document.state.step + 1,
+      },
+      observer: execution?.trace ?? this.runtimeObserver,
+      abortSignal: controller.signal,
+    };
     try {
       execution?.trace.emit({
         event: "action_window.resolved",
@@ -1147,18 +1217,97 @@ export class WorldHost {
             : 0,
         },
       });
-      const result = await engine.step(effectiveRoster, request, {
-        workloadId: document.id,
-        batchId: `step:${document.state.revision + 1}`,
-        correlation: {
-          executionId: execution?.id,
-          instanceId: document.id,
-          revision: document.state.revision,
-          step: document.state.step + 1,
-        },
-        observer: execution?.trace ?? this.runtimeObserver,
-        abortSignal: controller.signal,
-      });
+      let preparation: WorldStepPreparation;
+      if (window?.kind === "reaction") {
+        const artifact = this.options.ledger?.artifact(window.preparationArtifactHash);
+        const value = artifact?.value as WorldStepPreparation | undefined;
+        const valid = artifact?.executionId === window.preparationExecutionId && value &&
+          value.schemaVersion === WORLD_STEP_PREPARATION_SCHEMA_VERSION &&
+          value.id === window.preparedStepId && value.sourceStateHash === window.sourceStateHash &&
+          value.algorithmManifestHash === window.algorithmManifestHash &&
+          value.policyRosterHash === window.policyRosterHash &&
+          value.sourceStateHash === contentHash(document.state) &&
+          value.algorithmManifestHash === algorithm.manifest.hash &&
+          value.policyRosterHash === contentHash(effectiveRoster) &&
+          value.requestHash === contentHash(request);
+        if (!valid) {
+          throw new StepPreparationInvalidatedError(
+            "persisted step preparation no longer matches the canonical run",
+          );
+        }
+        preparation = structuredClone(value);
+      } else {
+        preparation = await engine.prepareStep(effectiveRoster, request, modelScope);
+        if (preparation.pendingReactionRequests.length > 0) {
+          if (!execution || !this.options.ledger || !isAtomicStore(this.options.store)) {
+            throw new Error("external reaction preparation requires an atomic Execution Ledger");
+          }
+          const artifactHash = this.options.ledger.putExecutionArtifact(
+            execution.id,
+            "world-step-preparation",
+            preparation,
+          );
+          const requiredAgentIds = preparation.pendingReactionRequests.map((entry) => entry.agentId).sort();
+          const deadlineAt = document.runtime.actionWindowMs > 0
+            ? new Date(this.now().getTime() + document.runtime.actionWindowMs).toISOString()
+            : null;
+          document.actionWindow = {
+            kind: "reaction",
+            id: this.idFactory(),
+            generation: 1,
+            baseRevision: document.state.revision,
+            requiredAgentIds,
+            submissions: {},
+            deadlineAt,
+            status: "open",
+            preparedStepId: preparation.id,
+            preparationArtifactHash: artifactHash,
+            preparationExecutionId: execution.id,
+            sourceStateHash: preparation.sourceStateHash,
+            algorithmManifestHash: preparation.algorithmManifestHash,
+            policyRosterHash: preparation.policyRosterHash,
+            policyRoster: structuredClone(effectiveRoster),
+            advanceRequest: structuredClone(request),
+            requests: Object.fromEntries(preparation.pendingReactionRequests.map((entry) => [
+              entry.agentId,
+              structuredClone(entry),
+            ])),
+          };
+          runRecord.status = "awaiting-reaction";
+          runRecord.stopReason = "external-reaction-required";
+          runRecord.updatedAt = this.now().toISOString();
+          document.updatedAt = runRecord.updatedAt;
+          this.runControllers.delete(runId);
+          const finish: FinishExecutionInput = {
+            status: "succeeded",
+            stateHash: contentHash(document.state),
+          };
+          const latest = this.read(document.id);
+          const latestRun = latest.document.runs[runId];
+          if (!latestRun || latestRun.generation !== runGeneration || latestRun.status !== "running" ||
+            latest.document.state.revision !== request.expectedRevision) {
+            const cancelled = new Error("world run generation changed before preparation persisted");
+            cancelled.name = "AbortError";
+            this.failExecution(execution.id, cancelled);
+            return latest;
+          }
+          return this.options.store.compareAndSwapInstanceAndFinishExecution(
+            document.id,
+            latest.generation,
+            document,
+            execution.id,
+            finish,
+            "instance",
+          ).instance;
+        }
+      }
+      const result = await engine.completePreparedStep(
+        effectiveRoster,
+        request,
+        preparation,
+        externalReactions,
+        modelScope,
+      );
       this.runControllers.delete(runId);
       document.state = result.state;
       for (const agent of Object.values(document.state.agents)) {
@@ -1260,8 +1409,13 @@ export class WorldHost {
       const failed = structuredClone(latest.document);
       const failedRun = failed.runs[runId];
       if (!failedRun || failedRun.generation !== runGeneration) return latest;
-      failedRun.status = error instanceof Error && error.name === "AbortError" ? "paused" : "failed";
-      failedRun.stopReason = error instanceof Error && error.name === "AbortError" ? "user-paused" : "execution-failed";
+      const invalidated = error instanceof StepPreparationInvalidatedError;
+      failedRun.status = invalidated
+        ? "preparation-invalidated"
+        : error instanceof Error && error.name === "AbortError" ? "paused" : "failed";
+      failedRun.stopReason = invalidated
+        ? "step-preparation-invalidated"
+        : error instanceof Error && error.name === "AbortError" ? "user-paused" : "execution-failed";
       failedRun.error = error instanceof Error ? error.message : String(error);
       failedRun.updatedAt = this.now().toISOString();
       failed.actionWindow = null;
@@ -1327,7 +1481,7 @@ export class WorldHost {
       if (run.status !== "awaiting-decision") throw new WorldHostError("another world run is already in progress", 409);
       if (!document.actionWindow) document.actionWindow = this.openWindow(document, requiredAgentIds);
       const window = document.actionWindow;
-      if (window.status !== "open" || window.baseRevision !== input.expectedRevision) {
+      if (window.kind !== "decision" || window.status !== "open" || window.baseRevision !== input.expectedRevision) {
         throw new WorldHostError("the current action window is not accepting actions", 409);
       }
       const existing = window.submissions[participant.agentId];
@@ -1353,6 +1507,93 @@ export class WorldHost {
       const complete = window.requiredAgentIds.every((agentId) => window.submissions[agentId]);
       if (complete) {
         run.rootIntents = window.requiredAgentIds.map((agentId) => structuredClone(window.submissions[agentId]!));
+        run.status = "queued";
+        run.stopReason = null;
+        run.lease = null;
+        run.generation += 1;
+      }
+      run.updatedAt = this.now().toISOString();
+      document.updatedAt = run.updatedAt;
+      const persisted = this.persist(stored, document).document;
+      return { document: persisted, runId: run.id, complete };
+    });
+    if (accepted.complete) this.scheduleRun(instanceId, accepted.runId);
+    else if (accepted.document.actionWindow) this.scheduleWindowDeadline(accepted.document);
+    return this.project(accepted.document, principalId);
+  }
+
+  async submitReaction(
+    instanceId: string,
+    participantId: string,
+    input: SubmitExternalReactionInput,
+    principalId = "local",
+  ): Promise<PublicInstanceDetail> {
+    const accepted = await this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
+      const document = structuredClone(stored.document);
+      const participant = document.participants[participantId];
+      if (!participant || participant.status !== "active" || participant.principalId !== principalId) {
+        throw new WorldHostError("active participant not found", 404);
+      }
+      const submissionId = input.submissionId.trim();
+      if (!submissionId || submissionId.length > 128) {
+        throw new WorldHostError("invalid reaction submission identity", 400);
+      }
+      const text = input.kind === "replace" ? input.text.trim() : null;
+      if (input.kind === "replace" && (!text || text.length > 4_000)) {
+        throw new WorldHostError("reaction must contain 1–4000 characters", 400);
+      }
+      const prior = document.reactionSubmissions.find((entry) => entry.submissionId === submissionId);
+      if (prior) {
+        if (prior.participantId !== participantId || prior.preparedStepId !== input.preparedStepId ||
+          prior.kind !== input.kind || prior.text !== text) {
+          throw new WorldHostError("submission identity was already used for another reaction", 409);
+        }
+        return { document, runId: prior.runId, complete: false };
+      }
+      const window = document.actionWindow;
+      const run = currentRun(document);
+      if (!window || window.kind !== "reaction" || !run || run.status !== "awaiting-reaction" ||
+        window.status !== "open" || window.id !== input.windowId || window.generation !== input.generation ||
+        window.preparedStepId !== input.preparedStepId || window.baseRevision !== input.expectedRevision ||
+        document.state.revision !== input.expectedRevision) {
+        throw new WorldHostError("the reaction window is stale or closed", 409);
+      }
+      const request = window.requests[participant.agentId];
+      if (!request || !window.requiredAgentIds.includes(participant.agentId)) {
+        throw new WorldHostError("participant has no private reaction request", 409);
+      }
+      if (window.submissions[participant.agentId]) {
+        throw new WorldHostError("this Agent already submitted a reaction", 409);
+      }
+      window.submissions[participant.agentId] = input.kind === "keep" ? {
+        submissionId,
+        requestId: request.id,
+        agentId: participant.agentId,
+        kind: "keep",
+      } : {
+        submissionId,
+        requestId: request.id,
+        agentId: participant.agentId,
+        kind: "replace",
+        rawText: text!,
+        goal: text!,
+        means: null,
+        targetIds: [],
+      };
+      document.reactionSubmissions.push({
+        participantId,
+        agentId: participant.agentId,
+        runId: run.id,
+        preparedStepId: window.preparedStepId,
+        requestId: request.id,
+        submissionId,
+        kind: input.kind,
+        text,
+        submittedAt: this.now().toISOString(),
+      });
+      const complete = window.requiredAgentIds.every((agentId) => Boolean(window.submissions[agentId]));
+      if (complete) {
         run.status = "queued";
         run.stopReason = null;
         run.lease = null;
@@ -1407,7 +1648,8 @@ export class WorldHost {
       const next = structuredClone(stored.document);
       const run = next.runs[input.runId];
       if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
-      if (run.status !== "paused" && run.status !== "budget-paused") {
+      if (run.status !== "paused" && run.status !== "budget-paused" &&
+        run.status !== "preparation-invalidated") {
         throw new WorldHostError("world run cannot be resumed", 409);
       }
       run.generation += 1;
@@ -1447,6 +1689,15 @@ export class WorldHost {
       const reconcileActionWindow = (): string | null => {
         const window = document.actionWindow;
         if (!window) return null;
+        if (window.kind === "reaction") {
+          document.actionWindow = null;
+          if (activeRun?.status === "awaiting-reaction") {
+            activeRun.status = "preparation-invalidated";
+            activeRun.stopReason = "control-transferred-during-reaction";
+            activeRun.updatedAt = this.now().toISOString();
+          }
+          return null;
+        }
         const requiredAgentIds = externalDecisionAgentIds(document);
         if (requiredAgentIds.length === 0) {
           document.actionWindow = null;
@@ -1642,9 +1893,13 @@ export class WorldHost {
         const window = next.actionWindow;
         if (!window || window.id !== document.actionWindow!.id || window.status !== "open") return;
         const run = currentRun(next);
-        if (!run || run.status !== "awaiting-decision") return;
-        run.rootIntents = window.requiredAgentIds.flatMap((agentId) =>
-          window.submissions[agentId] ? [structuredClone(window.submissions[agentId]!)] : []);
+        if (!run ||
+          (window.kind === "decision" && run.status !== "awaiting-decision") ||
+          (window.kind === "reaction" && run.status !== "awaiting-reaction")) return;
+        if (window.kind === "decision") {
+          run.rootIntents = window.requiredAgentIds.flatMap((agentId) =>
+            window.submissions[agentId] ? [structuredClone(window.submissions[agentId]!)] : []);
+        }
         run.status = "queued";
         run.stopReason = null;
         run.lease = null;

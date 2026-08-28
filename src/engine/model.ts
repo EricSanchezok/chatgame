@@ -813,8 +813,12 @@ export interface CharacterPatch {
 }
 
 export interface ReactionRequest {
+  id: string;
   agentId: AgentId;
-  sourceActionId: string;
+  triggerActionId: string;
+  originalIntent:
+    | { kind: "prepared_action"; actionId: string }
+    | { kind: "ongoing_activity"; activityId: string; sourceActionId: string };
   stimulus: ObservationPacket;
   basis: Array<
     | { kind: "shared_placement"; placementId: EntityId }
@@ -825,12 +829,17 @@ export interface ReactionRequest {
 
 export type ReactionDecision =
   | {
+      requestId: string;
+      source: "model" | "external" | "replay" | "profile_fallback";
       agentId: AgentId;
       baseRevision: number;
       originalProposalId: string;
       kind: "keep";
+      ongoingActivityDisposition: "continue" | "pause" | "cancel";
     }
   | {
+      requestId: string;
+      source: "model" | "external" | "replay" | "profile_fallback";
       agentId: AgentId;
       baseRevision: number;
       originalProposalId: string;

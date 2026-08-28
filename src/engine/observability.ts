@@ -67,6 +67,13 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
   }>;
   counts: Readonly<{ mindFallbacks: number }>;
 } | {
+  event: "algorithm.agent_reaction.repair_fallback";
+  attributes: Readonly<{
+    phase: "reaction";
+    policy: "temporal-profile-fallback";
+  }>;
+  counts: Readonly<{ reactionFallbacks: number }>;
+} | {
   event: "algorithm.grounding.global_fallback";
   attributes: Readonly<{ phase: "grounding"; reasons: string }>;
   counts: Readonly<{ normalizedGroundingFields: number; globalFallbacks: number }>;
@@ -329,6 +336,14 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
     attributeValues: {
       phase: ["bootstrap", "resume", "mind"],
       policy: ["empty-patch-and-idle-action"],
+    },
+  },
+  "algorithm.agent_reaction.repair_fallback": {
+    attributes: ["phase", "policy"],
+    counts: ["reactionFallbacks"],
+    attributeValues: {
+      phase: ["reaction"],
+      policy: ["temporal-profile-fallback"],
     },
   },
   "algorithm.grounding.global_fallback": {

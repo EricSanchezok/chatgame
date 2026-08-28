@@ -15,6 +15,7 @@ import type {
   ModelExecutionAudit,
   ObservationPacket,
   ReactionDecision,
+  ReactionRequest,
   SimulationState,
   WorldEvent,
 } from "./model";
@@ -183,15 +184,19 @@ function validateReactionDecision(
   agent: AgentState,
   revision: number,
   originalAction: AgentActionProposal,
-  stimulus: ObservationPacket,
+  request: ReactionRequest,
   decision: ReactionDecisionDraft,
 ): ReactionDecision {
+  const stimulus = request.stimulus;
   if (decision.kind === "keep") {
     return {
+      requestId: request.id,
+      source: "model",
       agentId: agent.id,
       baseRevision: revision,
       originalProposalId: originalAction.id,
       kind: "keep",
+      ongoingActivityDisposition: "continue",
     };
   }
 
@@ -206,6 +211,8 @@ function validateReactionDecision(
     }
   }
   return {
+    requestId: request.id,
+    source: "model",
     agentId: agent.id,
     baseRevision: revision,
     originalProposalId: originalAction.id,
@@ -370,9 +377,10 @@ export class AgentMind {
     state: SimulationState,
     agent: AgentState,
     originalAction: AgentActionProposal,
-    stimulus: ObservationPacket,
+    request: ReactionRequest,
     scope: ModelExecutionScope,
   ): Promise<ReactionDecision & { modelAudit: ModelExecutionAudit }> {
+    const stimulus = request.stimulus;
     let issues: PromptValidationIssue[] = [];
     const audits: ModelExecutionAudit[] = [];
     let lastError = "unknown Agent reaction validation failure";
@@ -421,7 +429,7 @@ export class AgentMind {
           agent,
           state.revision,
           originalAction,
-          stimulus,
+          request,
           result.value,
         );
         setModelInvocationResultKind(result.audit, `reaction_${validated.kind}`);

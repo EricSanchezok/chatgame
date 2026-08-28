@@ -150,7 +150,7 @@ export interface ActivityDisposition {
   kind: ActivityDispositionKind;
   reason: string;
   effectiveAtSeconds: number;
-  assertionResults: CausalAssertionResult[];
+  assertionResults: Array<CausalAssertionResult & { phase: "pre_transition" | "post_transition" }>;
 }
 
 export interface WorldTimer {
@@ -994,10 +994,12 @@ function replaceActivityTransition(
 }
 
 export function settleActivityContexts(input: {
+  preTransitionState: Readonly<SimulationState>;
   state: Readonly<SimulationState>;
   temporal: Readonly<TemporalAdvanceResult>;
   activityIds: readonly string[];
   relevantObserverIds: ReadonlySet<AgentId>;
+  preserveActiveActivityIds: ReadonlySet<string>;
 }): { temporal: TemporalAdvanceResult; dispositions: ActivityDisposition[] } {
   const temporal = structuredClone(input.temporal) as TemporalAdvanceResult;
   const relevantActivityIds = new Set(input.activityIds);
@@ -1008,7 +1010,7 @@ export function settleActivityContexts(input: {
     activity: Readonly<ActivityState>,
     kind: ActivityDispositionKind,
     reason: string,
-    assertionResults: CausalAssertionResult[],
+    assertionResults: ActivityDisposition["assertionResults"],
   ): void => {
     const disposition = {
       activityId: activity.id,
@@ -1024,9 +1026,14 @@ export function settleActivityContexts(input: {
   for (const activityId of [...relevantActivityIds].sort()) {
     let activity = temporal.activities[activityId];
     if (!activity) throw new Error(`activity context references unknown activity ${activityId}`);
+    const preActivity = input.preTransitionState.truth.activities[activityId] ?? activity;
+    const preAssertionResults = evaluateActivityContinuation(input.preTransitionState, preActivity)
+      .map((result) => ({ ...result, phase: "pre_transition" as const }));
     const evaluationState = structuredClone(input.state) as SimulationState;
     evaluationState.truth.activities = structuredClone(temporal.activities);
-    const assertionResults = evaluateActivityContinuation(evaluationState, activity);
+    const postAssertionResults = evaluateActivityContinuation(evaluationState, activity)
+      .map((result) => ({ ...result, phase: "post_transition" as const }));
+    const assertionResults = [...preAssertionResults, ...postAssertionResults];
     if (activity.status === "active" && assertionResults.some((result) => !result.passed)) {
       const fromStatus = activity.status;
       activity = structuredClone(activity);
@@ -1043,7 +1050,8 @@ export function settleActivityContexts(input: {
       addDisposition(activity, "block", "continuation_assertion_failed", assertionResults);
       continue;
     }
-    if (activity.status === "active" && activity.plan.interruptible &&
+    if (activity.status === "active" && !input.preserveActiveActivityIds.has(activity.id) &&
+      activity.plan.interruptible &&
       activity.participantAgentIds.some((agentId) => input.relevantObserverIds.has(agentId))) {
       const fromStatus = activity.status;
       activity = structuredClone(activity);
@@ -1091,7 +1099,13 @@ export function settleActivityContexts(input: {
       temporal.activities[current.id] = paused;
       replaceActivityTransition(temporal, paused, "paused", current.status);
       if (!dispositionByActivity.has(current.id)) {
-        addDisposition(paused, "pause", `decision_point:${point.reason}`, evaluateActivityContinuation(input.state, current));
+        addDisposition(paused, "pause", `decision_point:${point.reason}`, [
+          ...evaluateActivityContinuation(input.preTransitionState,
+            input.preTransitionState.truth.activities[current.id] ?? current)
+            .map((result) => ({ ...result, phase: "pre_transition" as const })),
+          ...evaluateActivityContinuation(input.state, current)
+            .map((result) => ({ ...result, phase: "post_transition" as const })),
+        ]);
       }
     }
     retainedDecisionPoints.push(point);

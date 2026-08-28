@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ActivityFootprintIndex,
   affectedActivityIdsExhaustive,
+  interactionDependencyForCondition,
+  interactionDependencyForTimer,
   interactionDependencyComponents,
   normalizeInteractionDependency,
 } from "../action-dependency";
@@ -74,6 +76,67 @@ describe("action dependencies", () => {
       globalFallback: true,
     });
     expect(normalized.fallbackReasons).toEqual(["unknown_audience_agent", "unknown_entity"]);
+  });
+
+  it("grounds Timer and Condition context nodes from canonical state", () => {
+    const state = {
+      agents: { a: { id: "a", entityId: "entity-a" } },
+      truth: {
+        entities: { "entity-a": { id: "entity-a" } },
+        facts: { dawn: { id: "dawn" } },
+        meters: {},
+        quantities: {},
+        ratings: {},
+        conditions: {
+          alert: {
+            id: "alert",
+            subjectId: "entity-a",
+            access: { kind: "agents", agentIds: ["a"] },
+          },
+        },
+      },
+    } as unknown as SimulationState;
+    const timer = {
+      id: "wake-up",
+      wakeAgentIds: ["a"],
+      assertions: [{ kind: "fact_matches", factId: "dawn", predicate: "phase", value: "morning" }],
+    } as unknown as import("../temporal").WorldTimer;
+
+    expect(interactionDependencyForTimer(state, timer)).toEqual({
+      kind: "timer",
+      id: "wake-up",
+      actorId: null,
+      reads: [{ kind: "fact", id: "dawn" }],
+      writes: [],
+      audienceAgentIds: ["a"],
+      globalFallback: false,
+    });
+    expect(interactionDependencyForCondition(state, state.truth.conditions.alert!)).toEqual({
+      kind: "condition",
+      id: "alert",
+      actorId: null,
+      reads: [{ kind: "condition", id: "alert" }],
+      writes: [{ kind: "condition", id: "alert" }],
+      audienceAgentIds: ["a"],
+      globalFallback: false,
+    });
+    const activity = {
+      id: "activity-alert",
+      actorId: "a",
+      status: "active",
+      interactionFootprint: {
+        kind: "activity",
+        id: "activity-alert",
+        actorId: "a",
+        reads: [{ kind: "condition", id: "alert" }],
+        writes: [],
+        audienceAgentIds: ["a"],
+        globalFallback: false,
+      },
+    } as unknown as ActivityState;
+    const conditionDependency = interactionDependencyForCondition(state, state.truth.conditions.alert!);
+    expect(new ActivityFootprintIndex({ [activity.id]: activity }).affectedBy([conditionDependency]))
+      .toEqual([activity.id]);
   });
 
   it("matches the exhaustive affected-Activity oracle across sparse, dense, audience, and global footprints", () => {

@@ -12,7 +12,8 @@ import type {
   SimulationState,
   WorldDeltaOperation,
 } from "./model";
-import type { ActivityState } from "./temporal";
+import type { ConditionState } from "./resolution";
+import type { ActivityState, WorldTimer } from "./temporal";
 import {
   ModelOutputError,
   ModelSemanticRepairError,
@@ -45,7 +46,7 @@ function stableRefs(refs: readonly FootprintRef[]): FootprintRef[] {
     .sort((left, right) => footprintRefKey(left).localeCompare(footprintRefKey(right)));
 }
 
-function continuationAssertionRefs(
+export function causalAssertionFootprintRefs(
   state: Readonly<SimulationState>,
   assertions: readonly CausalAssertion[],
 ): FootprintRef[] {
@@ -85,6 +86,41 @@ function continuationAssertionRefs(
   });
 }
 
+export function interactionDependencyForTimer(
+  state: Readonly<SimulationState>,
+  timer: Readonly<WorldTimer>,
+): InteractionDependency {
+  return {
+    kind: "timer",
+    id: timer.id,
+    actorId: null,
+    reads: stableRefs(causalAssertionFootprintRefs(state, timer.assertions)),
+    writes: [],
+    audienceAgentIds: [...new Set(timer.wakeAgentIds)].sort(),
+    globalFallback: false,
+  };
+}
+
+export function interactionDependencyForCondition(
+  state: Readonly<SimulationState>,
+  condition: Readonly<ConditionState>,
+): InteractionDependency {
+  const audienceAgentIds = condition.access.kind === "public"
+    ? Object.keys(state.agents).sort()
+    : condition.access.kind === "agents"
+      ? [...new Set(condition.access.agentIds)].sort()
+      : [];
+  return {
+    kind: "condition",
+    id: condition.id,
+    actorId: null,
+    reads: [{ kind: "condition", id: condition.id }],
+    writes: [{ kind: "condition", id: condition.id }],
+    audienceAgentIds,
+    globalFallback: false,
+  };
+}
+
 export function unresolvedActivityInteractionFootprint(
   activityId: string,
   actorId: AgentId,
@@ -115,7 +151,7 @@ export function interactionDependencyForActivity(
     actorId: activity.actorId,
     reads: stableRefs([
       ...source.reads,
-      ...continuationAssertionRefs(state, activity.plan.continuationAssertions),
+      ...causalAssertionFootprintRefs(state, activity.plan.continuationAssertions),
     ]),
     writes: stableRefs(source.writes),
     audienceAgentIds: [...new Set([

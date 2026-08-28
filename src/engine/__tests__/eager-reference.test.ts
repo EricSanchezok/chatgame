@@ -312,8 +312,9 @@ describe("eager reference safeguards", () => {
     const forgingAlgorithm: WorldExecutionAlgorithm = {
       manifest: delegate.manifest,
       bootstrap: (input, context) => delegate.bootstrap(input, context),
-      step: async (input, context) => {
-        const candidate = await delegate.step(input, context);
+      prepareStep: (input, context) => delegate.prepareStep(input, context),
+      completeStep: async (input, preparation, reactions, context) => {
+        const candidate = await delegate.completeStep(input, preparation, reactions, context);
         candidate.temporalBoundary.reasons = [{ kind: "safety_horizon" }];
         candidate.temporalBoundary.dueActivityIds = [];
         return candidate;
@@ -342,6 +343,115 @@ describe("eager reference safeguards", () => {
     expect(contentHash(engine.snapshot)).toBe(before);
   });
 
+  it("records continuation assertions before and after an affected boundary", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "temporal-planner") {
+        const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
+        return {
+          profileId: "brief-action",
+          basis: { kind: "profile" },
+          description: action.rawText,
+          continuationAssertions: [{
+            kind: "elapsed_seconds_compare",
+            operator: "lte",
+            value: 1,
+          }],
+          causes: [{ kind: "action", id: action.id }],
+        };
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const profile = definition.initialState.truth.mechanics.temporalProfiles["brief-action"];
+    if (!profile || profile.kind !== "fixed") throw new Error("fixture brief profile is missing");
+    profile.durationSeconds = 10;
+    profile.checkpointSeconds = 10;
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+
+    const result = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "assertion-boundary",
+        agentId: "player",
+        rawText: "坚持当前动作",
+        goal: "保持动作",
+        means: null,
+        targetIds: [],
+      }],
+    });
+
+    expect(result.committed.temporalBoundary).toMatchObject({
+      deltaSeconds: 2,
+      reasons: [expect.objectContaining({ kind: "activity_assertion" })],
+    });
+    expect(result.committed.activityDispositions).toContainEqual(expect.objectContaining({
+      actorId: "player",
+      kind: "block",
+      reason: "continuation_assertion_failed",
+      assertionResults: [
+        expect.objectContaining({ phase: "pre_transition", passed: true }),
+        expect.objectContaining({ phase: "post_transition", passed: false }),
+      ],
+    }));
+  });
+
+  it("settles a due Condition through a context-only interaction boundary", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, context }) =>
+      deterministicModelOutput(profileId, context));
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.initialState.truth.conditions.alert = {
+      id: "alert",
+      subjectId: definition.initialState.agents.player!.entityId,
+      label: "短暂警觉",
+      description: "在下一个世界秒到期。",
+      magnitude: "minor",
+      durationProfileId: "brief",
+      conditionProfileId: null,
+      stackingKey: null,
+      remainingUses: null,
+      expiresAtElapsedSeconds: 1,
+      access: { kind: "public" },
+      provenance: [{ kind: "law", id: definition.laws[0]!.id }],
+    };
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+
+    const result = await engine.step({
+      player: { kind: "idle", agentId: "player", reason: "explicit" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(result.committed.actions).toEqual([]);
+    expect(result.committed.temporalBoundary).toMatchObject({
+      deltaSeconds: 1,
+      dueConditionIds: ["alert"],
+    });
+    expect(result.committed.mechanicInvocations).toContainEqual(expect.objectContaining({
+      packageId: "core-resolution",
+      ruleId: "advance-conditions",
+    }));
+    expect(result.state.truth.conditions.alert).toBeUndefined();
+  });
+
   it("rejects a candidate whose dependency evidence does not cover final actions", async () => {
     const provider = new ScriptedModelProvider(({ profileId, context }) =>
       deterministicModelOutput(profileId, context));
@@ -353,8 +463,9 @@ describe("eager reference safeguards", () => {
     const forgingAlgorithm: WorldExecutionAlgorithm = {
       manifest: delegate.manifest,
       bootstrap: (input, context) => delegate.bootstrap(input, context),
-      step: async (input, context) => {
-        const candidate = await delegate.step(input, context);
+      prepareStep: (input, context) => delegate.prepareStep(input, context),
+      completeStep: async (input, preparation, reactions, context) => {
+        const candidate = await delegate.completeStep(input, preparation, reactions, context);
         candidate.interactionDependencies = candidate.interactionDependencies.slice(1);
         return candidate;
       },
@@ -388,8 +499,9 @@ describe("eager reference safeguards", () => {
     const forgingAlgorithm: WorldExecutionAlgorithm = {
       manifest: delegate.manifest,
       bootstrap: (input, context) => delegate.bootstrap(input, context),
-      step: async (input, context) => {
-        const candidate = await delegate.step(input, context);
+      prepareStep: (input, context) => delegate.prepareStep(input, context),
+      completeStep: async (input, preparation, reactions, context) => {
+        const candidate = await delegate.completeStep(input, preparation, reactions, context);
         const dependency = candidate.interactionDependencies[0]!;
         dependency.reads = [{ kind: "global", id: "world" }];
         dependency.writes = [{ kind: "global", id: "world" }];
@@ -556,14 +668,17 @@ describe("eager reference safeguards", () => {
     const travel = definition.initialState.truth.mechanics.temporalProfiles["measured-travel"];
     if (!travel || travel.kind !== "rate") throw new Error("fixture travel profile is missing");
     travel.checkpointUnits = 25;
+    definition.initialState.truth.facts = {};
+    definition.initialState.truth.placements[definition.initialState.agents.keeper!.entityId] = "gate";
     definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
     const delegate = new EagerReferenceAlgorithm(provider);
     let latestCandidate: import("../execution").WorldStepCandidate | undefined;
     const algorithm: WorldExecutionAlgorithm = {
       manifest: delegate.manifest,
       bootstrap: (input, context) => delegate.bootstrap(input, context),
-      step: async (input, context) => {
-        latestCandidate = await delegate.step(input, context);
+      prepareStep: (input, context) => delegate.prepareStep(input, context),
+      completeStep: async (input, preparation, reactions, context) => {
+        latestCandidate = await delegate.completeStep(input, preparation, reactions, context);
         return latestCandidate;
       },
     };
@@ -702,23 +817,33 @@ describe("eager reference safeguards", () => {
     });
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
     expect(provider.requests.filter((request) => request.role === "action-grounding"))
-      .toHaveLength(3);
+      .toHaveLength(4);
     expect(provider.requests.filter((request) => request.role === "temporal-planner"))
-      .toHaveLength(3);
+      .toHaveLength(4);
     expect(provider.requests.filter((request) => request.role === "action-grounding")
       .map((request) => (request.context as { action: AgentActionProposal }).action.rawText))
       .toContain("抓起庭院沙土戒备");
   });
 
-  it("rejects a reaction replacement that would move the already selected temporal boundary", async () => {
+  it.each([
+    { replacementSeconds: 1, expectedBoundary: 1 },
+    { replacementSeconds: 5, expectedBoundary: 2 },
+  ])("reselects the temporal boundary for a $replacementSeconds-second onset replacement", async ({
+    replacementSeconds,
+    expectedBoundary,
+  }) => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "temporal-planner") {
         const action = (context as { temporalAction: AgentActionProposal }).temporalAction;
-        if (action.rawText === "开始一段更长的戒备") {
+        if (action.rawText === `进行${replacementSeconds}秒的紧急戒备`) {
           return {
             profileId: "explicit-duration",
-            basis: { kind: "profile" },
-            description: "开始一段更长的戒备",
+            basis: {
+              kind: "explicit_duration",
+              seconds: replacementSeconds,
+              sourceText: `${replacementSeconds}秒`,
+            },
+            description: `进行${replacementSeconds}秒的紧急戒备`,
             continuationAssertions: [],
             causes: [{ kind: "action", id: action.id }],
           };
@@ -732,29 +857,12 @@ describe("eager reference safeguards", () => {
           globalFallback: true,
         };
       }
-      if (role === "truth-perception") {
-        const playerAction = (context as { jointActions: AgentActionProposal[] }).jointActions
-          .find((action) => action.actorId === "player")!;
-        return {
-          kind: "request_reactions",
-          requests: [{
-            agentId: "keeper",
-            sourceActionId: playerAction.id,
-            stimulus: {
-              summary: "旅人突然有所动作。",
-              introductions: [],
-              apparentClaims: [],
-            },
-            basis: [{ kind: "shared_placement", placementId: "courtyard" }],
-          }],
-        };
-      }
       if (role === "agent-reaction") {
         return {
           kind: "replace",
           replacementAction: {
-            rawText: "开始一段更长的戒备",
-            goal: "长期戒备",
+            rawText: `进行${replacementSeconds}秒的紧急戒备`,
+            goal: "立即戒备",
             means: null,
             targetIds: [],
           },
@@ -766,6 +874,86 @@ describe("eager reference safeguards", () => {
       seed: 47,
       modelCatalog: provider.catalog,
     });
+    const brief = definition.initialState.truth.mechanics.temporalProfiles["brief-action"];
+    if (!brief || brief.kind !== "fixed") throw new Error("fixture brief profile is missing");
+    brief.durationSeconds = 2;
+    brief.checkpointSeconds = 2;
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const state = engine.snapshot;
+    const roster = {
+      player: { kind: "external" as const, agentId: "player", participantId: "participant-player" },
+      keeper: {
+        kind: "model" as const,
+        agentId: "keeper",
+        profiles: structuredClone(state.agents.keeper!.modelProfiles),
+      },
+    };
+
+    const request = {
+      expectedRevision: state.revision,
+      trigger: "participant_action" as const,
+      externalActions: [{
+        submissionId: `trigger-${replacementSeconds}`,
+        agentId: "player",
+        rawText: "向前走一步",
+        goal: "向前移动",
+        means: null,
+        targetIds: [],
+      }],
+    };
+    const preparation = await engine.prepareStep(roster, request);
+    const result = await engine.completePreparedStep(roster, request, preparation,
+      preparation.pendingReactionRequests.map((reaction) => ({
+        submissionId: `keep-${reaction.id}`,
+        requestId: reaction.id,
+        agentId: reaction.agentId,
+        kind: "keep" as const,
+      })));
+    expect(result.committed.temporalBoundary).toMatchObject({
+      fromElapsedSeconds: 0,
+      toElapsedSeconds: expectedBoundary,
+      deltaSeconds: expectedBoundary,
+    });
+    expect(result.committed.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rawText: `进行${replacementSeconds}秒的紧急戒备` }),
+      expect.objectContaining({ rawText: "向前走一步" }),
+    ]));
+    const playerActivity = Object.values(result.state.truth.activities)
+      .find((activity) => activity.actorId === "player" && activity.sourceAction.rawText === "向前走一步")!;
+    expect(playerActivity.status).toBe(replacementSeconds === 1 ? "active" : "completed");
+  });
+
+  it.each([
+    { mode: "imperceptible" as const, interruptible: true },
+    { mode: "non-interruptible" as const, interruptible: false },
+  ])("does not open a reaction round for a $mode action onset", async ({ mode, interruptible }) => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-grounding") {
+        return {
+          reads: [{ kind: "global", id: "world" }],
+          writes: [{ kind: "global", id: "world" }],
+          audienceAgentIds: ["keeper", "player"],
+          globalFallback: true,
+        };
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const brief = definition.initialState.truth.mechanics.temporalProfiles["brief-action"];
+    if (!brief || brief.kind !== "fixed") throw new Error("fixture brief profile is missing");
+    brief.durationSeconds = 2;
+    brief.checkpointSeconds = 2;
+    brief.interruptible = interruptible;
+    if (mode === "imperceptible") {
+      definition.initialState.truth.facts = {};
+      definition.initialState.truth.placements[definition.initialState.agents.keeper!.entityId] = "gate";
+    }
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
     const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
     await engine.bootstrapAgents();
     const state = engine.snapshot;
@@ -775,11 +963,18 @@ describe("eager reference safeguards", () => {
       profiles: structuredClone(agent.modelProfiles),
     }]));
 
-    await expect(engine.step(roster, {
+    const result = await engine.step(roster, {
       expectedRevision: state.revision,
       trigger: "manual",
       externalActions: [],
-    })).rejects.toThrow("changes the selected temporal schedule");
-    expect(contentHash(engine.snapshot)).toBe(contentHash(state));
+    });
+
+    expect(result.committed.reactionRequests).toEqual([]);
+    expect(result.committed.temporalBoundary.deltaSeconds).toBe(2);
+    expect(provider.requests.filter((request) => request.role === "agent-reaction")).toEqual([]);
+    for (const point of result.committed.decisionPoints) {
+      expect(Object.values(result.state.truth.activities).some((activity) =>
+        activity.status === "active" && activity.participantAgentIds.includes(point.agentId))).toBe(false);
+    }
   });
 });

@@ -65,6 +65,14 @@ function sourceAction(plan: TemporalPlan) {
 }
 
 describe("event-boundary temporal kernel", () => {
+  it("permits authored reaction fallbacks only on interruptible profiles", () => {
+    expect(() => validateTemporalProfile(fixedProfile({ reactionFallback: "pause" }), resources)).not.toThrow();
+    expect(() => validateTemporalProfile(fixedProfile({
+      interruptible: false,
+      reactionFallback: "cancel",
+    }), resources)).toThrow("non-interruptible");
+  });
+
   it("recognizes grounded Chinese and English explicit durations", () => {
     expect(explicitDurationSeconds("我要睡一天觉")).toBe(86_400);
     expect(explicitDurationSeconds("wait 1.5 hours")).toBe(5_400);
@@ -273,6 +281,54 @@ describe("event-boundary temporal kernel", () => {
       activityId: null,
       timerId: "fire",
     });
+  });
+
+  it("lets a short independent action finish while a long Activity remains occupied", () => {
+    const longPlan = materializeTemporalPlan({
+      id: "plan-sleep",
+      actionId: "action-sleep",
+      actorId: "agent-a",
+      rawText: "睡到早上六点",
+      startsAtSeconds: 0,
+      draft: { ...draft("sleep"), causes: [{ kind: "action", id: "action-sleep" }] },
+      profiles: { sleep: fixedProfile({ id: "sleep", durationSeconds: 28_800, checkpointSeconds: 28_800 }) },
+    });
+    const shortPlan = materializeTemporalPlan({
+      id: "plan-step",
+      actionId: "action-step",
+      actorId: "agent-b",
+      rawText: "向前走一步",
+      startsAtSeconds: 0,
+      draft: { ...draft("step"), causes: [{ kind: "action", id: "action-step" }] },
+      profiles: { step: fixedProfile({ id: "step", durationSeconds: 2, checkpointSeconds: 2 }) },
+    });
+    const sleeping = createActivity({ id: "activity-sleep", plan: longPlan, sourceAction: sourceAction(longPlan) });
+    const walking = createActivity({ id: "activity-step", plan: shortPlan, sourceAction: sourceAction(shortPlan) });
+    const boundary = selectTemporalBoundary({
+      elapsedSeconds: 0,
+      maxAutonomousSpanSeconds: 30_000,
+      activities: { [sleeping.id]: sleeping, [walking.id]: walking },
+      timers: {},
+      conditionExpiries: {},
+    });
+    const advanced = advanceTemporalState({
+      boundary,
+      activities: { [sleeping.id]: sleeping, [walking.id]: walking },
+      timers: {},
+    });
+
+    expect(boundary).toMatchObject({ toElapsedSeconds: 2, deltaSeconds: 2, dueActivityIds: ["activity-step"] });
+    expect(advanced.activities["activity-sleep"]).toMatchObject({
+      status: "active",
+      updatedAtSeconds: 2,
+      nextBoundaryAtSeconds: 28_800,
+    });
+    expect(advanced.decisionPoints).toEqual([{
+      agentId: "agent-b",
+      reason: "activity_completed",
+      activityId: "activity-step",
+      timerId: null,
+    }]);
   });
 
   it("advances staged work and creates a decision point only at completion", () => {

@@ -15,8 +15,13 @@ import {
   type WorldStepCandidate,
   type WorldStepInput,
 } from "../../engine/execution";
+import { historyReplayBaseHash } from "../../engine/history-replay";
 import { contentHash } from "../../engine/model-audit";
-import { DeterministicModelProvider } from "../../engine/testing/model-provider";
+import {
+  DeterministicModelProvider,
+  ScriptedModelProvider,
+  deterministicModelOutput,
+} from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
 import { MemoryWorldRepository } from "../../script/world-repository";
 import { LocalDatabase } from "../local-database";
@@ -84,12 +89,96 @@ const originStart = {
 };
 
 async function waitForRevision(host: WorldHost, instanceId: string, revision: number) {
+  let latest = host.instance(instanceId);
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const detail = host.instance(instanceId);
-    if (detail.summary.revision >= revision) return detail;
+    latest = host.instance(instanceId);
+    if (latest.summary.revision >= revision) return latest;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  throw new Error(`instance ${instanceId} did not reach revision ${revision}`);
+  throw new Error(
+    `instance ${instanceId} did not reach revision ${revision}; ` +
+    `latest revision=${latest.summary.revision}, run=${latest.run?.status}, reason=${latest.run?.stopReason}`,
+  );
+}
+
+async function waitForRunStatus(host: WorldHost, instanceId: string, status: string) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const detail = host.instance(instanceId);
+    if (detail.run?.status === status) return detail;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`instance ${instanceId} did not reach run status ${status}`);
+}
+
+function reactionHarness(input: {
+  now?: () => Date;
+  actionWindowMs?: number;
+  reactionFallback?: "continue_if_valid" | "pause" | "cancel";
+  setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+} = {}) {
+  let keeperGroundings = 0;
+  const travelerId = "courtyard-wanderer-1";
+  const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+    if (role === "temporal-planner") {
+      const action = (context as { temporalAction: { id: string; rawText: string } }).temporalAction;
+      if (action.rawText.includes("100公里")) {
+        return {
+          profileId: "measured-travel",
+          basis: {
+            kind: "explicit_quantity",
+            amount: 100,
+            unit: "公里",
+            sourceText: "100公里",
+          },
+          description: "持续前往一百公里外",
+          continuationAssertions: [],
+          causes: [{ kind: "action", id: action.id }],
+        };
+      }
+    }
+    if (role === "action-grounding") {
+      const action = (context as { action: { actorId: string } }).action;
+      const isKeeper = action.actorId === "keeper";
+      if (isKeeper) keeperGroundings += 1;
+      return {
+        reads: [{ kind: "global", id: "world" }],
+        writes: [{ kind: "global", id: "world" }],
+        audienceAgentIds: isKeeper && keeperGroundings > 1
+          ? ["keeper", travelerId]
+          : [action.actorId],
+        globalFallback: true,
+      };
+    }
+    return deterministicModelOutput(profileId, context);
+  });
+  const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+    seed: 47,
+    modelCatalog: provider.catalog,
+  });
+  definition.runtimeDefaults.maxAutonomousSpanSeconds = 100_000;
+  if (input.actionWindowMs !== undefined) definition.runtimeDefaults.actionWindowMs = input.actionWindowMs;
+  const travel = definition.initialState.truth.mechanics.temporalProfiles["measured-travel"];
+  if (!travel || travel.kind !== "rate") throw new Error("fixture travel profile is missing");
+  travel.reactionFallback = input.reactionFallback ?? "continue_if_valid";
+  definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+  const root = mkdtempSync(path.join(tmpdir(), "lwe-reaction-host-"));
+  roots.push(root);
+  const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
+  let ordinal = 0;
+  const repository = new MemoryWorldRepository({ [definition.id]: definition });
+  const host = new WorldHost({
+    repository,
+    store: database,
+    ledger: database,
+    provider,
+    now: input.now,
+    setTimer: input.setTimer,
+    clearTimer: input.clearTimer,
+    idFactory: () => `reaction-id-${++ordinal}`,
+    maxActiveParticipants: 1,
+  });
+  return { database, host, provider, repository };
 }
 
 describe("World Instance host", () => {
@@ -128,8 +217,8 @@ describe("World Instance host", () => {
         response: { suggestions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(16);
-      expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "3", contractVersion: 2 });
+      expect(stored.schemaVersion).toBe(17);
+      expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "4", contractVersion: 3 });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
         entityId: "courtyard-wanderer-1",
@@ -191,6 +280,274 @@ describe("World Instance host", () => {
       });
       expect(duplicate.summary.revision).toBe(committed.summary.revision);
       expect(database.readInstance(created.summary.id).document.participantIntents).toHaveLength(1);
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
+  it("persists a private reaction window and completes it in a child execution", async () => {
+    const { database, host } = reactionHarness();
+    try {
+      const created = await host.createInstance(originStart);
+      const participant = created.participants[0]!;
+      await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "start-long-travel",
+        expectedRevision: created.summary.revision,
+        text: "我沿道路走向100公里外的城镇。",
+      });
+
+      const waiting = await waitForRunStatus(host, created.summary.id, "awaiting-reaction");
+      expect(waiting.summary.revision).toBe(created.summary.revision + 1);
+      expect(waiting.actionWindow).toMatchObject({
+        kind: "reaction",
+        baseRevision: waiting.summary.revision,
+        submittedAgentIds: [],
+        reaction: {
+          preparedStepId: expect.any(String),
+          stimulus: expect.any(String),
+        },
+      });
+      const storedWaiting = database.readInstance(created.summary.id).document;
+      const window = storedWaiting.actionWindow;
+      if (!window || window.kind !== "reaction") throw new Error("reaction window was not persisted");
+      const preparation = database.artifact(window.preparationArtifactHash);
+      expect(preparation).toMatchObject({
+        executionId: window.preparationExecutionId,
+        value: { id: window.preparedStepId },
+      });
+      expect(database.execution(window.preparationExecutionId)).toMatchObject({ status: "succeeded" });
+      expect(database.execution(window.preparationExecutionId)?.commitRevision).toBeUndefined();
+      expect(Object.values(window.requests)[0]).toMatchObject({
+        agentId: participant.agentId,
+        originalIntent: { kind: "ongoing_activity" },
+        basis: expect.any(Array),
+      });
+      expect(waiting.actionWindow).not.toHaveProperty("basis");
+      expect(host.instance(created.summary.id, "observer-without-control").actionWindow).toMatchObject({
+        kind: "reaction",
+        requiredAgentIds: [],
+        submittedAgentIds: [],
+      });
+      expect(host.instance(created.summary.id, "observer-without-control").actionWindow)
+        .not.toHaveProperty("reaction");
+
+      await expect(host.submitReaction(created.summary.id, participant.id, {
+        submissionId: "stale-reaction",
+        windowId: window.id,
+        generation: window.generation + 1,
+        preparedStepId: window.preparedStepId,
+        expectedRevision: waiting.summary.revision,
+        kind: "keep",
+      })).rejects.toMatchObject({ status: 409 });
+
+      await host.submitReaction(created.summary.id, participant.id, {
+        submissionId: "keep-travelling",
+        windowId: window.id,
+        generation: window.generation,
+        preparedStepId: window.preparedStepId,
+        expectedRevision: waiting.summary.revision,
+        kind: "keep",
+      });
+      const committed = await waitForRevision(host, created.summary.id, waiting.summary.revision + 1);
+      expect(committed.summary.revision).toBe(waiting.summary.revision + 1);
+      const children = database.executions({ parentExecutionId: window.preparationExecutionId });
+      expect(children).toContainEqual(expect.objectContaining({
+        status: "succeeded",
+        commitRevision: committed.summary.revision,
+      }));
+      expect(database.readInstance(created.summary.id).document.reactionSubmissions)
+        .toContainEqual(expect.objectContaining({
+          submissionId: "keep-travelling",
+          preparedStepId: window.preparedStepId,
+          kind: "keep",
+        }));
+      const playerActivity = Object.values(database.readInstance(created.summary.id).document.state.truth.activities)
+        .find((activity) => activity.actorId === participant.agentId && activity.plan.mode === "rate")!;
+      expect(playerActivity.status).toBe("active");
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
+  it("invalidates a missing preparation without mutation and retries only on explicit resume", async () => {
+    const { database, host, provider, repository } = reactionHarness();
+    try {
+      const created = await host.createInstance(originStart);
+      const participant = created.participants[0]!;
+      await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "travel-before-corruption",
+        expectedRevision: created.summary.revision,
+        text: "我沿道路走向100公里外的城镇。",
+      });
+      const waiting = await waitForRunStatus(host, created.summary.id, "awaiting-reaction");
+      const stored = database.readInstance(created.summary.id);
+      const corrupted = structuredClone(stored.document);
+      const oldWindow = corrupted.actionWindow;
+      if (!oldWindow || oldWindow.kind !== "reaction") throw new Error("reaction window was not persisted");
+      oldWindow.preparationArtifactHash = "missing-preparation-artifact";
+      database.compareAndSwapInstance(created.summary.id, stored.generation, corrupted);
+
+      await host.submitReaction(created.summary.id, participant.id, {
+        submissionId: "keep-after-corruption",
+        windowId: oldWindow.id,
+        generation: oldWindow.generation,
+        preparedStepId: oldWindow.preparedStepId,
+        expectedRevision: waiting.summary.revision,
+        kind: "keep",
+      });
+      const invalidated = await waitForRunStatus(host, created.summary.id, "preparation-invalidated");
+      expect(invalidated.summary.revision).toBe(waiting.summary.revision);
+      expect(invalidated.actionWindow).toBeNull();
+      const invalidatedRun = database.readInstance(created.summary.id).document.runs[invalidated.run!.id]!;
+      expect(invalidatedRun).toMatchObject({
+        status: "preparation-invalidated",
+        stopReason: "step-preparation-invalidated",
+        error: expect.stringContaining("no longer matches"),
+      });
+
+      const callsBeforeRestart = provider.requests.length;
+      const recoveredHost = new WorldHost({
+        repository,
+        store: database,
+        ledger: database,
+        provider,
+      });
+      expect(recoveredHost.instance(created.summary.id).run?.status).toBe("preparation-invalidated");
+      expect(provider.requests).toHaveLength(callsBeforeRestart);
+
+      await recoveredHost.resumeRun(created.summary.id, {
+        runId: invalidated.run!.id,
+        generation: invalidated.run!.generation,
+      });
+      const retried = await waitForRunStatus(recoveredHost, created.summary.id, "awaiting-reaction");
+      expect(retried.summary.revision).toBe(waiting.summary.revision);
+      expect(retried.actionWindow).toMatchObject({ kind: "reaction" });
+      expect(retried.actionWindow?.id).not.toBe(oldWindow.id);
+      expect(provider.requests.length).toBeGreaterThan(callsBeforeRestart);
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
+  it("retains a submitted reaction across restart and completes only after explicit resume", async () => {
+    const { database, host, provider, repository } = reactionHarness();
+    try {
+      const created = await host.createInstance(originStart);
+      const participant = created.participants[0]!;
+      await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "travel-before-restart",
+        expectedRevision: created.summary.revision,
+        text: "我沿道路走向100公里外的城镇。",
+      });
+      const waiting = await waitForRunStatus(host, created.summary.id, "awaiting-reaction");
+      const stored = database.readInstance(created.summary.id);
+      const interrupted = structuredClone(stored.document);
+      const window = interrupted.actionWindow;
+      if (!window || window.kind !== "reaction") throw new Error("reaction window was not persisted");
+      const run = Object.values(interrupted.runs)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))[0]!;
+      const request = window.requests[participant.agentId]!;
+      window.submissions[participant.agentId] = {
+        submissionId: "keep-before-restart",
+        requestId: request.id,
+        agentId: participant.agentId,
+        kind: "keep",
+      };
+      run.status = "queued";
+      run.stopReason = null;
+      run.lease = null;
+      run.generation += 1;
+      database.compareAndSwapInstance(created.summary.id, stored.generation, interrupted);
+
+      const recoveredHost = new WorldHost({
+        repository,
+        store: database,
+        ledger: database,
+        provider,
+      });
+      const recovered = recoveredHost.instance(created.summary.id);
+      expect(recovered).toMatchObject({
+        summary: { revision: waiting.summary.revision },
+        run: { status: "paused" },
+        actionWindow: { kind: "reaction", submittedAgentIds: [participant.agentId] },
+      });
+      await recoveredHost.resumeRun(created.summary.id, {
+        runId: recovered.run!.id,
+        generation: recovered.run!.generation,
+      });
+      const committed = await waitForRevision(
+        recoveredHost,
+        created.summary.id,
+        waiting.summary.revision + 1,
+      );
+      expect(committed.summary.revision).toBe(waiting.summary.revision + 1);
+      expect(database.readInstance(created.summary.id).document.state.history.at(-1)?.reactionDecisions)
+        .toContainEqual(expect.objectContaining({
+          requestId: request.id,
+          source: "external",
+          kind: "keep",
+        }));
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
+  it("applies the Activity profile fallback when an external reaction times out", async () => {
+    let now = new Date("2026-08-28T12:00:00.000Z");
+    let timerOrdinal = 0;
+    const timers = new Map<number, { callback: () => void | Promise<void>; delayMs: number }>();
+    const { database, host } = reactionHarness({
+      now: () => now,
+      actionWindowMs: 100,
+      reactionFallback: "pause",
+      setTimer: (callback, delayMs) => {
+        const id = ++timerOrdinal;
+        timers.set(id, { callback, delayMs });
+        return id as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimer: (timer) => { timers.delete(timer as unknown as number); },
+    });
+    const runNext = async (predicate: (entry: { delayMs: number }) => boolean) => {
+      const entry = [...timers.entries()].find(([, value]) => predicate(value));
+      if (!entry) throw new Error("expected scheduled callback was not found");
+      timers.delete(entry[0]);
+      await entry[1].callback();
+    };
+    try {
+      const created = await host.createInstance(originStart);
+      const participant = created.participants[0]!;
+      await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "travel-until-reaction-timeout",
+        expectedRevision: created.summary.revision,
+        text: "我沿道路走向100公里外的城镇。",
+      });
+      await runNext(({ delayMs }) => delayMs === 0);
+      const waiting = host.instance(created.summary.id);
+      expect(waiting.run?.status).toBe("awaiting-reaction");
+      const requestId = waiting.actionWindow?.reaction?.requestId;
+      expect(requestId).toBeTruthy();
+
+      now = new Date(now.getTime() + 100);
+      await runNext(({ delayMs }) => delayMs > 0);
+      await runNext(({ delayMs }) => delayMs === 0);
+      const committed = host.instance(created.summary.id);
+      expect(committed.summary.revision).toBe(waiting.summary.revision + 1);
+      const boundary = database.readInstance(created.summary.id).document.state.history
+        .find((step) => step.revision === committed.summary.revision)!;
+      expect(boundary.reactionDecisions).toContainEqual(expect.objectContaining({
+        requestId,
+        source: "profile_fallback",
+        kind: "keep",
+        ongoingActivityDisposition: "pause",
+      }));
+      const playerActivity = Object.values(boundary.temporalState.activities)
+        .find((activity) => activity.actorId === participant.agentId && activity.plan.mode === "rate")!;
+      expect(playerActivity.status).toBe("paused");
+      expect(boundary.decisionPoints).toContainEqual(expect.objectContaining({
+        agentId: participant.agentId,
+        activityId: playerActivity.id,
+        reason: "activity_interrupted",
+      }));
     } finally {
       database.close();
     }
@@ -451,7 +808,7 @@ describe("World Instance host", () => {
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
       (legacy as unknown as { schemaVersion: number }).schemaVersion = 13;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v16 required");
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v17 required");
 
       const invalidPolicy = structuredClone(source);
       (invalidPolicy.policyBindings.player as { kind: string }).kind = "unknown";
@@ -459,6 +816,7 @@ describe("World Instance host", () => {
 
       const invalidWindow = structuredClone(source);
       invalidWindow.actionWindow = {
+        kind: "decision",
         id: "window",
         generation: 1,
         baseRevision: source.state.revision,
@@ -486,8 +844,16 @@ describe("World Instance host", () => {
       bootstrap(input: Readonly<BootstrapInput>, context: ExecutionContext): Promise<BootstrapCandidate> {
         return this.delegate.bootstrap(input, context);
       }
-      step(input: Readonly<WorldStepInput>, context: ExecutionContext): Promise<WorldStepCandidate> {
-        return this.delegate.step(input, context);
+      prepareStep(input: Readonly<WorldStepInput>, context: ExecutionContext) {
+        return this.delegate.prepareStep(input, context);
+      }
+      completeStep(
+        input: Readonly<WorldStepInput>,
+        preparation: Readonly<import("../../engine/execution").WorldStepPreparation>,
+        reactions: readonly import("../../engine/execution").ExternalReactionInput[],
+        context: ExecutionContext,
+      ): Promise<WorldStepCandidate> {
+        return this.delegate.completeStep(input, preparation, reactions, context);
       }
     }
     const registry = new WorldExecutionAlgorithmRegistry();

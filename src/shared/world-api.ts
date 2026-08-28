@@ -1,7 +1,7 @@
 import type { AgentPerspectiveView } from "../engine/model";
 export type { AgentPerspectiveView, BeliefValue, PerspectiveFactValue } from "../engine/model";
 
-export const WORLD_API_VERSION = 9 as const;
+export const WORLD_API_VERSION = 10 as const;
 
 export interface WorldSummary {
   id: string;
@@ -25,6 +25,8 @@ export type WorldRunStatus =
   | "pausing"
   | "paused"
   | "awaiting-decision"
+  | "awaiting-reaction"
+  | "preparation-invalidated"
   | "completed"
   | "failed"
   | "budget-paused";
@@ -67,12 +69,19 @@ export interface PublicWorldRun {
 }
 
 export interface PublicActionWindow {
+  kind: "decision" | "reaction";
   id: string;
+  generation: number;
   baseRevision: number;
   requiredAgentIds: string[];
   submittedAgentIds: string[];
   deadlineAt: string | null;
   status: "open" | "resolving";
+  reaction?: {
+    requestId: string;
+    preparedStepId: string;
+    stimulus: string;
+  };
 }
 
 export interface ParticipantSummary {
@@ -145,6 +154,25 @@ export interface WorldRunControlInput {
   runId: string;
   generation: number;
 }
+
+export type SubmitExternalReactionInput =
+  | {
+      submissionId: string;
+      windowId: string;
+      generation: number;
+      preparedStepId: string;
+      expectedRevision: number;
+      kind: "keep";
+    }
+  | {
+      submissionId: string;
+      windowId: string;
+      generation: number;
+      preparedStepId: string;
+      expectedRevision: number;
+      kind: "replace";
+      text: string;
+    };
 
 export type CreateInstanceInput = {
   worldId: string;

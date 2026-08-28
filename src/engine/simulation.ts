@@ -5,9 +5,11 @@ import type {
   ExecutionContext,
   ExecutionTraceWriter,
   PolicyBinding,
+  ExternalReactionInput,
   WorldAdvanceRequest,
   WorldExecutionAlgorithm,
   WorldStepCandidate,
+  WorldStepPreparation,
 } from "./execution";
 import { decisionEligibleAgentIds, resolutionObservations } from "./execution";
 import { createHistoryReplayBase } from "./history-replay";
@@ -39,6 +41,13 @@ export interface WorldAdvanceSequenceResult {
   status: "completed" | "awaiting_external" | "step_limit";
   steps: CommittedStep[];
   state: SimulationState;
+}
+
+export class StepReactionRequiredError extends Error {
+  constructor(readonly preparation: WorldStepPreparation) {
+    super("world step requires external reactions before completion");
+    this.name = "StepReactionRequiredError";
+  }
 }
 
 const validatedSnapshotHashes = new WeakMap<SimulationState, string>();
@@ -457,10 +466,14 @@ export class SimulationEngine {
     }
   }
 
-  async step(
+  private async executeStep(
     policyRoster: Readonly<Record<string, PolicyBinding>>,
     request: Readonly<WorldAdvanceRequest>,
     scope?: ModelExecutionScope,
+    prepared?: Readonly<{
+      preparation: WorldStepPreparation;
+      reactions: readonly ExternalReactionInput[];
+    }>,
   ): Promise<WorldStepResult> {
     const source = structuredClone(this.state);
     if (request.expectedRevision !== source.revision) {
@@ -499,13 +512,30 @@ export class SimulationEngine {
       },
     });
     try {
-      const candidate = await this.algorithm.step({
+      const stepInput = {
         definition: structuredClone(this.definition),
         state: structuredClone(source),
         policyRoster: structuredClone(policyRoster),
         request: structuredClone(request),
         decisionEligibleAgentIds: eligibleAgentIds,
-      }, context);
+      };
+      const preparation = prepared?.preparation ?? await this.algorithm.prepareStep(stepInput, context);
+      trace.emit({
+        event: "execution.preparation.persisted",
+        attributes: { phase: "step" },
+        hashes: { preparation: contentHash(preparation) },
+        payload: preparation,
+      });
+      if (!prepared && preparation.pendingReactionRequests.length > 0) {
+        trace.flush();
+        throw new StepReactionRequiredError(preparation);
+      }
+      const candidate = await this.algorithm.completeStep(
+        stepInput,
+        preparation,
+        prepared?.reactions ?? [],
+        context,
+      );
       validateCandidateModelAudits(candidate.modelAudits, source);
       generatedModelCalls = candidate.modelAudits.reduce((sum, audit) => sum + audit.invocations.length, 0);
       const generatedInvocations = candidate.modelAudits.flatMap((audit) => audit.invocations);
@@ -580,6 +610,69 @@ export class SimulationEngine {
       trace.flush();
       throw error;
     }
+  }
+
+  async step(
+    policyRoster: Readonly<Record<string, PolicyBinding>>,
+    request: Readonly<WorldAdvanceRequest>,
+    scope?: ModelExecutionScope,
+  ): Promise<WorldStepResult> {
+    return this.executeStep(policyRoster, request, scope);
+  }
+
+  async prepareStep(
+    policyRoster: Readonly<Record<string, PolicyBinding>>,
+    request: Readonly<WorldAdvanceRequest>,
+    scope?: ModelExecutionScope,
+  ): Promise<WorldStepPreparation> {
+    const source = structuredClone(this.state);
+    if (request.expectedRevision !== source.revision) {
+      throw new Error(`world advance expected revision ${request.expectedRevision}; current revision is ${source.revision}`);
+    }
+    const executionScope = scope ?? {
+      workloadId: `simulation:${source.worldId}`,
+      batchId: `prepare:${source.revision}:${source.step + 1}`,
+    };
+    const { context, trace } = createExecutionContext(executionScope, source);
+    const eligibleAgentIds = decisionEligibleAgentIds(
+      source,
+      request.externalActions.map((action) => action.agentId),
+    );
+    const stepInput = {
+      definition: structuredClone(this.definition),
+      state: structuredClone(source),
+      policyRoster: structuredClone(policyRoster),
+      request: structuredClone(request),
+      decisionEligibleAgentIds: eligibleAgentIds,
+    };
+    trace.emit({
+      event: "step.preparation.started",
+      hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
+      payload: stepInput,
+    });
+    const preparation = await this.algorithm.prepareStep(stepInput, context);
+    validateCandidateModelAudits(preparation.modelAudits, source);
+    trace.emit({
+      event: "execution.preparation.persisted",
+      attributes: { phase: "step" },
+      hashes: { preparation: contentHash(preparation) },
+      payload: preparation,
+    });
+    trace.flush();
+    return structuredClone(preparation);
+  }
+
+  async completePreparedStep(
+    policyRoster: Readonly<Record<string, PolicyBinding>>,
+    request: Readonly<WorldAdvanceRequest>,
+    preparation: Readonly<WorldStepPreparation>,
+    reactions: readonly ExternalReactionInput[],
+    scope?: ModelExecutionScope,
+  ): Promise<WorldStepResult> {
+    return this.executeStep(policyRoster, request, scope, {
+      preparation: structuredClone(preparation),
+      reactions: structuredClone(reactions),
+    });
   }
 
   async runUntilBoundary(

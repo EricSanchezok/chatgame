@@ -290,6 +290,7 @@ const temporalReasonLabel = {
   activity_completion: "活动完成",
   timer: "定时器到期",
   condition_expiry: "条件检查",
+  activity_assertion: "活动前提检查",
   safety_horizon: "无人干预推进上限",
 } as const;
 
@@ -308,6 +309,7 @@ function TemporalAudit({ actorId, detail }: { actorId: string; detail: WorldInsp
   const plans = detail.committed.temporalPlans.filter((plan) => relevant(plan.actorId));
   const transitions = detail.committed.activityTransitions.filter((transition) => relevant(transition.actorId));
   const decisions = detail.committed.decisionPoints.filter((point) => relevant(point.agentId));
+  const dispositions = detail.committed.activityDispositions.filter((entry) => relevant(entry.actorId));
   const activitySnapshots = (activities: typeof detail.committed.temporalState.activities) => Object.fromEntries(
     Object.entries(activities).filter(([, activity]) => relevant(activity.actorId)),
   );
@@ -369,6 +371,24 @@ function TemporalAudit({ actorId, detail }: { actorId: string; detail: WorldInsp
         {transitions.length > 0
           ? <JsonBlock label="查看活动转换" value={transitions} />
           : <p className="cg-inspector-inline-empty">当前视角没有活动转换。</p>}
+      </DetailSection>
+      <DetailSection
+        count={`${dispositions.length} 项`}
+        description="每个到期或受影响的持续 Activity 都必须得到明确结论"
+        icon={Waypoints}
+        title="ActivityDisposition"
+      >
+        {dispositions.length > 0
+          ? <JsonBlock label="查看结论与断言证据" value={dispositions} />
+          : <p className="cg-inspector-inline-empty">当前视角没有需要结算的持续 Activity。</p>}
+      </DetailSection>
+      <DetailSection
+        count={`${detail.interaction.dependencies.length} 个节点`}
+        description="Action、Activity、Timer 与 Condition 按读写和受众依赖组成冲突分量"
+        icon={Waypoints}
+        title="交互依赖图"
+      >
+        <JsonBlock label="查看依赖、分量与全局重裁决" value={detail.interaction} />
       </DetailSection>
       <DetailSection
         count={`${decisions.length} 个`}

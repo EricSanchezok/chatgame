@@ -120,6 +120,24 @@ function modelAuditsForStep(events: readonly RuntimeEvent[], step: CommittedStep
     : [];
 }
 
+function interactionEvidenceForStep(events: readonly RuntimeEvent[], step: CommittedStep) {
+  const candidate = events.find((event) => event.event === "execution.candidate.persisted" &&
+    event.attributes?.phase === "step" && event.correlation?.executionId === step.executionRef?.executionId);
+  const payload = candidate?.payload as {
+    interactionDependencies?: unknown;
+    diagnostics?: { dependencyComponents?: unknown; globalReadjudication?: unknown };
+  } | undefined;
+  return {
+    dependencies: Array.isArray(payload?.interactionDependencies)
+      ? structuredClone(payload.interactionDependencies) as import("../engine/execution").InteractionDependency[]
+      : [],
+    components: Array.isArray(payload?.diagnostics?.dependencyComponents)
+      ? structuredClone(payload.diagnostics.dependencyComponents) as string[][]
+      : [],
+    globalReadjudication: payload?.diagnostics?.globalReadjudication === true,
+  };
+}
+
 interface ProjectedStep {
   summary: WorldInspectorStepSummary;
   nodes: WorldInspectorNodeSummary[];
@@ -190,7 +208,7 @@ function projectStep(
   for (const request of committed.reactionRequests) {
     const id = `reaction:${revision}:${request.agentId}`;
     nodes.push({ id, revision, laneId: request.agentId, kind: "reaction", label: "反应窗口", description: request.stimulus.summary });
-    const source = references.get(`action:${request.sourceActionId}`);
+    const source = references.get(`action:${request.triggerActionId}`);
     if (source) addEdge(source, id, "observes", "刺激");
     addEdge(id, commitId, "commits", "反应决定");
   }
@@ -506,6 +524,7 @@ export function buildWorldInspectorStepDetail(
     apiVersion: WORLD_INSPECTOR_API_VERSION,
     summary: projection.summary,
     committed: { ...structuredClone(committed), modelAudits: audits },
+    interaction: interactionEvidenceForStep(runtimeEvents, committed),
     before: snapshot(before),
     after: snapshot(after),
     runtimeEvents: executionEvents.map(summarizeRuntimeEvent),

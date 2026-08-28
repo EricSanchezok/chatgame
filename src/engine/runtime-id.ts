@@ -17,7 +17,9 @@ export type RuntimeIdKind =
   | "model-audit"
   | "temporal-plan"
   | "activity"
-  | "timer";
+  | "timer"
+  | "reaction-request"
+  | "step-preparation";
 
 export interface RuntimeIdInput {
   worldHash: string;
