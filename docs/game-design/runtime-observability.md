@@ -16,9 +16,9 @@ execution kind 只有 `interactive | diagnostic | benchmark | replay`。Benchmar
 
 ## 执行边界
 
-执行契约 v2 的 `WorldExecutionAlgorithm` 只生成 `BootstrapCandidate` 或 `WorldStepCandidate`。每个 World Instance 固定一个包含 ID、版本、contract version 与 manifest hash 的 `AlgorithmRef`；生产与 replay 都经校验 registry 构造独立算法实例。`CanonicalCommitter` 独立验证 Candidate v2 的来源、action dependency、引用、受众、时间结果、单份 model audits 与 mind commits，并从 resolution 统一派生 Observation。唯一内置算法 `eager-reference@3` 按决策点激活 Agent，预提交时间活动，按行动 dependency、冲突分量、ResolutionPlan/Receipt、分批 Observation 和 AgentMind 执行，最后只进行一次全局原子提交。
+执行契约 v3 的 `WorldExecutionAlgorithm` 生成 `BootstrapCandidate`，并用 `prepareStep` / `completeStep` 生成 Candidate v3。每个 World Instance 固定一个包含 ID、版本、contract version 与 manifest hash 的 `AlgorithmRef`；生产与 replay 都经校验 registry 构造独立算法实例。`CanonicalCommitter` 独立验证四类 interaction dependency、最早边界、ActivityDisposition、assertion evidence、引用、受众、单份 model audits 与 mind commits，并从 resolution 统一派生 Observation。唯一内置算法 `eager-reference@4` 在边界选择前完成有限 onset reaction，再进行一次正时间原子提交。
 
-WorldHost 为 bootstrap、每个 WorldRun 时间边界和 Arrival 建立 execution。成功世界推进时，World Instance CAS、WorldRun revision 列表与 execution terminal record 在同一 SQLite 事务内完成；失败、取消、暂停、repair 耗尽、迟到结果或关键记录失败均不推进 revision。World Instance document schema 为 v16，旧实例不迁移；修改 host 默认算法不会改变已存在实例。
+WorldHost 为 bootstrap、每个 WorldRun 时间边界和 Arrival 建立 execution。成功世界推进时，World Instance CAS、WorldRun revision 列表与 execution terminal record 在同一 SQLite 事务内完成；失败、取消、暂停、repair 耗尽、迟到结果或关键记录失败均不推进 revision。World Instance document schema 为 v17，旧实例不迁移；修改 host 默认算法不会改变已存在实例。
 
 原子事务在 terminal event 固定后生成 `{executionId, terminalEventSequence, traceHash}`。`traceHash` 覆盖事件身份、DAG、属性、计数、correlation、错误与 artifact 引用；运行时长和资源测量不进入该 hash。bootstrap 保存 `bootstrapExecutionRef`，每个 `CommittedStep` 保存自己的 `executionRef`；`contentHash` 覆盖引用，`semanticHash` 排除引用，从而分别验证证据链和算法语义。
 

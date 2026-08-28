@@ -1,7 +1,7 @@
 # Causal Activity interactions at event boundaries
 
 Artifact-Version: 1
-Status: Approved
+Status: Implemented
 
 ## Intent
 
@@ -43,4 +43,8 @@ Run `npm run check:fast`, `npm run world:validate -- worlds/blackmarsh/world`, `
 
 ## Evidence
 
-Pending implementation.
+Implemented in world and Simulation schema 12, WorldInstance schema 17, WorldStepCandidate schema 3, World API 10, Inspector API 4, preparation schema 1, execution contract 3, and `eager-reference@4`. The permanent measurement contract and command live in the [causal Activity benchmark reference](../game-design/causal-activity-benchmark.md), and the selected architecture is recorded in [decision 0073](../decisions/0073-stage-reactions-before-temporal-boundary-selection.md).
+
+`npm run check:fast` passed lint, generated-route TypeScript, 242 unit/integration tests in 38 files, the shared world fixture, workflow verification, and all six governance gates. `npm run world:validate -- worlds/blackmarsh/world` accepted 232 entities and 48 Agents. `npm run build` completed the production Next.js build, including the Participant reaction route. `npx playwright test --project=e2e --project=a11y` passed 11 end-to-end and 4 accessibility flows.
+
+`npm run benchmark:causal` completed 80 scenarios from 4 Agent scales, 4 conflict densities, and 5 Activity types with semantic pass and affected-Activity recall at 100%, false activation and causal-ordering violations at zero, and deterministic replay agreement. On the verification machine the worst recorded p95 footprint lookup was 15.845 ms, peak observed heap was 74,320,736 bytes, maximum serialized benchmark artifact was 1,449,962 bytes, and the largest interaction component contained 2,000 nodes; these wall-clock and memory values are evidence, not portable CI thresholds.

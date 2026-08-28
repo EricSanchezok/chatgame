@@ -5,7 +5,7 @@ Tests are executable evidence that a meaningful regression becomes visible befor
 ## Test topology
 
 - Vitest tests are colocated as `src/**/__tests__/*.test.ts`, `src/**/*.test.tsx`, and focused library tests under `src/app/_lib/__tests__/`; `vitest.config.ts` selects the unit project and `test/setup.ts` owns shared jsdom setup.
-- `test/fixtures/open-world-script/` is the shared schema v11 world fixture. It proves the generic contract and is not built-in playable content.
+- `test/fixtures/open-world-script/` is the shared schema v12 world fixture. It proves the generic contract and is not built-in playable content.
 - Playwright flows live under `e2e/flows/`, accessibility coverage under `e2e/a11y/`, shared support under `e2e/support/`, and platform-specific visual baselines beside the owning visual flow. `playwright.config.ts` selects the e2e and a11y projects.
 - `worlds/blackmarsh/` is the real reference-world entry used for structural and live compatibility checks.
 
@@ -24,7 +24,7 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - Remote-model tests never print credentials, prompts, or raw responses and never replace deterministic semantic gates.
 - A regression test fails for the escaped behavior before the fix and passes afterward, unless an existing deterministic reproduction already owns the contract.
 
-## `eager-reference@3`
+## `eager-reference@4`
 
 - Only decision-eligible model and external Agents produce new actions. Active Activities reuse their committed source action only when due; occupied, idle, and timed-out Agents produce no replacement action or noop.
 - Grounding covers intersecting read/write/audience footprints, independent components, unknown-dependency global fallback, cross-component merge, and the rule that private IDs never enter the canonical catalog.
@@ -34,7 +34,7 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - AgentMind consumes all authorized observations after the Agent's persisted cursor only at a decision point. Network, cancellation, configuration, or Ledger failures discard candidates. Exhausted semantic repair for one eligible Agent leaves a countable typed fallback and never fabricates belief. External, idle, and occupied Agents do not run AgentMind.
 - A headless one-step run of Blackmarsh's 48 autonomous Agents is the structural regression. Domain actions may be blocked, partial, or noop, but the run cannot fail because of a missing outcome, missing time, or ID-namespace confusion.
 - Registry conformance rejects invalid versions, non-JSON configuration, duplicate components, hash mismatches, and factory identity mismatches. Instance tests prove the pinned algorithm survives default changes and that an unavailable algorithm fails before model work or mutation.
-- Candidate tests prove version, exact action dependency coverage, single-source audits and observations, reaction replacement coverage, and committer-side reference and audience validation.
+- Candidate tests prove version, exact generic interaction coverage, single-source audits and observations, frozen reaction identity/basis/policy provenance, replacement coverage, and committer-side reference and audience validation.
 - Runtime telemetry tests prove stable metrics exist without algorithm diagnostics, malformed stable events fail, due Activity/Timer/Condition and result dimensions remain reconstructable, aggregation follows the registered `sum | count | last | max` semantics, and mid-generation rollback retains model work while canonical state remains unchanged.
 
 ## World Instance and Participant

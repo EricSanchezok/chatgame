@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v11 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、Activity 与 WorldTimer；`WorldInstanceDocument` v16 在其外层固定 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、ActionWindow、调度配置和 WorldRun。
+`SimulationState` v12 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity 与 WorldTimer；`WorldInstanceDocument` v17 在其外层固定 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、准备 artifact、调度配置和 WorldRun。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -24,23 +24,23 @@ type PolicyBinding =
 
 每个新行动在裁决前获得一个 `TemporalPlan`，其形态为 fixed、rate、staged、conditional 或 ongoing。时间数值只来自玩家原文中可独立验证的明确数量、世界剧本的命名 Temporal Profile，或版本化 Rule Package 的确定性结果；`temporal-planner` 只能选择 Profile 并引用依据，不能填写任意 clock delta、`elapsedSeconds`、最终进度或完成效果。
 
-引擎把 TemporalPlan 物化为 canonical Activity。Activity 保存来源行动、参与 Agent、状态、阶段、开始与更新时间、进度、下一个绝对检查点、完成时刻、可中断性和资源声明；默认前台容量由剧本声明为一，同一 Agent 的额外并发能力也只能由剧本资源容量授权。WorldTimer 保存未来到期时刻、唤醒对象、causes 与 assertions，不保存未经验证的未来 state delta。世界脚本可用 `world_timers` 物化初始绝对触发；到期且没有同一 Agent 的到期 Activity 时，内核注入确定性的 Timer trigger action，同刻交给 Truth，CanonicalCommitter 会重新构造并核对该 action。
+引擎把 TemporalPlan 物化为 canonical Activity。Activity 保存来源行动、参与 Agent、状态、阶段、开始与更新时间、进度、下一个绝对检查点、完成时刻、可中断性、资源声明、`continuationAssertions` 与持久 `interactionFootprint`；每步使用从 canonical Activities 重建的临时倒排索引，不持久化派生索引。默认前台容量由剧本声明为一，同一 Agent 的额外并发能力也只能由剧本资源容量授权。WorldTimer 保存未来到期时刻、唤醒对象、causes 与 assertions，不保存未经验证的未来 state delta。世界脚本可用 `world_timers` 物化初始绝对触发；到期且没有同一 Agent 的到期 Activity 时，内核注入确定性的 Timer trigger action，同刻交给 Truth，CanonicalCommitter 会重新构造并核对该 action。
 
 每次提交选择所有 active Activity 检查点、Timer、Condition 到期和 `max_autonomous_span_seconds` 中最早的绝对时刻。同刻到期项联合裁决，提交只含一个由内核注入的正整数 `advance_time`。无关的更早边界可以更新可见进度，但不能把未到期 Activity 的绝对检查点改成“当前时间加间隔”。完成效果只能在完成或对应阶段边界产生；控制面暂停不形成零时间世界提交。
 
-`eager-reference@3` 的阶段如下：
+`eager-reference@4` 的阶段如下：
 
-1. 只为当前决策点的 model/external Agent 收集新行动；active Activity 只在到期时提供已承诺的来源行动。
-2. 为新行动调用 temporal planner，验证受信任时间依据，物化 Activity，并选择最早时间边界。外部普通行动覆盖一个可中断前台 Activity 时，旧 Activity 在同一语义提交中取消。
-3. 每个到期或新行动独立生成 action dependency。模型输入只含 canonical 目录与该 actor 的私有视角；输出为 read/write/audience footprint；目录外引用和未知 audience 归一化为 global dependency 并计数。
-4. dependency 的读写冲突、观察关系和 global fallback 构成无向冲突图；每个连通分量独立进入 Truth。
-5. 每个分量按 `perception → reaction-routing → resolution → transition` 推进。perception 可预承诺感知 d20；resolution 必须先一次性提交覆盖全部行动的 ResolutionPlan，之后引擎才派生并承诺 resolution d20，随后才允许请求剧本离散随机；reaction 只有一轮 keep/replace，替换行动必须重新 grounding。
-6. transition 只能提交语义操作和规则调用。引擎用 `core-resolution@2.0.0` 从收据结算 Meter、Condition 和 Quantity provenance，并注入与 TemporalBoundary 相等的唯一 `advance_time`。进行中的 Activity 只能提交截至本边界已经真实发生的进度；实际 operation 超出声明 footprint、reaction replacement 改变 dependency 图，或两个分量的实际读写交叉时，全体行动以 global dependency 重新裁决。
-7. Observation Renderer 根据 transition 后状态、事件和 grounding 授权视角生成固定槽位 observation；非行动 Agent 也能收到与自己相关的授权观察。多个冲突分量合并后，以完整合并候选重新生成权限投影。模型不输出 observation ID、observer ID、step 或 kind；批次不得超过 Observation Profile 输入预算。物化只保留 typed current-event 引用和合法的 observer-local claim；outcome alternative 只保留行动主体已有的 evidence。所有丢弃或解绑都进入 trace。
-8. 只有完成、失败、中断、Timer 或其他语义事件产生的新决策点允许 model Agent 执行 `BeliefPatch → CharacterPatch → nextAction`。他者行动 grounding 明确把 active Activity 参与者列为 audience 且确有授权 Observation 时，内核生成 `activity_interrupted` 决策点；普通无关观察只累积游标，不唤醒 AgentMind。语义 repair 耗尽时提交空 patch 与 typed idle next action 并计数；transport、配置、取消和 Ledger 失败不降级。external 与 idle Agent 只保留授权观察，新创建 Agent 在本步 bootstrap。
-9. CanonicalCommitter 重新应用 Candidate v2，并独立验证版本、source hash、最终行动的 dependency 覆盖、引用、受众、单份 model audits、统一派生 Observation 和全部 canonical 不变量，随后构造包含 ResolutionPlan/Receipt、TemporalPlan、完整 temporal snapshot、Activity 转换、边界来源、到期集合与决策点的 `CommittedStep` 和下一状态。
+1. 只为当前决策点的 model/external Agent 收集新行动；被 active Activity 占用的 Agent 不运行普通 AgentMind。
+2. 每个新行动独立规划 TemporalPlan 和 Action dependency，并在当前时刻物化带 footprint 与 continuation assertions 的 Activity。普通新行动替换本人可中断 Activity 时，同一投影先取消旧 Activity。
+3. 临时 `ActivityFootprintIndex` 查询新行动影响的 active Activities。只有 dependency 相交、共享位置、连接双方的可访问关系 Fact 或成功感知检定提供依据，且 Activity 可中断时，才冻结一轮 onset reaction 请求；正持续时间保证此刻的替换仍先于未来结算。
+4. model、external、replay 与 profile fallback 分别产生 `ReactionDecision`。`keep` 可继续、暂停或取消当前 Activity；`replace` 从当前世界时间重新规划并 grounding。请求集合冻结，replacement 扩大依赖只触发全局重裁决，不递归请求反应。
+5. 所有 keep、replacement、新行动、既有 Activity、Timer、Condition expiry、assertion boundary 和安全上限共同进入一次确定性最早边界选择。
+6. 到期行动与 `Action | Activity | Timer | Condition` 通用 interaction dependencies 形成冲突分量。纯 context node 不伪造 ActionOutcome；实际 operation 超出声明 footprint、replacement 改变依赖图，或分量实际读写交叉时，全体行动以 global dependency 重新裁决。
+7. transition 只能提交语义操作和规则调用。引擎用 `core-resolution@2.0.0` 结算可信收据并注入唯一正时间 `advance_time`。每个到期或受影响 Activity 必须有 `continue | pause | complete | block | fail | cancel` disposition；continuation assertions 在创建和受影响 transition 前后验证，失效且无更具体语义时确定性 block。
+8. Observation Renderer 根据 transition 后状态、事件和 interaction audience 生成固定槽位 observation。onset `keep` 可以让 Activity 在接收本次刺激后继续；没有预警的相关结果则可在同一提交中暂停 Activity。只有已解除 active 占用的真正决策点才允许运行 AgentMind。
+9. CanonicalCommitter 重新应用 Candidate v3，并独立重建 source hash、最早边界、四类 interaction nodes、affected Activity 集、dispositions、assertion evidence、统一 Observation 和全部 canonical 不变量，随后构造 `CommittedStep` 与下一状态。
 
-算法不持有状态写入能力，也不能定义稳定事件或指标语义。`sourceStateHash`、候选、policy roster 与当前 source 不一致时提交失败；Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
+算法不持有状态写入能力，也不能定义稳定事件或指标语义。执行契约 v3 将一步拆为可 JSON 持久化的 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
 
 ## Truth 与随机承诺
 
@@ -66,10 +66,11 @@ AgentMind、reaction、grounding、Observation Renderer 与 Arrival Generator �
 
 ## ActionWindow
 
-同一 revision 最多一个 ActionWindow：
+同一 revision 最多一个 ActionWindow。决策窗口收集新行动，反应窗口只收集冻结准备中的 `keep` 或自然语言 `replace`：
 
 ```ts
-interface ActionWindow {
+type ActionWindow = {
+  kind: "decision";
   id: string;
   generation: number;
   baseRevision: number;
@@ -77,18 +78,36 @@ interface ActionWindow {
   submissions: Record<AgentId, ExternalActionInput>;
   deadlineAt: string | null;
   status: "open" | "resolving" | "committed" | "cancelled";
-}
+} | {
+  kind: "reaction";
+  id: string;
+  generation: number;
+  baseRevision: number;
+  preparedStepId: string;
+  preparationArtifactHash: string;
+  preparationExecutionId: string;
+  sourceStateHash: string;
+  algorithmManifestHash: string;
+  policyRosterHash: string;
+  policyRoster: Record<AgentId, PolicyBinding>;
+  advanceRequest: WorldAdvanceRequest;
+  requiredAgentIds: AgentId[];
+  requests: Record<AgentId, ReactionRequest>;
+  submissions: Record<AgentId, ExternalReactionInput>;
+  deadlineAt: string | null;
+  status: "open" | "resolving" | "committed" | "cancelled";
+};
 ```
 
-required Agent 的提交以 `submissionId` 幂等。相同 ID 与相同文本重试返回既有状态；同一 Agent 的不同提交冲突。收齐后立即执行，deadline 到期时缺失槽位转为 timeout idle。claim、release、提交、超时和取消都受 instance generation、window generation 与 base revision 约束。
+required Agent 的提交以 `submissionId` 幂等。相同 ID 与相同内容重试返回既有状态；同一 Agent 的不同提交冲突。决策超时把缺失槽位变为 timeout idle；反应超时保留其他回答，并按原 Activity 的 `reaction_fallback` 确定性处理。反应窗口的 generation 在独立参与者提交期间保持稳定，只在窗口结构改变时提高；window ID、prepared step ID、generation 与 base revision 共同拒绝陈旧窗口。
 
-ActionWindow 只包含此刻处于决策点的 external Agent。active Activity 的玩家不在每个检查点重新输入；完成、失败、中断或真正需要选择时才重新打开窗口。batch 在遇到 external 决策点时停止，realtime 严格串行且只安排现实唤醒；scheduler generation 使暂停、重新启用和重启前的 timer 失效，重启不补算离线时间。
+普通 API 只向控制目标 Agent 的 Participant 投影其反应 stimulus，不投影 basis、其他 Agent 请求、canonical binding 或完整准备 artifact。active Activity 的玩家不在每个检查点重新输入；只有可感知且仍可改变未来的 onset interaction 才打开反应窗口。batch 在 external 决策或反应处停止，realtime 严格串行且只安排现实唤醒；scheduler generation 使暂停、重新启用和重启前的 timer 失效，重启不补算离线时间。
 
 ## WorldRun 与暂停恢复
 
-一个 Participant intent 对应一个持久 WorldRun，能够连续提交多个 TemporalBoundary。状态为 `queued | running | pausing | paused | awaiting-decision | completed | failed | budget-paused`；记录 generation、根行动、Activity、execution、已提交 revisions、停止原因和当前 lease。
+一个 Participant intent 对应一个持久 WorldRun，能够连续提交多个 TemporalBoundary。状态为 `queued | running | pausing | paused | awaiting-decision | awaiting-reaction | preparation-invalidated | completed | failed | budget-paused`；记录 generation、根行动、Activity、execution、已提交 revisions、停止原因和当前 lease。
 
-每个自动 lease 默认最多 100 次提交或 15 分钟真实执行时间，任一预算耗尽只进入 `budget-paused`。暂停会中止尚未提交的模型尝试并提高 generation；迟到结果在 Ledger 标为 cancelled，不能越过 generation/revision CAS。恢复创建新 lease。进程启动时把遗留 queued/running/pausing run 转为 `paused: process-recovered`，保留 canonical Activity 与进度，且不自动发起模型调用。
+每个自动 lease 默认最多 100 次提交或 15 分钟真实执行时间，任一预算耗尽只进入 `budget-paused`。需要真人反应时，预演执行将完整 `WorldStepPreparation` 写入内容寻址 Ledger artifact，并与 frozen request/roster hashes 和窗口原子持久化；预演执行以 succeeded 结束但没有 commit revision。回答后的短执行以预演为 parent，验证全部 hash 后完成正时间提交。artifact、manifest、roster 或 source 不匹配时 canonical state 保持不变并进入 `preparation-invalidated`；进程启动不重跑模型，只有用户显式恢复才重新预演。
 
 ## Participant 准入与控制转移
 
