@@ -28,6 +28,15 @@ function profileSetArgument(argv: readonly string[]): SmokeProfileSet {
   return (value as SmokeProfileSet | undefined) ?? "glm";
 }
 
+function stepsArgument(argv: readonly string[]): number {
+  const index = argv.indexOf("--steps");
+  const value = index >= 0 ? Number(argv[index + 1]) : 1;
+  if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
+    throw new Error("steps must be an integer from 1 to 100");
+  }
+  return value;
+}
+
 function yamlFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
@@ -60,6 +69,48 @@ function failedAdvanceDiagnostic(database: LocalDatabase, instanceId: string): s
     terminal?.error?.message,
     ...(terminal?.error?.errors ?? []).map((error) => error.message),
   ].filter((value): value is string => Boolean(value)).join(" | ") || "no durable failure diagnostic";
+}
+
+function runFailure(document: ReturnType<LocalDatabase["readInstance"]>["document"]): string | null {
+  const run = Object.values(document.runs).at(-1);
+  if (!run || !["failed", "preparation-invalidated"].includes(run.status)) return null;
+  return run.error ?? run.stopReason ?? `run status=${run.status}`;
+}
+
+async function waitForRevision(
+  database: LocalDatabase,
+  instanceId: string,
+  expectedRevision: number,
+  timeoutMs = 15 * 60 * 1_000,
+): Promise<ReturnType<LocalDatabase["readInstance"]>["document"]> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const document = database.readInstance(instanceId).document;
+    const failure = runFailure(document);
+    if (failure) throw new Error(`run failed: ${failure}`);
+    if (document.state.revision >= expectedRevision) return document;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `timed out waiting for revision ${expectedRevision}: ${failedAdvanceDiagnostic(database, instanceId)}`,
+  );
+}
+
+function assertCommittedStep(
+  document: ReturnType<LocalDatabase["readInstance"]>["document"],
+  expectedRevision: number,
+): void {
+  if (document.state.revision < expectedRevision) {
+    throw new Error(`expected revision ${expectedRevision}, got ${document.state.revision}`);
+  }
+  const committed = document.state.history.at(-1);
+  if (!committed || committed.revision !== document.state.revision || committed.step !== document.state.step) {
+    throw new Error("latest history entry does not match the canonical head");
+  }
+  const advances = committed.operations.filter((operation) => operation.kind === "advance_time");
+  if (advances.length !== 1 || advances[0]!.seconds <= 0) {
+    throw new Error("latest committed step does not contain exactly one positive advance_time");
+  }
 }
 
 function diagnosticLines(error: unknown, depth = 0): string[] {
@@ -146,7 +197,9 @@ async function runBatchingSmoke(
 }
 
 async function main(): Promise<void> {
-  const profileSet = profileSetArgument(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const profileSet = profileSetArgument(argv);
+  const requestedSteps = stepsArgument(argv);
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
   const root = mkdtempSync(path.join(tmpdir(), `lwe-${profileSet}-smoke-`));
   const registry = new ModelRegistry(catalog, root);
@@ -187,11 +240,13 @@ async function main(): Promise<void> {
     headless = await host.advance(headless.summary.id, {
       expectedRevision: headless.summary.revision,
       trigger: "manual",
-      steps: 1,
+      steps: requestedSteps,
     });
-    if (headless.summary.revision < 1) {
+    const headlessDocument = await waitForRevision(database, headless.summary.id, requestedSteps);
+    if (headless.summary.revision < requestedSteps) {
       throw new Error(`headless step did not commit: ${failedAdvanceDiagnostic(database, headless.summary.id)}`);
     }
+    assertCommittedStep(headlessDocument, requestedSteps);
     const headlessRevision = headless.summary.revision;
 
     let instance = await host.createInstance({
@@ -216,17 +271,31 @@ async function main(): Promise<void> {
       expectedRevision: instance.summary.revision,
       text: "我现在在哪里？我先观察周围的地标、人群和天气。",
     });
-    if (instance.summary.revision <= beforeAction) {
+    let participantDocument = await waitForRevision(database, instance.summary.id, beforeAction + 1);
+    if (participantDocument.state.revision <= beforeAction) {
       throw new Error(
         `participant action did not commit: ${failedAdvanceDiagnostic(database, instance.summary.id)}`,
       );
     }
+    assertCommittedStep(participantDocument, beforeAction + 1);
+    for (let step = 1; step < requestedSteps; step += 1) {
+      const beforeAdvance = participantDocument.state.revision;
+      await host.advance(instance.summary.id, {
+        expectedRevision: beforeAdvance,
+        trigger: "manual",
+        steps: 1,
+      });
+      participantDocument = await waitForRevision(database, instance.summary.id, beforeAdvance + 1);
+      assertCommittedStep(participantDocument, beforeAdvance + 1);
+    }
+    instance = host.instance(instance.summary.id);
     process.stdout.write([
       `${profileSet.toUpperCase()} eager-reference smoke passed`,
       `world=${definition.id}`,
       `agents=${Object.keys(database.readInstance(instance.summary.id).document.state.agents).length}`,
       `headlessRevision=${headlessRevision}`,
       `participantRevision=${instance.summary.revision}`,
+      `participantSteps=${requestedSteps}`,
       `executions=${database.executions({ instanceId: instance.summary.id }).length}`,
     ].join(" ") + "\n");
   } catch (error) {
