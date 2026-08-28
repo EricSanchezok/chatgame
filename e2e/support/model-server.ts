@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { deterministicActionCompilationBatch } from "../../src/engine/testing/model-provider";
 
 const port = Number(process.env.LIVINGWORLD_E2E_MODEL_PORT ?? 32128);
 
@@ -20,8 +21,8 @@ function contextFrom(body: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(prompt.slice(0, instructionOffset)) as Record<string, unknown>;
 }
 
-function agentOutput() {
-  return {
+function agentOutput(context: Record<string, unknown>) {
+  const output = {
     beliefPatch: { operations: [] },
     characterPatch: { operations: [] },
     nextAction: {
@@ -31,9 +32,19 @@ function agentOutput() {
       targetIds: [],
     },
   };
+  if (Array.isArray(context.slots)) {
+    return {
+      slots: context.slots.map((_, slot) => ({ slot, ...output })),
+    };
+  }
+  return output;
 }
 
 function truthOutput(context: Record<string, unknown>) {
+  if (Array.isArray(context.slots) && context.slots.every((slot) =>
+    slot && typeof slot === "object" && "action" in slot)) {
+    return deterministicActionCompilationBatch("e2e-truth", context);
+  }
   if (context.promptVersion === "causal-verifier-v4" ||
     context.promptVersion === "resolution-plan-verifier-v1") {
     return { verdict: "accept", findings: [] };
@@ -212,7 +223,7 @@ const server = createServer(async (request, response) => {
       return;
     }
     const model = String(body.model);
-    const output = model === "e2e-truth" ? truthOutput(context) : agentOutput();
+    const output = model === "e2e-truth" ? truthOutput(context) : agentOutput(context);
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       id: `e2e-response:${model}:${Date.now()}`,
