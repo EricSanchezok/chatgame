@@ -1,4 +1,10 @@
-import type { ModelInferenceConfig } from "./model-catalog";
+import type {
+  ModelAccountChannel,
+  ModelInferenceConfig,
+  ModelProtocol,
+  ModelSelector,
+  ResolvedModelInference,
+} from "./model-catalog";
 import type {
   AdjudicationCalibration,
   ConditionProfileDefinition,
@@ -583,7 +589,7 @@ export interface AgentAdmissionCommit {
 export type WorldEventDraft = Omit<WorldEvent, "step">;
 
 export interface SimulationState {
-  schemaVersion: 13;
+  schemaVersion: 14;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -1045,13 +1051,21 @@ export interface ModelExecutionAudit {
   role: import("./model-catalog").ModelRole;
   subjectId: string;
   profileId: string;
+  accountId: string;
+  accountChannel: ModelAccountChannel;
+  protocol: ModelProtocol;
+  dialect: string;
   providerId: string;
   modelId: string;
-  catalogSchemaVersion: 2;
+  selector: ModelSelector;
+  registrySnapshotHash: string;
+  modelMetadataHash: string;
+  catalogSchemaVersion: 3;
   catalogHash: string;
   promptVersion: string;
-  inference: ModelInferenceConfig;
-  structuredOutputMode: "json-schema-strict" | "json-object-zod" | "deterministic-test";
+  requestedInference: ModelInferenceConfig;
+  resolvedInference: ResolvedModelInference;
+  structuredOutputMode: "json-schema-strict" | "json-object-zod" | "tool-call-zod" | "deterministic-test";
   invocations: ModelInvocationAudit[];
 }
 

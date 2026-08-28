@@ -10,6 +10,7 @@ import {
   writePreferences,
 } from "../_lib/browser-state";
 import { normalizeThemePreference, themePreferences } from "../_lib/theme-preference";
+import { ModelRegistrySettings } from "./model-registry-settings";
 
 export function SettingsPanel() {
   const { setTheme, theme } = useTheme();
@@ -67,6 +68,7 @@ export function SettingsPanel() {
           </button>
         </div>
       </div>
+      <ModelRegistrySettings />
       <section aria-labelledby="settings-developer-title" className="cg-settings__group cg-settings__developer">
         <header>
           <h3 id="settings-developer-title">开发者工具</h3>

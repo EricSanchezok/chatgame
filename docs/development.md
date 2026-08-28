@@ -18,14 +18,16 @@ English is the working language for new governance artifacts and code. Existing 
 
 ## Configuration
 
-- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v19/`. World versions, World Instances, WorldRuns, reaction preparations, and the Execution Ledger share `livingworld.sqlite`. World Instance schema v19 embeds SimulationState v13 and its pinned configured algorithm reference; it does not read older saves, so use a new data root for another format.
+- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v19/`. World versions, World Instances, WorldRuns, reaction preparations, model-registry snapshots, and the Execution Ledger share the data root; the SQLite records live in `livingworld.sqlite`. World Instance schema v19 embeds SimulationState v14 and its pinned algorithm reference; it does not read older saves, so use a new data root for another format.
 - `LIVINGWORLD_MODEL_CATALOG_PATH` selects the complete model catalog and defaults to `config/models.yaml`.
 - Each provider's `api_key_env` names its credential environment variable. A credential is required only when the world or an Agent uses that provider's Profile. The reference world requires only `DEEPSEEK_API_KEY`.
 - Normal execution, failure diagnosis, model I/O, and experiment evidence always enter the SQLite Execution Ledger. There is no `off|metrics|full` product switch or log directory; [Runtime observability](game-design/runtime-observability.md) owns the data boundary.
 
 Model selection, reasoning effort, timeouts, output limits, roles, and concurrency belong only to the [model catalog and Gateway](game-design/model-gateway.md). Environment variables do not provide per-field overrides.
 
-Use `npm run experiment:run -- --agents=48 --steps=1 --action-compilation-slots=1,4,8,12 --agent-mind-slots=1,2,4,8` for the deterministic slot matrix. Replay, comparison, and export commands are defined by [Runtime observability](game-design/runtime-observability.md#研究命令).
+Use `npm run models:status` to inspect catalog health, credential presence, and deterministic Profile resolution; use `npm run models:refresh` to request a rate-limited models.dev refresh. `npm run test:live:model -- --account <account-id>` is an explicit, credentialed transport smoke test for one configured account.
+
+Use `npm run experiment:run -- --agents 1,10,50,1000 --steps 1` for the deterministic scale matrix. Replay, comparison, and export commands are defined by [Runtime observability](game-design/runtime-observability.md#研究命令).
 
 Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v3 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@7` defaults Action Compilation to twelve slots and AgentMind to eight slots and remains the explicit experiment default.
 

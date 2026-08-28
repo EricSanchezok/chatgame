@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0076](0076-resolve-models-from-audited-capability-snapshots.md)
 Class: architecture
 
 ## Context and Problem Statement

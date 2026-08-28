@@ -9,7 +9,7 @@ npm install
 DEEPSEEK_API_KEY=... npm run dev
 ```
 
-打开 <http://localhost:3000>。默认[模型目录](docs/game-design/model-gateway.md)注册 DeepSeek、OpenAI 与 xAI；只有世界或 Agent 实际选择某家供应商的 Profile 时才要求对应密钥，缺失时显式失败且不 fallback。仓库参考世界使用 DeepSeek；默认 Truth Engine 与 Agent Profile 均为 `deepseek-v4-flash` 非思考模式。运行时没有默认模型、别名、环境字段覆盖或生产 mock。
+打开 <http://localhost:3000>。默认[模型目录](docs/game-design/model-gateway.md)注册 DeepSeek、OpenAI、xAI，以及智谱、MiniMax、Kimi、MiMo 的 API 与编程套餐账户；只有世界或 Agent 实际选择某个 Profile 时才要求对应密钥，缺失时显式失败且不 fallback。仓库参考世界仍使用 DeepSeek，其默认 Profile 会从固定的 models.dev 快照中确定性选择最新兼容的非视觉模型；Benchmark 与回放可以固定快照和具体模型。运行时不以别名、环境字段覆盖或生产 mock 改写选择结果。
 
 `npm run dev` 使用 SQLite Execution Ledger 持久记录完整执行证据；正常运行、Inspector、重放和实验读取同一事实源。数据包含参与者输入与世界秘密，存储和访问边界见[运行时可观测性](docs/game-design/runtime-observability.md)。
 
@@ -24,6 +24,9 @@ npm run typecheck
 npm run build
 npm run world:validate -- <world-directory>
 npm run world:import -- <world.zip> [--replace]
+npm run models:status
+npm run models:refresh
+npm run test:live:model -- --account <account-id>
 npm run test:live:deepseek
 npm run check:fast
 npm run check:all

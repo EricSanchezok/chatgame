@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ModelGateway } from "../model-gateway";
+import { ModelGateway, type ModelGatewayOptions } from "../model-gateway";
 import { parseModelCatalog } from "../model-catalog";
 import {
   ModelConfigurationError,
@@ -15,6 +15,7 @@ import {
 } from "../observability";
 import { FairModelScheduler, ModelOverloadedError } from "../model-scheduler";
 import { TEST_WORLD_HASH } from "../testing/world";
+import { createTestModelRegistry } from "../testing/model-provider";
 
 const outputSchema = z.strictObject({ answer: z.string() });
 
@@ -26,23 +27,36 @@ function deferred<T>() {
 
 function catalog() {
   return parseModelCatalog({
-    schema_version: 2,
+    schema_version: 3,
     scheduler: { global_concurrency: 16, max_queued_requests: 1024, queue_timeout_ms: 300_000 },
-    providers: {
+    registry: { refresh_interval_ms: 3_600_000, request_timeout_ms: 10_000, stale_after_ms: 86_400_000 },
+    accounts: {
       deepseek: {
-        kind: "deepseek",
+        channel: "api",
+        region: "test",
+        protocol: "openai-chat",
+        dialect: "deepseek",
+        models_dev_provider_id: "deepseek",
         base_url: "https://deepseek.test",
         api_key_env: "DEEPSEEK_API_KEY",
         max_concurrency: 16,
       },
       openai: {
-        kind: "openai",
+        channel: "api",
+        region: "test",
+        protocol: "openai-responses",
+        dialect: "openai",
+        models_dev_provider_id: "openai",
         base_url: "https://openai.test/v1",
         api_key_env: "OPENAI_API_KEY",
         max_concurrency: 16,
       },
       xai: {
-        kind: "xai",
+        channel: "api",
+        region: "test",
+        protocol: "openai-responses",
+        dialect: "xai",
+        models_dev_provider_id: "xai",
         base_url: "https://xai.test/v1",
         api_key_env: "XAI_API_KEY",
         max_concurrency: 16,
@@ -50,47 +64,71 @@ function catalog() {
     },
     profiles: {
       deep: {
-        provider_id: "deepseek",
-        model: "deepseek-v4-pro",
+        account_id: "deepseek",
+        selector: { kind: "exact", model_id: "deepseek-v4-pro" },
         description: "DeepSeek adapter contract test",
         allowed_roles: ["agent-mind"],
         request_timeout_ms: 10_000,
         max_output_tokens: 1_000,
-        inference: { kind: "deepseek-thinking", effort: "max" },
+        inference: {
+          thinking: "enabled", effort: "max", reasoning_budget_tokens: "auto",
+          reasoning_summary: "auto", text_verbosity: "auto", temperature: "auto", top_p: "auto",
+        },
       },
       flash: {
-        provider_id: "deepseek",
-        model: "deepseek-v4-flash",
+        account_id: "deepseek",
+        selector: { kind: "exact", model_id: "deepseek-v4-flash" },
         description: "DeepSeek non-thinking adapter contract test",
         allowed_roles: ["agent-mind"],
         request_timeout_ms: 10_000,
         max_output_tokens: 1_000,
-        inference: { kind: "deepseek-non-thinking", temperature: null, top_p: null },
+        inference: {
+          thinking: "disabled", effort: "auto", reasoning_budget_tokens: "auto",
+          reasoning_summary: "auto", text_verbosity: "auto", temperature: "auto", top_p: "auto",
+        },
       },
       gpt: {
-        provider_id: "openai",
-        model: "gpt-5.6",
+        account_id: "openai",
+        selector: { kind: "exact", model_id: "gpt-5.6" },
         description: "OpenAI adapter contract test",
         allowed_roles: ["agent-mind"],
         request_timeout_ms: 10_000,
         max_output_tokens: 1_000,
         inference: {
-          kind: "openai-reasoning",
+          thinking: "auto",
           effort: "medium",
-          summary: "concise",
-          text_verbosity: "low",
+          reasoning_budget_tokens: "auto",
+          reasoning_summary: "auto",
+          text_verbosity: "auto",
+          temperature: "auto",
+          top_p: "auto",
         },
       },
       grok: {
-        provider_id: "xai",
-        model: "grok-4.6",
+        account_id: "xai",
+        selector: { kind: "exact", model_id: "grok-4.6" },
         description: "xAI adapter contract test",
         allowed_roles: ["agent-mind"],
         request_timeout_ms: 10_000,
         max_output_tokens: 1_000,
-        inference: { kind: "xai-reasoning", effort: "xhigh", summary: "detailed" },
+        inference: {
+          thinking: "auto", effort: "xhigh", reasoning_budget_tokens: "auto",
+          reasoning_summary: "auto", text_verbosity: "auto", temperature: "auto", top_p: "auto",
+        },
       },
     },
+    model_overrides: {},
+  });
+}
+
+function createGateway(
+  env: Readonly<Record<string, string | undefined>>,
+  options: Omit<ModelGatewayOptions, "registry">,
+): ModelGateway {
+  const configured = catalog();
+  return new ModelGateway(configured, env, {
+    ...options,
+    registry: createTestModelRegistry(configured),
   });
 }
 
@@ -177,13 +215,18 @@ describe("model catalog and provider adapters", () => {
       .toThrow("requires worldHash and revision");
   });
 
-  it("rejects unknown profiles and mismatched native inference settings", async () => {
+  it("rejects unknown accounts and profiles", async () => {
     expect(() => parseModelCatalog({
-      schema_version: 2,
+      schema_version: 3,
       scheduler: { global_concurrency: 1, max_queued_requests: 1, queue_timeout_ms: 1 },
-      providers: {
+      registry: { refresh_interval_ms: 60_000, request_timeout_ms: 1_000, stale_after_ms: 60_000 },
+      accounts: {
         openai: {
-          kind: "openai",
+          channel: "api",
+          region: "test",
+          protocol: "openai-responses",
+          dialect: "openai",
+          models_dev_provider_id: "openai",
           base_url: "https://openai.test/v1",
           api_key_env: "OPENAI_API_KEY",
           max_concurrency: 1,
@@ -191,18 +234,22 @@ describe("model catalog and provider adapters", () => {
       },
       profiles: {
         invalid: {
-          provider_id: "openai",
-          model: "gpt-5.6",
-          description: "Invalid inference/provider pair",
+          account_id: "missing",
+          selector: { kind: "exact", model_id: "gpt-5.6" },
+          description: "Invalid account binding",
           allowed_roles: ["agent-mind"],
           request_timeout_ms: 1_000,
           max_output_tokens: 1,
-          inference: { kind: "deepseek-thinking", effort: "high" },
+          inference: {
+            thinking: "auto", effort: "auto", reasoning_budget_tokens: "auto",
+            reasoning_summary: "auto", text_verbosity: "auto", temperature: "auto", top_p: "auto",
+          },
         },
       },
-    })).toThrow("uses deepseek-thinking with openai provider");
+      model_overrides: {},
+    })).toThrow("references unknown account missing");
 
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       fetch: async () => deepSeekResponse(),
     });
     await expect(gateway.generateStructured(request("missing"))).rejects.toThrow("unknown model profile missing");
@@ -210,7 +257,7 @@ describe("model catalog and provider adapters", () => {
 
   it("requires credentials only for selected profiles and hides unavailable profiles", async () => {
     let fetchCalls = 0;
-    const gateway = new ModelGateway(catalog(), { DEEPSEEK_API_KEY: "deepseek-key" }, {
+    const gateway = createGateway({ DEEPSEEK_API_KEY: "deepseek-key" }, {
       fetch: async () => {
         fetchCalls += 1;
         return deepSeekResponse();
@@ -219,10 +266,10 @@ describe("model catalog and provider adapters", () => {
 
     expect(gateway.availableProfileSummaries("agent-mind").map((profile) => profile.id))
       .toEqual(["deep", "flash"]);
-    expect(() => gateway.assertProfilesAvailable(["deep", "flash"])).not.toThrow();
-    expect(() => gateway.assertProfilesAvailable(["gpt"])).toThrow(ModelConfigurationError);
-    expect(() => gateway.assertProfilesAvailable(["gpt"])).toThrow(
-      "model provider openai requires OPENAI_API_KEY",
+    await expect(gateway.assertProfilesAvailable(["deep", "flash"])).resolves.toBeUndefined();
+    await expect(gateway.assertProfilesAvailable(["gpt"])).rejects.toBeInstanceOf(ModelConfigurationError);
+    await expect(gateway.assertProfilesAvailable(["gpt"])).rejects.toThrow(
+      "model account openai requires OPENAI_API_KEY",
     );
 
     await expect(gateway.generateStructured(request("deep"))).resolves.toMatchObject({
@@ -230,11 +277,33 @@ describe("model catalog and provider adapters", () => {
     });
     await expect(gateway.generateStructured(request("gpt"))).rejects.toBeInstanceOf(ModelConfigurationError);
     expect(fetchCalls).toBe(1);
+
+    const diagnostics = await gateway.modelRegistryDiagnostics();
+    expect(diagnostics.accounts.find((account) => account.id === "deepseek")).not.toHaveProperty("baseUrl");
+    expect(diagnostics.accounts.find((account) => account.id === "deepseek")).not.toHaveProperty("dialect");
+    expect(diagnostics.profiles.find((profile) => profile.id === "deep")).not.toHaveProperty("selector");
+    expect(diagnostics.profiles.find((profile) => profile.id === "deep")).not.toHaveProperty("inference");
+  });
+
+  it("rejects an oversized serialized request before transport", async () => {
+    let fetchCalls = 0;
+    const gateway = createGateway(credentials, {
+      fetch: async () => {
+        fetchCalls += 1;
+        return deepSeekResponse();
+      },
+    });
+
+    await expect(gateway.generateStructured({
+      ...request("deep"),
+      context: { question: "x".repeat(300_000) },
+    })).rejects.toThrow("maximum is 262144 bytes");
+    expect(fetchCalls).toBe(0);
   });
 
   it("sends Flash requests with thinking disabled and no reasoning controls", async () => {
     let body: Record<string, unknown> | undefined;
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       fetch: async (_input, init) => {
         body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return deepSeekResponse(JSON.stringify({ answer: "flash" }), 200, "stop", "deepseek-v4-flash");
@@ -256,7 +325,7 @@ describe("model catalog and provider adapters", () => {
 
   it("sends native structured-output and reasoning contracts to DeepSeek, OpenAI and xAI", async () => {
     const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       fetch: async (input, init) => {
         const url = String(input);
         calls.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
@@ -288,7 +357,7 @@ describe("model catalog and provider adapters", () => {
     const openaiBody = calls.find((call) => call.url.includes("openai"))!.body;
     expect(openaiBody).toMatchObject({
       model: "gpt-5.6",
-      reasoning: { effort: "medium", summary: "concise" },
+      reasoning: { effort: "medium" },
       store: false,
       text: { format: { type: "json_schema", strict: true } },
     });
@@ -296,7 +365,7 @@ describe("model catalog and provider adapters", () => {
     const xaiBody = calls.find((call) => call.url.includes("xai"))!.body;
     expect(xaiBody).toMatchObject({
       model: "grok-4.6",
-      reasoning: { effort: "xhigh", summary: "detailed" },
+      reasoning: { effort: "xhigh" },
       store: false,
       text: { format: { type: "json_schema", strict: true } },
     });
@@ -309,8 +378,9 @@ describe("model catalog and provider adapters", () => {
     const schema = z.strictObject({
       operations: z.array(z.strictObject({ kind: z.literal("change") })),
       required: z.array(z.string()).min(1),
+      optionalNote: z.string().optional(),
     });
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       fetch: async (_input, init) => {
         body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return deepSeekResponse(JSON.stringify({ operations: [], required: ["ok"] }));
@@ -326,11 +396,13 @@ describe("model catalog and provider adapters", () => {
     expect(JSON.stringify(body)).toContain(
       'Example JSON output shape: {\\"operations\\":[],\\"required\\":[\\"string\\"]}',
     );
+    const prompt = String((body?.messages as Array<{ content?: string }>)[1]?.content);
+    expect(prompt.split("Example JSON output shape:")[1]).not.toContain("optionalNote");
   });
 
   it("records exact invocation metrics, full Context once per call, and deduplicated contracts", async () => {
     const observer = new RecordingRuntimeObserver({ mode: "full" });
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       observer,
       fetch: async () => responsesApiResponse("openai", "gpt-5.6", "observed"),
     });
@@ -380,7 +452,7 @@ describe("model catalog and provider adapters", () => {
         durable.push(...pending.splice(0));
       },
     };
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       observer,
       fetch: async () => {
         expect(durable.some((event) => event.event === "model.context.serialized")).toBe(true);
@@ -399,7 +471,7 @@ describe("model catalog and provider adapters", () => {
     let rateLimitedCalls = 0;
     const delays: number[] = [];
     const observer = new RecordingRuntimeObserver({ mode: "metrics" });
-    const retrying = new ModelGateway(catalog(), credentials, {
+    const retrying = createGateway(credentials, {
       observer,
       fetch: async () => {
         rateLimitedCalls += 1;
@@ -423,7 +495,7 @@ describe("model catalog and provider adapters", () => {
     expect(delays).toEqual([2_000]);
 
     let authCalls = 0;
-    const unauthorized = new ModelGateway(catalog(), credentials, {
+    const unauthorized = createGateway(credentials, {
       fetch: async () => {
         authCalls += 1;
         return Response.json({ error: { message: "bad key" } }, { status: 401 });
@@ -437,7 +509,7 @@ describe("model catalog and provider adapters", () => {
     });
     expect(authCalls).toBe(1);
 
-    const malformed = new ModelGateway(catalog(), credentials, {
+    const malformed = createGateway(credentials, {
       fetch: async () => deepSeekResponse("not-json"),
       sleep: async () => {},
     });
@@ -446,7 +518,7 @@ describe("model catalog and provider adapters", () => {
 
   it("retries 5xx responses, never retries 400, and rejects every non-conforming DeepSeek payload", async () => {
     let serverCalls = 0;
-    const retrying = new ModelGateway(catalog(), credentials, {
+    const retrying = createGateway(credentials, {
       fetch: async () => {
         serverCalls += 1;
         if (serverCalls < 3) {
@@ -463,7 +535,7 @@ describe("model catalog and provider adapters", () => {
       .toMatchObject({ transportAttempts: 3, repairAttempts: 0 });
 
     let badRequestCalls = 0;
-    const badRequest = new ModelGateway(catalog(), credentials, {
+    const badRequest = createGateway(credentials, {
       fetch: async () => {
         badRequestCalls += 1;
         return Response.json({ error: { message: "invalid parameter" } }, { status: 400 });
@@ -482,7 +554,7 @@ describe("model catalog and provider adapters", () => {
       deepSeekResponse(JSON.stringify({ answer: "cut off" }), 200, "length"),
       deepSeekResponse(JSON.stringify({ answer: "value", unexpected: true })),
     ]) {
-      const invalid = new ModelGateway(catalog(), credentials, {
+      const invalid = createGateway(credentials, {
         fetch: async () => response.clone(),
         sleep: async () => {},
       });
@@ -491,7 +563,7 @@ describe("model catalog and provider adapters", () => {
   });
 
   it.each([429, 500])("preserves retryability after exhausting a %i response", async (status) => {
-    const exhausted = new ModelGateway(catalog(), credentials, {
+    const exhausted = createGateway(credentials, {
       maxTransportAttempts: 1,
       fetch: async () => Response.json({ error: { message: "temporary outage" } }, { status }),
       sleep: async () => {},
@@ -509,7 +581,7 @@ describe("model catalog and provider adapters", () => {
     const capacityReached = deferred<void>();
     let active = 0;
     let peak = 0;
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       fetch: async () => {
         active += 1;
         peak = Math.max(peak, active);
@@ -543,7 +615,7 @@ describe("model catalog and provider adapters", () => {
       queueTimeoutMs: 10_000,
       providerConcurrency: { deepseek: 1, openai: 1, xai: 1 },
     });
-    const gateway = new ModelGateway(catalog(), credentials, {
+    const gateway = createGateway(credentials, {
       observer,
       scheduler,
       fetch: async () => {

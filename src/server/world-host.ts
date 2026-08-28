@@ -23,7 +23,13 @@ import { arrivalDraftSchema } from "../engine/llm-schemas";
 import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
 import { contentHash } from "../engine/model-audit";
-import { modelInvocationIdentity, type StructuredModelProvider } from "../engine/model-provider";
+import { ModelRegistry } from "../engine/model-registry";
+import {
+  modelInvocationIdentity,
+  type ModelRegistryDiagnostics,
+  type ModelRegistryRefreshDiagnostics,
+  type StructuredModelProvider,
+} from "../engine/model-provider";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../engine/prompts";
 import {
   NOOP_RUNTIME_OBSERVER,
@@ -463,10 +469,12 @@ export class WorldHost {
       const catalog = loadModelCatalog(path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
-      const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v19",
       );
+      const modelRegistry = new ModelRegistry(catalog, dataRoot);
+      modelRegistry.startBackgroundRefresh();
+      const provider = createModelGateway(catalog, process.env, { registry: modelRegistry });
       const databaseFile = path.join(dataRoot, "livingworld.sqlite");
       const database = new LocalDatabase(databaseFile);
       try {
@@ -479,6 +487,7 @@ export class WorldHost {
           ledger: database,
         });
       } catch (error) {
+        modelRegistry.stopBackgroundRefresh();
         database.close();
         if (database.created) {
           for (const suffix of ["", "-shm", "-wal"]) rmSync(`${databaseFile}${suffix}`, { force: true });
@@ -499,6 +508,25 @@ export class WorldHost {
 
   listWorlds() {
     return this.options.repository.list();
+  }
+
+  async modelRegistryDiagnostics(): Promise<ModelRegistryDiagnostics> {
+    const diagnostics = this.options.provider.modelRegistryDiagnostics;
+    if (!diagnostics) throw new WorldHostError("model registry diagnostics are unavailable", 501);
+    return diagnostics.call(this.options.provider);
+  }
+
+  async refreshModelRegistry(): Promise<ModelRegistryRefreshDiagnostics> {
+    const refresh = this.options.provider.refreshModelRegistry;
+    if (!refresh) throw new WorldHostError("model registry refresh is unavailable", 501);
+    try {
+      return await refresh.call(this.options.provider);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "model registry refresh failed";
+      if (message.includes("rate limited")) throw new WorldHostError(message, 429);
+      if (message.includes("no valid snapshot")) throw new WorldHostError(message, 503);
+      throw new WorldHostError("model registry refresh failed", 502);
+    }
   }
 
   importWorld(buffer: Buffer, replace = false, expectedWorldId?: string): WorldImportResult {
@@ -655,7 +683,7 @@ export class WorldHost {
     executionAlgorithm: AlgorithmRef = this.defaultAlgorithmRef,
   ): Promise<PublicInstanceDetail> {
     const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
-    this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
+    await this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {

@@ -1,11 +1,18 @@
 import { z } from "zod";
 import {
   createModelProviderAdapter,
+  structuredOutputMode,
+  validateModelProviderAccount,
   type ModelAdapterResult,
   type ModelProviderAdapter,
 } from "./model-adapter";
 import type { ModelCatalog } from "./model-catalog";
 import { canonicalize, contentHash, measureModelContext } from "./model-audit";
+import {
+  type ModelRegistryService,
+  type ModelRegistrySnapshot,
+  resolveModelProfile,
+} from "./model-registry";
 import type {
   ModelExecutionAudit,
   ModelInvocationAudit,
@@ -15,6 +22,8 @@ import type {
   StructuredModelProvider,
   StructuredModelRequest,
   StructuredModelResult,
+  ModelRegistryDiagnostics,
+  ModelRegistryRefreshDiagnostics,
 } from "./model-provider";
 import {
   ModelConfigurationError,
@@ -35,8 +44,10 @@ import {
   type RuntimeCorrelation,
   type RuntimeObserver,
 } from "./observability";
+import type { ResolvedModelBinding } from "./model-registry";
 
 export interface ModelGatewayOptions {
+  registry: ModelRegistryService;
   scheduler?: FairModelScheduler;
   adapters?: ReadonlyMap<string, ModelProviderAdapter>;
   maxTransportAttempts?: number;
@@ -110,11 +121,50 @@ function isRetryableTransportError(error: unknown, signal?: AbortSignal): boolea
 function isOutputError(error: unknown): boolean {
   if (error instanceof ModelOutputError || error instanceof z.ZodError || error instanceof SyntaxError) return true;
   const name = error instanceof Error ? error.name : "";
-  return name === "NoOutputGeneratedError" || name === "NoObjectGeneratedError";
+  return name === "NoOutputGeneratedError" || name === "NoObjectGeneratedError" ||
+    name === "AI_NoOutputGeneratedError" || name === "AI_NoObjectGeneratedError";
 }
 
 function unwrapScheduledError(error: unknown): unknown {
   return error instanceof ModelScheduledExecutionError ? error.cause : error;
+}
+
+function safeDiagnosticError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/\bBearer\s+\S+/giu, "Bearer [redacted]")
+    .replace(/\b(?:sk|key)-[a-z0-9_-]{8,}\b/giu, "[redacted]")
+    .slice(0, 500);
+}
+
+function executionAudit(
+  binding: ResolvedModelBinding,
+  request: Pick<StructuredModelRequest<unknown>, "role" | "subjectId" | "profileId" | "promptVersion">,
+  adapter: Pick<ModelAdapterResult, "resolvedInference" | "structuredOutputMode">,
+  catalog: ModelCatalog,
+  invocations: ModelInvocationAudit[],
+): ModelExecutionAudit {
+  return {
+    role: request.role,
+    subjectId: request.subjectId,
+    profileId: request.profileId,
+    accountId: binding.accountId,
+    accountChannel: binding.account.channel,
+    protocol: binding.account.protocol,
+    dialect: binding.account.dialect,
+    providerId: binding.account.models_dev_provider_id,
+    modelId: binding.modelId,
+    selector: structuredClone(binding.selector),
+    registrySnapshotHash: binding.registrySnapshotHash,
+    modelMetadataHash: binding.modelMetadataHash,
+    catalogSchemaVersion: catalog.schemaVersion,
+    catalogHash: catalog.hash,
+    promptVersion: request.promptVersion,
+    requestedInference: structuredClone(binding.profile.inference),
+    resolvedInference: structuredClone(adapter.resolvedInference),
+    structuredOutputMode: adapter.structuredOutputMode,
+    invocations,
+  };
 }
 
 export class ModelGateway implements StructuredModelProvider {
@@ -127,29 +177,42 @@ export class ModelGateway implements StructuredModelProvider {
   private readonly sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   private readonly observer: RuntimeObserver;
   private readonly emittedContracts = new Set<string>();
+  private readonly executionSnapshots = new Map<string, Promise<ModelRegistrySnapshot>>();
+  readonly registry: ModelRegistryService;
 
   constructor(
     catalog: ModelCatalog,
     env: Readonly<Record<string, string | undefined>>,
-    options: ModelGatewayOptions = {},
+    options: ModelGatewayOptions,
   ) {
     this.catalog = catalog;
-    for (const [providerId, provider] of Object.entries(catalog.providers)) {
-      const configuredAdapter = options.adapters?.get(providerId);
-      const apiKey = env[provider.api_key_env]?.trim();
+    this.registry = options.registry;
+    if (this.registry.catalog.hash !== catalog.hash) {
+      throw new Error("model registry and catalog hashes do not match");
+    }
+    for (const [accountId, account] of Object.entries(catalog.accounts)) {
+      validateModelProviderAccount(account);
+      const configuredAdapter = options.adapters?.get(accountId);
+      const apiKey = env[account.api_key_env]?.trim();
       if (!configuredAdapter && !apiKey) continue;
-      const adapter = configuredAdapter ?? createModelProviderAdapter(provider, apiKey!, options.fetch);
-      if (adapter.kind !== provider.kind) {
-        throw new Error(`model provider adapter kind mismatch: ${providerId}`);
+      const adapter = configuredAdapter ?? createModelProviderAdapter(
+        accountId,
+        account,
+        apiKey!,
+        options.fetch,
+      );
+      if (adapter.accountId !== accountId || adapter.protocol !== account.protocol ||
+        adapter.dialect !== account.dialect) {
+        throw new Error(`model provider adapter identity mismatch: ${accountId}`);
       }
-      this.adapters.set(providerId, adapter);
+      this.adapters.set(accountId, adapter);
     }
     this.scheduler = options.scheduler ?? new FairModelScheduler({
       globalConcurrency: catalog.scheduler.global_concurrency,
       maxQueuedRequests: catalog.scheduler.max_queued_requests,
       queueTimeoutMs: catalog.scheduler.queue_timeout_ms,
       providerConcurrency: Object.fromEntries(
-        Object.entries(catalog.providers).map(([id, provider]) => [id, provider.max_concurrency]),
+        Object.entries(catalog.accounts).map(([id, account]) => [id, account.max_concurrency]),
       ),
     });
     this.maxTransportAttempts = options.maxTransportAttempts ?? 3;
@@ -162,22 +225,125 @@ export class ModelGateway implements StructuredModelProvider {
     this.observer = options.observer ?? NOOP_RUNTIME_OBSERVER;
   }
 
-  private requireAdapter(providerId: string): ModelProviderAdapter {
-    const adapter = this.adapters.get(providerId);
+  private requireAdapter(accountId: string): ModelProviderAdapter {
+    const adapter = this.adapters.get(accountId);
     if (adapter) return adapter;
-    const provider = this.catalog.provider(providerId);
-    throw new ModelConfigurationError(`model provider ${providerId} requires ${provider.api_key_env}`);
+    const account = this.catalog.account(accountId);
+    throw new ModelConfigurationError(`model account ${accountId} requires ${account.api_key_env}`);
   }
 
   availableProfileSummaries(role?: Parameters<ModelCatalog["profileSummaries"]>[0]) {
     return this.catalog.profileSummaries(role)
-      .filter((profile) => this.adapters.has(profile.providerId));
+      .filter((profile) => this.adapters.has(profile.accountId));
   }
 
-  assertProfilesAvailable(profileIds: readonly string[]): void {
-    const providerIds = new Set(profileIds.map((profileId) =>
-      this.catalog.profile(profileId).provider_id));
-    for (const providerId of [...providerIds].sort()) this.requireAdapter(providerId);
+  async modelRegistryDiagnostics(): Promise<ModelRegistryDiagnostics> {
+    let snapshot: ModelRegistrySnapshot | null = null;
+    let captureError: string | null = null;
+    try {
+      snapshot = await this.registry.capture();
+    } catch (error) {
+      captureError = safeDiagnosticError(error);
+    }
+    const accounts = Object.entries(this.catalog.accounts)
+      .map(([id, account]) => ({
+        id,
+        channel: account.channel,
+        region: account.region,
+        protocol: account.protocol,
+        credentialConfigured: this.adapters.has(id),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const profiles = this.catalog.profileSummaries().map((summary) => {
+      if (!snapshot) {
+        return {
+          id: summary.id,
+          accountId: summary.accountId,
+          credentialConfigured: this.adapters.has(summary.accountId),
+          resolvedModelId: null,
+          modelMetadataHash: null,
+          structuredOutputMode: null,
+          resolutionError: captureError ?? "model registry snapshot is unavailable",
+        };
+      }
+      try {
+        const binding = resolveModelProfile(this.catalog, snapshot, summary.id);
+        return {
+          id: summary.id,
+          accountId: summary.accountId,
+          credentialConfigured: this.adapters.has(summary.accountId),
+          resolvedModelId: binding.modelId,
+          modelMetadataHash: binding.modelMetadataHash,
+          structuredOutputMode: structuredOutputMode(binding),
+          resolutionError: null,
+        };
+      } catch (error) {
+        return {
+          id: summary.id,
+          accountId: summary.accountId,
+          credentialConfigured: this.adapters.has(summary.accountId),
+          resolvedModelId: null,
+          modelMetadataHash: null,
+          structuredOutputMode: null,
+          resolutionError: safeDiagnosticError(error),
+        };
+      }
+    });
+    const registry = this.registry.status();
+    return {
+      catalog: { schemaVersion: this.catalog.schemaVersion, hash: this.catalog.hash },
+      registry: {
+        ...registry,
+        lastError: registry.lastError ? safeDiagnosticError(registry.lastError) : null,
+      },
+      accounts,
+      profiles,
+    };
+  }
+
+  async refreshModelRegistry(): Promise<ModelRegistryRefreshDiagnostics> {
+    const result = await this.registry.refresh({ reason: "manual" });
+    return {
+      outcome: result.outcome,
+      checkedAt: result.checkedAt,
+      error: result.error ? safeDiagnosticError(result.error) : null,
+      diagnostics: await this.modelRegistryDiagnostics(),
+    };
+  }
+
+  async assertProfilesAvailable(profileIds: readonly string[]): Promise<void> {
+    const accountIds = new Set(profileIds.map((profileId) => {
+      return this.catalog.profile(profileId).account_id;
+    }));
+    for (const accountId of [...accountIds].sort()) this.requireAdapter(accountId);
+    const snapshot = await this.registry.capture();
+    for (const profileId of profileIds) resolveModelProfile(this.catalog, snapshot, profileId);
+  }
+
+  private async captureSnapshot<T>(request: StructuredModelRequest<T>): Promise<ModelRegistrySnapshot> {
+    const executionId = request.correlation?.executionId;
+    if (!executionId) return this.registry.capture(request.modelRegistrySnapshotHash);
+    const existing = this.executionSnapshots.get(executionId);
+    if (existing) {
+      const snapshot = await existing;
+      if (request.modelRegistrySnapshotHash && request.modelRegistrySnapshotHash !== snapshot.hash) {
+        throw new ModelConfigurationError(
+          `execution ${executionId} is already bound to model registry snapshot ${snapshot.hash}`,
+        );
+      }
+      return snapshot;
+    }
+    const capture = this.registry.capture(request.modelRegistrySnapshotHash);
+    this.executionSnapshots.set(executionId, capture);
+    capture.catch(() => {
+      if (this.executionSnapshots.get(executionId) === capture) this.executionSnapshots.delete(executionId);
+    });
+    while (this.executionSnapshots.size > 4_096) {
+      const oldest = this.executionSnapshots.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.executionSnapshots.delete(oldest);
+    }
+    return capture;
   }
 
   async generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>> {
@@ -186,8 +352,12 @@ export class ModelGateway implements StructuredModelProvider {
       throw new Error("structured model request identity is incomplete");
     }
     this.catalog.assertProfile(request.profileId, request.role);
-    const profile = this.catalog.profile(request.profileId);
-    const adapter = this.requireAdapter(profile.provider_id);
+    const snapshot = await this.captureSnapshot(request);
+    const binding = resolveModelProfile(this.catalog, snapshot, request.profileId);
+    const profile = binding.profile;
+    const account = binding.account;
+    const adapter = this.requireAdapter(binding.accountId);
+    const adapterDescription = adapter.describe(binding, request);
     const observer = request.observer ?? this.observer;
     const observe = runtimeEventEmitter(observer);
     const modelInvocation = request.modelInvocation ?? 1;
@@ -225,6 +395,15 @@ export class ModelGateway implements StructuredModelProvider {
       subjectId: request.subjectId,
       profileId: request.profileId,
       profile,
+      accountId: binding.accountId,
+      providerId: account.models_dev_provider_id,
+      protocol: account.protocol,
+      dialect: account.dialect,
+      selector: binding.selector,
+      registrySnapshotHash: binding.registrySnapshotHash,
+      modelId: binding.modelId,
+      modelMetadataHash: binding.modelMetadataHash,
+      resolvedInference: adapterDescription.resolvedInference,
       promptVersion: request.promptVersion,
       schemaName: request.schemaName,
       schema,
@@ -233,6 +412,12 @@ export class ModelGateway implements StructuredModelProvider {
     };
     const requestHash = contentHash(requestDocument);
     const requestUtf8Bytes = Buffer.byteLength(JSON.stringify(requestDocument, null, 2), "utf8");
+    if (requestUtf8Bytes > profile.max_input_bytes) {
+      throw new ModelConfigurationError(
+        `model profile ${request.profileId} request is ${requestUtf8Bytes} bytes; ` +
+        `maximum is ${profile.max_input_bytes} bytes`,
+      );
+    }
     observe?.({
       event: "model.context.serialized",
       correlation,
@@ -264,8 +449,9 @@ export class ModelGateway implements StructuredModelProvider {
       correlation,
       attributes: {
         profileId: request.profileId,
-        providerId: profile.provider_id,
-        modelId: profile.model,
+        accountId: binding.accountId,
+        providerId: account.models_dev_provider_id,
+        modelId: binding.modelId,
         promptVersion: request.promptVersion,
         schemaName: request.schemaName,
       },
@@ -283,20 +469,20 @@ export class ModelGateway implements StructuredModelProvider {
       observe?.({
         event: "model.queue.started",
         correlation: transportCorrelation,
-        attributes: { providerId: profile.provider_id, modelId: profile.model },
+        attributes: { accountId: binding.accountId, modelId: binding.modelId },
       });
       try {
         const scheduled = await this.scheduler.schedule({
-          providerId: profile.provider_id,
+          providerId: binding.accountId,
           workloadId: request.workloadId,
           abortSignal: request.abortSignal,
           execute: () => {
             observe?.({
               event: "model.transport.started",
               correlation: transportCorrelation,
-              attributes: { providerId: profile.provider_id, modelId: profile.model },
+              attributes: { accountId: binding.accountId, modelId: binding.modelId },
             });
-            return adapter.generate(profile, request, contextJson);
+            return adapter.generate(binding, request, contextJson);
           },
         });
         transports.push({
@@ -379,19 +565,7 @@ export class ModelGateway implements StructuredModelProvider {
         observer.flush?.();
         return {
           value: output,
-          audit: {
-            role: request.role,
-            subjectId: request.subjectId,
-            profileId: request.profileId,
-            providerId: profile.provider_id,
-            modelId: scheduled.value.responseModelId || profile.model,
-            catalogSchemaVersion: this.catalog.schemaVersion,
-            catalogHash: this.catalog.hash,
-            promptVersion: request.promptVersion,
-            inference: structuredClone(profile.inference),
-            structuredOutputMode: adapter.structuredOutputMode,
-            invocations: [invocation],
-          },
+          audit: executionAudit(binding, request, scheduled.value, this.catalog, [invocation]),
         };
       } catch (scheduledError) {
         let queueWaitMs = 0;
@@ -467,19 +641,13 @@ export class ModelGateway implements StructuredModelProvider {
               semanticOutcome: "rejected",
               validationIssueCodes: [error instanceof Error ? error.name : "model_output_error"],
             };
-            const audit: ModelExecutionAudit = {
-              role: request.role,
-              subjectId: request.subjectId,
-              profileId: request.profileId,
-              providerId: profile.provider_id,
-              modelId: profile.model,
-              catalogSchemaVersion: this.catalog.schemaVersion,
-              catalogHash: this.catalog.hash,
-              promptVersion: request.promptVersion,
-              inference: structuredClone(profile.inference),
-              structuredOutputMode: adapter.structuredOutputMode,
-              invocations: [invocation],
-            };
+            const audit = executionAudit(
+              binding,
+              request,
+              completedResult ?? adapterDescription,
+              this.catalog,
+              [invocation],
+            );
             observe?.({
               event: "model.structured_output.rejected",
               level: "warn",
@@ -596,8 +764,8 @@ export class ModelGateway implements StructuredModelProvider {
 
 export function createModelGateway(
   catalog: ModelCatalog,
-  env: Readonly<Record<string, string | undefined>> = process.env,
-  options: ModelGatewayOptions = {},
+  env: Readonly<Record<string, string | undefined>>,
+  options: ModelGatewayOptions,
 ): ModelGateway {
   return new ModelGateway(catalog, env, options);
 }

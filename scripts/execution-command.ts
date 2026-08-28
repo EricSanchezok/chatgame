@@ -26,7 +26,7 @@ import { runtimeCodeIdentity } from "../src/server/code-identity";
 
 function argumentsFor(argv: readonly string[]): { executionIds: string[]; database: string; output?: string } {
   const executionIds: string[] = [];
-  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld", "livingworld.sqlite");
+  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v19", "livingworld.sqlite");
   let output: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -52,19 +52,16 @@ interface RecordedOutput {
   audit: ModelExecutionAudit;
 }
 
-function providerKind(inference: ModelExecutionAudit["inference"]): "deepseek" | "openai" | "xai" {
-  if (inference.kind.startsWith("deepseek-")) return "deepseek";
-  if (inference.kind === "openai-reasoning") return "openai";
-  return "xai";
-}
-
 function recordedCatalog(audits: readonly ModelExecutionAudit[]): ModelCatalog {
-  const providers: ModelCatalogDocument["providers"] = {};
+  const accounts: ModelCatalogDocument["accounts"] = {};
   const profiles: ModelCatalogDocument["profiles"] = {};
   for (const audit of audits) {
-    const kind = providerKind(audit.inference);
-    providers[audit.providerId] ??= {
-      kind,
+    accounts[audit.accountId] ??= {
+      channel: audit.accountChannel,
+      region: "replay",
+      protocol: audit.protocol,
+      dialect: audit.dialect,
+      models_dev_provider_id: audit.providerId,
       base_url: "https://recorded.invalid",
       api_key_env: "RECORDED_REPLAY_API_KEY",
       max_concurrency: 1024,
@@ -73,21 +70,27 @@ function recordedCatalog(audits: readonly ModelExecutionAudit[]): ModelCatalog {
     const roles = new Set<ModelRole>(current?.allowed_roles ?? []);
     roles.add(audit.role);
     profiles[audit.profileId] = {
-      provider_id: audit.providerId,
-      model: audit.modelId,
+      account_id: audit.accountId,
+      selector: { kind: "exact", model_id: audit.modelId },
       description: "Recorded execution replay",
       allowed_roles: [...roles],
       request_timeout_ms: 1_000,
       max_output_tokens: 1,
       max_input_bytes: 128 * 1024 * 1024,
-      inference: structuredClone(audit.inference),
+      inference: structuredClone(audit.requestedInference),
     };
   }
   return new ModelCatalog({
-    schema_version: 2,
+    schema_version: 3,
     scheduler: { global_concurrency: 1024, max_queued_requests: 4096, queue_timeout_ms: 1_000 },
-    providers,
+    registry: {
+      refresh_interval_ms: 3_600_000,
+      request_timeout_ms: 10_000,
+      stale_after_ms: 86_400_000,
+    },
+    accounts,
     profiles,
+    model_overrides: {},
   });
 }
 
@@ -121,7 +124,7 @@ class RecordedModelProvider implements StructuredModelProvider {
     return this.catalog.profileSummaries(role);
   }
 
-  assertProfilesAvailable(profileIds: readonly string[]): void {
+  async assertProfilesAvailable(profileIds: readonly string[]): Promise<void> {
     for (const profileId of profileIds) this.catalog.assertProfile(profileId);
   }
 

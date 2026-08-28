@@ -30,7 +30,14 @@ import {
   resolutionPlanSchema,
   resolutionReceiptSchema,
 } from "./llm-schemas";
-import { modelInferenceSchema, modelRoles } from "./model-catalog";
+import {
+  modelAccountChannels,
+  modelInferenceSchema,
+  modelProtocols,
+  modelRoles,
+  modelSelectorSchema,
+  resolvedModelInferenceSchema,
+} from "./model-catalog";
 import { contentHash, isSha256 } from "./model-audit";
 import { applyObservationBindings, pendingObservationsFor, validateObservations } from "./observation";
 import { resolveD20Checks, resolveDiscreteRandomRequests } from "./random";
@@ -760,7 +767,7 @@ export function replaySimulationState(
     return structuredClone(state);
   }
   const replay: SimulationState = {
-    schemaVersion: 13,
+    schemaVersion: 14,
     worldId: state.worldId,
     worldHash: state.worldHash,
     lawIds: structuredClone(state.lawIds),
@@ -894,9 +901,16 @@ export function validateModelAudit(
   seenInvocationIds = new Set<string>(),
 ): void {
   if (!modelRoles.includes(audit.role) || !audit.subjectId.trim() || !audit.profileId.trim() ||
-    !audit.providerId.trim() || !audit.modelId.trim() || audit.catalogSchemaVersion !== 2 ||
-    !isSha256(audit.catalogHash) || !audit.promptVersion.trim()) throw new Error(`${label} has invalid model identity`);
-  modelInferenceSchema.parse(audit.inference);
+    !audit.accountId.trim() || !modelAccountChannels.includes(audit.accountChannel) ||
+    !modelProtocols.includes(audit.protocol) || !audit.dialect.trim() ||
+    !audit.providerId.trim() || !audit.modelId.trim() || audit.catalogSchemaVersion !== 3 ||
+    !isSha256(audit.registrySnapshotHash) || !isSha256(audit.modelMetadataHash) ||
+    !isSha256(audit.catalogHash) || !audit.promptVersion.trim() ||
+    !["json-schema-strict", "json-object-zod", "tool-call-zod", "deterministic-test"]
+      .includes(audit.structuredOutputMode)) throw new Error(`${label} has invalid model identity`);
+  modelSelectorSchema.parse(audit.selector);
+  modelInferenceSchema.parse(audit.requestedInference);
+  resolvedModelInferenceSchema.parse(audit.resolvedInference);
   if (audit.invocations.length === 0) throw new Error(`${label} has no invocations`);
   for (const invocation of audit.invocations) {
     if (!invocation.id.trim() || seenInvocationIds.has(invocation.id)) throw new Error(`${label} has duplicate invocation id`);
@@ -913,7 +927,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents", "admissions", "history",
     "bootstrapAgentCommits",
   ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
-  if (state.schemaVersion !== 13 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 14 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
