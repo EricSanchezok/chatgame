@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { InteractionDependency } from "../execution";
-import type { AgentActionProposal, WorldEntity } from "../model";
+import type { AgentActionProposal, CausalAssertion, SimulationState, WorldEntity } from "../model";
 import {
+  applySharedResourceAdmissions,
   planSharedResourceAdmissions,
   promoteSharedResourceQueues,
   sharedResourceQueuePositions,
@@ -13,10 +14,15 @@ import type {
   SharedActivityResourcePool,
 } from "../shared-activity-resources";
 import {
+  blockScheduledActivity,
   createActivity,
+  evaluateActivityContinuation,
   materializeTemporalPlan,
   pauseActivity,
   queueScheduledActivity,
+  reserveQueuedActivity,
+  resumeActivity,
+  startReadyActivity,
   type ActivityState,
   type ScheduledActivityState,
   type TemporalProfileDefinition,
@@ -67,7 +73,12 @@ function resource(
   return { definition, pool, entity: activeEntity(pool.entityId) };
 }
 
-function activity(id: string, claims: SharedActivityResourceClaim[], atSeconds = 0): ScheduledActivityState {
+function activity(
+  id: string,
+  claims: SharedActivityResourceClaim[],
+  atSeconds = 0,
+  continuationAssertions: CausalAssertion[] = [],
+): ScheduledActivityState {
   const action: AgentActionProposal = {
     id: `action-${id}`,
     actorId: `agent-${id}`,
@@ -87,7 +98,7 @@ function activity(id: string, claims: SharedActivityResourceClaim[], atSeconds =
       profileId: profile.id,
       basis: { kind: "profile" },
       description: action.rawText,
-      continuationAssertions: [],
+      continuationAssertions,
       causes: [{ kind: "action", id: action.id }],
     },
     profiles: { [profile.id]: profile },
@@ -230,5 +241,72 @@ describe("shared physical resource allocator", () => {
       activities: { [paused.id]: paused },
       ...values,
     })).toThrow("exceeds capacity");
+
+    values.entities[retained.entity.id] = retained.entity;
+    values.pools[retained.pool.id] = { ...retained.pool, capacity: 0 };
+    expect(() => validateSharedResourceCapacity({
+      activities: { [paused.id]: paused },
+      ...values,
+    })).toThrow("exceeds capacity");
+  });
+
+  it("re-enters authored contention when a released paused claim resumes", () => {
+    const bench = resource("released-bench", "queue", "release");
+    const pausedSource = activity("paused-source", [claim(bench)]);
+    const paused = pauseActivity(pausedSource, 0).activity;
+    const holder = activity("holder", [claim(bench)]);
+    expect(validateSharedResourceCapacity({
+      activities: { [paused.id]: paused, [holder.id]: holder },
+      ...catalog([bench]),
+    })[0]?.claimed).toBe(1);
+
+    const resumed = resumeActivity(paused, 0).activity;
+    const activities = { [resumed.id]: resumed, [holder.id]: holder };
+    const admissions = planSharedResourceAdmissions({
+      activities,
+      proposalActivityIds: [resumed.id],
+      ...catalog([bench]),
+    }).admissions;
+    expect(admissions).toEqual([{
+      kind: "queue",
+      activityId: resumed.id,
+      shortagePoolIds: [bench.pool.id],
+    }]);
+    expect(applySharedResourceAdmissions({ activities, admissions, atSeconds: 0 }).activities[resumed.id]?.status)
+      .toBe("queued");
+  });
+
+  it("blocks an invalid ready reservation and promotes the next queue head", () => {
+    const bench = resource("asserted-bench", "queue", "release");
+    const assertion: CausalAssertion = {
+      kind: "entity_lifecycle",
+      entityId: "continuation-marker",
+      expected: "active",
+    };
+    const firstQueued = queueScheduledActivity(activity("asserted-first", [claim(bench)], 0, [assertion]), 0).activity;
+    const firstReady = reserveQueuedActivity(firstQueued, 30).activity;
+    const secondQueued = queueScheduledActivity(activity("asserted-second", [claim(bench)]), 0).activity;
+    const started = startReadyActivity({ activity: firstReady, atSeconds: 30, profiles: { [profile.id]: profile } });
+    const invalidState = {
+      truth: {
+        entities: {
+          "continuation-marker": {
+            ...activeEntity("continuation-marker"),
+            lifecycle: "retired",
+          },
+        },
+      },
+    } as unknown as SimulationState;
+    expect(evaluateActivityContinuation(invalidState, started.activity)).toContainEqual(expect.objectContaining({
+      passed: false,
+    }));
+    const blocked = blockScheduledActivity(started.activity, 30).activity;
+    const promoted = promoteSharedResourceQueues({
+      activities: { [blocked.id]: blocked, [secondQueued.id]: secondQueued },
+      ...catalog([bench]),
+      atSeconds: 60,
+    });
+    expect(promoted.activities[blocked.id]?.status).toBe("blocked");
+    expect(promoted.activities[secondQueued.id]?.status).toBe("ready");
   });
 });
