@@ -89,6 +89,13 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
   }>;
   counts: Readonly<{ reactionFallbacks: number }>;
 } | {
+  event: "algorithm.truth_perception.repair_fallback";
+  attributes: Readonly<{
+    phase: "truth-perception";
+    policy: "no-perception-reaction";
+  }>;
+  counts: Readonly<{ perceptionFallbacks: number }>;
+} | {
   event: "algorithm.grounding.global_fallback";
   attributes: Readonly<{ phase: "grounding"; reasons: string }>;
   counts: Readonly<{ normalizedGroundingFields: number; globalFallbacks: number }>;
@@ -375,6 +382,14 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
     attributeValues: {
       phase: ["reaction"],
       policy: ["temporal-profile-fallback"],
+    },
+  },
+  "algorithm.truth_perception.repair_fallback": {
+    attributes: ["phase", "policy"],
+    counts: ["perceptionFallbacks"],
+    attributeValues: {
+      phase: ["truth-perception"],
+      policy: ["no-perception-reaction"],
     },
   },
   "algorithm.grounding.global_fallback": {

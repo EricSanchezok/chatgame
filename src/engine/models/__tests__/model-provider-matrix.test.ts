@@ -18,8 +18,8 @@ const profileModels = {
   "agent-deepseek": "deepseek-v4-pro",
   "agent-openai": "gpt-5.6",
   "agent-xai": "grok-4.6",
-  "agent-zhipu": "glm-5",
-  "agent-zhipu-coding": "glm-5",
+  "agent-zhipu": "glm-5.3-flash",
+  "agent-zhipu-coding": "glm-5.3-flash",
   "agent-minimax": "MiniMax-M2.7",
   "agent-minimax-token-plan": "MiniMax-M2.7",
   "agent-kimi": "kimi-k2.5",
@@ -279,6 +279,17 @@ describe("provider account protocol matrix", () => {
     }
 
     expect(calls).toHaveLength(Object.keys(profileModels).length);
+    for (const call of calls.filter((candidate) => candidate.url.includes("bigmodel.cn"))) {
+      expect(call.body.tools).toEqual([expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({ name: "submit_result" }),
+      })]);
+      expect(call.body.tool_choice).toEqual({
+        type: "function",
+        function: { name: "submit_result" },
+      });
+      expect(call.body.response_format).toBeUndefined();
+    }
     for (const call of calls) {
       expect(call.url).not.toContain("models.dev");
       if (call.url.includes("xiaomimimo.com")) {

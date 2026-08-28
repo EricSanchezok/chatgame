@@ -20,6 +20,8 @@ const TEST_PROFILE_IDS = [
   "agent-default",
   "truth-deepseek",
   "agent-deepseek",
+  "truth-zhipu-coding",
+  "agent-zhipu-coding",
   "agent-openai",
   "agent-xai",
 ];
@@ -633,7 +635,8 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           })),
         };
       }
-      if (profileId === "truth-engine" || profileId === "truth-deepseek") {
+      if (profileId === "truth-engine" || profileId === "truth-deepseek" ||
+        profileId === "truth-zhipu-coding") {
         if (input.stage === "perception") return { kind: "done" };
         if (input.stage === "reaction-routing") return { requests: [] };
         if (input.stage === "resolution") {

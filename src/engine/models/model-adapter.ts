@@ -77,15 +77,22 @@ function jsonObjectPrompt<T>(request: StructuredModelRequest<T>, contextJson: st
     contextJson,
     "",
     "Return exactly one JSON object matching the supplied schema. Do not use Markdown or explanatory prose.",
+    "Every causal reference must be an object with exactly two fields: {\"kind\": \"...\", \"id\": \"...\"}; never use an id as an object property name.",
     `JSON Schema: ${JSON.stringify(jsonSchema)}`,
     `Example JSON output shape: ${JSON.stringify(schemaExample(jsonSchema))}`,
   ].join("\n");
 }
 
-function toolCallPrompt(contextJson: string): string {
+function toolCallPrompt<T>(request: StructuredModelRequest<T>, contextJson: string): string {
+  const discriminatorInstruction = request.schemaName === "truth_perception_directive"
+    ? "For this Truth perception call, the discriminator kind must be exactly request_checks or done."
+    : request.schemaName === "truth_resolution_directive"
+      ? "For this Truth resolution call, the discriminator kind must be exactly commit_plans, request_random, or done."
+      : "Choose the discriminator value exactly from the supplied schema; do not invent a new kind.";
   return [
     contextJson,
     "",
+    discriminatorInstruction,
     "Call submit_result exactly once with the complete structured result.",
   ].join("\n");
 }
@@ -114,8 +121,18 @@ export function structuredOutputMode(
     if (binding.model.toolCall) return "tool-call-zod";
     throw new Error(`model ${binding.modelId} cannot produce verified structured output`);
   }
+  if (binding.account.dialect === "zhipu" && binding.model.toolCall) {
+    // GLM's Coding Plan endpoint reliably enforces the supplied tool schema;
+    // its JSON-Schema response_format is accepted but may be ignored.
+    return "tool-call-zod";
+  }
   if (binding.model.structuredOutput) {
-    return binding.account.dialect === "deepseek" ? "json-object-zod" : "json-schema-strict";
+    // DeepSeek's OpenAI-compatible endpoint reliably honors the JSON-object
+    // contract. Keep schema validation local after parsing so the engine never
+    // accepts an unverified provider response.
+    return binding.account.dialect === "deepseek"
+      ? "json-object-zod"
+      : "json-schema-strict";
   }
   if (binding.model.toolCall) return "tool-call-zod";
   throw new Error(`model ${binding.modelId} cannot produce verified structured output`);
@@ -263,7 +280,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
 
     const result = await generateText({
       ...common,
-      prompt: toolCallPrompt(contextJson),
+      prompt: toolCallPrompt(request, contextJson),
       tools: {
         submit_result: tool({
           description: `Submit one ${request.schemaName} result.`,

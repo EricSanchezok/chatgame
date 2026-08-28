@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -16,6 +16,39 @@ import { loadWorldScript } from "../../src/script/world-loader";
 import { MemoryWorldRepository } from "../../src/script/world-repository";
 import { LocalDatabase } from "../../src/server/local-database";
 import { WorldHost } from "../../src/server/world-host";
+
+type SmokeProfileSet = "glm" | "deepseek";
+
+function profileSetArgument(argv: readonly string[]): SmokeProfileSet {
+  const index = argv.indexOf("--profile-set");
+  const value = index >= 0 ? argv[index + 1]?.trim() : undefined;
+  if (value && value !== "glm" && value !== "deepseek") {
+    throw new Error("profile set must be glm or deepseek");
+  }
+  return (value as SmokeProfileSet | undefined) ?? "glm";
+}
+
+function yamlFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) return yamlFiles(absolute);
+    return entry.name.endsWith(".yaml") || entry.name.endsWith(".yml") ? [absolute] : [];
+  });
+}
+
+function smokeWorldDirectory(root: string, profileSet: SmokeProfileSet): string {
+  const source = path.resolve("worlds/blackmarsh/world");
+  if (profileSet === "glm") return source;
+  const copy = path.join(root, "world-deepseek");
+  cpSync(source, copy, { recursive: true });
+  for (const file of yamlFiles(copy)) {
+    const contents = readFileSync(file, "utf8");
+    writeFileSync(file, contents
+      .replaceAll("truth-zhipu-coding", "truth-deepseek")
+      .replaceAll("agent-zhipu-coding", "agent-deepseek"), "utf8");
+  }
+  return copy;
+}
 
 function failedAdvanceDiagnostic(database: LocalDatabase, instanceId: string): string {
   const document = database.readInstance(instanceId).document;
@@ -43,8 +76,8 @@ function diagnosticLines(error: unknown, depth = 0): string[] {
       `ZodError ${issue.path.join(".") || "<root>"} ${issue.code}`);
   }
   if (!(error instanceof Error)) return [`NonError: ${typeof error}`];
-  const safeMessage = error.name === "ModelOutputError" || error.name === "ModelSemanticRepairError"
-    ? "structured model output was rejected"
+  const safeMessage = error.name === "ModelSemanticRepairError"
+    ? "structured model output was rejected after repairs"
     : error.message;
   const lines = [`${error.name}: ${safeMessage}`];
   const cause = (error as Error & { cause?: unknown }).cause;
@@ -55,13 +88,14 @@ function diagnosticLines(error: unknown, depth = 0): string[] {
 async function runBatchingSmoke(
   definition: ReturnType<typeof loadWorldScript>,
   provider: ReturnType<typeof createModelGateway>,
+  profileSet: SmokeProfileSet,
 ): Promise<void> {
   const observer = new RecordingRuntimeObserver({ mode: "metrics" });
   const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
   const scope = (phase: string) => ({
-    workloadId: `deepseek-batching-smoke:${definition.id}`,
-    batchId: `deepseek-batching-smoke:${phase}`,
-    correlation: { instanceId: "deepseek-batching-smoke", revision: 0, step: phase === "bootstrap" ? 0 : 1 },
+    workloadId: `${profileSet}-batching-smoke:${definition.id}`,
+    batchId: `${profileSet}-batching-smoke:${phase}`,
+    correlation: { instanceId: `${profileSet}-batching-smoke`, revision: 0, step: phase === "bootstrap" ? 0 : 1 },
     observer,
   });
   await engine.bootstrapAgents(scope("bootstrap"));
@@ -100,7 +134,7 @@ async function runBatchingSmoke(
     throw new Error("batching smoke observed duplicate model invocation IDs");
   }
   process.stdout.write([
-    "DeepSeek eager-reference batching smoke passed",
+    `${profileSet.toUpperCase()} eager-reference batching smoke passed`,
     `world=${definition.id}`,
     `agents=${Object.keys(state.agents).length}`,
     `agentBootstrapCalls=${bootstrap.counts.physicalCalls}`,
@@ -112,22 +146,25 @@ async function runBatchingSmoke(
 }
 
 async function main(): Promise<void> {
+  const profileSet = profileSetArgument(process.argv.slice(2));
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
-  const root = mkdtempSync(path.join(tmpdir(), "lwe-deepseek-smoke-"));
+  const root = mkdtempSync(path.join(tmpdir(), `lwe-${profileSet}-smoke-`));
   const registry = new ModelRegistry(catalog, root);
   const provider = createModelGateway(catalog, process.env, { registry });
-  const definition = loadWorldScript(path.resolve("worlds/blackmarsh/world"), {
+  const definition = loadWorldScript(smokeWorldDirectory(root, profileSet), {
     seed: 20260827,
     modelCatalog: catalog,
   });
   if (process.argv.includes("--batching-only")) {
     try {
-      await runBatchingSmoke(definition, provider);
+      await runBatchingSmoke(definition, provider, profileSet);
     } catch (error) {
-      process.stderr.write(`DeepSeek eager-reference batching smoke failed:\n${diagnosticLines(error)
+      process.stderr.write(`${profileSet.toUpperCase()} eager-reference batching smoke failed:\n${diagnosticLines(error)
         .map((line) => `- ${line}`)
         .join("\n")}\n`);
       process.exitCode = 1;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
     return;
   }
@@ -144,7 +181,7 @@ async function main(): Promise<void> {
     let headless = await host.createInstance({
       worldId: definition.id,
       seed: 20260827,
-      title: "DeepSeek 无人烟测",
+      title: `${profileSet.toUpperCase()} 无人烟测`,
       start: { kind: "observer" },
     });
     headless = await host.advance(headless.summary.id, {
@@ -160,7 +197,7 @@ async function main(): Promise<void> {
     let instance = await host.createInstance({
       worldId: definition.id,
       seed: 20260827,
-      title: "DeepSeek 角色烟测",
+      title: `${profileSet.toUpperCase()} 角色烟测`,
       start: {
         kind: "origin",
         originId: "harbor-wayfarer",
@@ -185,7 +222,7 @@ async function main(): Promise<void> {
       );
     }
     process.stdout.write([
-      "DeepSeek eager-reference smoke passed",
+      `${profileSet.toUpperCase()} eager-reference smoke passed`,
       `world=${definition.id}`,
       `agents=${Object.keys(database.readInstance(instance.summary.id).document.state.agents).length}`,
       `headlessRevision=${headlessRevision}`,
@@ -193,14 +230,14 @@ async function main(): Promise<void> {
       `executions=${database.executions({ instanceId: instance.summary.id }).length}`,
     ].join(" ") + "\n");
   } catch (error) {
-    process.stderr.write(`DeepSeek eager-reference smoke failed:\n${diagnosticLines(error)
+    process.stderr.write(`${profileSet.toUpperCase()} eager-reference smoke failed:\n${diagnosticLines(error)
       .map((line) => `- ${line}`)
       .join("\n")}\n`);
     process.exitCode = 1;
   } finally {
     database.close();
     if (process.env.LIVINGWORLD_KEEP_SMOKE_DATA === "1") {
-      process.stderr.write(`DeepSeek smoke data retained at ${root}\n`);
+      process.stderr.write(`${profileSet.toUpperCase()} smoke data retained at ${root}\n`);
     } else {
       rmSync(root, { recursive: true, force: true });
     }

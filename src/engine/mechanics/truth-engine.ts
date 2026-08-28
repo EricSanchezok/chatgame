@@ -546,6 +546,38 @@ function validatePlanEffect(
   }
 }
 
+function canonicalActionEntityId(
+  state: SimulationState,
+  action: AgentActionProposal,
+  value: string,
+): string {
+  if (state.truth.entities[value]) return value;
+  const binding = state.agents[action.actorId]?.bindings[value];
+  const canonicalIds = binding?.canonicalEntityIds.filter((id) => Boolean(state.truth.entities[id])) ?? [];
+  return canonicalIds.length === 1 ? canonicalIds[0]! : value;
+}
+
+function canonicalResolutionSource(
+  state: SimulationState,
+  action: AgentActionProposal,
+  source: ResolutionSourceRef,
+): ResolutionSourceRef {
+  if (source.kind !== "entity") return source;
+  return { ...source, id: canonicalActionEntityId(state, action, source.id) };
+}
+
+function canonicalResolutionEffect<T extends {
+  targetId: string;
+  sourceRefs: ResolutionSourceRef[];
+}>(state: SimulationState, action: AgentActionProposal, effect: T | null): T | null {
+  if (!effect) return null;
+  return {
+    ...effect,
+    targetId: canonicalActionEntityId(state, action, effect.targetId),
+    sourceRefs: effect.sourceRefs.map((source) => canonicalResolutionSource(state, action, source)),
+  };
+}
+
 function materializeResolutionPlans(input: {
   state: SimulationState;
   definition: WorldDefinition;
@@ -571,11 +603,41 @@ function materializeResolutionPlans(input: {
     const action = input.actions.find((candidate) => candidate.id === draft.actionId);
     if (!action) throw new Error(`resolution plan references unknown action ${draft.actionId}`);
     const actor = input.state.agents[action.actorId];
-    if (!actor || draft.actorId !== actor.entityId || draft.goal !== action.goal) {
-      throw new Error(`resolution plan ${draft.id} changes actor or goal`);
-    }
+    if (!actor) throw new Error(`resolution plan ${draft.id} references unknown action actor ${action.actorId}`);
+    // The action binding is authoritative for identity and intent.  These two
+    // fields are repeated in the draft for provider readability, but accepting
+    // a paraphrase (or a stale actor id) would let a model retarget a plan.
+    const targetIds = [...new Set(draft.targetIds.map((targetId) =>
+      canonicalActionEntityId(input.state, action, targetId)))];
+    const difficulty = draft.difficulty
+      ? draft.difficulty.kind === "opposed"
+        ? {
+            ...structuredClone(draft.difficulty),
+            targetId: canonicalActionEntityId(input.state, action, draft.difficulty.targetId),
+            source: canonicalResolutionSource(input.state, action, draft.difficulty.source),
+          }
+        : {
+            ...structuredClone(draft.difficulty),
+            source: canonicalResolutionSource(input.state, action, draft.difficulty.source),
+          }
+      : null;
     const plan: ResolutionPlan = {
       ...structuredClone(draft),
+      actorId: actor.entityId,
+      goal: action.goal,
+      targetIds,
+      difficulty,
+      means: draft.means.map((mean) => ({
+        ...structuredClone(mean),
+        source: canonicalResolutionSource(input.state, action, mean.source),
+      })),
+      factors: draft.factors.map((factor) => ({
+        ...structuredClone(factor),
+        source: canonicalResolutionSource(input.state, action, factor.source),
+      })),
+      primaryEffect: canonicalResolutionEffect(input.state, action, draft.primaryEffect),
+      secondaryEffect: canonicalResolutionEffect(input.state, action, draft.secondaryEffect),
+      threatenedEffect: canonicalResolutionEffect(input.state, action, draft.threatenedEffect),
       id: runtimeId({
         worldHash: input.state.worldHash,
         revision: input.state.revision,

@@ -1125,8 +1125,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     });
     const requiresPerceptionCheck = reactionCandidates.some((candidate) =>
       reactionBasis(source, candidate.trigger, candidate.agentId, { requests: [], checks: [] }).length === 0);
-    const onsetPerception = requiresPerceptionCheck
-      ? await this.truthEngine.perceiveOnset({
+    let onsetPerception: OnsetPerceptionResult | null = null;
+    if (requiresPerceptionCheck) {
+      try {
+        onsetPerception = await this.truthEngine.perceiveOnset({
           definition: input.definition,
           state: source,
           actions: structuredClone(newActions),
@@ -1141,8 +1143,23 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           }),
           identityOwner: "action-onset-perception",
           groundings: newDependencyResults.map((result) => structuredClone(result.dependency)),
-        }, context.modelScope)
-      : null;
+        }, context.modelScope);
+      } catch (error) {
+        if (!(error instanceof ModelSemanticRepairError)) throw error;
+        context.instrumentation.emit({
+          event: "algorithm.truth_perception.repair_fallback",
+          level: "warn",
+          correlation: context.modelScope.correlation,
+          attributes: { phase: "truth-perception", policy: "no-perception-reaction" },
+          counts: { perceptionFallbacks: 1 },
+          error: { name: error.name, message: error.message },
+        });
+        // Perception only gates optional onset reactions. If the model cannot
+        // produce a valid directive after repairs, omit those reactions while
+        // keeping the authored actions and main resolution path intact.
+        onsetPerception = null;
+      }
+    }
     const onsetPerceptionTranscript = onsetPerception ?? {
       requests: [],
       checks: [],
