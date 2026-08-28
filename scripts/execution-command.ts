@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerBuiltinAlgorithms } from "../src/engine/builtin-algorithms";
-import { deriveExecutionWork, EXECUTION_METRICS, type MetricPoint } from "../src/engine/execution-metrics";
+import { aggregateMetricPoints, deriveExecutionWork, EXECUTION_METRICS } from "../src/engine/execution-metrics";
 import {
   algorithmRef,
   resolutionObservations,
@@ -44,24 +44,6 @@ function event(events: readonly RuntimeEvent[], name: string, phase?: string): R
     (phase === undefined || candidate.attributes?.phase === phase));
   if (!found) throw new Error(`recorded execution is missing ${name}${phase ? ` (${phase})` : ""}`);
   return found;
-}
-
-function aggregate(points: readonly MetricPoint[]): Array<MetricPoint & { samples: number }> {
-  const values = new Map<string, MetricPoint & { samples: number }>();
-  for (const point of points) {
-    const key = `${point.name}\u0000${JSON.stringify(point.dimensions)}`;
-    const current = values.get(key);
-    if (!current) {
-      values.set(key, { ...point, samples: 1 });
-      continue;
-    }
-    const definition = EXECUTION_METRICS.definition(point.name);
-    current.samples += 1;
-    if (definition.aggregation === "sum" || definition.aggregation === "count") current.value += point.value;
-    else if (definition.aggregation === "max") current.value = Math.max(current.value, point.value);
-    else current.value = point.value;
-  }
-  return [...values.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 interface RecordedOutput {
@@ -395,7 +377,7 @@ async function main(): Promise<void> {
             createdAt: artifact.createdAt,
           };
         }),
-        metrics: aggregate(EXECUTION_METRICS.derive(events)),
+        metrics: aggregateMetricPoints(EXECUTION_METRICS.derive(events)),
         work: deriveExecutionWork(events),
       };
       const serialized = `${JSON.stringify(output, null, 2)}\n`;

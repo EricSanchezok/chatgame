@@ -4,7 +4,12 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { defineAlgorithmManifest } from "../../engine/execution";
-import { deriveExecutionWork, MetricDefinitionRegistry, EXECUTION_METRICS } from "../../engine/execution-metrics";
+import {
+  aggregateMetricPoints,
+  deriveExecutionWork,
+  MetricDefinitionRegistry,
+  EXECUTION_METRICS,
+} from "../../engine/execution-metrics";
 import { contentHash } from "../../engine/model-audit";
 import { LocalDatabase } from "../local-database";
 import { candidatePartitions, replayThroughAlgorithm } from "../../../scripts/execution-command";
@@ -21,6 +26,58 @@ const manifest = defineAlgorithmManifest({
   config: {},
   components: [],
 });
+
+function activationCounts(overrides: Partial<Record<string, number>> = {}) {
+  return {
+    persistentAgents: 0,
+    eligibleAgents: 0,
+    activatedAgents: 0,
+    skippedAgents: 0,
+    reusedAgents: 0,
+    noopAgents: 0,
+    externalAgents: 0,
+    ...overrides,
+  };
+}
+
+function candidateCounts(overrides: Partial<Record<string, number>> = {}) {
+  return {
+    updatedAgents: 0,
+    observedAgents: 0,
+    actions: 0,
+    reactions: 0,
+    checks: 0,
+    randomResults: 0,
+    resolutionPlans: 0,
+    settledResolutionReceipts: 0,
+    deferredResolutionReceipts: 0,
+    mechanicInvocations: 0,
+    mechanicResults: 0,
+    outcomes: 0,
+    operations: 0,
+    events: 0,
+    observations: 0,
+    mindCommits: 0,
+    mindFallbacks: 0,
+    temporalPlans: 0,
+    activeActivities: 0,
+    activityTransitions: 0,
+    dueActivities: 0,
+    dueTimers: 0,
+    dueConditions: 0,
+    decisionPoints: 0,
+    temporalDeltaSeconds: 0,
+    dependencyNodes: 0,
+    dependencyEdges: 0,
+    dependencyComponents: 0,
+    maxDependencyComponent: 0,
+    globalDependencies: 0,
+    globalReadjudications: 0,
+    footprintCardinality: 0,
+    audienceCardinality: 0,
+    ...overrides,
+  };
+}
 
 describe("Execution Ledger", () => {
   it("rejects an older database without migrating or deleting it", () => {
@@ -206,16 +263,20 @@ describe("Execution Ledger", () => {
         seed: 1,
         runtimeConfig: {},
       });
-      trace.emit({ event: "step.started", counts: { persistentAgents: 1000 } });
+      trace.emit({
+        event: "step.started",
+        attributes: { agentId: "must-stay-in-trace" },
+        counts: { persistentAgents: 1000 },
+      });
       trace.emit({
         event: "algorithm.activation.completed",
-        attributes: { phase: "step", agentId: "must-stay-in-trace" },
-        counts: { persistentAgents: 1000, activatedAgents: 1000 },
+        attributes: { phase: "step", policy: "test" },
+        counts: activationCounts({ persistentAgents: 1000, activatedAgents: 1000 }),
       });
       trace.emit({
         event: "algorithm.candidate.completed",
-        attributes: { phase: "step" },
-        counts: {
+        attributes: { phase: "step", dependencyAnalysis: "test", trigger: "batch" },
+        counts: candidateCounts({
           updatedAgents: 1000,
           mindFallbacks: 2,
           resolutionPlans: 4,
@@ -224,11 +285,28 @@ describe("Execution Ledger", () => {
           temporalPlans: 2,
           activeActivities: 1,
           activityTransitions: 2,
+          dueActivities: 2,
           dueTimers: 1,
+          dueConditions: 1,
           decisionPoints: 2,
           temporalDeltaSeconds: 300,
-        },
+          maxDependencyComponent: 5,
+        }),
       });
+      trace.emit({
+        event: "algorithm.activation.completed",
+        attributes: { phase: "step", policy: "test" },
+        counts: activationCounts({ persistentAgents: 800, activatedAgents: 7 }),
+      });
+      trace.emit({
+        event: "algorithm.candidate.completed",
+        attributes: { phase: "step", dependencyAnalysis: "test", trigger: "batch" },
+        counts: candidateCounts({ maxDependencyComponent: 2 }),
+      });
+      trace.emit({ event: "temporal.boundary.reason", attributes: { reasonKind: "timer" } });
+      trace.emit({ event: "temporal.activity.transition", attributes: { transitionKind: "completed" } });
+      trace.emit({ event: "resolution.outcome.recorded", attributes: { outcomeStatus: "succeeded" } });
+      trace.emit({ event: "resolution.operation.recorded", attributes: { operationKind: "advance_time" } });
       trace.emit({
         event: "algorithm.outcome.alternative_evidence_normalized",
         attributes: { phase: "transition" },
@@ -236,28 +314,37 @@ describe("Execution Ledger", () => {
       });
       trace.emit({
         event: "instance.bootstrap.committed",
+        durationMs: 123,
         counts: { activatedAgents: 1000, updatedAgents: 1000 },
       });
       const points = EXECUTION_METRICS.derive(ledger.executionEvents("metric-execution"));
       expect(points.filter((point) => point.name === "lwe.agent.persistent"))
-        .toEqual([expect.objectContaining({ value: 1000 })]);
+        .toContainEqual(expect.objectContaining({ value: 1000 }));
       expect(points.filter((point) => point.name === "lwe.agent.activated"))
-        .toEqual([expect.objectContaining({ value: 1000 })]);
+        .toContainEqual(expect.objectContaining({ value: 1000 }));
       expect(points.filter((point) => point.name === "lwe.agent.updated"))
-        .toEqual([expect.objectContaining({ value: 1000 })]);
+        .toContainEqual(expect.objectContaining({ value: 1000 }));
       expect(points.filter((point) => point.name === "lwe.agent.mind_fallbacks"))
-        .toEqual([expect.objectContaining({ value: 2 })]);
+        .toContainEqual(expect.objectContaining({ value: 2 }));
       expect(points.filter((point) => point.name === "lwe.output.resolution_receipts_deferred"))
-        .toEqual([expect.objectContaining({ value: 1 })]);
+        .toContainEqual(expect.objectContaining({ value: 1 }));
       expect(points.filter((point) => point.name === "lwe.temporal.delta"))
-        .toEqual([expect.objectContaining({ value: 300, unit: "s" })]);
+        .toContainEqual(expect.objectContaining({ value: 300, unit: "s" }));
       expect(points.filter((point) => point.name === "lwe.normalization.outcome_alternatives"))
         .toEqual([expect.objectContaining({ value: 1 })]);
+      expect(points.filter((point) => point.name === "lwe.temporal.boundary_reasons"))
+        .toEqual([expect.objectContaining({ value: 1, dimensions: { reasonKind: "timer" } })]);
       expect(points.some((point) => "agentId" in point.dimensions)).toBe(false);
-      expect(deriveExecutionWork(ledger.executionEvents("metric-execution"))).toMatchObject({
-        spanCount: 4,
+      const aggregated = aggregateMetricPoints(points);
+      expect(aggregated.find((point) => point.name === "lwe.agent.persistent")).toMatchObject({ value: 800 });
+      expect(aggregated.find((point) => point.name === "lwe.agent.activated")).toMatchObject({ value: 1007 });
+      expect(aggregated.find((point) => point.name === "lwe.dependency.max_component")).toMatchObject({ value: 5 });
+      const work = deriveExecutionWork(ledger.executionEvents("metric-execution"));
+      expect(work).toMatchObject({
         maxSpanDepth: 2,
+        executionWallMs: 123,
       });
+      expect(work.spanCount).toBeGreaterThan(0);
       const registry = new MetricDefinitionRegistry();
       expect(() => registry.register({
         name: "invalid",

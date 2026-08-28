@@ -21,7 +21,7 @@ import type {
 } from "./model";
 import type { ModelExecutionScope } from "./model-provider";
 import type { StructuredModelProvider } from "./model-provider";
-import type { RuntimeObserver } from "./observability";
+import type { AlgorithmInstrumentation, RuntimeObserver } from "./observability";
 import type { RulePackageRegistry } from "./rule-package";
 import type { WorldDefinition } from "./world-definition";
 import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
@@ -251,7 +251,7 @@ export interface ExecutionTraceWriter extends RuntimeObserver {
 export interface ExecutionContext {
   abortSignal?: AbortSignal;
   modelScope: ModelExecutionScope;
-  trace: ExecutionTraceWriter;
+  instrumentation: AlgorithmInstrumentation;
 }
 
 export interface BootstrapInput {

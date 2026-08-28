@@ -12,7 +12,7 @@ vi.mock("../lib/world-inspector-api-client", () => ({
 }));
 
 const event: WorldInspectorRuntimeEventSummary = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   sequence: 7,
   timestamp: "2026-08-25T01:00:00.000Z",
   level: "info",

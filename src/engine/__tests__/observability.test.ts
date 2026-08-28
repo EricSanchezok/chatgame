@@ -1,13 +1,46 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
 import { canonicalize, measureModelContext } from "../model-audit";
-import { RecordingRuntimeObserver, serializeRuntimeError, type RuntimeObserver } from "../observability";
+import {
+  RecordingRuntimeObserver,
+  serializeRuntimeError,
+  validateAlgorithmTelemetryEvent,
+  type RuntimeObserver,
+} from "../observability";
 import { DeterministicModelProvider } from "../testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
 import { EagerReferenceAlgorithm } from "../eager-reference";
 import { SimulationEngine } from "../simulation";
+import type { PolicyBinding, WorldExecutionAlgorithm } from "../execution";
+
+function modelRoster(engine: SimulationEngine): Record<string, PolicyBinding> {
+  return Object.fromEntries(Object.values(engine.snapshot.agents).map((agent) => [agent.id, {
+    kind: "model" as const,
+    agentId: agent.id,
+    profiles: agent.modelProfiles,
+  }]));
+}
 
 describe("model context measurements", () => {
+  it("rejects unknown, engine-owned, and malformed algorithm telemetry", () => {
+    expect(() => validateAlgorithmTelemetryEvent({ event: "algorithm.typo" }))
+      .toThrow("unknown algorithm telemetry event");
+    expect(() => validateAlgorithmTelemetryEvent({ event: "algorithm.activation.completed" }))
+      .toThrow("engine-owned");
+    expect(() => validateAlgorithmTelemetryEvent({
+      event: "algorithm.agent_mind.repair_fallback",
+      attributes: { phase: "mind" },
+      counts: { mindFallbacks: 1 },
+    })).toThrow("attributes fields must be exactly");
+    const observer = new RecordingRuntimeObserver();
+    expect(() => observer.emit({ event: "resolution.unknown" }))
+      .toThrow("unknown stable runtime event");
+    expect(() => observer.emit({
+      event: "temporal.boundary.reason",
+      attributes: { reason: "timer" },
+    })).toThrow("attributes fields must be exactly");
+  });
+
   it("preserves AggregateError members for terminal diagnostics", () => {
     const error = serializeRuntimeError(new AggregateError([
       new Error("first transport failed"),
@@ -114,5 +147,97 @@ describe("model context measurements", () => {
     const full = await run(new RecordingRuntimeObserver({ mode: "full" }));
     expect(metrics).toEqual(off);
     expect(full).toEqual(off);
+  });
+
+  it("derives stable lifecycle and temporal signals in the engine", async () => {
+    const provider = new DeterministicModelProvider();
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 92,
+      modelCatalog: provider.catalog,
+    });
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    const scope = {
+      workloadId: "engine-owned-telemetry",
+      batchId: "engine-owned-telemetry",
+      correlation: { executionId: "engine-owned-telemetry", revision: 0, step: 0 },
+      observer,
+    };
+    await engine.bootstrapAgents(scope);
+    const source = engine.snapshot;
+    await engine.step(modelRoster(engine), {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    }, {
+      ...scope,
+      correlation: { ...scope.correlation, revision: source.revision, step: source.step + 1 },
+    });
+
+    const events = observer.snapshot().map((event) => event.event);
+    expect(events).toContain("algorithm.activation.completed");
+    expect(events).toContain("algorithm.candidate.completed");
+    expect(events).toContain("temporal.boundary.reason");
+    expect(events).toContain("resolution.outcome.recorded");
+    expect(events).toContain("resolution.operation.recorded");
+  });
+
+  it("accounts for discarded model work when candidate generation fails", async () => {
+    const provider = new DeterministicModelProvider();
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 93,
+      modelCatalog: provider.catalog,
+    });
+    const eager = new EagerReferenceAlgorithm(provider);
+    const failingAlgorithm: WorldExecutionAlgorithm = {
+      manifest: eager.manifest,
+      bootstrap: eager.bootstrap.bind(eager),
+      async step(_input, context) {
+        context.modelScope.observer?.emit({
+          event: "model.invocation.started",
+          correlation: { modelInvocationId: "discarded-invocation", modelRole: "agent-mind" },
+        });
+        context.modelScope.observer?.emit({
+          event: "model.structured_output.rejected",
+          correlation: { modelInvocationId: "discarded-invocation", modelRole: "agent-mind" },
+          measurements: { inputTokens: 13, outputTokens: 2, reasoningTokens: 4 },
+        });
+        context.modelScope.observer?.emit({
+          event: "model.transport.failed",
+          correlation: { modelInvocationId: "discarded-invocation", modelRole: "agent-mind" },
+          measurements: { executionMs: 17 },
+        });
+        throw new Error("candidate generation interrupted");
+      },
+    };
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
+    const engine = new SimulationEngine(definition, failingAlgorithm);
+    await engine.bootstrapAgents({
+      workloadId: "discarded-work",
+      batchId: "discarded-work-bootstrap",
+      observer,
+    });
+    const source = engine.snapshot;
+
+    await expect(engine.step(modelRoster(engine), {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    }, {
+      workloadId: "discarded-work",
+      batchId: "discarded-work-step",
+      observer,
+    })).rejects.toThrow("candidate generation interrupted");
+
+    expect(engine.snapshot).toEqual(source);
+    expect(observer.snapshot().findLast((event) => event.event === "step.rolled_back")).toMatchObject({
+      counts: { rollbacks: 1, discardedModelCalls: 1 },
+      measurements: {
+        discardedInputTokens: 13,
+        discardedOutputTokens: 2,
+        discardedReasoningTokens: 4,
+        discardedModelExecutionMs: 17,
+      },
+    });
   });
 });

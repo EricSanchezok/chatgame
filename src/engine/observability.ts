@@ -1,4 +1,4 @@
-export const RUNTIME_EVENT_SCHEMA_VERSION = 1 as const;
+export const RUNTIME_EVENT_SCHEMA_VERSION = 2 as const;
 
 export type RuntimeObservabilityMode = "off" | "metrics" | "full";
 export type RuntimeEventLevel = "debug" | "info" | "warn" | "error";
@@ -44,6 +44,263 @@ export interface RuntimeEventInput {
   hashes?: Readonly<Record<string, string>>;
   payload?: unknown;
   error?: RuntimeError;
+}
+
+export type AlgorithmTelemetryEventName =
+  | "algorithm.agent_mind.repair_fallback"
+  | "algorithm.grounding.global_fallback"
+  | "algorithm.observation.references_normalized"
+  | "algorithm.observation.batch_split"
+  | "algorithm.observation.repair_fallback"
+  | "algorithm.observation.global_projection_completed"
+  | "algorithm.outcome.alternative_evidence_normalized";
+
+export interface AlgorithmTelemetryEventInput extends Omit<
+  RuntimeEventInput,
+  "event" | "payload" | "measurements" | "hashes"
+> {
+  event: AlgorithmTelemetryEventName;
+  payload?: never;
+  measurements?: never;
+  hashes?: never;
+}
+
+export interface AlgorithmInstrumentation {
+  emit(input: AlgorithmTelemetryEventInput): RuntimeEvent | undefined;
+}
+
+export type EngineStableRuntimeEventInput = Omit<
+  RuntimeEventInput,
+  "event" | "payload" | "measurements" | "hashes" | "attributes" | "counts"
+> & ({
+  event: "algorithm.activation.completed";
+  attributes: Readonly<{ phase: "bootstrap" | "step"; policy: string }>;
+  counts: Readonly<{
+    persistentAgents: number;
+    eligibleAgents: number;
+    activatedAgents: number;
+    skippedAgents: number;
+    reusedAgents: number;
+    noopAgents: number;
+    externalAgents: number;
+  }>;
+} | {
+  event: "algorithm.candidate.completed";
+  attributes: Readonly<{
+    phase: "step";
+    dependencyAnalysis: string;
+    trigger: "manual" | "batch" | "realtime" | "participant_action";
+  }>;
+  counts: Readonly<{
+    updatedAgents: number;
+    observedAgents: number;
+    actions: number;
+    reactions: number;
+    checks: number;
+    randomResults: number;
+    resolutionPlans: number;
+    settledResolutionReceipts: number;
+    deferredResolutionReceipts: number;
+    mechanicInvocations: number;
+    mechanicResults: number;
+    outcomes: number;
+    operations: number;
+    events: number;
+    observations: number;
+    mindCommits: number;
+    mindFallbacks: number;
+    temporalPlans: number;
+    activeActivities: number;
+    activityTransitions: number;
+    dueActivities: number;
+    dueTimers: number;
+    dueConditions: number;
+    decisionPoints: number;
+    temporalDeltaSeconds: number;
+    dependencyNodes: number;
+    dependencyEdges: number;
+    dependencyComponents: number;
+    maxDependencyComponent: number;
+    globalDependencies: number;
+    globalReadjudications: number;
+    footprintCardinality: number;
+    audienceCardinality: number;
+  }>;
+} | {
+  event: "temporal.boundary.reason";
+  attributes: Readonly<{ reasonKind: string }>;
+  counts?: never;
+} | {
+  event: "temporal.activity.transition";
+  attributes: Readonly<{ transitionKind: string }>;
+  counts?: never;
+} | {
+  event: "resolution.outcome.recorded";
+  attributes: Readonly<{ outcomeStatus: string }>;
+  counts?: never;
+} | {
+  event: "resolution.operation.recorded";
+  attributes: Readonly<{ operationKind: string }>;
+  counts?: never;
+});
+
+const engineOwnedStableEvents: ReadonlySet<string> = new Set<EngineStableRuntimeEventInput["event"]>([
+  "algorithm.activation.completed",
+  "algorithm.candidate.completed",
+  "temporal.boundary.reason",
+  "temporal.activity.transition",
+  "resolution.outcome.recorded",
+  "resolution.operation.recorded",
+]);
+
+const engineStableTelemetryFields: Record<EngineStableRuntimeEventInput["event"], {
+  attributes: readonly string[];
+  counts: readonly string[];
+}> = {
+  "algorithm.activation.completed": {
+    attributes: ["phase", "policy"],
+    counts: [
+      "persistentAgents",
+      "eligibleAgents",
+      "activatedAgents",
+      "skippedAgents",
+      "reusedAgents",
+      "noopAgents",
+      "externalAgents",
+    ],
+  },
+  "algorithm.candidate.completed": {
+    attributes: ["phase", "dependencyAnalysis", "trigger"],
+    counts: [
+      "updatedAgents",
+      "observedAgents",
+      "actions",
+      "reactions",
+      "checks",
+      "randomResults",
+      "resolutionPlans",
+      "settledResolutionReceipts",
+      "deferredResolutionReceipts",
+      "mechanicInvocations",
+      "mechanicResults",
+      "outcomes",
+      "operations",
+      "events",
+      "observations",
+      "mindCommits",
+      "mindFallbacks",
+      "temporalPlans",
+      "activeActivities",
+      "activityTransitions",
+      "dueActivities",
+      "dueTimers",
+      "dueConditions",
+      "decisionPoints",
+      "temporalDeltaSeconds",
+      "dependencyNodes",
+      "dependencyEdges",
+      "dependencyComponents",
+      "maxDependencyComponent",
+      "globalDependencies",
+      "globalReadjudications",
+      "footprintCardinality",
+      "audienceCardinality",
+    ],
+  },
+  "temporal.boundary.reason": { attributes: ["reasonKind"], counts: [] },
+  "temporal.activity.transition": { attributes: ["transitionKind"], counts: [] },
+  "resolution.outcome.recorded": { attributes: ["outcomeStatus"], counts: [] },
+  "resolution.operation.recorded": { attributes: ["operationKind"], counts: [] },
+};
+
+const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
+  attributes: readonly string[];
+  counts: readonly string[];
+}> = {
+  "algorithm.agent_mind.repair_fallback": {
+    attributes: ["phase", "policy"],
+    counts: ["mindFallbacks"],
+  },
+  "algorithm.grounding.global_fallback": {
+    attributes: ["phase", "reasons"],
+    counts: ["normalizedGroundingFields", "globalFallbacks"],
+  },
+  "algorithm.observation.references_normalized": {
+    attributes: ["phase", "batch"],
+    counts: [
+      "droppedObservationEventReferences",
+      "droppedObservationClaims",
+      "droppedObservationIntroductions",
+      "clearedObservationCanonicalBindings",
+    ],
+  },
+  "algorithm.observation.batch_split": {
+    attributes: ["phase", "batch"],
+    counts: ["observationBatchSplits", "splitObserverSlots"],
+  },
+  "algorithm.observation.repair_fallback": {
+    attributes: ["phase", "batch", "policy"],
+    counts: ["observationFallbacks"],
+  },
+  "algorithm.observation.global_projection_completed": {
+    attributes: ["phase", "reason"],
+    counts: ["observations", "observationBatches", "dependencyComponents"],
+  },
+  "algorithm.outcome.alternative_evidence_normalized": {
+    attributes: ["phase"],
+    counts: ["droppedOutcomeAlternativeEvidenceReferences", "droppedOutcomeAlternatives"],
+  },
+};
+
+function validateExactFields(
+  actual: Readonly<Record<string, unknown>> | undefined,
+  expected: readonly string[],
+  label: string,
+): void {
+  const keys = Object.keys(actual ?? {}).sort();
+  const required = [...expected].sort();
+  if (keys.length !== required.length || keys.some((key, index) => key !== required[index])) {
+    throw new Error(`${label} fields must be exactly: ${required.join(", ")}`);
+  }
+}
+
+export function validateAlgorithmTelemetryEvent(input: RuntimeEventInput): asserts input is AlgorithmTelemetryEventInput {
+  if (engineOwnedStableEvents.has(input.event)) {
+    throw new Error(`stable runtime event is engine-owned: ${input.event}`);
+  }
+  const definition = algorithmTelemetryFields[input.event as AlgorithmTelemetryEventName];
+  if (!definition) throw new Error(`unknown algorithm telemetry event: ${input.event}`);
+  if (input.payload !== undefined || input.measurements !== undefined || input.hashes !== undefined) {
+    throw new Error(`algorithm telemetry contains unsupported data: ${input.event}`);
+  }
+  validateExactFields(input.attributes, definition.attributes, `${input.event} attributes`);
+  validateExactFields(input.counts, definition.counts, `${input.event} counts`);
+}
+
+function validateStableRuntimeEvent(input: RuntimeEventInput): void {
+  if ((input.event.startsWith("algorithm.") || input.event.startsWith("temporal.") ||
+    input.event.startsWith("resolution.")) &&
+    !engineOwnedStableEvents.has(input.event) &&
+    !(input.event in algorithmTelemetryFields)) {
+    throw new Error(`unknown stable runtime event: ${input.event}`);
+  }
+  const engineDefinition = engineStableTelemetryFields[input.event as EngineStableRuntimeEventInput["event"]];
+  if (engineDefinition) {
+    if (input.payload !== undefined || input.measurements !== undefined || input.hashes !== undefined) {
+      throw new Error(`stable engine telemetry contains unsupported data: ${input.event}`);
+    }
+    validateExactFields(input.attributes, engineDefinition.attributes, `${input.event} attributes`);
+    validateExactFields(input.counts, engineDefinition.counts, `${input.event} counts`);
+  }
+  if (input.durationMs !== undefined && (!Number.isFinite(input.durationMs) || input.durationMs < 0)) {
+    throw new Error(`runtime event duration must be a non-negative finite number: ${input.event}`);
+  }
+  for (const [key, value] of Object.entries(input.counts ?? {})) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error(`runtime count ${key} must be a non-negative integer`);
+  }
+  for (const [key, value] of Object.entries(input.measurements ?? {})) {
+    if (value !== null && !Number.isFinite(value)) throw new Error(`runtime measurement ${key} must be finite or null`);
+  }
 }
 
 export interface RuntimeEvent extends RuntimeEventInput {
@@ -207,6 +464,7 @@ export function materializeRuntimeEvent(
   now: Date,
   mode: RuntimeObservabilityMode,
 ): RuntimeEvent {
+  validateStableRuntimeEvent(input);
   const event = redactRuntimePayload({
     ...input,
     schemaVersion: RUNTIME_EVENT_SCHEMA_VERSION,

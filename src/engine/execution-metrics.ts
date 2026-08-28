@@ -24,8 +24,7 @@ export interface MetricPoint {
 export interface ExecutionWorkSummary {
   spanCount: number;
   maxSpanDepth: number;
-  criticalPathMs: number;
-  totalSpanWorkMs: number;
+  executionWallMs: number;
   modelSpanCount: number;
   modelExecutionMs: number;
   modelQueueMs: number;
@@ -48,7 +47,6 @@ export function deriveExecutionWork(events: readonly RuntimeEvent[]): ExecutionW
     spans.set(event.spanId, current);
   }
   const depthMemo = new Map<string, number>();
-  const pathMemo = new Map<string, number>();
   const visiting = new Set<string>();
   const depth = (spanId: string): number => {
     const cached = depthMemo.get(spanId);
@@ -61,22 +59,21 @@ export function deriveExecutionWork(events: readonly RuntimeEvent[]): ExecutionW
     depthMemo.set(spanId, value);
     return value;
   };
-  const pathWork = (spanId: string): number => {
-    const cached = pathMemo.get(spanId);
-    if (cached !== undefined) return cached;
-    const span = spans.get(spanId)!;
-    const value = span.durationMs + (span.parent && spans.has(span.parent) ? pathWork(span.parent) : 0);
-    pathMemo.set(spanId, value);
-    return value;
-  };
   const values = [...spans.entries()];
   const measurementSum = (key: string, eventNames: readonly string[]): number => events.reduce((sum, event) =>
     sum + (eventNames.includes(event.event) ? event.measurements?.[key] ?? 0 : 0), 0);
   return {
     spanCount: spans.size,
     maxSpanDepth: values.length > 0 ? Math.max(...values.map(([id]) => depth(id))) : 0,
-    criticalPathMs: values.length > 0 ? Math.max(...values.map(([id]) => pathWork(id))) : 0,
-    totalSpanWorkMs: values.reduce((sum, [, span]) => sum + span.durationMs, 0),
+    executionWallMs: Math.max(0, ...events
+      .filter((event) => [
+        "step.committed",
+        "step.rolled_back",
+        "instance.bootstrap.committed",
+        "instance.bootstrap.rolled_back",
+        "benchmark.matrix.completed",
+      ].includes(event.event))
+      .map((event) => event.durationMs ?? 0)),
     modelSpanCount: values.filter(([, span]) => span.model).length,
     modelExecutionMs: measurementSum("executionMs", ["model.transport.completed", "model.transport.failed"]),
     modelQueueMs: measurementSum("queueWaitMs", ["model.queue.completed", "model.queue.failed"]),
@@ -117,7 +114,8 @@ export class MetricDefinitionRegistry {
           : event[definition.source.field]?.[definition.source.key];
         if (value === undefined || value === null) continue;
         const dimensions = Object.fromEntries(definition.allowedDimensions.flatMap((dimension) => {
-          const candidate = event.attributes?.[dimension];
+          const candidate = event.attributes?.[dimension] ??
+            (dimension === "modelRole" ? event.correlation?.modelRole : undefined);
           return candidate === undefined ? [] : [[dimension, candidate]];
         }));
         points.push({ name: definition.name, value, unit: definition.unit, dimensions });
@@ -127,20 +125,49 @@ export class MetricDefinitionRegistry {
   }
 }
 
-const commonDimensions = ["phase", "policy", "providerId", "modelId", "status"] as const;
+export type AggregatedMetricPoint = MetricPoint & { samples: number };
+
+export function aggregateMetricPoints(
+  points: readonly MetricPoint[],
+  registry: MetricDefinitionRegistry = EXECUTION_METRICS,
+): AggregatedMetricPoint[] {
+  const values = new Map<string, AggregatedMetricPoint>();
+  for (const point of points) {
+    const key = `${point.name}\u0000${JSON.stringify(point.dimensions)}`;
+    const current = values.get(key);
+    if (!current) {
+      values.set(key, { ...point, samples: 1 });
+      continue;
+    }
+    const definition = registry.definition(point.name);
+    current.samples += 1;
+    if (definition.aggregation === "sum" || definition.aggregation === "count") current.value += point.value;
+    else if (definition.aggregation === "max") current.value = Math.max(current.value, point.value);
+    else current.value = point.value;
+  }
+  return [...values.values()].sort((left, right) =>
+    left.name.localeCompare(right.name) || JSON.stringify(left.dimensions).localeCompare(JSON.stringify(right.dimensions)));
+}
+
+const commonDimensions = ["phase", "policy", "providerId", "modelId", "modelRole", "status"] as const;
 
 export const EXECUTION_METRICS = new MetricDefinitionRegistry();
 
 function registerNumericFields(
   field: "counts" | "measurements",
   eventNames: readonly string[] | undefined,
-  definitions: ReadonlyArray<readonly [string, string, MetricDefinition["unit"]]>,
+  definitions: ReadonlyArray<readonly [
+    string,
+    string,
+    MetricDefinition["unit"],
+    MetricAggregation,
+  ]>,
 ): void {
-  for (const [name, key, unit] of definitions) {
+  for (const [name, key, unit, aggregation] of definitions) {
     EXECUTION_METRICS.register({
       name,
       unit,
-      aggregation: "sum",
+      aggregation,
       source: { field, key, eventNames },
       allowedDimensions: commonDimensions,
     });
@@ -148,113 +175,116 @@ function registerNumericFields(
 }
 
 registerNumericFields("counts", ["algorithm.activation.completed"], [
-  ["lwe.agent.persistent", "persistentAgents", "1"],
-  ["lwe.agent.eligible", "eligibleAgents", "1"],
-  ["lwe.agent.activated", "activatedAgents", "1"],
-  ["lwe.agent.skipped", "skippedAgents", "1"],
-  ["lwe.agent.reused", "reusedAgents", "1"],
-  ["lwe.agent.noop", "noopAgents", "1"],
-  ["lwe.agent.external", "externalAgents", "1"],
+  ["lwe.agent.persistent", "persistentAgents", "1", "last"],
+  ["lwe.agent.eligible", "eligibleAgents", "1", "last"],
+  ["lwe.agent.activated", "activatedAgents", "1", "sum"],
+  ["lwe.agent.skipped", "skippedAgents", "1", "sum"],
+  ["lwe.agent.reused", "reusedAgents", "1", "sum"],
+  ["lwe.agent.noop", "noopAgents", "1", "sum"],
+  ["lwe.agent.external", "externalAgents", "1", "sum"],
 ]);
 
 registerNumericFields("counts", ["algorithm.candidate.completed"], [
-  ["lwe.agent.updated", "updatedAgents", "1"],
-  ["lwe.agent.observed", "observedAgents", "1"],
-  ["lwe.output.actions", "actions", "1"],
-  ["lwe.output.reactions", "reactions", "1"],
-  ["lwe.output.checks", "checks", "1"],
-  ["lwe.output.random", "randomResults", "1"],
-  ["lwe.output.resolution_plans", "resolutionPlans", "1"],
-  ["lwe.output.resolution_receipts_settled", "settledResolutionReceipts", "1"],
-  ["lwe.output.resolution_receipts_deferred", "deferredResolutionReceipts", "1"],
-  ["lwe.output.mechanic_invocations", "mechanicInvocations", "1"],
-  ["lwe.output.mechanic_results", "mechanicResults", "1"],
-  ["lwe.output.outcomes", "outcomes", "1"],
-  ["lwe.output.operations", "operations", "1"],
-  ["lwe.output.events", "events", "1"],
-  ["lwe.output.observations", "observations", "1"],
-  ["lwe.output.mind_commits", "mindCommits", "1"],
-  ["lwe.temporal.plans", "temporalPlans", "1"],
-  ["lwe.temporal.active_activities", "activeActivities", "1"],
-  ["lwe.temporal.activity_transitions", "activityTransitions", "1"],
-  ["lwe.temporal.due_timers", "dueTimers", "1"],
-  ["lwe.temporal.decision_points", "decisionPoints", "1"],
-  ["lwe.temporal.delta", "temporalDeltaSeconds", "s"],
-  ["lwe.agent.mind_fallbacks", "mindFallbacks", "1"],
-  ["lwe.dependency.nodes", "dependencyNodes", "1"],
-  ["lwe.dependency.edges", "dependencyEdges", "1"],
-  ["lwe.dependency.components", "dependencyComponents", "1"],
-  ["lwe.dependency.max_component", "maxDependencyComponent", "1"],
-  ["lwe.dependency.fallbacks", "globalFallbacks", "1"],
-  ["lwe.dependency.footprint_cardinality", "footprintCardinality", "1"],
-  ["lwe.dependency.audience_cardinality", "audienceCardinality", "1"],
+  ["lwe.agent.updated", "updatedAgents", "1", "sum"],
+  ["lwe.agent.observed", "observedAgents", "1", "sum"],
+  ["lwe.output.actions", "actions", "1", "sum"],
+  ["lwe.output.reactions", "reactions", "1", "sum"],
+  ["lwe.output.checks", "checks", "1", "sum"],
+  ["lwe.output.random", "randomResults", "1", "sum"],
+  ["lwe.output.resolution_plans", "resolutionPlans", "1", "sum"],
+  ["lwe.output.resolution_receipts_settled", "settledResolutionReceipts", "1", "sum"],
+  ["lwe.output.resolution_receipts_deferred", "deferredResolutionReceipts", "1", "sum"],
+  ["lwe.output.mechanic_invocations", "mechanicInvocations", "1", "sum"],
+  ["lwe.output.mechanic_results", "mechanicResults", "1", "sum"],
+  ["lwe.output.outcomes", "outcomes", "1", "sum"],
+  ["lwe.output.operations", "operations", "1", "sum"],
+  ["lwe.output.events", "events", "1", "sum"],
+  ["lwe.output.observations", "observations", "1", "sum"],
+  ["lwe.output.mind_commits", "mindCommits", "1", "sum"],
+  ["lwe.temporal.plans", "temporalPlans", "1", "sum"],
+  ["lwe.temporal.active_activities", "activeActivities", "1", "last"],
+  ["lwe.temporal.activity_transitions", "activityTransitions", "1", "sum"],
+  ["lwe.temporal.due_activities", "dueActivities", "1", "sum"],
+  ["lwe.temporal.due_timers", "dueTimers", "1", "sum"],
+  ["lwe.temporal.due_conditions", "dueConditions", "1", "sum"],
+  ["lwe.temporal.decision_points", "decisionPoints", "1", "sum"],
+  ["lwe.temporal.delta", "temporalDeltaSeconds", "s", "sum"],
+  ["lwe.agent.mind_fallbacks", "mindFallbacks", "1", "sum"],
+  ["lwe.dependency.nodes", "dependencyNodes", "1", "sum"],
+  ["lwe.dependency.edges", "dependencyEdges", "1", "sum"],
+  ["lwe.dependency.components", "dependencyComponents", "1", "sum"],
+  ["lwe.dependency.max_component", "maxDependencyComponent", "1", "max"],
+  ["lwe.dependency.global_dependencies", "globalDependencies", "1", "sum"],
+  ["lwe.dependency.global_readjudications", "globalReadjudications", "1", "sum"],
+  ["lwe.dependency.footprint_cardinality", "footprintCardinality", "1", "sum"],
+  ["lwe.dependency.audience_cardinality", "audienceCardinality", "1", "sum"],
 ]);
 
 registerNumericFields("counts", ["algorithm.grounding.global_fallback"], [
-  ["lwe.normalization.grounding_fields", "normalizedGroundingFields", "1"],
+  ["lwe.normalization.grounding_fields", "normalizedGroundingFields", "1", "sum"],
 ]);
 
 registerNumericFields("counts", ["algorithm.observation.references_normalized"], [
-  ["lwe.normalization.observation_event_references", "droppedObservationEventReferences", "1"],
-  ["lwe.normalization.observation_claims", "droppedObservationClaims", "1"],
-  ["lwe.normalization.observation_introductions", "droppedObservationIntroductions", "1"],
-  ["lwe.normalization.observation_bindings", "clearedObservationCanonicalBindings", "1"],
+  ["lwe.normalization.observation_event_references", "droppedObservationEventReferences", "1", "sum"],
+  ["lwe.normalization.observation_claims", "droppedObservationClaims", "1", "sum"],
+  ["lwe.normalization.observation_introductions", "droppedObservationIntroductions", "1", "sum"],
+  ["lwe.normalization.observation_bindings", "clearedObservationCanonicalBindings", "1", "sum"],
 ]);
 
 registerNumericFields("counts", ["algorithm.observation.batch_split", "algorithm.observation.repair_fallback"], [
-  ["lwe.observation.batch_splits", "observationBatchSplits", "1"],
-  ["lwe.observation.fallbacks", "observationFallbacks", "1"],
+  ["lwe.observation.batch_splits", "observationBatchSplits", "1", "sum"],
+  ["lwe.observation.fallbacks", "observationFallbacks", "1", "sum"],
 ]);
 
 registerNumericFields("counts", ["algorithm.outcome.alternative_evidence_normalized"], [
-  ["lwe.normalization.outcome_alternative_evidence", "droppedOutcomeAlternativeEvidenceReferences", "1"],
-  ["lwe.normalization.outcome_alternatives", "droppedOutcomeAlternatives", "1"],
+  ["lwe.normalization.outcome_alternative_evidence", "droppedOutcomeAlternativeEvidenceReferences", "1", "sum"],
+  ["lwe.normalization.outcome_alternatives", "droppedOutcomeAlternatives", "1", "sum"],
 ]);
 
 registerNumericFields("counts", ["model.invocation.provider_completed", "model.invocation.failed"], [
-  ["lwe.model.transport_attempts", "transportAttempts", "1"],
+  ["lwe.model.transport_attempts", "transportAttempts", "1", "sum"],
 ]);
 
 registerNumericFields("counts", ["step.rolled_back", "instance.bootstrap.rolled_back"], [
-  ["lwe.waste.discarded_calls", "discardedModelCalls", "1"],
-  ["lwe.waste.rollbacks", "rollbacks", "1"],
+  ["lwe.waste.discarded_calls", "discardedModelCalls", "1", "sum"],
+  ["lwe.waste.rollbacks", "rollbacks", "1", "sum"],
 ]);
 
 registerNumericFields("measurements", ["model.structured_output.parsed", "model.structured_output.rejected"], [
-  ["lwe.model.input_tokens", "inputTokens", "token"],
-  ["lwe.model.output_tokens", "outputTokens", "token"],
-  ["lwe.model.reasoning_tokens", "reasoningTokens", "token"],
-  ["lwe.model.cache_read_tokens", "cacheReadTokens", "token"],
-  ["lwe.model.cache_write_tokens", "cacheWriteTokens", "token"],
+  ["lwe.model.input_tokens", "inputTokens", "token", "sum"],
+  ["lwe.model.output_tokens", "outputTokens", "token", "sum"],
+  ["lwe.model.reasoning_tokens", "reasoningTokens", "token", "sum"],
+  ["lwe.model.cache_read_tokens", "cacheReadTokens", "token", "sum"],
+  ["lwe.model.cache_write_tokens", "cacheWriteTokens", "token", "sum"],
 ]);
 
 registerNumericFields("measurements", ["execution.resources.sampled"], [
-  ["lwe.system.cpu_user", "cpuUserMs", "ms"],
-  ["lwe.system.cpu_system", "cpuSystemMs", "ms"],
-  ["lwe.system.rss", "rssBytes", "By"],
-  ["lwe.system.heap_used", "heapUsedBytes", "By"],
-  ["lwe.system.heap_total", "heapTotalBytes", "By"],
-  ["lwe.system.event_loop_active", "eventLoopActiveMs", "ms"],
-  ["lwe.system.event_loop_idle", "eventLoopIdleMs", "ms"],
-  ["lwe.system.event_loop_utilization", "eventLoopUtilization", "1"],
+  ["lwe.system.cpu_user", "cpuUserMs", "ms", "sum"],
+  ["lwe.system.cpu_system", "cpuSystemMs", "ms", "sum"],
+  ["lwe.system.rss", "rssBytes", "By", "max"],
+  ["lwe.system.heap_used", "heapUsedBytes", "By", "max"],
+  ["lwe.system.heap_total", "heapTotalBytes", "By", "max"],
+  ["lwe.system.event_loop_active", "eventLoopActiveMs", "ms", "sum"],
+  ["lwe.system.event_loop_idle", "eventLoopIdleMs", "ms", "sum"],
+  ["lwe.system.event_loop_utilization", "eventLoopUtilization", "1", "max"],
 ]);
 
 registerNumericFields("measurements", ["persistence.atomic_commit"], [
-  ["lwe.persistence.document_bytes", "documentUtf8Bytes", "By"],
-  ["lwe.persistence.sqlite_write", "sqliteWriteMs", "ms"],
+  ["lwe.persistence.document_bytes", "documentUtf8Bytes", "By", "last"],
+  ["lwe.persistence.sqlite_write", "sqliteWriteMs", "ms", "sum"],
 ]);
 
 registerNumericFields("measurements", undefined, [
-  ["lwe.ledger.artifact_raw_bytes", "ledgerArtifactRawBytes", "By"],
-  ["lwe.ledger.artifact_stored_bytes", "ledgerArtifactStoredBytes", "By"],
-  ["lwe.ledger.sqlite_write", "ledgerSqliteWriteMs", "ms"],
+  ["lwe.ledger.artifact_raw_bytes", "ledgerArtifactRawBytes", "By", "sum"],
+  ["lwe.ledger.artifact_stored_bytes", "ledgerArtifactStoredBytes", "By", "sum"],
+  ["lwe.ledger.sqlite_write", "ledgerSqliteWriteMs", "ms", "sum"],
 ]);
 
 registerNumericFields("measurements", ["step.rolled_back", "instance.bootstrap.rolled_back"], [
-  ["lwe.waste.discarded_input_tokens", "discardedInputTokens", "token"],
-  ["lwe.waste.discarded_output_tokens", "discardedOutputTokens", "token"],
-  ["lwe.waste.discarded_reasoning_tokens", "discardedReasoningTokens", "token"],
-  ["lwe.waste.discarded_model_execution", "discardedModelExecutionMs", "ms"],
+  ["lwe.waste.discarded_input_tokens", "discardedInputTokens", "token", "sum"],
+  ["lwe.waste.discarded_output_tokens", "discardedOutputTokens", "token", "sum"],
+  ["lwe.waste.discarded_reasoning_tokens", "discardedReasoningTokens", "token", "sum"],
+  ["lwe.waste.discarded_model_execution", "discardedModelExecutionMs", "ms", "sum"],
 ]);
 
 for (const definition of [
@@ -309,7 +339,7 @@ EXECUTION_METRICS.register({
   unit: "1",
   aggregation: "count",
   source: { field: "event", name: "model.invocation.started" },
-  allowedDimensions: ["providerId", "modelId"],
+  allowedDimensions: ["providerId", "modelId", "modelRole"],
 });
 
 EXECUTION_METRICS.register({
@@ -319,3 +349,34 @@ EXECUTION_METRICS.register({
   source: { field: "event", name: "model.semantic.rejected" },
   allowedDimensions: ["phase"],
 });
+
+for (const definition of [
+  {
+    name: "lwe.temporal.boundary_reasons",
+    event: "temporal.boundary.reason",
+    dimension: "reasonKind",
+  },
+  {
+    name: "lwe.temporal.activity_transition_kinds",
+    event: "temporal.activity.transition",
+    dimension: "transitionKind",
+  },
+  {
+    name: "lwe.resolution.outcome_statuses",
+    event: "resolution.outcome.recorded",
+    dimension: "outcomeStatus",
+  },
+  {
+    name: "lwe.resolution.operation_kinds",
+    event: "resolution.operation.recorded",
+    dimension: "operationKind",
+  },
+] as const) {
+  EXECUTION_METRICS.register({
+    name: definition.name,
+    unit: "1",
+    aggregation: "count",
+    source: { field: "event", name: definition.event },
+    allowedDimensions: [definition.dimension],
+  });
+}

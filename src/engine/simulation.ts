@@ -1,13 +1,15 @@
 import { performance } from "node:perf_hooks";
 import { CanonicalCommitter } from "./canonical-committer";
 import type {
+  ActionDependency,
   ExecutionContext,
   ExecutionTraceWriter,
   PolicyBinding,
   WorldAdvanceRequest,
   WorldExecutionAlgorithm,
+  WorldStepCandidate,
 } from "./execution";
-import { decisionEligibleAgentIds } from "./execution";
+import { decisionEligibleAgentIds, resolutionObservations } from "./execution";
 import { createHistoryReplayBase } from "./history-replay";
 import type { CommittedStep, SimulationState } from "./model";
 import type { ModelExecutionAudit } from "./model";
@@ -16,6 +18,8 @@ import type { ModelExecutionScope } from "./model-provider";
 import {
   NOOP_RUNTIME_OBSERVER,
   serializeRuntimeError,
+  validateAlgorithmTelemetryEvent,
+  type EngineStableRuntimeEventInput,
   type RuntimeEvent,
   type RuntimeEventInput,
   type RuntimeObserver,
@@ -92,20 +96,88 @@ class ScopedTraceWriter implements ExecutionTraceWriter {
   }
 }
 
-function createExecutionContext(scope: ModelExecutionScope, source: SimulationState): ExecutionContext {
+class ModelWorkAccumulator {
+  modelCalls = 0;
+  inputTokens = 0;
+  outputTokens = 0;
+  reasoningTokens = 0;
+  modelExecutionMs = 0;
+
+  observe(input: RuntimeEventInput): void {
+    if (input.event === "model.invocation.started") this.modelCalls += 1;
+    if (input.event === "model.structured_output.parsed" || input.event === "model.structured_output.rejected") {
+      this.inputTokens += input.measurements?.inputTokens ?? 0;
+      this.outputTokens += input.measurements?.outputTokens ?? 0;
+      this.reasoningTokens += input.measurements?.reasoningTokens ?? 0;
+    }
+    if (input.event === "model.transport.completed" || input.event === "model.transport.failed") {
+      this.modelExecutionMs += input.measurements?.executionMs ?? 0;
+    }
+  }
+}
+
+class AlgorithmRuntimeObserver implements RuntimeObserver {
+  readonly critical?: boolean;
+  readonly degraded: boolean;
+  readonly mode: RuntimeObserver["mode"];
+  readonly traceId: string;
+
+  constructor(
+    private readonly delegate: ScopedTraceWriter,
+    private readonly work: ModelWorkAccumulator,
+  ) {
+    this.mode = delegate.mode;
+    this.degraded = delegate.degraded;
+    this.critical = delegate.critical;
+    this.traceId = delegate.traceId;
+  }
+
+  emit(input: RuntimeEventInput): RuntimeEvent | undefined {
+    if (input.event.startsWith("algorithm.")) validateAlgorithmTelemetryEvent(input);
+    if (input.event.startsWith("temporal.") || input.event.startsWith("resolution.")) {
+      throw new Error(`stable runtime event is engine-owned: ${input.event}`);
+    }
+    this.work.observe(input);
+    return this.delegate.emit(input);
+  }
+
+  flush(): void {
+    this.delegate.flush();
+  }
+
+  subscribe(listener: (event: RuntimeEvent) => void): () => void {
+    return this.delegate.subscribe(listener);
+  }
+
+  snapshot(): RuntimeEvent[] {
+    return this.delegate.snapshot();
+  }
+}
+
+function createExecutionContext(scope: ModelExecutionScope, source: SimulationState): {
+  context: ExecutionContext;
+  trace: ScopedTraceWriter;
+  work: ModelWorkAccumulator;
+} {
   const executionId = scope.correlation?.executionId ?? `${scope.batchId}:${source.revision}:${source.step}`;
   const observer = scope.observer ?? NOOP_RUNTIME_OBSERVER;
   const trace = new ScopedTraceWriter(executionId, observer, scope.correlation);
+  const work = new ModelWorkAccumulator();
+  const algorithmObserver = new AlgorithmRuntimeObserver(trace, work);
   const modelScope: ModelExecutionScope = {
     ...scope,
     correlation: { ...scope.correlation, executionId },
-    observer: trace,
+    observer: algorithmObserver,
     runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
   };
   return {
-    abortSignal: scope.abortSignal,
-    modelScope,
     trace,
+    work,
+    context: {
+      abortSignal: scope.abortSignal,
+      modelScope,
+      instrumentation: { emit: (input) => algorithmObserver.emit(input) },
+    },
   };
 }
 
@@ -137,6 +209,160 @@ function validateCandidateModelAudits(
   const seenInvocationIds = new Set<string>();
   for (const [index, audit] of audits.entries()) {
     validateModelAudit(audit, `execution candidate model audit ${index + 1}`, source.worldHash, source.revision, seenInvocationIds);
+  }
+}
+
+function dependencyKey(dependency: ActionDependency["reads"][number]): string {
+  return `${dependency.kind}:${dependency.id}`;
+}
+
+function dependenciesConflict(left: ActionDependency, right: ActionDependency): boolean {
+  if (left.globalFallback || right.globalFallback) return true;
+  const leftWrites = new Set(left.writes.map(dependencyKey));
+  const rightWrites = new Set(right.writes.map(dependencyKey));
+  const leftReads = new Set(left.reads.map(dependencyKey));
+  const rightReads = new Set(right.reads.map(dependencyKey));
+  return [...leftWrites].some((key) => rightWrites.has(key) || rightReads.has(key)) ||
+    [...rightWrites].some((key) => leftReads.has(key)) ||
+    left.audienceAgentIds.includes(right.actorId) || right.audienceAgentIds.includes(left.actorId);
+}
+
+function dependencyEdgeCount(dependencies: readonly ActionDependency[]): number {
+  let edges = 0;
+  for (let left = 0; left < dependencies.length; left += 1) {
+    for (let right = left + 1; right < dependencies.length; right += 1) {
+      if (dependenciesConflict(dependencies[left], dependencies[right])) edges += 1;
+    }
+  }
+  return edges;
+}
+
+function emitEngineStableEvent(trace: ExecutionTraceWriter, input: EngineStableRuntimeEventInput): void {
+  trace.emit(input);
+}
+
+function emitBootstrapMetrics(
+  trace: ExecutionTraceWriter,
+  source: Readonly<SimulationState>,
+  candidate: Readonly<import("./execution").BootstrapCandidate>,
+): void {
+  emitEngineStableEvent(trace, {
+    event: "algorithm.activation.completed",
+    attributes: { phase: "bootstrap", policy: "engine-bootstrap-roster" },
+    counts: {
+      persistentAgents: Object.keys(source.agents).length,
+      eligibleAgents: Object.keys(source.agents).length,
+      activatedAgents: candidate.diagnostics.activatedAgentIds.length,
+      skippedAgents: 0,
+      reusedAgents: candidate.diagnostics.reusedAgentIds.length,
+      noopAgents: 0,
+      externalAgents: 0,
+    },
+  });
+}
+
+function emitStepMetrics(
+  trace: ExecutionTraceWriter,
+  source: Readonly<SimulationState>,
+  policyRoster: Readonly<Record<string, PolicyBinding>>,
+  eligibleAgentIds: readonly string[],
+  trigger: WorldAdvanceRequest["trigger"],
+  candidate: Readonly<WorldStepCandidate>,
+): void {
+  const observations = resolutionObservations(candidate.resolution);
+  const policyCounts = Object.values(policyRoster).reduce((counts, binding) => {
+    counts[binding.kind] = (counts[binding.kind] ?? 0) + 1;
+    return counts;
+  }, {} as Record<PolicyBinding["kind"], number>);
+  const updated = new Set([
+    ...candidate.diagnostics.activatedAgentIds,
+    ...candidate.diagnostics.reusedAgentIds,
+  ]);
+  const eligibleModelAgents = eligibleAgentIds.filter((agentId) => policyRoster[agentId]?.kind === "model");
+  emitEngineStableEvent(trace, {
+    event: "algorithm.activation.completed",
+    attributes: { phase: "step", policy: "engine-decision-eligibility" },
+    counts: {
+      persistentAgents: Object.keys(source.agents).length,
+      eligibleAgents: eligibleAgentIds.length,
+      activatedAgents: candidate.diagnostics.activatedAgentIds.length,
+      skippedAgents: eligibleModelAgents.filter((agentId) => !updated.has(agentId)).length,
+      reusedAgents: candidate.diagnostics.reusedAgentIds.length,
+      noopAgents: policyCounts.idle ?? 0,
+      externalAgents: policyCounts.external ?? 0,
+    },
+  });
+  emitEngineStableEvent(trace, {
+    event: "algorithm.candidate.completed",
+    attributes: {
+      phase: "step",
+      dependencyAnalysis: "typed-action-dependencies",
+      trigger,
+    },
+    counts: {
+      updatedAgents: candidate.mindCommits.length,
+      observedAgents: new Set(observations.map((observation) => observation.observerId)).size,
+      actions: candidate.resolution.actions.length,
+      reactions: candidate.resolution.reactionDecisions.length,
+      checks: candidate.resolution.checks.length,
+      randomResults: candidate.resolution.randomResults.length,
+      resolutionPlans: candidate.resolution.resolutionPlans.length,
+      settledResolutionReceipts: candidate.resolution.resolutionReceipts.filter((receipt) => receipt.settled).length,
+      deferredResolutionReceipts: candidate.resolution.resolutionReceipts.filter((receipt) => !receipt.settled).length,
+      mechanicInvocations: candidate.resolution.proposal.mechanicInvocations.length,
+      mechanicResults: candidate.resolution.mechanicResults.length,
+      outcomes: candidate.resolution.proposal.outcomes.length,
+      operations: candidate.resolution.proposal.operations.length,
+      events: candidate.resolution.proposal.events.length,
+      observations: observations.length,
+      mindCommits: candidate.mindCommits.length,
+      mindFallbacks: candidate.diagnostics.mindFallbackAgentIds.length,
+      temporalPlans: candidate.temporalPlans.length,
+      activeActivities: Object.values(candidate.temporalState.activities)
+        .filter((activity) => activity.status === "active" || activity.status === "paused").length,
+      activityTransitions: candidate.activityTransitions.length,
+      dueActivities: candidate.temporalBoundary.dueActivityIds.length,
+      dueTimers: candidate.temporalBoundary.dueTimerIds.length,
+      dueConditions: candidate.temporalBoundary.dueConditionIds.length,
+      decisionPoints: candidate.decisionPoints.length,
+      temporalDeltaSeconds: candidate.temporalBoundary.deltaSeconds,
+      dependencyNodes: candidate.actionDependencies.length,
+      dependencyEdges: dependencyEdgeCount(candidate.actionDependencies),
+      dependencyComponents: candidate.diagnostics.dependencyComponents.length,
+      maxDependencyComponent: Math.max(
+        0,
+        ...candidate.diagnostics.dependencyComponents.map((component) => component.length),
+      ),
+      globalDependencies: candidate.actionDependencies.filter((dependency) => dependency.globalFallback).length,
+      globalReadjudications: candidate.diagnostics.globalReadjudication ? 1 : 0,
+      footprintCardinality: candidate.actionDependencies.reduce((total, dependency) =>
+        total + new Set([...dependency.reads, ...dependency.writes].map(dependencyKey)).size, 0),
+      audienceCardinality: candidate.actionDependencies.reduce(
+        (total, dependency) => total + dependency.audienceAgentIds.length,
+        0,
+      ),
+    },
+  });
+  for (const reason of candidate.temporalBoundary.reasons) {
+    emitEngineStableEvent(trace, { event: "temporal.boundary.reason", attributes: { reasonKind: reason.kind } });
+  }
+  for (const transition of candidate.activityTransitions) {
+    emitEngineStableEvent(trace, {
+      event: "temporal.activity.transition",
+      attributes: { transitionKind: transition.kind },
+    });
+  }
+  for (const outcome of candidate.resolution.proposal.outcomes) {
+    emitEngineStableEvent(trace, {
+      event: "resolution.outcome.recorded",
+      attributes: { outcomeStatus: outcome.status },
+    });
+  }
+  for (const operation of candidate.resolution.proposal.operations) {
+    emitEngineStableEvent(trace, {
+      event: "resolution.operation.recorded",
+      attributes: { operationKind: operation.kind },
+    });
   }
 }
 
@@ -178,15 +404,15 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `bootstrap:${source.revision}`,
     };
-    const context = createExecutionContext(executionScope, source);
+    const { context, trace, work } = createExecutionContext(executionScope, source);
     const resources = resourceBaseline();
     const startedAt = Date.now();
-    context.trace.emit({
+    trace.emit({
       event: "execution.world_definition.persisted",
       hashes: { worldDefinition: contentHash(this.definition) },
       payload: this.definition,
     });
-    context.trace.emit({
+    trace.emit({
       event: "instance.bootstrap.started",
       counts: { persistentAgents: Object.keys(source.agents).length },
       hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
@@ -198,22 +424,22 @@ export class SimulationEngine {
         state: structuredClone(source),
       }, context);
       validateCandidateModelAudits(candidate.modelAudits, source);
-      context.trace.emit({
+      trace.emit({
         event: "execution.resources.sampled",
         attributes: { phase: "bootstrap" },
         measurements: resourceMeasurements(resources),
       });
-      context.trace.emit({
+      trace.emit({
         event: "execution.candidate.persisted",
         attributes: { phase: "bootstrap" },
         hashes: { candidate: contentHash(candidate) },
         payload: candidate,
       });
-      context.trace.flush();
+      trace.flush();
       const validationStartedAt = performance.now();
-      context.trace.emit({ event: "canonical.validation.started", attributes: { phase: "bootstrap" } });
+      trace.emit({ event: "canonical.validation.started", attributes: { phase: "bootstrap" } });
       const committed = this.committer.bootstrap(source, candidate);
-      context.trace.emit({
+      trace.emit({
         event: "canonical.validation.completed",
         attributes: {
           phase: "bootstrap",
@@ -224,27 +450,34 @@ export class SimulationEngine {
         durationMs: Math.max(0, performance.now() - validationStartedAt),
         hashes: { state: contentHash(committed) },
       });
+      emitBootstrapMetrics(trace, source, candidate);
       this.bootstrapAudits = candidate.modelAudits.map((audit) => structuredClone(audit));
       this.state = committed;
-      context.trace.emit({
+      trace.emit({
         event: "instance.bootstrap.committed",
         durationMs: Math.max(0, Date.now() - startedAt),
         counts: { activatedAgents: candidate.agentCommits.length, updatedAgents: candidate.agentCommits.length },
         hashes: { state: contentHash(committed) },
       });
-      context.trace.flush();
+      trace.flush();
       return this.snapshot;
     } catch (error) {
-      context.trace.emit({
+      trace.emit({
         event: "instance.bootstrap.rolled_back",
         level: "error",
         durationMs: Math.max(0, Date.now() - startedAt),
-        counts: { rollbacks: 1 },
+        counts: { rollbacks: 1, discardedModelCalls: work.modelCalls },
+        measurements: {
+          discardedInputTokens: work.inputTokens,
+          discardedOutputTokens: work.outputTokens,
+          discardedReasoningTokens: work.reasoningTokens,
+          discardedModelExecutionMs: work.modelExecutionMs,
+        },
         attributes: { rollbackStateMatches: true },
         hashes: { state: contentHash(source) },
         error: serializeRuntimeError(error),
       });
-      context.trace.flush();
+      trace.flush();
       throw error;
     }
   }
@@ -262,7 +495,7 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `step:${source.revision}:${source.step + 1}`,
     };
-    const context = createExecutionContext(executionScope, source);
+    const { context, trace, work } = createExecutionContext(executionScope, source);
     const resources = resourceBaseline();
     const startedAt = Date.now();
     const eligibleAgentIds = decisionEligibleAgentIds(
@@ -274,12 +507,12 @@ export class SimulationEngine {
     let discardedOutputTokens = 0;
     let discardedReasoningTokens = 0;
     let discardedModelExecutionMs = 0;
-    context.trace.emit({
+    trace.emit({
       event: "execution.world_definition.persisted",
       hashes: { worldDefinition: contentHash(this.definition) },
       payload: this.definition,
     });
-    context.trace.emit({
+    trace.emit({
       event: "step.started",
       hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
       counts: { persistentAgents: Object.keys(source.agents).length },
@@ -307,22 +540,22 @@ export class SimulationEngine {
         sum + (invocation.tokenUsage.reasoning ?? 0), 0);
       discardedModelExecutionMs = generatedInvocations.flatMap((invocation) => invocation.transports)
         .reduce((sum, transport) => sum + transport.executionMs, 0);
-      context.trace.emit({
+      trace.emit({
         event: "execution.candidate.persisted",
         attributes: { phase: "step" },
         hashes: { candidate: contentHash(candidate) },
         payload: candidate,
       });
-      context.trace.flush();
+      trace.flush();
       const validationStartedAt = performance.now();
-      context.trace.emit({ event: "canonical.validation.started", attributes: { phase: "step" } });
+      trace.emit({ event: "canonical.validation.started", attributes: { phase: "step" } });
       const result = this.committer.step(
         source,
         candidate,
         policyRoster,
         this.definition.runtimeDefaults.maxAutonomousSpanSeconds,
       );
-      context.trace.emit({
+      trace.emit({
         event: "canonical.validation.completed",
         attributes: {
           phase: "step",
@@ -333,19 +566,20 @@ export class SimulationEngine {
         durationMs: Math.max(0, performance.now() - validationStartedAt),
         hashes: { semantic: result.committed.semanticHash, state: contentHash(result.state) },
       });
+      emitStepMetrics(trace, source, policyRoster, eligibleAgentIds, request.trigger, candidate);
       this.state = result.state;
-      context.trace.emit({
+      trace.emit({
         event: "execution.resources.sampled",
         attributes: { phase: "step" },
         measurements: resourceMeasurements(resources),
       });
-      context.trace.emit({
+      trace.emit({
         event: "step.committed",
         durationMs: Math.max(0, Date.now() - startedAt),
-        counts: { modelExecutions: candidate.modelAudits.length },
+        counts: { modelExecutions: generatedModelCalls },
         hashes: { committedStep: result.committed.contentHash, state: contentHash(result.state) },
       });
-      context.trace.flush();
+      trace.flush();
       return {
         committed: result.committed,
         modelAudits: candidate.modelAudits.map((audit) => structuredClone(audit)),
@@ -353,22 +587,22 @@ export class SimulationEngine {
         decisionRequests: structuredClone(result.committed.decisionRequests),
       };
     } catch (error) {
-      context.trace.emit({
+      trace.emit({
         event: "step.rolled_back",
         level: "error",
         durationMs: Math.max(0, Date.now() - startedAt),
-        counts: { rollbacks: 1, discardedModelCalls: generatedModelCalls },
+        counts: { rollbacks: 1, discardedModelCalls: Math.max(generatedModelCalls, work.modelCalls) },
         measurements: {
-          discardedInputTokens,
-          discardedOutputTokens,
-          discardedReasoningTokens,
-          discardedModelExecutionMs,
+          discardedInputTokens: Math.max(discardedInputTokens, work.inputTokens),
+          discardedOutputTokens: Math.max(discardedOutputTokens, work.outputTokens),
+          discardedReasoningTokens: Math.max(discardedReasoningTokens, work.reasoningTokens),
+          discardedModelExecutionMs: Math.max(discardedModelExecutionMs, work.modelExecutionMs),
         },
         attributes: { result: "rolled_back", rollbackStateMatches: true },
         hashes: { state: contentHash(source) },
         error: serializeRuntimeError(error),
       });
-      context.trace.flush();
+      trace.flush();
       throw error;
     }
   }

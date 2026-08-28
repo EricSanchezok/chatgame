@@ -9,7 +9,6 @@ import type {
   ExecutionContext,
   ExternalActionInput,
   FootprintRef,
-  PolicyBinding,
   WorldExecutionAlgorithm,
   WorldStepCandidate,
   WorldStepInput,
@@ -322,7 +321,7 @@ async function thinkWithFallback(
     return { ...await think(), fallback: false };
   } catch (error) {
     if (!(error instanceof ModelSemanticRepairError) || !error.audit) throw error;
-    context.trace.emit({
+    context.instrumentation.emit({
       event: "algorithm.agent_mind.repair_fallback",
       level: "warn",
       correlation: { ...context.modelScope.correlation, modelSubject: agent.id },
@@ -643,16 +642,6 @@ export function conflictComponents(groundings: readonly ActionDependency[]): Age
   return [...groups.values()].map((group) => group.sort()).sort((left, right) => left[0].localeCompare(right[0]));
 }
 
-function conflictEdgeCount(groundings: readonly ActionDependency[]): number {
-  let edges = 0;
-  for (let left = 0; left < groundings.length; left += 1) {
-    for (let right = left + 1; right < groundings.length; right += 1) {
-      if (conflicts(groundings[left], groundings[right])) edges += 1;
-    }
-  }
-  return edges;
-}
-
 function operationResources(
   state: Readonly<SimulationState>,
   operation: WorldDeltaOperation,
@@ -829,11 +818,6 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         "bootstrap",
       ),
     )), "AgentMind bootstrap");
-    context.trace.emit({
-      event: "algorithm.activation.completed",
-      attributes: { phase: "bootstrap", policy: "all-model-agents" },
-      counts: { persistentAgents: agents.length, eligibleAgents: agents.length, activatedAgents: agents.length },
-    });
     return {
       schemaVersion: WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
       sourceStateHash: contentHash(source),
@@ -1053,7 +1037,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           identityOwner: observationIdentityOwner,
           temporalState: observationTemporal,
         }, context.modelScope);
-        context.trace.emit({
+        context.modelScope.observer?.emit({
           event: "observation.rendering.completed",
           attributes: { identityOwner: observationIdentityOwner, transitionAttempt },
           counts: {
@@ -1353,7 +1337,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       }, context.modelScope);
       resolution.proposal.observations = structuredClone(rendered.packets);
       globalObservationAudits.push(...structuredClone(rendered.modelAudits));
-      context.trace.emit({
+      context.instrumentation.emit({
         event: "algorithm.observation.global_projection_completed",
         attributes: { phase: "observation", reason: "multiple-conflict-components" },
         counts: {
@@ -1426,73 +1410,6 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           purpose,
         ));
     }), "AgentMind");
-    const policyCounts = Object.values(input.policyRoster).reduce((counts, binding) => {
-      counts[binding.kind] = (counts[binding.kind] ?? 0) + 1;
-      return counts;
-    }, {} as Record<PolicyBinding["kind"], number>);
-    const persistentAgents = Object.keys(source.agents).length;
-    const activatedAgents = modelAgentIds.length;
-    context.trace.emit({
-      event: "algorithm.activation.completed",
-      attributes: { phase: "step", policy: "decision-points-only" },
-      counts: {
-        persistentAgents,
-        eligibleAgents: eligibleAgentIds.length,
-        activatedAgents,
-        skippedAgents: persistentAgents - activatedAgents,
-        reusedAgents: 0,
-        noopAgents: policyCounts.idle ?? 0,
-        externalAgents: policyCounts.external ?? 0,
-      },
-    });
-    context.trace.emit({
-      event: "algorithm.candidate.completed",
-      attributes: { phase: "step", dependencyAnalysis: "grounded-conflict-components", trigger: input.request.trigger },
-      counts: {
-        persistentAgents,
-        eligibleAgents: activatedAgents,
-        activatedAgents,
-        noopAgents: policyCounts.idle ?? 0,
-        externalAgents: policyCounts.external ?? 0,
-        observedAgents: new Set(observations.map((observation) => observation.observerId)).size,
-        actions: resolution.actions.length,
-        reactions: resolution.reactionDecisions.length,
-        checks: resolution.checks.length,
-        randomResults: resolution.randomResults.length,
-        resolutionPlans: resolution.resolutionPlans.length,
-        settledResolutionReceipts: resolution.resolutionReceipts.filter((receipt) => receipt.settled).length,
-        deferredResolutionReceipts: resolution.resolutionReceipts.filter((receipt) => !receipt.settled).length,
-        mechanicInvocations: resolution.proposal.mechanicInvocations.length,
-        mechanicResults: resolution.mechanicResults.length,
-        outcomes: resolution.proposal.outcomes.length,
-        operations: resolution.proposal.operations.length,
-        events: resolution.proposal.events.length,
-        observations: observations.length,
-        mindCommits: outputs.length,
-        updatedAgents: outputs.length,
-        mindFallbacks: outputs.filter((output) => output.fallback).length,
-        resumedAgents: resumedAgentIds.length,
-        temporalPlans: temporalPlanning.length,
-        activeActivities: Object.values(temporal.activities)
-          .filter((activity) => activity.status === "active" || activity.status === "paused").length,
-        activityTransitions: temporal.transitions.length,
-        dueTimers: temporalBoundary.dueTimerIds.length,
-        decisionPoints: temporal.decisionPoints.length,
-        temporalDeltaSeconds: temporalBoundary.deltaSeconds,
-        dependencyNodes: groundings.length,
-        dependencyEdges: conflictEdgeCount(groundings),
-        dependencyComponents: components.length,
-        maxDependencyComponent: Math.max(0, ...components.map((component) => component.length)),
-        globalFallbacks: groundings.filter((grounding) => grounding.globalFallback).length + (fallback ? 1 : 0),
-        footprintCardinality: groundings.reduce((total, grounding) =>
-          total + new Set([...grounding.reads, ...grounding.writes].map(refKey)).size, 0),
-        audienceCardinality: groundings.reduce(
-          (total, grounding) => total + grounding.audienceAgentIds.length,
-          0,
-        ),
-      },
-      payload: { groundings, components },
-    });
     const {
       modelAudits: resolutionModelAudits,
       reactionModelAudits,
