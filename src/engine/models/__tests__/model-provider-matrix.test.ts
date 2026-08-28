@@ -284,10 +284,7 @@ describe("provider account protocol matrix", () => {
         type: "function",
         function: expect.objectContaining({ name: "submit_result" }),
       })]);
-      expect(call.body.tool_choice).toEqual({
-        type: "function",
-        function: { name: "submit_result" },
-      });
+      expect(call.body.tool_choice).toBe("auto");
       expect(call.body.response_format).toBeUndefined();
     }
     for (const call of calls) {

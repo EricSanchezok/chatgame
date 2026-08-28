@@ -97,6 +97,15 @@ function toolCallPrompt<T>(request: StructuredModelRequest<T>, contextJson: stri
   ].join("\n");
 }
 
+function toolDescription<T>(request: StructuredModelRequest<T>): string {
+  const discriminator = request.schemaName === "truth_perception_directive"
+    ? "The top-level kind must be exactly request_checks or done."
+    : request.schemaName === "truth_resolution_directive"
+      ? "The top-level kind must be exactly commit_plans, request_random, or done."
+      : "Use discriminator values exactly as declared by the schema.";
+  return `Submit one ${request.schemaName} result. ${discriminator}`;
+}
+
 function usageFrom(result: {
   usage: {
     inputTokens?: number;
@@ -283,11 +292,15 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
       prompt: toolCallPrompt(request, contextJson),
       tools: {
         submit_result: tool({
-          description: `Submit one ${request.schemaName} result.`,
+          description: toolDescription(request),
           inputSchema: request.schema,
         }),
       },
-      toolChoice: { type: "tool", toolName: "submit_result" },
+      // Zhipu's OpenAI-compatible Coding Plan endpoint supports tool_choice
+      // only in the `auto` form. The prompt and single-tool surface still
+      // require exactly one submit_result call, while avoiding an ignored
+      // forced-choice payload that can destabilize GLM's argument schema.
+      toolChoice: "auto",
     });
     const calls = result.toolCalls.filter((call) => call.toolName === "submit_result");
     if (calls.length !== 1) {
