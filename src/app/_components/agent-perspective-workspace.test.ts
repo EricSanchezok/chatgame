@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { projectAgentPerspective } from "../../engine/agent-perspective";
-import type { WorldFact } from "../../engine/model";
+import { projectAgentPerspective } from "../../engine/cognition/agent-perspective";
+import type { WorldFact } from "../../engine/contracts/model";
 import { createTestModelCatalog } from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
 import { buildAgentPerspectiveGraph } from "../_lib/agent-perspective-graph";

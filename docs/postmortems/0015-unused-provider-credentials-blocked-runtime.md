@@ -1,5 +1,7 @@
 # 未使用供应商凭据阻塞单供应商世界
 
+Artifact-Version: 1
+
 ## Executive summary
 
 默认模型目录注册了 DeepSeek、OpenAI 与 xAI，Gateway 却在首次宿主初始化时强制解析三家密钥，导致只使用 DeepSeek 的 Blackmarsh 仍因缺少 OpenAI 密钥让世界与会话 API 返回 500。单元测试把“缺任一目录密钥即拒绝启动”当作正确契约，快速开始文档也要求三把密钥；合并后只验证首页 200，没有探测会初始化 WorldHost 的真实 API。持久护栏把目录能力与实际 Profile 依赖分离，并为 Gateway、会话预检和动态 Agent 增加回归测试。
@@ -24,7 +26,7 @@
 ## Guardrails
 
 - [决策 0047](../decisions/0047-on-demand-model-provider-credentials.md) 定义目录能力、实际 Profile 与凭据激活边界。
-- [`model-provider.test.ts`](../../src/engine/__tests__/model-provider.test.ts) 证明仅有 DeepSeek 密钥时可调用 DeepSeek，缺密钥 Profile 在 fetch 与排队前失败，并且不会暴露给动态 Agent。
+- [`model-provider.test.ts`](../../src/engine/models/__tests__/model-provider.test.ts) 证明仅有 DeepSeek 密钥时可调用 DeepSeek，缺密钥 Profile 在 fetch 与排队前失败，并且不会暴露给动态 Agent。
 - [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts)通过真实 WorldHost 入口覆盖世界 Profile 与实例创建。
-- [`model-provider.test.ts`](../../src/engine/__tests__/model-provider.test.ts)证明只要求实际选择的供应商凭据，并隐藏不可用 Profile。
+- [`model-provider.test.ts`](../../src/engine/models/__tests__/model-provider.test.ts)证明只要求实际选择的供应商凭据，并隐藏不可用 Profile。
 - 本地可体验性检查同时探测根页面、`/api/worlds` 与 `/api/instances`，不能以静态页面 200 代替运行时健康。

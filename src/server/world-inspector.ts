@@ -4,10 +4,10 @@ import type {
   ModelExecutionAudit,
   SimulationState,
   WorldDeltaOperation,
-} from "../engine/model";
-import { contentHash } from "../engine/model-audit";
-import type { RuntimeError, RuntimeEvent } from "../engine/observability";
-import { replaySimulationState } from "../engine/transaction";
+} from "../engine/contracts/model";
+import { contentHash } from "../engine/models/model-audit";
+import type { RuntimeError, RuntimeEvent } from "../engine/runtime/observability";
+import { replaySimulationState } from "../engine/runtime/transaction";
 import {
   WORLD_INSPECTOR_API_VERSION,
   type WorldInspectorActor,
@@ -130,7 +130,7 @@ function interactionEvidenceForStep(events: readonly RuntimeEvent[], step: Commi
   } | undefined;
   return {
     dependencies: Array.isArray(payload?.interactionDependencies)
-      ? structuredClone(payload.interactionDependencies) as import("../engine/execution").InteractionDependency[]
+      ? structuredClone(payload.interactionDependencies) as import("../engine/runtime/execution").InteractionDependency[]
       : [],
     components: Array.isArray(payload?.diagnostics?.dependencyComponents)
       ? structuredClone(payload.diagnostics.dependencyComponents) as string[][]

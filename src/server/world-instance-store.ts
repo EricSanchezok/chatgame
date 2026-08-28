@@ -1,8 +1,8 @@
-import { validateAlgorithmRef, type PolicyBinding } from "../engine/execution";
-import { reactionRequestSchema } from "../engine/llm-schemas";
-import { contentHash } from "../engine/model-audit";
-import type { RuntimeCorrelation } from "../engine/observability";
-import { validateSimulationState } from "../engine/transaction";
+import { validateAlgorithmRef, type PolicyBinding } from "../engine/runtime/execution";
+import { reactionRequestSchema } from "../engine/contracts/llm-schemas";
+import { contentHash } from "../engine/models/model-audit";
+import type { RuntimeCorrelation } from "../engine/runtime/observability";
+import { validateSimulationState } from "../engine/runtime/transaction";
 import type { StoredWorldInstance, WorldInstanceDocument } from "./world-instance-types";
 
 export class WorldInstanceNotFoundError extends Error {

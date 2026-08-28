@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import path from "node:path";
-import { projectAgentPerspective } from "../engine/agent-perspective";
-import { DEFAULT_ALGORITHM_REF, registerBuiltinAlgorithms } from "../engine/builtin-algorithms";
-import { CanonicalCommitter } from "../engine/canonical-committer";
+import { projectAgentPerspective } from "../engine/cognition/agent-perspective";
+import { DEFAULT_ALGORITHM_REF, registerBuiltinAlgorithms } from "../engine/algorithms/registry";
+import { CanonicalCommitter } from "../engine/runtime/canonical-committer";
 import type {
   AlgorithmRef,
   ExecutionProducerManifest,
@@ -12,40 +12,40 @@ import type {
   PolicyBinding,
   WorldAdvanceRequest,
   WorldStepPreparation,
-} from "../engine/execution";
+} from "../engine/runtime/execution";
 import {
   defineEngineOperationManifest,
   StepPreparationInvalidatedError,
   WORLD_STEP_PREPARATION_SCHEMA_VERSION,
   WorldExecutionAlgorithmRegistry,
-} from "../engine/execution";
-import { arrivalDraftSchema } from "../engine/llm-schemas";
-import { loadModelCatalog } from "../engine/model-catalog";
-import { createModelGateway } from "../engine/model-gateway";
-import { contentHash } from "../engine/model-audit";
-import { ModelRegistry } from "../engine/model-registry";
+} from "../engine/runtime/execution";
+import { arrivalDraftSchema } from "../engine/contracts/llm-schemas";
+import { loadModelCatalog } from "../engine/models/model-catalog";
+import { createModelGateway } from "../engine/models/model-gateway";
+import { contentHash } from "../engine/models/model-audit";
+import { ModelRegistry } from "../engine/models/model-registry";
 import {
   modelInvocationIdentity,
   type ModelRegistryDiagnostics,
   type ModelRegistryRefreshDiagnostics,
   type StructuredModelProvider,
-} from "../engine/model-provider";
-import { MODEL_CONTEXT_CONTRACT_VERSION } from "../engine/prompts";
+} from "../engine/models/model-provider";
+import { MODEL_CONTEXT_CONTRACT_VERSION } from "../engine/contracts/prompts";
 import {
   NOOP_RUNTIME_OBSERVER,
   type RuntimeCorrelation,
   type RuntimeObserver,
-} from "../engine/observability";
-import { quantityId } from "../engine/runtime-id";
-import { SimulationEngine } from "../engine/simulation";
+} from "../engine/runtime/observability";
+import { quantityId } from "../engine/runtime/runtime-id";
+import { SimulationEngine } from "../engine/runtime/simulation";
 import {
   toWorldRuntimeContract,
   validateWorldModelProfiles,
   worldModelProfileIds,
   type WorldDefinition,
   type WorldOrigin,
-} from "../engine/world-definition";
-import type { AgentState, SimulationState } from "../engine/model";
+} from "../engine/runtime/world-definition";
+import type { AgentState, SimulationState } from "../engine/contracts/model";
 import type { WorldRepository } from "../script/world-repository";
 import type {
   AdvanceWorldInput,
@@ -63,7 +63,7 @@ import type {
   WorldRunControlInput,
   WorldStartOptions,
 } from "../shared/world-api";
-import { sharedResourceQueuePositions } from "../engine/shared-resource-allocation";
+import { sharedResourceQueuePositions } from "../engine/mechanics/shared-resource-allocation";
 import type {
   ObserverAgentPerspective,
   ObserverAgentSummary,

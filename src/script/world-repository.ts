@@ -1,8 +1,8 @@
-import { validateWorldModelProfiles, type WorldDefinition } from "../engine/world-definition";
-import { historyReplayBaseHash } from "../engine/history-replay";
-import type { ModelCatalog } from "../engine/model-catalog";
-import { createSeededRng } from "../engine/random";
-import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
+import { validateWorldModelProfiles, type WorldDefinition } from "../engine/runtime/world-definition";
+import { historyReplayBaseHash } from "../engine/runtime/history-replay";
+import type { ModelCatalog } from "../engine/models/model-catalog";
+import { createSeededRng } from "../engine/mechanics/random";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/mechanics/rule-package";
 
 export interface WorldCatalogEntry {
   id: string;

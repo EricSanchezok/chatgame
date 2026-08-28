@@ -7,13 +7,17 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 | Layer | Location | Responsibility |
 |---|---|---|
 | World contract | `src/script/` | Read schema v13 world packages, validate temporal/mechanics/resource profiles and assets, and construct `WorldDefinition` and `SimulationState` v14 |
-| Execution algorithm | `src/engine/eager-reference.ts`, `action-dependency.ts`, `temporal-planner.ts`, `shared-resource-allocation.ts` | Orchestrate eligible policies while focused owners generate dependencies, plan temporal activities, allocate shared resources, validate footprints, and apply reaction replacements |
-| Fixed kernel | `src/engine/canonical-committer.ts` | Validate Candidate v4, interaction coverage, temporal boundaries, resource capacity and queues, cognitive isolation, causality, conservation, replay evidence, and atomic state construction |
-| Model gateway | `src/engine/model-*` | Trusted provider accounts, models.dev snapshots, deterministic Profile resolution, protocol drivers, vendor dialects, strict structured output, fair scheduling, and invocation audit |
+| Execution algorithms | `src/engine/algorithms/` | Versioned algorithm definitions; `eager-reference/` owns Action Compilation, AgentMind, algorithm prompts, and slot batching while returning ordinary Candidates |
+| Model gateway | `src/engine/models/` | Trusted provider accounts, models.dev snapshots, deterministic Profile resolution, protocol drivers, vendor dialects, strict structured output, fair scheduling, and invocation audit |
+| Cognition | `src/engine/cognition/` | Agent perspective, private belief/character updates, observations, information boundaries, and mind commits |
+| Mechanics | `src/engine/mechanics/` | Temporal, resolution, causality, random, interaction-dependency graphs, Truth Engine, rule packages, and shared-resource mechanics |
+| Fixed runtime | `src/engine/runtime/` | Execution contract, SimulationEngine, CanonicalCommitter, transactions, lifecycle evidence, IDs, replay, and world runtime definitions |
+| Shared contracts | `src/engine/contracts/` | Semantic state types, model-output schemas, and prompt/context contracts shared across owners |
+| Benchmarks | `src/engine/benchmarks/` | Benchmark-only code and evidence generators kept off the product execution path |
 | Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v19, pinned configured `AlgorithmRef`, persistent WorldRuns, Participants, decision/reaction windows, Preparation v3 artifacts, leases, recovery, and generation fencing |
 | Execution evidence | `src/server/execution-ledger.ts` | The sole persisted source for executions, events, artifacts, experiments, replay, and Inspector data |
 | HTTP and browser | `src/app/` | API v12, world library, assistant-ui sessions, decision/reaction controls, unified Agent Perspective HUD, control orb, and read-only Inspector v5 |
-| Shared contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |
+| Shared browser contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |
 
 Dependencies flow browser → Route Handler → WorldHost → SimulationEngine → WorldExecutionAlgorithm → CanonicalCommitter. WorldHost resolves the instance-pinned algorithm through the internal registry, and replay resolves the recorded producer through the same mechanism. An algorithm returns candidates but never holds authority to mutate canonical state or define stable telemetry. The engine and world YAML load only on the server.
 
@@ -60,7 +64,7 @@ A Participant session projects persisted Arrival, Participant intent, every comm
 
 Normalized world content receives a SHA-256 covering the manifest, laws, mechanics, entities, participation configuration, and static-asset identities. An instance pins its `WorldRuntimeContract` and world content hash, and reconstruction verifies both against the content-addressed version.
 
-World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`; content-addressed model-registry snapshots live beside it under `model-registry/`. The default v19 directory is `.livingworld-v19/`. SQLite uses WAL, `synchronous=FULL`, strict tables, process leases, write transactions, and generation compare-and-swap. Old schemas are not migrated; a different contract uses a new data root.
+World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`; content-addressed model-registry snapshots live beside it under `model-registry/`. Operational entrypoints are grouped under `scripts/experiments/` and `scripts/operations/`, while repo-seed governance scripts retain their managed root paths. The default v19 directory is `.livingworld-v19/`. SQLite uses WAL, `synchronous=FULL`, strict tables, process leases, write transactions, and generation compare-and-swap. Old schemas are not migrated; a different contract uses a new data root.
 
 ## Hard invariants
 

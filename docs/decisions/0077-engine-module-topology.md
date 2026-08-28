@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 Class: architecture
 
@@ -40,8 +40,11 @@ generic algorithm registration lives under `engine/algorithms/`. Model-provider
 integration lives under `engine/models/`, shared semantic types under
 `engine/contracts/`, and fixed execution infrastructure under `engine/runtime/`.
 The mechanics and cognition packages are separate because they have different
-change owners and different privacy/semantic responsibilities. Benchmark and
-operational entrypoints are kept off the product runtime path.
+change owners and different privacy/semantic responsibilities. The shared
+interaction-dependency graph belongs to mechanics because the fixed runtime and
+multiple algorithms consume it; only eager-reference's model grounding and
+batching remain algorithm-owned. Benchmark and operational entrypoints are kept
+off the product runtime path.
 
 The topology is organizational, not a new runtime abstraction. Existing public
 exports, AlgorithmRef identity, model Gateway scheduling, canonical committing,

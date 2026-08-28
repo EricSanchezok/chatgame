@@ -1,19 +1,19 @@
-import { canonicalize, contentHash, measureModelContext } from "../model-audit";
-import { parseModelCatalog, type ModelCatalog } from "../model-catalog";
+import { canonicalize, contentHash, measureModelContext } from "../models/model-audit";
+import { parseModelCatalog, type ModelCatalog } from "../models/model-catalog";
 import {
   MODELS_DEV_API_URL,
   type ModelRegistryService,
   type ModelRegistrySnapshot,
-} from "../model-registry";
+} from "../models/model-registry";
 import type {
   StructuredModelProvider,
   StructuredModelRequest,
   StructuredModelResult,
-} from "../model-provider";
-import type { ModelExecutionAudit } from "../model";
-import { modelInvocationIdentity, ModelOutputError } from "../model-provider";
-import type { ActionCompilationDraft } from "../execution";
-import type { AgentMindDraftOutput } from "../llm-schemas";
+} from "../models/model-provider";
+import type { ModelExecutionAudit } from "../contracts/model";
+import { modelInvocationIdentity, ModelOutputError } from "../models/model-provider";
+import type { ActionCompilationDraft } from "../runtime/execution";
+import type { AgentMindDraftOutput } from "../contracts/llm-schemas";
 
 const TEST_PROFILE_IDS = [
   "truth-engine",

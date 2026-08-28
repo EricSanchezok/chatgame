@@ -9,23 +9,23 @@ import type {
   DiscreteRandomDefinition,
   MechanicsCatalog,
   SimulationState,
-} from "../engine/model";
-import { historyReplayBaseHash } from "../engine/history-replay";
-import { createSeededRng, validateDiscreteRandomDefinitions } from "../engine/random";
-import { validateImpactProfile } from "../engine/resolution";
-import { validateTemporalProfile, type TemporalProfileDefinition } from "../engine/temporal";
-import { quantityId } from "../engine/runtime-id";
-import { sharedActivityResourcePoolId } from "../engine/runtime-id";
+} from "../engine/contracts/model";
+import { historyReplayBaseHash } from "../engine/runtime/history-replay";
+import { createSeededRng, validateDiscreteRandomDefinitions } from "../engine/mechanics/random";
+import { validateImpactProfile } from "../engine/mechanics/resolution";
+import { validateTemporalProfile, type TemporalProfileDefinition } from "../engine/mechanics/temporal";
+import { quantityId } from "../engine/runtime/runtime-id";
+import { sharedActivityResourcePoolId } from "../engine/runtime/runtime-id";
 import {
   validateSharedActivityResourceDefinition,
   type SharedActivityResourceDefinition,
-} from "../engine/shared-activity-resources";
-import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
-import { validateSimulationState } from "../engine/transaction";
-import type { WorldDefinition } from "../engine/world-definition";
-import { validateWorldDefinition, validateWorldModelProfiles } from "../engine/world-definition";
-import type { ModelCatalog } from "../engine/model-catalog";
-import { canonicalize, contentHash } from "../engine/model-audit";
+} from "../engine/mechanics/shared-activity-resources";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/mechanics/rule-package";
+import { validateSimulationState } from "../engine/runtime/transaction";
+import type { WorldDefinition } from "../engine/runtime/world-definition";
+import { validateWorldDefinition, validateWorldModelProfiles } from "../engine/runtime/world-definition";
+import type { ModelCatalog } from "../engine/models/model-catalog";
+import { canonicalize, contentHash } from "../engine/models/model-audit";
 import {
   entityDocumentSchema,
   lawsFileSchema,

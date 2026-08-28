@@ -4,7 +4,7 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { coreResolutionRulePackage, RulePackageRegistry } from "../../engine/rule-package";
+import { coreResolutionRulePackage, RulePackageRegistry } from "../../engine/mechanics/rule-package";
 import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
 import { LocalDatabase } from "../local-database";

@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelRegistryDiagnostics } from "../../engine/model-provider";
+import type { ModelRegistryDiagnostics } from "../../engine/models/model-provider";
 import { ModelRegistrySettings } from "./model-registry-settings";
 
 const diagnostics: ModelRegistryDiagnostics = {

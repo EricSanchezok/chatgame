@@ -1,5 +1,5 @@
-import type { AgentPerspectiveView } from "../engine/model";
-export type { AgentPerspectiveView, BeliefValue, PerspectiveFactValue } from "../engine/model";
+import type { AgentPerspectiveView } from "../engine/contracts/model";
+export type { AgentPerspectiveView, BeliefValue, PerspectiveFactValue } from "../engine/contracts/model";
 
 export const WORLD_API_VERSION = 12 as const;
 

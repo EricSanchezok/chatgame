@@ -43,8 +43,8 @@ Integrated with the open-semantic resolution, unified Agent Perspective, and cur
 
 Verification completed on 2026-08-27:
 
-- [Temporal domain tests](../../src/engine/__tests__/temporal.test.ts) cover authored profiles, dynamic boundaries, progress, pause/resume/cancel, resources, and timer validation.
-- [Eager-reference integration tests](../../src/engine/__tests__/eager-reference.test.ts) cover checkpoint execution, simultaneous timers, deferred ResolutionReceipt settlement, interruption, and canonical replay.
+- [Temporal domain tests](../../src/engine/mechanics/__tests__/temporal.test.ts) cover authored profiles, dynamic boundaries, progress, pause/resume/cancel, resources, and timer validation.
+- [Eager-reference integration tests](../../src/engine/algorithms/eager-reference/__tests__/eager-reference.test.ts) cover checkpoint execution, simultaneous timers, deferred ResolutionReceipt settlement, interruption, and canonical replay.
 - [WorldHost tests](../../src/server/__tests__/world-instance-host.test.ts) cover WorldRun leases, pause/resume, generation fencing, and process recovery through the persistent host boundary.
 - `npm run check:fast`: 26 test files and 171 tests passed, followed by fixture validation and all six governance gates.
 - `npm run world:validate -- worlds/blackmarsh/world`: 232 entities and 48 Agents validated as schema v11.

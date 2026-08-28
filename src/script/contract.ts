@@ -7,7 +7,7 @@ import {
   localEntitySchema,
   semanticIdSchema as safeIdSchema,
   discreteRandomValueSchema,
-} from "../engine/state-schemas";
+} from "../engine/contracts/state-schemas";
 
 export const scriptManifestSchema = z.object({
   schema_version: z.literal(13),

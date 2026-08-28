@@ -1,7 +1,7 @@
 # Engine Module Topology
 
 Artifact-Version: 1
-Status: Approved
+Status: Implemented
 
 ## Intent
 
@@ -18,13 +18,14 @@ Production engine code is organized by ownership:
 
 - `engine/algorithms/` contains algorithm definitions and algorithm-owned
   implementations. `algorithms/eager-reference/` owns Action Compilation,
-  AgentMind, dependency grounding, prompts, and slot batching.
+  AgentMind, algorithm prompts, and slot batching.
 - `engine/models/` contains model catalog, registry, provider protocols,
   adapters, Gateway, scheduling, and model execution audit support.
 - `engine/cognition/` contains Agent perspective, belief/character updates,
   observations, information boundaries, and mind commits.
 - `engine/mechanics/` contains temporal, resolution, causality, random,
-  Truth Engine, rule packages, and shared-resource mechanics.
+  interaction-dependency graphs, Truth Engine, rule packages, and
+  shared-resource mechanics.
 - `engine/runtime/` contains the fixed execution contract, SimulationEngine,
   CanonicalCommitter, transactions, lifecycle evidence, IDs, replay, and world
   runtime definitions.
@@ -69,5 +70,9 @@ runtime interfaces but may not mutate canonical state directly.
 
 ## Evidence
 
-Pending implementation. The completed record will link the architecture map,
-the topology ADR, and the passing CI-equivalent checks.
+- [System architecture map](../architecture.md)
+- [ADR 0077 — Organize Engine Code by Ownership Boundaries](../decisions/0077-engine-module-topology.md)
+- `npm run check:fast`
+- `npm run build`
+- `npm run check:ui`
+- `npm run world:validate -- worlds/blackmarsh/world`

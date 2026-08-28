@@ -3,11 +3,11 @@ import type {
   ExecutionProducerManifest,
   ExecutionRef,
   ExecutionTraceWriter,
-} from "../engine/execution";
+} from "../engine/runtime/execution";
 import type {
   RuntimeEvent,
   RuntimeEventInput,
-} from "../engine/observability";
+} from "../engine/runtime/observability";
 
 export type ExecutionStatus = "running" | "succeeded" | "failed" | "cancelled";
 

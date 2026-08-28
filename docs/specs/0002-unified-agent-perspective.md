@@ -27,7 +27,7 @@ Verify deterministic de-identification, Fact access, containment ambiguity, comp
 
 ## Evidence
 
-- Engine projection and self-consequence boundary: [`agent-perspective.test.ts`](../../src/engine/__tests__/agent-perspective.test.ts).
+- Engine projection and self-consequence boundary: [`agent-perspective.test.ts`](../../src/engine/cognition/__tests__/agent-perspective.test.ts).
 - Policy-independent Participant, Observer, and Arrival projection: [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts) and [`instance-routes.test.ts`](../../src/app/api/__tests__/instance-routes.test.ts).
 - Generic relationship graph construction: [`agent-perspective-workspace.test.ts`](../../src/app/_components/agent-perspective-workspace.test.ts).
 - Desktop graph, mobile semantic list, control continuity, and accessibility: [`immersive-game.spec.ts`](../../e2e/flows/immersive-game.spec.ts) and [`immersive-game.a11y.spec.ts`](../../e2e/a11y/immersive-game.a11y.spec.ts).

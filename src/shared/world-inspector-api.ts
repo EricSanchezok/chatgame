@@ -3,11 +3,11 @@ import type {
   CanonicalWorldState,
   CommittedStep,
   ModelExecutionAudit,
-} from "../engine/model";
+} from "../engine/contracts/model";
 import type {
   RuntimeEvent,
-} from "../engine/observability";
-import type { InteractionDependency } from "../engine/execution";
+} from "../engine/runtime/observability";
+import type { InteractionDependency } from "../engine/runtime/execution";
 
 export const WORLD_INSPECTOR_API_VERSION = 5 as const;
 

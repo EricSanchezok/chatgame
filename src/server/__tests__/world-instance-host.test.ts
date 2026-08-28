@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { EagerReferenceAlgorithm } from "../../engine/eager-reference";
-import { eagerReferenceAlgorithmRef } from "../../engine/builtin-algorithms";
+import { EagerReferenceAlgorithm } from "../../engine/algorithms/eager-reference/eager-reference";
+import { eagerReferenceAlgorithmRef } from "../../engine/algorithms/registry";
 import {
   algorithmRef,
   defineAlgorithmManifest,
@@ -15,9 +15,9 @@ import {
   type WorldExecutionAlgorithm,
   type WorldStepCandidate,
   type WorldStepInput,
-} from "../../engine/execution";
-import { historyReplayBaseHash } from "../../engine/history-replay";
-import { contentHash } from "../../engine/model-audit";
+} from "../../engine/runtime/execution";
+import { historyReplayBaseHash } from "../../engine/runtime/history-replay";
+import { contentHash } from "../../engine/models/model-audit";
 import {
   DeterministicModelProvider,
   ScriptedModelProvider,
@@ -886,8 +886,8 @@ describe("World Instance host", () => {
       }
       completeStep(
         input: Readonly<WorldStepInput>,
-        preparation: Readonly<import("../../engine/execution").WorldStepPreparation>,
-        reactions: readonly import("../../engine/execution").ExternalReactionInput[],
+        preparation: Readonly<import("../../engine/runtime/execution").WorldStepPreparation>,
+        reactions: readonly import("../../engine/runtime/execution").ExternalReactionInput[],
         context: ExecutionContext,
       ): Promise<WorldStepCandidate> {
         return this.delegate.completeStep(input, preparation, reactions, context);

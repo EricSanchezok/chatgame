@@ -4,12 +4,12 @@ import {
   ModelOutputError,
   ModelSemanticRepairError,
   ModelTransportError,
-} from "../engine/model-provider";
+} from "../engine/models/model-provider";
 import {
   ModelOverloadedError,
   ModelScheduledExecutionError,
-} from "../engine/model-scheduler";
-import { TransitionValidationError } from "../engine/transaction";
+} from "../engine/models/model-scheduler";
+import { TransitionValidationError } from "../engine/runtime/transaction";
 import { WorldInstanceConflictError } from "./world-instance-store";
 
 export type RunFailureKind = "cancelled" | "retriable" | "permanent";

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { WorldHost, WorldHostError } from "../../server/world-host";
 import { WorldImportError } from "../../server/world-import";
-import { contentHash } from "../../engine/model-audit";
+import { contentHash } from "../../engine/models/model-audit";
 import {
   fullRuntimePayload,
   runtimeEventEmitter,
@@ -10,7 +10,7 @@ import {
   type RuntimeCorrelation,
   type RuntimeObserver,
   type RuntimeEventEmitter,
-} from "../../engine/observability";
+} from "../../engine/runtime/observability";
 
 export function json(data: unknown, status = 200): NextResponse {
   return NextResponse.json(data, { status });

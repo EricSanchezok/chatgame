@@ -5,10 +5,10 @@ import type {
   ParticipantId,
   PolicyBinding,
   WorldAdvanceRequest,
-} from "../engine/execution";
-import type { AgentId, SimulationState } from "../engine/model";
-import type { ReactionRequest } from "../engine/model";
-import type { WorldRuntimeContract } from "../engine/world-definition";
+} from "../engine/runtime/execution";
+import type { AgentId, SimulationState } from "../engine/contracts/model";
+import type { ReactionRequest } from "../engine/contracts/model";
+import type { WorldRuntimeContract } from "../engine/runtime/world-definition";
 
 export interface ParticipantRecord {
   id: ParticipantId;

@@ -1,5 +1,7 @@
 # Observation 局部身份修复耗尽
 
+Artifact-Version: 1
+
 ## Executive summary
 
 真实 DeepSeek 烟雾测试在观察石门时连续生成与 canonical entity 同名的局部 ID，认知隔离校验正确拒绝候选，但 repair 只获得无专用 code、无字段路径的首个普通错误，无法一次修复玩家和 Agent 各自 Observation 中的全部冲突。确定性测试只证明非法候选会被拒绝，没有证明 repair 上下文足以驱动模型收敛。持久护栏为 transition 提供逐观察者局部身份命名空间，并在一次 repair 中返回全部 canonical/local 冲突的稳定 code 与精确路径。
@@ -24,5 +26,5 @@
 
 - [认知隔离决策](../decisions/0031-epistemic-multi-agent-truth-engine.md)要求 transition context 显式声明局部身份命名空间，并一次返回全部身份冲突。
 - [Truth Engine 运行时规格](../game-design/engine-runtime.md#observation-与认知隔离)定义局部身份、private binding 和 claim 引用规则。
-- [`llm-field-ownership.test.ts`](../../src/engine/__tests__/llm-field-ownership.test.ts)证明 Observation 模型不能填写 canonical identity 或运行时字段。
+- [`llm-field-ownership.test.ts`](../../src/engine/contracts/__tests__/llm-field-ownership.test.ts)证明 Observation 模型不能填写 canonical identity 或运行时字段。
 - `npm run test:live:deepseek` 继续通过真实模型完成 bootstrap 与一个完整世界步骤，确保 provider 方言、prompt 和语义 repair 能共同工作。

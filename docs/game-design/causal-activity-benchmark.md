@@ -33,6 +33,6 @@ npm run benchmark:causal
 npm run benchmark:causal -- --agents 1,10,50
 ```
 
-`scripts/causal-activity-benchmark.ts` 输出 schema v2 JSON。通用执行成本实验继续使用 `npm run experiment:run` 和同一 Execution Ledger；二者不维护第二套运行语义。
+`scripts/experiments/causal-activity-benchmark.ts` 输出 schema v2 JSON。通用执行成本实验继续使用 `npm run experiment:run` 和同一 Execution Ledger；二者不维护第二套运行语义。
 
 当前验证机以每场景 5 次运行完成 240 个场景：场景、recall、replay 和 allocator/oracle 一致性均为 100%，错误激活、因果违规与模型调用均为零。最大队列为 500，最大 interaction component 为 2000 个节点，最大 artifact 为 2,089,902 bytes，观测到的最高 footprint p95 为 93.89 ms、allocator p95 为 5.787 ms、peak heap 为 150,075,040 bytes；这些数值仅是本次证据，不是跨机器门槛。

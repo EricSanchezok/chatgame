@@ -3,15 +3,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
-import { coreResolutionRulePackage, RulePackageRegistry } from "../../engine/rule-package";
+import { coreResolutionRulePackage, RulePackageRegistry } from "../../engine/mechanics/rule-package";
 import {
   MAX_RANDOM_DISTRIBUTION_UTF8_BYTES,
   MAX_RANDOM_DISTRIBUTIONS_PER_WORLD,
   stableRandomUtf8Bytes,
-} from "../../engine/random-limits";
-import type { DiscreteRandomDefinition } from "../../engine/model";
+} from "../../engine/mechanics/random-limits";
+import type { DiscreteRandomDefinition } from "../../engine/contracts/model";
 import { createTestModelCatalog } from "../../engine/testing/model-provider";
-import { quantityId, sharedActivityResourcePoolId } from "../../engine/runtime-id";
+import { quantityId, sharedActivityResourcePoolId } from "../../engine/runtime/runtime-id";
 import { loadWorldScript } from "../world-loader";
 
 const fixture = path.resolve("test/fixtures/open-world-script");

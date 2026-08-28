@@ -51,7 +51,7 @@ Implemented by the following independently verified commits:
 - `47daec8` and `0858fe3` — corrected multi-step execution wall time and made `count` aggregate samples rather than values.
 - `d8963fa` and `68b0177` — preflighted pinned algorithms before recovery writes and removed the duplicate cancellation surface.
 
-Primary executable evidence lives in [`execution-kernel.test.ts`](../../src/engine/__tests__/execution-kernel.test.ts), [`observability.test.ts`](../../src/engine/__tests__/observability.test.ts), [`action-dependency.test.ts`](../../src/engine/__tests__/action-dependency.test.ts), [`eager-reference.test.ts`](../../src/engine/__tests__/eager-reference.test.ts), [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts), and [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts).
+Primary executable evidence lives in [`execution-kernel.test.ts`](../../src/engine/runtime/__tests__/execution-kernel.test.ts), [`observability.test.ts`](../../src/engine/runtime/__tests__/observability.test.ts), [`action-dependency.test.ts`](../../src/engine/mechanics/__tests__/action-dependency.test.ts), [`eager-reference.test.ts`](../../src/engine/algorithms/eager-reference/__tests__/eager-reference.test.ts), [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts), and [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts).
 
 The final semantic review found no remaining actionable defects after these hardening commits.
 

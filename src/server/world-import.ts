@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
-import type { ModelCatalog } from "../engine/model-catalog";
-import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
+import type { ModelCatalog } from "../engine/models/model-catalog";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/mechanics/rule-package";
 import {
   buildWorldDefinition,
   loadWorldTemplate,

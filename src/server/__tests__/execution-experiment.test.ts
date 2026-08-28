@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseExperimentMatrix,
   runDeterministicExperiment,
-} from "../../../scripts/experiment-core";
+} from "../../../scripts/experiments/experiment-core";
 
 describe("execution experiment core", () => {
   it("runs the small deterministic CI scenario without a remote model", async () => {

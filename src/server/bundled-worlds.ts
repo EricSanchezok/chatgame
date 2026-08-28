@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import AdmZip from "adm-zip";
-import type { ModelCatalog } from "../engine/model-catalog";
+import type { ModelCatalog } from "../engine/models/model-catalog";
 import type { WorldImportResult } from "./world-import";
 
 const BUNDLED_WORLDS = [{

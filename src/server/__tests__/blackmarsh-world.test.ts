@@ -3,8 +3,8 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
-import { EagerReferenceAlgorithm } from "../../engine/eager-reference";
-import { SimulationEngine } from "../../engine/simulation";
+import { EagerReferenceAlgorithm } from "../../engine/algorithms/eager-reference/eager-reference";
+import { SimulationEngine } from "../../engine/runtime/simulation";
 import { loadWorldScript } from "../../script/world-loader";
 import { parseWorldArchive } from "../world-import";
 

@@ -2,8 +2,8 @@ import type { CreateInstanceInput } from "../../../shared/world-api";
 import {
   DEFAULT_EAGER_REFERENCE_CONFIG,
   parseEagerReferenceAlgorithmConfig,
-} from "../../../engine/eager-reference";
-import { eagerReferenceAlgorithmRef } from "../../../engine/builtin-algorithms";
+} from "../../../engine/algorithms/eager-reference/eager-reference";
+import { eagerReferenceAlgorithmRef } from "../../../engine/algorithms/registry";
 import { WorldHost } from "../../../server/world-host";
 import { json, observeHttpJsonBody, observedRoute, principalId, readJson } from "../h";
 

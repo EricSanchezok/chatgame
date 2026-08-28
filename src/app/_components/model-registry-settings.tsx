@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type {
   ModelRegistryDiagnostics,
   ModelRegistryRefreshDiagnostics,
-} from "../../engine/model-provider";
+} from "../../engine/models/model-provider";
 
 type LoadState = "loading" | "ready" | "error";
 

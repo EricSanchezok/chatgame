@@ -1,5 +1,7 @@
 # CharacterPatch 事件依据修复耗尽
 
+Artifact-Version: 1
+
 ## Executive summary
 
 真实 DeepSeek 烟雾测试越过 Truth transition 后，AgentMind 为一个没有关联本步骤事件的 Observation 生成了情绪更新。角色演化校验正确拒绝无因变化，但模型上下文没有明确列出哪些 Observation 具备合法事件依据及其影响级别，repair 又只收到无字段路径的普通错误，连续重试仍未收敛。确定性测试只覆盖拒绝与回滚，没有验证模型拥有满足约束所需的信息。持久护栏是显式提供 `Observation → Event impact` 依据，并一次返回全部违规 CharacterPatch operation 的稳定 code 与精确路径。
@@ -24,5 +26,5 @@ CharacterPatch 不是任意叙事改写。每个 operation 必须引用该 Agent
 
 - [认知隔离决策](../decisions/0031-epistemic-multi-agent-truth-engine.md)要求 CharacterPatch 只引用本步骤私有且具有当前事件依据的 Observation。
 - [引擎运行时规格](../game-design/engine-runtime.md#observation-与认知隔离)定义 AgentMind 的可见输入、事件依据与空 patch 规则。
-- [`open-world-core.test.ts`](../../src/engine/__tests__/open-world-core.test.ts)覆盖 CharacterPatch、Observation 和认知状态的不变量。
+- [`open-world-core.test.ts`](../../src/engine/runtime/__tests__/open-world-core.test.ts)覆盖 CharacterPatch、Observation 和认知状态的不变量。
 - `npm run test:live:deepseek` 通过真实模型完成 bootstrap、Truth、全部 AgentMind 和原子提交，验证上下文与 repair 契约共同可执行。

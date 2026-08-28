@@ -3,18 +3,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { defineAlgorithmManifest } from "../../engine/execution";
+import { defineAlgorithmManifest } from "../../engine/runtime/execution";
 import {
   aggregateMetricPoints,
   deriveExecutionWork,
   MetricDefinitionRegistry,
   EXECUTION_METRICS,
-} from "../../engine/execution-metrics";
-import { contentHash } from "../../engine/model-audit";
-import { materializeRuntimeEvent } from "../../engine/observability";
+} from "../../engine/runtime/execution-metrics";
+import { contentHash } from "../../engine/models/model-audit";
+import { materializeRuntimeEvent } from "../../engine/runtime/observability";
 import { LocalDatabase } from "../local-database";
-import { candidatePartitions, replayThroughAlgorithm } from "../../../scripts/execution-command";
-import { runDeterministicExperiment } from "../../../scripts/experiment-core";
+import { candidatePartitions, replayThroughAlgorithm } from "../../../scripts/operations/execution-command";
+import { runDeterministicExperiment } from "../../../scripts/experiments/experiment-core";
 
 function database(): LocalDatabase {
   const root = mkdtempSync(path.join(tmpdir(), "lwe-execution-ledger-"));

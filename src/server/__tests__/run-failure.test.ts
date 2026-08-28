@@ -5,9 +5,9 @@ import {
   ModelOutputError,
   ModelSemanticRepairError,
   ModelTransportError,
-} from "../../engine/model-provider";
-import { ModelOverloadedError } from "../../engine/model-scheduler";
-import { TransitionValidationError } from "../../engine/transaction";
+} from "../../engine/models/model-provider";
+import { ModelOverloadedError } from "../../engine/models/model-scheduler";
+import { TransitionValidationError } from "../../engine/runtime/transaction";
 import { classifyRunFailure } from "../run-failure";
 import { WorldInstanceConflictError } from "../world-instance-store";
 

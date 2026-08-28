@@ -1,5 +1,7 @@
 # Inspector 把最后一个启动事件误报为失败原因
 
+Artifact-Version: 1
+
 ## Executive summary
 
 一次真实推演在模型传输之后失败，但 Inspector 只显示 `model.transport.started`。Execution Ledger 记录了阶段事件和 execution 终态，却没有把终止异常作为同一条 durable terminal event 保存；Inspector 因而只能把最后一条普通事件当作摘要。并发批次抛出的 `AggregateError` 还会把成员异常压成一条外层消息。修复后，失败或取消 execution 的终态、完整错误树和 execution 更新在同一 SQLite 事务中提交，Inspector 只从这份持久证据生成失败原因。
@@ -23,6 +25,6 @@ Execution Ledger 对“execution 已终止”和“为什么终止”采用了�
 ## Guardrails
 
 - [`local-database.ts`](../../src/server/local-database.ts)在一个 SQLite 事务中持久化 `execution.failed` 或 `execution.cancelled`、错误 artifact 和 execution 终态，事务提交后才向订阅者发布事件。
-- [`observability.ts`](../../src/engine/observability.ts)保留有界的嵌套 cause 与 `AggregateError` 成员，避免并发失败只剩外层摘要。
+- [`observability.ts`](../../src/engine/runtime/observability.ts)保留有界的嵌套 cause 与 `AggregateError` 成员，避免并发失败只剩外层摘要。
 - [`world-inspector.ts`](../../src/server/world-inspector.ts)从 terminal error tree 生成诊断文本，不再把最后一个阶段启动事件解释为失败原因。
-- [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts)断言普通失败与进程恢复都以 durable terminal event 收尾；[`observability.test.ts`](../../src/engine/__tests__/observability.test.ts)覆盖聚合错误成员。
+- [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts)断言普通失败与进程恢复都以 durable terminal event 收尾；[`observability.test.ts`](../../src/engine/runtime/__tests__/observability.test.ts)覆盖聚合错误成员。

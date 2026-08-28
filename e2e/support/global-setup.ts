@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { loadModelCatalog } from "../../src/engine/model-catalog";
-import { ModelRegistry } from "../../src/engine/model-registry";
+import { loadModelCatalog } from "../../src/engine/models/model-catalog";
+import { ModelRegistry } from "../../src/engine/models/model-registry";
 
 function model(id: string) {
   return {

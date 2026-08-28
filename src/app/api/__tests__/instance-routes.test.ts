@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DeterministicModelProvider } from "../../../engine/testing/model-provider";
-import type { ModelRegistryDiagnostics } from "../../../engine/model-provider";
+import type { ModelRegistryDiagnostics } from "../../../engine/models/model-provider";
 import { loadWorldScript } from "../../../script/world-loader";
 import { MemoryWorldRepository } from "../../../script/world-repository";
 import { LocalDatabase } from "../../../server/local-database";

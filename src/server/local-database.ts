@@ -3,12 +3,12 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import Database from "better-sqlite3";
-import { canonicalize, contentHash } from "../engine/model-audit";
-import { attachExecutionRef } from "../engine/canonical-committer";
-import type { ModelCatalog } from "../engine/model-catalog";
+import { canonicalize, contentHash } from "../engine/models/model-audit";
+import { attachExecutionRef } from "../engine/runtime/canonical-committer";
+import type { ModelCatalog } from "../engine/models/model-catalog";
 import {
   validateExecutionProducerManifest,
-} from "../engine/execution";
+} from "../engine/runtime/execution";
 import {
   NOOP_RUNTIME_OBSERVER,
   materializeRuntimeEvent,
@@ -20,9 +20,9 @@ import {
   type RuntimeObserver,
   type RuntimeEvent,
   type RuntimeEventInput,
-} from "../engine/observability";
-import type { ExecutionTraceWriter } from "../engine/execution";
-import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/rule-package";
+} from "../engine/runtime/observability";
+import type { ExecutionTraceWriter } from "../engine/runtime/execution";
+import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../engine/mechanics/rule-package";
 import { buildWorldDefinition, hashWorldTemplate, parseWorldTemplate } from "../script/world-loader";
 import type { WorldCatalogEntry, WorldRepository } from "../script/world-repository";
 import { parseWorldArchive, WorldImportError, type WorldImportResult } from "./world-import";
@@ -679,7 +679,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     return () => this.executionListeners.delete(listener);
   }
 
-  finishExecution(executionId: string, input: FinishExecutionInput): import("../engine/execution").ExecutionRef {
+  finishExecution(executionId: string, input: FinishExecutionInput): import("../engine/runtime/execution").ExecutionRef {
     this.executionWriters.get(executionId)?.flush();
     const terminalError = input.error === undefined ? undefined : executionError(input.error);
     let terminalEvents: RuntimeEvent[] = [];
@@ -729,7 +729,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     return reference;
   }
 
-  private currentExecutionRef(executionId: string): import("../engine/execution").ExecutionRef {
+  private currentExecutionRef(executionId: string): import("../engine/runtime/execution").ExecutionRef {
     const rows = this.connection.prepare(`
       SELECT sequence, trace_id, span_id, parent_span_id, event_name, level, timestamp,
              attributes_json, counts_json, hashes_json, links_json, correlation_json,
@@ -828,7 +828,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   executions(input: {
-    kind?: import("../engine/execution").ExecutionKind;
+    kind?: import("../engine/runtime/execution").ExecutionKind;
     parentExecutionId?: string;
     instanceId?: string;
   } = {}): ExecutionRecord[] {
@@ -1237,7 +1237,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     executionId: string,
     finish: FinishExecutionInput,
     correlation?: RuntimeCorrelation,
-  ): { instance: StoredWorldInstance; executionRef: import("../engine/execution").ExecutionRef } {
+  ): { instance: StoredWorldInstance; executionRef: import("../engine/runtime/execution").ExecutionRef } {
     this.executionWriters.get(executionId)?.flush();
     return this.connection.transaction(() => {
       const commitEvent = this.appendExecutionEvent(executionId, {
@@ -1269,7 +1269,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     finish: FinishExecutionInput,
     phase: "step" | "admission" | "instance" = "step",
     correlation?: RuntimeCorrelation,
-  ): { instance: StoredWorldInstance; executionRef: import("../engine/execution").ExecutionRef } {
+  ): { instance: StoredWorldInstance; executionRef: import("../engine/runtime/execution").ExecutionRef } {
     this.executionWriters.get(executionId)?.flush();
     return this.connection.transaction(() => {
       const commitEvent = this.appendExecutionEvent(executionId, {
