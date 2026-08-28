@@ -270,12 +270,12 @@ describe("Execution Ledger", () => {
       });
       trace.emit({
         event: "algorithm.activation.completed",
-        attributes: { phase: "step", policy: "test" },
+        attributes: { phase: "step", policy: "engine-decision-eligibility" },
         counts: activationCounts({ persistentAgents: 1000, activatedAgents: 1000 }),
       });
       trace.emit({
         event: "algorithm.candidate.completed",
-        attributes: { phase: "step", dependencyAnalysis: "test", trigger: "batch" },
+        attributes: { phase: "step", dependencyAnalysis: "typed-action-dependencies", trigger: "batch" },
         counts: candidateCounts({
           updatedAgents: 1000,
           mindFallbacks: 2,
@@ -295,12 +295,12 @@ describe("Execution Ledger", () => {
       });
       trace.emit({
         event: "algorithm.activation.completed",
-        attributes: { phase: "step", policy: "test" },
+        attributes: { phase: "step", policy: "engine-decision-eligibility" },
         counts: activationCounts({ persistentAgents: 800, activatedAgents: 7 }),
       });
       trace.emit({
         event: "algorithm.candidate.completed",
-        attributes: { phase: "step", dependencyAnalysis: "test", trigger: "batch" },
+        attributes: { phase: "step", dependencyAnalysis: "typed-action-dependencies", trigger: "batch" },
         counts: candidateCounts({ maxDependencyComponent: 2 }),
       });
       trace.emit({ event: "temporal.boundary.reason", attributes: { reasonKind: "timer" } });

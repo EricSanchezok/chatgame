@@ -1,3 +1,7 @@
+import { modelRoles, type ModelRole } from "./model-catalog";
+import type { ActionOutcome, WorldDeltaOperation } from "./model";
+import type { ActivityTransition, TemporalBoundaryReason } from "./temporal";
+
 export const RUNTIME_EVENT_SCHEMA_VERSION = 2 as const;
 
 export type RuntimeObservabilityMode = "off" | "metrics" | "full";
@@ -12,7 +16,7 @@ export interface RuntimeCorrelation {
   revision?: number;
   step?: number;
   modelInvocationId?: string;
-  modelRole?: string;
+  modelRole?: ModelRole;
   modelSubject?: string;
   modelInvocation?: number;
   transportAttempt?: number;
@@ -46,24 +50,68 @@ export interface RuntimeEventInput {
   error?: RuntimeError;
 }
 
-export type AlgorithmTelemetryEventName =
-  | "algorithm.agent_mind.repair_fallback"
-  | "algorithm.grounding.global_fallback"
-  | "algorithm.observation.references_normalized"
-  | "algorithm.observation.batch_split"
-  | "algorithm.observation.repair_fallback"
-  | "algorithm.observation.global_projection_completed"
-  | "algorithm.outcome.alternative_evidence_normalized";
-
-export interface AlgorithmTelemetryEventInput extends Omit<
+type AlgorithmTelemetryBase = Omit<
   RuntimeEventInput,
-  "event" | "payload" | "measurements" | "hashes"
-> {
-  event: AlgorithmTelemetryEventName;
+  "event" | "payload" | "measurements" | "hashes" | "attributes" | "counts"
+> & {
   payload?: never;
   measurements?: never;
   hashes?: never;
-}
+};
+
+export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
+  event: "algorithm.agent_mind.repair_fallback";
+  attributes: Readonly<{
+    phase: "bootstrap" | "resume" | "mind";
+    policy: "empty-patch-and-idle-action";
+  }>;
+  counts: Readonly<{ mindFallbacks: number }>;
+} | {
+  event: "algorithm.grounding.global_fallback";
+  attributes: Readonly<{ phase: "grounding"; reasons: string }>;
+  counts: Readonly<{ normalizedGroundingFields: number; globalFallbacks: number }>;
+} | {
+  event: "algorithm.observation.references_normalized";
+  attributes: Readonly<{ phase: "observation"; batch: string }>;
+  counts: Readonly<{
+    droppedObservationEventReferences: number;
+    droppedObservationClaims: number;
+    droppedObservationIntroductions: number;
+    clearedObservationCanonicalBindings: number;
+  }>;
+} | {
+  event: "algorithm.observation.batch_split";
+  attributes: Readonly<{ phase: "observation"; batch: string }>;
+  counts: Readonly<{ observationBatchSplits: number; splitObserverSlots: number }>;
+} | {
+  event: "algorithm.observation.repair_fallback";
+  attributes: Readonly<{
+    phase: "observation";
+    batch: string;
+    policy: "typed-uncertainty-observation";
+  }>;
+  counts: Readonly<{ observationFallbacks: number }>;
+} | {
+  event: "algorithm.observation.global_projection_completed";
+  attributes: Readonly<{
+    phase: "observation";
+    reason: "multiple-conflict-components";
+  }>;
+  counts: Readonly<{
+    observations: number;
+    observationBatches: number;
+    dependencyComponents: number;
+  }>;
+} | {
+  event: "algorithm.outcome.alternative_evidence_normalized";
+  attributes: Readonly<{ phase: "transition" }>;
+  counts: Readonly<{
+    droppedOutcomeAlternativeEvidenceReferences: number;
+    droppedOutcomeAlternatives: number;
+  }>;
+});
+
+export type AlgorithmTelemetryEventName = AlgorithmTelemetryEventInput["event"];
 
 export interface AlgorithmInstrumentation {
   emit(input: AlgorithmTelemetryEventInput): RuntimeEvent | undefined;
@@ -74,7 +122,10 @@ export type EngineStableRuntimeEventInput = Omit<
   "event" | "payload" | "measurements" | "hashes" | "attributes" | "counts"
 > & ({
   event: "algorithm.activation.completed";
-  attributes: Readonly<{ phase: "bootstrap" | "step"; policy: string }>;
+  attributes: Readonly<{
+    phase: "bootstrap" | "step";
+    policy: "engine-bootstrap-roster" | "engine-decision-eligibility";
+  }>;
   counts: Readonly<{
     persistentAgents: number;
     eligibleAgents: number;
@@ -88,7 +139,7 @@ export type EngineStableRuntimeEventInput = Omit<
   event: "algorithm.candidate.completed";
   attributes: Readonly<{
     phase: "step";
-    dependencyAnalysis: string;
+    dependencyAnalysis: "typed-action-dependencies";
     trigger: "manual" | "batch" | "realtime" | "participant_action";
   }>;
   counts: Readonly<{
@@ -128,19 +179,19 @@ export type EngineStableRuntimeEventInput = Omit<
   }>;
 } | {
   event: "temporal.boundary.reason";
-  attributes: Readonly<{ reasonKind: string }>;
+  attributes: Readonly<{ reasonKind: TemporalBoundaryReason["kind"] }>;
   counts?: never;
 } | {
   event: "temporal.activity.transition";
-  attributes: Readonly<{ transitionKind: string }>;
+  attributes: Readonly<{ transitionKind: ActivityTransition["kind"] }>;
   counts?: never;
 } | {
   event: "resolution.outcome.recorded";
-  attributes: Readonly<{ outcomeStatus: string }>;
+  attributes: Readonly<{ outcomeStatus: ActionOutcome["status"] }>;
   counts?: never;
 } | {
   event: "resolution.operation.recorded";
-  attributes: Readonly<{ operationKind: string }>;
+  attributes: Readonly<{ operationKind: WorldDeltaOperation["kind"] }>;
   counts?: never;
 });
 
@@ -156,6 +207,7 @@ const engineOwnedStableEvents: ReadonlySet<string> = new Set<EngineStableRuntime
 const engineStableTelemetryFields: Record<EngineStableRuntimeEventInput["event"], {
   attributes: readonly string[];
   counts: readonly string[];
+  attributeValues?: Readonly<Record<string, readonly RuntimeAttribute[]>>;
 }> = {
   "algorithm.activation.completed": {
     attributes: ["phase", "policy"],
@@ -168,6 +220,10 @@ const engineStableTelemetryFields: Record<EngineStableRuntimeEventInput["event"]
       "noopAgents",
       "externalAgents",
     ],
+    attributeValues: {
+      phase: ["bootstrap", "step"],
+      policy: ["engine-bootstrap-roster", "engine-decision-eligibility"],
+    },
   },
   "algorithm.candidate.completed": {
     attributes: ["phase", "dependencyAnalysis", "trigger"],
@@ -206,24 +262,75 @@ const engineStableTelemetryFields: Record<EngineStableRuntimeEventInput["event"]
       "footprintCardinality",
       "audienceCardinality",
     ],
+    attributeValues: {
+      phase: ["step"],
+      dependencyAnalysis: ["typed-action-dependencies"],
+      trigger: ["manual", "batch", "realtime", "participant_action"],
+    },
   },
-  "temporal.boundary.reason": { attributes: ["reasonKind"], counts: [] },
-  "temporal.activity.transition": { attributes: ["transitionKind"], counts: [] },
-  "resolution.outcome.recorded": { attributes: ["outcomeStatus"], counts: [] },
-  "resolution.operation.recorded": { attributes: ["operationKind"], counts: [] },
+  "temporal.boundary.reason": {
+    attributes: ["reasonKind"],
+    counts: [],
+    attributeValues: {
+      reasonKind: ["activity_checkpoint", "activity_completion", "timer", "condition_expiry", "safety_horizon"],
+    },
+  },
+  "temporal.activity.transition": {
+    attributes: ["transitionKind"],
+    counts: [],
+    attributeValues: {
+      transitionKind: ["progressed", "stage_changed", "completed", "paused", "resumed", "blocked", "failed", "cancelled"],
+    },
+  },
+  "resolution.outcome.recorded": {
+    attributes: ["outcomeStatus"],
+    counts: [],
+    attributeValues: { outcomeStatus: ["succeeded", "partial", "failed", "blocked", "continuing"] },
+  },
+  "resolution.operation.recorded": {
+    attributes: ["operationKind"],
+    counts: [],
+    attributeValues: {
+      operationKind: [
+        "create_entity",
+        "retire_entity",
+        "place_entity",
+        "set_fact",
+        "remove_fact",
+        "set_meter",
+        "adjust_meter",
+        "transfer_quantity",
+        "produce_quantity",
+        "consume_quantity",
+        "set_quantity",
+        "set_rating",
+        "set_condition",
+        "remove_condition",
+        "advance_time",
+        "create_agent",
+        "remove_agent",
+      ],
+    },
+  },
 };
 
 const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
   attributes: readonly string[];
   counts: readonly string[];
+  attributeValues?: Readonly<Record<string, readonly RuntimeAttribute[]>>;
 }> = {
   "algorithm.agent_mind.repair_fallback": {
     attributes: ["phase", "policy"],
     counts: ["mindFallbacks"],
+    attributeValues: {
+      phase: ["bootstrap", "resume", "mind"],
+      policy: ["empty-patch-and-idle-action"],
+    },
   },
   "algorithm.grounding.global_fallback": {
     attributes: ["phase", "reasons"],
     counts: ["normalizedGroundingFields", "globalFallbacks"],
+    attributeValues: { phase: ["grounding"] },
   },
   "algorithm.observation.references_normalized": {
     attributes: ["phase", "batch"],
@@ -233,22 +340,33 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
       "droppedObservationIntroductions",
       "clearedObservationCanonicalBindings",
     ],
+    attributeValues: { phase: ["observation"] },
   },
   "algorithm.observation.batch_split": {
     attributes: ["phase", "batch"],
     counts: ["observationBatchSplits", "splitObserverSlots"],
+    attributeValues: { phase: ["observation"] },
   },
   "algorithm.observation.repair_fallback": {
     attributes: ["phase", "batch", "policy"],
     counts: ["observationFallbacks"],
+    attributeValues: {
+      phase: ["observation"],
+      policy: ["typed-uncertainty-observation"],
+    },
   },
   "algorithm.observation.global_projection_completed": {
     attributes: ["phase", "reason"],
     counts: ["observations", "observationBatches", "dependencyComponents"],
+    attributeValues: {
+      phase: ["observation"],
+      reason: ["multiple-conflict-components"],
+    },
   },
   "algorithm.outcome.alternative_evidence_normalized": {
     attributes: ["phase"],
     counts: ["droppedOutcomeAlternativeEvidenceReferences", "droppedOutcomeAlternatives"],
+    attributeValues: { phase: ["transition"] },
   },
 };
 
@@ -264,6 +382,18 @@ function validateExactFields(
   }
 }
 
+function validateAllowedAttributeValues(
+  input: RuntimeEventInput,
+  allowed: Readonly<Record<string, readonly RuntimeAttribute[]>> | undefined,
+): void {
+  for (const [key, values] of Object.entries(allowed ?? {})) {
+    const value = input.attributes?.[key];
+    if (!values.includes(value ?? null)) {
+      throw new Error(`${input.event} attribute ${key} is invalid: ${String(value)}`);
+    }
+  }
+}
+
 export function validateAlgorithmTelemetryEvent(input: RuntimeEventInput): asserts input is AlgorithmTelemetryEventInput {
   if (engineOwnedStableEvents.has(input.event)) {
     throw new Error(`stable runtime event is engine-owned: ${input.event}`);
@@ -275,6 +405,7 @@ export function validateAlgorithmTelemetryEvent(input: RuntimeEventInput): asser
   }
   validateExactFields(input.attributes, definition.attributes, `${input.event} attributes`);
   validateExactFields(input.counts, definition.counts, `${input.event} counts`);
+  validateAllowedAttributeValues(input, definition.attributeValues);
 }
 
 function validateStableRuntimeEvent(input: RuntimeEventInput): void {
@@ -291,6 +422,16 @@ function validateStableRuntimeEvent(input: RuntimeEventInput): void {
     }
     validateExactFields(input.attributes, engineDefinition.attributes, `${input.event} attributes`);
     validateExactFields(input.counts, engineDefinition.counts, `${input.event} counts`);
+    validateAllowedAttributeValues(input, engineDefinition.attributeValues);
+  }
+  for (const [key, value] of Object.entries(input.attributes ?? {})) {
+    if (value !== null && typeof value !== "string" && typeof value !== "boolean" &&
+      (typeof value !== "number" || !Number.isFinite(value))) {
+      throw new Error(`runtime attribute ${key} must be a string, finite number, boolean, or null`);
+    }
+  }
+  if (input.correlation?.modelRole !== undefined && !modelRoles.includes(input.correlation.modelRole)) {
+    throw new Error(`runtime model role is invalid: ${String(input.correlation.modelRole)}`);
   }
   if (input.durationMs !== undefined && (!Number.isFinite(input.durationMs) || input.durationMs < 0)) {
     throw new Error(`runtime event duration must be a non-negative finite number: ${input.event}`);

@@ -39,6 +39,18 @@ describe("model context measurements", () => {
       event: "temporal.boundary.reason",
       attributes: { reason: "timer" },
     })).toThrow("attributes fields must be exactly");
+    expect(() => observer.emit({
+      event: "temporal.boundary.reason",
+      attributes: { reasonKind: "future_boundary" },
+    })).toThrow("attribute reasonKind is invalid");
+    expect(() => observer.emit({
+      event: "model.invocation.started",
+      correlation: { modelRole: "unregistered-role" as never },
+    })).toThrow("runtime model role is invalid");
+    expect(() => observer.emit({
+      event: "model.invocation.started",
+      attributes: { phase: { nested: true } as never },
+    })).toThrow("runtime attribute phase must be");
   });
 
   it("preserves AggregateError members for terminal diagnostics", () => {
