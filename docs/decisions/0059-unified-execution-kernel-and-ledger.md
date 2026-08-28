@@ -27,7 +27,7 @@ Class: architecture
 
 ## Decision Outcome
 
-`WorldExecutionAlgorithm` 是唯一候选生成契约，入口为 `bootstrap` 与 `step`。`AlgorithmManifest` 固定算法、版本、配置、组件和规范化 hash；算法注册通过 registry 完成。`CanonicalCommitter` 独立重放候选操作、Observation 和 mind commit，验证成功后才构造下一状态。唯一内置算法 `eager-reference@1` 激活全部 model Agent，逐行动 grounding，按冲突分量执行分阶段 Truth，向全部主体物化 Observation，并更新全部 model Agent 的私有状态。
+`WorldExecutionAlgorithm` 是唯一候选生成契约，入口为 `bootstrap` 与 `step`。执行契约 v2 的 `AlgorithmManifest` 固定算法、版本、JSON-safe 配置、唯一组件和规范化 hash；`WorldInstanceDocument` v16 固定 `AlgorithmRef`，生产执行与 replay 都通过 registry 构造独立算法实例。`CanonicalCommitter` 独立验证 Candidate v2 的版本、来源、action dependency、引用、Observation 投影和 mind commit，验证成功后才构造下一状态。唯一内置算法 `eager-reference@3` 只激活引擎判定为 decision-eligible 的 model Agent，预提交动态时间活动，逐行动生成 dependency，按冲突分量执行 Truth，并在一个候选上完成全局原子提交。
 
 `LocalDatabase` 同时实现唯一 `ExecutionLedger`。`executions` 保存执行身份、复现配置、状态与语义结果；`execution_events` 保存全局 sequence、trace/span/link、阶段、计数、测量和 artifact 引用；`execution_artifacts` 保存以内容 hash 寻址的 gzip canonical JSON。正式 writer 固定为 full 且 critical，使用至多 64 个事件的有界缓冲和单事务批量写入。模型请求在 transport 前、模型响应在算法消费前、候选结果在提交内核消费前强制落盘；成功、回滚和 execution 结束前也必须清空缓冲。写入异常会传播到当前执行，进程中断后遗留的 running execution 在下次取得数据库租约时标记为 failed。
 
@@ -35,13 +35,13 @@ World Instance 不保存模型审计副本。`CommittedStep.semanticHash` 只覆
 
 interactive、diagnostic、benchmark 和 replay 使用同一 Ledger。`experiment:run` 创建 benchmark 父 execution 与 trial 子 execution。`execution:replay` 逐次消费已存模型输出，重新运行同一算法与固定 committer，不访问网络；`execution:compare` 按 transition、observation 和 mind 分区比较；`execution:export` 导出 manifest、原始事件、artifact 索引、派生指标和 span/work。Inspector 服务端从 Ledger 查询，前端契约不新增实验界面。
 
-`WorldInstanceDocument` schema 为 v12。旧实例文档不迁移；旧数据目录保持原样，运行新版本时使用新的 data root。NDJSON sink、轮转索引和 `off|metrics|full` 产品配置被删除。
+`WorldInstanceDocument` schema 为 v16。旧实例文档不迁移；旧数据目录保持原样，运行新版本时使用新的 data root。NDJSON sink、轮转索引和 `off|metrics|full` 产品配置被删除。
 
 ### Consequences
 
 - 算法替换不需要修改 WorldHost、提交规则或持久化表。
 - 全量 prompt、response 和候选结果会增加本地 SQLite 体积；这是可重放证据的明确成本。
-- 当前算法的模型工作仍随 Agent 总数增长；Ledger 会如实记录全部 activated 与 updated Agent。
+- 当前算法的模型工作随 decision-eligible Agent、到期活动、冲突分量和实际 repair 增长；Ledger 分别记录 eligibility、activation、依赖与产物基数。
 - 墙钟耗时保留为运行条件；调用、token、字节、work/span 与产物基数是跨机器比较的主要工作量指标。
 
 ## Pros and Cons of the Options
@@ -73,4 +73,5 @@ interactive、diagnostic、benchmark 和 replay 使用同一 Ledger。`experimen
 - [0043](0043-end-to-end-runtime-observability.md) 与 [0050](0050-development-default-full-observability.md) — 被本决策取代的双链与可选日志设计。
 - [0055](0055-trusted-world-evolution-inspector.md) — Inspector 只读边界。
 - [0060](0060-model-output-field-ownership.md) — 模型 draft 与运行时字段所有权。
+- [0071](0071-pin-algorithms-and-own-telemetry-in-the-engine.md) — 实例算法固定、Candidate v2 与引擎拥有的稳定遥测。
 - [运行时可观测性](../game-design/runtime-observability.md) — 当前 Execution Ledger 规格。

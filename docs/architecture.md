@@ -7,15 +7,15 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 | Layer | Location | Responsibility |
 |---|---|---|
 | World contract | `src/script/` | Read schema v11 world packages, validate temporal/mechanics profiles and assets, and construct `WorldDefinition` and `SimulationState` v11 |
-| Execution algorithm | `src/engine/eager-reference.ts` | Activate eligible policies, precommit temporal activities, adjudicate due conflict components, batch observations, and update eligible AgentMind |
-| Fixed kernel | `src/engine/canonical-committer.ts` | Validate temporal boundaries and candidates, cognitive isolation, causality, conservation, replay evidence, and atomic state construction |
+| Execution algorithm | `src/engine/eager-reference.ts`, `action-dependency.ts`, `temporal-planner.ts` | Orchestrate eligible policies while focused owners generate dependencies, plan temporal activities, validate footprints, and apply reaction replacements |
+| Fixed kernel | `src/engine/canonical-committer.ts` | Validate Candidate v2, dependency coverage, temporal boundaries, cognitive isolation, causality, conservation, replay evidence, and atomic state construction |
 | Model gateway | `src/engine/model-*` | Profiles, provider adapters, strict structured output, fair scheduling, and invocation audit |
-| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v15, persistent WorldRuns, Participants, ActionWindow, leases, recovery, and generation fencing |
+| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v16, pinned `AlgorithmRef`, persistent WorldRuns, Participants, ActionWindow, leases, recovery, and generation fencing |
 | Execution evidence | `src/server/execution-ledger.ts` | The sole persisted source for executions, events, artifacts, experiments, replay, and Inspector data |
 | HTTP and browser | `src/app/` | API v9, world library, assistant-ui sessions, run controls, unified Agent Perspective HUD, control orb, and read-only Inspector |
 | Shared contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |
 
-Dependencies flow browser → Route Handler → WorldHost → SimulationEngine → WorldExecutionAlgorithm → CanonicalCommitter. An algorithm returns candidates but never holds authority to mutate canonical state. The engine and world YAML load only on the server.
+Dependencies flow browser → Route Handler → WorldHost → SimulationEngine → WorldExecutionAlgorithm → CanonicalCommitter. WorldHost resolves the instance-pinned algorithm through the internal registry, and replay resolves the recorded producer through the same mechanism. An algorithm returns candidates but never holds authority to mutate canonical state or define stable telemetry. The engine and world YAML load only on the server.
 
 ## State and policies
 
@@ -25,7 +25,7 @@ Dependencies flow browser → Route Handler → WorldHost → SimulationEngine �
 
 Models produce semantic drafts only. Agent, Entity, Fact, Meter, Rating, Condition, and subject-private cognition records use world semantic IDs. The engine deterministically assigns runtime identities for actions, Resolution Plans and Receipts, TemporalPlans, Activities, checks, random draws, mechanics, events, outcomes, observations, and apparent claims. It materializes revisions, steps, phases, lifecycle, progress, clock deltas, provenance, Profiles, and timestamps.
 
-## `eager-reference@2`
+## `eager-reference@3`
 
 The reference algorithm deliberately spends complete work to provide a precise semantic baseline:
 
@@ -42,7 +42,7 @@ A model, validation, cancellation, or persistence failure never advances the rev
 
 ## World Instance and Participant
 
-`WorldInstanceDocument` stores canonical state, multiple Participants, every Agent's policy binding, one ActionWindow, runtime settings, scheduler state, persistent WorldRuns, Participant intents, and execution references. Product entry points allow one active Participant; the internal state and action collection support multiple Participants.
+`WorldInstanceDocument` stores canonical state, its exact `AlgorithmRef`, multiple Participants, every Agent's policy binding, one ActionWindow, runtime settings, scheduler state, persistent WorldRuns, Participant intents, and execution references. Changing the host default affects only newly created instances; a missing pinned algorithm fails before model work or state mutation. Product entry points allow one active Participant; the internal state and action collection support multiple Participants.
 
 Manual Observer advance commits one temporal boundary; batch requests a boundary count; realtime only schedules wall-clock wakeups. ActionWindow includes only external Agents currently at a decision point. Execution begins when all required Agents submit idempotently; a Participant with an active Activity is not asked to resubmit at intermediate boundaries. Window ID, generation, base revision, and instance generation reject duplicates and stale writes.
 
@@ -56,7 +56,7 @@ A Participant session projects persisted Arrival, Participant intent, every comm
 
 Normalized world content receives a SHA-256 covering the manifest, laws, mechanics, entities, participation configuration, and static-asset identities. An instance pins its `WorldRuntimeContract` and world content hash, and reconstruction verifies both against the content-addressed version.
 
-World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`. SQLite uses WAL, `synchronous=FULL`, strict tables, process leases, write transactions, and generation compare-and-swap. Old schemas are not migrated; a different contract uses a new data root.
+World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`. The default v16 directory is `.livingworld-v16/`. SQLite uses WAL, `synchronous=FULL`, strict tables, process leases, write transactions, and generation compare-and-swap. Old schemas are not migrated; a different contract uses a new data root.
 
 ## Hard invariants
 
@@ -71,8 +71,9 @@ World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_RO
 - Causes and assertions for operations, mechanics, events, and outcomes resolve and hold before writes.
 - External, idle, and occupied Agents do not run AgentMind; each eligible model Agent and Agent created in the step commits exactly one mind update.
 - Ordinary APIs never expose canonical truth, bindings, another Agent's cognition, model configuration, or internal error material.
+- Algorithms can emit only declared diagnostics; runtime event schema v2, stable lifecycle events, metric dimensions, and aggregation semantics remain engine-owned.
 
-World package, runtime, presentation, and Ledger details live in [Script format](game-design/script-format.md), [Engine runtime](game-design/engine-runtime.md), [Presentation](game-design/presentation.md), and [Runtime observability](game-design/runtime-observability.md). Architectural rationale lives in [0061](decisions/0061-unified-agent-and-external-policy.md), [0063](decisions/0063-eager-reference-execution.md), [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md), [0067](decisions/0067-open-semantic-resolution-plans.md), [0068](decisions/0068-unified-agent-perspective.md), and [0070](decisions/0070-event-boundary-temporal-runtime.md).
+World package, runtime, presentation, and Ledger details live in [Script format](game-design/script-format.md), [Engine runtime](game-design/engine-runtime.md), [Presentation](game-design/presentation.md), and [Runtime observability](game-design/runtime-observability.md). Architectural rationale lives in [0061](decisions/0061-unified-agent-and-external-policy.md), [0063](decisions/0063-eager-reference-execution.md), [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md), [0067](decisions/0067-open-semantic-resolution-plans.md), [0068](decisions/0068-unified-agent-perspective.md), [0070](decisions/0070-event-boundary-temporal-runtime.md), and [0071](decisions/0071-pin-algorithms-and-own-telemetry-in-the-engine.md).
 
 ## Change procedure
 

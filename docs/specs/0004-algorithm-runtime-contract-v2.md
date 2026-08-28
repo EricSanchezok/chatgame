@@ -1,7 +1,7 @@
 # Algorithm runtime contract v2
 
 Artifact-Version: 1
-Status: Approved
+Status: Implemented
 
 ## Intent
 
@@ -39,4 +39,21 @@ Run the existing temporal, eager-reference, numeric, inventory, damage, replay, 
 
 ## Evidence
 
-Pending implementation.
+Implemented by the following independently verified commits:
+
+- `476de73` — approved this Spec and proposed ADR 0071.
+- `79cf0ea` — added contract v2 manifests, validated registry construction, per-instance algorithm pinning, producer identity, and registry-based replay.
+- `b7453fc` — introduced Candidate schema 2, algorithm-neutral resolution evidence, engine-derived eligibility, single-source observations and audits, and independent dependency validation in the committer.
+- `0259693` — moved stable runtime telemetry and metric aggregation into the engine, added runtime event schema 2, and accounted for discarded model work during failures.
+- `9d6c690` — separated action dependency and temporal planning ownership while retaining eager reference as the orchestrator.
+
+Primary executable evidence lives in [`execution-kernel.test.ts`](../../src/engine/__tests__/execution-kernel.test.ts), [`observability.test.ts`](../../src/engine/__tests__/observability.test.ts), [`action-dependency.test.ts`](../../src/engine/__tests__/action-dependency.test.ts), [`eager-reference.test.ts`](../../src/engine/__tests__/eager-reference.test.ts), [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts), and [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts).
+
+Final verification completed on 2026-08-28:
+
+- `npm test`: 35 test files and 218 tests passed.
+- `npm run world:validate -- worlds/blackmarsh/world`: 232 entities and 48 Agents validated.
+- `npm run build`: the production Next.js build and all routes compiled successfully.
+- `npm run check:ui`: all 11 product/browser flows and all 4 accessibility flows passed.
+- `npm run check:fast`: lint, typecheck, unit tests, fixture validation, workflow verification, and all six governance gates passed.
+- `node scripts/run-gates.mjs` and `git diff --check`: passed after the final documentation update.

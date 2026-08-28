@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v11 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、Activity 与 WorldTimer；`WorldInstanceDocument` v15 在其外层保存 Participant、持久 Arrival、Participant intent、PolicyBinding、ActionWindow、调度配置和 WorldRun。
+`SimulationState` v11 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、Activity 与 WorldTimer；`WorldInstanceDocument` v16 在其外层固定 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、ActionWindow、调度配置和 WorldRun。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -28,19 +28,19 @@ type PolicyBinding =
 
 每次提交选择所有 active Activity 检查点、Timer、Condition 到期和 `max_autonomous_span_seconds` 中最早的绝对时刻。同刻到期项联合裁决，提交只含一个由内核注入的正整数 `advance_time`。无关的更早边界可以更新可见进度，但不能把未到期 Activity 的绝对检查点改成“当前时间加间隔”。完成效果只能在完成或对应阶段边界产生；控制面暂停不形成零时间世界提交。
 
-`eager-reference@2` 的阶段如下：
+`eager-reference@3` 的阶段如下：
 
 1. 只为当前决策点的 model/external Agent 收集新行动；active Activity 只在到期时提供已承诺的来源行动。
 2. 为新行动调用 temporal planner，验证受信任时间依据，物化 Activity，并选择最早时间边界。外部普通行动覆盖一个可中断前台 Activity 时，旧 Activity 在同一语义提交中取消。
-3. 每个到期或新行动独立调用 action grounding。输入只含 canonical 目录与该 actor 的私有视角；输出为 read/write/audience footprint；目录外引用和未知 audience 归一化为 global read/write 并计数。
-4. footprint 的读写冲突、观察关系和 global fallback 构成无向冲突图；每个连通分量独立进入 Truth。
+3. 每个到期或新行动独立生成 action dependency。模型输入只含 canonical 目录与该 actor 的私有视角；输出为 read/write/audience footprint；目录外引用和未知 audience 归一化为 global dependency 并计数。
+4. dependency 的读写冲突、观察关系和 global fallback 构成无向冲突图；每个连通分量独立进入 Truth。
 5. 每个分量按 `perception → reaction-routing → resolution → transition` 推进。perception 可预承诺感知 d20；resolution 必须先一次性提交覆盖全部行动的 ResolutionPlan，之后引擎才派生并承诺 resolution d20，随后才允许请求剧本离散随机；reaction 只有一轮 keep/replace，替换行动必须重新 grounding。
-6. transition 只能提交语义操作和规则调用。引擎用 `core-resolution@2.0.0` 从收据结算 Meter、Condition 和 Quantity provenance，并注入与 TemporalBoundary 相等的唯一 `advance_time`。进行中的 Activity 只能提交截至本边界已经真实发生的进度；实际 operation 超出声明 footprint，或两个分量的实际读写交叉时，全体行动以 global footprint 重新裁决。
+6. transition 只能提交语义操作和规则调用。引擎用 `core-resolution@2.0.0` 从收据结算 Meter、Condition 和 Quantity provenance，并注入与 TemporalBoundary 相等的唯一 `advance_time`。进行中的 Activity 只能提交截至本边界已经真实发生的进度；实际 operation 超出声明 footprint、reaction replacement 改变 dependency 图，或两个分量的实际读写交叉时，全体行动以 global dependency 重新裁决。
 7. Observation Renderer 根据 transition 后状态、事件和 grounding 授权视角生成固定槽位 observation；非行动 Agent 也能收到与自己相关的授权观察。多个冲突分量合并后，以完整合并候选重新生成权限投影。模型不输出 observation ID、observer ID、step 或 kind；批次不得超过 Observation Profile 输入预算。物化只保留 typed current-event 引用和合法的 observer-local claim；outcome alternative 只保留行动主体已有的 evidence。所有丢弃或解绑都进入 trace。
 8. 只有完成、失败、中断、Timer 或其他语义事件产生的新决策点允许 model Agent 执行 `BeliefPatch → CharacterPatch → nextAction`。他者行动 grounding 明确把 active Activity 参与者列为 audience 且确有授权 Observation 时，内核生成 `activity_interrupted` 决策点；普通无关观察只累积游标，不唤醒 AgentMind。语义 repair 耗尽时提交空 patch 与 typed idle next action 并计数；transport、配置、取消和 Ledger 失败不降级。external 与 idle Agent 只保留授权观察，新创建 Agent 在本步 bootstrap。
-9. CanonicalCommitter 重新应用候选并验证全部不变量，构造包含 ResolutionPlan/Receipt、TemporalPlan、完整 temporal snapshot、Activity 转换、边界来源、到期集合与决策点的 `CommittedStep` 和下一状态。
+9. CanonicalCommitter 重新应用 Candidate v2，并独立验证版本、source hash、最终行动的 dependency 覆盖、引用、受众、单份 model audits、统一派生 Observation 和全部 canonical 不变量，随后构造包含 ResolutionPlan/Receipt、TemporalPlan、完整 temporal snapshot、Activity 转换、边界来源、到期集合与决策点的 `CommittedStep` 和下一状态。
 
-算法不持有状态写入能力。`sourceStateHash`、候选、policy roster 与当前 source 不一致时提交失败。
+算法不持有状态写入能力，也不能定义稳定事件或指标语义。`sourceStateHash`、候选、policy roster 与当前 source 不一致时提交失败；Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
 
 ## Truth 与随机承诺
 
@@ -102,6 +102,6 @@ Origin 准入引用一个 Entity Mechanics Profile，确定性创建 Entity、Ag
 
 提交内核校验：状态 schema、revision、TemporalBoundary、TemporalPlan 权威来源、Activity/Timer snapshot、行动、ResolutionPlan、ResolutionReceipt 与 outcome 一一覆盖、计划和 d20 的确定性派生、收据与可信操作绑定、唯一 Condition/time settlement、随机顺序、causal refs、断言、世界引用、守恒、范围、placement、observation 权限、决策资格、mind commit 覆盖、RNG 连续性、semantic hash 与历史 replay。
 
-成功步骤的实例 CAS、WorldRun 更新与 execution terminal record 在一个 SQLite 事务中完成。失败、暂停、超时和迟到结果只更新运行或 execution 诊断，不改变 canonical revision。canonical history replay 从每个 CommittedStep 恢复完整 temporal snapshot，验证持久计划、收据、随机承诺和可信操作，且不调用模型或重新裁决语义；recorded execution replay 从 Execution Ledger 消费原始结构化响应并再次运行同一算法与提交内核。
+成功步骤的实例 CAS、WorldRun 更新与 execution terminal record 在一个 SQLite 事务中完成。失败、暂停、超时和迟到结果只更新运行或 execution 诊断，不改变 canonical revision。canonical history replay 从每个 CommittedStep 恢复完整 temporal snapshot，验证持久计划、收据、随机承诺和可信操作，且不调用模型或重新裁决语义；recorded execution replay 从 Execution Ledger 的 producer manifest 恢复 `AlgorithmRef`，经同一 registry 构造算法，再消费原始结构化响应并运行固定提交内核。
 
 相关边界见[系统架构](../architecture.md)、[剧本格式](script-format.md)、[Execution Ledger](runtime-observability.md)和[表现层](presentation.md)。

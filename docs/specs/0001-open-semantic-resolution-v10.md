@@ -1,7 +1,7 @@
 # Open semantic resolution v10
 
 Artifact-Version: 1
-Status: Approved
+Status: Implemented
 
 ## Intent
 
@@ -59,3 +59,5 @@ Final verification passed on 2026-08-27:
 - `git diff --check`: passed.
 
 Verification did not start a server or import a world.
+
+Primary permanent evidence lives in [`resolution.test.ts`](../../src/engine/__tests__/resolution.test.ts), [`resolution-pipeline.test.ts`](../../src/engine/__tests__/resolution-pipeline.test.ts), [`agent-resolution-receipt.test.ts`](../../src/engine/__tests__/agent-resolution-receipt.test.ts), and [`eager-reference.test.ts`](../../src/engine/__tests__/eager-reference.test.ts).
