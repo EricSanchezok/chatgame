@@ -42,3 +42,4 @@ next-env.d.ts
 
 # local world catalog and runtime database
 /.livingworld/
+/.livingworld-v16/
