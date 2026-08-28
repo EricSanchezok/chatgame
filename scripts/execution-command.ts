@@ -137,7 +137,7 @@ class RecordedModelProvider implements StructuredModelProvider {
     }
     this.consumed.add(invocationId);
     request.observer?.emit({
-      event: "replay.model_output.consumed",
+      event: "model.replay_output.consumed",
       correlation: { ...request.correlation, modelInvocationId: invocationId },
       links: output.event.traceId && output.event.spanId
         ? [{ traceId: output.event.traceId, spanId: output.event.spanId }]

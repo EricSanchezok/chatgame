@@ -501,9 +501,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           identityOwner: observationIdentityOwner,
           temporalState: observationTemporal,
         }, context.modelScope);
-        context.modelScope.observer?.emit({
-          event: "observation.rendering.completed",
-          attributes: { identityOwner: observationIdentityOwner, transitionAttempt },
+        context.instrumentation.emit({
+          event: "algorithm.observation.rendering_completed",
+          attributes: { phase: "observation" },
           counts: {
             observationBatches: rendered.batchCount,
             observations: rendered.packets.length,

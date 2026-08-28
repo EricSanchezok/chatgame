@@ -219,6 +219,8 @@ describe("model context measurements", () => {
           correlation: { modelInvocationId: "discarded-invocation", modelRole: "agent-mind" },
           measurements: { executionMs: 17 },
         });
+        expect(() => context.modelScope.observer?.emit({ event: "step.committed" }))
+          .toThrow("runtime event is engine-owned: step.committed");
         throw new Error("candidate generation interrupted");
       },
     };
@@ -242,6 +244,7 @@ describe("model context measurements", () => {
     })).rejects.toThrow("candidate generation interrupted");
 
     expect(engine.snapshot).toEqual(source);
+    expect(observer.snapshot().filter((event) => event.event === "step.committed")).toHaveLength(0);
     expect(observer.snapshot().findLast((event) => event.event === "step.rolled_back")).toMatchObject({
       counts: { rollbacks: 1, discardedModelCalls: 1 },
       measurements: {

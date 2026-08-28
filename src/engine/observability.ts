@@ -103,6 +103,10 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     dependencyComponents: number;
   }>;
 } | {
+  event: "algorithm.observation.rendering_completed";
+  attributes: Readonly<{ phase: "observation" }>;
+  counts: Readonly<{ observationBatches: number; observations: number }>;
+} | {
   event: "algorithm.outcome.alternative_evidence_normalized";
   attributes: Readonly<{ phase: "transition" }>;
   counts: Readonly<{
@@ -362,6 +366,11 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
       phase: ["observation"],
       reason: ["multiple-conflict-components"],
     },
+  },
+  "algorithm.observation.rendering_completed": {
+    attributes: ["phase"],
+    counts: ["observationBatches", "observations"],
+    attributeValues: { phase: ["observation"] },
   },
   "algorithm.outcome.alternative_evidence_normalized": {
     attributes: ["phase"],

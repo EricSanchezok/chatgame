@@ -133,9 +133,10 @@ class AlgorithmRuntimeObserver implements RuntimeObserver {
   }
 
   emit(input: RuntimeEventInput): RuntimeEvent | undefined {
-    if (input.event.startsWith("algorithm.")) validateAlgorithmTelemetryEvent(input);
-    if (input.event.startsWith("temporal.") || input.event.startsWith("resolution.")) {
-      throw new Error(`stable runtime event is engine-owned: ${input.event}`);
+    if (input.event.startsWith("algorithm.")) {
+      validateAlgorithmTelemetryEvent(input);
+    } else if (!input.event.startsWith("model.")) {
+      throw new Error(`runtime event is engine-owned: ${input.event}`);
     }
     this.work.observe(input);
     return this.delegate.emit(input);
