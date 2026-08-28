@@ -1,5 +1,10 @@
 import { canonicalize, contentHash, measureModelContext } from "../model-audit";
 import { parseModelCatalog, type ModelCatalog } from "../model-catalog";
+import {
+  MODELS_DEV_API_URL,
+  type ModelRegistryService,
+  type ModelRegistrySnapshot,
+} from "../model-registry";
 import type {
   StructuredModelProvider,
   StructuredModelRequest,
@@ -22,23 +27,32 @@ export function createTestModelCatalog(
   options: { maxInputBytes?: number } = {},
 ): ModelCatalog {
   return parseModelCatalog({
-    schema_version: 2,
+    schema_version: 3,
     scheduler: {
       global_concurrency: 16,
       max_queued_requests: 1024,
       queue_timeout_ms: 300_000,
     },
-    providers: {
+    registry: {
+      refresh_interval_ms: 3_600_000,
+      request_timeout_ms: 10_000,
+      stale_after_ms: 86_400_000,
+    },
+    accounts: {
       "scripted-test": {
-        kind: "deepseek",
+        channel: "api",
+        region: "test",
+        protocol: "openai-chat",
+        dialect: "deepseek",
+        models_dev_provider_id: "scripted-test",
         base_url: "https://test.invalid",
         api_key_env: "TEST_MODEL_API_KEY",
         max_concurrency: 16,
       },
     },
     profiles: Object.fromEntries(profileIds.map((profileId) => [profileId, {
-      provider_id: "scripted-test",
-      model: `scripted:${profileId}`,
+      account_id: "scripted-test",
+      selector: { kind: "exact", model_id: `scripted:${profileId}` },
       description: `Deterministic test profile ${profileId}`,
       allowed_roles: profileId.startsWith("truth-") || profileId === "truth-engine"
         ? [
@@ -57,12 +71,88 @@ export function createTestModelCatalog(
       max_output_tokens: 32_768,
       max_input_bytes: options.maxInputBytes ?? 262_144,
       inference: {
-        kind: "deepseek-non-thinking",
-        temperature: null,
-        top_p: null,
+        thinking: "auto",
+        effort: "auto",
+        reasoning_budget_tokens: "auto",
+        reasoning_summary: "auto",
+        text_verbosity: "auto",
+        temperature: "auto",
+        top_p: "auto",
       },
     }])),
+    model_overrides: {},
   });
+}
+
+export function createTestModelRegistrySnapshot(catalog: ModelCatalog): ModelRegistrySnapshot {
+  const providers: ModelRegistrySnapshot["document"]["providers"] = {};
+  for (const [profileId, profile] of Object.entries(catalog.profiles)) {
+    const account = catalog.account(profile.account_id);
+    const provider = providers[account.models_dev_provider_id] ??= {
+      id: account.models_dev_provider_id,
+      name: `Test provider ${account.models_dev_provider_id}`,
+      models: {},
+    };
+    const modelId = profile.selector.kind === "exact"
+      ? profile.selector.model_id
+      : `test-latest:${profileId}`;
+    provider.models[modelId] = {
+      id: modelId,
+      name: modelId,
+      family: "test",
+      status: null,
+      disabled: false,
+      reasoning: true,
+      reasoningToggle: true,
+      reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+      reasoningBudget: { min: 1, max: 1_000_000 },
+      toolCall: true,
+      structuredOutput: true,
+      temperature: true,
+      releaseDate: "2026-01-01",
+      lastUpdated: "2026-01-01",
+      modalities: { input: ["text"], output: ["text"] },
+      limit: { context: 1_000_000, output: 1_000_000 },
+      fieldSources: {},
+    };
+  }
+  const document: ModelRegistrySnapshot["document"] = {
+    schemaVersion: 1,
+    source: MODELS_DEV_API_URL,
+    providers,
+  };
+  return { hash: contentHash(document), document };
+}
+
+export function createTestModelRegistry(catalog: ModelCatalog): ModelRegistryService {
+  const snapshot = createTestModelRegistrySnapshot(catalog);
+  return {
+    catalog,
+    async capture(hash) {
+      if (hash && hash !== snapshot.hash) throw new Error(`unknown test registry snapshot ${hash}`);
+      return snapshot;
+    },
+    async refresh() {
+      return {
+        outcome: "unchanged",
+        snapshot,
+        checkedAt: "2026-01-01T00:00:00.000Z",
+        error: null,
+      };
+    },
+    status() {
+      return {
+        source: MODELS_DEV_API_URL,
+        health: "fresh",
+        refreshing: false,
+        currentHash: snapshot.hash,
+        checkedAt: "2026-01-01T00:00:00.000Z",
+        ageMs: 0,
+        stale: false,
+        lastError: null,
+      };
+    },
+  };
 }
 
 export function createTestModelAudit(
@@ -74,6 +164,10 @@ export function createTestModelAudit(
   const catalog = createTestModelCatalog();
   const profileId = role.startsWith("agent-") ? "agent-default" : "truth-engine";
   const profile = catalog.profile(profileId);
+  const account = catalog.account(profile.account_id);
+  const modelId = profile.selector.kind === "exact" ? profile.selector.model_id : `scripted:${profileId}`;
+  const registrySnapshotHash = contentHash({ testRegistry: catalog.hash });
+  const modelMetadataHash = contentHash({ modelId, deterministic: true });
   const identity = modelInvocationIdentity({
     workloadId: "test-only-correlation",
     batchId: "test-only-correlation",
@@ -83,12 +177,28 @@ export function createTestModelAudit(
     role,
     subjectId,
     profileId,
-    providerId: profile.provider_id,
-    modelId: profile.model,
+    accountId: profile.account_id,
+    accountChannel: account.channel,
+    protocol: account.protocol,
+    dialect: account.dialect,
+    providerId: account.models_dev_provider_id,
+    modelId,
+    selector: structuredClone(profile.selector),
+    registrySnapshotHash,
+    modelMetadataHash,
     catalogSchemaVersion: catalog.schemaVersion,
     catalogHash: catalog.hash,
     promptVersion: "test-v1",
-    inference: structuredClone(profile.inference),
+    requestedInference: structuredClone(profile.inference),
+    resolvedInference: {
+      thinking: null,
+      effort: null,
+      reasoningBudgetTokens: null,
+      reasoningSummary: null,
+      textVerbosity: null,
+      temperature: null,
+      topP: null,
+    },
     structuredOutputMode: "deterministic-test",
     invocations: [{
       id: identity.modelInvocationId,
@@ -180,7 +290,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
     return this.catalog.profileSummaries(role);
   }
 
-  assertProfilesAvailable(profileIds: readonly string[]): void {
+  async assertProfilesAvailable(profileIds: readonly string[]): Promise<void> {
     for (const profileId of profileIds) this.catalog.profile(profileId);
   }
 
@@ -250,6 +360,10 @@ export class ScriptedModelProvider implements StructuredModelProvider {
   async generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>> {
     this.catalog.assertProfile(request.profileId, request.role);
     const profile = this.catalog.profile(request.profileId);
+    const account = this.catalog.account(profile.account_id);
+    const modelId = profile.selector.kind === "exact"
+      ? profile.selector.model_id
+      : `scripted:${request.profileId}`;
     const context = canonicalize(request.context);
     const captured: ScriptedModelHandlerRequest = {
       profileId: request.profileId,
@@ -265,6 +379,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       abortSignal: request.abortSignal,
       correlation: request.correlation,
       observer: request.observer,
+      modelRegistrySnapshotHash: request.modelRegistrySnapshotHash,
       modelInvocationId: request.modelInvocationId,
       modelInvocation: request.modelInvocation,
     };
@@ -289,12 +404,28 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       role: request.role,
       subjectId: request.subjectId,
       profileId: request.profileId,
-      providerId: profile.provider_id,
-      modelId: profile.model,
+      accountId: profile.account_id,
+      accountChannel: account.channel,
+      protocol: account.protocol,
+      dialect: account.dialect,
+      providerId: account.models_dev_provider_id,
+      modelId,
+      selector: structuredClone(profile.selector),
+      registrySnapshotHash: request.modelRegistrySnapshotHash ?? contentHash({ testRegistry: this.catalog.hash }),
+      modelMetadataHash: contentHash({ modelId, deterministic: true }),
       catalogSchemaVersion: this.catalog.schemaVersion,
       catalogHash: this.catalog.hash,
       promptVersion: request.promptVersion,
-      inference: structuredClone(profile.inference),
+      requestedInference: structuredClone(profile.inference),
+      resolvedInference: {
+        thinking: null,
+        effort: null,
+        reasoningBudgetTokens: null,
+        reasoningSummary: null,
+        textVerbosity: null,
+        temperature: null,
+        topP: null,
+      },
       structuredOutputMode: "deterministic-test",
       invocations: [{
         id: modelInvocationId,

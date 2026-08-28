@@ -6,6 +6,7 @@ import type {
   ModelTokenUsage,
 } from "./model";
 import type { RuntimeCorrelation, RuntimeObserver } from "./observability";
+import type { ModelRegistryStatus } from "./model-registry";
 import { runtimeId } from "./runtime-id";
 
 export interface ModelExecutionScope {
@@ -15,6 +16,8 @@ export interface ModelExecutionScope {
   correlation?: RuntimeCorrelation;
   observer?: RuntimeObserver;
   runtimeIdentity?: { worldHash: string; revision: number };
+  /** Pins benchmark/replay work to one immutable historical registry snapshot. */
+  modelRegistrySnapshotHash?: string;
 }
 
 export interface StructuredModelRequest<T> extends ModelExecutionScope {
@@ -83,8 +86,42 @@ export class ModelSemanticRepairError extends Error {
 export interface StructuredModelProvider {
   readonly catalog: ModelCatalog;
   availableProfileSummaries(role?: ModelRole): ModelProfileSummary[];
-  assertProfilesAvailable(profileIds: readonly string[]): void;
+  assertProfilesAvailable(profileIds: readonly string[]): Promise<void>;
   generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>>;
+  modelRegistryDiagnostics?(): Promise<ModelRegistryDiagnostics>;
+  refreshModelRegistry?(): Promise<ModelRegistryRefreshDiagnostics>;
+}
+
+export interface ModelRegistryAccountDiagnostic {
+  id: string;
+  channel: import("./model-catalog").ModelAccountChannel;
+  region: string;
+  protocol: import("./model-catalog").ModelProtocol;
+  credentialConfigured: boolean;
+}
+
+export interface ModelRegistryProfileDiagnostic {
+  id: string;
+  accountId: string;
+  credentialConfigured: boolean;
+  resolvedModelId: string | null;
+  modelMetadataHash: string | null;
+  structuredOutputMode: ModelExecutionAudit["structuredOutputMode"] | null;
+  resolutionError: string | null;
+}
+
+export interface ModelRegistryDiagnostics {
+  catalog: { schemaVersion: 3; hash: string };
+  registry: ModelRegistryStatus;
+  accounts: ModelRegistryAccountDiagnostic[];
+  profiles: ModelRegistryProfileDiagnostic[];
+}
+
+export interface ModelRegistryRefreshDiagnostics {
+  outcome: import("./model-registry").ModelRegistryRefreshOutcome;
+  checkedAt: string;
+  error: string | null;
+  diagnostics: ModelRegistryDiagnostics;
 }
 
 function addNullable(left: number | null, right: number | null): number | null {
@@ -100,11 +137,17 @@ export function combineModelExecutionAudits(
   for (const audit of audits.slice(1)) {
     if (audit.role !== first.role || audit.subjectId !== first.subjectId ||
       audit.profileId !== first.profileId || audit.providerId !== first.providerId ||
+      audit.accountId !== first.accountId || audit.accountChannel !== first.accountChannel ||
+      audit.protocol !== first.protocol || audit.dialect !== first.dialect ||
       audit.modelId !== first.modelId || audit.catalogHash !== first.catalogHash ||
+      audit.registrySnapshotHash !== first.registrySnapshotHash ||
+      audit.modelMetadataHash !== first.modelMetadataHash ||
       audit.catalogSchemaVersion !== first.catalogSchemaVersion ||
       audit.promptVersion !== first.promptVersion ||
       audit.structuredOutputMode !== first.structuredOutputMode ||
-      JSON.stringify(audit.inference) !== JSON.stringify(first.inference)) {
+      JSON.stringify(audit.selector) !== JSON.stringify(first.selector) ||
+      JSON.stringify(audit.requestedInference) !== JSON.stringify(first.requestedInference) ||
+      JSON.stringify(audit.resolvedInference) !== JSON.stringify(first.resolvedInference)) {
       throw new Error("cannot combine model audits with different execution identities");
     }
   }

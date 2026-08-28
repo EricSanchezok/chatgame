@@ -5,6 +5,7 @@ import path from "node:path";
 import { z } from "zod";
 import { loadModelCatalog } from "../src/engine/model-catalog";
 import { createModelGateway } from "../src/engine/model-gateway";
+import { ModelRegistry } from "../src/engine/model-registry";
 import { loadWorldScript } from "../src/script/world-loader";
 import { MemoryWorldRepository } from "../src/script/world-repository";
 import { LocalDatabase } from "../src/server/local-database";
@@ -47,12 +48,13 @@ function diagnosticLines(error: unknown, depth = 0): string[] {
 
 async function main(): Promise<void> {
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
-  const provider = createModelGateway(catalog, process.env);
+  const root = mkdtempSync(path.join(tmpdir(), "lwe-deepseek-smoke-"));
+  const registry = new ModelRegistry(catalog, root);
+  const provider = createModelGateway(catalog, process.env, { registry });
   const definition = loadWorldScript(path.resolve("worlds/blackmarsh/world"), {
     seed: 20260827,
     modelCatalog: catalog,
   });
-  const root = mkdtempSync(path.join(tmpdir(), "lwe-deepseek-smoke-"));
   const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
   const host = new WorldHost({
     repository: new MemoryWorldRepository({ [definition.id]: definition }),

@@ -5,7 +5,18 @@ import { z } from "zod";
 import { canonicalize, contentHash } from "./model-audit";
 
 const identifierSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
+const environmentVariableSchema = z.string().regex(/^[A-Z][A-Z0-9_]*$/);
 const positiveIntegerSchema = z.number().int().positive();
+const isoDateSchema = z.string().regex(/^\d{4}(?:-\d{2}(?:-\d{2})?)?$/);
+const modelIdSchema = z.string().min(1).max(256).refine(
+  (value) => !["__proto__", "constructor", "prototype"].includes(value),
+  "unsafe model id",
+);
+const trustedBaseUrlSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash;
+}, "provider base URL must be an HTTPS URL without credentials, query, or fragment");
+
 export const modelRoles = [
   "truth-perception",
   "truth-reaction-routing",
@@ -21,40 +32,48 @@ export const modelRoles = [
   "arrival-generator",
 ] as const;
 
+export const modelProtocols = [
+  "openai-chat",
+  "openai-responses",
+  "anthropic-messages",
+] as const;
+
+export const modelAccountChannels = ["api", "coding-plan", "token-plan"] as const;
+
 export type ModelRole = typeof modelRoles[number];
+export type ModelProtocol = typeof modelProtocols[number];
+export type ModelAccountChannel = typeof modelAccountChannels[number];
 
-const providerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("deepseek"),
-    base_url: z.url(),
-    api_key_env: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
-    max_concurrency: positiveIntegerSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal("openai"),
-    base_url: z.url(),
-    api_key_env: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
-    max_concurrency: positiveIntegerSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal("xai"),
-    base_url: z.url(),
-    api_key_env: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
-    max_concurrency: positiveIntegerSchema,
-  }).strict(),
-]);
-
-const deepseekThinkingSchema = z.object({
-  kind: z.literal("deepseek-thinking"),
-  effort: z.enum(["high", "max"]),
+const providerAccountSchema = z.object({
+  channel: z.enum(modelAccountChannels),
+  region: identifierSchema,
+  protocol: z.enum(modelProtocols),
+  dialect: identifierSchema,
+  models_dev_provider_id: identifierSchema,
+  base_url: trustedBaseUrlSchema,
+  api_key_env: environmentVariableSchema,
+  max_concurrency: positiveIntegerSchema,
 }).strict();
 
-const deepseekNonThinkingSchema = z.object({
-  kind: z.literal("deepseek-non-thinking"),
-  temperature: z.number().min(0).max(2).nullable(),
-  top_p: z.number().min(0).max(1).nullable(),
+const automaticStringSchema = z.union([z.literal("auto"), z.string().min(1).max(64)]);
+const automaticPositiveIntegerSchema = z.union([z.literal("auto"), positiveIntegerSchema]);
+const automaticTemperatureSchema = z.union([z.literal("auto"), z.number().min(0).max(2)]);
+const automaticTopPSchema = z.union([z.literal("auto"), z.number().min(0).max(1)]);
+
+/**
+ * Provider-neutral inference intent. `auto` omits the field from the transport
+ * request so the selected provider/model owns its default.
+ */
+export const modelInferenceSchema = z.object({
+  thinking: z.enum(["auto", "enabled", "disabled"]).default("auto"),
+  effort: automaticStringSchema.default("auto"),
+  reasoning_budget_tokens: automaticPositiveIntegerSchema.default("auto"),
+  reasoning_summary: automaticStringSchema.default("auto"),
+  text_verbosity: automaticStringSchema.default("auto"),
+  temperature: automaticTemperatureSchema.default("auto"),
+  top_p: automaticTopPSchema.default("auto"),
 }).strict().superRefine((value, context) => {
-  if (value.temperature !== null && value.top_p !== null) {
+  if (value.temperature !== "auto" && value.top_p !== "auto") {
     context.addIssue({
       code: "custom",
       message: "configure temperature or top_p, not both",
@@ -62,29 +81,26 @@ const deepseekNonThinkingSchema = z.object({
   }
 });
 
-const openaiReasoningSchema = z.object({
-  kind: z.literal("openai-reasoning"),
-  effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
-  summary: z.enum(["auto", "concise", "detailed"]).nullable(),
-  text_verbosity: z.enum(["low", "medium", "high"]).nullable(),
+const exactSelectorSchema = z.object({
+  kind: z.literal("exact"),
+  model_id: modelIdSchema,
 }).strict();
 
-const xaiReasoningSchema = z.object({
-  kind: z.literal("xai-reasoning"),
-  effort: z.enum(["low", "medium", "high", "xhigh"]),
-  summary: z.enum(["auto", "concise", "detailed"]).nullable(),
+const latestCompatibleSelectorSchema = z.object({
+  kind: z.literal("latest-compatible"),
+  family: z.string().min(1).max(128).optional(),
+  include: z.array(z.string().min(1).max(256)).default(["*"]),
+  exclude: z.array(z.string().min(1).max(256)).default([]),
 }).strict();
 
-export const modelInferenceSchema = z.union([
-  deepseekThinkingSchema,
-  deepseekNonThinkingSchema,
-  openaiReasoningSchema,
-  xaiReasoningSchema,
+export const modelSelectorSchema = z.discriminatedUnion("kind", [
+  exactSelectorSchema,
+  latestCompatibleSelectorSchema,
 ]);
 
 const profileSchema = z.object({
-  provider_id: identifierSchema,
-  model: z.string().min(1),
+  account_id: identifierSchema,
+  selector: modelSelectorSchema,
   description: z.string().min(1),
   allowed_roles: z.array(z.enum(modelRoles)).min(1),
   request_timeout_ms: z.number().int().min(1_000).max(3_600_000),
@@ -93,36 +109,78 @@ const profileSchema = z.object({
   inference: modelInferenceSchema,
 }).strict();
 
+export const modelMetadataOverrideSchema = z.object({
+  disabled: z.boolean().optional(),
+  name: z.string().min(1).optional(),
+  family: z.string().min(1).nullable().optional(),
+  reasoning: z.boolean().optional(),
+  reasoning_efforts: z.array(z.string().min(1)).optional(),
+  reasoning_toggle: z.boolean().optional(),
+  tool_call: z.boolean().optional(),
+  structured_output: z.boolean().optional(),
+  temperature: z.boolean().optional(),
+  release_date: isoDateSchema.nullable().optional(),
+  last_updated: isoDateSchema.nullable().optional(),
+  modalities: z.object({
+    input: z.array(z.string().min(1)),
+    output: z.array(z.string().min(1)),
+  }).strict().optional(),
+  limit: z.object({
+    context: positiveIntegerSchema.nullable().optional(),
+    output: positiveIntegerSchema.nullable().optional(),
+  }).strict().optional(),
+}).strict();
+
 const catalogDocumentSchema = z.object({
-  schema_version: z.literal(2),
+  schema_version: z.literal(3),
   scheduler: z.object({
     global_concurrency: positiveIntegerSchema,
     max_queued_requests: positiveIntegerSchema,
     queue_timeout_ms: positiveIntegerSchema,
   }).strict(),
-  providers: z.record(identifierSchema, providerSchema),
+  registry: z.object({
+    refresh_interval_ms: z.number().int().min(60_000).default(3_600_000),
+    request_timeout_ms: z.number().int().min(1_000).max(60_000).default(10_000),
+    stale_after_ms: z.number().int().min(60_000).default(86_400_000),
+  }).strict(),
+  accounts: z.record(identifierSchema, providerAccountSchema),
   profiles: z.record(identifierSchema, profileSchema),
+  model_overrides: z.record(
+    identifierSchema,
+    z.record(modelIdSchema, modelMetadataOverrideSchema),
+  ).default({}),
 }).strict();
 
-export type ModelProviderConfig = z.infer<typeof providerSchema>;
+export type ProviderAccountConfig = z.infer<typeof providerAccountSchema>;
 export type ModelInferenceConfig = z.infer<typeof modelInferenceSchema>;
+export type ModelSelector = z.infer<typeof modelSelectorSchema>;
 export type ModelProfileConfig = z.infer<typeof profileSchema>;
+export type ModelMetadataOverride = z.infer<typeof modelMetadataOverrideSchema>;
 export type ModelCatalogDocument = z.infer<typeof catalogDocumentSchema>;
+
+export const resolvedModelInferenceSchema = z.object({
+  thinking: z.enum(["enabled", "disabled"]).nullable(),
+  effort: z.string().min(1).nullable(),
+  reasoningBudgetTokens: positiveIntegerSchema.nullable(),
+  reasoningSummary: z.string().min(1).nullable(),
+  textVerbosity: z.string().min(1).nullable(),
+  temperature: z.number().min(0).max(2).nullable(),
+  topP: z.number().min(0).max(1).nullable(),
+}).strict();
+
+export type ResolvedModelInference = z.infer<typeof resolvedModelInferenceSchema>;
 
 export interface ModelProfileSummary {
   id: string;
   description: string;
   allowedRoles: ModelRole[];
-  providerId: string;
-  providerKind: ModelProviderConfig["kind"];
-  modelId: string;
+  accountId: string;
+  channel: ModelAccountChannel;
+  protocol: ModelProtocol;
+  dialect: string;
+  modelsDevProviderId: string;
+  selector: ModelSelector;
   inference: ModelInferenceConfig;
-}
-
-function expectedProviderKind(inference: ModelInferenceConfig): ModelProviderConfig["kind"] {
-  if (inference.kind.startsWith("deepseek-")) return "deepseek";
-  if (inference.kind === "openai-reasoning") return "openai";
-  return "xai";
 }
 
 function deepFreeze<T>(value: T): T {
@@ -133,35 +191,46 @@ function deepFreeze<T>(value: T): T {
 }
 
 export class ModelCatalog {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly hash: string;
   readonly scheduler: Readonly<ModelCatalogDocument["scheduler"]>;
-  readonly providers: Readonly<Record<string, Readonly<ModelProviderConfig>>>;
+  readonly registry: Readonly<ModelCatalogDocument["registry"]>;
+  readonly accounts: Readonly<Record<string, Readonly<ProviderAccountConfig>>>;
   readonly profiles: Readonly<Record<string, Readonly<ModelProfileConfig>>>;
+  readonly modelOverrides: Readonly<ModelCatalogDocument["model_overrides"]>;
 
   constructor(document: ModelCatalogDocument) {
     const parsed = catalogDocumentSchema.parse(document);
-    if (Object.keys(parsed.providers).length === 0) throw new Error("model catalog requires at least one provider");
-    if (Object.keys(parsed.profiles).length === 0) throw new Error("model catalog requires at least one profile");
+    if (Object.keys(parsed.accounts).length === 0) {
+      throw new Error("model catalog requires at least one provider account");
+    }
+    if (Object.keys(parsed.profiles).length === 0) {
+      throw new Error("model catalog requires at least one profile");
+    }
     if (parsed.scheduler.global_concurrency > parsed.scheduler.max_queued_requests) {
       throw new Error("model scheduler queue must be at least as large as global concurrency");
     }
     for (const [profileId, profile] of Object.entries(parsed.profiles)) {
-      const provider = parsed.providers[profile.provider_id];
-      if (!provider) throw new Error(`model profile ${profileId} references unknown provider ${profile.provider_id}`);
-      const expected = expectedProviderKind(profile.inference);
-      if (provider.kind !== expected) {
-        throw new Error(`model profile ${profileId} uses ${profile.inference.kind} with ${provider.kind} provider`);
+      if (!parsed.accounts[profile.account_id]) {
+        throw new Error(`model profile ${profileId} references unknown account ${profile.account_id}`);
       }
       if (new Set(profile.allowed_roles).size !== profile.allowed_roles.length) {
         throw new Error(`model profile ${profileId} has duplicate allowed roles`);
       }
     }
+    for (const providerId of Object.keys(parsed.model_overrides)) {
+      if (!Object.values(parsed.accounts).some((account) =>
+        account.models_dev_provider_id === providerId)) {
+        throw new Error(`model overrides reference unused models.dev provider ${providerId}`);
+      }
+    }
     this.schemaVersion = parsed.schema_version;
     this.hash = contentHash(canonicalize(parsed));
     this.scheduler = deepFreeze(parsed.scheduler);
-    this.providers = deepFreeze(parsed.providers);
+    this.registry = deepFreeze(parsed.registry);
+    this.accounts = deepFreeze(parsed.accounts);
     this.profiles = deepFreeze(parsed.profiles);
+    this.modelOverrides = deepFreeze(parsed.model_overrides);
     Object.freeze(this);
   }
 
@@ -171,10 +240,10 @@ export class ModelCatalog {
     return profile;
   }
 
-  provider(providerId: string): ModelProviderConfig {
-    const provider = this.providers[providerId];
-    if (!provider) throw new Error(`unknown model provider ${providerId}`);
-    return provider;
+  account(accountId: string): ProviderAccountConfig {
+    const account = this.accounts[accountId];
+    if (!account) throw new Error(`unknown model provider account ${accountId}`);
+    return account;
   }
 
   assertProfile(profileId: string, role?: ModelRole): void {
@@ -187,18 +256,23 @@ export class ModelCatalog {
   profileSummaries(role?: ModelRole): ModelProfileSummary[] {
     return Object.entries(this.profiles)
       .filter(([, profile]) => !role || profile.allowed_roles.includes(role))
-      .map(([id, profile]) => ({
-        id,
-        description: profile.description,
-        allowedRoles: [...profile.allowed_roles],
-        providerId: profile.provider_id,
-        providerKind: this.provider(profile.provider_id).kind,
-        modelId: profile.model,
-        inference: structuredClone(profile.inference),
-      }))
+      .map(([id, profile]) => {
+        const account = this.account(profile.account_id);
+        return {
+          id,
+          description: profile.description,
+          allowedRoles: [...profile.allowed_roles],
+          accountId: profile.account_id,
+          channel: account.channel,
+          protocol: account.protocol,
+          dialect: account.dialect,
+          modelsDevProviderId: account.models_dev_provider_id,
+          selector: structuredClone(profile.selector),
+          inference: structuredClone(profile.inference),
+        };
+      })
       .sort((left, right) => left.id.localeCompare(right.id));
   }
-
 }
 
 export function parseModelCatalog(value: unknown): ModelCatalog {

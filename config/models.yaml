@@ -1,74 +1,266 @@
-schema_version: 2
+schema_version: 3
 
 scheduler:
   global_concurrency: 16
   max_queued_requests: 1024
   queue_timeout_ms: 300000
 
-providers:
-  deepseek:
-    kind: deepseek
+registry:
+  refresh_interval_ms: 3600000
+  request_timeout_ms: 10000
+  stale_after_ms: 86400000
+
+# Transport destinations and credential names are trusted local configuration.
+# Metadata received from models.dev never changes these values.
+accounts:
+  deepseek-api:
+    channel: api
+    region: global
+    protocol: openai-chat
+    dialect: deepseek
+    models_dev_provider_id: deepseek
     base_url: https://api.deepseek.com
     api_key_env: DEEPSEEK_API_KEY
     max_concurrency: 16
-  openai:
-    kind: openai
+  openai-api:
+    channel: api
+    region: global
+    protocol: openai-responses
+    dialect: openai
+    models_dev_provider_id: openai
     base_url: https://api.openai.com/v1
     api_key_env: OPENAI_API_KEY
     max_concurrency: 16
-  xai:
-    kind: xai
+  xai-api:
+    channel: api
+    region: global
+    protocol: openai-responses
+    dialect: xai
+    models_dev_provider_id: xai
     base_url: https://api.x.ai/v1
     api_key_env: XAI_API_KEY
+    max_concurrency: 16
+  zhipu-api:
+    channel: api
+    region: cn
+    protocol: openai-chat
+    dialect: zhipu
+    models_dev_provider_id: zhipuai
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    api_key_env: ZHIPU_API_KEY
+    max_concurrency: 16
+  zhipu-coding-plan:
+    channel: coding-plan
+    region: cn
+    protocol: openai-chat
+    dialect: zhipu
+    models_dev_provider_id: zhipuai-coding-plan
+    base_url: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key_env: ZHIPU_CODING_PLAN_API_KEY
+    max_concurrency: 16
+  minimax-api-cn:
+    channel: api
+    region: cn
+    protocol: anthropic-messages
+    dialect: minimax
+    models_dev_provider_id: minimax-cn
+    base_url: https://api.minimaxi.com/anthropic/v1
+    api_key_env: MINIMAX_API_KEY
+    max_concurrency: 16
+  minimax-token-plan-cn:
+    channel: token-plan
+    region: cn
+    protocol: anthropic-messages
+    dialect: minimax
+    models_dev_provider_id: minimax-cn-coding-plan
+    base_url: https://api.minimaxi.com/anthropic/v1
+    api_key_env: MINIMAX_TOKEN_PLAN_API_KEY
+    max_concurrency: 16
+  kimi-api-cn:
+    channel: api
+    region: cn
+    protocol: openai-chat
+    dialect: moonshot
+    models_dev_provider_id: moonshotai-cn
+    base_url: https://api.moonshot.cn/v1
+    api_key_env: MOONSHOT_API_KEY
+    max_concurrency: 16
+  kimi-coding-plan:
+    channel: coding-plan
+    region: cn
+    protocol: anthropic-messages
+    dialect: kimi
+    models_dev_provider_id: kimi-for-coding
+    base_url: https://api.kimi.com/coding/v1
+    api_key_env: KIMI_CODING_PLAN_API_KEY
+    max_concurrency: 16
+  mimo-api-cn:
+    channel: api
+    region: cn
+    protocol: openai-chat
+    dialect: mimo
+    models_dev_provider_id: xiaomi
+    base_url: https://api.xiaomimimo.com/v1
+    api_key_env: MIMO_API_KEY
+    max_concurrency: 16
+  mimo-token-plan-cn:
+    channel: token-plan
+    region: cn
+    protocol: openai-chat
+    dialect: mimo
+    models_dev_provider_id: xiaomi-token-plan-cn
+    base_url: https://token-plan-cn.xiaomimimo.com/v1
+    api_key_env: MIMO_TOKEN_PLAN_API_KEY
     max_concurrency: 16
 
 profiles:
   truth-deepseek:
-    provider_id: deepseek
-    model: deepseek-v4-flash
+    account_id: deepseek-api
+    selector:
+      kind: latest-compatible
+      include: ["deepseek-*"]
+      exclude: ["*vision*"]
     description: 高吞吐世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, temporal-planner, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
     max_output_tokens: 32768
     max_input_bytes: 524288
     inference:
-      kind: deepseek-non-thinking
-      temperature: null
-      top_p: null
+      thinking: disabled
+      effort: auto
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: auto
+      top_p: auto
   agent-deepseek:
-    provider_id: deepseek
-    model: deepseek-v4-flash
+    account_id: deepseek-api
+    selector:
+      kind: latest-compatible
+      include: ["deepseek-*"]
+      exclude: ["*vision*"]
     description: 高吞吐自主角色心智
     allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
     request_timeout_ms: 180000
     max_output_tokens: 8192
     max_input_bytes: 131072
-    inference:
-      kind: deepseek-non-thinking
-      temperature: null
-      top_p: null
+    inference: &automatic-inference
+      thinking: auto
+      effort: auto
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: auto
+      top_p: auto
   agent-openai:
-    provider_id: openai
-    model: gpt-5.6
+    account_id: openai-api
+    selector:
+      kind: latest-compatible
+      include: ["gpt-*"]
+      exclude: ["*audio*", "*image*", "*realtime*", "*transcribe*", "*tts*"]
     description: OpenAI 通用自主角色心智
     allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
     request_timeout_ms: 180000
     max_output_tokens: 8192
     max_input_bytes: 131072
     inference:
-      kind: openai-reasoning
+      thinking: auto
       effort: medium
-      summary: null
-      text_verbosity: medium
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: auto
+      top_p: auto
   agent-xai:
-    provider_id: xai
-    model: grok-4.6
+    account_id: xai-api
+    selector:
+      kind: latest-compatible
+      include: ["grok-*"]
+      exclude: ["*image*", "*vision*"]
     description: xAI 高强度自主角色心智
     allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
     request_timeout_ms: 180000
     max_output_tokens: 8192
     max_input_bytes: 131072
     inference:
-      kind: xai-reasoning
+      thinking: auto
       effort: high
-      summary: null
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: auto
+      top_p: auto
+  agent-zhipu:
+    account_id: zhipu-api
+    selector: { kind: latest-compatible, include: ["glm-*"] }
+    description: 智谱 API 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+  agent-zhipu-coding:
+    account_id: zhipu-coding-plan
+    selector: { kind: latest-compatible, include: ["glm-*"] }
+    description: 智谱 Coding Plan 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+  agent-minimax:
+    account_id: minimax-api-cn
+    selector: { kind: latest-compatible, include: ["MiniMax-*"] }
+    description: MiniMax API 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+  agent-minimax-token-plan:
+    account_id: minimax-token-plan-cn
+    selector: { kind: latest-compatible, include: ["MiniMax-*"] }
+    description: MiniMax Token Plan 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+  agent-kimi:
+    account_id: kimi-api-cn
+    selector: { kind: latest-compatible, include: ["kimi-*"] }
+    description: Kimi API 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+  agent-kimi-coding:
+    account_id: kimi-coding-plan
+    selector: { kind: latest-compatible, include: ["kimi-*"] }
+    description: Kimi Coding Plan 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+  agent-mimo:
+    account_id: mimo-api-cn
+    selector: { kind: latest-compatible, include: ["mimo-*"] }
+    description: MiMo API 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+  agent-mimo-token-plan:
+    account_id: mimo-token-plan-cn
+    selector: { kind: latest-compatible, include: ["mimo-*"] }
+    description: MiMo Token Plan 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 131072
+    inference: *automatic-inference
+
+model_overrides: {}

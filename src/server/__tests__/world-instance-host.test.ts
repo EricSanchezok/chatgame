@@ -218,7 +218,7 @@ describe("World Instance host", () => {
         response: { suggestions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(18);
+      expect(stored.schemaVersion).toBe(19);
       expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "5", contractVersion: 4 });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
@@ -811,7 +811,7 @@ describe("World Instance host", () => {
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
       (legacy as unknown as { schemaVersion: number }).schemaVersion = 17;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v18 required");
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v19 required");
 
       const invalidPolicy = structuredClone(source);
       (invalidPolicy.policyBindings.player as { kind: string }).kind = "unknown";

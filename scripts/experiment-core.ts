@@ -15,7 +15,11 @@ import {
   type RuntimeObserver,
 } from "../src/engine/observability";
 import { SimulationEngine } from "../src/engine/simulation";
-import { createTestModelCatalog, deterministicModelOutput } from "../src/engine/testing/model-provider";
+import {
+  createTestModelCatalog,
+  createTestModelRegistry,
+  deterministicModelOutput,
+} from "../src/engine/testing/model-provider";
 import type { WorldDefinition } from "../src/engine/world-definition";
 import { loadWorldScript } from "../src/script/world-loader";
 import { runtimeCodeIdentity } from "../src/server/code-identity";
@@ -52,9 +56,24 @@ export interface ExperimentResult {
 }
 
 const deterministicAdapter: ModelProviderAdapter = {
-  kind: "deepseek",
-  structuredOutputMode: "deterministic-test",
-  async generate(profile, request, contextJson) {
+  accountId: "scripted-test",
+  protocol: "openai-chat",
+  dialect: "deepseek",
+  describe() {
+    return {
+      structuredOutputMode: "deterministic-test",
+      resolvedInference: {
+        thinking: null,
+        effort: null,
+        reasoningBudgetTokens: null,
+        reasoningSummary: null,
+        textVerbosity: null,
+        temperature: null,
+        topP: null,
+      },
+    };
+  },
+  async generate(binding, request, contextJson) {
     const context = JSON.parse(contextJson);
     let value: unknown;
     if (request.role === "causal-verifier") value = { verdict: "accept", findings: [] };
@@ -68,9 +87,11 @@ const deterministicAdapter: ModelProviderAdapter = {
     return {
       value,
       responseId: request.modelInvocationId ?? "experiment-model-invocation",
-      responseModelId: profile.model,
+      responseModelId: binding.modelId,
       finishReason: "stop",
       tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
+      resolvedInference: this.describe(binding, request).resolvedInference,
+      structuredOutputMode: "deterministic-test",
     };
   },
 };
@@ -97,8 +118,8 @@ class ExperimentObserver implements RuntimeObserver {
 }
 
 function experimentCredentials(catalog: ModelCatalog): Record<string, string> {
-  return Object.fromEntries(Object.values(catalog.providers).map((provider) => [
-    provider.api_key_env,
+  return Object.fromEntries(Object.values(catalog.accounts).map((account) => [
+    account.api_key_env,
     "deterministic-experiment-boundary",
   ]));
 }
@@ -244,6 +265,7 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
       }) : undefined;
       const observer: RuntimeObserver = durable ? new ExperimentObserver(durable, recording) : recording;
       const provider = new ModelGateway(catalog, experimentCredentials(catalog), {
+        registry: createTestModelRegistry(catalog),
         observer,
         maxTransportAttempts: 1,
         adapters: new Map([["scripted-test", deterministicAdapter]]),
