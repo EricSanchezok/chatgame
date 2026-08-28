@@ -11,6 +11,7 @@ import {
   EXECUTION_METRICS,
 } from "../../engine/execution-metrics";
 import { contentHash } from "../../engine/model-audit";
+import { materializeRuntimeEvent } from "../../engine/observability";
 import { LocalDatabase } from "../local-database";
 import { candidatePartitions, replayThroughAlgorithm } from "../../../scripts/execution-command";
 import { runDeterministicExperiment } from "../../../scripts/experiment-core";
@@ -356,6 +357,31 @@ describe("Execution Ledger", () => {
     } finally {
       ledger.close();
     }
+  });
+
+  it("measures execution wall time across multiple committed steps", () => {
+    const events = [
+      materializeRuntimeEvent(
+        { event: "step.started", correlation: { executionId: "multi-step" } },
+        1,
+        new Date("2026-08-28T00:00:00.000Z"),
+        "metrics",
+      ),
+      materializeRuntimeEvent(
+        { event: "step.committed", correlation: { executionId: "multi-step" }, durationMs: 120 },
+        2,
+        new Date("2026-08-28T00:00:00.120Z"),
+        "metrics",
+      ),
+      materializeRuntimeEvent(
+        { event: "step.committed", correlation: { executionId: "multi-step" }, durationMs: 180 },
+        3,
+        new Date("2026-08-28T00:00:00.500Z"),
+        "metrics",
+      ),
+    ];
+
+    expect(deriveExecutionWork(events).executionWallMs).toBe(500);
   });
 
   it("replays recorded model outputs through the algorithm without network access", async () => {

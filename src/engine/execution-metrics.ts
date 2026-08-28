@@ -62,18 +62,25 @@ export function deriveExecutionWork(events: readonly RuntimeEvent[]): ExecutionW
   const values = [...spans.entries()];
   const measurementSum = (key: string, eventNames: readonly string[]): number => events.reduce((sum, event) =>
     sum + (eventNames.includes(event.event) ? event.measurements?.[key] ?? 0 : 0), 0);
+  const eventTimes = events
+    .map((event) => Date.parse(event.timestamp))
+    .filter(Number.isFinite);
+  const observedWallMs = eventTimes.length > 1
+    ? Math.max(...eventTimes) - Math.min(...eventTimes)
+    : 0;
+  const terminalWallMs = Math.max(0, ...events
+    .filter((event) => [
+      "step.committed",
+      "step.rolled_back",
+      "instance.bootstrap.committed",
+      "instance.bootstrap.rolled_back",
+      "benchmark.matrix.completed",
+    ].includes(event.event))
+    .map((event) => event.durationMs ?? 0));
   return {
     spanCount: spans.size,
     maxSpanDepth: values.length > 0 ? Math.max(...values.map(([id]) => depth(id))) : 0,
-    executionWallMs: Math.max(0, ...events
-      .filter((event) => [
-        "step.committed",
-        "step.rolled_back",
-        "instance.bootstrap.committed",
-        "instance.bootstrap.rolled_back",
-        "benchmark.matrix.completed",
-      ].includes(event.event))
-      .map((event) => event.durationMs ?? 0)),
+    executionWallMs: Math.max(observedWallMs, terminalWallMs),
     modelSpanCount: values.filter(([, span]) => span.model).length,
     modelExecutionMs: measurementSum("executionMs", ["model.transport.completed", "model.transport.failed"]),
     modelQueueMs: measurementSum("queueWaitMs", ["model.queue.completed", "model.queue.failed"]),
