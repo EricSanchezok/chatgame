@@ -23,7 +23,6 @@ import {
 } from "../models/model-provider";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { validateObservations } from "./observation";
-import { projectAgentPerspective } from "./agent-perspective";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
 import { materializeObservationPackets } from "../mechanics/truth-engine";
 import { applyTransitionProposal } from "../runtime/transaction";
@@ -38,6 +37,7 @@ const OBSERVATION_SYSTEM = `你是 Living World Engine 的观察渲染器。
 
 每项 observation 只能描述对应主体可感知的表象。summary、localEntity 和 apparentClaims 不得泄露 canonical id、隐藏事实、其他主体认知、内部检定或裁判理由。
 新局部实体使用观察者自己的语义别名，并通过 introductions 的服务端私有 canonicalEntityId 建立绑定；不得把 canonical entity id 复制成 localEntity.id。
+observer.knownBindings 是仅供渲染器复用既有局部别名的服务端私有映射，不得在 summary、localEntity 或 apparentClaims 中泄露。一个 canonical entity 已有唯一映射时，必须复用对应 localEntityId，不要重复 introduction。
 sourceEventIds 只能引用 context.currentEvents 中已列出的事件。
 
 只输出 schema 指定的 JSON，不输出 Markdown、解释或思维链。`;
@@ -59,9 +59,12 @@ interface ObservationBatch {
 
 function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[]) {
   const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
-  const visibleFacts = (observerId: string) => Object.values(candidate.truth.facts)
-    .filter((fact) => fact.access.kind === "public" ||
-      fact.access.kind === "agents" && fact.access.agentIds.includes(observerId));
+  const publicFacts = Object.values(candidate.truth.facts)
+    .filter((fact) => fact.access.kind === "public")
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const privateFacts = (observerId: string) => Object.values(candidate.truth.facts)
+    .filter((fact) => fact.access.kind === "agents" && fact.access.agentIds.includes(observerId))
+    .sort((left, right) => left.id.localeCompare(right.id));
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     promptVersion: OBSERVATION_PROMPT_VERSION,
@@ -78,6 +81,7 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
         id, kind, name, lifecycle,
       })),
       placements: candidate.truth.placements,
+      publicFacts,
     },
     actions: input.actions,
     outcomes: input.proposal.outcomes,
@@ -91,8 +95,17 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
         observer: {
           agentId: observerId,
           entityId: agent.entityId,
-          perspective: projectAgentPerspective(candidate, agent),
-          accessibleFacts: visibleFacts(observerId),
+          placementEntityId: candidate.truth.placements[agent.entityId] ?? null,
+          localEntities: Object.values(agent.belief.localEntities)
+            .map((entity) => structuredClone(entity))
+            .sort((left, right) => left.id.localeCompare(right.id)),
+          knownBindings: Object.values(agent.bindings)
+            .map((binding) => ({
+              localEntityId: binding.localEntityId,
+              canonicalEntityIds: [...binding.canonicalEntityIds].sort(),
+            }))
+            .sort((left, right) => left.localEntityId.localeCompare(right.localEntityId)),
+          privateFacts: privateFacts(observerId),
         },
       };
     }),

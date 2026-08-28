@@ -64,6 +64,26 @@ describe("ObservationRenderer", () => {
     expect(provider.requests[1].context).toMatchObject({
       validationIssues: [expect.stringContaining("protected information")],
     });
+    const context = provider.requests[0].context as {
+      candidateWorld: { publicFacts: unknown[] };
+      observationSlots: Array<{ observer: Record<string, unknown> }>;
+    };
+    expect(context.candidateWorld.publicFacts).toBeInstanceOf(Array);
+    expect(context.observationSlots[0]?.observer).toMatchObject({
+      agentId: "player",
+      entityId: "player",
+      placementEntityId: "courtyard",
+      localEntities: expect.arrayContaining([
+        expect.objectContaining({ id: "copper-key" }),
+      ]),
+      knownBindings: expect.arrayContaining([
+        { localEntityId: "copper-key", canonicalEntityIds: ["key"] },
+      ]),
+      privateFacts: [],
+    });
+    expect(context.observationSlots[0]?.observer).not.toHaveProperty("perspective");
+    expect(context.observationSlots[0]?.observer).not.toHaveProperty("history");
+    expect(context.observationSlots[0]?.observer).not.toHaveProperty("character");
   });
 
   it("splits a batch whose output never covers all preallocated slots", async () => {
