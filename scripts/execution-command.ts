@@ -6,6 +6,7 @@ import { registerBuiltinAlgorithms } from "../src/engine/builtin-algorithms";
 import { deriveExecutionWork, EXECUTION_METRICS, type MetricPoint } from "../src/engine/execution-metrics";
 import {
   algorithmRef,
+  resolutionObservations,
   BootstrapCandidate,
   PolicyBinding,
   type WorldExecutionAlgorithmRegistry,
@@ -309,7 +310,7 @@ export function candidatePartitions(events: readonly RuntimeEvent[]) {
       operations: candidate.resolution.proposal.operations,
       events: candidate.resolution.proposal.events,
     },
-    observation: candidate.observations,
+    observation: resolutionObservations(candidate.resolution),
     mind: candidate.mindCommits,
   };
 }

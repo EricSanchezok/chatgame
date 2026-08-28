@@ -22,7 +22,7 @@ import type {
   WorldDeltaOperationDraft,
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
-import type { ActionGroundingDraft } from "./execution";
+import type { ActionDependencyDraft } from "./execution";
 import type { TemporalPlanDraft } from "./temporal";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import {
@@ -721,7 +721,7 @@ export const actionGroundingSchema = z.strictObject({
   writes: z.array(footprintRefSchema),
   audienceAgentIds: z.array(semanticIdSchema),
   globalFallback: z.boolean(),
-}) as z.ZodType<ActionGroundingDraft>;
+}) as z.ZodType<ActionDependencyDraft>;
 
 export const temporalPlanDraftSchema = z.strictObject({
   profileId: semanticIdSchema,

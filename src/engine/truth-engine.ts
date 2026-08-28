@@ -12,12 +12,12 @@ import {
   type ResolutionPlanDraft,
 } from "./llm-schemas";
 import type {
-  ActionGrounding,
+  ActionDependency,
+  WorldResolutionCandidate,
 } from "./execution";
 import type {
   AgentActionProposal,
   CausalAssertion,
-  CausalAssertionResult,
   CausalRef,
   CausalVerification,
   CommitmentRound,
@@ -27,13 +27,11 @@ import type {
   DiscreteRandomRequest,
   DiscreteRandomResult,
   ModelExecutionAudit,
-  MechanicResult,
   MechanicInvocation,
   ObservationPacket,
   ObservationPacketDraft,
   ReactionDecision,
   ReactionRequest,
-  SeededRngState,
   SimulationState,
   TransitionProposal,
   TransitionProposalDraft,
@@ -95,7 +93,7 @@ import type { TemporalBoundary } from "./temporal";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
-  groundings: ActionGrounding[];
+  groundings: ActionDependency[];
   modelAudits: ModelExecutionAudit[];
 }
 
@@ -104,24 +102,7 @@ export interface ObservationResolution {
   modelAudits: ModelExecutionAudit[];
 }
 
-export interface TruthResolution {
-  proposal: TransitionProposal;
-  initialActions: AgentActionProposal[];
-  actions: AgentActionProposal[];
-  reactionRequests: ReactionRequest[];
-  reactionDecisions: ReactionDecision[];
-  stimulusObservations: ObservationPacket[];
-  requests: D20CheckRequest[];
-  checks: D20CheckResult[];
-  randomRequests: DiscreteRandomRequest[];
-  randomResults: DiscreteRandomResult[];
-  commitmentRounds: CommitmentRound[];
-  resolutionPlans: ResolutionPlan[];
-  resolutionReceipts: ResolutionReceipt[];
-  rng: SeededRngState;
-  mechanicResults: MechanicResult[];
-  causalAssertionResults: CausalAssertionResult[];
-  causalVerification: CausalVerification;
+export interface TruthResolution extends WorldResolutionCandidate {
   modelAudits: ModelExecutionAudit[];
   reactionModelAudits: ModelExecutionAudit[];
 }
@@ -132,7 +113,7 @@ export interface TruthResolutionInput {
   initialActions: AgentActionProposal[];
   temporalBoundary: TemporalBoundary;
   identityOwner: string;
-  groundings: readonly ActionGrounding[];
+  groundings: readonly ActionDependency[];
   resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
   renderObservations: (
     proposal: Readonly<TransitionProposal>,
@@ -382,7 +363,7 @@ function resolutionEvidenceIndex(
   };
 }
 
-function groundingContainsSource(grounding: ActionGrounding, source: ResolutionSourceRef): boolean {
+function groundingContainsSource(grounding: ActionDependency, source: ResolutionSourceRef): boolean {
   if (grounding.globalFallback || source.kind === "action" || source.kind === "law") return true;
   const kind = source.kind === "entity" || source.kind === "fact" || source.kind === "condition" ||
     source.kind === "rating" || source.kind === "placement"
@@ -423,7 +404,7 @@ function materializeResolutionPlans(input: {
   state: SimulationState;
   definition: WorldDefinition;
   actions: readonly AgentActionProposal[];
-  groundings: readonly ActionGrounding[];
+  groundings: readonly ActionDependency[];
   identityOwner: string;
   drafts: readonly ResolutionPlanDraft[];
   allowedCauses: Record<CausalRef["kind"], Set<string>>;

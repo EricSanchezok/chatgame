@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ActionGrounding, WorldExecutionAlgorithm } from "../execution";
+import { resolutionObservations, type ActionDependency, type WorldExecutionAlgorithm } from "../execution";
 import {
   conflictComponents,
   createMindRepairFallback,
@@ -26,11 +26,11 @@ import { loadWorldScript } from "../../script/world-loader";
 
 function grounding(
   actorId: string,
-  reads: ActionGrounding["reads"],
-  writes: ActionGrounding["writes"],
+  reads: ActionDependency["reads"],
+  writes: ActionDependency["writes"],
   audienceAgentIds: string[] = [],
   globalFallback = false,
-): ActionGrounding {
+): ActionDependency {
   return { actionId: `action-${actorId}`, actorId, reads, writes, audienceAgentIds, globalFallback };
 }
 
@@ -409,6 +409,41 @@ describe("eager reference dependency components", () => {
     expect(contentHash(engine.snapshot)).toBe(before);
   });
 
+  it("rejects a candidate whose dependency evidence does not cover final actions", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, context }) =>
+      deterministicModelOutput(profileId, context));
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const delegate = new EagerReferenceAlgorithm(provider);
+    const forgingAlgorithm: WorldExecutionAlgorithm = {
+      manifest: delegate.manifest,
+      bootstrap: (input, context) => delegate.bootstrap(input, context),
+      step: async (input, context) => {
+        const candidate = await delegate.step(input, context);
+        candidate.actionDependencies = candidate.actionDependencies.slice(1);
+        return candidate;
+      },
+    };
+    const engine = new SimulationEngine(definition, forgingAlgorithm);
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const before = contentHash(source);
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await expect(engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    })).rejects.toThrow("action dependencies must cover every final action exactly once");
+    expect(contentHash(engine.snapshot)).toBe(before);
+  });
+
   it("jointly commits an authored Timer with every activity due at the same instant", async () => {
     const provider = new ScriptedModelProvider(({ profileId, context }) =>
       deterministicModelOutput(profileId, context));
@@ -602,11 +637,15 @@ describe("eager reference dependency components", () => {
     expect(interrupted).toMatchObject({ status: "active", progress: { target: 100 } });
     expect(interrupted.progress!.current).toBeGreaterThan(25);
     expect(interrupted.progress!.current).toBeLessThan(26);
-    expect(latestCandidate?.groundings).toContainEqual(expect.objectContaining({
+    expect(latestCandidate?.actionDependencies).toContainEqual(expect.objectContaining({
       actorId: "keeper",
       audienceAgentIds: ["keeper", "player"],
     }));
-    expect(latestCandidate?.observations.map((observation) => observation.observerId)).toContain("player");
+    expect(latestCandidate && resolutionObservations(latestCandidate.resolution)
+      .map((observation) => observation.observerId)).toContain("player");
+    expect(latestCandidate && "observations" in latestCandidate).toBe(false);
+    expect(latestCandidate && "modelAudits" in latestCandidate.resolution).toBe(false);
+    expect(latestCandidate && "reactionModelAudits" in latestCandidate.resolution).toBe(false);
     expect(second.committed.decisionPoints).toContainEqual({
       agentId: "player",
       reason: "activity_interrupted",

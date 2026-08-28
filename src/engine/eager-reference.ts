@@ -2,8 +2,8 @@ import { AgentMind } from "./agent-mind";
 import { evaluateProposalCausality } from "./causality";
 import { defineAlgorithmManifest } from "./execution";
 import type {
-  ActionGrounding,
-  ActionGroundingDraft,
+  ActionDependency,
+  ActionDependencyDraft,
   BootstrapCandidate,
   BootstrapInput,
   ExecutionContext,
@@ -14,6 +14,7 @@ import type {
   WorldStepCandidate,
   WorldStepInput,
 } from "./execution";
+import { WORLD_STEP_CANDIDATE_SCHEMA_VERSION } from "./execution";
 import { actionGroundingSchema, temporalPlanDraftSchema } from "./llm-schemas";
 import type { AgentMindOutput } from "./llm-schemas";
 import type {
@@ -239,7 +240,7 @@ interface TemporalReactionReplacement {
   actorId: AgentId;
   originalActionId: string;
   replacementAction: AgentActionProposal;
-  grounding: ActionGrounding;
+  grounding: ActionDependency;
   plan: TemporalPlan;
   sourceActivity: ActivityState;
   advancedActivity: ActivityState;
@@ -352,8 +353,8 @@ function stableRefs(refs: readonly FootprintRef[]): FootprintRef[] {
 export function normalizeGrounding(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
-  value: ActionGrounding,
-): { grounding: ActionGrounding; fallbackReasons: string[] } {
+  value: ActionDependency,
+): { grounding: ActionDependency; fallbackReasons: string[] } {
   if (value.actionId !== action.id || value.actorId !== action.actorId) {
     throw new Error("grounding changed action or actor identity");
   }
@@ -414,9 +415,9 @@ function groundingFallbackEvent(
 function acceptedGrounding(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
-  value: ActionGroundingDraft,
+  value: ActionDependencyDraft,
   scope: ModelExecutionScope,
-): ActionGrounding {
+): ActionDependency {
   const normalized = normalizeGrounding(state, action, {
     actionId: action.id,
     actorId: action.actorId,
@@ -429,8 +430,8 @@ function acceptedGrounding(
 function enrichGrounding(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
-  grounding: ActionGrounding,
-): ActionGrounding {
+  grounding: ActionDependency,
+): ActionDependency {
   const agent = state.agents[action.actorId];
   const placementId = state.truth.placements[agent.entityId];
   const mandatory: FootprintRef[] = [
@@ -482,7 +483,7 @@ async function generateGrounding(
   scope: ModelExecutionScope,
   profileId: string,
   invocationOffset = 0,
-): Promise<{ grounding: ActionGrounding; audit: ModelExecutionAudit }> {
+): Promise<{ grounding: ActionDependency; audit: ModelExecutionAudit }> {
   const audits: ModelExecutionAudit[] = [];
   let issues: string[] = [];
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -603,18 +604,7 @@ function collectActions(
   return actions;
 }
 
-function decisionEligibleAgentIds(state: Readonly<SimulationState>, forcedAgentIds: readonly AgentId[] = []): AgentId[] {
-  const decisionAgents = new Set(state.history.at(-1)?.decisionPoints.map((point) => point.agentId) ?? []);
-  forcedAgentIds.forEach((agentId) => decisionAgents.add(agentId));
-  const busyAgents = new Set(Object.values(state.truth.activities)
-    .filter((activity) => activity.status === "active" || activity.status === "paused")
-    .flatMap((activity) => activity.participantAgentIds));
-  return Object.keys(state.agents)
-    .filter((agentId) => !busyAgents.has(agentId) || decisionAgents.has(agentId))
-    .sort();
-}
-
-function conflicts(left: ActionGrounding, right: ActionGrounding): boolean {
+function conflicts(left: ActionDependency, right: ActionDependency): boolean {
   if (left.globalFallback || right.globalFallback) return true;
   const leftWrites = new Set(left.writes.map(refKey));
   const rightWrites = new Set(right.writes.map(refKey));
@@ -625,7 +615,7 @@ function conflicts(left: ActionGrounding, right: ActionGrounding): boolean {
     left.audienceAgentIds.includes(right.actorId) || right.audienceAgentIds.includes(left.actorId);
 }
 
-export function conflictComponents(groundings: readonly ActionGrounding[]): AgentId[][] {
+export function conflictComponents(groundings: readonly ActionDependency[]): AgentId[][] {
   const parent = groundings.map((_, index) => index);
   const root = (index: number): number => {
     while (parent[index] !== index) {
@@ -653,7 +643,7 @@ export function conflictComponents(groundings: readonly ActionGrounding[]): Agen
   return [...groups.values()].map((group) => group.sort()).sort((left, right) => left[0].localeCompare(right[0]));
 }
 
-function conflictEdgeCount(groundings: readonly ActionGrounding[]): number {
+function conflictEdgeCount(groundings: readonly ActionDependency[]): number {
   let edges = 0;
   for (let left = 0; left < groundings.length; left += 1) {
     for (let right = left + 1; right < groundings.length; right += 1) {
@@ -727,7 +717,7 @@ function actualComponentsConflict(
 function exceedsDeclaredFootprint(
   state: Readonly<SimulationState>,
   resolution: TruthResolution,
-  groundings: readonly ActionGrounding[],
+  groundings: readonly ActionDependency[],
 ): boolean {
   if (groundings.some((grounding) => grounding.globalFallback)) return false;
   const declared = new Set(groundings.flatMap((grounding) => [...grounding.reads, ...grounding.writes].map(refKey)));
@@ -845,6 +835,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       counts: { persistentAgents: agents.length, eligibleAgents: agents.length, activatedAgents: agents.length },
     });
     return {
+      schemaVersion: WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
       sourceStateHash: contentHash(source),
       agentCommits: outputs.map((output, index) => ({
         agentId: agents[index].id,
@@ -853,13 +844,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         nextAction: structuredClone(output.nextAction),
       })),
       modelAudits: outputs.map((output) => structuredClone(output.modelAudit)),
+      diagnostics: {
+        activatedAgentIds: agents.map((agent) => agent.id),
+        reusedAgentIds: [],
+        mindFallbackAgentIds: outputs.flatMap((output, index) => output.fallback ? [agents[index].id] : []),
+      },
     };
   }
 
   private async resolveComponent(
     input: Readonly<WorldStepInput>,
     actions: readonly AgentActionProposal[],
-    groundings: readonly ActionGrounding[],
+    groundings: readonly ActionDependency[],
     actorIds: readonly AgentId[],
     rngState: SimulationState["truth"]["rng"],
     context: ExecutionContext,
@@ -1121,10 +1117,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
 
   async step(input: Readonly<WorldStepInput>, context: ExecutionContext): Promise<WorldStepCandidate> {
     const source = structuredClone(input.state);
-    const eligibleAgentIds = decisionEligibleAgentIds(
-      source,
-      input.request.externalActions.map((action) => action.agentId),
-    );
+    const eligibleAgentIds = [...input.decisionEligibleAgentIds];
     const eligibleAgents = new Set(eligibleAgentIds);
     const resumedAgentIds = Object.entries(input.policyRoster)
       .filter(([agentId, binding]) => eligibleAgents.has(agentId) && binding.kind === "model" &&
@@ -1266,9 +1259,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       rng = structuredClone(result.resolution.rng);
     }
     const applyGroundingReplacements = (
-      current: readonly ActionGrounding[],
+      current: readonly ActionDependency[],
       replacements: readonly TemporalReactionReplacement[],
-    ): ActionGrounding[] => {
+    ): ActionDependency[] => {
       const replacedActors = new Set(replacements.map((replacement) => replacement.actorId));
       return [
         ...current.filter((grounding) => !replacedActors.has(grounding.actorId)),
@@ -1500,10 +1493,15 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       },
       payload: { groundings, components },
     });
+    const {
+      modelAudits: resolutionModelAudits,
+      reactionModelAudits,
+      ...resolutionCandidate
+    } = resolution;
     return {
+      schemaVersion: WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
       sourceStateHash: contentHash(source),
-      resolution,
-      observations,
+      resolution: resolutionCandidate,
       mindCommits: outputs.map((output, index) => {
         const agentId = modelAgentIds[index];
         const resumed = resumedByAgent.get(agentId);
@@ -1530,13 +1528,19 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         ...resumedOutputs.map((output) => output.modelAudit),
         ...temporalPlanning.map((result) => result.audit),
         ...groundingResults.map((result) => result.audit),
-        ...resolution.modelAudits,
-        ...resolution.reactionModelAudits,
+        ...resolutionModelAudits,
+        ...reactionModelAudits,
         ...globalObservationAudits,
         ...outputs.map((output) => output.modelAudit),
       ],
-      groundings,
-      components,
+      actionDependencies: structuredClone(groundings),
+      diagnostics: {
+        activatedAgentIds: [...modelAgentIds],
+        reusedAgentIds: [],
+        mindFallbackAgentIds: outputs.flatMap((output, index) => output.fallback ? [modelAgentIds[index]] : []),
+        dependencyComponents: structuredClone(components),
+        globalReadjudication: fallback,
+      },
       temporalPlans: temporalPlanning.map((result) => structuredClone(result.plan)),
       temporalBoundary: structuredClone(temporalBoundary),
       temporalState: {

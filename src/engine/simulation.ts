@@ -7,6 +7,7 @@ import type {
   WorldAdvanceRequest,
   WorldExecutionAlgorithm,
 } from "./execution";
+import { decisionEligibleAgentIds } from "./execution";
 import { createHistoryReplayBase } from "./history-replay";
 import type { CommittedStep, SimulationState } from "./model";
 import type { ModelExecutionAudit } from "./model";
@@ -101,27 +102,9 @@ function createExecutionContext(scope: ModelExecutionScope, source: SimulationSt
     observer: trace,
     runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
   };
-  let randomState = Number.parseInt(contentHash({
-    worldHash: source.worldHash,
-    revision: source.revision,
-    step: source.step,
-    rng: source.truth.rng,
-  }).slice(0, 8), 16) >>> 0;
-  const random = (): number => {
-    randomState = (randomState + 0x6d2b79f5) >>> 0;
-    let value = randomState;
-    value ^= value >>> 16;
-    value = Math.imul(value, 0x7feb352d);
-    value ^= value >>> 15;
-    value = Math.imul(value, 0x846ca68b);
-    value ^= value >>> 16;
-    return (value >>> 0) / 0x1_0000_0000;
-  };
   return {
-    executionId,
     abortSignal: scope.abortSignal,
     modelScope,
-    random,
     trace,
   };
 }
@@ -282,6 +265,10 @@ export class SimulationEngine {
     const context = createExecutionContext(executionScope, source);
     const resources = resourceBaseline();
     const startedAt = Date.now();
+    const eligibleAgentIds = decisionEligibleAgentIds(
+      source,
+      request.externalActions.map((action) => action.agentId),
+    );
     let generatedModelCalls = 0;
     let discardedInputTokens = 0;
     let discardedOutputTokens = 0;
@@ -300,6 +287,7 @@ export class SimulationEngine {
         state: source,
         policyRoster: structuredClone(policyRoster),
         request: structuredClone(request),
+        decisionEligibleAgentIds: eligibleAgentIds,
       },
     });
     try {
@@ -308,6 +296,7 @@ export class SimulationEngine {
         state: structuredClone(source),
         policyRoster: structuredClone(policyRoster),
         request: structuredClone(request),
+        decisionEligibleAgentIds: eligibleAgentIds,
       }, context);
       validateCandidateModelAudits(candidate.modelAudits, source);
       generatedModelCalls = candidate.modelAudits.reduce((sum, audit) => sum + audit.invocations.length, 0);

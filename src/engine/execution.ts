@@ -1,19 +1,30 @@
 import type { AgentMindOutput } from "./llm-schemas";
 import { contentHash } from "./model-audit";
-import { runtimeId } from "./runtime-id";
 import type {
   AgentActionProposal,
   AgentId,
+  CausalAssertionResult,
+  CausalVerification,
+  CommitmentRound,
+  D20CheckRequest,
+  D20CheckResult,
+  DiscreteRandomRequest,
+  DiscreteRandomResult,
+  MechanicResult,
   ModelExecutionAudit,
   ObservationPacket,
+  ReactionDecision,
+  ReactionRequest,
+  SeededRngState,
   SimulationState,
+  TransitionProposal,
 } from "./model";
 import type { ModelExecutionScope } from "./model-provider";
 import type { StructuredModelProvider } from "./model-provider";
 import type { RuntimeObserver } from "./observability";
 import type { RulePackageRegistry } from "./rule-package";
-import type { TruthResolution } from "./truth-engine";
 import type { WorldDefinition } from "./world-definition";
+import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
 import type {
   ActivityTransition,
   DecisionPoint,
@@ -26,6 +37,7 @@ export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay
 
 export const WORLD_EXECUTION_CONTRACT_VERSION = 2 as const;
 export const ENGINE_OPERATION_CONTRACT_VERSION = 1 as const;
+export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 2 as const;
 
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
@@ -237,10 +249,8 @@ export interface ExecutionTraceWriter extends RuntimeObserver {
 }
 
 export interface ExecutionContext {
-  executionId: string;
   abortSignal?: AbortSignal;
   modelScope: ModelExecutionScope;
-  random: () => number;
   trace: ExecutionTraceWriter;
 }
 
@@ -250,9 +260,11 @@ export interface BootstrapInput {
 }
 
 export interface BootstrapCandidate {
+  schemaVersion: typeof WORLD_STEP_CANDIDATE_SCHEMA_VERSION;
   sourceStateHash: string;
   agentCommits: Array<AgentMindOutput & { agentId: string }>;
   modelAudits: ModelExecutionAudit[];
+  diagnostics: AlgorithmCandidateDiagnostics;
 }
 
 export interface WorldStepInput {
@@ -260,6 +272,7 @@ export interface WorldStepInput {
   state: SimulationState;
   policyRoster: Readonly<Record<AgentId, PolicyBinding>>;
   request: Readonly<WorldAdvanceRequest>;
+  decisionEligibleAgentIds: readonly AgentId[];
 }
 
 export type ParticipantId = string;
@@ -290,38 +303,68 @@ export interface WorldAdvanceRequest {
   externalActions: readonly ExternalActionInput[];
 }
 
-export function noopAction(
+export function decisionEligibleAgentIds(
   state: Readonly<SimulationState>,
-  agentId: AgentId,
-  reason: "timeout" | "released" | "explicit",
-): AgentActionProposal {
-  return {
-    id: runtimeId({
-      worldHash: state.worldHash,
-      revision: state.revision,
-      kind: "action",
-      stage: "idle",
-      owner: agentId,
-      round: 0,
-      ordinal: 0,
-    }),
-    actorId: agentId,
-    baseRevision: state.revision,
-    rawText: `保持空闲（${reason}）`,
-    goal: "本步骤不采取主动行动",
-    means: null,
-    targetIds: [],
-  };
+  forcedAgentIds: readonly AgentId[] = [],
+): AgentId[] {
+  const decisionAgents = new Set(state.history.at(-1)?.decisionPoints.map((point) => point.agentId) ?? []);
+  forcedAgentIds.forEach((agentId) => decisionAgents.add(agentId));
+  const busyAgents = new Set(Object.values(state.truth.activities)
+    .filter((activity) => activity.status === "active" || activity.status === "paused")
+    .flatMap((activity) => activity.participantAgentIds));
+  return Object.keys(state.agents)
+    .filter((agentId) => !busyAgents.has(agentId) || decisionAgents.has(agentId))
+    .sort();
+}
+
+export interface WorldResolutionCandidate {
+  proposal: TransitionProposal;
+  initialActions: AgentActionProposal[];
+  actions: AgentActionProposal[];
+  reactionRequests: ReactionRequest[];
+  reactionDecisions: ReactionDecision[];
+  stimulusObservations: ObservationPacket[];
+  requests: D20CheckRequest[];
+  checks: D20CheckResult[];
+  randomRequests: DiscreteRandomRequest[];
+  randomResults: DiscreteRandomResult[];
+  commitmentRounds: CommitmentRound[];
+  resolutionPlans: ResolutionPlan[];
+  resolutionReceipts: ResolutionReceipt[];
+  rng: SeededRngState;
+  mechanicResults: MechanicResult[];
+  causalAssertionResults: CausalAssertionResult[];
+  causalVerification: CausalVerification;
+}
+
+export function resolutionObservations(
+  resolution: Readonly<WorldResolutionCandidate>,
+): ObservationPacket[] {
+  return [
+    ...structuredClone(resolution.stimulusObservations),
+    ...structuredClone(resolution.proposal.observations),
+  ];
+}
+
+export interface AlgorithmCandidateDiagnostics {
+  activatedAgentIds: AgentId[];
+  reusedAgentIds: AgentId[];
+  mindFallbackAgentIds: AgentId[];
+}
+
+export interface WorldStepDiagnostics extends AlgorithmCandidateDiagnostics {
+  dependencyComponents: AgentId[][];
+  globalReadjudication: boolean;
 }
 
 export interface WorldStepCandidate {
+  schemaVersion: typeof WORLD_STEP_CANDIDATE_SCHEMA_VERSION;
   sourceStateHash: string;
-  resolution: TruthResolution;
-  observations: ObservationPacket[];
+  resolution: WorldResolutionCandidate;
   mindCommits: Array<AgentMindOutput & { agentId: string }>;
   modelAudits: ModelExecutionAudit[];
-  groundings: ActionGrounding[];
-  components: AgentId[][];
+  actionDependencies: ActionDependency[];
+  diagnostics: WorldStepDiagnostics;
   temporalPlans: TemporalPlan[];
   temporalBoundary: TemporalBoundary;
   temporalState: TemporalStateSnapshot;
@@ -339,7 +382,7 @@ export type FootprintRef =
   | { kind: "condition"; id: string }
   | { kind: "global"; id: "world" };
 
-export interface ActionGrounding {
+export interface ActionDependency {
   actionId: string;
   actorId: AgentId;
   reads: FootprintRef[];
@@ -348,7 +391,7 @@ export interface ActionGrounding {
   globalFallback: boolean;
 }
 
-export type ActionGroundingDraft = Omit<ActionGrounding, "actionId" | "actorId">;
+export type ActionDependencyDraft = Omit<ActionDependency, "actionId" | "actorId">;
 
 export interface WorldExecutionAlgorithm {
   readonly manifest: AlgorithmManifest;

@@ -1,8 +1,13 @@
 import type {
+  ActionDependency,
   BootstrapCandidate,
   ExecutionRef,
   PolicyBinding,
   WorldStepCandidate,
+} from "./execution";
+import {
+  resolutionObservations,
+  WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
 } from "./execution";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { createHistoryReplayBase } from "./history-replay";
@@ -78,6 +83,120 @@ function observationsFor(packets: readonly ObservationPacket[], observerId: stri
   return packets.filter((packet) => packet.observerId === observerId);
 }
 
+function validateUniqueAgentIds(
+  ids: readonly string[],
+  label: string,
+  knownAgentIds: ReadonlySet<string>,
+): void {
+  if (new Set(ids).size !== ids.length) throw new Error(`${label} contains duplicate Agent ids`);
+  for (const agentId of ids) {
+    if (!knownAgentIds.has(agentId)) throw new Error(`${label} references unknown Agent ${agentId}`);
+  }
+}
+
+function validateActionDependencies(
+  source: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  dependencies: readonly ActionDependency[],
+): void {
+  const actionById = new Map(actions.map((action) => [action.id, action]));
+  if (actionById.size !== actions.length) throw new Error("execution candidate contains duplicate action ids");
+  if (new Set(dependencies.map((dependency) => dependency.actionId)).size !== dependencies.length) {
+    throw new Error("execution candidate contains duplicate action dependencies");
+  }
+  const expectedIds = [...actionById.keys()].sort();
+  const actualIds = dependencies.map((dependency) => dependency.actionId).sort();
+  if (contentHash(expectedIds) !== contentHash(actualIds)) {
+    throw new Error("execution candidate action dependencies must cover every final action exactly once");
+  }
+  const catalogs: Record<Exclude<ActionDependency["reads"][number]["kind"], "global">, Readonly<Record<string, unknown>>> = {
+    entity: source.truth.entities,
+    fact: source.truth.facts,
+    placement: source.truth.entities,
+    meter: source.truth.meters,
+    quantity: source.truth.quantities,
+    rating: source.truth.ratings,
+    condition: source.truth.conditions,
+  };
+  for (const dependency of dependencies) {
+    const action = actionById.get(dependency.actionId)!;
+    if (dependency.actorId !== action.actorId) {
+      throw new Error(`action dependency actor mismatch for ${dependency.actionId}`);
+    }
+    for (const [label, refs] of [["reads", dependency.reads], ["writes", dependency.writes]] as const) {
+      const keys = refs.map((ref) => `${ref.kind}:${ref.id}`);
+      if (new Set(keys).size !== keys.length) {
+        throw new Error(`action dependency ${dependency.actionId} contains duplicate ${label}`);
+      }
+      for (const ref of refs) {
+        if (ref.kind !== "global" && !catalogs[ref.kind][ref.id]) {
+          throw new Error(`action dependency ${dependency.actionId} references unknown ${ref.kind} ${ref.id}`);
+        }
+      }
+    }
+    if (new Set(dependency.audienceAgentIds).size !== dependency.audienceAgentIds.length) {
+      throw new Error(`action dependency ${dependency.actionId} contains duplicate audiences`);
+    }
+    for (const agentId of dependency.audienceAgentIds) {
+      if (!source.agents[agentId]) {
+        throw new Error(`action dependency ${dependency.actionId} references unknown audience Agent ${agentId}`);
+      }
+    }
+    if (!dependency.audienceAgentIds.includes(dependency.actorId)) {
+      throw new Error(`action dependency ${dependency.actionId} must include its actor in the audience`);
+    }
+    const hasGlobal = [...dependency.reads, ...dependency.writes].some((ref) => ref.kind === "global");
+    if (dependency.globalFallback !== hasGlobal) {
+      throw new Error(`action dependency ${dependency.actionId} has inconsistent global fallback evidence`);
+    }
+  }
+}
+
+function validateStepDiagnostics(
+  source: Readonly<SimulationState>,
+  transitioned: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  candidate: Readonly<WorldStepCandidate>,
+  policyRoster: Readonly<Record<string, PolicyBinding>>,
+): void {
+  const diagnostics = candidate.diagnostics;
+  const knownAgentIds = new Set(Object.keys(transitioned.agents));
+  validateUniqueAgentIds(diagnostics.activatedAgentIds, "activated Agent diagnostics", knownAgentIds);
+  validateUniqueAgentIds(diagnostics.reusedAgentIds, "reused Agent diagnostics", knownAgentIds);
+  validateUniqueAgentIds(diagnostics.mindFallbackAgentIds, "mind fallback diagnostics", knownAgentIds);
+  if (diagnostics.activatedAgentIds.some((agentId) => diagnostics.reusedAgentIds.includes(agentId))) {
+    throw new Error("activated and reused Agent diagnostics must be disjoint");
+  }
+  if (diagnostics.mindFallbackAgentIds.some((agentId) => !diagnostics.activatedAgentIds.includes(agentId))) {
+    throw new Error("mind fallback diagnostics must reference activated Agents");
+  }
+  const updatedIds = [...diagnostics.activatedAgentIds, ...diagnostics.reusedAgentIds].sort();
+  const committedIds = candidate.mindCommits.map((commit) => commit.agentId).sort();
+  if (contentHash(updatedIds) !== contentHash(committedIds)) {
+    throw new Error("algorithm diagnostics do not match AgentMind commits");
+  }
+  for (const agentId of diagnostics.activatedAgentIds) {
+    if (source.agents[agentId] && policyRoster[agentId]?.kind !== "model") {
+      throw new Error(`algorithm activated non-model Agent ${agentId}`);
+    }
+  }
+  if (typeof diagnostics.globalReadjudication !== "boolean") {
+    throw new Error("global readjudication diagnostic must be boolean");
+  }
+  const componentAgentIds = diagnostics.dependencyComponents.flatMap((component) => {
+    if (component.length === 0) throw new Error("dependency diagnostics contain an empty component");
+    return component;
+  });
+  const actionAgentIds = actions.map((action) => action.actorId).sort();
+  if (new Set(componentAgentIds).size !== componentAgentIds.length ||
+    contentHash([...componentAgentIds].sort()) !== contentHash(actionAgentIds)) {
+    throw new Error("dependency diagnostics must partition final action actors");
+  }
+  if (diagnostics.globalReadjudication && actions.length > 0 && diagnostics.dependencyComponents.length !== 1) {
+    throw new Error("global readjudication diagnostics require one dependency component");
+  }
+}
+
 function isWithinSelf(state: Readonly<SimulationState>, entityId: string, selfEntityId: string): boolean {
   let current = entityId;
   const seen = new Set<string>([entityId]);
@@ -142,21 +261,26 @@ function validateCandidateBoundary(
   candidate: WorldStepCandidate,
   transitioned: SimulationState,
   maxAutonomousSpanSeconds: number,
+  observations: readonly ObservationPacket[],
 ): void {
+  if (candidate.schemaVersion !== WORLD_STEP_CANDIDATE_SCHEMA_VERSION) {
+    throw new Error(`world step candidate schema v${WORLD_STEP_CANDIDATE_SCHEMA_VERSION} required`);
+  }
   if (candidate.sourceStateHash !== contentHash(source)) throw new Error("execution candidate uses another source state");
   if (new Set(actions.map((action) => action.actorId)).size !== actions.length) {
     throw new Error("execution candidate contains multiple actions for one Agent");
   }
+  validateActionDependencies(source, actions, candidate.actionDependencies);
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
   validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);
-  validateObservations(transitioned, candidate.observations, transitioned.step);
+  validateObservations(transitioned, observations, transitioned.step);
   validateSelfConsequenceIntroductions(
     source,
     transitioned,
     actions,
     candidate.resolution.proposal,
-    candidate.observations,
+    observations,
   );
   const outcomeObservers = new Set(candidate.resolution.proposal.observations
     .filter((packet) => packet.kind === "outcome")
@@ -286,10 +410,10 @@ function validateCandidateBoundary(
   });
   expectedTemporal.transitions = [...cancellationTransitions, ...expectedTemporal.transitions];
   expectedTemporal = reconcileTemporalOutcomes(expectedTemporal, candidate.resolution.proposal.outcomes);
-  const observedAgentIds = new Set(candidate.observations.map((observation) => observation.observerId));
-  const relevantExternalObservers = new Set(candidate.groundings.flatMap((grounding) =>
-    grounding.audienceAgentIds.filter((agentId) =>
-      agentId !== grounding.actorId && observedAgentIds.has(agentId))));
+  const observedAgentIds = new Set(observations.map((observation) => observation.observerId));
+  const relevantExternalObservers = new Set(candidate.actionDependencies.flatMap((dependency) =>
+    dependency.audienceAgentIds.filter((agentId) =>
+      agentId !== dependency.actorId && observedAgentIds.has(agentId))));
   const interruptionPoints = Object.values(expectedTemporal.activities)
     .filter((activity) => activity.status === "active" || activity.status === "paused")
     .flatMap((activity) => activity.participantAgentIds
@@ -356,6 +480,9 @@ export class CanonicalCommitter {
 
   bootstrap(sourceState: Readonly<SimulationState>, candidate: Readonly<BootstrapCandidate>): SimulationState {
     const source = structuredClone(sourceState) as SimulationState;
+    if (candidate.schemaVersion !== WORLD_STEP_CANDIDATE_SCHEMA_VERSION) {
+      throw new Error(`bootstrap candidate schema v${WORLD_STEP_CANDIDATE_SCHEMA_VERSION} required`);
+    }
     if (candidate.sourceStateHash !== contentHash(source)) throw new Error("bootstrap candidate uses another source state");
     const commits = candidate.agentCommits.map((commit) => structuredClone(commit))
       .sort((left, right) => left.agentId.localeCompare(right.agentId));
@@ -363,6 +490,16 @@ export class CanonicalCommitter {
     const committedAgents = commits.map((commit) => commit.agentId);
     if (contentHash(expectedAgents) !== contentHash(committedAgents)) {
       throw new Error("bootstrap candidate does not update every agent exactly once");
+    }
+    const knownAgentIds = new Set(expectedAgents);
+    validateUniqueAgentIds(candidate.diagnostics.activatedAgentIds, "bootstrap activation diagnostics", knownAgentIds);
+    validateUniqueAgentIds(candidate.diagnostics.reusedAgentIds, "bootstrap reuse diagnostics", knownAgentIds);
+    validateUniqueAgentIds(candidate.diagnostics.mindFallbackAgentIds, "bootstrap fallback diagnostics", knownAgentIds);
+    if (candidate.diagnostics.reusedAgentIds.length > 0 ||
+      contentHash([...candidate.diagnostics.activatedAgentIds].sort()) !== contentHash(committedAgents) ||
+      candidate.diagnostics.mindFallbackAgentIds.some((agentId) =>
+        !candidate.diagnostics.activatedAgentIds.includes(agentId))) {
+      throw new Error("bootstrap diagnostics do not match AgentMind commits");
     }
     source.bootstrapAgentCommits = commits.map((commit) => ({
       agentId: commit.agentId,
@@ -397,6 +534,7 @@ export class CanonicalCommitter {
     const mindCommits = candidate.mindCommits
       .sort((left, right) => left.agentId.localeCompare(right.agentId));
     const resolution = candidate.resolution;
+    const observations = resolutionObservations(resolution);
     const transitioned = applyTransitionProposal(source, resolution.proposal, candidate.temporalState);
     validateCandidateBoundary(
       source,
@@ -404,12 +542,20 @@ export class CanonicalCommitter {
       candidate,
       transitioned,
       maxAutonomousSpanSeconds,
+      observations,
+    );
+    validateStepDiagnostics(
+      source,
+      transitioned,
+      resolution.actions,
+      candidate,
+      policyRoster,
     );
     transitioned.truth.rng = structuredClone(resolution.rng);
     for (const agentId of Object.keys(transitioned.agents)) {
       transitioned.agents[agentId] = applyObservationBindings(
         transitioned.agents[agentId],
-        observationsFor(candidate.observations, agentId),
+        observationsFor(observations, agentId),
       );
     }
     const committedAgents = mindCommits.map((commit) => commit.agentId);
@@ -425,7 +571,7 @@ export class CanonicalCommitter {
       const observed = pendingObservationsFor(
         transitioned,
         transitioned.agents[commit.agentId],
-        observationsFor(candidate.observations, commit.agentId),
+        observationsFor(observations, commit.agentId),
       );
       transitioned.agents[commit.agentId] = applyMindCommit(
         transitioned.agents[commit.agentId],
@@ -465,7 +611,7 @@ export class CanonicalCommitter {
       causalAssertionResults: structuredClone(resolution.causalAssertionResults),
       causalVerification: structuredClone(resolution.causalVerification),
       events: structuredClone(resolution.proposal.events),
-      observations: structuredClone(candidate.observations),
+      observations: structuredClone(observations),
       operations: structuredClone(resolution.proposal.operations),
       decisionRequests: structuredClone(resolution.proposal.decisionRequests),
       beliefPatches: mindCommits.map((commit) => structuredClone(commit.beliefPatch)),
