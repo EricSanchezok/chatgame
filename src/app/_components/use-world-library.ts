@@ -2,7 +2,65 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CreateInstanceInput, PublicInstanceSummary, WorldSummary } from "../../shared/world-api";
-import { worldApi } from "../lib/world-api-client";
+import { WorldApiError, worldApi } from "../lib/world-api-client";
+
+const INITIAL_LOAD_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+
+type WorldLibraryApi = Pick<typeof worldApi, "worlds" | "instances">;
+
+interface LoadWorldLibraryOptions {
+  api?: WorldLibraryApi;
+  retryDelaysMs?: readonly number[];
+  signal?: AbortSignal;
+  wait?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+}
+
+function isRetryableLoadError(reason: unknown): boolean {
+  if (reason instanceof WorldApiError) {
+    return reason.status === 408 || reason.status === 429 || reason.status >= 500;
+  }
+  return reason instanceof TypeError;
+}
+
+function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal?.reason);
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export async function loadWorldLibrary({
+  api = worldApi,
+  retryDelaysMs = INITIAL_LOAD_RETRY_DELAYS_MS,
+  signal,
+  wait = waitForRetry,
+}: LoadWorldLibraryOptions = {}): Promise<{
+  worlds: WorldSummary[];
+  instances: PublicInstanceSummary[];
+}> {
+  for (let attempt = 0; ; attempt += 1) {
+    signal?.throwIfAborted();
+    try {
+      const [worldResult, instanceResult] = await Promise.all([api.worlds(), api.instances()]);
+      return { worlds: worldResult.worlds, instances: instanceResult.instances };
+    } catch (reason) {
+      const delayMs = retryDelaysMs[attempt];
+      if (delayMs === undefined || !isRetryableLoadError(reason)) throw reason;
+      await wait(delayMs, signal);
+    }
+  }
+}
 
 export function useWorldLibrary() {
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
@@ -27,17 +85,21 @@ export function useWorldLibrary() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([worldApi.worlds(), worldApi.instances()]).then(([worldResult, instanceResult]) => {
+    const controller = new AbortController();
+    void loadWorldLibrary({ signal: controller.signal }).then(({ worlds: loadedWorlds, instances: loadedInstances }) => {
       if (!active) return;
-      setWorlds(worldResult.worlds);
-      setInstances(instanceResult.instances);
+      setWorlds(loadedWorlds);
+      setInstances(loadedInstances);
       setError("");
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : String(reason));
     }).finally(() => {
       if (active) setLoading(false);
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
   const perform = useCallback(async <T,>(key: string, action: () => Promise<T>, message: string): Promise<T> => {
