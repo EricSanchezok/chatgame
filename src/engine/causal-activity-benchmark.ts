@@ -4,18 +4,29 @@ import {
   interactionDependencyComponents,
 } from "./action-dependency";
 import type { InteractionDependency } from "./execution";
-import type { AgentActionProposal } from "./model";
+import type { AgentActionProposal, WorldEntity } from "./model";
 import { contentHash } from "./model-audit";
+import {
+  planSharedResourceAdmissions,
+  type SharedResourceAdmissionResult,
+} from "./shared-resource-allocation";
+import type {
+  SharedActivityResourceClaim,
+  SharedActivityResourceDefinition,
+  SharedActivityResourcePool,
+} from "./shared-activity-resources";
 import type { ActivityState, TemporalPlan } from "./temporal";
 
-export const CAUSAL_ACTIVITY_BENCHMARK_SCHEMA_VERSION = 1 as const;
+export const CAUSAL_ACTIVITY_BENCHMARK_SCHEMA_VERSION = 2 as const;
 
 export type CausalConflictDensity = "zero" | "sparse" | "dense" | "global_fallback";
+export type SharedResourceContentionDensity = "none" | "sparse" | "dense";
 export type CausalActivityType = "short" | "long" | "staged" | "conditional" | "ongoing";
 
 export interface CausalActivityBenchmarkScenario {
   agents: number;
   conflictDensity: CausalConflictDensity;
+  resourceContentionDensity: SharedResourceContentionDensity;
   activityType: CausalActivityType;
   semantic: {
     scenarioPassRate: number;
@@ -23,6 +34,7 @@ export interface CausalActivityBenchmarkScenario {
     falseActivationRate: number;
     causalOrderViolations: number;
     replayHashConsistent: boolean;
+    sharedAllocationConsistent: boolean;
   };
   modelCost: {
     invocations: number;
@@ -34,10 +46,14 @@ export interface CausalActivityBenchmarkScenario {
   computation: {
     p50Ms: number;
     p95Ms: number;
+    resourceAllocationP50Ms: number;
+    resourceAllocationP95Ms: number;
     peakHeapUsedBytes: number;
     artifactBytes: number;
     footprintQueries: number;
+    resourceAllocationRuns: number;
     maxInteractionComponent: number;
+    maxQueueLength: number;
   };
   playerWaitMs: null;
 }
@@ -50,7 +66,41 @@ export interface CausalActivityBenchmarkReport {
 }
 
 const densities: readonly CausalConflictDensity[] = ["zero", "sparse", "dense", "global_fallback"];
+const resourceDensities: readonly SharedResourceContentionDensity[] = ["none", "sparse", "dense"];
 const activityTypes: readonly CausalActivityType[] = ["short", "long", "staged", "conditional", "ongoing"];
+
+const benchmarkResourceDefinition: SharedActivityResourceDefinition = {
+  id: "benchmark-resource",
+  name: "benchmark resource",
+  unit: "slot",
+  defaultClaimAmount: 1,
+  allowExplicitAmount: false,
+  contention: "queue",
+  pausedRetention: "release",
+};
+
+const benchmarkResourceEntity: WorldEntity = {
+  id: "benchmark-resource-entity",
+  kind: "benchmark-resource",
+  name: "benchmark resource",
+  description: "Deterministic shared-resource benchmark fixture.",
+  lifecycle: "active",
+  createdAtStep: 0,
+};
+
+function resourceClaim(
+  density: SharedResourceContentionDensity,
+  index: number,
+): SharedActivityResourceClaim[] {
+  if (density === "none" || (density === "sparse" && index % 10 !== 0)) return [];
+  return [{
+    poolId: "benchmark-resource-pool",
+    definitionId: benchmarkResourceDefinition.id,
+    entityId: benchmarkResourceEntity.id,
+    amount: 1,
+    basis: { kind: "default" },
+  }];
+}
 
 function percentile(values: readonly number[], fraction: number): number {
   const ordered = [...values].sort((left, right) => left - right);
@@ -96,8 +146,14 @@ function footprintRef(density: CausalConflictDensity, index: number, side: "acti
   return { kind: "fact" as const, id: `${side}-${index}` };
 }
 
-function activityFor(type: CausalActivityType, density: CausalConflictDensity, index: number): ActivityState {
+function activityFor(
+  type: CausalActivityType,
+  density: CausalConflictDensity,
+  resourceDensity: SharedResourceContentionDensity,
+  index: number,
+): ActivityState {
   const plan = planFor(type, index);
+  const sharedResourceClaims = resourceClaim(resourceDensity, index);
   const sourceAction: AgentActionProposal = {
     id: plan.actionId,
     actorId: plan.actorId,
@@ -117,7 +173,7 @@ function activityFor(type: CausalActivityType, density: CausalConflictDensity, i
       : footprintRef(density, index, "activity")],
     writes: [],
     audienceAgentIds: [plan.actorId],
-    sharedResourceClaims: [],
+    sharedResourceClaims: structuredClone(sharedResourceClaims),
     globalFallback,
   };
   return {
@@ -135,12 +191,16 @@ function activityFor(type: CausalActivityType, density: CausalConflictDensity, i
     completionAtSeconds: plan.completionAtSeconds,
     progress: null,
     resourceClaims: [],
-    sharedResourceClaims: [],
+    sharedResourceClaims,
     interactionFootprint,
   };
 }
 
-function incomingFor(density: CausalConflictDensity, index: number): InteractionDependency {
+function incomingFor(
+  density: CausalConflictDensity,
+  resourceDensity: SharedResourceContentionDensity,
+  index: number,
+): InteractionDependency {
   const globalFallback = density === "global_fallback";
   return {
     kind: "action",
@@ -151,7 +211,7 @@ function incomingFor(density: CausalConflictDensity, index: number): Interaction
       ? { kind: "global", id: "world" }
       : footprintRef(density, index, "incoming")],
     audienceAgentIds: [`trigger-${index}`],
-    sharedResourceClaims: [],
+    sharedResourceClaims: resourceClaim(resourceDensity, index),
     globalFallback,
   };
 }
@@ -159,22 +219,44 @@ function incomingFor(density: CausalConflictDensity, index: number): Interaction
 function scenario(
   agents: number,
   conflictDensity: CausalConflictDensity,
+  resourceContentionDensity: SharedResourceContentionDensity,
   activityType: CausalActivityType,
   samples: number,
 ): CausalActivityBenchmarkScenario {
   const activities = Object.fromEntries(Array.from({ length: agents }, (_, index) => {
-    const activity = activityFor(activityType, conflictDensity, index);
+    const activity = activityFor(activityType, conflictDensity, resourceContentionDensity, index);
     return [activity.id, activity];
   }));
-  const incoming = Array.from({ length: agents }, (_, index) => incomingFor(conflictDensity, index));
+  const incoming = Array.from({ length: agents }, (_, index) =>
+    incomingFor(conflictDensity, resourceContentionDensity, index));
+  const claimCount = Object.values(activities).filter((activity) => activity.sharedResourceClaims.length > 0).length;
+  const resourceCapacity = resourceContentionDensity === "none" ? 0 : Math.max(1, Math.ceil(claimCount / 2));
+  const benchmarkResourcePool: SharedActivityResourcePool = {
+    id: "benchmark-resource-pool",
+    definitionId: benchmarkResourceDefinition.id,
+    entityId: benchmarkResourceEntity.id,
+    capacity: resourceCapacity,
+  };
+  const allocationInput = {
+    activities,
+    proposalActivityIds: Object.keys(activities),
+    pools: { [benchmarkResourcePool.id]: benchmarkResourcePool },
+    definitions: { [benchmarkResourceDefinition.id]: benchmarkResourceDefinition },
+    entities: { [benchmarkResourceEntity.id]: benchmarkResourceEntity },
+  };
   const oracle = affectedActivityIdsExhaustive(activities, incoming);
   const durations: number[] = [];
+  const allocationDurations: number[] = [];
   let indexed: string[] = [];
+  let allocation: SharedResourceAdmissionResult = { admissions: [], usageBefore: [] };
   let peakHeapUsedBytes = process.memoryUsage().heapUsed;
   for (let sample = 0; sample < samples; sample += 1) {
     const startedAt = performance.now();
     indexed = new ActivityFootprintIndex(activities).affectedBy(incoming);
     durations.push(performance.now() - startedAt);
+    const allocationStartedAt = performance.now();
+    allocation = planSharedResourceAdmissions(allocationInput);
+    allocationDurations.push(performance.now() - allocationStartedAt);
     peakHeapUsedBytes = Math.max(peakHeapUsedBytes, process.memoryUsage().heapUsed);
   }
   const oracleSet = new Set(oracle);
@@ -185,14 +267,30 @@ function scenario(
   const replayHashConsistent = contentHash(indexed) === contentHash(
     new ActivityFootprintIndex(activities).affectedBy(incoming),
   );
+  const replayedAllocation = planSharedResourceAdmissions(allocationInput);
+  const claimedActivityIds = Object.values(activities)
+    .filter((activity) => activity.sharedResourceClaims.length > 0)
+    .map((activity) => activity.id)
+    .sort();
+  const claimedOrdinal = new Map(claimedActivityIds.map((activityId, index) => [activityId, index]));
+  const expectedAdmissionKinds = Object.keys(activities).sort().map((activityId) => ({
+    activityId,
+    kind: !claimedOrdinal.has(activityId) || claimedOrdinal.get(activityId)! < resourceCapacity
+      ? "granted" as const
+      : "queue" as const,
+  }));
+  const actualAdmissionKinds = allocation.admissions.map(({ activityId, kind }) => ({ activityId, kind }));
+  const sharedAllocationConsistent = contentHash(actualAdmissionKinds) === contentHash(expectedAdmissionKinds) &&
+    contentHash(allocation) === contentHash(replayedAllocation);
   const components = interactionDependencyComponents([
     ...Object.values(activities).map((activity) => activity.interactionFootprint),
     ...incoming,
   ]);
-  const passed = recall === 1 && falseActivationRate === 0 && replayHashConsistent;
+  const passed = recall === 1 && falseActivationRate === 0 && replayHashConsistent && sharedAllocationConsistent;
   return {
     agents,
     conflictDensity,
+    resourceContentionDensity,
     activityType,
     semantic: {
       scenarioPassRate: passed ? 1 : 0,
@@ -200,6 +298,7 @@ function scenario(
       falseActivationRate,
       causalOrderViolations: 0,
       replayHashConsistent,
+      sharedAllocationConsistent,
     },
     modelCost: {
       invocations: 0,
@@ -211,10 +310,21 @@ function scenario(
     computation: {
       p50Ms: Number(percentile(durations, 0.5).toFixed(3)),
       p95Ms: Number(percentile(durations, 0.95).toFixed(3)),
+      resourceAllocationP50Ms: Number(percentile(allocationDurations, 0.5).toFixed(3)),
+      resourceAllocationP95Ms: Number(percentile(allocationDurations, 0.95).toFixed(3)),
       peakHeapUsedBytes,
-      artifactBytes: Buffer.byteLength(JSON.stringify({ activities, incoming, oracle, indexed }), "utf8"),
+      artifactBytes: Buffer.byteLength(JSON.stringify({
+        activities,
+        incoming,
+        oracle,
+        indexed,
+        allocation,
+        expectedAdmissionKinds,
+      }), "utf8"),
       footprintQueries: samples + 2,
+      resourceAllocationRuns: samples + 1,
       maxInteractionComponent: Math.max(0, ...components.map((component) => component.length)),
+      maxQueueLength: allocation.admissions.filter((admission) => admission.kind === "queue").length,
     },
     playerWaitMs: null,
   };
@@ -223,6 +333,7 @@ function scenario(
 export function runCausalActivityBenchmark(input: {
   agents?: readonly number[];
   conflictDensities?: readonly CausalConflictDensity[];
+  resourceContentionDensities?: readonly SharedResourceContentionDensity[];
   activityTypes?: readonly CausalActivityType[];
   samplesPerScenario?: number;
 } = {}): CausalActivityBenchmarkReport {
@@ -231,6 +342,7 @@ export function runCausalActivityBenchmark(input: {
     throw new Error("causal benchmark Agent counts must be positive safe integers");
   }
   const selectedDensities = [...new Set(input.conflictDensities ?? densities)];
+  const selectedResourceDensities = [...new Set(input.resourceContentionDensities ?? resourceDensities)];
   const selectedTypes = [...new Set(input.activityTypes ?? activityTypes)];
   const samplesPerScenario = input.samplesPerScenario ?? 5;
   if (!Number.isSafeInteger(samplesPerScenario) || samplesPerScenario <= 0) {
@@ -241,6 +353,7 @@ export function runCausalActivityBenchmark(input: {
     generatedAt: new Date().toISOString(),
     samplesPerScenario,
     scenarios: agents.flatMap((agentCount) => selectedDensities.flatMap((density) =>
-      selectedTypes.map((activityType) => scenario(agentCount, density, activityType, samplesPerScenario)))),
+      selectedResourceDensities.flatMap((resourceDensity) => selectedTypes.map((activityType) =>
+        scenario(agentCount, density, resourceDensity, activityType, samplesPerScenario))))),
   };
 }
