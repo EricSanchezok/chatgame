@@ -109,3 +109,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0068 — Unified Agent Perspective](0068-unified-agent-perspective.md)
 - [0069 — Blobatar World Spirit](0069-blobatar-world-spirit.md)
 - [0070 — Event-boundary Temporal Runtime](0070-event-boundary-temporal-runtime.md)
+- [0071 — Pin Algorithms and Own Stable Telemetry in the Engine](0071-pin-algorithms-and-own-telemetry-in-the-engine.md)
