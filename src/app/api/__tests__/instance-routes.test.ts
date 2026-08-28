@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DeterministicModelProvider } from "../../../engine/testing/model-provider";
+import type { ModelRegistryDiagnostics } from "../../../engine/model-provider";
 import { loadWorldScript } from "../../../script/world-loader";
 import { MemoryWorldRepository } from "../../../script/world-repository";
 import { LocalDatabase } from "../../../server/local-database";
@@ -14,13 +15,46 @@ import { POST as submitReaction } from "../instances/[id]/participants/[particip
 import { GET as getInstance } from "../instances/[id]/route";
 import { GET as getObserver } from "../instances/[id]/observer/route";
 import { POST as createInstance } from "../instances/route";
+import { GET as getModelRegistry } from "../model-registry/route";
+import { POST as refreshModelRegistry } from "../model-registry/refresh/route";
 
 let root: string;
 let database: LocalDatabase;
+let registryRefreshCalls: number;
 
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), "lwe-instance-routes-"));
-  const provider = new DeterministicModelProvider();
+  registryRefreshCalls = 0;
+  const baseProvider = new DeterministicModelProvider();
+  const diagnostics: ModelRegistryDiagnostics = {
+    catalog: { schemaVersion: 3, hash: baseProvider.catalog.hash },
+    registry: {
+      source: "https://models.dev/api.json",
+      health: "fresh",
+      refreshing: false,
+      currentHash: "a".repeat(64),
+      checkedAt: "2026-08-28T00:00:00.000Z",
+      ageMs: 0,
+      stale: false,
+      lastError: null,
+    },
+    accounts: [],
+    profiles: [],
+  };
+  const provider = Object.assign(baseProvider, {
+    async modelRegistryDiagnostics() {
+      return diagnostics;
+    },
+    async refreshModelRegistry() {
+      registryRefreshCalls += 1;
+      return {
+        outcome: "unchanged" as const,
+        checkedAt: "2026-08-28T00:00:00.000Z",
+        error: null,
+        diagnostics,
+      };
+    },
+  });
   const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
     seed: 71,
     modelCatalog: provider.catalog,
@@ -49,6 +83,25 @@ function jsonRequest(url: string, value: unknown): Request {
 }
 
 describe("World Instance Route Handlers", () => {
+  it("returns safe model registry diagnostics and refreshes through the fixed route", async () => {
+    const statusResponse = await getModelRegistry(new Request("http://local/api/model-registry"));
+    expect(statusResponse.status).toBe(200);
+    expect(await statusResponse.json()).toMatchObject({
+      catalog: { schemaVersion: 3 },
+      registry: { source: "https://models.dev/api.json", health: "fresh" },
+      accounts: [],
+      profiles: [],
+    });
+
+    const refreshResponse = await refreshModelRegistry(new Request(
+      "http://local/api/model-registry/refresh",
+      { method: "POST" },
+    ));
+    expect(refreshResponse.status).toBe(200);
+    expect(await refreshResponse.json()).toMatchObject({ outcome: "unchanged" });
+    expect(registryRefreshCalls).toBe(1);
+  });
+
   it("uses the production observer and transactional Origin paths", async () => {
     const headlessResponse = await createInstance(jsonRequest("http://local/api/instances", {
       worldId: "open-world-fixture",
