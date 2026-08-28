@@ -5,7 +5,7 @@ Tests are executable evidence that a meaningful regression becomes visible befor
 ## Test topology
 
 - Vitest tests are colocated as `src/**/__tests__/*.test.ts`, `src/**/*.test.tsx`, and focused library tests under `src/app/_lib/__tests__/`; `vitest.config.ts` selects the unit project and `test/setup.ts` owns shared jsdom setup.
-- `test/fixtures/open-world-script/` is the shared schema v12 world fixture. It proves the generic contract and is not built-in playable content.
+- `test/fixtures/open-world-script/` is the shared schema v13 world fixture. It proves the generic contract and is not built-in playable content.
 - Playwright flows live under `e2e/flows/`, accessibility coverage under `e2e/a11y/`, shared support under `e2e/support/`, and platform-specific visual baselines beside the owning visual flow. `playwright.config.ts` selects the e2e and a11y projects.
 - `worlds/blackmarsh/` is the real reference-world entry used for structural and live compatibility checks.
 
@@ -24,17 +24,18 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - Remote-model tests never print credentials, prompts, or raw responses and never replace deterministic semantic gates.
 - A regression test fails for the escaped behavior before the fix and passes afterward, unless an existing deterministic reproduction already owns the contract.
 
-## `eager-reference@4`
+## `eager-reference@5`
 
 - Only decision-eligible model and external Agents produce new actions. Active Activities reuse their committed source action only when due; occupied, idle, and timed-out Agents produce no replacement action or noop.
-- Grounding covers intersecting read/write/audience footprints, independent components, unknown-dependency global fallback, cross-component merge, and the rule that private IDs never enter the canonical catalog.
+- Grounding covers intersecting read/write/audience/resource-pool footprints, independent components, unknown-dependency global fallback, cross-component merge, and the rule that private IDs never enter the canonical catalog. It produces shared-resource claims in the same invocation and does not wake an unrelated occupied Agent.
 - Every new action receives one validated TemporalPlan from explicit text, a named script profile, or a trusted rule result. Tests reject arbitrary model seconds and prove fixed, rate, staged, conditional, ongoing, pause/resume/cancel, same-time due sets, and resource capacity.
 - Every due action receives exactly one engine-preallocated outcome slot. `advance_time` is engine-generated, positive, and equal to the earliest absolute boundary; unrelated earlier boundaries cannot drift a later Activity checkpoint.
 - Observation tests cover byte-based model-input batching, fixed observer slots, complete materialization, permission checks, and local repair. One observer exceeding its budget fails explicitly.
 - AgentMind consumes all authorized observations after the Agent's persisted cursor only at a decision point. Network, cancellation, configuration, or Ledger failures discard candidates. Exhausted semantic repair for one eligible Agent leaves a countable typed fallback and never fabricates belief. External, idle, and occupied Agents do not run AgentMind.
 - A headless one-step run of Blackmarsh's 48 autonomous Agents is the structural regression. Domain actions may be blocked, partial, or noop, but the run cannot fail because of a missing outcome, missing time, or ID-namespace confusion.
 - Registry conformance rejects invalid versions, non-JSON configuration, duplicate components, hash mismatches, and factory identity mismatches. Instance tests prove the pinned algorithm survives default changes and that an unavailable algorithm fails before model work or mutation.
-- Candidate tests prove version, exact generic interaction coverage, single-source audits and observations, frozen reaction identity/basis/policy provenance, replacement coverage, and committer-side reference and audience validation.
+- Candidate tests prove version, exact generic interaction coverage, single-source audits and observations, frozen reaction identity/basis/policy provenance, replacement coverage, and committer-side reference, audience, claim-provenance, capacity, atomic-allocation, FIFO, holder-disposition, and retired-resource validation.
+- Shared-resource scenarios prove deterministic `reject`, FIFO `queue`, joint `adjudicate`, capacity-four allocation, all-or-none multi-pool claims, pause retention/release, queue-head cancellation, assertion invalidation, capacity reduction, Entity retirement, release-to-ready promotion, and fresh timing on the next positive boundary.
 - Runtime telemetry tests prove stable metrics exist without algorithm diagnostics, malformed stable events fail, due Activity/Timer/Condition and result dimensions remain reconstructable, aggregation follows the registered `sum | count | last | max` semantics, and mid-generation rollback retains model work while canonical state remains unchanged.
 
 ## World Instance and Participant
@@ -56,7 +57,7 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - Execution Ledger tests prove complete requests, responses, and candidates can be retrieved by execution; critical write failure blocks revision; failed executions remain; Instance CAS and terminal record commit atomically.
 - Recorded replay resolves the recorded producer through the registry, never accesses the network, and produces the same semantic and state hashes. Compare partitions transition, observation, and mind changes. Export derives only from original events and artifacts.
 - Aggregate metrics reject high-cardinality Agent, Participant, Instance, Event, and invocation dimensions; subject detail remains queryable from traces.
-- The 1/10/50/1000-Agent matrix uses world/seed as the repeated unit and never treats Agents from one world as independent samples.
+- The 1/10/50/1000-Agent matrix crosses independent/sparse/dense/global causal conflict with none/sparse/dense shared-resource contention. It compares the production footprint index with an exhaustive oracle and the production allocator with an independent capacity/FIFO expectation; wall-clock results are recorded without a CI threshold.
 
 ## Maintenance budget
 
@@ -66,4 +67,4 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - A flaky test is a broken signal. Fix the uncontrolled boundary or quarantine it with an owner and repair condition; never normalize blind retries.
 - Expensive fuzzing, mutation, visual, load, and large environment matrices require a repository risk that pays for their continuing cost.
 
-The verification rationale is recorded in [0034](decisions/0034-truth-engine-verification-matrix.md), [0063](decisions/0063-eager-reference-execution.md), and [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md).
+The verification rationale is recorded in [0034](decisions/0034-truth-engine-verification-matrix.md), [0063](decisions/0063-eager-reference-execution.md), [0064](decisions/0064-conversation-core-and-agent-perspective-observer.md), and [0074](decisions/0074-enforce-script-owned-shared-resource-pools.md).

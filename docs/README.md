@@ -3,7 +3,7 @@
 ## 当前参考
 
 - [architecture.md](architecture.md) — 模块边界、数据流与硬不变量。
-- [game-design/script-format.md](game-design/script-format.md) — schema v12 世界包、开放效果、时间活动与 Origin 配置。
+- [game-design/script-format.md](game-design/script-format.md) — schema v13 世界包、开放效果、时间活动、共享资源与 Origin 配置。
 - [game-design/engine-runtime.md](game-design/engine-runtime.md) — 多 Agent 联合仿真、检定与事务语义。
 - [game-design/causal-activity-benchmark.md](game-design/causal-activity-benchmark.md) — 时间、因果、并发和恢复 benchmark 契约。
 - [game-design/model-gateway.md](game-design/model-gateway.md) — 模型目录、供应商适配、严格输出与公平队列。

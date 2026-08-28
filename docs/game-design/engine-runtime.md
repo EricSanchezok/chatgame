@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v12 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity 与 WorldTimer；`WorldInstanceDocument` v17 在其外层固定 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、准备 artifact、调度配置和 WorldRun。
+`SimulationState` v13 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v18 在其外层固定 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v2 artifact、调度配置和 WorldRun。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -24,23 +24,32 @@ type PolicyBinding =
 
 每个新行动在裁决前获得一个 `TemporalPlan`，其形态为 fixed、rate、staged、conditional 或 ongoing。时间数值只来自玩家原文中可独立验证的明确数量、世界剧本的命名 Temporal Profile，或版本化 Rule Package 的确定性结果；`temporal-planner` 只能选择 Profile 并引用依据，不能填写任意 clock delta、`elapsedSeconds`、最终进度或完成效果。
 
-引擎把 TemporalPlan 物化为 canonical Activity。Activity 保存来源行动、参与 Agent、状态、阶段、开始与更新时间、进度、下一个绝对检查点、完成时刻、可中断性、资源声明、`continuationAssertions` 与持久 `interactionFootprint`；每步使用从 canonical Activities 重建的临时倒排索引，不持久化派生索引。默认前台容量由剧本声明为一，同一 Agent 的额外并发能力也只能由剧本资源容量授权。WorldTimer 保存未来到期时刻、唤醒对象、causes 与 assertions，不保存未经验证的未来 state delta。世界脚本可用 `world_timers` 物化初始绝对触发；到期且没有同一 Agent 的到期 Activity 时，内核注入确定性的 Timer trigger action，同刻交给 Truth，CanonicalCommitter 会重新构造并核对该 action。
+引擎把 TemporalPlan 物化为 canonical Activity。Scheduled Activity 保存来源行动、参与 Agent、阶段、开始与更新时间、进度、下一个绝对检查点、完成时刻、可中断性、每 Agent 资源声明、共享资源 claims、`continuationAssertions` 与持久 `interactionFootprint`；`queued` 保存同一行动证据和已验证的 plan draft，`ready` 再增加原子预留时刻。每步使用从 canonical Activities 重建的临时倒排索引，不持久化派生索引。默认前台容量由剧本声明为一，同一 Agent 的额外并发能力也只能由剧本资源容量授权。WorldTimer 保存未来到期时刻、唤醒对象、causes 与 assertions，不保存未经验证的未来 state delta。世界脚本可用 `world_timers` 物化初始绝对触发；到期且没有同一 Agent 的到期 Activity 时，内核注入确定性的 Timer trigger action，同刻交给 Truth，CanonicalCommitter 会重新构造并核对该 action。
 
 每次提交选择所有 active Activity 检查点、Timer、Condition 到期和 `max_autonomous_span_seconds` 中最早的绝对时刻。同刻到期项联合裁决，提交只含一个由内核注入的正整数 `advance_time`。无关的更早边界可以更新可见进度，但不能把未到期 Activity 的绝对检查点改成“当前时间加间隔”。完成效果只能在完成或对应阶段边界产生；控制面暂停不形成零时间世界提交。
 
-`eager-reference@4` 的阶段如下：
+## 共享物理资源
+
+`shared_activity_resources` 定义名称、单位、默认 claim 数量、是否允许行动原文显式数量、`reject | queue | adjudicate` 争用策略和暂停时 `retain | release`。具体 canonical Entity 声明 pool capacity；pool ID 由 world hash、定义 ID 和 Entity ID 确定性派生。普通 Fact 不能建立硬容量，模型也不能自报 claim 数量；数量只能来自定义默认值、可核验的行动原文或受信任 mechanic。
+
+Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active holder、retain 型 pause 和 `ready` reservation 计入占用；一个 Activity 的多个 claims 全部满足才可获得。容量不足时，`reject` 确定性 block，`queue` 按 `(enqueuedAtSeconds, activityId)` 等待，`adjudicate` 把竞争行动和 holder 放入同一 Truth 分量；混合策略只按 `adjudicate > queue > reject` 选择路线，任何路线都不能绕过容量。
+
+终止 disposition 释放全部 claims，pause 按定义保留或释放。每次正时间提交先应用 disposition，再按相互连接的 pool 划分 FIFO 分量；每个分量遇到第一个无法完整满足的队首就停止，其他不相连分量仍可推进。满足者转为 `ready` 并持有原子 reservation，在下一次普通正时间步骤重新验证 assertions 后从当前 canonical 时间物化新 TemporalPlan；排队时间不回填进度。Entity retirement 或 capacity decrease 只有在同一 Candidate 释放足够 holder 时才合法。
+
+`eager-reference@5` 的阶段如下：
 
 1. 只为当前决策点的 model/external Agent 收集新行动；被 active Activity 占用的 Agent 不运行普通 AgentMind。
-2. 每个新行动独立规划 TemporalPlan 和 Action dependency，并在当前时刻物化带 footprint 与 continuation assertions 的 Activity。普通新行动替换本人可中断 Activity 时，同一投影先取消旧 Activity。
-3. 临时 `ActivityFootprintIndex` 查询新行动影响的 active Activities。只有 dependency 相交、共享位置、连接双方的可访问关系 Fact 或成功感知检定提供依据，且 Activity 可中断时，才冻结一轮 onset reaction 请求；正持续时间保证此刻的替换仍先于未来结算。
+2. 每个新行动独立规划 TemporalPlan，并用一次 grounding 生成 read/write/audience footprint 和共享资源 claims，在当前时刻物化带 continuation assertions 的 Activity。普通新行动替换本人可中断、queued 或 ready Activity 时，同一投影先取消旧 Activity。
+3. 临时 `ActivityFootprintIndex` 通过 footprint、participant、audience 和 resource-pool key 查询新行动影响的 live Activities。只有 dependency 相交、共享位置、连接双方的可访问关系 Fact 或成功感知检定提供依据，且 Activity 可中断时，才冻结一轮 onset reaction 请求；正持续时间保证此刻的替换仍先于未来结算。
 4. model、external、replay 与 profile fallback 分别产生 `ReactionDecision`。`keep` 可继续、暂停或取消当前 Activity；`replace` 从当前世界时间重新规划并 grounding。请求集合冻结，replacement 扩大依赖只触发全局重裁决，不递归请求反应。
-5. 所有 keep、replacement、新行动、既有 Activity、Timer、Condition expiry、assertion boundary 和安全上限共同进入一次确定性最早边界选择。
-6. 到期行动与 `Action | Activity | Timer | Condition` 通用 interaction dependencies 形成冲突分量。纯 context node 不伪造 ActionOutcome；实际 operation 超出声明 footprint、replacement 改变依赖图，或分量实际读写交叉时，全体行动以 global dependency 重新裁决。
-7. transition 只能提交语义操作和规则调用。引擎用 `core-resolution@2.0.0` 结算可信收据并注入唯一正时间 `advance_time`。每个到期或受影响 Activity 必须有 `continue | pause | complete | block | fail | cancel` disposition；continuation assertions 在创建和受影响 transition 前后验证，失效且无更具体语义时确定性 block。
-8. Observation Renderer 根据 transition 后状态、事件和 interaction audience 生成固定槽位 observation。onset `keep` 可以让 Activity 在接收本次刺激后继续；没有预警的相关结果则可在同一提交中暂停 Activity。只有已解除 active 占用的真正决策点才允许运行 AgentMind。
-9. CanonicalCommitter 重新应用 Candidate v3，并独立重建 source hash、最早边界、四类 interaction nodes、affected Activity 集、dispositions、assertion evidence、统一 Observation 和全部 canonical 不变量，随后构造 `CommittedStep` 与下一状态。
+5. 分配器原子处理新 claims。reject/queue 不调用 Truth 争抢容量；adjudicate 把相关 holder 的持久 source action 加入同一 Truth 分量，不重新 grounding，也不增加 AgentMind 调用。
+6. 所有 keep、replacement、已准入新行动、既有 Activity、ready start、Timer、Condition expiry、assertion boundary 和安全上限共同进入一次确定性最早边界选择。
+7. 到期行动与 `Action | Activity | Timer | Condition` 通用 interaction dependencies 形成冲突分量；受影响 Activity 沿持久 footprint 扩展到固定点闭包。纯 context node 不伪造 ActionOutcome；实际 operation 超出声明 footprint、replacement 改变依赖图，或分量实际读写交叉时，全体行动以 global dependency 重新裁决。
+8. transition 只能提交语义操作和规则调用。引擎用 `core-resolution@2.0.0` 结算可信收据并注入唯一正时间 `advance_time`。每个到期或受影响 Activity 必须有 `continue | pause | complete | block | fail | cancel` disposition；continuation assertions 在创建和受影响 transition 前后验证，失效且无更具体语义时确定性 block。释放后的队列推进与最终状态属于同一原子候选。
+9. Observation Renderer 根据 transition 后状态、事件和 interaction audience 生成固定槽位 observation；reject、入队、预留、开始和争用结果不维护第二套叙事事实。onset `keep` 可以让 Activity 在接收本次刺激后继续；没有预警的相关结果则可在同一提交中暂停 Activity。只有已解除 active 占用的真正决策点才允许运行 AgentMind。
+10. CanonicalCommitter 重新应用 Candidate v4，并独立重建 source hash、最早边界、四类 interaction nodes、affected Activity 集、claims、holder 释放、admissions、FIFO promotion、dispositions、assertion evidence、统一 Observation 和全部 canonical 不变量，随后构造 `CommittedStep` 与下一状态。
 
-算法不持有状态写入能力，也不能定义稳定事件或指标语义。执行契约 v3 将一步拆为可 JSON 持久化的 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
+算法不持有状态写入能力，也不能定义稳定事件或指标语义。Execution Contract v4 将一步拆为可 JSON 持久化的 Preparation v2 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
 
 ## Truth 与随机承诺
 
@@ -119,7 +128,7 @@ Origin 准入引用一个 Entity Mechanics Profile，确定性创建 Entity、Ag
 
 ## 提交与重放
 
-提交内核校验：状态 schema、revision、TemporalBoundary、TemporalPlan 权威来源、Activity/Timer snapshot、行动、ResolutionPlan、ResolutionReceipt 与 outcome 一一覆盖、计划和 d20 的确定性派生、收据与可信操作绑定、唯一 Condition/time settlement、随机顺序、causal refs、断言、世界引用、守恒、范围、placement、observation 权限、决策资格、mind commit 覆盖、RNG 连续性、semantic hash 与历史 replay。
+提交内核校验：状态 schema、revision、TemporalBoundary、TemporalPlan 权威来源、Activity/Timer snapshot、共享资源 pool/claim provenance/capacity/holder/queue/promotion、行动、ResolutionPlan、ResolutionReceipt 与 outcome 一一覆盖、计划和 d20 的确定性派生、收据与可信操作绑定、唯一 Condition/time settlement、随机顺序、causal refs、断言、世界引用、守恒、范围、placement、observation 权限、决策资格、mind commit 覆盖、RNG 连续性、semantic hash 与历史 replay。
 
 成功步骤的实例 CAS、WorldRun 更新与 execution terminal record 在一个 SQLite 事务中完成。失败、暂停、超时和迟到结果只更新运行或 execution 诊断，不改变 canonical revision。canonical history replay 从每个 CommittedStep 恢复完整 temporal snapshot，验证持久计划、收据、随机承诺和可信操作，且不调用模型或重新裁决语义；recorded execution replay 从 Execution Ledger 的 producer manifest 恢复 `AlgorithmRef`，经同一 registry 构造算法，再消费原始结构化响应并运行固定提交内核。
 

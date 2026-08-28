@@ -2,7 +2,7 @@
 
 ## 投影边界
 
-公共产品契约为 `src/shared/world-api.ts`（API v10）。Participant 的 `controlledView` 是本人所控 Agent 在当前 revision 的 `AgentPerspectiveView`；DTO 只包含 Arrival、行动、Observation、授权 Activity 进度与该 Agent 的私有状态。反应窗口只额外投影本人 stimulus，不暴露 basis、其他主体请求或 canonical binding。对话由这些持久事实投影，不保存独立聊天记录。
+公共产品契约为 `src/shared/world-api.ts`（API v11）。Participant 的 `controlledView` 是本人所控 Agent 在当前 revision 的 `AgentPerspectiveView`；DTO 只包含 Arrival、行动、Observation、授权 Activity 进度与该 Agent 的私有状态。反应窗口只额外投影本人 stimulus，不暴露 basis、其他主体请求或 canonical binding。对话由这些持久事实投影，不保存独立聊天记录。
 
 Observer 契约为 `src/shared/world-observer-api.ts`。`selected.perspective` 与 Participant 使用同一投影器，包含所选 Agent 的精确自身状态、授权关系、主观认知、角色状态和完整主观历史；切换 Agent 不形成跨主体认知聚合。
 
@@ -14,7 +14,7 @@ Observer 契约为 `src/shared/world-observer-api.ts`。`selected.perspective` �
 
 | 方法与路径 | 语义 |
 |---|---|
-| `GET /api/worlds` | 列出已安装的 schema v12 世界 |
+| `GET /api/worlds` | 列出已安装的 schema v13 世界 |
 | `POST /api/worlds/import` | 导入或显式替换世界 ZIP |
 | `DELETE /api/worlds/:id` | 在没有关联实例时卸载世界 |
 | `GET /api/worlds/:id/start-options` | 读取 Origin 与 Observer 准入选项 |
@@ -48,7 +48,7 @@ Participant 页面使用 44rem 单轴 assistant-ui 消息流。第一条 World �
 
 composer 只负责发送、失败重试和可选的高级 detach，不提供单步、批量或实时按钮。发送行动时，服务端先持久化 intent 和当前 decision point 的 ActionWindow，再由后台 WorldRun 逐个最早时间边界推进，直到活动完成、失败、中断、需要选择、玩家暂停或运行预算耗尽。
 
-同一个 Participant intent 可以投影多条 committed Observation；每条显示对应世界时间、Activity 阶段和授权进度。WorldRun 自动执行时 composer 切换为运行控制台并提供暂停；paused 后可以恢复，也可以发送普通自然语言行动取消或改变当前 Activity。刷新、重复提交和服务重启不会新增消息或重复行动，进程恢复后的 run 保持 paused。
+同一个 Participant intent 可以投影多条 committed Observation；每条显示对应世界时间、Activity 阶段和授权进度。`queued` 显示经过权限过滤的资源名称与队列位置，`ready` 显示资源已预留且会在下一次时间推进开始；两者都不暴露其他持有者的 canonical 身份。WorldRun 自动执行时 composer 切换为运行控制台并提供暂停；paused 后可以恢复，也可以发送普通自然语言行动取消或改变当前 Activity。刷新、重复提交和服务重启不会新增消息或重复行动，进程恢复后的 run 保持 paused。
 
 ## Observer 会话
 
@@ -66,7 +66,7 @@ Observer 不能提交角色行动。接管成功后页面切换为 Participant �
 
 ## 控制球与 Inspector
 
-可拖动控制球提供主菜单、存档、设置和视角工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定、全部认知和完整时间因果证据。Inspector 的时间视图显示动态 Δt、边界来源、同刻到期集合、TemporalPlan、Activity 转换、Timer、决策点和提交前后快照。
+可拖动控制球提供主菜单、存档、设置和视角工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定、全部认知和完整时间因果证据。Inspector API v5 的时间视图显示动态 Δt、边界来源、同刻到期集合、TemporalPlan、Activity 转换、Timer、决策点、共享资源容量/持有/队列/分配证据和提交前后快照。
 
 工具使用注册槽位扩展；没有数据的工具不显示。弹层关闭后焦点返回触发控件，控制球位置在浏览器偏好中恢复。
 
@@ -74,4 +74,4 @@ Observer 不能提交角色行动。接管成功后页面切换为 Participant �
 
 界面只使用内置组件、Lucide 图标和 `--cg-*` token；世界包不能注入 UI。体验支持键盘、可见焦点、触控目标、320 px、200% 缩放、RTL、reduced motion、forced colors 和无图片回退。长 ID、错误与 JSON 必须在自身容器内换行或滚动，不能扩大侧栏或对话框。
 
-设计依据见 [0061](../decisions/0061-unified-agent-and-external-policy.md)、[0063](../decisions/0063-eager-reference-execution.md)、[0064](../decisions/0064-conversation-core-and-agent-perspective-observer.md)、[0068](../decisions/0068-unified-agent-perspective.md)与 [0070](../decisions/0070-event-boundary-temporal-runtime.md)。
+设计依据见 [0061](../decisions/0061-unified-agent-and-external-policy.md)、[0063](../decisions/0063-eager-reference-execution.md)、[0064](../decisions/0064-conversation-core-and-agent-perspective-observer.md)、[0068](../decisions/0068-unified-agent-perspective.md)、[0070](../decisions/0070-event-boundary-temporal-runtime.md)与 [0074](../decisions/0074-enforce-script-owned-shared-resource-pools.md)。

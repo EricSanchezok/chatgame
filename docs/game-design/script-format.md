@@ -1,4 +1,4 @@
-# 世界剧本格式 v12
+# 世界剧本格式 v13
 
 世界包定义初始世界、法则、机制和可选的参与方式。它不定义玩家动作，不携带可执行代码，也不能提供自定义客户端 UI。
 
@@ -23,7 +23,7 @@ world-id/
 ## `script.yaml`
 
 ```yaml
-schema_version: 12
+schema_version: 13
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
@@ -103,6 +103,14 @@ duration_profiles:
   - { id: ongoing, name: 持续, kind: until_cleared }
 activity_resources:
   - { id: foreground, name: 前台行动, capacity: 1 }
+shared_activity_resources:
+  - id: workbench-use
+    name: 工作台
+    unit: 席
+    default_claim_amount: 1
+    allow_explicit_amount: false
+    contention: queue
+    paused_retention: release
 temporal_profiles:
   - id: brief-action
     name: 一秒短动作
@@ -163,7 +171,9 @@ random_distributions: []
 
 所有剧本共享 `none | minor | standard | major | decisive` 效果档。`impact_profiles` 将档位映射为 Meter 的确定性增减并在边界 clamp；`duration_profiles` 只定义 Condition 的使用次数、模拟秒数或持续至解除；`condition_profiles` 可为重要自由语义状态声明 stacking key、持续影响、恢复说明和阈值。没有 profile 的状态仍可存在并参与后续语义裁决。`entity_mechanics_profiles` 是出生角色的 Meter、Quantity、Rating 模板，`adjudication_calibrations` 同时约束 planner、verifier 与测试，不是动作白名单。
 
-`activity_resources` 声明每名 Agent 可被活动占用的通用容量；引擎不内置手、移动、战斗或治疗槽位。`temporal_profiles` 定义活动的 fixed、rate、staged、conditional 或 ongoing 时间形态、检查点、是否可中断、反应超时策略和资源占用。`reaction_fallback` 可为 `continue_if_valid | pause | cancel`，缺省为 `continue_if_valid`；不可中断 Profile 只能使用该缺省值，且客观 continuation assertion 失效始终优先于 fallback。rate 的总量必须来自可验证的行动文本或受信任规则；fixed 只有显式允许时才可采用行动文本中的明确时长。`temporal_calibrations` 帮助语义 planner 选择已声明 profile；模型不能提交原始世界时钟增量、最终进度或完成效果。`world_timers` 声明从 `elapsedSeconds = 0` 计算的绝对语义触发，只保存描述、到期时刻、唤醒 Agent 和授权 law；它不能携带未来 state delta。到期时内核把 Timer trigger 与同刻 Activity 联合交给 Truth 裁决。
+`activity_resources` 声明每名 Agent 可被活动占用的通用容量；引擎不内置手、移动、战斗或治疗槽位。`shared_activity_resources` 声明多个 Agent 可竞争的 typed pool 种类：正数默认 claim、单位、是否允许行动原文明示数量、`reject | queue | adjudicate` 争用策略，以及 pause 时 `retain | release`。它不在这里声明总容量；每个 Entity 实例化自己的 pool。混合 claims 按 `adjudicate > queue > reject` 选择路线，但最终必须全部满足，模型不能借此修改容量或 claim 数量。
+
+`temporal_profiles` 定义活动的 fixed、rate、staged、conditional 或 ongoing 时间形态、检查点、是否可中断、反应超时策略和每 Agent 资源占用。`reaction_fallback` 可为 `continue_if_valid | pause | cancel`，缺省为 `continue_if_valid`；不可中断 Profile 只能使用该缺省值，且客观 continuation assertion 失效始终优先于 fallback。rate 的总量必须来自可验证的行动文本或受信任规则；fixed 只有显式允许时才可采用行动文本中的明确时长。`temporal_calibrations` 帮助语义 planner 选择已声明 profile；模型不能提交原始世界时钟增量、最终进度或完成效果。`world_timers` 声明从 `elapsedSeconds = 0` 计算的绝对语义触发，只保存描述、到期时刻、唤醒 Agent 和授权 law；它不能携带未来 state delta。到期时内核把 Timer trigger 与同刻 Activity 联合交给 Truth 裁决。
 
 离散随机分布由有序 step 组成。每个 step 声明等概率 outcome 槽位、抽取次数、`first | sum | values` 聚合和可选的前序条件；重复槽位表达权重。运行时在抽取前固定请求，并用 seeded RNG 执行。完整预算和提交语义见[Truth 与随机承诺](engine-runtime.md#truth-与随机承诺)。
 
@@ -218,6 +228,15 @@ agent:
 
 `placement` 为另一个 Entity ID 或 null。Fact value 为 text、number、boolean、entity 或 none；access 为 public、private 或指定 Agent。Meter、Quantity 和 Rating 必须引用 `mechanics.yaml` 中的定义并满足范围约束。
 
+一个 Entity 以 `shared_activity_resources` 实例化自己拥有的共享 pool，例如独立的工作台 Entity 可以声明：
+
+```yaml
+shared_activity_resources:
+  - { definition_id: workbench-use, capacity: 1 }
+```
+
+capacity 是非负有限数；loader 以 world hash、definition ID 和 Entity ID 派生 pool ID。Entity retirement 使容量变为不可用。硬容量不能由普通 Fact 代替，运行时 reduction 或 retirement 也不能遗留仍占用该 pool 的 Activity。
+
 `agent` 可选；存在时，该 Entity 是可行动主体的 canonical 身体。Agent 拥有独立 character、belief、局部 identity 和模型 Profile。不同 Agent 不能共享 canonical Entity，每个 Agent 必须恰有一个 local binding 指向自身 Entity。没有 `agent` 的 Entity 仍可作为地点、物品、组织或其他世界对象。
 
 Character 的 persona summary 必填，其他 facets 可为空。Belief 的 local entities、evidence、claims 和 bindings 构成该 Agent 的私有认知；claim 可以与 canonical truth 冲突。剧本不填写运行时 revision、step、provenance、lifecycle ledger 或时间戳，这些字段由 loader 和执行内核物化。
@@ -255,6 +274,6 @@ Origin 定义身份幻想、出生位置、初始 persona、默认 goal、关系
 
 ## 引用与加载
 
-loader 验证 Entity、placement 无环、Fact、Agent self binding、character/belief 局部引用、全部 Mechanics Profile 引用与范围、random distribution、模型 Profile、Origin spawn/mechanics/image、数量和所有 ID 唯一性。初始 Agent 的 `nextAction` 由引擎设为 null；初始 lifecycle、Fact provenance、character 时间戳和运行时身份由引擎注入。
+loader 验证 Entity、placement 无环、Fact、Agent self binding、character/belief 局部引用、全部 Mechanics Profile 与 shared-resource definition/pool 引用及范围、random distribution、模型 Profile、Origin spawn/mechanics/image、数量和所有 ID 唯一性。初始 Agent 的 `nextAction` 由引擎设为 null；初始 lifecycle、Fact provenance、character 时间戳和运行时身份由引擎注入。
 
-loader 只接受 `schema_version: 12`。旧世界包、状态和存档直接拒绝，不提供迁移或兼容层。
+loader 只接受 `schema_version: 13`。旧世界包、状态和存档直接拒绝，不提供迁移或兼容层。
