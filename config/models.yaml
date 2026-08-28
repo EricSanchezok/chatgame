@@ -142,7 +142,10 @@ profiles:
     # Truth outputs are compact JSON decisions; a bounded output avoids
     # needlessly large allocations on the Coding Plan endpoint.
     max_output_tokens: 65536
-    max_input_bytes: 2000000
+    # Blackmarsh observation contexts include the full candidate world and
+    # can exceed 2 MB while remaining well within GLM-5.3-Flash's 1M-token
+    # context window.
+    max_input_bytes: 8000000
     inference:
       thinking: disabled
       effort: auto
