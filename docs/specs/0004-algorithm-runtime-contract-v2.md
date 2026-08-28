@@ -46,14 +46,18 @@ Implemented by the following independently verified commits:
 - `b7453fc` — introduced Candidate schema 2, algorithm-neutral resolution evidence, engine-derived eligibility, single-source observations and audits, and independent dependency validation in the committer.
 - `0259693` — moved stable runtime telemetry and metric aggregation into the engine, added runtime event schema 2, and accounted for discarded model work during failures.
 - `9d6c690` — separated action dependency and temporal planning ownership while retaining eager reference as the orchestrator.
+- `7f98a04`, `8dafe2e`, and `b443331` — hardened committer graph verification, exact manifest JSON validation, fresh-instance enforcement, and factory callable conformance.
+- `a6a85ba` and `fa8d460` — enforced stable telemetry value domains and sealed engine lifecycle events from the algorithm-scoped observer.
+- `47daec8` and `0858fe3` — corrected multi-step execution wall time and made `count` aggregate samples rather than values.
+- `d8963fa` and `68b0177` — preflighted pinned algorithms before recovery writes and removed the duplicate cancellation surface.
 
 Primary executable evidence lives in [`execution-kernel.test.ts`](../../src/engine/__tests__/execution-kernel.test.ts), [`observability.test.ts`](../../src/engine/__tests__/observability.test.ts), [`action-dependency.test.ts`](../../src/engine/__tests__/action-dependency.test.ts), [`eager-reference.test.ts`](../../src/engine/__tests__/eager-reference.test.ts), [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts), and [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts).
 
-The final semantic review added committer-side re-derivation of the dependency conflict graph, exact JSON-property validation, and fresh-instance enforcement for registry factories.
+The final semantic review found no remaining actionable defects after these hardening commits.
 
 Final verification completed on 2026-08-28:
 
-- `npm test`: 35 test files and 220 tests passed.
+- `npm test`: 35 test files and 221 tests passed.
 - `npm run world:validate -- worlds/blackmarsh/world`: 232 entities and 48 Agents validated.
 - `npm run build`: the production Next.js build and all routes compiled successfully.
 - `npm run check:ui`: all 11 product/browser flows and all 4 accessibility flows passed.
