@@ -1,16 +1,18 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadWorldScript } from "../../script/world-loader";
-import type {
-  AlgorithmManifest,
-  BootstrapCandidate,
-  BootstrapInput,
-  ExecutionContext,
-  WorldExecutionAlgorithm,
-  WorldStepCandidate,
-  WorldStepInput,
+import {
+  algorithmRef,
+  defineAlgorithmManifest,
+  WorldExecutionAlgorithmRegistry,
+  type AlgorithmManifest,
+  type BootstrapCandidate,
+  type BootstrapInput,
+  type ExecutionContext,
+  type WorldExecutionAlgorithm,
+  type WorldStepCandidate,
+  type WorldStepInput,
 } from "../execution";
-import { WorldExecutionAlgorithmRegistry } from "../execution";
 import { contentHash } from "../model-audit";
 import { SimulationEngine } from "../simulation";
 import { createTestModelCatalog } from "../testing/model-provider";
@@ -18,8 +20,7 @@ import { createTestModelCatalog } from "../testing/model-provider";
 const fixture = path.resolve("test/fixtures/open-world-script");
 
 function algorithmManifest(id = "mutation-probe"): AlgorithmManifest {
-  const body = { id, version: "1", config: {}, components: [] };
-  return { ...body, hash: contentHash(body) };
+  return defineAlgorithmManifest({ id, version: "1", config: {}, components: [] });
 }
 
 class MutatingAlgorithm implements WorldExecutionAlgorithm {
@@ -53,10 +54,44 @@ describe("execution kernel boundary", () => {
     const registry = new WorldExecutionAlgorithmRegistry();
     const registered = algorithmManifest("registered");
     registry.register(registered, () => new MutatingAlgorithm(registered));
-    expect(registry.create("registered", "1").manifest.hash).toBe(registered.hash);
+    expect(registry.create(algorithmRef(registered), { provider: {} as never }).manifest.hash).toBe(registered.hash);
 
     const invalid = { ...registered, hash: "0".repeat(64) };
     expect(() => new WorldExecutionAlgorithmRegistry().register(invalid, () => new MutatingAlgorithm()))
       .toThrow("manifest hash mismatch");
+  });
+
+  it("rejects malformed manifest configuration and component identities", () => {
+    expect(() => defineAlgorithmManifest({
+      id: "invalid-json",
+      version: "1",
+      config: { callback: (() => undefined) as never },
+      components: [],
+    })).toThrow("JSON-safe");
+    expect(() => defineAlgorithmManifest({
+      id: "duplicate-components",
+      version: "1",
+      config: {},
+      components: [
+        { id: "same", version: "1", config: {} },
+        { id: "same", version: "2", config: {} },
+      ],
+    })).toThrow("duplicate component id");
+  });
+
+  it("rejects unsupported contracts, unknown hashes, and wrong factory manifests", () => {
+    const registered = algorithmManifest("registered");
+    const unsupported = { ...registered, contractVersion: 1 } as unknown as AlgorithmManifest;
+    expect(() => new WorldExecutionAlgorithmRegistry().register(unsupported, () => new MutatingAlgorithm()))
+      .toThrow("unsupported execution algorithm contract version");
+
+    const registry = new WorldExecutionAlgorithmRegistry();
+    registry.register(registered, () => new MutatingAlgorithm(algorithmManifest("different")));
+    expect(() => registry.create(algorithmRef(registered), { provider: {} as never }))
+      .toThrow("factory returned the wrong manifest");
+    expect(() => registry.create({
+      ...algorithmRef(registered),
+      manifestHash: "sha256:unknown",
+    }, { provider: {} as never })).toThrow("manifest is not registered");
   });
 });

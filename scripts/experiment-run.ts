@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { defineEngineOperationManifest } from "../src/engine/execution";
 import { contentHash } from "../src/engine/model-audit";
 import { LocalDatabase } from "../src/server/local-database";
 import { runtimeCodeIdentity } from "../src/server/code-identity";
@@ -21,16 +22,15 @@ async function main(): Promise<void> {
   const database = new LocalDatabase(input.database);
   const code = runtimeCodeIdentity();
   const parentExecutionId = randomUUID();
-  const parentManifest = {
+  const parentManifest = defineEngineOperationManifest({
     id: "deterministic-runtime-matrix",
     version: "1",
     config: matrix,
-    components: [],
-  };
+  });
   const trace = database.beginExecution({
     id: parentExecutionId,
     kind: "benchmark",
-    manifest: { ...parentManifest, hash: contentHash(parentManifest) },
+    manifest: parentManifest,
     worldHash: contentHash("test/fixtures/open-world-script"),
     codeRevision: code.revision,
     codeDirty: code.dirty,

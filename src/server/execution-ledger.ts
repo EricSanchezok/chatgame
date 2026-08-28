@@ -1,6 +1,6 @@
 import type {
-  AlgorithmManifest,
   ExecutionKind,
+  ExecutionProducerManifest,
   ExecutionRef,
   ExecutionTraceWriter,
 } from "../engine/execution";
@@ -18,7 +18,7 @@ export interface BeginExecutionInput {
   instanceId?: string;
   advanceId?: string;
   step?: number;
-  manifest: AlgorithmManifest;
+  manifest: ExecutionProducerManifest;
   worldHash: string;
   codeRevision: string;
   codeDirty: boolean;

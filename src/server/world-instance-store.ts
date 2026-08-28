@@ -1,4 +1,4 @@
-import type { PolicyBinding } from "../engine/execution";
+import { validateAlgorithmRef, type PolicyBinding } from "../engine/execution";
 import { contentHash } from "../engine/model-audit";
 import type { RuntimeCorrelation } from "../engine/observability";
 import { validateSimulationState } from "../engine/transaction";
@@ -161,9 +161,10 @@ function validateActionWindow(document: WorldInstanceDocument): void {
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 15) throw new Error("world instance schema v15 required");
+  if (document.schemaVersion !== 16) throw new Error("world instance schema v16 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
+  validateAlgorithmRef(document.executionAlgorithm);
   if (document.title.length > 80) throw new Error("instance title exceeds 80 characters");
   if (!Number.isFinite(Date.parse(document.createdAt)) || !Number.isFinite(Date.parse(document.updatedAt))) {
     throw new Error("instance timestamps must be ISO dates");

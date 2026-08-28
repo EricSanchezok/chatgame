@@ -1,9 +1,9 @@
 import { AgentMind } from "./agent-mind";
 import { evaluateProposalCausality } from "./causality";
+import { defineAlgorithmManifest } from "./execution";
 import type {
   ActionGrounding,
   ActionGroundingDraft,
-  AlgorithmManifest,
   BootstrapCandidate,
   BootstrapInput,
   ExecutionContext,
@@ -69,26 +69,18 @@ const mindComponent = {
   version: "4",
   config: { externalUpdates: false, repairExhaustion: "empty-patch-and-idle-action" },
 } as const;
-const manifestBody = {
+export const EAGER_REFERENCE_MANIFEST = defineAlgorithmManifest({
   id: "eager-reference",
-  version: "2",
+  version: "3",
   config: {
-    activation: "all-model-agents",
+    activation: "decision-eligible-model-agents",
     grounding: "per-action",
     resolution: "conflict-components-with-global-fallback",
     observation: "component-bounded",
-    mindUpdate: "all-model-agents",
+    mindUpdate: "decision-eligible-model-agents",
   },
-  components: [temporalComponent, groundingComponent, truthComponent, mindComponent].map((component) => ({
-    ...component,
-    hash: contentHash(component),
-  })),
-} as const;
-
-export const EAGER_REFERENCE_MANIFEST: AlgorithmManifest = {
-  ...manifestBody,
-  hash: contentHash(manifestBody),
-};
+  components: [temporalComponent, groundingComponent, truthComponent, mindComponent],
+});
 
 const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。只判断给定行动可能读取、写入和影响哪些已列出的 canonical 资源与 Agent。
 

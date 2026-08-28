@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { registerBuiltinAlgorithms } from "../src/engine/builtin-algorithms";
 import { deriveExecutionWork, EXECUTION_METRICS, type MetricPoint } from "../src/engine/execution-metrics";
-import { EagerReferenceAlgorithm } from "../src/engine/eager-reference";
-import type {
+import {
+  algorithmRef,
   BootstrapCandidate,
   PolicyBinding,
+  type WorldExecutionAlgorithmRegistry,
   WorldAdvanceRequest,
   WorldStepCandidate,
 } from "../src/engine/execution";
@@ -175,14 +177,15 @@ export async function replayThroughAlgorithm(
   database: LocalDatabase,
   original: NonNullable<ReturnType<LocalDatabase["execution"]>>,
   events: readonly RuntimeEvent[],
+  algorithmRegistry?: WorldExecutionAlgorithmRegistry,
 ): Promise<{
   replayExecutionId: string;
   semanticHash: string;
   stateHash: string;
   revision: number;
 }> {
-  if (original.manifest.id !== "eager-reference" || original.manifest.version !== "2") {
-    throw new Error(`recorded replay does not support algorithm ${original.manifest.id}@${original.manifest.version}`);
+  if (original.manifest.kind !== "algorithm") {
+    throw new Error(`recorded replay requires an algorithm producer; found ${original.manifest.kind}`);
   }
   const definitionEvent = event(events, "execution.world_definition.persisted");
   const definition = definitionEvent.payload as WorldDefinition;
@@ -197,6 +200,12 @@ export async function replayThroughAlgorithm(
     .filter((candidate) => candidate.attributes?.phase === (stepInputs.length > 0 ? "step" : "bootstrap"))
     .map((candidate) => candidate.payload as BootstrapCandidate | WorldStepCandidate);
   const provider = new RecordedModelProvider(events, candidates);
+  const registry = registerBuiltinAlgorithms(algorithmRegistry);
+  const recordedRef = algorithmRef(original.manifest);
+  const createAlgorithm = () => registry.create(recordedRef, {
+    provider,
+    rulePackages: database.rulePackages,
+  });
   const code = runtimeCodeIdentity();
   const replayExecutionId = randomUUID();
   const trace = database.beginExecution({
@@ -219,7 +228,7 @@ export async function replayThroughAlgorithm(
     let finalState: SimulationState | undefined;
     if (stepInputs.length > 0) {
       for (const [index, input] of stepInputs.entries()) {
-        const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider), input.state);
+        const engine = new SimulationEngine(definition, createAlgorithm(), input.state);
         const result = await engine.step(input.policyRoster, input.request, {
           workloadId: `replay:${original.id}`,
           batchId: `replay:${original.id}:${index + 1}`,
@@ -237,7 +246,7 @@ export async function replayThroughAlgorithm(
       }
     } else {
       const source = (event(events, "instance.bootstrap.started").payload as { state: SimulationState }).state;
-      const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider), source);
+      const engine = new SimulationEngine(definition, createAlgorithm(), source);
       finalState = await engine.bootstrapAgents({
         workloadId: `replay:${original.id}`,
         batchId: `replay:${original.id}:bootstrap`,

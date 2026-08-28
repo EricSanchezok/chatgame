@@ -2,6 +2,20 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { EagerReferenceAlgorithm } from "../../engine/eager-reference";
+import {
+  algorithmRef,
+  defineAlgorithmManifest,
+  WorldExecutionAlgorithmRegistry,
+  type AlgorithmRef,
+  type BootstrapCandidate,
+  type BootstrapInput,
+  type ExecutionContext,
+  type WorldExecutionAlgorithm,
+  type WorldStepCandidate,
+  type WorldStepInput,
+} from "../../engine/execution";
+import { contentHash } from "../../engine/model-audit";
 import { DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
 import { MemoryWorldRepository } from "../../script/world-repository";
@@ -22,6 +36,8 @@ function harness(input: {
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
   runLeaseMaxCommits?: number;
   runLeaseMaxWallTimeMs?: number;
+  algorithmRegistry?: WorldExecutionAlgorithmRegistry;
+  defaultAlgorithmRef?: AlgorithmRef;
 } = {}) {
   const provider = new DeterministicModelProvider();
   const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
@@ -45,6 +61,8 @@ function harness(input: {
     clearTimer: input.clearTimer,
     runLeaseMaxCommits: input.runLeaseMaxCommits,
     runLeaseMaxWallTimeMs: input.runLeaseMaxWallTimeMs,
+    algorithmRegistry: input.algorithmRegistry,
+    defaultAlgorithmRef: input.defaultAlgorithmRef,
   });
   return { database, definition, host, provider, repository };
 }
@@ -110,7 +128,8 @@ describe("World Instance host", () => {
         response: { suggestions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(15);
+      expect(stored.schemaVersion).toBe(16);
+      expect(stored.executionAlgorithm).toMatchObject({ id: "eager-reference", version: "3", contractVersion: 2 });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
         entityId: "courtyard-wanderer-1",
@@ -128,6 +147,9 @@ describe("World Instance host", () => {
         amount: 1,
       }));
       expect(stored.participants[created.participants[0].id].arrival.scene).toBeTruthy();
+      const manifests = database.executions({ instanceId: created.summary.id }).map((execution) => execution.manifest);
+      expect(manifests).toContainEqual(expect.objectContaining({ kind: "algorithm", id: "eager-reference" }));
+      expect(manifests).toContainEqual(expect.objectContaining({ kind: "engine-operation", id: "arrival-generator" }));
       expect(stored.policyBindings["courtyard-wanderer-1"]).toMatchObject({ kind: "external" });
       const arrivalRequest = provider.requests.find((request) => request.role === "arrival-generator");
       expect(arrivalRequest).toMatchObject({
@@ -429,7 +451,7 @@ describe("World Instance host", () => {
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
       (legacy as unknown as { schemaVersion: number }).schemaVersion = 13;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v15 required");
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v16 required");
 
       const invalidPolicy = structuredClone(source);
       (invalidPolicy.policyBindings.player as { kind: string }).kind = "unknown";
@@ -448,6 +470,64 @@ describe("World Instance host", () => {
       expect(() => validateWorldInstanceDocument(invalidWindow)).toThrow("duplicate required Agents");
     } finally {
       database.close();
+    }
+  });
+
+  it("pins the selected algorithm across hosts and records the actual producer", async () => {
+    const customManifest = defineAlgorithmManifest({
+      id: "wrapped-eager",
+      version: "1",
+      config: {},
+      components: [],
+    });
+    class WrappedEager implements WorldExecutionAlgorithm {
+      readonly manifest = customManifest;
+      constructor(private readonly delegate: EagerReferenceAlgorithm) {}
+      bootstrap(input: Readonly<BootstrapInput>, context: ExecutionContext): Promise<BootstrapCandidate> {
+        return this.delegate.bootstrap(input, context);
+      }
+      step(input: Readonly<WorldStepInput>, context: ExecutionContext): Promise<WorldStepCandidate> {
+        return this.delegate.step(input, context);
+      }
+    }
+    const registry = new WorldExecutionAlgorithmRegistry();
+    registry.register(customManifest, (services) =>
+      new WrappedEager(new EagerReferenceAlgorithm(services.provider, services.rulePackages)));
+    const setup = harness({ algorithmRegistry: registry, defaultAlgorithmRef: algorithmRef(customManifest) });
+    try {
+      const created = await setup.host.createInstance(observerStart);
+      const stored = setup.database.readInstance(created.summary.id).document;
+      expect(stored.executionAlgorithm).toEqual(algorithmRef(customManifest));
+
+      const stateHash = contentHash(stored.state);
+      const missingRegistration = new WorldHost({
+        repository: setup.repository,
+        store: setup.database,
+        ledger: setup.database,
+        provider: setup.provider,
+      });
+      expect(() => missingRegistration.instance(created.summary.id))
+        .toThrow("execution algorithm is not registered: wrapped-eager@1");
+      expect(contentHash(setup.database.readInstance(created.summary.id).document.state)).toBe(stateHash);
+
+      const recovered = new WorldHost({
+        repository: setup.repository,
+        store: setup.database,
+        ledger: setup.database,
+        provider: setup.provider,
+        algorithmRegistry: registry,
+      });
+      await recovered.advance(created.summary.id, {
+        expectedRevision: created.summary.revision,
+        trigger: "manual",
+      });
+      expect(setup.database.executions({ instanceId: created.summary.id })
+        .map((execution) => execution.manifest)).toEqual([
+        expect.objectContaining({ kind: "algorithm", id: "wrapped-eager", version: "1" }),
+        expect.objectContaining({ kind: "algorithm", id: "wrapped-eager", version: "1" }),
+      ]);
+    } finally {
+      setup.database.close();
     }
   });
 });

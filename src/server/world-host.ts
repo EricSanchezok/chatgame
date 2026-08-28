@@ -1,14 +1,19 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { projectAgentPerspective } from "../engine/agent-perspective";
+import { DEFAULT_ALGORITHM_REF, registerBuiltinAlgorithms } from "../engine/builtin-algorithms";
 import { CanonicalCommitter } from "../engine/canonical-committer";
-import { EagerReferenceAlgorithm, EAGER_REFERENCE_MANIFEST } from "../engine/eager-reference";
 import type {
+  AlgorithmRef,
+  ExecutionProducerManifest,
   ExternalActionInput,
   PolicyBinding,
   WorldAdvanceRequest,
 } from "../engine/execution";
-import { WorldExecutionAlgorithmRegistry } from "../engine/execution";
+import {
+  defineEngineOperationManifest,
+  WorldExecutionAlgorithmRegistry,
+} from "../engine/execution";
 import { arrivalDraftSchema } from "../engine/llm-schemas";
 import { loadModelCatalog } from "../engine/model-catalog";
 import { createModelGateway } from "../engine/model-gateway";
@@ -116,6 +121,7 @@ export interface WorldHostOptions {
   catalogManager?: WorldCatalogManager;
   ledger?: ExecutionLedger;
   algorithmRegistry?: WorldExecutionAlgorithmRegistry;
+  defaultAlgorithmRef?: AlgorithmRef;
   now?: () => Date;
   idFactory?: () => string;
   observer?: RuntimeObserver;
@@ -136,6 +142,12 @@ export class WorldHostError extends Error {
 const ARRIVAL_SYSTEM = `你只根据所给角色私有视角写第一人称入场。
 不得推断隐藏真相，不得输出世界状态修改。
 三条建议必须可编辑且不得声称已执行。只输出 schema 指定的 JSON。`;
+
+const ARRIVAL_PRODUCER_MANIFEST = defineEngineOperationManifest({
+  id: "arrival-generator",
+  version: "2",
+  config: { promptVersion: "arrival-v2" },
+});
 
 function policyRoster(state: Readonly<SimulationState>): Record<string, PolicyBinding> {
   return Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
@@ -370,6 +382,7 @@ function agentStateFromOrigin(
 export class WorldHost {
   private static singleton: WorldHost | undefined;
   private readonly registry: WorldExecutionAlgorithmRegistry;
+  private readonly defaultAlgorithmRef: AlgorithmRef;
   private readonly committer = new CanonicalCommitter();
   private readonly now: () => Date;
   private readonly idFactory: () => string;
@@ -398,10 +411,12 @@ export class WorldHost {
       throw new Error("world run lease budgets must be positive integers");
     }
     this.runtimeObserver = options.observer ?? NOOP_RUNTIME_OBSERVER;
-    this.registry = options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry();
-    if (!options.algorithmRegistry) {
-      this.registry.register(EAGER_REFERENCE_MANIFEST, () =>
-        new EagerReferenceAlgorithm(options.provider, options.repository.rulePackages));
+    this.registry = registerBuiltinAlgorithms(options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry());
+    this.defaultAlgorithmRef = structuredClone(options.defaultAlgorithmRef ?? DEFAULT_ALGORITHM_REF);
+    if (!this.registry.has(this.defaultAlgorithmRef)) {
+      throw new Error(
+        `default execution algorithm is not registered: ${this.defaultAlgorithmRef.id}@${this.defaultAlgorithmRef.version}`,
+      );
     }
     this.setTimer = options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = options.clearTimer ?? clearTimeout;
@@ -415,7 +430,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v15",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v16",
       );
       const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
@@ -476,6 +491,12 @@ export class WorldHost {
   private read(id: string): StoredWorldInstance {
     try {
       const stored = this.options.store.readInstance(id, { instanceId: id });
+      if (!this.registry.has(stored.document.executionAlgorithm)) {
+        throw new Error(
+          `execution algorithm is not registered: ${stored.document.executionAlgorithm.id}` +
+          `@${stored.document.executionAlgorithm.version}`,
+        );
+      }
       this.definition(stored.document);
       return stored;
     } catch (error) {
@@ -512,6 +533,7 @@ export class WorldHost {
     document: WorldInstanceDocument,
     kind: "interactive" | "diagnostic" | "benchmark" | "replay",
     trigger: string,
+    manifest: ExecutionProducerManifest,
     policyBindings: Readonly<Record<string, PolicyBinding>> = document.policyBindings,
   ) {
     if (!this.options.ledger) return undefined;
@@ -523,7 +545,7 @@ export class WorldHost {
       kind,
       instanceId: document.id,
       step: document.state.step,
-      manifest: EAGER_REFERENCE_MANIFEST,
+      manifest,
       worldHash: document.state.worldHash,
       codeRevision: code.revision,
       codeDirty: code.dirty,
@@ -582,9 +604,10 @@ export class WorldHost {
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 15,
+      schemaVersion: 16,
       id,
       world: toWorldRuntimeContract(definition),
+      executionAlgorithm: structuredClone(this.defaultAlgorithmRef),
       title: input.title?.trim() || definition.name,
       createdAt: now,
       updatedAt: now,
@@ -597,10 +620,14 @@ export class WorldHost {
       runs: {},
       participantIntents: [],
     };
-    const execution = this.beginExecution(initial, "interactive", "bootstrap");
+    const algorithm = this.registry.create(initial.executionAlgorithm, {
+      provider: this.options.provider,
+      rulePackages: this.options.repository.rulePackages,
+    });
+    const execution = this.beginExecution(initial, "interactive", "bootstrap", algorithm.manifest);
     const engine = new SimulationEngine(
       definition,
-      this.registry.create(EAGER_REFERENCE_MANIFEST.id, EAGER_REFERENCE_MANIFEST.version),
+      algorithm,
     );
     try {
       initial.state = await engine.bootstrapAgents({
@@ -1059,12 +1086,22 @@ export class WorldHost {
         }
       }
     }
-    const execution = this.beginExecution(document, "interactive", runRecord.trigger, effectiveRoster);
+    const algorithm = this.registry.create(document.executionAlgorithm, {
+      provider: this.options.provider,
+      rulePackages: this.options.repository.rulePackages,
+    });
+    const execution = this.beginExecution(
+      document,
+      "interactive",
+      runRecord.trigger,
+      algorithm.manifest,
+      effectiveRoster,
+    );
     if (execution) runRecord.executionIds.push(execution.id);
     const definition = this.definition(document);
     const engine = new SimulationEngine(
       definition,
-      this.registry.create(EAGER_REFERENCE_MANIFEST.id, EAGER_REFERENCE_MANIFEST.version),
+      algorithm,
       document.state,
     );
     const request: WorldAdvanceRequest = {
@@ -1496,7 +1533,7 @@ export class WorldHost {
   ): Promise<ArrivalView> {
     const participant = document.participants[participantId];
     const definition = this.definition(document);
-    const execution = this.beginExecution(document, "interactive", "arrival");
+    const execution = this.beginExecution(document, "interactive", "arrival", ARRIVAL_PRODUCER_MANIFEST);
     try {
       const scope = {
         workloadId: document.id,

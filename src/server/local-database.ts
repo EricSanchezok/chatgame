@@ -7,6 +7,9 @@ import { canonicalize, contentHash } from "../engine/model-audit";
 import { attachExecutionRef } from "../engine/canonical-committer";
 import type { ModelCatalog } from "../engine/model-catalog";
 import {
+  validateExecutionProducerManifest,
+} from "../engine/execution";
+import {
   NOOP_RUNTIME_OBSERVER,
   materializeRuntimeEvent,
   redactRuntimePayload,
@@ -466,12 +469,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
 
   beginExecution(input: BeginExecutionInput): ExecutionTraceWriter {
     this.assertInstanceLease();
-    const { hash: manifestHash, ...manifestBody } = input.manifest;
-    if (contentHash(manifestBody) !== manifestHash) throw new Error("execution algorithm manifest hash mismatch");
-    for (const component of input.manifest.components) {
-      const { hash, ...body } = component;
-      if (contentHash(body) !== hash) throw new Error(`execution component manifest hash mismatch: ${component.id}`);
-    }
+    validateExecutionProducerManifest(input.manifest);
     const traceId = randomUUID().replaceAll("-", "");
     const startedAt = input.startedAt ?? new Date(this.now()).toISOString();
     const parentTrace = input.parentExecutionId

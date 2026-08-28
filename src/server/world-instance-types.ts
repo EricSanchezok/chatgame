@@ -1,4 +1,5 @@
 import type {
+  AlgorithmRef,
   ExternalActionInput,
   ParticipantId,
   PolicyBinding,
@@ -101,9 +102,10 @@ export interface ParticipantIntentRecord {
 }
 
 export interface WorldInstanceDocument {
-  schemaVersion: 15;
+  schemaVersion: 16;
   id: string;
   world: WorldRuntimeContract;
+  executionAlgorithm: AlgorithmRef;
   title: string;
   createdAt: string;
   updatedAt: string;

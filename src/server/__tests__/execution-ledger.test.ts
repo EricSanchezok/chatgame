@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
+import { defineAlgorithmManifest } from "../../engine/execution";
 import { deriveExecutionWork, MetricDefinitionRegistry, EXECUTION_METRICS } from "../../engine/execution-metrics";
 import { contentHash } from "../../engine/model-audit";
 import { LocalDatabase } from "../local-database";
@@ -14,13 +15,12 @@ function database(): LocalDatabase {
   return new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
 }
 
-const manifestBody = {
+const manifest = defineAlgorithmManifest({
   id: "test-algorithm",
   version: "1",
   config: {},
   components: [],
-};
-const manifest = { ...manifestBody, hash: contentHash(manifestBody) };
+});
 
 describe("Execution Ledger", () => {
   it("rejects an older database without migrating or deleting it", () => {
