@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   controlOrbSize,
   defaultControlPosition,
+  floatingLabelOffset,
   moveControlPosition,
   noticeSide,
   parseControlPosition,
@@ -64,6 +65,12 @@ describe("control orb radial actions", () => {
 });
 
 describe("control orb message placement", () => {
+  it("centers labels until their measured width reaches a viewport edge", () => {
+    expect(floatingLabelOffset({ x: 940, y: 300 }, 122, viewport)).toBe(0);
+    expect(floatingLabelOffset({ x: 1_200, y: 300 }, 122, viewport)).toBe(-29);
+    expect(floatingLabelOffset({ x: 16, y: 300 }, 122, viewport)).toBe(29);
+  });
+
   it("keeps the status label away from the lower edge", () => {
     expect(statusSide({ x: 600, y: 620 }, viewport)).toBe("top");
     expect(statusSide({ x: 600, y: 300 }, viewport)).toBe("bottom");

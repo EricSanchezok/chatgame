@@ -138,6 +138,19 @@ export function safeOpenPoint(
   };
 }
 
+export function floatingLabelOffset(
+  point: PixelPosition,
+  labelWidth: number,
+  viewport: ViewportBounds,
+  margin = 16,
+): number {
+  if (labelWidth <= 0) return 0;
+  const center = point.x + (controlOrbSize / 2);
+  const centeredLeft = center - (labelWidth / 2);
+  const maximumLeft = Math.max(margin, viewport.width - margin - labelWidth);
+  return clamp(centeredLeft, margin, maximumLeft) - centeredLeft;
+}
+
 export function statusSide(point: PixelPosition, viewport: ViewportBounds): "top" | "bottom" {
   return point.y + controlOrbSize > viewport.height * 0.72 ? "top" : "bottom";
 }

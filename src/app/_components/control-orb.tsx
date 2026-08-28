@@ -34,6 +34,7 @@ import {
 import {
   controlOrbSize,
   defaultControlPosition,
+  floatingLabelOffset,
   moveControlPosition,
   noticeSide,
   positionFromPixels,
@@ -80,6 +81,10 @@ type RadialAction = ControlAction | {
 type OrbActionStyle = CSSProperties & {
   "--cg-action-lift-x"?: string;
   "--cg-action-lift-y"?: string;
+};
+
+type OrbLabelStyle = CSSProperties & {
+  "--cg-orb-label-offset"?: string;
 };
 
 type BoundsStyle = CSSProperties & {
@@ -177,6 +182,36 @@ function useComposerReservedSpace(docked: boolean): number {
 
 function subscribeMounted(): () => void {
   return () => undefined;
+}
+
+function useMeasuredWidth<Element extends HTMLElement>(): [
+  (node: Element | null) => void,
+  number,
+] {
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const [width, setWidth] = useState(0);
+  const measure = useCallback((node: Element | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node) return;
+    const update = () => {
+      const styles = getComputedStyle(node);
+      const computedWidth = Number.parseFloat(styles.width);
+      const extras = styles.boxSizing === "border-box"
+        ? 0
+        : Number.parseFloat(styles.paddingInlineStart) +
+          Number.parseFloat(styles.paddingInlineEnd) +
+          Number.parseFloat(styles.borderInlineStartWidth) +
+          Number.parseFloat(styles.borderInlineEndWidth);
+      const next = Math.ceil(computedWidth + extras);
+      setWidth((current) => current === next ? current : next);
+    };
+    update();
+    observerRef.current = new ResizeObserver(update);
+    observerRef.current.observe(node);
+  }, []);
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+  return [measure, width];
 }
 
 function MobileStatus({ status }: { status: ControlOrbStatus }) {
@@ -277,6 +312,8 @@ function ControlOrbContent({
   const [gaze, setGaze] = useState<readonly [number, number] | null>(null);
   const [dismissedNoticeId, setDismissedNoticeId] = useState("");
   const [savedNoticeStep, setSavedNoticeStep] = useState<number>();
+  const [measureHint, hintWidth] = useMeasuredWidth<HTMLSpanElement>();
+  const [measureStatus, statusWidth] = useMeasuredWidth<HTMLDivElement>();
 
   const radialActions = useMemo<readonly RadialAction[]>(() => inspectorEnabled
     ? [...controlActions, {
@@ -304,11 +341,12 @@ function ControlOrbContent({
     : persistentNotice ?? (!open && !dragging ? routineNotice : undefined);
   const displayedNoticeSide = noticeSide(displayedPoint, viewport, reservedBottom);
   const displayedStatusSide = statusSide(displayedPoint, viewport);
-  const displayedStatusAlign = displayedPoint.x > viewport.width * 0.68
-    ? "end"
-    : displayedPoint.x < viewport.width * 0.32
-      ? "start"
-      : "center";
+  const hintStyle: OrbLabelStyle = {
+    "--cg-orb-label-offset": `${floatingLabelOffset(displayedPoint, hintWidth, viewport, margin)}px`,
+  };
+  const statusStyle: OrbLabelStyle = {
+    "--cg-orb-label-offset": `${floatingLabelOffset(displayedPoint, statusWidth, viewport, margin)}px`,
+  };
   const statusTone: ControlOrbNoticeTone | undefined = persistentNotice?.tone;
   const statusText = statusTone === "error"
     ? "行动失败"
@@ -563,19 +601,27 @@ function ControlOrbContent({
             <span className="cg-sr-only" id="cg-orb-instructions">
               拖动可改变位置。按住 Alt 并使用方向键移动，按住 Alt 并按 Home 恢复默认位置。
             </span>
-            <span aria-hidden="true" className="cg-orb__hint">拖动移动 · 点击展开</span>
+            <span
+              aria-hidden="true"
+              className="cg-orb__hint"
+              ref={measureHint}
+              style={hintStyle}
+            >
+              拖动移动 · 点击展开
+            </span>
 
             <AnimatePresence initial={false}>
               {!open && !dragging && !displayedNotice ? (
                 <m.div
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   className="cg-orb__status"
-                  data-align={displayedStatusAlign}
                   data-side={displayedStatusSide}
                   data-tone={statusTone}
                   exit={{ opacity: 0, scale: 0.96, y: displayedStatusSide === "bottom" ? -4 : 4 }}
                   initial={{ opacity: 0, scale: 0.96, y: displayedStatusSide === "bottom" ? -4 : 4 }}
                   key={`${displayedStatusSide}:${statusText}`}
+                  ref={measureStatus}
+                  style={statusStyle}
                   transition={{ duration: 0.18, ease: motionEase }}
                 >
                   {statusTone ? <CircleAlert aria-hidden="true" /> : status.phase === "saved" ? <Check aria-hidden="true" /> : <LoaderCircle aria-hidden="true" />}
@@ -647,7 +693,9 @@ function ControlOrbContent({
                       transition={{ delay: index * 0.03, duration: 0.3, ease: motionEase }}
                       type="button"
                     >
-                      <Icon aria-hidden="true" />
+                      <span className="cg-orb__action-surface">
+                        <Icon aria-hidden="true" />
+                      </span>
                       <span aria-hidden="true" className="cg-orb__action-label">{action.label}</span>
                       <span className="cg-sr-only" id={`cg-orb-action-description-${action.kind}`}>
                         {action.description}

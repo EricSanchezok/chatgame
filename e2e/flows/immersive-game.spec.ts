@@ -276,13 +276,18 @@ test("the world spirit freely drags, persists, gazes and opens a complete deskto
   expect(initial).not.toBeNull();
   await page.mouse.move(initial!.x + initial!.width / 2, initial!.y + initial!.height / 2);
   await page.mouse.down();
-  await page.mouse.move(650, 380, { steps: 8 });
+  await page.mouse.move(950, 380, { steps: 8 });
   await page.mouse.up();
   const dragged = await trigger.boundingBox();
   expect(dragged).not.toBeNull();
-  expect(Math.abs(dragged!.x - 650)).toBeLessThan(48);
+  expect(Math.abs(dragged!.x - 950)).toBeLessThan(48);
   expect(dragged!.x).toBeGreaterThan(100);
   expect(dragged!.x + dragged!.width).toBeLessThan(1_180);
+  const draggedStatus = await page.locator(".cg-orb__status").boundingBox();
+  expect(draggedStatus).not.toBeNull();
+  expect(Math.abs(
+    (draggedStatus!.x + draggedStatus!.width / 2) - (dragged!.x + dragged!.width / 2),
+  )).toBeLessThanOrEqual(1);
 
   await page.reload();
   await expect(page.getByRole("button", { name: "单步" })).toBeVisible();
@@ -307,14 +312,20 @@ test("the world spirit freely drags, persists, gazes and opens a complete deskto
   }
 
   const perspectiveAction = toolbar.getByRole("button", { name: "视角" });
-  const beforeHover = await perspectiveAction.evaluate((element) => {
+  const actionSurface = perspectiveAction.locator(".cg-orb__action-surface");
+  await page.waitForTimeout(350);
+  const actionBoundsBeforeHover = await perspectiveAction.boundingBox();
+  const beforeHover = await actionSurface.evaluate((element) => {
     const style = getComputedStyle(element);
     return { background: style.backgroundColor, color: style.color };
   });
   await perspectiveAction.hover();
   await expect(perspectiveAction.locator(".cg-orb__action-label")).toBeVisible();
-  await expect.poll(() => perspectiveAction.evaluate((element) => getComputedStyle(element).scale)).toBe("1.08");
-  const afterHover = await perspectiveAction.evaluate((element) => {
+  await expect.poll(() => actionSurface.evaluate((element) => getComputedStyle(element).scale)).toBe("1.08");
+  const actionBoundsAfterHover = await perspectiveAction.boundingBox();
+  expect(actionBoundsBeforeHover).not.toBeNull();
+  expect(actionBoundsAfterHover).toEqual(actionBoundsBeforeHover);
+  const afterHover = await actionSurface.evaluate((element) => {
     const style = getComputedStyle(element);
     return { background: style.backgroundColor, color: style.color };
   });
