@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -18,7 +18,7 @@ import { LocalDatabase } from "../../src/server/local-database";
 import { WorldHost } from "../../src/server/world-host";
 
 type SmokeProfileSet = "glm" | "deepseek";
-type SmokeWorld = "blackmarsh" | "fixture";
+type SmokeWorld = "blackmarsh" | "fixture" | "solo";
 
 function profileSetArgument(argv: readonly string[]): SmokeProfileSet {
   const index = argv.indexOf("--profile-set");
@@ -41,8 +41,8 @@ function stepsArgument(argv: readonly string[]): number {
 function worldArgument(argv: readonly string[]): SmokeWorld {
   const index = argv.indexOf("--world");
   const value = index >= 0 ? argv[index + 1]?.trim() : undefined;
-  if (value && value !== "blackmarsh" && value !== "fixture") {
-    throw new Error("world must be blackmarsh or fixture");
+  if (value && value !== "blackmarsh" && value !== "fixture" && value !== "solo") {
+    throw new Error("world must be blackmarsh, fixture, or solo");
   }
   return (value as SmokeWorld | undefined) ?? "blackmarsh";
 }
@@ -70,6 +70,16 @@ function smokeWorldDirectory(root: string, profileSet: SmokeProfileSet, world: S
       .replaceAll("truth-deepseek", truthProfile)
       .replaceAll("agent-zhipu-coding", agentProfile)
       .replaceAll("agent-deepseek", agentProfile), "utf8");
+  }
+  if (world === "solo") {
+    // Keep the same authored fixture, but remove its two initial NPCs so the
+    // live check isolates one dynamic player Agent and stays within a compact
+    // model context. The origin, laws, mechanics, and persistence path are
+    // still exercised exactly as in a normal world.
+    unlinkSync(path.join(copy, "entities", "player.yaml"));
+    unlinkSync(path.join(copy, "entities", "keeper.yaml"));
+    const keyFile = path.join(copy, "entities", "key.yaml");
+    writeFileSync(keyFile, readFileSync(keyFile, "utf8").replace("placement: player", "placement: courtyard"), "utf8");
   }
   return copy;
 }
