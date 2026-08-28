@@ -115,3 +115,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0074 — Enforce Script-owned Shared-resource Pools in the Canonical Kernel](0074-enforce-script-owned-shared-resource-pools.md)
 - [0075 — Pin Configured Execution Algorithms](0075-pin-configured-execution-algorithms.md)
 - [0076 — Resolve Models from Audited Capability Snapshots](0076-resolve-models-from-audited-capability-snapshots.md)
+- [0077 — Organize Engine Code by Ownership Boundaries](0077-engine-module-topology.md)
