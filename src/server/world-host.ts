@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import path from "node:path";
 import { projectAgentPerspective } from "../engine/agent-perspective";
 import { DEFAULT_ALGORITHM_REF, registerBuiltinAlgorithms } from "../engine/builtin-algorithms";
@@ -56,6 +57,7 @@ import type {
   WorldObserverDetail,
 } from "../shared/world-observer-api";
 import { runtimeCodeIdentity } from "./code-identity";
+import { installBundledWorlds } from "./bundled-worlds";
 import type { ExecutionLedger, FinishExecutionInput } from "./execution-ledger";
 import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
@@ -437,14 +439,24 @@ export class WorldHost {
       const dataRoot = path.resolve(
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v16",
       );
-      const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
-      this.singleton = new WorldHost({
-        repository: database,
-        store: database,
-        catalogManager: database,
-        provider,
-        ledger: database,
-      });
+      const databaseFile = path.join(dataRoot, "livingworld.sqlite");
+      const database = new LocalDatabase(databaseFile);
+      try {
+        installBundledWorlds(database, provider.catalog);
+        this.singleton = new WorldHost({
+          repository: database,
+          store: database,
+          catalogManager: database,
+          provider,
+          ledger: database,
+        });
+      } catch (error) {
+        database.close();
+        if (database.created) {
+          for (const suffix of ["", "-shm", "-wal"]) rmSync(`${databaseFile}${suffix}`, { force: true });
+        }
+        throw error;
+      }
     }
     return this.singleton;
   }

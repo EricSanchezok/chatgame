@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0072](0072-seed-bundled-reference-worlds.md)
 Class: feature
 
 ## Context and Problem Statement

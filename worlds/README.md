@@ -4,8 +4,8 @@
 
 作者工程可以包含 README、设计文档与许可说明。`world/` 只允许必需 manifest、法则、机制、实体，以及可选 participation 配置和受限静态资源；完整边界见[世界剧本格式](../docs/game-design/script-format.md)。
 
-参考世界不会在应用启动时自动安装。校验并打包 `world/` 后，通过世界库导入入口安装。
+应用创建全新的本地数据库时，会把随应用提供的参考世界经由普通严格 ZIP 导入路径自动安装一次。已有数据库不会在启动时被覆盖；用户自行卸载后也不会自动恢复。作者仍可校验并打包 `world/`，通过世界库入口测试安装或更新流程。
 
 ## 世界目录
 
-- [黑沼边境](blackmarsh/README.md)：由 Robert Conley 的开放沙盒设定 Blackmarsh 改编的多 Agent 奇幻边境。
+- [黑沼边境](blackmarsh/README.md)：随应用首次安装，由 Robert Conley 的开放沙盒设定 Blackmarsh 改编的多 Agent 奇幻边境。

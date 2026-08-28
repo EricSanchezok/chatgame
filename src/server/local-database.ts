@@ -244,6 +244,7 @@ export class LocalDatabaseInUseError extends Error {
 }
 
 export class LocalDatabase implements WorldRepository, WorldInstanceStore, ExecutionLedger {
+  readonly created: boolean;
   readonly rulePackages: RulePackageRegistry;
   private readonly connection: Database.Database;
   private readonly ownerId: string;
@@ -270,7 +271,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
       this.connection.pragma("foreign_keys = ON");
       this.connection.pragma("busy_timeout = 5000");
       this.connection.pragma("trusted_schema = OFF");
-      this.migrate();
+      this.created = this.migrate();
       this.acquireInstanceLease();
       this.recoverInterruptedExecutions();
     } catch (error) {
@@ -341,8 +342,8 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     });
   }
 
-  private migrate(): void {
-    this.connection.transaction(() => {
+  private migrate(): boolean {
+    return this.connection.transaction(() => {
       this.connection.exec(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           version INTEGER PRIMARY KEY,
@@ -464,6 +465,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
         this.connection.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (6, ?)")
           .run(new Date(this.now()).toISOString());
       }
+      return currentVersion === 0;
     })();
   }
 

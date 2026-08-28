@@ -13,7 +13,7 @@ DEEPSEEK_API_KEY=... npm run dev
 
 `npm run dev` 使用 SQLite Execution Ledger 持久记录完整执行证据；正常运行、Inspector、重放和实验读取同一事实源。数据包含参与者输入与世界秘密，存储和访问边界见[运行时可观测性](docs/game-design/runtime-observability.md)。
 
-仓库中的[参考世界工程](worlds/README.md)提供可审阅、可校验的可玩内容，但应用不会自动安装；初次进入会看到导入入口。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
+仓库中的[参考世界工程](worlds/README.md)提供可审阅、可校验的可玩内容；应用创建全新的本地数据库时会通过普通严格导入路径安装随附世界。用于测试契约的最小世界位于 `test/fixtures/open-world-script/`，不作为产品内容安装。
 
 ## 常用命令
 
