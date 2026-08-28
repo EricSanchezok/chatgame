@@ -21,7 +21,7 @@ One execution captures one registry snapshot. All model work within that executi
 
 Protocol drivers implement OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages. Vendor dialects compile normalized inference into provider fields and normalize usage and errors. Structured results use native strict JSON Schema, JSON object plus local Zod, or a forced tool call plus local Zod. A text-only JSON recovery path is not allowed. Every accepted value passes the request's local Zod schema.
 
-Model execution audits identify the provider account, vendor channel, protocol, requested selector and inference, resolved model and inference, configuration hash, registry snapshot hash, model metadata hash, structured-output mode, and invocation evidence. Canonical state is SimulationState v13 inside WorldInstanceDocument v18; the default data root is `.livingworld-v19/`. Older state remains untouched and is not migrated or dual-read.
+Model execution audits identify the provider account, vendor channel, protocol, requested selector and inference, resolved model and inference, configuration hash, registry snapshot hash, model metadata hash, structured-output mode, and invocation evidence. Canonical state is SimulationState v14 inside WorldInstanceDocument v19; the default data root is `.livingworld-v19/`. Older state remains untouched and is not migrated or dual-read.
 
 `GET /api/model-registry` returns source health, snapshot identity, credential presence, provider-account state, and profile resolution without returning credentials. `POST /api/model-registry/refresh` refreshes only the fixed source and is single-flight and rate-limited. Settings presents the same read-only diagnostics with an explicit refresh action, textual status, and accessible dynamic announcements. CLI status, refresh, and opt-in live smoke commands use the same application core.
 
@@ -39,4 +39,6 @@ Run `npm run check:fast`, `npm run build`, `node scripts/verify-decisions.mjs`, 
 
 ## Evidence
 
-Pending implementation.
+Implemented on 2026-08-28. `npm run check:fast` passes 43 unit test files and 281 tests, the schema v13 world fixture, workflow verification, and all six governance gates. `npm run build` produces the model-registry Route Handlers as dynamic server routes. Focused registry, provider-matrix, API, and settings tests cover 38 cases including 200/304, timeout, malformed and oversized responses, last-known-good fallback, single-flight and rate limiting, immutable snapshots, deterministic selection, explicit incompatibility, all 11 account transports, MiMo header authentication, Kimi identity/cache headers, 30-call execution snapshot consistency, 48-Agent scheduling, sanitized diagnostics, and accessible refresh state.
+
+A metadata-only live `npm run models:status` refresh against the fixed models.dev URL resolved all 12 bundled Profiles across the 11 configured accounts from one content-addressed snapshot. Paid provider smoke calls remain opt-in and were not run as part of deterministic verification.
