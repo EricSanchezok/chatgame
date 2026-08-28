@@ -139,7 +139,9 @@ profiles:
     description: GLM Coding Plan 世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-compilation, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
-    max_output_tokens: 131072
+    # Truth outputs are compact JSON decisions; a bounded output avoids
+    # needlessly large allocations on the Coding Plan endpoint.
+    max_output_tokens: 65536
     max_input_bytes: 2000000
     inference:
       thinking: disabled
