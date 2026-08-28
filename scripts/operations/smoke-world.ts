@@ -257,7 +257,10 @@ async function main(): Promise<void> {
     });
     headless = await host.advance(headless.summary.id, {
       expectedRevision: headless.summary.revision,
-      trigger: "manual",
+      // WorldHost only interprets `steps` for batch runs. Keeping this
+      // explicit makes --steps an actual multi-boundary smoke test instead
+      // of silently falling back to the manual single-boundary behavior.
+      trigger: "batch",
       steps: requestedSteps,
     });
     const headlessDocument = await waitForRevision(database, headless.summary.id, requestedSteps);
