@@ -242,8 +242,10 @@ function materializeBatch(
   const packets = localNormalized.drafts.map((draft, index): ObservationPacketDraft => {
     return {
       id: `observation-slot-${batchKey}-${index}`,
-      observerId: observerIds[index],
       ...structuredClone(draft),
+      // Slot ownership is assigned by the engine; a model must not be able
+      // to move an observation to another Agent by echoing observerId.
+      observerId: observerIds[index]!,
     };
   });
   const materialized = materializeObservationPackets(input.state, packets, "outcome").packets;
