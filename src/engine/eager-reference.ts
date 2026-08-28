@@ -37,11 +37,15 @@ import type {
   AgentId,
   AgentState,
   CausalRef,
+  CommitmentRound,
+  D20CheckRequest,
+  D20CheckResult,
   MechanicInvocation,
   ModelExecutionAudit,
   ObservationPacket,
   ReactionDecision,
   ReactionRequest,
+  SeededRngState,
   SimulationState,
   TransitionProposal,
 } from "./model";
@@ -56,7 +60,7 @@ import { ObservationRenderer } from "./observation-renderer";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "./rule-package";
 import { runtimeId } from "./runtime-id";
 import { applyTransitionProposal } from "./transaction";
-import { TruthEngine, type TruthResolution } from "./truth-engine";
+import { TruthEngine, type OnsetPerceptionResult, type TruthResolution } from "./truth-engine";
 import {
   cancelActivity,
   advanceTemporalState,
@@ -242,6 +246,12 @@ interface EagerStepPreparationPayload {
   planningState: SimulationState;
   interruptionTransitions: ActivityTransition[];
   reactionRequests: ReactionRequest[];
+  onsetPerception: {
+    requests: D20CheckRequest[];
+    checks: D20CheckResult[];
+    commitmentRounds: CommitmentRound[];
+    rng: SeededRngState;
+  };
 }
 
 function eagerPreparationPayload(preparation: Readonly<WorldStepPreparation>): EagerStepPreparationPayload {
@@ -254,7 +264,10 @@ function eagerPreparationPayload(preparation: Readonly<WorldStepPreparation>): E
     !Array.isArray(payload.newActions) || !Array.isArray(payload.temporalPlanning) ||
     !Array.isArray(payload.dependencyResults) || !payload.planningState ||
     typeof payload.planningState !== "object" || !Array.isArray(payload.interruptionTransitions) ||
-    !Array.isArray(payload.reactionRequests)) {
+    !Array.isArray(payload.reactionRequests) || !payload.onsetPerception ||
+    typeof payload.onsetPerception !== "object" || !Array.isArray(payload.onsetPerception.requests) ||
+    !Array.isArray(payload.onsetPerception.checks) ||
+    !Array.isArray(payload.onsetPerception.commitmentRounds) || !payload.onsetPerception.rng) {
     throw new StepPreparationInvalidatedError("step preparation payload is incomplete");
   }
   return structuredClone(payload) as EagerStepPreparationPayload;
@@ -264,6 +277,7 @@ function reactionBasis(
   state: Readonly<SimulationState>,
   trigger: Readonly<AgentActionProposal>,
   observerAgentId: AgentId,
+  perception: Readonly<Pick<OnsetPerceptionResult, "requests" | "checks">>,
 ): ReactionRequest["basis"] {
   const sourceAgent = state.agents[trigger.actorId];
   const observer = state.agents[observerAgentId];
@@ -282,21 +296,31 @@ function reactionBasis(
       return endpoints.has(sourceAgent.entityId) && endpoints.has(observer.entityId);
     })
     .sort((left, right) => left.id.localeCompare(right.id));
-  return related[0] ? [{ kind: "fact", factId: related[0].id }] : [];
+  if (related[0]) return [{ kind: "fact", factId: related[0].id }];
+  const resultById = new Map(perception.checks.map((result) => [result.requestId, result]));
+  const successful = perception.requests.filter((request) =>
+    request.phase === "perception" && request.actorId === observer.entityId &&
+    resultById.get(request.id)?.succeeded &&
+    request.causes.some((cause) => cause.kind === "action" && cause.id === trigger.id) &&
+    request.causes.some((cause) => cause.kind === "fact" || cause.kind === "law"))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  return successful[0] ? [{ kind: "perception_check", checkId: successful[0].id }] : [];
 }
 
-function collectOnsetReactionRequests(input: {
+interface OnsetReactionCandidate {
+  agentId: AgentId;
+  trigger: AgentActionProposal;
+  originalIntent: ReactionRequest["originalIntent"];
+  description: string;
+}
+
+function collectOnsetReactionCandidates(input: {
   state: Readonly<SimulationState>;
   planningState: Readonly<SimulationState>;
   actions: readonly AgentActionProposal[];
   dependencies: readonly InteractionDependency[];
-}): ReactionRequest[] {
-  const requestInputs: Array<{
-    agentId: AgentId;
-    trigger: AgentActionProposal;
-    originalIntent: ReactionRequest["originalIntent"];
-    description: string;
-  }> = [];
+}): OnsetReactionCandidate[] {
+  const requestInputs: OnsetReactionCandidate[] = [];
   const dependencyByAction = new Map(input.dependencies.map((dependency) => [dependency.id, dependency]));
   const actionById = new Map(input.actions.map((action) => [action.id, action]));
   for (const action of input.actions) {
@@ -343,12 +367,20 @@ function collectOnsetReactionRequests(input: {
   const unique = [...new Map(requestInputs
     .sort((left, right) => left.agentId.localeCompare(right.agentId) || left.trigger.id.localeCompare(right.trigger.id))
     .map((entry) => [entry.agentId, entry])).values()];
-  return unique.flatMap((entry, ordinal): ReactionRequest[] => {
-    const basis = reactionBasis(input.state, entry.trigger, entry.agentId);
+  return unique;
+}
+
+function materializeOnsetReactionRequests(
+  state: Readonly<SimulationState>,
+  candidates: readonly OnsetReactionCandidate[],
+  perception: Readonly<Pick<OnsetPerceptionResult, "requests" | "checks">>,
+): ReactionRequest[] {
+  return candidates.flatMap((entry, ordinal): ReactionRequest[] => {
+    const basis = reactionBasis(state, entry.trigger, entry.agentId, perception);
     if (basis.length === 0) return [];
     const id = runtimeId({
-      worldHash: input.state.worldHash,
-      revision: input.state.revision,
+      worldHash: state.worldHash,
+      revision: state.revision,
       kind: "reaction-request",
       stage: "action-onset",
       owner: [entry.agentId, entry.trigger.id],
@@ -362,8 +394,8 @@ function collectOnsetReactionRequests(input: {
       originalIntent: structuredClone(entry.originalIntent),
       stimulus: {
         id: runtimeId({
-          worldHash: input.state.worldHash,
-          revision: input.state.revision,
+          worldHash: state.worldHash,
+          revision: state.revision,
           kind: "observation",
           stage: "reaction-stimulus",
           owner: entry.agentId,
@@ -371,7 +403,7 @@ function collectOnsetReactionRequests(input: {
           ordinal,
         }),
         observerId: entry.agentId,
-        step: input.state.step + 1,
+        step: state.step + 1,
         kind: "stimulus",
         summary: `你察觉到附近的行动“${entry.trigger.rawText}”正在开始，可能影响你当前的“${entry.description}”。`,
         introductions: [],
@@ -910,12 +942,43 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       planningState.truth.activities,
       planningState.truth.mechanics.activityResources,
     );
-    const reactionRequests = collectOnsetReactionRequests({
+    const reactionCandidates = collectOnsetReactionCandidates({
       state: source,
       planningState,
       actions: newActions,
       dependencies: newDependencyResults.map((result) => result.dependency),
     });
+    const requiresPerceptionCheck = reactionCandidates.some((candidate) =>
+      reactionBasis(source, candidate.trigger, candidate.agentId, { requests: [], checks: [] }).length === 0);
+    const onsetPerception = requiresPerceptionCheck
+      ? await this.truthEngine.perceiveOnset({
+          definition: input.definition,
+          state: source,
+          actions: structuredClone(newActions),
+          temporalBoundary: selectTemporalBoundary({
+            elapsedSeconds: source.truth.elapsedSeconds,
+            maxAutonomousSpanSeconds: input.definition.runtimeDefaults.maxAutonomousSpanSeconds,
+            activities: planningState.truth.activities,
+            timers: planningState.truth.timers,
+            conditionExpiries: Object.fromEntries(Object.values(planningState.truth.conditions)
+              .filter((condition) => condition.expiresAtElapsedSeconds !== null)
+              .map((condition) => [condition.id, condition.expiresAtElapsedSeconds!])),
+          }),
+          identityOwner: "action-onset-perception",
+          groundings: newDependencyResults.map((result) => structuredClone(result.dependency)),
+        }, context.modelScope)
+      : null;
+    const onsetPerceptionTranscript = onsetPerception ?? {
+      requests: [],
+      checks: [],
+      commitmentRounds: [],
+      rng: structuredClone(source.truth.rng),
+    };
+    const reactionRequests = materializeOnsetReactionRequests(
+      source,
+      reactionCandidates,
+      onsetPerceptionTranscript,
+    );
     validateObservations(source, reactionRequests.map((request) => request.stimulus), source.step + 1);
     const reactionResults = await settledValues(reactionRequests.map(async (request) => {
       const policy = input.policyRoster[request.agentId];
@@ -967,6 +1030,12 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       planningState: structuredClone(planningState),
       interruptionTransitions: structuredClone(interruptionTransitions),
       reactionRequests: structuredClone(reactionRequests),
+      onsetPerception: {
+        requests: structuredClone(onsetPerceptionTranscript.requests),
+        checks: structuredClone(onsetPerceptionTranscript.checks),
+        commitmentRounds: structuredClone(onsetPerceptionTranscript.commitmentRounds),
+        rng: structuredClone(onsetPerceptionTranscript.rng),
+      },
     };
     return {
       schemaVersion: WORLD_STEP_PREPARATION_SCHEMA_VERSION,
@@ -989,6 +1058,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         ...resumedOutputs.map((output) => structuredClone(output.modelAudit)),
         ...temporalPlanning.map((result) => structuredClone(result.audit)),
         ...newDependencyResults.map((result) => structuredClone(result.audit)),
+        ...(onsetPerception ? [structuredClone(onsetPerception.modelAudit)] : []),
         ...reactionResults.flatMap((result) => result?.audit ? [structuredClone(result.audit)] : []),
       ],
       payload: structuredClone(payload) as unknown as JsonObject,
@@ -1185,7 +1255,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       ...timerActions,
     ].map((action) => [action.id, action])).values()]
       .sort((left, right) => left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
-    const temporalInput: WorldStepInput = { ...input, state: planningState };
+    const temporalInputState = structuredClone(planningState);
+    temporalInputState.truth.rng = structuredClone(payload.onsetPerception.rng);
+    const temporalInput: WorldStepInput = { ...input, state: temporalInputState };
     const newDependencyByAction = new Map(newDependencyResults.map((result) => [
       result.dependency.id,
       result,
@@ -1224,7 +1296,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     let adjudicatedComponents = components.filter((component) => component.some((interactionId) =>
       actionDependencies.some((dependency) => dependency.id === interactionId)));
     let componentResults: ComponentResolution[] = [];
-    let rng = structuredClone(source.truth.rng);
+    let rng = structuredClone(payload.onsetPerception.rng);
     for (const component of adjudicatedComponents) {
       const result = await this.resolveComponent(
         temporalInput,
@@ -1267,7 +1339,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         actions,
         globalDependencies,
         components[0],
-        source.truth.rng,
+        payload.onsetPerception.rng,
         context,
         true,
         temporal,
@@ -1288,6 +1360,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       temporalBoundary,
       { kind: "law", id: fallbackLaw.id },
     );
+    resolution.requests = [
+      ...structuredClone(payload.onsetPerception.requests),
+      ...resolution.requests,
+    ];
+    resolution.checks = [
+      ...structuredClone(payload.onsetPerception.checks),
+      ...resolution.checks,
+    ];
+    resolution.commitmentRounds = [
+      ...structuredClone(payload.onsetPerception.commitmentRounds),
+      ...resolution.commitmentRounds,
+    ];
     resolution.initialActions = [...new Map([
       ...timerActions,
       ...dueActions,

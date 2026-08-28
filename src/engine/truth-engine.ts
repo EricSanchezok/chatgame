@@ -130,6 +130,24 @@ export interface TruthResolutionInput {
   ) => void;
 }
 
+export interface OnsetPerceptionInput {
+  definition: WorldDefinition;
+  state: SimulationState;
+  actions: AgentActionProposal[];
+  temporalBoundary: TemporalBoundary;
+  identityOwner: string;
+  groundings: readonly InteractionDependency[];
+}
+
+export interface OnsetPerceptionResult {
+  requests: D20CheckRequest[];
+  checks: D20CheckResult[];
+  commitmentRounds: CommitmentRound[];
+  rng: SimulationState["truth"]["rng"];
+  modelAudit: ModelExecutionAudit;
+  aliases: Array<[string, string | null]>;
+}
+
 export interface TruthEngineOptions {
   repairAttempts?: number;
   maxCommitmentRounds?: number;
@@ -343,6 +361,133 @@ function validateCheckRequest(
   if (visibilityRank[request.visibility] > visibilityRank[maximumVisibility]) {
     throw new Error(`check ${request.id} exceeds world disclosure policy ${maximumVisibility}`);
   }
+}
+
+async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
+  provider: StructuredModelProvider;
+  repairAttempts: number;
+  maxCommitmentRounds: number;
+  scope: ModelExecutionScope;
+}): Promise<OnsetPerceptionResult> {
+  const allowed: Record<CausalRef["kind"], Set<string>> = {
+    action: new Set(input.actions.map((action) => action.id)),
+    check: new Set(),
+    random: new Set(),
+    event: new Set(input.state.truth.events.map((event) => event.id)),
+    fact: new Set(Object.keys(input.state.truth.facts)),
+    law: new Set(input.definition.laws.map((law) => law.id)),
+    mechanic: new Set(),
+  };
+  const requests: D20CheckRequest[] = [];
+  const checks: D20CheckResult[] = [];
+  const commitmentRounds: CommitmentRound[] = [];
+  const aliases = new Map<string, string | null>();
+  const audits: ModelExecutionAudit[] = [];
+  let rng = structuredClone(input.state.truth.rng);
+
+  while (true) {
+    const accepted = { round: null as D20CheckRequest[] | null };
+    let draftRound: D20CheckRequestDraft[] = [];
+    const call = await generateValidated({
+      provider: input.provider,
+      profileId: input.definition.modelProfiles.perception,
+      role: "truth-perception",
+      subjectId: input.identityOwner,
+      promptVersion: TRUTH_PROMPT_VERSION,
+      schemaName: "truth_perception_directive",
+      system: TRUTH_SYSTEM,
+      schema: perceptionDirectiveSchema,
+      scope: input.scope,
+      buildContext: (issues) => buildTruthContext({
+        definition: input.definition,
+        state: input.state,
+        initialActions: input.actions,
+        actions: input.actions,
+        reactionRequests: [],
+        reactionDecisions: [],
+        reactionWindow: "open",
+        committedCheckRequests: requests,
+        checkResults: checks,
+        committedRandomRequests: [],
+        randomResults: [],
+        commitmentRounds,
+        resolutionPlans: [],
+        resolutionReceipts: [],
+        groundings: input.groundings,
+        temporalBoundary: input.temporalBoundary,
+        instanceId: input.scope.workloadId,
+        advanceId: input.scope.batchId,
+        issues,
+        stage: "perception",
+      }),
+      validate: (directive) => {
+        if (directive.kind !== "request_checks") return;
+        if (commitmentRounds.length >= input.maxCommitmentRounds) {
+          throw new Error("maximum commitment rounds exceeded");
+        }
+        draftRound = structuredClone(directive.requests);
+        const roundAliases = new Map<string, string>();
+        for (const [ordinal, request] of directive.requests.entries()) {
+          if (roundAliases.has(request.id)) throw new Error(`duplicate check request alias ${request.id}`);
+          roundAliases.set(request.id, runtimeId({
+            worldHash: input.state.worldHash,
+            revision: input.state.revision,
+            kind: "check",
+            stage: "perception",
+            owner: input.identityOwner,
+            round: commitmentRounds.length,
+            ordinal,
+          }));
+        }
+        const normalized = directive.requests.map((request) => ({
+          ...structuredClone(request),
+          id: roundAliases.get(request.id)!,
+          phase: "perception" as const,
+          causes: request.causes.map((cause) => cause.kind === "check" && roundAliases.has(cause.id)
+            ? { ...cause, id: roundAliases.get(cause.id)! }
+            : structuredClone(cause)),
+        }));
+        for (const request of normalized) {
+          validateCheckRequest(
+            input.state,
+            request,
+            allowed,
+            input.definition.disclosure.defaultCheckVisibility,
+          );
+        }
+        accepted.round = normalized;
+      },
+      repairAttempts: input.repairAttempts,
+      invocationOffset: audits.reduce((count, audit) => count + audit.invocations.length, 0),
+    });
+    audits.push(call.audit);
+    if (call.value.kind === "done") break;
+    const acceptedRound = accepted.round;
+    if (!acceptedRound) throw new Error("accepted perception round was not materialized");
+    const resolved = resolveD20Checks(rng, acceptedRound);
+    rng = resolved.rng;
+    requests.push(...structuredClone(acceptedRound));
+    checks.push(...resolved.results);
+    commitmentRounds.push({
+      kind: "check",
+      phase: "perception",
+      requestIds: acceptedRound.map((request) => request.id),
+    });
+    acceptedRound.forEach((request) => allowed.check.add(request.id));
+    draftRound.forEach((request, index) => {
+      const canonicalId = acceptedRound![index]!.id;
+      aliases.set(request.id, aliases.has(request.id) ? null : canonicalId);
+    });
+  }
+
+  return {
+    requests,
+    checks,
+    commitmentRounds,
+    rng,
+    modelAudit: combineModelExecutionAudits(audits),
+    aliases: [...aliases.entries()],
+  };
 }
 
 function resolutionEvidenceIndex(
@@ -1119,6 +1264,24 @@ export class TruthEngine {
     this.rulePackages = options.rulePackages ?? createCoreRulePackageRegistry();
   }
 
+  async perceiveOnset(
+    input: Readonly<OnsetPerceptionInput>,
+    scope: ModelExecutionScope,
+  ): Promise<OnsetPerceptionResult> {
+    if (input.temporalBoundary.fromElapsedSeconds !== input.state.truth.elapsedSeconds ||
+      input.temporalBoundary.toElapsedSeconds !== input.state.truth.elapsedSeconds + input.temporalBoundary.deltaSeconds ||
+      !Number.isSafeInteger(input.temporalBoundary.deltaSeconds) || input.temporalBoundary.deltaSeconds <= 0) {
+      throw new Error("onset perception requires an engine-selected future temporal boundary");
+    }
+    return runOnsetPerceptionStage({
+      ...structuredClone(input),
+      provider: this.provider,
+      repairAttempts: this.repairAttempts,
+      maxCommitmentRounds: this.maxCommitmentRounds,
+      scope,
+    });
+  }
+
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
     const truthSubject = input.identityOwner;
     let actions = input.initialActions.map((action) => structuredClone(action));
@@ -1154,7 +1317,6 @@ export class TruthEngine {
     let reactionDecisions: ReactionDecision[] = [];
     let reactionModelAudits: ModelExecutionAudit[] = [];
     const modelAudits: ModelExecutionAudit[] = [];
-    let randomStarted = false;
     let randomRngDrawsBefore: number | null = null;
     const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
       combineModelExecutionAudits(audits);
@@ -1185,51 +1347,6 @@ export class TruthEngine {
       stage,
     });
 
-    const normalizeCheckRound = (
-      round: readonly D20CheckRequestDraft[],
-      phase: "perception" | "resolution",
-    ): D20CheckRequest[] => {
-      if (commitmentRounds.length >= this.maxCommitmentRounds) {
-        throw new Error("maximum commitment rounds exceeded");
-      }
-      if (randomStarted) throw new Error("d20 checks cannot be requested after discrete random commitments");
-      const aliases = new Map<string, string>();
-      for (const [ordinal, request] of round.entries()) {
-        if (aliases.has(request.id)) throw new Error(`duplicate check request alias ${request.id}`);
-        const canonicalId = runtimeId({
-          worldHash: input.state.worldHash,
-          revision: input.state.revision,
-          kind: "check",
-          stage: phase,
-          owner: input.identityOwner,
-          round: commitmentRounds.length,
-          ordinal,
-        });
-        aliases.set(request.id, canonicalId);
-        // Draft aliases are round-local. A repeated spelling is deliberately
-        // marked ambiguous so transition drafts must use the canonical rt id
-        // exposed in committed context rather than silently binding a round.
-      }
-      const normalized = round.map((request) => ({
-        ...structuredClone(request),
-        id: aliases.get(request.id)!,
-        phase,
-        causes: request.causes.map((cause) => cause.kind === "check" && aliases.has(cause.id)
-          ? { ...cause, id: aliases.get(cause.id)! }
-          : structuredClone(cause)),
-      }));
-      for (const request of normalized) {
-        if (requestIds.has(request.id)) throw new Error(`duplicate check request ${request.id}`);
-        validateCheckRequest(
-          input.state,
-          request,
-          allowedForCommitments,
-          input.definition.disclosure.defaultCheckVisibility,
-        );
-      }
-      return normalized;
-    };
-
     const commitCheckRound = (round: readonly D20CheckRequest[]) => {
       const resolved = resolveD20Checks(rng, round);
       rng = resolved.rng;
@@ -1243,16 +1360,6 @@ export class TruthEngine {
         kind: "check",
         phase: round[0]!.phase,
         requestIds: round.map((request) => request.id),
-      });
-    };
-
-    const registerCheckAliases = (
-      draft: readonly D20CheckRequestDraft[],
-      normalized: readonly D20CheckRequest[],
-    ): void => {
-      draft.forEach((request, index) => {
-        const canonicalId = normalized[index]!.id;
-        checkAliases.set(request.id, checkAliases.has(request.id) ? null : canonicalId);
       });
     };
 
@@ -1322,7 +1429,6 @@ export class TruthEngine {
         randomRequestIds.add(request.id);
         allowedForCommitments.random.add(request.id);
       }
-      randomStarted = true;
       commitmentRounds.push({ kind: "random", requestIds: round.map((request) => request.id) });
     };
 
@@ -1337,35 +1443,24 @@ export class TruthEngine {
     };
 
     if (input.enableReactionRouting !== false) {
-      const perceptionAudits: ModelExecutionAudit[] = [];
-      while (true) {
-        let acceptedRound: D20CheckRequest[] | null = null;
-        const call = await generateValidated({
-          provider: this.provider,
-          profileId: input.definition.modelProfiles.perception,
-          role: "truth-perception",
-          subjectId: truthSubject,
-          promptVersion: TRUTH_PROMPT_VERSION,
-          schemaName: "truth_perception_directive",
-          system: TRUTH_SYSTEM,
-          schema: perceptionDirectiveSchema,
-          scope,
-          buildContext: (issues) => truthContext("perception", issues),
-          validate: (directive) => {
-            if (directive.kind === "request_checks") {
-              acceptedRound = normalizeCheckRound(directive.requests, "perception");
-            }
-          },
-          repairAttempts: this.repairAttempts,
-          invocationOffset: perceptionAudits.reduce((count, audit) => count + audit.invocations.length, 0),
-        });
-        perceptionAudits.push(call.audit);
-        if (call.value.kind === "done") break;
-        if (!acceptedRound) throw new Error("accepted perception round was not materialized");
-        registerCheckAliases(call.value.requests, acceptedRound);
-        commitCheckRound(acceptedRound);
-      }
-      modelAudits.push(combineStageAudits(perceptionAudits));
+      const perception = await this.perceiveOnset({
+        definition: input.definition,
+        state: input.state,
+        actions,
+        temporalBoundary: input.temporalBoundary,
+        identityOwner: input.identityOwner,
+        groundings,
+      }, scope);
+      rng = structuredClone(perception.rng);
+      requests.push(...structuredClone(perception.requests));
+      checks.push(...structuredClone(perception.checks));
+      commitmentRounds.push(...structuredClone(perception.commitmentRounds));
+      perception.requests.forEach((request) => {
+        requestIds.add(request.id);
+        allowedForCommitments.check.add(request.id);
+      });
+      perception.aliases.forEach(([alias, canonicalId]) => checkAliases.set(alias, canonicalId));
+      modelAudits.push(structuredClone(perception.modelAudit));
 
       const routing = await generateValidated({
         provider: this.provider,

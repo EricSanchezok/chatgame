@@ -221,10 +221,8 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       proposal?: unknown;
     };
     if (request.role === "truth-perception") {
-      if (value.kind === "request_checks" && value.requests?.every((check) => check.phase === "perception")) {
-        return value;
-      }
-      if (value.kind === "request_checks" || value.kind === "request_random") this.pendingResolution = value;
+      if (value.kind === "request_checks") return value;
+      if (value.kind === "request_random") this.pendingResolution = value;
       if (value.kind === "request_reactions") this.pendingRouting = { requests: value.requests ?? [] };
       if (value.kind === "transition") this.pendingTransition = value.proposal;
       return { kind: "done" };

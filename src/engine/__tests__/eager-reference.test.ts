@@ -925,6 +925,95 @@ describe("eager reference safeguards", () => {
     expect(playerActivity.status).toBe(replacementSeconds === 1 ? "active" : "completed");
   });
 
+  it("opens an onset reaction only after a committed perception check succeeds", async () => {
+    let perceptionRounds = 0;
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-grounding") {
+        return {
+          reads: [{ kind: "global", id: "world" }],
+          writes: [{ kind: "global", id: "world" }],
+          audienceAgentIds: ["keeper", "player"],
+          globalFallback: true,
+        };
+      }
+      if (role === "truth-perception") {
+        perceptionRounds += 1;
+        if (perceptionRounds > 1) return { kind: "done" };
+        const playerAction = (context as { jointActions: AgentActionProposal[] }).jointActions
+          .find((action) => action.actorId === "player")!;
+        return {
+          kind: "request_checks",
+          requests: [{
+            id: "notice-player-action",
+            actorId: "keeper",
+            targetId: "player",
+            ratingId: null,
+            modifier: 0,
+            modifierSources: [],
+            dc: 0,
+            mode: "normal",
+            stakes: "守门人是否察觉远处旅人的行动开始",
+            visibility: "full",
+            causes: [
+              { kind: "action", id: playerAction.id },
+              { kind: "law", id: "time-passes" },
+            ],
+          }],
+        };
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const brief = definition.initialState.truth.mechanics.temporalProfiles["brief-action"];
+    if (!brief || brief.kind !== "fixed") throw new Error("fixture brief profile is missing");
+    brief.durationSeconds = 2;
+    brief.checkpointSeconds = 2;
+    definition.initialState.truth.facts = {};
+    definition.initialState.truth.placements[definition.initialState.agents.keeper!.entityId] = "gate";
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(perceptionRounds).toBe(2);
+    expect(result.committed.reactionRequests).toContainEqual(expect.objectContaining({
+      agentId: "keeper",
+      basis: [expect.objectContaining({ kind: "perception_check" })],
+    }));
+    const checkId = result.committed.reactionRequests
+      .find((request) => request.agentId === "keeper")!.basis
+      .find((basis) => basis.kind === "perception_check")!.checkId;
+    expect(result.committed.checkRequests).toContainEqual(expect.objectContaining({
+      id: checkId,
+      actorId: "keeper",
+      phase: "perception",
+    }));
+    expect(result.committed.checks).toContainEqual(expect.objectContaining({
+      requestId: checkId,
+      succeeded: true,
+    }));
+    expect(result.committed.commitmentRounds[0]).toEqual({
+      kind: "check",
+      phase: "perception",
+      requestIds: [checkId],
+    });
+    expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
+  });
+
   it.each([
     { mode: "imperceptible" as const, interruptible: true },
     { mode: "non-interruptible" as const, interruptible: false },
