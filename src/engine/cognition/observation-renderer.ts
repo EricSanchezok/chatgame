@@ -29,13 +29,14 @@ import { applyTransitionProposal } from "../runtime/transaction";
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalStateSnapshot } from "../mechanics/temporal";
 
-const OBSERVATION_PROMPT_VERSION = "observation-renderer-v2";
+const OBSERVATION_PROMPT_VERSION = "observation-renderer-v3";
 const OBSERVATION_SYSTEM = `你是 Living World Engine 的观察渲染器。
 输入包含已经裁决但尚未提交的候选世界变化，以及按固定顺序排列的观察槽位。
 
 必须为每个槽位输出恰好一项 observation，顺序与槽位完全一致。不要输出 observation id、observer id、step 或 kind；这些字段由引擎分配。
 
 每项 observation 只能描述对应主体可感知的表象。summary、localEntity 和 apparentClaims 不得泄露 canonical id、隐藏事实、其他主体认知、内部检定或裁判理由。
+summary 中的每个具体断言都必须能在 context.currentEvents、context.outcomes、context.candidateWorld.publicFacts、对应 action 或本次 observation 的 apparentClaims 中找到直接依据；不得臆造天气、气味、声音、情绪、人物缺席或其他未提供的细节。没有依据时使用简短的“本步骤没有形成其他可确认的观察”，不要用文学化细节填充。
 新局部实体使用观察者自己的语义别名，并通过 introductions 的服务端私有 canonicalEntityId 建立绑定；不得把 canonical entity id 复制成 localEntity.id。
 observer.knownBindings 是仅供渲染器复用既有局部别名的服务端私有映射，不得在 summary、localEntity 或 apparentClaims 中泄露。一个 canonical entity 已有唯一映射时，必须复用对应 localEntityId，不要重复 introduction。
 sourceEventIds 只能引用 context.currentEvents 中已列出的事件。
