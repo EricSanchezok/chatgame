@@ -141,14 +141,19 @@ export function aggregateMetricPoints(
   const values = new Map<string, AggregatedMetricPoint>();
   for (const point of points) {
     const key = `${point.name}\u0000${JSON.stringify(point.dimensions)}`;
+    const definition = registry.definition(point.name);
     const current = values.get(key);
     if (!current) {
-      values.set(key, { ...point, samples: 1 });
+      values.set(key, {
+        ...point,
+        value: definition.aggregation === "count" ? 1 : point.value,
+        samples: 1,
+      });
       continue;
     }
-    const definition = registry.definition(point.name);
     current.samples += 1;
-    if (definition.aggregation === "sum" || definition.aggregation === "count") current.value += point.value;
+    if (definition.aggregation === "sum") current.value += point.value;
+    else if (definition.aggregation === "count") current.value += 1;
     else if (definition.aggregation === "max") current.value = Math.max(current.value, point.value);
     else current.value = point.value;
   }

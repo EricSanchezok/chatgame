@@ -354,6 +354,19 @@ describe("Execution Ledger", () => {
         source: { field: "counts", key: "agents" },
         allowedDimensions: ["agentId"],
       })).toThrow("high-cardinality");
+      registry.register({
+        name: "sample-count",
+        unit: "1",
+        aggregation: "count",
+        source: { field: "counts", key: "samples" },
+        allowedDimensions: [],
+      });
+      expect(aggregateMetricPoints([
+        { name: "sample-count", value: 5, unit: "1", dimensions: {} },
+        { name: "sample-count", value: 7, unit: "1", dimensions: {} },
+      ], registry)).toEqual([
+        { name: "sample-count", value: 2, unit: "1", dimensions: {}, samples: 2 },
+      ]);
     } finally {
       ledger.close();
     }
