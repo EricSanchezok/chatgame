@@ -189,6 +189,53 @@ describe("action dependencies", () => {
       .toEqual([activity.id]);
   });
 
+  it("takes the fixed-point closure through multi-resource Activity footprints", () => {
+    const claim = (poolId: string) => ({
+      poolId,
+      definitionId: poolId,
+      entityId: `entity-${poolId}`,
+      amount: 1,
+      basis: { kind: "default" as const },
+    });
+    const bridge = {
+      ...dependency("bridge", [], []),
+      kind: "activity" as const,
+      id: "activity-bridge",
+      sharedResourceClaims: [claim("pool-a"), claim("pool-b")],
+    };
+    const downstream = {
+      ...dependency("downstream", [], []),
+      kind: "activity" as const,
+      id: "activity-downstream",
+      sharedResourceClaims: [claim("pool-b")],
+    };
+    const unrelated = {
+      ...dependency("unrelated", [], []),
+      kind: "activity" as const,
+      id: "activity-unrelated",
+      sharedResourceClaims: [claim("pool-c")],
+    };
+    const activities = Object.fromEntries([bridge, downstream, unrelated].map((footprint) => [footprint.id, {
+      id: footprint.id,
+      actorId: footprint.actorId,
+      status: "active",
+      interactionFootprint: footprint,
+    } as ActivityState]));
+    const incoming = [{
+      ...dependency("incoming", [], []),
+      sharedResourceClaims: [claim("pool-a")],
+    }];
+
+    expect(affectedActivityIdsExhaustive(activities, incoming)).toEqual([
+      bridge.id,
+      downstream.id,
+    ]);
+    expect(new ActivityFootprintIndex(activities).affectedBy(incoming)).toEqual([
+      bridge.id,
+      downstream.id,
+    ]);
+  });
+
   it("matches the exhaustive affected-Activity oracle across sparse, dense, audience, and global footprints", () => {
     let seed = 0x5eed;
     const random = (): number => {

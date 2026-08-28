@@ -178,13 +178,22 @@ export function affectedActivityIdsExhaustive(
   activities: Readonly<Record<string, ActivityState>>,
   incoming: readonly InteractionDependency[],
 ): string[] {
-  return Object.values(activities)
+  const live = Object.values(activities)
     .filter((activity) => activity.status === "active" || activity.status === "paused" ||
       activity.status === "queued" || activity.status === "ready")
-    .filter((activity) => incoming.some((dependency) =>
-      interactionDependenciesConflict(activity.interactionFootprint, dependency)))
-    .map((activity) => activity.id)
-    .sort();
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const affected = new Set<string>();
+  const pending = [...incoming];
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    const dependency = pending[cursor]!;
+    for (const activity of live) {
+      if (affected.has(activity.id) ||
+        !interactionDependenciesConflict(activity.interactionFootprint, dependency)) continue;
+      affected.add(activity.id);
+      pending.push(activity.interactionFootprint);
+    }
+  }
+  return [...affected].sort();
 }
 
 export class ActivityFootprintIndex {
@@ -194,6 +203,7 @@ export class ActivityFootprintIndex {
   private readonly writers = new Map<string, Set<string>>();
   private readonly actors = new Map<AgentId, Set<string>>();
   private readonly audiences = new Map<AgentId, Set<string>>();
+  private readonly footprints = new Map<string, InteractionDependency>();
 
   constructor(activities: Readonly<Record<string, ActivityState>>) {
     const active = Object.values(activities)
@@ -211,6 +221,7 @@ export class ActivityFootprintIndex {
       if (footprint.kind !== "activity" || footprint.id !== activity.id || footprint.actorId !== activity.actorId) {
         throw new Error(`activity ${activity.id} has an invalid interaction footprint identity`);
       }
+      this.footprints.set(activity.id, footprint);
       if (footprint.globalFallback) this.globalIds.add(activity.id);
       footprint.reads.forEach((ref) => add(this.readers, footprintRefKey(ref), activity.id));
       footprint.writes.forEach((ref) => add(this.writers, footprintRefKey(ref), activity.id));
@@ -222,10 +233,17 @@ export class ActivityFootprintIndex {
   }
 
   affectedBy(incoming: readonly InteractionDependency[]): string[] {
-    if (incoming.some((dependency) => dependency.globalFallback)) return [...this.activeIds];
-    const affected = new Set(this.globalIds);
-    const include = (values: ReadonlySet<string> | undefined): void => values?.forEach((id) => affected.add(id));
-    for (const dependency of incoming) {
+    const affected = new Set<string>();
+    const pending = [...incoming];
+    for (let cursor = 0; cursor < pending.length; cursor += 1) {
+      const dependency = pending[cursor]!;
+      const matched = new Set<string>();
+      const include = (values: ReadonlySet<string> | undefined): void => values?.forEach((id) => matched.add(id));
+      if (dependency.globalFallback) {
+        this.activeIds.forEach((id) => matched.add(id));
+      } else {
+        include(this.globalIds);
+      }
       const writeKeys = [
         ...dependency.writes.map(footprintRefKey),
         ...dependency.sharedResourceClaims.map((claim) => `shared_resource_pool:${claim.poolId}`),
@@ -237,6 +255,13 @@ export class ActivityFootprintIndex {
       dependency.reads.forEach((ref) => include(this.writers.get(footprintRefKey(ref))));
       dependency.audienceAgentIds.forEach((agentId) => include(this.actors.get(agentId)));
       if (dependency.actorId !== null) include(this.audiences.get(dependency.actorId));
+      for (const activityId of [...matched].sort()) {
+        if (affected.has(activityId)) continue;
+        const footprint = this.footprints.get(activityId);
+        if (!footprint) throw new Error(`indexed Activity ${activityId} has no interaction footprint`);
+        affected.add(activityId);
+        pending.push(footprint);
+      }
     }
     return [...affected].sort();
   }
