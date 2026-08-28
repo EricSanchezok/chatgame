@@ -726,6 +726,7 @@ describe("eager reference safeguards", () => {
     const interrupted = Object.values(second.state.truth.activities)
       .find((candidate) => candidate.id === activity.id)!;
     expect(interrupted).toMatchObject({ status: "paused", progress: { target: 100 } });
+    if (interrupted.status !== "paused") throw new Error("interrupted Activity did not remain scheduled");
     expect(interrupted.progress!.current).toBeGreaterThan(25);
     expect(interrupted.progress!.current).toBeLessThan(26);
     expect(latestCandidate?.interactionDependencies).toContainEqual(expect.objectContaining({
@@ -812,7 +813,8 @@ describe("eager reference safeguards", () => {
       .find((plan) => plan.actorId === "keeper")!;
     expect(replacementPlan.actionId).toBe(replacement.id);
     const replacementActivity = Object.values(result.state.truth.activities)
-      .find((activity) => activity.plan.id === replacementPlan.id)!;
+      .find((activity) => activity.status !== "queued" && activity.status !== "ready" &&
+        activity.plan.id === replacementPlan.id)!;
     expect(replacementActivity).toMatchObject({
       sourceActionId: replacement.id,
       sourceAction: { id: replacement.id, rawText: "抓起庭院沙土戒备" },

@@ -303,7 +303,8 @@ function emitStepMetrics(
       mindFallbacks: candidate.diagnostics.mindFallbackAgentIds.length,
       temporalPlans: candidate.temporalPlans.length,
       activeActivities: Object.values(candidate.temporalState.activities)
-        .filter((activity) => activity.status === "active" || activity.status === "paused").length,
+        .filter((activity) => activity.status === "active" || activity.status === "paused" ||
+          activity.status === "queued" || activity.status === "ready").length,
       activityTransitions: candidate.activityTransitions.length,
       dueActivities: candidate.temporalBoundary.dueActivityIds.length,
       dueTimers: candidate.temporalBoundary.dueTimerIds.length,

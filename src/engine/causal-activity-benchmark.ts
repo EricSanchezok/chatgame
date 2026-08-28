@@ -135,6 +135,7 @@ function activityFor(type: CausalActivityType, density: CausalConflictDensity, i
     completionAtSeconds: plan.completionAtSeconds,
     progress: null,
     resourceClaims: [],
+    sharedResourceClaims: [],
     interactionFootprint,
   };
 }

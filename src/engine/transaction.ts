@@ -76,6 +76,7 @@ import {
   validateSharedActivityResourceDefinition,
   validateSharedActivityResourcePool,
 } from "./shared-activity-resources";
+import { validateSharedResourceCapacity } from "./shared-resource-allocation";
 
 function assertExactKeys(value: object, required: readonly string[], optional: readonly string[] = [], label = "object"): void {
   const keys = Object.keys(value);
@@ -798,7 +799,8 @@ export function replaySimulationState(
         throw new Error(`history step ${step.step} temporal plan starts from another clock`);
       }
       const activity = Object.values(step.temporalState.activities)
-        .find((candidate) => candidate.plan.id === plan.id);
+        .find((candidate) => candidate.status !== "queued" && candidate.status !== "ready" &&
+          candidate.plan.id === plan.id);
       if (!activity || activity.sourceActionId !== plan.actionId) {
         throw new Error(`history step ${step.step} temporal plan has no persisted activity`);
       }
@@ -1076,6 +1078,9 @@ export function validateSimulationState(state: SimulationState, requireNextActio
       if (!known) throw new Error(`activity ${id} footprint references unknown ${ref.kind} ${ref.id}`);
     }
     const claimPoolIds = new Set<string>();
+    const activityCauses = activity.status === "queued" || activity.status === "ready"
+      ? activity.planDraft.causes
+      : activity.plan.causes;
     for (const claim of activity.interactionFootprint.sharedResourceClaims) {
       if (claimPoolIds.has(claim.poolId)) throw new Error(`activity ${id} repeats shared resource claim ${claim.poolId}`);
       claimPoolIds.add(claim.poolId);
@@ -1084,7 +1089,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
         activity.sourceAction.rawText,
         state.truth.sharedActivityResourcePools,
         state.truth.mechanics.sharedActivityResources,
-        new Set(activity.plan.causes.filter((cause) => cause.kind === "mechanic").map((cause) => cause.id)),
+        new Set(activityCauses.filter((cause) => cause.kind === "mechanic").map((cause) => cause.id)),
       );
     }
     const unknownAudienceAgentId = activity.interactionFootprint.audienceAgentIds
@@ -1094,6 +1099,12 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     }
   }
   validateActivityResources(state.truth.activities, state.truth.mechanics.activityResources);
+  validateSharedResourceCapacity({
+    activities: state.truth.activities,
+    pools: state.truth.sharedActivityResourcePools,
+    definitions: state.truth.mechanics.sharedActivityResources,
+    entities: state.truth.entities,
+  });
   for (const point of state.history.at(-1)?.decisionPoints ?? []) {
     const occupying = Object.values(state.truth.activities).find((activity) =>
       activity.status === "active" && activity.participantAgentIds.includes(point.agentId));

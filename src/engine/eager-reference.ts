@@ -73,6 +73,7 @@ import {
   type TemporalAdvanceResult,
   type TemporalBoundary,
   type ActivityTransition,
+  type ScheduledActivityState,
 } from "./temporal";
 import {
   planTemporalActivity,
@@ -326,7 +327,8 @@ function collectOnsetReactionCandidates(input: {
   const actionById = new Map(input.actions.map((action) => [action.id, action]));
   for (const action of input.actions) {
     const activity = Object.values(input.planningState.truth.activities)
-      .find((candidate) => candidate.status === "active" && candidate.sourceActionId === action.id);
+      .find((candidate): candidate is ScheduledActivityState =>
+        candidate.status === "active" && candidate.sourceActionId === action.id);
     if (!activity?.plan.interruptible) continue;
     const dependency = dependencyByAction.get(action.id);
     if (!dependency) continue;
@@ -345,7 +347,8 @@ function collectOnsetReactionCandidates(input: {
     }
   }
   for (const activity of Object.values(input.state.truth.activities)
-    .filter((candidate) => candidate.status === "active" && candidate.plan.interruptible)
+    .filter((candidate): candidate is ScheduledActivityState =>
+      candidate.status === "active" && candidate.plan.interruptible)
     .sort((left, right) => left.id.localeCompare(right.id))) {
     if (input.actions.some((action) => action.actorId === activity.actorId)) continue;
     const triggerDependency = input.dependencies.find((dependency) =>
@@ -440,6 +443,9 @@ function fallbackReactionDecision(
     : Object.values(state.truth.activities)
       .find((candidate) => candidate.sourceActionId === intent.actionId);
   if (!activity) throw new Error(`reaction ${request.id} has no temporal profile`);
+  if (activity.status === "queued" || activity.status === "ready") {
+    throw new Error(`reaction ${request.id} targets an Activity that has not started`);
+  }
   const profile = state.truth.mechanics.temporalProfiles[activity.plan.profileId];
   if (!profile) throw new Error(`reaction ${request.id} references unknown temporal profile`);
   const disposition = intent.kind === "ongoing_activity"
@@ -914,7 +920,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     const temporalPlanning = initialTemporalPlanning;
     const planningState = structuredClone(source);
     const interruptionTransitions = newActions.flatMap((action) => Object.values(planningState.truth.activities)
-      .filter((activity) => activity.actorId === action.actorId &&
+      .filter((activity): activity is ScheduledActivityState => activity.actorId === action.actorId &&
         (activity.status === "active" || activity.status === "paused"))
       .map((activity) => {
         const cancelled = cancelActivity(activity, source.truth.elapsedSeconds);
@@ -1285,7 +1291,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       .affectedBy([...actionDependencies, ...temporalContextDependencies])
       .filter((activityId) => {
         const activity = planningState.truth.activities[activityId];
-        return activity?.status === "active" && !actionIds.has(activity.sourceActionId);
+        return Boolean(activity) && activity.status !== "completed" && activity.status !== "blocked" &&
+          activity.status !== "failed" && activity.status !== "cancelled" && !actionIds.has(activity.sourceActionId);
       });
     let interactionDependencies = [
       ...actionDependencies,

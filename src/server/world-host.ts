@@ -51,11 +51,13 @@ import type {
   PublicConversationTurn,
   PublicInstanceDetail,
   PublicInstanceSummary,
+  PublicWorldRun,
   SubmitExternalActionInput,
   SubmitExternalReactionInput,
   WorldRunControlInput,
   WorldStartOptions,
 } from "../shared/world-api";
+import { sharedResourceQueuePositions } from "../engine/shared-resource-allocation";
 import type {
   ObserverAgentPerspective,
   ObserverAgentSummary,
@@ -172,13 +174,37 @@ function currentRun(document: WorldInstanceDocument): WorldRunRecord | undefined
 function externalDecisionAgentIds(document: WorldInstanceDocument): string[] {
   const decisionAgents = new Set(document.state.history.at(-1)?.decisionPoints.map((point) => point.agentId) ?? []);
   const busyAgents = new Set(Object.values(document.state.truth.activities)
-    .filter((activity) => activity.status === "active" || activity.status === "paused")
+    .filter((activity) => activity.status === "active" || activity.status === "paused" ||
+      activity.status === "queued" || activity.status === "ready")
     .flatMap((activity) => activity.participantAgentIds));
   return Object.values(document.policyBindings)
     .filter((binding): binding is Extract<PolicyBinding, { kind: "external" }> => binding.kind === "external")
     .map((binding) => binding.agentId)
     .filter((agentId) => !busyAgents.has(agentId) || decisionAgents.has(agentId))
     .sort();
+}
+
+function publicActivity(
+  document: Readonly<WorldInstanceDocument>,
+  activity: Readonly<SimulationState["truth"]["activities"][string]>,
+): PublicWorldRun["activity"] {
+  const deferred = activity.status === "queued" || activity.status === "ready";
+  const queuePosition = activity.status === "queued"
+    ? sharedResourceQueuePositions(document.state.truth.activities).get(activity.id) ?? null
+    : null;
+  return {
+    id: activity.id,
+    status: activity.status,
+    description: deferred ? activity.planDraft.description : activity.plan.description,
+    stage: deferred ? null : activity.plan.stages[activity.stageIndex]?.name ?? null,
+    progress: deferred ? null : structuredClone(activity.progress),
+    nextBoundaryAtSeconds: deferred ? null : activity.nextBoundaryAtSeconds,
+    completionAtSeconds: deferred ? null : activity.completionAtSeconds,
+    queuePosition,
+    resourceNames: [...new Set(activity.sharedResourceClaims.map((claim) =>
+      document.state.truth.mechanics.sharedActivityResources[claim.definitionId]?.name)
+      .filter((name): name is string => Boolean(name)))].sort(),
+  };
 }
 
 function activeParticipants(document: WorldInstanceDocument): ParticipantRecord[] {
@@ -253,24 +279,16 @@ function conversationFor(
       const activity = Object.values(committed.temporalState.activities)
         .filter((candidate) => candidate.actorId === intent.agentId)
         .sort((left, right) => right.updatedAtSeconds - left.updatedAtSeconds || right.id.localeCompare(left.id))[0];
-      const publicActivity = activity ? {
-        id: activity.id,
-        status: activity.status,
-        description: activity.plan.description,
-        stage: activity.plan.stages[activity.stageIndex]?.name ?? null,
-        progress: structuredClone(activity.progress),
-        nextBoundaryAtSeconds: activity.nextBoundaryAtSeconds,
-        completionAtSeconds: activity.completionAtSeconds,
-      } : null;
-      const progressText = publicActivity?.progress
-        ? `${publicActivity.description}：${publicActivity.progress.current}/${publicActivity.progress.target} ${publicActivity.progress.unit}`
-        : publicActivity ? `${publicActivity.description}：${publicActivity.status}` : "世界时间继续推进。";
+      const projectedActivity = activity ? publicActivity(document, activity) : null;
+      const progressText = projectedActivity?.progress
+        ? `${projectedActivity.description}：${projectedActivity.progress.current}/${projectedActivity.progress.target} ${projectedActivity.progress.unit}`
+        : projectedActivity ? `${projectedActivity.description}：${projectedActivity.status}` : "世界时间继续推进。";
       return {
         revision: committed.revision,
         step: committed.step,
         text: summaries.length > 0 ? summaries.join("\n\n") : progressText,
         worldTimeSeconds: committed.temporalBoundary.toElapsedSeconds,
-        activity: publicActivity,
+        activity: projectedActivity,
       };
     });
     const status: PublicConversationTurn["status"] = run?.status === "completed" ||
@@ -979,15 +997,7 @@ export class WorldHost {
             maxWallTimeMs: run.lease.maxWallTimeMs,
             startedAt: run.lease.startedAt,
           } : null,
-          activity: activity ? {
-            id: activity.id,
-            status: activity.status,
-            description: activity.plan.description,
-            stage: activity.plan.stages[activity.stageIndex]?.name ?? null,
-            progress: structuredClone(activity.progress),
-            nextBoundaryAtSeconds: activity.nextBoundaryAtSeconds,
-            completionAtSeconds: activity.completionAtSeconds,
-          } : null,
+          activity: activity ? publicActivity(document, activity) : null,
         },
       } : {}),
       ...(controlled ? {
@@ -1329,7 +1339,8 @@ export class WorldHost {
       runRecord.activityIds = [...new Set([
         ...runRecord.activityIds,
         ...result.committed.temporalPlans.flatMap((plan) => Object.values(document.state.truth.activities)
-          .filter((activity) => activity.plan.id === plan.id)
+          .filter((activity) => activity.status !== "queued" && activity.status !== "ready" &&
+            activity.plan.id === plan.id)
           .map((activity) => activity.id)),
       ])].sort();
       runRecord.lease.commitCount += 1;
@@ -1344,7 +1355,7 @@ export class WorldHost {
         runRecord.committedRevisions.length >= runRecord.requestedBoundaryCount;
       const rootComplete = runRecord.activityIds.length > 0 && runRecord.activityIds.every((activityId) => {
         const status = document.state.truth.activities[activityId]?.status;
-        return status !== "active" && status !== "paused";
+        return status !== "active" && status !== "paused" && status !== "queued" && status !== "ready";
       });
       const requiredAgentIds = externalDecisionAgentIds(document);
       const budgetReached = runRecord.lease.commitCount >= runRecord.lease.maxCommits ||

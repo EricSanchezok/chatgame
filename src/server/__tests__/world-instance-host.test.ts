@@ -363,7 +363,8 @@ describe("World Instance host", () => {
           kind: "keep",
         }));
       const playerActivity = Object.values(database.readInstance(created.summary.id).document.state.truth.activities)
-        .find((activity) => activity.actorId === participant.agentId && activity.plan.mode === "rate")!;
+        .find((activity) => activity.actorId === participant.agentId &&
+          activity.status !== "queued" && activity.status !== "ready" && activity.plan.mode === "rate")!;
       expect(playerActivity.status).toBe("active");
     } finally {
       database.close();
@@ -542,7 +543,8 @@ describe("World Instance host", () => {
         ongoingActivityDisposition: "pause",
       }));
       const playerActivity = Object.values(boundary.temporalState.activities)
-        .find((activity) => activity.actorId === participant.agentId && activity.plan.mode === "rate")!;
+        .find((activity) => activity.actorId === participant.agentId &&
+          activity.status !== "queued" && activity.status !== "ready" && activity.plan.mode === "rate")!;
       expect(playerActivity.status).toBe("paused");
       expect(boundary.decisionPoints).toContainEqual(expect.objectContaining({
         agentId: participant.agentId,

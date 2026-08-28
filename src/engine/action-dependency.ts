@@ -157,7 +157,12 @@ export function interactionDependencyForActivity(
     actorId: activity.actorId,
     reads: stableRefs([
       ...source.reads,
-      ...causalAssertionFootprintRefs(state, activity.plan.continuationAssertions),
+      ...causalAssertionFootprintRefs(
+        state,
+        activity.status === "queued" || activity.status === "ready"
+          ? activity.planDraft.continuationAssertions
+          : activity.plan.continuationAssertions,
+      ),
     ]),
     writes: stableRefs(source.writes),
     audienceAgentIds: [...new Set([
@@ -174,7 +179,8 @@ export function affectedActivityIdsExhaustive(
   incoming: readonly InteractionDependency[],
 ): string[] {
   return Object.values(activities)
-    .filter((activity) => activity.status === "active")
+    .filter((activity) => activity.status === "active" || activity.status === "paused" ||
+      activity.status === "queued" || activity.status === "ready")
     .filter((activity) => incoming.some((dependency) =>
       interactionDependenciesConflict(activity.interactionFootprint, dependency)))
     .map((activity) => activity.id)
@@ -191,7 +197,8 @@ export class ActivityFootprintIndex {
 
   constructor(activities: Readonly<Record<string, ActivityState>>) {
     const active = Object.values(activities)
-      .filter((activity) => activity.status === "active")
+      .filter((activity) => activity.status === "active" || activity.status === "paused" ||
+        activity.status === "queued" || activity.status === "ready")
       .sort((left, right) => left.id.localeCompare(right.id));
     this.activeIds = active.map((activity) => activity.id);
     const add = (index: Map<string, Set<string>>, key: string, activityId: string): void => {

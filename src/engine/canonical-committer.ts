@@ -391,6 +391,7 @@ function validateCandidateReactions(
       }
       if (decision.source === "profile_fallback" && request.originalIntent.kind === "ongoing_activity") {
         const activity = source.truth.activities[request.originalIntent.activityId]!;
+        if (activity.status !== "active") throw new Error(`reaction fallback ${request.id} lost its active Activity`);
         const profile = source.truth.mechanics.temporalProfiles[activity.plan.profileId]!;
         const expected = profile.reactionFallback === "pause"
           ? "pause"
@@ -475,7 +476,8 @@ function validateCandidateBoundary(
       throw new Error(`candidate has unsupported zero-time activity transition ${transition.kind}`);
     }
     const existing = planningActivities[transition.activityId];
-    if (!existing || existing.actorId !== transition.actorId) {
+    if (!existing || existing.actorId !== transition.actorId ||
+      existing.status === "queued" || existing.status === "ready") {
       throw new Error(`candidate cancels unknown activity ${transition.activityId}`);
     }
     const settled = transition.kind === "cancelled"
@@ -497,7 +499,8 @@ function validateCandidateBoundary(
       throw new Error(`candidate temporal plan ${plan.id} does not start at the current clock`);
     }
     const persisted = Object.values(candidate.temporalState.activities)
-      .filter((activity) => activity.plan.id === plan.id);
+      .filter((activity): activity is import("./temporal").ScheduledActivityState =>
+        activity.status !== "queued" && activity.status !== "ready" && activity.plan.id === plan.id);
     if (persisted.length !== 1 || contentHash(persisted[0]!.plan) !== contentHash(plan)) {
       throw new Error(`candidate temporal plan ${plan.id} has no unique matching activity`);
     }

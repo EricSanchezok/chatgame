@@ -59,12 +59,14 @@ export interface PublicWorldRun {
   };
   activity: null | {
     id: string;
-    status: "active" | "paused" | "completed" | "blocked" | "failed" | "cancelled";
+    status: "active" | "paused" | "completed" | "blocked" | "failed" | "cancelled" | "queued" | "ready";
     description: string;
     stage: string | null;
     progress: { current: number; target: number; unit: string } | null;
     nextBoundaryAtSeconds: number | null;
     completionAtSeconds: number | null;
+    queuePosition: number | null;
+    resourceNames: string[];
   };
 }
 

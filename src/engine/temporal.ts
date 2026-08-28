@@ -10,6 +10,7 @@ import type {
   CausalRef,
   SimulationState,
 } from "./model";
+import type { SharedActivityResourceClaim } from "./shared-activity-resources";
 
 export interface ActivityResourceDefinition {
   id: string;
@@ -122,24 +123,67 @@ export interface TemporalPlan {
   causes: CausalRef[];
 }
 
-export type ActivityStatus = "active" | "paused" | "completed" | "blocked" | "failed" | "cancelled";
+export interface DeferredTemporalPlan {
+  id: string;
+  actionId: string;
+  actorId: AgentId;
+  profileId: string;
+  mode: TemporalProfileDefinition["kind"];
+  description: string;
+  basis: TemporalPlanBasis;
+  continuationAssertions: CausalAssertion[];
+  interruptible: boolean;
+  resourceClaims: ActivityResourceClaim[];
+  causes: CausalRef[];
+}
 
-export interface ActivityState {
+export type ScheduledActivityStatus = "active" | "paused" | "completed" | "blocked" | "failed" | "cancelled";
+export type ActivityStatus = ScheduledActivityStatus | "queued" | "ready";
+
+interface ActivityStateBase {
   id: string;
   sourceActionId: string;
   sourceAction: AgentActionProposal;
   actorId: AgentId;
   participantAgentIds: AgentId[];
+  updatedAtSeconds: number;
+  resourceClaims: ActivityResourceClaim[];
+  sharedResourceClaims: SharedActivityResourceClaim[];
+  interactionFootprint: InteractionDependency;
+}
+
+export interface ScheduledActivityState extends ActivityStateBase {
   plan: TemporalPlan;
-  status: ActivityStatus;
+  status: ScheduledActivityStatus;
   stageIndex: number;
   startedAtSeconds: number;
-  updatedAtSeconds: number;
   nextBoundaryAtSeconds: number | null;
   completionAtSeconds: number | null;
   progress: { current: number; target: number; unit: string } | null;
-  resourceClaims: ActivityResourceClaim[];
-  interactionFootprint: InteractionDependency;
+}
+
+export interface QueuedActivityState extends ActivityStateBase {
+  status: "queued";
+  planDraft: DeferredTemporalPlan;
+  enqueuedAtSeconds: number;
+}
+
+export interface ReadyActivityState extends ActivityStateBase {
+  status: "ready";
+  planDraft: DeferredTemporalPlan;
+  enqueuedAtSeconds: number;
+  reservedAtSeconds: number;
+}
+
+export type ActivityState = ScheduledActivityState | QueuedActivityState | ReadyActivityState;
+
+export function isScheduledActivity(activity: Readonly<ActivityState>): activity is Readonly<ScheduledActivityState> {
+  return activity.status !== "queued" && activity.status !== "ready";
+}
+
+export function isLiveActivity(activity: Readonly<ActivityState>): boolean {
+  return activity.status === "active" || activity.status === "paused" ||
+    activity.status === "queued" || activity.status === "ready";
 }
 
 export type ActivityDispositionKind = "continue" | "pause" | "complete" | "block" | "fail" | "cancel";
@@ -185,12 +229,13 @@ export interface TemporalBoundary {
 export interface ActivityTransition {
   activityId: string;
   actorId: AgentId;
-  kind: "progressed" | "stage_changed" | "completed" | "paused" | "resumed" | "blocked" | "failed" | "cancelled";
+  kind: "progressed" | "stage_changed" | "completed" | "paused" | "resumed" | "blocked" | "failed" | "cancelled" |
+    "queued" | "reserved" | "started";
   fromStatus: ActivityStatus;
   toStatus: ActivityStatus;
   fromElapsedSeconds: number;
   toElapsedSeconds: number;
-  progress: ActivityState["progress"];
+  progress: ScheduledActivityState["progress"];
 }
 
 export interface DecisionPoint {
@@ -477,13 +522,88 @@ export function materializeTrustedTemporalPlan(input: {
   };
 }
 
+export function deferTemporalPlan(plan: Readonly<TemporalPlan>): DeferredTemporalPlan {
+  return {
+    id: plan.id,
+    actionId: plan.actionId,
+    actorId: plan.actorId,
+    profileId: plan.profileId,
+    mode: plan.mode,
+    description: plan.description,
+    basis: structuredClone(plan.basis),
+    continuationAssertions: structuredClone(plan.continuationAssertions),
+    interruptible: plan.interruptible,
+    resourceClaims: structuredClone(plan.resourceClaims),
+    causes: structuredClone(plan.causes),
+  };
+}
+
+export function materializeDeferredTemporalPlan(input: {
+  draft: Readonly<DeferredTemporalPlan>;
+  sourceAction: Readonly<AgentActionProposal>;
+  startsAtSeconds: number;
+  profiles: Readonly<Record<string, TemporalProfileDefinition>>;
+}): TemporalPlan {
+  const profile = input.profiles[input.draft.profileId];
+  if (!profile || profile.kind !== input.draft.mode || input.sourceAction.id !== input.draft.actionId ||
+    input.sourceAction.actorId !== input.draft.actorId) {
+    throw new Error(`invalid deferred temporal plan ${input.draft.id}`);
+  }
+  const plan = input.draft.basis.kind === "mechanic"
+    ? materializeTrustedTemporalPlan({
+        id: input.draft.id,
+        actionId: input.draft.actionId,
+        actorId: input.draft.actorId,
+        startsAtSeconds: input.startsAtSeconds,
+        profile,
+        invocationId: input.draft.basis.invocationId,
+        durationSeconds: input.draft.basis.durationSeconds,
+        checkpointSeconds: input.draft.basis.checkpointSeconds,
+        progress: structuredClone(input.draft.basis.progress),
+        description: input.draft.description,
+        causes: structuredClone(input.draft.causes),
+      })
+    : materializeTemporalPlan({
+        id: input.draft.id,
+        actionId: input.draft.actionId,
+        actorId: input.draft.actorId,
+        rawText: input.sourceAction.rawText,
+        startsAtSeconds: input.startsAtSeconds,
+        draft: {
+          profileId: input.draft.profileId,
+          basis: input.draft.basis.kind === "profile"
+            ? { kind: "profile" }
+            : input.draft.basis.kind === "explicit_duration"
+              ? {
+                  kind: "explicit_duration",
+                  seconds: input.draft.basis.seconds,
+                  sourceText: input.draft.basis.sourceText,
+                }
+              : {
+                  kind: "explicit_quantity",
+                  amount: input.draft.basis.amount,
+                  unit: input.draft.basis.unit,
+                  sourceText: input.draft.basis.sourceText,
+                },
+          description: input.draft.description,
+          continuationAssertions: structuredClone(input.draft.continuationAssertions),
+          causes: structuredClone(input.draft.causes),
+        },
+        profiles: input.profiles,
+      });
+  if (!sameCanonicalValue(deferTemporalPlan(plan), input.draft)) {
+    throw new Error(`deferred temporal plan ${input.draft.id} changes trusted authority`);
+  }
+  return plan;
+}
+
 export function createActivity(input: {
   id: string;
   plan: TemporalPlan;
   sourceAction: AgentActionProposal;
   participantAgentIds?: AgentId[];
   interactionFootprint?: InteractionDependency;
-}): ActivityState {
+}): ScheduledActivityState {
   if (input.sourceAction.id !== input.plan.actionId || input.sourceAction.actorId !== input.plan.actorId) {
     throw new Error("activity source action does not match temporal plan");
   }
@@ -512,7 +632,138 @@ export function createActivity(input: {
     completionAtSeconds: input.plan.completionAtSeconds,
     progress: input.plan.progress ? { current: 0, target: input.plan.progress.target, unit: input.plan.progress.unit } : null,
     resourceClaims: structuredClone(input.plan.resourceClaims),
+    sharedResourceClaims: structuredClone(interactionFootprint.sharedResourceClaims),
     interactionFootprint,
+  };
+}
+
+export function queueScheduledActivity(
+  activity: Readonly<ScheduledActivityState>,
+  atSeconds: number,
+): { activity: QueuedActivityState; transition: ActivityTransition } {
+  if (activity.status !== "active" || activity.startedAtSeconds !== atSeconds || activity.updatedAtSeconds !== atSeconds) {
+    throw new Error(`only a newly planned Activity can enter the resource queue: ${activity.id}`);
+  }
+  const queued: QueuedActivityState = {
+    id: activity.id,
+    sourceActionId: activity.sourceActionId,
+    sourceAction: structuredClone(activity.sourceAction),
+    actorId: activity.actorId,
+    participantAgentIds: structuredClone(activity.participantAgentIds),
+    status: "queued",
+    planDraft: deferTemporalPlan(activity.plan),
+    enqueuedAtSeconds: atSeconds,
+    updatedAtSeconds: atSeconds,
+    resourceClaims: structuredClone(activity.resourceClaims),
+    sharedResourceClaims: structuredClone(activity.sharedResourceClaims),
+    interactionFootprint: structuredClone(activity.interactionFootprint),
+  };
+  return {
+    activity: queued,
+    transition: {
+      activityId: activity.id,
+      actorId: activity.actorId,
+      kind: "queued",
+      fromStatus: "active",
+      toStatus: "queued",
+      fromElapsedSeconds: atSeconds,
+      toElapsedSeconds: atSeconds,
+      progress: null,
+    },
+  };
+}
+
+export function reserveQueuedActivity(
+  activity: Readonly<QueuedActivityState>,
+  atSeconds: number,
+): { activity: ReadyActivityState; transition: ActivityTransition } {
+  if (atSeconds < activity.enqueuedAtSeconds) throw new Error(`Activity ${activity.id} is reserved before enqueue`);
+  const ready: ReadyActivityState = {
+    ...structuredClone(activity),
+    status: "ready",
+    reservedAtSeconds: atSeconds,
+    updatedAtSeconds: atSeconds,
+  };
+  return {
+    activity: ready,
+    transition: {
+      activityId: activity.id,
+      actorId: activity.actorId,
+      kind: "reserved",
+      fromStatus: "queued",
+      toStatus: "ready",
+      fromElapsedSeconds: atSeconds,
+      toElapsedSeconds: atSeconds,
+      progress: null,
+    },
+  };
+}
+
+export function blockScheduledActivity(
+  activity: Readonly<ScheduledActivityState>,
+  atSeconds: number,
+): { activity: ScheduledActivityState; transition: ActivityTransition; decisionPoint: DecisionPoint } {
+  if (activity.status !== "active" || atSeconds < activity.startedAtSeconds) {
+    throw new Error(`only an active Activity can be blocked: ${activity.id}`);
+  }
+  const blocked = structuredClone(activity) as ScheduledActivityState;
+  blocked.status = "blocked";
+  blocked.updatedAtSeconds = atSeconds;
+  blocked.nextBoundaryAtSeconds = null;
+  return {
+    activity: blocked,
+    transition: {
+      activityId: activity.id,
+      actorId: activity.actorId,
+      kind: "blocked",
+      fromStatus: activity.status,
+      toStatus: "blocked",
+      fromElapsedSeconds: atSeconds,
+      toElapsedSeconds: atSeconds,
+      progress: structuredClone(activity.progress),
+    },
+    decisionPoint: {
+      agentId: activity.actorId,
+      reason: "activity_blocked",
+      activityId: activity.id,
+      timerId: null,
+    },
+  };
+}
+
+export function startReadyActivity(input: {
+  activity: Readonly<ReadyActivityState>;
+  atSeconds: number;
+  profiles: Readonly<Record<string, TemporalProfileDefinition>>;
+}): { activity: ScheduledActivityState; transition: ActivityTransition } {
+  if (input.atSeconds < input.activity.reservedAtSeconds) {
+    throw new Error(`Activity ${input.activity.id} starts before reservation`);
+  }
+  const plan = materializeDeferredTemporalPlan({
+    draft: input.activity.planDraft,
+    sourceAction: input.activity.sourceAction,
+    startsAtSeconds: input.atSeconds,
+    profiles: input.profiles,
+  });
+  const scheduled = createActivity({
+    id: input.activity.id,
+    plan,
+    sourceAction: input.activity.sourceAction,
+    participantAgentIds: input.activity.participantAgentIds,
+    interactionFootprint: input.activity.interactionFootprint,
+  });
+  return {
+    activity: scheduled,
+    transition: {
+      activityId: input.activity.id,
+      actorId: input.activity.actorId,
+      kind: "started",
+      fromStatus: "ready",
+      toStatus: "active",
+      fromElapsedSeconds: input.atSeconds,
+      toElapsedSeconds: input.atSeconds,
+      progress: null,
+    },
   };
 }
 
@@ -520,7 +771,10 @@ export function evaluateActivityContinuation(
   state: Readonly<SimulationState>,
   activity: Readonly<ActivityState>,
 ): CausalAssertionResult[] {
-  return activity.plan.continuationAssertions.map((assertion) => ({
+  const assertions = activity.status === "queued" || activity.status === "ready"
+    ? activity.planDraft.continuationAssertions
+    : activity.plan.continuationAssertions;
+  return assertions.map((assertion) => ({
     target: { kind: "activity", id: activity.id },
     assertion: structuredClone(assertion),
     ...evaluateCausalAssertion(state, assertion),
@@ -531,6 +785,7 @@ export function activityContinuationBoundary(
   activity: Readonly<ActivityState>,
   elapsedSeconds: number,
 ): number | null {
+  if (activity.status === "queued" || activity.status === "ready") return null;
   let earliest: number | null = null;
   for (const assertion of activity.plan.continuationAssertions) {
     if (assertion.kind !== "elapsed_seconds_compare") continue;
@@ -657,14 +912,17 @@ export function validateActivityState(
   profiles: Readonly<Record<string, TemporalProfileDefinition>>,
   resources: Readonly<Record<string, ActivityResourceDefinition>>,
 ): void {
-  if (!activity.id.trim() || activity.sourceActionId !== activity.plan.actionId || activity.actorId !== activity.plan.actorId ||
-    activity.sourceAction.id !== activity.sourceActionId || activity.sourceAction.actorId !== activity.actorId ||
+  if (!activity.id.trim() || activity.sourceAction.id !== activity.sourceActionId ||
+    activity.sourceAction.actorId !== activity.actorId ||
     !activity.participantAgentIds.includes(activity.actorId) ||
     new Set(activity.participantAgentIds).size !== activity.participantAgentIds.length ||
     activity.interactionFootprint.kind !== "activity" || activity.interactionFootprint.id !== activity.id ||
     activity.interactionFootprint.actorId !== activity.actorId ||
     !activity.interactionFootprint.audienceAgentIds.includes(activity.actorId)) {
     throw new Error(`invalid activity ${activity.id}`);
+  }
+  if (!sameCanonicalValue(activity.sharedResourceClaims, activity.interactionFootprint.sharedResourceClaims)) {
+    throw new Error(`activity ${activity.id} changes shared resource claim evidence`);
   }
   for (const refs of [activity.interactionFootprint.reads, activity.interactionFootprint.writes]) {
     const keys = refs.map((ref) => `${ref.kind}:${ref.id}`);
@@ -678,6 +936,41 @@ export function validateActivityState(
     new Set(activity.interactionFootprint.audienceAgentIds).size !==
       activity.interactionFootprint.audienceAgentIds.length) {
     throw new Error(`activity ${activity.id} has inconsistent footprint evidence`);
+  }
+  if (!Number.isSafeInteger(activity.updatedAtSeconds) || activity.updatedAtSeconds < 0 ||
+    activity.updatedAtSeconds > elapsedSeconds) {
+    throw new Error(`activity ${activity.id} has invalid update clock`);
+  }
+  if (activity.status === "queued" || activity.status === "ready") {
+    const grounded = materializeDeferredTemporalPlan({
+      draft: activity.planDraft,
+      sourceAction: activity.sourceAction,
+      startsAtSeconds: 0,
+      profiles,
+    });
+    validateTemporalPlan(grounded, profiles, resources);
+    if (activity.planDraft.actionId !== activity.sourceActionId || activity.planDraft.actorId !== activity.actorId ||
+      !sameCanonicalValue(activity.resourceClaims, activity.planDraft.resourceClaims) ||
+      !Number.isSafeInteger(activity.enqueuedAtSeconds) || activity.enqueuedAtSeconds < 0 ||
+      activity.enqueuedAtSeconds > elapsedSeconds) {
+      throw new Error(`invalid deferred Activity ${activity.id}`);
+    }
+    if (activity.status === "queued") {
+      if (activity.updatedAtSeconds !== activity.enqueuedAtSeconds) {
+        throw new Error(`queued Activity ${activity.id} has an invalid enqueue clock`);
+      }
+    } else if (!Number.isSafeInteger(activity.reservedAtSeconds) ||
+      activity.reservedAtSeconds < activity.enqueuedAtSeconds ||
+      activity.reservedAtSeconds > elapsedSeconds || activity.updatedAtSeconds !== activity.reservedAtSeconds) {
+      throw new Error(`ready Activity ${activity.id} has an invalid reservation clock`);
+    }
+    return;
+  }
+  if (activity.sourceActionId !== activity.plan.actionId || activity.actorId !== activity.plan.actorId) {
+    throw new Error(`activity ${activity.id} plan identity does not match its source`);
+  }
+  if (!sameCanonicalValue(activity.resourceClaims, activity.plan.resourceClaims)) {
+    throw new Error(`activity ${activity.id} changes per-Agent resource claims`);
   }
   validateTemporalPlan(activity.plan, profiles, resources);
   if (activity.plan.basis.kind !== "mechanic") {
@@ -715,8 +1008,7 @@ export function validateActivityState(
     }
   }
   if (!Number.isSafeInteger(activity.startedAtSeconds) || activity.startedAtSeconds !== activity.plan.startsAtSeconds ||
-    !Number.isSafeInteger(activity.updatedAtSeconds) || activity.updatedAtSeconds < activity.startedAtSeconds ||
-    activity.updatedAtSeconds > elapsedSeconds ||
+    activity.updatedAtSeconds < activity.startedAtSeconds ||
     (activity.plan.mode !== "conditional" && activity.completionAtSeconds !== activity.plan.completionAtSeconds) ||
     (activity.plan.mode === "conditional" && activity.status !== "completed" && activity.completionAtSeconds !== null)) {
     throw new Error(`activity ${activity.id} has invalid clock`);
@@ -762,7 +1054,7 @@ export function validateActivityResources(
 ): void {
   const totals = new Map<string, number>();
   for (const activity of Object.values(activities)) {
-    if (activity.status !== "active" && activity.status !== "paused") continue;
+    if (!isLiveActivity(activity)) continue;
     for (const agentId of activity.participantAgentIds) {
       for (const claim of activity.resourceClaims) {
         const key = `${agentId}\u0000${claim.resourceId}`;
@@ -832,7 +1124,7 @@ export function selectTemporalBoundary(input: {
   };
 }
 
-function stageAt(activity: ActivityState, elapsedSeconds: number): number {
+function stageAt(activity: ScheduledActivityState, elapsedSeconds: number): number {
   if (activity.plan.stages.length === 0) return 0;
   const index = activity.plan.stages.findIndex((stage) => elapsedSeconds < stage.endsAtSeconds);
   return index === -1 ? activity.plan.stages.length - 1 : index;
@@ -974,7 +1266,7 @@ export function reconcileTemporalOutcomes(
 
 function replaceActivityTransition(
   temporal: TemporalAdvanceResult,
-  activity: Readonly<ActivityState>,
+  activity: Readonly<ScheduledActivityState>,
   kind: ActivityTransition["kind"],
   fromStatus: ActivityStatus,
 ): void {
@@ -1085,7 +1377,8 @@ export function settleActivityContexts(input: {
   const retainedDecisionPoints: DecisionPoint[] = [];
   for (const point of temporal.decisionPoints) {
     const occupying = Object.values(temporal.activities)
-      .filter((activity) => activity.status === "active" && activity.participantAgentIds.includes(point.agentId));
+      .filter((activity): activity is ScheduledActivityState =>
+        activity.status === "active" && activity.participantAgentIds.includes(point.agentId));
     if (occupying.length === 0) {
       retainedDecisionPoints.push(point);
       continue;
@@ -1119,14 +1412,14 @@ export function settleActivityContexts(input: {
   return { temporal, dispositions };
 }
 
-export function pauseActivity(activity: Readonly<ActivityState>, atSeconds: number): {
-  activity: ActivityState;
+export function pauseActivity(activity: Readonly<ScheduledActivityState>, atSeconds: number): {
+  activity: ScheduledActivityState;
   transition: ActivityTransition;
 } {
   if (activity.status !== "active" || !activity.plan.interruptible || atSeconds !== activity.updatedAtSeconds) {
     throw new Error(`activity ${activity.id} cannot pause at ${atSeconds}`);
   }
-  const next = structuredClone(activity) as ActivityState;
+  const next = structuredClone(activity) as ScheduledActivityState;
   next.status = "paused";
   next.nextBoundaryAtSeconds = null;
   return {
@@ -1144,14 +1437,14 @@ export function pauseActivity(activity: Readonly<ActivityState>, atSeconds: numb
   };
 }
 
-export function resumeActivity(activity: Readonly<ActivityState>, atSeconds: number): {
-  activity: ActivityState;
+export function resumeActivity(activity: Readonly<ScheduledActivityState>, atSeconds: number): {
+  activity: ScheduledActivityState;
   transition: ActivityTransition;
 } {
   if (activity.status !== "paused" || atSeconds !== activity.updatedAtSeconds) {
     throw new Error(`activity ${activity.id} cannot resume at ${atSeconds}`);
   }
-  const next = structuredClone(activity) as ActivityState;
+  const next = structuredClone(activity) as ScheduledActivityState;
   next.status = "active";
   next.nextBoundaryAtSeconds = nextActivityBoundary(next, atSeconds);
   return {
@@ -1169,15 +1462,15 @@ export function resumeActivity(activity: Readonly<ActivityState>, atSeconds: num
   };
 }
 
-export function cancelActivity(activity: Readonly<ActivityState>, atSeconds: number): {
-  activity: ActivityState;
+export function cancelActivity(activity: Readonly<ScheduledActivityState>, atSeconds: number): {
+  activity: ScheduledActivityState;
   transition: ActivityTransition;
 } {
   if ((activity.status !== "active" && activity.status !== "paused") || !activity.plan.interruptible ||
     atSeconds !== activity.updatedAtSeconds) {
     throw new Error(`activity ${activity.id} cannot be cancelled at ${atSeconds}`);
   }
-  const next = structuredClone(activity) as ActivityState;
+  const next = structuredClone(activity) as ScheduledActivityState;
   const fromStatus = next.status;
   next.status = "cancelled";
   next.nextBoundaryAtSeconds = null;

@@ -17,7 +17,7 @@ import {
   advanceTemporalState,
   createActivity,
   materializeTemporalPlan,
-  type ActivityState,
+  type ScheduledActivityState,
   type TemporalAdvanceResult,
   type TemporalBoundary,
   type TemporalPlan,
@@ -32,7 +32,7 @@ const TEMPORAL_PLANNER_PROMPT_VERSION = "temporal-plan-v1";
 
 export interface PlannedTemporalActivity {
   plan: TemporalPlan;
-  activity: ActivityState;
+  activity: ScheduledActivityState;
   audit: ModelExecutionAudit;
 }
 
@@ -41,8 +41,8 @@ export interface TemporalReactionReplacement {
   originalActionId: string;
   replacementAction: AgentActionProposal;
   plan: TemporalPlan;
-  sourceActivity: ActivityState;
-  advancedActivity: ActivityState;
+  sourceActivity: ScheduledActivityState;
+  advancedActivity: ScheduledActivityState;
   transition: TemporalAdvanceResult["transitions"][number];
   decisionPoints: TemporalAdvanceResult["decisionPoints"];
 }
@@ -62,7 +62,8 @@ function temporalPlannerContext(
     temporalCalibrations: structuredClone(state.truth.mechanics.temporalCalibrations)
       .sort((left, right) => left.id.localeCompare(right.id)),
     existingActivities: Object.values(state.truth.activities)
-      .filter((activity) => activity.participantAgentIds.includes(action.actorId) &&
+      .filter((activity): activity is ScheduledActivityState =>
+        activity.participantAgentIds.includes(action.actorId) &&
         (activity.status === "active" || activity.status === "paused"))
       .map(({ id, status, plan, progress }) => ({
         id,
@@ -206,7 +207,7 @@ export function sameTemporalSchedule(left: Readonly<TemporalPlan>, right: Readon
 }
 
 export function createTemporalReactionReplacement(input: {
-  originalActivity: Readonly<ActivityState>;
+  originalActivity: Readonly<ScheduledActivityState>;
   replacementAction: Readonly<AgentActionProposal>;
   generated: Readonly<PlannedTemporalActivity>;
   boundary: Readonly<TemporalBoundary>;
@@ -237,6 +238,9 @@ export function createTemporalReactionReplacement(input: {
   const transition = advanced.transitions[0];
   if (!advancedActivity || !transition) {
     throw new Error(`reaction replacement for ${input.replacementAction.actorId} produced no temporal transition`);
+  }
+  if (advancedActivity.status === "queued" || advancedActivity.status === "ready") {
+    throw new Error(`reaction replacement for ${input.replacementAction.actorId} lost its temporal schedule`);
   }
   return {
     actorId: input.replacementAction.actorId,

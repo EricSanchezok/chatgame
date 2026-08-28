@@ -354,7 +354,8 @@ export function decisionEligibleAgentIds(
   const decisionAgents = new Set(state.history.at(-1)?.decisionPoints.map((point) => point.agentId) ?? []);
   forcedAgentIds.forEach((agentId) => decisionAgents.add(agentId));
   const busyAgents = new Set(Object.values(state.truth.activities)
-    .filter((activity) => activity.status === "active" || activity.status === "paused")
+    .filter((activity) => activity.status === "active" || activity.status === "paused" ||
+      activity.status === "queued" || activity.status === "ready")
     .flatMap((activity) => activity.participantAgentIds));
   return Object.keys(state.agents)
     .filter((agentId) => !busyAgents.has(agentId) || decisionAgents.has(agentId))

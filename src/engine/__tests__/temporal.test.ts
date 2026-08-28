@@ -234,8 +234,10 @@ describe("event-boundary temporal kernel", () => {
     });
     const advanced = advanceTemporalState({ boundary, activities: { [activity.id]: activity }, timers: {} });
     expect(boundary.deltaSeconds).toBe(7_200);
-    expect(advanced.activities[activity.id]!.progress).toEqual({ current: 10, target: 100, unit: "km" });
-    expect(advanced.activities[activity.id]!.status).toBe("active");
+    const advancedActivity = advanced.activities[activity.id]!;
+    expect(advancedActivity.status).toBe("active");
+    if (advancedActivity.status !== "active") throw new Error("travel Activity did not stay scheduled");
+    expect(advancedActivity.progress).toEqual({ current: 10, target: 100, unit: "km" });
     expect(advanced.decisionPoints).toEqual([]);
   });
 
@@ -272,9 +274,11 @@ describe("event-boundary temporal kernel", () => {
     const advanced = advanceTemporalState({ boundary, activities: { [activity.id]: activity }, timers });
     expect(advanced.timers.fire!.status).toBe("fired");
     expect(advanced.timers.deadline!.status).toBe("fired");
-    expect(advanced.activities[activity.id]!.status).toBe("active");
-    expect(advanced.activities[activity.id]!.updatedAtSeconds).toBe(600);
-    expect(advanced.activities[activity.id]!.nextBoundaryAtSeconds).toBe(3_600);
+    const advancedActivity = advanced.activities[activity.id]!;
+    expect(advancedActivity.status).toBe("active");
+    if (advancedActivity.status !== "active") throw new Error("timer interrupted the Activity schedule");
+    expect(advancedActivity.updatedAtSeconds).toBe(600);
+    expect(advancedActivity.nextBoundaryAtSeconds).toBe(3_600);
     expect(advanced.decisionPoints).toContainEqual({
       agentId: "agent-a",
       reason: "timer",
@@ -362,7 +366,11 @@ describe("event-boundary temporal kernel", () => {
       conditionExpiries: {},
     });
     let advanced = advanceTemporalState({ boundary, activities: { [activity.id]: activity }, timers: {} });
-    activity = advanced.activities[activity.id]!;
+    const firstAdvanced = advanced.activities[activity.id]!;
+    if (firstAdvanced.status === "queued" || firstAdvanced.status === "ready") {
+      throw new Error("staged Activity lost its schedule");
+    }
+    activity = firstAdvanced;
     expect(activity.stageIndex).toBe(1);
     expect(advanced.transitions[0]!.kind).toBe("stage_changed");
     expect(advanced.decisionPoints).toEqual([]);
@@ -375,7 +383,9 @@ describe("event-boundary temporal kernel", () => {
         conditionExpiries: {},
       });
       advanced = advanceTemporalState({ boundary, activities: { [activity.id]: activity }, timers: {} });
-      activity = advanced.activities[activity.id]!;
+      const next = advanced.activities[activity.id]!;
+      if (next.status === "queued" || next.status === "ready") throw new Error("staged Activity lost its schedule");
+      activity = next;
     }
     expect(activity.updatedAtSeconds).toBe(360);
     expect(activity.status).toBe("completed");
