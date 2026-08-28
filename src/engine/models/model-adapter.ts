@@ -106,6 +106,28 @@ function toolDescription<T>(request: StructuredModelRequest<T>): string {
   return `Submit one ${request.schemaName} result. ${discriminator}`;
 }
 
+function parseStructuredValue<T>(
+  schema: z.ZodType<T>,
+  value: unknown,
+  accountId: string,
+): T {
+  try {
+    return schema.parse(value);
+  } catch (error) {
+    if (!(error instanceof z.ZodError)) throw error;
+    const kind = value && typeof value === "object" && !Array.isArray(value) &&
+      typeof (value as Record<string, unknown>).kind === "string"
+      ? (value as Record<string, unknown>).kind
+      : null;
+    const suffix = kind === null ? "" : ` (received kind ${JSON.stringify(kind)})`;
+    throw new ModelOutputError(
+      `${accountId} returned structured output that failed schema validation${suffix}`,
+      undefined,
+      { cause: error },
+    );
+  }
+}
+
 function usageFrom(result: {
   usage: {
     inputTokens?: number;
@@ -247,7 +269,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         output: Output.object({ schema: request.schema, name: request.schemaName }),
       });
       return {
-        value: request.schema.parse(result.output),
+        value: parseStructuredValue(request.schema, result.output, binding.accountId),
         responseId: result.response.id,
         responseModelId: result.response.modelId,
         finishReason: result.finishReason,
@@ -277,7 +299,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         });
       }
       return {
-        value: request.schema.parse(value),
+        value: parseStructuredValue(request.schema, value, binding.accountId),
         responseId: result.response.id,
         responseModelId: result.response.modelId,
         finishReason: result.finishReason,
@@ -309,7 +331,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
       );
     }
     return {
-      value: request.schema.parse(calls[0]!.input),
+      value: parseStructuredValue(request.schema, calls[0]!.input, binding.accountId),
       responseId: result.response.id,
       responseModelId: result.response.modelId,
       finishReason: result.finishReason,
