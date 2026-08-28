@@ -23,6 +23,7 @@ import type {
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt } from "./resolution";
 import type { ActionGroundingDraft } from "./execution";
+import type { TemporalPlanDraft } from "./temporal";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import {
   actionProposalSchema,
@@ -504,6 +505,7 @@ export const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
 export const resolutionReceiptSchema = z.strictObject({
   id: runtimeIdSchema.refine((id) => id.startsWith("rt:resolution-receipt:")),
   plan: resolutionPlanSchema,
+  settled: z.boolean(),
   checkRequestId: runtimeIdSchema.refine((id) => id.startsWith("rt:check:")).nullable(),
   dc: z.number().int().nullable(),
   modifier: z.number().finite(),
@@ -720,6 +722,27 @@ export const actionGroundingSchema = z.strictObject({
   audienceAgentIds: z.array(semanticIdSchema),
   globalFallback: z.boolean(),
 }) as z.ZodType<ActionGroundingDraft>;
+
+export const temporalPlanDraftSchema = z.strictObject({
+  profileId: semanticIdSchema,
+  basis: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("profile") }),
+    z.strictObject({
+      kind: z.literal("explicit_duration"),
+      seconds: z.number().int().positive(),
+      sourceText: z.string().min(1),
+    }),
+    z.strictObject({
+      kind: z.literal("explicit_quantity"),
+      amount: z.number().positive(),
+      unit: z.string().min(1),
+      sourceText: z.string().min(1),
+    }),
+  ]),
+  description: z.string().min(1),
+  conditionAssertions: z.array(causalAssertionSchema),
+  causes: z.array(causalRefSchema).min(1),
+}) as z.ZodType<TemporalPlanDraft>;
 
 export interface ArrivalDraft {
   title: string;

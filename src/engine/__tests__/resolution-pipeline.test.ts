@@ -221,7 +221,6 @@ describe("resolution pipeline", () => {
     }, {
       expectedRevision: source.revision,
       trigger: "participant_action",
-      simulatedSeconds: 60,
       externalActions: [{
         submissionId: "sand-strike",
         agentId: "player",
@@ -234,8 +233,8 @@ describe("resolution pipeline", () => {
 
     const committed = result.committed;
     expect(planVerificationAttempts).toBe(2);
-    expect(committed.resolutionPlans).toHaveLength(2);
-    expect(committed.resolutionReceipts).toHaveLength(2);
+    expect(committed.resolutionPlans).toHaveLength(1);
+    expect(committed.resolutionReceipts).toHaveLength(1);
     const receipt = committed.resolutionReceipts.find((candidate) => candidate.plan.actorId === "player")!;
     expect(receipt.outcome).toBe("full");
     expect(receipt.checkRequestId).toBe(committed.checks.find((check) => check.requestId === receipt.checkRequestId)?.requestId);

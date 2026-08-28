@@ -21,10 +21,21 @@ import type {
   WorldEntity,
 } from "./model";
 import { contentHash } from "./model-audit";
+import { runtimeId } from "./runtime-id";
 import {
   applyObservationBindings,
+  pendingObservationsFor,
   validateObservations,
 } from "./observation";
+import {
+  advanceTemporalState,
+  cancelActivity,
+  createActivity,
+  reconcileTemporalOutcomes,
+  selectTemporalBoundary,
+  validateActivityResources,
+  validateTemporalPlan,
+} from "./temporal";
 import { applyAdmissionCommit, applyTransitionProposal, validateSimulationState } from "./transaction";
 
 export function semanticStepHash(step: Readonly<CommittedStep>): string {
@@ -130,8 +141,12 @@ function validateCandidateBoundary(
   actions: readonly AgentActionProposal[],
   candidate: WorldStepCandidate,
   transitioned: SimulationState,
+  maxAutonomousSpanSeconds: number,
 ): void {
   if (candidate.sourceStateHash !== contentHash(source)) throw new Error("execution candidate uses another source state");
+  if (new Set(actions.map((action) => action.actorId)).size !== actions.length) {
+    throw new Error("execution candidate contains multiple actions for one Agent");
+  }
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
   validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);
@@ -146,8 +161,157 @@ function validateCandidateBoundary(
   const outcomeObservers = new Set(candidate.resolution.proposal.observations
     .filter((packet) => packet.kind === "outcome")
     .map((packet) => packet.observerId));
-  for (const agentId of Object.keys(transitioned.agents)) {
+  for (const agentId of new Set(actions.map((action) => action.actorId))) {
     if (!outcomeObservers.has(agentId)) throw new Error(`transition must provide an outcome observation for agent ${agentId}`);
+  }
+  const advance = advances[0]!;
+  if (advance.seconds !== candidate.temporalBoundary.deltaSeconds ||
+    candidate.temporalBoundary.fromElapsedSeconds !== source.truth.elapsedSeconds ||
+    candidate.temporalBoundary.toElapsedSeconds !== transitioned.truth.elapsedSeconds) {
+    throw new Error("candidate time advance does not match its temporal boundary");
+  }
+  if (contentHash(candidate.temporalState.activities) !== contentHash(transitioned.truth.activities) ||
+    contentHash(candidate.temporalState.timers) !== contentHash(transitioned.truth.timers)) {
+    throw new Error("candidate temporal state was not applied atomically");
+  }
+  const planIds = candidate.temporalPlans.map((plan) => plan.id);
+  if (new Set(planIds).size !== planIds.length) throw new Error("candidate contains duplicate temporal plans");
+  const planningActivities = structuredClone(source.truth.activities);
+  const cancellationTransitions = [] as typeof candidate.activityTransitions;
+  for (const transition of candidate.activityTransitions) {
+    if (transition.fromElapsedSeconds !== source.truth.elapsedSeconds ||
+      transition.toElapsedSeconds !== source.truth.elapsedSeconds) continue;
+    if (transition.kind !== "cancelled") {
+      throw new Error(`candidate has unsupported zero-time activity transition ${transition.kind}`);
+    }
+    const existing = planningActivities[transition.activityId];
+    if (!existing || existing.actorId !== transition.actorId) {
+      throw new Error(`candidate cancels unknown activity ${transition.activityId}`);
+    }
+    const cancelled = cancelActivity(existing, source.truth.elapsedSeconds);
+    if (contentHash(cancelled.transition) !== contentHash(transition)) {
+      throw new Error(`candidate cancellation does not match activity ${transition.activityId}`);
+    }
+    planningActivities[transition.activityId] = cancelled.activity;
+    cancellationTransitions.push(structuredClone(cancelled.transition));
+  }
+  for (const plan of candidate.temporalPlans) {
+    validateTemporalPlan(
+      plan,
+      source.truth.mechanics.temporalProfiles,
+      source.truth.mechanics.activityResources,
+    );
+    if (plan.startsAtSeconds !== source.truth.elapsedSeconds) {
+      throw new Error(`candidate temporal plan ${plan.id} does not start at the current clock`);
+    }
+    const persisted = Object.values(candidate.temporalState.activities)
+      .filter((activity) => activity.plan.id === plan.id);
+    if (persisted.length !== 1 || contentHash(persisted[0]!.plan) !== contentHash(plan)) {
+      throw new Error(`candidate temporal plan ${plan.id} has no unique matching activity`);
+    }
+    const finalActivity = persisted[0]!;
+    if (planningActivities[finalActivity.id]) {
+      throw new Error(`candidate temporal plan reuses activity ${finalActivity.id}`);
+    }
+    planningActivities[finalActivity.id] = createActivity({
+      id: finalActivity.id,
+      plan,
+      sourceAction: finalActivity.sourceAction,
+      participantAgentIds: finalActivity.participantAgentIds,
+    });
+  }
+  for (const transition of cancellationTransitions) {
+    if (!candidate.temporalPlans.some((plan) => plan.actorId === transition.actorId)) {
+      throw new Error(`candidate cancels activity ${transition.activityId} without a replacement plan`);
+    }
+  }
+  validateActivityResources(planningActivities, source.truth.mechanics.activityResources);
+  const conditionExpiries = Object.fromEntries(Object.values(source.truth.conditions)
+    .filter((condition) => condition.expiresAtElapsedSeconds !== null)
+    .map((condition) => [condition.id, condition.expiresAtElapsedSeconds!]));
+  const expectedBoundary = selectTemporalBoundary({
+    elapsedSeconds: source.truth.elapsedSeconds,
+    maxAutonomousSpanSeconds,
+    activities: planningActivities,
+    timers: source.truth.timers,
+    conditionExpiries,
+  });
+  if (contentHash(expectedBoundary) !== contentHash(candidate.temporalBoundary)) {
+    throw new Error("candidate did not select the earliest trusted temporal boundary");
+  }
+  const dueActivityActors = new Set(expectedBoundary.dueActivityIds.map((activityId) => {
+    const activity = planningActivities[activityId];
+    if (!activity) throw new Error(`trusted boundary references unknown activity ${activityId}`);
+    return activity.actorId;
+  }));
+  const timerDescriptionsByAgent = new Map<string, string[]>();
+  for (const timerId of expectedBoundary.dueTimerIds) {
+    const timer = source.truth.timers[timerId];
+    if (!timer) throw new Error(`trusted boundary references unknown Timer ${timerId}`);
+    for (const agentId of timer.wakeAgentIds) {
+      const descriptions = timerDescriptionsByAgent.get(agentId) ?? [];
+      descriptions.push(timer.description);
+      timerDescriptionsByAgent.set(agentId, descriptions);
+    }
+  }
+  [...timerDescriptionsByAgent.entries()]
+    .filter(([agentId]) => !dueActivityActors.has(agentId))
+    .forEach(([agentId, descriptions], ordinal) => {
+      const expectedAction = {
+        id: runtimeId({
+          worldHash: source.worldHash,
+          revision: source.revision,
+          kind: "action",
+          stage: "timer",
+          owner: agentId,
+          round: 0,
+          ordinal,
+        }),
+        actorId: agentId,
+        baseRevision: source.revision,
+        rawText: `处理同时到期的世界定时触发：${descriptions.join("；")}`,
+        goal: "根据当前世界事实联合结算已到期触发",
+        means: null,
+        targetIds: [],
+      };
+      const actual = actions.find((action) => action.actorId === agentId);
+      if (!actual || contentHash(actual) !== contentHash(expectedAction)) {
+        throw new Error(`candidate does not adjudicate due Timer for ${agentId}`);
+      }
+    });
+  let expectedTemporal = advanceTemporalState({
+    boundary: expectedBoundary,
+    activities: planningActivities,
+    timers: source.truth.timers,
+  });
+  expectedTemporal.transitions = [...cancellationTransitions, ...expectedTemporal.transitions];
+  expectedTemporal = reconcileTemporalOutcomes(expectedTemporal, candidate.resolution.proposal.outcomes);
+  const observedAgentIds = new Set(candidate.observations.map((observation) => observation.observerId));
+  const relevantExternalObservers = new Set(candidate.groundings.flatMap((grounding) =>
+    grounding.audienceAgentIds.filter((agentId) =>
+      agentId !== grounding.actorId && observedAgentIds.has(agentId))));
+  const interruptionPoints = Object.values(expectedTemporal.activities)
+    .filter((activity) => activity.status === "active" || activity.status === "paused")
+    .flatMap((activity) => activity.participantAgentIds
+      .filter((agentId) => relevantExternalObservers.has(agentId))
+      .map((agentId) => ({
+        agentId,
+        reason: "activity_interrupted" as const,
+        activityId: activity.id,
+        timerId: null,
+      })));
+  expectedTemporal.decisionPoints = [...new Map([
+    ...expectedTemporal.decisionPoints,
+    ...interruptionPoints,
+  ].map((point) => [
+    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
+    point,
+  ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
+  if (contentHash(expectedTemporal.activities) !== contentHash(candidate.temporalState.activities) ||
+    contentHash(expectedTemporal.timers) !== contentHash(candidate.temporalState.timers) ||
+    contentHash(expectedTemporal.transitions) !== contentHash(candidate.activityTransitions) ||
+    contentHash(expectedTemporal.decisionPoints) !== contentHash(candidate.decisionPoints)) {
+    throw new Error("candidate temporal transitions do not match the trusted boundary result");
   }
 }
 
@@ -223,6 +387,7 @@ export class CanonicalCommitter {
     sourceState: Readonly<SimulationState>,
     candidateInput: Readonly<WorldStepCandidate>,
     policyRoster: Readonly<Record<string, PolicyBinding>>,
+    maxAutonomousSpanSeconds: number,
   ): {
     committed: CommittedStep;
     state: SimulationState;
@@ -232,8 +397,14 @@ export class CanonicalCommitter {
     const mindCommits = candidate.mindCommits
       .sort((left, right) => left.agentId.localeCompare(right.agentId));
     const resolution = candidate.resolution;
-    const transitioned = applyTransitionProposal(source, resolution.proposal);
-    validateCandidateBoundary(source, resolution.actions, candidate, transitioned);
+    const transitioned = applyTransitionProposal(source, resolution.proposal, candidate.temporalState);
+    validateCandidateBoundary(
+      source,
+      resolution.actions,
+      candidate,
+      transitioned,
+      maxAutonomousSpanSeconds,
+    );
     transitioned.truth.rng = structuredClone(resolution.rng);
     for (const agentId of Object.keys(transitioned.agents)) {
       transitioned.agents[agentId] = applyObservationBindings(
@@ -241,15 +412,21 @@ export class CanonicalCommitter {
         observationsFor(candidate.observations, agentId),
       );
     }
-    const expectedAgents = Object.keys(transitioned.agents)
-      .filter((agentId) => !source.agents[agentId] || policyRoster[agentId]?.kind === "model")
-      .sort((left, right) => left.localeCompare(right));
     const committedAgents = mindCommits.map((commit) => commit.agentId);
-    if (contentHash(expectedAgents) !== contentHash(committedAgents)) {
-      throw new Error("step candidate does not update every agent exactly once");
+    if (new Set(committedAgents).size !== committedAgents.length) {
+      throw new Error("step candidate contains duplicate AgentMind commits");
+    }
+    for (const agentId of committedAgents) {
+      if (!transitioned.agents[agentId] || source.agents[agentId] && policyRoster[agentId]?.kind !== "model") {
+        throw new Error(`step candidate cannot update AgentMind for ${agentId}`);
+      }
     }
     for (const commit of mindCommits) {
-      const observed = observationsFor(candidate.observations, commit.agentId);
+      const observed = pendingObservationsFor(
+        transitioned,
+        transitioned.agents[commit.agentId],
+        observationsFor(candidate.observations, commit.agentId),
+      );
       transitioned.agents[commit.agentId] = applyMindCommit(
         transitioned.agents[commit.agentId],
         commit,
@@ -272,6 +449,11 @@ export class CanonicalCommitter {
       rngAfter: structuredClone(transitioned.truth.rng),
       resolutionPlans: structuredClone(resolution.resolutionPlans),
       resolutionReceipts: structuredClone(resolution.resolutionReceipts),
+      temporalPlans: structuredClone(candidate.temporalPlans),
+      temporalBoundary: structuredClone(candidate.temporalBoundary),
+      temporalState: structuredClone(candidate.temporalState),
+      activityTransitions: structuredClone(candidate.activityTransitions),
+      decisionPoints: structuredClone(candidate.decisionPoints),
       checkRequests: structuredClone(resolution.requests),
       checks: structuredClone(resolution.checks),
       randomRequests: structuredClone(resolution.randomRequests),

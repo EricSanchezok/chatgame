@@ -8,6 +8,7 @@ import type {
   SubmitExternalActionInput,
   WorldStartOptions,
   WorldSummary,
+  WorldRunControlInput,
 } from "../../shared/world-api";
 import type { WorldObserverDetail } from "../../shared/world-observer-api";
 import { requestJson } from "./api-client";
@@ -45,6 +46,16 @@ export const worldApi = {
   submitAction: (id: string, participantId: string, input: SubmitExternalActionInput) =>
     requestJson<PublicInstanceDetail>(
       `/api/instances/${encodeURIComponent(id)}/participants/${encodeURIComponent(participantId)}/actions`,
+      body("POST", input),
+    ),
+  pauseRun: (id: string, input: WorldRunControlInput) =>
+    requestJson<PublicInstanceDetail>(
+      `/api/instances/${encodeURIComponent(id)}/run/pause`,
+      body("POST", input),
+    ),
+  resumeRun: (id: string, input: WorldRunControlInput) =>
+    requestJson<PublicInstanceDetail>(
+      `/api/instances/${encodeURIComponent(id)}/run/resume`,
       body("POST", input),
     ),
   importWorld: (file: File, options: { replace?: boolean; expectedWorldId?: string } = {}) => {

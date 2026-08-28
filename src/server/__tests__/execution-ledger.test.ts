@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { deriveExecutionWork, MetricDefinitionRegistry, EXECUTION_METRICS } from "../../engine/execution-metrics";
 import { contentHash } from "../../engine/model-audit";
 import { LocalDatabase } from "../local-database";
-import { replayThroughAlgorithm } from "../../../scripts/execution-command";
+import { candidatePartitions, replayThroughAlgorithm } from "../../../scripts/execution-command";
 import { runDeterministicExperiment } from "../../../scripts/experiment-core";
 
 function database(): LocalDatabase {
@@ -215,7 +215,19 @@ describe("Execution Ledger", () => {
       trace.emit({
         event: "algorithm.candidate.completed",
         attributes: { phase: "step" },
-        counts: { updatedAgents: 1000, mindFallbacks: 2 },
+        counts: {
+          updatedAgents: 1000,
+          mindFallbacks: 2,
+          resolutionPlans: 4,
+          settledResolutionReceipts: 3,
+          deferredResolutionReceipts: 1,
+          temporalPlans: 2,
+          activeActivities: 1,
+          activityTransitions: 2,
+          dueTimers: 1,
+          decisionPoints: 2,
+          temporalDeltaSeconds: 300,
+        },
       });
       trace.emit({
         event: "algorithm.outcome.alternative_evidence_normalized",
@@ -235,6 +247,10 @@ describe("Execution Ledger", () => {
         .toEqual([expect.objectContaining({ value: 1000 })]);
       expect(points.filter((point) => point.name === "lwe.agent.mind_fallbacks"))
         .toEqual([expect.objectContaining({ value: 2 })]);
+      expect(points.filter((point) => point.name === "lwe.output.resolution_receipts_deferred"))
+        .toEqual([expect.objectContaining({ value: 1 })]);
+      expect(points.filter((point) => point.name === "lwe.temporal.delta"))
+        .toEqual([expect.objectContaining({ value: 300, unit: "s" })]);
       expect(points.filter((point) => point.name === "lwe.normalization.outcome_alternatives"))
         .toEqual([expect.objectContaining({ value: 1 })]);
       expect(points.some((point) => "agentId" in point.dimensions)).toBe(false);
@@ -270,6 +286,20 @@ describe("Execution Ledger", () => {
       const original = ledger.executions({ kind: "benchmark" })
         .find((execution) => execution.manifest.id === "eager-reference");
       expect(original).toBeDefined();
+      expect(candidatePartitions(ledger.executionEvents(original!.id))).toMatchObject({
+        resolution: {
+          plans: expect.any(Array),
+          receipts: expect.any(Array),
+          mechanicResults: expect.any(Array),
+          causalVerification: expect.any(Object),
+        },
+        temporal: {
+          plans: expect.any(Array),
+          boundary: expect.any(Object),
+          activityTransitions: expect.any(Array),
+          decisionPoints: expect.any(Array),
+        },
+      });
       const replayed = await replayThroughAlgorithm(
         ledger,
         original!,

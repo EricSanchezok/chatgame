@@ -4,7 +4,7 @@ export type MetricAggregation = "sum" | "max" | "last" | "count";
 
 export interface MetricDefinition {
   name: string;
-  unit: "1" | "By" | "ms" | "token";
+  unit: "1" | "By" | "ms" | "s" | "token";
   aggregation: MetricAggregation;
   source: {
     field: "counts" | "measurements";
@@ -164,11 +164,22 @@ registerNumericFields("counts", ["algorithm.candidate.completed"], [
   ["lwe.output.reactions", "reactions", "1"],
   ["lwe.output.checks", "checks", "1"],
   ["lwe.output.random", "randomResults", "1"],
+  ["lwe.output.resolution_plans", "resolutionPlans", "1"],
+  ["lwe.output.resolution_receipts_settled", "settledResolutionReceipts", "1"],
+  ["lwe.output.resolution_receipts_deferred", "deferredResolutionReceipts", "1"],
+  ["lwe.output.mechanic_invocations", "mechanicInvocations", "1"],
+  ["lwe.output.mechanic_results", "mechanicResults", "1"],
   ["lwe.output.outcomes", "outcomes", "1"],
   ["lwe.output.operations", "operations", "1"],
   ["lwe.output.events", "events", "1"],
   ["lwe.output.observations", "observations", "1"],
   ["lwe.output.mind_commits", "mindCommits", "1"],
+  ["lwe.temporal.plans", "temporalPlans", "1"],
+  ["lwe.temporal.active_activities", "activeActivities", "1"],
+  ["lwe.temporal.activity_transitions", "activityTransitions", "1"],
+  ["lwe.temporal.due_timers", "dueTimers", "1"],
+  ["lwe.temporal.decision_points", "decisionPoints", "1"],
+  ["lwe.temporal.delta", "temporalDeltaSeconds", "s"],
   ["lwe.agent.mind_fallbacks", "mindFallbacks", "1"],
   ["lwe.dependency.nodes", "dependencyNodes", "1"],
   ["lwe.dependency.edges", "dependencyEdges", "1"],

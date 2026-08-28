@@ -46,6 +46,7 @@ export function createTestModelCatalog(
             "truth-reaction-routing",
             "truth-resolution",
             "truth-transition",
+            "temporal-planner",
             "action-grounding",
             "observation-renderer",
             "causal-verifier",
@@ -351,7 +352,24 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         observationSlots?: Array<{ observer: { agentId: string } }>;
         currentEvents?: Array<{ id: string }>;
         committedResolutionPlans?: unknown[];
+        temporalAction?: { id: string; actorId: string; rawText: string };
+        temporalProfiles?: Array<{ id: string; kind: string; allowExplicitDuration?: boolean }>;
+        temporalBoundary?: { toElapsedSeconds: number };
+        canonicalTruth?: {
+          activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
+        };
       };
+      if (input.temporalAction && input.temporalProfiles) {
+        const profile = input.temporalProfiles[0];
+        if (!profile) throw new Error("deterministic temporal planner has no profile");
+        return {
+          profileId: profile.id,
+          basis: { kind: "profile" },
+          description: input.temporalAction.rawText,
+          conditionAssertions: [],
+          causes: [{ kind: "action", id: input.temporalAction.id }],
+        };
+      }
       if (input.action) {
         return {
           reads: [{ kind: "global", id: "world" }],
@@ -406,14 +424,19 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         return {
           kind: "transition",
           proposal: {
-            outcomes: actions.map((action) => ({
+            outcomes: actions.map((action) => {
+              const activity = Object.values(input.canonicalTruth?.activities ?? {})
+                .find((candidate) => candidate.sourceActionId === action.id);
+              const continuing = Boolean(activity && (activity.completionAtSeconds === null ||
+                activity.completionAtSeconds > (input.temporalBoundary?.toElapsedSeconds ?? 0)));
+              return {
               proposalId: action.id,
-              status: "succeeded",
-              summary: "模拟 Truth Engine 已联合裁决行动。",
+              status: continuing ? "continuing" : "succeeded",
+              summary: continuing ? "行动推进到下一个时间检查点。" : "模拟 Truth Engine 已联合裁决行动。",
               causeRefs: [{ kind: "action", id: action.id }],
               assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
               knownAlternatives: [],
-            })),
+            }; }),
             mechanicInvocations: [],
             operations: [],
             events: [{

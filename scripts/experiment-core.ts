@@ -280,7 +280,6 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
           const result = await engine.step(roster, {
             expectedRevision: source.revision,
             trigger: "batch",
-            simulatedSeconds: definition.runtimeDefaults.simulatedSeconds,
             externalActions: [],
           }, {
             workloadId: instanceId,

@@ -9,9 +9,7 @@ export async function POST(request: Request, { params }: RouteContext<"/api/inst
     observeHttpJsonBody(scope, body);
     if (!body || !Number.isSafeInteger(body.expectedRevision) ||
       !["manual", "batch", "realtime"].includes(body.trigger) ||
-      (body.steps !== undefined && (!Number.isSafeInteger(body.steps) || body.steps < 1 || body.steps > 100)) ||
-      (body.simulatedSeconds !== undefined &&
-        (!Number.isSafeInteger(body.simulatedSeconds) || body.simulatedSeconds <= 0))) {
+      (body.steps !== undefined && (!Number.isSafeInteger(body.steps) || body.steps < 1 || body.steps > 100))) {
       return json({ error: "invalid world advance request" }, 400);
     }
     return json(await WorldHost.get().advance(id, body));

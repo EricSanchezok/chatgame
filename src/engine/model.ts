@@ -9,6 +9,17 @@ import type {
   ResolutionPlan,
   ResolutionReceipt,
 } from "./resolution";
+import type {
+  ActivityResourceDefinition,
+  ActivityState,
+  ActivityTransition,
+  DecisionPoint,
+  TemporalBoundary,
+  TemporalCalibration,
+  TemporalPlan,
+  TemporalProfileDefinition,
+  WorldTimer,
+} from "./temporal";
 
 export type EntityId = string;
 export type AgentId = string;
@@ -139,6 +150,9 @@ export interface MechanicsCatalog {
   conditionProfiles: Record<string, ConditionProfileDefinition>;
   entityMechanicsProfiles: Record<string, EntityMechanicsProfileDefinition>;
   adjudicationCalibrations: AdjudicationCalibration[];
+  activityResources: Record<string, ActivityResourceDefinition>;
+  temporalProfiles: Record<string, TemporalProfileDefinition>;
+  temporalCalibrations: TemporalCalibration[];
 }
 
 export type DiscreteRandomValue = string | number | boolean | null;
@@ -196,6 +210,8 @@ export interface CanonicalWorldState {
   quantities: Record<string, QuantityState>;
   ratings: Record<string, RatingState>;
   conditions: Record<string, ConditionState>;
+  activities: Record<string, ActivityState>;
+  timers: Record<string, WorldTimer>;
 }
 
 export interface HistoryReplayBase {
@@ -361,6 +377,7 @@ export interface AgentState {
   character: AgentCharacterState;
   belief: AgentBeliefState;
   bindings: Record<LocalEntityId, EpistemicBinding>;
+  observationCursorStep: number;
   nextAction: AgentActionProposal | null;
 }
 
@@ -559,7 +576,7 @@ export interface AgentAdmissionCommit {
 export type WorldEventDraft = Omit<WorldEvent, "step">;
 
 export interface SimulationState {
-  schemaVersion: 10;
+  schemaVersion: 11;
   worldId: string;
   worldHash: string;
   lawIds: string[];
@@ -1036,6 +1053,11 @@ export interface CommittedStep {
   rngAfter: SeededRngState;
   resolutionPlans: ResolutionPlan[];
   resolutionReceipts: ResolutionReceipt[];
+  temporalPlans: TemporalPlan[];
+  temporalBoundary: TemporalBoundary;
+  temporalState: import("./temporal").TemporalStateSnapshot;
+  activityTransitions: ActivityTransition[];
+  decisionPoints: DecisionPoint[];
   checkRequests: D20CheckRequest[];
   checks: D20CheckResult[];
   randomRequests: DiscreteRandomRequest[];

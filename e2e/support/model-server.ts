@@ -34,6 +34,47 @@ function truthOutput(context: Record<string, unknown>) {
     context.promptVersion === "resolution-plan-verifier-v1") {
     return { verdict: "accept", findings: [] };
   }
+  if (context.temporalAction && Array.isArray(context.temporalProfiles)) {
+    const action = context.temporalAction as { id: string; rawText: string };
+    const profiles = context.temporalProfiles as Array<{ id: string }>;
+    const findProfile = (...ids: string[]) => ids
+      .map((id) => profiles.find((candidate) => candidate.id === id))
+      .find(Boolean);
+    const quantity = action.rawText.match(/([0-9]+(?:\.[0-9]+)?)\s*(公里|千米|kilometers?|kilometres?)/iu);
+    const duration = action.rawText.match(/([0-9]+(?:\.[0-9]+)?)\s*(秒|分钟|小时|天|日|seconds?|minutes?|hours?|days?)/iu);
+    const profile = /挥剑|格挡|闪避|swing|parry|dodge/iu.test(action.rawText)
+      ? findProfile("momentary-action", "brief-action")
+      : quantity ? findProfile("road-travel", "measured-travel")
+        : /治疗|清创|包扎|treat|dress.*wound/iu.test(action.rawText) ? findProfile("field-treatment", "staged-action")
+          : /天亮|潮汐|until/iu.test(action.rawText) ? findProfile("wait-until", "conditional-action")
+            : /放哨|守候|站岗|watch|guard/iu.test(action.rawText) ? findProfile("ongoing-watch", "ongoing-action")
+              : duration ? findProfile("explicit-duration")
+                : findProfile("brief-action") ?? profiles[0];
+    if (!profile) throw new Error("temporal planner has no authored profile");
+    const durationMultipliers: Record<string, number> = {
+      秒: 1, second: 1, seconds: 1,
+      分钟: 60, minute: 60, minutes: 60,
+      小时: 3_600, hour: 3_600, hours: 3_600,
+      天: 86_400, 日: 86_400, day: 86_400, days: 86_400,
+    };
+    const basis = quantity ? {
+      kind: "explicit_quantity",
+      amount: Number(quantity[1]),
+      unit: quantity[2],
+      sourceText: quantity[0],
+    } : duration ? {
+      kind: "explicit_duration",
+      seconds: Number(duration[1]) * durationMultipliers[duration[2].toLocaleLowerCase()]!,
+      sourceText: duration[0],
+    } : { kind: "profile" };
+    return {
+      profileId: profile.id,
+      basis,
+      description: action.rawText,
+      conditionAssertions: [],
+      causes: [{ kind: "action", id: action.id }],
+    };
+  }
   if (Array.isArray(context.observationSlots)) {
     const events = context.currentEvents as Array<{ id: string }>;
     return {
@@ -108,23 +149,33 @@ function truthOutput(context: Record<string, unknown>) {
   const step = context.step as number;
   const actions = context.jointActions as Array<{ id: string }>;
   const world = context.world as { laws: Array<{ id: string }> };
+  const boundary = context.temporalBoundary as { deltaSeconds: number; toElapsedSeconds: number };
+  const canonicalTruth = context.canonicalTruth as {
+    activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
+  };
   const nextStep = step + 1;
   const eventId = `e2e-event:${nextStep}`;
   const lawId = world.laws[0].id;
   return {
-    outcomes: actions.map((action) => ({
-      proposalId: action.id,
-      status: "succeeded",
-      summary: "模拟 Truth Engine 已联合裁决行动。",
-      causeRefs: [{ kind: "action", id: action.id }],
-      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
-      knownAlternatives: [],
-    })),
+    outcomes: actions.map((action) => {
+      const activity = Object.values(canonicalTruth.activities ?? {})
+        .find((candidate) => candidate.sourceActionId === action.id);
+      const continuing = Boolean(activity && (activity.completionAtSeconds === null ||
+        activity.completionAtSeconds > boundary.toElapsedSeconds));
+      return {
+        proposalId: action.id,
+        status: continuing ? "continuing" : "succeeded",
+        summary: continuing ? "行动推进到下一个时间检查点。" : "模拟 Truth Engine 已联合裁决行动。",
+        causeRefs: [{ kind: "action", id: action.id }],
+        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+        knownAlternatives: [],
+      };
+    }),
     mechanicInvocations: [],
     operations: [],
     events: [{
       id: eventId,
-      description: "世界在联合裁决后推进了一秒。",
+      description: `世界在联合裁决后推进了 ${boundary.deltaSeconds} 秒。`,
       impact: "ordinary",
       causes: [{ kind: "law", id: lawId }],
       assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],

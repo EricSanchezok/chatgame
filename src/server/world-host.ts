@@ -42,6 +42,7 @@ import type {
   PublicInstanceDetail,
   PublicInstanceSummary,
   SubmitExternalActionInput,
+  WorldRunControlInput,
   WorldStartOptions,
 } from "../shared/world-api";
 import type {
@@ -70,7 +71,7 @@ import type {
   ParticipantArrivalRecord,
   ParticipantRecord,
   StoredWorldInstance,
-  WorldAdvanceRecord,
+  WorldRunRecord,
   WorldInstanceDocument,
 } from "./world-instance-types";
 
@@ -119,6 +120,8 @@ export interface WorldHostOptions {
   idFactory?: () => string;
   observer?: RuntimeObserver;
   maxActiveParticipants?: number;
+  runLeaseMaxCommits?: number;
+  runLeaseMaxWallTimeMs?: number;
   setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
 }
@@ -142,9 +145,21 @@ function policyRoster(state: Readonly<SimulationState>): Record<string, PolicyBi
   }]));
 }
 
-function currentAdvance(document: WorldInstanceDocument): WorldAdvanceRecord | undefined {
-  return Object.values(document.advances)
+function currentRun(document: WorldInstanceDocument): WorldRunRecord | undefined {
+  return Object.values(document.runs)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))[0];
+}
+
+function externalDecisionAgentIds(document: WorldInstanceDocument): string[] {
+  const decisionAgents = new Set(document.state.history.at(-1)?.decisionPoints.map((point) => point.agentId) ?? []);
+  const busyAgents = new Set(Object.values(document.state.truth.activities)
+    .filter((activity) => activity.status === "active" || activity.status === "paused")
+    .flatMap((activity) => activity.participantAgentIds));
+  return Object.values(document.policyBindings)
+    .filter((binding): binding is Extract<PolicyBinding, { kind: "external" }> => binding.kind === "external")
+    .map((binding) => binding.agentId)
+    .filter((agentId) => !busyAgents.has(agentId) || decisionAgents.has(agentId))
+    .sort();
 }
 
 function activeParticipants(document: WorldInstanceDocument): ParticipantRecord[] {
@@ -165,7 +180,7 @@ function publicSummary(document: WorldInstanceDocument): PublicInstanceSummary {
     elapsedSeconds: document.state.truth.elapsedSeconds,
     participantCount: activeParticipants(document).length,
     schedulerMode: document.scheduler.mode,
-    ...(currentAdvance(document) ? { advanceStatus: currentAdvance(document)!.status } : {}),
+    ...(currentRun(document) ? { runStatus: currentRun(document)!.status } : {}),
   };
 }
 
@@ -207,19 +222,46 @@ function conversationFor(
     },
   }];
   for (const intent of document.participantIntents.filter((entry) => entry.participantId === participant.id)) {
-    const advance = document.advances[intent.advanceId];
-    const committedRevision = advance?.committedRevisions.at(-1);
-    const committed = committedRevision === undefined
-      ? undefined
-      : document.state.history.find((step) => step.revision === committedRevision);
-    const summaries = committed?.observations
-      .filter((observation) => observation.observerId === intent.agentId)
-      .map((observation) => observation.summary) ?? [];
-    const status: PublicConversationTurn["status"] = advance?.status === "committed"
+    const run = document.runs[intent.runId];
+    const committedSteps = (run?.committedRevisions ?? []).flatMap((revision) => {
+      const committed = document.state.history.find((step) => step.revision === revision);
+      return committed ? [committed] : [];
+    });
+    const responses = committedSteps.map((committed) => {
+      const summaries = committed.observations
+        .filter((observation) => observation.observerId === intent.agentId)
+        .map((observation) => observation.summary);
+      const activity = Object.values(committed.temporalState.activities)
+        .filter((candidate) => candidate.actorId === intent.agentId)
+        .sort((left, right) => right.updatedAtSeconds - left.updatedAtSeconds || right.id.localeCompare(left.id))[0];
+      const publicActivity = activity ? {
+        id: activity.id,
+        status: activity.status,
+        description: activity.plan.description,
+        stage: activity.plan.stages[activity.stageIndex]?.name ?? null,
+        progress: structuredClone(activity.progress),
+        nextBoundaryAtSeconds: activity.nextBoundaryAtSeconds,
+        completionAtSeconds: activity.completionAtSeconds,
+      } : null;
+      const progressText = publicActivity?.progress
+        ? `${publicActivity.description}：${publicActivity.progress.current}/${publicActivity.progress.target} ${publicActivity.progress.unit}`
+        : publicActivity ? `${publicActivity.description}：${publicActivity.status}` : "世界时间继续推进。";
+      return {
+        revision: committed.revision,
+        step: committed.step,
+        text: summaries.length > 0 ? summaries.join("\n\n") : progressText,
+        worldTimeSeconds: committed.temporalBoundary.toElapsedSeconds,
+        activity: publicActivity,
+      };
+    });
+    const status: PublicConversationTurn["status"] = run?.status === "completed" ||
+      run?.status === "awaiting-decision" && run.committedRevisions.length > 0
       ? "committed"
-      : advance?.status === "failed" || advance?.status === "cancelled"
+      : run?.status === "failed"
         ? "failed"
-        : advance?.status === "running" || advance?.status === "queued"
+        : run?.status === "paused" || run?.status === "budget-paused"
+          ? "paused"
+        : run?.status === "running" || run?.status === "queued" || run?.status === "pausing"
           ? "running"
           : "awaiting";
     turns.push({
@@ -229,13 +271,7 @@ function conversationFor(
       createdAt: intent.submittedAt,
       status,
       action: { submissionId: intent.submissionId, text: intent.text },
-      ...(committed && summaries.length > 0 ? {
-        response: {
-          revision: committed.revision,
-          step: committed.step,
-          text: summaries.join("\n\n"),
-        },
-      } : {}),
+      ...(responses.length > 0 ? { response: responses.at(-1), responses } : {}),
     });
   }
   return { participantId: participant.id, agentId: participant.agentId, turns };
@@ -326,6 +362,7 @@ function agentStateFromOrigin(
       [selfId]: { localEntityId: selfId, canonicalEntityIds: [agentId] },
       [locationId]: { localEntityId: locationId, canonicalEntityIds: [origin.spawnEntityId] },
     },
+    observationCursorStep: state.step,
     nextAction: null,
   };
 }
@@ -337,8 +374,12 @@ export class WorldHost {
   private readonly now: () => Date;
   private readonly idFactory: () => string;
   private readonly maxActiveParticipants: number;
+  private readonly runLeaseMaxCommits: number;
+  private readonly runLeaseMaxWallTimeMs: number;
   private readonly locks = new Map<string, Promise<unknown>>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly runTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly runControllers = new Map<string, AbortController>();
   private readonly setTimer: WorldHostOptions["setTimer"];
   private readonly clearTimer: NonNullable<WorldHostOptions["clearTimer"]>;
   readonly runtimeObserver: RuntimeObserver;
@@ -350,6 +391,12 @@ export class WorldHost {
     this.now = options.now ?? (() => new Date());
     this.idFactory = options.idFactory ?? randomUUID;
     this.maxActiveParticipants = options.maxActiveParticipants ?? 1;
+    this.runLeaseMaxCommits = options.runLeaseMaxCommits ?? 100;
+    this.runLeaseMaxWallTimeMs = options.runLeaseMaxWallTimeMs ?? 15 * 60 * 1_000;
+    if (!Number.isSafeInteger(this.runLeaseMaxCommits) || this.runLeaseMaxCommits < 1 ||
+      !Number.isSafeInteger(this.runLeaseMaxWallTimeMs) || this.runLeaseMaxWallTimeMs < 1) {
+      throw new Error("world run lease budgets must be positive integers");
+    }
     this.runtimeObserver = options.observer ?? NOOP_RUNTIME_OBSERVER;
     this.registry = options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry();
     if (!options.algorithmRegistry) {
@@ -368,7 +415,7 @@ export class WorldHost {
       ));
       const provider = createModelGateway(catalog, process.env);
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v14",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v15",
       );
       const database = new LocalDatabase(path.join(dataRoot, "livingworld.sqlite"));
       this.singleton = new WorldHost({
@@ -484,7 +531,6 @@ export class WorldHost {
       seed: document.state.historyBase?.truth.rng.seed ?? document.state.truth.rng.seed,
       runtimeConfig: {
         trigger,
-        simulatedSeconds: document.runtime.simulatedSeconds,
         realtimeIntervalMs: document.runtime.realtimeIntervalMs,
         actionWindowMs: document.runtime.actionWindowMs,
         policyRosterHash: contentHash(policyBindings),
@@ -536,7 +582,7 @@ export class WorldHost {
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 14,
+      schemaVersion: 15,
       id,
       world: toWorldRuntimeContract(definition),
       title: input.title?.trim() || definition.name,
@@ -548,7 +594,7 @@ export class WorldHost {
       actionWindow: null,
       runtime: structuredClone(definition.runtimeDefaults),
       scheduler: { mode: "paused", generation: 1, nextTickAt: null },
-      advances: {},
+      runs: {},
       participantIntents: [],
     };
     const execution = this.beginExecution(initial, "interactive", "bootstrap");
@@ -812,6 +858,10 @@ export class WorldHost {
     const allAgents = Object.keys(document.state.agents).length;
     const active = activeParticipants(document);
     const controlled = active.find((participant) => participant.principalId === principalId);
+    const run = currentRun(document);
+    const activity = controlled ? Object.values(document.state.truth.activities)
+      .filter((candidate) => candidate.actorId === controlled.agentId)
+      .sort((left, right) => right.updatedAtSeconds - left.updatedAtSeconds || right.id.localeCompare(left.id))[0] : undefined;
     return {
       summary: publicSummary(document),
       world: publicWorld(document),
@@ -840,6 +890,30 @@ export class WorldHost {
         risks: [...origin.risks],
         ...(origin.image ? { image: structuredClone(origin.image) } : {}),
       })),
+      ...(run ? {
+        run: {
+          id: run.id,
+          generation: run.generation,
+          status: run.status,
+          committedRevisions: [...run.committedRevisions],
+          stopReason: run.stopReason,
+          lease: run.lease ? {
+            commitCount: run.lease.commitCount,
+            maxCommits: run.lease.maxCommits,
+            maxWallTimeMs: run.lease.maxWallTimeMs,
+            startedAt: run.lease.startedAt,
+          } : null,
+          activity: activity ? {
+            id: activity.id,
+            status: activity.status,
+            description: activity.plan.description,
+            stage: activity.plan.stages[activity.stageIndex]?.name ?? null,
+            progress: structuredClone(activity.progress),
+            nextBoundaryAtSeconds: activity.nextBoundaryAtSeconds,
+            completionAtSeconds: activity.completionAtSeconds,
+          } : null,
+        },
+      } : {}),
       ...(controlled ? {
         controlledView: agentPerspective(document, controlled.agentId),
         conversation: conversationFor(document, controlled),
@@ -848,7 +922,30 @@ export class WorldHost {
   }
 
   async advance(id: string, input: AdvanceWorldInput): Promise<PublicInstanceDetail> {
-    return this.serialized(id, async () => this.advanceLocked(id, input));
+    const started = await this.serialized(id, async () => {
+      const stored = this.read(id);
+      if (input.expectedRevision !== stored.document.state.revision) {
+        throw new WorldHostError("world revision changed; refresh before advancing", 409);
+      }
+      const document = structuredClone(stored.document);
+      const existing = currentRun(document);
+      if (existing && ["queued", "running", "pausing", "paused", "budget-paused"].includes(existing.status)) {
+        throw new WorldHostError("another world run is already in progress", 409);
+      }
+      const requiredAgentIds = externalDecisionAgentIds(document);
+      const run = this.createRun(document, input.trigger, input.trigger === "batch"
+        ? Math.max(1, Math.min(100, input.steps ?? 1))
+        : 1, requiredAgentIds.length > 0 ? "awaiting-decision" : "queued");
+      if (requiredAgentIds.length > 0) document.actionWindow = this.openWindow(document, requiredAgentIds);
+      document.updatedAt = run.updatedAt;
+      return this.persist(stored, document).document;
+    });
+    const run = currentRun(started)!;
+    if (run.status === "queued") await this.driveRun(id, run.id);
+    const document = this.read(id).document;
+    if (document.actionWindow) this.scheduleWindowDeadline(document);
+    if (document.scheduler.mode === "realtime") this.scheduleRealtime(document);
+    return this.project(document);
   }
 
   private openWindow(document: WorldInstanceDocument, requiredAgentIds: string[]): ActionWindow {
@@ -866,65 +963,87 @@ export class WorldHost {
     };
   }
 
-  private async advanceLocked(id: string, input: AdvanceWorldInput): Promise<PublicInstanceDetail> {
-    let stored = this.read(id);
-    if (input.expectedRevision !== stored.document.state.revision) {
-      throw new WorldHostError("world revision changed; refresh before advancing", 409);
-    }
-    const steps = input.trigger === "batch" ? Math.max(1, Math.min(100, input.steps ?? 1)) : 1;
-    for (let index = 0; index < steps; index += 1) {
-      const document = structuredClone(stored.document);
-      const externalIds = Object.values(document.policyBindings)
-        .filter((binding): binding is Extract<PolicyBinding, { kind: "external" }> => binding.kind === "external")
-        .map((binding) => binding.agentId)
-        .sort();
-      let advance = currentAdvance(document);
-      if (!advance || !["awaiting_actions", "queued", "running"].includes(advance.status)) {
-        const now = this.now().toISOString();
-        advance = {
-          id: this.idFactory(),
-          request: {
-            expectedRevision: document.state.revision,
-            trigger: input.trigger,
-            simulatedSeconds: input.simulatedSeconds ?? document.runtime.simulatedSeconds,
-            externalActions: [],
-          },
-          status: externalIds.length > 0 ? "awaiting_actions" : "queued",
-          createdAt: now,
-          updatedAt: now,
-          executionIds: [],
-          committedRevisions: [],
-        };
-        document.advances[advance.id] = advance;
-      }
-      if (externalIds.length > 0) {
-        if (!document.actionWindow) document.actionWindow = this.openWindow(document, externalIds);
-        const expired = document.actionWindow.deadlineAt !== null &&
-          Date.parse(document.actionWindow.deadlineAt) <= this.now().getTime();
-        const complete = document.actionWindow.requiredAgentIds.every((agentId) => document.actionWindow!.submissions[agentId]);
-        if (!complete && !expired) {
-          advance.status = "awaiting_actions";
-          advance.updatedAt = this.now().toISOString();
-          document.updatedAt = advance.updatedAt;
-          stored = this.persist(stored, document);
-          this.scheduleWindowDeadline(document);
-          return this.project(stored.document);
-        }
-      }
-      stored = await this.executeStep(stored, advance);
-      if (stored.document.actionWindow || input.trigger === "batch" && activeParticipants(stored.document).length > 0) break;
-    }
-    if (stored.document.scheduler.mode === "realtime") this.scheduleRealtime(stored.document);
-    return this.project(stored.document);
+  private createRun(
+    document: WorldInstanceDocument,
+    trigger: WorldRunRecord["trigger"],
+    requestedBoundaryCount: number | null,
+    status: WorldRunRecord["status"],
+  ): WorldRunRecord {
+    const now = this.now().toISOString();
+    const run: WorldRunRecord = {
+      id: this.idFactory(),
+      generation: 1,
+      trigger,
+      status,
+      rootIntents: [],
+      activityIds: [],
+      requestedBoundaryCount,
+      createdAt: now,
+      updatedAt: now,
+      executionIds: [],
+      committedRevisions: [],
+      stopReason: status === "awaiting-decision" ? "external-decision-required" : null,
+      lease: null,
+    };
+    document.runs[run.id] = run;
+    return run;
   }
 
-  private async executeStep(
+  private scheduleRun(instanceId: string, runId: string): void {
+    const existing = this.runTimers.get(runId);
+    if (existing) this.clearTimer(existing);
+    const timer = this.setTimer!(async () => {
+      this.runTimers.delete(runId);
+      await this.driveRun(instanceId, runId).catch(() => undefined);
+    }, 0);
+    this.runTimers.set(runId, timer);
+  }
+
+  private async driveRun(instanceId: string, runId: string): Promise<void> {
+    while (true) {
+      const prepared = await this.serialized(instanceId, async () => {
+        const stored = this.read(instanceId);
+        const document = structuredClone(stored.document);
+        const run = document.runs[runId];
+        if (!run || run.status !== "queued") return null;
+        if (!run.lease) {
+          run.lease = {
+            id: this.idFactory(),
+            generation: run.generation,
+            startedAt: this.now().toISOString(),
+            maxCommits: this.runLeaseMaxCommits,
+            maxWallTimeMs: this.runLeaseMaxWallTimeMs,
+            commitCount: 0,
+          };
+        }
+        run.status = "running";
+        run.stopReason = null;
+        run.updatedAt = this.now().toISOString();
+        if (document.actionWindow?.status === "open") document.actionWindow.status = "resolving";
+        document.updatedAt = run.updatedAt;
+        return this.persist(stored, document);
+      });
+      if (!prepared) return;
+      const committed = await this.executeRunBoundary(prepared, runId);
+      const run = committed.document.runs[runId];
+      if (!run || run.status !== "queued") {
+        if (committed.document.actionWindow) this.scheduleWindowDeadline(committed.document);
+        if (committed.document.scheduler.mode === "realtime") this.scheduleRealtime(committed.document);
+        return;
+      }
+    }
+  }
+
+  private async executeRunBoundary(
     stored: StoredWorldInstance,
-    advance: WorldAdvanceRecord,
+    runId: string,
   ): Promise<StoredWorldInstance> {
     const document = structuredClone(stored.document);
-    const advanceRecord = document.advances[advance.id] ?? structuredClone(advance);
-    document.advances[advanceRecord.id] = advanceRecord;
+    const runRecord = document.runs[runId];
+    if (!runRecord || runRecord.status !== "running" || !runRecord.lease) {
+      throw new WorldHostError("world run is not executable", 409);
+    }
+    const runGeneration = runRecord.generation;
     const window = document.actionWindow;
     const effectiveRoster = structuredClone(document.policyBindings);
     const externalActions: ExternalActionInput[] = [];
@@ -940,10 +1059,8 @@ export class WorldHost {
         }
       }
     }
-    advanceRecord.status = "running";
-    advanceRecord.updatedAt = this.now().toISOString();
-    const execution = this.beginExecution(document, "interactive", advanceRecord.request.trigger, effectiveRoster);
-    if (execution) advanceRecord.executionIds.push(execution.id);
+    const execution = this.beginExecution(document, "interactive", runRecord.trigger, effectiveRoster);
+    if (execution) runRecord.executionIds.push(execution.id);
     const definition = this.definition(document);
     const engine = new SimulationEngine(
       definition,
@@ -952,11 +1069,11 @@ export class WorldHost {
     );
     const request: WorldAdvanceRequest = {
       expectedRevision: document.state.revision,
-      trigger: advanceRecord.request.trigger,
-      simulatedSeconds: advanceRecord.request.simulatedSeconds,
+      trigger: runRecord.trigger,
       externalActions,
     };
-    advanceRecord.request.externalActions = structuredClone(externalActions);
+    const controller = new AbortController();
+    this.runControllers.set(runId, controller);
     try {
       execution?.trace.emit({
         event: "action_window.resolved",
@@ -982,7 +1099,9 @@ export class WorldHost {
           step: document.state.step + 1,
         },
         observer: execution?.trace ?? this.runtimeObserver,
+        abortSignal: controller.signal,
       });
+      this.runControllers.delete(runId);
       document.state = result.state;
       for (const agent of Object.values(document.state.agents)) {
         if (!document.policyBindings[agent.id]) {
@@ -999,52 +1118,103 @@ export class WorldHost {
       for (const binding of Object.values(document.policyBindings)) {
         if (binding.kind === "model") delete binding.resumeFromRevision;
       }
-      advanceRecord.status = "committed";
-      advanceRecord.committedRevisions.push(document.state.revision);
-      advanceRecord.updatedAt = this.now().toISOString();
+      runRecord.committedRevisions.push(document.state.revision);
+      runRecord.activityIds = [...new Set([
+        ...runRecord.activityIds,
+        ...result.committed.temporalPlans.flatMap((plan) => Object.values(document.state.truth.activities)
+          .filter((activity) => activity.plan.id === plan.id)
+          .map((activity) => activity.id)),
+      ])].sort();
+      runRecord.lease.commitCount += 1;
+      runRecord.updatedAt = this.now().toISOString();
       document.actionWindow = null;
       if (document.scheduler.mode === "realtime") {
         document.scheduler.nextTickAt = new Date(
           this.now().getTime() + document.runtime.realtimeIntervalMs,
         ).toISOString();
       }
-      document.updatedAt = advanceRecord.updatedAt;
+      const requestedComplete = runRecord.requestedBoundaryCount !== null &&
+        runRecord.committedRevisions.length >= runRecord.requestedBoundaryCount;
+      const rootComplete = runRecord.activityIds.length > 0 && runRecord.activityIds.every((activityId) => {
+        const status = document.state.truth.activities[activityId]?.status;
+        return status !== "active" && status !== "paused";
+      });
+      const requiredAgentIds = externalDecisionAgentIds(document);
+      const budgetReached = runRecord.lease.commitCount >= runRecord.lease.maxCommits ||
+        this.now().getTime() - Date.parse(runRecord.lease.startedAt) >= runRecord.lease.maxWallTimeMs;
+      if (requestedComplete) {
+        runRecord.status = "completed";
+        runRecord.stopReason = "requested-boundaries-completed";
+      } else if (rootComplete && runRecord.trigger === "participant_action") {
+        runRecord.status = "completed";
+        runRecord.stopReason = "root-activity-completed";
+        if (requiredAgentIds.length > 0) {
+          const decisionRun = this.createRun(document, "participant_action", null, "awaiting-decision");
+          decisionRun.stopReason = "external-decision-required";
+          document.actionWindow = this.openWindow(document, requiredAgentIds);
+        }
+      } else if (requiredAgentIds.length > 0) {
+        runRecord.status = "awaiting-decision";
+        runRecord.stopReason = "external-decision-required";
+        document.actionWindow = this.openWindow(document, requiredAgentIds);
+      } else if (budgetReached) {
+        runRecord.status = "budget-paused";
+        runRecord.stopReason = runRecord.lease.commitCount >= runRecord.lease.maxCommits
+          ? "commit-budget-exhausted"
+          : "wall-time-budget-exhausted";
+      } else {
+        runRecord.status = "queued";
+        runRecord.stopReason = null;
+      }
+      document.updatedAt = runRecord.updatedAt;
       const finish: FinishExecutionInput = {
         status: "succeeded",
         semanticHash: result.committed.semanticHash,
         stateHash: contentHash(document.state),
         commitRevision: document.state.revision,
       };
+      const latest = this.read(document.id);
+      const latestRun = latest.document.runs[runId];
+      if (!latestRun || latestRun.generation !== runGeneration || latestRun.status !== "running" ||
+        latest.document.state.revision !== request.expectedRevision) {
+        const cancelled = new Error("world run generation changed before commit");
+        cancelled.name = "AbortError";
+        this.failExecution(execution?.id, cancelled);
+        return latest;
+      }
       const committed = execution && this.options.ledger && isAtomicStore(this.options.store)
         ? this.options.store.compareAndSwapInstanceAndFinishExecution(
             document.id,
-            stored.generation,
+            latest.generation,
             document,
             execution.id,
             finish,
           ).instance
-        : this.persist(stored, document);
+        : this.persist(latest, document);
       if (execution && this.options.ledger && !isAtomicStore(this.options.store)) {
         this.options.ledger.finishExecution(execution.id, finish);
       }
       return committed;
     } catch (error) {
+      this.runControllers.delete(runId);
       this.failExecution(execution?.id, error);
-      const failed = structuredClone(stored.document);
-      const failedAdvance = failed.advances[advanceRecord.id] ?? structuredClone(advanceRecord);
-      failed.advances[failedAdvance.id] = failedAdvance;
-      failedAdvance.status = "failed";
-      failedAdvance.error = error instanceof Error ? error.message : String(error);
-      failedAdvance.updatedAt = this.now().toISOString();
+      const latest = this.read(document.id);
+      const failed = structuredClone(latest.document);
+      const failedRun = failed.runs[runId];
+      if (!failedRun || failedRun.generation !== runGeneration) return latest;
+      failedRun.status = error instanceof Error && error.name === "AbortError" ? "paused" : "failed";
+      failedRun.stopReason = error instanceof Error && error.name === "AbortError" ? "user-paused" : "execution-failed";
+      failedRun.error = error instanceof Error ? error.message : String(error);
+      failedRun.updatedAt = this.now().toISOString();
       failed.actionWindow = null;
-      failed.updatedAt = failedAdvance.updatedAt;
+      failed.updatedAt = failedRun.updatedAt;
       if (failed.scheduler.mode === "realtime") {
         failed.scheduler.nextTickAt = new Date(
           this.now().getTime() + failed.runtime.realtimeIntervalMs,
         ).toISOString();
       }
       try {
-        return this.persist(stored, failed);
+        return this.persist(latest, failed);
       } catch {
         throw error;
       }
@@ -1057,8 +1227,8 @@ export class WorldHost {
     input: SubmitExternalActionInput,
     principalId = "local",
   ): Promise<PublicInstanceDetail> {
-    return this.serialized(instanceId, async () => {
-      let stored = this.read(instanceId);
+    const accepted = await this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
       const document = structuredClone(stored.document);
       const participant = document.participants[participantId];
       if (!participant || participant.status !== "active" || participant.principalId !== principalId) {
@@ -1074,40 +1244,30 @@ export class WorldHost {
         if (existingIntent.text !== text || existingIntent.agentId !== participant.agentId) {
           throw new WorldHostError("submission identity was already used for a different action", 409);
         }
-        return this.project(document, principalId);
+        return { document, runId: existingIntent.runId, complete: false };
       }
       if (input.expectedRevision !== document.state.revision) throw new WorldHostError("world revision changed", 409);
 
-      const externalIds = Object.values(document.policyBindings)
-        .filter((binding): binding is Extract<PolicyBinding, { kind: "external" }> => binding.kind === "external")
-        .map((binding) => binding.agentId)
-        .sort();
-      if (!externalIds.includes(participant.agentId)) {
+      let requiredAgentIds = externalDecisionAgentIds(document);
+      const pausedRun = currentRun(document);
+      if (pausedRun && (pausedRun.status === "paused" || pausedRun.status === "budget-paused") &&
+        document.policyBindings[participant.agentId]?.kind === "external") {
+        pausedRun.status = "completed";
+        pausedRun.stopReason = "replaced-by-external-action";
+        pausedRun.updatedAt = this.now().toISOString();
+        document.actionWindow = null;
+        requiredAgentIds = [participant.agentId];
+        this.createRun(document, "participant_action", null, "awaiting-decision");
+      }
+      if (!requiredAgentIds.includes(participant.agentId)) {
         throw new WorldHostError("participant does not control an external policy", 409);
       }
-      let advance = currentAdvance(document);
-      if (!advance || !["awaiting_actions", "queued", "running"].includes(advance.status)) {
-        const now = this.now().toISOString();
-        advance = {
-          id: this.idFactory(),
-          request: {
-            expectedRevision: document.state.revision,
-            trigger: "participant_action",
-            simulatedSeconds: document.runtime.simulatedSeconds,
-            externalActions: [],
-          },
-          status: "awaiting_actions",
-          createdAt: now,
-          updatedAt: now,
-          executionIds: [],
-          committedRevisions: [],
-        };
-        document.advances[advance.id] = advance;
+      let run = currentRun(document);
+      if (!run || run.status !== "awaiting-decision") {
+        run = this.createRun(document, "participant_action", null, "awaiting-decision");
       }
-      if (advance.status !== "awaiting_actions" || advance.request.expectedRevision !== document.state.revision) {
-        throw new WorldHostError("another world advance is already in progress", 409);
-      }
-      if (!document.actionWindow) document.actionWindow = this.openWindow(document, externalIds);
+      if (run.status !== "awaiting-decision") throw new WorldHostError("another world run is already in progress", 409);
+      if (!document.actionWindow) document.actionWindow = this.openWindow(document, requiredAgentIds);
       const window = document.actionWindow;
       if (window.status !== "open" || window.baseRevision !== input.expectedRevision) {
         throw new WorldHostError("the current action window is not accepting actions", 409);
@@ -1126,23 +1286,83 @@ export class WorldHost {
       document.participantIntents.push({
         participantId,
         agentId: participant.agentId,
-        advanceId: advance.id,
+        runId: run.id,
         submissionId,
         revision: document.state.revision,
         text,
         submittedAt: this.now().toISOString(),
       });
-      document.updatedAt = this.now().toISOString();
-      stored = this.persist(stored, document);
       const complete = window.requiredAgentIds.every((agentId) => window.submissions[agentId]);
-      if (!complete) {
-        this.scheduleWindowDeadline(stored.document);
-        return this.project(stored.document, principalId);
+      if (complete) {
+        run.rootIntents = window.requiredAgentIds.map((agentId) => structuredClone(window.submissions[agentId]!));
+        run.status = "queued";
+        run.stopReason = null;
+        run.lease = null;
+        run.generation += 1;
       }
-      const committed = await this.executeStep(stored, advance);
-      if (committed.document.scheduler.mode === "realtime") this.scheduleRealtime(committed.document);
-      return this.project(committed.document, principalId);
+      run.updatedAt = this.now().toISOString();
+      document.updatedAt = run.updatedAt;
+      const persisted = this.persist(stored, document).document;
+      return { document: persisted, runId: run.id, complete };
     });
+    if (accepted.complete) this.scheduleRun(instanceId, accepted.runId);
+    else if (accepted.document.actionWindow) this.scheduleWindowDeadline(accepted.document);
+    return this.project(accepted.document, principalId);
+  }
+
+  async pauseRun(
+    instanceId: string,
+    input: WorldRunControlInput,
+    principalId = "local",
+  ): Promise<PublicInstanceDetail> {
+    const document = await this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
+      const next = structuredClone(stored.document);
+      const run = next.runs[input.runId];
+      if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
+      if (!["queued", "running", "pausing"].includes(run.status)) {
+        if (run.status === "paused") return next;
+        throw new WorldHostError("world run cannot be paused", 409);
+      }
+      run.generation += 1;
+      run.status = "paused";
+      run.stopReason = "user-paused";
+      run.lease = null;
+      run.updatedAt = this.now().toISOString();
+      next.updatedAt = run.updatedAt;
+      return this.persist(stored, next).document;
+    });
+    const timer = this.runTimers.get(input.runId);
+    if (timer) this.clearTimer(timer);
+    this.runTimers.delete(input.runId);
+    this.runControllers.get(input.runId)?.abort("user-paused");
+    return this.project(document, principalId);
+  }
+
+  async resumeRun(
+    instanceId: string,
+    input: WorldRunControlInput,
+    principalId = "local",
+  ): Promise<PublicInstanceDetail> {
+    const document = await this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
+      const next = structuredClone(stored.document);
+      const run = next.runs[input.runId];
+      if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
+      if (run.status !== "paused" && run.status !== "budget-paused") {
+        throw new WorldHostError("world run cannot be resumed", 409);
+      }
+      run.generation += 1;
+      run.status = "queued";
+      run.stopReason = null;
+      run.lease = null;
+      delete run.error;
+      run.updatedAt = this.now().toISOString();
+      next.updatedAt = run.updatedAt;
+      return this.persist(stored, next).document;
+    });
+    this.scheduleRun(instanceId, input.runId);
+    return this.project(document, principalId);
   }
 
   async transferControl(
@@ -1156,7 +1376,9 @@ export class WorldHost {
       if (input.expectedRevision !== document.state.revision) {
         throw new WorldHostError("world revision changed", 409);
       }
-      if (document.actionWindow || currentAdvance(document)?.status === "running") {
+      const activeRun = currentRun(document);
+      if (["queued", "running", "pausing"].includes(activeRun?.status ?? "") ||
+        (document.actionWindow && document.actionWindow.status !== "open")) {
         throw new WorldHostError("control can change only at a committed revision boundary", 409);
       }
       const current = activeParticipants(document)
@@ -1164,6 +1386,34 @@ export class WorldHost {
       if (input.target.kind === "agent" && current?.agentId === input.target.agentId) {
         return this.project(document, principalId);
       }
+      const reconcileActionWindow = (): string | null => {
+        const window = document.actionWindow;
+        if (!window) return null;
+        const requiredAgentIds = externalDecisionAgentIds(document);
+        if (requiredAgentIds.length === 0) {
+          document.actionWindow = null;
+          if (activeRun?.status === "awaiting-decision") {
+            activeRun.status = "completed";
+            activeRun.stopReason = "control-transferred";
+            activeRun.updatedAt = this.now().toISOString();
+          }
+          return null;
+        }
+        window.requiredAgentIds = requiredAgentIds;
+        window.submissions = Object.fromEntries(Object.entries(window.submissions)
+          .filter(([agentId]) => requiredAgentIds.includes(agentId)));
+        window.generation += 1;
+        const complete = requiredAgentIds.every((agentId) => window.submissions[agentId]);
+        if (!complete || activeRun?.status !== "awaiting-decision") return null;
+        window.status = "resolving";
+        activeRun.rootIntents = requiredAgentIds.map((agentId) => structuredClone(window.submissions[agentId]!));
+        activeRun.status = "queued";
+        activeRun.stopReason = null;
+        activeRun.lease = null;
+        activeRun.generation += 1;
+        activeRun.updatedAt = this.now().toISOString();
+        return activeRun.id;
+      };
       if (current) {
         current.status = "released";
         current.updatedAt = this.now().toISOString();
@@ -1176,8 +1426,11 @@ export class WorldHost {
         };
       }
       if (input.target.kind === "observer") {
+        const runToSchedule = reconcileActionWindow();
         document.updatedAt = this.now().toISOString();
-        return this.project(this.persist(stored, document).document, principalId);
+        const persisted = this.persist(stored, document).document;
+        if (runToSchedule) this.scheduleRun(instanceId, runToSchedule);
+        return this.project(persisted, principalId);
       }
       const agentId = input.target.agentId;
       const agent = document.state.agents[agentId];
@@ -1216,6 +1469,7 @@ export class WorldHost {
         arrival: fallback,
       };
       document.policyBindings[agentId] = { kind: "external", agentId, participantId };
+      const runToSchedule = reconcileActionWindow();
       document.scheduler.mode = "paused";
       document.scheduler.generation += 1;
       document.scheduler.nextTickAt = null;
@@ -1229,7 +1483,9 @@ export class WorldHost {
         generated: arrival.generated,
       };
       document.updatedAt = this.now().toISOString();
-      return this.project(this.persist(stored, document).document, principalId);
+      const persisted = this.persist(stored, document).document;
+      if (runToSchedule) this.scheduleRun(instanceId, runToSchedule);
+      return this.project(persisted, principalId);
     });
   }
 
@@ -1322,15 +1578,25 @@ export class WorldHost {
   private scheduleWindowDeadline(document: WorldInstanceDocument): void {
     if (!document.actionWindow?.deadlineAt) return;
     this.scheduleAt(document.id, document.actionWindow.deadlineAt, async () => {
-      await this.serialized(document.id, async () => {
+      const runId = await this.serialized(document.id, async () => {
         const stored = this.read(document.id);
-        const window = stored.document.actionWindow;
+        const next = structuredClone(stored.document);
+        const window = next.actionWindow;
         if (!window || window.id !== document.actionWindow!.id || window.status !== "open") return;
-        const advance = currentAdvance(stored.document);
-        if (!advance) return;
-        const committed = await this.executeStep(stored, advance);
-        if (committed.document.scheduler.mode === "realtime") this.scheduleRealtime(committed.document);
+        const run = currentRun(next);
+        if (!run || run.status !== "awaiting-decision") return;
+        run.rootIntents = window.requiredAgentIds.flatMap((agentId) =>
+          window.submissions[agentId] ? [structuredClone(window.submissions[agentId]!)] : []);
+        run.status = "queued";
+        run.stopReason = null;
+        run.lease = null;
+        run.generation += 1;
+        run.updatedAt = this.now().toISOString();
+        next.updatedAt = run.updatedAt;
+        this.persist(stored, next);
+        return run.id;
       });
+      if (runId) this.scheduleRun(document.id, runId);
     });
   }
 
@@ -1351,7 +1617,21 @@ export class WorldHost {
   }
 
   private restoreSchedule(stored: StoredWorldInstance): void {
-    const document = stored.document;
+    let current = stored;
+    const recovered = structuredClone(stored.document);
+    let changed = false;
+    for (const run of Object.values(recovered.runs)) {
+      if (!["queued", "running", "pausing"].includes(run.status)) continue;
+      run.generation += 1;
+      run.status = "paused";
+      run.stopReason = "process-recovered";
+      run.lease = null;
+      run.updatedAt = this.now().toISOString();
+      recovered.updatedAt = run.updatedAt;
+      changed = true;
+    }
+    if (changed) current = this.persist(stored, recovered);
+    const document = current.document;
     if (document.actionWindow?.status === "open" && document.actionWindow.deadlineAt) {
       this.scheduleWindowDeadline(document);
     } else if (document.scheduler.mode === "realtime") {
@@ -1359,7 +1639,7 @@ export class WorldHost {
       restored.scheduler.generation += 1;
       restored.scheduler.nextTickAt = new Date(this.now().getTime() + restored.runtime.realtimeIntervalMs).toISOString();
       restored.updatedAt = this.now().toISOString();
-      this.scheduleRealtime(this.persist(stored, restored).document);
+      this.scheduleRealtime(this.persist(current, restored).document);
     }
   }
 }

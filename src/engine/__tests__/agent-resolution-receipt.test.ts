@@ -65,6 +65,7 @@ function receipt(visibility: "full" | "result_only" | "hidden"): ResolutionRecei
       visibility,
       causes: [{ kind: "action", id: "player-action" }],
     },
+    settled: true,
     checkRequestId: "check-1",
     dc: 13,
     modifier: 2,

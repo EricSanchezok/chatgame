@@ -176,6 +176,7 @@ function projectHistory(
           apparentClaims: observation.apparentClaims.map((claim) => structuredClone(claim)),
         })),
       resolutions: entry.resolutionReceipts
+        .filter((receipt) => receipt.settled)
         .map((receipt) => projectAgentResolutionReceipt(state, agent, receipt))
         .filter((receipt): receipt is AgentResolutionReceiptView => receipt !== null),
     };

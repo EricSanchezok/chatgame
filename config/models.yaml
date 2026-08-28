@@ -27,7 +27,7 @@ profiles:
     provider_id: deepseek
     model: deepseek-v4-flash
     description: 高吞吐世界真值裁决
-    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-grounding, observation-renderer, causal-verifier, arrival-generator]
+    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, temporal-planner, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
     max_output_tokens: 32768
     max_input_bytes: 524288

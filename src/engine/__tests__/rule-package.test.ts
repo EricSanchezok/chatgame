@@ -244,6 +244,7 @@ describe("core-resolution trusted rules", () => {
     const receipt: ResolutionReceipt = {
       id: receiptId,
       plan,
+      settled: true,
       checkRequestId: null,
       dc: null,
       modifier: 0,
@@ -331,6 +332,7 @@ describe("core-resolution trusted rules", () => {
       return {
         id: runtimeId({ worldHash: definition.contentHash, revision: 0, kind: "resolution-receipt", stage: "test", owner: plan.id, round: 0, ordinal }),
         plan,
+        settled: true,
         checkRequestId: null,
         dc: null,
         modifier: 0,

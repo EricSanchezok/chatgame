@@ -181,7 +181,7 @@ export async function replayThroughAlgorithm(
   stateHash: string;
   revision: number;
 }> {
-  if (original.manifest.id !== "eager-reference" || original.manifest.version !== "1") {
+  if (original.manifest.id !== "eager-reference" || original.manifest.version !== "2") {
     throw new Error(`recorded replay does not support algorithm ${original.manifest.id}@${original.manifest.version}`);
   }
   const definitionEvent = event(events, "execution.world_definition.persisted");
@@ -266,7 +266,7 @@ export async function replayThroughAlgorithm(
   }
 }
 
-function candidatePartitions(events: readonly RuntimeEvent[]) {
+export function candidatePartitions(events: readonly RuntimeEvent[]) {
   const recorded = events.filter((candidate) => candidate.event === "execution.candidate.persisted");
   const selected = recorded.findLast((candidate) => candidate.attributes?.phase === "step") ?? recorded.at(-1);
   if (!selected) throw new Error("recorded execution is missing execution.candidate.persisted");
@@ -275,10 +275,27 @@ function candidatePartitions(events: readonly RuntimeEvent[]) {
     return { bootstrap: candidate.agentCommits };
   }
   return {
+    resolution: {
+      plans: candidate.resolution.resolutionPlans,
+      receipts: candidate.resolution.resolutionReceipts,
+      checkRequests: candidate.resolution.requests,
+      checks: candidate.resolution.checks,
+      randomRequests: candidate.resolution.randomRequests,
+      randomResults: candidate.resolution.randomResults,
+      mechanicInvocations: candidate.resolution.proposal.mechanicInvocations,
+      mechanicResults: candidate.resolution.mechanicResults,
+      causalAssertionResults: candidate.resolution.causalAssertionResults,
+      causalVerification: candidate.resolution.causalVerification,
+    },
+    temporal: {
+      plans: candidate.temporalPlans,
+      boundary: candidate.temporalBoundary,
+      state: candidate.temporalState,
+      activityTransitions: candidate.activityTransitions,
+      decisionPoints: candidate.decisionPoints,
+    },
     transition: {
       actions: candidate.resolution.actions,
-      checks: candidate.resolution.checks,
-      randomResults: candidate.resolution.randomResults,
       outcomes: candidate.resolution.proposal.outcomes,
       operations: candidate.resolution.proposal.operations,
       events: candidate.resolution.proposal.events,

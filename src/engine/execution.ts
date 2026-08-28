@@ -12,6 +12,13 @@ import type { ModelExecutionScope } from "./model-provider";
 import type { RuntimeObserver } from "./observability";
 import type { TruthResolution } from "./truth-engine";
 import type { WorldDefinition } from "./world-definition";
+import type {
+  ActivityTransition,
+  DecisionPoint,
+  TemporalBoundary,
+  TemporalPlan,
+  TemporalStateSnapshot,
+} from "./temporal";
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
@@ -94,7 +101,6 @@ export interface ExternalActionInput {
 export interface WorldAdvanceRequest {
   expectedRevision: number;
   trigger: "manual" | "batch" | "realtime" | "participant_action";
-  simulatedSeconds: number;
   externalActions: readonly ExternalActionInput[];
 }
 
@@ -130,6 +136,11 @@ export interface WorldStepCandidate {
   modelAudits: ModelExecutionAudit[];
   groundings: ActionGrounding[];
   components: AgentId[][];
+  temporalPlans: TemporalPlan[];
+  temporalBoundary: TemporalBoundary;
+  temporalState: TemporalStateSnapshot;
+  activityTransitions: ActivityTransition[];
+  decisionPoints: DecisionPoint[];
 }
 
 export type FootprintRef =

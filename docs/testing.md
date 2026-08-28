@@ -5,7 +5,7 @@ Tests are executable evidence that a meaningful regression becomes visible befor
 ## Test topology
 
 - Vitest tests are colocated as `src/**/__tests__/*.test.ts`, `src/**/*.test.tsx`, and focused library tests under `src/app/_lib/__tests__/`; `vitest.config.ts` selects the unit project and `test/setup.ts` owns shared jsdom setup.
-- `test/fixtures/open-world-script/` is the shared schema v10 world fixture. It proves the generic contract and is not built-in playable content.
+- `test/fixtures/open-world-script/` is the shared schema v11 world fixture. It proves the generic contract and is not built-in playable content.
 - Playwright flows live under `e2e/flows/`, accessibility coverage under `e2e/a11y/`, shared support under `e2e/support/`, and platform-specific visual baselines beside the owning visual flow. `playwright.config.ts` selects the e2e and a11y projects.
 - `worlds/blackmarsh/` is the real reference-world entry used for structural and live compatibility checks.
 
@@ -24,28 +24,29 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - Remote-model tests never print credentials, prompts, or raw responses and never replace deterministic semantic gates.
 - A regression test fails for the escaped behavior before the fix and passes afterward, unless an existing deterministic reproduction already owns the contract.
 
-## `eager-reference@1`
+## `eager-reference@2`
 
-- Every living model Agent produces one action and enters grounding. External actions come from ActionWindow; idle and timeout use kernel-generated typed noops.
+- Only decision-eligible model and external Agents produce new actions. Active Activities reuse their committed source action only when due; occupied, idle, and timed-out Agents produce no replacement action or noop.
 - Grounding covers intersecting read/write/audience footprints, independent components, unknown-dependency global fallback, cross-component merge, and the rule that private IDs never enter the canonical catalog.
-- Every action receives exactly one engine-preallocated outcome slot. `advance_time` is engine-generated and positive.
+- Every new action receives one validated TemporalPlan from explicit text, a named script profile, or a trusted rule result. Tests reject arbitrary model seconds and prove fixed, rate, staged, conditional, ongoing, pause/resume/cancel, same-time due sets, and resource capacity.
+- Every due action receives exactly one engine-preallocated outcome slot. `advance_time` is engine-generated, positive, and equal to the earliest absolute boundary; unrelated earlier boundaries cannot drift a later Activity checkpoint.
 - Observation tests cover byte-based model-input batching, fixed observer slots, complete materialization, permission checks, and local repair. One observer exceeding its budget fails explicitly.
-- AgentMind consumes the complete settlement. Network, cancellation, configuration, or Ledger failures discard candidates. Exhausted semantic repair for one Agent leaves a countable typed fallback and never fabricates belief. External and idle Agents do not run AgentMind.
+- AgentMind consumes all authorized observations after the Agent's persisted cursor only at a decision point. Network, cancellation, configuration, or Ledger failures discard candidates. Exhausted semantic repair for one eligible Agent leaves a countable typed fallback and never fabricates belief. External, idle, and occupied Agents do not run AgentMind.
 - A headless one-step run of Blackmarsh's 48 autonomous Agents is the structural regression. Domain actions may be blocked, partial, or noop, but the run cannot fail because of a missing outcome, missing time, or ID-namespace confusion.
 
 ## World Instance and Participant
 
-- A headless world supports single-step, ten-step batch, realtime start/pause, and restart recovery. Scheduler tests use a fake clock to prove no reentry, no offline backlog, generation fencing, and scheduling only after the prior commit.
-- ActionWindow uses internal two-Participant tests for collection, idempotent retry, conflicting submissions, deadline noops, disconnect, and revision CAS; the product UI still allows one active Principal.
+- A headless world supports single-boundary, ten-boundary batch, realtime wake/pause, and restart recovery. Scheduler tests use a fake clock to prove no reentry, no offline backlog, generation fencing, and scheduling only after the prior commit.
+- ActionWindow uses internal two-Participant tests for collection, idempotent retry, conflicting submissions, timeout, disconnect, and revision CAS. Only external Agents at a decision point enter the window; a Participant with an active Activity is not asked at intermediate boundaries.
 - Origin tests prove opening the dialog does not change the URL, cancellation leaves no orphan instance, and confirmation produces deterministic identity, spawn point, complete Mechanics Profile state, persona, goal, and display customization.
 - Arrival tests prove it is the first persisted World message, reads only the authorized perspective, returns three suggestions without submitting them, falls back deterministically on failure, records complete Ledger evidence, and leaves semantic/state hashes unchanged.
-- Participant-session tests prove one natural-language submission creates one advance, moves at most one step, and preserves the same message projection through refresh, retry, failure, and restart. Participant composer never exposes batch or realtime controls.
+- Participant-session tests prove one natural-language submission creates one persistent WorldRun, can project multiple revision-contiguous responses, and preserves the same message projection through refresh, retry, failure, pause, resume, budget pause, and restart. Participant composer never exposes batch or realtime controls.
 - Agent Perspective tests verify deterministic containment, authorized self relations, private Fact exclusion, unbound and ambiguous identity handling, remote placement exclusion, complete subjective history, and required introductions for newly carried Entities or authorized property relations.
 - Participant and Observer tests compare the full perspective before and after policy transfer, search for canonical identities or another Agent's private state, and prove takeover, exit, and direct switch restore model policy in one revision CAS.
 - Control-orb and HUD tests cover drag restoration, moving Sheets, save, settings, perspective tools, focus return, generic predicates, desktop keyboard navigation, the mobile semantic relation list, reduced motion, advanced detach, and Inspector hidden by default.
 - A closing overlay exits paint and hit testing before another Dialog opens. Accessibility scans wait for that state so transparent exit animation cannot alter underlying contrast measurements.
 - Static-asset tests cover actual MIME, animation, dimensions, per-file and total budgets, path traversal, Unicode/case collisions, symlinks, and malicious ZIPs.
-- Persistence tests cover cross-connection recovery, generation conflicts, corrupt-document rejection, validation cache, and pinned `WorldRuntimeContract` plus content-addressed world hash.
+- Persistence tests cover cross-connection recovery, process-recovered WorldRuns, late-result cancellation, generation conflicts, corrupt-document rejection, validation cache, complete temporal replay, and pinned `WorldRuntimeContract` plus content-addressed world hash.
 
 ## Ledger and research reproducibility
 

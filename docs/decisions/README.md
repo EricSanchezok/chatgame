@@ -108,3 +108,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0067 — Open Semantic Resolution Plans](0067-open-semantic-resolution-plans.md)
 - [0068 — Unified Agent Perspective](0068-unified-agent-perspective.md)
 - [0069 — Blobatar World Spirit](0069-blobatar-world-spirit.md)
+- [0070 — Event-boundary Temporal Runtime](0070-event-boundary-temporal-runtime.md)

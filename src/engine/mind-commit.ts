@@ -72,6 +72,7 @@ export function applyMindCommit(
       observations,
       events,
     ),
+    observationCursorStep: step,
     nextAction: structuredClone(commit.nextAction),
   };
 }

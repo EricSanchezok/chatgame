@@ -102,15 +102,22 @@ describe("World Instance Route Handlers", () => {
     ), { params: Promise.resolve({ id: origin.summary.id, participantId: participant.id }) });
     expect(actionResponse.status).toBe(200);
     const acted = await actionResponse.json();
-    expect(acted.summary.revision).toBe(origin.summary.revision + 1);
+    expect(acted.summary).toMatchObject({ revision: origin.summary.revision, runStatus: "queued" });
     expect(acted.conversation.turns).toHaveLength(2);
 
-    const readResponse = await getInstance(
-      new Request(`http://local/api/instances/${origin.summary.id}`),
-      { params: Promise.resolve({ id: origin.summary.id }) },
-    );
+    let readResponse!: Response;
+    let read!: { summary: { revision: number; participantCount: number } };
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      readResponse = await getInstance(
+        new Request(`http://local/api/instances/${origin.summary.id}`),
+        { params: Promise.resolve({ id: origin.summary.id }) },
+      );
+      read = await readResponse.clone().json();
+      if (read.summary.revision >= origin.summary.revision + 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     expect(readResponse.status).toBe(200);
-    expect(await readResponse.json()).toMatchObject({
+    expect(read).toMatchObject({
       summary: { revision: origin.summary.revision + 1, participantCount: 1 },
     });
   }, 30_000);

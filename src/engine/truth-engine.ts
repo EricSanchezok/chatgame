@@ -91,6 +91,7 @@ import { createCoreRulePackageRegistry, type RulePackageRegistry } from "./rule-
 import type { WorldDefinition } from "./world-definition";
 import type { ModelRole } from "./model-catalog";
 import { runtimeId } from "./runtime-id";
+import type { TemporalBoundary } from "./temporal";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
@@ -129,7 +130,7 @@ export interface TruthResolutionInput {
   definition: WorldDefinition;
   state: SimulationState;
   initialActions: AgentActionProposal[];
-  simulatedSeconds: number;
+  temporalBoundary: TemporalBoundary;
   identityOwner: string;
   groundings: readonly ActionGrounding[];
   resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
@@ -815,6 +816,7 @@ function materializeWorldOperation(
             evidence: Object.fromEntries(Object.entries(operation.agent.belief.evidence)
               .map(([id, evidence]) => [id, { ...structuredClone(evidence), step: nextStep }])),
           },
+          observationCursorStep: nextStep,
           nextAction: null,
         },
         causes,
@@ -1094,8 +1096,10 @@ export class TruthEngine {
     const truthSubject = input.identityOwner;
     let actions = input.initialActions.map((action) => structuredClone(action));
     let groundings = input.groundings.map((grounding) => structuredClone(grounding));
-    if (!Number.isSafeInteger(input.simulatedSeconds) || input.simulatedSeconds <= 0) {
-      throw new Error("truth resolution requires positive simulatedSeconds");
+    if (input.temporalBoundary.fromElapsedSeconds !== input.state.truth.elapsedSeconds ||
+      input.temporalBoundary.toElapsedSeconds !== input.state.truth.elapsedSeconds + input.temporalBoundary.deltaSeconds ||
+      !Number.isSafeInteger(input.temporalBoundary.deltaSeconds) || input.temporalBoundary.deltaSeconds <= 0) {
+      throw new Error("truth resolution requires an engine-selected future temporal boundary");
     }
     const allowedForCommitments: Record<CausalRef["kind"], Set<string>> = {
       action: new Set(actions.map((action) => action.id)),
@@ -1147,6 +1151,7 @@ export class TruthEngine {
       resolutionPlans,
       resolutionReceipts,
       groundings,
+      temporalBoundary: input.temporalBoundary,
       instanceId: scope.workloadId,
       advanceId: scope.batchId,
       issues,
@@ -1614,7 +1619,16 @@ export class TruthEngine {
           (invocation.ruleId === "apply-receipt" || invocation.ruleId === "advance-conditions"))) {
           throw new Error("core-resolution settlement invocations are engine-owned");
         }
-        const resolutionInvocations: MechanicInvocation[] = resolutionReceipts.map((receipt, ordinal) => {
+        const continuingActionIds = new Set(directProposal.outcomes
+          .filter((outcome) => outcome.status === "continuing")
+          .map((outcome) => outcome.proposalId));
+        resolutionReceipts = resolutionReceipts.map((receipt) => ({
+          ...structuredClone(receipt),
+          settled: !continuingActionIds.has(receipt.plan.actionId),
+          operations: [],
+        }));
+        const settledReceipts = resolutionReceipts.filter((receipt) => receipt.settled);
+        const resolutionInvocations: MechanicInvocation[] = settledReceipts.map((receipt, ordinal) => {
           const check = receipt.checkRequestId
             ? checks.find((candidate) => candidate.requestId === receipt.checkRequestId)
             : null;
@@ -1655,7 +1669,7 @@ export class TruthEngine {
           }),
           packageId: "core-resolution",
           ruleId: "advance-conditions",
-          input: { seconds: input.simulatedSeconds },
+          input: { seconds: input.temporalBoundary.deltaSeconds },
           causes: actions.map((action) => ({ kind: "action" as const, id: action.id })),
           assertions: [{
             kind: "elapsed_seconds_compare",
@@ -1678,6 +1692,7 @@ export class TruthEngine {
           conditionAdvanceInvocation,
         ], directProposal.operations);
         resolutionReceipts = resolutionReceipts.map((receipt) => {
+          if (!receipt.settled) return { ...structuredClone(receipt), operations: [] };
           const invocation = resolutionInvocations.find((candidate) =>
             (candidate.input as { receiptId: string }).receiptId === receipt.id)!;
           const result = mechanics.results.find((candidate) => candidate.invocationId === invocation.id);
@@ -1692,7 +1707,7 @@ export class TruthEngine {
             ...mechanics.operations,
             {
               kind: "advance_time",
-              seconds: input.simulatedSeconds,
+              seconds: input.temporalBoundary.deltaSeconds,
               causes: actions.map((action) => ({ kind: "action" as const, id: action.id })),
               assertions: [{
                 kind: "elapsed_seconds_compare" as const,

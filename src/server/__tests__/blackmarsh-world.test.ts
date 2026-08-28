@@ -219,8 +219,14 @@ describe("Blackmarsh reference world", () => {
     expect(definition).toMatchObject({
       id: "blackmarsh",
       manifestVersion: "1.1.0",
+      runtimeDefaults: {
+        maxAutonomousSpanSeconds: 300,
+        realtimeIntervalMs: 300_000,
+        actionWindowMs: 60_000,
+      },
       rulePackages: [expect.objectContaining({ id: "core-resolution", version: "2.0.0" })],
     });
+    expect(definition.initialState.schemaVersion).toBe(11);
     expect(definition.description).toContain("Robert Conley");
     expect(definition.description).toContain("batintheattic.blogspot.com");
     expect(definition.description).toContain("creativecommons.org/licenses/by/4.0");
@@ -230,6 +236,35 @@ describe("Blackmarsh reference world", () => {
     expect(truth.mechanics.adjudicationCalibrations.map((entry) => entry.id)).toEqual(
       expect.arrayContaining(["club-strike", "sword-strike", "flaming-sword", "sand-present", "sand-absent", "fair-trade"]),
     );
+    expect(truth.mechanics.activityResources).toEqual({
+      foreground: { id: "foreground", name: "前台行动", capacity: 1 },
+    });
+    expect(truth.mechanics.temporalProfiles).toMatchObject({
+      "momentary-action": { kind: "fixed", durationSeconds: 1, checkpointSeconds: 1 },
+      "explicit-duration": { kind: "fixed", allowExplicitDuration: true },
+      "road-travel": { kind: "rate", unitsPerPeriod: 4, periodSeconds: 3_600, checkpointUnits: 1 },
+      "rough-travel": { kind: "rate", unitsPerPeriod: 2, periodSeconds: 3_600, checkpointUnits: 1 },
+      "field-treatment": {
+        kind: "staged",
+        stages: [
+          { id: "assess", durationSeconds: 300, checkpointSeconds: 300 },
+          { id: "clean", durationSeconds: 900, checkpointSeconds: 300 },
+          { id: "dress", durationSeconds: 1_800, checkpointSeconds: 300 },
+        ],
+      },
+      "wait-until": { kind: "conditional", checkEverySeconds: 300 },
+      "ongoing-watch": { kind: "ongoing", checkpointSeconds: 300 },
+    });
+    expect(truth.mechanics.temporalCalibrations.map((entry) => [entry.id, entry.profileId])).toEqual([
+      ["sword-swing-time", "momentary-action"],
+      ["short-interaction-time", "brief-action"],
+      ["explicit-rest-time", "explicit-duration"],
+      ["road-travel-time", "road-travel"],
+      ["rough-travel-time", "rough-travel"],
+      ["field-treatment-time", "field-treatment"],
+      ["wait-condition-time", "wait-until"],
+      ["ongoing-watch-time", "ongoing-watch"],
+    ]);
 
     expect(Object.keys(definition.initialState.agents).sort()).toEqual([...agentIds].sort());
     for (const agent of Object.values(definition.initialState.agents)) {
@@ -548,7 +583,6 @@ describe("Blackmarsh reference world", () => {
     const completed = await engine.step(roster, {
       expectedRevision: state.revision,
       trigger: "manual",
-      simulatedSeconds: definition.runtimeDefaults.simulatedSeconds,
       externalActions: [],
     });
     expect(completed.state).toMatchObject({ revision: 1, step: 1 });

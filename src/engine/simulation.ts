@@ -275,9 +275,6 @@ export class SimulationEngine {
     if (request.expectedRevision !== source.revision) {
       throw new Error(`world advance expected revision ${request.expectedRevision}; current revision is ${source.revision}`);
     }
-    if (!Number.isSafeInteger(request.simulatedSeconds) || request.simulatedSeconds <= 0) {
-      throw new Error("world advance simulatedSeconds must be a positive integer");
-    }
     const executionScope = scope ?? {
       workloadId: `simulation:${source.worldId}`,
       batchId: `step:${source.revision}:${source.step + 1}`,
@@ -330,7 +327,12 @@ export class SimulationEngine {
       context.trace.flush();
       const validationStartedAt = performance.now();
       context.trace.emit({ event: "canonical.validation.started", attributes: { phase: "step" } });
-      const result = this.committer.step(source, candidate, policyRoster);
+      const result = this.committer.step(
+        source,
+        candidate,
+        policyRoster,
+        this.definition.runtimeDefaults.maxAutonomousSpanSeconds,
+      );
       context.trace.emit({
         event: "canonical.validation.completed",
         attributes: {

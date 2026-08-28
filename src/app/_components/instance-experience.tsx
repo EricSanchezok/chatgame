@@ -31,6 +31,7 @@ import type {
   PublicConversationTurn,
   PublicInstanceDetail,
   PublicInstanceSummary,
+  PublicWorldRun,
 } from "../../shared/world-api";
 import type { WorldObserverDetail } from "../../shared/world-observer-api";
 import { perspectiveMessages } from "../_lib/agent-perspective-messages";
@@ -58,8 +59,38 @@ type Overlay = "saves" | "settings" | "character" | "control" | null;
 
 function assistantStatus(status: PublicConversationTurn["status"]): ThreadMessageLike["status"] {
   if (status === "running" || status === "awaiting") return { type: "running" };
+  if (status === "paused") return { type: "incomplete", reason: "cancelled" };
   if (status === "failed") return { type: "incomplete", reason: "error" };
   return { type: "complete", reason: "stop" };
+}
+
+function PlayerRunConsole({
+  busy,
+  run,
+  onPause,
+  onResume,
+}: {
+  busy: boolean;
+  run: PublicWorldRun;
+  onPause: () => void;
+  onResume: () => void;
+}) {
+  const paused = run.status === "paused" || run.status === "budget-paused";
+  const progress = run.activity?.progress;
+  return (
+    <div className="cg-observer-console" aria-label="世界运行控制台">
+      <div>
+        <strong>{run.activity?.description ?? "世界正在自主推进"}</strong>
+        <span>{progress
+          ? `${progress.current.toFixed(2)} / ${progress.target} ${progress.unit}`
+          : `${run.lease?.commitCount ?? 0} 个边界已提交`}</span>
+      </div>
+      <button disabled={busy || run.status === "pausing"} onClick={paused ? onResume : onPause} type="button">
+        {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+        {paused ? "恢复" : "暂停"}
+      </button>
+    </div>
+  );
 }
 
 function participantMessages(
@@ -68,24 +99,35 @@ function participantMessages(
 ): ThreadMessageLike[] {
   const turns = detail.conversation?.turns ?? [];
   const messages = turns.flatMap((turn): ThreadMessageLike[] => {
-    const responseText = turn.response?.text ??
-      (turn.status === "failed" ? "这次行动没有改变世界。你可以调整说法后重试。" : "世界正在推演…");
-    const assistant: ThreadMessageLike = {
+    const responses = turn.responses?.length ? turn.responses : turn.response ? [turn.response] : [];
+    const assistants: ThreadMessageLike[] = responses.length > 0 ? responses.map((response, index) => {
+      const temporal = response.worldTimeSeconds === undefined ? "" :
+        `\n\n世界时间 ${response.worldTimeSeconds}s${response.activity?.stage ? ` · ${response.activity.stage}` : ""}`;
+      return {
+        id: `${turn.id}:world:${response.revision}:${index}`,
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: response.title
+          ? `${response.title}\n\n${response.text}${temporal}`
+          : `${response.text}${temporal}` }],
+        createdAt: new Date(turn.createdAt),
+        status: assistantStatus(turn.status),
+      };
+    }) : [{
       id: `${turn.id}:world`,
-      role: "assistant",
-      content: [{ type: "text", text: turn.response?.title
-        ? `${turn.response.title}\n\n${responseText}`
-        : responseText }],
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text: turn.status === "failed"
+        ? "这次行动没有改变世界。你可以调整说法后重试。"
+        : "世界正在推演…" }],
       createdAt: new Date(turn.createdAt),
       status: assistantStatus(turn.status),
-    };
-    if (!turn.action) return [assistant];
+    }];
+    if (!turn.action) return assistants;
     return [{
       id: `${turn.id}:action`,
       role: "user",
       content: [{ type: "text", text: turn.action.text }],
       createdAt: new Date(turn.createdAt),
-    }, assistant];
+    }, ...assistants];
   });
   if (optimistic && !turns.some((turn) => turn.action?.submissionId === optimistic.id)) {
     messages.push({
@@ -277,7 +319,8 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
   }, [instanceId]);
 
   useEffect(() => {
-    if (!detail || detail.summary.schedulerMode !== "realtime" && detail.summary.advanceStatus !== "running") return;
+    if (!detail || detail.summary.schedulerMode !== "realtime" &&
+      !["queued", "running", "pausing"].includes(detail.summary.runStatus ?? "")) return;
     const timer = window.setInterval(() => {
       void refresh().catch(() => setStreamWarning("最新进度暂时无法同步，正在自动重试。"));
     }, 2_000);
@@ -306,7 +349,9 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
     ? detail.participants.find((candidate) => candidate.agentId === detail.controlledView!.agentId)
     : undefined;
   const latestTurn = detail?.conversation?.turns.at(-1);
-  const isRunning = Boolean(busy === "action" || latestTurn?.status === "running" || latestTurn?.status === "awaiting");
+  const runActive = detail?.run && ["queued", "running", "pausing"].includes(detail.run.status);
+  const isRunning = Boolean(busy === "action" || runActive ||
+    latestTurn?.status === "running" || latestTurn?.status === "awaiting");
 
   const submit = useCallback(async (message: AppendMessage) => {
     const text = message.content
@@ -413,6 +458,19 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
                 instanceId,
                 detail.summary.schedulerMode !== "realtime",
               ))}
+            />
+          ) : detail.run && ["queued", "running", "pausing", "paused", "budget-paused"].includes(detail.run.status) ? (
+            <PlayerRunConsole
+              busy={Boolean(busy)}
+              onPause={() => void perform("pause-run", () => worldApi.pauseRun(instanceId, {
+                runId: detail.run!.id,
+                generation: detail.run!.generation,
+              }))}
+              onResume={() => void perform("resume-run", () => worldApi.resumeRun(instanceId, {
+                runId: detail.run!.id,
+                generation: detail.run!.generation,
+              }))}
+              run={detail.run}
             />
           ) : preferences.advancedRoleControl ? (
             <button className="cg-detach-button" onClick={() => void openOverlay("control")} type="button">

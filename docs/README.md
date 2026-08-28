@@ -3,7 +3,7 @@
 ## 当前参考
 
 - [architecture.md](architecture.md) — 模块边界、数据流与硬不变量。
-- [game-design/script-format.md](game-design/script-format.md) — schema v10 世界包、开放效果与 Origin 配置。
+- [game-design/script-format.md](game-design/script-format.md) — schema v11 世界包、开放效果、时间活动与 Origin 配置。
 - [game-design/engine-runtime.md](game-design/engine-runtime.md) — 多 Agent 联合仿真、检定与事务语义。
 - [game-design/model-gateway.md](game-design/model-gateway.md) — 模型目录、供应商适配、严格输出与公平队列。
 - [game-design/presentation.md](game-design/presentation.md) — World Instance API、Participant 接入与体验界面。

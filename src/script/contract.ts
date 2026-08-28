@@ -10,13 +10,13 @@ import {
 } from "../engine/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(10),
+  schema_version: z.literal(11),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string().min(1),
   runtime_defaults: z.object({
-    simulated_seconds: z.number().int().min(1).max(86_400),
+    max_autonomous_span_seconds: z.number().int().min(1).max(2_592_000),
     realtime_interval_ms: z.number().int().min(1_000).max(86_400_000),
     action_window_ms: z.number().int().min(1_000).max(86_400_000),
   }).strict(),
@@ -98,6 +98,57 @@ const durationProfileSchema = z.discriminatedUnion("kind", [
   z.object({ id: safeIdSchema, name: z.string().min(1), kind: z.literal("until_cleared") }).strict(),
 ]);
 
+const activityResourceClaimSchema = z.object({
+  resource_id: safeIdSchema,
+  amount: z.number().positive().finite(),
+}).strict();
+
+const temporalProfileBase = {
+  id: safeIdSchema,
+  name: z.string().min(1),
+  interruptible: z.boolean(),
+  resource_claims: z.array(activityResourceClaimSchema).min(1),
+};
+
+const temporalProfileSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...temporalProfileBase,
+    kind: z.literal("fixed"),
+    duration_seconds: z.number().int().positive(),
+    checkpoint_seconds: z.number().int().positive(),
+    allow_explicit_duration: z.boolean().default(false),
+  }).strict(),
+  z.object({
+    ...temporalProfileBase,
+    kind: z.literal("rate"),
+    unit: z.string().min(1),
+    unit_aliases: z.array(z.string().min(1)).min(1),
+    units_per_period: z.number().positive().finite(),
+    period_seconds: z.number().int().positive(),
+    checkpoint_units: z.number().positive().finite(),
+  }).strict(),
+  z.object({
+    ...temporalProfileBase,
+    kind: z.literal("staged"),
+    stages: z.array(z.object({
+      id: safeIdSchema,
+      name: z.string().min(1),
+      duration_seconds: z.number().int().positive(),
+      checkpoint_seconds: z.number().int().positive(),
+    }).strict()).min(1),
+  }).strict(),
+  z.object({
+    ...temporalProfileBase,
+    kind: z.literal("conditional"),
+    check_every_seconds: z.number().int().positive(),
+  }).strict(),
+  z.object({
+    ...temporalProfileBase,
+    kind: z.literal("ongoing"),
+    checkpoint_seconds: z.number().int().positive(),
+  }).strict(),
+]);
+
 export const mechanicsFileSchema = z.object({
   rule_packages: z.array(z.object({
     id: safeIdSchema,
@@ -145,6 +196,25 @@ export const mechanicsFileSchema = z.object({
     }).strict(),
   }).strict()),
   duration_profiles: z.array(durationProfileSchema),
+  activity_resources: z.array(z.object({
+    id: safeIdSchema,
+    name: z.string().min(1),
+    capacity: z.number().positive().finite(),
+  }).strict()).min(1),
+  temporal_profiles: z.array(temporalProfileSchema).min(1),
+  temporal_calibrations: z.array(z.object({
+    id: safeIdSchema,
+    situation: z.string().min(1),
+    profile_id: safeIdSchema,
+    explanation: z.string().min(1),
+  }).strict()),
+  world_timers: z.array(z.object({
+    id: safeIdSchema,
+    description: z.string().min(1),
+    due_at_seconds: z.number().int().positive(),
+    wake_agent_ids: z.array(safeIdSchema),
+    law_id: safeIdSchema,
+  }).strict()),
   condition_profiles: z.array(z.object({
     id: safeIdSchema,
     name: z.string().min(1),

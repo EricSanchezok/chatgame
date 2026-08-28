@@ -10,7 +10,7 @@ describe("execution experiment core", () => {
     expect(result.scenarios).toEqual([expect.objectContaining({
       agents: 1,
       steps: 1,
-      modelInvocations: 11,
+      modelInvocations: 12,
       instanceDocumentBytes: expect.any(Number),
       ledgerEventCount: 0,
     })]);
@@ -30,7 +30,7 @@ describe("execution experiment core", () => {
     expect(result.scenarios).toEqual([expect.objectContaining({
       agents: 2,
       steps: 1,
-      modelInvocations: 14,
+      modelInvocations: 16,
     })]);
   });
 

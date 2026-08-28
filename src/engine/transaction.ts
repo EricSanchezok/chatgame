@@ -32,7 +32,7 @@ import {
 } from "./llm-schemas";
 import { modelInferenceSchema, modelRoles } from "./model-catalog";
 import { contentHash, isSha256 } from "./model-audit";
-import { applyObservationBindings, validateObservations } from "./observation";
+import { applyObservationBindings, pendingObservationsFor, validateObservations } from "./observation";
 import { resolveD20Checks, resolveDiscreteRandomRequests } from "./random";
 import {
   coreResolutionRulePackage,
@@ -41,6 +41,7 @@ import {
 import {
   deriveCheck,
   deriveResolutionReceipt,
+  expectedActionStatus,
   validateResolutionPlan,
   type ResolutionEvidenceIndex,
 } from "./resolution";
@@ -62,6 +63,13 @@ import {
 } from "./state-schemas";
 import { isRuntimeId, quantityId, runtimeId } from "./runtime-id";
 import { validateImpactProfile } from "./resolution";
+import {
+  validateActivityResources,
+  validateActivityState,
+  validateTemporalPlan,
+  validateTemporalProfile,
+  validateWorldTimer,
+} from "./temporal";
 
 function assertExactKeys(value: object, required: readonly string[], optional: readonly string[] = [], label = "object"): void {
   const keys = Object.keys(value);
@@ -571,9 +579,20 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
       check,
       result: result ?? null,
     });
-    const expectedReceipt = { ...derived, operations: receipt.operations };
+    const expectedReceipt = {
+      ...derived,
+      settled: receipt.settled,
+      operations: receipt.operations,
+    };
     if (contentHash(expectedReceipt) !== contentHash(receipt)) {
       throw new Error(`step ${step.step} resolution receipt ${receipt.id} is not deterministic`);
+    }
+    const outcome = step.outcomes.find((candidate) => candidate.proposalId === plan.actionId);
+    const activityIsContinuing = Object.values(step.temporalState.activities).some((activity) =>
+      activity.sourceActionId === plan.actionId &&
+      (activity.status === "active" || activity.status === "paused"));
+    if (!outcome || outcome.status !== expectedActionStatus(receipt) || activityIsContinuing === receipt.settled) {
+      throw new Error(`step ${step.step} resolution receipt ${receipt.id} contradicts temporal settlement`);
     }
   }
   step.randomRequests.forEach((request) => discreteRandomRequestSchema.parse(request));
@@ -624,12 +643,19 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
   }
   const receiptInvocations = step.mechanicInvocations.filter((invocation) =>
     invocation.packageId === "core-resolution" && invocation.ruleId === "apply-receipt");
-  if (receiptInvocations.length !== step.resolutionReceipts.length) {
+  const settledReceipts = step.resolutionReceipts.filter((receipt) => receipt.settled);
+  if (receiptInvocations.length !== settledReceipts.length) {
     throw new Error(`step ${step.step} has an invalid apply-receipt invocation count`);
   }
   for (const receipt of step.resolutionReceipts) {
     const invocations = receiptInvocations.filter((invocation) =>
       (invocation.input as { receiptId?: unknown }).receiptId === receipt.id);
+    if (!receipt.settled) {
+      if (invocations.length !== 0 || receipt.operations.length !== 0) {
+        throw new Error(`step ${step.step} deferred receipt ${receipt.id} has settlement effects`);
+      }
+      continue;
+    }
     if (invocations.length !== 1) throw new Error(`step ${step.step} does not uniquely apply receipt ${receipt.id}`);
     const result = step.mechanicResults.find((candidate) => candidate.invocationId === invocations[0].id);
     if (!result || result.packageId !== "core-resolution" || result.ruleId !== "apply-receipt" ||
@@ -657,6 +683,21 @@ function validateCommittedStepShape(step: CommittedStep, state: SimulationState)
   step.beliefPatches.forEach((entry) => beliefPatchSchema.parse(entry));
   step.characterPatches.forEach((entry) => characterPatchSchema.parse(entry));
   step.nextActions.forEach((entry) => actionProposalSchema.parse(entry));
+  if (!Number.isSafeInteger(step.temporalBoundary.fromElapsedSeconds) ||
+    !Number.isSafeInteger(step.temporalBoundary.toElapsedSeconds) ||
+    !Number.isSafeInteger(step.temporalBoundary.deltaSeconds) || step.temporalBoundary.deltaSeconds <= 0 ||
+    step.temporalBoundary.toElapsedSeconds !== step.temporalBoundary.fromElapsedSeconds + step.temporalBoundary.deltaSeconds ||
+    step.temporalBoundary.reasons.length === 0) {
+    throw new Error(`step ${step.step} has an invalid temporal boundary`);
+  }
+  const timeOperations = step.operations.filter((operation) => operation.kind === "advance_time");
+  if (timeOperations.length !== 1 || timeOperations[0]!.seconds !== step.temporalBoundary.deltaSeconds) {
+    throw new Error(`step ${step.step} time operation does not match temporal boundary`);
+  }
+  assertUnique(step.temporalPlans.map((plan) => plan.id), `step ${step.step} temporal plans`);
+  assertUnique(step.activityTransitions.map((transition) => transition.activityId), `step ${step.step} activity transitions`);
+  assertUnique(step.decisionPoints.map((point) =>
+    `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`), `step ${step.step} decision points`);
   persistedTransitionProposalSchema.parse({
     baseRevision: step.baseRevision,
     outcomes: step.outcomes,
@@ -683,7 +724,7 @@ export function replaySimulationState(
     return structuredClone(state);
   }
   const replay: SimulationState = {
-    schemaVersion: 10,
+    schemaVersion: 11,
     worldId: state.worldId,
     worldHash: state.worldHash,
     lawIds: structuredClone(state.lawIds),
@@ -718,10 +759,25 @@ export function replaySimulationState(
     if (step.baseRevision !== replay.revision || step.revision !== replay.revision + 1 || step.step !== replay.step + 1) {
       throw new Error(`history step ${step.step} is not contiguous`);
     }
-    if (contentHash(step.initialActions.map((action) => action.actorId).sort()) !== contentHash(Object.keys(replay.agents).sort())) {
-      throw new Error(`history step ${step.step} does not cover every active Agent`);
-    }
     assertUnique(step.initialActions.map((action) => action.id), `history step ${step.step} initial actions`);
+    assertUnique(step.initialActions.map((action) => action.actorId), `history step ${step.step} initial actors`);
+    for (const action of step.initialActions) {
+      if (!replay.agents[action.actorId]) throw new Error(`history step ${step.step} action targets unknown Agent`);
+    }
+    if (step.temporalBoundary.fromElapsedSeconds !== replay.truth.elapsedSeconds) {
+      throw new Error(`history step ${step.step} temporal boundary starts from another clock`);
+    }
+    for (const plan of step.temporalPlans) {
+      validateTemporalPlan(plan, replay.truth.mechanics.temporalProfiles, replay.truth.mechanics.activityResources);
+      if (plan.startsAtSeconds !== step.temporalBoundary.fromElapsedSeconds) {
+        throw new Error(`history step ${step.step} temporal plan starts from another clock`);
+      }
+      const activity = Object.values(step.temporalState.activities)
+        .find((candidate) => candidate.plan.id === plan.id);
+      if (!activity || activity.sourceActionId !== plan.actionId) {
+        throw new Error(`history step ${step.step} temporal plan has no persisted activity`);
+      }
+    }
     const outcomes = step.outcomes.map((outcome) => outcome.proposalId).sort();
     if (contentHash(outcomes) !== contentHash(step.actions.map((action) => action.id).sort())) {
       throw new Error(`history step ${step.step} outcome slots do not match actions`);
@@ -739,7 +795,7 @@ export function replaySimulationState(
     if (contentHash(assertionResults) !== contentHash(step.causalAssertionResults)) {
       throw new Error(`history step ${step.step} causal assertions do not replay`);
     }
-    const advanced = applyTransitionProposal(replay, proposal);
+    const advanced = applyTransitionProposal(replay, proposal, step.temporalState);
     advanced.truth.rng = structuredClone(step.rngAfter);
     validateObservations(advanced, step.observations, advanced.step);
     for (const agentId of Object.keys(advanced.agents)) {
@@ -758,7 +814,11 @@ export function replaySimulationState(
       const characterPatch = characters.get(agentId);
       const nextAction = actions.get(agentId);
       if (!agent || !beliefPatch || !characterPatch || !nextAction) throw new Error(`partial AgentMind commit for ${agentId}`);
-      const observed = step.observations.filter((packet) => packet.observerId === agentId);
+      const observed = pendingObservationsFor(
+        advanced,
+        agent,
+        step.observations.filter((packet) => packet.observerId === agentId),
+      );
       advanced.agents[agentId] = applyMindCommit(
         agent,
         { beliefPatch, characterPatch, nextAction },
@@ -816,7 +876,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     "schemaVersion", "worldId", "worldHash", "lawIds", "revision", "step", "truth", "agents", "admissions", "history",
     "bootstrapAgentCommits",
   ], ["historyBase", "bootstrapExecutionRef"], "simulation state");
-  if (state.schemaVersion !== 10 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
+  if (state.schemaVersion !== 11 || !isSemanticId(state.worldId) || !/^sha256:[a-f0-9]{64}$/.test(state.worldHash)) {
     throw new Error("invalid simulation identity");
   }
   if (state.bootstrapExecutionRef) validateExecutionRef(state.bootstrapExecutionRef, "bootstrapExecutionRef");
@@ -824,11 +884,12 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     !Number.isSafeInteger(state.truth.elapsedSeconds) || state.truth.elapsedSeconds < 0) throw new Error("invalid world clock");
   assertExactKeys(state.truth, [
     "elapsedSeconds", "rng", "events", "entities", "placements", "facts", "factTombstones", "mechanics",
-    "meters", "quantities", "ratings", "conditions",
+    "meters", "quantities", "ratings", "conditions", "activities", "timers",
   ], [], "canonical truth");
   assertExactKeys(state.truth.mechanics, [
     "meters", "quantities", "ratings", "impactProfiles", "durationProfiles", "conditionProfiles",
-    "entityMechanicsProfiles", "adjudicationCalibrations",
+    "entityMechanicsProfiles", "adjudicationCalibrations", "activityResources", "temporalProfiles",
+    "temporalCalibrations",
   ], [], "mechanics catalog");
   for (const [id, definition] of Object.entries(state.truth.mechanics.meters)) {
     if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
@@ -840,6 +901,22 @@ export function validateSimulationState(state: SimulationState, requireNextActio
   for (const [id, definition] of Object.entries(state.truth.mechanics.ratings)) {
     if (definition.id !== id || !definition.name.trim() || !Number.isFinite(definition.min) ||
       !Number.isFinite(definition.max) || definition.max < definition.min) throw new Error(`invalid rating definition ${id}`);
+  }
+  for (const [id, resource] of Object.entries(state.truth.mechanics.activityResources)) {
+    if (resource.id !== id || !resource.name.trim() || !Number.isFinite(resource.capacity) || resource.capacity <= 0) {
+      throw new Error(`invalid activity resource ${id}`);
+    }
+  }
+  for (const [id, profile] of Object.entries(state.truth.mechanics.temporalProfiles)) {
+    if (profile.id !== id) throw new Error(`temporal profile key mismatch ${id}`);
+    validateTemporalProfile(profile, state.truth.mechanics.activityResources);
+  }
+  assertUnique(state.truth.mechanics.temporalCalibrations.map((entry) => entry.id), "temporal calibrations");
+  for (const calibration of state.truth.mechanics.temporalCalibrations) {
+    if (!calibration.id.trim() || !calibration.situation.trim() || !calibration.explanation.trim() ||
+      !state.truth.mechanics.temporalProfiles[calibration.profileId]) {
+      throw new Error(`invalid temporal calibration ${calibration.id}`);
+    }
   }
   for (const [id, profile] of Object.entries(state.truth.mechanics.impactProfiles)) {
     if (profile.id !== id || !state.truth.mechanics.meters[profile.meterDefinitionId]) {
@@ -924,8 +1001,30 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     conditionStateSchema.parse(condition);
     if (condition.id !== id || !state.truth.entities[condition.subjectId] ||
       !state.truth.mechanics.durationProfiles[condition.durationProfileId] ||
-      (condition.conditionProfileId !== null && !state.truth.mechanics.conditionProfiles[condition.conditionProfileId])) {
+      (condition.conditionProfileId !== null && !state.truth.mechanics.conditionProfiles[condition.conditionProfileId]) ||
+      (condition.expiresAtElapsedSeconds !== null && condition.expiresAtElapsedSeconds <= state.truth.elapsedSeconds)) {
       throw new Error(`invalid condition ${id}`);
+    }
+  }
+  for (const [id, activity] of Object.entries(state.truth.activities)) {
+    if (activity.id !== id) throw new Error(`activity key mismatch ${id}`);
+    actionProposalSchema.parse(activity.sourceAction);
+    if (!state.agents[activity.actorId] || activity.participantAgentIds.some((agentId) => !state.agents[agentId])) {
+      throw new Error(`activity ${id} references unknown Agent`);
+    }
+    validateActivityState(
+      activity,
+      state.truth.elapsedSeconds,
+      state.truth.mechanics.temporalProfiles,
+      state.truth.mechanics.activityResources,
+    );
+  }
+  validateActivityResources(state.truth.activities, state.truth.mechanics.activityResources);
+  for (const [id, timer] of Object.entries(state.truth.timers)) {
+    if (timer.id !== id) throw new Error(`timer key mismatch ${id}`);
+    validateWorldTimer(timer, state.truth.elapsedSeconds);
+    if (timer.wakeAgentIds.some((agentId) => !state.agents[agentId])) {
+      throw new Error(`timer ${id} wakes unknown Agent`);
     }
   }
   const ownedEntities = new Set<string>();
@@ -933,7 +1032,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
   for (const [id, agent] of Object.entries(state.agents)) {
     agentStateSchema.parse(agent);
     if (agent.id !== id || !state.truth.entities[agent.entityId] || state.truth.entities[agent.entityId].lifecycle !== "active" ||
-      ownedEntities.has(agent.entityId)) throw new Error(`invalid Agent ${id}`);
+      ownedEntities.has(agent.entityId) || agent.observationCursorStep > state.step) throw new Error(`invalid Agent ${id}`);
     ownedEntities.add(agent.entityId);
     validateBelief(agent.belief, agent.bindings, state, `Agent ${id}`);
     if (Object.values(agent.bindings).filter((binding) => binding.canonicalEntityIds.includes(agent.entityId)).length !== 1) {
@@ -989,7 +1088,11 @@ export class TransitionValidationError extends Error {
   }
 }
 
-export function applyTransitionProposal(source: SimulationState, proposal: TransitionProposal): SimulationState {
+export function applyTransitionProposal(
+  source: SimulationState,
+  proposal: TransitionProposal,
+  temporalState?: Readonly<import("./temporal").TemporalStateSnapshot>,
+): SimulationState {
   const issues: string[] = [];
   if (proposal.baseRevision !== source.revision) issues.push(`stale proposal revision ${proposal.baseRevision}; expected ${source.revision}`);
   try {
@@ -1013,6 +1116,16 @@ export function applyTransitionProposal(source: SimulationState, proposal: Trans
   }
   if (issues.length === 0) {
     try {
+      for (const [conditionId, condition] of Object.entries(next.truth.conditions)) {
+        if (condition.expiresAtElapsedSeconds !== null &&
+          condition.expiresAtElapsedSeconds <= next.truth.elapsedSeconds) {
+          delete next.truth.conditions[conditionId];
+        }
+      }
+      if (temporalState) {
+        next.truth.activities = structuredClone(temporalState.activities);
+        next.truth.timers = structuredClone(temporalState.timers);
+      }
       next.revision += 1;
       next.step += 1;
       next.truth.events.push(...structuredClone(proposal.events));

@@ -68,7 +68,7 @@ describe("open world script loader", () => {
       version: "2.0.0",
       config: {},
     })]);
-    expect(definition.initialState.schemaVersion).toBe(10);
+    expect(definition.initialState.schemaVersion).toBe(11);
     expect(definition.initialState.truth.mechanics.impactProfiles.harm.amounts).toEqual({
       none: 0, minor: 2, standard: 5, major: 10, decisive: 20,
     });
@@ -115,6 +115,45 @@ describe("open world script loader", () => {
       .toBe(loadWorldScript(fixture, { modelCatalog }).contentHash);
   });
 
+  it("materializes authored absolute timers only for known laws and Agents", () => {
+    const world = copiedFixture();
+    const mechanicsFile = path.join(world, "mechanics.yaml");
+    writeFileSync(mechanicsFile, readFileSync(mechanicsFile, "utf8").replace(
+      "world_timers: []",
+      "world_timers:\n" +
+      "  - id: gate-deadline\n" +
+      "    description: 石门值守进入绝对截止。\n" +
+      "    due_at_seconds: 120\n" +
+      "    wake_agent_ids: [keeper]\n" +
+      "    law_id: time-passes",
+    ), "utf8");
+
+    const timer = loadWorldScript(world, { modelCatalog }).initialState.truth.timers["gate-deadline"];
+    expect(timer).toEqual({
+      id: "gate-deadline",
+      description: "石门值守进入绝对截止。",
+      createdAtSeconds: 0,
+      dueAtSeconds: 120,
+      status: "scheduled",
+      wakeAgentIds: ["keeper"],
+      causes: [{ kind: "law", id: "time-passes" }],
+      assertions: [{ kind: "elapsed_seconds_compare", operator: "eq", value: 120 }],
+    });
+
+    const invalidAgent = copiedFixture();
+    const invalidMechanics = path.join(invalidAgent, "mechanics.yaml");
+    writeFileSync(invalidMechanics, readFileSync(invalidMechanics, "utf8").replace(
+      "world_timers: []",
+      "world_timers:\n" +
+      "  - id: invalid-deadline\n" +
+      "    description: 无主截止。\n" +
+      "    due_at_seconds: 120\n" +
+      "    wake_agent_ids: [missing-agent]\n" +
+      "    law_id: time-passes",
+    ), "utf8");
+    expect(() => loadWorldScript(invalidAgent, { modelCatalog })).toThrow("wakes unknown Agent");
+  });
+
   it("defaults every optional character layer from only persona.summary", () => {
     const world = copiedFixture();
     const keeperFile = path.join(world, "entities/keeper.yaml");
@@ -140,7 +179,7 @@ describe("open world script loader", () => {
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 10", "schema_version: 9"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 11", "schema_version: 10"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
@@ -190,7 +229,7 @@ describe("open world script loader", () => {
       "utf8",
     );
     expect(() => loadWorldScript(missingCore, { seed: 1, rulePackages: registry, modelCatalog }))
-      .toThrow("schema v10 worlds require core-resolution@2.0.0");
+      .toThrow("schema v11 worlds require core-resolution@2.0.0");
   });
 
   it("enforces the exact canonical UTF-8 distribution budget during world loading", () => {

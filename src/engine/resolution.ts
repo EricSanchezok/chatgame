@@ -112,6 +112,7 @@ export interface ResolvedEffect {
 export interface ResolutionReceipt {
   id: string;
   plan: ResolutionPlan;
+  settled: boolean;
   checkRequestId: string | null;
   dc: number | null;
   modifier: number;
@@ -518,6 +519,7 @@ export function deriveResolutionReceipt(input: {
   return {
     id: input.receiptId,
     plan: structuredClone(plan),
+    settled: true,
     checkRequestId: input.checkRequestId,
     dc: input.check?.dc ?? null,
     modifier: input.check?.modifier ?? 0,
@@ -616,7 +618,10 @@ export function mergeCondition(
   return { conditions, condition: structuredClone(condition), merged: true };
 }
 
-export function expectedActionStatus(receipt: ResolutionReceipt): "succeeded" | "partial" | "failed" | "blocked" {
+export function expectedActionStatus(
+  receipt: ResolutionReceipt,
+): "succeeded" | "partial" | "failed" | "blocked" | "continuing" {
+  if (!receipt.settled) return "continuing";
   switch (receipt.outcome) {
     case null: return "blocked";
     case "exceptional":
