@@ -222,6 +222,19 @@ export const agentMindOutputSchema = z.strictObject({
   nextAction: actionDraftSchema,
 }) as z.ZodType<AgentMindDraftOutput>;
 
+export interface AgentMindBatchDraftOutput {
+  slots: Array<AgentMindDraftOutput & { slot: number }>;
+}
+
+export const agentMindBatchOutputSchema = z.strictObject({
+  slots: z.array(z.strictObject({
+    slot: z.number().int().nonnegative(),
+    beliefPatch: beliefPatchDraftSchema,
+    characterPatch: characterPatchSchema.pick({ operations: true }),
+    nextAction: actionDraftSchema,
+  })),
+}) as z.ZodType<AgentMindBatchDraftOutput>;
+
 export interface AgentMindOutput {
   beliefPatch: BeliefPatch;
   characterPatch: CharacterPatch;
@@ -783,10 +796,17 @@ export const temporalPlanDraftSchema = z.strictObject({
   causes: z.array(causalRefSchema).min(1),
 }) as z.ZodType<TemporalPlanDraft>;
 
-export const actionCompilationSchema = z.strictObject({
-  temporalPlan: temporalPlanDraftSchema,
-  interactionDependency: actionGroundingSchema,
-}) as z.ZodType<ActionCompilationDraft>;
+export interface ActionCompilationBatchDraft {
+  slots: Array<ActionCompilationDraft & { slot: number }>;
+}
+
+export const actionCompilationBatchSchema = z.strictObject({
+  slots: z.array(z.strictObject({
+    slot: z.number().int().nonnegative(),
+    temporalPlan: temporalPlanDraftSchema,
+    interactionDependency: actionGroundingSchema,
+  })),
+}) as z.ZodType<ActionCompilationBatchDraft>;
 
 export interface ArrivalDraft {
   title: string;

@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { DeterministicModelProvider } from "../../engine/testing/model-provider";
+import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
 import { EagerReferenceAlgorithm } from "../../engine/eager-reference";
 import { SimulationEngine } from "../../engine/simulation";
 import { loadWorldScript } from "../../script/world-loader";
@@ -567,14 +567,19 @@ describe("Blackmarsh reference world", () => {
   });
 
   it("bootstraps all Agents and commits one deterministic open-world step", async () => {
-    const provider = new DeterministicModelProvider();
+    const provider = new DeterministicModelProvider(createTestModelCatalog(undefined, { maxInputBytes: 524_288 }));
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
     const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
     await engine.bootstrapAgents();
     const state = engine.snapshot;
     expect(Object.values(state.agents)).toHaveLength(48);
     expect(Object.values(state.agents).every((agent) => agent.nextAction !== null)).toBe(true);
-    expect(provider.requests.filter((request) => request.role === "agent-bootstrap")).toHaveLength(48);
+    expect(provider.requests.filter((request) => request.role === "agent-bootstrap")).toHaveLength(6);
+    expect(provider.requests.filter((request) => request.role === "agent-bootstrap").every((request) =>
+      (request.context as { purpose: string; slots: Array<{ perspective: { agentId: string } }> }).purpose ===
+        "bootstrap" &&
+      (request.context as { slots: Array<{ perspective: { agentId: string } }> }).slots.every((slot) =>
+        state.agents[slot.perspective.agentId]?.modelProfiles.bootstrap === request.profileId))).toBe(true);
     const roster = Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
       kind: "model" as const,
       agentId: agent.id,
@@ -586,7 +591,18 @@ describe("Blackmarsh reference world", () => {
       externalActions: [],
     });
     expect(completed.state).toMatchObject({ revision: 1, step: 1 });
-    expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(48);
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(4);
+    expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(6);
+    expect(provider.requests.filter((request) => request.role === "agent-mind").every((request) =>
+      (request.context as { purpose: string; slots: Array<{ perspective: { agentId: string } }> }).purpose === "mind" &&
+      (request.context as { slots: Array<{ perspective: { agentId: string } }> }).slots.every((slot) =>
+        state.agents[slot.perspective.agentId]?.modelProfiles.mind === request.profileId))).toBe(true);
+    const batchedAudits = [...engine.bootstrapModelAudits, ...completed.modelAudits]
+      .filter((audit) => audit.role === "action-compilation" || audit.role === "agent-bootstrap" ||
+        audit.role === "agent-mind");
+    expect(batchedAudits.every((audit) => audit.invocations.length === 1)).toBe(true);
+    const invocationIds = batchedAudits.flatMap((audit) => audit.invocations.map((invocation) => invocation.id));
+    expect(new Set(invocationIds).size).toBe(invocationIds.length);
     expect(provider.requests.some((request) => request.role === "truth-perception")).toBe(false);
   }, 30_000);
 });

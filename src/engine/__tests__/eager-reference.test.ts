@@ -2,7 +2,6 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   resolutionObservations,
-  type ActionCompilationDraft,
   type WorldExecutionAlgorithm,
 } from "../execution";
 import {
@@ -13,10 +12,13 @@ import { historyReplayBaseHash } from "../history-replay";
 import { replaySimulationState } from "../transaction";
 import type { AgentActionProposal, SimulationState } from "../model";
 import { contentHash } from "../model-audit";
+import { ModelSemanticRepairError } from "../model-provider";
 import { SimulationEngine } from "../simulation";
 import { CanonicalCommitter } from "../canonical-committer";
 import {
-  createTestModelAudit,
+  DeterministicModelProvider,
+  deterministicActionCompilationBatch,
+  deterministicAgentMindBatch,
   deterministicModelOutput,
   ScriptedModelProvider,
 } from "../testing/model-provider";
@@ -24,35 +26,31 @@ import {
   normalizeObservationLocalReferences,
   normalizeObservationSourceEventIds,
 } from "../observation-renderer";
+import { AgentMind } from "../agent-mind";
 import { normalizeOutcomeAlternativeEvidence } from "../truth-engine";
 import { loadWorldScript } from "../../script/world-loader";
-
-function defaultActionCompilation(profileId: string, context: unknown): ActionCompilationDraft {
-  return deterministicModelOutput(profileId, context) as ActionCompilationDraft;
-}
 
 describe("eager reference safeguards", () => {
   it("adjudicates a unique resource with its incumbent and commits only a capacity-legal winner", async () => {
     let poolId = "";
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const action = (context as { action: AgentActionProposal }).action;
-        return {
-          temporalPlan: {
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          compilation.temporalPlan = {
             profileId: "ongoing-action",
             basis: { kind: "profile" },
             description: action.rawText,
             continuationAssertions: [],
             causes: [{ kind: "action", id: action.id }],
-          },
-          interactionDependency: {
+          };
+          compilation.interactionDependency = {
             reads: [{ kind: "shared_resource_pool", id: poolId }],
             writes: [{ kind: "shared_resource_pool", id: poolId }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [{ poolId, basis: { kind: "default" } }],
             globalFallback: false,
-          },
-        };
+          };
+        });
       }
       if (role === "truth-resolution") {
         const input = context as {
@@ -164,28 +162,27 @@ describe("eager reference safeguards", () => {
     let workbenchPoolId = "";
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const action = (context as { action: AgentActionProposal }).action;
-        const claims = action.rawText.includes("工作台")
-          ? [{ poolId: workbenchPoolId, basis: { kind: "default" as const } }]
-          : [];
-        const compilation = defaultActionCompilation(profileId, context);
-        if (action.rawText.includes("工作台")) {
-          compilation.temporalPlan = {
-            profileId: "ongoing-action",
-            basis: { kind: "profile" },
-            description: action.rawText,
-            continuationAssertions: [],
-            causes: [{ kind: "action", id: action.id }],
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          const claims = action.rawText.includes("工作台")
+            ? [{ poolId: workbenchPoolId, basis: { kind: "default" as const } }]
+            : [];
+          if (action.rawText.includes("工作台")) {
+            compilation.temporalPlan = {
+              profileId: "ongoing-action",
+              basis: { kind: "profile" },
+              description: action.rawText,
+              continuationAssertions: [],
+              causes: [{ kind: "action", id: action.id }],
+            };
+          }
+          compilation.interactionDependency = {
+            reads: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
+            writes: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
+            audienceAgentIds: [action.actorId],
+            sharedResourceClaims: claims,
+            globalFallback: false,
           };
-        }
-        compilation.interactionDependency = {
-          reads: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
-          writes: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
-          audienceAgentIds: [action.actorId],
-          sharedResourceClaims: claims,
-          globalFallback: false,
-        };
-        return compilation;
+        });
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -368,7 +365,6 @@ describe("eager reference safeguards", () => {
     const fallback = createMindRepairFallback(
       state,
       agent,
-      createTestModelAudit("agent-mind", agent.id, state.worldHash, state.revision),
       "mind",
     );
 
@@ -381,6 +377,296 @@ describe("eager reference safeguards", () => {
       targetIds: [],
     });
     expect(fallback.fallback).toBe(true);
+  });
+
+  it("keeps deterministic canonical semantics identical for singleton and larger slot limits", async () => {
+    const execute = async (actionCompilationMaxSlots: number, agentMindMaxSlots: number) => {
+      const provider = new DeterministicModelProvider();
+      const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+        seed: 47,
+        modelCatalog: provider.catalog,
+      });
+      const engine = new SimulationEngine(
+        definition,
+        new EagerReferenceAlgorithm(provider, undefined, { actionCompilationMaxSlots, agentMindMaxSlots }),
+      );
+      await engine.bootstrapAgents();
+      const source = engine.snapshot;
+      const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+        kind: "model" as const,
+        agentId: agent.id,
+        profiles: structuredClone(agent.modelProfiles),
+      }]));
+      const result = await engine.step(roster, {
+        expectedRevision: source.revision,
+        trigger: "manual",
+        externalActions: [],
+      });
+      return { provider, result };
+    };
+
+    const [singleton, batched] = await Promise.all([execute(1, 1), execute(12, 8)]);
+    expect(singleton.result.committed.semanticHash).toBe(batched.result.committed.semanticHash);
+    expect(contentHash(singleton.result.state.truth)).toBe(contentHash(batched.result.state.truth));
+    expect(singleton.provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
+    expect(batched.provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
+    expect(singleton.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(2);
+    expect(batched.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
+  });
+
+  it("retains valid AgentMind slots and retries only the invalid Agent", async () => {
+    let rejectedKeeper = false;
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "agent-mind") {
+        return deterministicAgentMindBatch(context, (output, slot) => {
+          if (!rejectedKeeper && slot.perspective.agentId === "keeper") {
+            output.nextAction.targetIds = ["unknown-local-target"];
+            rejectedKeeper = true;
+          }
+        });
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    const requests = provider.requests.filter((request) => request.role === "agent-mind");
+    expect(requests).toHaveLength(2);
+    expect(requests.map((request) =>
+      (request.context as { slots: Array<{ perspective: { agentId: string } }> }).slots
+        .map((slot) => slot.perspective.agentId))).toEqual([
+      ["keeper", "player"],
+      ["keeper"],
+    ]);
+    const audits = result.modelAudits.filter((audit) => audit.role === "agent-mind");
+    expect(audits).toHaveLength(2);
+    expect(new Set(audits.flatMap((audit) => audit.invocations.map((invocation) => invocation.id))).size).toBe(2);
+  });
+
+  it("isolates all three AgentMind purposes and model profiles", async () => {
+    const provider = new ScriptedModelProvider(({ profileId, context }) =>
+      deterministicModelOutput(profileId, context));
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const state = structuredClone(definition.initialState);
+    state.agents.keeper!.modelProfiles.bootstrap = "agent-openai";
+    state.agents.keeper!.modelProfiles.mind = "agent-xai";
+    const mind = new AgentMind(provider);
+    const inputs = Object.values(state.agents).map((agent) => ({
+      agent,
+      observations: [],
+      currentResolution: { action: null, outcome: null },
+      events: [],
+    }));
+    const scope = {
+      workloadId: "purpose-profile-test",
+      batchId: "purpose-profile-test",
+      runtimeIdentity: { worldHash: state.worldHash, revision: state.revision },
+    };
+
+    await mind.thinkBatch(state, inputs, scope, "bootstrap", 8);
+    await mind.thinkBatch(state, inputs, scope, "resume", 8);
+    await mind.thinkBatch(state, inputs, scope, "mind", 8);
+
+    const requests = provider.requests.filter((request) =>
+      request.role === "agent-bootstrap" || request.role === "agent-mind");
+    expect(requests).toHaveLength(6);
+    expect(requests.map((request) => {
+      const context = request.context as {
+        purpose: "bootstrap" | "resume" | "mind";
+        slots: Array<{ perspective: { agentId: string } }>;
+      };
+      return {
+        purpose: context.purpose,
+        profileId: request.profileId,
+        agents: context.slots.map((slot) => slot.perspective.agentId),
+      };
+    })).toEqual([
+      { purpose: "bootstrap", profileId: "agent-deepseek", agents: ["player"] },
+      { purpose: "bootstrap", profileId: "agent-openai", agents: ["keeper"] },
+      { purpose: "resume", profileId: "agent-deepseek", agents: ["player"] },
+      { purpose: "resume", profileId: "agent-xai", agents: ["keeper"] },
+      { purpose: "mind", profileId: "agent-deepseek", agents: ["player"] },
+      { purpose: "mind", profileId: "agent-xai", agents: ["keeper"] },
+    ]);
+  });
+
+  it("retains valid Action Compilation slots and retries only the invalid action", async () => {
+    let rejectedKeeper = false;
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-compilation") {
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          if (!rejectedKeeper && action.actorId === "keeper") {
+            compilation.temporalPlan.profileId = "missing-temporal-profile";
+            rejectedKeeper = true;
+          }
+        });
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    const requests = provider.requests.filter((request) => request.role === "action-compilation");
+    expect(requests).toHaveLength(2);
+    expect(requests.map((request) =>
+      (request.context as { slots: Array<{ action: AgentActionProposal }> }).slots
+        .map((slot) => slot.action.actorId))).toEqual([
+      ["keeper", "player"],
+      ["keeper"],
+    ]);
+  });
+
+  it("repairs a structural resource-pool error with compact catalog guidance", async () => {
+    let firstCompilation = true;
+    let repairedIssues: string[][] = [];
+    const provider = new ScriptedModelProvider(({ role, profileId, context, system }) => {
+      if (role === "action-compilation") {
+        expect(system).toContain("目录为空或没有明确匹配，sharedResourceClaims 必须输出 []");
+        const output = deterministicActionCompilationBatch(profileId, context);
+        if (firstCompilation) {
+          firstCompilation = false;
+          output.slots[0]!.interactionDependency.sharedResourceClaims = [{
+            poolId: "default",
+            basis: { kind: "default" },
+          }];
+        } else {
+          repairedIssues = (context as { slots: Array<{ validationIssues: string[] }> }).slots
+            .map((slot) => slot.validationIssues);
+        }
+        return output;
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
+    expect(repairedIssues).toEqual([
+      [expect.stringMatching(/^sharedResourceClaims\.poolId .*canonicalCatalog/)],
+      [expect.stringMatching(/^sharedResourceClaims\.poolId .*canonicalCatalog/)],
+    ]);
+    expect(repairedIssues.flat().every((issue) => issue.length < 250)).toBe(true);
+  });
+
+  it("rolls back when an Action Compilation singleton exhausts semantic repair", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-compilation") {
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          if (action.actorId === "keeper") compilation.temporalPlan.profileId = "missing-temporal-profile";
+        });
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await expect(engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    })).rejects.toBeInstanceOf(ModelSemanticRepairError);
+
+    expect(contentHash(engine.snapshot)).toBe(contentHash(source));
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(3);
+  });
+
+  it("uses the waiting fallback only for an AgentMind singleton that exhausts semantic repair", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "agent-mind") {
+        return deterministicAgentMindBatch(context, (output, slot) => {
+          if (slot.perspective.agentId === "keeper") output.nextAction.targetIds = ["unknown-local-target"];
+        });
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(result.state.agents.keeper.nextAction).toMatchObject({
+      rawText: "观察并等待",
+      goal: "在下一次有效决策前不采取新的主动行动",
+      targetIds: [],
+    });
+    expect(result.state.agents.player.nextAction?.rawText).toBe("维持当前目标并观察世界");
+    expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(3);
+    expect(result.modelAudits.filter((audit) => audit.role === "agent-mind")).toHaveLength(3);
   });
 
   it("keeps outcome alternatives only when their evidence belongs to the acting Agent", () => {
@@ -418,16 +704,15 @@ describe("eager reference safeguards", () => {
   it("projects the merged candidate to every Agent after independent components resolve", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const action = (context as { action: AgentActionProposal }).action;
-        const compilation = defaultActionCompilation(profileId, context);
-        compilation.interactionDependency = {
-          reads: [],
-          writes: [{ kind: "entity", id: action.actorId }],
-          audienceAgentIds: [action.actorId],
-          sharedResourceClaims: [],
-          globalFallback: false,
-        };
-        return compilation;
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          compilation.interactionDependency = {
+            reads: [],
+            writes: [{ kind: "entity", id: action.actorId }],
+            audienceAgentIds: [action.actorId],
+            sharedResourceClaims: [],
+            globalFallback: false,
+          };
+        });
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -462,23 +747,22 @@ describe("eager reference safeguards", () => {
   it("uses the earliest authored activity checkpoint instead of a fixed step duration", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const action = (context as { action: AgentActionProposal }).action;
-        if (action.rawText.includes("100公里")) {
-          const compilation = defaultActionCompilation(profileId, context);
-          compilation.temporalPlan = {
-            profileId: "measured-travel",
-            basis: {
-              kind: "explicit_quantity",
-              amount: 100,
-              unit: "公里",
-              sourceText: "100公里",
-            },
-            description: "沿道路逐段前往一百公里外的地点",
-            continuationAssertions: [],
-            causes: [{ kind: "action", id: action.id }],
-          };
-          return compilation;
-        }
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          if (action.rawText.includes("100公里")) {
+            compilation.temporalPlan = {
+              profileId: "measured-travel",
+              basis: {
+                kind: "explicit_quantity",
+                amount: 100,
+                unit: "公里",
+                sourceText: "100公里",
+              },
+              description: "沿道路逐段前往一百公里外的地点",
+              continuationAssertions: [],
+              causes: [{ kind: "action", id: action.id }],
+            };
+          }
+        });
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -555,9 +839,11 @@ describe("eager reference safeguards", () => {
     }]);
     expect(second.committed.beliefPatches).toHaveLength(1);
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
-    const finalMind = provider.requests.filter((request) =>
-      request.role === "agent-mind" && request.subjectId === "player").at(-1);
-    expect((finalMind?.context as { observations?: unknown[] }).observations).toHaveLength(2);
+    const finalMind = provider.requests.filter((request) => request.role === "agent-mind").at(-1);
+    const playerSlot = (finalMind?.context as {
+      slots?: Array<{ perspective: { agentId: string }; observations: unknown[] }>;
+    }).slots?.find((slot) => slot.perspective.agentId === "player");
+    expect(playerSlot?.observations).toHaveLength(2);
     expect(second.state.agents.player.observationCursorStep).toBe(2);
 
     const replayed = replaySimulationState(second.state);
@@ -637,20 +923,19 @@ describe("eager reference safeguards", () => {
   it("records continuation assertions before and after an affected boundary", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const action = (context as { action: AgentActionProposal }).action;
-        const compilation = defaultActionCompilation(profileId, context);
-        compilation.temporalPlan = {
-          profileId: "brief-action",
-          basis: { kind: "profile" },
-          description: action.rawText,
-          continuationAssertions: [{
-            kind: "elapsed_seconds_compare",
-            operator: "lte",
-            value: 1,
-          }],
-          causes: [{ kind: "action", id: action.id }],
-        };
-        return compilation;
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          compilation.temporalPlan = {
+            profileId: "brief-action",
+            basis: { kind: "profile" },
+            description: action.rawText,
+            continuationAssertions: [{
+              kind: "elapsed_seconds_compare",
+              operator: "lte",
+              value: 1,
+            }],
+            causes: [{ kind: "action", id: action.id }],
+          };
+        });
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -926,30 +1211,29 @@ describe("eager reference safeguards", () => {
   it("creates a decision point when another action produces an authorized relevant observation", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const action = (context as { action: AgentActionProposal }).action;
-        const compilation = defaultActionCompilation(profileId, context);
-        if (action.rawText.includes("100公里")) {
-          compilation.temporalPlan = {
-            profileId: "measured-travel",
-            basis: {
-              kind: "explicit_quantity",
-              amount: 100,
-              unit: "公里",
-              sourceText: "100公里",
-            },
-            description: "持续前往远方",
-            continuationAssertions: [],
-            causes: [{ kind: "action", id: action.id }],
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          if (action.rawText.includes("100公里")) {
+            compilation.temporalPlan = {
+              profileId: "measured-travel",
+              basis: {
+                kind: "explicit_quantity",
+                amount: 100,
+                unit: "公里",
+                sourceText: "100公里",
+              },
+              description: "持续前往远方",
+              continuationAssertions: [],
+              causes: [{ kind: "action", id: action.id }],
+            };
+          }
+          compilation.interactionDependency = {
+            reads: [],
+            writes: [{ kind: "entity", id: action.actorId }],
+            audienceAgentIds: action.actorId === "keeper" ? ["keeper", "player"] : [action.actorId],
+            sharedResourceClaims: [],
+            globalFallback: false,
           };
-        }
-        compilation.interactionDependency = {
-          reads: [],
-          writes: [{ kind: "entity", id: action.actorId }],
-          audienceAgentIds: action.actorId === "keeper" ? ["keeper", "player"] : [action.actorId],
-          sharedResourceClaims: [],
-          globalFallback: false,
-        };
-        return compilation;
+        });
       }
       return deterministicModelOutput(profileId, context);
     });
@@ -1041,15 +1325,15 @@ describe("eager reference safeguards", () => {
   it("re-grounds an Agent action that is replaced during the reaction window", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const compilation = defaultActionCompilation(profileId, context);
-        compilation.interactionDependency = {
-          reads: [{ kind: "global", id: "world" }],
-          writes: [{ kind: "global", id: "world" }],
-          audienceAgentIds: ["keeper", "player"],
-          sharedResourceClaims: [],
-          globalFallback: true,
-        };
-        return compilation;
+        return deterministicActionCompilationBatch(profileId, context, (compilation) => {
+          compilation.interactionDependency = {
+            reads: [{ kind: "global", id: "world" }],
+            writes: [{ kind: "global", id: "world" }],
+            audienceAgentIds: ["keeper", "player"],
+            sharedResourceClaims: [],
+            globalFallback: true,
+          };
+        });
       }
       if (role === "truth-perception") {
         const playerAction = (context as { jointActions: AgentActionProposal[] }).jointActions
@@ -1115,9 +1399,10 @@ describe("eager reference safeguards", () => {
     });
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
     expect(provider.requests.filter((request) => request.role === "action-compilation"))
-      .toHaveLength(4);
+      .toHaveLength(2);
     expect(provider.requests.filter((request) => request.role === "action-compilation")
-      .map((request) => (request.context as { action: AgentActionProposal }).action.rawText))
+      .flatMap((request) => (request.context as { slots: Array<{ action: AgentActionProposal }> }).slots)
+      .map((slot) => slot.action.rawText))
       .toContain("抓起庭院沙土戒备");
   });
 
@@ -1130,29 +1415,28 @@ describe("eager reference safeguards", () => {
   }) => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const action = (context as { action: AgentActionProposal }).action;
-        const compilation = defaultActionCompilation(profileId, context);
-        if (action.rawText === `进行${replacementSeconds}秒的紧急戒备`) {
-          compilation.temporalPlan = {
-            profileId: "explicit-duration",
-            basis: {
-              kind: "explicit_duration",
-              seconds: replacementSeconds,
-              sourceText: `${replacementSeconds}秒`,
-            },
-            description: `进行${replacementSeconds}秒的紧急戒备`,
-            continuationAssertions: [],
-            causes: [{ kind: "action", id: action.id }],
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          if (action.rawText === `进行${replacementSeconds}秒的紧急戒备`) {
+            compilation.temporalPlan = {
+              profileId: "explicit-duration",
+              basis: {
+                kind: "explicit_duration",
+                seconds: replacementSeconds,
+                sourceText: `${replacementSeconds}秒`,
+              },
+              description: `进行${replacementSeconds}秒的紧急戒备`,
+              continuationAssertions: [],
+              causes: [{ kind: "action", id: action.id }],
+            };
+          }
+          compilation.interactionDependency = {
+            reads: [{ kind: "global", id: "world" }],
+            writes: [{ kind: "global", id: "world" }],
+            audienceAgentIds: ["keeper", "player"],
+            sharedResourceClaims: [],
+            globalFallback: true,
           };
-        }
-        compilation.interactionDependency = {
-          reads: [{ kind: "global", id: "world" }],
-          writes: [{ kind: "global", id: "world" }],
-          audienceAgentIds: ["keeper", "player"],
-          sharedResourceClaims: [],
-          globalFallback: true,
-        };
-        return compilation;
+        });
       }
       if (role === "agent-reaction") {
         return {
@@ -1226,15 +1510,15 @@ describe("eager reference safeguards", () => {
     let perceptionRounds = 0;
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const compilation = defaultActionCompilation(profileId, context);
-        compilation.interactionDependency = {
-          reads: [{ kind: "global", id: "world" }],
-          writes: [{ kind: "global", id: "world" }],
-          audienceAgentIds: ["keeper", "player"],
-          sharedResourceClaims: [],
-          globalFallback: true,
-        };
-        return compilation;
+        return deterministicActionCompilationBatch(profileId, context, (compilation) => {
+          compilation.interactionDependency = {
+            reads: [{ kind: "global", id: "world" }],
+            writes: [{ kind: "global", id: "world" }],
+            audienceAgentIds: ["keeper", "player"],
+            sharedResourceClaims: [],
+            globalFallback: true,
+          };
+        });
       }
       if (role === "truth-perception") {
         perceptionRounds += 1;
@@ -1320,15 +1604,15 @@ describe("eager reference safeguards", () => {
   ])("does not open a reaction round for a $mode action onset", async ({ mode, interruptible }) => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        const compilation = defaultActionCompilation(profileId, context);
-        compilation.interactionDependency = {
-          reads: [{ kind: "global", id: "world" }],
-          writes: [{ kind: "global", id: "world" }],
-          audienceAgentIds: ["keeper", "player"],
-          sharedResourceClaims: [],
-          globalFallback: true,
-        };
-        return compilation;
+        return deterministicActionCompilationBatch(profileId, context, (compilation) => {
+          compilation.interactionDependency = {
+            reads: [{ kind: "global", id: "world" }],
+            writes: [{ kind: "global", id: "world" }],
+            audienceAgentIds: ["keeper", "player"],
+            sharedResourceClaims: [],
+            globalFallback: true,
+          };
+        });
       }
       return deterministicModelOutput(profileId, context);
     });

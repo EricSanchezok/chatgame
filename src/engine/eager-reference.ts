@@ -1,5 +1,6 @@
-import { AgentMind } from "./agent-mind";
-import { compileAction, type PlannedTemporalActivity } from "./action-compiler";
+import { AgentMind, type AgentMindBatchInput } from "./agent-mind";
+import { compileActions, type PlannedTemporalActivity } from "./action-compiler";
+import type { EagerSlotBatchMetrics } from "./eager-slot-batching";
 import {
   ActivityFootprintIndex,
   interactionDependencyComponents,
@@ -153,7 +154,14 @@ function observationsFor(packets: readonly ObservationPacket[], observerId: stri
   return packets.filter((packet) => packet.observerId === observerId);
 }
 
-type EagerMindOutput = AgentMindOutput & { modelAudit: ModelExecutionAudit; fallback: boolean };
+type EagerMindOutput = AgentMindOutput & { fallback: boolean };
+
+interface EagerMindBatchOutput {
+  outputs: EagerMindOutput[];
+  modelAudits: ModelExecutionAudit[];
+  batchCount: number;
+  metrics: EagerSlotBatchMetrics;
+}
 
 interface ComponentResolution {
   resolution: TruthResolution;
@@ -162,7 +170,6 @@ interface ComponentResolution {
 export function createMindRepairFallback(
   state: Readonly<SimulationState>,
   agent: Readonly<AgentState>,
-  audit: ModelExecutionAudit,
   purpose: "bootstrap" | "resume" | "mind",
 ): EagerMindOutput {
   return {
@@ -185,32 +192,8 @@ export function createMindRepairFallback(
       means: null,
       targetIds: [],
     },
-    modelAudit: structuredClone(audit),
     fallback: true,
   };
-}
-
-async function thinkWithFallback(
-  state: Readonly<SimulationState>,
-  agent: Readonly<AgentState>,
-  purpose: "bootstrap" | "resume" | "mind",
-  context: ExecutionContext,
-  think: () => Promise<AgentMindOutput & { modelAudit: ModelExecutionAudit }>,
-): Promise<EagerMindOutput> {
-  try {
-    return { ...await think(), fallback: false };
-  } catch (error) {
-    if (!(error instanceof ModelSemanticRepairError) || !error.audit) throw error;
-    context.instrumentation.emit({
-      event: "algorithm.agent_mind.repair_fallback",
-      level: "warn",
-      correlation: { ...context.modelScope.correlation, modelSubject: agent.id },
-      attributes: { phase: purpose, policy: "empty-patch-and-idle-action" },
-      counts: { mindFallbacks: 1 },
-      error: { name: error.name, message: error.message },
-    });
-    return createMindRepairFallback(state, agent, error.audit, purpose);
-  }
 }
 
 async function settledValues<T>(promises: readonly Promise<T>[], label: string): Promise<T[]> {
@@ -663,6 +646,86 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     this.observationRenderer = new ObservationRenderer(provider);
   }
 
+  private emitSlotBatchMetrics(
+    context: ExecutionContext,
+    phase: "action-compilation" | "agent-bootstrap" | "agent-resume" | "agent-mind",
+    logicalSlots: number,
+    configuredMaxSlots: number,
+    batchCount: number,
+    metrics: EagerSlotBatchMetrics,
+  ): void {
+    context.instrumentation.emit({
+      event: "algorithm.eager_reference.slot_batch_completed",
+      attributes: { phase },
+      counts: {
+        configuredMaxSlots,
+        logicalSlots,
+        physicalCalls: batchCount,
+        submittedSlots: metrics.submittedSlots,
+        repairCalls: metrics.repairCalls,
+        batchSplits: metrics.splitCount,
+        partialFailureSlots: metrics.partialFailureSlots,
+        singletonFailures: metrics.singletonFailures,
+      },
+    });
+  }
+
+  private async thinkBatchWithFallback(
+    state: SimulationState,
+    inputs: readonly AgentMindBatchInput[],
+    purpose: "bootstrap" | "resume" | "mind",
+    context: ExecutionContext,
+  ): Promise<EagerMindBatchOutput> {
+    if (inputs.length === 0) {
+      return {
+        outputs: [],
+        modelAudits: [],
+        batchCount: 0,
+        metrics: { submittedSlots: 0, repairCalls: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
+      };
+    }
+    const result = await this.agentMind.thinkBatch(
+      state,
+      inputs,
+      context.modelScope,
+      purpose,
+      this.config.agentMindMaxSlots,
+    );
+    this.emitSlotBatchMetrics(
+      context,
+      purpose === "bootstrap" ? "agent-bootstrap" : purpose === "resume" ? "agent-resume" : "agent-mind",
+      inputs.length,
+      this.config.agentMindMaxSlots,
+      result.batchCount,
+      result.metrics,
+    );
+    const failures = new Map(result.failures.map((failure) => [failure.agentId, failure.error]));
+    const outputs = inputs.map((input): EagerMindOutput => {
+      const output = result.outputs.get(input.agent.id);
+      if (output) return { ...output, fallback: false };
+      const error = failures.get(input.agent.id);
+      if (!error) throw new Error(`AgentMind ${purpose} omitted ${input.agent.id}`);
+      context.instrumentation.emit({
+        event: "algorithm.agent_mind.repair_fallback",
+        level: "warn",
+        correlation: { ...context.modelScope.correlation, modelSubject: input.agent.id },
+        attributes: { phase: purpose, policy: "empty-patch-and-idle-action" },
+        counts: { mindFallbacks: 1 },
+        error: {
+          name: error instanceof Error ? error.name : "AgentMindError",
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+      return createMindRepairFallback(state, input.agent, purpose);
+    });
+    return {
+      outputs,
+      modelAudits: result.modelAudits,
+      batchCount: result.batchCount,
+      metrics: result.metrics,
+    };
+  }
+
   private contextOnlyResolution(
     input: Readonly<WorldStepInput>,
     boundary: Readonly<TemporalBoundary>,
@@ -745,21 +808,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   async bootstrap(input: Readonly<BootstrapInput>, context: ExecutionContext): Promise<BootstrapCandidate> {
     const source = structuredClone(input.state);
     const agents = Object.values(source.agents).sort((left, right) => left.id.localeCompare(right.id));
-    const outputs = await settledValues(agents.map((agent) => thinkWithFallback(
+    const mindBatch = await this.thinkBatchWithFallback(
       source,
-      agent,
+      agents.map((agent) => ({
+        agent,
+        observations: [],
+        currentResolution: { action: null, outcome: null },
+        events: [],
+      })),
       "bootstrap",
       context,
-      () => this.agentMind.think(
-        source,
-        agent,
-        [],
-        context.modelScope,
-        { action: null, outcome: null },
-        [],
-        "bootstrap",
-      ),
-    )), "AgentMind bootstrap");
+    );
+    const outputs = mindBatch.outputs;
     return {
       schemaVersion: WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
       sourceStateHash: contentHash(source),
@@ -769,7 +829,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         characterPatch: structuredClone(output.characterPatch),
         nextAction: structuredClone(output.nextAction),
       })),
-      modelAudits: outputs.map((output) => structuredClone(output.modelAudit)),
+      modelAudits: mindBatch.modelAudits.map((audit) => structuredClone(audit)),
       diagnostics: {
         activatedAgentIds: agents.map((agent) => agent.id),
         reusedAgentIds: [],
@@ -961,33 +1021,42 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         (binding.resumeFromRevision !== undefined || source.agents[agentId]?.nextAction === null))
       .map(([agentId]) => agentId)
       .sort();
-    const resumedOutputs = await settledValues(resumedAgentIds.map((agentId) => thinkWithFallback(
+    const resumedMindBatch = await this.thinkBatchWithFallback(
       source,
-      source.agents[agentId],
+      resumedAgentIds.map((agentId) => ({
+        agent: source.agents[agentId],
+        observations: pendingObservationsFor(source, source.agents[agentId]),
+        currentResolution: { action: null, outcome: null },
+        events: [],
+      })),
       "resume",
       context,
-      () => this.agentMind.think(
-        source,
-        source.agents[agentId],
-        pendingObservationsFor(source, source.agents[agentId]),
-        context.modelScope,
-        { action: null, outcome: null },
-        [],
-        "resume",
-      ),
-    )), "AgentMind policy resume");
+    );
+    const resumedOutputs = resumedMindBatch.outputs;
     const preparedActions = new Map(resumedAgentIds.map((agentId, index) => [
       agentId,
       resumedOutputs[index].nextAction,
     ]));
     const newActions = collectActions(input, preparedActions, eligibleAgentIds);
-    const actionCompilations = await settledValues(newActions.map((action) => compileAction(
+    const actionCompilationBatch = await compileActions(
       this.provider,
       planningState,
-      action,
+      newActions,
       context.modelScope,
       input.definition.modelProfiles.grounding,
-    )), "action compilation");
+      this.config.actionCompilationMaxSlots,
+    );
+    if (newActions.length > 0) {
+      this.emitSlotBatchMetrics(
+        context,
+        "action-compilation",
+        newActions.length,
+        this.config.actionCompilationMaxSlots,
+        actionCompilationBatch.batchCount,
+        actionCompilationBatch.metrics,
+      );
+    }
+    const actionCompilations = actionCompilationBatch.compilations;
     const temporalPlanning: PlannedTemporalActivity[] = actionCompilations.map((result) => ({
       plan: structuredClone(result.plan),
       activity: structuredClone(result.activity),
@@ -1164,8 +1233,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       pendingReactionRequests: structuredClone(pendingReactionRequests),
       preparedReactionDecisions: structuredClone(preparedReactionDecisions),
       modelAudits: [
-        ...resumedOutputs.map((output) => structuredClone(output.modelAudit)),
-        ...actionCompilations.map((result) => structuredClone(result.audit)),
+        ...resumedMindBatch.modelAudits.map((audit) => structuredClone(audit)),
+        ...actionCompilationBatch.modelAudits.map((audit) => structuredClone(audit)),
         ...(onsetPerception ? [structuredClone(onsetPerception.modelAudit)] : []),
         ...reactionResults.flatMap((result) => result?.audit ? [structuredClone(result.audit)] : []),
       ],
@@ -1243,14 +1312,25 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     }
 
     const replacementDecisions = reactionDecisions.filter((decision) => decision.kind === "replace");
-    const replacementCompilations = await settledValues(replacementDecisions.map((decision) => compileAction(
+    const replacementCompilationBatch = await compileActions(
       this.provider,
       planningState,
-      decision.replacementAction,
+      replacementDecisions.map((decision) => decision.replacementAction),
       context.modelScope,
       input.definition.modelProfiles.grounding,
-      3,
-    )), "reaction action compilation");
+      this.config.actionCompilationMaxSlots,
+    );
+    if (replacementDecisions.length > 0) {
+      this.emitSlotBatchMetrics(
+        context,
+        "action-compilation",
+        replacementDecisions.length,
+        this.config.actionCompilationMaxSlots,
+        replacementCompilationBatch.batchCount,
+        replacementCompilationBatch.metrics,
+      );
+    }
+    const replacementCompilations = replacementCompilationBatch.compilations;
     const replacementPlanning: PlannedTemporalActivity[] = replacementCompilations.map((result) => ({
       plan: structuredClone(result.plan),
       activity: structuredClone(result.activity),
@@ -1671,7 +1751,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         input.policyRoster[agentId]?.kind === "model" &&
         (!busyAfterBoundary.has(agentId) || postBoundaryDecisionAgents.has(agentId)))
       .sort();
-    const outputs = await settledValues(modelAgentIds.map((agentId) => {
+    const mindWork = modelAgentIds.map((agentId) => {
       let agent = applyObservationBindings(candidate.agents[agentId], observationsFor(observations, agentId));
       const resumed = resumedByAgent.get(agentId);
       if (resumed) {
@@ -1693,16 +1773,35 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         agent,
         observationsFor(observations, agentId),
       );
-      return thinkWithFallback(candidate, agent, purpose, context, () => this.agentMind.think(
-          candidate,
+      return {
+        agentId,
+        purpose,
+        input: {
           agent,
-          pendingObservations,
-          context.modelScope,
-          { action, outcome: outcome ? { status: outcome.status } : null },
-          resolution.proposal.events,
-          purpose,
-        ));
-    }), "AgentMind");
+          observations: pendingObservations,
+          currentResolution: { action, outcome: outcome ? { status: outcome.status } : null },
+          events: resolution.proposal.events,
+        } satisfies AgentMindBatchInput,
+      };
+    });
+    const finalMindBatches = await Promise.all((["bootstrap", "mind"] as const).map(async (purpose) => {
+      const work = mindWork.filter((entry) => entry.purpose === purpose);
+      const batch = await this.thinkBatchWithFallback(
+        candidate,
+        work.map((entry) => entry.input),
+        purpose,
+        context,
+      );
+      return { work, batch };
+    }));
+    const outputsByAgent = new Map(finalMindBatches.flatMap(({ work, batch }) =>
+      work.map((entry, index) => [entry.agentId, batch.outputs[index]!] as const)));
+    const outputs = modelAgentIds.map((agentId) => {
+      const output = outputsByAgent.get(agentId);
+      if (!output) throw new Error(`AgentMind omitted final output for ${agentId}`);
+      return output;
+    });
+    const finalMindAudits = finalMindBatches.flatMap(({ batch }) => batch.modelAudits);
     const {
       modelAudits: resolutionModelAudits,
       reactionModelAudits,
@@ -1740,12 +1839,12 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       }),
       modelAudits: [
         ...structuredClone(preparation.modelAudits),
-        ...replacementCompilations.map((result) => structuredClone(result.audit)),
+        ...replacementCompilationBatch.modelAudits.map((audit) => structuredClone(audit)),
         ...dependencyResults.flatMap((result) => result.audit ? [structuredClone(result.audit)] : []),
         ...resolutionModelAudits,
         ...reactionModelAudits,
         ...globalObservationAudits,
-        ...outputs.map((output) => output.modelAudit),
+        ...finalMindAudits,
       ],
       interactionDependencies: structuredClone(interactionDependencies),
       diagnostics: {

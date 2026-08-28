@@ -60,6 +60,21 @@ type AlgorithmTelemetryBase = Omit<
 };
 
 export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
+  event: "algorithm.eager_reference.slot_batch_completed";
+  attributes: Readonly<{
+    phase: "action-compilation" | "agent-bootstrap" | "agent-resume" | "agent-mind";
+  }>;
+  counts: Readonly<{
+    configuredMaxSlots: number;
+    logicalSlots: number;
+    physicalCalls: number;
+    submittedSlots: number;
+    repairCalls: number;
+    batchSplits: number;
+    partialFailureSlots: number;
+    singletonFailures: number;
+  }>;
+} | {
   event: "algorithm.agent_mind.repair_fallback";
   attributes: Readonly<{
     phase: "bootstrap" | "resume" | "mind";
@@ -330,6 +345,22 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
   counts: readonly string[];
   attributeValues?: Readonly<Record<string, readonly RuntimeAttribute[]>>;
 }> = {
+  "algorithm.eager_reference.slot_batch_completed": {
+    attributes: ["phase"],
+    counts: [
+      "configuredMaxSlots",
+      "logicalSlots",
+      "physicalCalls",
+      "submittedSlots",
+      "repairCalls",
+      "batchSplits",
+      "partialFailureSlots",
+      "singletonFailures",
+    ],
+    attributeValues: {
+      phase: ["action-compilation", "agent-bootstrap", "agent-resume", "agent-mind"],
+    },
+  },
   "algorithm.agent_mind.repair_fallback": {
     attributes: ["phase", "policy"],
     counts: ["mindFallbacks"],

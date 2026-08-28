@@ -3,8 +3,14 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
+import {
+  DEFAULT_EAGER_REFERENCE_CONFIG,
+  EagerReferenceAlgorithm,
+} from "../src/engine/eager-reference";
 import { loadModelCatalog } from "../src/engine/model-catalog";
 import { createModelGateway } from "../src/engine/model-gateway";
+import { RecordingRuntimeObserver } from "../src/engine/observability";
+import { SimulationEngine } from "../src/engine/simulation";
 import { loadWorldScript } from "../src/script/world-loader";
 import { MemoryWorldRepository } from "../src/script/world-repository";
 import { LocalDatabase } from "../src/server/local-database";
@@ -45,6 +51,65 @@ function diagnosticLines(error: unknown, depth = 0): string[] {
   return lines;
 }
 
+async function runBatchingSmoke(
+  definition: ReturnType<typeof loadWorldScript>,
+  provider: ReturnType<typeof createModelGateway>,
+): Promise<void> {
+  const observer = new RecordingRuntimeObserver({ mode: "metrics" });
+  const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+  const scope = (phase: string) => ({
+    workloadId: `deepseek-batching-smoke:${definition.id}`,
+    batchId: `deepseek-batching-smoke:${phase}`,
+    correlation: { instanceId: "deepseek-batching-smoke", revision: 0, step: phase === "bootstrap" ? 0 : 1 },
+    observer,
+  });
+  await engine.bootstrapAgents(scope("bootstrap"));
+  const state = engine.snapshot;
+  const roster = Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
+    kind: "model" as const,
+    agentId: agent.id,
+    profiles: structuredClone(agent.modelProfiles),
+  }]));
+  const preparation = await engine.prepareStep(roster, {
+    expectedRevision: state.revision,
+    trigger: "manual",
+    externalActions: [],
+  }, scope("prepare"));
+  const batches = observer.events.filter((event) =>
+    event.event === "algorithm.eager_reference.slot_batch_completed");
+  const batch = (phase: string) => batches.find((event) => event.attributes?.phase === phase);
+  const bootstrap = batch("agent-bootstrap");
+  const compilation = batch("action-compilation");
+  if (!bootstrap || !compilation) throw new Error("batching smoke did not emit both required batch metrics");
+  if (bootstrap.counts?.logicalSlots !== Object.keys(state.agents).length ||
+    bootstrap.counts?.configuredMaxSlots !== DEFAULT_EAGER_REFERENCE_CONFIG.agentMindMaxSlots ||
+    bootstrap.counts?.singletonFailures !== 0) {
+    throw new Error("AgentMind batching smoke metrics are invalid");
+  }
+  if (compilation.counts?.logicalSlots !== Object.keys(state.agents).length ||
+    compilation.counts?.configuredMaxSlots !== DEFAULT_EAGER_REFERENCE_CONFIG.actionCompilationMaxSlots ||
+    compilation.counts?.singletonFailures !== 0) {
+    throw new Error("Action Compilation batching smoke metrics are invalid");
+  }
+  const invocationIds = [
+    ...engine.bootstrapModelAudits,
+    ...preparation.modelAudits,
+  ].flatMap((audit) => audit.invocations.map((invocation) => invocation.id));
+  if (new Set(invocationIds).size !== invocationIds.length) {
+    throw new Error("batching smoke observed duplicate model invocation IDs");
+  }
+  process.stdout.write([
+    "DeepSeek eager-reference batching smoke passed",
+    `world=${definition.id}`,
+    `agents=${Object.keys(state.agents).length}`,
+    `agentBootstrapCalls=${bootstrap.counts.physicalCalls}`,
+    `agentBootstrapRepairs=${bootstrap.counts.repairCalls}`,
+    `actionCompilationCalls=${compilation.counts.physicalCalls}`,
+    `actionCompilationRepairs=${compilation.counts.repairCalls}`,
+    `actionCompilationSplits=${compilation.counts.batchSplits}`,
+  ].join(" ") + "\n");
+}
+
 async function main(): Promise<void> {
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
   const provider = createModelGateway(catalog, process.env);
@@ -52,6 +117,17 @@ async function main(): Promise<void> {
     seed: 20260827,
     modelCatalog: catalog,
   });
+  if (process.argv.includes("--batching-only")) {
+    try {
+      await runBatchingSmoke(definition, provider);
+    } catch (error) {
+      process.stderr.write(`DeepSeek eager-reference batching smoke failed:\n${diagnosticLines(error)
+        .map((line) => `- ${line}`)
+        .join("\n")}\n`);
+      process.exitCode = 1;
+    }
+    return;
+  }
   const root = mkdtempSync(path.join(tmpdir(), "lwe-deepseek-smoke-"));
   const database = new LocalDatabase(path.join(root, "livingworld.sqlite"), { heartbeat: false });
   const host = new WorldHost({
@@ -121,7 +197,11 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     database.close();
-    rmSync(root, { recursive: true, force: true });
+    if (process.env.LIVINGWORLD_KEEP_SMOKE_DATA === "1") {
+      process.stderr.write(`DeepSeek smoke data retained at ${root}\n`);
+    } else {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }
 

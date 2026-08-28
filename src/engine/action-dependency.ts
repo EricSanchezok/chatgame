@@ -33,7 +33,7 @@ import { materializeSharedActivityResourceClaims } from "./shared-activity-resou
 export const INTERACTION_DEPENDENCY_INSTRUCTIONS = `只判断给定行动可能读取、写入和影响哪些已列出的 canonical 资源与 Agent，并选择行动实际占用的共享物理资源池。
 
 必须保守：只要自然语言可能触及目录外资源、远程传播、规则全局状态或无法确定边界，就令 globalFallback=true，并在 reads 与 writes 中加入 {"kind":"global","id":"world"}。
-不得创建 ID，不得输出状态修改、结果或叙事。共享资源 claim 只能选择目录中的 poolId；通常使用 default，只有定义允许且行动原文明确写出数量和单位时才能使用 explicit_quantity。actor 的私有认知只用于理解本行动，不是 canonical Fact；任何私有 claim、evidence 或 goal ID 都不得作为 footprint id。
+不得创建新 ID；reads、writes、audienceAgentIds、causes 和 sharedResourceClaims 中的引用 ID 必须从当前输入列出的 canonical catalog 或 action 中原样复制。不得输出状态修改、结果或叙事。共享资源 claim 只能选择 canonicalCatalog.sharedActivityResourcePools[].id；如果该目录为空或没有明确匹配，sharedResourceClaims 必须输出 []。default 只是 basis.kind，绝不是 poolId；只有定义允许且行动原文明确写出数量和单位时才能使用 explicit_quantity。actor 的私有认知只用于理解本行动，不是 canonical Fact；任何私有 claim、evidence 或 goal ID 都不得作为 footprint id。
 `;
 
 const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。${INTERACTION_DEPENDENCY_INSTRUCTIONS}
@@ -381,16 +381,9 @@ export function materializeInteractionDependency(
   return enrichDependency(state, action, normalized.dependency);
 }
 
-export function actionGroundingContext(
-  state: Readonly<SimulationState>,
-  action: AgentActionProposal,
-  issues: readonly string[],
-) {
-  const agent = state.agents[action.actorId];
+export function actionGroundingSharedContext(state: Readonly<SimulationState>) {
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    action,
-    actorPerspective: projectAgentPerspective(state, agent),
     canonicalCatalog: {
       entities: Object.values(state.truth.entities).map(({ id, kind, name, description, lifecycle }) => ({
         id, kind, name, description, lifecycle,
@@ -410,7 +403,35 @@ export function actionGroundingContext(
       })),
       agents: Object.values(state.agents).map(({ id, entityId }) => ({ id, entityId })),
     },
+  };
+}
+
+export function actionGroundingSlotContext(
+  state: Readonly<SimulationState>,
+  action: AgentActionProposal,
+  issues: readonly string[],
+) {
+  const agent = state.agents[action.actorId];
+  return {
+    action,
+    actorPerspective: projectAgentPerspective(state, agent),
     validationIssues: issues,
+  };
+}
+
+export function actionGroundingContext(
+  state: Readonly<SimulationState>,
+  action: AgentActionProposal,
+  issues: readonly string[],
+) {
+  const shared = actionGroundingSharedContext(state);
+  const slot = actionGroundingSlotContext(state, action, issues);
+  return {
+    contractVersion: shared.contractVersion,
+    action: slot.action,
+    actorPerspective: slot.actorPerspective,
+    canonicalCatalog: shared.canonicalCatalog,
+    validationIssues: slot.validationIssues,
   };
 }
 

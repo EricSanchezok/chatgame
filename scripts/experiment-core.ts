@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { EagerReferenceAlgorithm, EAGER_REFERENCE_MANIFEST } from "../src/engine/eager-reference";
+import {
+  createEagerReferenceManifest,
+  DEFAULT_EAGER_REFERENCE_CONFIG,
+  EagerReferenceAlgorithm,
+} from "../src/engine/eager-reference";
 import { historyReplayBaseHash } from "../src/engine/history-replay";
 import type { ModelProviderAdapter } from "../src/engine/model-adapter";
 import type { ModelCatalog } from "../src/engine/model-catalog";
@@ -24,13 +28,15 @@ import type { ExecutionLedger } from "../src/server/execution-ledger";
 export interface ExperimentOptions {
   agents: number[];
   steps: number[];
+  actionCompilationSlots?: number[];
+  agentMindSlots?: number[];
   write?: (record: ExperimentRecord) => void;
   ledger?: ExecutionLedger;
   parentExecutionId?: string;
 }
 
 export interface ExperimentRecord {
-  schemaVersion: 2;
+  schemaVersion: 3;
   sequence: number;
   event: string;
   [key: string]: unknown;
@@ -41,6 +47,25 @@ export interface ExperimentResult {
   scenarios: Array<{
     agents: number;
     steps: number;
+    actionCompilationMaxSlots: number;
+    agentMindMaxSlots: number;
+    averageActionCompilationSlots: number;
+    averageAgentMindSlots: number;
+    rolePhysicalCalls: Record<string, number>;
+    roleConcurrencyWaves: Record<string, number>;
+    tokenUsage: {
+      input: number | null;
+      output: number | null;
+      reasoning: number | null;
+      cacheRead: number | null;
+      cacheWrite: number | null;
+    };
+    repairCalls: number;
+    batchSplits: number;
+    partialFailureSlots: number;
+    mindFallbacks: number;
+    stepWallMs: number;
+    successRate: number;
     cumulativeInputBytes: number;
     modelInvocations: number;
     instanceDocumentBytes: number;
@@ -111,19 +136,37 @@ function positiveMatrix(values: readonly number[], label: string): number[] {
   return unique.sort((left, right) => left - right);
 }
 
+function eagerSlotMatrix(values: readonly number[], label: string): number[] {
+  const matrix = positiveMatrix(values, label);
+  if (matrix.some((value) => value > 64)) throw new Error(`${label} must contain integers from 1 through 64`);
+  return matrix;
+}
+
 export function parseExperimentMatrix(
   argv: readonly string[],
   defaults: { agents: number[]; steps: number[] } = { agents: [1, 10, 50], steps: [1, 10, 100] },
-): { agents: number[]; steps: number[] } {
-  const values: { agents?: string; steps?: string } = {};
+): { agents: number[]; steps: number[]; actionCompilationSlots: number[]; agentMindSlots: number[] } {
+  const values: {
+    agents?: string;
+    steps?: string;
+    actionCompilationSlots?: string;
+    agentMindSlots?: string;
+  } = {};
+  const argumentKeys = {
+    agents: "agents",
+    steps: "steps",
+    "action-compilation-slots": "actionCompilationSlots",
+    "agent-mind-slots": "agentMindSlots",
+  } as const;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    const match = /^--(agents|steps)(?:=(.*))?$/.exec(argument);
+    const match = /^--(agents|steps|action-compilation-slots|agent-mind-slots)(?:=(.*))?$/.exec(argument);
     if (!match) throw new Error(`unknown experiment argument: ${argument}`);
-    const key = match[1] as "agents" | "steps";
-    if (values[key] !== undefined) throw new Error(`duplicate experiment argument: --${key}`);
+    const argumentName = match[1] as keyof typeof argumentKeys;
+    const key = argumentKeys[argumentName];
+    if (values[key] !== undefined) throw new Error(`duplicate experiment argument: --${argumentName}`);
     const value = match[2] ?? argv[++index];
-    if (!value || value.startsWith("--")) throw new Error(`--${key} requires a comma-separated value`);
+    if (!value || value.startsWith("--")) throw new Error(`--${argumentName} requires a comma-separated value`);
     values[key] = value;
   }
   const parse = (raw: string | undefined, fallback: number[], label: string): number[] =>
@@ -131,6 +174,16 @@ export function parseExperimentMatrix(
   return {
     agents: parse(values.agents, defaults.agents, "agents"),
     steps: parse(values.steps, defaults.steps, "steps"),
+    actionCompilationSlots: eagerSlotMatrix(parse(
+      values.actionCompilationSlots,
+      [DEFAULT_EAGER_REFERENCE_CONFIG.actionCompilationMaxSlots],
+      "action-compilation-slots",
+    ), "action-compilation-slots"),
+    agentMindSlots: eagerSlotMatrix(parse(
+      values.agentMindSlots,
+      [DEFAULT_EAGER_REFERENCE_CONFIG.agentMindMaxSlots],
+      "agent-mind-slots",
+    ), "agent-mind-slots"),
   };
 }
 
@@ -172,6 +225,10 @@ function scaledDefinition(base: WorldDefinition, agentCount: number): WorldDefin
 
 function invocationSummary(audits: readonly ModelExecutionAudit[]) {
   const invocations = audits.flatMap((audit) => audit.invocations);
+  const tokenTotal = (field: keyof ModelInvocationAudit["tokenUsage"]): number | null => {
+    const values = invocations.map((invocation) => invocation.tokenUsage[field]);
+    return values.every((value) => value === null) ? null : values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  };
   return {
     invocations: invocations.length,
     repairs: audits.reduce((sum, audit) => sum + summarizeModelExecutionAudit(audit).repairAttempts, 0),
@@ -180,6 +237,83 @@ function invocationSummary(audits: readonly ModelExecutionAudit[]) {
       return sum + Math.max(0, summary.transportAttempts - summary.invocations);
     }, 0),
     inputBytes: invocations.reduce((sum, invocation) => sum + invocation.requestUtf8Bytes, 0),
+    tokenUsage: {
+      input: tokenTotal("input"),
+      output: tokenTotal("output"),
+      reasoning: tokenTotal("reasoning"),
+      cacheRead: tokenTotal("cacheRead"),
+      cacheWrite: tokenTotal("cacheWrite"),
+    },
+  };
+}
+
+function mergeTokenUsage(
+  left: ReturnType<typeof invocationSummary>["tokenUsage"],
+  right: ReturnType<typeof invocationSummary>["tokenUsage"],
+) {
+  return Object.fromEntries((Object.keys(left) as Array<keyof typeof left>).map((key) => [
+    key,
+    left[key] === null && right[key] === null ? null : (left[key] ?? 0) + (right[key] ?? 0),
+  ])) as typeof left;
+}
+
+function rolePhysicalCalls(audits: readonly ModelExecutionAudit[]): Record<string, number> {
+  return Object.fromEntries([...audits.reduce((counts, audit) => {
+    counts.set(audit.role, (counts.get(audit.role) ?? 0) + audit.invocations.length);
+    return counts;
+  }, new Map<string, number>()).entries()].sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function roleConcurrencyWaves(events: readonly RuntimeEvent[]): Record<string, number> {
+  const completed = new Map(events.filter((event) => event.event === "model.transport.completed")
+    .map((event) => [
+      `${event.correlation?.modelInvocationId}:${event.correlation?.transportAttempt ?? 1}`,
+      event.sequence,
+    ]));
+  const intervals = events.filter((event) => event.event === "model.transport.started")
+    .flatMap((event) => {
+      const role = event.correlation?.modelRole;
+      const invocationId = event.correlation?.modelInvocationId;
+      if (!role || !invocationId) return [];
+      const end = completed.get(`${invocationId}:${event.correlation?.transportAttempt ?? 1}`);
+      return end === undefined ? [] : [{ role, start: event.sequence, end }];
+    });
+  const grouped = Map.groupBy(intervals, (interval) => interval.role);
+  return Object.fromEntries([...grouped.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([role, values]) => {
+      let waves = 0;
+      let waveEnd = -1;
+      for (const interval of values.sort((left, right) => left.start - right.start)) {
+        if (interval.start > waveEnd) {
+          waves += 1;
+          waveEnd = interval.end;
+        } else {
+          waveEnd = Math.max(waveEnd, interval.end);
+        }
+      }
+      return [role, waves];
+    }));
+}
+
+function eagerBatchSummary(events: readonly RuntimeEvent[]) {
+  const batches = events.filter((event) => event.event === "algorithm.eager_reference.slot_batch_completed");
+  const phase = (name: string) => batches.filter((event) => event.attributes?.phase === name);
+  const count = (eventsForPhase: readonly RuntimeEvent[], key: string) =>
+    eventsForPhase.reduce((sum, event) => sum + (event.counts?.[key] ?? 0), 0);
+  const action = phase("action-compilation");
+  const mind = batches.filter((event) => String(event.attributes?.phase).startsWith("agent-"));
+  const average = (values: readonly RuntimeEvent[]) => {
+    const calls = count(values, "physicalCalls");
+    return calls === 0 ? 0 : Number((count(values, "submittedSlots") / calls).toFixed(3));
+  };
+  return {
+    averageActionCompilationSlots: average(action),
+    averageAgentMindSlots: average(mind),
+    repairCalls: count(batches, "repairCalls"),
+    batchSplits: count(batches, "batchSplits"),
+    partialFailureSlots: count(batches, "partialFailureSlots"),
+    mindFallbacks: events.filter((event) => event.event === "algorithm.agent_mind.repair_fallback")
+      .reduce((sum, event) => sum + (event.counts?.mindFallbacks ?? 0), 0),
   };
 }
 
@@ -211,7 +345,7 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
   const scenarios: ExperimentResult["scenarios"] = [];
   let sequence = 0;
   const write = (record: Omit<ExperimentRecord, "schemaVersion" | "sequence">): void => {
-    const complete = { schemaVersion: 2 as const, sequence: ++sequence, ...record } as ExperimentRecord;
+    const complete = { schemaVersion: 3 as const, sequence: ++sequence, ...record } as ExperimentRecord;
     records.push(complete);
     options.write?.(complete);
   };
@@ -221,10 +355,22 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
     modelCatalog: catalog,
   });
 
+  const actionCompilationSlots = eagerSlotMatrix(
+    options.actionCompilationSlots ?? [DEFAULT_EAGER_REFERENCE_CONFIG.actionCompilationMaxSlots],
+    "action-compilation-slots",
+  );
+  const agentMindSlots = eagerSlotMatrix(
+    options.agentMindSlots ?? [DEFAULT_EAGER_REFERENCE_CONFIG.agentMindMaxSlots],
+    "agent-mind-slots",
+  );
   for (const agentCount of positiveMatrix(options.agents, "agents")) {
     for (const stepCount of positiveMatrix(options.steps, "steps")) {
+      for (const actionCompilationMaxSlots of actionCompilationSlots) {
+        for (const agentMindMaxSlots of agentMindSlots) {
+      const algorithmConfig = { actionCompilationMaxSlots, agentMindMaxSlots };
+      const algorithmManifest = createEagerReferenceManifest(algorithmConfig);
       const definition = scaledDefinition(fixture, agentCount);
-      const instanceId = `experiment-${agentCount}-${stepCount}`;
+      const instanceId = `experiment-${agentCount}-${stepCount}-ac${actionCompilationMaxSlots}-am${agentMindMaxSlots}`;
       const trialId = options.ledger ? randomUUID() : undefined;
       const recording = new RecordingRuntimeObserver({ mode: options.ledger ? "full" : "metrics" });
       const code = runtimeCodeIdentity();
@@ -234,13 +380,19 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
         parentExecutionId: options.parentExecutionId,
         instanceId,
         step: 0,
-        manifest: EAGER_REFERENCE_MANIFEST,
+        manifest: algorithmManifest,
         worldHash: definition.initialState.worldHash,
         codeRevision: code.revision,
         codeDirty: code.dirty,
         modelCatalogHash: catalog.hash,
         seed: definition.initialState.truth.rng.seed,
-        runtimeConfig: { agents: agentCount, steps: stepCount, deterministic: true, participants: 0 },
+        runtimeConfig: {
+          agents: agentCount,
+          steps: stepCount,
+          deterministic: true,
+          participants: 0,
+          ...algorithmConfig,
+        },
       }) : undefined;
       const observer: RuntimeObserver = durable ? new ExperimentObserver(durable, recording) : recording;
       const provider = new ModelGateway(catalog, experimentCredentials(catalog), {
@@ -248,23 +400,29 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
         maxTransportAttempts: 1,
         adapters: new Map([["scripted-test", deterministicAdapter]]),
       });
-      const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+      const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider, undefined, algorithmConfig));
       const semanticHashes: string[] = [];
+      const scenarioAudits: ModelExecutionAudit[] = [];
+      let totalStepWallMs = 0;
       try {
-        write({ event: "experiment.scenario.started", agents: agentCount, steps: stepCount });
+        write({ event: "experiment.scenario.started", agents: agentCount, steps: stepCount, ...algorithmConfig });
         await engine.bootstrapAgents({
           workloadId: instanceId,
           batchId: `bootstrap:${instanceId}`,
           correlation: { instanceId, revision: 0, step: 0, executionId: trialId },
           observer,
         });
-        let cumulativeInputBytes = invocationSummary(engine.bootstrapModelAudits).inputBytes;
-        let modelInvocations = invocationSummary(engine.bootstrapModelAudits).invocations;
+        scenarioAudits.push(...engine.bootstrapModelAudits);
+        const bootstrapSummary = invocationSummary(engine.bootstrapModelAudits);
+        let cumulativeInputBytes = bootstrapSummary.inputBytes;
+        let modelInvocations = bootstrapSummary.invocations;
+        let cumulativeTokenUsage = bootstrapSummary.tokenUsage;
         write({
           event: "experiment.bootstrap",
           agents: agentCount,
           targetSteps: stepCount,
-          ...invocationSummary(engine.bootstrapModelAudits),
+          ...algorithmConfig,
+          ...bootstrapSummary,
           cumulativeInputUtf8Bytes: cumulativeInputBytes,
         });
 
@@ -296,16 +454,21 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
           });
           semanticHashes.push(result.committed.semanticHash);
           const summary = invocationSummary(result.modelAudits);
+          scenarioAudits.push(...result.modelAudits);
           cumulativeInputBytes += summary.inputBytes;
           modelInvocations += summary.invocations;
+          cumulativeTokenUsage = mergeTokenUsage(cumulativeTokenUsage, summary.tokenUsage);
+          const stepWallMs = Number((performance.now() - startedAt).toFixed(3));
+          totalStepWallMs += stepWallMs;
           write({
             event: "experiment.step",
             agents: agentCount,
             targetSteps: stepCount,
             step: result.state.step,
+            ...algorithmConfig,
             ...summary,
             cumulativeInputUtf8Bytes: cumulativeInputBytes,
-            stepWallMs: Number((performance.now() - startedAt).toFixed(3)),
+            stepWallMs,
             instanceDocumentBytes: Buffer.byteLength(JSON.stringify(result.state), "utf8"),
           });
           const byRole = new Map<string, ModelInvocationAudit[]>();
@@ -334,9 +497,19 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
           commitRevision: finalState.revision,
         });
         const ledger = ledgerMeasurement(options.ledger, trialId);
+        const batch = eagerBatchSummary(recording.events);
+        const physicalCalls = rolePhysicalCalls(scenarioAudits);
+        const concurrencyWaves = roleConcurrencyWaves(recording.events);
         const scenario = {
           agents: agentCount,
           steps: stepCount,
+          ...algorithmConfig,
+          ...batch,
+          rolePhysicalCalls: physicalCalls,
+          roleConcurrencyWaves: concurrencyWaves,
+          tokenUsage: cumulativeTokenUsage,
+          stepWallMs: Number(totalStepWallMs.toFixed(3)),
+          successRate: 1,
           cumulativeInputBytes,
           modelInvocations,
           instanceDocumentBytes: Buffer.byteLength(JSON.stringify(finalState), "utf8"),
@@ -352,6 +525,8 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
           options.ledger!.finishExecution(trialId, { status: "failed", error });
         }
         throw error;
+      }
+        }
       }
     }
   }

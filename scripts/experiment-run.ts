@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const parentExecutionId = randomUUID();
   const parentManifest = defineEngineOperationManifest({
     id: "deterministic-runtime-matrix",
-    version: "1",
+    version: "2",
     config: matrix,
   });
   const trace = database.beginExecution({

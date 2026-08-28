@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v13 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v18 在其外层固定 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v2 artifact、调度配置和 WorldRun。
+`SimulationState` v13 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan 与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v19 在其外层固定带 opaque config 的 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v3 artifact、调度配置和 WorldRun。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -36,7 +36,9 @@ Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active
 
 终止 disposition 释放全部 claims，pause 按定义保留或释放。每次正时间提交先应用 disposition，再按相互连接的 pool 划分 FIFO 分量；每个分量遇到第一个无法完整满足的队首就停止，其他不相连分量仍可推进。满足者转为 `ready` 并持有原子 reservation，在下一次普通正时间步骤重新验证 assertions 后从当前 canonical 时间物化新 TemporalPlan；排队时间不回填进度。Entity retirement 或 capacity decrease 只有在同一 Candidate 释放足够 holder 时才合法。
 
-`eager-reference@5` 的阶段如下：
+`eager-reference@7` 的阶段如下：
+
+Action Compilation 与 AgentMind 在算法内部使用独立上限的槽位批处理，默认分别为十二和八，合法范围均为一至六十四。Action Compilation 每批只发送一份 canonical catalog、Temporal Profiles、校准与世界时间；AgentMind 按 `bootstrap | resume | mind` 和 Agent model profile 分组，每批只共享 execution、revision 与 trust boundary，私有 perspective、Observation、current resolution 和 Character update policy 始终留在各自 slot。输入字节上限可继续缩小实际批次；局部语义失败只修复失败 slot，结构失败修复整批三次后稳定二分，terminal provider 错误不拆批。一个物理请求对应一份 audit，批结果不把 invocation ID 复制给各 Agent。
 
 1. 只为当前决策点的 model/external Agent 收集新行动；被 active Activity 占用的 Agent 不运行普通 AgentMind。
 2. 每个新行动独立规划 TemporalPlan，并用一次 grounding 生成 read/write/audience footprint 和共享资源 claims，在当前时刻物化带 continuation assertions 的 Activity。普通新行动替换本人可中断、queued 或 ready Activity 时，同一投影先取消旧 Activity。
@@ -49,7 +51,7 @@ Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active
 9. Observation Renderer 根据 transition 后状态、事件和 interaction audience 生成固定槽位 observation；reject、入队、预留、开始和争用结果不维护第二套叙事事实。onset `keep` 可以让 Activity 在接收本次刺激后继续；没有预警的相关结果则可在同一提交中暂停 Activity。只有已解除 active 占用的真正决策点才允许运行 AgentMind。
 10. CanonicalCommitter 重新应用 Candidate v4，并独立重建 source hash、最早边界、四类 interaction nodes、affected Activity 集、claims、holder 释放、admissions、FIFO promotion、dispositions、assertion evidence、统一 Observation 和全部 canonical 不变量，随后构造 `CommittedStep` 与下一状态。
 
-算法不持有状态写入能力，也不能定义稳定事件或指标语义。Execution Contract v4 将一步拆为可 JSON 持久化的 Preparation v2 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
+算法不持有状态写入能力，也不能定义稳定事件或指标语义。Execution Contract v5 将一步拆为可 JSON 持久化的 Preparation v3 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、带配置 manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
 
 ## Truth 与随机承诺
 

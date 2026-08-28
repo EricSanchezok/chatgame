@@ -2,7 +2,7 @@ import { z } from "zod";
 import { applyBeliefPatch } from "./belief";
 import { applyCharacterPatch } from "./character";
 import {
-  agentMindOutputSchema,
+  agentMindBatchOutputSchema,
   reactionDecisionDraftSchema,
   type AgentMindDraftOutput,
   type AgentMindOutput,
@@ -19,6 +19,15 @@ import type {
   SimulationState,
   WorldEvent,
 } from "./model";
+import {
+  eagerRequestBytes,
+  eagerSlotBatchOwner,
+  EagerSlotAttemptError,
+  isTerminalEagerModelError,
+  runEagerSlotBatches,
+  type EagerSlot,
+  type EagerSlotBatchMetrics,
+} from "./eager-slot-batching";
 import {
   combineModelExecutionAudits,
   modelInvocationCorrelation,
@@ -37,10 +46,11 @@ import { ModelOverloadedError } from "./model-scheduler";
 import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "./observability";
 import {
   AGENT_PROMPT_VERSION,
-  AGENT_SYSTEM,
+  AGENT_BATCH_SYSTEM,
   REACTION_PROMPT_VERSION,
   REACTION_SYSTEM,
-  buildAgentContext,
+  buildAgentSharedContext,
+  buildAgentSlotContext,
   buildReactionContext,
   sanitizeObservationForAgent,
   validationIssues,
@@ -240,137 +250,234 @@ function isTerminalModelError(error: unknown): boolean {
     (error instanceof Error && error.name === "AbortError");
 }
 
+export interface AgentMindBatchInput {
+  agent: AgentState;
+  observations: readonly ObservationPacket[];
+  currentResolution: {
+    action: AgentActionProposal | null;
+    outcome: {
+      status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
+    } | null;
+  };
+  events: readonly WorldEvent[];
+}
+
+export interface AgentMindBatchResult {
+  outputs: Map<string, AgentMindOutput>;
+  failures: Array<{ agentId: string; error: unknown }>;
+  modelAudits: ModelExecutionAudit[];
+  batchCount: number;
+  metrics: EagerSlotBatchMetrics;
+}
+
+type AgentMindSlot = EagerSlot<AgentMindBatchInput, PromptValidationIssue>;
+
+function agentMindBatchContext(
+  state: SimulationState,
+  scope: ModelExecutionScope,
+  purpose: "bootstrap" | "mind" | "resume",
+  slots: readonly AgentMindSlot[],
+) {
+  return {
+    ...buildAgentSharedContext({
+      state,
+      instanceId: scope.workloadId,
+      advanceId: scope.batchId,
+    }),
+    purpose,
+    slots: slots.map((slot, index) => ({
+      slot: index,
+      ...buildAgentSlotContext({
+        state,
+        agent: slot.payload.agent,
+        observations: slot.payload.observations,
+        events: slot.payload.events,
+        currentAction: slot.payload.currentResolution.action,
+        currentOutcome: slot.payload.currentResolution.outcome,
+        issues: slot.issues,
+      }),
+    })),
+  };
+}
+
+function assertAgentMindSlotCoverage(
+  slots: readonly AgentMindSlot[],
+  drafts: readonly { slot: number }[],
+): void {
+  if (drafts.length !== slots.length) {
+    throw new Error(`AgentMind returned ${drafts.length} items for ${slots.length} slots`);
+  }
+  const indexes = drafts.map((draft) => draft.slot).sort((left, right) => left - right);
+  if (indexes.some((slot, index) => slot !== index)) {
+    throw new Error("AgentMind did not cover every slot exactly once");
+  }
+}
+
 export class AgentMind {
   constructor(
     private readonly provider: StructuredModelProvider,
     private readonly repairAttempts = 2,
   ) {}
 
-  async think(
+  async thinkBatch(
     state: SimulationState,
-    agent: AgentState,
-    observations: readonly ObservationPacket[],
+    inputs: readonly AgentMindBatchInput[],
     scope: ModelExecutionScope,
-    currentResolution: {
-      action: AgentActionProposal | null;
-      outcome: {
-        status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
-      } | null;
-    } = { action: null, outcome: null },
-    events: readonly WorldEvent[] = [],
     purpose: "bootstrap" | "mind" | "resume" = "mind",
-  ): Promise<AgentMindOutput & { modelAudit: ModelExecutionAudit }> {
-    let issues: PromptValidationIssue[] = [];
-    const audits: ModelExecutionAudit[] = [];
-    let lastError = "unknown AgentMind validation failure";
-    let lastCause: unknown;
+    maxSlots = 1,
+  ): Promise<AgentMindBatchResult> {
+    if (inputs.length === 0) {
+      return {
+        outputs: new Map(),
+        failures: [],
+        modelAudits: [],
+        batchCount: 0,
+        metrics: { submittedSlots: 0, repairCalls: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
+      };
+    }
+    const ids = inputs.map((input) => input.agent.id);
+    if (new Set(ids).size !== ids.length) throw new Error("AgentMind batch contains duplicate Agents");
     const observe = runtimeEventEmitter(scope.observer);
     const role = purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind";
-    const profileId = purpose === "bootstrap" ? agent.modelProfiles.bootstrap : agent.modelProfiles.mind;
-
-    for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
-      try {
-        const contextStartedAt = Date.now();
-        const context = buildAgentContext({
-          state,
-          agent,
-          observations,
-          events,
-          currentAction: currentResolution.action,
-          currentOutcome: currentResolution.outcome,
-          instanceId: scope.workloadId,
-          advanceId: scope.batchId,
-          issues,
-        });
-        const identity = modelInvocationIdentity(
-          scope,
-          role,
-          purpose === "resume" ? `${agent.id}:resume` : agent.id,
-          attempt + 1,
-        );
-        const correlation = modelInvocationCorrelation(scope, role, agent.id, identity);
-        observe?.({
-          event: "model.context.built",
-          correlation,
-          durationMs: Math.max(0, Date.now() - contextStartedAt),
-          hashes: { context: contentHash(context) },
-        });
-        const result = await this.provider.generateStructured({
-          profileId,
-          workloadId: scope.workloadId,
-          batchId: scope.batchId,
-          abortSignal: scope.abortSignal,
-          correlation: scope.correlation,
-          observer: scope.observer,
-          ...identity,
-          role,
-          subjectId: agent.id,
-          promptVersion: AGENT_PROMPT_VERSION,
-          schemaName: "agent_mind_output",
-          system: AGENT_SYSTEM,
-          context,
-          schema: agentMindOutputSchema,
-        });
-        audits.push(result.audit);
-        const validated = validateMindOutput(
-          agent,
-          state,
-          observations,
-          events,
-          result.value,
-        );
-        setModelInvocationResultKind(
-          result.audit,
-          purpose === "bootstrap" ? "agent_bootstrap" : purpose === "resume" ? "agent_mind_resume" : "agent_mind",
-        );
-        setModelInvocationOutcome(result.audit, "accepted");
-        observe?.({
-          event: "model.semantic.accepted",
-          correlation,
-          attributes: {
-            resultKind: purpose === "bootstrap"
-              ? "agent_bootstrap"
-              : purpose === "resume" ? "agent_mind_resume" : "agent_mind",
-          },
-          hashes: { response: result.audit.invocations.at(-1)!.responseHash! },
-        });
-        return {
-          ...validated,
-          modelAudit: combineModelExecutionAudits(audits),
-        };
-      } catch (error) {
-        if (isTerminalModelError(error)) throw error;
-        if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
-        if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) &&
-          !(error instanceof Error)) throw error;
-        lastError = error instanceof Error ? error.message : String(error);
-        lastCause = error;
-        issues = validationIssues(error);
-        const audit = audits.at(-1);
-        if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
-        const invocation = audit?.invocations.at(-1);
-        observe?.({
-          event: "model.semantic.rejected",
-          level: "warn",
-          correlation: modelInvocationCorrelation(scope, role, agent.id, {
-            modelInvocationId: invocation?.id,
-            modelInvocation: invocation?.ordinal,
-          }),
-          attributes: { resultKind: invocation?.resultKind ?? null },
-          counts: { validationIssues: issues.length },
-          payload: scope.observer ? fullRuntimePayload(scope.observer, { issues }) : undefined,
-          error: serializeRuntimeError(error),
-        });
-      }
+    const groups = new Map<string, AgentMindSlot[]>();
+    for (const input of [...inputs].sort((left, right) => left.agent.id.localeCompare(right.agent.id))) {
+      const profileId = purpose === "bootstrap" ? input.agent.modelProfiles.bootstrap : input.agent.modelProfiles.mind;
+      const group = groups.get(profileId) ?? [];
+      group.push({ key: input.agent.id, payload: input, issues: [] });
+      groups.set(profileId, group);
     }
-    throw new ModelSemanticRepairError(
-      role,
-      `AgentMind ${agent.id} failed after repairs: ${lastError}`,
-      {
-        cause: lastCause,
-        audit: audits.length > 0 ? combineModelExecutionAudits(audits) : undefined,
+    const groupResults = await Promise.all([...groups.entries()].sort(([left], [right]) => left.localeCompare(right))
+      .map(async ([profileId, slots]) => runEagerSlotBatches({
+        slots,
+        maxSlots,
+        maxInputBytes: this.provider.catalog.profile(profileId).max_input_bytes,
+        requestBytes: (batch) => eagerRequestBytes(
+          AGENT_BATCH_SYSTEM,
+          agentMindBatchContext(state, scope, purpose, batch),
+          agentMindBatchOutputSchema,
+        ),
+        label: `AgentMind ${purpose}`,
+        issuesForError: (error) => validationIssues(error),
+        invoke: async (batch, attempt) => {
+          const owner = eagerSlotBatchOwner(`agent-mind-${purpose}`, batch);
+          const identity = modelInvocationIdentity(scope, role, owner, attempt + 1);
+          const correlation = modelInvocationCorrelation(scope, role, owner, identity);
+          let generated;
+          try {
+            const contextStartedAt = Date.now();
+            const context = agentMindBatchContext(state, scope, purpose, batch);
+            observe?.({
+              event: "model.context.built",
+              correlation,
+              durationMs: Math.max(0, Date.now() - contextStartedAt),
+              hashes: { context: contentHash(context) },
+            });
+            generated = await this.provider.generateStructured({
+              profileId,
+              workloadId: scope.workloadId,
+              batchId: scope.batchId,
+              abortSignal: scope.abortSignal,
+              correlation: scope.correlation,
+              observer: scope.observer,
+              ...identity,
+              role,
+              subjectId: owner,
+              promptVersion: AGENT_PROMPT_VERSION,
+              schemaName: "agent_mind_batch_output",
+              system: AGENT_BATCH_SYSTEM,
+              context,
+              schema: agentMindBatchOutputSchema,
+            });
+            assertAgentMindSlotCoverage(batch, generated.value.slots);
+          } catch (error) {
+            if (isTerminalEagerModelError(error)) throw error;
+            const audit = error && typeof error === "object" && "audit" in error
+              ? (error as { audit?: ModelExecutionAudit }).audit
+              : generated?.audit;
+            const issues = validationIssues(error);
+            if (audit?.invocations.length) {
+              setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
+            }
+            observe?.({
+              event: "model.semantic.rejected",
+              level: "warn",
+              correlation,
+              attributes: { resultKind: `agent_mind_${purpose}_batch` },
+              counts: { validationIssues: issues.length },
+              payload: scope.observer ? fullRuntimePayload(scope.observer, { issues }) : undefined,
+              error: serializeRuntimeError(error),
+            });
+            throw new EagerSlotAttemptError(
+              error instanceof Error ? error.message : String(error),
+              audit,
+              { cause: error },
+            );
+          }
+
+          const accepted: Array<{ key: string; result: AgentMindOutput }> = [];
+          const rejected: Array<{ slot: AgentMindSlot; issues: PromptValidationIssue[] }> = [];
+          const ordered = [...generated.value.slots].sort((left, right) => left.slot - right.slot);
+          for (const [index, draft] of ordered.entries()) {
+            const slot = batch[index]!;
+            try {
+              accepted.push({
+                key: slot.key,
+                result: validateMindOutput(
+                  slot.payload.agent,
+                  state,
+                  slot.payload.observations,
+                  slot.payload.events,
+                  draft,
+                ),
+              });
+            } catch (error) {
+              rejected.push({ slot, issues: validationIssues(error) });
+            }
+          }
+          setModelInvocationResultKind(generated.audit, `agent_mind_${purpose}_batch`);
+          if (rejected.length === 0) {
+            setModelInvocationOutcome(generated.audit, "accepted");
+            observe?.({
+              event: "model.semantic.accepted",
+              correlation,
+              attributes: { resultKind: `agent_mind_${purpose}_batch` },
+              hashes: { response: generated.audit.invocations.at(-1)!.responseHash! },
+            });
+          } else {
+            const issues = rejected.flatMap((entry) => entry.issues);
+            setModelInvocationOutcome(generated.audit, "rejected", issues.map((issue) => issue.code));
+            observe?.({
+              event: "model.semantic.rejected",
+              level: "warn",
+              correlation,
+              attributes: { resultKind: `agent_mind_${purpose}_batch` },
+              counts: { validationIssues: issues.length },
+              payload: scope.observer ? fullRuntimePayload(scope.observer, { issues }) : undefined,
+              error: { name: "AgentMindSlotValidationError", message: `${rejected.length} slot(s) rejected` },
+            });
+          }
+          return { audit: generated.audit, accepted, rejected };
+        },
+      })));
+
+    const outputs = new Map<string, AgentMindOutput>();
+    groupResults.forEach((result) => result.results.forEach((output, agentId) => outputs.set(agentId, output)));
+    return {
+      outputs,
+      failures: groupResults.flatMap((result) => result.failures.map((failure) => ({
+        agentId: failure.slot.payload.agent.id,
+        error: failure.error,
+      }))),
+      modelAudits: groupResults.flatMap((result) => result.audits),
+      batchCount: groupResults.reduce((total, result) => total + result.batchCount, 0),
+      metrics: {
+        submittedSlots: groupResults.reduce((total, result) => total + result.metrics.submittedSlots, 0),
+        repairCalls: groupResults.reduce((total, result) => total + result.metrics.repairCalls, 0),
+        splitCount: groupResults.reduce((total, result) => total + result.metrics.splitCount, 0),
+        partialFailureSlots: groupResults.reduce((total, result) => total + result.metrics.partialFailureSlots, 0),
+        singletonFailures: groupResults.reduce((total, result) => total + result.metrics.singletonFailures, 0),
       },
-    );
+    };
   }
 
   async react(

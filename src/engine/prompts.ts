@@ -29,9 +29,9 @@ import type { TemporalBoundary } from "./temporal";
 export const TRUTH_PROMPT_VERSION = "truth-engine-v10";
 export const RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION = "resolution-plan-verifier-v1";
 export const CAUSAL_VERIFIER_PROMPT_VERSION = "causal-verifier-v4";
-export const AGENT_PROMPT_VERSION = "agent-mind-v8";
+export const AGENT_PROMPT_VERSION = "agent-mind-v9";
 export const REACTION_PROMPT_VERSION = "agent-reaction-v3";
-export const MODEL_CONTEXT_CONTRACT_VERSION = 10;
+export const MODEL_CONTEXT_CONTRACT_VERSION = 11;
 
 export interface PromptValidationIssue {
   code: string;
@@ -84,6 +84,13 @@ export const AGENT_SYSTEM = `你是游戏世界中具有有限认知的自主 Ag
 不得使用或猜测 canonical entity id，不得声称知道未提供的信息，不得访问其他 Agent 信念。新假设实体必须使用自己的局部 id。nextAction.means 没有内容时写 null；所有 nullable 字段必须显式输出 null。
 
 不要输出思维链、Markdown 或解释，只输出请求 schema 规定的结构化结果。`;
+
+export const AGENT_BATCH_SYSTEM = `你要在一次响应中分别处理多个互相隔离的 AgentMind slot。公共 execution、revision 和 trustBoundary 对整批有效；每个 slot 的 perspective、observations、currentResolution、characterUpdatePolicy 和 validationIssues 只属于该 slot，绝不能跨 slot 读取、推断、合并或复用私有认知。
+
+下面的 AgentMind 契约分别适用于每个 slot：
+${AGENT_SYSTEM}
+
+输出必须恰好覆盖输入中的每个整数 slot，且每个 slot 只能出现一次。不要输出 agentId、revision 或任何由引擎绑定的持久身份。只输出批量 schema 指定的 JSON。`;
 
 export const REACTION_SYSTEM = `你是游戏世界中具有有限认知的自主 Agent。你已为当前 revision 预备了一个行动，现在收到玩家本步骤行动的私有 stimulus。
 
@@ -297,7 +304,7 @@ export function buildResolutionPlanVerificationContext(input: {
   };
 }
 
-export function buildAgentContext(input: {
+interface AgentContextInput {
   state: SimulationState;
   agent: AgentState;
   observations: readonly ObservationPacket[];
@@ -307,10 +314,9 @@ export function buildAgentContext(input: {
   instanceId: string;
   advanceId: string;
   issues: readonly PromptValidationIssue[];
-}): unknown {
-  const currentEvents = new Map(input.events
-    .filter((event) => event.step === input.state.step)
-    .map((event) => [event.id, event]));
+}
+
+export function buildAgentSharedContext(input: Pick<AgentContextInput, "state" | "instanceId" | "advanceId">) {
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     promptVersion: AGENT_PROMPT_VERSION,
@@ -326,6 +332,14 @@ export function buildAgentContext(input: {
     },
     revision: input.state.revision,
     step: input.state.step,
+  };
+}
+
+export function buildAgentSlotContext(input: Omit<AgentContextInput, "instanceId" | "advanceId">) {
+  const currentEvents = new Map(input.events
+    .filter((event) => event.step === input.state.step)
+    .map((event) => [event.id, event]));
+  return {
     perspective: projectAgentPerspective(input.state, input.agent),
     currentResolution: {
       ownAction: input.currentAction,
@@ -348,6 +362,13 @@ export function buildAgentContext(input: {
       }),
     },
     validationIssues: input.issues,
+  };
+}
+
+export function buildAgentContext(input: AgentContextInput): unknown {
+  return {
+    ...buildAgentSharedContext(input),
+    ...buildAgentSlotContext(input),
   };
 }
 

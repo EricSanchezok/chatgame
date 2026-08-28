@@ -7,6 +7,8 @@ import type {
 } from "../model-provider";
 import type { ModelExecutionAudit } from "../model";
 import { modelInvocationIdentity, ModelOutputError } from "../model-provider";
+import type { ActionCompilationDraft } from "../execution";
+import type { AgentMindDraftOutput } from "../llm-schemas";
 
 const TEST_PROFILE_IDS = [
   "truth-engine",
@@ -331,6 +333,102 @@ export class ScriptedModelProvider implements StructuredModelProvider {
   }
 }
 
+interface DeterministicCompilationAction {
+  id: string;
+  actorId: string;
+  rawText: string;
+}
+
+interface DeterministicCompilationSlot {
+  slot: number;
+  action: DeterministicCompilationAction;
+}
+
+interface DeterministicMindSlot {
+  slot: number;
+  perspective: {
+    agentId: string;
+    self: { name: string; location: { name: string } | null };
+  };
+}
+
+function deterministicActionCompilation(
+  action: DeterministicCompilationAction,
+  temporalProfiles: readonly { id: string }[],
+): ActionCompilationDraft {
+  const profile = temporalProfiles[0];
+  if (!profile) throw new Error("deterministic action compiler has no temporal profile");
+  return {
+    temporalPlan: {
+      profileId: profile.id,
+      basis: { kind: "profile" },
+      description: action.rawText,
+      continuationAssertions: [],
+      causes: [{ kind: "action", id: action.id }],
+    },
+    interactionDependency: {
+      reads: [{ kind: "global", id: "world" }],
+      writes: [{ kind: "global", id: "world" }],
+      audienceAgentIds: [action.actorId],
+      sharedResourceClaims: [],
+      globalFallback: true,
+    },
+  };
+}
+
+export function deterministicActionCompilationBatch(
+  profileId: string,
+  context: unknown,
+  customize?: (
+    compilation: ActionCompilationDraft,
+    slot: DeterministicCompilationSlot,
+  ) => void,
+): { slots: Array<ActionCompilationDraft & { slot: number }> } {
+  void profileId;
+  const input = context as {
+    slots?: DeterministicCompilationSlot[];
+    temporalProfiles?: Array<{ id: string }>;
+  };
+  if (!input.slots || !input.temporalProfiles) {
+    throw new Error("deterministic action compiler expected a slot batch");
+  }
+  return {
+    slots: input.slots.map((slot) => {
+      const compilation = deterministicActionCompilation(slot.action, input.temporalProfiles!);
+      customize?.(compilation, slot);
+      return { slot: slot.slot, ...compilation };
+    }),
+  };
+}
+
+function deterministicAgentMindOutput(): AgentMindDraftOutput {
+  return {
+    beliefPatch: { operations: [] },
+    characterPatch: { operations: [] },
+    nextAction: {
+      rawText: "维持当前目标并观察世界",
+      goal: "继续自主行动",
+      means: null,
+      targetIds: [],
+    },
+  };
+}
+
+export function deterministicAgentMindBatch(
+  context: unknown,
+  customize?: (output: AgentMindDraftOutput, slot: DeterministicMindSlot) => void,
+): unknown {
+  const input = context as { slots?: DeterministicMindSlot[] };
+  if (!input.slots) throw new Error("deterministic AgentMind expected a slot batch");
+  return {
+    slots: input.slots.map((slot) => {
+      const output = deterministicAgentMindOutput();
+      customize?.(output, slot);
+      return { slot: slot.slot, ...output };
+    }),
+  };
+}
+
 export function deterministicModelOutput(profileId: string, context: unknown): unknown {
       const input = context as {
         stage?: "perception" | "reaction-routing" | "resolution" | "transition";
@@ -343,6 +441,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           self: { name: string; location: { name: string } | null };
         };
         action?: { id: string; actorId: string; rawText: string };
+        slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot>;
         entity?: { name: string; location: string | null };
         world?: { laws: Array<{ id: string }> };
         actors?: Record<string, unknown>;
@@ -356,25 +455,15 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
         };
       };
+      if (input.slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) &&
+        input.temporalProfiles) {
+        return deterministicActionCompilationBatch(profileId, context);
+      }
+      if (input.slots?.every((slot): slot is DeterministicMindSlot => "perspective" in slot)) {
+        return deterministicAgentMindBatch(context);
+      }
       if (input.action && input.temporalProfiles) {
-        const profile = input.temporalProfiles[0];
-        if (!profile) throw new Error("deterministic action compiler has no temporal profile");
-        return {
-          temporalPlan: {
-            profileId: profile.id,
-            basis: { kind: "profile" },
-            description: input.action.rawText,
-            continuationAssertions: [],
-            causes: [{ kind: "action", id: input.action.id }],
-          },
-          interactionDependency: {
-            reads: [{ kind: "global", id: "world" }],
-            writes: [{ kind: "global", id: "world" }],
-            audienceAgentIds: [input.action.actorId],
-            sharedResourceClaims: [],
-            globalFallback: true,
-          },
-        };
+        return deterministicActionCompilation(input.action, input.temporalProfiles);
       }
       if (input.action) {
         return {
@@ -460,16 +549,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
       const agentId = input.perspective?.agentId;
       const revision = input.revision;
       if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
-      return {
-        beliefPatch: { operations: [] },
-        characterPatch: { operations: [] },
-        nextAction: {
-          rawText: "维持当前目标并观察世界",
-          goal: "继续自主行动",
-          means: null,
-          targetIds: [],
-        },
-      };
+      return deterministicAgentMindOutput();
 }
 
 export class DeterministicModelProvider extends ScriptedModelProvider {

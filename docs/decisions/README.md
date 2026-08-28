@@ -113,3 +113,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0072 — Seed Bundled Reference Worlds](0072-seed-bundled-reference-worlds.md)
 - [0073 — Stage Perceptible Reactions Before Temporal-boundary Selection](0073-stage-reactions-before-temporal-boundary-selection.md)
 - [0074 — Enforce Script-owned Shared-resource Pools in the Canonical Kernel](0074-enforce-script-owned-shared-resource-pools.md)
+- [0075 — Pin Configured Execution Algorithms](0075-pin-configured-execution-algorithms.md)

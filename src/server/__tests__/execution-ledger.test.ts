@@ -432,7 +432,13 @@ describe("Execution Ledger", () => {
   it("replays recorded model outputs through the algorithm without network access", async () => {
     const ledger = database();
     try {
-      const experiment = await runDeterministicExperiment({ agents: [1], steps: [1], ledger });
+      const experiment = await runDeterministicExperiment({
+        agents: [1],
+        steps: [1],
+        actionCompilationSlots: [3],
+        agentMindSlots: [2],
+        ledger,
+      });
       expect(experiment.scenarios[0]).toMatchObject({
         ledgerEventCount: expect.any(Number),
         ledgerArtifactRawBytes: expect.any(Number),
@@ -444,6 +450,7 @@ describe("Execution Ledger", () => {
       const original = ledger.executions({ kind: "benchmark" })
         .find((execution) => execution.manifest.id === "eager-reference");
       expect(original).toBeDefined();
+      expect(original?.manifest.config).toEqual({ actionCompilationMaxSlots: 3, agentMindMaxSlots: 2 });
       expect(candidatePartitions(ledger.executionEvents(original!.id))).toMatchObject({
         resolution: {
           plans: expect.any(Array),

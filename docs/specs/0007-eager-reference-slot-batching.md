@@ -1,7 +1,7 @@
 # Eager-reference slot batching
 
 Artifact-Version: 1
-Status: Approved
+Status: Implemented
 
 ## Intent
 
@@ -37,4 +37,10 @@ Run `npm run check:fast`, `npm run world:validate -- worlds/blackmarsh/world`, `
 
 ## Evidence
 
-Pending implementation.
+- Configured identity and forward-only persistence: [`execution.ts`](../../src/engine/execution.ts), [`builtin-algorithms.ts`](../../src/engine/builtin-algorithms.ts), [`eager-reference.ts`](../../src/engine/eager-reference.ts), [`world-instance-types.ts`](../../src/server/world-instance-types.ts), [`world-instance-store.ts`](../../src/server/world-instance-store.ts), and [`world-host.ts`](../../src/server/world-host.ts).
+- Private batching, validation, repair, and audit separation: [`eager-slot-batching.ts`](../../src/engine/eager-slot-batching.ts), [`action-compiler.ts`](../../src/engine/action-compiler.ts), and [`agent-mind.ts`](../../src/engine/agent-mind.ts).
+- Boundary and recovery tests: [`eager-slot-batching.test.ts`](../../src/engine/__tests__/eager-slot-batching.test.ts), [`eager-reference.test.ts`](../../src/engine/__tests__/eager-reference.test.ts), [`world-instance-host.test.ts`](../../src/server/__tests__/world-instance-host.test.ts), and [`execution-ledger.test.ts`](../../src/server/__tests__/execution-ledger.test.ts).
+- Blackmarsh and experiment coverage: [`blackmarsh-world.test.ts`](../../src/server/__tests__/blackmarsh-world.test.ts), [`execution-experiment.test.ts`](../../src/server/__tests__/execution-experiment.test.ts), [`experiment-core.ts`](../../scripts/experiment-core.ts), and [`experiment-run.ts`](../../scripts/experiment-run.ts).
+- Verified with `npm run check:fast`, `npm run world:validate -- worlds/blackmarsh/world`, `npm run build`, `node scripts/run-gates.mjs`, and `git diff --check`.
+- The requested 48-Agent deterministic `1,4,8,12 × 1,2,4,8` matrix completed all sixteen scenarios successfully. At the default `12/8`, Action Compilation used four physical calls and Agent bootstrap/mind used six calls per phase.
+- `npm run test:live:deepseek:batching` completed real Blackmarsh DeepSeek bootstrap and step preparation at the default `12/8`: 48 Agent bootstrap slots used six initial batches plus two repairs; 48 Action Compilation slots used four initial batches plus one localized repair and no split; neither phase reached singleton failure, and invocation IDs remained unique.

@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { EagerReferenceAlgorithm } from "../../engine/eager-reference";
+import { eagerReferenceAlgorithmRef } from "../../engine/builtin-algorithms";
 import {
   algorithmRef,
   defineAlgorithmManifest,
   WorldExecutionAlgorithmRegistry,
   type AlgorithmRef,
-  type ActionCompilationDraft,
   type BootstrapCandidate,
   type BootstrapInput,
   type ExecutionContext,
@@ -21,6 +21,7 @@ import { contentHash } from "../../engine/model-audit";
 import {
   DeterministicModelProvider,
   ScriptedModelProvider,
+  deterministicActionCompilationBatch,
   deterministicModelOutput,
 } from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
@@ -122,34 +123,33 @@ function reactionHarness(input: {
   const travelerId = "courtyard-wanderer-1";
   const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
     if (role === "action-compilation") {
-      const action = (context as { action: { id: string; actorId: string; rawText: string } }).action;
-      const compilation = deterministicModelOutput(profileId, context) as ActionCompilationDraft;
-      if (action.rawText.includes("100公里")) {
-        compilation.temporalPlan = {
-          profileId: "measured-travel",
-          basis: {
-            kind: "explicit_quantity",
-            amount: 100,
-            unit: "公里",
-            sourceText: "100公里",
-          },
-          description: "持续前往一百公里外",
-          continuationAssertions: [],
-          causes: [{ kind: "action", id: action.id }],
+      return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+        if (action.rawText.includes("100公里")) {
+          compilation.temporalPlan = {
+            profileId: "measured-travel",
+            basis: {
+              kind: "explicit_quantity",
+              amount: 100,
+              unit: "公里",
+              sourceText: "100公里",
+            },
+            description: "持续前往一百公里外",
+            continuationAssertions: [],
+            causes: [{ kind: "action", id: action.id }],
+          };
+        }
+        const isKeeper = action.actorId === "keeper";
+        if (isKeeper) keeperCompilations += 1;
+        compilation.interactionDependency = {
+          reads: [{ kind: "global", id: "world" }],
+          writes: [{ kind: "global", id: "world" }],
+          audienceAgentIds: isKeeper && keeperCompilations > 1
+            ? ["keeper", travelerId]
+            : [action.actorId],
+          sharedResourceClaims: [],
+          globalFallback: true,
         };
-      }
-      const isKeeper = action.actorId === "keeper";
-      if (isKeeper) keeperCompilations += 1;
-      compilation.interactionDependency = {
-        reads: [{ kind: "global", id: "world" }],
-        writes: [{ kind: "global", id: "world" }],
-        audienceAgentIds: isKeeper && keeperCompilations > 1
-          ? ["keeper", travelerId]
-          : [action.actorId],
-        sharedResourceClaims: [],
-        globalFallback: true,
-      };
-      return compilation;
+      });
     }
     return deterministicModelOutput(profileId, context);
   });
@@ -250,7 +250,7 @@ describe("World Instance host", () => {
       expect(arrivalRequest).toMatchObject({
         promptVersion: "arrival-v2",
         context: {
-          contractVersion: 10,
+          contractVersion: 11,
           perspective: { agentId: "courtyard-wanderer-1" },
         },
       });
@@ -836,6 +836,35 @@ describe("World Instance host", () => {
       expect(() => validateWorldInstanceDocument(invalidWindow)).toThrow("duplicate required Agents");
     } finally {
       database.close();
+    }
+  });
+
+  it("restores a non-default eager-reference configuration after host restart", async () => {
+    const setup = harness();
+    try {
+      const configured = eagerReferenceAlgorithmRef({
+        actionCompilationMaxSlots: 3,
+        agentMindMaxSlots: 2,
+      });
+      const created = await setup.host.createInstance(observerStart, "local", configured);
+      expect(setup.database.readInstance(created.summary.id).document.executionAlgorithm).toEqual(configured);
+
+      const recovered = new WorldHost({
+        repository: setup.repository,
+        store: setup.database,
+        ledger: setup.database,
+        provider: setup.provider,
+      });
+      await recovered.advance(created.summary.id, {
+        expectedRevision: created.summary.revision,
+        trigger: "manual",
+      });
+
+      expect(setup.database.readInstance(created.summary.id).document.executionAlgorithm).toEqual(configured);
+      expect(setup.database.executions({ instanceId: created.summary.id })
+        .every((execution) => execution.manifest.hash === configured.manifestHash)).toBe(true);
+    } finally {
+      setup.database.close();
     }
   });
 
