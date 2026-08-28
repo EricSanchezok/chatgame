@@ -71,12 +71,23 @@ function schemaExample(schema: unknown, root = schema, seen = new Set<unknown>()
   return null;
 }
 
+function discriminatorInstruction<T>(request: StructuredModelRequest<T>): string {
+  if (request.schemaName === "truth_perception_directive") {
+    return "For this Truth perception call, the discriminator kind must be exactly request_checks or done.";
+  }
+  if (request.schemaName === "truth_resolution_directive") {
+    return "For this Truth resolution call, the discriminator kind must be exactly commit_plans, request_random, or done.";
+  }
+  return "Choose the discriminator value exactly from the supplied schema; do not invent a new kind.";
+}
+
 function jsonObjectPrompt<T>(request: StructuredModelRequest<T>, contextJson: string): string {
   const jsonSchema = z.toJSONSchema(request.schema, { target: "draft-07" });
   return [
     contextJson,
     "",
     "Return exactly one JSON object matching the supplied schema. Do not use Markdown or explanatory prose.",
+    discriminatorInstruction(request),
     "Every causal reference must be an object with exactly two fields: {\"kind\": \"...\", \"id\": \"...\"}; never use an id as an object property name.",
     `JSON Schema: ${JSON.stringify(jsonSchema)}`,
     `Example JSON output shape: ${JSON.stringify(schemaExample(jsonSchema))}`,
@@ -84,16 +95,11 @@ function jsonObjectPrompt<T>(request: StructuredModelRequest<T>, contextJson: st
 }
 
 function toolCallPrompt<T>(request: StructuredModelRequest<T>, contextJson: string): string {
-  const discriminatorInstruction = request.schemaName === "truth_perception_directive"
-    ? "For this Truth perception call, the discriminator kind must be exactly request_checks or done."
-    : request.schemaName === "truth_resolution_directive"
-      ? "For this Truth resolution call, the discriminator kind must be exactly commit_plans, request_random, or done."
-      : "Choose the discriminator value exactly from the supplied schema; do not invent a new kind.";
   return [
     contextJson,
     "",
-    discriminatorInstruction,
-    "Call submit_result exactly once with the complete structured result.",
+    "You MUST call submit_result exactly once with the complete structured result. Do not answer with text.",
+    discriminatorInstruction(request),
   ].join("\n");
 }
 
@@ -152,10 +158,12 @@ export function structuredOutputMode(
     if (binding.model.toolCall) return "tool-call-zod";
     throw new Error(`model ${binding.modelId} cannot produce verified structured output`);
   }
-  if (binding.account.dialect === "zhipu" && binding.model.toolCall) {
-    // GLM's Coding Plan endpoint reliably enforces the supplied tool schema;
-    // its JSON-Schema response_format is accepted but may be ignored.
-    return "tool-call-zod";
+  if (binding.account.dialect === "zhipu" && binding.account.channel === "coding-plan" &&
+    binding.model.structuredOutput) {
+    // GLM Coding Plan supports JSON mode, while its function-call schema
+    // handling is unreliable for top-level discriminated unions. Keep the
+    // strict local Zod validation and use the provider's JSON mode transport.
+    return "json-object-zod";
   }
   if (binding.model.structuredOutput) {
     // DeepSeek's OpenAI-compatible endpoint reliably honors the JSON-object

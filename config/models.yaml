@@ -292,3 +292,6 @@ model_overrides:
       # The Coding Plan endpoint accepts explicit thinking disabled even though
       # the remote catalog does not declare the toggle capability.
       reasoning_toggle: true
+      # The OpenAI-compatible endpoint supports JSON mode; use it instead of
+      # function-call schemas for Truth's top-level discriminated unions.
+      structured_output: true

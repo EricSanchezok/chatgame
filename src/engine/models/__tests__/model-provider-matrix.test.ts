@@ -275,17 +275,30 @@ describe("provider account protocol matrix", () => {
         modelMetadataHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         catalogSchemaVersion: 3,
       });
+      if (profileId === "agent-zhipu-coding") {
+        expect(result.audit.structuredOutputMode).toBe("json-object-zod");
+      }
       expect(JSON.stringify(result.audit)).not.toContain(credentials[account.api_key_env]);
     }
 
     expect(calls).toHaveLength(Object.keys(profileModels).length);
     for (const call of calls.filter((candidate) => candidate.url.includes("bigmodel.cn"))) {
-      expect(call.body.tools).toEqual([expect.objectContaining({
-        type: "function",
-        function: expect.objectContaining({ name: "submit_result" }),
-      })]);
-      expect(call.body.tool_choice).toBe("auto");
-      expect(call.body.response_format).toBeUndefined();
+      const responseFormat = call.body.response_format as { type?: unknown } | undefined;
+      if (responseFormat?.type === "json_object") {
+        expect(call.body.response_format).toEqual({ type: "json_object" });
+        expect(call.body.tools).toBeUndefined();
+        expect(call.body.tool_choice).toBeUndefined();
+      } else if (call.body.response_format) {
+        expect(responseFormat?.type).toBe("json_schema");
+        expect(call.body.tools).toBeUndefined();
+        expect(call.body.tool_choice).toBeUndefined();
+      } else {
+        expect(call.body.tools).toEqual([expect.objectContaining({
+          type: "function",
+          function: expect.objectContaining({ name: "submit_result" }),
+        })]);
+        expect(call.body.tool_choice).toBe("auto");
+      }
     }
     for (const call of calls) {
       expect(call.url).not.toContain("models.dev");
