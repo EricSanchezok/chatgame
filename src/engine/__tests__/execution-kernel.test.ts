@@ -115,6 +115,12 @@ describe("execution kernel boundary", () => {
       ...algorithmRef(registered),
       manifestHash: "sha256:unknown",
     }, { provider: {} as never })).toThrow("manifest is not registered");
+
+    const incompleteManifest = algorithmManifest("incomplete");
+    const incompleteRegistry = new WorldExecutionAlgorithmRegistry();
+    incompleteRegistry.register(incompleteManifest, () => ({ manifest: incompleteManifest }) as never);
+    expect(() => incompleteRegistry.create(algorithmRef(incompleteManifest), { provider: {} as never }))
+      .toThrow("incomplete algorithm contract");
   });
 
   it("requires a fresh algorithm instance from every factory call", () => {

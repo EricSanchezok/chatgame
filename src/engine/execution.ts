@@ -462,6 +462,9 @@ export class WorldExecutionAlgorithmRegistry {
     if (!algorithm || typeof algorithm !== "object") {
       throw new Error(`execution algorithm factory did not return an algorithm instance: ${key}`);
     }
+    if (typeof algorithm.bootstrap !== "function" || typeof algorithm.step !== "function") {
+      throw new Error(`execution algorithm factory returned an incomplete algorithm contract: ${key}`);
+    }
     if (algorithm.manifest.id !== ref.id || algorithm.manifest.version !== ref.version ||
       algorithm.manifest.contractVersion !== ref.contractVersion ||
       algorithm.manifest.hash !== registered.manifestHash ||
