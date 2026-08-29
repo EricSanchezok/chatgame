@@ -96,12 +96,26 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
   }>;
   counts: Readonly<{ reactionFallbacks: number }>;
 } | {
+  event: "algorithm.agent_reaction.repair_exhausted";
+  attributes: Readonly<{
+    phase: "reaction";
+    policy: "fail-step";
+  }>;
+  counts: Readonly<{ reactionFailures: number }>;
+} | {
   event: "algorithm.truth_perception.repair_fallback";
   attributes: Readonly<{
     phase: "truth-perception";
     policy: "no-perception-reaction";
   }>;
   counts: Readonly<{ perceptionFallbacks: number }>;
+} | {
+  event: "algorithm.truth_perception.repair_exhausted";
+  attributes: Readonly<{
+    phase: "truth-perception";
+    policy: "fail-step";
+  }>;
+  counts: Readonly<{ perceptionFailures: number }>;
 } | {
   event: "algorithm.grounding.global_fallback";
   attributes: Readonly<{ phase: "grounding"; reasons: string }>;
@@ -399,12 +413,28 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
       policy: ["temporal-profile-fallback"],
     },
   },
+  "algorithm.agent_reaction.repair_exhausted": {
+    attributes: ["phase", "policy"],
+    counts: ["reactionFailures"],
+    attributeValues: {
+      phase: ["reaction"],
+      policy: ["fail-step"],
+    },
+  },
   "algorithm.truth_perception.repair_fallback": {
     attributes: ["phase", "policy"],
     counts: ["perceptionFallbacks"],
     attributeValues: {
       phase: ["truth-perception"],
       policy: ["no-perception-reaction"],
+    },
+  },
+  "algorithm.truth_perception.repair_exhausted": {
+    attributes: ["phase", "policy"],
+    counts: ["perceptionFailures"],
+    attributeValues: {
+      phase: ["truth-perception"],
+      policy: ["fail-step"],
     },
   },
   "algorithm.grounding.global_fallback": {

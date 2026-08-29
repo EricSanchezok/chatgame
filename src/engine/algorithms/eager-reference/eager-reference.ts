@@ -1126,17 +1126,14 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       } catch (error) {
         if (!(error instanceof ModelSemanticRepairError)) throw error;
         context.instrumentation.emit({
-          event: "algorithm.truth_perception.repair_fallback",
+          event: "algorithm.truth_perception.repair_exhausted",
           level: "warn",
           correlation: context.modelScope.correlation,
-          attributes: { phase: "truth-perception", policy: "no-perception-reaction" },
-          counts: { perceptionFallbacks: 1 },
+          attributes: { phase: "truth-perception", policy: "fail-step" },
+          counts: { perceptionFailures: 1 },
           error: { name: error.name, message: error.message },
         });
-        // Perception only gates optional onset reactions. If the model cannot
-        // produce a valid directive after repairs, omit those reactions while
-        // keeping the authored actions and main resolution path intact.
-        onsetPerception = null;
+        throw error;
       }
     }
     const onsetPerceptionTranscript = onsetPerception ?? {
@@ -1176,17 +1173,14 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       } catch (error) {
         if (!(error instanceof ModelSemanticRepairError) || !error.audit) throw error;
         context.instrumentation.emit({
-          event: "algorithm.agent_reaction.repair_fallback",
+          event: "algorithm.agent_reaction.repair_exhausted",
           level: "warn",
           correlation: { ...context.modelScope.correlation, modelSubject: request.agentId },
-          attributes: { phase: "reaction", policy: "temporal-profile-fallback" },
-          counts: { reactionFallbacks: 1 },
+          attributes: { phase: "reaction", policy: "fail-step" },
+          counts: { reactionFailures: 1 },
           error: { name: error.name, message: error.message },
         });
-        return {
-          decision: fallbackReactionDecision(planningState, request),
-          audit: error.audit,
-        };
+        throw error;
       }
     }), "action-onset reactions");
     const preparedReactionDecisions = reactionResults.flatMap((result) => result ? [result.decision] : []);

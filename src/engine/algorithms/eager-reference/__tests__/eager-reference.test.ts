@@ -1517,6 +1517,9 @@ describe("eager reference safeguards", () => {
           }],
         };
       }
+      if (role === "agent-reaction") {
+        return { kind: "keep" };
+      }
       return deterministicModelOutput(profileId, context);
     });
     const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
