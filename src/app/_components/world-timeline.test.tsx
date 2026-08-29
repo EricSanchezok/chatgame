@@ -82,6 +82,15 @@ describe("world timeline rail", () => {
     expect(screen.getByRole("button", { name: /门后的道路向黑暗深处延伸/ })).toBeInTheDocument();
   });
 
+  it("keeps arrows and the track inside one shared axis", () => {
+    const { container } = render(<WorldTimelineRail entries={entries} reducedMotion step={2} />);
+    const axis = container.querySelector(".cg-timeline-rail__axis");
+
+    expect(axis).not.toBeNull();
+    expect(axis?.querySelector(".cg-timeline-rail__track")).not.toBeNull();
+    expect(axis?.querySelectorAll(".cg-timeline-rail__arrow")).toHaveLength(2);
+  });
+
   it("projects every committed response with stable revision-aware ids", () => {
     const detail = {
       conversation: {
