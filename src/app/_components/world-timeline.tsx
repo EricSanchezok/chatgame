@@ -5,9 +5,12 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { PublicInstanceDetail, PublicWorldRun } from "../../shared/world-api";
 import type { WorldObserverDetail } from "../../shared/world-observer-api";
 
+export type TimelineEntryKind = "player" | "world";
+
 export type TimelineEntry = {
   id: string;
   targetId: string;
+  kind: TimelineEntryKind;
   step: number;
   revision: number;
   worldTimeSeconds?: number;
@@ -19,9 +22,21 @@ export type TimelineEntry = {
 export function participantTimeline(detail: PublicInstanceDetail): TimelineEntry[] {
   return (detail.conversation?.turns ?? []).flatMap((turn) => {
     const responses = turn.responses?.length ? turn.responses : turn.response ? [turn.response] : [];
-    return responses.map((response, index) => ({
+    if (responses.length === 0) return [];
+    const firstResponse = responses[0];
+    const playerEntry: TimelineEntry[] = turn.action ? [{
+      id: `timeline:${turn.id}:action`,
+      targetId: `${turn.id}:action`,
+      kind: "player",
+      step: firstResponse.step,
+      revision: firstResponse.revision,
+      title: "你的行动",
+      excerpt: turn.action.text,
+    }] : [];
+    const worldEntries = responses.map((response, index) => ({
       id: `timeline:${turn.id}:${response.revision}:${index}`,
       targetId: `${turn.id}:world:${response.revision}:${index}`,
+      kind: "world" as const,
       step: response.step,
       revision: response.revision,
       ...(response.worldTimeSeconds === undefined ? {} : { worldTimeSeconds: response.worldTimeSeconds }),
@@ -29,6 +44,7 @@ export function participantTimeline(detail: PublicInstanceDetail): TimelineEntry
       excerpt: response.text,
       ...(response.activity ? { activity: response.activity } : {}),
     }));
+    return [...playerEntry, ...worldEntries];
   });
 }
 
@@ -36,11 +52,21 @@ export function observerTimeline(observer?: WorldObserverDetail): TimelineEntry[
   const perspective = observer?.selected?.perspective;
   if (!perspective) return [];
   return perspective.history.flatMap((turn) => {
+    const actionEntry: TimelineEntry[] = turn.ownAction ? [{
+      id: `timeline:perspective:${perspective.agentId}:${turn.revision}:action`,
+      targetId: `perspective:${perspective.agentId}:${turn.revision}:action`,
+      kind: "player",
+      step: turn.step,
+      revision: turn.revision,
+      title: "角色行动",
+      excerpt: turn.ownAction,
+    }] : [];
     const excerpt = turn.observations.map((observation) => observation.summary).filter(Boolean).join("\n\n");
-    if (!excerpt) return [];
-    return [{
+    if (!excerpt) return actionEntry;
+    return [...actionEntry, {
       id: `timeline:perspective:${perspective.agentId}:${turn.revision}`,
       targetId: `perspective:${perspective.agentId}:${turn.revision}:observation`,
+      kind: "world" as const,
       step: turn.step,
       revision: turn.revision,
       title: "世界",
@@ -194,10 +220,14 @@ export function WorldTimelineRail({
         {entries.length > 0 ? (
           <ol style={trackStyle}>
             {entries.map((entry, index) => (
-              <li data-active={index === safeActiveIndex || undefined} key={entry.id}>
+              <li
+                data-active={index === safeActiveIndex || undefined}
+                data-kind={entry.kind}
+                key={entry.id}
+              >
                 <button
                   aria-current={index === safeActiveIndex ? "location" : undefined}
-                  aria-label={`第 ${entry.step} 步，${entry.title}，${entry.excerpt}`}
+                  aria-label={`第 ${entry.step} 步，${entry.title}，${entry.excerpt}（${entry.kind === "player" ? "玩家消息" : "世界回复"}）`}
                   className="cg-timeline-rail__tick"
                   onClick={() => goTo(index)}
                   onBlur={hidePreview}

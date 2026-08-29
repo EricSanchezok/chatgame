@@ -16,6 +16,7 @@ const entries: TimelineEntry[] = [
   {
     id: "timeline:one",
     targetId: "message:one",
+    kind: "world",
     step: 1,
     revision: 1,
     worldTimeSeconds: 12,
@@ -25,6 +26,7 @@ const entries: TimelineEntry[] = [
   {
     id: "timeline:two",
     targetId: "message:two",
+    kind: "world",
     step: 2,
     revision: 2,
     title: "门后",
@@ -97,6 +99,7 @@ describe("world timeline rail", () => {
       {
         id: "timeline:turn-1:3:0",
         targetId: "turn-1:world:3:0",
+        kind: "world",
         step: 2,
         revision: 3,
         title: "第一段",
@@ -105,6 +108,7 @@ describe("world timeline rail", () => {
       {
         id: "timeline:turn-1:4:1",
         targetId: "turn-1:world:4:1",
+        kind: "world",
         step: 2,
         revision: 4,
         title: "第二段",
@@ -119,17 +123,36 @@ describe("world timeline rail", () => {
         perspective: {
           agentId: "keeper",
           history: [
-            { revision: 2, step: 1, observations: [{ summary: "守门人看见石门。" }] },
-            { revision: 3, step: 2, observations: [{ summary: "守门人听见风声。" }] },
+            { revision: 2, step: 1, ownAction: "推开石门。", observations: [{ summary: "守门人看见石门。" }] },
+            { revision: 3, step: 2, ownAction: null, observations: [{ summary: "守门人听见风声。" }] },
           ],
         },
       },
     } as unknown as WorldObserverDetail;
 
     expect(observerTimeline(observer).map((entry) => entry.targetId)).toEqual([
+      "perspective:keeper:2:action",
       "perspective:keeper:2:observation",
       "perspective:keeper:3:observation",
     ]);
+    expect(observerTimeline(observer).map((entry) => entry.kind)).toEqual(["player", "world", "world"]);
     expect(observerTimeline(undefined)).toEqual([]);
+  });
+
+  it("projects a player action before its committed world responses", () => {
+    const detail = {
+      conversation: {
+        turns: [{
+          id: "turn-1",
+          action: { submissionId: "submission-1", text: "沿着河岸继续走。" },
+          responses: [{ revision: 3, step: 2, title: "河岸", text: "水声在左侧变得清晰。" }],
+        }],
+      },
+    } as unknown as PublicInstanceDetail;
+
+    expect(participantTimeline(detail).map(({ kind, targetId, title }) => ({ kind, targetId, title }))).toEqual([
+      { kind: "player", targetId: "turn-1:action", title: "你的行动" },
+      { kind: "world", targetId: "turn-1:world:3:0", title: "河岸" },
+    ]);
   });
 });
