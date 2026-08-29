@@ -443,6 +443,35 @@ describe("model catalog and provider adapters", () => {
       .toHaveProperty("context.greeting", "你好");
   });
 
+  it("records the provider request body and response body in full traces", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "full" });
+    const gateway = createGateway(credentials, {
+      observer,
+      fetch: async () => responsesApiResponse("raw-response", "gpt-5.6", "raw-response-id"),
+    });
+
+    await gateway.generateStructured({
+      ...request("gpt"),
+      context: { question: "raw request" },
+      modelInvocationId: "raw-invocation",
+    });
+
+    const requestEvent = observer.events.find((event) => event.event === "model.transport.request.raw");
+    const responseEvent = observer.events.find((event) => event.event === "model.transport.response.raw");
+    expect(requestEvent?.correlation).toMatchObject({
+      modelInvocationId: "raw-invocation",
+      transportAttempt: 1,
+    });
+    expect(requestEvent?.payload).toMatchObject({
+      method: "POST",
+      body: expect.stringContaining("raw request"),
+    });
+    expect(responseEvent?.payload).toMatchObject({
+      status: 200,
+      body: expect.stringContaining("raw-response-id"),
+    });
+  });
+
   it("flushes the full request before transport and the response before returning", async () => {
     const pending: RuntimeEventInput[] = [];
     const durable: RuntimeEventInput[] = [];

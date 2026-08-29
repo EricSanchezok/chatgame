@@ -498,7 +498,12 @@ export class ModelGateway implements StructuredModelProvider {
               correlation: transportCorrelation,
               attributes: { accountId: binding.accountId, modelId: binding.modelId },
             });
-            return adapter.generate(binding, request, contextJson);
+            return adapter.generate(
+              binding,
+              request.observer === observer ? request : { ...request, observer },
+              contextJson,
+              transportCorrelation,
+            );
           },
         });
         transports.push({

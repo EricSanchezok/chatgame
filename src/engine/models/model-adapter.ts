@@ -13,6 +13,11 @@ import {
   discriminatorInstruction,
   toolDescription,
 } from "../prompts";
+import {
+  runtimeEventEmitter,
+  type RuntimeCorrelation,
+  type RuntimeObserver,
+} from "../runtime/observability";
 
 export interface ModelAdapterResult {
   value: unknown;
@@ -36,6 +41,7 @@ export interface ModelProviderAdapter {
     binding: ResolvedModelBinding,
     request: StructuredModelRequest<T>,
     contextJson: string,
+    transportCorrelation?: RuntimeCorrelation,
   ): Promise<ModelAdapterResult>;
 }
 
@@ -143,9 +149,44 @@ export function structuredOutputMode(
   throw new Error(`model ${binding.modelId} cannot produce verified structured output`);
 }
 
+interface RawTransportCapture {
+  readonly observer: RuntimeObserver;
+  readonly correlation: RuntimeCorrelation;
+}
+
+function transportUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function transportMethod(input: RequestInfo | URL, init?: RequestInit): string {
+  if (init?.method) return init.method;
+  if (typeof Request !== "undefined" && input instanceof Request) return input.method;
+  return "GET";
+}
+
+function transportHeaders(headers: Headers): Record<string, string> {
+  return Object.fromEntries(headers.entries());
+}
+
+function emitRawTransport(
+  capture: RawTransportCapture | undefined,
+  event: "model.transport.request.raw" | "model.transport.response.raw",
+  payload: unknown,
+): void {
+  if (!capture || capture.observer.mode !== "full") return;
+  runtimeEventEmitter(capture.observer)?.({
+    event,
+    correlation: capture.correlation,
+    payload,
+  });
+}
+
 function dialectFetch(
   baseFetch: typeof fetch,
   plan: VendorDialectRequestPlan,
+  capture?: RawTransportCapture,
 ): typeof fetch {
   return async (input, init) => {
     const headers = new Headers(init?.headers);
@@ -163,7 +204,29 @@ function dialectFetch(
       }
       body = JSON.stringify(plan.transformBody(parsed as Record<string, unknown>));
     }
-    return baseFetch(input, { ...init, headers, body });
+    const requestInput = {
+      url: transportUrl(input),
+      method: transportMethod(input, init),
+      headers: transportHeaders(headers),
+      body: typeof body === "string" ? body : body === undefined || body === null ? null : null,
+    };
+    emitRawTransport(capture, "model.transport.request.raw", requestInput);
+    const response = await baseFetch(input, { ...init, headers, body });
+    let responseBody: string | null = null;
+    try {
+      responseBody = await response.clone().text();
+    } catch {
+      // The provider response remains available to the SDK even if a body
+      // cannot be duplicated for diagnostics.
+    }
+    emitRawTransport(capture, "model.transport.response.raw", {
+      url: response.url || requestInput.url,
+      status: response.status,
+      statusText: response.statusText,
+      headers: transportHeaders(response.headers),
+      body: responseBody,
+    });
+    return response;
   };
 }
 
@@ -203,6 +266,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
     binding: ResolvedModelBinding,
     request: StructuredModelRequest<T>,
     contextJson: string,
+    transportCorrelation?: RuntimeCorrelation,
   ): Promise<ModelAdapterResult> {
     if (binding.accountId !== this.accountId) {
       throw new Error(`model adapter ${this.accountId} received binding for ${binding.accountId}`);
@@ -218,10 +282,16 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
           },
         }
       : plan;
+    const rawTransportCapture = request.observer?.mode === "full"
+      ? {
+          observer: request.observer,
+          correlation: transportCorrelation ?? request.correlation ?? {},
+        }
+      : undefined;
     const driver = protocolDriver(binding.account.protocol);
     const model = driver.createModel(binding, {
       apiKey: this.apiKey,
-      fetch: dialectFetch(this.fetchImplementation, transportPlan),
+      fetch: dialectFetch(this.fetchImplementation, transportPlan, rawTransportCapture),
       authentication: plan.authentication,
       structuredOutputMode: mode,
     });
