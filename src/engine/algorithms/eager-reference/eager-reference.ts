@@ -945,10 +945,27 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         const continuingActionIds = new Set(Object.values(resolvedTemporal.activities)
           .filter((activity) => activity.status === "active")
           .map((activity) => activity.sourceActionId));
+        // A due Activity whose engine-selected boundary is its completion is no
+        // longer allowed to remain a deferred/continuing action.  This is a
+        // deterministic temporal fact, so make it a repairable semantic issue
+        // before the candidate reaches CanonicalCommitter.  Without this guard
+        // a model can return `continuing` for a just-completed long action,
+        // leaving its receipt unapplied and making the step unreplayable.
+        const completingActionIds = new Set(scopedTemporalBase.boundary.dueActivityIds
+          .map((activityId) => scopedTemporalBase.activities[activityId])
+          .filter((activity): activity is import("../../mechanics/temporal").ScheduledActivityState =>
+            Boolean(activity) && activity.status === "completed")
+          .map((activity) => activity.sourceActionId));
         for (const actionId of continuingActionIds) {
           const outcome = proposal.outcomes.find((entry) => entry.proposalId === actionId);
           if (outcome && outcome.status !== "continuing") {
             throw new Error(`activity action ${actionId} must remain continuing before completion`);
+          }
+        }
+        for (const actionId of completingActionIds) {
+          const outcome = proposal.outcomes.find((entry) => entry.proposalId === actionId);
+          if (!outcome || outcome.status === "continuing") {
+            throw new Error(`activity action ${actionId} reached its completion boundary and must settle now`);
           }
         }
         for (const operation of proposal.operations) {
