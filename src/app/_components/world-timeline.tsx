@@ -176,7 +176,7 @@ export function WorldTimelineRail({
   const activeEntry = entries[safeActiveIndex];
   const previewEntry = previewIndex === null ? undefined : entries[previewIndex];
   const previewActivitySummary = previewEntry ? activitySummary(previewEntry.activity) : undefined;
-  const timelineHeightRem = Math.min(24, Math.max(12, (entries.length * 2.25) + 4));
+  const timelineHeightRem = Math.min(18, Math.max(7, (entries.length * 1.15) + 2.5));
   const trackStyle = {
     "--cg-timeline-count": String(Math.max(1, entries.length)),
     "--cg-timeline-height": `${timelineHeightRem}rem`,
