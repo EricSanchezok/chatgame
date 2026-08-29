@@ -814,24 +814,25 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-thread-error { border: 1px solid var(--cg-destructive); border-radius: var(--cg-radius); background: var(--cg-destructive-soft); padding: 0.55rem 0.75rem; color: var(--cg-foreground); font-size: 0.75rem; line-height: 1.45; }
 
 /* Grok-inspired world timeline */
-.cg-timeline-rail { position: fixed; z-index: 25; inset-block: 17% 14%; inset-inline-end: max(1rem, env(safe-area-inset-right)); width: min(20rem, 30vw); min-width: 4.5rem; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 0.35rem; pointer-events: none; }
-.cg-timeline-rail__track { position: relative; width: 3rem; height: min(34vh, var(--cg-timeline-height, 16rem)); flex: none; margin-inline-end: 2.5rem; pointer-events: auto; }
-.cg-timeline-rail__line { position: absolute; inset-block: 0.8rem; inset-inline-end: 0.95rem; width: 1px; background: color-mix(in oklab, var(--cg-border) 86%, var(--cg-transparent)); }
+.cg-timeline-rail { position: fixed; z-index: 25; inset-block: 17% 14%; inset-inline-end: max(1rem, env(safe-area-inset-right)); width: min(20rem, 30vw); min-width: 4.5rem; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; pointer-events: none; }
+.cg-timeline-rail__axis { --cg-timeline-axis-inset: 1.5rem; width: 3rem; display: flex; flex: none; flex-direction: column; align-items: center; gap: 0.35rem; margin-inline-end: 2.5rem; pointer-events: none; }
+.cg-timeline-rail__track { position: relative; width: 3rem; height: min(34vh, var(--cg-timeline-height, 16rem)); flex: none; pointer-events: auto; }
+.cg-timeline-rail__line { position: absolute; inset-block: 0.8rem; inset-inline-end: var(--cg-timeline-axis-inset); width: 1px; background: color-mix(in oklab, var(--cg-border) 86%, var(--cg-transparent)); }
 .cg-timeline-rail__track ol { position: absolute; inset: 0; display: grid; grid-template-rows: repeat(var(--cg-timeline-count, 1), minmax(1.35rem, 1fr)); align-items: center; margin: 0; padding: 0; list-style: none; }
 .cg-timeline-rail__track li { position: relative; min-height: 1.35rem; display: flex; justify-content: flex-end; }
 .cg-timeline-rail__tick { width: 2.75rem; height: 100%; min-height: 1.35rem; display: flex; align-items: center; justify-content: flex-end; border: 0; background: var(--cg-transparent); padding: 0; color: var(--cg-muted-foreground); cursor: pointer; }
-.cg-timeline-rail__tick > span { position: absolute; inset-block-start: 50%; inset-inline-end: 0.95rem; display: block; border-block-start: 1px solid currentColor; translate: 50% -50%; transition: width 150ms, color 150ms, opacity 150ms; }
+.cg-timeline-rail__tick > span { position: absolute; inset-block-start: 50%; inset-inline-end: var(--cg-timeline-axis-inset); display: block; border-block-start: 1px solid currentColor; translate: 50% -50%; transition: width 150ms, color 150ms, opacity 150ms; }
 .cg-timeline-rail__track li[data-kind="world"] .cg-timeline-rail__tick > span { width: 1.35rem; color: color-mix(in oklab, var(--cg-foreground) 58%, var(--cg-border)); opacity: 0.78; }
 .cg-timeline-rail__track li[data-kind="player"] .cg-timeline-rail__tick > span { width: 0.72rem; color: var(--cg-muted-foreground); opacity: 0.46; }
 .cg-timeline-rail__track li[data-kind="world"][data-active="true"] .cg-timeline-rail__tick > span { width: 1.95rem; border-block-start-width: 2px; color: var(--cg-primary); opacity: 1; }
 .cg-timeline-rail__track li[data-kind="player"][data-active="true"] .cg-timeline-rail__tick > span { width: 1.25rem; border-block-start-width: 2px; color: var(--cg-foreground); opacity: 0.9; }
 .cg-timeline-rail__track li[data-kind="world"] .cg-timeline-rail__tick:hover > span, .cg-timeline-rail__track li[data-kind="world"] .cg-timeline-rail__tick:focus-visible > span { width: 1.95rem; color: var(--cg-foreground); opacity: 0.95; }
 .cg-timeline-rail__track li[data-kind="player"] .cg-timeline-rail__tick:hover > span, .cg-timeline-rail__track li[data-kind="player"] .cg-timeline-rail__tick:focus-visible > span { width: 1.25rem; color: var(--cg-foreground); opacity: 0.8; }
-.cg-timeline-rail__arrow { width: 2.75rem; height: 2.75rem; flex: none; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--cg-transparent); color: var(--cg-muted-foreground); padding: 0; margin-inline-end: 2.5rem; pointer-events: auto; cursor: pointer; transition: color 150ms, background-color 150ms, scale 150ms; }
+.cg-timeline-rail__arrow { width: 2.75rem; height: 2.75rem; flex: none; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--cg-transparent); color: var(--cg-muted-foreground); padding: 0; pointer-events: auto; cursor: pointer; transition: color 150ms, background-color 150ms, scale 150ms; }
 .cg-timeline-rail__arrow svg { width: 1rem; }
 .cg-timeline-rail__arrow:disabled { cursor: default; opacity: 0.28; }
 .cg-timeline-rail__arrow:active:not(:disabled) { scale: 0.96; }
-.cg-timeline-rail__empty-mark { position: absolute; inset-block-start: 50%; inset-inline-end: 0.25rem; width: 1.85rem; border-block-start: 2px solid var(--cg-primary); }
+.cg-timeline-rail__empty-mark { position: absolute; inset-block-start: 50%; inset-inline-end: var(--cg-timeline-axis-inset); width: 1.85rem; border-block-start: 2px solid var(--cg-primary); translate: 50% 0; }
 .cg-timeline-rail__preview { position: absolute; inset-inline-end: 3.3rem; inset-block-start: var(--cg-timeline-preview-offset, 50%); width: min(16rem, calc(100vw - 6rem)); display: grid; gap: 0.4rem; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.35rem); background: color-mix(in oklab, var(--cg-card) 96%, var(--cg-background)); padding: 0.8rem 0.9rem; box-shadow: 0 14px 32px color-mix(in oklab, var(--cg-overlay) 15%, var(--cg-transparent)); pointer-events: none; translate: 0 -50%; animation: cg-timeline-preview-in 150ms ease-out both; transition: inset-block-start 180ms cubic-bezier(0.2, 0, 0, 1); }
 .cg-timeline-rail__preview strong { font-size: 0.78rem; font-weight: 650; }
 .cg-timeline-rail__preview p { margin: 0; color: var(--cg-muted-foreground); font-size: 0.72rem; line-height: 1.5; }

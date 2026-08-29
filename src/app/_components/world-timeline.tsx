@@ -227,71 +227,73 @@ export function WorldTimelineRail({
       className="cg-timeline-rail"
       data-empty={entries.length === 0 || undefined}
     >
-      <button
-        aria-label="上一条世界回复"
-        className="cg-timeline-rail__arrow"
-        disabled={safeActiveIndex <= 0 || entries.length === 0}
-        onClick={() => goTo(safeActiveIndex - 1)}
-        type="button"
-      >
-        <ArrowUp aria-hidden="true" />
-      </button>
-      <div className="cg-timeline-rail__track" ref={trackRef} style={trackStyle}>
-        <span aria-hidden="true" className="cg-timeline-rail__line" />
-        {entries.length > 0 ? (
-          <ol>
-            {entries.map((entry, index) => (
-              <li
-                data-active={index === safeActiveIndex || undefined}
-                data-kind={entry.kind}
-                key={entry.id}
-              >
-                <button
-                  aria-current={index === safeActiveIndex ? "location" : undefined}
-                  aria-label={`${timelineStepLabel(entry)}，${entry.title}，${entry.excerpt}（${entry.kind === "player" ? "玩家消息" : "世界回复"}）`}
-                  className="cg-timeline-rail__tick"
-                  onClick={() => goTo(index)}
-                  onBlur={hidePreview}
-                  onFocus={() => showPreview(index)}
-                  onMouseEnter={() => showPreview(index)}
-                  onMouseLeave={hidePreview}
-                  ref={(node) => { tickRefs.current[index] = node; }}
-                  type="button"
+      <div className="cg-timeline-rail__axis">
+        <button
+          aria-label="上一条世界回复"
+          className="cg-timeline-rail__arrow"
+          disabled={safeActiveIndex <= 0 || entries.length === 0}
+          onClick={() => goTo(safeActiveIndex - 1)}
+          type="button"
+        >
+          <ArrowUp aria-hidden="true" />
+        </button>
+        <div className="cg-timeline-rail__track" ref={trackRef} style={trackStyle}>
+          <span aria-hidden="true" className="cg-timeline-rail__line" />
+          {entries.length > 0 ? (
+            <ol>
+              {entries.map((entry, index) => (
+                <li
+                  data-active={index === safeActiveIndex || undefined}
+                  data-kind={entry.kind}
+                  key={entry.id}
                 >
-                  <span aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <>
-            <span className="cg-timeline-rail__empty-mark" aria-hidden="true" />
-            <p className="cg-timeline-rail__empty-copy">第 {step} 步</p>
-          </>
-        )}
-        {previewEntry ? (
-          <div className="cg-timeline-rail__preview" aria-hidden="true">
-            <span className="cg-timeline-rail__meta">
-              {timelineStepLabel(previewEntry)}
-              {formatWorldTime(previewEntry.worldTimeSeconds) ? ` · ${formatWorldTime(previewEntry.worldTimeSeconds)}` : ""}
-            </span>
-            <strong>{previewEntry.title}</strong>
-            <p>{timelineExcerpt(previewEntry.excerpt)}</p>
-            {previewEntry.outcome === "unchanged" ? <small>没有改变世界</small> : null}
-            {previewEntry.outcome === "pending" ? <small>等待世界回复</small> : null}
-            {previewActivitySummary ? <small>{previewActivitySummary}</small> : null}
-          </div>
-        ) : null}
+                  <button
+                    aria-current={index === safeActiveIndex ? "location" : undefined}
+                    aria-label={`${timelineStepLabel(entry)}，${entry.title}，${entry.excerpt}（${entry.kind === "player" ? "玩家消息" : "世界回复"}）`}
+                    className="cg-timeline-rail__tick"
+                    onClick={() => goTo(index)}
+                    onBlur={hidePreview}
+                    onFocus={() => showPreview(index)}
+                    onMouseEnter={() => showPreview(index)}
+                    onMouseLeave={hidePreview}
+                    ref={(node) => { tickRefs.current[index] = node; }}
+                    type="button"
+                  >
+                    <span aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <>
+              <span className="cg-timeline-rail__empty-mark" aria-hidden="true" />
+              <p className="cg-timeline-rail__empty-copy">第 {step} 步</p>
+            </>
+          )}
+          {previewEntry ? (
+            <div className="cg-timeline-rail__preview" aria-hidden="true">
+              <span className="cg-timeline-rail__meta">
+                {timelineStepLabel(previewEntry)}
+                {formatWorldTime(previewEntry.worldTimeSeconds) ? ` · ${formatWorldTime(previewEntry.worldTimeSeconds)}` : ""}
+              </span>
+              <strong>{previewEntry.title}</strong>
+              <p>{timelineExcerpt(previewEntry.excerpt)}</p>
+              {previewEntry.outcome === "unchanged" ? <small>没有改变世界</small> : null}
+              {previewEntry.outcome === "pending" ? <small>等待世界回复</small> : null}
+              {previewActivitySummary ? <small>{previewActivitySummary}</small> : null}
+            </div>
+          ) : null}
+        </div>
+        <button
+          aria-label="下一条世界回复"
+          className="cg-timeline-rail__arrow"
+          disabled={safeActiveIndex >= entries.length - 1 || entries.length === 0}
+          onClick={() => goTo(safeActiveIndex + 1)}
+          type="button"
+        >
+          <ArrowDown aria-hidden="true" />
+        </button>
       </div>
-      <button
-        aria-label="下一条世界回复"
-        className="cg-timeline-rail__arrow"
-        disabled={safeActiveIndex >= entries.length - 1 || entries.length === 0}
-        onClick={() => goTo(safeActiveIndex + 1)}
-        type="button"
-      >
-        <ArrowDown aria-hidden="true" />
-      </button>
       <p className="cg-sr-only" aria-live="polite">
         {activeEntry ? `正在查看${timelineStepLabel(activeEntry)}：${activeEntry.title}` : `当前为第 ${step} 步`}
       </p>
