@@ -81,9 +81,8 @@ function AssistantMessage({
       </div>
       <div className="ms-2 flex min-h-7.5 items-center pt-1.5">
         <ActionBarPrimitive.Root
-          autohide="not-last"
+          autohide="never"
           className="animate-in fade-in -ms-1 flex gap-1 text-muted-foreground duration-150 motion-reduce:animate-none"
-          hideWhenRunning
         >
           <ActionBarPrimitive.Copy asChild>
             <TooltipIconButton tooltip="复制世界回复">

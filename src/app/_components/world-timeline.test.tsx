@@ -155,4 +155,27 @@ describe("world timeline rail", () => {
       { kind: "world", targetId: "turn-1:world:3:0", title: "河岸" },
     ]);
   });
+
+  it("keeps failed actions on the rail without inventing a world step", () => {
+    const detail = {
+      conversation: {
+        turns: [{
+          id: "turn-failed",
+          baseRevision: 8,
+          status: "failed",
+          action: { submissionId: "submission-failed", text: "冲向浓雾。" },
+        }],
+      },
+    } as unknown as PublicInstanceDetail;
+
+    expect(participantTimeline(detail)).toEqual([{
+      id: "timeline:turn-failed:action",
+      targetId: "turn-failed:action",
+      kind: "player",
+      revision: 8,
+      title: "行动未改变世界",
+      excerpt: "冲向浓雾。",
+      outcome: "unchanged",
+    }]);
+  });
 });

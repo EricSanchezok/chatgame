@@ -11,18 +11,34 @@ export type TimelineEntry = {
   id: string;
   targetId: string;
   kind: TimelineEntryKind;
-  step: number;
+  step?: number;
   revision: number;
   worldTimeSeconds?: number;
   title: string;
   excerpt: string;
+  outcome?: "unchanged" | "pending";
   activity?: NonNullable<PublicWorldRun["activity"]>;
 };
+
+function timelineStepLabel(entry: Pick<TimelineEntry, "step" | "revision">): string {
+  return entry.step === undefined ? `未推进 · Revision ${entry.revision}` : `第 ${entry.step} 步`;
+}
 
 export function participantTimeline(detail: PublicInstanceDetail): TimelineEntry[] {
   return (detail.conversation?.turns ?? []).flatMap((turn) => {
     const responses = turn.responses?.length ? turn.responses : turn.response ? [turn.response] : [];
-    if (responses.length === 0) return [];
+    if (responses.length === 0) {
+      if (!turn.action) return [];
+      return [{
+        id: `timeline:${turn.id}:action`,
+        targetId: `${turn.id}:action`,
+        kind: "player" as const,
+        revision: turn.baseRevision,
+        title: turn.status === "failed" ? "行动未改变世界" : "你的行动",
+        excerpt: turn.action.text,
+        outcome: turn.status === "failed" ? "unchanged" as const : "pending" as const,
+      }];
+    }
     const firstResponse = responses[0];
     const playerEntry: TimelineEntry[] = turn.action ? [{
       id: `timeline:${turn.id}:action`,
@@ -60,6 +76,9 @@ export function observerTimeline(observer?: WorldObserverDetail): TimelineEntry[
       revision: turn.revision,
       title: "角色行动",
       excerpt: turn.ownAction,
+      ...((turn.perceivedOutcome === "failed" || turn.perceivedOutcome === "blocked")
+        ? { outcome: "unchanged" as const }
+        : {}),
     }] : [];
     const excerpt = turn.observations.map((observation) => observation.summary).filter(Boolean).join("\n\n");
     if (!excerpt) return actionEntry;
@@ -227,7 +246,7 @@ export function WorldTimelineRail({
               >
                 <button
                   aria-current={index === safeActiveIndex ? "location" : undefined}
-                  aria-label={`第 ${entry.step} 步，${entry.title}，${entry.excerpt}（${entry.kind === "player" ? "玩家消息" : "世界回复"}）`}
+                  aria-label={`${timelineStepLabel(entry)}，${entry.title}，${entry.excerpt}（${entry.kind === "player" ? "玩家消息" : "世界回复"}）`}
                   className="cg-timeline-rail__tick"
                   onClick={() => goTo(index)}
                   onBlur={hidePreview}
@@ -251,11 +270,13 @@ export function WorldTimelineRail({
         {previewEntry ? (
           <div className="cg-timeline-rail__preview" aria-hidden="true">
             <span className="cg-timeline-rail__meta">
-              第 {previewEntry.step} 步 · Revision {previewEntry.revision}
+              {timelineStepLabel(previewEntry)}
               {formatWorldTime(previewEntry.worldTimeSeconds) ? ` · ${formatWorldTime(previewEntry.worldTimeSeconds)}` : ""}
             </span>
             <strong>{previewEntry.title}</strong>
             <p>{timelineExcerpt(previewEntry.excerpt)}</p>
+            {previewEntry.outcome === "unchanged" ? <small>没有改变世界</small> : null}
+            {previewEntry.outcome === "pending" ? <small>等待世界回复</small> : null}
             {previewActivitySummary ? <small>{previewActivitySummary}</small> : null}
           </div>
         ) : null}
@@ -270,7 +291,7 @@ export function WorldTimelineRail({
         <ArrowDown aria-hidden="true" />
       </button>
       <p className="cg-sr-only" aria-live="polite">
-        {activeEntry ? `正在查看第 ${activeEntry.step} 步：${activeEntry.title}` : `当前为第 ${step} 步`}
+        {activeEntry ? `正在查看${timelineStepLabel(activeEntry)}：${activeEntry.title}` : `当前为第 ${step} 步`}
       </p>
     </aside>
   );
