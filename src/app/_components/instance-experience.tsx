@@ -44,6 +44,11 @@ import {
 import { worldApi } from "../lib/world-api-client";
 import { ControlOrb, type ControlOrbPhase } from "./control-orb";
 import { GameThread, type ComposerMode } from "./game-thread";
+import {
+  formatRunElapsed,
+  runBoundaryLabel,
+  runStatusPresentation,
+} from "./run-status";
 import { SettingsPanel } from "./settings-panel";
 import { observerTimeline, participantTimeline } from "./world-timeline";
 import WorldInspectorDialog from "./world-inspector-dialog";
@@ -67,32 +72,42 @@ function assistantStatus(status: PublicConversationTurn["status"]): ThreadMessag
 
 function PlayerRunConsole({
   busy,
+  actionText,
   run,
   onPause,
   onResume,
 }: {
   busy: boolean;
+  actionText?: string;
   run: PublicWorldRun;
   onPause: () => void;
   onResume: () => void;
 }) {
   const resumable = run.status === "paused" || run.status === "budget-paused" ||
     run.status === "preparation-invalidated";
-  const progress = run.activity?.progress;
-  const activityStatus = run.activity?.status === "queued"
-    ? `正在等待${run.activity.resourceNames.join("、") || "共享资源"} · 队列第 ${run.activity.queuePosition ?? 1} 位`
-    : run.activity?.status === "ready"
-      ? "资源已预留 · 下一次时间推进开始"
-      : null;
+  const [now, setNow] = useState(() => Date.now());
+  const presentation = runStatusPresentation(run, actionText);
+  const elapsed = formatRunElapsed(run.lease?.startedAt, now);
+
+  useEffect(() => {
+    if (!run.lease?.startedAt || run.status === "paused" || run.status === "budget-paused" ||
+      run.status === "preparation-invalidated") return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [run.lease?.startedAt, run.status]);
+
   return (
-    <div className="cg-thread-status" aria-label="世界运行控制台" role="status">
+    <div aria-label="世界运行控制台" className="cg-thread-status" data-run-status={run.status} role="status">
+      <span aria-hidden="true" className="cg-thread-status__indicator" />
       <div className="cg-thread-status__copy">
-        <strong>{run.status === "preparation-invalidated"
-          ? "上次反应预演已失效，需要重新准备"
-          : run.activity?.description ?? "世界正在自主推进"}</strong>
-        <span>{activityStatus ?? (progress
-          ? `${progress.current.toFixed(2)} / ${progress.target} ${progress.unit}`
-          : `${run.lease?.commitCount ?? 0} 个边界已提交`)}</span>
+        <strong>{presentation.title}</strong>
+        <span>{presentation.description}</span>
+        {actionText ? <span className="cg-thread-status__intent">行动：{actionText}</span> : null}
+        <div className="cg-thread-status__meta">
+          <span>{presentation.activity}</span>
+          <span>{runBoundaryLabel(run)}</span>
+          {elapsed ? <span>已运行 {elapsed}</span> : null}
+        </div>
       </div>
       <button className="cg-thread-status__action" disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
         {resumable ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
@@ -613,6 +628,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
           ].includes(detail.run.status) ? (
             <>
               <PlayerRunConsole
+                actionText={latestTurn?.action?.text}
                 busy={Boolean(busy)}
                 onPause={() => void perform("pause-run", () => worldApi.pauseRun(instanceId, {
                   runId: detail.run!.id,
