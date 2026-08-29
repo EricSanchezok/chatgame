@@ -610,8 +610,14 @@ function materializeResolutionPlans(input: {
     // The action binding is authoritative for identity and intent.  These two
     // fields are repeated in the draft for provider readability, but accepting
     // a paraphrase (or a stale actor id) would let a model retarget a plan.
+    // targetIds are an optional canonical index for the free-form action.  A
+    // local belief alias without a unique canonical binding is still valid in
+    // the action's natural-language intent, but cannot be persisted as a
+    // Truth reference.  Omit only that unresolved index; effects and explicit
+    // difficulty targets remain strict and continue to fail closed.
     const targetIds = [...new Set(draft.targetIds.map((targetId) =>
-      canonicalActionEntityId(input.state, action, targetId)))];
+      canonicalActionEntityId(input.state, action, targetId)))].filter((targetId) =>
+        Boolean(input.state.truth.entities[targetId]));
     const difficulty = draft.difficulty
       ? draft.difficulty.kind === "opposed"
         ? {
