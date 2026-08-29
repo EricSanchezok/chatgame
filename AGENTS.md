@@ -41,6 +41,16 @@ node scripts/run-gates.mjs                       # Manifest-selected governance 
 
 Run the checks relevant to the touched surface while working; run `npm run check:fast` before committing. CI owns the exhaustive browser matrix.
 
+### Local startup acceptance
+
+When starting the local workbench for interactive testing, treat startup as an end-to-end check rather than only launching `next dev`:
+
+1. Confirm the bundled script exists at `worlds/blackmarsh/world/` and contains `script.yaml`, `laws.yaml`, `mechanics.yaml`, and `participation.yaml`; run `npm run world:validate -- worlds/blackmarsh/world` before starting when the world files or loader changed.
+2. Use the default `.livingworld-v19/` data root unless the task explicitly selects another one. If an instance pins an execution algorithm manifest that is no longer registered (for example after a Truth Engine algorithm change), treat that local test instance as an obsolete save: preserve a timestamped backup if useful, then remove the stale instance rather than migrating or silently changing its producer.
+3. After source or route changes, move the generated `.next/` directory aside (or otherwise clear the development cache) before restarting so stale route/compiler output cannot mask the current source.
+4. Start `npm run dev` and verify all of `GET /`, `GET /api/worlds`, and `GET /api/instances` return HTTP 200. A successful root-page response alone is not evidence that the world runtime is usable.
+5. Before handing the browser back to the user, confirm `/api/worlds` lists the bundled world and `/api/instances` is readable. Report any cleanup (including deleted instance IDs) and keep the service process running for the test.
+
 ## Governance loop (hard rules)
 
 1. A risk-boundary change starts from an Approved spec in [docs/specs/](docs/specs/README.md); routine changes are exempt.
