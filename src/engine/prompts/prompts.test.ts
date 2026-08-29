@@ -5,6 +5,11 @@ import {
   promptBundle,
   type PromptBundleId,
 } from ".";
+import path from "node:path";
+import { buildTruthContext } from "../contracts/prompts";
+import { loadWorldScript } from "../../script/world-loader";
+import { DeterministicModelProvider } from "../testing/model-provider";
+import type { AgentActionProposal } from "../contracts/model";
 
 const bundleIds = Object.keys(promptAssetManifest()) as PromptBundleId[];
 
@@ -47,5 +52,72 @@ describe("external prompt resources", () => {
   it("keeps prompt versions content-addressed and cached", () => {
     expect(promptBundle("truth-perception")).toBe(promptBundle("truth-perception"));
     expect(promptAssetManifest()["truth-perception"]).toBe(promptBundle("truth-perception").version);
+  });
+
+  it("keeps complete truth context separate from the assigned output slots", () => {
+    const provider = new DeterministicModelProvider();
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const state = structuredClone(definition.initialState);
+    const agents = Object.values(state.agents);
+    const actions: AgentActionProposal[] = agents.map((agent, index) => ({
+      id: `context-action-${index}`,
+      actorId: agent.id,
+      baseRevision: state.revision,
+      rawText: `action-${index}`,
+      goal: "test context",
+      means: null,
+      targetIds: [],
+    }));
+    const context = buildTruthContext({
+      definition,
+      state,
+      initialActions: [actions[0]!],
+      actions: [actions[0]!],
+      reactionRequests: [],
+      reactionDecisions: [],
+      reactionWindow: "closed",
+      committedCheckRequests: [],
+      checkResults: [],
+      committedRandomRequests: [],
+      randomResults: [],
+      commitmentRounds: [],
+      resolutionPlans: [],
+      resolutionReceipts: [],
+      groundings: [],
+      temporalBoundary: {
+        fromElapsedSeconds: state.truth.elapsedSeconds,
+        toElapsedSeconds: state.truth.elapsedSeconds + 1,
+        deltaSeconds: 1,
+        reasons: [{ kind: "safety_horizon" }],
+        dueActivityIds: [],
+        dueTimerIds: [],
+        dueConditionIds: [],
+      },
+      instanceId: "instance",
+      advanceId: "advance",
+      issues: [],
+      stage: "resolution",
+      contextMode: "full",
+      contextState: state,
+      contextInitialActions: actions,
+      contextActions: actions,
+      contextGroundings: [],
+      outputActions: [actions[0]!],
+      resolutionScope: {
+        mode: "repair",
+        selectedActionIds: [actions[0]!.id],
+        totalActionCount: actions.length,
+      },
+    }) as {
+      canonicalTruth: unknown;
+      jointActions: AgentActionProposal[];
+      allJointActions: AgentActionProposal[];
+    };
+    expect(context.canonicalTruth).toEqual(state.truth);
+    expect(context.jointActions).toEqual([actions[0]!]);
+    expect(context.allJointActions).toEqual(actions);
   });
 });

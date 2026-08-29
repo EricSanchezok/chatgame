@@ -42,6 +42,14 @@ export interface PromptValidationIssue {
   message: string;
 }
 
+export type TruthContextMode = "scoped" | "full";
+
+export interface ResolutionScope {
+  mode: "component" | "global" | "repair";
+  selectedActionIds: string[];
+  totalActionCount: number;
+}
+
 export function validationIssues(error: unknown): PromptValidationIssue[] {
   if (error instanceof ObservationValidationError || error instanceof CharacterPatchValidationError) {
     return error.issues.map((issue) => ({ ...issue, path: [...issue.path] }));
@@ -237,8 +245,21 @@ export function buildTruthContext(input: {
   advanceId: string;
   issues: readonly PromptValidationIssue[];
   stage?: "perception" | "reaction-routing" | "resolution" | "transition";
+  contextMode?: TruthContextMode;
+  contextState?: SimulationState;
+  contextActions?: readonly AgentActionProposal[];
+  contextInitialActions?: readonly AgentActionProposal[];
+  contextGroundings?: readonly InteractionDependency[];
+  outputActions?: readonly AgentActionProposal[];
+  outputGroundings?: readonly InteractionDependency[];
+  resolutionScope?: ResolutionScope;
 }): unknown {
   const stage = input.stage ?? "transition";
+  const contextMode = input.contextMode ?? "scoped";
+  const contextState = input.contextState ?? input.state;
+  const contextActions = input.contextActions ?? input.actions;
+  const contextInitialActions = input.contextInitialActions ?? input.initialActions;
+  const contextGroundings = input.contextGroundings ?? input.groundings;
   const promptId: PromptBundleId = stage === "perception"
     ? "truth-perception"
     : stage === "reaction-routing"
@@ -270,12 +291,21 @@ export function buildTruthContext(input: {
     },
     baseRevision: input.state.revision,
     step: input.state.step,
-    canonicalTruth: scopedCanonicalTruth(input.state, input.actions, input.groundings),
+    canonicalTruth: contextMode === "full"
+      ? structuredClone(contextState.truth)
+      : scopedCanonicalTruth(input.state, input.actions, input.groundings),
     semanticHistory: semanticHistory(input.state),
-    actors: scopedActors(input.state, input.actions, input.groundings),
+    actors: scopedActors(
+      contextMode === "full" ? contextState : input.state,
+      contextMode === "full" ? contextActions : input.actions,
+      contextMode === "full" ? contextGroundings : input.groundings,
+    ),
     initialActions: input.initialActions,
-    jointActions: input.actions,
-    groundings: input.groundings,
+    jointActions: input.outputActions ?? input.actions,
+    allInitialActions: contextInitialActions,
+    allJointActions: contextActions,
+    groundings: input.outputGroundings ?? input.groundings,
+    allGroundings: contextGroundings,
     temporalBoundary: input.temporalBoundary,
     reactionRequests: input.reactionRequests,
     reactionDecisions: input.reactionDecisions,
@@ -288,6 +318,7 @@ export function buildTruthContext(input: {
     committedResolutionPlans: input.resolutionPlans,
     resolutionReceipts: input.resolutionReceipts,
     validationIssues: input.issues,
+    resolutionScope: input.resolutionScope ?? null,
     stage,
   };
 }
@@ -311,7 +342,16 @@ export function buildCausalVerificationContext(input: {
   instanceId: string;
   advanceId: string;
   issues: readonly PromptValidationIssue[];
+  contextMode?: TruthContextMode;
+  contextState?: SimulationState;
+  contextActions?: readonly AgentActionProposal[];
+  contextGroundings?: readonly InteractionDependency[];
+  resolutionScope?: ResolutionScope;
 }): unknown {
+  const contextMode = input.contextMode ?? "scoped";
+  const contextState = input.contextState ?? input.state;
+  const contextActions = input.contextActions ?? input.actions;
+  const contextGroundings = input.contextGroundings ?? input.groundings;
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     promptVersion: promptBundle("causal-verifier").version,
@@ -327,8 +367,11 @@ export function buildCausalVerificationContext(input: {
       randomDistributions: input.definition.randomDistributions,
     },
     baseRevision: input.state.revision,
-    canonicalTruth: scopedCanonicalTruth(input.state, input.actions, input.groundings),
-    actions: input.actions,
+    canonicalTruth: contextMode === "full"
+      ? structuredClone(contextState.truth)
+      : scopedCanonicalTruth(input.state, input.actions, input.groundings),
+    actions: contextActions,
+    groundings: contextGroundings,
     committedCheckRequests: input.checkRequests,
     checkResults: input.checkResults,
     committedRandomRequests: input.randomRequests,
@@ -341,6 +384,7 @@ export function buildCausalVerificationContext(input: {
     deterministicAssertionResults: input.assertionResults,
     previousReport: input.previousReport,
     validationIssues: input.issues,
+    resolutionScope: input.resolutionScope ?? null,
   };
 }
 
@@ -354,12 +398,19 @@ export function buildResolutionPlanVerificationContext(input: {
   instanceId: string;
   advanceId: string;
   issues: readonly PromptValidationIssue[];
+  contextMode?: TruthContextMode;
+  contextState?: SimulationState;
+  contextActions?: readonly AgentActionProposal[];
+  contextGroundings?: readonly InteractionDependency[];
+  resolutionScope?: ResolutionScope;
 }): unknown {
-  const { mechanics, ...canonicalTruth } = scopedCanonicalTruth(
-    input.state,
-    input.actions,
-    input.groundings,
-  );
+  const contextMode = input.contextMode ?? "scoped";
+  const contextState = input.contextState ?? input.state;
+  const contextActions = input.contextActions ?? input.actions;
+  const contextGroundings = input.contextGroundings ?? input.groundings;
+  const { mechanics, ...canonicalTruth } = contextMode === "full"
+    ? structuredClone(contextState.truth)
+    : scopedCanonicalTruth(input.state, input.actions, input.groundings);
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     promptVersion: promptBundle("resolution-plan-verifier").version,
@@ -376,11 +427,12 @@ export function buildResolutionPlanVerificationContext(input: {
     },
     baseRevision: input.state.revision,
     canonicalTruth,
-    actions: input.actions,
-    groundings: input.groundings,
+    actions: contextActions,
+    groundings: contextGroundings,
     candidatePlans: input.plans,
     priorCommitmentRounds: input.commitmentRounds,
     validationIssues: input.issues,
+    resolutionScope: input.resolutionScope ?? null,
   };
 }
 

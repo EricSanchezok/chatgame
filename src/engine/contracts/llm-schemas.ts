@@ -773,6 +773,16 @@ export const actionGroundingSchema = z.strictObject({
   audienceAgentIds: z.array(semanticIdSchema),
   sharedResourceClaims: z.array(sharedActivityResourceClaimDraftSchema),
   globalFallback: z.boolean(),
+}).superRefine((value, context) => {
+  const hasGlobalReference = [...value.reads, ...value.writes]
+    .some((ref) => ref.kind === "global");
+  if (value.globalFallback !== hasGlobalReference) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["globalFallback"],
+      message: "globalFallback must match the presence of a global world reference",
+    });
+  }
 }) as z.ZodType<InteractionDependencyDraft>;
 
 export const temporalPlanDraftSchema = z.strictObject({

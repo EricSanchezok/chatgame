@@ -32,7 +32,6 @@ import type {
   ObservationPacketDraft,
   ReactionDecision,
   ReactionRequest,
-  SeededRngState,
   SimulationState,
   TransitionProposal,
   TransitionProposalDraft,
@@ -72,6 +71,7 @@ import {
   buildResolutionPlanVerificationContext,
   buildTruthContext,
   validationIssues,
+  type ResolutionScope,
   type PromptValidationIssue,
 } from "../contracts/prompts";
 import { promptBundle, type PromptBundleId } from "../prompts";
@@ -110,6 +110,17 @@ export interface TruthResolutionInput {
   temporalBoundary: TemporalBoundary;
   identityOwner: string;
   groundings: readonly InteractionDependency[];
+  /**
+   * The execution state/actions may be component-scoped, while the model
+   * context remains complete.  These fields are deliberately separate so a
+   * component cannot mutate another component's state while still seeing the
+   * full semantic picture required for an exact adjudication.
+   */
+  contextState?: SimulationState;
+  contextInitialActions?: readonly AgentActionProposal[];
+  contextActions?: readonly AgentActionProposal[];
+  contextGroundings?: readonly InteractionDependency[];
+  resolutionScope?: ResolutionScope;
   enableReactionRouting?: boolean;
   resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
   renderObservations: (
@@ -195,6 +206,34 @@ class ReactionExecutionError extends Error {
     super(message, options);
     this.name = "ReactionExecutionError";
   }
+}
+
+class ResolutionPlanCardinalityError extends Error {
+  readonly expectedActionIds: string[];
+  readonly receivedActionIds: string[];
+  readonly missingActionIds: string[];
+
+  constructor(expectedActionIds: readonly string[], receivedActionIds: readonly string[]) {
+    const expected = [...new Set(expectedActionIds)].sort();
+    const received = [...receivedActionIds].sort();
+    const receivedSet = new Set(received);
+    super(
+      `resolution plans must cover every final joint action exactly once ` +
+      `(expected ${expected.length}, received ${received.length})`,
+    );
+    this.name = "ResolutionPlanCardinalityError";
+    this.expectedActionIds = expected;
+    this.receivedActionIds = received;
+    this.missingActionIds = expected.filter((id) => !receivedSet.has(id));
+  }
+}
+
+function cardinalityError(error: unknown): ResolutionPlanCardinalityError | null {
+  if (error instanceof ResolutionPlanCardinalityError) return error;
+  if (error instanceof ModelSemanticRepairError && error.cause instanceof ResolutionPlanCardinalityError) {
+    return error.cause;
+  }
+  return null;
 }
 
 interface ValidatedCallInput<T> {
@@ -584,8 +623,9 @@ function materializeResolutionPlans(input: {
   allowedCauses: Record<CausalRef["kind"], Set<string>>;
 }): ResolutionPlan[] {
   if (input.drafts.length !== input.actions.length) {
-    throw new Error(
-      `resolution plans must cover every final joint action exactly once (expected ${input.actions.length}, received ${input.drafts.length})`,
+    throw new ResolutionPlanCardinalityError(
+      input.actions.map((action) => action.id),
+      input.drafts.map((draft) => draft.actionId),
     );
   }
   const aliases = new Set<string>();
@@ -1398,28 +1438,46 @@ export class TruthEngine {
     const truthContext = (
       stage: "perception" | "reaction-routing" | "resolution" | "transition",
       issues: readonly PromptValidationIssue[],
-    ) => buildTruthContext({
-      definition: input.definition,
-      state: input.state,
-      initialActions: input.initialActions,
-      actions,
-      reactionRequests,
-      reactionDecisions,
-      reactionWindow: stage === "perception" || stage === "reaction-routing" ? "open" : "closed",
-      committedCheckRequests: requests,
-      checkResults: checks,
-      committedRandomRequests: randomRequests,
-      randomResults,
-      commitmentRounds,
-      resolutionPlans,
-      resolutionReceipts,
-      groundings,
-      temporalBoundary: input.temporalBoundary,
-      instanceId: scope.workloadId,
-      advanceId: scope.batchId,
-      issues,
-      stage,
-    });
+      resolutionScopeOverride?: ResolutionScope,
+    ) => {
+      const selectedActionIds = new Set(
+        (resolutionScopeOverride?.selectedActionIds ?? actions.map((action) => action.id)),
+      );
+      return buildTruthContext({
+        definition: input.definition,
+        state: input.state,
+        initialActions: input.initialActions,
+        actions,
+        reactionRequests,
+        reactionDecisions,
+        reactionWindow: stage === "perception" || stage === "reaction-routing" ? "open" : "closed",
+        committedCheckRequests: requests,
+        checkResults: checks,
+        committedRandomRequests: randomRequests,
+        randomResults,
+        commitmentRounds,
+        resolutionPlans,
+        resolutionReceipts,
+        groundings,
+        temporalBoundary: input.temporalBoundary,
+        instanceId: scope.workloadId,
+        advanceId: scope.batchId,
+        issues,
+        stage,
+        contextMode: "full",
+        contextState: input.contextState ?? input.state,
+        contextInitialActions: input.contextInitialActions ?? input.initialActions,
+        contextActions: input.contextActions ?? actions,
+        outputActions: actions.filter((action) => selectedActionIds.has(action.id)),
+        outputGroundings: groundings.filter((grounding) =>
+          grounding.kind !== "action" || selectedActionIds.has(grounding.id)),
+        resolutionScope: resolutionScopeOverride ?? input.resolutionScope ?? {
+          mode: "component",
+          selectedActionIds: actions.map((action) => action.id).sort(),
+          totalActionCount: actions.length,
+        },
+      });
+    };
 
     const commitCheckRound = (round: readonly D20CheckRequest[]) => {
       const resolved = resolveD20Checks(rng, round);
@@ -1504,281 +1562,6 @@ export class TruthEngine {
         allowedForCommitments.random.add(request.id);
       }
       commitmentRounds.push({ kind: "random", requestIds: round.map((request) => request.id) });
-    };
-
-    /**
-     * Cardinality recovery for very large joint-action batches. Some providers
-     * still compress a 48-slot response down to one plan even after semantic
-     * repairs. Retrying the same oversized prompt is wasteful and can starve a
-     * playable world, so we resolve each missing action in a one-action scope.
-     * This is entered only after the normal joint call exhausts repairs; every
-     * plan still goes through the same materializer, verifier, RNG transcript,
-     * and final CanonicalCommitter checks.
-     */
-    const resolveSingleActionPlan = async (action: AgentActionProposal): Promise<{
-      plan: ResolutionPlan;
-      receipt: ResolutionReceipt;
-      requests: D20CheckRequest[];
-      checks: D20CheckResult[];
-      randomRequests: DiscreteRandomRequest[];
-      randomResults: DiscreteRandomResult[];
-      commitmentRounds: CommitmentRound[];
-      rng: SeededRngState;
-      audits: ModelExecutionAudit[];
-      verifierAudits: ModelExecutionAudit[];
-    }> => {
-      const selectedGroundings = groundings.filter((grounding) =>
-        grounding.kind !== "action" || grounding.id === action.id);
-      const selectedActions = [action];
-      const selectedInitialActions = input.initialActions.filter((candidate) => candidate.id === action.id);
-      const localAllowed: Record<CausalRef["kind"], Set<string>> = {
-        action: new Set([action.id]),
-        check: new Set(),
-        random: new Set(),
-        event: new Set(input.state.truth.events.map((event) => event.id)),
-        fact: new Set(Object.keys(input.state.truth.facts)),
-        law: new Set(input.definition.laws.map((law) => law.id)),
-        mechanic: new Set(),
-      };
-      const localRequests: D20CheckRequest[] = [];
-      const localChecks: D20CheckResult[] = [];
-      const localRandomRequests: DiscreteRandomRequest[] = [];
-      const localRandomResults: DiscreteRandomResult[] = [];
-      const localRounds: CommitmentRound[] = [];
-      const localRandomAliases = new Map<string, string | null>();
-      const localRandomIds = new Set(randomRequestIds);
-      let localRng = structuredClone(rng);
-      let localPlans: ResolutionPlan[] = [];
-      let localReceipts: ResolutionReceipt[] = [];
-      let planIssues: PromptValidationIssue[] = [];
-      let verifierIssues: PromptValidationIssue[] = [];
-      let planRepairs = 0;
-      const audits: ModelExecutionAudit[] = [];
-      const verifierAudits: ModelExecutionAudit[] = [];
-      const scopedContext = (
-        stage: "resolution" | "transition",
-        issues: readonly PromptValidationIssue[],
-      ) => ({
-        ...(buildTruthContext({
-          definition: input.definition,
-          state: input.state,
-          initialActions: selectedInitialActions,
-          actions: selectedActions,
-          reactionRequests,
-          reactionDecisions,
-          reactionWindow: "closed",
-          committedCheckRequests: localRequests,
-          checkResults: localChecks,
-          committedRandomRequests: localRandomRequests,
-          randomResults: localRandomResults,
-          commitmentRounds: localRounds,
-          resolutionPlans: localPlans,
-          resolutionReceipts: localReceipts,
-          groundings: selectedGroundings,
-          temporalBoundary: input.temporalBoundary,
-          instanceId: scope.workloadId,
-          advanceId: scope.batchId,
-          issues,
-          stage,
-        }) as Record<string, unknown>),
-        resolutionScope: {
-          selectedActionId: action.id,
-          selectedActionCount: 1,
-          totalActionCount: actions.length,
-          allActionIds: actions.map((candidate) => candidate.id).sort(),
-        },
-      });
-      const commitLocalChecks = (round: readonly D20CheckRequest[]) => {
-        const resolved = resolveD20Checks(localRng, round);
-        localRng = resolved.rng;
-        localRequests.push(...structuredClone(round));
-        localChecks.push(...structuredClone(resolved.results));
-        round.forEach((request) => localAllowed.check.add(request.id));
-        localRounds.push({ kind: "check", phase: round[0]!.phase, requestIds: round.map((request) => request.id) });
-      };
-      const normalizeLocalRandom = (round: readonly DiscreteRandomRequestProposal[]): DiscreteRandomRequest[] => {
-        if (localRounds.length >= this.maxCommitmentRounds) throw new Error("maximum commitment rounds exceeded");
-        if (round.length > MAX_RANDOM_REQUESTS_PER_ROUND) throw new Error("discrete random round exceeds request limit");
-        const aliases = new Map<string, string>();
-        for (const [ordinal, request] of round.entries()) {
-          if (aliases.has(request.id)) throw new Error(`duplicate random request alias ${request.id}`);
-          const canonicalId = runtimeId({
-            worldHash: input.state.worldHash,
-            revision: input.state.revision,
-            kind: "random",
-            stage: "resolution-single",
-            owner: [input.identityOwner, action.id],
-            round: localRounds.length,
-            ordinal,
-          });
-          aliases.set(request.id, canonicalId);
-        }
-        const normalized = round.map((request) => {
-          const id = aliases.get(request.id)!;
-          const causes = request.causes.map((cause) => cause.kind === "random" && aliases.has(cause.id)
-            ? { ...cause, id: aliases.get(cause.id)! }
-            : structuredClone(cause));
-          if (localRandomIds.has(id)) throw new Error(`duplicate random request ${id}`);
-          causes.forEach((cause) => validateCausalReference(cause, localAllowed, `random request ${id}`));
-          const distribution = input.definition.randomDistributions.find((candidate) =>
-            candidate.id === request.distributionId);
-          if (!distribution) throw new Error(`random request ${id} references unknown distribution ${request.distributionId}`);
-          return { ...structuredClone(request), id, causes, distribution: structuredClone(distribution) };
-        });
-        validateDiscreteRandomCommitmentBudget([...localRandomRequests, ...normalized]);
-        registerLocalRandomAliases(round, normalized);
-        return normalized;
-      };
-      const registerLocalRandomAliases = (
-        draft: readonly DiscreteRandomRequestProposal[],
-        normalized: readonly DiscreteRandomRequest[],
-      ) => draft.forEach((request, index) => {
-        const canonicalId = normalized[index]!.id;
-        localRandomAliases.set(request.id, localRandomAliases.has(request.id) ? null : canonicalId);
-      });
-      const commitLocalRandom = (round: readonly DiscreteRandomRequest[]) => {
-        const resolved = resolveDiscreteRandomRequests(localRng, round);
-        localRng = resolved.rng;
-        localRandomRequests.push(...structuredClone(round));
-        localRandomResults.push(...structuredClone(resolved.results));
-        round.forEach((request) => localRandomIds.add(request.id));
-        localRounds.push({ kind: "random", requestIds: round.map((request) => request.id) });
-      };
-
-      while (true) {
-        let acceptedPlans: ResolutionPlan[] = [];
-        let acceptedChecks: D20CheckRequest[] = [];
-        let acceptedRandom: DiscreteRandomRequest[] | null = null;
-        const call = await generateValidated({
-          provider: this.provider,
-          profileId: input.definition.modelProfiles.resolution,
-          role: "truth-resolution",
-          subjectId: `${truthSubject}:single:${action.id}`,
-          promptId: "truth-resolution",
-          schemaName: "truth_resolution_directive",
-          schema: resolutionDirectiveSchema,
-          scope,
-          buildContext: (issues) => scopedContext("resolution", [...planIssues, ...issues]),
-          validate: (directive) => {
-            if (directive.kind === "commit_plans") {
-              acceptedPlans = materializeResolutionPlans({
-                state: input.state,
-                definition: input.definition,
-                actions: selectedActions,
-                groundings: selectedGroundings,
-                identityOwner: `${input.identityOwner}:single:${action.id}`,
-                drafts: directive.plans,
-                allowedCauses: localAllowed,
-              });
-              acceptedChecks = checkRequestsForPlans({
-                state: input.state,
-                plans: acceptedPlans,
-                identityOwner: `${input.identityOwner}:single:${action.id}`,
-                round: localRounds.length,
-                allowedCauses: localAllowed,
-                maximumVisibility: input.definition.disclosure.defaultCheckVisibility,
-              });
-            } else if (directive.kind === "request_random") {
-              if (localPlans.length === 0) throw new Error("resolution plans must be committed before random requests");
-              acceptedRandom = normalizeLocalRandom(directive.requests);
-            } else if (localPlans.length === 0) {
-              throw new Error("resolution plans must be committed before resolution can finish");
-            }
-          },
-          repairAttempts: this.repairAttempts,
-          invocationOffset: audits.reduce((count, audit) => count + audit.invocations.length, 0),
-        });
-        audits.push(call.audit);
-        if (call.value.kind === "commit_plans") {
-          if (acceptedPlans.length !== 1) throw new Error("single-action resolution did not produce exactly one plan");
-          const verification = await generateValidated({
-            provider: this.provider,
-            profileId: input.definition.modelProfiles.causalVerifier,
-            role: "causal-verifier",
-            subjectId: `${truthSubject}:single:${action.id}`,
-            promptId: "resolution-plan-verifier",
-            schemaName: "resolution_plan_verification",
-            schema: resolutionPlanVerificationSchema,
-            scope,
-            buildContext: (issues) => buildResolutionPlanVerificationContext({
-              definition: input.definition,
-              state: input.state,
-              actions: selectedActions,
-              groundings: selectedGroundings,
-              plans: acceptedPlans,
-              commitmentRounds: localRounds,
-              instanceId: scope.workloadId,
-              advanceId: scope.batchId,
-              issues: [...verifierIssues, ...issues],
-            }),
-            validate: (report) => {
-              if (report.verdict === "reject" && report.findings.some((finding) => finding.planId !== acceptedPlans[0]!.id)) {
-                throw new Error(`resolution plan verifier references unknown plan ${report.findings[0]!.planId}`);
-              }
-            },
-            repairAttempts: this.repairAttempts,
-            invocationOffset: verifierAudits.reduce((count, audit) => count + audit.invocations.length, 0),
-          });
-          verifierAudits.push(verification.audit);
-          if (verification.value.verdict === "reject") {
-            verifierIssues = verification.value.findings.map((finding) => ({
-              code: finding.code,
-              path: ["plans", finding.planId],
-              message: `${finding.message} Repair: ${finding.repairHint}`,
-            }));
-            planRepairs += 1;
-            if (planRepairs > this.repairAttempts) {
-              throw new ModelSemanticRepairError(
-                "truth-resolution",
-                `single-action resolution plan verification failed after repairs for ${action.id}`,
-              );
-            }
-            continue;
-          }
-          planIssues = [];
-          verifierIssues = [];
-          localPlans = structuredClone(acceptedPlans);
-          if (acceptedChecks.length > 0) commitLocalChecks(acceptedChecks);
-          let checkOrdinal = 0;
-          localReceipts = localPlans.map((plan, ordinal) => {
-            const request = plan.mode === "check" ? acceptedChecks[checkOrdinal++]! : null;
-            const result = request ? localChecks.find((candidate) => candidate.requestId === request.id) ?? null : null;
-            return deriveResolutionReceipt({
-              receiptId: runtimeId({
-                worldHash: input.state.worldHash,
-                revision: input.state.revision,
-                kind: "resolution-receipt",
-                stage: "resolution-single",
-                owner: [input.identityOwner, action.id, plan.id],
-                round: 0,
-                ordinal,
-              }),
-              plan,
-              checkRequestId: request?.id ?? null,
-              check: plan.mode === "check" ? deriveCheck(plan, resolutionEvidenceIndex(input.state, selectedActions, input.definition.laws)) : null,
-              result,
-            });
-          });
-        } else if (call.value.kind === "request_random") {
-          if (!acceptedRandom) throw new Error("single-action random round was not materialized");
-          commitLocalRandom(acceptedRandom);
-        } else {
-          if (localPlans.length === 0) throw new Error("single-action resolution finished without a plan");
-          break;
-        }
-      }
-      return {
-        plan: localPlans[0]!,
-        receipt: localReceipts[0]!,
-        requests: localRequests,
-        checks: localChecks,
-        randomRequests: localRandomRequests,
-        randomResults: localRandomResults,
-        commitmentRounds: localRounds,
-        rng: localRng,
-        audits,
-        verifierAudits,
-      };
     };
 
     const registerRandomAliases = (
@@ -1867,15 +1650,15 @@ export class TruthEngine {
 
     const resolutionAudits: ModelExecutionAudit[] = [];
     const resolutionPlanVerifierAudits: ModelExecutionAudit[] = [];
+    const resolutionRepairAudits: ModelExecutionAudit[] = [];
     let resolutionPlanIssues: PromptValidationIssue[] = [];
     let resolutionPlanRepairs = 0;
-    let singleActionFallback: Awaited<ReturnType<typeof resolveSingleActionPlan>>[] | null = null;
-    const singleResolutionAudits: ModelExecutionAudit[] = [];
-    const singleVerifierAudits: ModelExecutionAudit[] = [];
+    let lastPlanDrafts: ResolutionPlanDraft[] = [];
     while (true) {
       let acceptedPlans: ResolutionPlan[] = [];
       let acceptedPlanChecks: D20CheckRequest[] = [];
       let acceptedRandom: DiscreteRandomRequest[] | null = null;
+      let continuationFromTargetedRepair = false;
       let call: { value: z.infer<typeof resolutionDirectiveSchema>; audit: ModelExecutionAudit };
       try {
         call = await generateValidated({
@@ -1891,6 +1674,7 @@ export class TruthEngine {
           validate: (directive) => {
             if (directive.kind === "commit_plans") {
               if (resolutionPlans.length > 0) throw new Error("resolution plans are already committed");
+              lastPlanDrafts = structuredClone(directive.plans);
               acceptedPlans = materializeResolutionPlans({
                 state: input.state,
                 definition: input.definition,
@@ -1923,16 +1707,94 @@ export class TruthEngine {
           invocationOffset: resolutionAudits.reduce((count, audit) => count + audit.invocations.length, 0),
         });
       } catch (error) {
-        const cardinalityFailure = error instanceof ModelSemanticRepairError &&
-          /resolution plans must cover every final joint action exactly once/.test(error.message);
-        if (!cardinalityFailure || actions.length <= 1 || resolutionPlans.length > 0) throw error;
-        singleActionFallback = [];
-        for (const action of [...actions].sort((left, right) => left.id.localeCompare(right.id))) {
-          singleActionFallback.push(await resolveSingleActionPlan(action));
+        const cardinality = cardinalityError(error);
+        if (!cardinality || actions.length <= 1 || resolutionPlans.length > 0 || lastPlanDrafts.length === 0) {
+          throw error;
         }
-        break;
+
+        const allActionIds = new Set(actions.map((action) => action.id));
+        const receivedActionIds = new Set(lastPlanDrafts.map((draft) => draft.actionId));
+        const partialActions = actions.filter((action) => receivedActionIds.has(action.id));
+        if (partialActions.length === 0 || partialActions.length !== lastPlanDrafts.length ||
+          lastPlanDrafts.some((draft) => !allActionIds.has(draft.actionId))) {
+          throw error;
+        }
+
+        const partialPlans = materializeResolutionPlans({
+          state: input.state,
+          definition: input.definition,
+          actions: partialActions,
+          groundings,
+          identityOwner: input.identityOwner,
+          drafts: lastPlanDrafts,
+          allowedCauses: allowedForCommitments,
+        });
+        const missingActions = actions.filter((action) => !receivedActionIds.has(action.id));
+        const repairBaseOffset = resolutionAudits.reduce((count, audit) =>
+          count + audit.invocations.length, 0);
+        const repairResults = await Promise.all(
+          [...missingActions].sort((left, right) => left.id.localeCompare(right.id)).map(async (action, index) => {
+            let repairedPlans: ResolutionPlan[] = [];
+            const repairScope: ResolutionScope = {
+              mode: input.resolutionScope?.mode === "global" ? "global" : "repair",
+              selectedActionIds: [action.id],
+              totalActionCount: actions.length,
+            };
+            const result = await generateValidated({
+              provider: this.provider,
+              profileId: input.definition.modelProfiles.resolution,
+              role: "truth-resolution",
+              subjectId: `${truthSubject}:repair:${action.id}`,
+              promptId: "truth-resolution",
+              schemaName: "truth_resolution_directive",
+              schema: resolutionDirectiveSchema,
+              scope,
+              buildContext: (issues) => truthContext("resolution", issues, repairScope),
+              validate: (directive) => {
+                if (directive.kind !== "commit_plans") {
+                  throw new Error("targeted resolution repair must return commit_plans");
+                }
+                const scopedDrafts = directive.plans.filter((draft) => draft.actionId === action.id);
+                repairedPlans = materializeResolutionPlans({
+                  state: input.state,
+                  definition: input.definition,
+                  actions: [action],
+                  groundings,
+                  identityOwner: input.identityOwner,
+                  drafts: scopedDrafts,
+                  allowedCauses: allowedForCommitments,
+                });
+              },
+              repairAttempts: this.repairAttempts,
+              invocationOffset: repairBaseOffset + index * (this.repairAttempts + 1),
+            });
+            return { plans: repairedPlans, audit: result.audit };
+          }),
+        );
+        const repairedPlans = repairResults.flatMap((result) => result.plans);
+        resolutionRepairAudits.push(...repairResults.map((result) => result.audit));
+        acceptedPlans = [...partialPlans, ...repairedPlans]
+          .sort((left, right) => left.actionId.localeCompare(right.actionId));
+        if (acceptedPlans.some((plan) => plan.mode === "check") &&
+          commitmentRounds.length >= this.maxCommitmentRounds) {
+          throw new Error("maximum commitment rounds exceeded");
+        }
+        acceptedPlanChecks = checkRequestsForPlans({
+          state: input.state,
+          plans: acceptedPlans,
+          identityOwner: input.identityOwner,
+          round: commitmentRounds.length,
+          allowedCauses: allowedForCommitments,
+          maximumVisibility: input.definition.disclosure.defaultCheckVisibility,
+        });
+        resolutionPlanIssues = [];
+        continuationFromTargetedRepair = true;
+        call = {
+          value: { kind: "commit_plans", plans: [] },
+          audit: repairResults[0]!.audit,
+        };
       }
-      resolutionAudits.push(call.audit);
+      if (!continuationFromTargetedRepair) resolutionAudits.push(call.audit);
       if (call.value.kind === "done") break;
       if (call.value.kind === "commit_plans") {
         if (acceptedPlans.length === 0) throw new Error("accepted resolution plans were not materialized");
@@ -1955,6 +1817,15 @@ export class TruthEngine {
             instanceId: scope.workloadId,
             advanceId: scope.batchId,
             issues,
+            contextMode: "full",
+            contextState: input.contextState ?? input.state,
+            contextActions: input.contextActions ?? actions,
+            contextGroundings: input.contextGroundings ?? groundings,
+            resolutionScope: input.resolutionScope ?? {
+              mode: "component",
+              selectedActionIds: actions.map((action) => action.id).sort(),
+              totalActionCount: actions.length,
+            },
           }),
           validate: (report) => {
             if (report.verdict !== "reject") return;
@@ -2022,24 +1893,9 @@ export class TruthEngine {
         commitRandomRound(acceptedRandom);
       }
     }
-    if (singleActionFallback) {
-      resolutionPlans = singleActionFallback.map((entry) => entry.plan);
-      resolutionReceipts = singleActionFallback.map((entry) => entry.receipt);
-      singleActionFallback.forEach((entry) => {
-        requests.push(...entry.requests);
-        checks.push(...entry.checks);
-        randomRequests.push(...entry.randomRequests);
-        randomResults.push(...entry.randomResults);
-        commitmentRounds.push(...entry.commitmentRounds);
-        singleResolutionAudits.push(...entry.audits.map((audit) => structuredClone(audit)));
-        singleVerifierAudits.push(...entry.verifierAudits.map((audit) => structuredClone(audit)));
-      });
-      rng = structuredClone(singleActionFallback.at(-1)!.rng);
-    }
     if (resolutionAudits.length > 0) modelAudits.push(combineStageAudits(resolutionAudits));
-    modelAudits.push(...singleResolutionAudits);
+    modelAudits.push(...resolutionRepairAudits);
     if (resolutionPlanVerifierAudits.length > 0) modelAudits.push(combineStageAudits(resolutionPlanVerifierAudits));
-    modelAudits.push(...singleVerifierAudits);
 
     const stimulusObservations = reactionRequests.map((request) => request.stimulus);
     let transitionIssues: PromptValidationIssue[] = [];
@@ -2260,6 +2116,15 @@ export class TruthEngine {
             instanceId: scope.workloadId,
             advanceId: scope.batchId,
             issues,
+            contextMode: "full",
+            contextState: input.contextState ?? input.state,
+            contextActions: input.contextActions ?? actions,
+            contextGroundings: input.contextGroundings ?? groundings,
+            resolutionScope: input.resolutionScope ?? {
+              mode: "component",
+              selectedActionIds: actions.map((action) => action.id).sort(),
+              totalActionCount: actions.length,
+            },
           }),
           validate: (report) => {
             if (report.verdict !== "reject") return;

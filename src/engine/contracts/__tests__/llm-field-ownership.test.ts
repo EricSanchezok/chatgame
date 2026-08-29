@@ -91,6 +91,13 @@ describe("LLM output field ownership", () => {
     }).success).toBe(false);
     const grounding = { reads: [], writes: [], audienceAgentIds: [], sharedResourceClaims: [], globalFallback: false };
     expect(actionGroundingSchema.safeParse(grounding).success).toBe(true);
+    expect(actionGroundingSchema.safeParse({ ...grounding, globalFallback: true }).success).toBe(false);
+    expect(actionGroundingSchema.safeParse({
+      ...grounding,
+      reads: [{ kind: "global", id: "world" }],
+      writes: [{ kind: "global", id: "world" }],
+      globalFallback: true,
+    }).success).toBe(true);
     expect(actionGroundingSchema.safeParse({
       ...grounding,
       actionId: "rt:action:forged",

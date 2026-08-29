@@ -38,7 +38,6 @@ import type { AgentMindOutput } from "../../contracts/llm-schemas";
 import type {
   AgentActionProposal,
   AgentId,
-  AgentState,
   CausalRef,
   CommitmentRound,
   D20CheckRequest,
@@ -64,6 +63,7 @@ import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../../m
 import { runtimeId } from "../../runtime/runtime-id";
 import { applyTransitionProposal } from "../../runtime/transaction";
 import { TruthEngine, type OnsetPerceptionResult, type TruthResolution } from "../../mechanics/truth-engine";
+import type { ResolutionScope } from "../../contracts/prompts";
 import {
   cancelActivity,
   cancelDeferredActivity,
@@ -91,12 +91,18 @@ import {
 
 const groundingComponent = { id: "interaction-grounding", version: "3", config: { repairAttempts: 2 } } as const;
 const compilationComponent = { id: "action-compilation", version: "2", config: { repairAttempts: 2 } } as const;
-const truthComponent = { id: "truth-interaction-component", version: "2", config: { fallback: "global" } } as const;
+const truthComponent = {
+  id: "truth-interaction-component",
+  version: "3",
+  config: { fallback: "global", contextMode: "full", maxConcurrent: 16 },
+} as const;
 const mindComponent = {
   id: "agent-mind",
   version: "6",
   config: { externalUpdates: false, repairExhaustion: "fail-step" },
 } as const;
+
+const TRUTH_RESOLUTION_MAX_CONCURRENT = 16;
 
 export interface EagerReferenceAlgorithmConfig {
   actionCompilationMaxSlots: number;
@@ -895,6 +901,15 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       temporalBoundary: temporal.boundary,
       identityOwner,
       groundings: scopedDependencies,
+      contextState: input.state,
+      contextInitialActions: actions,
+      contextActions: actions,
+      contextGroundings: dependencies,
+      resolutionScope: {
+        mode: globalFallback ? "global" : "component",
+        selectedActionIds: scopedActions.map((action) => action.id).sort(),
+        totalActionCount: actions.length,
+      } satisfies ResolutionScope,
       enableReactionRouting: false,
       resolveReactions: async () => {
         throw new Error("component resolution cannot open a second reaction round");
@@ -1569,19 +1584,76 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       resolvingActionIds.has(interactionId)));
     let componentResults: ComponentResolution[] = [];
     let rng = structuredClone(payload.onsetPerception.rng);
-    for (const component of adjudicatedComponents) {
-      const result = await this.resolveComponent(
-        temporalInput,
-        actions,
-        interactionDependencies,
-        component,
-        rng,
-        context,
-        false,
-        temporal,
+    const orderedComponents = adjudicatedComponents
+      .map((component) => [...component].sort())
+      .sort((left, right) => left[0]!.localeCompare(right[0]!));
+    if (orderedComponents.length > 1) {
+      const speculativeRng = structuredClone(rng);
+      const speculativeResults = await settledValues(
+        orderedComponents.map((component) => () => this.resolveComponent(
+          temporalInput,
+          actions,
+          interactionDependencies,
+          component,
+          speculativeRng,
+          context,
+          false,
+          temporal,
+        )),
+        "truth resolution components",
+        TRUTH_RESOLUTION_MAX_CONCURRENT,
       );
-      componentResults.push(result);
-      rng = structuredClone(result.resolution.rng);
+      const hasRandomCommitments = speculativeResults.some((result) =>
+        result.resolution.rng.draws !== speculativeRng.draws ||
+        result.resolution.checks.length > 0 ||
+        result.resolution.randomRequests.length > 0);
+      if (!hasRandomCommitments) {
+        componentResults = speculativeResults;
+      } else {
+        // A single deterministic RNG stream cannot be consumed concurrently
+        // without changing replay semantics.  Keep the fast path for
+        // non-random components and fall back to the canonical stream order
+        // whenever a component actually commits a check or random draw.
+        componentResults = [];
+        rng = structuredClone(payload.onsetPerception.rng);
+        for (const component of orderedComponents) {
+          const result = await this.resolveComponent(
+            temporalInput,
+            actions,
+            interactionDependencies,
+            component,
+            rng,
+            context,
+            false,
+            temporal,
+          );
+          componentResults.push(result);
+          rng = structuredClone(result.resolution.rng);
+        }
+      }
+    } else {
+      for (const component of orderedComponents) {
+        const result = await this.resolveComponent(
+          temporalInput,
+          actions,
+          interactionDependencies,
+          component,
+          rng,
+          context,
+          false,
+          temporal,
+        );
+        componentResults.push(result);
+        rng = structuredClone(result.resolution.rng);
+      }
+    }
+    componentResults.sort((left, right) => {
+      const leftKey = left.resolution.actions.map((action) => action.id).sort()[0] ?? "";
+      const rightKey = right.resolution.actions.map((action) => action.id).sort()[0] ?? "";
+      return leftKey.localeCompare(rightKey);
+    });
+    if (componentResults.every((result) => result.resolution.rng.draws === payload.onsetPerception.rng.draws)) {
+      rng = structuredClone(payload.onsetPerception.rng);
     }
     let resolutions = componentResults.map((result) => result.resolution);
     const fallbackLaw = input.definition.laws[0];

@@ -460,6 +460,22 @@ export async function generateInteractionDependency(
       });
       audits.push(generated.audit);
       setModelInvocationResultKind(generated.audit, "action-grounding_footprint");
+      const hasGlobalReference = [...generated.value.reads, ...generated.value.writes]
+        .some((ref) => ref.kind === "global");
+      if (generated.value.globalFallback !== hasGlobalReference) {
+        const issue = "globalFallback must match the presence of a global world reference";
+        issues = [issue];
+        setModelInvocationOutcome(generated.audit, "rejected", ["inconsistent_global_fallback"]);
+        scope.observer?.emit({
+          event: "model.semantic.rejected",
+          level: "warn",
+          correlation: modelInvocationCorrelation(scope, "action-grounding", action.actorId, identity),
+          attributes: { resultKind: "action-grounding_footprint" },
+          counts: { validationIssues: 1 },
+          error: { name: "GroundingScopeError", message: issue },
+        });
+        if (attempt < 2) continue;
+      }
       setModelInvocationOutcome(generated.audit, "accepted");
       const audit = audits.length === 1 ? audits[0] : {
         ...structuredClone(audits[0]),

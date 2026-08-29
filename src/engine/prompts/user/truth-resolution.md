@@ -1,1 +1,2 @@
-Resolve the final action set by committing exactly one grounded plan per action, then request only the declared random results still needed by those plans. Once the committed evidence is sufficient, finish without changing an earlier plan.
+Commit exactly one grounded plan for each assigned action, request only the declared random results still needed, and finish without changing a committed plan; when `resolutionScope` is present it limits output responsibility rather than context visibility.
+`allJointActions` and `allGroundings` contain the complete semantic set, while `jointActions` and `groundings` identify the assigned output slots, so a repair scope must return exactly one plan for each listed `selectedActionIds` without regenerating committed plans.

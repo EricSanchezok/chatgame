@@ -1,1 +1,1 @@
-Review each candidate plan against its action, grounding, targets, means, factors, risk, and effect channels. Accept sound plans; otherwise return only concrete findings that tell the planner what semantic assumption must be repaired.
+Review each candidate plan against its action, grounding, targets, means, factors, risk, and effect channels, using the complete action and grounding set while respecting `resolutionScope` as the assigned output boundary. Accept sound plans; otherwise return only concrete findings that tell the planner what semantic assumption must be repaired.
