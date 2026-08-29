@@ -597,6 +597,20 @@ describe("model catalog and provider adapters", () => {
     }
   });
 
+  it("classifies provider output rejection as a completed transport", async () => {
+    const observer = new RecordingRuntimeObserver({ mode: "metrics" });
+    const gateway = createGateway(credentials, {
+      observer,
+      fetch: async () => deepSeekResponse("not-json"),
+      sleep: async () => {},
+    });
+
+    await expect(gateway.generateStructured(request("deep"))).rejects.toBeInstanceOf(ModelOutputError);
+    expect(observer.events.filter((event) => event.event === "model.transport.failed")).toHaveLength(0);
+    expect(observer.events.filter((event) => event.event === "model.transport.completed")).toHaveLength(1);
+    expect(observer.events.filter((event) => event.event === "model.structured_output.rejected")).toHaveLength(1);
+  });
+
   it.each([429, 500])("preserves retryability after exhausting a %i response", async (status) => {
     const exhausted = createGateway(credentials, {
       maxTransportAttempts: 1,

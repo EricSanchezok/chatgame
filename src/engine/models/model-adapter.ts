@@ -101,7 +101,7 @@ function parseStructuredValue<T>(
     throw new ModelOutputError(
       `${accountId} returned structured output that failed schema validation${suffix}`,
       undefined,
-      { cause: error },
+      { cause: error, rawValue: value },
     );
   }
 }

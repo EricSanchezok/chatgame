@@ -596,6 +596,7 @@ export class ModelGateway implements StructuredModelProvider {
           executionMs = scheduledError.executionMs;
         }
         const error = unwrapScheduledError(scheduledError);
+        const outputError = isOutputError(error);
         const retryable = transportAttempts < this.maxTransportAttempts &&
           isRetryableTransportError(error, request.abortSignal);
         const transportCompleted = transports.some((attempt) =>
@@ -607,33 +608,43 @@ export class ModelGateway implements StructuredModelProvider {
               queueWaitMs,
               executionMs,
               retryDelayMs: 0,
-              status: retryable ? "retryable_error" : "failed",
-              errorName: error instanceof Error ? error.name : "NonError",
-              statusCode: statusCode(error) ?? null,
+              status: outputError ? "succeeded" : retryable ? "retryable_error" : "failed",
+              errorName: outputError ? null : error instanceof Error ? error.name : "NonError",
+              statusCode: outputError ? null : statusCode(error) ?? null,
             };
         if (!transportCompleted) {
           transports.push(transportAudit);
           observe?.({
-            event: scheduledError instanceof ModelScheduledExecutionError
+            event: outputError || scheduledError instanceof ModelScheduledExecutionError
               ? "model.queue.completed"
               : "model.queue.failed",
-            level: scheduledError instanceof ModelScheduledExecutionError ? "info" : "warn",
+            level: outputError || scheduledError instanceof ModelScheduledExecutionError ? "info" : "warn",
             correlation: transportCorrelation,
             durationMs: queueWaitMs,
             measurements: { queueWaitMs },
-            error: scheduledError instanceof ModelScheduledExecutionError
+            error: outputError || scheduledError instanceof ModelScheduledExecutionError
               ? undefined
               : serializeRuntimeError(error),
           });
-          observe?.({
-            event: "model.transport.failed",
-            level: retryable ? "warn" : "error",
-            correlation: transportCorrelation,
-            durationMs: executionMs,
-            attributes: { status: transportAudit.status },
-            measurements: { queueWaitMs, executionMs },
-            error: serializeRuntimeError(error),
-          });
+          if (outputError) {
+            observe?.({
+              event: "model.transport.completed",
+              correlation: transportCorrelation,
+              durationMs: executionMs,
+              measurements: { queueWaitMs, executionMs },
+              attributes: { status: "succeeded" },
+            });
+          } else {
+            observe?.({
+              event: "model.transport.failed",
+              level: retryable ? "warn" : "error",
+              correlation: transportCorrelation,
+              durationMs: executionMs,
+              attributes: { status: transportAudit.status },
+              measurements: { queueWaitMs, executionMs },
+              error: serializeRuntimeError(error),
+            });
+          }
         }
         if (transportAttempts >= this.maxTransportAttempts ||
           !isRetryableTransportError(error, request.abortSignal)) {

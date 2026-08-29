@@ -41,9 +41,21 @@ export interface StructuredModelResult<T> {
 }
 
 export class ModelOutputError extends Error {
-  constructor(message: string, readonly audit?: ModelExecutionAudit, options?: ErrorOptions) {
+  /**
+   * The provider value is retained only in memory so a caller can isolate a
+   * malformed slot from an otherwise valid batch. It is never included in
+   * public DTOs or persisted outside the normal model audit.
+   */
+  readonly rawValue: unknown;
+
+  constructor(
+    message: string,
+    readonly audit?: ModelExecutionAudit,
+    options: ErrorOptions & { rawValue?: unknown } = {},
+  ) {
     super(message, options);
     this.name = "ModelOutputError";
+    this.rawValue = options.rawValue;
   }
 }
 
