@@ -176,8 +176,10 @@ export function WorldTimelineRail({
   const activeEntry = entries[safeActiveIndex];
   const previewEntry = previewIndex === null ? undefined : entries[previewIndex];
   const previewActivitySummary = previewEntry ? activitySummary(previewEntry.activity) : undefined;
+  const timelineHeightRem = Math.min(24, Math.max(12, (entries.length * 2.25) + 4));
   const trackStyle = {
     "--cg-timeline-count": String(Math.max(1, entries.length)),
+    "--cg-timeline-height": `${timelineHeightRem}rem`,
     ...(previewOffset === null ? {} : { "--cg-timeline-preview-offset": `${previewOffset}px` }),
   } as CSSProperties;
 
@@ -234,10 +236,10 @@ export function WorldTimelineRail({
       >
         <ArrowUp aria-hidden="true" />
       </button>
-      <div className="cg-timeline-rail__track" ref={trackRef}>
+      <div className="cg-timeline-rail__track" ref={trackRef} style={trackStyle}>
         <span aria-hidden="true" className="cg-timeline-rail__line" />
         {entries.length > 0 ? (
-          <ol style={trackStyle}>
+          <ol>
             {entries.map((entry, index) => (
               <li
                 data-active={index === safeActiveIndex || undefined}
