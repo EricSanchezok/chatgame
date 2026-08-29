@@ -7,6 +7,7 @@ import {
   ModelTransportError,
 } from "../../models/model-provider";
 import { ModelOverloadedError } from "../../models/model-scheduler";
+import { structuredPromptBytes } from "../../prompts";
 
 export interface EagerSlot<TPayload, TIssue> {
   key: string;
@@ -55,14 +56,11 @@ export class EagerSlotAttemptError extends Error {
 
 export function eagerRequestBytes(
   system: string,
+  userPrompt: string,
   context: unknown,
   schema: z.ZodType,
 ): number {
-  return Buffer.byteLength(JSON.stringify({
-    system,
-    context,
-    schema: z.toJSONSchema(schema, { target: "draft-07" }),
-  }), "utf8");
+  return structuredPromptBytes({ system, userPrompt, context, schema }).requestUtf8Bytes;
 }
 
 export function partitionEagerSlots<TPayload, TIssue>(input: {

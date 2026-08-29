@@ -14,6 +14,7 @@ import type { ModelExecutionAudit } from "../contracts/model";
 import { modelInvocationIdentity, ModelOutputError } from "../models/model-provider";
 import type { ActionCompilationDraft } from "../runtime/execution";
 import type { AgentMindDraftOutput } from "../contracts/llm-schemas";
+import { structuredPromptBytes } from "../prompts";
 
 const TEST_PROFILE_IDS = [
   "truth-engine",
@@ -369,6 +370,12 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       ? profile.selector.model_id
       : `scripted:${request.profileId}`;
     const context = canonicalize(request.context);
+    const promptBytes = structuredPromptBytes({
+      system: request.system,
+      userPrompt: request.userPrompt,
+      context,
+      schema: request.schema,
+    });
     const captured: ScriptedModelHandlerRequest = {
       profileId: request.profileId,
       workloadId: request.workloadId,
@@ -378,8 +385,9 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       promptVersion: request.promptVersion,
       schemaName: request.schemaName,
       system: request.system,
+      userPrompt: request.userPrompt,
       context,
-      prompt: JSON.stringify(context, null, 2),
+      prompt: promptBytes.userMessage,
       abortSignal: request.abortSignal,
       correlation: request.correlation,
       observer: request.observer,
@@ -401,8 +409,8 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       request.subjectId,
       modelInvocation,
     ).modelInvocationId;
-    const contextJson = JSON.stringify(context, null, 2);
-    const requestDocument = { system: request.system, context };
+    const contextJson = promptBytes.contextJson;
+    const requestDocument = { system: request.system, userPrompt: request.userPrompt, context };
     const responseJson = JSON.stringify(canonicalize(raw));
     const audit: StructuredModelResult<T>["audit"] = {
       role: request.role,
@@ -436,7 +444,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
         ordinal: modelInvocation,
         requestHash: contentHash(requestDocument),
         responseHash: contentHash(raw),
-        requestUtf8Bytes: Buffer.byteLength(JSON.stringify(requestDocument, null, 2), "utf8"),
+        requestUtf8Bytes: promptBytes.requestUtf8Bytes,
         responseUtf8Bytes: Buffer.byteLength(responseJson, "utf8"),
         context: measureModelContext(context, contextJson),
         transports: [{

@@ -1,0 +1,52 @@
+{
+  "sourceCommit": "dc0c9f71a5c9d1a21de66291045b2b94b1f4bfcf",
+  "scenarios": [
+    {
+      "id": "agent-private-cognition-conflict",
+      "role": "agent-mind",
+      "context": {
+        "perspective": { "knownLocalEntities": ["stranger"], "hiddenCanonicalFact": "excluded" },
+        "observations": [{ "id": "obs-1", "text": "A hooded figure leaves the gate.", "eligible": true }],
+        "beliefs": [{ "subject": "stranger", "confidence": "uncertain" }]
+      }
+    },
+    {
+      "id": "truth-concurrent-resource-competition",
+      "role": "truth-resolution",
+      "context": {
+        "jointActions": [
+          { "id": "a-1", "mode": "automatic", "sharedPool": "well" },
+          { "id": "a-2", "mode": "check", "sharedPool": "well" }
+        ],
+        "temporalBoundary": { "from": 10, "to": 20 }
+      }
+    },
+    {
+      "id": "observation-arrival-hidden-information",
+      "role": "observation-renderer",
+      "context": {
+        "observer": { "localEntities": ["gatekeeper"], "privateFacts": ["heard a bell"] },
+        "publicEvents": [{ "id": "event-1", "description": "The gate opens." }],
+        "hiddenCanonicalIdentity": "must-not-leak"
+      }
+    },
+    {
+      "id": "action-compilation-grounding-boundaries",
+      "role": "action-compilation",
+      "context": {
+        "action": { "text": "Wait for 15 minutes, then draw water from the well." },
+        "temporalProfiles": ["brief", "extended"],
+        "canonicalCatalog": { "resources": ["well"], "sharedPools": ["well-water"] }
+      }
+    },
+    {
+      "id": "verifier-targeted-rejection",
+      "role": "causal-verifier",
+      "context": {
+        "candidate": { "effects": [{ "quantity": 1000 }], "randomRequestIds": [] },
+        "committedRandomResults": [{ "requestId": "r-1", "value": 4 }],
+        "observations": [{ "text": "Everything is fine." }]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+Produce one candidate transition covering every final action, using only committed plans, checks, random results, events, and the supplied temporal boundary. Describe semantic effects with relevant causes and preconditions, leaving deterministic writes and time advancement to the engine.

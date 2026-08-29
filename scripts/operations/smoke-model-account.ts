@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { loadModelCatalog } from "../../src/engine/models/model-catalog";
 import { createModelGateway } from "../../src/engine/models/model-gateway";
+import { promptBundle } from "../../src/engine/prompts";
 import { ModelRegistry } from "../../src/engine/models/model-registry";
 
 function accountArgument(argv: readonly string[]): string {
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
 
   const dataRoot = mkdtempSync(path.join(tmpdir(), "livingworld-model-smoke-"));
   try {
+    const prompt = promptBundle("model-smoke");
     const registry = new ModelRegistry(catalog, dataRoot, { minimumRefreshIntervalMs: 0 });
     const gateway = createModelGateway(catalog, process.env, { registry });
     await gateway.assertProfilesAvailable([profile.id]);
@@ -40,9 +42,10 @@ async function main(): Promise<void> {
       correlation: { executionId: randomUUID() },
       role: profile.allowedRoles.includes("agent-mind") ? "agent-mind" : profile.allowedRoles[0]!,
       subjectId: `live-smoke:${accountId}`,
-      promptVersion: "live-smoke-v1",
+      promptVersion: prompt.version,
       schemaName: "live_smoke_output",
-      system: "Return a short structured connectivity check. Do not use tools other than the required result tool.",
+      system: prompt.system,
+      userPrompt: prompt.userPrompt,
       context: { instruction: "Return ok=true and a brief provider-neutral message." },
       schema: z.strictObject({ ok: z.literal(true), message: z.string().min(1).max(200) }),
       runtimeIdentity: { worldHash: `sha256:${"0".repeat(64)}`, revision: 0 },

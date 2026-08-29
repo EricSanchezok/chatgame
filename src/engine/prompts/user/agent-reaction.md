@@ -1,0 +1,1 @@
+Use the character's perspective, prepared action, and private stimulus to choose keep or one replacement action. Preserve the character's goals and local references, and make no belief or character update.

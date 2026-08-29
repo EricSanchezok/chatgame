@@ -26,21 +26,13 @@ import {
 } from "../models/model-provider";
 import { projectAgentPerspective } from "../cognition/agent-perspective";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
+import { promptBundle } from "../prompts";
 import { quantityId } from "../runtime/runtime-id";
 import { contentHash } from "../models/model-audit";
 import type { TruthResolution } from "./truth-engine";
 import { materializeSharedActivityResourceClaims } from "./shared-activity-resources";
 
-export const INTERACTION_DEPENDENCY_INSTRUCTIONS = `只判断给定行动可能读取、写入和影响哪些已列出的 canonical 资源与 Agent，并选择行动实际占用的共享物理资源池。
-
-必须保守：只要自然语言可能触及目录外资源、远程传播、规则全局状态或无法确定边界，就令 globalFallback=true，并在 reads 与 writes 中加入 {"kind":"global","id":"world"}。
-不得创建新 ID；reads、writes、audienceAgentIds、causes 和 sharedResourceClaims 中的引用 ID 必须从当前输入列出的 canonical catalog 或 action 中原样复制。不得输出状态修改、结果或叙事。共享资源 claim 只能选择 canonicalCatalog.sharedActivityResourcePools[].id；如果该目录为空或没有明确匹配，sharedResourceClaims 必须输出 []。default 只是 basis.kind，绝不是 poolId；只有定义允许且行动原文明确写出数量和单位时才能使用 explicit_quantity。actor 的私有认知只用于理解本行动，不是 canonical Fact；任何私有 claim、evidence 或 goal ID 都不得作为 footprint id。
-`;
-
-const GROUNDING_SYSTEM = `你是 Living World Engine 的行动 grounding 器。${INTERACTION_DEPENDENCY_INSTRUCTIONS}
-行动与 actor 身份由调用槽位固定，不要输出。只输出 schema 指定的 JSON。`;
-
-const GROUNDING_PROMPT_VERSION = "action-grounding-v3";
+const GROUNDING_PROMPT = promptBundle("action-grounding");
 
 export function footprintRefKey(ref: FootprintRef): string {
   return `${ref.kind}:${ref.id}`;
@@ -459,9 +451,10 @@ export async function generateInteractionDependency(
         ...identity,
         role: "action-grounding",
         subjectId: action.actorId,
-        promptVersion: GROUNDING_PROMPT_VERSION,
+        promptVersion: GROUNDING_PROMPT.version,
         schemaName: "action_grounding",
-        system: GROUNDING_SYSTEM,
+        system: GROUNDING_PROMPT.system,
+        userPrompt: GROUNDING_PROMPT.userPrompt,
         context: actionGroundingContext(state, action, issues),
         schema: actionGroundingSchema,
       });

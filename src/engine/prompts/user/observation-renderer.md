@@ -1,0 +1,1 @@
+Render one perceivable observation for each observer slot from the candidate world, current events, and that observer's authorized view. Keep every statement evidence-backed and de-identified, and introduce only local aliases the observer can perceive.

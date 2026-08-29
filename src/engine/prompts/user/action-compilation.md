@@ -1,0 +1,1 @@
+For every slot, choose the authored temporal profile that best fits the action and produce its conservative interaction footprint. Use an explicit duration or quantity only when the action text itself provides a verifiable number and unit.

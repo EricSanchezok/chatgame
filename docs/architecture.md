@@ -7,11 +7,12 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 | Layer | Location | Responsibility |
 |---|---|---|
 | World contract | `src/script/` | Read schema v13 world packages, validate temporal/mechanics/resource profiles and assets, and construct `WorldDefinition` and `SimulationState` v14 |
-| Execution algorithms | `src/engine/algorithms/` | Versioned algorithm definitions; `eager-reference/` owns Action Compilation, AgentMind, algorithm prompts, and slot batching while returning ordinary Candidates |
-| Model gateway | `src/engine/models/` | Trusted provider accounts, models.dev snapshots, deterministic Profile resolution, protocol drivers, vendor dialects, strict structured output, fair scheduling, and invocation audit |
+| Execution algorithms | `src/engine/algorithms/` | Versioned algorithm definitions; `eager-reference/` owns Action Compilation, AgentMind, prompt call wiring, and slot batching while returning ordinary Candidates |
+| Model gateway | `src/engine/models/` | Trusted provider accounts, models.dev snapshots, deterministic Profile resolution, protocol drivers, vendor dialects, external prompt bundles, strict structured output, fair scheduling, and invocation audit |
 | Cognition | `src/engine/cognition/` | Agent perspective, private belief/character updates, observations, information boundaries, and mind commits |
 | Mechanics | `src/engine/mechanics/` | Temporal, resolution, causality, random, interaction-dependency graphs, Truth Engine, rule packages, and shared-resource mechanics |
 | Fixed runtime | `src/engine/runtime/` | Execution contract, SimulationEngine, CanonicalCommitter, transactions, lifecycle evidence, IDs, replay, and world runtime definitions |
+| Prompt resources | `src/engine/prompts/` | Server-loaded English role/task/transport Markdown, content-addressed bundle versions, and unified task/context serialization |
 | Shared contracts | `src/engine/contracts/` | Semantic state types, model-output schemas, and prompt/context contracts shared across owners |
 | Benchmarks | `src/engine/benchmarks/` | Benchmark-only code and evidence generators kept off the product execution path |
 | Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v19, pinned configured `AlgorithmRef`, persistent WorldRuns, Participants, decision/reaction windows, Preparation v3 artifacts, leases, recovery, and generation fencing |

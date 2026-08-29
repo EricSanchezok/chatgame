@@ -68,18 +68,13 @@ import { ModelOverloadedError } from "../models/model-scheduler";
 import { runtimeEventEmitter, serializeRuntimeError } from "../runtime/observability";
 import { validateObservations } from "../cognition/observation";
 import {
-  CAUSAL_VERIFIER_PROMPT_VERSION,
-  CAUSAL_VERIFIER_SYSTEM,
   buildCausalVerificationContext,
   buildResolutionPlanVerificationContext,
   buildTruthContext,
-  RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION,
-  RESOLUTION_PLAN_VERIFIER_SYSTEM,
-  TRUTH_PROMPT_VERSION,
-  TRUTH_SYSTEM,
   validationIssues,
   type PromptValidationIssue,
 } from "../contracts/prompts";
+import { promptBundle, type PromptBundleId } from "../prompts";
 import {
   resolveD20Checks,
   resolveDiscreteRandomRequests,
@@ -207,9 +202,8 @@ interface ValidatedCallInput<T> {
   profileId: string;
   role: ModelRole;
   subjectId: string;
-  promptVersion: string;
+  promptId: PromptBundleId;
   schemaName: string;
-  system: string;
   schema: z.ZodType<T>;
   scope: ModelExecutionScope;
   buildContext: (issues: readonly PromptValidationIssue[]) => unknown;
@@ -231,6 +225,7 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
     try {
       const contextStartedAt = Date.now();
       const context = input.buildContext(issues);
+      const prompt = promptBundle(input.promptId);
       const invocation = (input.invocationOffset ?? 0) +
         audits.reduce((count, audit) => count + audit.invocations.length, 0) + 1;
       const identity = modelInvocationIdentity(input.scope, input.role, input.subjectId, invocation);
@@ -251,9 +246,10 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
         ...identity,
         role: input.role,
         subjectId: input.subjectId,
-        promptVersion: input.promptVersion,
+        promptVersion: prompt.version,
         schemaName: input.schemaName,
-        system: input.system,
+        system: prompt.system,
+        userPrompt: prompt.userPrompt,
         context,
         schema: input.schema,
       });
@@ -394,9 +390,8 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
       profileId: input.definition.modelProfiles.perception,
       role: "truth-perception",
       subjectId: input.identityOwner,
-      promptVersion: TRUTH_PROMPT_VERSION,
+      promptId: "truth-perception",
       schemaName: "truth_perception_directive",
-      system: TRUTH_SYSTEM,
       schema: perceptionDirectiveSchema,
       scope: input.scope,
       buildContext: (issues) => buildTruthContext({
@@ -1659,9 +1654,8 @@ export class TruthEngine {
           profileId: input.definition.modelProfiles.resolution,
           role: "truth-resolution",
           subjectId: `${truthSubject}:single:${action.id}`,
-          promptVersion: TRUTH_PROMPT_VERSION,
+          promptId: "truth-resolution",
           schemaName: "truth_resolution_directive",
-          system: TRUTH_SYSTEM,
           schema: resolutionDirectiveSchema,
           scope,
           buildContext: (issues) => scopedContext("resolution", [...planIssues, ...issues]),
@@ -1702,9 +1696,8 @@ export class TruthEngine {
             profileId: input.definition.modelProfiles.causalVerifier,
             role: "causal-verifier",
             subjectId: `${truthSubject}:single:${action.id}`,
-            promptVersion: RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION,
+            promptId: "resolution-plan-verifier",
             schemaName: "resolution_plan_verification",
-            system: RESOLUTION_PLAN_VERIFIER_SYSTEM,
             schema: resolutionPlanVerificationSchema,
             scope,
             buildContext: (issues) => buildResolutionPlanVerificationContext({
@@ -1823,9 +1816,8 @@ export class TruthEngine {
         profileId: input.definition.modelProfiles.reactionRouting,
         role: "truth-reaction-routing",
         subjectId: truthSubject,
-        promptVersion: TRUTH_PROMPT_VERSION,
+        promptId: "truth-reaction-routing",
         schemaName: "truth_reaction_routing",
-        system: TRUTH_SYSTEM,
         schema: reactionRoutingOutputSchema,
         scope,
         buildContext: (issues) => truthContext("reaction-routing", issues),
@@ -1891,9 +1883,8 @@ export class TruthEngine {
           profileId: input.definition.modelProfiles.resolution,
           role: "truth-resolution",
           subjectId: truthSubject,
-          promptVersion: TRUTH_PROMPT_VERSION,
+          promptId: "truth-resolution",
           schemaName: "truth_resolution_directive",
-          system: TRUTH_SYSTEM,
           schema: resolutionDirectiveSchema,
           scope,
           buildContext: (issues) => truthContext("resolution", [...resolutionPlanIssues, ...issues]),
@@ -1950,9 +1941,8 @@ export class TruthEngine {
           profileId: input.definition.modelProfiles.causalVerifier,
           role: "causal-verifier",
           subjectId: truthSubject,
-          promptVersion: RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION,
+          promptId: "resolution-plan-verifier",
           schemaName: "resolution_plan_verification",
-          system: RESOLUTION_PLAN_VERIFIER_SYSTEM,
           schema: resolutionPlanVerificationSchema,
           scope,
           buildContext: (issues) => buildResolutionPlanVerificationContext({
@@ -2084,6 +2074,7 @@ export class TruthEngine {
           durationMs: Math.max(0, Date.now() - contextStartedAt),
           hashes: { context: contentHash(context) },
         });
+        const prompt = promptBundle("truth-transition");
         const generated = await this.provider.generateStructured({
           profileId: input.definition.modelProfiles.transition,
           workloadId: scope.workloadId,
@@ -2094,9 +2085,10 @@ export class TruthEngine {
           ...identity,
           role: "truth-transition",
           subjectId: truthSubject,
-          promptVersion: TRUTH_PROMPT_VERSION,
+          promptVersion: prompt.version,
           schemaName: "truth_transition",
-          system: TRUTH_SYSTEM,
+          system: prompt.system,
+          userPrompt: prompt.userPrompt,
           context,
           schema: transitionProposalSchema,
         });
@@ -2245,9 +2237,8 @@ export class TruthEngine {
           profileId: input.definition.modelProfiles.causalVerifier,
           role: "causal-verifier",
           subjectId: truthSubject,
-          promptVersion: CAUSAL_VERIFIER_PROMPT_VERSION,
+          promptId: "causal-verifier",
           schemaName: "causal_verification",
-          system: CAUSAL_VERIFIER_SYSTEM,
           schema: causalVerificationSchema,
           scope,
           buildContext: (issues) => buildCausalVerificationContext({

@@ -59,11 +59,13 @@ Profile 的 `allowed_roles` 覆盖 Truth、temporal planner、action grounding�
 
 ## 协议、方言与结构化结果
 
-`ProtocolDriver` 只负责 OpenAI Chat、OpenAI Responses 或 Anthropic Messages 的通用 wire contract。`VendorDialect` 负责 thinking/effort 字段、特殊 header、prompt cache 与响应差异。Kimi Coding 使用 `LivingWorldEngine/<version>` User-Agent，并以 workload、Profile 和 prompt version 生成稳定 `prompt_cache_key`；它不伪装其他编码客户端。
+`ProtocolDriver` 只负责 OpenAI Chat、OpenAI Responses 或 Anthropic Messages 的通用 wire contract。`VendorDialect` 负责 thinking/effort 字段、特殊 header、prompt cache 与响应差异。Kimi Coding 使用 `LivingWorldEngine/<version>` User-Agent，并以 Profile、prompt bundle 内容哈希和 bundle version 生成稳定 `prompt_cache_key`；它不伪装其他编码客户端。
 
 结构化结果按协议和模型能力使用三条路径：原生 strict JSON Schema；JSON Object 加 schema prompt 和本地 Zod；强制 `submit_result` tool call 加本地 Zod。所有成功结果再次通过调用点的 Zod schema。引擎不从 Markdown、前后缀文字、截断文本或普通自然语言中猜测 JSON。
 
-`StructuredModelProvider.generateStructured` 返回已验证值和 `ModelExecutionAudit`。请求显式携带 Profile、workload、batch、角色、主体、prompt 版本、schema 名、system prompt、JSON Context、Zod schema、execution correlation、可选历史快照 hash 与 `AbortSignal`。Gateway 在 transport 前完成角色、凭据、快照、selector、能力与输入预算校验。
+每个请求都携带 `system`、一到两句英文 `userPrompt` 和 `context`。Gateway 使用统一的 Context envelope，把任务放在原始 JSON 数据之前，并明确标记数据不是指令；严格 schema、JSON Object 与 tool-call transport 复用同一装配和字节计量函数。角色提示词与 transport 文本位于 [`src/engine/prompts/`](../../src/engine/prompts/)，通过缓存 loader 读取、trim、校验和内容哈希版本化；Next standalone 追踪该目录，浏览器代码不得导入它。
+
+`StructuredModelProvider.generateStructured` 返回已验证值和 `ModelExecutionAudit`。请求显式携带 Profile、workload、batch、角色、主体、bundle 版本、schema 名、system prompt、user prompt、JSON Context、Zod schema、execution correlation、可选历史快照 hash 与 `AbortSignal`。Gateway 在 transport 前完成角色、凭据、快照、selector、能力与输入预算校验，并记录 system、user、context 与完整 request 的 UTF-8 字节数。
 
 ## 调度、失败与审计
 

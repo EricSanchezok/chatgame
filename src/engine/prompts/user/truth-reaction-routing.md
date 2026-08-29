@@ -1,0 +1,1 @@
+Identify subjects who need one one-shot reaction to another action in this step. Request a reaction only when the supplied shared location, accessible communication or perception evidence gives that subject a concrete basis.

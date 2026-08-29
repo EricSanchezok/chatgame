@@ -578,7 +578,7 @@ describe("eager reference safeguards", () => {
     let repairedIssues: string[][] = [];
     const provider = new ScriptedModelProvider(({ role, profileId, context, system }) => {
       if (role === "action-compilation") {
-        expect(system).toContain("目录为空或没有明确匹配，sharedResourceClaims 必须输出 []");
+        expect(system).toContain("Keep the footprint conservative");
         const output = deterministicActionCompilationBatch(profileId, context);
         if (firstCompilation) {
           firstCompilation = false;
