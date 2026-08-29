@@ -5,6 +5,7 @@ import {
   interactionDependencyForCondition,
   interactionDependencyForTimer,
   interactionDependencyComponents,
+  buildInteractionDependencyGraph,
   normalizeInteractionDependency,
 } from "../action-dependency";
 import type { InteractionDependency } from "../../runtime/execution";
@@ -45,7 +46,12 @@ describe("action dependencies", () => {
     expect(interactionDependencyComponents([
       dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
       dependency("b", [], [{ kind: "entity", id: "entity-b" }]),
-    ])).toEqual([["action-a", "action-b"]]);
+    ], "notification")).toEqual([["action-a", "action-b"]]);
+
+    expect(interactionDependencyComponents([
+      dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
+      dependency("b", [], [{ kind: "entity", id: "entity-b" }]),
+    ])).toEqual([["action-a"], ["action-b"]]);
   });
 
   it("joins claimants and capacity writers through the shared resource pool key", () => {
@@ -91,6 +97,27 @@ describe("action dependencies", () => {
       dependency("b", [], [{ kind: "entity", id: "entity-b" }]),
       dependency("c", [], [{ kind: "entity", id: "entity-c" }]),
     ])).toEqual([["action-a", "action-b", "action-c"]]);
+  });
+
+  it("exposes a deterministic hard-conflict graph without treating audience as canonical conflict", () => {
+    const graph = buildInteractionDependencyGraph([
+      dependency("b", [], [{ kind: "entity", id: "shared" }]),
+      dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
+      dependency("c", [{ kind: "entity", id: "shared" }], []),
+    ]);
+    expect(graph.mode).toBe("canonical");
+    expect(graph.components).toEqual([["action-a"], ["action-b", "action-c"]]);
+    expect(graph.edges).toEqual([
+      { from: "action-b", to: "action-c", kinds: ["read-write"] },
+    ]);
+    expect(graph.edgeCount).toBe(1);
+    expect(graph.maxComponentSize).toBe(2);
+    expect(graph.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(buildInteractionDependencyGraph([
+      dependency("c", [{ kind: "entity", id: "shared" }], []),
+      dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
+      dependency("b", [], [{ kind: "entity", id: "shared" }]),
+    ])).toEqual(graph);
   });
 
   it("turns unknown dependency hints into a conservative global footprint", () => {

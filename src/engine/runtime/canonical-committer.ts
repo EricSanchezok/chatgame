@@ -7,6 +7,7 @@ import type {
 } from "./execution";
 import {
   ActivityFootprintIndex,
+  buildInteractionDependencyGraph,
   interactionDependencyComponents,
   interactionDependencyForCondition,
   interactionDependencyForTimer,
@@ -244,6 +245,19 @@ function validateStepDiagnostics(
   if (contentHash(diagnostics.dependencyComponents) !==
     contentHash(interactionDependencyComponents(candidate.interactionDependencies))) {
     throw new Error("dependency diagnostics do not match the final interaction dependency graph");
+  }
+  if (diagnostics.dependencyGraph) {
+    const graph = buildInteractionDependencyGraph(candidate.interactionDependencies, "canonical");
+    const summary = diagnostics.dependencyGraph;
+    if (summary.mode !== "canonical" ||
+      summary.nodeCount !== graph.nodeIds.length ||
+      summary.edgeCount !== graph.edgeCount ||
+      summary.componentCount !== graph.components.length ||
+      summary.maxComponentSize !== graph.maxComponentSize ||
+      contentHash(summary.globalFallbackNodeIds) !== contentHash(graph.globalFallbackNodeIds) ||
+      summary.contentHash !== graph.contentHash) {
+      throw new Error("dependency graph diagnostics do not match the canonical graph");
+    }
   }
   if (diagnostics.globalReadjudication && actions.length > 0 && diagnostics.dependencyComponents.length !== 1) {
     throw new Error("global readjudication diagnostics require one dependency component");

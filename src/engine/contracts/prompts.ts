@@ -145,6 +145,129 @@ function semanticHistory(state: SimulationState): unknown[] {
   }));
 }
 
+function scopedCanonicalTruth(
+  state: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  groundings: readonly InteractionDependency[],
+): SimulationState["truth"] {
+  if (groundings.some((grounding) => grounding.globalFallback)) return structuredClone(state.truth);
+
+  const entityIds = new Set<string>();
+  const factIds = new Set<string>();
+  const placementIds = new Set<string>();
+  const meterIds = new Set<string>();
+  const quantityIds = new Set<string>();
+  const ratingIds = new Set<string>();
+  const conditionIds = new Set<string>();
+  const activityIds = new Set<string>();
+  const timerIds = new Set<string>();
+  const relevantAgentIds = new Set<string>();
+  const addRef = (ref: { kind: string; id: string }): void => {
+    switch (ref.kind) {
+      case "entity": entityIds.add(ref.id); break;
+      case "fact": factIds.add(ref.id); break;
+      case "placement": placementIds.add(ref.id); break;
+      case "meter": meterIds.add(ref.id); break;
+      case "quantity": quantityIds.add(ref.id); break;
+      case "rating": ratingIds.add(ref.id); break;
+      case "condition": conditionIds.add(ref.id); break;
+      case "activity": activityIds.add(ref.id); break;
+      case "timer": timerIds.add(ref.id); break;
+      default: break;
+    }
+  };
+  for (const grounding of groundings) {
+    grounding.reads.forEach(addRef);
+    grounding.writes.forEach(addRef);
+    grounding.audienceAgentIds.forEach((agentId) => relevantAgentIds.add(agentId));
+    if (grounding.actorId !== null) relevantAgentIds.add(grounding.actorId);
+    if (grounding.kind === "activity") activityIds.add(grounding.id);
+    if (grounding.kind === "timer") timerIds.add(grounding.id);
+    if (grounding.kind === "condition") conditionIds.add(grounding.id);
+  }
+  for (const action of actions) {
+    relevantAgentIds.add(action.actorId);
+    const agent = state.agents[action.actorId];
+    if (agent) {
+      entityIds.add(agent.entityId);
+      const placementId = state.truth.placements[agent.entityId];
+      if (placementId) placementIds.add(placementId);
+      for (const localId of action.targetIds) {
+        for (const entityId of agent.bindings[localId]?.canonicalEntityIds ?? []) entityIds.add(entityId);
+      }
+    }
+  }
+
+  for (const fact of Object.values(state.truth.facts)) {
+    if (factIds.has(fact.id)) {
+      entityIds.add(fact.subjectId);
+      if (fact.value.kind === "entity") entityIds.add(fact.value.entityId);
+    }
+  }
+  for (const fact of Object.values(state.truth.facts)) {
+    if (entityIds.has(fact.subjectId) ||
+      fact.value.kind === "entity" && entityIds.has(fact.value.entityId)) factIds.add(fact.id);
+  }
+  for (const entityId of [...entityIds]) {
+    let placement = state.truth.placements[entityId];
+    const seen = new Set<string>();
+    while (placement && !seen.has(placement)) {
+      seen.add(placement);
+      placementIds.add(placement);
+      entityIds.add(placement);
+      placement = state.truth.placements[placement];
+    }
+  }
+  const truth = structuredClone(state.truth);
+  truth.entities = Object.fromEntries(Object.entries(state.truth.entities)
+    .filter(([id]) => entityIds.has(id)));
+  truth.placements = Object.fromEntries(Object.entries(state.truth.placements)
+    .filter(([id]) => entityIds.has(id) || placementIds.has(id)));
+  truth.facts = Object.fromEntries(Object.entries(state.truth.facts)
+    .filter(([id]) => factIds.has(id)));
+  truth.factTombstones = state.truth.factTombstones.filter((id) => factIds.has(id));
+  truth.meters = Object.fromEntries(Object.entries(state.truth.meters)
+    .filter(([id, meter]) => meterIds.has(id) || entityIds.has(meter.entityId)));
+  truth.quantities = Object.fromEntries(Object.entries(state.truth.quantities)
+    .filter(([id, quantity]) => quantityIds.has(id) || entityIds.has(quantity.holderId)));
+  truth.ratings = Object.fromEntries(Object.entries(state.truth.ratings)
+    .filter(([id, rating]) => ratingIds.has(id) || entityIds.has(rating.entityId)));
+  truth.conditions = Object.fromEntries(Object.entries(state.truth.conditions)
+    .filter(([id, condition]) => conditionIds.has(id) || entityIds.has(condition.subjectId)));
+  truth.activities = Object.fromEntries(Object.entries(state.truth.activities)
+    .filter(([id, activity]) => activityIds.has(id) || relevantAgentIds.has(activity.actorId) ||
+      activity.participantAgentIds.some((agentId) => relevantAgentIds.has(agentId))));
+  truth.timers = Object.fromEntries(Object.entries(state.truth.timers)
+    .filter(([id, timer]) => timerIds.has(id) || timer.wakeAgentIds.some((agentId) => relevantAgentIds.has(agentId))));
+  truth.sharedActivityResourcePools = Object.fromEntries(Object.entries(state.truth.sharedActivityResourcePools)
+    .filter(([id, pool]) => entityIds.has(pool.entityId) || groundings.some((grounding) =>
+      grounding.sharedResourceClaims.some((claim) => claim.poolId === id))));
+  truth.events = state.truth.events.filter((event) => event.step === state.step ||
+    event.causes.some((cause) => groundings.some((grounding) => grounding.id === cause.id)));
+  return truth;
+}
+
+function scopedActors(
+  state: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  groundings: readonly InteractionDependency[],
+): Record<string, { entityId: string; existingLocalEntityIds: string[]; localEntityBindings: Record<string, string[]> }> {
+  const ids = new Set<string>(actions.map((action) => action.actorId));
+  groundings.forEach((grounding) => {
+    if (grounding.actorId !== null) ids.add(grounding.actorId);
+    grounding.audienceAgentIds.forEach((agentId) => ids.add(agentId));
+  });
+  return Object.fromEntries(Object.values(state.agents)
+    .filter((agent) => ids.has(agent.id))
+    .map((agent) => [agent.id, {
+      entityId: agent.entityId,
+      existingLocalEntityIds: Object.keys(agent.belief.localEntities).sort(),
+      localEntityBindings: Object.fromEntries(Object.entries(agent.bindings)
+        .filter(([, binding]) => binding.canonicalEntityIds.length > 0)
+        .map(([localId, binding]) => [localId, [...binding.canonicalEntityIds].sort()])),
+    }]));
+}
+
 export function buildTruthContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
@@ -192,15 +315,9 @@ export function buildTruthContext(input: {
     },
     baseRevision: input.state.revision,
     step: input.state.step,
-    canonicalTruth: input.state.truth,
+    canonicalTruth: scopedCanonicalTruth(input.state, input.actions, input.groundings),
     semanticHistory: semanticHistory(input.state),
-    actors: Object.fromEntries(Object.values(input.state.agents).map((agent) => [agent.id, {
-      entityId: agent.entityId,
-      existingLocalEntityIds: Object.keys(agent.belief.localEntities).sort(),
-      localEntityBindings: Object.fromEntries(Object.entries(agent.bindings)
-        .filter(([, binding]) => binding.canonicalEntityIds.length > 0)
-        .map(([localId, binding]) => [localId, [...binding.canonicalEntityIds].sort()])),
-    }])),
+    actors: scopedActors(input.state, input.actions, input.groundings),
     initialActions: input.initialActions,
     jointActions: input.actions,
     groundings: input.groundings,
@@ -224,6 +341,7 @@ export function buildCausalVerificationContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
   actions: readonly AgentActionProposal[];
+  groundings: readonly InteractionDependency[];
   checkRequests: readonly D20CheckRequest[];
   checkResults: readonly D20CheckResult[];
   randomRequests: readonly DiscreteRandomRequest[];
@@ -254,7 +372,7 @@ export function buildCausalVerificationContext(input: {
       randomDistributions: input.definition.randomDistributions,
     },
     baseRevision: input.state.revision,
-    canonicalTruth: input.state.truth,
+    canonicalTruth: scopedCanonicalTruth(input.state, input.actions, input.groundings),
     actions: input.actions,
     committedCheckRequests: input.checkRequests,
     checkResults: input.checkResults,
@@ -282,7 +400,11 @@ export function buildResolutionPlanVerificationContext(input: {
   advanceId: string;
   issues: readonly PromptValidationIssue[];
 }): unknown {
-  const { mechanics, ...canonicalTruth } = input.state.truth;
+  const { mechanics, ...canonicalTruth } = scopedCanonicalTruth(
+    input.state,
+    input.actions,
+    input.groundings,
+  );
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     promptVersion: RESOLUTION_PLAN_VERIFIER_PROMPT_VERSION,

@@ -27,6 +27,7 @@ import {
 import { projectAgentPerspective } from "../cognition/agent-perspective";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
 import { quantityId } from "../runtime/runtime-id";
+import { contentHash } from "../models/model-audit";
 import type { TruthResolution } from "./truth-engine";
 import { materializeSharedActivityResourceClaims } from "./shared-activity-resources";
 
@@ -518,21 +519,87 @@ export function replaceInteractionDependencies(
   ].sort((left, right) => left.id.localeCompare(right.id));
 }
 
-export function interactionDependenciesConflict(left: InteractionDependency, right: InteractionDependency): boolean {
-  if (left.globalFallback || right.globalFallback) return true;
-  const claimKeys = (dependency: InteractionDependency): string[] =>
-    dependency.sharedResourceClaims.map((claim) => `shared_resource_pool:${claim.poolId}`);
-  const leftWrites = new Set([...left.writes.map(footprintRefKey), ...claimKeys(left)]);
-  const rightWrites = new Set([...right.writes.map(footprintRefKey), ...claimKeys(right)]);
-  const leftReads = new Set(left.reads.map(footprintRefKey));
-  const rightReads = new Set(right.reads.map(footprintRefKey));
-  return [...leftWrites].some((key) => rightWrites.has(key) || rightReads.has(key)) ||
-    [...rightWrites].some((key) => leftReads.has(key)) ||
-    (right.actorId !== null && left.audienceAgentIds.includes(right.actorId)) ||
-    (left.actorId !== null && right.audienceAgentIds.includes(left.actorId));
+export type InteractionGraphMode = "canonical" | "notification";
+
+export type InteractionDependencyConflictKind =
+  | "global"
+  | "read-write"
+  | "write-write"
+  | "shared-resource"
+  | "audience";
+
+export interface InteractionDependencyGraphEdge {
+  from: string;
+  to: string;
+  kinds: InteractionDependencyConflictKind[];
 }
 
-export function interactionDependencyComponents(dependencies: readonly InteractionDependency[]): string[][] {
+export interface InteractionDependencyGraphSnapshot {
+  mode: InteractionGraphMode;
+  nodeIds: string[];
+  edges: InteractionDependencyGraphEdge[];
+  components: string[][];
+  globalFallbackNodeIds: string[];
+  edgeCount: number;
+  maxComponentSize: number;
+  contentHash: string;
+}
+
+function dependencyWriteKeys(dependency: InteractionDependency): string[] {
+  return [
+    ...dependency.writes.map(footprintRefKey),
+    ...dependency.sharedResourceClaims.map((claim) => `shared_resource_pool:${claim.poolId}`),
+  ];
+}
+
+function dependencyReadKeys(dependency: InteractionDependency): string[] {
+  return dependency.reads.map(footprintRefKey);
+}
+
+/**
+ * Canonical conflict excludes audience-only links. Audience is an observation
+ * fan-out and becomes a Truth dependency only when onset reaction grounding
+ * proves that the actor can perceive and change the ongoing action.
+ */
+export function interactionDependenciesConflict(
+  left: InteractionDependency,
+  right: InteractionDependency,
+  mode: InteractionGraphMode = "notification",
+): boolean {
+  if (left.globalFallback || right.globalFallback) return true;
+  const leftWrites = new Set(dependencyWriteKeys(left));
+  const rightWrites = new Set(dependencyWriteKeys(right));
+  const leftReads = new Set(dependencyReadKeys(left));
+  const rightReads = new Set(dependencyReadKeys(right));
+  if ([...leftWrites].some((key) => rightWrites.has(key) || rightReads.has(key)) ||
+    [...rightWrites].some((key) => leftReads.has(key))) return true;
+  if (mode === "notification" &&
+    ((right.actorId !== null && left.audienceAgentIds.includes(right.actorId)) ||
+      (left.actorId !== null && right.audienceAgentIds.includes(left.actorId)))) return true;
+  return false;
+}
+
+function addIndexed(index: Map<string, number[]>, key: string, value: number): void {
+  const entries = index.get(key) ?? [];
+  entries.push(value);
+  index.set(key, entries);
+}
+
+/**
+ * Builds a deterministic sparse dependency graph using inverted indexes. The
+ * graph is ephemeral evidence: canonical state remains authoritative and the
+ * committer independently reconstructs the partition.
+ */
+export function buildInteractionDependencyGraph(
+  dependencies: readonly InteractionDependency[],
+  mode: InteractionGraphMode = "canonical",
+): InteractionDependencyGraphSnapshot {
+  const nodeIds = dependencies.map((dependency) => dependency.id);
+  const seenIds = new Set<string>();
+  for (const id of nodeIds) {
+    if (seenIds.has(id)) throw new Error(`interaction dependency graph contains duplicate node ${id}`);
+    seenIds.add(id);
+  }
   const parent = dependencies.map((_, index) => index);
   const root = (index: number): number => {
     while (parent[index] !== index) {
@@ -546,28 +613,122 @@ export function interactionDependencyComponents(dependencies: readonly Interacti
     const rightRoot = root(right);
     if (leftRoot !== rightRoot) parent[Math.max(leftRoot, rightRoot)] = Math.min(leftRoot, rightRoot);
   };
-  for (let left = 0; left < dependencies.length; left += 1) {
-    for (let right = left + 1; right < dependencies.length; right += 1) {
-      if (interactionDependenciesConflict(dependencies[left], dependencies[right])) union(left, right);
+  const edgeKinds = new Map<string, Set<InteractionDependencyConflictKind>>();
+  const addEdge = (left: number, right: number, kind: InteractionDependencyConflictKind): void => {
+    if (left === right) return;
+    const fromIndex = Math.min(left, right);
+    const toIndex = Math.max(left, right);
+    const key = `${fromIndex}:${toIndex}`;
+    const kinds = edgeKinds.get(key) ?? new Set<InteractionDependencyConflictKind>();
+    kinds.add(kind);
+    edgeKinds.set(key, kinds);
+    union(fromIndex, toIndex);
+  };
+
+  const readers = new Map<string, number[]>();
+  const writers = new Map<string, number[]>();
+  const actors = new Map<string, number[]>();
+  const globalNodes: number[] = [];
+  dependencies.forEach((dependency, index) => {
+    dependencyReadKeys(dependency).forEach((key) => addIndexed(readers, key, index));
+    dependencyWriteKeys(dependency).forEach((key) => addIndexed(writers, key, index));
+    if (dependency.actorId !== null) addIndexed(actors, dependency.actorId, index);
+    if (dependency.globalFallback) globalNodes.push(index);
+  });
+
+  const connectAll = (indices: readonly number[], kind: InteractionDependencyConflictKind): void => {
+    for (let left = 0; left < indices.length; left += 1) {
+      for (let right = left + 1; right < indices.length; right += 1) {
+        addEdge(indices[left]!, indices[right]!, kind);
+      }
+    }
+  };
+  const connectIndexes = (
+    index: Map<string, number[]>,
+    kind: InteractionDependencyConflictKind,
+  ): void => {
+    for (const indices of index.values()) connectAll(indices, kind);
+  };
+  connectIndexes(writers, "write-write");
+  for (const [key, readIndexes] of readers.entries()) {
+    const writeIndexes = writers.get(key) ?? [];
+    for (const reader of readIndexes) {
+      for (const writer of writeIndexes) addEdge(reader, writer, "read-write");
     }
   }
+  for (const dependency of dependencies) {
+    if (dependency.sharedResourceClaims.length === 0) continue;
+    const index = dependencies.indexOf(dependency);
+    const keys = new Set(dependencyWriteKeys(dependency)
+      .filter((key) => key.startsWith("shared_resource_pool:")));
+    for (const key of keys) {
+      for (const other of writers.get(key) ?? []) addEdge(index, other, "shared-resource");
+    }
+  }
+  if (globalNodes.length > 0) {
+    for (const globalNode of globalNodes) {
+      for (let index = 0; index < dependencies.length; index += 1) {
+        addEdge(globalNode, index, "global");
+      }
+    }
+  }
+  if (mode === "notification") {
+    dependencies.forEach((dependency, index) => {
+      for (const audienceAgentId of dependency.audienceAgentIds) {
+        for (const actorIndex of actors.get(audienceAgentId) ?? []) {
+          addEdge(index, actorIndex, "audience");
+        }
+      }
+    });
+  }
+
   const groups = new Map<number, string[]>();
   dependencies.forEach((dependency, index) => {
     const group = groups.get(root(index)) ?? [];
     group.push(dependency.id);
     groups.set(root(index), group);
   });
-  return [...groups.values()].map((group) => group.sort()).sort((left, right) => left[0].localeCompare(right[0]));
+  const components = [...groups.values()]
+    .map((group) => group.sort())
+    .sort((left, right) => left[0]!.localeCompare(right[0]!));
+  const edges = [...edgeKinds.entries()]
+    .map(([key, kinds]) => {
+      const [fromIndex, toIndex] = key.split(":").map(Number);
+      const ids = [nodeIds[fromIndex]!, nodeIds[toIndex]!].sort((left, right) => left.localeCompare(right));
+      return {
+        from: ids[0]!,
+        to: ids[1]!,
+        kinds: [...kinds].sort(),
+      };
+    })
+    .sort((left, right) => `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`));
+  const snapshotBody = {
+    mode,
+    nodeIds: [...nodeIds].sort(),
+    edges,
+    components,
+    globalFallbackNodeIds: globalNodes.map((index) => nodeIds[index]!).sort(),
+    edgeCount: edges.length,
+    maxComponentSize: Math.max(0, ...components.map((component) => component.length)),
+  };
+  return {
+    ...snapshotBody,
+    contentHash: contentHash(snapshotBody),
+  };
 }
 
-export function interactionDependencyEdgeCount(dependencies: readonly InteractionDependency[]): number {
-  let edges = 0;
-  for (let left = 0; left < dependencies.length; left += 1) {
-    for (let right = left + 1; right < dependencies.length; right += 1) {
-      if (interactionDependenciesConflict(dependencies[left], dependencies[right])) edges += 1;
-    }
-  }
-  return edges;
+export function interactionDependencyComponents(
+  dependencies: readonly InteractionDependency[],
+  mode: InteractionGraphMode = "canonical",
+): string[][] {
+  return buildInteractionDependencyGraph(dependencies, mode).components;
+}
+
+export function interactionDependencyEdgeCount(
+  dependencies: readonly InteractionDependency[],
+  mode: InteractionGraphMode = "canonical",
+): number {
+  return buildInteractionDependencyGraph(dependencies, mode).edgeCount;
 }
 
 function operationResources(

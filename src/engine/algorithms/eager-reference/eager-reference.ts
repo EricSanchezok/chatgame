@@ -3,6 +3,7 @@ import { compileActions, type PlannedTemporalActivity } from "./action-compiler"
 import type { EagerSlotBatchMetrics } from "./eager-slot-batching";
 import {
   ActivityFootprintIndex,
+  buildInteractionDependencyGraph,
   interactionDependencyComponents,
   forceGlobalInteractionDependency,
   generateInteractionDependency,
@@ -1828,6 +1829,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     interactionDependencies = interactionDependencies.filter((dependency) =>
       dependency.kind !== "action" || finalActionIds.has(dependency.id));
     components = interactionDependencyComponents(interactionDependencies);
+    const dependencyGraph = buildInteractionDependencyGraph(interactionDependencies, "canonical");
     return {
       schemaVersion: WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
       sourceStateHash: contentHash(source),
@@ -1870,6 +1872,15 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         mindFallbackAgentIds: outputs.flatMap((output, index) => output.fallback ? [modelAgentIds[index]] : []),
         dependencyComponents: structuredClone(components),
         globalReadjudication: fallback,
+        dependencyGraph: {
+          mode: "canonical",
+          nodeCount: dependencyGraph.nodeIds.length,
+          edgeCount: dependencyGraph.edgeCount,
+          componentCount: dependencyGraph.components.length,
+          maxComponentSize: dependencyGraph.maxComponentSize,
+          globalFallbackNodeIds: structuredClone(dependencyGraph.globalFallbackNodeIds),
+          contentHash: dependencyGraph.contentHash,
+        },
       },
       temporalPlans: [
         ...structuredClone(payload.readyTemporalPlans),
