@@ -862,23 +862,16 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       .map(([id, timer]) => [id, structuredClone(timer)]));
     const scopedDecisionPoints = temporal.decisionPoints.filter((point) => actorIds.includes(point.agentId))
       .map((point) => structuredClone(point));
-    const scopedAgentIds = [...new Set([
-      ...actorIds,
-      ...componentDependencies.flatMap((dependency) => dependency.audienceAgentIds),
-      ...Object.values(scopedActivities).flatMap((activity) => [
-        ...activity.participantAgentIds,
-        ...activity.interactionFootprint.audienceAgentIds,
-      ]),
-      ...Object.values(scopedTimers).flatMap((timer) => timer.wakeAgentIds),
-      ...scopedDecisionPoints.map((point) => point.agentId),
-    ])].sort();
     const scopedState = structuredClone(input.state);
     scopedState.truth.rng = structuredClone(rngState);
-    scopedState.agents = Object.fromEntries(scopedAgentIds.map((agentId) => {
-      const agent = input.state.agents[agentId];
-      if (!agent) throw new Error(`interaction component references unknown Agent ${agentId}`);
-      return [agentId, structuredClone(agent)];
-    }));
+    // Keep the complete Agent registry in the deterministic candidate state.
+    // Canonical facts may grant access to observers outside this component;
+    // dropping those registry entries makes an otherwise unrelated component
+    // fail validation before its local operations can be merged.  Model
+    // context remains scoped by the explicit contextState/contextActions
+    // projections above, so this does not expose another subject's cognition.
+    scopedState.agents = Object.fromEntries(Object.entries(input.state.agents)
+      .map(([agentId, agent]) => [agentId, structuredClone(agent)]));
     const componentActionIds = new Set(componentDependencies
       .filter((dependency) => dependency.kind === "action")
       .map((dependency) => dependency.id));

@@ -41,6 +41,12 @@ export interface SemanticRepairLoopInput<T> {
   invoke: (context: SemanticRepairContext) => Promise<{ value: T; audit: ModelExecutionAudit }>;
   validate?: (value: T, context: SemanticRepairContext) => void;
   classify?: (error: unknown) => SemanticRepairIssue[];
+  onRejected?: (input: {
+    context: SemanticRepairContext;
+    issues: readonly SemanticRepairIssue[];
+    audit?: ModelExecutionAudit;
+    error: unknown;
+  }) => void;
 }
 
 export interface SemanticRepairLoopResult<T> {
@@ -118,8 +124,10 @@ export async function runSemanticRepairLoop<T>(
       attempt,
       issues: structuredClone(issues),
     };
+    let generatedAudit: ModelExecutionAudit | undefined;
     try {
       const generated = await input.invoke(context);
+      generatedAudit = generated.audit;
       audits.push(generated.audit);
       input.validate?.(generated.value, context);
       return {
@@ -135,7 +143,9 @@ export async function runSemanticRepairLoop<T>(
         : undefined;
       if (audit) audits.push(audit);
       issues = input.classify?.(error) ?? defaultIssues(error);
-      if (audit) markRejected(audit, issues);
+      const rejectedAudit = audit ?? generatedAudit;
+      if (rejectedAudit) markRejected(rejectedAudit, issues);
+      input.onRejected?.({ context, issues, audit: rejectedAudit, error });
       if (attempt >= input.maxRepairs) {
         throw new SemanticRepairExhaustedError({
           role: input.role,

@@ -31,16 +31,14 @@ describe("ObservationRenderer", () => {
     expect(normalized.droppedIntroductions).toBe(1);
   });
 
-  it("repairs a batch that copies protected canonical truth", async () => {
+  it("repairs one observer that copies protected canonical truth", async () => {
     let calls = 0;
     const catalog = createTestModelCatalog();
     const provider = new ScriptedModelProvider(() => ({
-      observations: [{
-        summary: calls++ === 0 ? "钥匙是仿制品，无法打开石门。" : "你仍只能依据商人的说法判断这把钥匙。",
-        introductions: [],
-        apparentClaims: [],
-        sourceEventIds: [],
-      }],
+      summary: calls++ === 0 ? "钥匙是仿制品，无法打开石门。" : "你仍只能依据商人的说法判断这把钥匙。",
+      introductions: [],
+      apparentClaims: [],
+      sourceEventIds: [],
     }), catalog, false);
     const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
       seed: 1,
@@ -111,16 +109,28 @@ describe("ObservationRenderer", () => {
     expect(context.observationSlots[0]?.observer).not.toHaveProperty("character");
   });
 
-  it("splits a batch whose output never covers all preallocated slots", async () => {
+  it("repairs and falls back one observer without replaying another observer", async () => {
     const catalog = createTestModelCatalog();
-    const provider = new ScriptedModelProvider(({ context }) => ({
-      observations: (context as { observationSlots: unknown[] }).observationSlots.slice(0, 1).map(() => ({
+    const calls = new Map<string, number>();
+    const provider = new ScriptedModelProvider(({ context }) => {
+      const observerId = (context as {
+        observationSlots: Array<{ observer: { agentId: string } }>;
+      }).observationSlots[0]!.observer.agentId;
+      calls.set(observerId, (calls.get(observerId) ?? 0) + 1);
+      if (observerId === "keeper") {
+        return {
+          summary: "缺少结构字段的观察。",
+          introductions: [],
+          sourceEventIds: [],
+        };
+      }
+      return {
         summary: "你观察到世界仍在变化。",
         introductions: [],
         apparentClaims: [],
         sourceEventIds: [],
-      })),
-    }), catalog, false);
+      };
+    }, catalog, false);
     const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
       seed: 2,
       modelCatalog: catalog,
@@ -164,15 +174,20 @@ describe("ObservationRenderer", () => {
     });
 
     expect(rendered.packets.map((packet) => packet.observerId).sort()).toEqual(["keeper", "player"]);
-    expect(rendered.batchCount).toBe(3);
-    expect(provider.requests).toHaveLength(5);
+    expect(rendered.packets.find((packet) => packet.observerId === "player")?.summary)
+      .toBe("你观察到世界仍在变化。");
+    expect(rendered.packets.find((packet) => packet.observerId === "keeper")?.summary)
+      .toContain("没有形成其他可确认的观察");
+    expect(calls).toEqual(new Map([["player", 1], ["keeper", 3]]));
+    expect(rendered.batchCount).toBe(4);
+    expect(provider.requests).toHaveLength(4);
     const invocationIds = rendered.modelAudits.flatMap((audit) => audit.invocations.map((invocation) => invocation.id));
     expect(new Set(invocationIds).size).toBe(invocationIds.length);
   });
 
   it("uses a typed uncertainty observation after singleton repair exhaustion", async () => {
     const catalog = createTestModelCatalog();
-    const provider = new ScriptedModelProvider(() => ({ observations: [] }), catalog, false);
+    const provider = new ScriptedModelProvider(() => ({}), catalog, false);
     const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
       seed: 3,
       modelCatalog: catalog,

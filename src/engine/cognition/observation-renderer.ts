@@ -1,4 +1,4 @@
-import { observationBatchSchema } from "../contracts/llm-schemas";
+import { observationRenderSchema } from "../contracts/llm-schemas";
 import type {
   AgentActionProposal,
   ModelExecutionAudit,
@@ -9,10 +9,7 @@ import type {
   TransitionProposal,
 } from "../contracts/model";
 import {
-  combineModelExecutionAudits,
   ModelConfigurationError,
-  ModelOutputError,
-  ModelSemanticRepairError,
   modelInvocationCorrelation,
   modelInvocationIdentity,
   setModelInvocationOutcome,
@@ -28,6 +25,12 @@ import { materializeObservationPackets } from "../mechanics/truth-engine";
 import { applyTransitionProposal } from "../runtime/transaction";
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalStateSnapshot } from "../mechanics/temporal";
+import {
+  runSemanticRepairLoop,
+  semanticIssue,
+  SemanticRepairExhaustedError,
+  type SemanticRepairIssueClass,
+} from "../models/semantic-repair";
 
 const OBSERVATION_PROMPT = promptBundle("observation-renderer");
 
@@ -39,11 +42,6 @@ interface RenderInput {
   observerIds: readonly string[];
   identityOwner: string;
   temporalState?: Readonly<TemporalStateSnapshot>;
-}
-
-interface ObservationBatch {
-  observerIds: string[];
-  context: ReturnType<typeof observationContext>;
 }
 
 function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[]) {
@@ -107,7 +105,7 @@ function requestBytes(context: unknown): number {
     system: OBSERVATION_PROMPT.system,
     userPrompt: OBSERVATION_PROMPT.userPrompt,
     context,
-    schema: observationBatchSchema,
+    schema: observationRenderSchema,
   }).requestUtf8Bytes;
 }
 
@@ -205,54 +203,19 @@ export function normalizeObservationLocalReferences(
   return { drafts: normalized, droppedClaims, droppedIntroductions, clearedCanonicalBindings };
 }
 
-export function partitionObservationBatches(input: RenderInput, maxInputBytes: number): ObservationBatch[] {
-  const result: ObservationBatch[] = [];
-  let current: string[] = [];
-  for (const observerId of input.observerIds) {
-    const proposed = [...current, observerId];
-    const context = observationContext(input, proposed, []);
-    if (requestBytes(context) <= maxInputBytes) {
-      current = proposed;
-      continue;
-    }
-    if (current.length === 0) {
-      const bytes = requestBytes(context);
-      throw new ModelConfigurationError(
-        `observation context for ${observerId} uses ${bytes} bytes and exceeds profile max_input_bytes ${maxInputBytes}`,
-      );
-    }
-    result.push({ observerIds: current, context: observationContext(input, current, []) });
-    current = [observerId];
-    const singleton = observationContext(input, current, []);
-    const singletonBytes = requestBytes(singleton);
-    if (singletonBytes > maxInputBytes) {
-      throw new ModelConfigurationError(
-        `observation context for ${observerId} uses ${singletonBytes} bytes and exceeds profile max_input_bytes ${maxInputBytes}`,
-      );
-    }
-  }
-  if (current.length > 0) {
-    result.push({ observerIds: current, context: observationContext(input, current, []) });
-  }
-  return result;
-}
-
-function materializeBatch(
+function materializeObserver(
   input: RenderInput,
-  observerIds: readonly string[],
-  drafts: readonly ObservationRenderDraft[],
-  batchKey: string,
+  observerId: string,
+  draft: ObservationRenderDraft,
+  slotKey: string,
   scope: ModelExecutionScope,
-): ObservationPacket[] {
-  if (drafts.length !== observerIds.length) {
-    throw new Error(`observation batch returned ${drafts.length} items for ${observerIds.length} slots`);
-  }
+): ObservationPacket {
   const eventIds = new Set(input.proposal.events.map((event) => event.id));
-  const eventNormalized = normalizeObservationSourceEventIds(drafts, eventIds);
+  const eventNormalized = normalizeObservationSourceEventIds([draft], eventIds);
   const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
   const localNormalized = normalizeObservationLocalReferences(
     candidate,
-    observerIds,
+    [observerId],
     eventNormalized.drafts,
   );
   const normalizedCount = eventNormalized.droppedReferences + localNormalized.droppedClaims +
@@ -262,7 +225,7 @@ function materializeBatch(
       event: "algorithm.observation.references_normalized",
       level: "warn",
       correlation: scope.correlation,
-      attributes: { phase: "observation", batch: batchKey },
+      attributes: { phase: "observation", observerId },
       counts: {
         droppedObservationEventReferences: eventNormalized.droppedReferences,
         droppedObservationClaims: localNormalized.droppedClaims,
@@ -271,16 +234,14 @@ function materializeBatch(
       },
     });
   }
-  const packets = localNormalized.drafts.map((draft, index): ObservationPacketDraft => {
-    return {
-      id: `observation-slot-${batchKey}-${index}`,
-      ...structuredClone(draft),
-      // Slot ownership is assigned by the engine; a model must not be able
-      // to move an observation to another Agent by echoing observerId.
-      observerId: observerIds[index]!,
-    };
-  });
-  const materialized = materializeObservationPackets(input.state, packets, "outcome").packets;
+  const packet: ObservationPacketDraft = {
+    id: `observation-slot-${slotKey}`,
+    ...structuredClone(localNormalized.drafts[0]!),
+    // Slot ownership is assigned by the engine; a model must not be able to
+    // move an observation to another Agent by echoing observerId.
+    observerId,
+  };
+  const materialized = materializeObservationPackets(input.state, [packet], "outcome").packets;
   validateObservations(candidate, materialized, candidate.step);
   // Validate against the post-proposal candidate so observations can be
   // addressed to Agents created by this same transition. The candidate still
@@ -290,78 +251,123 @@ function materializeBatch(
     ...structuredClone(input.proposal),
     observations: materialized,
   });
-  return materialized;
+  return materialized[0]!;
 }
 
-async function renderBatch(
+function observationIssueClass(error: unknown): SemanticRepairIssueClass {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (message.includes("protected") || message.includes("private") || message.includes("canonical identity")) {
+    return "privacy";
+  }
+  if (message.includes("unknown") || message.includes("reference")) return "reference";
+  return "structure";
+}
+
+async function renderObserver(
   provider: StructuredModelProvider,
   input: RenderInput,
-  batch: ObservationBatch,
-  batchKey: string,
+  observerId: string,
+  slot: number,
   scope: ModelExecutionScope,
-): Promise<{ packets: ObservationPacket[]; audit: ModelExecutionAudit }> {
-  const audits: ModelExecutionAudit[] = [];
-  let issues: string[] = [];
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const owner = `${input.identityOwner}:batch-${batchKey}`;
-    const identity = modelInvocationIdentity(scope, "observation-renderer", owner, attempt + 1);
-    try {
-      const context = issues.length === 0
-        ? batch.context
-        : observationContext(input, batch.observerIds, issues);
-      const generated = await provider.generateStructured({
-        profileId: input.definition.modelProfiles.observation,
-        workloadId: scope.workloadId,
-        batchId: scope.batchId,
-        abortSignal: scope.abortSignal,
-        correlation: scope.correlation,
-        observer: scope.observer,
-        ...identity,
-        role: "observation-renderer",
-        subjectId: owner,
-        promptVersion: OBSERVATION_PROMPT.version,
-        schemaName: "observation_batch",
-        system: OBSERVATION_PROMPT.system,
-        userPrompt: OBSERVATION_PROMPT.userPrompt,
-        context,
-        schema: observationBatchSchema,
-      });
-      audits.push(generated.audit);
-      const packets = materializeBatch(
-        input,
-        batch.observerIds,
-        generated.value.observations,
-        batchKey,
-        scope,
-      );
-      setModelInvocationResultKind(generated.audit, "observation-renderer_batch");
-      setModelInvocationOutcome(generated.audit, "accepted");
-      return { packets, audit: combineModelExecutionAudits(audits) };
-    } catch (error) {
-      if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
-      issues = [error instanceof Error ? error.message : String(error)];
-      const audit = audits.at(-1);
-      if (audit?.invocations.length) setModelInvocationOutcome(audit, "rejected", ["invalid_observation_batch"]);
-      scope.observer?.emit({
-        event: "model.semantic.rejected",
-        level: "warn",
-        correlation: modelInvocationCorrelation(scope, "observation-renderer", owner, identity),
-        attributes: { resultKind: "observation-renderer_batch" },
-        error: { name: error instanceof Error ? error.name : "Error", message: issues[0] },
-      });
-      if (attempt === 2) {
-        throw new ModelSemanticRepairError(
-          "observation-renderer",
-          `observation batch ${batchKey} failed after repairs: ${issues[0]}`,
-          {
-            cause: error,
-            audit: audits.length > 0 ? combineModelExecutionAudits(audits) : undefined,
-          },
-        );
-      }
-    }
+): Promise<{ packet: ObservationPacket; audit: ModelExecutionAudit; calls: number }> {
+  const owner = `${input.identityOwner}:observer-${observerId}`;
+  const profile = provider.catalog.profile(input.definition.modelProfiles.observation);
+  try {
+    const rendered = await runSemanticRepairLoop({
+      role: "observation-renderer",
+      repairScope: "observer",
+      targetIds: [observerId],
+      maxRepairs: 2,
+      invoke: async (repair) => {
+        const issues = repair.issues.map((issue) =>
+          `${issue.code}${issue.path.length > 0 ? ` at ${issue.path.join(".")}` : ""}: ${issue.message}`);
+        const context = observationContext(input, [observerId], issues);
+        const bytes = requestBytes(context);
+        if (bytes > profile.max_input_bytes) {
+          throw new ModelConfigurationError(
+            `observation context for ${observerId} uses ${bytes} bytes and exceeds ` +
+            `profile max_input_bytes ${profile.max_input_bytes}`,
+          );
+        }
+        const identity = modelInvocationIdentity(scope, "observation-renderer", owner, repair.attempt + 1);
+        const generated = await provider.generateStructured({
+          profileId: input.definition.modelProfiles.observation,
+          workloadId: scope.workloadId,
+          batchId: scope.batchId,
+          abortSignal: scope.abortSignal,
+          correlation: scope.correlation,
+          observer: scope.observer,
+          ...identity,
+          role: "observation-renderer",
+          subjectId: owner,
+          promptVersion: OBSERVATION_PROMPT.version,
+          schemaName: "observation_render",
+          system: OBSERVATION_PROMPT.system,
+          userPrompt: OBSERVATION_PROMPT.userPrompt,
+          context,
+          schema: observationRenderSchema,
+        });
+        setModelInvocationResultKind(generated.audit, "observation-renderer_observer");
+        return generated;
+      },
+      validate: (draft) => {
+        materializeObserver(input, observerId, draft, `${slot}`, scope);
+      },
+      classify: (error) => [semanticIssue(
+        "invalid_observation",
+        error instanceof Error ? error.message : String(error),
+        { class: observationIssueClass(error), path: [], targetIds: [observerId] },
+      )],
+      onRejected: ({ context: repair, issues, audit, error }) => {
+        const identity = modelInvocationIdentity(scope, "observation-renderer", owner, repair.attempt + 1);
+        scope.observer?.emit({
+          event: "model.semantic.rejected",
+          level: "warn",
+          correlation: modelInvocationCorrelation(scope, "observation-renderer", owner, identity),
+          attributes: { resultKind: "observation-renderer_observer", observerId },
+          counts: { validationIssues: issues.length },
+          hashes: audit?.invocations.at(-1)?.responseHash
+            ? { response: audit.invocations.at(-1)!.responseHash! }
+            : undefined,
+          error: { name: error instanceof Error ? error.name : "Error", message: error instanceof Error ? error.message : String(error) },
+        });
+      },
+    });
+    setModelInvocationOutcome(rendered.audit, "accepted");
+    return {
+      packet: materializeObserver(input, observerId, rendered.value, `${slot}`, scope),
+      audit: rendered.audit,
+      calls: rendered.attempts,
+    };
+  } catch (error) {
+    if (!(error instanceof SemanticRepairExhaustedError) || !error.audit) throw error;
+    const action = input.actions.find((candidate) => candidate.actorId === observerId);
+    const outcome = action
+      ? input.proposal.outcomes.find((candidate) => candidate.proposalId === action.id)
+      : undefined;
+    const status = outcome ? {
+      succeeded: "行动达成了预期结果",
+      partial: "行动只取得部分结果",
+      failed: "行动没有成功",
+      blocked: "行动受到阻碍",
+      continuing: "行动仍在继续",
+    }[outcome.status] : "本步骤已经结束";
+    const packet = materializeObserver(input, observerId, {
+      summary: `你能确认：${status}。除此之外，本步骤没有形成其他可确认的观察。`,
+      introductions: [],
+      apparentClaims: [],
+      sourceEventIds: [],
+    }, `${slot}.fallback`, scope);
+    scope.observer?.emit({
+      event: "algorithm.observation.repair_fallback",
+      level: "warn",
+      correlation: { ...scope.correlation, modelSubject: observerId },
+      attributes: { phase: "observation", observerId, policy: "typed-uncertainty-observation" },
+      counts: { observationFallbacks: 1 },
+      error: { name: error.name, message: error.message },
+    });
+    return { packet, audit: error.audit, calls: error.audit.invocations.length };
   }
-  throw new Error("unreachable observation repair loop");
 }
 
 export class ObservationRenderer {
@@ -372,69 +378,12 @@ export class ObservationRenderer {
     modelAudits: ModelExecutionAudit[];
     batchCount: number;
   }> {
-    const profile = this.provider.catalog.profile(input.definition.modelProfiles.observation);
-    const batches = partitionObservationBatches(input, profile.max_input_bytes);
-    const renderRecovering = async (
-      batch: ObservationBatch,
-      batchKey: string,
-    ): Promise<{ packets: ObservationPacket[]; audits: ModelExecutionAudit[]; batchCount: number }> => {
-      try {
-        const rendered = await renderBatch(this.provider, input, batch, batchKey, scope);
-        return { packets: rendered.packets, audits: [rendered.audit], batchCount: 1 };
-      } catch (error) {
-        if (!(error instanceof ModelSemanticRepairError) || !error.audit) throw error;
-        if (batch.observerIds.length > 1) {
-          const middle = Math.ceil(batch.observerIds.length / 2);
-          const halves = [batch.observerIds.slice(0, middle), batch.observerIds.slice(middle)];
-          scope.observer?.emit({
-            event: "algorithm.observation.batch_split",
-            level: "warn",
-            correlation: scope.correlation,
-            attributes: { phase: "observation", batch: batchKey },
-            counts: { observationBatchSplits: 1, splitObserverSlots: batch.observerIds.length },
-          });
-          const children = await Promise.all(halves.map((observerIds, index) => renderRecovering({
-            observerIds,
-            context: observationContext(input, observerIds, []),
-          }, `${batchKey}.${index}`)));
-          return {
-            packets: children.flatMap((child) => child.packets),
-            audits: [error.audit, ...children.flatMap((child) => child.audits)],
-            batchCount: 1 + children.reduce((total, child) => total + child.batchCount, 0),
-          };
-        }
-        const observerId = batch.observerIds[0];
-        const action = input.actions.find((candidate) => candidate.actorId === observerId);
-        const outcome = action
-          ? input.proposal.outcomes.find((candidate) => candidate.proposalId === action.id)
-          : undefined;
-        const status = outcome ? {
-          succeeded: "行动达成了预期结果",
-          partial: "行动只取得部分结果",
-          failed: "行动没有成功",
-          blocked: "行动受到阻碍",
-          continuing: "行动仍在继续",
-        }[outcome.status] : "本步骤已经结束";
-        const packets = materializeBatch(input, batch.observerIds, [{
-          summary: `你能确认：${status}。除此之外，本步骤没有形成其他可确认的观察。`,
-          introductions: [],
-          apparentClaims: [],
-          sourceEventIds: [],
-        }], `${batchKey}.fallback`, scope);
-        scope.observer?.emit({
-          event: "algorithm.observation.repair_fallback",
-          level: "warn",
-          correlation: { ...scope.correlation, modelSubject: observerId },
-          attributes: { phase: "observation", batch: batchKey, policy: "typed-uncertainty-observation" },
-          counts: { observationFallbacks: 1 },
-          error: { name: error.name, message: error.message },
-        });
-        return { packets, audits: [error.audit], batchCount: 1 };
-      }
-    };
-    const rendered = await Promise.all(batches.map((batch, index) =>
-      renderRecovering(batch, String(index))));
-    const packets = rendered.flatMap((entry) => entry.packets);
+    if (new Set(input.observerIds).size !== input.observerIds.length) {
+      throw new Error("observation rendering requires unique observer ids");
+    }
+    const rendered = await Promise.all(input.observerIds.map((observerId, slot) =>
+      renderObserver(this.provider, input, observerId, slot, scope)));
+    const packets = rendered.map((entry) => entry.packet);
     const expected = [...input.observerIds].sort();
     const actual = packets.map((packet) => packet.observerId).sort();
     if (expected.length !== actual.length || expected.some((agentId, index) => agentId !== actual[index])) {
@@ -442,8 +391,8 @@ export class ObservationRenderer {
     }
     return {
       packets,
-      modelAudits: rendered.flatMap((entry) => entry.audits),
-      batchCount: rendered.reduce((total, entry) => total + entry.batchCount, 0),
+      modelAudits: rendered.map((entry) => entry.audit),
+      batchCount: rendered.reduce((total, entry) => total + entry.calls, 0),
     };
   }
 }

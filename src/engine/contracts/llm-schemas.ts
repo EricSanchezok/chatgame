@@ -738,6 +738,9 @@ const observationRenderDraftSchema = z.strictObject({
   sourceEventIds: z.array(safeIdSchema),
 }) as z.ZodType<ObservationRenderDraft>;
 
+/** One observer slot; batch orchestration is intentionally engine-owned. */
+export const observationRenderSchema = observationRenderDraftSchema;
+
 export const observationBatchSchema = z.strictObject({
   observations: z.array(observationRenderDraftSchema),
 });
@@ -803,12 +806,14 @@ export interface ActionCompilationBatchDraft {
   slots: Array<ActionCompilationDraft & { slot: number }>;
 }
 
+export const actionCompilationSlotSchema = z.strictObject({
+  slot: z.number().int().nonnegative(),
+  temporalPlan: temporalPlanDraftSchema,
+  interactionDependency: actionGroundingSchema,
+});
+
 export const actionCompilationBatchSchema = z.strictObject({
-  slots: z.array(z.strictObject({
-    slot: z.number().int().nonnegative(),
-    temporalPlan: temporalPlanDraftSchema,
-    interactionDependency: actionGroundingSchema,
-  })),
+  slots: z.array(actionCompilationSlotSchema),
 }) as z.ZodType<ActionCompilationBatchDraft>;
 
 export interface ArrivalDraft {

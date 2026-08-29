@@ -296,11 +296,11 @@ export function normalizeInteractionDependency(
   });
   const hasGlobal = [...value.reads, ...value.writes].some((ref) => ref.kind === "global");
   if (value.globalFallback !== hasGlobal) fallbackReasons.push("inconsistent_global_fallback");
-  // Unknown references are output-quality failures, not evidence that the
-  // action can affect the entire world. The caller owns the bounded repair
-  // loop; this normalizer only removes invalid hints from the provisional
-  // footprint and preserves an explicitly declared global scope.
-  const globalFallback = value.globalFallback || hasGlobal;
+  // Unknown references and a mismatched global flag are output-quality
+  // failures, not evidence that the action can affect the entire world. A
+  // global component is valid only when the model supplies the canonical
+  // global reference itself; the caller owns the bounded repair loop.
+  const globalFallback = hasGlobal;
   const globalRef: FootprintRef = { kind: "global", id: "world" };
   return {
     dependency: {
@@ -476,6 +476,11 @@ export async function generateInteractionDependency(
           error: { name: "GroundingScopeError", message: issue },
         });
         if (attempt < 2) continue;
+        throw new ModelSemanticRepairError(
+          "action-grounding",
+          `action grounding scope failed after repairs for ${action.actorId}: ${issue}`,
+          { audit: generated.audit },
+        );
       }
       setModelInvocationOutcome(generated.audit, "accepted");
       const audit = audits.length === 1 ? audits[0] : {
@@ -484,6 +489,7 @@ export async function generateInteractionDependency(
       };
       return { dependency: materializeInteractionDependency(state, action, generated.value), audit };
     } catch (error) {
+      if (error instanceof ModelSemanticRepairError) throw error;
       if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
       const last = audits.at(-1);
       issues = [error instanceof Error ? error.message : String(error)];

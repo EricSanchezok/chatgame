@@ -616,7 +616,6 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
     expect(repairedIssues).toEqual([
       [expect.stringMatching(/^sharedResourceClaims\.poolId .*canonicalCatalog/)],
-      [expect.stringMatching(/^sharedResourceClaims\.poolId .*canonicalCatalog/)],
     ]);
     expect(repairedIssues.flat().every((issue) => issue.length < 250)).toBe(true);
   });
@@ -754,9 +753,11 @@ describe("eager reference safeguards", () => {
 
     expect(result.committed.observations.map((observation) => observation.observerId).sort())
       .toEqual(["keeper", "player"]);
-    const globalProjection = provider.requests.find((request) =>
+    const globalProjections = provider.requests.filter((request) =>
       request.role === "observation-renderer" && request.subjectId.startsWith("step-global-observation"));
-    expect((globalProjection?.context as { observationSlots?: unknown[] }).observationSlots).toHaveLength(2);
+    expect(globalProjections).toHaveLength(2);
+    expect(globalProjections.every((request) =>
+      (request.context as { observationSlots?: unknown[] }).observationSlots?.length === 1)).toBe(true);
   });
 
   it("creates and bootstraps multiple dynamic Agents with a cohort profile", async () => {

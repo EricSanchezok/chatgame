@@ -469,7 +469,10 @@ export class ScriptedModelProvider implements StructuredModelProvider {
     } catch (error) {
       audit.invocations[0]!.semanticOutcome = "rejected";
       audit.invocations[0]!.validationIssueCodes = ["schema_validation"];
-      throw new ModelOutputError("scripted model output failed schema validation", audit, { cause: error });
+      throw new ModelOutputError("scripted model output failed schema validation", audit, {
+        cause: error,
+        rawValue: raw,
+      });
     }
   }
 }
@@ -508,13 +511,32 @@ function deterministicActionCompilation(
       causes: [{ kind: "action", id: action.id }],
     },
     interactionDependency: {
-      reads: [{ kind: "global", id: "world" }],
-      writes: [{ kind: "global", id: "world" }],
+      // Ordinary deterministic actions are sparse by default. Tests that
+      // exercise world-wide semantics must opt in through the explicit global
+      // helper below instead of making every fixture a single component.
+      reads: [],
+      writes: [],
       audienceAgentIds: [action.actorId],
       sharedResourceClaims: [],
-      globalFallback: true,
+      globalFallback: false,
     },
   };
+}
+
+export function deterministicGlobalActionCompilationBatch(
+  profileId: string,
+  context: unknown,
+  customize?: (
+    compilation: ActionCompilationDraft,
+    slot: DeterministicCompilationSlot,
+  ) => void,
+): { slots: Array<ActionCompilationDraft & { slot: number }> } {
+  return deterministicActionCompilationBatch(profileId, context, (compilation, slot) => {
+    compilation.interactionDependency.reads = [{ kind: "global", id: "world" }];
+    compilation.interactionDependency.writes = [{ kind: "global", id: "world" }];
+    compilation.interactionDependency.globalFallback = true;
+    customize?.(compilation, slot);
+  });
 }
 
 export function deterministicActionCompilationBatch(
@@ -635,12 +657,10 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
       }
       if (input.observationSlots) {
         return {
-          observations: input.observationSlots.map(() => ({
-            summary: "世界继续变化。",
-            introductions: [],
-            apparentClaims: [],
-            sourceEventIds: input.currentEvents?.map((event) => event.id) ?? [],
-          })),
+          summary: "世界继续变化。",
+          introductions: [],
+          apparentClaims: [],
+          sourceEventIds: input.currentEvents?.map((event) => event.id) ?? [],
         };
       }
       if (profileId === "truth-engine" || profileId === "truth-deepseek" ||

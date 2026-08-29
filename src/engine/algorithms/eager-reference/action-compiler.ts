@@ -1,4 +1,8 @@
-import { actionCompilationBatchSchema } from "../../contracts/llm-schemas";
+import { z } from "zod";
+import {
+  actionCompilationBatchSchema,
+  actionCompilationSlotSchema,
+} from "../../contracts/llm-schemas";
 import {
   actionGroundingSharedContext,
   actionGroundingSlotContext,
@@ -11,6 +15,7 @@ import {
   isTerminalEagerModelError,
   runEagerSlotBatches,
   type EagerSlot,
+  type EagerSlotAttemptResult,
   type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
 import type { ActionCompilationDraft, InteractionDependency } from "../../runtime/execution";
@@ -137,6 +142,15 @@ function actionCompilationRepairIssues(error: unknown): string[] {
 }
 
 function actionCompilationSlotIssues(error: unknown): string[] {
+  if (error instanceof z.ZodError) {
+    const poolIssue = error.issues.find((issue) =>
+      issue.path.includes("sharedResourceClaims") && issue.path.includes("poolId"));
+    if (poolIssue) {
+      return [
+        "sharedResourceClaims.poolId 必须原样复制 canonicalCatalog.sharedActivityResourcePools[].id；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
+      ];
+    }
+  }
   const message = error instanceof Error ? error.message : String(error);
   if (message === "explicit duration is not grounded in the action text") {
     return [
@@ -154,6 +168,54 @@ function actionCompilationSlotIssues(error: unknown): string[] {
     ];
   }
   return [message];
+}
+
+function localizedSchemaFailure(
+  error: unknown,
+  batch: readonly CompilationSlot[],
+  state: Readonly<SimulationState>,
+): EagerSlotAttemptResult<CompiledAction, CompilationPayload, string> | null {
+  if (!(error instanceof ModelOutputError) || !error.audit || !error.rawValue || typeof error.rawValue !== "object" ||
+    !Array.isArray((error.rawValue as { slots?: unknown }).slots)) return null;
+  const rawSlots = (error.rawValue as { slots: unknown[] }).slots;
+  const accepted: Array<{ key: string; result: CompiledAction }> = [];
+  const rejected: Array<{ slot: CompilationSlot; issues: string[] }> = [];
+  const rawByIndex = new Map<number, unknown>();
+  const duplicateIndexes = new Set<number>();
+  rawSlots.forEach((raw, position) => {
+    const candidateIndex = raw && typeof raw === "object" && typeof (raw as { slot?: unknown }).slot === "number"
+      ? (raw as { slot: number }).slot
+      : position;
+    if (rawByIndex.has(candidateIndex)) duplicateIndexes.add(candidateIndex);
+    rawByIndex.set(candidateIndex, raw);
+  });
+  for (const [index, slot] of batch.entries()) {
+    const raw = rawByIndex.get(index);
+    if (raw === undefined || duplicateIndexes.has(index)) {
+      rejected.push({
+        slot,
+        issues: [`slot ${index} 未通过结构化 schema：${raw === undefined ? "slot missing" : "slot duplicated"}`],
+      });
+      continue;
+    }
+    const parsed = actionCompilationSlotSchema.safeParse(raw);
+    if (!parsed.success) {
+      rejected.push({
+        slot,
+        issues: actionCompilationSlotIssues(parsed.error),
+      });
+      continue;
+    }
+    try {
+      accepted.push({
+        key: slot.key,
+        result: materializeCompilation(state, slot.payload.action, parsed.data),
+      });
+    } catch (materializationError) {
+      rejected.push({ slot, issues: actionCompilationSlotIssues(materializationError) });
+    }
+  }
+  return { audit: error.audit!, accepted, rejected };
 }
 
 function materializeCompilation(
@@ -278,6 +340,20 @@ export async function compileActions(
         assertSlotCoverage(batch, generated.value.slots);
       } catch (error) {
         if (isTerminalEagerModelError(error)) throw error;
+        const localized = localizedSchemaFailure(error, batch, state);
+        if (localized) {
+          setModelInvocationResultKind(localized.audit, "action_compilation_batch");
+          if (localized.rejected.length === 0) setModelInvocationOutcome(localized.audit, "accepted");
+          else setModelInvocationOutcome(localized.audit, "rejected", ["invalid_action_compilation_slot"]);
+          emitSemanticRejection(
+            scope,
+            owner,
+            identity,
+            `action compilation localized ${localized.rejected.length} slot failure(s)`,
+            localized.rejected.length,
+          );
+          return localized;
+        }
         const audit = error && typeof error === "object" && "audit" in error
           ? (error as { audit?: ModelExecutionAudit }).audit
           : generated?.audit;
