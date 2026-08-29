@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { PublicInstanceDetail, PublicWorldRun } from "../../shared/world-api";
 import type { WorldObserverDetail } from "../../shared/world-observer-api";
 
@@ -122,12 +122,11 @@ export function WorldTimelineRail({
   step: number;
 }) {
   const [activeIndex, setActiveIndex] = useTimelineActiveIndex(entries);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const safeActiveIndex = Math.min(activeIndex, Math.max(0, entries.length - 1));
   const activeEntry = entries[safeActiveIndex];
-  const activeActivitySummary = useMemo(
-    () => activitySummary(activeEntry?.activity),
-    [activeEntry?.activity],
-  );
+  const previewEntry = previewIndex === null ? undefined : entries[previewIndex];
+  const previewActivitySummary = previewEntry ? activitySummary(previewEntry.activity) : undefined;
   const trackStyle = {
     "--cg-timeline-count": String(Math.max(1, entries.length)),
   } as CSSProperties;
@@ -135,6 +134,7 @@ export function WorldTimelineRail({
   function goTo(index: number): void {
     if (!entries[index]) return;
     setActiveIndex(index);
+    setPreviewIndex(index);
     document.getElementById(entries[index].targetId)?.scrollIntoView({
       behavior: reducedMotion ? "auto" : "smooth",
       block: "start",
@@ -146,6 +146,7 @@ export function WorldTimelineRail({
       aria-label="世界消息时间线"
       className="cg-timeline-rail"
       data-empty={entries.length === 0 || undefined}
+      data-preview-open={previewEntry ? "true" : undefined}
     >
       <button
         aria-label="上一条世界回复"
@@ -167,6 +168,10 @@ export function WorldTimelineRail({
                   aria-label={`第 ${entry.step} 步，${entry.title}，${entry.excerpt}`}
                   className="cg-timeline-rail__tick"
                   onClick={() => goTo(index)}
+                  onFocus={() => setPreviewIndex(index)}
+                  onMouseEnter={() => setPreviewIndex(index)}
+                  onMouseLeave={() => setPreviewIndex(null)}
+                  onBlur={() => setPreviewIndex(null)}
                   type="button"
                 >
                   <span aria-hidden="true" />
@@ -187,15 +192,15 @@ export function WorldTimelineRail({
       >
         <ArrowDown aria-hidden="true" />
       </button>
-      {activeEntry ? (
+      {previewEntry ? (
         <div className="cg-timeline-rail__preview" aria-hidden="true">
           <span className="cg-timeline-rail__meta">
-            第 {activeEntry.step} 步 · Revision {activeEntry.revision}
-            {formatWorldTime(activeEntry.worldTimeSeconds) ? ` · ${formatWorldTime(activeEntry.worldTimeSeconds)}` : ""}
+            第 {previewEntry.step} 步 · Revision {previewEntry.revision}
+            {formatWorldTime(previewEntry.worldTimeSeconds) ? ` · ${formatWorldTime(previewEntry.worldTimeSeconds)}` : ""}
           </span>
-          <strong>{activeEntry.title}</strong>
-          <p>{timelineExcerpt(activeEntry.excerpt)}</p>
-          {activeActivitySummary ? <small>{activeActivitySummary}</small> : null}
+          <strong>{previewEntry.title}</strong>
+          <p>{timelineExcerpt(previewEntry.excerpt)}</p>
+          {previewActivitySummary ? <small>{previewActivitySummary}</small> : null}
         </div>
       ) : (
         <p className="cg-timeline-rail__empty-copy">第 {step} 步</p>

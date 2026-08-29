@@ -63,7 +63,11 @@ describe("world timeline rail", () => {
     render(<WorldTimelineRail entries={entries} reducedMotion step={2} />);
 
     expect(screen.getByRole("complementary", { name: "世界消息时间线" })).toBeVisible();
+    expect(screen.queryByText("石门前")).not.toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /第 1 步，石门前/ }));
     expect(screen.getByText("石门前")).toBeVisible();
+    fireEvent.mouseLeave(screen.getByRole("button", { name: /第 1 步，石门前/ }));
+    expect(screen.queryByText("石门前")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /第 2 步，门后/ }));
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
     expect(screen.getByRole("button", { name: /第 2 步，门后/ })).toHaveAttribute("aria-current", "location");
