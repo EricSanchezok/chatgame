@@ -27,12 +27,25 @@ export interface PromptBundle {
 }
 
 const cache = new Map<string, string>();
+const templateKeys: Readonly<Record<string, readonly string[]>> = {
+  "transport/context-envelope.md": ["TASK", "CONTEXT"],
+  "transport/json-object.md": ["ENVELOPE", "DISCRIMINATOR", "SCHEMA", "EXAMPLE"],
+  "transport/tool-call.md": ["ENVELOPE", "DISCRIMINATOR"],
+  "transport/tool-description.md": ["SCHEMA_NAME"],
+};
 
 function normalizePrompt(value: string, relativePath: string, allowTemplates: boolean): string {
   const normalized = value.replace(/\r\n?/g, "\n").trim();
   if (!normalized) throw new Error(`prompt asset ${relativePath} is empty`);
-  if (!allowTemplates && /\{\{[^}]+\}\}/u.test(normalized)) {
+  const placeholders = [...normalized.matchAll(/\{\{([^}]+)\}\}/gu)].map((match) => match[1]!.trim());
+  if (!allowTemplates && placeholders.length > 0) {
     throw new Error(`prompt asset ${relativePath} contains an unresolved template placeholder`);
+  }
+  if (allowTemplates) {
+    const allowed = new Set(templateKeys[relativePath] ?? []);
+    if (placeholders.some((placeholder) => !allowed.has(placeholder))) {
+      throw new Error(`prompt asset ${relativePath} contains an unresolved template placeholder`);
+    }
   }
   return normalized;
 }
