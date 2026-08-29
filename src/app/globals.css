@@ -640,6 +640,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 @keyframes cg-workspace-enter { from { transform: translateY(10px) scale(0.985); } to { transform: translateY(0) scale(1); } }
 @keyframes cg-live-pulse { 50% { opacity: 0.35; } }
 @keyframes cg-status-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--cg-primary) 18%, var(--cg-transparent)); opacity: 0.6; } }
+@keyframes cg-timeline-preview-in { from { opacity: 0; translate: 0 calc(-50% + 6px); } to { opacity: 1; translate: 0 -50%; } }
 
 @keyframes cg-spin { to { rotate: 360deg; } }
 @keyframes cg-fade-in { from { opacity: 0; } }
@@ -814,25 +815,25 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-thread-error { border: 1px solid var(--cg-destructive); border-radius: var(--cg-radius); background: var(--cg-destructive-soft); padding: 0.55rem 0.75rem; color: var(--cg-foreground); font-size: 0.75rem; line-height: 1.45; }
 
 /* Grok-inspired world timeline */
-.cg-timeline-rail { position: fixed; z-index: 25; inset-block: 17% 14%; inset-inline-end: max(1rem, env(safe-area-inset-right)); width: min(18rem, 24vw); min-width: 3.25rem; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-.cg-timeline-rail__track { position: relative; width: 3rem; height: min(68vh, 34rem); min-height: 14rem; flex: none; pointer-events: auto; }
+.cg-timeline-rail { position: fixed; z-index: 25; inset-block: 17% 14%; inset-inline-end: max(1rem, env(safe-area-inset-right)); width: min(20rem, 30vw); min-width: 4.5rem; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 0.35rem; pointer-events: none; }
+.cg-timeline-rail__track { position: relative; width: 3rem; height: min(68vh, 34rem); min-height: 14rem; flex: none; margin-inline-end: 0.45rem; pointer-events: auto; }
 .cg-timeline-rail__line { position: absolute; inset-block: 0.8rem; inset-inline-end: 0.95rem; width: 1px; background: color-mix(in oklab, var(--cg-border) 86%, var(--cg-transparent)); }
 .cg-timeline-rail__track ol { position: absolute; inset: 0; display: grid; grid-template-rows: repeat(var(--cg-timeline-count, 1), minmax(1.35rem, 1fr)); align-items: center; margin: 0; padding: 0; list-style: none; }
-.cg-timeline-rail__track li { min-height: 1.35rem; display: flex; justify-content: flex-end; }
+.cg-timeline-rail__track li { position: relative; min-height: 1.35rem; display: flex; justify-content: flex-end; }
 .cg-timeline-rail__tick { width: 2.75rem; height: 100%; min-height: 1.35rem; display: flex; align-items: center; justify-content: flex-end; border: 0; background: var(--cg-transparent); padding: 0; color: var(--cg-muted-foreground); cursor: pointer; }
 .cg-timeline-rail__tick > span { display: block; width: 1rem; border-block-start: 1px solid currentColor; opacity: 0.62; transition: width 150ms, color 150ms, opacity 150ms; }
 .cg-timeline-rail__track li[data-active="true"] .cg-timeline-rail__tick > span { width: 1.85rem; border-block-start-width: 2px; color: var(--cg-primary); opacity: 1; }
-.cg-timeline-rail__arrow { width: 2.75rem; height: 2.75rem; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--cg-transparent); color: var(--cg-muted-foreground); padding: 0; pointer-events: auto; cursor: pointer; transition: color 150ms, background-color 150ms, scale 150ms; }
+.cg-timeline-rail__tick:hover > span, .cg-timeline-rail__tick:focus-visible > span { width: 1.85rem; color: var(--cg-foreground); opacity: 0.9; }
+.cg-timeline-rail__arrow { width: 2.75rem; height: 2.75rem; flex: none; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--cg-transparent); color: var(--cg-muted-foreground); padding: 0; pointer-events: auto; cursor: pointer; transition: color 150ms, background-color 150ms, scale 150ms; }
 .cg-timeline-rail__arrow svg { width: 1rem; }
 .cg-timeline-rail__arrow:disabled { cursor: default; opacity: 0.28; }
 .cg-timeline-rail__arrow:active:not(:disabled) { scale: 0.96; }
 .cg-timeline-rail__empty-mark { position: absolute; inset-block-start: 50%; inset-inline-end: 0.25rem; width: 1.85rem; border-block-start: 2px solid var(--cg-primary); }
-.cg-timeline-rail__preview { position: absolute; inset-inline-end: 3.3rem; inset-block-start: 50%; width: min(16rem, calc(100vw - 6rem)); display: grid; gap: 0.4rem; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.35rem); background: color-mix(in oklab, var(--cg-card) 96%, var(--cg-background)); padding: 0.8rem 0.9rem; box-shadow: 0 14px 32px color-mix(in oklab, var(--cg-overlay) 15%, var(--cg-transparent)); opacity: 0; pointer-events: none; translate: 0 -48%; visibility: hidden; transition: opacity 150ms, translate 150ms, visibility 150ms; }
-.cg-timeline-rail[data-preview-open="true"] .cg-timeline-rail__preview { opacity: 1; translate: 0 -50%; visibility: visible; }
+.cg-timeline-rail__preview { position: absolute; inset-inline-end: 3.3rem; inset-block-start: var(--cg-timeline-preview-offset, 50%); width: min(16rem, calc(100vw - 6rem)); display: grid; gap: 0.4rem; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.35rem); background: color-mix(in oklab, var(--cg-card) 96%, var(--cg-background)); padding: 0.8rem 0.9rem; box-shadow: 0 14px 32px color-mix(in oklab, var(--cg-overlay) 15%, var(--cg-transparent)); pointer-events: none; translate: 0 -50%; animation: cg-timeline-preview-in 150ms ease-out both; transition: inset-block-start 180ms cubic-bezier(0.2, 0, 0, 1); }
 .cg-timeline-rail__preview strong { font-size: 0.78rem; font-weight: 650; }
 .cg-timeline-rail__preview p { margin: 0; color: var(--cg-muted-foreground); font-size: 0.72rem; line-height: 1.5; }
 .cg-timeline-rail__preview small, .cg-timeline-rail__meta { color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.6rem; line-height: 1.35; }
-.cg-timeline-rail__empty-copy { margin: 0 0 0 0.4rem; color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; white-space: nowrap; }
+.cg-timeline-rail__empty-copy { position: absolute; inset-block-start: 50%; inset-inline-start: calc(100% + 0.35rem); margin: 0; translate: 0 -50%; color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; white-space: nowrap; }
 
 /* World spirit control */
 .cg-orb__bounds { position: fixed; z-index: 40; pointer-events: none; }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PublicInstanceDetail } from "../../shared/world-api";
 import type { WorldObserverDetail } from "../../shared/world-observer-api";
@@ -43,7 +43,10 @@ const entries: TimelineEntry[] = [
   },
 ];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("world timeline rail", () => {
   it("compacts excerpts without losing short text", () => {
@@ -66,7 +69,9 @@ describe("world timeline rail", () => {
     expect(screen.queryByText("石门前")).not.toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByRole("button", { name: /第 1 步，石门前/ }));
     expect(screen.getByText("石门前")).toBeVisible();
+    vi.useFakeTimers();
     fireEvent.mouseLeave(screen.getByRole("button", { name: /第 1 步，石门前/ }));
+    act(() => vi.advanceTimersByTime(100));
     expect(screen.queryByText("石门前")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /第 2 步，门后/ }));
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });

@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { PublicInstanceDetail, PublicWorldRun } from "../../shared/world-api";
 import type { WorldObserverDetail } from "../../shared/world-observer-api";
 
@@ -123,18 +123,51 @@ export function WorldTimelineRail({
 }) {
   const [activeIndex, setActiveIndex] = useTimelineActiveIndex(entries);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [previewOffset, setPreviewOffset] = useState<number | null>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const tickRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const previewHideRef = useRef<number | undefined>(undefined);
   const safeActiveIndex = Math.min(activeIndex, Math.max(0, entries.length - 1));
   const activeEntry = entries[safeActiveIndex];
   const previewEntry = previewIndex === null ? undefined : entries[previewIndex];
   const previewActivitySummary = previewEntry ? activitySummary(previewEntry.activity) : undefined;
   const trackStyle = {
     "--cg-timeline-count": String(Math.max(1, entries.length)),
+    ...(previewOffset === null ? {} : { "--cg-timeline-preview-offset": `${previewOffset}px` }),
   } as CSSProperties;
+
+  function showPreview(index: number): void {
+    if (previewHideRef.current !== undefined) {
+      window.clearTimeout(previewHideRef.current);
+      previewHideRef.current = undefined;
+    }
+    const track = trackRef.current;
+    const tick = tickRefs.current[index];
+    if (track && tick) {
+      const trackBounds = track.getBoundingClientRect();
+      const tickBounds = tick.getBoundingClientRect();
+      setPreviewOffset(tickBounds.top + (tickBounds.height / 2) - trackBounds.top);
+    }
+    setPreviewIndex(index);
+  }
+
+  function hidePreview(): void {
+    if (previewHideRef.current !== undefined) window.clearTimeout(previewHideRef.current);
+    previewHideRef.current = window.setTimeout(() => {
+      previewHideRef.current = undefined;
+      setPreviewIndex(null);
+      setPreviewOffset(null);
+    }, 90);
+  }
+
+  useEffect(() => () => {
+    if (previewHideRef.current !== undefined) window.clearTimeout(previewHideRef.current);
+  }, []);
 
   function goTo(index: number): void {
     if (!entries[index]) return;
     setActiveIndex(index);
-    setPreviewIndex(index);
+    showPreview(index);
     document.getElementById(entries[index].targetId)?.scrollIntoView({
       behavior: reducedMotion ? "auto" : "smooth",
       block: "start",
@@ -146,7 +179,6 @@ export function WorldTimelineRail({
       aria-label="世界消息时间线"
       className="cg-timeline-rail"
       data-empty={entries.length === 0 || undefined}
-      data-preview-open={previewEntry ? "true" : undefined}
     >
       <button
         aria-label="上一条世界回复"
@@ -157,7 +189,7 @@ export function WorldTimelineRail({
       >
         <ArrowUp aria-hidden="true" />
       </button>
-      <div className="cg-timeline-rail__track">
+      <div className="cg-timeline-rail__track" ref={trackRef}>
         <span aria-hidden="true" className="cg-timeline-rail__line" />
         {entries.length > 0 ? (
           <ol style={trackStyle}>
@@ -168,10 +200,11 @@ export function WorldTimelineRail({
                   aria-label={`第 ${entry.step} 步，${entry.title}，${entry.excerpt}`}
                   className="cg-timeline-rail__tick"
                   onClick={() => goTo(index)}
-                  onFocus={() => setPreviewIndex(index)}
-                  onMouseEnter={() => setPreviewIndex(index)}
-                  onMouseLeave={() => setPreviewIndex(null)}
-                  onBlur={() => setPreviewIndex(null)}
+                  onBlur={hidePreview}
+                  onFocus={() => showPreview(index)}
+                  onMouseEnter={() => showPreview(index)}
+                  onMouseLeave={hidePreview}
+                  ref={(node) => { tickRefs.current[index] = node; }}
                   type="button"
                 >
                   <span aria-hidden="true" />
@@ -180,8 +213,22 @@ export function WorldTimelineRail({
             ))}
           </ol>
         ) : (
-          <span className="cg-timeline-rail__empty-mark" aria-hidden="true" />
+          <>
+            <span className="cg-timeline-rail__empty-mark" aria-hidden="true" />
+            <p className="cg-timeline-rail__empty-copy">第 {step} 步</p>
+          </>
         )}
+        {previewEntry ? (
+          <div className="cg-timeline-rail__preview" aria-hidden="true">
+            <span className="cg-timeline-rail__meta">
+              第 {previewEntry.step} 步 · Revision {previewEntry.revision}
+              {formatWorldTime(previewEntry.worldTimeSeconds) ? ` · ${formatWorldTime(previewEntry.worldTimeSeconds)}` : ""}
+            </span>
+            <strong>{previewEntry.title}</strong>
+            <p>{timelineExcerpt(previewEntry.excerpt)}</p>
+            {previewActivitySummary ? <small>{previewActivitySummary}</small> : null}
+          </div>
+        ) : null}
       </div>
       <button
         aria-label="下一条世界回复"
@@ -192,19 +239,6 @@ export function WorldTimelineRail({
       >
         <ArrowDown aria-hidden="true" />
       </button>
-      {previewEntry ? (
-        <div className="cg-timeline-rail__preview" aria-hidden="true">
-          <span className="cg-timeline-rail__meta">
-            第 {previewEntry.step} 步 · Revision {previewEntry.revision}
-            {formatWorldTime(previewEntry.worldTimeSeconds) ? ` · ${formatWorldTime(previewEntry.worldTimeSeconds)}` : ""}
-          </span>
-          <strong>{previewEntry.title}</strong>
-          <p>{timelineExcerpt(previewEntry.excerpt)}</p>
-          {previewActivitySummary ? <small>{previewActivitySummary}</small> : null}
-        </div>
-      ) : (
-        <p className="cg-timeline-rail__empty-copy">第 {step} 步</p>
-      )}
       <p className="cg-sr-only" aria-live="polite">
         {activeEntry ? `正在查看第 ${activeEntry.step} 步：${activeEntry.title}` : `当前为第 ${step} 步`}
       </p>
