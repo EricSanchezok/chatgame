@@ -1227,10 +1227,18 @@ function validateTransitionEnvelope(
     .filter((operation) => operation.kind === "create_entity")
     .map((operation) => operation.entity.id));
   const profiledEntityIds = proposal.mechanicInvocations
-    .filter((invocation) => invocation.packageId === "core-resolution" &&
-      invocation.ruleId === "instantiate-entity-profile")
-    .map((invocation) => (invocation.input as { entityId?: unknown }).entityId)
-    .filter((entityId): entityId is string => typeof entityId === "string");
+    .filter((invocation) => invocation.packageId === "core-resolution")
+    .flatMap((invocation) => {
+      if (invocation.ruleId === "instantiate-entity-profile") {
+        const entityId = (invocation.input as { entityId?: unknown }).entityId;
+        return typeof entityId === "string" ? [entityId] : [];
+      }
+      if (invocation.ruleId === "instantiate-entity-cohort") {
+        const entityIds = (invocation.input as { entityIds?: unknown }).entityIds;
+        return Array.isArray(entityIds) ? entityIds.filter((entityId): entityId is string => typeof entityId === "string") : [];
+      }
+      return [];
+    });
   if (new Set(profiledEntityIds).size !== profiledEntityIds.length) {
     throw new Error("a transition can instantiate at most one mechanics profile per entity");
   }

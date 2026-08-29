@@ -102,6 +102,59 @@ describe("core-resolution trusted rules", () => {
     ]));
   });
 
+  it("instantiates a deterministic cohort of newly created entities with one trusted rule", () => {
+    const definition = loaded();
+    const registry = createCoreRulePackageRegistry();
+    const playerAction = action(definition.contentHash);
+    const entityIds = ["summon-3", "summon-1", "summon-2"];
+    const createEntities: WorldDeltaOperation[] = entityIds.map((entityId) => ({
+      kind: "create_entity",
+      entity: {
+        id: entityId,
+        kind: "undead",
+        name: entityId,
+        description: "由死灵法术召唤的怪物。",
+        lifecycle: "active",
+        createdAtStep: 1,
+      },
+      placementId: "courtyard",
+      causes: [{ kind: "action", id: playerAction.id }],
+      assertions: [{ kind: "entity_absent", entityId }],
+    }));
+    const invocation: MechanicInvocation = {
+      id: runtimeId({
+        worldHash: definition.contentHash,
+        revision: 0,
+        kind: "mechanic",
+        stage: "test",
+        owner: "summon-cohort",
+        round: 0,
+        ordinal: 0,
+      }),
+      packageId: "core-resolution",
+      ruleId: "instantiate-entity-cohort",
+      input: { entityIds, profileId: "wanderer" },
+      causes: [{ kind: "action", id: playerAction.id }],
+      assertions: entityIds.map((entityId) => ({ kind: "entity_absent" as const, entityId })),
+    };
+
+    const resolved = registry.resolve(
+      definition.rulePackages,
+      ruleContext(definition, [playerAction]),
+      [invocation],
+      createEntities,
+    );
+
+    expect(resolved.operations.filter((operation) => operation.kind === "set_meter")).toHaveLength(3);
+    expect(resolved.operations.filter((operation) => operation.kind === "set_quantity")).toHaveLength(3);
+    expect(resolved.operations.filter((operation) => operation.kind === "set_rating")).toHaveLength(3);
+    expect(resolved.results[0]?.data).toEqual({
+      entityIds: ["summon-1", "summon-2", "summon-3"],
+      profileId: "wanderer",
+      operationCount: 9,
+    });
+  });
+
   it("derives an explicit transfer amount from verbatim action text and rejects raw operations", () => {
     const definition = loaded();
     const registry = createCoreRulePackageRegistry();
