@@ -1,6 +1,6 @@
 # Prompt refactor baseline
 
-This fixture records the pre-refactor prompt surface at commit `dc0c9f71a5c9d1a21de66291045b2b94b1f4bfcf`. It is intentionally metadata-only: recorded model results and deterministic replay artifacts remain the source of truth for semantic and state comparisons.
+This fixture records the pre-refactor prompt surface and representative contexts at commit `dc0c9f71a5c9d1a21de66291045b2b94b1f4bfcf`. Provider token usage and semantic scores remain nullable until a live A/B run supplies them; recorded model results and deterministic replay artifacts remain the source of truth for semantic and state comparisons.
 
 The five scenario identifiers are the stable cases used by the offline evaluator:
 
