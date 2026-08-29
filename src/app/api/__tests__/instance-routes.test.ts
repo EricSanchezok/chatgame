@@ -114,6 +114,8 @@ describe("World Instance Route Handlers", () => {
     expect(database.readInstance(headless.summary.id).document.executionAlgorithm.config).toEqual({
       actionCompilationMaxSlots: 3,
       agentMindMaxSlots: 2,
+      reactionMaxSlots: 8,
+      groundingMaxSlots: 16,
     });
 
     const advancedResponse = await advanceInstance(jsonRequest(

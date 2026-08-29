@@ -27,7 +27,7 @@ import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalBoundary } from "../mechanics/temporal";
 import { promptBundle, type PromptBundleId } from "../prompts";
 
-export const MODEL_CONTEXT_CONTRACT_VERSION = 11;
+export const MODEL_CONTEXT_CONTRACT_VERSION = 12;
 
 export { promptBundle } from "../prompts";
 export type { PromptBundle, PromptBundleId } from "../prompts";
@@ -216,6 +216,24 @@ function scopedActors(
     }]));
 }
 
+function perceptionCheckConstraints(
+  state: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  groundings: readonly InteractionDependency[],
+): unknown {
+  const actorEntityIds = new Set(Object.values(scopedActors(state, actions, groundings))
+    .map((actor) => actor.entityId));
+  return {
+    actors: [...actorEntityIds].sort().map((actorId) => ({
+      actorId,
+      ratings: Object.values(state.truth.ratings)
+        .filter((rating) => rating.entityId === actorId)
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((rating) => ({ id: rating.id, value: rating.value })),
+    })),
+  };
+}
+
 export function buildTruthContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
@@ -288,6 +306,9 @@ export function buildTruthContext(input: {
     committedResolutionPlans: input.resolutionPlans,
     resolutionReceipts: input.resolutionReceipts,
     validationIssues: input.issues,
+    ...(stage === "perception" ? {
+        perceptionCheckConstraints: perceptionCheckConstraints(input.state, input.actions, input.groundings),
+      } : {}),
     stage,
   };
 }

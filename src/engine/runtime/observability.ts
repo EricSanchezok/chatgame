@@ -75,6 +75,17 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     singletonFailures: number;
   }>;
 } | {
+  event: "algorithm.eager_reference.overlap_completed";
+  attributes: Readonly<{
+    phase: "action-preparation" | "reaction-preparation";
+  }>;
+  counts: Readonly<{
+    knownActions: number;
+    deferredActions: number;
+    directReactions: number;
+    perceptionReactions: number;
+  }>;
+} | {
   event: "algorithm.agent_mind.repair_exhausted";
   attributes: Readonly<{
     phase: "bootstrap" | "resume" | "mind";
@@ -387,6 +398,13 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
     ],
     attributeValues: {
       phase: ["action-compilation", "agent-bootstrap", "agent-resume", "agent-mind"],
+    },
+  },
+  "algorithm.eager_reference.overlap_completed": {
+    attributes: ["phase"],
+    counts: ["knownActions", "deferredActions", "directReactions", "perceptionReactions"],
+    attributeValues: {
+      phase: ["action-preparation", "reaction-preparation"],
     },
   },
   "algorithm.agent_mind.repair_fallback": {

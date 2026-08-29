@@ -450,7 +450,12 @@ describe("Execution Ledger", () => {
       const original = ledger.executions({ kind: "benchmark" })
         .find((execution) => execution.manifest.id === "eager-reference");
       expect(original).toBeDefined();
-      expect(original?.manifest.config).toEqual({ actionCompilationMaxSlots: 3, agentMindMaxSlots: 2 });
+      expect(original?.manifest.config).toEqual({
+        actionCompilationMaxSlots: 3,
+        agentMindMaxSlots: 2,
+        reactionMaxSlots: 8,
+        groundingMaxSlots: 16,
+      });
       expect(candidatePartitions(ledger.executionEvents(original!.id))).toMatchObject({
         resolution: {
           plans: expect.any(Array),

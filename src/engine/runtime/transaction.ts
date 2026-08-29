@@ -84,6 +84,12 @@ import {
   validateSharedActivityResourcePool,
 } from "../mechanics/shared-activity-resources";
 import { validateSharedResourceCapacity } from "../mechanics/shared-resource-allocation";
+import {
+  actionDraftEqual,
+  admissionCandidateFromCommit,
+  computeAdmissionImpact,
+  expectedRebasedActionId,
+} from "./admission-impact";
 
 function assertExactKeys(value: object, required: readonly string[], optional: readonly string[] = [], label = "object"): void {
   const keys = Object.keys(value);
@@ -394,6 +400,10 @@ export function semanticAdmissionHash(commit: Readonly<AgentAdmissionCommit>): s
 }
 
 function validateAdmissionShape(commit: AgentAdmissionCommit): void {
+  assertExactKeys(commit, [
+    "contentHash", "semanticHash", "baseRevision", "revision", "step", "entity", "placementId", "agent",
+    "meters", "quantities", "ratings", "conditions", "invalidatedActionIds", "reusedActions",
+  ], ["executionRef"], `Agent admission ${commit.revision}`);
   if (commit.semanticHash !== semanticAdmissionHash(commit)) {
     throw new Error(`Agent admission revision ${commit.revision} semantic hash mismatch`);
   }
@@ -409,6 +419,10 @@ function validateAdmissionShape(commit: AgentAdmissionCommit): void {
   commit.quantities.forEach((quantity) => quantityStateSchema.parse(quantity));
   commit.ratings.forEach((rating) => ratingSchema.parse(rating));
   commit.conditions.forEach((condition) => conditionStateSchema.parse(condition));
+  assertUnique(commit.invalidatedActionIds, `Agent admission ${commit.revision} invalidated actions`);
+  assertUnique(commit.reusedActions.map((action) => action.actorId), `Agent admission ${commit.revision} reused Agents`);
+  assertUnique(commit.reusedActions.map((action) => action.id), `Agent admission ${commit.revision} reused actions`);
+  commit.reusedActions.forEach((action) => actionProposalSchema.parse(action));
 }
 
 export function applyAdmissionCommit(state: SimulationState, input: Readonly<AgentAdmissionCommit>): void {
@@ -433,6 +447,35 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
     .sort();
   if (contentHash(preparedActionIds) !== contentHash([...commit.invalidatedActionIds].sort())) {
     throw new Error("Agent admission has an invalid prepared-action invalidation ledger");
+  }
+  const priorActionsByAgent = new Map(Object.values(state.agents)
+    .flatMap((agent) => agent.nextAction ? [[agent.id, agent.nextAction] as const] : []));
+  const reusedAgentIds = new Set<string>();
+  const reusedActionIds = new Set<string>();
+  for (const action of commit.reusedActions) {
+    const prior = priorActionsByAgent.get(action.actorId);
+    if (!prior || reusedAgentIds.has(action.actorId) || reusedActionIds.has(action.id)) {
+      throw new Error(`Agent admission reuses an unknown or duplicate prepared action for ${action.actorId}`);
+    }
+    if (action.baseRevision !== commit.revision ||
+      action.id !== expectedRebasedActionId(state, action.actorId, commit.revision) ||
+      !actionDraftEqual(prior, action)) {
+      throw new Error(`Agent admission has an invalid rebased action for ${action.actorId}`);
+    }
+    for (const targetId of action.targetIds) {
+      if (!state.agents[action.actorId]!.belief.localEntities[targetId]) {
+        throw new Error(`Agent admission rebased action ${action.id} targets an unknown local entity`);
+      }
+    }
+    reusedAgentIds.add(action.actorId);
+    reusedActionIds.add(action.id);
+  }
+  const expectedImpact = computeAdmissionImpact(state, admissionCandidateFromCommit(commit));
+  if (contentHash(expectedImpact.reusedActions) !== contentHash(commit.reusedActions) ||
+    contentHash(expectedImpact.invalidatedAgentIds) !== contentHash(
+      Object.keys(state.agents).filter((agentId) => !reusedAgentIds.has(agentId)).sort(),
+    )) {
+    throw new Error("Agent admission reused actions do not match the canonical impact proof");
   }
   for (const agent of Object.values(state.agents)) agent.nextAction = null;
   state.truth.entities[commit.entity.id] = structuredClone(commit.entity);
@@ -466,6 +509,9 @@ export function applyAdmissionCommit(state: SimulationState, input: Readonly<Age
       throw new Error(`Agent admission has invalid condition ${condition.id}`);
     }
     state.truth.conditions[condition.id] = structuredClone(condition);
+  }
+  for (const action of commit.reusedActions) {
+    state.agents[action.actorId]!.nextAction = structuredClone(action);
   }
   state.revision = commit.revision;
   state.admissions.push(commit);

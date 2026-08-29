@@ -388,7 +388,12 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
     for (const stepCount of positiveMatrix(options.steps, "steps")) {
       for (const actionCompilationMaxSlots of actionCompilationSlots) {
         for (const agentMindMaxSlots of agentMindSlots) {
-      const algorithmConfig = { actionCompilationMaxSlots, agentMindMaxSlots };
+      const algorithmConfig = {
+        actionCompilationMaxSlots,
+        agentMindMaxSlots,
+        reactionMaxSlots: DEFAULT_EAGER_REFERENCE_CONFIG.reactionMaxSlots,
+        groundingMaxSlots: DEFAULT_EAGER_REFERENCE_CONFIG.groundingMaxSlots,
+      };
       const algorithmManifest = createEagerReferenceManifest(algorithmConfig);
       const definition = scaledDefinition(fixture, agentCount);
       const instanceId = `experiment-${agentCount}-${stepCount}-ac${actionCompilationMaxSlots}-am${agentMindMaxSlots}`;

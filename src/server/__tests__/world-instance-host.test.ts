@@ -251,7 +251,7 @@ describe("World Instance host", () => {
       expect(arrivalRequest).toMatchObject({
         promptVersion: promptBundle("arrival-generator").version,
         context: {
-          contractVersion: 11,
+          contractVersion: 12,
           perspective: { agentId: "courtyard-wanderer-1" },
         },
       });
@@ -261,7 +261,7 @@ describe("World Instance host", () => {
   }, 30_000);
 
   it("turns one player message into exactly one advance and projects the durable conversation", async () => {
-    const { database, host } = harness();
+    const { database, host, provider } = harness();
     try {
       const created = await host.createInstance(originStart);
       const participant = created.participants[0];
@@ -280,6 +280,10 @@ describe("World Instance host", () => {
         action: { submissionId: "message-1", text: "我观察石门和守门人。" },
         response: { text: expect.any(String) },
       });
+      // The keeper's admission action is provably unaffected by the new
+      // player's arrival, so the preparation resume wave is skipped. The
+      // ordinary post-resolution mind update still runs once.
+      expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
       const duplicate = await host.submitAction(created.summary.id, participant.id, {
         submissionId: "message-1",
         expectedRevision: created.summary.revision,
@@ -846,6 +850,8 @@ describe("World Instance host", () => {
       const configured = eagerReferenceAlgorithmRef({
         actionCompilationMaxSlots: 3,
         agentMindMaxSlots: 2,
+        reactionMaxSlots: 8,
+        groundingMaxSlots: 16,
       });
       const created = await setup.host.createInstance(observerStart, "local", configured);
       expect(setup.database.readInstance(created.summary.id).document.executionAlgorithm).toEqual(configured);

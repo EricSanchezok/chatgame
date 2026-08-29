@@ -33,7 +33,12 @@ export async function POST(request: Request): Promise<Response> {
         if (!body.executionTuning || typeof body.executionTuning !== "object" ||
           Array.isArray(body.executionTuning)) throw new Error("executionTuning must be an object");
         const unknownKeys = Object.keys(body.executionTuning)
-          .filter((key) => !["actionCompilationMaxSlots", "agentMindMaxSlots"].includes(key));
+          .filter((key) => ![
+            "actionCompilationMaxSlots",
+            "agentMindMaxSlots",
+            "reactionMaxSlots",
+            "groundingMaxSlots",
+          ].includes(key));
         if (unknownKeys.length > 0) throw new Error(`unknown executionTuning field: ${unknownKeys[0]}`);
         const config = parseEagerReferenceAlgorithmConfig({
           ...DEFAULT_EAGER_REFERENCE_CONFIG,
