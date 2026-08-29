@@ -145,7 +145,7 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
   event: "algorithm.observation.global_projection_completed";
   attributes: Readonly<{
     phase: "observation";
-    reason: "multiple-conflict-components";
+    reason: "multiple-conflict-components" | "dynamic-lifecycle";
   }>;
   counts: Readonly<{
     observations: number;
@@ -470,7 +470,7 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
     counts: ["observations", "observationBatches", "dependencyComponents"],
     attributeValues: {
       phase: ["observation"],
-      reason: ["multiple-conflict-components"],
+      reason: ["multiple-conflict-components", "dynamic-lifecycle"],
     },
   },
   "algorithm.observation.rendering_completed": {

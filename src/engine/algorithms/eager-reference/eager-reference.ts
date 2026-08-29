@@ -1643,7 +1643,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       structuredClone(request.stimulus));
     temporal = reconcileTemporalOutcomes(temporal, resolution.proposal.outcomes);
     const globalObservationAudits: ModelExecutionAudit[] = [];
-    if (components.length > 1 || deterministicResourceActions.length > 0) {
+    const dynamicLifecycleChange = resolution.proposal.operations.some((operation) =>
+      operation.kind === "create_entity" || operation.kind === "create_agent" ||
+      operation.kind === "retire_entity" || operation.kind === "remove_agent");
+    if (components.length > 1 || deterministicResourceActions.length > 0 || dynamicLifecycleChange) {
       const preview = applyTransitionProposal(planningState, resolution.proposal, temporal);
       const rendered = await this.observationRenderer.render({
         definition: input.definition,
@@ -1658,7 +1661,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       globalObservationAudits.push(...structuredClone(rendered.modelAudits));
       context.instrumentation.emit({
         event: "algorithm.observation.global_projection_completed",
-        attributes: { phase: "observation", reason: "multiple-conflict-components" },
+        attributes: {
+          phase: "observation",
+          reason: components.length > 1 ? "multiple-conflict-components" : "dynamic-lifecycle",
+        },
         counts: {
           observations: rendered.packets.length,
           observationBatches: rendered.batchCount,

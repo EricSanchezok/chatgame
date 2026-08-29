@@ -264,7 +264,11 @@ function materializeBatch(
   });
   const materialized = materializeObservationPackets(input.state, packets, "outcome").packets;
   validateObservations(candidate, materialized, candidate.step);
-  validatePublicInformationBoundary(input.state, input.actions, {
+  // Validate against the post-proposal candidate so observations can be
+  // addressed to Agents created by this same transition. The candidate still
+  // contains the full canonical/private state, so hidden cognition remains
+  // protected while dynamic lifecycle introductions become observable.
+  validatePublicInformationBoundary(candidate, input.actions, {
     ...structuredClone(input.proposal),
     observations: materialized,
   });

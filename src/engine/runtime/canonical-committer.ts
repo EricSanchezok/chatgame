@@ -466,7 +466,11 @@ function validateCandidateBoundary(
   }
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
-  validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);
+  // A transition may introduce Agents and immediately give them an outcome
+  // observation. Validate the public boundary against the transitioned state
+  // so those new observers are legitimate while hidden cognition remains
+  // protected by the same token audit.
+  validatePublicInformationBoundary(transitioned, actions, candidate.resolution.proposal);
   validateObservations(transitioned, observations, transitioned.step);
   validateSelfConsequenceIntroductions(
     source,

@@ -717,7 +717,11 @@ function instantiateProfileOperations(
   const profile = context.state.truth.mechanics.entityMechanicsProfiles[profileId];
   if (!profile) throw new Error(`unknown entity mechanics profile ${profileId}`);
   return [...entityIds].sort().flatMap((entityId) => {
-    const assertions: CausalAssertion[] = [{ kind: "entity_absent", entityId }];
+    // The invocation itself asserts that each entity was absent before the
+    // transition. Profile writes run after create_entity operations, so their
+    // operation-level assertion must observe the newly active entity in the
+    // causal working state.
+    const assertions: CausalAssertion[] = [{ kind: "entity_lifecycle", entityId, expected: "active" }];
     return [
       ...profile.meters.map((entry) => ({
         kind: "set_meter" as const,

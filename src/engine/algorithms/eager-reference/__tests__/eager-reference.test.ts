@@ -716,6 +716,111 @@ describe("eager reference safeguards", () => {
     expect((globalProjection?.context as { observationSlots?: unknown[] }).observationSlots).toHaveLength(2);
   });
 
+  it("creates and bootstraps multiple dynamic Agents with a cohort profile", async () => {
+    const summoned = ["skeleton-1", "skeleton-2", "skeleton-3"];
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role !== "truth-transition") return deterministicModelOutput(profileId, context);
+      const input = context as { jointActions: AgentActionProposal[] };
+      const action = input.jointActions[0];
+      if (!action) throw new Error("cohort test expected one action");
+      const draftAgent = (index: number) => ({
+        id: `skeleton-agent-${index + 1}`,
+        entityId: summoned[index],
+        character: {
+          persona: { summary: "受召唤者命令的骷髅。", voice: "", evidenceIds: [] },
+          traits: {}, values: {}, emotions: {}, attitudes: {}, goals: {}, commitments: {},
+        },
+        belief: {
+          localEntities: {
+            self: { id: "self", name: "我", description: "骷髅自己", status: "observed" },
+          },
+          claims: {}, evidence: {},
+        },
+        bindings: { self: { localEntityId: "self", canonicalEntityIds: [summoned[index]] } },
+      });
+      return {
+        outcomes: [{
+          proposalId: action.id,
+          status: "succeeded",
+          summary: "召唤行动完成。",
+          causeRefs: [{ kind: "action", id: action.id }],
+          assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+          knownAlternatives: [],
+        }],
+        mechanicInvocations: [{
+          id: "summon-cohort",
+          packageId: "core-resolution",
+          ruleId: "instantiate-entity-cohort",
+          input: { entityIds: summoned, profileId: "wanderer" },
+          causes: [{ kind: "action", id: action.id }],
+          assertions: summoned.map((entityId) => ({ kind: "entity_absent", entityId })),
+        }],
+        operations: [
+          ...summoned.map((entityId) => ({
+            kind: "create_entity" as const,
+            entity: { id: entityId, kind: "undead", name: entityId, description: "刚被召唤的骷髅。" },
+            placementId: "courtyard",
+            causes: [{ kind: "action" as const, id: action.id }],
+            assertions: [{ kind: "entity_absent" as const, entityId }],
+          })),
+          ...summoned.map((_entityId, index) => ({
+            kind: "create_agent" as const,
+            agent: draftAgent(index),
+            causes: [{ kind: "action" as const, id: action.id }],
+            assertions: [{ kind: "entity_lifecycle" as const, entityId: summoned[index], expected: "active" as const }],
+          })),
+        ],
+        events: [{
+          id: "summon-event",
+          description: "三个骷髅在庭院中出现。",
+          impact: "significant",
+          causes: [{ kind: "action", id: action.id }],
+          assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+        }],
+        decisionRequests: [],
+      };
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const result = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "summoner" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "summon-three",
+        agentId: "player",
+        rawText: "死灵法师召唤三个骷髅守卫庭院。",
+        goal: "召唤三个骷髅",
+        means: "死灵法术",
+        targetIds: [],
+      }],
+    });
+
+    for (const [index, entityId] of summoned.entries()) {
+      const agentId = `skeleton-agent-${index + 1}`;
+      expect(result.state.truth.entities[entityId]).toMatchObject({ kind: "undead", lifecycle: "active" });
+      expect(result.state.agents[agentId]).toMatchObject({ entityId, nextAction: expect.any(Object) });
+      expect(result.state.truth.meters[`${entityId}-health`]?.current).toBe(20);
+      expect(result.committed.nextActions).toContainEqual(expect.objectContaining({ actorId: agentId }));
+    }
+    expect(result.committed.observations.map((observation) => observation.observerId))
+      .toEqual(expect.arrayContaining(summoned.map((_entityId, index) => `skeleton-agent-${index + 1}`)));
+    expect(result.committed.mechanicInvocations).toContainEqual(expect.objectContaining({
+      ruleId: "instantiate-entity-cohort",
+      input: { entityIds: summoned, profileId: "wanderer" },
+    }));
+    expect(result.committed.temporalBoundary.deltaSeconds).toBeGreaterThan(0);
+    expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
+  });
+
   it("uses the earliest authored activity checkpoint instead of a fixed step duration", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
