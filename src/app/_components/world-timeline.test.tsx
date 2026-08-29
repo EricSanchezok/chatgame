@@ -45,8 +45,39 @@ const entries: TimelineEntry[] = [
   },
 ];
 
+function timelineRect(top: number, height: number): DOMRect {
+  return {
+    bottom: top + height,
+    height,
+    left: 0,
+    right: 100,
+    top,
+    width: 100,
+    x: 0,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+class MockTimelineObserver {
+  private readonly callback: IntersectionObserverCallback;
+
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+  }
+
+  observe(): void {}
+
+  disconnect(): void {}
+
+  trigger(entriesToReport: Array<Partial<IntersectionObserverEntry>>): void {
+    this.callback(entriesToReport as IntersectionObserverEntry[], this as unknown as IntersectionObserver);
+  }
+}
+
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -89,6 +120,41 @@ describe("world timeline rail", () => {
     expect(axis).not.toBeNull();
     expect(axis?.querySelector(".cg-timeline-rail__track")).not.toBeNull();
     expect(axis?.querySelectorAll(".cg-timeline-rail__arrow")).toHaveLength(2);
+  });
+
+  it("holds the navigation target while smooth scrolling reports an intermediate entry", () => {
+    const observers: MockTimelineObserver[] = [];
+    vi.stubGlobal("IntersectionObserver", class extends MockTimelineObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        super(callback);
+        observers.push(this);
+      }
+    });
+    const viewport = document.createElement("div");
+    viewport.dataset.cgThreadViewport = "true";
+    viewport.getBoundingClientRect = () => timelineRect(0, 1000);
+    const first = document.createElement("article");
+    const second = document.createElement("article");
+    first.id = "message:one";
+    second.id = "message:two";
+    let firstTop = -500;
+    first.getBoundingClientRect = () => timelineRect(firstTop, 100);
+    second.getBoundingClientRect = () => timelineRect(100, 100);
+    viewport.append(first, second);
+    document.body.append(viewport);
+
+    render(<WorldTimelineRail entries={entries} reducedMotion={false} step={2} />);
+    fireEvent.click(screen.getByRole("button", { name: /第 2 步，门后/ }));
+    const previous = screen.getByRole("button", { name: "上一条世界回复" });
+    fireEvent.click(previous);
+    expect(previous).toBeDisabled();
+
+    observers[0]?.trigger([{ target: second, isIntersecting: true, intersectionRatio: 1 }]);
+    expect(previous).toBeDisabled();
+
+    firstTop = 0;
+    observers[0]?.trigger([{ target: first, isIntersecting: true, intersectionRatio: 1 }]);
+    expect(previous).toBeDisabled();
   });
 
   it("projects every committed response with stable revision-aware ids", () => {

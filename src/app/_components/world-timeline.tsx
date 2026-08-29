@@ -124,11 +124,31 @@ function activitySummary(activity?: NonNullable<PublicWorldRun["activity"]>): st
 
 function useTimelineActiveIndex(entries: readonly TimelineEntry[]): [number, (index: number) => void] {
   const [activeIndex, setActiveIndex] = useState(0);
+  const navigationTargetRef = useRef<number | null>(null);
+  const navigationTimeoutRef = useRef<number | undefined>(undefined);
+
+  function selectTimelineIndex(index: number): void {
+    navigationTargetRef.current = index;
+    setActiveIndex(index);
+    if (navigationTimeoutRef.current !== undefined) window.clearTimeout(navigationTimeoutRef.current);
+    navigationTimeoutRef.current = window.setTimeout(() => {
+      navigationTargetRef.current = null;
+      navigationTimeoutRef.current = undefined;
+    }, 1_200);
+  }
 
   useEffect(() => {
-    if (entries.length === 0) return;
+    if (entries.length === 0) {
+      navigationTargetRef.current = null;
+      if (navigationTimeoutRef.current !== undefined) {
+        window.clearTimeout(navigationTimeoutRef.current);
+        navigationTimeoutRef.current = undefined;
+      }
+      return;
+    }
     const viewport = document.querySelector<HTMLElement>("[data-cg-thread-viewport]");
     if (!viewport || typeof IntersectionObserver === "undefined") return;
+    const scrollViewport = viewport;
 
     const targets = entries
       .map((entry, index) => {
@@ -138,7 +158,36 @@ function useTimelineActiveIndex(entries: readonly TimelineEntry[]): [number, (in
       .filter((target): target is { index: number; node: HTMLElement } => Boolean(target));
     if (targets.length === 0) return;
 
+    function clearNavigationTarget(): void {
+      navigationTargetRef.current = null;
+      if (navigationTimeoutRef.current !== undefined) {
+        window.clearTimeout(navigationTimeoutRef.current);
+        navigationTimeoutRef.current = undefined;
+      }
+    }
+
+    function targetTopAligned(node: HTMLElement): boolean {
+      const rootBounds = scrollViewport.getBoundingClientRect();
+      const targetBounds = node.getBoundingClientRect();
+      return Math.abs(targetBounds.top - rootBounds.top) <= 8;
+    }
+
+    function settleNavigationIfReady(): "none" | "waiting" | "settled" {
+      const navigationTarget = navigationTargetRef.current;
+      if (navigationTarget === null) return "none";
+      const target = targets.find((candidate) => candidate.index === navigationTarget);
+      if (!target) {
+        clearNavigationTarget();
+        return "settled";
+      }
+      if (!targetTopAligned(target.node)) return "waiting";
+      clearNavigationTarget();
+      setActiveIndex(navigationTarget);
+      return "settled";
+    }
+
     const observer = new IntersectionObserver((observations) => {
+      if (settleNavigationIfReady() !== "none") return;
       const visible = observations
         .filter((observation) => observation.isIntersecting)
         .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
@@ -150,11 +199,22 @@ function useTimelineActiveIndex(entries: readonly TimelineEntry[]): [number, (in
       rootMargin: "-18% 0px -62% 0px",
       threshold: [0.1, 0.45, 0.8],
     });
+    const handleScroll = () => {
+      settleNavigationIfReady();
+    };
+    scrollViewport.addEventListener("scroll", handleScroll, { passive: true });
     targets.forEach(({ node }) => observer.observe(node));
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      scrollViewport.removeEventListener("scroll", handleScroll);
+      if (navigationTimeoutRef.current !== undefined) {
+        window.clearTimeout(navigationTimeoutRef.current);
+        navigationTimeoutRef.current = undefined;
+      }
+    };
   }, [entries]);
 
-  return [activeIndex, setActiveIndex];
+  return [activeIndex, selectTimelineIndex];
 }
 
 export function WorldTimelineRail({
@@ -215,10 +275,13 @@ export function WorldTimelineRail({
     if (!entries[index]) return;
     setActiveIndex(index);
     showPreview(index);
-    document.getElementById(entries[index].targetId)?.scrollIntoView({
-      behavior: reducedMotion ? "auto" : "smooth",
-      block: "start",
-    });
+    const target = document.getElementById(entries[index].targetId);
+    if (target && typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "start",
+      });
+    }
   }
 
   return (
