@@ -287,7 +287,12 @@ export function normalizeInteractionDependency(
   };
   const fallbackReasons: string[] = [];
   const validRefs = (refs: readonly FootprintRef[]): FootprintRef[] => refs.filter((ref) => {
-    if (ref.kind === "global" || catalogs[ref.kind][ref.id]) return true;
+    if (ref.kind === "global") {
+      if (ref.id === "world") return true;
+      fallbackReasons.push("invalid_global_reference");
+      return false;
+    }
+    if (catalogs[ref.kind][ref.id]) return true;
     fallbackReasons.push(`unknown_${ref.kind}`);
     return false;
   });
@@ -298,7 +303,8 @@ export function normalizeInteractionDependency(
     fallbackReasons.push("unknown_audience_agent");
     return false;
   });
-  const hasGlobal = [...value.reads, ...value.writes].some((ref) => ref.kind === "global");
+  const hasGlobal = [...value.reads, ...value.writes]
+    .some((ref) => ref.kind === "global" && ref.id === "world");
   if (value.globalFallback !== hasGlobal) fallbackReasons.push("inconsistent_global_fallback");
   // Unknown references and a mismatched global flag are output-quality
   // failures, not evidence that the action can affect the entire world. A

@@ -185,6 +185,29 @@ describe("action dependencies", () => {
     expect(normalized.fallbackReasons).toEqual(["unknown_audience_agent", "unknown_entity"]);
   });
 
+  it("does not treat a non-canonical global reference as world scope", () => {
+    const state = {
+      agents: { a: { id: "a", entityId: "entity-a" } },
+      truth: {
+        entities: { "entity-a": { id: "entity-a" } },
+        facts: {},
+        meters: {},
+        quantities: {},
+        ratings: {},
+        conditions: {},
+        sharedActivityResourcePools: {},
+      },
+    } as unknown as SimulationState;
+    const action = { id: "action-a", actorId: "a" } as AgentActionProposal;
+    const malformed = dependency("a", [{ kind: "global", id: "not-world" } as never], [], [], false);
+
+    const normalized = normalizeInteractionDependency(state, action, malformed);
+
+    expect(normalized.dependency.globalFallback).toBe(false);
+    expect(normalized.dependency.reads).toEqual([]);
+    expect(normalized.fallbackReasons).toEqual(["invalid_global_reference"]);
+  });
+
   it("grounds Timer and Condition context nodes from canonical state", () => {
     const state = {
       agents: { a: { id: "a", entityId: "entity-a" } },
