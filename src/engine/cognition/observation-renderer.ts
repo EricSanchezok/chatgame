@@ -162,8 +162,30 @@ export function normalizeObservationLocalReferences(
       ...Object.keys(agent.belief.localEntities),
       ...Object.keys(agent.bindings),
     ]);
+    // Models occasionally emit a fresh alias for a canonical Entity that the
+    // observer already knows under another local name.  Treat that as a
+    // reference normalization (and rewrite claims) instead of allowing an
+    // impossible re-introduction to reach the causal verifier.
+    const canonicalToLocal = new Map<string, string>();
+    for (const binding of Object.values(agent.bindings)) {
+      for (const canonicalId of binding.canonicalEntityIds) {
+        const existing = canonicalToLocal.get(canonicalId);
+        if (!existing || binding.localEntityId.localeCompare(existing) < 0) {
+          canonicalToLocal.set(canonicalId, binding.localEntityId);
+        }
+      }
+    }
+    const remappedLocalIds = new Map<string, string>();
     const introductions = draft.introductions.flatMap((introduction) => {
       const localId = introduction.localEntity.id;
+      const knownLocalId = introduction.canonicalEntityId
+        ? canonicalToLocal.get(introduction.canonicalEntityId)
+        : undefined;
+      if (knownLocalId && knownLocalId !== localId) {
+        droppedIntroductions += 1;
+        remappedLocalIds.set(localId, knownLocalId);
+        return [];
+      }
       if (localIds.has(localId) || state.truth.entities[localId]) {
         droppedIntroductions += 1;
         return [];
@@ -175,13 +197,20 @@ export function normalizeObservationLocalReferences(
       }
       return [structuredClone(introduction)];
     });
-    const apparentClaims = draft.apparentClaims.filter((claim) => {
+    const remap = (localId: string): string => remappedLocalIds.get(localId) ?? localId;
+    const apparentClaims = draft.apparentClaims.map((claim) => ({
+      ...structuredClone(claim),
+      subjectId: remap(claim.subjectId),
+      value: claim.value.kind === "local_entity"
+        ? { ...structuredClone(claim.value), localEntityId: remap(claim.value.localEntityId) }
+        : structuredClone(claim.value),
+    })).filter((claim) => {
       const validSubject = localIds.has(claim.subjectId);
       const validValue = claim.value.kind !== "local_entity" || localIds.has(claim.value.localEntityId);
       if (validSubject && validValue) return true;
       droppedClaims += 1;
       return false;
-    }).map((claim) => structuredClone(claim));
+    });
     return { ...structuredClone(draft), introductions, apparentClaims };
   });
   return { drafts: normalized, droppedClaims, droppedIntroductions, clearedCanonicalBindings };

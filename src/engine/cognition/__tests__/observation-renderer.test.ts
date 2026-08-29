@@ -1,11 +1,36 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentActionProposal, TransitionProposal } from "../../contracts/model";
-import { ObservationRenderer } from "../observation-renderer";
+import { ObservationRenderer, normalizeObservationLocalReferences } from "../observation-renderer";
 import { ScriptedModelProvider, createTestModelCatalog } from "../../testing/model-provider";
 import { loadWorldScript } from "../../../script/world-loader";
 
 describe("ObservationRenderer", () => {
+  it("reuses an observer's existing local alias for a known canonical Entity", () => {
+    const catalog = createTestModelCatalog();
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 4,
+      modelCatalog: catalog,
+    });
+    const normalized = normalizeObservationLocalReferences(definition.initialState, ["player"], [{
+      summary: "门锁仍在原处。",
+      introductions: [{
+        localEntity: { id: "fresh-key-alias", name: "铜钥匙", description: "同一把铜钥匙", status: "observed" },
+        canonicalEntityId: "key",
+      }],
+      apparentClaims: [{
+        subjectId: "fresh-key-alias",
+        predicate: "存在",
+        value: { kind: "text", value: "铜钥匙" },
+        description: "门锁存在",
+      }],
+      sourceEventIds: [],
+    }]);
+    expect(normalized.drafts[0]?.introductions).toEqual([]);
+    expect(normalized.drafts[0]?.apparentClaims[0]?.subjectId).toBe("copper-key");
+    expect(normalized.droppedIntroductions).toBe(1);
+  });
+
   it("repairs a batch that copies protected canonical truth", async () => {
     let calls = 0;
     const catalog = createTestModelCatalog();
