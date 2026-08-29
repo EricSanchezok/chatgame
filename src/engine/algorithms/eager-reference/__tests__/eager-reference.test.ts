@@ -393,6 +393,49 @@ describe("eager reference safeguards", () => {
     expect(batched.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
   });
 
+  it("recovers a compressed multi-action resolution response with one-action scopes", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "truth-resolution") {
+        const generated = deterministicModelOutput(profileId, context) as {
+          kind: string;
+          plans?: unknown[];
+        };
+        const actions = (context as { jointActions?: unknown[] }).jointActions ?? [];
+        if (generated.kind === "commit_plans" && actions.length > 1) {
+          return { ...generated, plans: generated.plans?.slice(0, 1) };
+        }
+        return generated;
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(result.committed.actions).toHaveLength(Object.keys(source.agents).length);
+    expect(result.committed.resolutionPlans).toHaveLength(result.committed.actions.length);
+    expect(result.committed.outcomes).toHaveLength(result.committed.actions.length);
+    expect(result.committed.operations.filter((operation) => operation.kind === "advance_time")).toHaveLength(1);
+    expect(provider.requests.filter((request) => request.role === "truth-resolution").length)
+      .toBeGreaterThan(Object.keys(source.agents).length);
+    expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
+  });
+
   it("retains valid AgentMind slots and retries only the invalid Agent", async () => {
     let rejectedKeeper = false;
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
