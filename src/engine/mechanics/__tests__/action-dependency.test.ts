@@ -5,6 +5,7 @@ import {
   interactionDependencyForCondition,
   interactionDependencyForTimer,
   interactionDependencyComponents,
+  interactionDependencyComponentsExhaustive,
   buildInteractionDependencyGraph,
   normalizeInteractionDependency,
 } from "../action-dependency";
@@ -118,6 +119,38 @@ describe("action dependencies", () => {
       dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
       dependency("b", [], [{ kind: "entity", id: "shared" }]),
     ])).toEqual(graph);
+  });
+
+  it("matches the indexed graph components with the exhaustive oracle", () => {
+    const agents = ["a", "b", "c", "d", "e", "f"];
+    const resources = ["r1", "r2", "r3", "r4", "r5", "r6", "r7"];
+    let seed = 0x1badb002;
+    const random = (): number => {
+      seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
+      return seed / 0x1_0000_0000;
+    };
+    const choose = (values: readonly string[]): string[] => values.filter(() => random() < 0.28);
+    for (let trial = 0; trial < 80; trial += 1) {
+      const dependencies = Array.from({ length: 24 }, (_, index): InteractionDependency => {
+        const actorId = agents[index % agents.length]!;
+        const globalFallback = trial % 23 === 0 && index === 0;
+        const global = { kind: "global" as const, id: "world" as const };
+        return {
+          ...dependency(
+            actorId,
+            globalFallback ? [global] : choose(resources).map((id) => ({ kind: "entity" as const, id })),
+            globalFallback ? [global] : choose(resources).map((id) => ({ kind: "entity" as const, id })),
+            choose(agents),
+            globalFallback,
+          ),
+          id: `action-${trial}-${index}`,
+        };
+      });
+      expect(buildInteractionDependencyGraph(dependencies, "canonical").components)
+        .toEqual(interactionDependencyComponentsExhaustive(dependencies, "canonical"));
+      expect(buildInteractionDependencyGraph(dependencies, "notification").components)
+        .toEqual(interactionDependencyComponentsExhaustive(dependencies, "notification"));
+    }
   });
 
   it("turns unknown dependency hints into a conservative global footprint", () => {

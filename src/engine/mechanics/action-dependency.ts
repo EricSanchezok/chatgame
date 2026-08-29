@@ -723,6 +723,45 @@ export function interactionDependencyComponents(
   return buildInteractionDependencyGraph(dependencies, mode).components;
 }
 
+/**
+ * Small, intentionally slow oracle used by regression tests. The production
+ * scheduler uses the indexed graph above; this pairwise implementation gives
+ * us an independent reference for proving that optimization did not change
+ * component semantics.
+ */
+export function interactionDependencyComponentsExhaustive(
+  dependencies: readonly InteractionDependency[],
+  mode: InteractionGraphMode = "canonical",
+): string[][] {
+  const parent = dependencies.map((_, index) => index);
+  const root = (index: number): number => {
+    while (parent[index] !== index) {
+      parent[index] = parent[parent[index]];
+      index = parent[index];
+    }
+    return index;
+  };
+  const union = (left: number, right: number): void => {
+    const leftRoot = root(left);
+    const rightRoot = root(right);
+    if (leftRoot !== rightRoot) parent[Math.max(leftRoot, rightRoot)] = Math.min(leftRoot, rightRoot);
+  };
+  for (let left = 0; left < dependencies.length; left += 1) {
+    for (let right = left + 1; right < dependencies.length; right += 1) {
+      if (interactionDependenciesConflict(dependencies[left]!, dependencies[right]!, mode)) union(left, right);
+    }
+  }
+  const groups = new Map<number, string[]>();
+  dependencies.forEach((dependency, index) => {
+    const group = groups.get(root(index)) ?? [];
+    group.push(dependency.id);
+    groups.set(root(index), group);
+  });
+  return [...groups.values()]
+    .map((group) => group.sort())
+    .sort((left, right) => left[0]!.localeCompare(right[0]!));
+}
+
 export function interactionDependencyEdgeCount(
   dependencies: readonly InteractionDependency[],
   mode: InteractionGraphMode = "canonical",
