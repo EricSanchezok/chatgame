@@ -168,11 +168,29 @@ interface ComponentResolution {
   resolution: TruthResolution;
 }
 
-async function settledValues<T>(promises: readonly Promise<T>[], label: string): Promise<T[]> {
-  const settled = await Promise.allSettled(promises);
-  const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-  if (failures.length > 0) throw new AggregateError(failures.map((failure) => failure.reason), `${label} batch failed`);
-  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
+async function settledValues<T>(
+  tasks: readonly (() => Promise<T>)[],
+  label: string,
+  maxConcurrent = tasks.length || 1,
+): Promise<T[]> {
+  const results = Array<T | undefined>(tasks.length);
+  const failures: unknown[] = [];
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= tasks.length) return;
+      try {
+        results[index] = await tasks[index]!();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+  };
+  const workerCount = Math.max(1, Math.min(maxConcurrent, tasks.length || 1));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (failures.length > 0) throw new AggregateError(failures, `${label} batch failed`);
+  return results as T[];
 }
 
 function materializeExternalAction(
@@ -1165,7 +1183,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       onsetPerceptionTranscript,
     );
     validateObservations(source, reactionRequests.map((request) => request.stimulus), source.step + 1);
-    const reactionResults = await settledValues(reactionRequests.map(async (request) => {
+    const reactionResults = await settledValues(reactionRequests.map((request) => async () => {
       const policy = input.policyRoster[request.agentId];
       if (!policy) throw new Error(`reaction request ${request.id} has no policy`);
       if (policy.kind === "external") return null;
@@ -1199,7 +1217,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         });
         throw error;
       }
-    }), "action-onset reactions");
+    }), "action-onset reactions", 4);
     const preparedReactionDecisions = reactionResults.flatMap((result) => result ? [result.decision] : []);
     const pendingReactionRequests = reactionRequests.filter((request) =>
       !preparedReactionDecisions.some((decision) => decision.requestId === request.id));
@@ -1498,7 +1516,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         id: activity.sourceActionId,
       },
     ]));
-    const dependencyResults = await settledValues(actions.map(async (action): Promise<{
+    const dependencyResults = await settledValues(actions.map((action) => async (): Promise<{
       dependency: InteractionDependency;
       audit: ModelExecutionAudit | null;
     }> => {
@@ -1518,7 +1536,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         context.modelScope,
         input.definition.modelProfiles.grounding,
       );
-    }), "action grounding");
+    }), "action grounding", 8);
     const actionDependencies = [
       ...dependencyResults.map((result) => result.dependency),
       ...newDependencyResults
