@@ -153,7 +153,7 @@ describe("action dependencies", () => {
     }
   });
 
-  it("turns unknown dependency hints into a conservative global footprint", () => {
+  it("keeps unknown dependency hints local and exposes them for semantic repair", () => {
     const state = {
       agents: { a: { id: "a", entityId: "entity-a" } },
       truth: {
@@ -176,11 +176,11 @@ describe("action dependencies", () => {
       kind: "action",
       id: "action-a",
       actorId: "a",
-      reads: [{ kind: "global", id: "world" }],
-      writes: [{ kind: "global", id: "world" }],
+      reads: [],
+      writes: [],
       audienceAgentIds: [],
       sharedResourceClaims: [],
-      globalFallback: true,
+      globalFallback: false,
     });
     expect(normalized.fallbackReasons).toEqual(["unknown_audience_agent", "unknown_entity"]);
   });

@@ -91,7 +91,9 @@ describe("LLM output field ownership", () => {
     }).success).toBe(false);
     const grounding = { reads: [], writes: [], audienceAgentIds: [], sharedResourceClaims: [], globalFallback: false };
     expect(actionGroundingSchema.safeParse(grounding).success).toBe(true);
-    expect(actionGroundingSchema.safeParse({ ...grounding, globalFallback: true }).success).toBe(false);
+    // Scope consistency is validated per action after parsing so one malformed
+    // slot cannot invalidate an otherwise valid batch response.
+    expect(actionGroundingSchema.safeParse({ ...grounding, globalFallback: true }).success).toBe(true);
     expect(actionGroundingSchema.safeParse({
       ...grounding,
       reads: [{ kind: "global", id: "world" }],

@@ -296,7 +296,11 @@ export function normalizeInteractionDependency(
   });
   const hasGlobal = [...value.reads, ...value.writes].some((ref) => ref.kind === "global");
   if (value.globalFallback !== hasGlobal) fallbackReasons.push("inconsistent_global_fallback");
-  const globalFallback = value.globalFallback || hasGlobal || fallbackReasons.length > 0;
+  // Unknown references are output-quality failures, not evidence that the
+  // action can affect the entire world. The caller owns the bounded repair
+  // loop; this normalizer only removes invalid hints from the provisional
+  // footprint and preserves an explicitly declared global scope.
+  const globalFallback = value.globalFallback || hasGlobal;
   const globalRef: FootprintRef = { kind: "global", id: "world" };
   return {
     dependency: {
@@ -313,19 +317,15 @@ export function normalizeInteractionDependency(
   };
 }
 
-function emitFallback(
-  scope: ModelExecutionScope,
-  action: AgentActionProposal,
-  fallbackReasons: readonly string[],
-): void {
-  if (fallbackReasons.length === 0) return;
-  scope.observer?.emit({
-    event: "algorithm.grounding.global_fallback",
-    level: "warn",
-    correlation: { ...scope.correlation, modelSubject: action.actorId },
-    attributes: { phase: "grounding", reasons: fallbackReasons.join(",") },
-    counts: { normalizedGroundingFields: fallbackReasons.length, globalFallbacks: 1 },
-  });
+export class GroundingValidationError extends Error {
+  constructor(
+    readonly actionId: string,
+    readonly reasons: readonly string[],
+    options?: ErrorOptions,
+  ) {
+    super(`grounding for ${actionId} requires repair: ${reasons.join(", ")}`, options);
+    this.name = "GroundingValidationError";
+  }
 }
 
 function enrichDependency(
@@ -355,7 +355,6 @@ export function materializeInteractionDependency(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   value: InteractionDependencyDraft,
-  scope: ModelExecutionScope,
 ): InteractionDependency {
   const sharedResourceClaims = materializeSharedActivityResourceClaims({
     drafts: value.sharedResourceClaims,
@@ -370,7 +369,9 @@ export function materializeInteractionDependency(
     ...structuredClone(value),
     sharedResourceClaims,
   });
-  emitFallback(scope, action, normalized.fallbackReasons);
+  if (normalized.fallbackReasons.length > 0) {
+    throw new GroundingValidationError(action.id, normalized.fallbackReasons);
+  }
   return enrichDependency(state, action, normalized.dependency);
 }
 
@@ -481,7 +482,7 @@ export async function generateInteractionDependency(
         ...structuredClone(audits[0]),
         invocations: audits.flatMap((entry) => structuredClone(entry.invocations)),
       };
-      return { dependency: materializeInteractionDependency(state, action, generated.value, scope), audit };
+      return { dependency: materializeInteractionDependency(state, action, generated.value), audit };
     } catch (error) {
       if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
       const last = audits.at(-1);

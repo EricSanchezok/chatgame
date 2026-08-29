@@ -160,7 +160,6 @@ function materializeCompilation(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   draft: ActionCompilationDraft,
-  scope: ModelExecutionScope,
 ): CompiledAction {
   const plan = materializeTemporalPlan({
     id: runtimeId({
@@ -201,7 +200,6 @@ function materializeCompilation(
       state,
       action,
       draft.interactionDependency,
-      scope,
     ),
   };
 }
@@ -308,7 +306,7 @@ export async function compileActions(
         try {
           accepted.push({
             key: slot.key,
-            result: materializeCompilation(state, slot.payload.action, draft, scope),
+            result: materializeCompilation(state, slot.payload.action, draft),
           });
         } catch (error) {
           rejected.push({ slot, issues: actionCompilationSlotIssues(error) });
