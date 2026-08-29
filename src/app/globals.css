@@ -60,7 +60,6 @@
   --cg-ring: oklch(0.6 0.14 250);
   --cg-overlay: oklch(0 0 0 / 0.42);
   --cg-success: oklch(0.52 0.14 155);
-  --cg-orb-track: oklch(0.92 0.004 286.32);
   --cg-inspector-grid: oklch(0.72 0.012 270 / 0.42);
   --cg-inspector-edge: oklch(0.54 0.04 265 / 0.7);
   --cg-inspector-minimap-mask: oklch(0.97 0.004 270 / 0.76);
@@ -106,7 +105,6 @@
   --cg-ring: oklch(0.72 0.1 250);
   --cg-overlay: oklch(0 0 0 / 0.62);
   --cg-success: oklch(0.72 0.14 155);
-  --cg-orb-track: oklch(1 0 0 / 0.16);
   --cg-inspector-grid: oklch(0.72 0.02 270 / 0.2);
   --cg-inspector-edge: oklch(0.72 0.055 265 / 0.7);
   --cg-inspector-minimap-mask: oklch(0.16 0.008 285 / 0.78);
@@ -661,7 +659,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
   .cg-json-row:hover > .cg-json-copy-menu, .cg-json-row:focus-within > .cg-json-copy-menu,
   .cg-json-branch:has(> .cg-json-node > summary:hover) > .cg-json-copy-menu,
   .cg-json-branch > .cg-json-copy-menu:hover, .cg-json-branch > .cg-json-copy-menu:focus-within { opacity: 1; }
-  .cg-orb__trigger:hover { scale: 1.03; box-shadow: 0 0 0 1px color-mix(in oklab, var(--cg-ring) 45%, var(--cg-border)), 0 16px 38px color-mix(in oklab, var(--cg-overlay) 38%, var(--cg-transparent)); }
+  .cg-orb__trigger:hover { scale: 1.03; box-shadow: 0 0 0 2px color-mix(in oklab, var(--cg-foreground) 16%, var(--cg-transparent)), 0 16px 38px color-mix(in oklab, var(--cg-overlay) 38%, var(--cg-transparent)); }
   .cg-orb__trigger:hover ~ .cg-orb__hint, .cg-orb__trigger:focus-visible ~ .cg-orb__hint { opacity: 1; translate: calc(-50% + var(--cg-orb-label-offset)) 0; transition-delay: 520ms; }
   .cg-orb__action:hover .cg-orb__action-surface, .cg-orb__action:focus-visible .cg-orb__action-surface { border-color: var(--cg-foreground); background: var(--cg-foreground); color: var(--cg-background); box-shadow: 0 13px 32px color-mix(in oklab, var(--cg-overlay) 38%, var(--cg-transparent)); scale: 1.08; translate: var(--cg-action-lift-x) var(--cg-action-lift-y); }
   .cg-orb__action:hover .cg-orb__action-label, .cg-orb__action:focus-visible .cg-orb__action-label { opacity: 1; translate: -50% 0; }
@@ -834,24 +832,18 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-timeline-rail__preview small, .cg-timeline-rail__meta { color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.6rem; line-height: 1.35; }
 .cg-timeline-rail__empty-copy { margin: 0 0 0 0.4rem; color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; white-space: nowrap; }
 
-/* World spirit control ring */
+/* World spirit control */
 .cg-orb__bounds { position: fixed; z-index: 40; pointer-events: none; }
 .cg-orb { --cg-drag-tilt: 0deg; position: absolute; width: 64px; height: 64px; inset: 0 auto auto 0; opacity: 0; pointer-events: auto; touch-action: none; user-select: none; }
 .cg-orb[data-mounted="true"] { opacity: 1; }
 .cg-orb__cluster { position: relative; width: 64px; height: 64px; }
-.cg-orb__trigger { position: relative; z-index: 6; width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--cg-card); color: var(--cg-foreground); box-shadow: 0 0 0 1px var(--cg-border), 0 12px 34px color-mix(in oklab, var(--cg-overlay) 34%, var(--cg-transparent)); cursor: grab; rotate: var(--cg-drag-tilt); transition: scale 120ms cubic-bezier(0.4, 0, 0.2, 1), rotate 120ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms, background-color 150ms, color 150ms; }
-.cg-orb__trigger:active, .cg-orb[data-dragging="true"] .cg-orb__trigger { scale: 0.96; cursor: grabbing; box-shadow: 0 0 0 1px var(--cg-border), 0 5px 16px color-mix(in oklab, var(--cg-overlay) 28%, var(--cg-transparent)); }
-.cg-orb__progress { position: absolute; inset: 0; width: 64px; height: 64px; rotate: -90deg; pointer-events: none; }
-.cg-orb__track, .cg-orb__value { fill: none; stroke-width: 2; }
-.cg-orb__track { stroke: var(--cg-orb-track); }
-.cg-orb__value { stroke: var(--cg-success); stroke-linecap: round; stroke-dasharray: 182.2; stroke-dashoffset: 38; transition: stroke 150ms; }
-.cg-orb__cluster[data-phase="running"] .cg-orb__value, .cg-orb__cluster[data-phase="confirming"] .cg-orb__value { stroke: var(--cg-primary); stroke-dasharray: 38 19; animation: cg-orb-spin 1.8s linear infinite; transform-origin: center; }
-.cg-orb__cluster[data-tone="warning"] .cg-orb__value { stroke: var(--cg-ring); }
-.cg-orb__cluster[data-tone="error"] .cg-orb__value { stroke: var(--cg-destructive); }
-.cg-orb__status-dot { position: absolute; inset-block-start: 5px; inset-inline-end: 5px; z-index: 8; width: 9px; height: 9px; border: 2px solid var(--cg-card); border-radius: 50%; background: var(--cg-success); pointer-events: none; transition: background-color 150ms, scale 150ms; }
-.cg-orb__cluster[data-phase="running"] .cg-orb__status-dot, .cg-orb__cluster[data-phase="confirming"] .cg-orb__status-dot { background: var(--cg-primary); scale: 1.08; }
-.cg-orb__cluster[data-tone="warning"] .cg-orb__status-dot { background: var(--cg-ring); }
-.cg-orb__cluster[data-tone="error"] .cg-orb__status-dot { background: var(--cg-destructive); }
+.cg-orb__trigger { position: relative; z-index: 6; width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 50%; background: color-mix(in oklab, var(--cg-card) 94%, var(--cg-background)); color: var(--cg-foreground); box-shadow: 0 0 0 1px color-mix(in oklab, var(--cg-border) 78%, var(--cg-transparent)), 0 12px 34px color-mix(in oklab, var(--cg-overlay) 34%, var(--cg-transparent)); cursor: grab; rotate: var(--cg-drag-tilt); transition: scale 120ms cubic-bezier(0.4, 0, 0.2, 1), rotate 120ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms, background-color 150ms, color 150ms; }
+.cg-orb__trigger:active, .cg-orb[data-dragging="true"] .cg-orb__trigger { scale: 0.96; cursor: grabbing; box-shadow: 0 0 0 1px color-mix(in oklab, var(--cg-border) 78%, var(--cg-transparent)), 0 5px 16px color-mix(in oklab, var(--cg-overlay) 28%, var(--cg-transparent)); }
+.cg-orb__trigger:focus-visible { outline: 2px solid var(--cg-foreground); outline-offset: 3px; }
+.cg-orb__status-dot { position: absolute; inset-block-start: 3px; inset-inline-end: 3px; z-index: 8; width: 8px; height: 8px; border: 2px solid var(--cg-card); border-radius: 50%; background: var(--cg-primary); opacity: 0; scale: 0.72; pointer-events: none; transition: background-color 150ms, opacity 150ms, scale 150ms; }
+.cg-orb__cluster[data-phase="running"] .cg-orb__status-dot, .cg-orb__cluster[data-phase="confirming"] .cg-orb__status-dot { opacity: 1; scale: 1; animation: cg-status-pulse 1.8s ease-in-out infinite; }
+.cg-orb__cluster[data-tone="warning"] .cg-orb__status-dot { background: var(--cg-ring); opacity: 1; scale: 1; animation: none; }
+.cg-orb__cluster[data-tone="error"] .cg-orb__status-dot { background: var(--cg-destructive); opacity: 1; scale: 1; animation: none; }
 .cg-world-spirit { --cg-spirit-gaze-x: 0; --cg-spirit-gaze-y: 0; position: relative; z-index: 2; width: 54px; height: 54px; display: grid; place-items: center; pointer-events: none; }
 .cg-world-spirit > svg, .cg-world-spirit > img { width: 54px; height: 54px; display: block; }
 .cg-world-spirit .mo-eyes { transform: translate3d(calc(var(--cg-spirit-gaze-x) * 1px), calc(var(--cg-spirit-gaze-y) * 1px), 0); transition-property: transform, fill; transition-duration: 80ms, var(--mo-morph); transition-timing-function: cubic-bezier(0.2, 0, 0, 1), var(--mo-morph-ease); }
@@ -1250,8 +1242,6 @@ html[data-cg-motion="reduced"] .cg-perspective-workspace *, html[data-cg-motion=
 .cg-awakening__notice { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; margin: 0; color: var(--cg-muted-foreground); font-size: 0.72rem; text-align: center; }
 .cg-awakening__working { display: inline-flex; align-items: center; gap: 0.22rem; }
 .cg-awakening__working i { width: 0.25rem; aspect-ratio: 1; display: block; border-radius: 50%; background: currentColor; }
-
-@keyframes cg-orb-spin { to { rotate: 360deg; } }
 
 @media (max-width: 47.999rem) {
   .cg-orb__menu, .cg-orb__orbit, .cg-orb__hint { display: none; }

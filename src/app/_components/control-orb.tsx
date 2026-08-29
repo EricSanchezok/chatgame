@@ -594,10 +594,6 @@ function ControlOrbContent({
               ref={triggerRef}
               type="button"
             >
-              <svg aria-hidden="true" className="cg-orb__progress" viewBox="0 0 64 64">
-                <circle className="cg-orb__track" cx="32" cy="32" r="29" />
-                <circle className="cg-orb__value" cx="32" cy="32" r="29" />
-              </svg>
               <WorldSpirit
                 appReducedMotion={reduceMotion}
                 gaze={gaze}
