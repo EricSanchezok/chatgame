@@ -25,6 +25,7 @@ import { ObservationValidationError } from "../cognition/observation";
 import { projectAgentPerspective } from "../cognition/agent-perspective";
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalBoundary } from "../mechanics/temporal";
+import { MechanicInputValidationError, type MechanicPromptContract } from "../mechanics/rule-package";
 import { promptBundle, type PromptBundleId } from "../prompts";
 
 export const MODEL_CONTEXT_CONTRACT_VERSION = 11;
@@ -51,6 +52,13 @@ export interface ResolutionScope {
 }
 
 export function validationIssues(error: unknown): PromptValidationIssue[] {
+  if (error instanceof MechanicInputValidationError) {
+    return error.issues.map((issue) => ({
+      code: "mechanic_input_contract",
+      path: ["mechanicInvocations", error.invocationId, ...issue.path],
+      message: issue.message,
+    }));
+  }
   if (error instanceof ObservationValidationError || error instanceof CharacterPatchValidationError) {
     return error.issues.map((issue) => ({ ...issue, path: [...issue.path] }));
   }
@@ -253,6 +261,12 @@ export function buildTruthContext(input: {
   outputActions?: readonly AgentActionProposal[];
   outputGroundings?: readonly InteractionDependency[];
   resolutionScope?: ResolutionScope;
+  mechanicContracts?: readonly MechanicPromptContract[];
+  repairTarget?: {
+    kind: "mechanic" | "plan" | "operation" | "event" | "outcome" | "observation";
+    id: string;
+    issueClass: string;
+  } | null;
 }): unknown {
   const stage = input.stage ?? "transition";
   const contextMode = input.contextMode ?? "scoped";
@@ -288,6 +302,7 @@ export function buildTruthContext(input: {
       disclosure: input.definition.disclosure,
       rulePackages: input.definition.rulePackages,
       randomDistributions: input.definition.randomDistributions,
+      mechanicContracts: input.mechanicContracts ? structuredClone(input.mechanicContracts) : [],
     },
     baseRevision: input.state.revision,
     step: input.state.step,
@@ -319,6 +334,7 @@ export function buildTruthContext(input: {
     resolutionReceipts: input.resolutionReceipts,
     validationIssues: input.issues,
     resolutionScope: input.resolutionScope ?? null,
+    repairTarget: input.repairTarget ? structuredClone(input.repairTarget) : null,
     stage,
   };
 }
@@ -347,6 +363,7 @@ export function buildCausalVerificationContext(input: {
   contextActions?: readonly AgentActionProposal[];
   contextGroundings?: readonly InteractionDependency[];
   resolutionScope?: ResolutionScope;
+  mechanicContracts?: readonly MechanicPromptContract[];
 }): unknown {
   const contextMode = input.contextMode ?? "scoped";
   const contextState = input.contextState ?? input.state;
@@ -365,6 +382,7 @@ export function buildCausalVerificationContext(input: {
       laws: input.definition.laws,
       rulePackages: input.definition.rulePackages,
       randomDistributions: input.definition.randomDistributions,
+      mechanicContracts: input.mechanicContracts ? structuredClone(input.mechanicContracts) : [],
     },
     baseRevision: input.state.revision,
     canonicalTruth: contextMode === "full"

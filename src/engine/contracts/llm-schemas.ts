@@ -552,12 +552,15 @@ export const mechanicResultSchema = z.strictObject({
   operations: z.array(worldDeltaOperationSchema),
 }) as z.ZodType<MechanicResult>;
 
-const mechanicInvocationSchema = z.strictObject({
+export const mechanicInvocationSchema = z.strictObject({
   id: draftAliasSchema,
   packageId: safeIdSchema,
   ruleId: safeIdSchema,
   input: z.json(),
   ...causalSourceShape,
+});
+export const mechanicInvocationRepairSchema = z.strictObject({
+  invocation: mechanicInvocationSchema,
 });
 const persistedMechanicInvocationSchema = z.strictObject({
   id: runtimeIdSchema.refine((id) => id.startsWith("rt:mechanic:")),

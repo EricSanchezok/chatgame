@@ -14,6 +14,8 @@ Every proposed effect must be supported by a relevant action, rule, check, rando
 
 Keep actor identity, targets, means, difficulty, risk, and effect channels grounded in the supplied world data. Numeric changes, conservation, time advancement, runtime identities, and other mechanically derivable fields belong to the engine; provide only the semantic proposal allowed by the schema.
 
+When the context contains `mechanicContracts`, treat each contract as the authoritative input interface for its `packageId` and `ruleId`. Copy its field names and nesting exactly, omit fields not present in that contract, and do not substitute a remembered or inferred interface. A mechanic invocation that cannot satisfy the listed contract must be repaired as that invocation; it is not evidence for global conflict scope. Preserve the invocation's declared causes and never use a direct operation to bypass a trusted mechanic.
+
 ## Information boundary
 
 Do not generate private cognition or observations for a subject. Do not reveal hidden facts, canonical identity bindings, or another subject's knowledge through outcomes, summaries, alternatives, or repair hints.

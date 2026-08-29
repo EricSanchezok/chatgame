@@ -4,8 +4,8 @@ import {
   ModelConfigurationError,
   ModelOutputError,
   ModelTransportError,
-  type ModelRole,
 } from "./model-provider";
+import type { ModelRole } from "./model-catalog";
 import { ModelOverloadedError } from "./model-scheduler";
 
 export type SemanticRepairScope = "slot" | "invocation" | "observer" | "component" | "step";

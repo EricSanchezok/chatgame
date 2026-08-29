@@ -2,7 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadWorldScript } from "../../../script/world-loader";
 import type { AgentActionProposal, MechanicInvocation, WorldDeltaOperation } from "../../contracts/model";
-import { createCoreRulePackageRegistry } from "../rule-package";
+import { createCoreRulePackageRegistry, MechanicInputValidationError } from "../rule-package";
 import { quantityId, runtimeId } from "../../runtime/runtime-id";
 import { createTestModelCatalog } from "../../testing/model-provider";
 import type { ResolutionPlan, ResolutionReceipt } from "../resolution";
@@ -47,6 +47,62 @@ function ruleContext(definition: ReturnType<typeof loaded>, actions: AgentAction
 }
 
 describe("core-resolution trusted rules", () => {
+  it("projects runtime mechanic contracts without executable package details", () => {
+    const definition = loaded();
+    const contracts = createCoreRulePackageRegistry().promptContracts(definition.rulePackages);
+    const transfer = contracts.find((contract) => contract.ruleId === "transfer-quantity");
+    expect(transfer).toMatchObject({ packageId: "core-resolution", version: "2.0.0" });
+    expect(transfer?.inputSchema).toMatchObject({
+      type: "object",
+      required: ["definitionId", "fromHolderId", "toHolderId", "amountSource"],
+    });
+    expect(transfer).not.toHaveProperty("config");
+    expect(transfer).not.toHaveProperty("resolve");
+  });
+
+  it("reports stale mechanic input as an invocation-local contract error", () => {
+    const definition = loaded();
+    const registry = createCoreRulePackageRegistry();
+    const playerAction = action(definition.contentHash);
+    const invocation: MechanicInvocation = {
+      id: runtimeId({
+        worldHash: definition.contentHash,
+        revision: 0,
+        kind: "mechanic",
+        stage: "test",
+        owner: "stale-transfer",
+        round: 0,
+        ordinal: 0,
+      }),
+      packageId: "core-resolution",
+      ruleId: "transfer-quantity",
+      input: {
+        definitionId: "spirit-stone",
+        holderId: "player",
+        direction: "to",
+        amountProvenance: { kind: "action", actionId: playerAction.id },
+      },
+      causes: [{ kind: "action", id: playerAction.id }],
+      assertions: [],
+    };
+
+    expect(() => registry.validateInvocationInputs(definition.rulePackages, [invocation]))
+      .toThrowError(MechanicInputValidationError);
+    try {
+      registry.validateInvocationInputs(definition.rulePackages, [invocation]);
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: "MechanicInputValidationError",
+        invocationId: invocation.id,
+        packageId: "core-resolution",
+        ruleId: "transfer-quantity",
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: ["fromHolderId"], message: expect.any(String) }),
+        ]),
+      });
+    }
+  });
+
   it("instantiates a declared mechanics profile for a newly created entity", () => {
     const definition = loaded();
     const registry = createCoreRulePackageRegistry();

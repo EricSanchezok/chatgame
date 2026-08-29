@@ -2,6 +2,7 @@ import { z } from "zod";
 import { evaluateProposalCausality } from "./causality";
 import {
   causalVerificationSchema,
+  mechanicInvocationRepairSchema,
   perceptionDirectiveSchema,
   reactionRoutingOutputSchema,
   resolutionDirectiveSchema,
@@ -81,11 +82,19 @@ import {
   validateDiscreteRandomCommitmentBudget,
 } from "./random";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
-import { createCoreRulePackageRegistry, type RulePackageRegistry } from "./rule-package";
+import {
+  createCoreRulePackageRegistry,
+  MechanicInputValidationError,
+  type RulePackageRegistry,
+} from "./rule-package";
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { ModelRole } from "../models/model-catalog";
 import { runtimeId } from "../runtime/runtime-id";
 import type { TemporalBoundary } from "./temporal";
+import {
+  runSemanticRepairLoop,
+  semanticIssue,
+} from "../models/semantic-repair";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
@@ -1434,11 +1443,17 @@ export class TruthEngine {
     let randomRngDrawsBefore: number | null = null;
     const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
       combineModelExecutionAudits(audits);
+    const mechanicContracts = this.rulePackages.promptContracts(input.definition.rulePackages);
 
     const truthContext = (
       stage: "perception" | "reaction-routing" | "resolution" | "transition",
       issues: readonly PromptValidationIssue[],
       resolutionScopeOverride?: ResolutionScope,
+      repairTarget?: {
+        kind: "mechanic" | "plan" | "operation" | "event" | "outcome" | "observation";
+        id: string;
+        issueClass: string;
+      },
     ) => {
       const selectedActionIds = new Set(
         (resolutionScopeOverride?.selectedActionIds ?? actions.map((action) => action.id)),
@@ -1476,7 +1491,108 @@ export class TruthEngine {
           selectedActionIds: actions.map((action) => action.id).sort(),
           totalActionCount: actions.length,
         },
+        mechanicContracts: stage === "transition" ? mechanicContracts : undefined,
+        repairTarget: repairTarget ?? null,
       });
+    };
+
+    const repairMechanicInvocation = async (
+      target: MechanicInvocation,
+      failure: MechanicInputValidationError,
+    ): Promise<MechanicInvocation> => {
+      const selectedActionIds = [...new Set(target.causes
+        .filter((cause) => cause.kind === "action")
+        .map((cause) => cause.id))];
+      const repairActions = selectedActionIds.length > 0
+        ? selectedActionIds
+        : actions.map((action) => action.id).sort();
+      const result = await runSemanticRepairLoop({
+        role: "truth-transition",
+        repairScope: "invocation",
+        targetIds: [target.id],
+        maxRepairs: this.repairAttempts,
+        invoke: async (repairContext) => {
+          const repairIssues = repairContext.issues.length > 0
+            ? repairContext.issues
+            : [semanticIssue("mechanic_input_contract", failure.message, {
+              class: "mechanic",
+              path: ["mechanicInvocations", target.id, ...failure.issues[0]?.path ?? []],
+              targetIds: [target.id],
+            })];
+          const issues: PromptValidationIssue[] = repairIssues.map((issue) => ({
+            code: issue.code,
+            path: issue.path,
+            message: issue.message,
+          }));
+          const context = {
+            ...(truthContext(
+              "transition",
+              issues,
+              {
+                mode: "repair",
+                selectedActionIds: repairActions,
+                totalActionCount: actions.length,
+              },
+              { kind: "mechanic", id: target.id, issueClass: "mechanic" },
+            ) as Record<string, unknown>),
+            mechanicRepair: {
+              targetInvocation: structuredClone(target),
+              packageId: target.packageId,
+              ruleId: target.ruleId,
+              invalidInput: structuredClone(target.input),
+            },
+          };
+          const invocation = transitionAudits.reduce((count, audit) =>
+            count + audit.invocations.length, 0) + repairContext.attempt + 1;
+          // Keep the execution identity stable so the transition stage can
+          // combine its normal and invocation-repair audits deterministically.
+          const identity = modelInvocationIdentity(scope, "truth-transition", truthSubject, invocation);
+          const prompt = promptBundle("truth-transition");
+          const generated = await this.provider.generateStructured({
+            profileId: input.definition.modelProfiles.transition,
+            workloadId: scope.workloadId,
+            batchId: scope.batchId,
+            abortSignal: scope.abortSignal,
+            correlation: scope.correlation,
+            observer: scope.observer,
+            ...identity,
+            role: "truth-transition",
+            subjectId: truthSubject,
+            promptVersion: prompt.version,
+            schemaName: "truth_transition_mechanic_repair",
+            system: prompt.system,
+            userPrompt: prompt.userPrompt,
+            context,
+            schema: mechanicInvocationRepairSchema,
+          });
+          setModelInvocationResultKind(generated.audit, "truth-transition_mechanic-repair");
+          return generated;
+        },
+        validate: (value) => {
+          const repaired = value.invocation;
+          if (repaired.id !== target.id) throw new Error(`mechanic repair changed invocation id to ${repaired.id}`);
+          if (repaired.packageId !== target.packageId || repaired.ruleId !== target.ruleId) {
+            throw new Error("mechanic repair changed the invocation contract identity");
+          }
+          this.rulePackages.validateInvocationInputs(input.definition.rulePackages, [repaired]);
+        },
+        classify: (error) => {
+          if (error instanceof MechanicInputValidationError) {
+            return error.issues.map((issue) => semanticIssue(
+              "mechanic_input_contract",
+              issue.message,
+              { class: "mechanic", path: issue.path, targetIds: [target.id] },
+            ));
+          }
+          return validationIssues(error).map((issue) => semanticIssue(
+            issue.code,
+            issue.message,
+            { class: "mechanic", path: issue.path, targetIds: [target.id] },
+          ));
+        },
+      });
+      transitionAudits.push(result.audit);
+      return result.value.invocation;
     };
 
     const commitCheckRound = (round: readonly D20CheckRequest[]) => {
@@ -1950,10 +2066,36 @@ export class TruthEngine {
         });
         transitionAudits.push(generated.audit);
         setModelInvocationResultKind(generated.audit, "truth-transition_transition");
+        let transitionDraft = structuredClone(generated.value);
+        while (true) {
+          try {
+            this.rulePackages.validateInvocationInputs(
+              input.definition.rulePackages,
+              transitionDraft.mechanicInvocations,
+            );
+            break;
+          } catch (error) {
+            if (!(error instanceof MechanicInputValidationError)) throw error;
+            const target = transitionDraft.mechanicInvocations.find((candidate) =>
+              candidate.id === error.invocationId);
+            if (!target) throw error;
+            setModelInvocationOutcome(
+              generated.audit,
+              "rejected",
+              error.issues.map(() => "mechanic_input_contract"),
+            );
+            const repaired = await repairMechanicInvocation(target, error);
+            transitionDraft = {
+              ...transitionDraft,
+              mechanicInvocations: transitionDraft.mechanicInvocations.map((candidate) =>
+                candidate.id === repaired.id ? structuredClone(repaired) : candidate),
+            };
+          }
+        }
         const materializedProposal = materializeTransitionProposal(
           input.definition,
           input.state,
-          generated.value,
+          transitionDraft,
           checkAliases,
           randomAliases,
           input.identityOwner,
@@ -2120,6 +2262,7 @@ export class TruthEngine {
             contextState: input.contextState ?? input.state,
             contextActions: input.contextActions ?? actions,
             contextGroundings: input.contextGroundings ?? groundings,
+            mechanicContracts,
             resolutionScope: input.resolutionScope ?? {
               mode: "component",
               selectedActionIds: actions.map((action) => action.id).sort(),

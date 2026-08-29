@@ -28,6 +28,50 @@ export interface RulePackageReference {
   rules: Array<{ id: string; description: string }>;
 }
 
+export interface MechanicPromptContract {
+  packageId: string;
+  version: string;
+  ruleId: string;
+  description: string;
+  inputSchema: unknown;
+}
+
+export interface MechanicInputValidationIssue {
+  path: Array<string | number>;
+  message: string;
+}
+
+/**
+ * A model-produced mechanic input is a quality failure owned by one
+ * invocation.  It must never be interpreted as evidence that the action has
+ * world-wide interaction scope.
+ */
+export class MechanicInputValidationError extends Error {
+  readonly invocationId: string;
+  readonly packageId: string;
+  readonly ruleId: string;
+  readonly issues: readonly MechanicInputValidationIssue[];
+
+  constructor(input: {
+    invocationId: string;
+    packageId: string;
+    ruleId: string;
+    issues: readonly MechanicInputValidationIssue[];
+    cause?: unknown;
+  }) {
+    super(
+      `mechanic ${input.invocationId} input does not satisfy ` +
+      `${input.packageId}/${input.ruleId}: ${input.issues.map((issue) => issue.message).join("; ")}`,
+      { cause: input.cause },
+    );
+    this.name = "MechanicInputValidationError";
+    this.invocationId = input.invocationId;
+    this.packageId = input.packageId;
+    this.ruleId = input.ruleId;
+    this.issues = structuredClone(input.issues);
+  }
+}
+
 export interface RuleExecutionContext {
   state: SimulationState;
   actions: readonly AgentActionProposal[];
@@ -188,6 +232,73 @@ export class RulePackageRegistry {
         rules: rulePackage.rules.map((rule) => ({ id: rule.id, description: rule.description })),
       };
     });
+  }
+
+  /**
+   * Returns the exact input contracts of the selected runtime rules. The
+   * projection intentionally omits package configuration and executable code;
+   * it is safe to include in model context and remains script-driven.
+   */
+  promptContracts(references: readonly RulePackageReference[]): MechanicPromptContract[] {
+    return references.flatMap((reference) => {
+      const rulePackage = this.packages.get(reference.id);
+      if (!rulePackage || rulePackage.version !== reference.version) {
+        throw new Error(`rule package runtime is unavailable: ${reference.id}@${reference.version}`);
+      }
+      return rulePackage.rules.map((rule) => ({
+        packageId: rulePackage.id,
+        version: rulePackage.version,
+        ruleId: rule.id,
+        description: rule.description,
+        inputSchema: z.toJSONSchema(rule.inputSchema, { target: "draft-07" }),
+      }));
+    }).sort((left, right) =>
+      `${left.packageId}:${left.ruleId}`.localeCompare(`${right.packageId}:${right.ruleId}`));
+  }
+
+  /** Validate every model-proposed invocation against the runtime rule input. */
+  validateInvocationInputs(
+    references: readonly RulePackageReference[],
+    invocations: readonly MechanicInvocation[],
+  ): void {
+    const selected = this.select(references);
+    for (const invocation of invocations) {
+      const entry = selected.get(invocation.packageId);
+      if (!entry) {
+        throw new MechanicInputValidationError({
+          invocationId: invocation.id,
+          packageId: invocation.packageId,
+          ruleId: invocation.ruleId,
+          issues: [{ path: ["packageId"], message: `inactive mechanic package ${invocation.packageId}` }],
+        });
+      }
+      const rule = entry.definition.rules.find((candidate) => candidate.id === invocation.ruleId);
+      if (!rule) {
+        throw new MechanicInputValidationError({
+          invocationId: invocation.id,
+          packageId: invocation.packageId,
+          ruleId: invocation.ruleId,
+          issues: [{ path: ["ruleId"], message: `unknown mechanic rule ${invocation.ruleId}` }],
+        });
+      }
+      try {
+        rule.inputSchema.parse(invocation.input);
+      } catch (error) {
+        const issues = error instanceof z.ZodError
+          ? error.issues.map((issue) => ({
+            path: issue.path.map((part) => typeof part === "symbol" ? part.description ?? "symbol" : part),
+            message: issue.message,
+          }))
+          : [{ path: ["input"], message: error instanceof Error ? error.message : String(error) }];
+        throw new MechanicInputValidationError({
+          invocationId: invocation.id,
+          packageId: invocation.packageId,
+          ruleId: invocation.ruleId,
+          issues,
+          cause: error,
+        });
+      }
+    }
   }
 
   resolve(

@@ -4,7 +4,7 @@ import { loadWorldScript } from "../../../script/world-loader";
 import { semanticStepHash } from "../../runtime/canonical-committer";
 import { EagerReferenceAlgorithm } from "../../algorithms/eager-reference/eager-reference";
 import { projectAgentPerspective } from "../../cognition/agent-perspective";
-import type { AgentActionProposal } from "../../contracts/model";
+import type { AgentActionProposal, TransitionProposalDraft } from "../../contracts/model";
 import { contentHash } from "../../models/model-audit";
 import { SimulationEngine } from "../../runtime/simulation";
 import { replaySimulationState } from "../../runtime/transaction";
@@ -25,6 +25,8 @@ describe("resolution pipeline", () => {
   it("commits a semantic plan before RNG, derives effects, atomically commits, and replays the receipt", async () => {
     const catalog = createTestModelCatalog();
     let planVerificationAttempts = 0;
+    let transitionAttempts = 0;
+    let mechanicRepairAttempts = 0;
     const provider = new ScriptedModelProvider(({ role, profileId, context, schemaName }) => {
       if (role === "action-grounding") {
         const action = (context as { action: AgentActionProposal }).action;
@@ -172,6 +174,29 @@ describe("resolution pipeline", () => {
         return { verdict: "accept", findings: [] };
       }
       if (role === "truth-transition") {
+        if (schemaName === "truth_transition_mechanic_repair") {
+          mechanicRepairAttempts += 1;
+          const repairContext = context as {
+            mechanicRepair: { targetInvocation: { id: string }; packageId: string; ruleId: string };
+          };
+          const canonicalTruth = (context as { canonicalTruth: { quantities: Record<string, unknown> } }).canonicalTruth;
+          const existingQuantityId = Object.keys(canonicalTruth.quantities)[0];
+          if (!existingQuantityId) throw new Error("fixture must expose a quantity for mechanic repair");
+          return {
+            invocation: {
+              id: repairContext.mechanicRepair.targetInvocation.id,
+              packageId: repairContext.mechanicRepair.packageId,
+              ruleId: repairContext.mechanicRepair.ruleId,
+              input: {
+                entityId: "repaired-entity",
+                profileId: "wanderer",
+              },
+              causes: [{ kind: "action", id: (context as { jointActions: AgentActionProposal[] }).jointActions[0]!.id }],
+              assertions: [{ kind: "entity_lifecycle", entityId: "player", expected: "active" }],
+            },
+          };
+        }
+        transitionAttempts += 1;
         const input = context as {
           jointActions: AgentActionProposal[];
           resolutionReceipts: Array<{
@@ -181,7 +206,7 @@ describe("resolution pipeline", () => {
           }>;
           checkResults: Array<{ requestId: string; succeeded: boolean }>;
         };
-        return {
+        const output: TransitionProposalDraft = {
           outcomes: input.jointActions.map((action) => {
             const receipt = input.resolutionReceipts.find((candidate) => candidate.plan.actionId === action.id)!;
             const check = receipt.checkRequestId
@@ -205,6 +230,32 @@ describe("resolution pipeline", () => {
           events: [],
           decisionRequests: [],
         };
+        if (transitionAttempts === 1) {
+          output.mechanicInvocations = [{
+            id: "stale-transfer",
+            packageId: "core-resolution",
+            ruleId: "instantiate-entity-profile",
+            input: {
+              entityId: "repaired-entity",
+              staleProfile: "wanderer",
+            },
+            causes: [{ kind: "action", id: input.jointActions[0]!.id }],
+            assertions: [{ kind: "entity_lifecycle", entityId: "player", expected: "active" }],
+          }];
+          output.operations = [{
+            kind: "create_entity",
+            entity: {
+              id: "repaired-entity",
+              kind: "person",
+              name: "修复出的旅人",
+              description: "用于验证 invocation 局部修复。",
+            },
+            placementId: "courtyard",
+            causes: [{ kind: "action", id: input.jointActions[0]!.id }],
+            assertions: [{ kind: "entity_absent", entityId: "repaired-entity" }],
+          }];
+        }
+        return output;
       }
       if (role === "causal-verifier") return { verdict: "accept", findings: [] };
       return deterministicModelOutput(profileId, context);
@@ -234,6 +285,8 @@ describe("resolution pipeline", () => {
 
     const committed = result.committed;
     expect(planVerificationAttempts).toBe(2);
+    expect(transitionAttempts).toBe(1);
+    expect(mechanicRepairAttempts).toBe(1);
     expect(committed.resolutionPlans).toHaveLength(1);
     expect(committed.resolutionReceipts).toHaveLength(1);
     const receipt = committed.resolutionReceipts.find((candidate) => candidate.plan.actorId === "player")!;

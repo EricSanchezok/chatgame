@@ -3,7 +3,6 @@ import { createTestModelAudit } from "../../testing/model-provider";
 import {
   runSemanticRepairLoop,
   semanticIssue,
-  SemanticRepairExhaustedError,
 } from "../semantic-repair";
 
 const scope = {
@@ -64,6 +63,6 @@ describe("semantic repair loop", () => {
       repairScope: "slot",
       targetIds: ["action-a"],
       issues: [{ code: "private_reference", class: "reference" }],
-    } satisfies Partial<SemanticRepairExhaustedError>);
+    });
   });
 });
