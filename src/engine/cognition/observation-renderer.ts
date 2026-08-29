@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { observationBatchSchema } from "../contracts/llm-schemas";
 import type {
   AgentActionProposal,
@@ -24,24 +23,13 @@ import {
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { validateObservations } from "./observation";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
+import { promptBundle, structuredPromptBytes } from "../prompts";
 import { materializeObservationPackets } from "../mechanics/truth-engine";
 import { applyTransitionProposal } from "../runtime/transaction";
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalStateSnapshot } from "../mechanics/temporal";
 
-const OBSERVATION_PROMPT_VERSION = "observation-renderer-v3";
-const OBSERVATION_SYSTEM = `你是 Living World Engine 的观察渲染器。
-输入包含已经裁决但尚未提交的候选世界变化，以及按固定顺序排列的观察槽位。
-
-必须为每个槽位输出恰好一项 observation，顺序与槽位完全一致。不要输出 observation id、observer id、step 或 kind；这些字段由引擎分配。
-
-每项 observation 只能描述对应主体可感知的表象。summary、localEntity 和 apparentClaims 不得泄露 canonical id、隐藏事实、其他主体认知、内部检定或裁判理由。
-summary 中的每个具体断言都必须能在 context.currentEvents、context.outcomes、context.candidateWorld.publicFacts、对应 action 或本次 observation 的 apparentClaims 中找到直接依据；不得臆造天气、气味、声音、情绪、人物缺席或其他未提供的细节。没有依据时使用简短的“本步骤没有形成其他可确认的观察”，不要用文学化细节填充。
-新局部实体使用观察者自己的语义别名，并通过 introductions 的服务端私有 canonicalEntityId 建立绑定；不得把 canonical entity id 复制成 localEntity.id。
-observer.knownBindings 是仅供渲染器复用既有局部别名的服务端私有映射，不得在 summary、localEntity 或 apparentClaims 中泄露。一个 canonical entity 已有唯一映射时，必须复用对应 localEntityId，不要重复 introduction。
-sourceEventIds 只能引用 context.currentEvents 中已列出的事件。
-
-只输出 schema 指定的 JSON，不输出 Markdown、解释或思维链。`;
+const OBSERVATION_PROMPT = promptBundle("observation-renderer");
 
 interface RenderInput {
   definition: WorldDefinition;
@@ -68,7 +56,7 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
     .sort((left, right) => left.id.localeCompare(right.id));
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    promptVersion: OBSERVATION_PROMPT_VERSION,
+    promptVersion: OBSERVATION_PROMPT.version,
     world: {
       id: input.definition.id,
       description: input.definition.description,
@@ -115,11 +103,12 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
 }
 
 function requestBytes(context: unknown): number {
-  return Buffer.byteLength(JSON.stringify({
-    system: OBSERVATION_SYSTEM,
+  return structuredPromptBytes({
+    system: OBSERVATION_PROMPT.system,
+    userPrompt: OBSERVATION_PROMPT.userPrompt,
     context,
-    schema: z.toJSONSchema(observationBatchSchema, { target: "draft-07" }),
-  }), "utf8");
+    schema: observationBatchSchema,
+  }).requestUtf8Bytes;
 }
 
 export function normalizeObservationSourceEventIds(
@@ -330,9 +319,10 @@ async function renderBatch(
         ...identity,
         role: "observation-renderer",
         subjectId: owner,
-        promptVersion: OBSERVATION_PROMPT_VERSION,
+        promptVersion: OBSERVATION_PROMPT.version,
         schemaName: "observation_batch",
-        system: OBSERVATION_SYSTEM,
+        system: OBSERVATION_PROMPT.system,
+        userPrompt: OBSERVATION_PROMPT.userPrompt,
         context,
         schema: observationBatchSchema,
       });

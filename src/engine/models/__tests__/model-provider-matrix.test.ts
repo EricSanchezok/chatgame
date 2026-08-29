@@ -176,6 +176,7 @@ function request(profileId: keyof typeof profileModels, ordinal = 1) {
     promptVersion: "matrix-v1",
     schemaName: "matrix_output",
     system: "Return the requested structured result.",
+    userPrompt: "Return the requested matrix result for this test context.",
     context: { account: profileId },
     schema: outputSchema,
     runtimeIdentity: { worldHash: TEST_WORLD_HASH, revision: ordinal },
@@ -317,7 +318,7 @@ describe("provider account protocol matrix", () => {
     }
   });
 
-  it("uses an honest User-Agent and stable workload/profile/prompt cache key for Kimi Coding", async () => {
+  it("uses an honest User-Agent and stable profile/prompt-bundle cache key for Kimi Coding", async () => {
     const catalog = loadModelCatalog();
     const observed: Array<{ headers: Headers; body: Record<string, unknown> }> = [];
     const gateway = new ModelGateway(catalog, { KIMI_CODING_PLAN_API_KEY: "kimi-secret" }, {

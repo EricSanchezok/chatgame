@@ -45,6 +45,7 @@ import {
   type RuntimeObserver,
 } from "../runtime/observability";
 import type { ResolvedModelBinding } from "./model-registry";
+import { structuredPromptBytes } from "../prompts";
 
 export interface ModelGatewayOptions {
   registry: ModelRegistryService;
@@ -348,7 +349,8 @@ export class ModelGateway implements StructuredModelProvider {
 
   async generateStructured<T>(request: StructuredModelRequest<T>): Promise<StructuredModelResult<T>> {
     if (!request.workloadId.trim() || !request.batchId.trim() || !request.subjectId.trim() ||
-      !request.promptVersion.trim() || !request.schemaName.trim()) {
+      !request.promptVersion.trim() || !request.schemaName.trim() || !request.system.trim() ||
+      !request.userPrompt.trim()) {
       throw new Error("structured model request identity is incomplete");
     }
     this.catalog.assertProfile(request.profileId, request.role);
@@ -383,10 +385,16 @@ export class ModelGateway implements StructuredModelProvider {
       hashes: { context: contentHash(context) },
     });
     const serializationStartedAt = this.now();
-    const contextJson = JSON.stringify(context, null, 2);
     const schema = canonicalize(z.toJSONSchema(request.schema, { target: "draft-07" }));
+    const promptBytes = structuredPromptBytes({
+      system: request.system,
+      userPrompt: request.userPrompt,
+      context,
+      schema: request.schema,
+    });
+    const contextJson = promptBytes.contextJson;
     const contextAudit = measureModelContext(context, contextJson);
-    const contractHash = contentHash({ system: request.system, schema });
+    const contractHash = contentHash({ system: request.system, userPrompt: request.userPrompt, schema });
     const requestDocument = {
       catalogHash: this.catalog.hash,
       workloadId: request.workloadId,
@@ -408,10 +416,11 @@ export class ModelGateway implements StructuredModelProvider {
       schemaName: request.schemaName,
       schema,
       system: request.system,
+      userPrompt: request.userPrompt,
       context,
     };
     const requestHash = contentHash(requestDocument);
-    const requestUtf8Bytes = Buffer.byteLength(JSON.stringify(requestDocument, null, 2), "utf8");
+    const requestUtf8Bytes = promptBytes.requestUtf8Bytes;
     if (requestUtf8Bytes > profile.max_input_bytes) {
       throw new ModelConfigurationError(
         `model profile ${request.profileId} request is ${requestUtf8Bytes} bytes; ` +
@@ -424,6 +433,8 @@ export class ModelGateway implements StructuredModelProvider {
       durationMs: Math.max(0, this.now() - serializationStartedAt),
       measurements: {
         contextUtf8Bytes: contextAudit.utf8Bytes,
+        systemPromptUtf8Bytes: Buffer.byteLength(request.system, "utf8"),
+        userPromptUtf8Bytes: Buffer.byteLength(request.userPrompt, "utf8"),
         requestUtf8Bytes,
       },
       counts: contextAudit.counts,
@@ -441,7 +452,7 @@ export class ModelGateway implements StructuredModelProvider {
           systemUtf8Bytes: Buffer.byteLength(request.system, "utf8"),
           schemaUtf8Bytes: Buffer.byteLength(JSON.stringify(schema), "utf8"),
         },
-        payload: fullRuntimePayload(observer, { system: request.system, schema }),
+        payload: fullRuntimePayload(observer, { system: request.system, userPrompt: request.userPrompt, schema }),
       });
     }
     observe?.({
@@ -456,7 +467,12 @@ export class ModelGateway implements StructuredModelProvider {
         schemaName: request.schemaName,
       },
       hashes: { request: requestHash, contract: contractHash },
-      measurements: { requestUtf8Bytes, contextUtf8Bytes: contextAudit.utf8Bytes },
+      measurements: {
+        requestUtf8Bytes,
+        contextUtf8Bytes: contextAudit.utf8Bytes,
+        systemPromptUtf8Bytes: Buffer.byteLength(request.system, "utf8"),
+        userPromptUtf8Bytes: Buffer.byteLength(request.userPrompt, "utf8"),
+      },
     });
     observer.flush?.();
     const transports: ModelTransportAttemptAudit[] = [];

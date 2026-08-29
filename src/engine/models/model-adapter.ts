@@ -6,6 +6,13 @@ import { protocolDriver } from "./model-protocol";
 import type { ResolvedModelBinding } from "./model-registry";
 import type { StructuredModelRequest } from "./model-provider";
 import { ModelOutputError } from "./model-provider";
+import {
+  composeContextEnvelope,
+  composeJsonObjectPrompt,
+  composeToolCallPrompt,
+  discriminatorInstruction,
+  toolDescription,
+} from "../prompts";
 
 export interface ModelAdapterResult {
   value: unknown;
@@ -69,47 +76,6 @@ function schemaExample(schema: unknown, root = schema, seen = new Set<unknown>()
   if (node.type === "integer" || node.type === "number") return 0;
   if (node.type === "boolean") return false;
   return null;
-}
-
-function discriminatorInstruction<T>(request: StructuredModelRequest<T>): string {
-  if (request.schemaName === "truth_perception_directive") {
-    return "For this Truth perception call, the discriminator kind must be exactly request_checks or done.";
-  }
-  if (request.schemaName === "truth_resolution_directive") {
-    return "For this Truth resolution call, the discriminator kind must be exactly commit_plans, request_random, or done.";
-  }
-  return "Choose the discriminator value exactly from the supplied schema; do not invent a new kind.";
-}
-
-function jsonObjectPrompt<T>(request: StructuredModelRequest<T>, contextJson: string): string {
-  const jsonSchema = z.toJSONSchema(request.schema, { target: "draft-07" });
-  return [
-    contextJson,
-    "",
-    "Return exactly one JSON object matching the supplied schema. Do not use Markdown or explanatory prose.",
-    discriminatorInstruction(request),
-    "Every causal reference must be an object with exactly two fields: {\"kind\": \"...\", \"id\": \"...\"}; never use an id as an object property name.",
-    `JSON Schema: ${JSON.stringify(jsonSchema)}`,
-    `Example JSON output shape: ${JSON.stringify(schemaExample(jsonSchema))}`,
-  ].join("\n");
-}
-
-function toolCallPrompt<T>(request: StructuredModelRequest<T>, contextJson: string): string {
-  return [
-    contextJson,
-    "",
-    "You MUST call submit_result exactly once with the complete structured result. Do not answer with text.",
-    discriminatorInstruction(request),
-  ].join("\n");
-}
-
-function toolDescription<T>(request: StructuredModelRequest<T>): string {
-  const discriminator = request.schemaName === "truth_perception_directive"
-    ? "The top-level kind must be exactly request_checks or done."
-    : request.schemaName === "truth_resolution_directive"
-      ? "The top-level kind must be exactly commit_plans, request_random, or done."
-      : "Use discriminator values exactly as declared by the schema.";
-  return `Submit one ${request.schemaName} result. ${discriminator}`;
 }
 
 function parseStructuredValue<T>(
@@ -273,7 +239,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
     if (mode === "json-schema-strict") {
       const result = await generateText({
         ...common,
-        prompt: contextJson,
+        prompt: composeContextEnvelope(request.userPrompt, contextJson),
         output: Output.object({ schema: request.schema, name: request.schemaName }),
       });
       return {
@@ -290,7 +256,13 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
     if (mode === "json-object-zod") {
       const result = await generateText({
         ...common,
-        prompt: jsonObjectPrompt(request, contextJson),
+        prompt: composeJsonObjectPrompt({
+          userPrompt: request.userPrompt,
+          contextJson,
+          schemaJson: JSON.stringify(z.toJSONSchema(request.schema, { target: "draft-07" })),
+          exampleJson: JSON.stringify(schemaExample(z.toJSONSchema(request.schema, { target: "draft-07" }))),
+          discriminator: discriminatorInstruction(request.schemaName),
+        }),
       });
       if (!result.text.trim()) {
         throw new ModelOutputError(`${binding.accountId} returned empty JSON content`);
@@ -319,10 +291,14 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
 
     const result = await generateText({
       ...common,
-      prompt: toolCallPrompt(request, contextJson),
+      prompt: composeToolCallPrompt({
+        userPrompt: request.userPrompt,
+        contextJson,
+        discriminator: discriminatorInstruction(request.schemaName),
+      }),
       tools: {
         submit_result: tool({
-          description: toolDescription(request),
+          description: toolDescription(request.schemaName),
           inputSchema: request.schema,
         }),
       },

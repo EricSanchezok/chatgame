@@ -1,0 +1,1 @@
+Use only identifiers present in the supplied action or canonical catalog. A shared-resource claim may use only a listed pool and an explicit quantity only when the action text contains that quantity and unit. Private beliefs and evidence may help interpret the attempt, but they are not canonical resources or causes.

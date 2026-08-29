@@ -313,6 +313,18 @@ for (const definition of [
     eventNames: ["model.context.serialized"],
   },
   {
+    name: "lwe.model.system_prompt_bytes",
+    unit: "By" as const,
+    key: "systemPromptUtf8Bytes",
+    eventNames: ["model.context.serialized"],
+  },
+  {
+    name: "lwe.model.user_prompt_bytes",
+    unit: "By" as const,
+    key: "userPromptUtf8Bytes",
+    eventNames: ["model.context.serialized"],
+  },
+  {
     name: "lwe.model.response_bytes",
     unit: "By" as const,
     key: "responseUtf8Bytes",

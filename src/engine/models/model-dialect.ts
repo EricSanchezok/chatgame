@@ -132,8 +132,11 @@ export function kimiPromptCacheKey<T>(
   request: StructuredModelRequest<T>,
 ): string {
   return contentHash({
-    workloadId: request.workloadId,
     profileId: binding.profileId,
+    promptBundleHash: contentHash({
+      system: request.system,
+      userPrompt: request.userPrompt,
+    }),
     promptVersion: request.promptVersion,
   });
 }

@@ -18,6 +18,7 @@ import {
 } from "../../engine/runtime/execution";
 import { historyReplayBaseHash } from "../../engine/runtime/history-replay";
 import { contentHash } from "../../engine/models/model-audit";
+import { promptBundle } from "../../engine/prompts";
 import {
   DeterministicModelProvider,
   ScriptedModelProvider,
@@ -248,7 +249,7 @@ describe("World Instance host", () => {
       expect(stored.policyBindings["courtyard-wanderer-1"]).toMatchObject({ kind: "external" });
       const arrivalRequest = provider.requests.find((request) => request.role === "arrival-generator");
       expect(arrivalRequest).toMatchObject({
-        promptVersion: "arrival-v2",
+        promptVersion: promptBundle("arrival-generator").version,
         context: {
           contractVersion: 11,
           perspective: { agentId: "courtyard-wanderer-1" },

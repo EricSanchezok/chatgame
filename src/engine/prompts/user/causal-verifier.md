@@ -1,0 +1,1 @@
+Audit the candidate transition against its committed causes, assertions, checks, random results, mechanics, effects, events, outcomes, and observations. Accept a coherent candidate; otherwise identify only real causal gaps with targeted repair hints.

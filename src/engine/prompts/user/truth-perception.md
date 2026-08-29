@@ -1,0 +1,1 @@
+Inspect the proposed actions and accessible world evidence, then request only the perception checks needed to establish consequential visibility. If no such check is needed, finish with the schema's completion result.

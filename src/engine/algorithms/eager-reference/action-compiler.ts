@@ -2,7 +2,6 @@ import { actionCompilationBatchSchema } from "../../contracts/llm-schemas";
 import {
   actionGroundingSharedContext,
   actionGroundingSlotContext,
-  INTERACTION_DEPENDENCY_INSTRUCTIONS,
   materializeInteractionDependency,
 } from "../../mechanics/action-dependency";
 import {
@@ -33,19 +32,9 @@ import {
   type ScheduledActivityState,
   type TemporalPlan,
 } from "../../mechanics/temporal";
+import { promptBundle } from "../../prompts";
 
-const ACTION_COMPILER_SYSTEM = `你是 Living World Engine 的批量行动编译器。输入包含公共 canonical catalog、时间机制，以及按固定 slot 编号排列的多个互相独立的行动。
-
-你必须为每个 slot 完成两个互相独立的语义任务：选择时间计划，并声明保守的 canonical 交互依赖。输出必须恰好覆盖所有输入 slot，每个 slot 只能出现一次。不要回显行动或 actor；slot 只用于把结果交还给引擎。不得让一个 slot 的行动、视角或 validationIssues 影响另一个 slot。
-
-时间计划只能选择剧本列出的一个 temporal profile，并说明选择依据。禁止直接估算、换算、推断或发明时长与路程。默认使用 {"kind":"profile"}。只有当 action.rawText 本身包含明确的数字时长与时间单位时，才能使用 explicit_duration；sourceText 必须是 action.rawText 中含该数值的连续原文子串。“明日出发前”、“晚饭时”等截止点不是时长。只有当 action.rawText 本身包含数字以及所选 rate profile 的相同距离单位时，才能使用 explicit_quantity；sourceText 同样必须是含该数值与单位的连续原文子串。人数、物品数、地点数和轮次绝不是距离。如果 validationIssues 说 explicit basis 没有 grounded，必须改选非 rate profile 并使用 profile basis，不得改写 sourceText 或发明新数值。引擎会独立解析原文并拒绝不一致数值。不得把未来完成效果写入计划，causes 必须只引用当前行动。
-
-交互依赖部分遵守以下契约：
-${INTERACTION_DEPENDENCY_INSTRUCTIONS}
-
-不得创建新 ID；引用已有对象时必须从该 slot 的 action 或公共 canonical catalog 原样复制 ID。不得输出状态修改、行动结果或叙事。两部分都会由引擎逐 slot 独立验证。只输出 schema 指定的 JSON。`;
-
-const ACTION_COMPILER_PROMPT_VERSION = "action-compilation-v2";
+const ACTION_COMPILER_PROMPT = promptBundle("action-compilation");
 
 export interface CompiledAction {
   plan: TemporalPlan;
@@ -89,7 +78,7 @@ function actionCompilationContext(
   const shared = actionGroundingSharedContext(state);
   return {
     contractVersion: shared.contractVersion,
-    promptVersion: ACTION_COMPILER_PROMPT_VERSION,
+    promptVersion: ACTION_COMPILER_PROMPT.version,
     currentElapsedSeconds: state.truth.elapsedSeconds,
     temporalProfiles: Object.values(state.truth.mechanics.temporalProfiles)
       .map((profile) => structuredClone(profile))
@@ -259,7 +248,8 @@ export async function compileActions(
     maxSlots,
     maxInputBytes,
     requestBytes: (batch) => eagerRequestBytes(
-      ACTION_COMPILER_SYSTEM,
+      ACTION_COMPILER_PROMPT.system,
+      ACTION_COMPILER_PROMPT.userPrompt,
       actionCompilationContext(state, batch),
       actionCompilationBatchSchema,
     ),
@@ -280,9 +270,10 @@ export async function compileActions(
           ...identity,
           role: "action-compilation",
           subjectId: owner,
-          promptVersion: ACTION_COMPILER_PROMPT_VERSION,
+          promptVersion: ACTION_COMPILER_PROMPT.version,
           schemaName: "action_compilation_batch",
-          system: ACTION_COMPILER_SYSTEM,
+          system: ACTION_COMPILER_PROMPT.system,
+          userPrompt: ACTION_COMPILER_PROMPT.userPrompt,
           context: actionCompilationContext(state, batch),
           schema: actionCompilationBatchSchema,
         });
