@@ -601,19 +601,20 @@ function ControlOrbContent({
                 phase={status.phase}
                 worldContentHash={status.worldContentHash}
               />
-              <span className="cg-orb__status-dot" />
             </button>
             <span className="cg-sr-only" id="cg-orb-instructions">
               拖动可改变位置。按住 Alt 并使用方向键移动，按住 Alt 并按 Home 恢复默认位置。
             </span>
-            <span
-              aria-hidden="true"
-              className="cg-orb__hint"
-              ref={measureHint}
-              style={hintStyle}
-            >
-              拖动移动 · 点击展开
-            </span>
+            {!displayedNotice ? (
+              <span
+                aria-hidden="true"
+                className="cg-orb__hint"
+                ref={measureHint}
+                style={hintStyle}
+              >
+                拖动移动 · 点击展开
+              </span>
+            ) : null}
 
             <AnimatePresence initial={false}>
               {!open && !dragging && !displayedNotice ? (
