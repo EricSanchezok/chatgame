@@ -106,7 +106,7 @@ async function waitForRevision(
   database: LocalDatabase,
   instanceId: string,
   expectedRevision: number,
-  timeoutMs = 15 * 60 * 1_000,
+  timeoutMs = smokeWaitTimeoutMs(),
 ): Promise<ReturnType<LocalDatabase["readInstance"]>["document"]> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -128,6 +128,16 @@ async function waitForRevision(
   throw new Error(
     `timed out waiting for revision ${expectedRevision}: ${failedAdvanceDiagnostic(database, instanceId)}`,
   );
+}
+
+function smokeWaitTimeoutMs(): number {
+  const configured = Number(process.env.LIVINGWORLD_SMOKE_TIMEOUT_MS ?? "");
+  if (Number.isSafeInteger(configured) && configured >= 60_000) return configured;
+  // GLM Coding Plan can legitimately spend several minutes on a full
+  // Blackmarsh step (48 Agents plus observation/repair passes).  A short
+  // harness timeout would report a false failure while the execution is still
+  // healthy and durable.
+  return 45 * 60 * 1_000;
 }
 
 function assertCommittedStep(
