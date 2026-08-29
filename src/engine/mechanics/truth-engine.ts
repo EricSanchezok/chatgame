@@ -1931,6 +1931,7 @@ export class TruthEngine {
             definition: input.definition,
             state: input.state,
             actions,
+            groundings,
             checkRequests: requests,
             checkResults: checks,
             randomRequests,
