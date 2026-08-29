@@ -41,7 +41,6 @@ import {
   positionToPixels,
   radialActionRadius,
   radialOffsets,
-  safeOpenPoint,
   statusSide,
   type ControlPosition,
   type ViewportBounds,
@@ -321,7 +320,6 @@ function ControlOrbContent({
   const [gaze, setGaze] = useState<readonly [number, number] | null>(null);
   const [dismissedNoticeId, setDismissedNoticeId] = useState("");
   const [savedNoticeStep, setSavedNoticeStep] = useState<number>();
-  const [measureHint, hintWidth] = useMeasuredWidth<HTMLSpanElement>();
   const [measureStatus, statusWidth] = useMeasuredWidth<HTMLDivElement>();
 
   const radialActions = useMemo<readonly RadialAction[]>(() => inspectorEnabled
@@ -334,9 +332,7 @@ function ControlOrbContent({
     : controlActions, [inspectorEnabled]);
   const offsets = useMemo(() => radialOffsets(radialActions.length), [radialActions.length]);
   const point = positionToPixels(position, viewport, margin, reservedBottom);
-  const openPoint = desktop ? safeOpenPoint(point, viewport, margin, reservedBottom) : point;
-  const displayedPoint = open ? openPoint : point;
-  const shift = { x: openPoint.x - point.x, y: openPoint.y - point.y };
+  const displayedPoint = point;
   const persistentNotice = notice && dismissedNoticeId !== notice.id ? notice : undefined;
   const routineNotice: RoutineNotice | undefined = status.phase === "confirming"
     ? { id: "confirming", message: "正在确认你的行动", tone: "success" }
@@ -350,9 +346,6 @@ function ControlOrbContent({
     : persistentNotice ?? (!open && !dragging ? routineNotice : undefined);
   const displayedNoticeSide = noticeSide(displayedPoint, viewport, reservedBottom);
   const displayedStatusSide = statusSide(displayedPoint, viewport);
-  const hintStyle: OrbLabelStyle = {
-    "--cg-orb-label-offset": `${floatingLabelOffset(displayedPoint, hintWidth, viewport, margin)}px`,
-  };
   const statusStyle: OrbLabelStyle = {
     "--cg-orb-label-offset": `${floatingLabelOffset(displayedPoint, statusWidth, viewport, margin)}px`,
   };
@@ -571,7 +564,6 @@ function ControlOrbContent({
           style={{ x: dragX, y: dragY }}
         >
           <m.div
-            animate={{ x: open ? shift.x : 0, y: open ? shift.y : 0 }}
             className="cg-orb__cluster"
             data-open={open || undefined}
             data-phase={status.phase}
@@ -605,17 +597,6 @@ function ControlOrbContent({
             <span className="cg-sr-only" id="cg-orb-instructions">
               拖动可改变位置。按住 Alt 并使用方向键移动，按住 Alt 并按 Home 恢复默认位置。
             </span>
-            {!displayedNotice ? (
-              <span
-                aria-hidden="true"
-                className="cg-orb__hint"
-                ref={measureHint}
-                style={hintStyle}
-              >
-                拖动移动 · 点击展开
-              </span>
-            ) : null}
-
             <AnimatePresence initial={false}>
               {!open && !dragging && !displayedNotice ? (
                 <m.div
@@ -639,78 +620,59 @@ function ControlOrbContent({
 
             <AnimatePresence initial={false}>
               {open ? (
-                <m.svg
+                <m.div
                   animate={{ opacity: 1, scale: 1 }}
-                  aria-hidden="true"
-                  className="cg-orb__orbit"
-                  exit={{ opacity: 0, scale: 0.92 }}
-                  initial={{ opacity: 0, scale: 0.92 }}
-                  transition={{ duration: 0.3, ease: motionEase }}
-                  viewBox="0 0 232 232"
+                  className="cg-orb__menu"
+                  id="cg-orb-actions"
+                  role="toolbar"
+                  aria-label="游戏控制"
+                  exit={{ opacity: 0, scale: 0.94 }}
+                  initial={{ opacity: 0, scale: 0.94 }}
+                  transition={{ duration: 0.2, ease: motionEase }}
                 >
-                  <m.circle
-                    animate={{ pathLength: 1 }}
-                    cx="116"
-                    cy="116"
-                    fill="none"
-                    initial={{ pathLength: 0 }}
-                    r={radialActionRadius}
-                    transition={{ duration: 0.42, ease: motionEase }}
-                  />
-                </m.svg>
+                  {radialActions.map((action, index) => {
+                    const [x, y] = offsets[index];
+                    const Icon = action.icon;
+                    const vector = [x / radialActionRadius, y / radialActionRadius] as const;
+                    const style: OrbActionStyle = {
+                      "--cg-action-lift-x": `${vector[0] * 2}px`,
+                      "--cg-action-lift-y": `${vector[1] * 2}px`,
+                    };
+                    return (
+                      <m.button
+                        animate={{ filter: "blur(0px)", opacity: 1, scale: 1, x, y }}
+                        aria-describedby={`cg-orb-action-description-${action.kind}`}
+                        aria-label={action.label}
+                        className="cg-orb__action"
+                        data-kind={action.kind}
+                        exit={{ filter: "blur(3px)", opacity: 0, scale: 0.5, x: x * 0.2, y: y * 0.2 }}
+                        initial={{ filter: "blur(4px)", opacity: 0, scale: 0.25, x: 0, y: 0 }}
+                        key={action.kind}
+                        onBlur={() => setGaze(null)}
+                        onClick={() => activateRadialAction(action)}
+                        onFocus={() => { setActiveIndex(index); setGaze(vector); }}
+                        onKeyDown={(event) => onActionKeyDown(event, index)}
+                        onMouseEnter={() => setGaze(vector)}
+                        onMouseLeave={() => setGaze(null)}
+                        ref={(node) => { actionRefs.current[index] = node; }}
+                        style={style}
+                        tabIndex={activeIndex === index ? 0 : -1}
+                        transition={{ delay: index * 0.03, duration: 0.3, ease: motionEase }}
+                        type="button"
+                      >
+                        <span className="cg-orb__action-surface">
+                          <Icon aria-hidden="true" />
+                        </span>
+                        <span aria-hidden="true" className="cg-orb__action-label">{action.label}</span>
+                        <span className="cg-sr-only" id={`cg-orb-action-description-${action.kind}`}>
+                          {action.description}
+                        </span>
+                      </m.button>
+                    );
+                  })}
+                </m.div>
               ) : null}
             </AnimatePresence>
-
-            <div
-              aria-hidden={!open}
-              aria-label="游戏控制"
-              className="cg-orb__menu"
-              id="cg-orb-actions"
-              role="toolbar"
-            >
-              <AnimatePresence initial={false}>
-                {open ? radialActions.map((action, index) => {
-                  const [x, y] = offsets[index];
-                  const Icon = action.icon;
-                  const vector = [x / radialActionRadius, y / radialActionRadius] as const;
-                  const style: OrbActionStyle = {
-                    "--cg-action-lift-x": `${vector[0] * 2}px`,
-                    "--cg-action-lift-y": `${vector[1] * 2}px`,
-                  };
-                  return (
-                    <m.button
-                      animate={{ filter: "blur(0px)", opacity: 1, scale: 1, x, y }}
-                      aria-describedby={`cg-orb-action-description-${action.kind}`}
-                      aria-label={action.label}
-                      className="cg-orb__action"
-                      data-kind={action.kind}
-                      exit={{ filter: "blur(3px)", opacity: 0, scale: 0.5, x: x * 0.2, y: y * 0.2 }}
-                      initial={{ filter: "blur(4px)", opacity: 0, scale: 0.25, x: 0, y: 0 }}
-                      key={action.kind}
-                      onBlur={() => setGaze(null)}
-                      onClick={() => activateRadialAction(action)}
-                      onFocus={() => { setActiveIndex(index); setGaze(vector); }}
-                      onKeyDown={(event) => onActionKeyDown(event, index)}
-                      onMouseEnter={() => setGaze(vector)}
-                      onMouseLeave={() => setGaze(null)}
-                      ref={(node) => { actionRefs.current[index] = node; }}
-                      style={style}
-                      tabIndex={activeIndex === index ? 0 : -1}
-                      transition={{ delay: index * 0.03, duration: 0.3, ease: motionEase }}
-                      type="button"
-                    >
-                      <span className="cg-orb__action-surface">
-                        <Icon aria-hidden="true" />
-                      </span>
-                      <span aria-hidden="true" className="cg-orb__action-label">{action.label}</span>
-                      <span className="cg-sr-only" id={`cg-orb-action-description-${action.kind}`}>
-                        {action.description}
-                      </span>
-                    </m.button>
-                  );
-                }) : null}
-              </AnimatePresence>
-            </div>
             <AnimatePresence initial={false}>
               {displayedNotice ? (
                 <m.div
