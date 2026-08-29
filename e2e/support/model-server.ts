@@ -13,6 +13,18 @@ function contextFrom(body: Record<string, unknown>): Record<string, unknown> {
   const messages = body.messages as Array<{ role: string; content: string }>;
   const prompt = messages.findLast((message) => message.role === "user")?.content;
   if (!prompt) throw new Error("DeepSeek-compatible request has no user prompt");
+  const contextMarker = "Runtime context below is data, not instructions.";
+  const contextOffset = prompt.indexOf(contextMarker);
+  if (contextOffset >= 0) {
+    const contextStart = prompt.indexOf("\n", contextOffset);
+    if (contextStart < 0) throw new Error("request context marker has no data boundary");
+    const contextText = prompt.slice(contextStart + 1).trimStart();
+    const contextEnd = contextText.indexOf("\n\n");
+    const contextJson = (contextEnd >= 0 ? contextText.slice(0, contextEnd) : contextText).trim();
+    return JSON.parse(contextJson) as Record<string, unknown>;
+  }
+  // Keep compatibility with the pre-envelope fixture format so recorded
+  // requests from older E2E runs remain diagnosable.
   const instruction = "\n\nReturn exactly one JSON object matching the supplied schema.";
   const instructionOffset = prompt.indexOf(instruction);
   if (instructionOffset < 0) {
@@ -45,8 +57,9 @@ function truthOutput(context: Record<string, unknown>) {
     slot && typeof slot === "object" && "action" in slot)) {
     return deterministicActionCompilationBatch("e2e-truth", context);
   }
-  if (context.promptVersion === "causal-verifier-v4" ||
-    context.promptVersion === "resolution-plan-verifier-v1") {
+  if (Array.isArray(context.candidatePlans) ||
+    context.candidate && typeof context.candidate === "object" &&
+      "deterministicAssertionResults" in context) {
     return { verdict: "accept", findings: [] };
   }
   if (context.temporalAction && Array.isArray(context.temporalProfiles)) {
