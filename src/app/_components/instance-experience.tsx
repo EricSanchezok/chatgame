@@ -43,8 +43,9 @@ import {
 } from "../_lib/browser-state";
 import { worldApi } from "../lib/world-api-client";
 import { ControlOrb, type ControlOrbPhase } from "./control-orb";
-import { GameThread } from "./game-thread";
+import { GameThread, type ComposerMode } from "./game-thread";
 import { SettingsPanel } from "./settings-panel";
+import { observerTimeline, participantTimeline } from "./world-timeline";
 import WorldInspectorDialog from "./world-inspector-dialog";
 
 const AgentPerspectiveWorkspace = dynamic(
@@ -84,8 +85,8 @@ function PlayerRunConsole({
       ? "资源已预留 · 下一次时间推进开始"
       : null;
   return (
-    <div className="cg-observer-console" aria-label="世界运行控制台">
-      <div>
+    <div className="cg-thread-status" aria-label="世界运行控制台" role="status">
+      <div className="cg-thread-status__copy">
         <strong>{run.status === "preparation-invalidated"
           ? "上次反应预演已失效，需要重新准备"
           : run.activity?.description ?? "世界正在自主推进"}</strong>
@@ -93,7 +94,7 @@ function PlayerRunConsole({
           ? `${progress.current.toFixed(2)} / ${progress.target} ${progress.unit}`
           : `${run.lease?.commitCount ?? 0} 个边界已提交`)}</span>
       </div>
-      <button disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
+      <button className="cg-thread-status__action" disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
         {resumable ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
         {run.status === "preparation-invalidated" ? "重新准备" : resumable ? "恢复" : "暂停"}
       </button>
@@ -111,14 +112,36 @@ function ReactionConsole({
   onKeep: () => void;
 }) {
   return (
-    <div className="cg-observer-console" aria-label="行动反应窗口">
-      <div>
+    <div className="cg-thread-status" aria-label="行动反应窗口" role="status">
+      <div className="cg-thread-status__copy">
         <strong>世界时间已冻结，等待你的反应</strong>
         <span>{stimulus} 直接在输入框描述新行动，或保持当前行动。</span>
       </div>
-      <button disabled={busy} onClick={onKeep} type="button">
+      <button className="cg-thread-status__action" disabled={busy} onClick={onKeep} type="button">
         <Play aria-hidden="true" />保持当前行动
       </button>
+    </div>
+  );
+}
+
+function DecisionConsole() {
+  return (
+    <div className="cg-thread-status" aria-label="行动决策窗口" role="status">
+      <div className="cg-thread-status__copy">
+        <strong>轮到你决定下一步</strong>
+        <span>描述一个自然语言行动，世界会从当前边界继续推进。</span>
+      </div>
+    </div>
+  );
+}
+
+function ActionSubmitConsole() {
+  return (
+    <div className="cg-thread-status" aria-label="行动提交状态" role="status">
+      <div className="cg-thread-status__copy">
+        <strong>正在确认行动</strong>
+        <span>已收到你的描述，正在把它交给世界边界。</span>
+      </div>
     </div>
   );
 }
@@ -183,6 +206,36 @@ function observerMessages(observer?: WorldObserverDetail): ThreadMessageLike[] {
     content: [{ type: "text", text: message.text }],
     ...(message.role === "assistant" ? { status: { type: "complete" as const, reason: "stop" as const } } : {}),
   }));
+}
+
+function worldClock(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safeSeconds / 3_600);
+  const minutes = Math.floor((safeSeconds % 3_600) / 60);
+  const remainder = safeSeconds % 60;
+  if (hours > 0) return `${hours} 小时 ${String(minutes).padStart(2, "0")} 分`;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function WorldContext({
+  detail,
+  roleView,
+}: {
+  detail: PublicInstanceDetail;
+  roleView?: PublicInstanceDetail["controlledView"];
+}) {
+  return (
+    <header aria-label="世界上下文" className="cg-game__context">
+      <div className="cg-game__context-primary">
+        <span>{detail.world.name}</span>
+        <small>{roleView?.self.location?.name ?? "世界观察"}</small>
+      </div>
+      <div className="cg-game__context-secondary">
+        <span>{worldClock(detail.summary.elapsedSeconds)}</span>
+        <small>Step {detail.summary.step}</small>
+      </div>
+    </header>
+  );
 }
 
 function GameOverlay({
@@ -384,8 +437,11 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
     ? detail.actionWindow
     : undefined;
   const runActive = detail?.run && ["queued", "running", "pausing"].includes(detail.run.status);
-  const isRunning = Boolean(!reactionWindow && (busy === "action" || runActive ||
-    latestTurn?.status === "running" || latestTurn?.status === "awaiting"));
+  const worldProcessing = Boolean(!reactionWindow && (busy === "action" || runActive || latestTurn?.status === "running"));
+  const composerMode: ComposerMode = detail?.controlledView && !busy && !worldProcessing &&
+    !(detail.run?.status === "awaiting-reaction" && !reactionWindow)
+    ? "available"
+    : "suppressed";
 
   const submit = useCallback(async (message: AppendMessage) => {
     const text = message.content
@@ -448,10 +504,15 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
   const runtime = useExternalStoreRuntime({
     messages,
     convertMessage: (message) => message,
-    isRunning,
-    isSendDisabled: !detail?.controlledView || isRunning,
+    isRunning: worldProcessing,
+    isSendDisabled: composerMode === "suppressed",
     onNew: submit,
   });
+
+  const timeline = useMemo(
+    () => detail?.controlledView ? participantTimeline(detail) : observerTimeline(observer),
+    [detail, observer],
+  );
 
   async function perform(key: string, operation: () => Promise<PublicInstanceDetail>): Promise<void> {
     if (busy) return;
@@ -487,15 +548,17 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
 
   const roleView = detail.controlledView ?? observer?.selected?.perspective;
   const suggestions = detail.conversation?.turns.find((turn) => !turn.action)?.response?.suggestions ?? [];
-  const orbPhase: ControlOrbPhase = isRunning ? "running" : busy ? "confirming" : "saved";
+  const orbPhase: ControlOrbPhase = worldProcessing ? "running" : busy ? "confirming" : "saved";
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <main className="cg-game">
         <h1 className="cg-sr-only">{detail.summary.title}</h1>
+        <WorldContext detail={detail} roleView={roleView} />
         <GameThread
           actionError={error}
-          busy={isRunning}
+          busy={worldProcessing}
+          composerMode={composerMode}
           footer={!detail.controlledView ? (
             <ObserverConsole
               busy={Boolean(busy)}
@@ -523,12 +586,23 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
                 detail.summary.schedulerMode !== "realtime",
               ))}
             />
+          ) : busy === "action" ? (
+            <ActionSubmitConsole />
           ) : reactionWindow ? (
             <ReactionConsole
               busy={Boolean(busy)}
               onKeep={() => void keepReaction()}
               stimulus={reactionWindow.reaction!.stimulus}
             />
+          ) : detail.run?.status === "awaiting-decision" ? (
+            <>
+              <DecisionConsole />
+              {preferences.advancedRoleControl ? (
+                <button className="cg-detach-button cg-detach-button--quiet" onClick={() => void openOverlay("control")} type="button">
+                  切换或离开角色
+                </button>
+              ) : null}
+            </>
           ) : detail.run && [
             "queued",
             "running",
@@ -537,26 +611,36 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
             "budget-paused",
             "preparation-invalidated",
           ].includes(detail.run.status) ? (
-            <PlayerRunConsole
-              busy={Boolean(busy)}
-              onPause={() => void perform("pause-run", () => worldApi.pauseRun(instanceId, {
-                runId: detail.run!.id,
-                generation: detail.run!.generation,
-              }))}
-              onResume={() => void perform("resume-run", () => worldApi.resumeRun(instanceId, {
-                runId: detail.run!.id,
-                generation: detail.run!.generation,
-              }))}
-              run={detail.run}
-            />
+            <>
+              <PlayerRunConsole
+                busy={Boolean(busy)}
+                onPause={() => void perform("pause-run", () => worldApi.pauseRun(instanceId, {
+                  runId: detail.run!.id,
+                  generation: detail.run!.generation,
+                }))}
+                onResume={() => void perform("resume-run", () => worldApi.resumeRun(instanceId, {
+                  runId: detail.run!.id,
+                  generation: detail.run!.generation,
+                }))}
+                run={detail.run}
+              />
+              {preferences.advancedRoleControl ? (
+                <button className="cg-detach-button cg-detach-button--quiet" onClick={() => void openOverlay("control")} type="button">
+                  切换或离开角色
+                </button>
+              ) : null}
+            </>
           ) : preferences.advancedRoleControl ? (
             <button className="cg-detach-button" onClick={() => void openOverlay("control")} type="button">
               切换或离开角色
             </button>
           ) : undefined}
           readOnly={!detail.controlledView}
+          reduceMotion={preferences.reduceMotion}
           streamWarning={streamWarning}
           suggestions={suggestions}
+          timeline={timeline}
+          timelineStep={detail.summary.step}
         />
         <ControlOrb
           composerDocked={messages.length > 0}

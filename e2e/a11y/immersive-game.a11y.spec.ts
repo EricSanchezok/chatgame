@@ -71,7 +71,7 @@ test("menu, world library, Origin dialog and observer conversation are accessibl
 test("Arrival, player composer, role and control overlays remain accessible", async ({ page }) => {
   const instanceId = await createInstance(page, "origin");
   await page.goto(`/play/${instanceId}`);
-  await expect(page.getByText("此刻，你是小明")).toBeVisible();
+  await expect(page.locator('[data-role="assistant"] .cg-narrative').filter({ hasText: "此刻，你是小明" }).first()).toBeVisible();
   await expect(page.getByLabel("你的行动")).toBeVisible();
   const suggestionPanel = page.getByRole("region", { name: "可选的行动建议" });
   await expect(suggestionPanel.getByRole("button")).toHaveCount(3);

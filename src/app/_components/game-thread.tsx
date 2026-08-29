@@ -14,27 +14,44 @@ import { ArrowDown, ArrowUp, Check, Copy, CornerDownRight } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { cn } from "@/lib/cn";
+import { WorldTimelineRail, type TimelineEntry } from "./world-timeline";
+
+export type ComposerMode = "available" | "suppressed";
 
 export interface GameThreadProps {
   actionError: string;
   busy: boolean;
+  composerMode: ComposerMode;
   footer?: ReactNode;
   readOnly?: boolean;
+  reduceMotion?: boolean;
   streamWarning: string;
   suggestions?: readonly string[];
+  timeline?: readonly TimelineEntry[];
+  timelineStep?: number;
 }
 
-const MessageText: TextMessagePartComponent = ({ text }) => (
-  <p className="cg-narrative whitespace-pre-wrap">{text}</p>
-);
+const MessageText: TextMessagePartComponent = ({ text }) => {
+  const temporalMarker = /\n\n世界时间 ([^\n]+?)(?: · ([^\n]+))?$/u;
+  const match = text.match(temporalMarker);
+  const narrative = match ? text.slice(0, match.index) : text;
+  return (
+    <>
+      <p className="cg-narrative whitespace-pre-wrap">{narrative}</p>
+      {match ? <p className="cg-narrative__meta">世界时间 {match[1]}{match[2] ? ` · ${match[2]}` : ""}</p> : null}
+    </>
+  );
+};
 
 function UserMessage() {
+  const id = useAuiState((state) => state.message.id);
   return (
     <MessagePrimitive.Root
       className="animate-in fade-in slide-in-from-bottom-1 flex w-full justify-end px-2 duration-150 motion-reduce:animate-none"
       data-role="user"
+      id={id}
     >
-      <div className="aui-user-message-bubble rounded-xl bg-muted px-4 py-2 text-foreground">
+      <div className="aui-user-message-bubble">
         <MessagePrimitive.Parts components={{ Text: MessageText }} />
       </div>
     </MessagePrimitive.Root>
@@ -50,13 +67,16 @@ function AssistantMessage({
   inputId: string;
   suggestions: readonly string[];
 }) {
+  const id = useAuiState((state) => state.message.id);
   const isLast = useAuiState((state) => state.message.isLast);
   return (
     <MessagePrimitive.Root
-      className="animate-in fade-in slide-in-from-bottom-1 relative -mb-7.5 pb-7.5 duration-150 motion-reduce:animate-none"
+      className="animate-in fade-in slide-in-from-bottom-1 relative duration-150 motion-reduce:animate-none"
+      data-cg-timeline-id={id}
       data-role="assistant"
+      id={id}
     >
-      <div className="px-2 leading-relaxed text-foreground wrap-break-word">
+      <div className="cg-assistant-message">
         <MessagePrimitive.Parts components={{ Text: MessageText }} />
       </div>
       <div className="ms-2 flex min-h-7.5 items-center pt-1.5">
@@ -186,21 +206,26 @@ function ScrollToBottom() {
 export function GameThread({
   actionError,
   busy,
+  composerMode,
   footer,
   readOnly = false,
+  reduceMotion = false,
   streamWarning,
   suggestions = [],
+  timeline = [],
+  timelineStep = 0,
 }: GameThreadProps) {
   const isEmpty = useAuiState((state) => state.thread.messages.length === 0);
   const inputId = useId();
-  const activeSuggestions = readOnly ? [] : suggestions;
+  const activeSuggestions = readOnly || composerMode === "suppressed" ? [] : suggestions;
   return (
     <ThreadPrimitive.Root
-      className="aui-root flex h-full flex-col bg-background"
+      className="aui-root cg-thread-root flex h-full flex-col bg-background"
       style={{ ["--thread-max-width" as string]: "44rem" }}
     >
       <ThreadPrimitive.Viewport
         className="relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth"
+        data-cg-thread-viewport
         turnAnchor="top"
       >
         <div className={cn(
@@ -230,21 +255,22 @@ export function GameThread({
             <ScrollToBottom />
             <div
               aria-live="polite"
-              className={cn("rounded-xl border bg-card px-3 py-2 text-sm", !streamWarning && "cg-sr-only")}
+              className={cn("cg-thread-status-message", !streamWarning && "cg-sr-only")}
               role="status"
             >
               {streamWarning}
             </div>
             {actionError ? (
-              <div className="rounded-xl border border-destructive bg-destructive-soft px-3 py-2 text-sm" role="alert">
+              <div className="cg-thread-error" role="alert">
                 {actionError}
               </div>
             ) : null}
             {footer}
-            {!readOnly ? <Composer busy={busy} inputId={inputId} /> : null}
+            {!readOnly && composerMode === "available" ? <Composer busy={busy} inputId={inputId} /> : null}
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
+      <WorldTimelineRail entries={timeline} reducedMotion={reduceMotion} step={timelineStep} />
     </ThreadPrimitive.Root>
   );
 }

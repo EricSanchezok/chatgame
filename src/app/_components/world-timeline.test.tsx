@@ -1,0 +1,126 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PublicInstanceDetail } from "../../shared/world-api";
+import type { WorldObserverDetail } from "../../shared/world-observer-api";
+import {
+  observerTimeline,
+  participantTimeline,
+  timelineExcerpt,
+  WorldTimelineRail,
+  type TimelineEntry,
+} from "./world-timeline";
+
+const entries: TimelineEntry[] = [
+  {
+    id: "timeline:one",
+    targetId: "message:one",
+    step: 1,
+    revision: 1,
+    worldTimeSeconds: 12,
+    title: "石门前",
+    excerpt: "风从石门缝隙里穿过。",
+  },
+  {
+    id: "timeline:two",
+    targetId: "message:two",
+    step: 2,
+    revision: 2,
+    title: "门后",
+    excerpt: "门后的道路向黑暗深处延伸。",
+    activity: {
+      id: "activity:two",
+      status: "active",
+      description: "穿过石门",
+      stage: "寻找落脚点",
+      progress: { current: 2, target: 10, unit: "米" },
+      nextBoundaryAtSeconds: 18,
+      completionAtSeconds: 24,
+      queuePosition: null,
+      resourceNames: [],
+    },
+  },
+];
+
+afterEach(cleanup);
+
+describe("world timeline rail", () => {
+  it("compacts excerpts without losing short text", () => {
+    expect(timelineExcerpt("  石门前  ")).toBe("石门前");
+    expect(timelineExcerpt("abcdefghijklmnopqrstuvwxyz", 8)).toBe("abcdefg…");
+  });
+
+  it("exposes navigable ticks and the active activity summary", () => {
+    const first = document.createElement("article");
+    first.id = "message:one";
+    const second = document.createElement("article");
+    second.id = "message:two";
+    document.body.append(first, second);
+    const scrollIntoView = vi.fn();
+    second.scrollIntoView = scrollIntoView;
+
+    render(<WorldTimelineRail entries={entries} reducedMotion step={2} />);
+
+    expect(screen.getByRole("complementary", { name: "世界消息时间线" })).toBeVisible();
+    expect(screen.getByText("石门前")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /第 2 步，门后/ }));
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+    expect(screen.getByRole("button", { name: /第 2 步，门后/ })).toHaveAttribute("aria-current", "location");
+    expect(screen.getByText("2.00 / 10 米")).toBeVisible();
+    expect(screen.getByRole("button", { name: /门后的道路向黑暗深处延伸/ })).toBeInTheDocument();
+  });
+
+  it("projects every committed response with stable revision-aware ids", () => {
+    const detail = {
+      conversation: {
+        turns: [{
+          id: "turn-1",
+          responses: [
+            { revision: 3, step: 2, title: "第一段", text: "先听见风。" },
+            { revision: 4, step: 2, title: "第二段", text: "再看见门。", activity: null },
+          ],
+        }],
+      },
+    } as unknown as PublicInstanceDetail;
+
+    expect(participantTimeline(detail)).toEqual([
+      {
+        id: "timeline:turn-1:3:0",
+        targetId: "turn-1:world:3:0",
+        step: 2,
+        revision: 3,
+        title: "第一段",
+        excerpt: "先听见风。",
+      },
+      {
+        id: "timeline:turn-1:4:1",
+        targetId: "turn-1:world:4:1",
+        step: 2,
+        revision: 4,
+        title: "第二段",
+        excerpt: "再看见门。",
+      },
+    ]);
+  });
+
+  it("keeps observer timeline entries inside the selected perspective", () => {
+    const observer = {
+      selected: {
+        perspective: {
+          agentId: "keeper",
+          history: [
+            { revision: 2, step: 1, observations: [{ summary: "守门人看见石门。" }] },
+            { revision: 3, step: 2, observations: [{ summary: "守门人听见风声。" }] },
+          ],
+        },
+      },
+    } as unknown as WorldObserverDetail;
+
+    expect(observerTimeline(observer).map((entry) => entry.targetId)).toEqual([
+      "perspective:keeper:2:observation",
+      "perspective:keeper:3:observation",
+    ]);
+    expect(observerTimeline(undefined)).toEqual([]);
+  });
+});

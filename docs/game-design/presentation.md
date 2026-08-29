@@ -48,7 +48,11 @@ Participant 页面使用 44rem 单轴 assistant-ui 消息流。第一条 World �
 
 composer 只负责发送、失败重试和可选的高级 detach，不提供单步、批量或实时按钮。发送行动时，服务端先持久化 intent 和当前 decision point 的 ActionWindow，再由后台 WorldRun 逐个最早时间边界推进，直到活动完成、失败、中断、需要选择、玩家暂停或运行预算耗尽。
 
+当 Participant 的 WorldRun 处于 `queued`、`running`、`pausing` 或提交请求处理中时，composer 不挂载，底部只显示运行状态与暂停控制。`paused`、`budget-paused`、`preparation-invalidated` 和 `awaiting-decision` 允许重新提交自然语言行动；未提交的 reaction window 同时显示 stimulus、输入框和“保持当前行动”控制。Observer 始终使用只读消息流，不挂载 composer。
+
 同一个 Participant intent 可以投影多条 committed Observation；每条显示对应世界时间、Activity 阶段和授权进度。`queued` 显示经过权限过滤的资源名称与队列位置，`ready` 显示资源已预留且会在下一次时间推进开始；两者都不暴露其他持有者的 canonical 身份。WorldRun 自动执行时 composer 切换为运行控制台并提供暂停；paused 后可以恢复，也可以发送普通自然语言行动取消或改变当前 Activity。刷新、重复提交和服务重启不会新增消息或重复行动，进程恢复后的 run 保持 paused。
+
+桌面会话在消息轴外提供消息时间线轨道。每个当前权限投影中的世界回复对应一个可聚焦刻度；刻度点击只滚动同一会话 viewport，并可显示该回复的标题、摘要、step、revision 和授权 Activity 进度。轨道不读取 canonical truth，不显示其他主体认知，也不替代原生滚动条。移动端隐藏轨道。
 
 ## Observer 会话
 

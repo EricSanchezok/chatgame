@@ -34,7 +34,7 @@ async function startOrigin(page: Page): Promise<void> {
   await customization.getByLabel("一个自由动机").fill("找到石门后的道路");
   await customization.getByRole("button", { name: "进入世界" }).click();
   await expect(page).toHaveURL(/\/play\/[^/]+$/);
-  await expect(page.getByText("此刻，你是小明")).toBeVisible();
+  await expect(page.locator('[data-role="assistant"] .cg-narrative').filter({ hasText: "此刻，你是小明" }).first()).toBeVisible();
 }
 
 async function openOrb(page: Page): Promise<void> {
@@ -227,8 +227,22 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await expect(composer).toHaveValue("确认当前位置");
   await expect(composer).toBeFocused();
   await composer.fill("我现在在哪里？");
+  let releaseAction!: () => void;
+  let markActionStarted!: () => void;
+  const actionStarted = new Promise<void>((resolve) => { markActionStarted = resolve; });
+  const actionGate = new Promise<void>((resolve) => { releaseAction = resolve; });
+  await page.route("**/api/instances/*/participants/*/actions", async (route) => {
+    markActionStarted();
+    await actionGate;
+    await route.continue();
+  });
   await page.getByRole("button", { name: "发送行动" }).click();
+  await actionStarted;
+  await expect(page.getByLabel("你的行动")).toHaveCount(0);
+  await expect(page.getByText("正在确认行动", { exact: true })).toBeVisible();
+  releaseAction();
   await expect(page.getByText("世界继续变化。").last()).toBeVisible();
+  await page.unroute("**/api/instances/*/participants/*/actions");
 
   await openOrb(page);
   await page.getByRole("button", { name: "视角" }).click();
@@ -246,7 +260,10 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await page.getByRole("button", { name: "设置" }).click();
   const settings = page.getByRole("dialog", { name: "设置" });
   await settings.getByRole("switch", { name: "高级角色控制" }).click();
+  await expect(settings.getByRole("switch", { name: "高级角色控制" })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
+  await page.reload();
+  await expect(page.getByText("轮到你决定下一步", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "切换或离开角色" }).click();
   const control = page.getByRole("dialog", { name: "切换或离开角色" });
   await control.getByRole("button", { name: /进入观察模式/ }).click();
@@ -254,7 +271,7 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
 
   await page.getByLabel("观察角色").selectOption("keeper");
   await page.getByRole("button", { name: "接管" }).click();
-  await expect(page.getByText(/此刻，你是守门人/)).toBeVisible();
+  await expect(page.locator('[data-role="assistant"] .cg-narrative').filter({ hasText: "此刻，你是守门人" }).first()).toBeVisible();
   await expect(page.getByLabel("你的行动")).toBeVisible();
 });
 
