@@ -94,7 +94,7 @@ const compilationComponent = { id: "action-compilation", version: "2", config: {
 const truthComponent = { id: "truth-interaction-component", version: "2", config: { fallback: "global" } } as const;
 const mindComponent = {
   id: "agent-mind",
-  version: "5",
+  version: "6",
   config: { externalUpdates: false, repairExhaustion: "fail-step" },
 } as const;
 

@@ -656,15 +656,14 @@ export function buildInteractionDependencyGraph(
       for (const writer of writeIndexes) addEdge(reader, writer, "read-write");
     }
   }
-  for (const dependency of dependencies) {
-    if (dependency.sharedResourceClaims.length === 0) continue;
-    const index = dependencies.indexOf(dependency);
+  dependencies.forEach((dependency, index) => {
+    if (dependency.sharedResourceClaims.length === 0) return;
     const keys = new Set(dependencyWriteKeys(dependency)
       .filter((key) => key.startsWith("shared_resource_pool:")));
     for (const key of keys) {
       for (const other of writers.get(key) ?? []) addEdge(index, other, "shared-resource");
     }
-  }
+  });
   if (globalNodes.length > 0) {
     for (const globalNode of globalNodes) {
       for (let index = 0; index < dependencies.length; index += 1) {
