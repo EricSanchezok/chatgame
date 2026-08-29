@@ -11,7 +11,7 @@ import type {
   StructuredModelResult,
 } from "../models/model-provider";
 import type { ModelExecutionAudit } from "../contracts/model";
-import { modelInvocationIdentity, ModelOutputError } from "../models/model-provider";
+import { ContextLimitExceededError, modelInvocationIdentity, ModelOutputError } from "../models/model-provider";
 import type { ActionCompilationDraft } from "../runtime/execution";
 import type { AgentMindDraftOutput } from "../contracts/llm-schemas";
 import { structuredPromptBytes } from "../prompts";
@@ -376,6 +376,12 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       context,
       schema: request.schema,
     });
+    if (promptBytes.requestUtf8Bytes > profile.max_input_bytes) {
+      throw new ContextLimitExceededError(
+        `model profile ${request.profileId} request is ${promptBytes.requestUtf8Bytes} bytes; ` +
+        `maximum is ${profile.max_input_bytes} bytes`,
+      );
+    }
     const captured: ScriptedModelHandlerRequest = {
       profileId: request.profileId,
       workloadId: request.workloadId,

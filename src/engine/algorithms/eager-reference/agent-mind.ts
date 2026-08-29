@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { applyBeliefPatch } from "../../cognition/belief";
 import { applyCharacterPatch } from "../../cognition/character";
 import {
@@ -29,20 +28,15 @@ import {
   type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
 import {
-  combineModelExecutionAudits,
   modelInvocationCorrelation,
   modelInvocationIdentity,
-  ModelConfigurationError,
-  ModelOutputError,
   ModelSemanticRepairError,
-  ModelTransportError,
   setModelInvocationOutcome,
   setModelInvocationResultKind,
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "../../models/model-provider";
 import { contentHash } from "../../models/model-audit";
-import { ModelOverloadedError } from "../../models/model-scheduler";
 import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "../../runtime/observability";
 import {
   buildAgentSharedContext,
@@ -54,6 +48,11 @@ import {
 } from "../../contracts/prompts";
 import { promptBundle } from "../../prompts";
 import { runtimeId } from "../../runtime/runtime-id";
+import {
+  SemanticRepairExhaustedError,
+  runSemanticRepairLoop,
+  semanticIssue,
+} from "../../models/semantic-repair";
 
 function assertBeliefIdentityHistory(
   state: SimulationState,
@@ -250,12 +249,6 @@ function validateReactionDecision(
   };
 }
 
-function isTerminalModelError(error: unknown): boolean {
-  return error instanceof ModelConfigurationError || error instanceof ModelTransportError ||
-    error instanceof ModelOverloadedError ||
-    (error instanceof Error && error.name === "AbortError");
-}
-
 export interface AgentMindBatchInput {
   agent: AgentState;
   observations: readonly ObservationPacket[];
@@ -367,6 +360,7 @@ export class AgentMind {
         ),
         label: `AgentMind ${purpose}`,
         issuesForError: (error) => validationIssues(error),
+        maxRepairs: this.repairAttempts,
         invoke: async (batch, attempt) => {
           const owner = eagerSlotBatchOwner(`agent-mind-${purpose}`, batch);
           const identity = modelInvocationIdentity(scope, role, owner, attempt + 1);
@@ -498,16 +492,21 @@ export class AgentMind {
     scope: ModelExecutionScope,
   ): Promise<ReactionDecision & { modelAudit: ModelExecutionAudit }> {
     const stimulus = request.stimulus;
-    let issues: PromptValidationIssue[] = [];
-    const audits: ModelExecutionAudit[] = [];
-    let lastError = "unknown Agent reaction validation failure";
-    let lastCause: unknown;
     const observe = runtimeEventEmitter(scope.observer);
-
-    for (let attempt = 0; attempt <= this.repairAttempts; attempt += 1) {
-      try {
+    try {
+      const result = await runSemanticRepairLoop({
+        role: "agent-reaction",
+        repairScope: "slot",
+        targetIds: [agent.id],
+        maxRepairs: this.repairAttempts,
+        invoke: async (repairContext) => {
         const contextStartedAt = Date.now();
-        const context = buildReactionContext({
+          const issues = repairContext.issues.map((issue) => ({
+            code: issue.code,
+            path: issue.path,
+            message: issue.message,
+          }));
+          const context = buildReactionContext({
           state,
           agent,
           originalAction,
@@ -515,9 +514,9 @@ export class AgentMind {
           instanceId: scope.workloadId,
           advanceId: scope.batchId,
           issues,
-        });
+          });
         const prompt = promptBundle("agent-reaction");
-        const identity = modelInvocationIdentity(scope, "agent-reaction", agent.id, attempt + 1);
+          const identity = modelInvocationIdentity(scope, "agent-reaction", agent.id, repairContext.attempt + 1);
         const correlation = modelInvocationCorrelation(scope, "agent-reaction", agent.id, identity);
         observe?.({
           event: "model.context.built",
@@ -542,59 +541,71 @@ export class AgentMind {
           context,
           schema: reactionDecisionDraftSchema,
         });
-        audits.push(result.audit);
-        const validated = validateReactionDecision(
-          state.worldHash,
-          agent,
-          state.revision,
-          originalAction,
-          request,
-          result.value,
-        );
-        setModelInvocationResultKind(result.audit, `reaction_${validated.kind}`);
-        setModelInvocationOutcome(result.audit, "accepted");
+          setModelInvocationResultKind(result.audit, "agent-reaction_decision");
+          return result;
+        },
+        validate: (value) => {
+          validateReactionDecision(
+            state.worldHash,
+            agent,
+            state.revision,
+            originalAction,
+            request,
+            value,
+          );
+        },
+        classify: (error) => validationIssues(error).map((issue) => semanticIssue(
+          issue.code,
+          issue.message,
+          { class: "semantic", path: issue.path, targetIds: [agent.id] },
+        )),
+        onRejected: ({ audit, issues, error }) => {
+          if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
+          const invocation = audit?.invocations.at(-1);
+          observe?.({
+            event: "model.semantic.rejected",
+            level: "warn",
+            correlation: modelInvocationCorrelation(scope, "agent-reaction", agent.id, {
+              modelInvocationId: invocation?.id,
+              modelInvocation: invocation?.ordinal,
+            }),
+            attributes: { resultKind: invocation?.resultKind ?? "agent-reaction_decision" },
+            counts: { validationIssues: issues.length },
+            payload: scope.observer ? fullRuntimePayload(scope.observer, { issues }) : undefined,
+            error: serializeRuntimeError(error),
+          });
+        },
+      });
+      const validated = validateReactionDecision(
+        state.worldHash,
+        agent,
+        state.revision,
+        originalAction,
+        request,
+        result.value,
+      );
+      setModelInvocationOutcome(result.audit, "accepted");
+      const invocation = result.audit.invocations.at(-1);
         observe?.({
           event: "model.semantic.accepted",
-          correlation,
-          attributes: { resultKind: `reaction_${validated.kind}` },
-        });
-        return {
-          ...validated,
-          modelAudit: combineModelExecutionAudits(audits),
-        };
-      } catch (error) {
-        if (isTerminalModelError(error)) throw error;
-        if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
-        if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) &&
-          !(error instanceof Error)) throw error;
-        lastError = error instanceof Error ? error.message : String(error);
-        lastCause = error;
-        issues = validationIssues(error);
-        const audit = audits.at(-1);
-        if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
-        const invocation = audit?.invocations.at(-1);
-        observe?.({
-          event: "model.semantic.rejected",
-          level: "warn",
           correlation: modelInvocationCorrelation(scope, "agent-reaction", agent.id, {
             modelInvocationId: invocation?.id,
             modelInvocation: invocation?.ordinal,
           }),
-          attributes: { resultKind: invocation?.resultKind ?? null },
-          counts: { validationIssues: issues.length },
-          payload: scope.observer ? fullRuntimePayload(scope.observer, { issues }) : undefined,
-          error: serializeRuntimeError(error),
+          attributes: { resultKind: `reaction_${validated.kind}` },
         });
-      }
+        return {
+          ...validated,
+          modelAudit: result.audit,
+        };
+    } catch (error) {
+      if (!(error instanceof SemanticRepairExhaustedError)) throw error;
+      throw new ModelSemanticRepairError(
+        "agent-reaction",
+        `Agent reaction ${agent.id} failed after repairs: ${error.message}`,
+        { cause: error, audit: error.audit },
+      );
     }
-    throw new ModelSemanticRepairError(
-      "agent-reaction",
-      `Agent reaction ${agent.id} failed after repairs: ${lastError}`,
-      {
-        cause: lastCause,
-        audit: audits.length > 0 ? combineModelExecutionAudits(audits) : undefined,
-      },
-    );
   }
 }
 

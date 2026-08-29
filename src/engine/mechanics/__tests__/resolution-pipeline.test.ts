@@ -11,6 +11,7 @@ import { replaySimulationState } from "../../runtime/transaction";
 import {
   createTestModelCatalog,
   deterministicModelOutput,
+  deterministicGlobalActionCompilationBatch,
   ScriptedModelProvider,
 } from "../../testing/model-provider";
 
@@ -27,6 +28,7 @@ describe("resolution pipeline", () => {
     let planVerificationAttempts = 0;
     let transitionAttempts = 0;
     let mechanicRepairAttempts = 0;
+    let causalVerificationAttempts = 0;
     const provider = new ScriptedModelProvider(({ role, profileId, context, schemaName }) => {
       if (role === "action-grounding") {
         const action = (context as { action: AgentActionProposal }).action;
@@ -38,6 +40,7 @@ describe("resolution pipeline", () => {
           globalFallback: true,
         };
       }
+      if (role === "action-compilation") return deterministicGlobalActionCompilationBatch(profileId, context);
       if (role === "truth-perception") return { kind: "done" };
       if (role === "truth-reaction-routing") return { requests: [] };
       if (role === "truth-resolution") {
@@ -257,7 +260,24 @@ describe("resolution pipeline", () => {
         }
         return output;
       }
-      if (role === "causal-verifier") return { verdict: "accept", findings: [] };
+      if (role === "causal-verifier") {
+        if (schemaName === "causal_verification") {
+          causalVerificationAttempts += 1;
+          if (causalVerificationAttempts === 1) {
+            const candidate = (context as { candidate: { observations: Array<{ id: string }> } }).candidate;
+            return {
+              verdict: "reject",
+              findings: [{
+                target: { kind: "observation", id: candidate.observations[0]!.id },
+                code: "observation-mismatch",
+                message: "observer-local draft needs a more cautious rendering",
+                repairHint: "Re-render only this observer using authorized evidence.",
+              }],
+            };
+          }
+        }
+        return { verdict: "accept", findings: [] };
+      }
       return deterministicModelOutput(profileId, context);
     }, catalog, false);
     const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
@@ -287,6 +307,7 @@ describe("resolution pipeline", () => {
     expect(planVerificationAttempts).toBe(2);
     expect(transitionAttempts).toBe(1);
     expect(mechanicRepairAttempts).toBe(1);
+    expect(causalVerificationAttempts).toBe(2);
     expect(committed.resolutionPlans).toHaveLength(1);
     expect(committed.resolutionReceipts).toHaveLength(1);
     const receipt = committed.resolutionReceipts.find((candidate) => candidate.plan.actorId === "player")!;

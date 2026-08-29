@@ -83,6 +83,14 @@ export class ModelConfigurationError extends Error {
   }
 }
 
+/** Raised when a complete model request exceeds the profile input budget. */
+export class ContextLimitExceededError extends ModelConfigurationError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ContextLimitExceeded";
+  }
+}
+
 export interface ModelSemanticRepairErrorOptions extends ErrorOptions {
   audit?: ModelExecutionAudit;
 }

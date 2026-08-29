@@ -150,7 +150,12 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
   ): Promise<EagerSlotAttemptResult<TResult, TPayload, TIssue>>;
   issuesForError(error: unknown, slot: EagerSlot<TPayload, TIssue>): TIssue[];
   label: string;
+  maxRepairs?: number;
 }): Promise<EagerSlotBatchResult<TResult, TPayload, TIssue>> {
+  const maxRepairs = input.maxRepairs ?? 2;
+  if (!Number.isSafeInteger(maxRepairs) || maxRepairs < 0) {
+    throw new RangeError("eager slot batch maxRepairs must be a non-negative integer");
+  }
   const recover = async (
     sourceSlots: readonly EagerSlot<TPayload, TIssue>[],
   ): Promise<EagerSlotBatchResult<TResult, TPayload, TIssue>> => {
@@ -176,7 +181,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
     };
     let lastAudit: ModelExecutionAudit | undefined;
     let lastError: unknown = new Error(`${input.label} failed without a model attempt`);
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
       if (pending.length === 0) break;
       const repairedFit = partitionEagerSlots({
         slots: pending,

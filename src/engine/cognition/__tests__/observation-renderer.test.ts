@@ -89,9 +89,12 @@ describe("ObservationRenderer", () => {
     });
     const context = provider.requests[0].context as {
       candidateWorld: { publicFacts: unknown[] };
+      candidateTruth: { entities: Record<string, unknown>; facts: Record<string, unknown> };
       observationSlots: Array<{ observer: Record<string, unknown> }>;
     };
     expect(context.candidateWorld.publicFacts).toBeInstanceOf(Array);
+    expect(Object.keys(context.candidateTruth.entities)).toEqual(Object.keys(state.truth.entities));
+    expect(Object.keys(context.candidateTruth.facts)).toEqual(Object.keys(state.truth.facts));
     expect(context.observationSlots[0]?.observer).toMatchObject({
       agentId: "player",
       entityId: "player",

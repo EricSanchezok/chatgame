@@ -617,7 +617,7 @@ describe("eager reference safeguards", () => {
     expect(repairedIssues).toEqual([
       [expect.stringMatching(/^sharedResourceClaims\.poolId .*canonicalCatalog/)],
     ]);
-    expect(repairedIssues.flat().every((issue) => issue.length < 250)).toBe(true);
+    expect(repairedIssues.flat().every((issue) => issue.includes("canonicalCatalog"))).toBe(true);
   });
 
   it("rolls back when an Action Compilation singleton exhausts semantic repair", async () => {

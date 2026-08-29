@@ -1,7 +1,7 @@
 # Eager Reference 执行算法
 
 ## Status
-Accepted
+Superseded by [0079](0079-truth-engine-output-repair-boundaries.md)
 Class: architecture
 
 ## Context and Problem Statement
@@ -65,3 +65,4 @@ dependency 相交的行动构成冲突分量。每个分量独立执行检定、
 - [0070](0070-event-boundary-temporal-runtime.md) — 动态时间边界、Activity 与 Timer。
 - [0071](0071-pin-algorithms-and-own-telemetry-in-the-engine.md) — `eager-reference@3`、Candidate v2 与稳定遥测所有权。
 - [事故复盘 0029](../postmortems/0029-blackmarsh-monolithic-transition-repair-exhaustion.md) — 真实失败样本。
+- [0079](0079-truth-engine-output-repair-boundaries.md) — 输出质量、局部 repair 与冲突边界。

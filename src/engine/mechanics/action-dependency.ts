@@ -15,7 +15,6 @@ import type {
 import type { ConditionState } from "./resolution";
 import type { ActivityState, WorldTimer } from "./temporal";
 import {
-  ModelOutputError,
   ModelSemanticRepairError,
   modelInvocationCorrelation,
   modelInvocationIdentity,
@@ -31,6 +30,11 @@ import { quantityId } from "../runtime/runtime-id";
 import { contentHash } from "../models/model-audit";
 import type { TruthResolution } from "./truth-engine";
 import { materializeSharedActivityResourceClaims } from "./shared-activity-resources";
+import {
+  SemanticRepairExhaustedError,
+  runSemanticRepairLoop,
+  semanticIssue,
+} from "../models/semantic-repair";
 
 const GROUNDING_PROMPT = promptBundle("action-grounding");
 
@@ -436,81 +440,95 @@ export async function generateInteractionDependency(
   scope: ModelExecutionScope,
   profileId: string,
   invocationOffset = 0,
+  repairAttempts = 2,
 ): Promise<{ dependency: InteractionDependency; audit: ModelExecutionAudit }> {
-  const audits: ModelExecutionAudit[] = [];
-  let issues: string[] = [];
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const identity = modelInvocationIdentity(scope, "action-grounding", action.actorId, invocationOffset + attempt + 1);
-    try {
-      const generated = await provider.generateStructured({
-        profileId,
-        workloadId: scope.workloadId,
-        batchId: scope.batchId,
-        abortSignal: scope.abortSignal,
-        correlation: scope.correlation,
-        observer: scope.observer,
-        ...identity,
-        role: "action-grounding",
-        subjectId: action.actorId,
-        promptVersion: GROUNDING_PROMPT.version,
-        schemaName: "action_grounding",
-        system: GROUNDING_PROMPT.system,
-        userPrompt: GROUNDING_PROMPT.userPrompt,
-        context: actionGroundingContext(state, action, issues),
-        schema: actionGroundingSchema,
-      });
-      audits.push(generated.audit);
-      setModelInvocationResultKind(generated.audit, "action-grounding_footprint");
-      const hasGlobalReference = [...generated.value.reads, ...generated.value.writes]
-        .some((ref) => ref.kind === "global");
-      if (generated.value.globalFallback !== hasGlobalReference) {
-        const issue = "globalFallback must match the presence of a global world reference";
-        issues = [issue];
-        setModelInvocationOutcome(generated.audit, "rejected", ["inconsistent_global_fallback"]);
+  try {
+    const result = await runSemanticRepairLoop({
+      role: "action-grounding",
+      repairScope: "slot",
+      targetIds: [action.id],
+      maxRepairs: repairAttempts,
+      invoke: async (repairContext) => {
+        const identity = modelInvocationIdentity(
+          scope,
+          "action-grounding",
+          action.actorId,
+          invocationOffset + repairContext.attempt + 1,
+        );
+        const generated = await provider.generateStructured({
+          profileId,
+          workloadId: scope.workloadId,
+          batchId: scope.batchId,
+          abortSignal: scope.abortSignal,
+          correlation: scope.correlation,
+          observer: scope.observer,
+          ...identity,
+          role: "action-grounding",
+          subjectId: action.actorId,
+          promptVersion: GROUNDING_PROMPT.version,
+          schemaName: "action_grounding",
+          system: GROUNDING_PROMPT.system,
+          userPrompt: GROUNDING_PROMPT.userPrompt,
+          context: actionGroundingContext(
+            state,
+            action,
+            repairContext.issues.map((issue) => issue.message),
+          ),
+          schema: actionGroundingSchema,
+        });
+        setModelInvocationResultKind(generated.audit, "action-grounding_footprint");
+        return generated;
+      },
+      validate: (value) => {
+        const hasGlobalReference = [...value.reads, ...value.writes]
+          .some((ref) => ref.kind === "global");
+        if (value.globalFallback !== hasGlobalReference) {
+          throw new GroundingValidationError(action.id, [
+            "globalFallback must match the presence of a global world reference",
+          ]);
+        }
+        materializeInteractionDependency(state, action, value);
+      },
+      classify: (error) => {
+        const reasons = error instanceof GroundingValidationError
+          ? error.reasons
+          : [error instanceof Error ? error.message : String(error)];
+        return reasons.map((reason) => semanticIssue(
+          reason.startsWith("unknown_") || reason.includes("reference") ? "grounding_reference" : "grounding_scope",
+          reason,
+          { class: "reference", path: ["interactionDependency"], targetIds: [action.id] },
+        ));
+      },
+      onRejected: ({ audit, issues, error }) => {
+        const invocation = audit?.invocations.at(-1);
+        if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
         scope.observer?.emit({
           event: "model.semantic.rejected",
           level: "warn",
-          correlation: modelInvocationCorrelation(scope, "action-grounding", action.actorId, identity),
-          attributes: { resultKind: "action-grounding_footprint" },
-          counts: { validationIssues: 1 },
-          error: { name: "GroundingScopeError", message: issue },
+          correlation: modelInvocationCorrelation(scope, "action-grounding", action.actorId, {
+            modelInvocationId: invocation?.id,
+            modelInvocation: invocation?.ordinal,
+          }),
+          attributes: { resultKind: invocation?.resultKind ?? "action-grounding_footprint" },
+          counts: { validationIssues: issues.length },
+          error: { name: error instanceof Error ? error.name : "GroundingValidationError", message: issues[0]?.message },
         });
-        if (attempt < 2) continue;
-        throw new ModelSemanticRepairError(
-          "action-grounding",
-          `action grounding scope failed after repairs for ${action.actorId}: ${issue}`,
-          { audit: generated.audit },
-        );
-      }
-      setModelInvocationOutcome(generated.audit, "accepted");
-      const audit = audits.length === 1 ? audits[0] : {
-        ...structuredClone(audits[0]),
-        invocations: audits.flatMap((entry) => structuredClone(entry.invocations)),
-      };
-      return { dependency: materializeInteractionDependency(state, action, generated.value), audit };
-    } catch (error) {
-      if (error instanceof ModelSemanticRepairError) throw error;
-      if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
-      const last = audits.at(-1);
-      issues = [error instanceof Error ? error.message : String(error)];
-      if (last?.invocations.length) setModelInvocationOutcome(last, "rejected", ["invalid_grounding"]);
-      scope.observer?.emit({
-        event: "model.semantic.rejected",
-        level: "warn",
-        correlation: modelInvocationCorrelation(scope, "action-grounding", action.actorId, identity),
-        attributes: { resultKind: "action-grounding_footprint" },
-        error: { name: error instanceof Error ? error.name : "Error", message: issues[0] },
-      });
-      if (attempt === 2) {
-        throw new ModelSemanticRepairError(
-          "action-grounding",
-          `action grounding failed after repairs for ${action.actorId}: ${issues[0]}`,
-          { cause: error },
-        );
-      }
-    }
+      },
+    });
+    const last = result.audit.invocations.at(-1);
+    if (last) setModelInvocationOutcome(result.audit, "accepted");
+    return {
+      dependency: materializeInteractionDependency(state, action, result.value),
+      audit: result.audit,
+    };
+  } catch (error) {
+    if (!(error instanceof SemanticRepairExhaustedError)) throw error;
+    throw new ModelSemanticRepairError(
+      "action-grounding",
+      `action grounding failed after repairs for ${action.actorId}: ${error.message}`,
+      { cause: error, audit: error.audit },
+    );
   }
-  throw new Error("unreachable grounding loop");
 }
 
 export function forceGlobalInteractionDependency(dependency: Readonly<InteractionDependency>): InteractionDependency {

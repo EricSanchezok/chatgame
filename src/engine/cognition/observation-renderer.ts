@@ -9,7 +9,7 @@ import type {
   TransitionProposal,
 } from "../contracts/model";
 import {
-  ModelConfigurationError,
+  ContextLimitExceededError,
   modelInvocationCorrelation,
   modelInvocationIdentity,
   setModelInvocationOutcome,
@@ -59,9 +59,18 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
       id: input.definition.id,
       description: input.definition.description,
       laws: input.definition.laws,
+      rulePackages: input.definition.rulePackages,
+      randomDistributions: input.definition.randomDistributions,
+      disclosure: input.definition.disclosure,
     },
     baseRevision: input.state.revision,
     nextStep: candidate.step,
+    // The renderer is a trusted server-side adjudication boundary.  It needs
+    // the complete candidate truth to distinguish observable effects from
+    // hidden state; the observer slot below remains the only cognition and
+    // authorization view exposed for rendering.
+    candidateTruth: structuredClone(candidate.truth),
+    semanticHistory: input.state.history.map((step) => structuredClone(step)),
     candidateWorld: {
       elapsedSeconds: candidate.truth.elapsedSeconds,
       entities: Object.values(candidate.truth.entities).map(({ id, kind, name, lifecycle }) => ({
@@ -284,7 +293,7 @@ async function renderObserver(
         const context = observationContext(input, [observerId], issues);
         const bytes = requestBytes(context);
         if (bytes > profile.max_input_bytes) {
-          throw new ModelConfigurationError(
+          throw new ContextLimitExceededError(
             `observation context for ${observerId} uses ${bytes} bytes and exceeds ` +
             `profile max_input_bytes ${profile.max_input_bytes}`,
           );

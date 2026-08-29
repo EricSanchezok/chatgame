@@ -93,7 +93,9 @@ import { runtimeId } from "../runtime/runtime-id";
 import type { TemporalBoundary } from "./temporal";
 import {
   runSemanticRepairLoop,
+  SemanticRepairExhaustedError,
   semanticIssue,
+  type SemanticRepairScope,
 } from "../models/semantic-repair";
 
 export interface ReactionResolution {
@@ -136,6 +138,7 @@ export interface TruthResolutionInput {
     proposal: Readonly<TransitionProposal>,
     actions: readonly AgentActionProposal[],
     transitionAttempt: number,
+    observerIds?: readonly string[],
   ) => Promise<ObservationResolution>;
   validateProposal: (
     proposal: TransitionProposal,
@@ -239,8 +242,12 @@ class ResolutionPlanCardinalityError extends Error {
 
 function cardinalityError(error: unknown): ResolutionPlanCardinalityError | null {
   if (error instanceof ResolutionPlanCardinalityError) return error;
-  if (error instanceof ModelSemanticRepairError && error.cause instanceof ResolutionPlanCardinalityError) {
-    return error.cause;
+  if (error instanceof ModelSemanticRepairError) {
+    if (error.cause instanceof ResolutionPlanCardinalityError) return error.cause;
+    if (error.cause instanceof SemanticRepairExhaustedError &&
+      error.cause.cause instanceof ResolutionPlanCardinalityError) {
+      return error.cause.cause;
+    }
   }
   return null;
 }
@@ -258,103 +265,106 @@ interface ValidatedCallInput<T> {
   validate?: (value: T) => void;
   repairAttempts: number;
   invocationOffset?: number;
+  repairScope?: SemanticRepairScope;
+  targetIds?: readonly string[];
 }
 
 async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
   value: T;
   audit: ModelExecutionAudit;
 }> {
-  const audits: ModelExecutionAudit[] = [];
-  let issues: PromptValidationIssue[] = [];
-  let repairCount = 0;
   const observe = runtimeEventEmitter(input.scope.observer);
-  while (true) {
-    const auditCountBeforeAttempt = audits.length;
-    try {
-      const contextStartedAt = Date.now();
-      const context = input.buildContext(issues);
-      const prompt = promptBundle(input.promptId);
-      const invocation = (input.invocationOffset ?? 0) +
-        audits.reduce((count, audit) => count + audit.invocations.length, 0) + 1;
-      const identity = modelInvocationIdentity(input.scope, input.role, input.subjectId, invocation);
-      const correlation = modelInvocationCorrelation(input.scope, input.role, input.subjectId, identity);
-      observe?.({
-        event: "model.context.built",
-        correlation,
-        durationMs: Math.max(0, Date.now() - contextStartedAt),
-        hashes: { context: contentHash(context) },
-      });
-      const result = await input.provider.generateStructured({
-        profileId: input.profileId,
-        workloadId: input.scope.workloadId,
-        batchId: input.scope.batchId,
-        abortSignal: input.scope.abortSignal,
-        correlation: input.scope.correlation,
-        observer: input.scope.observer,
-        ...identity,
-        role: input.role,
-        subjectId: input.subjectId,
-        promptVersion: prompt.version,
-        schemaName: input.schemaName,
-        system: prompt.system,
-        userPrompt: prompt.userPrompt,
-        context,
-        schema: input.schema,
-      });
-      audits.push(result.audit);
-      input.validate?.(result.value);
-      const value = result.value as { kind?: unknown; verdict?: unknown };
-      const resultKind = typeof value.kind === "string"
-        ? `${input.role}_${value.kind}`
-        : typeof value.verdict === "string"
-          ? `${input.role}_${value.verdict}`
-          : input.role;
-      setModelInvocationResultKind(result.audit, resultKind);
-      setModelInvocationOutcome(result.audit, "accepted");
-      observe?.({
-        event: "model.semantic.accepted",
-        correlation,
-        attributes: { resultKind },
-      });
-      return {
-        value: result.value,
-        audit: combineModelExecutionAudits(audits),
-      };
-    } catch (error) {
-      if (error instanceof ModelConfigurationError || error instanceof ModelTransportError ||
-        error instanceof ModelOverloadedError ||
-        (error instanceof Error && error.name === "AbortError")) throw error;
-      if (error instanceof ModelOutputError && error.audit) audits.push(error.audit);
-      if (audits.length === auditCountBeforeAttempt) throw error;
-      if (!(error instanceof ModelOutputError) && !(error instanceof z.ZodError) && !(error instanceof Error)) {
-        throw error;
-      }
-      issues = validationIssues(error);
-      const audit = audits.at(-1);
-      if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
-      const invocation = audit?.invocations.at(-1);
-      observe?.({
-        event: "model.semantic.rejected",
-        level: "warn",
-        correlation: modelInvocationCorrelation(input.scope, input.role, input.subjectId, {
-          modelInvocationId: invocation?.id,
-          modelInvocation: invocation?.ordinal,
-        }),
-        attributes: { resultKind: invocation?.resultKind ?? null },
-        counts: { validationIssues: issues.length },
-        hashes: invocation?.responseHash ? { response: invocation.responseHash } : undefined,
-        error: serializeRuntimeError(error),
-      });
-      repairCount += 1;
-      if (repairCount > input.repairAttempts) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new ModelSemanticRepairError(
-          input.role,
-          `${input.role} failed after repairs: ${message}`,
-          { cause: error },
-        );
-      }
-    }
+  try {
+    const result = await runSemanticRepairLoop({
+      role: input.role,
+      repairScope: input.repairScope ?? "step",
+      targetIds: input.targetIds ?? [input.subjectId],
+      maxRepairs: input.repairAttempts,
+      invoke: async (repairContext) => {
+        const contextStartedAt = Date.now();
+        const issues = repairContext.issues.map((issue) => ({
+          code: issue.code,
+          path: issue.path,
+          message: issue.message,
+        }));
+        const context = input.buildContext(issues);
+        const prompt = promptBundle(input.promptId);
+        const invocation = (input.invocationOffset ?? 0) + repairContext.attempt + 1;
+        const identity = modelInvocationIdentity(input.scope, input.role, input.subjectId, invocation);
+        const correlation = modelInvocationCorrelation(input.scope, input.role, input.subjectId, identity);
+        observe?.({
+          event: "model.context.built",
+          correlation,
+          durationMs: Math.max(0, Date.now() - contextStartedAt),
+          hashes: { context: contentHash(context) },
+        });
+        const generated = await input.provider.generateStructured({
+          profileId: input.profileId,
+          workloadId: input.scope.workloadId,
+          batchId: input.scope.batchId,
+          abortSignal: input.scope.abortSignal,
+          correlation: input.scope.correlation,
+          observer: input.scope.observer,
+          ...identity,
+          role: input.role,
+          subjectId: input.subjectId,
+          promptVersion: prompt.version,
+          schemaName: input.schemaName,
+          system: prompt.system,
+          userPrompt: prompt.userPrompt,
+          context,
+          schema: input.schema,
+        });
+        const value = generated.value as { kind?: unknown; verdict?: unknown };
+        const resultKind = typeof value.kind === "string"
+          ? `${input.role}_${value.kind}`
+          : typeof value.verdict === "string"
+            ? `${input.role}_${value.verdict}`
+            : input.role;
+        setModelInvocationResultKind(generated.audit, resultKind);
+        return generated;
+      },
+      validate: (value) => input.validate?.(value),
+      classify: (error) => validationIssues(error).map((issue) => semanticIssue(
+        issue.code,
+        issue.message,
+        { path: issue.path, class: "semantic", targetIds: input.targetIds ? [...input.targetIds] : undefined },
+      )),
+      onRejected: ({ audit, issues, error }) => {
+        const invocation = audit?.invocations.at(-1);
+        if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
+        observe?.({
+          event: "model.semantic.rejected",
+          level: "warn",
+          correlation: modelInvocationCorrelation(input.scope, input.role, input.subjectId, {
+            modelInvocationId: invocation?.id,
+            modelInvocation: invocation?.ordinal,
+          }),
+          attributes: { resultKind: invocation?.resultKind ?? null },
+          counts: { validationIssues: issues.length },
+          hashes: invocation?.responseHash ? { response: invocation.responseHash } : undefined,
+          error: serializeRuntimeError(error),
+        });
+      },
+    });
+    const acceptedInvocation = result.audit.invocations.at(-1);
+    if (acceptedInvocation) setModelInvocationOutcome(result.audit, "accepted");
+    observe?.({
+      event: "model.semantic.accepted",
+      correlation: modelInvocationCorrelation(input.scope, input.role, input.subjectId, {
+        modelInvocationId: acceptedInvocation?.id,
+        modelInvocation: acceptedInvocation?.ordinal,
+      }),
+      attributes: { resultKind: acceptedInvocation?.resultKind ?? input.role },
+    });
+    return { value: result.value, audit: result.audit };
+  } catch (error) {
+    if (!(error instanceof SemanticRepairExhaustedError)) throw error;
+    throw new ModelSemanticRepairError(
+      input.role,
+      `${input.role} failed after repairs: ${error.message}`,
+      { cause: error, audit: error.audit },
+    );
   }
 }
 
@@ -503,6 +513,8 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
       },
       repairAttempts: input.repairAttempts,
       invocationOffset: audits.reduce((count, audit) => count + audit.invocations.length, 0),
+      repairScope: "step",
+      targetIds: input.actions.map((action) => action.id),
     });
     audits.push(call.audit);
     if (call.value.kind === "done") break;
@@ -1727,6 +1739,8 @@ export class TruthEngine {
           checks,
         ),
         repairAttempts: this.repairAttempts,
+        repairScope: "step",
+        targetIds: actions.map((action) => action.id),
       });
       modelAudits.push(routing.audit);
       reactionRequests = materializeReactionRequests(input, routing.value.requests);
@@ -1770,13 +1784,27 @@ export class TruthEngine {
     let resolutionPlanIssues: PromptValidationIssue[] = [];
     let resolutionPlanRepairs = 0;
     let lastPlanDrafts: ResolutionPlanDraft[] = [];
+    let pendingPlanVerification: {
+      plans: ResolutionPlan[];
+      checks: D20CheckRequest[];
+      audit: ModelExecutionAudit;
+    } | null = null;
     while (true) {
       let acceptedPlans: ResolutionPlan[] = [];
       let acceptedPlanChecks: D20CheckRequest[] = [];
       let acceptedRandom: DiscreteRandomRequest[] | null = null;
       let continuationFromTargetedRepair = false;
       let call: { value: z.infer<typeof resolutionDirectiveSchema>; audit: ModelExecutionAudit };
-      try {
+      if (pendingPlanVerification) {
+        acceptedPlans = structuredClone(pendingPlanVerification.plans);
+        acceptedPlanChecks = structuredClone(pendingPlanVerification.checks);
+        call = {
+          value: { kind: "commit_plans", plans: [] },
+          audit: pendingPlanVerification.audit,
+        };
+        pendingPlanVerification = null;
+        continuationFromTargetedRepair = true;
+      } else try {
         call = await generateValidated({
           provider: this.provider,
           profileId: input.definition.modelProfiles.resolution,
@@ -1821,6 +1849,8 @@ export class TruthEngine {
           },
           repairAttempts: this.repairAttempts,
           invocationOffset: resolutionAudits.reduce((count, audit) => count + audit.invocations.length, 0),
+          repairScope: "component",
+          targetIds: actions.map((action) => action.id),
         });
       } catch (error) {
         const cardinality = cardinalityError(error);
@@ -1883,6 +1913,8 @@ export class TruthEngine {
               },
               repairAttempts: this.repairAttempts,
               invocationOffset: repairBaseOffset + index * (this.repairAttempts + 1),
+              repairScope: "slot",
+              targetIds: [action.id],
             });
             return { plans: repairedPlans, audit: result.audit };
           }),
@@ -1955,6 +1987,8 @@ export class TruthEngine {
           repairAttempts: this.repairAttempts,
           invocationOffset: resolutionPlanVerifierAudits
             .reduce((count, audit) => count + audit.invocations.length, 0),
+          repairScope: "component",
+          targetIds: acceptedPlans.map((plan) => plan.id),
         });
         resolutionPlanVerifierAudits.push(verification.audit);
         if (verification.value.verdict === "reject") {
@@ -1977,6 +2011,96 @@ export class TruthEngine {
                 .join(" | ")}`,
             );
           }
+          const targetPlanIds = [...new Set(verification.value.findings.map((finding) => finding.planId))];
+          const targetActions = targetPlanIds
+            .map((planId) => acceptedPlans.find((plan) => plan.id === planId))
+            .filter((plan): plan is ResolutionPlan => Boolean(plan));
+          if (targetActions.length !== targetPlanIds.length) {
+            throw new Error("resolution plan verifier target disappeared before repair");
+          }
+          const repairBaseOffset = resolutionRepairAudits.reduce((count, audit) =>
+            count + audit.invocations.length, 0);
+          const repaired = await Promise.all(targetActions.map(async (plan, index) => {
+            const repairScope: ResolutionScope = {
+              mode: "repair",
+              selectedActionIds: [plan.actionId],
+              totalActionCount: actions.length,
+            };
+            const findingIssues = verification.value.findings
+              .filter((finding) => finding.planId === plan.id)
+              .map((finding) => ({
+                code: finding.code,
+                path: ["plans", plan.id],
+                message: `${finding.message} Repair: ${finding.repairHint}`,
+              }));
+            const result = await generateValidated({
+              provider: this.provider,
+              profileId: input.definition.modelProfiles.resolution,
+              role: "truth-resolution",
+              subjectId: `${truthSubject}:plan-repair:${plan.id}`,
+              promptId: "truth-resolution",
+              schemaName: "truth_resolution_plan_repair",
+              schema: resolutionDirectiveSchema,
+              scope,
+              buildContext: (issues) => ({
+                ...(truthContext("resolution", [...findingIssues, ...issues], repairScope) as Record<string, unknown>),
+                repairTarget: { kind: "plan", id: plan.id, issueClass: "causal" },
+                candidateResolutionPlans: structuredClone(acceptedPlans),
+              }),
+              validate: (directive) => {
+                if (directive.kind !== "commit_plans") {
+                  throw new Error("targeted plan repair must return commit_plans");
+                }
+                const scopedDrafts = directive.plans.filter((draft) => draft.actionId === plan.actionId);
+                if (scopedDrafts.length !== 1 || directive.plans.length !== 1) {
+                  throw new Error(`targeted plan repair must return exactly one plan for ${plan.actionId}`);
+                }
+                materializeResolutionPlans({
+                  state: input.state,
+                  definition: input.definition,
+                  actions: [actions.find((action) => action.id === plan.actionId)!],
+                  groundings,
+                  identityOwner: input.identityOwner,
+                  drafts: scopedDrafts,
+                  allowedCauses: allowedForCommitments,
+                });
+              },
+              repairAttempts: this.repairAttempts,
+              invocationOffset: repairBaseOffset + index * (this.repairAttempts + 1),
+              repairScope: "slot",
+              targetIds: [plan.id],
+            });
+            const repairedPlans = materializeResolutionPlans({
+              state: input.state,
+              definition: input.definition,
+              actions: [actions.find((action) => action.id === plan.actionId)!],
+              groundings,
+              identityOwner: input.identityOwner,
+              drafts: result.value.kind === "commit_plans"
+                ? result.value.plans.filter((draft) => draft.actionId === plan.actionId)
+                : [],
+              allowedCauses: allowedForCommitments,
+            });
+            return { planId: plan.id, plans: repairedPlans, audit: result.audit };
+          }));
+          resolutionRepairAudits.push(...repaired.map((entry) => entry.audit));
+          const repairedByPlan = new Map(repaired.map((entry) => [entry.planId, entry.plans[0]!]));
+          const repairedPlans = acceptedPlans.map((plan) => repairedByPlan.get(plan.id) ?? plan)
+            .sort((left, right) => left.actionId.localeCompare(right.actionId));
+          const repairedChecks = checkRequestsForPlans({
+            state: input.state,
+            plans: repairedPlans,
+            identityOwner: input.identityOwner,
+            round: commitmentRounds.length,
+            allowedCauses: allowedForCommitments,
+            maximumVisibility: input.definition.disclosure.defaultCheckVisibility,
+          });
+          pendingPlanVerification = {
+            plans: repairedPlans,
+            checks: repairedChecks,
+            audit: repaired[0]!.audit,
+          };
+          resolutionPlanIssues = [];
           continue;
         }
         resolutionPlanIssues = [];
@@ -2021,6 +2145,7 @@ export class TruthEngine {
     const verifierAudits: ModelExecutionAudit[] = [];
     const observationAudits: ModelExecutionAudit[] = [];
     const observe = runtimeEventEmitter(scope.observer);
+    let observationRepairRounds = 0;
 
     while (true) {
       const auditCountBeforeAttempt = transitionAudits.length;
@@ -2227,10 +2352,12 @@ export class TruthEngine {
         observationAudits.push(...structuredClone(rendered.modelAudits));
 
         validateTransitionEnvelope(input, actions, proposal, checks, randomResults, resolutionReceipts);
-        const causalAssertionResults = evaluateProposalCausality(input.state, checks, randomResults, proposal);
+        let causalAssertionResults = evaluateProposalCausality(input.state, checks, randomResults, proposal);
         input.validateProposal(proposal, checks, randomResults, actions, stimulusObservations);
 
-        const verification = await generateValidated({
+        let verification: { value: CausalVerification; audit: ModelExecutionAudit };
+        while (true) {
+          verification = await generateValidated({
           provider: this.provider,
           profileId: input.definition.modelProfiles.causalVerifier,
           role: "causal-verifier",
@@ -2290,13 +2417,49 @@ export class TruthEngine {
           invocationOffset: [resolutionPlanVerifierAudits, verifierAudits]
             .flat()
             .reduce((count, audit) => count + audit.invocations.length, 0),
-        });
-        verifierAudits.push(verification.audit);
-        if (verification.value.verdict === "reject") {
+          repairScope: "component",
+          targetIds: actions.map((action) => action.id),
+          });
+          verifierAudits.push(verification.audit);
+          if (verification.value.verdict !== "reject") break;
+          setModelInvocationOutcome(
+            generated.audit,
+            "rejected",
+            verification.value.findings.map((finding) => finding.code),
+          );
           previousReport = structuredClone(verification.value);
-          throw new Error(`causal verifier rejected transition: ${verification.value.findings
-            .map((finding) => `${finding.code}: ${finding.message}; ${finding.repairHint}`)
-            .join(" | ")}`);
+          const observationFindings = verification.value.findings.filter((finding) =>
+            finding.target.kind === "observation");
+          const onlyObserverFindings = observationFindings.length === verification.value.findings.length &&
+            observationFindings.length > 0 && observationRepairRounds < this.repairAttempts;
+          if (!onlyObserverFindings) {
+            throw new Error(`causal verifier rejected transition: ${verification.value.findings
+              .map((finding) => `${finding.code}: ${finding.message}; ${finding.repairHint}`)
+              .join(" | ")}`);
+          }
+          const targetObservationIds = new Set(observationFindings.map((finding) => finding.target.id));
+          const targetObserverIds = proposal.observations
+            .filter((observation) => targetObservationIds.has(observation.id))
+            .map((observation) => observation.observerId);
+          if (targetObserverIds.length !== targetObservationIds.size) {
+            throw new Error("causal verifier observation target is not present in the candidate");
+          }
+          const repairedObservations = await input.renderObservations(
+            proposal,
+            actions,
+            transitionRepairs + observationRepairRounds + 1,
+            [...new Set(targetObserverIds)].sort(),
+          );
+          const targetObservers = new Set(targetObserverIds);
+          proposal.observations = [
+            ...proposal.observations.filter((observation) => !targetObservers.has(observation.observerId)),
+            ...structuredClone(repairedObservations.packets),
+          ].sort((left, right) => left.observerId.localeCompare(right.observerId) || left.id.localeCompare(right.id));
+          observationAudits.push(...structuredClone(repairedObservations.modelAudits));
+          validateTransitionEnvelope(input, actions, proposal, checks, randomResults, resolutionReceipts);
+          causalAssertionResults = evaluateProposalCausality(input.state, checks, randomResults, proposal);
+          input.validateProposal(proposal, checks, randomResults, actions, stimulusObservations);
+          observationRepairRounds += 1;
         }
 
         setModelInvocationOutcome(generated.audit, "accepted");

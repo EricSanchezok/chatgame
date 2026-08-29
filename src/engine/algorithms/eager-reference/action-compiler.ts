@@ -138,7 +138,7 @@ function actionCompilationRepairIssues(error: unknown): string[] {
   if (error instanceof EagerSlotAttemptError && error.cause instanceof ModelOutputError) {
     return ["上一次输出未通过结构化 schema 验证；请严格按 schema 返回当前所有 slot。"];
   }
-  return [message.slice(0, 500)];
+  return [message];
 }
 
 function actionCompilationSlotIssues(error: unknown): string[] {
@@ -189,6 +189,8 @@ function localizedSchemaFailure(
     if (rawByIndex.has(candidateIndex)) duplicateIndexes.add(candidateIndex);
     rawByIndex.set(candidateIndex, raw);
   });
+  const expectedIndexes = new Set(batch.map((_, index) => index));
+  if ([...rawByIndex.keys()].some((index) => !expectedIndexes.has(index))) return null;
   for (const [index, slot] of batch.entries()) {
     const raw = rawByIndex.get(index);
     if (raw === undefined || duplicateIndexes.has(index)) {
@@ -290,6 +292,7 @@ export async function compileActions(
   scope: ModelExecutionScope,
   profileId: string,
   maxSlots: number,
+  repairAttempts = 2,
 ): Promise<ActionCompilationResult> {
   if (actions.length === 0) {
     return {
@@ -315,6 +318,7 @@ export async function compileActions(
     ),
     label: "action compilation",
     issuesForError: actionCompilationRepairIssues,
+    maxRepairs: repairAttempts,
     invoke: async (batch, attempt) => {
       const owner = eagerSlotBatchOwner("action-compilation", batch);
       const identity = modelInvocationIdentity(scope, "action-compilation", owner, attempt + 1);

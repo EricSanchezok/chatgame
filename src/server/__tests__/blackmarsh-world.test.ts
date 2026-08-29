@@ -567,7 +567,7 @@ describe("Blackmarsh reference world", () => {
   });
 
   it("bootstraps all Agents and commits one deterministic open-world step", async () => {
-    const provider = new DeterministicModelProvider(createTestModelCatalog(undefined, { maxInputBytes: 524_288 }));
+    const provider = new DeterministicModelProvider(createTestModelCatalog(undefined, { maxInputBytes: 1_048_576 }));
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
     const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
     await engine.bootstrapAgents();

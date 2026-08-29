@@ -20,6 +20,7 @@ import { historyReplayBaseHash } from "../../engine/runtime/history-replay";
 import { contentHash } from "../../engine/models/model-audit";
 import { promptBundle } from "../../engine/prompts";
 import {
+  createTestModelCatalog,
   DeterministicModelProvider,
   ScriptedModelProvider,
   deterministicActionCompilationBatch,
@@ -47,7 +48,7 @@ function harness(input: {
   algorithmRegistry?: WorldExecutionAlgorithmRegistry;
   defaultAlgorithmRef?: AlgorithmRef;
 } = {}) {
-  const provider = new DeterministicModelProvider();
+  const provider = new DeterministicModelProvider(createTestModelCatalog(undefined, { maxInputBytes: 1_048_576 }));
   const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
     seed: 47,
     modelCatalog: provider.catalog,
@@ -251,7 +252,7 @@ describe("World Instance host", () => {
       expect(arrivalRequest).toMatchObject({
         promptVersion: promptBundle("arrival-generator").version,
         context: {
-          contractVersion: 11,
+          contractVersion: 12,
           perspective: { agentId: "courtyard-wanderer-1" },
         },
       });

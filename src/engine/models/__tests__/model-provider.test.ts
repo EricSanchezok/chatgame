@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ModelGateway, type ModelGatewayOptions } from "../model-gateway";
 import { parseModelCatalog } from "../model-catalog";
 import {
+  ContextLimitExceededError,
   ModelConfigurationError,
   ModelOutputError,
   modelInvocationIdentity,
@@ -200,6 +201,21 @@ function request(profileId: string) {
 }
 
 describe("model catalog and provider adapters", () => {
+  it("rejects complete contexts at the profile limit without truncation", async () => {
+    let fetchCalls = 0;
+    const gateway = createGateway(credentials, {
+      fetch: async () => {
+        fetchCalls += 1;
+        return deepSeekResponse();
+      },
+    });
+    await expect(gateway.generateStructured({
+      ...request("deep"),
+      context: { payload: "x".repeat(300_000) },
+    })).rejects.toBeInstanceOf(ContextLimitExceededError);
+    expect(fetchCalls).toBe(0);
+  });
+
   it("keeps canonical audit identity independent of workload and batch correlation", () => {
     const first = modelInvocationIdentity({
       workloadId: "session-uuid-a",

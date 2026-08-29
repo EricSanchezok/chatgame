@@ -28,7 +28,7 @@ import type { TemporalBoundary } from "../mechanics/temporal";
 import { MechanicInputValidationError, type MechanicPromptContract } from "../mechanics/rule-package";
 import { promptBundle, type PromptBundleId } from "../prompts";
 
-export const MODEL_CONTEXT_CONTRACT_VERSION = 11;
+export const MODEL_CONTEXT_CONTRACT_VERSION = 12;
 
 export { promptBundle } from "../prompts";
 export type { PromptBundle, PromptBundleId } from "../prompts";
@@ -364,6 +364,11 @@ export function buildCausalVerificationContext(input: {
   contextGroundings?: readonly InteractionDependency[];
   resolutionScope?: ResolutionScope;
   mechanicContracts?: readonly MechanicPromptContract[];
+  repairTarget?: {
+    kind: "mechanic" | "plan" | "operation" | "event" | "outcome" | "observation";
+    id: string;
+    issueClass: string;
+  } | null;
 }): unknown {
   const contextMode = input.contextMode ?? "scoped";
   const contextState = input.contextState ?? input.state;
@@ -388,6 +393,7 @@ export function buildCausalVerificationContext(input: {
     canonicalTruth: contextMode === "full"
       ? structuredClone(contextState.truth)
       : scopedCanonicalTruth(input.state, input.actions, input.groundings),
+    semanticHistory: semanticHistory(contextState),
     actions: contextActions,
     groundings: contextGroundings,
     committedCheckRequests: input.checkRequests,
@@ -403,6 +409,7 @@ export function buildCausalVerificationContext(input: {
     previousReport: input.previousReport,
     validationIssues: input.issues,
     resolutionScope: input.resolutionScope ?? null,
+    repairTarget: input.repairTarget ? structuredClone(input.repairTarget) : null,
   };
 }
 
@@ -445,6 +452,7 @@ export function buildResolutionPlanVerificationContext(input: {
     },
     baseRevision: input.state.revision,
     canonicalTruth,
+    semanticHistory: semanticHistory(contextState),
     actions: contextActions,
     groundings: contextGroundings,
     candidatePlans: input.plans,

@@ -907,7 +907,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       resolveReactions: async () => {
         throw new Error("component resolution cannot open a second reaction round");
       },
-      renderObservations: async (proposal, finalActions, transitionAttempt) => {
+      renderObservations: async (proposal, finalActions, transitionAttempt, requestedObserverIds) => {
         const resolvedTemporal = reconcileTemporalOutcomes(scopedTemporalBase, proposal.outcomes);
         const observationTemporal = {
           activities: {
@@ -919,7 +919,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
             ...structuredClone(resolvedTemporal.timers),
           },
         };
-        const observerIds = [...new Set([
+        const observerIds = requestedObserverIds ?? [...new Set([
           ...actorIds,
           ...scopedDependencies.flatMap((dependency) => dependency.audienceAgentIds),
         ])].sort();
@@ -1067,6 +1067,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       context.modelScope,
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
+      compilationComponent.config.repairAttempts,
     );
     if (newActions.length > 0) {
       this.emitSlotBatchMetrics(
@@ -1352,6 +1353,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       context.modelScope,
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
+      compilationComponent.config.repairAttempts,
     );
     if (replacementDecisions.length > 0) {
       this.emitSlotBatchMetrics(
@@ -1543,6 +1545,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         action,
         context.modelScope,
         input.definition.modelProfiles.grounding,
+        0,
+        groundingComponent.config.repairAttempts,
       );
     }), "action grounding", 8);
     const actionDependencies = [

@@ -27,6 +27,7 @@ import type {
 } from "./model-provider";
 import {
   ModelConfigurationError,
+  ContextLimitExceededError,
   modelInvocationIdentity,
   ModelOutputError,
   ModelTransportError,
@@ -422,7 +423,7 @@ export class ModelGateway implements StructuredModelProvider {
     const requestHash = contentHash(requestDocument);
     const requestUtf8Bytes = promptBytes.requestUtf8Bytes;
     if (requestUtf8Bytes > profile.max_input_bytes) {
-      throw new ModelConfigurationError(
+      throw new ContextLimitExceededError(
         `model profile ${request.profileId} request is ${requestUtf8Bytes} bytes; ` +
         `maximum is ${profile.max_input_bytes} bytes`,
       );
@@ -713,7 +714,10 @@ export class ModelGateway implements StructuredModelProvider {
             throw new ModelOutputError(
               error instanceof Error ? error.message : String(error),
               audit,
-              { cause: error },
+              {
+                cause: error,
+                rawValue: error instanceof ModelOutputError ? error.rawValue : undefined,
+              },
             );
           }
           if (error instanceof ModelOverloadedError ||
