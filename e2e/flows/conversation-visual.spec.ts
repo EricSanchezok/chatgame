@@ -3,6 +3,13 @@ import { fixtureArchive } from "../support/world-fixture";
 
 const screenshotOptions = { animations: "disabled" as const, maxDiffPixelRatio: 0.01 };
 
+async function settleResponsiveOverlay(page: Page): Promise<void> {
+  // The control orb measures the sticky viewport footer through a
+  // ResizeObserver. Give that measurement and the following frame a chance
+  // to settle before taking a mobile visual snapshot on slower CI runners.
+  await page.waitForTimeout(300);
+}
+
 async function install(page: Page): Promise<void> {
   const imported = await page.request.post("/api/worlds/import", {
     multipart: {
@@ -93,6 +100,7 @@ test("the observer conversation matches light and dark responsive baselines", as
 
     await page.setViewportSize({ width: 320, height: 720 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await settleResponsiveOverlay(page);
     await expect(page).toHaveScreenshot(`instance-${colorScheme}-mobile.png`, screenshotOptions);
   }
 });
