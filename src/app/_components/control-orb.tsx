@@ -488,7 +488,7 @@ function ControlOrbContent({
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
-    if (event.button !== 0 || open) return;
+    if (event.button !== 0) return;
     dragRef.current = {
       lastAt: performance.now(),
       lastX: event.clientX,

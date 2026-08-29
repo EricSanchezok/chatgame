@@ -8,6 +8,7 @@ import {
   parseControlPosition,
   positionFromPixels,
   positionToPixels,
+  radialActionRadius,
   radialActionSize,
   radialOffsets,
   safeOpenPoint,
@@ -48,7 +49,7 @@ describe("control orb radial actions", () => {
     for (let index = 0; index < offsets.length; index += 1) {
       const [x, y] = offsets[index];
       const [nextX, nextY] = offsets[(index + 1) % offsets.length];
-      expect(Math.hypot(x, y)).toBeCloseTo(104);
+      expect(Math.hypot(x, y)).toBeCloseTo(radialActionRadius);
       expect(Math.hypot(nextX - x, nextY - y)).toBeGreaterThan(radialActionSize);
     }
   });
