@@ -18,8 +18,8 @@ const profileModels = {
   "agent-deepseek": "deepseek-v4-pro",
   "agent-openai": "gpt-5.6",
   "agent-xai": "grok-4.6",
-  "agent-zhipu": "glm-5",
-  "agent-zhipu-coding": "glm-5",
+  "agent-zhipu": "glm-5.3-flash",
+  "agent-zhipu-coding": "glm-5.3-flash",
   "agent-minimax": "MiniMax-M2.7",
   "agent-minimax-token-plan": "MiniMax-M2.7",
   "agent-kimi": "kimi-k2.5",
@@ -176,6 +176,7 @@ function request(profileId: keyof typeof profileModels, ordinal = 1) {
     promptVersion: "matrix-v1",
     schemaName: "matrix_output",
     system: "Return the requested structured result.",
+    userPrompt: "Return the requested matrix result for this test context.",
     context: { account: profileId },
     schema: outputSchema,
     runtimeIdentity: { worldHash: TEST_WORLD_HASH, revision: ordinal },
@@ -275,10 +276,31 @@ describe("provider account protocol matrix", () => {
         modelMetadataHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         catalogSchemaVersion: 3,
       });
+      if (profileId === "agent-zhipu-coding") {
+        expect(result.audit.structuredOutputMode).toBe("json-object-zod");
+      }
       expect(JSON.stringify(result.audit)).not.toContain(credentials[account.api_key_env]);
     }
 
     expect(calls).toHaveLength(Object.keys(profileModels).length);
+    for (const call of calls.filter((candidate) => candidate.url.includes("bigmodel.cn"))) {
+      const responseFormat = call.body.response_format as { type?: unknown } | undefined;
+      if (responseFormat?.type === "json_object") {
+        expect(call.body.response_format).toEqual({ type: "json_object" });
+        expect(call.body.tools).toBeUndefined();
+        expect(call.body.tool_choice).toBeUndefined();
+      } else if (call.body.response_format) {
+        expect(responseFormat?.type).toBe("json_schema");
+        expect(call.body.tools).toBeUndefined();
+        expect(call.body.tool_choice).toBeUndefined();
+      } else {
+        expect(call.body.tools).toEqual([expect.objectContaining({
+          type: "function",
+          function: expect.objectContaining({ name: "submit_result" }),
+        })]);
+        expect(call.body.tool_choice).toBe("auto");
+      }
+    }
     for (const call of calls) {
       expect(call.url).not.toContain("models.dev");
       if (call.url.includes("xiaomimimo.com")) {
@@ -296,7 +318,7 @@ describe("provider account protocol matrix", () => {
     }
   });
 
-  it("uses an honest User-Agent and stable workload/profile/prompt cache key for Kimi Coding", async () => {
+  it("uses an honest User-Agent and stable profile/prompt-bundle cache key for Kimi Coding", async () => {
     const catalog = loadModelCatalog();
     const observed: Array<{ headers: Headers; body: Record<string, unknown> }> = [];
     const gateway = new ModelGateway(catalog, { KIMI_CODING_PLAN_API_KEY: "kimi-secret" }, {

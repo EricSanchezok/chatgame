@@ -5,7 +5,6 @@ import {
   type WorldExecutionAlgorithm,
 } from "../../../runtime/execution";
 import {
-  createMindRepairFallback,
   EagerReferenceAlgorithm,
 } from "../eager-reference";
 import { historyReplayBaseHash } from "../../../runtime/history-replay";
@@ -359,26 +358,6 @@ describe("eager reference safeguards", () => {
     expect(normalized).toMatchObject({ droppedClaims: 1, droppedIntroductions: 1, clearedCanonicalBindings: 0 });
   });
 
-  it("turns AgentMind semantic repair exhaustion into an explicit empty commit and idle action", () => {
-    const state = { worldHash: `sha256:${contentHash("world")}`, revision: 7 } as SimulationState;
-    const agent = { id: "agent-a" } as SimulationState["agents"][string];
-    const fallback = createMindRepairFallback(
-      state,
-      agent,
-      "mind",
-    );
-
-    expect(fallback.beliefPatch).toEqual({ agentId: agent.id, baseRevision: 7, operations: [] });
-    expect(fallback.characterPatch).toEqual({ agentId: agent.id, baseRevision: 7, operations: [] });
-    expect(fallback.nextAction).toMatchObject({
-      actorId: agent.id,
-      baseRevision: 7,
-      rawText: "观察并等待",
-      targetIds: [],
-    });
-    expect(fallback.fallback).toBe(true);
-  });
-
   it("keeps deterministic canonical semantics identical for singleton and larger slot limits", async () => {
     const execute = async (actionCompilationMaxSlots: number, agentMindMaxSlots: number) => {
       const provider = new DeterministicModelProvider();
@@ -412,6 +391,49 @@ describe("eager reference safeguards", () => {
     expect(batched.provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
     expect(singleton.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(2);
     expect(batched.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
+  });
+
+  it("recovers a compressed multi-action resolution response with one-action scopes", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "truth-resolution") {
+        const generated = deterministicModelOutput(profileId, context) as {
+          kind: string;
+          plans?: unknown[];
+        };
+        const actions = (context as { jointActions?: unknown[] }).jointActions ?? [];
+        if (generated.kind === "commit_plans" && actions.length > 1) {
+          return { ...generated, plans: generated.plans?.slice(0, 1) };
+        }
+        return generated;
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(result.committed.actions).toHaveLength(Object.keys(source.agents).length);
+    expect(result.committed.resolutionPlans).toHaveLength(result.committed.actions.length);
+    expect(result.committed.outcomes).toHaveLength(result.committed.actions.length);
+    expect(result.committed.operations.filter((operation) => operation.kind === "advance_time")).toHaveLength(1);
+    expect(provider.requests.filter((request) => request.role === "truth-resolution").length)
+      .toBeGreaterThan(Object.keys(source.agents).length);
+    expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
   });
 
   it("retains valid AgentMind slots and retries only the invalid Agent", async () => {
@@ -556,7 +578,7 @@ describe("eager reference safeguards", () => {
     let repairedIssues: string[][] = [];
     const provider = new ScriptedModelProvider(({ role, profileId, context, system }) => {
       if (role === "action-compilation") {
-        expect(system).toContain("目录为空或没有明确匹配，sharedResourceClaims 必须输出 []");
+        expect(system).toContain("Keep the footprint conservative");
         const output = deterministicActionCompilationBatch(profileId, context);
         if (firstCompilation) {
           firstCompilation = false;
@@ -631,7 +653,7 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(3);
   });
 
-  it("uses the waiting fallback only for an AgentMind singleton that exhausts semantic repair", async () => {
+  it("rolls back when an AgentMind singleton exhausts semantic repair", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "agent-mind") {
         return deterministicAgentMindBatch(context, (output, slot) => {
@@ -653,20 +675,13 @@ describe("eager reference safeguards", () => {
       profiles: structuredClone(agent.modelProfiles),
     }]));
 
-    const result = await engine.step(roster, {
+    await expect(engine.step(roster, {
       expectedRevision: source.revision,
       trigger: "manual",
       externalActions: [],
-    });
-
-    expect(result.state.agents.keeper.nextAction).toMatchObject({
-      rawText: "观察并等待",
-      goal: "在下一次有效决策前不采取新的主动行动",
-      targetIds: [],
-    });
-    expect(result.state.agents.player.nextAction?.rawText).toBe("维持当前目标并观察世界");
+    })).rejects.toBeInstanceOf(ModelSemanticRepairError);
+    expect(contentHash(engine.snapshot)).toBe(contentHash(source));
     expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(3);
-    expect(result.modelAudits.filter((audit) => audit.role === "agent-mind")).toHaveLength(3);
   });
 
   it("keeps outcome alternatives only when their evidence belongs to the acting Agent", () => {
@@ -742,6 +757,111 @@ describe("eager reference safeguards", () => {
     const globalProjection = provider.requests.find((request) =>
       request.role === "observation-renderer" && request.subjectId.startsWith("step-global-observation"));
     expect((globalProjection?.context as { observationSlots?: unknown[] }).observationSlots).toHaveLength(2);
+  });
+
+  it("creates and bootstraps multiple dynamic Agents with a cohort profile", async () => {
+    const summoned = ["skeleton-1", "skeleton-2", "skeleton-3"];
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role !== "truth-transition") return deterministicModelOutput(profileId, context);
+      const input = context as { jointActions: AgentActionProposal[] };
+      const action = input.jointActions[0];
+      if (!action) throw new Error("cohort test expected one action");
+      const draftAgent = (index: number) => ({
+        id: `skeleton-agent-${index + 1}`,
+        entityId: summoned[index],
+        character: {
+          persona: { summary: "受召唤者命令的骷髅。", voice: "", evidenceIds: [] },
+          traits: {}, values: {}, emotions: {}, attitudes: {}, goals: {}, commitments: {},
+        },
+        belief: {
+          localEntities: {
+            self: { id: "self", name: "我", description: "骷髅自己", status: "observed" },
+          },
+          claims: {}, evidence: {},
+        },
+        bindings: { self: { localEntityId: "self", canonicalEntityIds: [summoned[index]] } },
+      });
+      return {
+        outcomes: [{
+          proposalId: action.id,
+          status: "succeeded",
+          summary: "召唤行动完成。",
+          causeRefs: [{ kind: "action", id: action.id }],
+          assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+          knownAlternatives: [],
+        }],
+        mechanicInvocations: [{
+          id: "summon-cohort",
+          packageId: "core-resolution",
+          ruleId: "instantiate-entity-cohort",
+          input: { entityIds: summoned, profileId: "wanderer" },
+          causes: [{ kind: "action", id: action.id }],
+          assertions: summoned.map((entityId) => ({ kind: "entity_absent", entityId })),
+        }],
+        operations: [
+          ...summoned.map((entityId) => ({
+            kind: "create_entity" as const,
+            entity: { id: entityId, kind: "undead", name: entityId, description: "刚被召唤的骷髅。" },
+            placementId: "courtyard",
+            causes: [{ kind: "action" as const, id: action.id }],
+            assertions: [{ kind: "entity_absent" as const, entityId }],
+          })),
+          ...summoned.map((_entityId, index) => ({
+            kind: "create_agent" as const,
+            agent: draftAgent(index),
+            causes: [{ kind: "action" as const, id: action.id }],
+            assertions: [{ kind: "entity_lifecycle" as const, entityId: summoned[index], expected: "active" as const }],
+          })),
+        ],
+        events: [{
+          id: "summon-event",
+          description: "三个骷髅在庭院中出现。",
+          impact: "significant",
+          causes: [{ kind: "action", id: action.id }],
+          assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
+        }],
+        decisionRequests: [],
+      };
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    definition.historyBaseHash = historyReplayBaseHash(definition.initialState);
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const result = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "summoner" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: source.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "summon-three",
+        agentId: "player",
+        rawText: "死灵法师召唤三个骷髅守卫庭院。",
+        goal: "召唤三个骷髅",
+        means: "死灵法术",
+        targetIds: [],
+      }],
+    });
+
+    for (const [index, entityId] of summoned.entries()) {
+      const agentId = `skeleton-agent-${index + 1}`;
+      expect(result.state.truth.entities[entityId]).toMatchObject({ kind: "undead", lifecycle: "active" });
+      expect(result.state.agents[agentId]).toMatchObject({ entityId, nextAction: expect.any(Object) });
+      expect(result.state.truth.meters[`${entityId}-health`]?.current).toBe(20);
+      expect(result.committed.nextActions).toContainEqual(expect.objectContaining({ actorId: agentId }));
+    }
+    expect(result.committed.observations.map((observation) => observation.observerId))
+      .toEqual(expect.arrayContaining(summoned.map((_entityId, index) => `skeleton-agent-${index + 1}`)));
+    expect(result.committed.mechanicInvocations).toContainEqual(expect.objectContaining({
+      ruleId: "instantiate-entity-cohort",
+      input: { entityIds: summoned, profileId: "wanderer" },
+    }));
+    expect(result.committed.temporalBoundary.deltaSeconds).toBeGreaterThan(0);
+    expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
   });
 
   it("uses the earliest authored activity checkpoint instead of a fixed step duration", async () => {
@@ -1544,6 +1664,9 @@ describe("eager reference safeguards", () => {
             ],
           }],
         };
+      }
+      if (role === "agent-reaction") {
+        return { kind: "keep" };
       }
       return deterministicModelOutput(profileId, context);
     });

@@ -1,0 +1,37 @@
+{
+  "sourceCommit": "dc0c9f71a5c9d1a21de66291045b2b94b1f4bfcf",
+  "capturedBeforeRefactor": true,
+  "manualPromptVersions": {
+    "truth": "truth-engine-v10",
+    "agent": "agent-mind-v9",
+    "agentReaction": "agent-reaction-v3",
+    "resolutionPlanVerifier": "resolution-plan-verifier-v1",
+    "causalVerifier": "causal-verifier-v4"
+  },
+  "systemPromptUtf8Bytes": {
+    "truth": 6080,
+    "agent": 1855,
+    "agentBatch": 614,
+    "reaction": 892,
+    "actionCompilation": 1862,
+    "actionGrounding": 1056,
+    "observationRenderer": 1557,
+    "arrival": 210,
+    "resolutionPlanVerifier": 1167,
+    "causalVerifier": 1339
+  },
+  "scenarios": [
+    "agent-private-cognition-conflict",
+    "truth-concurrent-resource-competition",
+    "observation-arrival-hidden-information",
+    "action-compilation-grounding-boundaries",
+    "verifier-targeted-rejection"
+  ],
+  "quality": {
+    "structuredAcceptanceRate": null,
+    "repairCalls": null,
+    "fallbackCalls": null,
+    "roleConsistencyScore": null,
+    "taskCompletionScore": null
+  }
+}

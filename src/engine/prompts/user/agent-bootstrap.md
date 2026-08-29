@@ -1,0 +1,1 @@
+Initialize this character's private beliefs, character state, and first action from the supplied perspective and arrival evidence. Make only updates justified by that evidence and return one coherent action attempt for the character.

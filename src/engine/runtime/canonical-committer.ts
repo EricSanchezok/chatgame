@@ -7,6 +7,7 @@ import type {
 } from "./execution";
 import {
   ActivityFootprintIndex,
+  buildInteractionDependencyGraph,
   interactionDependencyComponents,
   interactionDependencyForCondition,
   interactionDependencyForTimer,
@@ -245,6 +246,19 @@ function validateStepDiagnostics(
     contentHash(interactionDependencyComponents(candidate.interactionDependencies))) {
     throw new Error("dependency diagnostics do not match the final interaction dependency graph");
   }
+  if (diagnostics.dependencyGraph) {
+    const graph = buildInteractionDependencyGraph(candidate.interactionDependencies, "canonical");
+    const summary = diagnostics.dependencyGraph;
+    if (summary.mode !== "canonical" ||
+      summary.nodeCount !== graph.nodeIds.length ||
+      summary.edgeCount !== graph.edgeCount ||
+      summary.componentCount !== graph.components.length ||
+      summary.maxComponentSize !== graph.maxComponentSize ||
+      contentHash(summary.globalFallbackNodeIds) !== contentHash(graph.globalFallbackNodeIds) ||
+      summary.contentHash !== graph.contentHash) {
+      throw new Error("dependency graph diagnostics do not match the canonical graph");
+    }
+  }
   if (diagnostics.globalReadjudication && actions.length > 0 && diagnostics.dependencyComponents.length !== 1) {
     throw new Error("global readjudication diagnostics require one dependency component");
   }
@@ -452,7 +466,11 @@ function validateCandidateBoundary(
   }
   const advances = candidate.resolution.proposal.operations.filter((operation) => operation.kind === "advance_time");
   if (advances.length !== 1) throw new Error("every world step must contain exactly one time advance");
-  validatePublicInformationBoundary(source, actions, candidate.resolution.proposal);
+  // A transition may introduce Agents and immediately give them an outcome
+  // observation. Validate the public boundary against the transitioned state
+  // so those new observers are legitimate while hidden cognition remains
+  // protected by the same token audit.
+  validatePublicInformationBoundary(transitioned, actions, candidate.resolution.proposal);
   validateObservations(transitioned, observations, transitioned.step);
   validateSelfConsequenceIntroductions(
     source,

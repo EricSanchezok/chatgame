@@ -27,6 +27,8 @@ export interface StructuredModelRequest<T> extends ModelExecutionScope {
   promptVersion: string;
   schemaName: string;
   system: string;
+  /** A short, call-specific task instruction placed before the JSON context. */
+  userPrompt: string;
   context: unknown;
   schema: z.ZodType<T>;
   modelInvocationId?: string;

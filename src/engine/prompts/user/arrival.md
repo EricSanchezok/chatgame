@@ -1,0 +1,1 @@
+Write this character's first-person arrival from the supplied private perspective, then provide exactly three concise, editable things the player could try next. Do not claim that any suggestion has already happened.

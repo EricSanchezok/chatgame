@@ -75,6 +75,13 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     singletonFailures: number;
   }>;
 } | {
+  event: "algorithm.agent_mind.repair_exhausted";
+  attributes: Readonly<{
+    phase: "bootstrap" | "resume" | "mind";
+    policy: "fail-step";
+  }>;
+  counts: Readonly<{ mindFailures: number }>;
+} | {
   event: "algorithm.agent_mind.repair_fallback";
   attributes: Readonly<{
     phase: "bootstrap" | "resume" | "mind";
@@ -88,6 +95,27 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     policy: "temporal-profile-fallback";
   }>;
   counts: Readonly<{ reactionFallbacks: number }>;
+} | {
+  event: "algorithm.agent_reaction.repair_exhausted";
+  attributes: Readonly<{
+    phase: "reaction";
+    policy: "fail-step";
+  }>;
+  counts: Readonly<{ reactionFailures: number }>;
+} | {
+  event: "algorithm.truth_perception.repair_fallback";
+  attributes: Readonly<{
+    phase: "truth-perception";
+    policy: "no-perception-reaction";
+  }>;
+  counts: Readonly<{ perceptionFallbacks: number }>;
+} | {
+  event: "algorithm.truth_perception.repair_exhausted";
+  attributes: Readonly<{
+    phase: "truth-perception";
+    policy: "fail-step";
+  }>;
+  counts: Readonly<{ perceptionFailures: number }>;
 } | {
   event: "algorithm.grounding.global_fallback";
   attributes: Readonly<{ phase: "grounding"; reasons: string }>;
@@ -117,7 +145,7 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
   event: "algorithm.observation.global_projection_completed";
   attributes: Readonly<{
     phase: "observation";
-    reason: "multiple-conflict-components";
+    reason: "multiple-conflict-components" | "dynamic-lifecycle";
   }>;
   counts: Readonly<{
     observations: number;
@@ -369,12 +397,44 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
       policy: ["empty-patch-and-idle-action"],
     },
   },
+  "algorithm.agent_mind.repair_exhausted": {
+    attributes: ["phase", "policy"],
+    counts: ["mindFailures"],
+    attributeValues: {
+      phase: ["bootstrap", "resume", "mind"],
+      policy: ["fail-step"],
+    },
+  },
   "algorithm.agent_reaction.repair_fallback": {
     attributes: ["phase", "policy"],
     counts: ["reactionFallbacks"],
     attributeValues: {
       phase: ["reaction"],
       policy: ["temporal-profile-fallback"],
+    },
+  },
+  "algorithm.agent_reaction.repair_exhausted": {
+    attributes: ["phase", "policy"],
+    counts: ["reactionFailures"],
+    attributeValues: {
+      phase: ["reaction"],
+      policy: ["fail-step"],
+    },
+  },
+  "algorithm.truth_perception.repair_fallback": {
+    attributes: ["phase", "policy"],
+    counts: ["perceptionFallbacks"],
+    attributeValues: {
+      phase: ["truth-perception"],
+      policy: ["no-perception-reaction"],
+    },
+  },
+  "algorithm.truth_perception.repair_exhausted": {
+    attributes: ["phase", "policy"],
+    counts: ["perceptionFailures"],
+    attributeValues: {
+      phase: ["truth-perception"],
+      policy: ["fail-step"],
     },
   },
   "algorithm.grounding.global_fallback": {
@@ -410,7 +470,7 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
     counts: ["observations", "observationBatches", "dependencyComponents"],
     attributeValues: {
       phase: ["observation"],
-      reason: ["multiple-conflict-components"],
+      reason: ["multiple-conflict-components", "dynamic-lifecycle"],
     },
   },
   "algorithm.observation.rendering_completed": {

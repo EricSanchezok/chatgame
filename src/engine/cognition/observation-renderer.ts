@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { observationBatchSchema } from "../contracts/llm-schemas";
 import type {
   AgentActionProposal,
@@ -23,24 +22,14 @@ import {
 } from "../models/model-provider";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { validateObservations } from "./observation";
-import { projectAgentPerspective } from "./agent-perspective";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
+import { promptBundle, structuredPromptBytes } from "../prompts";
 import { materializeObservationPackets } from "../mechanics/truth-engine";
 import { applyTransitionProposal } from "../runtime/transaction";
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalStateSnapshot } from "../mechanics/temporal";
 
-const OBSERVATION_PROMPT_VERSION = "observation-renderer-v2";
-const OBSERVATION_SYSTEM = `你是 Living World Engine 的观察渲染器。
-输入包含已经裁决但尚未提交的候选世界变化，以及按固定顺序排列的观察槽位。
-
-必须为每个槽位输出恰好一项 observation，顺序与槽位完全一致。不要输出 observation id、observer id、step 或 kind；这些字段由引擎分配。
-
-每项 observation 只能描述对应主体可感知的表象。summary、localEntity 和 apparentClaims 不得泄露 canonical id、隐藏事实、其他主体认知、内部检定或裁判理由。
-新局部实体使用观察者自己的语义别名，并通过 introductions 的服务端私有 canonicalEntityId 建立绑定；不得把 canonical entity id 复制成 localEntity.id。
-sourceEventIds 只能引用 context.currentEvents 中已列出的事件。
-
-只输出 schema 指定的 JSON，不输出 Markdown、解释或思维链。`;
+const OBSERVATION_PROMPT = promptBundle("observation-renderer");
 
 interface RenderInput {
   definition: WorldDefinition;
@@ -59,12 +48,15 @@ interface ObservationBatch {
 
 function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[]) {
   const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
-  const visibleFacts = (observerId: string) => Object.values(candidate.truth.facts)
-    .filter((fact) => fact.access.kind === "public" ||
-      fact.access.kind === "agents" && fact.access.agentIds.includes(observerId));
+  const publicFacts = Object.values(candidate.truth.facts)
+    .filter((fact) => fact.access.kind === "public")
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const privateFacts = (observerId: string) => Object.values(candidate.truth.facts)
+    .filter((fact) => fact.access.kind === "agents" && fact.access.agentIds.includes(observerId))
+    .sort((left, right) => left.id.localeCompare(right.id));
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    promptVersion: OBSERVATION_PROMPT_VERSION,
+    promptVersion: OBSERVATION_PROMPT.version,
     world: {
       id: input.definition.id,
       description: input.definition.description,
@@ -78,6 +70,7 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
         id, kind, name, lifecycle,
       })),
       placements: candidate.truth.placements,
+      publicFacts,
     },
     actions: input.actions,
     outcomes: input.proposal.outcomes,
@@ -91,8 +84,17 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
         observer: {
           agentId: observerId,
           entityId: agent.entityId,
-          perspective: projectAgentPerspective(candidate, agent),
-          accessibleFacts: visibleFacts(observerId),
+          placementEntityId: candidate.truth.placements[agent.entityId] ?? null,
+          localEntities: Object.values(agent.belief.localEntities)
+            .map((entity) => structuredClone(entity))
+            .sort((left, right) => left.id.localeCompare(right.id)),
+          knownBindings: Object.values(agent.bindings)
+            .map((binding) => ({
+              localEntityId: binding.localEntityId,
+              canonicalEntityIds: [...binding.canonicalEntityIds].sort(),
+            }))
+            .sort((left, right) => left.localEntityId.localeCompare(right.localEntityId)),
+          privateFacts: privateFacts(observerId),
         },
       };
     }),
@@ -101,11 +103,12 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
 }
 
 function requestBytes(context: unknown): number {
-  return Buffer.byteLength(JSON.stringify({
-    system: OBSERVATION_SYSTEM,
+  return structuredPromptBytes({
+    system: OBSERVATION_PROMPT.system,
+    userPrompt: OBSERVATION_PROMPT.userPrompt,
     context,
-    schema: z.toJSONSchema(observationBatchSchema, { target: "draft-07" }),
-  }), "utf8");
+    schema: observationBatchSchema,
+  }).requestUtf8Bytes;
 }
 
 export function normalizeObservationSourceEventIds(
@@ -148,8 +151,30 @@ export function normalizeObservationLocalReferences(
       ...Object.keys(agent.belief.localEntities),
       ...Object.keys(agent.bindings),
     ]);
+    // Models occasionally emit a fresh alias for a canonical Entity that the
+    // observer already knows under another local name.  Treat that as a
+    // reference normalization (and rewrite claims) instead of allowing an
+    // impossible re-introduction to reach the causal verifier.
+    const canonicalToLocal = new Map<string, string>();
+    for (const binding of Object.values(agent.bindings)) {
+      for (const canonicalId of binding.canonicalEntityIds) {
+        const existing = canonicalToLocal.get(canonicalId);
+        if (!existing || binding.localEntityId.localeCompare(existing) < 0) {
+          canonicalToLocal.set(canonicalId, binding.localEntityId);
+        }
+      }
+    }
+    const remappedLocalIds = new Map<string, string>();
     const introductions = draft.introductions.flatMap((introduction) => {
       const localId = introduction.localEntity.id;
+      const knownLocalId = introduction.canonicalEntityId
+        ? canonicalToLocal.get(introduction.canonicalEntityId)
+        : undefined;
+      if (knownLocalId && knownLocalId !== localId) {
+        droppedIntroductions += 1;
+        remappedLocalIds.set(localId, knownLocalId);
+        return [];
+      }
       if (localIds.has(localId) || state.truth.entities[localId]) {
         droppedIntroductions += 1;
         return [];
@@ -161,13 +186,20 @@ export function normalizeObservationLocalReferences(
       }
       return [structuredClone(introduction)];
     });
-    const apparentClaims = draft.apparentClaims.filter((claim) => {
+    const remap = (localId: string): string => remappedLocalIds.get(localId) ?? localId;
+    const apparentClaims = draft.apparentClaims.map((claim) => ({
+      ...structuredClone(claim),
+      subjectId: remap(claim.subjectId),
+      value: claim.value.kind === "local_entity"
+        ? { ...structuredClone(claim.value), localEntityId: remap(claim.value.localEntityId) }
+        : structuredClone(claim.value),
+    })).filter((claim) => {
       const validSubject = localIds.has(claim.subjectId);
       const validValue = claim.value.kind !== "local_entity" || localIds.has(claim.value.localEntityId);
       if (validSubject && validValue) return true;
       droppedClaims += 1;
       return false;
-    }).map((claim) => structuredClone(claim));
+    });
     return { ...structuredClone(draft), introductions, apparentClaims };
   });
   return { drafts: normalized, droppedClaims, droppedIntroductions, clearedCanonicalBindings };
@@ -242,13 +274,19 @@ function materializeBatch(
   const packets = localNormalized.drafts.map((draft, index): ObservationPacketDraft => {
     return {
       id: `observation-slot-${batchKey}-${index}`,
-      observerId: observerIds[index],
       ...structuredClone(draft),
+      // Slot ownership is assigned by the engine; a model must not be able
+      // to move an observation to another Agent by echoing observerId.
+      observerId: observerIds[index]!,
     };
   });
   const materialized = materializeObservationPackets(input.state, packets, "outcome").packets;
   validateObservations(candidate, materialized, candidate.step);
-  validatePublicInformationBoundary(input.state, input.actions, {
+  // Validate against the post-proposal candidate so observations can be
+  // addressed to Agents created by this same transition. The candidate still
+  // contains the full canonical/private state, so hidden cognition remains
+  // protected while dynamic lifecycle introductions become observable.
+  validatePublicInformationBoundary(candidate, input.actions, {
     ...structuredClone(input.proposal),
     observations: materialized,
   });
@@ -281,9 +319,10 @@ async function renderBatch(
         ...identity,
         role: "observation-renderer",
         subjectId: owner,
-        promptVersion: OBSERVATION_PROMPT_VERSION,
+        promptVersion: OBSERVATION_PROMPT.version,
         schemaName: "observation_batch",
-        system: OBSERVATION_SYSTEM,
+        system: OBSERVATION_PROMPT.system,
+        userPrompt: OBSERVATION_PROMPT.userPrompt,
         context,
         schema: observationBatchSchema,
       });

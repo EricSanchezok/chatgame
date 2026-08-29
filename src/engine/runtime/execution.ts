@@ -405,6 +405,16 @@ export interface AlgorithmCandidateDiagnostics {
 export interface WorldStepDiagnostics extends AlgorithmCandidateDiagnostics {
   dependencyComponents: string[][];
   globalReadjudication: boolean;
+  /** Deterministic summary of the ephemeral canonical conflict graph. */
+  dependencyGraph?: {
+    mode: "canonical";
+    nodeCount: number;
+    edgeCount: number;
+    componentCount: number;
+    maxComponentSize: number;
+    globalFallbackNodeIds: string[];
+    contentHash: string;
+  };
 }
 
 export interface WorldStepCandidate {

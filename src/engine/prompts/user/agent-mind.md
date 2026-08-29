@@ -1,0 +1,1 @@
+Process this character's current observations and resolution, update private beliefs, evolve character only from eligible evidence, and draft the next action the character would attempt. Preserve uncertainty and use local entity aliases.

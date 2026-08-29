@@ -5,6 +5,8 @@ import {
   interactionDependencyForCondition,
   interactionDependencyForTimer,
   interactionDependencyComponents,
+  interactionDependencyComponentsExhaustive,
+  buildInteractionDependencyGraph,
   normalizeInteractionDependency,
 } from "../action-dependency";
 import type { InteractionDependency } from "../../runtime/execution";
@@ -45,7 +47,12 @@ describe("action dependencies", () => {
     expect(interactionDependencyComponents([
       dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
       dependency("b", [], [{ kind: "entity", id: "entity-b" }]),
-    ])).toEqual([["action-a", "action-b"]]);
+    ], "notification")).toEqual([["action-a", "action-b"]]);
+
+    expect(interactionDependencyComponents([
+      dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
+      dependency("b", [], [{ kind: "entity", id: "entity-b" }]),
+    ])).toEqual([["action-a"], ["action-b"]]);
   });
 
   it("joins claimants and capacity writers through the shared resource pool key", () => {
@@ -91,6 +98,59 @@ describe("action dependencies", () => {
       dependency("b", [], [{ kind: "entity", id: "entity-b" }]),
       dependency("c", [], [{ kind: "entity", id: "entity-c" }]),
     ])).toEqual([["action-a", "action-b", "action-c"]]);
+  });
+
+  it("exposes a deterministic hard-conflict graph without treating audience as canonical conflict", () => {
+    const graph = buildInteractionDependencyGraph([
+      dependency("b", [], [{ kind: "entity", id: "shared" }]),
+      dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
+      dependency("c", [{ kind: "entity", id: "shared" }], []),
+    ]);
+    expect(graph.mode).toBe("canonical");
+    expect(graph.components).toEqual([["action-a"], ["action-b", "action-c"]]);
+    expect(graph.edges).toEqual([
+      { from: "action-b", to: "action-c", kinds: ["read-write"] },
+    ]);
+    expect(graph.edgeCount).toBe(1);
+    expect(graph.maxComponentSize).toBe(2);
+    expect(graph.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(buildInteractionDependencyGraph([
+      dependency("c", [{ kind: "entity", id: "shared" }], []),
+      dependency("a", [], [{ kind: "entity", id: "entity-a" }], ["b"]),
+      dependency("b", [], [{ kind: "entity", id: "shared" }]),
+    ])).toEqual(graph);
+  });
+
+  it("matches the indexed graph components with the exhaustive oracle", () => {
+    const agents = ["a", "b", "c", "d", "e", "f"];
+    const resources = ["r1", "r2", "r3", "r4", "r5", "r6", "r7"];
+    let seed = 0x1badb002;
+    const random = (): number => {
+      seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
+      return seed / 0x1_0000_0000;
+    };
+    const choose = (values: readonly string[]): string[] => values.filter(() => random() < 0.28);
+    for (let trial = 0; trial < 80; trial += 1) {
+      const dependencies = Array.from({ length: 24 }, (_, index): InteractionDependency => {
+        const actorId = agents[index % agents.length]!;
+        const globalFallback = trial % 23 === 0 && index === 0;
+        const global = { kind: "global" as const, id: "world" as const };
+        return {
+          ...dependency(
+            actorId,
+            globalFallback ? [global] : choose(resources).map((id) => ({ kind: "entity" as const, id })),
+            globalFallback ? [global] : choose(resources).map((id) => ({ kind: "entity" as const, id })),
+            choose(agents),
+            globalFallback,
+          ),
+          id: `action-${trial}-${index}`,
+        };
+      });
+      expect(buildInteractionDependencyGraph(dependencies, "canonical").components)
+        .toEqual(interactionDependencyComponentsExhaustive(dependencies, "canonical"));
+      expect(buildInteractionDependencyGraph(dependencies, "notification").components)
+        .toEqual(interactionDependencyComponentsExhaustive(dependencies, "notification"));
+    }
   });
 
   it("turns unknown dependency hints into a conservative global footprint", () => {

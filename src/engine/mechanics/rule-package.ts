@@ -699,6 +699,68 @@ const instantiateEntityProfileInputSchema = z.strictObject({
   profileId: z.string().min(1),
 });
 
+const instantiateEntityCohortInputSchema = z.strictObject({
+  entityIds: z.array(z.string().min(1)).min(1).max(256),
+  profileId: z.string().min(1),
+}).superRefine((value, context) => {
+  if (new Set(value.entityIds).size !== value.entityIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "entityIds must be unique" });
+  }
+});
+
+function instantiateProfileOperations(
+  context: RuleExecutionContext,
+  profileId: string,
+  entityIds: readonly string[],
+  invocation: MechanicInvocation,
+): WorldDeltaOperation[] {
+  const profile = context.state.truth.mechanics.entityMechanicsProfiles[profileId];
+  if (!profile) throw new Error(`unknown entity mechanics profile ${profileId}`);
+  return [...entityIds].sort().flatMap((entityId) => {
+    // The invocation itself asserts that each entity was absent before the
+    // transition. Profile writes run after create_entity operations, so their
+    // operation-level assertion must observe the newly active entity in the
+    // causal working state.
+    const assertions: CausalAssertion[] = [{ kind: "entity_lifecycle", entityId, expected: "active" }];
+    return [
+      ...profile.meters.map((entry) => ({
+        kind: "set_meter" as const,
+        meter: {
+          id: `${entityId}-${entry.definitionId}`,
+          definitionId: entry.definitionId,
+          entityId,
+          current: entry.current,
+          firedThresholdIds: [],
+        },
+        causes: structuredClone(invocation.causes),
+        assertions: structuredClone(assertions),
+      })),
+      ...profile.quantities.map((entry) => ({
+        kind: "set_quantity" as const,
+        quantity: {
+          id: quantityId(context.state.worldHash, entry.definitionId, entityId),
+          definitionId: entry.definitionId,
+          holderId: entityId,
+          amount: entry.amount,
+        },
+        causes: structuredClone(invocation.causes),
+        assertions: structuredClone(assertions),
+      })),
+      ...profile.ratings.map((entry) => ({
+        kind: "set_rating" as const,
+        rating: {
+          id: `${entityId}-${entry.definitionId}`,
+          definitionId: entry.definitionId,
+          entityId,
+          value: entry.value,
+        },
+        causes: structuredClone(invocation.causes),
+        assertions: structuredClone(assertions),
+      })),
+    ] as WorldDeltaOperation[];
+  });
+}
+
 const instantiateEntityProfile: MechanicRule = {
   id: "instantiate-entity-profile",
   description: "为同一 transition 新建的 Entity 按 entity_mechanics_profile 确定性初始化 Meter、Quantity 与 Rating。",
@@ -710,48 +772,38 @@ const instantiateEntityProfile: MechanicRule = {
         operation.kind === "create_entity" && operation.entity.id === value.entityId)) {
       throw new Error(`entity profile target ${value.entityId} is not created by this transition`);
     }
-    const profile = context.state.truth.mechanics.entityMechanicsProfiles[value.profileId];
-    if (!profile) throw new Error(`unknown entity mechanics profile ${value.profileId}`);
-    const assertions: CausalAssertion[] = [{ kind: "entity_absent", entityId: value.entityId }];
-    const operations: WorldDeltaOperation[] = [
-      ...profile.meters.map((entry) => ({
-        kind: "set_meter" as const,
-        meter: {
-          id: `${value.entityId}-${entry.definitionId}`,
-          definitionId: entry.definitionId,
-          entityId: value.entityId,
-          current: entry.current,
-          firedThresholdIds: [],
-        },
-        causes: structuredClone(invocation.causes),
-        assertions: structuredClone(assertions),
-      })),
-      ...profile.quantities.map((entry) => ({
-        kind: "set_quantity" as const,
-        quantity: {
-          id: quantityId(context.state.worldHash, entry.definitionId, value.entityId),
-          definitionId: entry.definitionId,
-          holderId: value.entityId,
-          amount: entry.amount,
-        },
-        causes: structuredClone(invocation.causes),
-        assertions: structuredClone(assertions),
-      })),
-      ...profile.ratings.map((entry) => ({
-        kind: "set_rating" as const,
-        rating: {
-          id: `${value.entityId}-${entry.definitionId}`,
-          definitionId: entry.definitionId,
-          entityId: value.entityId,
-          value: entry.value,
-        },
-        causes: structuredClone(invocation.causes),
-        assertions: structuredClone(assertions),
-      })),
-    ];
+    const operations = instantiateProfileOperations(context, value.profileId, [value.entityId], invocation);
     return {
       code: "entity-mechanics-profile-instantiated",
       data: { entityId: value.entityId, profileId: value.profileId, operationCount: operations.length },
+      operations,
+    };
+  },
+};
+
+const instantiateEntityCohort: MechanicRule = {
+  id: "instantiate-entity-cohort",
+  description: "为同一 transition 中新建的一组 Entity 按同一 entity_mechanics_profile 确定性初始化 Meter、Quantity 与 Rating。",
+  inputSchema: instantiateEntityCohortInputSchema,
+  resolve: (context, _config, input, invocation) => {
+    const value = input as z.infer<typeof instantiateEntityCohortInputSchema>;
+    const createdEntityIds = new Set((context.candidateDirectOperations ?? [])
+      .filter((operation): operation is Extract<WorldDeltaOperation, { kind: "create_entity" }> =>
+        operation.kind === "create_entity")
+      .map((operation) => operation.entity.id));
+    for (const entityId of value.entityIds) {
+      if (context.state.truth.entities[entityId] || !createdEntityIds.has(entityId)) {
+        throw new Error(`entity cohort target ${entityId} is not created by this transition`);
+      }
+    }
+    const operations = instantiateProfileOperations(context, value.profileId, value.entityIds, invocation);
+    return {
+      code: "entity-mechanics-cohort-instantiated",
+      data: {
+        entityIds: [...value.entityIds].sort(),
+        profileId: value.profileId,
+        operationCount: operations.length,
+      },
       operations,
     };
   },
@@ -762,7 +814,7 @@ export const coreResolutionRulePackage: RulePackage = {
   version: "2.0.0",
   adjudication: "先提交 ResolutionPlan，再由引擎把命名难度、风险和效果档确定性映射为 d20 检定与规则效果。模型不得提交 raw DC、modifier、Meter delta、Condition 强度或 Rating 数值。",
   configSchema: coreResolutionConfigSchema,
-  rules: [applyReceipt, advanceConditions, transferQuantity, changeQuantity, instantiateEntityProfile],
+  rules: [applyReceipt, advanceConditions, transferQuantity, changeQuantity, instantiateEntityProfile, instantiateEntityCohort],
   validateDirectOperations: (_context, _config, operations) => {
     for (const operation of operations) {
       if (operation.kind === "adjust_meter" || operation.kind === "set_meter" || operation.kind === "set_rating" ||

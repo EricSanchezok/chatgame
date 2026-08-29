@@ -3,6 +3,7 @@ import { compileActions, type PlannedTemporalActivity } from "./action-compiler"
 import type { EagerSlotBatchMetrics } from "./eager-slot-batching";
 import {
   ActivityFootprintIndex,
+  buildInteractionDependencyGraph,
   interactionDependencyComponents,
   forceGlobalInteractionDependency,
   generateInteractionDependency,
@@ -93,8 +94,8 @@ const compilationComponent = { id: "action-compilation", version: "2", config: {
 const truthComponent = { id: "truth-interaction-component", version: "2", config: { fallback: "global" } } as const;
 const mindComponent = {
   id: "agent-mind",
-  version: "5",
-  config: { externalUpdates: false, repairExhaustion: "empty-patch-and-idle-action" },
+  version: "6",
+  config: { externalUpdates: false, repairExhaustion: "fail-step" },
 } as const;
 
 export interface EagerReferenceAlgorithmConfig {
@@ -154,7 +155,7 @@ function observationsFor(packets: readonly ObservationPacket[], observerId: stri
   return packets.filter((packet) => packet.observerId === observerId);
 }
 
-type EagerMindOutput = AgentMindOutput & { fallback: boolean };
+type EagerMindOutput = AgentMindOutput;
 
 interface EagerMindBatchOutput {
   outputs: EagerMindOutput[];
@@ -167,40 +168,29 @@ interface ComponentResolution {
   resolution: TruthResolution;
 }
 
-export function createMindRepairFallback(
-  state: Readonly<SimulationState>,
-  agent: Readonly<AgentState>,
-  purpose: "bootstrap" | "resume" | "mind",
-): EagerMindOutput {
-  return {
-    beliefPatch: { agentId: agent.id, baseRevision: state.revision, operations: [] },
-    characterPatch: { agentId: agent.id, baseRevision: state.revision, operations: [] },
-    nextAction: {
-      id: runtimeId({
-        worldHash: state.worldHash,
-        revision: state.revision,
-        kind: "action",
-        stage: `${purpose}-repair-fallback`,
-        owner: agent.id,
-        round: 0,
-        ordinal: 0,
-      }),
-      actorId: agent.id,
-      baseRevision: state.revision,
-      rawText: "观察并等待",
-      goal: "在下一次有效决策前不采取新的主动行动",
-      means: null,
-      targetIds: [],
-    },
-    fallback: true,
+async function settledValues<T>(
+  tasks: readonly (() => Promise<T>)[],
+  label: string,
+  maxConcurrent = tasks.length || 1,
+): Promise<T[]> {
+  const results = Array<T | undefined>(tasks.length);
+  const failures: unknown[] = [];
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= tasks.length) return;
+      try {
+        results[index] = await tasks[index]!();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
   };
-}
-
-async function settledValues<T>(promises: readonly Promise<T>[], label: string): Promise<T[]> {
-  const settled = await Promise.allSettled(promises);
-  const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-  if (failures.length > 0) throw new AggregateError(failures.map((failure) => failure.reason), `${label} batch failed`);
-  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
+  const workerCount = Math.max(1, Math.min(maxConcurrent, tasks.length || 1));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (failures.length > 0) throw new AggregateError(failures, `${label} batch failed`);
+  return results as T[];
 }
 
 function materializeExternalAction(
@@ -702,21 +692,28 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     const failures = new Map(result.failures.map((failure) => [failure.agentId, failure.error]));
     const outputs = inputs.map((input): EagerMindOutput => {
       const output = result.outputs.get(input.agent.id);
-      if (output) return { ...output, fallback: false };
+      if (output) return output;
       const error = failures.get(input.agent.id);
       if (!error) throw new Error(`AgentMind ${purpose} omitted ${input.agent.id}`);
       context.instrumentation.emit({
-        event: "algorithm.agent_mind.repair_fallback",
+        event: "algorithm.agent_mind.repair_exhausted",
         level: "warn",
         correlation: { ...context.modelScope.correlation, modelSubject: input.agent.id },
-        attributes: { phase: purpose, policy: "empty-patch-and-idle-action" },
-        counts: { mindFallbacks: 1 },
+        attributes: { phase: purpose, policy: "fail-step" },
+        counts: { mindFailures: 1 },
         error: {
           name: error instanceof Error ? error.name : "AgentMindError",
           message: error instanceof Error ? error.message : String(error),
         },
       });
-      return createMindRepairFallback(state, input.agent, purpose);
+      throw new ModelSemanticRepairError(
+        "agent-mind",
+        `AgentMind ${purpose} ${input.agent.id} failed after semantic repairs; step must be retried`,
+        {
+          cause: error,
+          audit: result.modelAudits.length > 0 ? result.modelAudits[result.modelAudits.length - 1] : undefined,
+        },
+      );
     });
     return {
       outputs,
@@ -833,7 +830,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       diagnostics: {
         activatedAgentIds: agents.map((agent) => agent.id),
         reusedAgentIds: [],
-        mindFallbackAgentIds: outputs.flatMap((output, index) => output.fallback ? [agents[index].id] : []),
+        mindFallbackAgentIds: [],
       },
     };
   }
@@ -966,10 +963,27 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         const continuingActionIds = new Set(Object.values(resolvedTemporal.activities)
           .filter((activity) => activity.status === "active")
           .map((activity) => activity.sourceActionId));
+        // A due Activity whose engine-selected boundary is its completion is no
+        // longer allowed to remain a deferred/continuing action.  This is a
+        // deterministic temporal fact, so make it a repairable semantic issue
+        // before the candidate reaches CanonicalCommitter.  Without this guard
+        // a model can return `continuing` for a just-completed long action,
+        // leaving its receipt unapplied and making the step unreplayable.
+        const completingActionIds = new Set(scopedTemporalBase.boundary.dueActivityIds
+          .map((activityId) => scopedTemporalBase.activities[activityId])
+          .filter((activity): activity is import("../../mechanics/temporal").ScheduledActivityState =>
+            Boolean(activity) && activity.status === "completed")
+          .map((activity) => activity.sourceActionId));
         for (const actionId of continuingActionIds) {
           const outcome = proposal.outcomes.find((entry) => entry.proposalId === actionId);
           if (outcome && outcome.status !== "continuing") {
             throw new Error(`activity action ${actionId} must remain continuing before completion`);
+          }
+        }
+        for (const actionId of completingActionIds) {
+          const outcome = proposal.outcomes.find((entry) => entry.proposalId === actionId);
+          if (!outcome || outcome.status === "continuing") {
+            throw new Error(`activity action ${actionId} reached its completion boundary and must settle now`);
           }
         }
         for (const operation of proposal.operations) {
@@ -1125,8 +1139,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     });
     const requiresPerceptionCheck = reactionCandidates.some((candidate) =>
       reactionBasis(source, candidate.trigger, candidate.agentId, { requests: [], checks: [] }).length === 0);
-    const onsetPerception = requiresPerceptionCheck
-      ? await this.truthEngine.perceiveOnset({
+    let onsetPerception: OnsetPerceptionResult | null = null;
+    if (requiresPerceptionCheck) {
+      try {
+        onsetPerception = await this.truthEngine.perceiveOnset({
           definition: input.definition,
           state: source,
           actions: structuredClone(newActions),
@@ -1141,8 +1157,20 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           }),
           identityOwner: "action-onset-perception",
           groundings: newDependencyResults.map((result) => structuredClone(result.dependency)),
-        }, context.modelScope)
-      : null;
+        }, context.modelScope);
+      } catch (error) {
+        if (!(error instanceof ModelSemanticRepairError)) throw error;
+        context.instrumentation.emit({
+          event: "algorithm.truth_perception.repair_exhausted",
+          level: "warn",
+          correlation: context.modelScope.correlation,
+          attributes: { phase: "truth-perception", policy: "fail-step" },
+          counts: { perceptionFailures: 1 },
+          error: { name: error.name, message: error.message },
+        });
+        throw error;
+      }
+    }
     const onsetPerceptionTranscript = onsetPerception ?? {
       requests: [],
       checks: [],
@@ -1155,7 +1183,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       onsetPerceptionTranscript,
     );
     validateObservations(source, reactionRequests.map((request) => request.stimulus), source.step + 1);
-    const reactionResults = await settledValues(reactionRequests.map(async (request) => {
+    const reactionResults = await settledValues(reactionRequests.map((request) => async () => {
       const policy = input.policyRoster[request.agentId];
       if (!policy) throw new Error(`reaction request ${request.id} has no policy`);
       if (policy.kind === "external") return null;
@@ -1180,19 +1208,16 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       } catch (error) {
         if (!(error instanceof ModelSemanticRepairError) || !error.audit) throw error;
         context.instrumentation.emit({
-          event: "algorithm.agent_reaction.repair_fallback",
+          event: "algorithm.agent_reaction.repair_exhausted",
           level: "warn",
           correlation: { ...context.modelScope.correlation, modelSubject: request.agentId },
-          attributes: { phase: "reaction", policy: "temporal-profile-fallback" },
-          counts: { reactionFallbacks: 1 },
+          attributes: { phase: "reaction", policy: "fail-step" },
+          counts: { reactionFailures: 1 },
           error: { name: error.name, message: error.message },
         });
-        return {
-          decision: fallbackReactionDecision(planningState, request),
-          audit: error.audit,
-        };
+        throw error;
       }
-    }), "action-onset reactions");
+    }), "action-onset reactions", 4);
     const preparedReactionDecisions = reactionResults.flatMap((result) => result ? [result.decision] : []);
     const pendingReactionRequests = reactionRequests.filter((request) =>
       !preparedReactionDecisions.some((decision) => decision.requestId === request.id));
@@ -1491,7 +1516,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         id: activity.sourceActionId,
       },
     ]));
-    const dependencyResults = await settledValues(actions.map(async (action): Promise<{
+    const dependencyResults = await settledValues(actions.map((action) => async (): Promise<{
       dependency: InteractionDependency;
       audit: ModelExecutionAudit | null;
     }> => {
@@ -1511,7 +1536,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         context.modelScope,
         input.definition.modelProfiles.grounding,
       );
-    }), "action grounding");
+    }), "action grounding", 8);
     const actionDependencies = [
       ...dependencyResults.map((result) => result.dependency),
       ...newDependencyResults
@@ -1653,7 +1678,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       structuredClone(request.stimulus));
     temporal = reconcileTemporalOutcomes(temporal, resolution.proposal.outcomes);
     const globalObservationAudits: ModelExecutionAudit[] = [];
-    if (components.length > 1 || deterministicResourceActions.length > 0) {
+    const dynamicLifecycleChange = resolution.proposal.operations.some((operation) =>
+      operation.kind === "create_entity" || operation.kind === "create_agent" ||
+      operation.kind === "retire_entity" || operation.kind === "remove_agent");
+    if (components.length > 1 || deterministicResourceActions.length > 0 || dynamicLifecycleChange) {
       const preview = applyTransitionProposal(planningState, resolution.proposal, temporal);
       const rendered = await this.observationRenderer.render({
         definition: input.definition,
@@ -1668,7 +1696,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       globalObservationAudits.push(...structuredClone(rendered.modelAudits));
       context.instrumentation.emit({
         event: "algorithm.observation.global_projection_completed",
-        attributes: { phase: "observation", reason: "multiple-conflict-components" },
+        attributes: {
+          phase: "observation",
+          reason: components.length > 1 ? "multiple-conflict-components" : "dynamic-lifecycle",
+        },
         counts: {
           observations: rendered.packets.length,
           observationBatches: rendered.batchCount,
@@ -1811,6 +1842,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     interactionDependencies = interactionDependencies.filter((dependency) =>
       dependency.kind !== "action" || finalActionIds.has(dependency.id));
     components = interactionDependencyComponents(interactionDependencies);
+    const dependencyGraph = buildInteractionDependencyGraph(interactionDependencies, "canonical");
     return {
       schemaVersion: WORLD_STEP_CANDIDATE_SCHEMA_VERSION,
       sourceStateHash: contentHash(source),
@@ -1850,9 +1882,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       diagnostics: {
         activatedAgentIds: [...modelAgentIds],
         reusedAgentIds: [],
-        mindFallbackAgentIds: outputs.flatMap((output, index) => output.fallback ? [modelAgentIds[index]] : []),
+        mindFallbackAgentIds: [],
         dependencyComponents: structuredClone(components),
         globalReadjudication: fallback,
+        dependencyGraph: {
+          mode: "canonical",
+          nodeCount: dependencyGraph.nodeIds.length,
+          edgeCount: dependencyGraph.edgeCount,
+          componentCount: dependencyGraph.components.length,
+          maxComponentSize: dependencyGraph.maxComponentSize,
+          globalFallbackNodeIds: structuredClone(dependencyGraph.globalFallbackNodeIds),
+          contentHash: dependencyGraph.contentHash,
+        },
       },
       temporalPlans: [
         ...structuredClone(payload.readyTemporalPlans),

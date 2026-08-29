@@ -6,6 +6,13 @@ import { protocolDriver } from "./model-protocol";
 import type { ResolvedModelBinding } from "./model-registry";
 import type { StructuredModelRequest } from "./model-provider";
 import { ModelOutputError } from "./model-provider";
+import {
+  composeContextEnvelope,
+  composeJsonObjectPrompt,
+  composeToolCallPrompt,
+  discriminatorInstruction,
+  toolDescription,
+} from "../prompts";
 
 export interface ModelAdapterResult {
   value: unknown;
@@ -71,23 +78,26 @@ function schemaExample(schema: unknown, root = schema, seen = new Set<unknown>()
   return null;
 }
 
-function jsonObjectPrompt<T>(request: StructuredModelRequest<T>, contextJson: string): string {
-  const jsonSchema = z.toJSONSchema(request.schema, { target: "draft-07" });
-  return [
-    contextJson,
-    "",
-    "Return exactly one JSON object matching the supplied schema. Do not use Markdown or explanatory prose.",
-    `JSON Schema: ${JSON.stringify(jsonSchema)}`,
-    `Example JSON output shape: ${JSON.stringify(schemaExample(jsonSchema))}`,
-  ].join("\n");
-}
-
-function toolCallPrompt(contextJson: string): string {
-  return [
-    contextJson,
-    "",
-    "Call submit_result exactly once with the complete structured result.",
-  ].join("\n");
+function parseStructuredValue<T>(
+  schema: z.ZodType<T>,
+  value: unknown,
+  accountId: string,
+): T {
+  try {
+    return schema.parse(value);
+  } catch (error) {
+    if (!(error instanceof z.ZodError)) throw error;
+    const kind = value && typeof value === "object" && !Array.isArray(value) &&
+      typeof (value as Record<string, unknown>).kind === "string"
+      ? (value as Record<string, unknown>).kind
+      : null;
+    const suffix = kind === null ? "" : ` (received kind ${JSON.stringify(kind)})`;
+    throw new ModelOutputError(
+      `${accountId} returned structured output that failed schema validation${suffix}`,
+      undefined,
+      { cause: error },
+    );
+  }
 }
 
 function usageFrom(result: {
@@ -114,8 +124,20 @@ export function structuredOutputMode(
     if (binding.model.toolCall) return "tool-call-zod";
     throw new Error(`model ${binding.modelId} cannot produce verified structured output`);
   }
+  if (binding.account.dialect === "zhipu" && binding.account.channel === "coding-plan" &&
+    binding.model.structuredOutput) {
+    // GLM Coding Plan supports JSON mode, while its function-call schema
+    // handling is unreliable for top-level discriminated unions. Keep the
+    // strict local Zod validation and use the provider's JSON mode transport.
+    return "json-object-zod";
+  }
   if (binding.model.structuredOutput) {
-    return binding.account.dialect === "deepseek" ? "json-object-zod" : "json-schema-strict";
+    // DeepSeek's OpenAI-compatible endpoint reliably honors the JSON-object
+    // contract. Keep schema validation local after parsing so the engine never
+    // accepts an unverified provider response.
+    return binding.account.dialect === "deepseek"
+      ? "json-object-zod"
+      : "json-schema-strict";
   }
   if (binding.model.toolCall) return "tool-call-zod";
   throw new Error(`model ${binding.modelId} cannot produce verified structured output`);
@@ -217,11 +239,11 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
     if (mode === "json-schema-strict") {
       const result = await generateText({
         ...common,
-        prompt: contextJson,
+        prompt: composeContextEnvelope(request.userPrompt, contextJson),
         output: Output.object({ schema: request.schema, name: request.schemaName }),
       });
       return {
-        value: request.schema.parse(result.output),
+        value: parseStructuredValue(request.schema, result.output, binding.accountId),
         responseId: result.response.id,
         responseModelId: result.response.modelId,
         finishReason: result.finishReason,
@@ -234,7 +256,13 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
     if (mode === "json-object-zod") {
       const result = await generateText({
         ...common,
-        prompt: jsonObjectPrompt(request, contextJson),
+        prompt: composeJsonObjectPrompt({
+          userPrompt: request.userPrompt,
+          contextJson,
+          schemaJson: JSON.stringify(z.toJSONSchema(request.schema, { target: "draft-07" })),
+          exampleJson: JSON.stringify(schemaExample(z.toJSONSchema(request.schema, { target: "draft-07" }))),
+          discriminator: discriminatorInstruction(request.schemaName),
+        }),
       });
       if (!result.text.trim()) {
         throw new ModelOutputError(`${binding.accountId} returned empty JSON content`);
@@ -251,7 +279,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         });
       }
       return {
-        value: request.schema.parse(value),
+        value: parseStructuredValue(request.schema, value, binding.accountId),
         responseId: result.response.id,
         responseModelId: result.response.modelId,
         finishReason: result.finishReason,
@@ -263,14 +291,22 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
 
     const result = await generateText({
       ...common,
-      prompt: toolCallPrompt(contextJson),
+      prompt: composeToolCallPrompt({
+        userPrompt: request.userPrompt,
+        contextJson,
+        discriminator: discriminatorInstruction(request.schemaName),
+      }),
       tools: {
         submit_result: tool({
-          description: `Submit one ${request.schemaName} result.`,
+          description: toolDescription(request.schemaName),
           inputSchema: request.schema,
         }),
       },
-      toolChoice: { type: "tool", toolName: "submit_result" },
+      // Zhipu's OpenAI-compatible Coding Plan endpoint supports tool_choice
+      // only in the `auto` form. The prompt and single-tool surface still
+      // require exactly one submit_result call, while avoiding an ignored
+      // forced-choice payload that can destabilize GLM's argument schema.
+      toolChoice: "auto",
     });
     const calls = result.toolCalls.filter((call) => call.toolName === "submit_result");
     if (calls.length !== 1) {
@@ -279,7 +315,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
       );
     }
     return {
-      value: request.schema.parse(calls[0]!.input),
+      value: parseStructuredValue(request.schema, calls[0]!.input, binding.accountId),
       responseId: result.response.id,
       responseModelId: result.response.modelId,
       finishReason: result.finishReason,

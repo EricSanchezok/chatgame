@@ -1,0 +1,1 @@
+Ground this action against the supplied catalog: list only the canonical resources, audiences, causes, and shared pools it may affect. If its scope could escape the catalog, use the global fallback instead of guessing.

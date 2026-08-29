@@ -31,6 +31,7 @@ import {
   type StructuredModelProvider,
 } from "../engine/models/model-provider";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../engine/contracts/prompts";
+import { promptBundle } from "../engine/prompts";
 import {
   NOOP_RUNTIME_OBSERVER,
   type RuntimeCorrelation,
@@ -154,14 +155,12 @@ export class WorldHostError extends Error {
   }
 }
 
-const ARRIVAL_SYSTEM = `你只根据所给角色私有视角写第一人称入场。
-不得推断隐藏真相，不得输出世界状态修改。
-三条建议必须可编辑且不得声称已执行。只输出 schema 指定的 JSON。`;
+const ARRIVAL_PROMPT = promptBundle("arrival-generator");
 
 const ARRIVAL_PRODUCER_MANIFEST = defineEngineOperationManifest({
   id: "arrival-generator",
   version: "2",
-  config: { promptVersion: "arrival-v2" },
+  config: { promptVersion: ARRIVAL_PROMPT.version },
 });
 
 function policyRoster(state: Readonly<SimulationState>): Record<string, PolicyBinding> {
@@ -1875,9 +1874,10 @@ export class WorldHost {
         profileId: definition.modelProfiles.arrival,
         role: "arrival-generator",
         subjectId: participant.agentId,
-        promptVersion: "arrival-v2",
+        promptVersion: ARRIVAL_PROMPT.version,
         schemaName: "arrival",
-        system: ARRIVAL_SYSTEM,
+        system: ARRIVAL_PROMPT.system,
+        userPrompt: ARRIVAL_PROMPT.userPrompt,
         context: {
           contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
           perspective: agentPerspective(document, participant.agentId),

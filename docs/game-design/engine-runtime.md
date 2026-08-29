@@ -39,7 +39,7 @@ Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active
 
 `eager-reference@7` 的阶段如下：
 
-Action Compilation 与 AgentMind 在算法内部使用独立上限的槽位批处理，默认分别为十二和八，合法范围均为一至六十四。Action Compilation 每批只发送一份 canonical catalog、Temporal Profiles、校准与世界时间；AgentMind 按 `bootstrap | resume | mind` 和 Agent model profile 分组，每批只共享 execution、revision 与 trust boundary，私有 perspective、Observation、current resolution 和 Character update policy 始终留在各自 slot。输入字节上限可继续缩小实际批次；局部语义失败只修复失败 slot，结构失败修复整批三次后稳定二分，terminal provider 错误不拆批。一个物理请求对应一份 audit，批结果不把 invocation ID 复制给各 Agent。
+Action Compilation 与 AgentMind 在算法内部使用独立上限的槽位批处理，默认分别为十二和八，合法范围均为一至六十四。Action Compilation 每批只发送一份 canonical catalog、Temporal Profiles、校准与世界时间；AgentMind 按 `bootstrap | resume | mind` 和 Agent model profile 分组，每批只共享 execution、revision 与 trust boundary，私有 perspective、Observation、current resolution 和 Character update policy 始终留在各自 slot。每个批次的 `userPrompt` 先于标记为 data 的 Context，字节预算与 Gateway 实际请求通过同一序列化函数计算；输入字节上限可继续缩小实际批次。局部语义失败只修复失败 slot，结构失败修复整批三次后稳定二分，terminal provider 错误不拆批。一个物理请求对应一份 audit，批结果不把 invocation ID 复制给各 Agent。
 
 1. 只为当前决策点的 model/external Agent 收集新行动；被 active Activity 占用的 Agent 不运行普通 AgentMind。
 2. 每个新行动独立规划 TemporalPlan，并用一次 grounding 生成 read/write/audience footprint 和共享资源 claims，在当前时刻物化带 continuation assertions 的 Activity。普通新行动替换本人可中断、queued 或 ready Activity 时，同一投影先取消旧 Activity。

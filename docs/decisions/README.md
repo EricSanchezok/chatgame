@@ -116,3 +116,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0075 — Pin Configured Execution Algorithms](0075-pin-configured-execution-algorithms.md)
 - [0076 — Resolve Models from Audited Capability Snapshots](0076-resolve-models-from-audited-capability-snapshots.md)
 - [0077 — Organize Engine Code by Ownership Boundaries](0077-engine-module-topology.md)
+- [0078 — External Prompt Bundles](0078-external-prompt-bundles.md)

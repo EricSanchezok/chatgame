@@ -45,10 +45,6 @@ import { contentHash } from "../../models/model-audit";
 import { ModelOverloadedError } from "../../models/model-scheduler";
 import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "../../runtime/observability";
 import {
-  AGENT_PROMPT_VERSION,
-  AGENT_BATCH_SYSTEM,
-  REACTION_PROMPT_VERSION,
-  REACTION_SYSTEM,
   buildAgentSharedContext,
   buildAgentSlotContext,
   buildReactionContext,
@@ -56,6 +52,7 @@ import {
   validationIssues,
   type PromptValidationIssue,
 } from "../../contracts/prompts";
+import { promptBundle } from "../../prompts";
 import { runtimeId } from "../../runtime/runtime-id";
 
 function assertBeliefIdentityHistory(
@@ -163,6 +160,15 @@ function validateMindOutput(
     operations: structuredClone(output.characterPatch.operations),
   };
   const belief = applyBeliefPatch(agent.belief, beliefPatch);
+  // Local identity is an Agent-owned namespace. A model may describe a
+  // canonical entity, but it must choose a distinct local alias (for example
+  // `守门人` rather than canonical entity id `keeper`). Catch collisions here
+  // so the slot can be repaired before a candidate reaches canonical commit.
+  for (const localEntityId of Object.keys(belief.localEntities)) {
+    if (state.truth.entities[localEntityId]) {
+      throw new Error(`AgentMind ${agent.id} local entity ${localEntityId} collides with canonical entity id; choose a local alias`);
+    }
+  }
   applyCharacterPatch(agent.character, belief, characterPatch, step, observations, events);
   for (const targetId of output.nextAction.targetIds) {
     if (!belief.localEntities[targetId]) {
@@ -283,6 +289,7 @@ function agentMindBatchContext(
       state,
       instanceId: scope.workloadId,
       advanceId: scope.batchId,
+      promptId: purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind",
     }),
     purpose,
     slots: slots.map((slot, index) => ({
@@ -339,6 +346,7 @@ export class AgentMind {
     if (new Set(ids).size !== ids.length) throw new Error("AgentMind batch contains duplicate Agents");
     const observe = runtimeEventEmitter(scope.observer);
     const role = purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind";
+    const prompt = promptBundle(role);
     const groups = new Map<string, AgentMindSlot[]>();
     for (const input of [...inputs].sort((left, right) => left.agent.id.localeCompare(right.agent.id))) {
       const profileId = purpose === "bootstrap" ? input.agent.modelProfiles.bootstrap : input.agent.modelProfiles.mind;
@@ -352,7 +360,8 @@ export class AgentMind {
         maxSlots,
         maxInputBytes: this.provider.catalog.profile(profileId).max_input_bytes,
         requestBytes: (batch) => eagerRequestBytes(
-          AGENT_BATCH_SYSTEM,
+          prompt.system,
+          prompt.userPrompt,
           agentMindBatchContext(state, scope, purpose, batch),
           agentMindBatchOutputSchema,
         ),
@@ -382,9 +391,10 @@ export class AgentMind {
               ...identity,
               role,
               subjectId: owner,
-              promptVersion: AGENT_PROMPT_VERSION,
+              promptVersion: prompt.version,
               schemaName: "agent_mind_batch_output",
-              system: AGENT_BATCH_SYSTEM,
+              system: prompt.system,
+              userPrompt: prompt.userPrompt,
               context,
               schema: agentMindBatchOutputSchema,
             });
@@ -506,6 +516,7 @@ export class AgentMind {
           advanceId: scope.batchId,
           issues,
         });
+        const prompt = promptBundle("agent-reaction");
         const identity = modelInvocationIdentity(scope, "agent-reaction", agent.id, attempt + 1);
         const correlation = modelInvocationCorrelation(scope, "agent-reaction", agent.id, identity);
         observe?.({
@@ -524,9 +535,10 @@ export class AgentMind {
           ...identity,
           role: "agent-reaction",
           subjectId: agent.id,
-          promptVersion: REACTION_PROMPT_VERSION,
+          promptVersion: prompt.version,
           schemaName: "agent_reaction_decision",
-          system: REACTION_SYSTEM,
+          system: prompt.system,
+          userPrompt: prompt.userPrompt,
           context,
           schema: reactionDecisionDraftSchema,
         });

@@ -1,0 +1,1 @@
+Resolve the final action set by committing exactly one grounded plan per action, then request only the declared random results still needed by those plans. Once the committed evidence is sufficient, finish without changing an earlier plan.
