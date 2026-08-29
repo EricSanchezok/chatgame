@@ -5,7 +5,6 @@ import {
   type WorldExecutionAlgorithm,
 } from "../../../runtime/execution";
 import {
-  createMindRepairFallback,
   EagerReferenceAlgorithm,
 } from "../eager-reference";
 import { historyReplayBaseHash } from "../../../runtime/history-replay";
@@ -359,26 +358,6 @@ describe("eager reference safeguards", () => {
     expect(normalized).toMatchObject({ droppedClaims: 1, droppedIntroductions: 1, clearedCanonicalBindings: 0 });
   });
 
-  it("turns AgentMind semantic repair exhaustion into an explicit empty commit and idle action", () => {
-    const state = { worldHash: `sha256:${contentHash("world")}`, revision: 7 } as SimulationState;
-    const agent = { id: "agent-a" } as SimulationState["agents"][string];
-    const fallback = createMindRepairFallback(
-      state,
-      agent,
-      "mind",
-    );
-
-    expect(fallback.beliefPatch).toEqual({ agentId: agent.id, baseRevision: 7, operations: [] });
-    expect(fallback.characterPatch).toEqual({ agentId: agent.id, baseRevision: 7, operations: [] });
-    expect(fallback.nextAction).toMatchObject({
-      actorId: agent.id,
-      baseRevision: 7,
-      rawText: "观察并等待",
-      targetIds: [],
-    });
-    expect(fallback.fallback).toBe(true);
-  });
-
   it("keeps deterministic canonical semantics identical for singleton and larger slot limits", async () => {
     const execute = async (actionCompilationMaxSlots: number, agentMindMaxSlots: number) => {
       const provider = new DeterministicModelProvider();
@@ -631,7 +610,7 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(3);
   });
 
-  it("uses the waiting fallback only for an AgentMind singleton that exhausts semantic repair", async () => {
+  it("rolls back when an AgentMind singleton exhausts semantic repair", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "agent-mind") {
         return deterministicAgentMindBatch(context, (output, slot) => {
@@ -653,20 +632,13 @@ describe("eager reference safeguards", () => {
       profiles: structuredClone(agent.modelProfiles),
     }]));
 
-    const result = await engine.step(roster, {
+    await expect(engine.step(roster, {
       expectedRevision: source.revision,
       trigger: "manual",
       externalActions: [],
-    });
-
-    expect(result.state.agents.keeper.nextAction).toMatchObject({
-      rawText: "观察并等待",
-      goal: "在下一次有效决策前不采取新的主动行动",
-      targetIds: [],
-    });
-    expect(result.state.agents.player.nextAction?.rawText).toBe("维持当前目标并观察世界");
+    })).rejects.toBeInstanceOf(ModelSemanticRepairError);
+    expect(contentHash(engine.snapshot)).toBe(contentHash(source));
     expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(3);
-    expect(result.modelAudits.filter((audit) => audit.role === "agent-mind")).toHaveLength(3);
   });
 
   it("keeps outcome alternatives only when their evidence belongs to the acting Agent", () => {

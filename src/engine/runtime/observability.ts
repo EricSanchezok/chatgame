@@ -75,6 +75,13 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     singletonFailures: number;
   }>;
 } | {
+  event: "algorithm.agent_mind.repair_exhausted";
+  attributes: Readonly<{
+    phase: "bootstrap" | "resume" | "mind";
+    policy: "fail-step";
+  }>;
+  counts: Readonly<{ mindFailures: number }>;
+} | {
   event: "algorithm.agent_mind.repair_fallback";
   attributes: Readonly<{
     phase: "bootstrap" | "resume" | "mind";
@@ -374,6 +381,14 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
     attributeValues: {
       phase: ["bootstrap", "resume", "mind"],
       policy: ["empty-patch-and-idle-action"],
+    },
+  },
+  "algorithm.agent_mind.repair_exhausted": {
+    attributes: ["phase", "policy"],
+    counts: ["mindFailures"],
+    attributeValues: {
+      phase: ["bootstrap", "resume", "mind"],
+      policy: ["fail-step"],
     },
   },
   "algorithm.agent_reaction.repair_fallback": {

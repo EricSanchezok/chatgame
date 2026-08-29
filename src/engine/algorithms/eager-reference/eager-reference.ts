@@ -95,7 +95,7 @@ const truthComponent = { id: "truth-interaction-component", version: "2", config
 const mindComponent = {
   id: "agent-mind",
   version: "5",
-  config: { externalUpdates: false, repairExhaustion: "empty-patch-and-idle-action" },
+  config: { externalUpdates: false, repairExhaustion: "fail-step" },
 } as const;
 
 export interface EagerReferenceAlgorithmConfig {
@@ -155,7 +155,7 @@ function observationsFor(packets: readonly ObservationPacket[], observerId: stri
   return packets.filter((packet) => packet.observerId === observerId);
 }
 
-type EagerMindOutput = AgentMindOutput & { fallback: boolean };
+type EagerMindOutput = AgentMindOutput;
 
 interface EagerMindBatchOutput {
   outputs: EagerMindOutput[];
@@ -166,35 +166,6 @@ interface EagerMindBatchOutput {
 
 interface ComponentResolution {
   resolution: TruthResolution;
-}
-
-export function createMindRepairFallback(
-  state: Readonly<SimulationState>,
-  agent: Readonly<AgentState>,
-  purpose: "bootstrap" | "resume" | "mind",
-): EagerMindOutput {
-  return {
-    beliefPatch: { agentId: agent.id, baseRevision: state.revision, operations: [] },
-    characterPatch: { agentId: agent.id, baseRevision: state.revision, operations: [] },
-    nextAction: {
-      id: runtimeId({
-        worldHash: state.worldHash,
-        revision: state.revision,
-        kind: "action",
-        stage: `${purpose}-repair-fallback`,
-        owner: agent.id,
-        round: 0,
-        ordinal: 0,
-      }),
-      actorId: agent.id,
-      baseRevision: state.revision,
-      rawText: "观察并等待",
-      goal: "在下一次有效决策前不采取新的主动行动",
-      means: null,
-      targetIds: [],
-    },
-    fallback: true,
-  };
 }
 
 async function settledValues<T>(promises: readonly Promise<T>[], label: string): Promise<T[]> {
@@ -703,21 +674,28 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     const failures = new Map(result.failures.map((failure) => [failure.agentId, failure.error]));
     const outputs = inputs.map((input): EagerMindOutput => {
       const output = result.outputs.get(input.agent.id);
-      if (output) return { ...output, fallback: false };
+      if (output) return output;
       const error = failures.get(input.agent.id);
       if (!error) throw new Error(`AgentMind ${purpose} omitted ${input.agent.id}`);
       context.instrumentation.emit({
-        event: "algorithm.agent_mind.repair_fallback",
+        event: "algorithm.agent_mind.repair_exhausted",
         level: "warn",
         correlation: { ...context.modelScope.correlation, modelSubject: input.agent.id },
-        attributes: { phase: purpose, policy: "empty-patch-and-idle-action" },
-        counts: { mindFallbacks: 1 },
+        attributes: { phase: purpose, policy: "fail-step" },
+        counts: { mindFailures: 1 },
         error: {
           name: error instanceof Error ? error.name : "AgentMindError",
           message: error instanceof Error ? error.message : String(error),
         },
       });
-      return createMindRepairFallback(state, input.agent, purpose);
+      throw new ModelSemanticRepairError(
+        "agent-mind",
+        `AgentMind ${purpose} ${input.agent.id} failed after semantic repairs; step must be retried`,
+        {
+          cause: error,
+          audit: result.modelAudits.length > 0 ? result.modelAudits[result.modelAudits.length - 1] : undefined,
+        },
+      );
     });
     return {
       outputs,
@@ -834,7 +812,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       diagnostics: {
         activatedAgentIds: agents.map((agent) => agent.id),
         reusedAgentIds: [],
-        mindFallbackAgentIds: outputs.flatMap((output, index) => output.fallback ? [agents[index].id] : []),
+        mindFallbackAgentIds: [],
       },
     };
   }
@@ -1869,7 +1847,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       diagnostics: {
         activatedAgentIds: [...modelAgentIds],
         reusedAgentIds: [],
-        mindFallbackAgentIds: outputs.flatMap((output, index) => output.fallback ? [modelAgentIds[index]] : []),
+        mindFallbackAgentIds: [],
         dependencyComponents: structuredClone(components),
         globalReadjudication: fallback,
         dependencyGraph: {
