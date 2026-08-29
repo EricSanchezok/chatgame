@@ -72,13 +72,13 @@ function assistantStatus(status: PublicConversationTurn["status"]): ThreadMessag
 
 function PlayerRunConsole({
   busy,
-  actionText,
+  hasParticipantAction,
   run,
   onPause,
   onResume,
 }: {
   busy: boolean;
-  actionText?: string;
+  hasParticipantAction?: boolean;
   run: PublicWorldRun;
   onPause: () => void;
   onResume: () => void;
@@ -86,7 +86,7 @@ function PlayerRunConsole({
   const resumable = run.status === "paused" || run.status === "budget-paused" ||
     run.status === "preparation-invalidated";
   const [now, setNow] = useState(() => Date.now());
-  const presentation = runStatusPresentation(run, actionText);
+  const presentation = runStatusPresentation(run, Boolean(run.status === "running" && hasParticipantAction));
   const elapsed = formatRunElapsed(run.lease?.startedAt, now);
 
   useEffect(() => {
@@ -101,10 +101,8 @@ function PlayerRunConsole({
       <span aria-hidden="true" className="cg-thread-status__indicator" />
       <div className="cg-thread-status__copy">
         <strong>{presentation.title}</strong>
-        <span>{presentation.description}</span>
-        {actionText ? <span className="cg-thread-status__intent">行动：{actionText}</span> : null}
         <div className="cg-thread-status__meta">
-          <span>{presentation.activity}</span>
+          <span>{presentation.detail}</span>
           <span>{runBoundaryLabel(run)}</span>
           {elapsed ? <span>已运行 {elapsed}</span> : null}
         </div>
@@ -628,7 +626,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
           ].includes(detail.run.status) ? (
             <>
               <PlayerRunConsole
-                actionText={latestTurn?.action?.text}
+                hasParticipantAction={Boolean(latestTurn?.action)}
                 busy={Boolean(busy)}
                 onPause={() => void perform("pause-run", () => worldApi.pauseRun(instanceId, {
                   runId: detail.run!.id,

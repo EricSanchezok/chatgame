@@ -22,10 +22,9 @@ function run(overrides: Partial<PublicWorldRun> = {}): PublicWorldRun {
 
 describe("run status presentation", () => {
   it("explains an in-flight action even before a canonical activity exists", () => {
-    const presentation = runStatusPresentation(run(), "去码头查看船只");
+    const presentation = runStatusPresentation(run(), true);
     expect(presentation.title).toBe("正在处理你的行动");
-    expect(presentation.description).toContain("生成世界回应");
-    expect(presentation.activity).toContain("生成行动");
+    expect(presentation.detail).toBe("生成 → 校验 → 提交");
   });
 
   it("uses real activity stage and progress without inventing a percentage", () => {
@@ -41,8 +40,8 @@ describe("run status presentation", () => {
         queuePosition: null,
         resourceNames: [],
       },
-    }));
-    expect(presentation.activity).toBe("阶段：侦查 · 2.00 / 10 米");
+    }), true);
+    expect(presentation.detail).toBe("侦查 · 2.00 / 10 米");
   });
 
   it("makes the lease budget legible", () => {

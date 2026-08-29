@@ -2,61 +2,54 @@ import type { PublicWorldRun } from "../../shared/world-api";
 
 export type RunStatusPresentation = {
   title: string;
-  description: string;
-  activity: string;
+  detail: string;
 };
 
-function activityDescription(run: PublicWorldRun): string {
+function activityDescription(run: PublicWorldRun): string | undefined {
   const activity = run.activity;
-  if (!activity) {
-    return run.status === "queued"
-      ? "处理链：等待可用资源 → 生成行动 → 校验规则 → 提交世界边界"
-      : "处理链：生成行动 → 校验规则 → 提交世界边界";
-  }
+  if (!activity) return undefined;
   if (activity.status === "queued") {
-    return `等待${activity.resourceNames.join("、") || "共享资源"} · 队列第 ${activity.queuePosition ?? 1} 位`;
+    return `等待${activity.resourceNames.join("、") || "资源"} · 队列 ${activity.queuePosition ?? 1}`;
   }
-  if (activity.status === "ready") return "资源已预留 · 等待下一次时间推进";
-  const stage = activity.stage ? `阶段：${activity.stage}` : "活动正在推进";
+  if (activity.status === "ready") return "资源已预留 · 等待推进";
+  const stage = activity.stage ?? "活动推进中";
   if (!activity.progress) return stage;
   return `${stage} · ${activity.progress.current.toFixed(2)} / ${activity.progress.target} ${activity.progress.unit}`;
 }
 
-export function runStatusPresentation(run: PublicWorldRun, actionText?: string): RunStatusPresentation {
+export function runStatusPresentation(run: PublicWorldRun, hasParticipantAction = false): RunStatusPresentation {
   let title: string;
-  let description: string;
+  let detail: string;
   switch (run.status) {
     case "queued":
-      title = "正在排队准备世界变化";
-      description = "世界已收到请求，正在等待下一次安全推进。";
+      title = "正在准备世界变化";
+      detail = "等待资源 → 生成 → 校验 → 提交";
       break;
     case "pausing":
-      title = "正在完成当前世界边界";
-      description = "完成后会暂停，不会丢失已经提交的进度。";
+      title = "即将暂停";
+      detail = "完成当前边界后暂停";
       break;
     case "paused":
       title = "世界推进已暂停";
-      description = "可以恢复推进，也可以提交新行动替换当前活动。";
+      detail = "可恢复，或提交新行动";
       break;
     case "budget-paused":
-      title = "本轮推进已达到安全上限";
-      description = "恢复后会开启新的推进租约，避免一次运行持续占用资源。";
+      title = "本轮已达到上限";
+      detail = "恢复后开启新一轮推进";
       break;
     case "preparation-invalidated":
-      title = "上次准备已失效，需要重新计算";
-      description = "世界状态发生变化，原来的推进方案不会被直接提交。";
+      title = "需要重新准备";
+      detail = "世界状态已变化，原方案未提交";
       break;
     case "running":
-      title = actionText ? "正在处理你的行动" : "世界正在自主推进";
-      description = actionText
-        ? "正在生成世界回应、检查规则并准备下一次变化。"
-        : "正在计算下一次 Agent 行动和世界变化。";
+      title = hasParticipantAction ? "正在处理你的行动" : "世界正在自主推进";
+      detail = hasParticipantAction ? "生成 → 校验 → 提交" : "计算 → 校验 → 提交";
       break;
     default:
       title = "世界正在推进";
-      description = "正在准备下一次世界变化。";
+      detail = "准备下一次世界变化";
   }
-  return { title, description, activity: activityDescription(run) };
+  return { title, detail: activityDescription(run) || detail };
 }
 
 export function runBoundaryLabel(run: PublicWorldRun): string {
