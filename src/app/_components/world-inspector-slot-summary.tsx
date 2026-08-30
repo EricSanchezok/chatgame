@@ -18,7 +18,7 @@ export function WorldInspectorSlotSummary({ slotRefs }: { slotRefs: readonly Wor
     <span className="cg-inspector-slot-summary">
       <span className="cg-inspector-slot-summary__preview">
         <strong>{labels.length} 个 slot</strong>
-        <span aria-hidden="true"> · </span>
+        <span> · </span>
         {preview.join("、")}{remaining > 0 ? ` 等 ${remaining} 个` : ""}
       </span>
     </span>
