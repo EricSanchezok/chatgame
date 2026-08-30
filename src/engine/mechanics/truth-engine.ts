@@ -424,6 +424,36 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
   maxCommitmentRounds: number;
   scope: ModelExecutionScope;
 }): Promise<OnsetPerceptionResult> {
+  const ratingIdsByActor = new Map<string, string[]>();
+  for (const rating of Object.values(input.state.truth.ratings)) {
+    const ids = ratingIdsByActor.get(rating.entityId) ?? [];
+    ids.push(rating.id);
+    ratingIdsByActor.set(rating.entityId, ids);
+  }
+  for (const ids of ratingIdsByActor.values()) ids.sort();
+  const perceptionSchema = perceptionDirectiveSchema.superRefine((directive, refinement) => {
+    if (directive.kind !== "request_checks") return;
+    for (const [index, request] of directive.requests.entries()) {
+      if (request.ratingId && !(ratingIdsByActor.get(request.actorId) ?? []).includes(request.ratingId)) {
+        const allowed = ratingIdsByActor.get(request.actorId) ?? [];
+        refinement.addIssue({
+          code: "custom",
+          path: ["requests", index, "ratingId"],
+          message: `ratingId must be null or one of the actor's ratings: ${allowed.join(", ") || "(none)"}`,
+        });
+      }
+      for (const [sourceIndex, source] of request.modifierSources.entries()) {
+        const rating = input.state.truth.ratings[source.id];
+        if (!rating || rating.entityId !== request.actorId || rating.value !== source.amount) {
+          refinement.addIssue({
+            code: "custom",
+            path: ["requests", index, "modifierSources", sourceIndex],
+            message: "modifier source must name one rating owned by actorId and copy its canonical value",
+          });
+        }
+      }
+    }
+  });
   const allowed: Record<CausalRef["kind"], Set<string>> = {
     action: new Set(input.actions.map((action) => action.id)),
     check: new Set(),
@@ -450,7 +480,7 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
       subjectId: input.identityOwner,
       promptId: "truth-perception",
       schemaName: "truth_perception_directive",
-      schema: perceptionDirectiveSchema,
+      schema: perceptionSchema,
       scope: input.scope,
       buildContext: (issues) => buildTruthContext({
         definition: input.definition,

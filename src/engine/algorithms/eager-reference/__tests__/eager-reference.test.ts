@@ -367,7 +367,12 @@ describe("eager reference safeguards", () => {
       });
       const engine = new SimulationEngine(
         definition,
-        new EagerReferenceAlgorithm(provider, undefined, { actionCompilationMaxSlots, agentMindMaxSlots }),
+        new EagerReferenceAlgorithm(provider, undefined, {
+          actionCompilationMaxSlots,
+          agentMindMaxSlots,
+          reactionMaxSlots: 8,
+          groundingMaxSlots: 16,
+        }),
       );
       await engine.bootstrapAgents();
       const source = engine.snapshot;
@@ -391,6 +396,64 @@ describe("eager reference safeguards", () => {
     expect(batched.provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
     expect(singleton.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(2);
     expect(batched.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
+  });
+
+  it("starts known action compilation before a resumed AgentMind completes", async () => {
+    const events: string[] = [];
+    let releaseMind!: () => void;
+    const mindGate = new Promise<void>((resolve) => { releaseMind = resolve; });
+    const provider = new ScriptedModelProvider(async ({ role, profileId, context }) => {
+      if (role === "action-compilation") {
+        events.push("compile:start");
+        await mindGate;
+        events.push("compile:end");
+        return deterministicModelOutput(profileId, context);
+      }
+      if (role === "agent-mind") {
+        events.push("mind:start");
+        releaseMind();
+        events.push("mind:end");
+        return deterministicModelOutput(profileId, context);
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const bootstrapEngine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await bootstrapEngine.bootstrapAgents();
+    const source = bootstrapEngine.snapshot;
+    source.agents.keeper!.nextAction = null;
+    const algorithm = new EagerReferenceAlgorithm(provider);
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await algorithm.prepareStep({
+      definition,
+      state: source,
+      policyRoster: roster,
+      request: {
+        expectedRevision: source.revision,
+        trigger: "manual",
+        externalActions: [],
+      },
+      decisionEligibleAgentIds: Object.keys(source.agents).sort(),
+    }, {
+      modelScope: {
+        workloadId: "overlap-test",
+        batchId: "prepare-overlap-test",
+        runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
+      },
+      instrumentation: { emit: () => undefined },
+    });
+
+    expect(events.indexOf("compile:start")).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("mind:start")).toBeGreaterThan(events.indexOf("compile:start"));
+    expect(events.indexOf("compile:end")).toBeGreaterThan(events.indexOf("mind:end"));
   });
 
   it("recovers a compressed multi-action resolution response with one-action scopes", async () => {

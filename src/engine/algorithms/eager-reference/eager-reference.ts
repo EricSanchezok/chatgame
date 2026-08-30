@@ -107,11 +107,22 @@ const TRUTH_RESOLUTION_MAX_CONCURRENT = 16;
 export interface EagerReferenceAlgorithmConfig {
   actionCompilationMaxSlots: number;
   agentMindMaxSlots: number;
+  reactionMaxSlots: number;
+  groundingMaxSlots: number;
+}
+
+interface NormalizedEagerReferenceAlgorithmConfig {
+  actionCompilationMaxSlots: number;
+  agentMindMaxSlots: number;
+  reactionMaxSlots: number;
+  groundingMaxSlots: number;
 }
 
 export const DEFAULT_EAGER_REFERENCE_CONFIG: Readonly<EagerReferenceAlgorithmConfig> = Object.freeze({
   actionCompilationMaxSlots: 12,
   agentMindMaxSlots: 8,
+  reactionMaxSlots: 8,
+  groundingMaxSlots: 16,
 });
 
 function slotLimit(value: unknown, label: string): number {
@@ -121,12 +132,17 @@ function slotLimit(value: unknown, label: string): number {
   return Number(value);
 }
 
-export function parseEagerReferenceAlgorithmConfig(value: unknown): EagerReferenceAlgorithmConfig {
+export function parseEagerReferenceAlgorithmConfig(value: unknown): NormalizedEagerReferenceAlgorithmConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("eager-reference config must be an object");
   }
   const input = value as Record<string, unknown>;
-  const expected = ["actionCompilationMaxSlots", "agentMindMaxSlots"];
+  const expected = [
+    "actionCompilationMaxSlots",
+    "agentMindMaxSlots",
+    "groundingMaxSlots",
+    "reactionMaxSlots",
+  ];
   const keys = Object.keys(input).sort();
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
     throw new Error(`eager-reference config fields must be exactly: ${expected.join(", ")}`);
@@ -137,6 +153,14 @@ export function parseEagerReferenceAlgorithmConfig(value: unknown): EagerReferen
       "actionCompilationMaxSlots",
     ),
     agentMindMaxSlots: slotLimit(input.agentMindMaxSlots, "agentMindMaxSlots"),
+    reactionMaxSlots: slotLimit(
+      input.reactionMaxSlots,
+      "reactionMaxSlots",
+    ),
+    groundingMaxSlots: slotLimit(
+      input.groundingMaxSlots,
+      "groundingMaxSlots",
+    ),
   };
 }
 
@@ -150,6 +174,8 @@ export function createEagerReferenceManifest(
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,
+      reactionMaxSlots: config.reactionMaxSlots,
+      groundingMaxSlots: config.groundingMaxSlots,
     },
     components: [compilationComponent, groundingComponent, truthComponent, mindComponent],
   });
@@ -225,10 +251,10 @@ function materializeExternalAction(
   };
 }
 
-function collectActions(
+function collectKnownActions(
   input: Readonly<WorldStepInput>,
-  preparedActions: ReadonlyMap<AgentId, AgentActionProposal>,
   eligibleAgentIds: readonly AgentId[],
+  deferredAgentIds: ReadonlySet<AgentId>,
 ): AgentActionProposal[] {
   const state = input.state;
   const agentIds = Object.keys(state.agents).sort();
@@ -245,8 +271,9 @@ function collectActions(
     if (!binding || binding.agentId !== agentId) throw new Error(`invalid policy binding for ${agentId}`);
     if (!eligible.has(agentId)) return [];
     if (binding.kind === "model") {
-      const prepared = preparedActions.get(agentId) ?? state.agents[agentId].nextAction;
-      if (!prepared) throw new Error(`model Agent ${agentId} has not prepared an action`);
+      if (deferredAgentIds.has(agentId)) return [];
+      const prepared = state.agents[agentId].nextAction;
+      if (!prepared) return [];
       return [structuredClone(prepared)];
     }
     if (binding.kind === "external" || binding.kind === "replay") {
@@ -345,7 +372,10 @@ interface OnsetReactionCandidate {
   trigger: AgentActionProposal;
   originalIntent: ReactionRequest["originalIntent"];
   description: string;
+  ordinal: number;
 }
+
+type OnsetReactionCandidateDraft = Omit<OnsetReactionCandidate, "ordinal">;
 
 function collectOnsetReactionCandidates(input: {
   state: Readonly<SimulationState>;
@@ -353,7 +383,7 @@ function collectOnsetReactionCandidates(input: {
   actions: readonly AgentActionProposal[];
   dependencies: readonly InteractionDependency[];
 }): OnsetReactionCandidate[] {
-  const requestInputs: OnsetReactionCandidate[] = [];
+  const requestInputs: OnsetReactionCandidateDraft[] = [];
   const dependencyByAction = new Map(input.dependencies.map((dependency) => [dependency.id, dependency]));
   const actionById = new Map(input.actions.map((action) => [action.id, action]));
   for (const action of input.actions) {
@@ -402,7 +432,7 @@ function collectOnsetReactionCandidates(input: {
   const unique = [...new Map(requestInputs
     .sort((left, right) => left.agentId.localeCompare(right.agentId) || left.trigger.id.localeCompare(right.trigger.id))
     .map((entry) => [entry.agentId, entry])).values()];
-  return unique;
+  return unique.map((entry, ordinal) => ({ ...entry, ordinal }));
 }
 
 function materializeOnsetReactionRequests(
@@ -410,7 +440,7 @@ function materializeOnsetReactionRequests(
   candidates: readonly OnsetReactionCandidate[],
   perception: Readonly<Pick<OnsetPerceptionResult, "requests" | "checks">>,
 ): ReactionRequest[] {
-  return candidates.flatMap((entry, ordinal): ReactionRequest[] => {
+  return candidates.flatMap((entry): ReactionRequest[] => {
     const basis = reactionBasis(state, entry.trigger, entry.agentId, perception);
     if (basis.length === 0) return [];
     const id = runtimeId({
@@ -420,7 +450,7 @@ function materializeOnsetReactionRequests(
       stage: "action-onset",
       owner: [entry.agentId, entry.trigger.id],
       round: 0,
-      ordinal,
+      ordinal: entry.ordinal,
     });
     return [{
       id,
@@ -435,7 +465,7 @@ function materializeOnsetReactionRequests(
           stage: "reaction-stimulus",
           owner: entry.agentId,
           round: 0,
-          ordinal,
+          ordinal: entry.ordinal,
         }),
         observerId: entry.agentId,
         step: state.step + 1,
@@ -448,6 +478,61 @@ function materializeOnsetReactionRequests(
       basis,
     }];
   });
+}
+
+interface ReactionResolutionBatch {
+  decisions: ReactionDecision[];
+  audits: ModelExecutionAudit[];
+}
+
+async function resolveAgentReactionRequests(
+  agentMind: AgentMind,
+  planningState: Readonly<SimulationState>,
+  newActions: readonly AgentActionProposal[],
+  reactionRequests: readonly ReactionRequest[],
+  policyRoster: Readonly<WorldStepInput["policyRoster"]>,
+  context: Readonly<ExecutionContext>,
+  maxConcurrent = 8,
+): Promise<ReactionResolutionBatch> {
+  const reactionResults = await settledValues(reactionRequests.map((request) => async () => {
+    const policy = policyRoster[request.agentId];
+    if (!policy) throw new Error(`reaction request ${request.id} has no policy`);
+    if (policy.kind === "external") return null;
+    if (policy.kind === "idle") {
+      return { decision: fallbackReactionDecision(planningState, request), audit: null };
+    }
+    if (policy.kind === "replay") {
+      return { decision: fallbackReactionDecision(planningState, request, "replay"), audit: null };
+    }
+    const agent = applyObservationBindings(planningState.agents[request.agentId], [request.stimulus]);
+    const originalAction = originalActionForReaction(planningState, newActions, request);
+    try {
+      const output = await agentMind.react(
+        planningState,
+        agent,
+        originalAction,
+        request,
+        context.modelScope,
+      );
+      const { modelAudit, ...decision } = output;
+      return { decision, audit: modelAudit };
+    } catch (error) {
+      if (!(error instanceof ModelSemanticRepairError) || !error.audit) throw error;
+      context.instrumentation.emit({
+        event: "algorithm.agent_reaction.repair_exhausted",
+        level: "warn",
+        correlation: { ...context.modelScope.correlation, modelSubject: request.agentId },
+        attributes: { phase: "reaction", policy: "fail-step" },
+        counts: { reactionFailures: 1 },
+        error: { name: error.name, message: error.message },
+      });
+      throw error;
+    }
+  }), "action-onset reactions", maxConcurrent);
+  return {
+    decisions: reactionResults.flatMap((result) => result ? [result.decision] : []),
+    audits: reactionResults.flatMap((result) => result?.audit ? [result.audit] : []),
+  };
 }
 
 function originalActionForReaction(
@@ -622,6 +707,7 @@ function mergeResolutions(
 
 export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   readonly manifest;
+  readonly config: Readonly<NormalizedEagerReferenceAlgorithmConfig>;
   private readonly truthEngine: TruthEngine;
   private readonly agentMind: AgentMind;
   private readonly observationRenderer: ObservationRenderer;
@@ -631,7 +717,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   constructor(
     provider: StructuredModelProvider,
     rulePackages?: RulePackageRegistry,
-    readonly config: Readonly<EagerReferenceAlgorithmConfig> = DEFAULT_EAGER_REFERENCE_CONFIG,
+    config: Readonly<EagerReferenceAlgorithmConfig> = DEFAULT_EAGER_REFERENCE_CONFIG,
   ) {
     this.config = Object.freeze(parseEagerReferenceAlgorithmConfig(config));
     this.manifest = createEagerReferenceManifest(this.config);
@@ -1043,7 +1129,17 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         (binding.resumeFromRevision !== undefined || source.agents[agentId]?.nextAction === null))
       .map(([agentId]) => agentId)
       .sort();
-    const resumedMindBatch = await this.thinkBatchWithFallback(
+    const knownActions = collectKnownActions(input, eligibleAgentIds, new Set(resumedAgentIds));
+    const actionOverlapStartedAt = performance.now();
+    const knownActionCompilation = compileActions(
+      this.provider,
+      planningState,
+      knownActions,
+      context.modelScope,
+      input.definition.modelProfiles.grounding,
+      this.config.actionCompilationMaxSlots,
+    );
+    const resumedMindBatchPromise = this.thinkBatchWithFallback(
       source,
       resumedAgentIds.map((agentId) => ({
         agent: source.agents[agentId],
@@ -1054,32 +1150,72 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       "resume",
       context,
     );
+    const [knownActionCompilationBatch, resumedMindBatch] = await Promise.all([
+      knownActionCompilation,
+      resumedMindBatchPromise,
+    ]);
     const resumedOutputs = resumedMindBatch.outputs;
-    const preparedActions = new Map(resumedAgentIds.map((agentId, index) => [
-      agentId,
-      resumedOutputs[index].nextAction,
-    ]));
-    const newActions = collectActions(input, preparedActions, eligibleAgentIds);
-    const actionCompilationBatch = await compileActions(
+    const resumedActions = resumedAgentIds.map((agentId, index) => {
+      const action = resumedOutputs[index]?.nextAction;
+      if (!action) throw new Error(`resume AgentMind omitted action for ${agentId}`);
+      return structuredClone(action);
+    });
+    const newActions = [...knownActions, ...resumedActions]
+      .sort((left, right) => left.actorId.localeCompare(right.actorId) || left.id.localeCompare(right.id));
+    if (new Set(newActions.map((action) => action.actorId)).size !== newActions.length) {
+      throw new Error("step preparation produced more than one action for an Agent");
+    }
+    if (new Set(newActions.map((action) => action.id)).size !== newActions.length) {
+      throw new Error("step preparation produced duplicate action identities");
+    }
+    const resumedActionCompilationBatch = await compileActions(
       this.provider,
       planningState,
-      newActions,
+      resumedActions,
       context.modelScope,
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
       compilationComponent.config.repairAttempts,
     );
-    if (newActions.length > 0) {
+    if (knownActions.length > 0) {
       this.emitSlotBatchMetrics(
         context,
         "action-compilation",
-        newActions.length,
+        knownActions.length,
         this.config.actionCompilationMaxSlots,
-        actionCompilationBatch.batchCount,
-        actionCompilationBatch.metrics,
+        knownActionCompilationBatch.batchCount,
+        knownActionCompilationBatch.metrics,
       );
     }
-    const actionCompilations = actionCompilationBatch.compilations;
+    if (resumedActions.length > 0) {
+      this.emitSlotBatchMetrics(
+        context,
+        "action-compilation",
+        resumedActions.length,
+        this.config.actionCompilationMaxSlots,
+        resumedActionCompilationBatch.batchCount,
+        resumedActionCompilationBatch.metrics,
+      );
+    }
+    const actionCompilations = [
+      ...knownActionCompilationBatch.compilations,
+      ...resumedActionCompilationBatch.compilations,
+    ].sort((left, right) => left.plan.actionId.localeCompare(right.plan.actionId));
+    if (contentHash(actionCompilations.map((entry) => entry.plan.actionId).sort()) !==
+      contentHash(newActions.map((action) => action.id).sort())) {
+      throw new Error("step preparation did not compile every action exactly once");
+    }
+    context.instrumentation.emit({
+      event: "algorithm.eager_reference.overlap_completed",
+      durationMs: Math.max(0, performance.now() - actionOverlapStartedAt),
+      attributes: { phase: "action-preparation" },
+      counts: {
+        knownActions: knownActions.length,
+        deferredActions: resumedActions.length,
+        directReactions: 0,
+        perceptionReactions: 0,
+      },
+    });
     const temporalPlanning: PlannedTemporalActivity[] = actionCompilations.map((result) => ({
       plan: structuredClone(result.plan),
       activity: structuredClone(result.activity),
@@ -1146,12 +1282,29 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       actions: newActions,
       dependencies: newDependencyResults.map((result) => result.dependency),
     });
-    const requiresPerceptionCheck = reactionCandidates.some((candidate) =>
+    const reactionOverlapStartedAt = performance.now();
+    const directReactionCandidates = reactionCandidates.filter((candidate) =>
+      reactionBasis(source, candidate.trigger, candidate.agentId, { requests: [], checks: [] }).length > 0);
+    const perceptionReactionCandidates = reactionCandidates.filter((candidate) =>
       reactionBasis(source, candidate.trigger, candidate.agentId, { requests: [], checks: [] }).length === 0);
-    let onsetPerception: OnsetPerceptionResult | null = null;
-    if (requiresPerceptionCheck) {
-      try {
-        onsetPerception = await this.truthEngine.perceiveOnset({
+    const directReactionRequests = materializeOnsetReactionRequests(
+      source,
+      directReactionCandidates,
+      { requests: [], checks: [] },
+    );
+    validateObservations(source, directReactionRequests.map((request) => request.stimulus), source.step + 1);
+    const directReactionPromise = resolveAgentReactionRequests(
+      this.agentMind,
+      planningState,
+      newActions,
+      directReactionRequests,
+      input.policyRoster,
+      context,
+      this.config.reactionMaxSlots,
+    );
+    const onsetPerceptionPromise = perceptionReactionCandidates.length === 0
+      ? Promise.resolve(null)
+      : this.truthEngine.perceiveOnset({
           definition: input.definition,
           state: source,
           actions: structuredClone(newActions),
@@ -1167,69 +1320,87 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           identityOwner: "action-onset-perception",
           groundings: newDependencyResults.map((result) => structuredClone(result.dependency)),
         }, context.modelScope);
-      } catch (error) {
-        if (!(error instanceof ModelSemanticRepairError)) throw error;
-        context.instrumentation.emit({
-          event: "algorithm.truth_perception.repair_exhausted",
-          level: "warn",
-          correlation: context.modelScope.correlation,
-          attributes: { phase: "truth-perception", policy: "fail-step" },
-          counts: { perceptionFailures: 1 },
-          error: { name: error.name, message: error.message },
-        });
-        throw error;
-      }
+    const [onsetPerceptionResult, directReactionResult] = await Promise.all([
+      onsetPerceptionPromise.then(
+        (value) => ({ ok: true as const, value }),
+        (error) => ({ ok: false as const, error }),
+      ),
+      directReactionPromise.then(
+        (value) => ({ ok: true as const, value }),
+        (error) => ({ ok: false as const, error }),
+      ),
+    ]);
+    if (!onsetPerceptionResult.ok) {
+      const error = onsetPerceptionResult.error;
+      if (!(error instanceof ModelSemanticRepairError)) throw error;
+      context.instrumentation.emit({
+        event: "algorithm.truth_perception.repair_exhausted",
+        level: "warn",
+        correlation: context.modelScope.correlation,
+        attributes: { phase: "truth-perception", policy: "fail-step" },
+        counts: { perceptionFailures: 1 },
+        error: { name: error.name, message: error.message },
+      });
+      throw error;
     }
+    if (!directReactionResult.ok) throw directReactionResult.error;
+    const onsetPerception: OnsetPerceptionResult | null = onsetPerceptionResult.value;
+    const directReactionResults = directReactionResult.value;
     const onsetPerceptionTranscript = onsetPerception ?? {
       requests: [],
       checks: [],
       commitmentRounds: [],
       rng: structuredClone(source.truth.rng),
     };
-    const reactionRequests = materializeOnsetReactionRequests(
+    const perceptionReactionRequests = materializeOnsetReactionRequests(
       source,
-      reactionCandidates,
+      perceptionReactionCandidates,
       onsetPerceptionTranscript,
     );
-    validateObservations(source, reactionRequests.map((request) => request.stimulus), source.step + 1);
-    const reactionResults = await settledValues(reactionRequests.map((request) => async () => {
-      const policy = input.policyRoster[request.agentId];
-      if (!policy) throw new Error(`reaction request ${request.id} has no policy`);
-      if (policy.kind === "external") return null;
-      if (policy.kind === "idle") {
-        return { decision: fallbackReactionDecision(planningState, request), audit: null };
-      }
-      if (policy.kind === "replay") {
-        return { decision: fallbackReactionDecision(planningState, request, "replay"), audit: null };
-      }
-      const agent = applyObservationBindings(planningState.agents[request.agentId], [request.stimulus]);
-      const originalAction = originalActionForReaction(planningState, newActions, request);
-      try {
-        const output = await this.agentMind.react(
-          planningState,
-          agent,
-          originalAction,
-          request,
-          context.modelScope,
-        );
-        const { modelAudit, ...decision } = output;
-        return { decision, audit: modelAudit };
-      } catch (error) {
-        if (!(error instanceof ModelSemanticRepairError) || !error.audit) throw error;
-        context.instrumentation.emit({
-          event: "algorithm.agent_reaction.repair_exhausted",
-          level: "warn",
-          correlation: { ...context.modelScope.correlation, modelSubject: request.agentId },
-          attributes: { phase: "reaction", policy: "fail-step" },
-          counts: { reactionFailures: 1 },
-          error: { name: error.name, message: error.message },
-        });
-        throw error;
-      }
-    }), "action-onset reactions", 4);
-    const preparedReactionDecisions = reactionResults.flatMap((result) => result ? [result.decision] : []);
-    const pendingReactionRequests = reactionRequests.filter((request) =>
-      !preparedReactionDecisions.some((decision) => decision.requestId === request.id));
+    validateObservations(source, [
+      ...directReactionRequests,
+      ...perceptionReactionRequests,
+    ].map((request) => request.stimulus), source.step + 1);
+    const perceptionReactionResults = await resolveAgentReactionRequests(
+      this.agentMind,
+      planningState,
+      newActions,
+      perceptionReactionRequests,
+      input.policyRoster,
+      context,
+      this.config.reactionMaxSlots,
+    );
+    context.instrumentation.emit({
+      event: "algorithm.eager_reference.overlap_completed",
+      durationMs: Math.max(0, performance.now() - reactionOverlapStartedAt),
+      attributes: { phase: "reaction-preparation" },
+      counts: {
+        knownActions: 0,
+        deferredActions: 0,
+        directReactions: directReactionRequests.length,
+        perceptionReactions: perceptionReactionRequests.length,
+      },
+    });
+    const reactionRequests = [...directReactionRequests, ...perceptionReactionRequests]
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const preparedReactionDecisions = [
+      ...directReactionResults.decisions,
+      ...perceptionReactionResults.decisions,
+    ].sort((left, right) => left.requestId.localeCompare(right.requestId));
+    const reactionAudits = [
+      ...directReactionResults.audits,
+      ...perceptionReactionResults.audits,
+    ].sort((left, right) => left.subjectId.localeCompare(right.subjectId) || left.role.localeCompare(right.role));
+    const reactionOrdinalByAgent = new Map(reactionCandidates.map((candidate) => [candidate.agentId, candidate.ordinal]));
+    const pendingReactionRequests = reactionRequests
+      .filter((request) => !preparedReactionDecisions.some((decision) => decision.requestId === request.id))
+      // The merged request list is id-sorted for deterministic preparation
+      // identity, while the external window retains the candidate order that
+      // existed before the two branches were split.
+      .sort((left, right) =>
+        (reactionOrdinalByAgent.get(left.agentId) ?? Number.MAX_SAFE_INTEGER) -
+          (reactionOrdinalByAgent.get(right.agentId) ?? Number.MAX_SAFE_INTEGER) ||
+        left.id.localeCompare(right.id));
     const payload: EagerStepPreparationPayload = {
       resumedAgentIds: structuredClone(resumedAgentIds),
       resumedOutputs: structuredClone(resumedOutputs),
@@ -1268,9 +1439,10 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       preparedReactionDecisions: structuredClone(preparedReactionDecisions),
       modelAudits: [
         ...resumedMindBatch.modelAudits.map((audit) => structuredClone(audit)),
-        ...actionCompilationBatch.modelAudits.map((audit) => structuredClone(audit)),
+        ...knownActionCompilationBatch.modelAudits.map((audit) => structuredClone(audit)),
+        ...resumedActionCompilationBatch.modelAudits.map((audit) => structuredClone(audit)),
         ...(onsetPerception ? [structuredClone(onsetPerception.modelAudit)] : []),
-        ...reactionResults.flatMap((result) => result?.audit ? [structuredClone(result.audit)] : []),
+        ...reactionAudits.map((audit) => structuredClone(audit)),
       ],
       payload: structuredClone(payload) as unknown as JsonObject,
     };
@@ -1548,7 +1720,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         0,
         groundingComponent.config.repairAttempts,
       );
-    }), "action grounding", 8);
+    }), "action grounding", this.config.groundingMaxSlots);
     const actionDependencies = [
       ...dependencyResults.map((result) => result.dependency),
       ...newDependencyResults

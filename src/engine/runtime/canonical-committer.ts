@@ -56,6 +56,7 @@ import {
   validateTemporalPlan,
 } from "../mechanics/temporal";
 import { applyAdmissionCommit, applyTransitionProposal, validateSimulationState } from "./transaction";
+import { computeAdmissionImpact } from "./admission-impact";
 import { validateSharedActivityResourceClaimForAction } from "../mechanics/shared-activity-resources";
 import {
   applySharedResourceAdmissions,
@@ -881,10 +882,10 @@ export class CanonicalCommitter {
     entity: WorldEntity;
     placementId: string | null;
     agent: AgentState;
-    meters: MeterState[];
-    quantities: QuantityState[];
-    ratings: RatingState[];
-    conditions: import("../mechanics/resolution").ConditionState[];
+    meters: readonly MeterState[];
+    quantities: readonly QuantityState[];
+    ratings: readonly RatingState[];
+    conditions: readonly import("../mechanics/resolution").ConditionState[];
   }>): { committed: AgentAdmissionCommit; state: SimulationState } {
     const source = structuredClone(sourceState) as SimulationState;
     const semantic = {
@@ -894,13 +895,14 @@ export class CanonicalCommitter {
       entity: structuredClone(candidate.entity),
       placementId: candidate.placementId,
       agent: structuredClone(candidate.agent),
-      meters: structuredClone(candidate.meters),
-      quantities: structuredClone(candidate.quantities),
-      ratings: structuredClone(candidate.ratings),
-      conditions: structuredClone(candidate.conditions),
+      meters: candidate.meters.map((entry) => structuredClone(entry)),
+      quantities: candidate.quantities.map((entry) => structuredClone(entry)),
+      ratings: candidate.ratings.map((entry) => structuredClone(entry)),
+      conditions: candidate.conditions.map((entry) => structuredClone(entry)),
       invalidatedActionIds: Object.values(source.agents)
         .flatMap((agent) => agent.nextAction ? [agent.nextAction.id] : [])
         .sort(),
+      reusedActions: computeAdmissionImpact(source, candidate).reusedActions,
     };
     const committed: AgentAdmissionCommit = {
       contentHash: "",

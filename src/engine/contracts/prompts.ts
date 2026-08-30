@@ -232,6 +232,24 @@ function scopedActors(
     }]));
 }
 
+function perceptionCheckConstraints(
+  state: Readonly<SimulationState>,
+  actions: readonly AgentActionProposal[],
+  groundings: readonly InteractionDependency[],
+): unknown {
+  const actorEntityIds = new Set(Object.values(scopedActors(state, actions, groundings))
+    .map((actor) => actor.entityId));
+  return {
+    actors: [...actorEntityIds].sort().map((actorId) => ({
+      actorId,
+      ratings: Object.values(state.truth.ratings)
+        .filter((rating) => rating.entityId === actorId)
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((rating) => ({ id: rating.id, value: rating.value })),
+    })),
+  };
+}
+
 export function buildTruthContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
@@ -335,6 +353,9 @@ export function buildTruthContext(input: {
     validationIssues: input.issues,
     resolutionScope: input.resolutionScope ?? null,
     repairTarget: input.repairTarget ? structuredClone(input.repairTarget) : null,
+    ...(stage === "perception" ? {
+      perceptionCheckConstraints: perceptionCheckConstraints(input.state, input.actions, input.groundings),
+    } : {}),
     stage,
   };
 }

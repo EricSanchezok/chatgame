@@ -30,7 +30,7 @@ The fixed engine must preserve an exact producer without learning eager-referenc
 
 `AlgorithmRef` carries the immutable JSON-safe configuration from its `AlgorithmManifest`. The registry owns only generic validation and delegates manifest construction plus configuration interpretation to the registered algorithm definition. Its key remains the algorithm ID and version, while the reference configuration and derived manifest hash identify the exact variant.
 
-Eager-reference owns `actionCompilationMaxSlots` and `agentMindMaxSlots`, including defaults, bounds, prompt composition, byte-aware partitioning, validation, repair, and splitting. WorldHost pins the resulting reference when it creates an instance. The Execution Ledger stores the complete producer manifest, and recorded replay derives a configured reference from that manifest.
+Eager-reference owns `actionCompilationMaxSlots`, `agentMindMaxSlots`, `reactionMaxSlots`, and `groundingMaxSlots`, including defaults, bounds, prompt composition, byte-aware partitioning, validation, repair, and splitting. WorldHost pins the resulting reference when it creates an instance. The Execution Ledger stores the complete producer manifest, and recorded replay derives a configured reference from that manifest.
 
 Configuration is immutable after instance creation. The fixed engine, canonical committer, Script loader, and model gateway do not interpret the eager-reference fields.
 

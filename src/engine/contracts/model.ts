@@ -584,6 +584,7 @@ export interface AgentAdmissionCommit {
   ratings: RatingState[];
   conditions: ConditionState[];
   invalidatedActionIds: string[];
+  reusedActions: AgentActionProposal[];
 }
 
 export type WorldEventDraft = Omit<WorldEvent, "step">;

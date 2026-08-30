@@ -118,3 +118,5 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0077 — Organize Engine Code by Ownership Boundaries](0077-engine-module-topology.md)
 - [0078 — External Prompt Bundles](0078-external-prompt-bundles.md)
 - [0079 — Truth Engine 输出修复边界](0079-truth-engine-output-repair-boundaries.md)
+- [0080 — Conversation Timeline Rail and Stateful Composer](0080-conversation-timeline-rail-and-stateful-composer.md)
+- [0081 — Selective Admission Reuse and Stage Overlap](0081-selective-admission-reuse-and-stage-overlap.md)

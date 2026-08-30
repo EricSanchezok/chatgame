@@ -7,7 +7,7 @@ Status: Implemented
 
 Make Action Compilation and AgentMind request cardinality independently tunable so a world instance can trade model latency against multi-slot output reliability without moving batching policy into the fixed engine. The eager-reference algorithm owns slot formation, prompt shape, validation, recovery, and defaults. The fixed engine only pins and replays opaque algorithm configuration.
 
-The default eager-reference configuration uses at most twelve Action Compilation slots and eight AgentMind slots per physical request. Each limit accepts integers from one through sixty-four and remains immutable for the life of an instance. AgentMind batching covers bootstrap, ordinary mind updates, and policy resume in separate groups; reaction decisions remain unbatched.
+The default eager-reference configuration uses at most twelve Action Compilation slots, eight AgentMind slots, eight Reaction slots, and sixteen Action Grounding slots per physical request or worker wave. Each limit accepts integers from one through sixty-four and remains immutable for the life of an instance. AgentMind batching covers bootstrap, ordinary mind updates, and policy resume in separate groups; reaction and grounding limits are independently pinned with the algorithm manifest.
 
 This change does not alter world evolution semantics, the canonical committer, Script contracts, model-gateway scheduling, or Observation batching.
 
@@ -15,7 +15,7 @@ This change does not alter world evolution semantics, the canonical committer, S
 
 `AlgorithmRef` carries the JSON-safe configuration used to derive its manifest hash. The algorithm registry treats configuration as opaque, asks the registered algorithm definition to construct the exact manifest and implementation, and rejects a reference whose derived manifest does not match. Instance creation pins one configured reference, and recorded replay reconstructs the algorithm from the recorded producer manifest rather than current defaults.
 
-The developer-facing instance creation request may provide `executionTuning.actionCompilationMaxSlots` and `executionTuning.agentMindMaxSlots`. Missing values use twelve and eight respectively. Unknown fields, non-integers, and values outside one through sixty-four fail before bootstrap or model work. Ordinary instance responses do not expose the configuration.
+The developer-facing instance creation request may provide `executionTuning.actionCompilationMaxSlots`, `executionTuning.agentMindMaxSlots`, `executionTuning.reactionMaxSlots`, and `executionTuning.groundingMaxSlots`. Missing values use twelve, eight, eight, and sixteen respectively. Unknown fields, non-integers, and values outside one through sixty-four fail before bootstrap or model work. Ordinary instance responses do not expose the configuration.
 
 Eager-reference groups Action Compilation by model profile and AgentMind by purpose plus model profile. A configured value is a maximum: serialized request size, profile differences, tail cardinality, validation recovery, and recursive splitting may produce smaller batches. A value of one uses the same batch protocol with one slot.
 

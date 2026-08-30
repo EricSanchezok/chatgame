@@ -183,6 +183,8 @@ export type CreateInstanceInput = {
   executionTuning?: {
     actionCompilationMaxSlots?: number;
     agentMindMaxSlots?: number;
+    reactionMaxSlots?: number;
+    groundingMaxSlots?: number;
   };
   start: {
     kind: "origin";
