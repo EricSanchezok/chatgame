@@ -152,6 +152,10 @@ export default function WorldInspectorDialog({
   const requestRef = useRef(0);
   const detailRequestRef = useRef(0);
   const selectedNodeRef = useRef<string | undefined>(undefined);
+  const selectedInvocationRef = useRef<string | undefined>(undefined);
+  const detailRef = useRef<InspectorDetail | undefined>(undefined);
+  const invocationRequestRef = useRef(0);
+  const invocationDetailRequestRef = useRef(0);
   const followLatestRef = useRef(true);
   const resizeRef = useRef<{
     currentWidth: number;
@@ -195,6 +199,14 @@ export default function WorldInspectorDialog({
   }, [selectedNodeId]);
 
   useEffect(() => {
+    selectedInvocationRef.current = selectedInvocationId;
+  }, [selectedInvocationId]);
+
+  useEffect(() => {
+    detailRef.current = detail;
+  }, [detail]);
+
+  useEffect(() => {
     followLatestRef.current = followLatest;
   }, [followLatest]);
 
@@ -236,6 +248,7 @@ export default function WorldInspectorDialog({
 
   const selectStep = useCallback(async (step: WorldInspectorStepSummary, nodeId = `commit:${step.revision}`) => {
     const request = ++detailRequestRef.current;
+    invocationDetailRequestRef.current += 1;
     setSelectedNodeId(nodeId);
     setSelectedInvocationId(undefined);
     setInvocationDetail(undefined);
@@ -254,17 +267,48 @@ export default function WorldInspectorDialog({
     }
   }, [instanceId]);
 
-  const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary) => {
-    const request = ++detailRequestRef.current;
-    setSelectedNodeId(`attempt:${attempt.id}`);
-    setSelectedInvocationId(undefined);
-    setInvocationDetail(undefined);
+  const loadInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary, executionId: string) => {
+    const request = ++invocationDetailRequestRef.current;
+    setSelectedInvocationId(invocation.id);
     setInvocationError("");
+    setLoadingInvocation(true);
+    try {
+      const value = await worldInspectorApi.modelInvocation(instanceId, executionId, invocation.id);
+      if (request === invocationDetailRequestRef.current) setInvocationDetail(value);
+    } catch (reason) {
+      if (request === invocationDetailRequestRef.current) {
+        setInvocationError(reason instanceof Error ? reason.message : "无法读取这次模型调用的完整记录。");
+      }
+    } finally {
+      if (request === invocationDetailRequestRef.current) setLoadingInvocation(false);
+    }
+  }, [instanceId]);
+
+  const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary, preserveInvocation = false) => {
+    const request = ++detailRequestRef.current;
+    const preservedInvocationId = preserveInvocation ? selectedInvocationRef.current : undefined;
+    setSelectedNodeId(`attempt:${attempt.id}`);
+    if (!preserveInvocation) {
+      invocationDetailRequestRef.current += 1;
+      setSelectedInvocationId(undefined);
+      setInvocationDetail(undefined);
+      setInvocationError("");
+    }
     setLoadingDetail(true);
     setDetailError("");
     try {
       const value = await worldInspectorApi.attempt(instanceId, attempt.id);
-      if (request === detailRequestRef.current) setDetail({ kind: "attempt", value });
+      if (request === detailRequestRef.current) {
+        setDetail({ kind: "attempt", value });
+        if (preservedInvocationId) {
+          const refreshedInvocation = value.modelInvocations.find((invocation) => invocation.id === preservedInvocationId);
+          if (refreshedInvocation) void loadInvocation(refreshedInvocation, attempt.id);
+          else {
+            setSelectedInvocationId(undefined);
+            setInvocationDetail(undefined);
+          }
+        }
+      }
       return { kind: "attempt" as const, value };
     } catch (reason) {
       if (request === detailRequestRef.current) {
@@ -274,21 +318,7 @@ export default function WorldInspectorDialog({
     } finally {
       if (request === detailRequestRef.current) setLoadingDetail(false);
     }
-  }, [instanceId]);
-
-  const loadInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary, executionId: string) => {
-    setSelectedInvocationId(invocation.id);
-    setInvocationError("");
-    setLoadingInvocation(true);
-    try {
-      const value = await worldInspectorApi.modelInvocation(instanceId, executionId, invocation.id);
-      setInvocationDetail(value);
-    } catch (reason) {
-      setInvocationError(reason instanceof Error ? reason.message : "无法读取这次模型调用的完整记录。");
-    } finally {
-      setLoadingInvocation(false);
-    }
-  }, [instanceId]);
+  }, [instanceId, loadInvocation]);
 
   const selectInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary) => {
     const executionId = detail?.kind === "attempt"
@@ -327,6 +357,8 @@ export default function WorldInspectorDialog({
       } else if (followLatestRef.current) {
         const nextId = nextAttempt ? `attempt:${nextAttempt.id}` : latestStep ? `commit:${latestStep.revision}` : undefined;
         if (nextAttempt && nextId !== selectedNodeRef.current) void selectAttempt(nextAttempt);
+        else if (nextAttempt && nextId === selectedNodeRef.current && detailRef.current?.kind === "attempt" &&
+          detailRef.current.value.summary.id === nextAttempt.id) void selectAttempt(nextAttempt, true);
         else if (!nextAttempt && latestStep && nextId !== selectedNodeRef.current) void selectStep(latestStep);
       }
     } catch (reason) {
@@ -345,9 +377,25 @@ export default function WorldInspectorDialog({
       window.clearTimeout(initialLoad);
       requestRef.current += 1;
       detailRequestRef.current += 1;
+      invocationRequestRef.current += 1;
+      invocationDetailRequestRef.current += 1;
       if (refreshTimerRef.current !== undefined) window.clearTimeout(refreshTimerRef.current);
     };
   }, [loadWindow, open]);
+
+  const loadInvocations = useCallback(async () => {
+    const request = ++invocationRequestRef.current;
+    try {
+      const result = await worldInspectorApi.modelInvocations(instanceId, { limit: 100, sort: "timestamp" });
+      if (request !== invocationRequestRef.current) return;
+      setQueriedInvocations(result.items);
+      setInvocationCursor(result.nextCursor);
+    } catch {
+      if (request !== invocationRequestRef.current) return;
+      setQueriedInvocations([]);
+      setInvocationCursor(undefined);
+    }
+  }, [instanceId]);
 
   useEffect(() => {
     if (!open) return;
@@ -357,6 +405,7 @@ export default function WorldInspectorDialog({
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = undefined;
         void loadWindow(true);
+        void loadInvocations();
       }, 280);
     };
     const onRuntime = (event: MessageEvent<string>) => {
@@ -368,10 +417,13 @@ export default function WorldInspectorDialog({
       }
       if (payload.type !== "runtime") return;
       const type = payload.event.event;
-      if (type === "step.started" || type === "step.committed" || type === "step.rolled_back" ||
-        type === "step.persistence_rolled_back" || type === "run.failed") scheduleRefresh();
+      if (type.startsWith("model.") || type.startsWith("step.") || type.startsWith("run.") ||
+        type.startsWith("execution.") || type.startsWith("instance.bootstrap.") || type === "arrival.generated") scheduleRefresh();
     };
-    const onResync = () => { void loadWindow(true); };
+    const onResync = () => {
+      void loadWindow(true);
+      void loadInvocations();
+    };
     source.addEventListener("runtime", onRuntime as EventListener);
     source.addEventListener("resync", onResync);
     source.onopen = () => setConnection("live");
@@ -381,24 +433,13 @@ export default function WorldInspectorDialog({
       source.removeEventListener("runtime", onRuntime as EventListener);
       source.removeEventListener("resync", onResync);
     };
-  }, [instanceId, loadWindow, open]);
+  }, [instanceId, loadInvocations, loadWindow, open]);
 
   useEffect(() => {
     if (!open || activeView !== "calls") return;
-    let cancelled = false;
-    void worldInspectorApi.modelInvocations(instanceId, { limit: 100, sort: "timestamp" }).then((result) => {
-      if (!cancelled) {
-        setQueriedInvocations(result.items);
-        setInvocationCursor(result.nextCursor);
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        setQueriedInvocations([]);
-        setInvocationCursor(undefined);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [activeView, instanceId, open]);
+    const refresh = window.setTimeout(() => { void loadInvocations(); }, 0);
+    return () => window.clearTimeout(refresh);
+  }, [activeView, loadInvocations, open]);
 
   const loadMoreInvocations = useCallback(async () => {
     if (!invocationCursor || loadingMoreInvocations) return;
@@ -479,6 +520,7 @@ export default function WorldInspectorDialog({
   }, [detail, queriedInvocations, selectedActorId]);
   const selectActor = useCallback((actorId: string) => {
     setSelectedActorId(actorId);
+    invocationDetailRequestRef.current += 1;
     setSelectedInvocationId(undefined);
     setInvocationDetail(undefined);
     setInvocationError("");

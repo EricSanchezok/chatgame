@@ -55,4 +55,16 @@ describe("WorldInspectorInvocationList", () => {
     rerender(<WorldInspectorInvocationList invocations={[invocation]} onSelect={onSelect} query="missing" />);
     expect(screen.getByText("没有匹配“missing”的模型调用。")).toBeVisible();
   });
+
+  it("summarizes large slot batches while keeping every slot reachable", () => {
+    const batched = {
+      ...invocation,
+      slotRefs: Array.from({ length: 5 }, (_, slot) => ({ slot, agentId: `agent-${slot}` })),
+    };
+    render(<WorldInspectorInvocationList invocations={[batched]} onSelect={() => {}} query="" />);
+
+    expect(screen.getByText("5 个 slot")).toBeVisible();
+    fireEvent.click(screen.getByText("查看全部"));
+    expect(screen.getByText("agent-4")).toBeVisible();
+  });
 });

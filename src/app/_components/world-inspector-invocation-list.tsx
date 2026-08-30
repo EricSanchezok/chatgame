@@ -3,6 +3,7 @@
 import { AlertTriangle, Bot, Check, Clock3, LoaderCircle, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { WorldInspectorModelInvocationSummary } from "../../shared/world-inspector-api";
+import { WorldInspectorSlotSummary } from "./world-inspector-slot-summary";
 
 function formatNumber(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : value.toLocaleString();
@@ -105,7 +106,6 @@ export function WorldInspectorInvocationList({
       <div className="cg-inspector-invocation-list__items">
         {visible.map((invocation) => {
           const Icon = statusIcon(invocation.status);
-          const slots = invocation.slotRefs.map((slot) => slot.agentId ?? `slot ${slot.slot}`).join("、") || "未解析 slot";
           return (
             <article className="cg-inspector-invocation" data-status={invocation.status} key={invocation.id}>
               <button
@@ -115,13 +115,15 @@ export function WorldInspectorInvocationList({
                 type="button"
               >
                 <span className="cg-inspector-invocation__icon"><Bot aria-hidden="true" /></span>
-                <span className="cg-inspector-invocation__identity">
+                <div className="cg-inspector-invocation__identity">
                   <strong>Invocation {invocation.ordinal || "?"} · {invocation.role ?? "模型调用"}</strong>
                   <small>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</small>
-                  <small>Agent / slot：{slots}</small>
-                </span>
+                </div>
                 <span className="cg-inspector-invocation__status"><Icon aria-hidden="true" />{statusLabel(invocation.status)}</span>
               </button>
+              <div className="cg-inspector-invocation__slot-line">
+                <span>Agent / slot：</span><WorldInspectorSlotSummary slotRefs={invocation.slotRefs} />
+              </div>
               <dl className="cg-inspector-invocation__metrics">
                 <div><dt>单次输入 token</dt><dd>{formatNumber(invocation.tokenUsage.input)}</dd></div>
                 <div><dt>单次输出 token</dt><dd>{formatNumber(invocation.tokenUsage.output)}</dd></div>

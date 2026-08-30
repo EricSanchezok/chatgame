@@ -30,6 +30,7 @@ import type {
   WorldInspectorStepDetail,
 } from "../../shared/world-inspector-api";
 import { JsonInspector, RuntimeEventPayload } from "./world-inspector-json";
+import { WorldInspectorSlotSummary } from "./world-inspector-slot-summary";
 
 type Detail =
   | { kind: "step"; value: WorldInspectorStepDetail }
@@ -819,7 +820,7 @@ function ModelInvocationDetailPanel({
         <small>{invocation.id}</small>
       </header>
       <dl className="cg-inspector-invocation-detail__facts">
-        <div><dt>Agent / slot</dt><dd>{invocation.slotRefs.map((slot) => `${slot.agentId ?? "未解析"} · slot ${slot.slot}`).join("、") || "未解析"}</dd></div>
+        <div><dt>Agent / slot</dt><dd><WorldInspectorSlotSummary slotRefs={invocation.slotRefs} /></dd></div>
         <div><dt>输入 token</dt><dd>{formatNumber(invocation.tokenUsage.input)}</dd></div>
         <div><dt>输出 token</dt><dd>{formatNumber(invocation.tokenUsage.output)}</dd></div>
         <div><dt>reasoning token</dt><dd>{formatNumber(invocation.tokenUsage.reasoning)}</dd></div>
