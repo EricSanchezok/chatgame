@@ -106,12 +106,13 @@ function truthOutput(context: Record<string, unknown>) {
   if (Array.isArray(context.observationSlots)) {
     const events = context.currentEvents as Array<{ id: string }>;
     return {
-      observations: context.observationSlots.map(() => ({
-        summary: "你看见庭院中的世界继续变化。",
-        introductions: [],
-        apparentClaims: [],
-        sourceEventIds: events.map((event) => event.id),
-      })),
+      // Observation rendering is intentionally one model slot per request.
+      // Keep the E2E provider aligned with observationRenderSchema rather
+      // than the removed observationBatchSchema envelope.
+      summary: "你看见庭院中的世界继续变化。",
+      introductions: [],
+      apparentClaims: [],
+      sourceEventIds: events.map((event) => event.id),
     };
   }
   if (context.action && typeof context.action === "object") {

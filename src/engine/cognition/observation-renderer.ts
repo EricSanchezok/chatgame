@@ -233,8 +233,8 @@ function materializeObserver(
     scope.observer?.emit({
       event: "algorithm.observation.references_normalized",
       level: "warn",
-      correlation: scope.correlation,
-      attributes: { phase: "observation", observerId },
+      correlation: { ...scope.correlation, modelSubject: observerId },
+      attributes: { phase: "observation", batch: scope.batchId },
       counts: {
         droppedObservationEventReferences: eventNormalized.droppedReferences,
         droppedObservationClaims: localNormalized.droppedClaims,
@@ -371,7 +371,7 @@ async function renderObserver(
       event: "algorithm.observation.repair_fallback",
       level: "warn",
       correlation: { ...scope.correlation, modelSubject: observerId },
-      attributes: { phase: "observation", observerId, policy: "typed-uncertainty-observation" },
+      attributes: { phase: "observation", batch: scope.batchId, policy: "typed-uncertainty-observation" },
       counts: { observationFallbacks: 1 },
       error: { name: error.name, message: error.message },
     });

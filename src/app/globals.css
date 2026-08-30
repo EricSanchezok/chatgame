@@ -662,7 +662,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
   .cg-json-branch > .cg-json-copy-menu:hover, .cg-json-branch > .cg-json-copy-menu:focus-within { opacity: 1; }
   .cg-orb__trigger:hover { scale: 1.04; }
   .cg-orb__trigger:hover ~ .cg-orb__status, .cg-orb__trigger:focus-visible ~ .cg-orb__status { visibility: hidden; }
-  .cg-orb__action:hover .cg-orb__action-surface, .cg-orb__action:focus-visible .cg-orb__action-surface { border-color: var(--cg-foreground); background: var(--cg-foreground); color: var(--cg-background); box-shadow: 0 13px 32px color-mix(in oklab, var(--cg-overlay) 38%, var(--cg-transparent)); scale: 1.06; }
+  .cg-orb__action:hover .cg-orb__action-surface, .cg-orb__action:focus-visible .cg-orb__action-surface { border-color: var(--cg-foreground); background: var(--cg-foreground); color: var(--cg-background); box-shadow: 0 13px 32px color-mix(in oklab, var(--cg-overlay) 38%, var(--cg-transparent)); scale: 1.08; }
   .cg-orb__action:hover .cg-orb__action-label, .cg-orb__action:focus-visible .cg-orb__action-label { opacity: 1; translate: -50% 0; }
   .cg-orb__notice > button:hover { background: var(--cg-accent); color: var(--cg-accent-foreground); }
 }

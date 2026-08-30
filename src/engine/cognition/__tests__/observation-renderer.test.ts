@@ -4,6 +4,7 @@ import type { AgentActionProposal, TransitionProposal } from "../../contracts/mo
 import { ObservationRenderer, normalizeObservationLocalReferences } from "../observation-renderer";
 import { ScriptedModelProvider, createTestModelCatalog } from "../../testing/model-provider";
 import { loadWorldScript } from "../../../script/world-loader";
+import { validateAlgorithmTelemetryEvent, type RuntimeEventInput, type RuntimeObserver } from "../../runtime/observability";
 
 describe("ObservationRenderer", () => {
   it("reuses an observer's existing local alias for a known canonical Entity", () => {
@@ -220,6 +221,17 @@ describe("ObservationRenderer", () => {
       decisionRequests: [],
     };
 
+    const algorithmEvents: RuntimeEventInput[] = [];
+    const observer: RuntimeObserver = {
+      mode: "metrics",
+      degraded: false,
+      emit(input) {
+        if (input.event.startsWith("algorithm.")) validateAlgorithmTelemetryEvent(input);
+        algorithmEvents.push(input);
+        return undefined;
+      },
+    };
+
     const rendered = await new ObservationRenderer(provider).render({
       definition,
       state,
@@ -231,10 +243,20 @@ describe("ObservationRenderer", () => {
       workloadId: "instance-test",
       batchId: "advance-test",
       runtimeIdentity: { worldHash: state.worldHash, revision: state.revision },
+      observer,
     });
 
     expect(rendered.packets[0].summary).toContain("没有形成其他可确认的观察");
     expect(rendered.modelAudits[0].invocations).toHaveLength(3);
     expect(provider.requests).toHaveLength(3);
+    expect(algorithmEvents).toContainEqual(expect.objectContaining({
+      event: "algorithm.observation.repair_fallback",
+      attributes: {
+        phase: "observation",
+        batch: "advance-test",
+        policy: "typed-uncertainty-observation",
+      },
+      counts: { observationFallbacks: 1 },
+    }));
   });
 });
