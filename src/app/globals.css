@@ -494,12 +494,12 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-detail__body { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 1rem; scrollbar-width: none; }
 .cg-inspector-detail-stack { min-width: 0; display: grid; gap: 0.85rem; }
 .cg-inspector-detail-group { min-width: 0; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); background: color-mix(in oklab, var(--cg-card) 94%, var(--cg-muted)); }
-.cg-inspector-detail-group > summary { min-width: 0; display: grid; grid-template-columns: 1.8rem minmax(0, 1fr); align-items: center; gap: 0.55rem; padding: 0.65rem 0.7rem; cursor: pointer; list-style: none; }
+.cg-inspector-detail-group > summary { min-width: 0; display: grid; grid-template-columns: 1.8rem minmax(0, 1fr) 0.8rem; align-items: center; gap: 0.55rem; padding: 0.65rem 0.7rem; cursor: pointer; list-style: none; }
 .cg-inspector-detail-group > summary::-webkit-details-marker { display: none; }
-.cg-inspector-detail-group > summary::after { grid-column: 2; grid-row: 1; justify-self: end; width: 0.45rem; height: 0.45rem; border-inline-end: 1.5px solid currentColor; border-block-end: 1.5px solid currentColor; content: ""; rotate: 45deg; translate: -0.15rem -0.15rem; }
+.cg-inspector-detail-group > summary::after { grid-column: 3; grid-row: 1; justify-self: end; width: 0.45rem; height: 0.45rem; border-inline-end: 1.5px solid currentColor; border-block-end: 1.5px solid currentColor; content: ""; rotate: 45deg; translate: -0.15rem -0.15rem; }
 .cg-inspector-detail-group[open] > summary::after { rotate: 225deg; translate: -0.15rem 0.1rem; }
 .cg-inspector-detail-group > summary:focus-visible { outline: 2px solid var(--cg-foreground); outline-offset: -2px; }
-.cg-inspector-detail-group > summary > span:nth-child(2) { min-width: 0; display: grid; gap: 0.1rem; padding-inline-end: 1.3rem; }
+.cg-inspector-detail-group > summary > span:nth-child(2) { min-width: 0; display: grid; gap: 0.1rem; padding-inline-end: 0.15rem; }
 .cg-inspector-detail-group > summary strong { font-size: 0.75rem; font-weight: 650; }
 .cg-inspector-detail-group > summary small { color: var(--cg-muted-foreground); font-size: 0.6rem; line-height: 1.4; text-wrap: pretty; }
 .cg-inspector-detail-group__icon { width: 1.8rem; height: 1.8rem; display: grid; place-items: center; border-radius: 50%; background: var(--cg-muted); color: var(--cg-inspector-world); }
@@ -708,11 +708,11 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-detail__body::-webkit-scrollbar,
 .cg-json-inspector__tree::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .cg-json-branch, .cg-json-node { position: relative; min-width: 0; }
-.cg-json-node > summary, .cg-json-row { position: relative; min-width: 0; min-height: 24px; display: grid; grid-template-columns: 0.7rem fit-content(12rem) auto minmax(0, 1fr) auto; align-items: start; gap: 0.2rem 0.3rem; border-radius: calc(var(--cg-radius) - 0.25rem); padding: 0.12rem 0.2rem; }
+.cg-json-node > summary, .cg-json-row { position: relative; min-width: 0; min-height: 20px; display: grid; grid-template-columns: 0.7rem fit-content(12rem) auto minmax(0, 1fr) auto; align-items: start; gap: 0.15rem 0.25rem; border-radius: calc(var(--cg-radius) - 0.25rem); padding: 0.05rem 0.15rem; }
 .cg-json-node > summary { cursor: pointer; list-style: none; }
 .cg-json-node[data-copyable="true"] > summary { padding-inline-end: 2.4rem; }
 .cg-json-node > summary::-webkit-details-marker { display: none; }
-.cg-json-node__chevron { width: 0.7rem; flex: 0 0 auto; color: var(--cg-muted-foreground); transition: rotate 120ms; }
+.cg-json-node__chevron { width: 0.7rem; height: 0.7rem; flex: 0 0 auto; color: var(--cg-muted-foreground); transition: rotate 120ms; }
 .cg-json-node[open] > summary > .cg-json-node__chevron { rotate: 90deg; }
 .cg-json-node__children { margin-inline-start: 0.55rem; border-inline-start: 1px solid color-mix(in oklab, var(--cg-json-key) 30%, var(--cg-border)); padding-inline-start: 0.55rem; }
 .cg-json-key { min-width: 0; color: var(--cg-json-key); overflow-wrap: anywhere; }
