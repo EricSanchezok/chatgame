@@ -87,10 +87,26 @@ export function WorldInspectorTimeline({
                 {attempt.failureStageLabel && <span>{attempt.failureStageLabel}</span>}
                 {formatDuration(attempt.durationMs) && <span>{formatDuration(attempt.durationMs)}</span>}
                 <span>{attempt.eventCount} 条事件</span>
-                <span>{attempt.modelInvocationCount} 次模型调用</span>
+                <span>{attempt.modelInvocationCount} 次逻辑调用</span>
+                <span>{attempt.transportAttemptCount} 次物理尝试</span>
+                <span>{attempt.retryCount} 次 retry</span>
                 {attempt.rejectionCount > 0 && <span>{attempt.rejectionCount} 次输出拒绝</span>}
+                <span>{attempt.tokenUsage.unknown ? "部分 token 未知" : `输入 ${attempt.tokenUsage.input} · 输出 ${attempt.tokenUsage.output} tokens`}</span>
               </span>
             </button>
+            {attempt.stages.length > 0 && (
+              <details className="cg-inspector-timeline__stages" onClick={(event) => event.stopPropagation()}>
+                <summary>查看 {attempt.stages.length} 个阶段</summary>
+                <ol>
+                  {attempt.stages.map((stage) => (
+                    <li data-status={stage.status} key={stage.id}>
+                      <span>{stage.label}</span>
+                      <small>{stage.modelInvocationCount} 次调用 · {stage.eventCount} 条事件{stage.rejectionCount > 0 ? ` · ${stage.rejectionCount} 次拒绝` : ""}</small>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
           </article>
         );
       })}
@@ -120,8 +136,8 @@ export function WorldInspectorTimeline({
       ))}
       {visibleSteps.length === 0 && visibleAttempts.length === 0 && (
         <div className="cg-inspector-empty">
-          <strong>没有匹配的推演记录</strong>
-          <span>清除搜索或切换到“整个世界”。</span>
+          <strong>{steps.length === 0 && attempts.length > 0 && !normalized ? `暂无已提交 Revision；当前有 ${attempts.length} 次未提交尝试` : "没有匹配的推演记录"}</strong>
+          <span>{steps.length === 0 && attempts.length > 0 && !normalized ? "切换到调用清单查看每次逻辑调用、物理尝试和失败输出。" : "清除搜索或切换到“整个世界”。"}</span>
         </div>
       )}
       {hasOlder && (

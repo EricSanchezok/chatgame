@@ -444,7 +444,9 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       return {
         attempt,
         status,
-        ...(failed?.attributes?.statusCode !== undefined ? { statusCode: failed.attributes.statusCode as number } : {}),
+        ...((failed?.error?.status ?? failed?.attributes?.statusCode) !== undefined
+          ? { statusCode: failed?.error?.status ?? failed?.attributes?.statusCode as number }
+          : {}),
         ...(failed?.error ? { errorName: failed.error.name } : {}),
         queueWaitMs: eventDuration(transport, "model.queue.completed"),
         executionMs: completed?.durationMs ?? failed?.durationMs ?? eventDuration(transport, "model.transport.completed"),
@@ -484,6 +486,12 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       ...(payloadEventId(responseEvent) ? { response: worldInspectorRuntimeEventId(responseEvent!) } : {}),
       ...(payloadEventId(outputEvent) ? { output: worldInspectorRuntimeEventId(outputEvent!) } : {}),
     };
+    const artifactHashes = {
+      ...(contextEvent?.hashes?.request ? { context: contextEvent.hashes.context ?? contextEvent.hashes.request } : {}),
+      ...(requestEvent?.hashes?.request ? { request: requestEvent.hashes.request } : {}),
+      ...(responseEvent?.hashes?.response ? { response: responseEvent.hashes.response } : {}),
+      ...(outputEvent?.hashes?.response ? { output: outputEvent.hashes.response } : {}),
+    };
     return {
       id,
       ordinal: ordered.find((event) => event.correlation?.modelInvocation)?.correlation?.modelInvocation ?? 0,
@@ -515,6 +523,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       },
       eventIds: ordered.map(worldInspectorRuntimeEventId),
       payloadEventIds,
+      artifactHashes,
       validationIssueCodes: [...issueCodes],
       ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
       hasPayload: ordered.some((event) => event.payload !== undefined),
@@ -531,6 +540,55 @@ function sumModelTokens(invocations: readonly WorldInspectorModelInvocationSumma
     if (invocation.tokenUsage.output === null) unknown = true; else output += invocation.tokenUsage.output;
   }
   return { input, output, total: input + output, unknown };
+}
+
+interface MutableActorActivity {
+  steps: number;
+  attempts: number;
+  modelInvocations: number;
+  transportAttempts: number;
+  retries: number;
+  rejectionCount: number;
+  input: number;
+  output: number;
+  unknown: boolean;
+  durationMs: number;
+}
+
+function actorActivityMap(actors: readonly WorldInspectorActor[]): Map<string, MutableActorActivity> {
+  return new Map(actors.map((actor) => [actor.id, {
+    steps: 0,
+    attempts: 0,
+    modelInvocations: 0,
+    transportAttempts: 0,
+    retries: 0,
+    rejectionCount: 0,
+    input: 0,
+    output: 0,
+    unknown: false,
+    durationMs: 0,
+  }]));
+}
+
+function addActorInvocations(
+  stats: Map<string, MutableActorActivity>,
+  invocations: readonly WorldInspectorModelInvocationSummary[],
+): void {
+  for (const invocation of invocations) {
+    const actorIds = new Set(invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []));
+    if (actorIds.size === 0 && invocation.subjectId && stats.has(invocation.subjectId)) actorIds.add(invocation.subjectId);
+    for (const actorId of actorIds) {
+      const activity = stats.get(actorId);
+      if (!activity) continue;
+      activity.modelInvocations += 1;
+      activity.transportAttempts += invocation.transportAttempts.length;
+      activity.retries += invocation.retryCount;
+      if (invocation.status === "rejected") activity.rejectionCount += 1;
+      if (invocation.tokenUsage.input === null) activity.unknown = true; else activity.input += invocation.tokenUsage.input;
+      if (invocation.tokenUsage.output === null) activity.unknown = true; else activity.output += invocation.tokenUsage.output;
+      activity.durationMs += invocation.timings.invocationMs ?? 0;
+    }
+  }
 }
 
 function eventActors(events: readonly RuntimeEvent[], knownAgents: ReadonlySet<string>): string[] {
@@ -584,12 +642,16 @@ function attemptStages(events: readonly RuntimeEvent[]): WorldInspectorAttemptSt
   }
   return [...groups.entries()].map(([id, group]) => {
     const role = group.find((event) => event.correlation?.modelRole)?.correlation?.modelRole;
-    const failed = group.some((event) => event.level === "error" || event.event.endsWith(".failed"));
+    const terminal = [...group].reverse().find((event) => event.event === "model.semantic.accepted" ||
+      event.event === "model.semantic.rejected" || event.event === "model.structured_output.parsed" ||
+      event.event === "model.structured_output.rejected" || event.event === "model.invocation.failed");
+    const failed = terminal?.event === "model.semantic.rejected" || terminal?.event === "model.structured_output.rejected" ||
+      terminal?.event === "model.invocation.failed";
     const error = [...group].reverse().find((event) => event.error)?.error;
     return {
       id,
       label: role ? stageLabels[role] ?? role : id.slice("phase:".length),
-      status: failed ? "failed" : "succeeded",
+      status: failed ? "failed" : terminal ? "succeeded" : "active",
       startedAt: group[0].timestamp,
       updatedAt: group.at(-1)!.timestamp,
       eventCount: group.length,
@@ -620,6 +682,7 @@ function attemptSummary(
   const last = events.at(-1);
   const error = [...events].reverse().find((event) => event.error)?.error;
   const invocations = modelInvocationProjection(events);
+  const stages = attemptStages(events);
   const actorIds = new Set(attemptedActions(events).map((action) => action.actorId));
   for (const invocation of invocations) {
     for (const slot of invocation.slotRefs) if (slot.agentId && knownAgents.has(slot.agentId)) actorIds.add(slot.agentId);
@@ -627,7 +690,9 @@ function attemptSummary(
   }
   const status = record.status === "running" ? "active" : record.status === "succeeded"
     ? "committed" : record.status === "cancelled" ? "cancelled" : "failed";
-  const failedEvent = [...events].reverse().find((event) => event.level === "error" || event.event.endsWith(".failed"));
+  const failedEvent = [...events].reverse().find((event) =>
+    event.event === "model.semantic.rejected" || event.event === "model.structured_output.rejected" ||
+    event.event === "model.invocation.failed" || (event.level === "error" && !event.event.startsWith("model.transport.")));
   const failureStage = failedEvent?.correlation?.modelRole ??
     (typeof failedEvent?.attributes?.phase === "string" ? failedEvent.attributes.phase : undefined);
   return {
@@ -648,6 +713,7 @@ function attemptSummary(
     tokenUsage: sumModelTokens(invocations),
     actorIds: [...actorIds].sort(),
     relatedActorIds: eventActors(events, knownAgents),
+    stages,
     rejectionCount: events.filter((event) => event.event === "model.semantic.rejected").length,
     repairCount: events.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
     ...(failureStage ? { failureStage, failureStageLabel: stageLabels[failureStage] ?? failureStage } : {}),
@@ -691,7 +757,30 @@ export function buildWorldInspectorWindow(
     runtimeEvents.filter((event) => event.correlation?.executionId === record.id),
     actorIds,
   )).slice(-50);
+  const actorStats = actorActivityMap(actors);
+  const attemptIds = new Set(attempts.map((attempt) => attempt.id));
+  for (const step of selected) {
+    for (const actorId of step.actions.map((action) => action.actorId)) {
+      const activity = actorStats.get(actorId);
+      if (activity) activity.steps += 1;
+    }
+    const executionEvents = runtimeEvents.filter((event) => event.correlation?.executionId === step.executionRef?.executionId);
+    if (step.executionRef?.executionId && !attemptIds.has(step.executionRef.executionId)) {
+      addActorInvocations(actorStats, modelInvocationProjection(executionEvents));
+    }
+  }
   for (const attempt of attempts) {
+    const activityEvents = runtimeEvents.filter((event) => event.correlation?.executionId === attempt.id);
+    for (const actorId of attempt.actorIds) {
+      const activity = actorStats.get(actorId);
+      if (activity) activity.attempts += 1;
+    }
+    addActorInvocations(actorStats, modelInvocationProjection(activityEvents));
+  }
+  for (const attempt of attempts) {
+    const activityEvents = runtimeEvents.filter((event) => event.correlation?.executionId === attempt.id);
+    const stages = attemptStages(activityEvents);
+    const invocations = modelInvocationProjection(activityEvents);
     nodes.push({
       id: `attempt:${attempt.id}`,
       revision: attempt.revision ?? document.state.revision,
@@ -702,6 +791,107 @@ export function buildWorldInspectorWindow(
       status: attempt.status === "active" ? "active" : attempt.status === "committed" ? "succeeded" : "rolled_back",
       relatedActorIds: attempt.relatedActorIds,
     });
+    for (const stage of stages) {
+      const stageNodeId = `stage:${attempt.id}:${stage.id}`;
+      nodes.push({
+        id: stageNodeId,
+        revision: attempt.revision ?? document.state.revision,
+        laneId: WORLD_LANE_ID,
+        kind: "stage",
+        label: stage.label,
+        description: `${stage.id} · ${stage.eventCount} 条运行事件 · ${stage.modelInvocationCount} 次逻辑调用`,
+        status: stage.status,
+        relatedActorIds: invocations
+          .filter((invocation) => invocation.role === stage.modelRole)
+          .flatMap((invocation) => invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : [])),
+        relatedAttemptId: attempt.id,
+      });
+      edges.push({ id: `contains:attempt:${attempt.id}:${stageNodeId}`, source: `attempt:${attempt.id}`, target: stageNodeId, kind: "contains" });
+    }
+    for (const invocation of invocations) {
+      const invocationNodeId = `invocation:${attempt.id}:${invocation.id}`;
+      const invocationLane = invocation.slotRefs.find((slot) => slot.agentId)?.agentId ?? WORLD_LANE_ID;
+      nodes.push({
+        id: invocationNodeId,
+        revision: attempt.revision ?? document.state.revision,
+        laneId: invocationLane,
+        kind: "model_invocation",
+        label: `Invocation ${invocation.ordinal || "?"}`,
+        description: `${invocation.role ?? "模型调用"} · ${invocation.providerId ?? "未知 provider"} / ${invocation.modelId ?? "未知 model"}`,
+        status: invocation.status,
+        relatedActorIds: invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []),
+        relatedAttemptId: attempt.id,
+        relatedInvocationId: invocation.id,
+      });
+      const stage = stages.find((candidate) => candidate.modelRole === invocation.role);
+      const parentNodeId = stage ? `stage:${attempt.id}:${stage.id}` : `attempt:${attempt.id}`;
+      edges.push({ id: `contains:${parentNodeId}:${invocationNodeId}`, source: parentNodeId, target: invocationNodeId, kind: "contains" });
+      invocation.transportAttempts.forEach((transport) => {
+        const transportNodeId = `transport:${attempt.id}:${invocation.id}:${transport.attempt}`;
+        nodes.push({
+          id: transportNodeId,
+          revision: attempt.revision ?? document.state.revision,
+          laneId: invocationLane,
+          kind: "transport_attempt",
+          label: `Transport ${transport.attempt}`,
+          description: `${transport.status}${transport.statusCode ? ` · HTTP ${transport.statusCode}` : ""} · ${transport.executionMs} ms`,
+          status: transport.status === "succeeded" ? "succeeded" : "failed",
+          relatedActorIds: invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []),
+          relatedAttemptId: attempt.id,
+          relatedInvocationId: invocation.id,
+        });
+        edges.push({ id: `contains:${invocationNodeId}:${transportNodeId}`, source: invocationNodeId, target: transportNodeId, kind: "contains" });
+        if (transport.attempt > 1) {
+          const previous = `transport:${attempt.id}:${invocation.id}:${transport.attempt - 1}`;
+          edges.push({ id: `retry_of:${transportNodeId}:${previous}`, source: transportNodeId, target: previous, kind: "retry_of" });
+        }
+      });
+      for (const code of invocation.validationIssueCodes) {
+        const validationNodeId = `validation:${attempt.id}:${invocation.id}:${code}`;
+        nodes.push({
+          id: validationNodeId,
+          revision: attempt.revision ?? document.state.revision,
+          laneId: invocationLane,
+          kind: "validation",
+          label: "语义校验",
+          description: code,
+          status: "failed",
+          relatedActorIds: invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []),
+          relatedAttemptId: attempt.id,
+          relatedInvocationId: invocation.id,
+        });
+        edges.push({ id: `rejected_by:${invocationNodeId}:${validationNodeId}`, source: invocationNodeId, target: validationNodeId, kind: "rejected_by" });
+      }
+      for (const [kind, eventId] of Object.entries(invocation.payloadEventIds)) {
+        if (!eventId) continue;
+        const eventNodeId = `runtime-event:${eventId}`;
+        nodes.push({
+          id: eventNodeId,
+          revision: attempt.revision ?? document.state.revision,
+          laneId: WORLD_LANE_ID,
+          kind: "event",
+          label: "运行事件",
+          description: `${kind} · ${eventId}`,
+          relatedActorIds: invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []),
+          relatedAttemptId: attempt.id,
+          relatedInvocationId: invocation.id,
+        });
+        edges.push({ id: `produces:${invocationNodeId}:${eventNodeId}`, source: invocationNodeId, target: eventNodeId, kind: "produces" });
+        const artifactNodeId = `artifact:${eventId}`;
+        nodes.push({
+          id: artifactNodeId,
+          revision: attempt.revision ?? document.state.revision,
+          laneId: WORLD_LANE_ID,
+          kind: "artifact",
+          label: "Payload artifact",
+          description: invocation.hasPayload ? eventId : "载荷不可用",
+          relatedActorIds: invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []),
+          relatedAttemptId: attempt.id,
+          relatedInvocationId: invocation.id,
+        });
+        edges.push({ id: `produces:${eventNodeId}:${artifactNodeId}`, source: eventNodeId, target: artifactNodeId, kind: "produces" });
+      }
+    }
   }
   return {
     apiVersion: WORLD_INSPECTOR_API_VERSION,
@@ -716,7 +906,22 @@ export function buildWorldInspectorWindow(
       elapsedSeconds: document.state.truth.elapsedSeconds,
       updatedAt: document.updatedAt,
     },
-    actors,
+    actors: actors.map((actor) => {
+      const activity = actorStats.get(actor.id);
+      return activity ? {
+        ...actor,
+        activity: {
+          steps: activity.steps,
+          attempts: activity.attempts,
+          modelInvocations: activity.modelInvocations,
+          transportAttempts: activity.transportAttempts,
+          retries: activity.retries,
+          rejectionCount: activity.rejectionCount,
+          tokenUsage: { input: activity.input, output: activity.output, total: activity.input + activity.output, unknown: activity.unknown },
+          durationMs: activity.durationMs,
+        },
+      } : actor;
+    }),
     steps: projected.map((item) => item.summary),
     nodes,
     edges,

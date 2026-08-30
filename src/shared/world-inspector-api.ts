@@ -22,7 +22,12 @@ export type WorldInspectorNodeKind =
   | "event"
   | "observation"
   | "mind"
-  | "attempt";
+  | "attempt"
+  | "stage"
+  | "model_invocation"
+  | "transport_attempt"
+  | "validation"
+  | "artifact";
 
 export type WorldInspectorEdgeKind =
   | "temporal"
@@ -30,7 +35,12 @@ export type WorldInspectorEdgeKind =
   | "observes"
   | "updates"
   | "commits"
-  | "rollback";
+  | "rollback"
+  | "contains"
+  | "retry_of"
+  | "belongs_to_slot"
+  | "produces"
+  | "rejected_by";
 
 export interface WorldInspectorActor {
   id: string;
@@ -39,6 +49,16 @@ export interface WorldInspectorActor {
   name: string;
   description: string;
   lifecycle: "active" | "retired";
+  activity?: {
+    steps: number;
+    attempts: number;
+    modelInvocations: number;
+    transportAttempts: number;
+    retries: number;
+    rejectionCount: number;
+    tokenUsage: WorldInspectorTokenUsage;
+    durationMs: number;
+  };
 }
 
 export interface WorldInspectorNodeSummary {
@@ -48,9 +68,11 @@ export interface WorldInspectorNodeSummary {
   kind: WorldInspectorNodeKind;
   label: string;
   description: string;
-  status?: "succeeded" | "partial" | "failed" | "blocked" | "continuing" | "active" | "rolled_back";
+  status?: "succeeded" | "partial" | "failed" | "blocked" | "continuing" | "active" | "rolled_back" | "accepted" | "rejected";
   count?: number;
   relatedActorIds?: string[];
+  relatedAttemptId?: string;
+  relatedInvocationId?: string;
 }
 
 export interface WorldInspectorEdgeSummary {
@@ -140,6 +162,12 @@ export interface WorldInspectorModelInvocationSummary {
     response?: string;
     output?: string;
   };
+  artifactHashes: {
+    context?: string;
+    request?: string;
+    response?: string;
+    output?: string;
+  };
   validationIssueCodes: string[];
   errorMessage?: string;
   hasPayload: boolean;
@@ -205,6 +233,7 @@ export interface WorldInspectorAttemptSummary {
   tokenUsage: WorldInspectorTokenUsage;
   actorIds: string[];
   relatedActorIds: string[];
+  stages: WorldInspectorAttemptStage[];
   rejectionCount: number;
   repairCount: number;
   failureStage?: string;

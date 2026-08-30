@@ -20,6 +20,7 @@ import ELK, { type ELK as ElkLayoutEngine } from "elkjs/lib/elk-api.js";
 import {
   Activity,
   BadgeCheck,
+  Braces,
   BrainCircuit,
   CircleDotDashed,
   Dices,
@@ -84,6 +85,11 @@ const iconByKind: Record<WorldInspectorNodeKind, typeof Orbit> = {
   observation: Eye,
   mind: BrainCircuit,
   attempt: CircleDotDashed,
+  stage: Waypoints,
+  model_invocation: BrainCircuit,
+  transport_attempt: Activity,
+  validation: BadgeCheck,
+  artifact: Braces,
 };
 
 function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
@@ -146,6 +152,11 @@ const minimapColorByKind: Record<WorldInspectorNodeKind, string> = {
   observation: "var(--cg-inspector-mind)",
   mind: "var(--cg-inspector-mind)",
   attempt: "var(--cg-inspector-attempt)",
+  stage: "var(--cg-inspector-world)",
+  model_invocation: "var(--cg-inspector-mind)",
+  transport_attempt: "var(--cg-inspector-attempt)",
+  validation: "var(--cg-inspector-check)",
+  artifact: "var(--cg-inspector-world)",
 };
 
 type SemanticZoom = "far" | "mid" | "near";

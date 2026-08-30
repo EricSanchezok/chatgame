@@ -34,7 +34,9 @@ Runtime event schema v2 的稳定语义归引擎所有。算法只能通过窄�
 
 ## Inspector
 
-Inspector 服务端按 World Instance 查询 Ledger，并按需解压 artifact；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v5 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
+Inspector 服务端按 World Instance 查询 Ledger，并按需解压 artifact；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v6 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
+
+v6 还提供 `GET /api/instances/:id/inspector/model-invocations` 与单条调用详情路由。调用投影区分 logical invocation、transport attempt、semantic rejection、repair 和 retry，并公开单次 token、request/context/response 字节数、queue/transport/parse 时间、slot/Agent 映射、validation code、runtime event ID 与 artifact hash。调用清单支持显式排序和阈值查询；完整 payload 继续通过 runtime-event artifact 按需读取，不进入窗口摘要。
 
 Inspector 是本地受信任调试表面。公开产品 DTO 和 Participant 视角不读取 Inspector 投影，也不能获得 canonical binding 或其他主体私有认知。
 

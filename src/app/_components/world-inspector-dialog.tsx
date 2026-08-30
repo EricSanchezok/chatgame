@@ -3,6 +3,7 @@
 import {
   ArrowDownToLine,
   Binoculars,
+  Bot,
   CircleDot,
   Focus,
   GitBranch,
@@ -28,6 +29,9 @@ import { WorkspaceDialog } from "@/components/ui/workspace-dialog";
 import type {
   WorldInspectorAttemptDetail,
   WorldInspectorAttemptSummary,
+  WorldInspectorModelInvocationDetail,
+  WorldInspectorModelInvocationSummary,
+  WorldInspectorActor,
   WorldInspectorNodeSummary,
   WorldInspectorStepDetail,
   WorldInspectorStepSummary,
@@ -52,12 +56,14 @@ import {
 import { worldInspectorApi } from "../lib/world-inspector-api-client";
 import { WorldInspectorDetail } from "./world-inspector-detail";
 import { WorldInspectorGraph } from "./world-inspector-graph";
+import { WorldInspectorInvocationList } from "./world-inspector-invocation-list";
 import { WorldInspectorTimeline } from "./world-inspector-timeline";
 
 type InspectorDetail =
   | { kind: "step"; value: WorldInspectorStepDetail }
   | { kind: "attempt"; value: WorldInspectorAttemptDetail };
 type ResizablePanel = "actors" | "detail";
+type CenterView = "calls" | WorldInspectorView;
 
 const narrowQuery = "(max-width: 52rem)";
 
@@ -75,12 +81,17 @@ function useNarrowViewport(): boolean {
 
 function actorActivity(
   actorId: string,
+  actor: WorldInspectorActor | undefined,
   steps: readonly WorldInspectorStepSummary[],
   attempts: readonly WorldInspectorAttemptSummary[],
-): { attempts: number; steps: number } {
+): { attempts: number; steps: number; modelInvocations: number; transportAttempts: number; retries: number } {
+  if (actor?.activity) return actor.activity;
   return {
     steps: steps.reduce((total, step) => total + (step.actorIds.includes(actorId) ? 1 : 0), 0),
     attempts: attempts.reduce((total, attempt) => total + (attempt.actorIds.includes(actorId) ? 1 : 0), 0),
+    modelInvocations: 0,
+    transportAttempts: 0,
+    retries: 0,
   };
 }
 
@@ -151,6 +162,10 @@ export default function WorldInspectorDialog({
   const [data, setData] = useState<WorldInspectorWindow>();
   const [detail, setDetail] = useState<InspectorDetail>();
   const [detailError, setDetailError] = useState("");
+  const [invocationDetail, setInvocationDetail] = useState<WorldInspectorModelInvocationDetail>();
+  const [invocationError, setInvocationError] = useState("");
+  const [loadingInvocation, setLoadingInvocation] = useState(false);
+  const [queriedInvocations, setQueriedInvocations] = useState<WorldInspectorModelInvocationSummary[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -162,11 +177,12 @@ export default function WorldInspectorDialog({
   const [query, setQuery] = useState("");
   const [selectedActorId, setSelectedActorId] = useState("world");
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
-  const [view, setView] = useState<WorldInspectorView>("graph");
+  const [selectedInvocationId, setSelectedInvocationId] = useState<string>();
+  const [view, setView] = useState<CenterView>("calls");
   const [actorWidth, setActorWidth] = useState(WORLD_INSPECTOR_ACTOR_DEFAULT);
   const [detailWidth, setDetailWidth] = useState(WORLD_INSPECTOR_DETAIL_DEFAULT);
   const [failureViewOverride, setFailureViewOverride] = useState(false);
-  const activeView = narrow || failureViewOverride ? "timeline" : view;
+  const activeView: CenterView = narrow || failureViewOverride ? "calls" : view;
   const closeActorDrawer = useCallback(() => {
     setActorsOpen(false);
     if (narrow) requestAnimationFrame(() => actorToggleRef.current?.focus());
@@ -200,7 +216,7 @@ export default function WorldInspectorDialog({
     writeWorldInspectorLayout({
       actorWidth: next.actorWidth ?? actorWidth,
       detailWidth: next.detailWidth ?? detailWidth,
-      view: next.view ?? view,
+      view: next.view ?? (view === "calls" ? "timeline" : view),
     });
   }, [actorWidth, detailWidth, view]);
 
@@ -210,9 +226,18 @@ export default function WorldInspectorDialog({
     persistLayout({ view: next });
   }, [persistLayout]);
 
+  const chooseCenterView = useCallback((next: CenterView) => {
+    setFailureViewOverride(false);
+    setView(next);
+    if (next !== "calls") persistLayout({ view: next });
+  }, [persistLayout]);
+
   const selectStep = useCallback(async (step: WorldInspectorStepSummary, nodeId = `commit:${step.revision}`) => {
     const request = ++detailRequestRef.current;
     setSelectedNodeId(nodeId);
+    setSelectedInvocationId(undefined);
+    setInvocationDetail(undefined);
+    setInvocationError("");
     setLoadingDetail(true);
     setDetailError("");
     try {
@@ -230,6 +255,9 @@ export default function WorldInspectorDialog({
   const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary) => {
     const request = ++detailRequestRef.current;
     setSelectedNodeId(`attempt:${attempt.id}`);
+    setSelectedInvocationId(undefined);
+    setInvocationDetail(undefined);
+    setInvocationError("");
     setLoadingDetail(true);
     setDetailError("");
     try {
@@ -243,6 +271,29 @@ export default function WorldInspectorDialog({
       if (request === detailRequestRef.current) setLoadingDetail(false);
     }
   }, [instanceId]);
+
+  const selectInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary) => {
+    setSelectedInvocationId(invocation.id);
+    setInvocationError("");
+    const executionId = detail?.kind === "attempt"
+      ? detail.value.summary.id
+      : detail?.kind === "step"
+        ? detail.value.committed.executionRef?.executionId
+        : (invocation as WorldInspectorModelInvocationSummary & { executionId?: string }).executionId;
+    if (!executionId) {
+      setInvocationDetail(undefined);
+      return;
+    }
+    setLoadingInvocation(true);
+    try {
+      const value = await worldInspectorApi.modelInvocation(instanceId, executionId, invocation.id);
+      setInvocationDetail(value);
+    } catch (reason) {
+      setInvocationError(reason instanceof Error ? reason.message : "无法读取这次模型调用的完整记录。");
+    } finally {
+      setLoadingInvocation(false);
+    }
+  }, [detail, instanceId]);
 
   const loadWindow = useCallback(async (preserveHistory: boolean) => {
     const request = ++requestRef.current;
@@ -260,7 +311,7 @@ export default function WorldInspectorDialog({
       const nextAttempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
       if (!preserveHistory) {
         if (nextAttempt) {
-          if (!activeAttempt && latestFailure && incoming.steps.length === 0) setFailureViewOverride(true);
+          setFailureViewOverride(true);
           void selectAttempt(nextAttempt);
         } else if (latestStep) {
           void selectStep(latestStep);
@@ -324,11 +375,22 @@ export default function WorldInspectorDialog({
     };
   }, [instanceId, loadWindow, open]);
 
+  useEffect(() => {
+    if (!open || activeView !== "calls") return;
+    let cancelled = false;
+    void worldInspectorApi.modelInvocations(instanceId, { limit: 100, sort: "timestamp" }).then((result) => {
+      if (!cancelled) setQueriedInvocations(result.items);
+    }).catch(() => {
+      if (!cancelled) setQueriedInvocations([]);
+    });
+    return () => { cancelled = true; };
+  }, [activeView, instanceId, open]);
+
   const selectNode = useCallback((node: WorldInspectorNodeSummary) => {
     if (!data) return;
-    if (node.kind === "attempt") {
-      const id = node.id.slice("attempt:".length);
-      const attempt = data.attempts.find((candidate) => candidate.id === id);
+    const attemptId = node.kind === "attempt" ? node.id.slice("attempt:".length) : node.relatedAttemptId;
+    if (attemptId) {
+      const attempt = data.attempts.find((candidate) => candidate.id === attemptId);
       if (attempt) void selectAttempt(attempt);
       return;
     }
@@ -358,6 +420,18 @@ export default function WorldInspectorDialog({
   }, [data, query]);
 
   const selectedActor = data?.actors.find((actor) => actor.id === selectedActorId);
+  const worldActivity = useMemo(() => {
+    if (!data) return { steps: 0, attempts: 0, modelInvocations: 0, retries: 0 };
+    return {
+      steps: data.steps.length,
+      attempts: data.attempts.length,
+      modelInvocations: data.attempts.reduce((sum, attempt) => sum + attempt.modelInvocationCount, 0),
+      retries: data.attempts.reduce((sum, attempt) => sum + attempt.retryCount, 0),
+    };
+  }, [data]);
+  const selectedInvocations = detail?.kind === "attempt" || detail?.kind === "step"
+    ? detail.value.modelInvocations
+    : queriedInvocations;
   const statusDescription = data
     ? `${data.instance.worldName} · Revision ${data.instance.revision} · ${data.trace.mode} trace`
     : "读取世界提交历史、Agent 演化与运行审计。";
@@ -372,7 +446,10 @@ export default function WorldInspectorDialog({
     const failureIsCurrent = latestFailure &&
       (latestFailure.revision ?? data.instance.revision) >= (latestStep?.revision ?? 0);
     const attempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
-    if (attempt) void selectAttempt(attempt);
+    if (attempt) {
+      setFailureViewOverride(true);
+      void selectAttempt(attempt);
+    }
     else if (latestStep) void selectStep(latestStep);
   };
 
@@ -446,6 +523,9 @@ export default function WorldInspectorDialog({
     >
       <div className="cg-inspector-toolbar">
         <div className="cg-inspector-view-switch" aria-label="推演视图">
+          <button aria-pressed={activeView === "calls"} onClick={() => chooseCenterView("calls")} type="button">
+            <Bot aria-hidden="true" /> 调用
+          </button>
           <button aria-pressed={activeView === "graph"} onClick={() => chooseView("graph")} type="button">
             <Network aria-hidden="true" /> 图谱
           </button>
@@ -543,11 +623,11 @@ export default function WorldInspectorDialog({
               type="button"
             >
               <span><GitBranch aria-hidden="true" /></span>
-              <span><strong>整个世界</strong><small>{data.steps.length} 个提交 · {data.attempts.length} 次尝试</small></span>
+              <span><strong>整个世界</strong><small>{worldActivity.steps} 个提交 · {worldActivity.attempts} 次尝试 · {worldActivity.modelInvocations} 次调用 · {worldActivity.retries} 次 retry</small></span>
             </button>
             <div className="cg-inspector-actor-list">
               {visibleActors.map((actor) => {
-                const activity = actorActivity(actor.id, data.steps, data.attempts);
+                const activity = actorActivity(actor.id, actor, data.steps, data.attempts);
                 return (
                   <button
                     aria-pressed={selectedActorId === actor.id}
@@ -559,7 +639,7 @@ export default function WorldInspectorDialog({
                     <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
                     <span>
                       <strong>{actor.name}</strong>
-                      <small>{activity.steps} 个提交 · {activity.attempts} 次尝试</small>
+                      <small>{activity.steps} 个提交 · {activity.attempts} 次尝试 · {activity.modelInvocations} 次调用 · {activity.retries} 次 retry</small>
                     </span>
                     <i data-lifecycle={actor.lifecycle} title={actor.lifecycle} />
                   </button>
@@ -567,8 +647,8 @@ export default function WorldInspectorDialog({
               })}
             </div>
             <footer>
-              <span><ArrowDownToLine aria-hidden="true" /> {data.trace.retainedEventCount} trace events</span>
-              <span>{data.trace.mode} · {data.trace.degraded ? "degraded" : "healthy"}</span>
+              <span><ArrowDownToLine aria-hidden="true" /> {data.trace.retainedEventCount} 条追踪事件</span>
+              <span>{data.trace.mode} · {data.trace.degraded ? "降级" : "完整"}</span>
             </footer>
           </aside>
 
@@ -585,7 +665,18 @@ export default function WorldInspectorDialog({
           />
 
           <section className="cg-inspector-stage" aria-label={`${selectedActor?.name ?? "整个世界"}推演记录`}>
-            {activeView === "graph" ? (
+            {activeView === "calls" ? (
+              <>
+                {loadingInvocation && <p className="cg-inspector-stage__status" role="status">正在读取这次模型调用的完整记录…</p>}
+                {invocationError && <p className="cg-inspector-stage__warning" role="alert">{invocationError}</p>}
+                <WorldInspectorInvocationList
+                  invocations={selectedInvocations}
+                  onSelect={(invocation) => { setFollowLatest(false); void selectInvocation(invocation); }}
+                  query={query}
+                  selectedId={selectedInvocationId}
+                />
+              </>
+            ) : activeView === "graph" ? (
               <WorldInspectorGraph
                 actors={data.actors}
                 edges={data.edges}
@@ -633,8 +724,10 @@ export default function WorldInspectorDialog({
             actorName={selectedActor?.name ?? (selectedActorId === "world" ? "整个世界" : selectedActorId)}
             detail={detail}
             error={detailError}
+            invocation={invocationDetail}
             key={selectedNodeId ?? "empty"}
             loading={loadingDetail}
+            onSelectInvocation={(invocation) => { setView("calls"); void selectInvocation(invocation); }}
             instanceId={instanceId}
           />
         </div>

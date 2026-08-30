@@ -24,6 +24,8 @@ import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type {
   WorldInspectorAttemptDetail,
   WorldInspectorAttemptStatus,
+  WorldInspectorModelInvocationDetail,
+  WorldInspectorModelInvocationSummary,
   WorldInspectorRuntimeEventSummary,
   WorldInspectorStepDetail,
 } from "../../shared/world-inspector-api";
@@ -554,6 +556,14 @@ function formatDuration(durationMs: number | undefined): string {
   return `${Math.floor(durationMs / 60_000)} 分 ${Math.round(durationMs % 60_000 / 1_000)} 秒`;
 }
 
+function formatNumber(value: number | null | undefined): string {
+  return value === null || value === undefined ? "—" : value.toLocaleString();
+}
+
+function statusLabel(status: WorldInspectorModelInvocationDetail["status"]): string {
+  return status === "accepted" ? "语义接受" : status === "rejected" ? "输出拒绝" : status === "failed" ? "调用失败" : "进行中";
+}
+
 function RuntimeEventRows({ events, instanceId }: {
   events: WorldInspectorRuntimeEventSummary[];
   instanceId: string;
@@ -663,10 +673,11 @@ function AttemptModelAudit({ detail, instanceId }: {
   );
 }
 
-function AttemptOverview({ actorId, actorName, detail }: {
+function AttemptOverview({ actorId, actorName, detail, onSelectInvocation }: {
   actorId: string;
   actorName: string;
   detail: WorldInspectorAttemptDetail;
+  onSelectInvocation?: (invocation: WorldInspectorModelInvocationSummary) => void;
 }) {
   const action = detail.attemptedActions.find((candidate) => candidate.actorId === actorId);
   const directlyRelated = detail.summary.relatedActorIds.includes(actorId);
@@ -697,6 +708,16 @@ function AttemptOverview({ actorId, actorName, detail }: {
         <div><dt><Bot aria-hidden="true" /><span><strong>模型调用</strong><small>尝试期间发起的模型请求</small></span></dt><dd>{detail.summary.modelInvocationCount} 次</dd></div>
         <div><dt><Clock3 aria-hidden="true" /><span><strong>尝试耗时</strong><small>从 step 开始到真实终止边界</small></span></dt><dd>{formatDuration(detail.summary.durationMs)}</dd></div>
       </dl>
+      {onSelectInvocation && (() => {
+        const failedInvocation = detail.modelInvocations.find((candidate) => candidate.status === "failed" || candidate.status === "rejected");
+        return failedInvocation ? (
+          <button className="cg-inspector-failure-link" onClick={() => onSelectInvocation(failedInvocation)} type="button">
+            <AlertTriangle aria-hidden="true" />
+            <span><strong>查看失败调用</strong><small>Invocation {failedInvocation.ordinal || "?"} · {failedInvocation.role ?? "模型调用"}</small></span>
+            <span aria-hidden="true">→</span>
+          </button>
+        ) : null;
+      })()}
       {actorId !== "world" && (
         <DetailSection
           description={directlyRelated
@@ -776,15 +797,85 @@ function AttemptCausality({ detail }: { detail: WorldInspectorAttemptDetail }) {
   );
 }
 
-function DetailBody({ actorId, actorName, detail, instanceId, tab }: {
+function ModelInvocationDetailPanel({
+  instanceId,
+  invocation,
+}: {
+  instanceId: string;
+  invocation: WorldInspectorModelInvocationDetail;
+}) {
+  const eventById = new Map(invocation.eventSummaries.map((event) => [event.id, event]));
+  const payloadEvent = (id: string | undefined) => id ? eventById.get(id) : undefined;
+  const contextEvent = payloadEvent(invocation.payloadEventIds.context);
+  const requestEvent = payloadEvent(invocation.payloadEventIds.request);
+  const responseEvent = payloadEvent(invocation.payloadEventIds.response);
+  const outputEvent = payloadEvent(invocation.payloadEventIds.output);
+  return (
+    <section className="cg-inspector-invocation-detail" aria-label="选中模型调用详情">
+      <header className="cg-inspector-detail-heading">
+        <span className="cg-inspector-detail__status" data-status={invocation.status}>{statusLabel(invocation.status)}</span>
+        <h3>Invocation {invocation.ordinal || "?"}</h3>
+        <p><strong>{invocation.role ?? "模型调用"}</strong><span>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</span></p>
+        <small>{invocation.id}</small>
+      </header>
+      <dl className="cg-inspector-invocation-detail__facts">
+        <div><dt>Agent / slot</dt><dd>{invocation.slotRefs.map((slot) => `${slot.agentId ?? "未解析"} · slot ${slot.slot}`).join("、") || "未解析"}</dd></div>
+        <div><dt>输入 token</dt><dd>{formatNumber(invocation.tokenUsage.input)}</dd></div>
+        <div><dt>输出 token</dt><dd>{formatNumber(invocation.tokenUsage.output)}</dd></div>
+        <div><dt>reasoning token</dt><dd>{formatNumber(invocation.tokenUsage.reasoning)}</dd></div>
+        <div><dt>cache token</dt><dd>{formatNumber(invocation.tokenUsage.cacheRead)} / {formatNumber(invocation.tokenUsage.cacheWrite)}</dd></div>
+        <div><dt>请求 / 上下文 / 响应</dt><dd>{formatNumber(invocation.requestUtf8Bytes)} / {formatNumber(invocation.contextUtf8Bytes)} / {formatNumber(invocation.responseUtf8Bytes)} B</dd></div>
+        <div><dt>调用 / queue / transport</dt><dd>{formatDuration(invocation.timings.invocationMs)} / {formatDuration(invocation.timings.queueWaitMs)} / {formatDuration(invocation.timings.transportMs)}</dd></div>
+        <div><dt>parse / retry wait</dt><dd>{formatDuration(invocation.timings.parseMs)} / {formatDuration(invocation.timings.retryDelayMs)}</dd></div>
+        <div><dt>profile / prompt</dt><dd>{invocation.profileId ?? "—"} / {invocation.promptVersion ?? "—"}</dd></div>
+        <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
+      </dl>
+      <DetailSection count={`${invocation.transportAttempts.length} 次`} description="同一逻辑调用的物理请求与重试" icon={RotateCcw} title="Transport attempts">
+        <div className="cg-inspector-record-list">
+          {invocation.transportAttempts.map((transport) => (
+            <div className="cg-inspector-transport-detail" key={`${invocation.id}:${transport.attempt}`}>
+              <strong>Transport {transport.attempt} · {transport.status}</strong>
+              <span>queue {formatDuration(transport.queueWaitMs)} · execution {formatDuration(transport.executionMs)} · retry wait {formatDuration(transport.retryDelayMs)}</span>
+              {transport.errorName && <small>{transport.errorName}</small>}
+            </div>
+          ))}
+        </div>
+      </DetailSection>
+      <DetailSection count={`${invocation.contextSections.length} 段`} description="每段来自实际发送的单次上下文" icon={Braces} title="上下文分段">
+        {invocation.contextSections.length > 0
+          ? <div className="cg-inspector-record-list">{invocation.contextSections.map((section) => (
+              <div className="cg-inspector-context-section" key={section.key}>
+                <strong>{section.key}</strong><span>{formatNumber(section.utf8Bytes)} B · {section.itemCount ?? "—"} 项</span><code>{section.hash ?? "无 hash"}</code>
+              </div>
+            ))}</div>
+          : <p className="cg-inspector-inline-empty">没有可解析的上下文分段。</p>}
+        <JsonBlock label="查看 slot 映射" value={invocation.slotRefs} />
+      </DetailSection>
+      {invocation.validationIssueCodes.length > 0 && <DetailSection count={`${invocation.validationIssueCodes.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
+        <ul className="cg-inspector-observation-list">{invocation.validationIssueCodes.map((code) => <li key={code}>{code}</li>)}</ul>
+        {invocation.errorMessage && <p className="cg-model-invocation__error">{invocation.errorMessage}</p>}
+      </DetailSection>}
+      <div className="cg-inspector-invocation-payloads">
+        {contextEvent && <section><strong>上下文原文</strong><RuntimeEventPayload event={contextEvent} instanceId={instanceId} /></section>}
+        {requestEvent && <section><strong>原始请求</strong><RuntimeEventPayload event={requestEvent} instanceId={instanceId} /></section>}
+        {responseEvent && <section><strong>原始响应</strong><RuntimeEventPayload event={responseEvent} instanceId={instanceId} /></section>}
+        {outputEvent && <section><strong>结构化输出</strong><RuntimeEventPayload event={outputEvent} instanceId={instanceId} /></section>}
+      </div>
+      <RuntimeEventList events={invocation.eventSummaries} label="调用关联事件" instanceId={instanceId} />
+    </section>
+  );
+}
+
+function DetailBody({ actorId, actorName, detail, instanceId, onSelectInvocation, tab }: {
   actorId: string;
   actorName: string;
   detail: Detail;
   instanceId: string;
+  onSelectInvocation?: (invocation: WorldInspectorModelInvocationSummary) => void;
   tab: DetailTab;
 }) {
   if (detail.kind === "attempt") {
-    if (tab === "overview") return <AttemptOverview actorId={actorId} actorName={actorName} detail={detail.value} />;
+    if (tab === "overview") return <AttemptOverview actorId={actorId} actorName={actorName} detail={detail.value} onSelectInvocation={onSelectInvocation} />;
     if (tab === "temporal") {
       return (
         <div className="cg-inspector-detail-stack">
@@ -827,14 +918,18 @@ export function WorldInspectorDetail({
   actorName,
   detail,
   error,
+  invocation,
   loading,
+  onSelectInvocation,
   instanceId,
 }: {
   actorId: string;
   actorName: string;
   detail?: Detail;
   error?: string;
+  invocation?: WorldInspectorModelInvocationDetail;
   loading: boolean;
+  onSelectInvocation?: (invocation: WorldInspectorModelInvocationSummary) => void;
   instanceId: string;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
@@ -884,10 +979,11 @@ export function WorldInspectorDetail({
       >
         {loading && <p className="cg-inspector-detail__loading"><LoaderCircle aria-hidden="true" /> 正在读取审计记录…</p>}
         {!loading && error && <p className="cg-inspector-detail__error" role="alert">{error} 请重新选择记录或刷新调试器。</p>}
+        {!loading && !error && invocation && <ModelInvocationDetailPanel instanceId={instanceId} invocation={invocation} />}
         {!loading && !error && detail && (
-          <DetailBody actorId={actorId} actorName={actorName} detail={detail} instanceId={instanceId} tab={tab} />
+          <DetailBody actorId={actorId} actorName={actorName} detail={detail} instanceId={instanceId} onSelectInvocation={onSelectInvocation} tab={tab} />
         )}
-        {!loading && !error && !detail && (
+        {!loading && !error && !detail && !invocation && (
           <div className="cg-inspector-empty">
             <strong>选择一条推演记录</strong>
             <span>这里会显示状态差异、因果审计和模型记录。</span>
