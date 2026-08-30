@@ -242,7 +242,11 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-world-workspace__content { min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: clamp(1.5rem, 4vw, 3.5rem); }
 .cg-feedback { width: min(100%, 68rem); margin-inline: auto; }
 .cg-feedback:empty { display: none; }
-.cg-notice { border-radius: var(--cg-radius); background: var(--cg-muted); padding: 0.8rem 1rem; color: var(--cg-foreground); line-height: 1.55; }
+.cg-toast-region { position: fixed; z-index: 100; inset-block-start: max(1rem, calc(env(safe-area-inset-top) + 0.5rem)); inset-inline-end: max(1rem, calc(env(safe-area-inset-right) + 0.5rem)); width: min(28rem, calc(100vw - 2rem)); pointer-events: none; }
+.cg-toast { width: fit-content; max-width: 100%; margin-block: 0; margin-inline-start: auto; border: 1px solid color-mix(in oklab, var(--cg-success) 42%, var(--cg-border)); border-radius: calc(var(--cg-radius) + 0.15rem); background: color-mix(in oklab, var(--cg-success) 8%, var(--cg-card)); color: var(--cg-foreground); padding: 0.7rem 0.85rem; box-shadow: 0 10px 28px color-mix(in oklab, var(--cg-overlay) 18%, var(--cg-transparent)); line-height: 1.45; pointer-events: auto; }
+@media (prefers-reduced-motion: no-preference) {
+  .cg-toast { animation: cg-toast-enter 180ms cubic-bezier(0.2, 0, 0, 1); }
+}
 .cg-world-detail { width: 100%; max-width: 68rem; min-width: 0; height: 100%; min-height: 38rem; display: grid; grid-template-rows: auto minmax(17rem, 1fr) auto; gap: clamp(1.5rem, 3vh, 2.5rem); margin-inline: auto; }
 .cg-world-detail__mobile-back { display: none; }
 .cg-world-detail__intro { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 2rem; }
@@ -747,6 +751,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 @keyframes cg-spin { to { rotate: 360deg; } }
 @keyframes cg-fade-in { from { opacity: 0; } }
 @keyframes cg-modal-in { from { transform: translate(-50%, calc(-50% + 12px)) scale(0.985); } }
+@keyframes cg-toast-enter { from { opacity: 0; translate: 0 -6px; scale: 0.98; } to { opacity: 1; translate: 0 0; scale: 1; } }
 
 @media (hover: hover) {
   .cg-text-link:hover, .cg-back-link:hover { color: var(--cg-muted-foreground); }

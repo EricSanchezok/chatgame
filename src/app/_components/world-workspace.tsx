@@ -25,7 +25,7 @@ export function WorldWorkspace({ selectedWorldId }: { selectedWorldId?: string }
           router.push(`/worlds/${encodeURIComponent(result.id)}`);
         }} selectedWorldId={selected?.id} worlds={library.worlds} />
         <div className="cg-world-workspace__content">
-          <div className="cg-feedback" aria-live="polite">{library.error ? <p className="cg-alert" role="alert">{library.error}</p> : null}{library.notice ? <p className="cg-notice">{library.notice}</p> : null}</div>
+          <div className="cg-feedback">{library.error ? <p className="cg-alert" role="alert">{library.error}</p> : null}</div>
           {library.loading ? <div className="cg-workspace-empty" role="status">正在读取本地世界…</div> : null}
           {!library.loading && selected ? <WorldDetail busy={library.busy} instances={library.instances.filter((item) => item.worldId === selected.id)}
             onCreateInstance={create} onDeleteInstance={library.deleteInstance} onDeleteWorld={async (world) => {
@@ -33,6 +33,9 @@ export function WorldWorkspace({ selectedWorldId }: { selectedWorldId?: string }
             }} world={selected} /> : null}
           {!library.loading && library.worlds.length === 0 ? <div className="cg-workspace-empty"><h1>还没有安装世界包</h1><p>导入 schema v13 ZIP 后即可开始游戏。</p></div> : null}
         </div>
+      </div>
+      <div className="cg-toast-region" role="status">
+        {library.notice ? <p className="cg-toast">{library.notice}</p> : null}
       </div>
     </main>
   );

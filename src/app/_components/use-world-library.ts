@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CreateInstanceInput, PublicInstanceSummary, WorldSummary } from "../../shared/world-api";
 import { WorldApiError, worldApi } from "../lib/world-api-client";
 
 const INITIAL_LOAD_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+const NOTICE_DURATION_MS = 3_500;
 
 type WorldLibraryApi = Pick<typeof worldApi, "worlds" | "instances">;
 
@@ -69,6 +70,11 @@ export function useWorldLibrary() {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current !== undefined) clearTimeout(noticeTimerRef.current);
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -105,10 +111,16 @@ export function useWorldLibrary() {
   const perform = useCallback(async <T,>(key: string, action: () => Promise<T>, message: string): Promise<T> => {
     setBusy(key);
     setError("");
+    if (noticeTimerRef.current !== undefined) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = undefined;
     setNotice("");
     try {
       const result = await action();
       setNotice(message);
+      noticeTimerRef.current = setTimeout(() => {
+        noticeTimerRef.current = undefined;
+        setNotice("");
+      }, NOTICE_DURATION_MS);
       return result;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
