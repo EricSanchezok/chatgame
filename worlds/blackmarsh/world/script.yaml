@@ -8,15 +8,15 @@ runtime_defaults:
   realtime_interval_ms: 300000
   action_window_ms: 60000
 model_profiles:
-  perception: truth-qwen
-  reaction_routing: truth-qwen
-  resolution: truth-qwen
-  transition: truth-qwen
-  causal_verifier: truth-qwen
-  grounding: truth-qwen
-  observation: truth-qwen
-  arrival: truth-qwen
+  perception: truth-zhipu-coding
+  reaction_routing: truth-zhipu-coding
+  resolution: truth-zhipu-coding
+  transition: truth-zhipu-coding
+  causal_verifier: truth-zhipu-coding
+  grounding: truth-zhipu-coding
+  observation: truth-zhipu-coding
+  arrival: truth-zhipu-coding
   dynamic_agent:
-    bootstrap: agent-qwen
-    mind: agent-qwen
-    reaction: agent-qwen
+    bootstrap: agent-zhipu-coding
+    mind: agent-zhipu-coding
+    reaction: agent-zhipu-coding

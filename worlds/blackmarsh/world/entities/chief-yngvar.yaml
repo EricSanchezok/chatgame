@@ -27,7 +27,7 @@ ratings:
   - { id: "insight:chief-yngvar", definition_id: insight, value: 4 }
 agent:
   id: chief-yngvar
-  model_profiles: { bootstrap: agent-qwen, mind: agent-qwen, reaction: agent-qwen }
+  model_profiles: { bootstrap: agent-zhipu-coding, mind: agent-zhipu-coding, reaction: agent-zhipu-coding }
   character:
     persona:
       summary: 靠丰收、武名与当众问责积累力量的现实主义首领；他真心认为 Ragnar 正毁掉流亡王国，却也知道一次错误起兵会先烧掉 Gamla 的粮仓和合法性。

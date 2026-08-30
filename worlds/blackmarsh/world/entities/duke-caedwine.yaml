@@ -34,7 +34,7 @@ ratings:
   - { id: "craft:duke-caedwine", definition_id: craft, value: 3 }
 agent:
   id: duke-caedwine
-  model_profiles: { bootstrap: agent-qwen, mind: agent-qwen, reaction: agent-qwen }
+  model_profiles: { bootstrap: agent-zhipu-coding, mind: agent-zhipu-coding, reaction: agent-zhipu-coding }
   character:
     persona:
       summary: 真心爱盛宴、故事和被人群簇拥，也真心把这种热闹当作统治工具；他的危险不是只会享乐，而是相信自己总能在下一道菜前把边境问题交给能干的人。

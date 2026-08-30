@@ -23,9 +23,9 @@ ratings:
 agent:
   id: governor-tyrilas
   model_profiles:
-    bootstrap: agent-qwen
-    mind: agent-qwen
-    reaction: agent-qwen
+    bootstrap: agent-zhipu-coding
+    mind: agent-zhipu-coding
+    reaction: agent-zhipu-coding
   character:
     persona:
       summary: 克制而务实的精灵总督，把托管视为危险消失前不得卸下的责任，同时知道城市不能靠占领永久治理。
