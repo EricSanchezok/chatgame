@@ -11,13 +11,13 @@ The Inspector keeps the existing three-column layout: Agent/world index, executi
 
 ## Contract
 
-Inspector API v6 projects the hierarchy `Run/Advance → Attempt → Stage → Logical Invocation → Transport Attempt → Runtime Event → Artifact` from the Execution Ledger. Logical invocations, physical transport attempts, semantic rejection, repair, retry, tokens, UTF-8 byte measurements, queue/transport/parse timing, slot mappings, validation codes, event IDs, and artifact hashes remain separate facts.
+Inspector API v7 projects the hierarchy `Run/Advance → Attempt → Stage → Logical Invocation → Transport Attempt → Runtime Event → Artifact` from the Execution Ledger. Logical invocations, physical transport attempts, semantic rejection, repair, retry, tokens, UTF-8 byte measurements, queue/transport/parse timing, slot mappings, validation codes, event IDs, and artifact hashes remain separate facts. Public invocation IDs are normalized as `executionId::sourceInvocationId`; the original producer ID remains available as `sourceInvocationId`.
 
 `GET /api/instances/:id/inspector/model-invocations` accepts execution, Agent, role, provider, model, status, duration, input-token, retry, sort, and cursor filters. The invocation detail route returns metadata and event/payload references; complete request, context, response, and structured output bodies remain lazy runtime-event artifacts and pass existing redaction.
 
 Slot and Agent mappings are derived only from persisted request/context fields. Missing identity is represented as unresolved. The Inspector does not infer relevant context or classify records as slow, long, risky, or anomalous.
 
-The calls view is the default for active or failed attempts. Each invocation is selectable, transport rows are visible, and failure details link to the failed invocation and its validation evidence. Stage timeline rows and graph nodes use Chinese explanation plus technical identifiers. Six detail tabs remain keyboard reachable and horizontally scrollable at narrow widths.
+The calls view is the default for active or failed attempts. Each invocation is selectable as one full card, transport rows are read-only metadata, and failure details link to the failed invocation and its validation evidence. Stage timeline rows and graph nodes use Chinese explanation plus technical identifiers. The persistent right column renders only the currently selected invocation, attempt, step, or graph node; time, change, causality, model links, and raw JSON are contextual sections rather than global tabs.
 
 ## Plan
 

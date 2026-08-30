@@ -123,3 +123,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0082 — Truth Engine Fixed Slot Batching](0082-truth-engine-fixed-slot-batching.md)
 - [0083 — Qwen Campus Model Profile](0083-qwen-campus-model-profile.md)
 - [0084 — Account-scoped Node Network Binding](0084-account-scoped-node-network-binding.md)
+- [0085 — World Inspector Hierarchical Selection](0085-world-inspector-hierarchical-selection.md)
