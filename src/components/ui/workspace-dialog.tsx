@@ -9,6 +9,7 @@ export function WorkspaceDialog({
   closeLabel,
   description,
   eyebrow,
+  onEscapeKeyDown,
   onOpenChange,
   open,
   title,
@@ -17,6 +18,7 @@ export function WorkspaceDialog({
   closeLabel?: string;
   description: string;
   eyebrow: string;
+  onEscapeKeyDown?: (event: globalThis.KeyboardEvent) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   title: string;
@@ -25,7 +27,7 @@ export function WorkspaceDialog({
     <Dialog.Root onOpenChange={onOpenChange} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="cg-workspace__overlay" />
-        <Dialog.Content className="cg-workspace">
+        <Dialog.Content className="cg-workspace" onEscapeKeyDown={onEscapeKeyDown}>
           <header className="cg-workspace__header">
             <div className="cg-workspace__heading">
               <span className="cg-workspace__eyebrow">{eyebrow}</span>

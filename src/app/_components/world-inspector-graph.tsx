@@ -206,10 +206,21 @@ export function WorldInspectorGraph({
     ...actors.map((actor) => [actor.id, actor.name] as const),
   ]), [actors]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleSummaries = useMemo(() => sourceNodes.filter((node) =>
+  const scopedSourceNodes = useMemo(() => {
+    if (selectedNodeId?.startsWith("attempt:")) {
+      const attemptId = selectedNodeId.slice("attempt:".length);
+      return sourceNodes.filter((node) => node.id === selectedNodeId || node.relatedAttemptId === attemptId);
+    }
+    if (selectedNodeId?.startsWith("commit:")) {
+      const revision = Number(selectedNodeId.slice("commit:".length));
+      if (Number.isSafeInteger(revision)) return sourceNodes.filter((node) => node.revision === revision);
+    }
+    return sourceNodes;
+  }, [selectedNodeId, sourceNodes]);
+  const visibleSummaries = useMemo(() => scopedSourceNodes.filter((node) =>
     !isolateActor || selectedActorId === "world" || node.laneId === selectedActorId ||
     (node.laneId === "world" && node.kind !== "attempt") || node.relatedActorIds?.includes(selectedActorId)),
-  [isolateActor, selectedActorId, sourceNodes]);
+  [isolateActor, selectedActorId, scopedSourceNodes]);
   const visibleIds = useMemo(() => new Set(visibleSummaries.map((node) => node.id)), [visibleSummaries]);
   const visibleEdges = useMemo(() => sourceEdges.filter((edge) =>
     visibleIds.has(edge.source) && visibleIds.has(edge.target)), [sourceEdges, visibleIds]);

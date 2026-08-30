@@ -414,7 +414,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     group.push(event);
     groups.set(id, group);
   }
-  return [...groups.entries()].map(([id, group]) => {
+  const projected = [...groups.entries()].map(([id, group]) => {
     const ordered = [...group].sort((left, right) => left.sequence - right.sequence);
     const started = ordered.find((event) => event.event === "model.invocation.started");
     const contextEvent = ordered.find((event) => event.event === "model.context.serialized");
@@ -494,6 +494,11 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     };
     return {
       id,
+      // The provider correlation ordinal is scoped to the producer/batch and is
+      // commonly `1` for every request in an attempt. The Inspector contract
+      // needs a stable, human-readable sequence for the logical invocations in
+      // this attempt, so ordinals are assigned after grouping and chronological
+      // ordering below.
       ordinal: ordered.find((event) => event.correlation?.modelInvocation)?.correlation?.modelInvocation ?? 0,
       ...(started?.correlation?.modelRole ? { role: started.correlation.modelRole } : {}),
       ...(started?.correlation?.modelSubject ? { subjectId: started.correlation.modelSubject } : {}),
@@ -528,7 +533,12 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
       hasPayload: ordered.some((event) => event.payload !== undefined),
     } satisfies WorldInspectorModelInvocationSummary;
-  }).sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id));
+  });
+  return projected.sort((left, right) => {
+    const leftTimestamp = left.startedAt ? Date.parse(left.startedAt) : Number.MAX_SAFE_INTEGER;
+    const rightTimestamp = right.startedAt ? Date.parse(right.startedAt) : Number.MAX_SAFE_INTEGER;
+    return leftTimestamp - rightTimestamp || left.ordinal - right.ordinal || left.id.localeCompare(right.id);
+  }).map((invocation, index) => ({ ...invocation, ordinal: index + 1 }));
 }
 
 function sumModelTokens(invocations: readonly WorldInspectorModelInvocationSummary[]): WorldInspectorTokenUsage {

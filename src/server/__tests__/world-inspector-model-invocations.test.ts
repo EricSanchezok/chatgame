@@ -140,6 +140,7 @@ describe("world inspector model invocation projection", () => {
     const result = queryWorldInspectorModelInvocations([record], runtimeEvents(), { sort: "retries" });
 
     expect(result.total).toBe(2);
+    expect(result.items.map((item) => item.ordinal).sort((left, right) => left - right)).toEqual([1, 2]);
     expect(result.items.map((item) => item.transportAttempts.length)).toEqual([2, 1]);
     expect(result.items[0]).toMatchObject({
       id: "invocation-action-1",

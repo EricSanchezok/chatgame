@@ -265,27 +265,20 @@ export default function WorldInspectorDialog({
     try {
       const value = await worldInspectorApi.attempt(instanceId, attempt.id);
       if (request === detailRequestRef.current) setDetail({ kind: "attempt", value });
+      return { kind: "attempt" as const, value };
     } catch (reason) {
       if (request === detailRequestRef.current) {
         setDetailError(reason instanceof Error ? reason.message : "这条运行记录已经过期。");
       }
+      return undefined;
     } finally {
       if (request === detailRequestRef.current) setLoadingDetail(false);
     }
   }, [instanceId]);
 
-  const selectInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary) => {
+  const loadInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary, executionId: string) => {
     setSelectedInvocationId(invocation.id);
     setInvocationError("");
-    const executionId = detail?.kind === "attempt"
-      ? detail.value.summary.id
-      : detail?.kind === "step"
-        ? detail.value.committed.executionRef?.executionId
-        : (invocation as WorldInspectorModelInvocationSummary & { executionId?: string }).executionId;
-    if (!executionId) {
-      setInvocationDetail(undefined);
-      return;
-    }
     setLoadingInvocation(true);
     try {
       const value = await worldInspectorApi.modelInvocation(instanceId, executionId, invocation.id);
@@ -295,7 +288,20 @@ export default function WorldInspectorDialog({
     } finally {
       setLoadingInvocation(false);
     }
-  }, [detail, instanceId]);
+  }, [instanceId]);
+
+  const selectInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary) => {
+    const executionId = detail?.kind === "attempt"
+      ? detail.value.summary.id
+      : detail?.kind === "step"
+        ? detail.value.committed.executionRef?.executionId
+        : (invocation as WorldInspectorModelInvocationSummary & { executionId?: string }).executionId;
+    if (!executionId) {
+      setInvocationDetail(undefined);
+      return;
+    }
+    await loadInvocation(invocation, executionId);
+  }, [detail, loadInvocation]);
 
   const loadWindow = useCallback(async (preserveHistory: boolean) => {
     const request = ++requestRef.current;
@@ -415,17 +421,22 @@ export default function WorldInspectorDialog({
     }
   }, [instanceId, invocationCursor, loadingMoreInvocations]);
 
-  const selectNode = useCallback((node: WorldInspectorNodeSummary) => {
+  const selectNode = useCallback(async (node: WorldInspectorNodeSummary) => {
     if (!data) return;
     const attemptId = node.kind === "attempt" ? node.id.slice("attempt:".length) : node.relatedAttemptId;
     if (attemptId) {
       const attempt = data.attempts.find((candidate) => candidate.id === attemptId);
-      if (attempt) void selectAttempt(attempt);
+      if (attempt) {
+        const selected = await selectAttempt(attempt);
+        const invocation = node.relatedInvocationId && selected?.value.modelInvocations.find((candidate) =>
+          candidate.id === node.relatedInvocationId);
+        if (invocation) await loadInvocation(invocation, attempt.id);
+      }
       return;
     }
     const step = data.steps.find((candidate) => candidate.revision === node.revision);
     if (step) void selectStep(step, node.id);
-  }, [data, selectAttempt, selectStep]);
+  }, [data, loadInvocation, selectAttempt, selectStep]);
 
   const loadOlder = useCallback(async () => {
     const beforeRevision = data?.pagination.oldestRevision;
@@ -458,9 +469,21 @@ export default function WorldInspectorDialog({
       retries: data.attempts.reduce((sum, attempt) => sum + attempt.retryCount, 0),
     };
   }, [data]);
-  const selectedInvocations = detail?.kind === "attempt" || detail?.kind === "step"
-    ? detail.value.modelInvocations
-    : queriedInvocations;
+  const selectedInvocations = useMemo(() => {
+    const invocations = detail?.kind === "attempt" || detail?.kind === "step"
+      ? detail.value.modelInvocations
+      : queriedInvocations;
+    if (selectedActorId === "world") return invocations;
+    return invocations.filter((invocation) => invocation.subjectId === selectedActorId ||
+      invocation.slotRefs.some((slot) => slot.agentId === selectedActorId));
+  }, [detail, queriedInvocations, selectedActorId]);
+  const selectActor = useCallback((actorId: string) => {
+    setSelectedActorId(actorId);
+    setSelectedInvocationId(undefined);
+    setInvocationDetail(undefined);
+    setInvocationError("");
+    closeActorDrawer();
+  }, [closeActorDrawer]);
   const statusDescription = data
     ? `${data.instance.worldName} · Revision ${data.instance.revision} · ${data.trace.mode} trace`
     : "读取世界提交历史、Agent 演化与运行审计。";
@@ -546,6 +569,11 @@ export default function WorldInspectorDialog({
       closeLabel="关闭世界演化调试器"
       description={statusDescription}
       eyebrow="WORLD EVOLUTION / READ ONLY"
+      onEscapeKeyDown={(event) => {
+        if (!actorsOpen) return;
+        event.preventDefault();
+        closeActorDrawer();
+      }}
       onOpenChange={onOpenChange}
       open={open}
       title="世界演化"
@@ -566,6 +594,12 @@ export default function WorldInspectorDialog({
           aria-controls="world-inspector-actors"
           aria-expanded={actorsOpen}
           className="cg-inspector-toolbar__button cg-inspector-actor-toggle"
+          onKeyDownCapture={(event) => {
+            if (event.key !== "Escape" || !actorsOpen) return;
+            event.preventDefault();
+            event.stopPropagation();
+            closeActorDrawer();
+          }}
           onClick={() => setActorsOpen((value) => !value)}
           ref={actorToggleRef}
           type="button"
@@ -648,7 +682,7 @@ export default function WorldInspectorDialog({
             <button
               aria-pressed={selectedActorId === "world"}
               className="cg-inspector-actor cg-inspector-actor--world"
-              onClick={() => { setSelectedActorId("world"); setIsolateActor(false); closeActorDrawer(); }}
+              onClick={() => { selectActor("world"); setIsolateActor(false); }}
               type="button"
             >
               <span><GitBranch aria-hidden="true" /></span>
@@ -662,7 +696,7 @@ export default function WorldInspectorDialog({
                     aria-pressed={selectedActorId === actor.id}
                     className="cg-inspector-actor"
                     key={actor.id}
-                    onClick={() => { setSelectedActorId(actor.id); closeActorDrawer(); }}
+                    onClick={() => selectActor(actor.id)}
                     type="button"
                   >
                     <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
