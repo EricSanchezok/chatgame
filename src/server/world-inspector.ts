@@ -409,7 +409,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
   for (const event of events) {
     if (!event.event.startsWith("model.")) continue;
     const id = event.correlation?.modelInvocationId ??
-      `unresolved:${event.correlation?.modelRole ?? "model"}:${event.correlation?.modelSubject ?? "unknown"}:${event.sequence}`;
+      `unresolved:${event.correlation?.modelRole ?? "model"}:${event.correlation?.modelSubject ?? "unknown"}:${event.correlation?.modelInvocation ?? event.sequence}`;
     const group = groups.get(id) ?? [];
     group.push(event);
     groups.set(id, group);
