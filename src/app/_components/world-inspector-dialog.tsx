@@ -213,8 +213,7 @@ export default function WorldInspectorDialog({
   const [view, setView] = useState<CenterView>("calls");
   const [actorWidth, setActorWidth] = useState(WORLD_INSPECTOR_ACTOR_DEFAULT);
   const [detailWidth, setDetailWidth] = useState(WORLD_INSPECTOR_DETAIL_DEFAULT);
-  const [failureViewOverride, setFailureViewOverride] = useState(false);
-  const activeView: CenterView = narrow || failureViewOverride ? "calls" : view;
+  const activeView: CenterView = narrow ? "calls" : view;
   const selectedNodeId = selection?.kind === "attempt"
     ? `attempt:${selection.id}`
     : selection?.kind === "step"
@@ -266,7 +265,6 @@ export default function WorldInspectorDialog({
       setView(preferences.view);
       setActorWidth(preferences.actorWidth);
       setDetailWidth(preferences.detailWidth);
-      setFailureViewOverride(false);
     }, 0);
     return () => window.clearTimeout(hydrateLayout);
   }, [open]);
@@ -284,7 +282,6 @@ export default function WorldInspectorDialog({
   }, [actorWidth, detailWidth, view]);
 
   const chooseView = useCallback((next: WorldInspectorView) => {
-    setFailureViewOverride(false);
     setView(next);
     persistLayout({ view: next });
     if (selection?.kind === "invocation") {
@@ -295,7 +292,6 @@ export default function WorldInspectorDialog({
   }, [persistLayout, selection]);
 
   const chooseCenterView = useCallback((next: CenterView) => {
-    setFailureViewOverride(false);
     setView(next);
     if (next !== "calls") persistLayout({ view: next });
     if (next === "calls") {
@@ -422,7 +418,6 @@ export default function WorldInspectorDialog({
           setInvocationDetail(undefined);
           setInvocationError("");
         } else if (nextAttempt) {
-          setFailureViewOverride(true);
           void selectAttempt(nextAttempt);
         } else if (latestStep) {
           void selectStep(latestStep);
@@ -619,7 +614,6 @@ export default function WorldInspectorDialog({
       (latestFailure.revision ?? data.instance.revision) >= (latestStep?.revision ?? 0);
     const attempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
     if (attempt) {
-      setFailureViewOverride(true);
       void selectAttempt(attempt);
     }
     else if (latestStep) void selectStep(latestStep);
