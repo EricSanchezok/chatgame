@@ -24,14 +24,20 @@ function statusIcon(status: WorldInspectorModelInvocationSummary["status"]) {
 
 export function WorldInspectorInvocationList({
   invocations,
+  onLoadMore,
   onSelect,
   query,
   selectedId,
+  hasMore,
+  loadingMore,
 }: {
   invocations: WorldInspectorModelInvocationSummary[];
+  onLoadMore?: () => void;
   onSelect: (invocation: WorldInspectorModelInvocationSummary) => void;
   query: string;
   selectedId?: string;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }) {
   const [sort, setSort] = useState<"timestamp" | "duration" | "inputTokens" | "outputTokens" | "retries">("timestamp");
   const [minInputTokens, setMinInputTokens] = useState("");
@@ -145,6 +151,11 @@ export function WorldInspectorInvocationList({
           );
         })}
       </div>
+      {hasMore && onLoadMore && (
+        <button className="cg-inspector-invocation-list__load-more" disabled={loadingMore} onClick={onLoadMore} type="button">
+          {loadingMore ? "正在读取更多调用…" : "加载更多调用"}
+        </button>
+      )}
     </section>
   );
 }

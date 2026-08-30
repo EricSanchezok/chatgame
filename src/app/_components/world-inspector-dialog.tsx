@@ -166,6 +166,8 @@ export default function WorldInspectorDialog({
   const [invocationError, setInvocationError] = useState("");
   const [loadingInvocation, setLoadingInvocation] = useState(false);
   const [queriedInvocations, setQueriedInvocations] = useState<WorldInspectorModelInvocationSummary[]>([]);
+  const [invocationCursor, setInvocationCursor] = useState<string>();
+  const [loadingMoreInvocations, setLoadingMoreInvocations] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -379,12 +381,39 @@ export default function WorldInspectorDialog({
     if (!open || activeView !== "calls") return;
     let cancelled = false;
     void worldInspectorApi.modelInvocations(instanceId, { limit: 100, sort: "timestamp" }).then((result) => {
-      if (!cancelled) setQueriedInvocations(result.items);
+      if (!cancelled) {
+        setQueriedInvocations(result.items);
+        setInvocationCursor(result.nextCursor);
+      }
     }).catch(() => {
-      if (!cancelled) setQueriedInvocations([]);
+      if (!cancelled) {
+        setQueriedInvocations([]);
+        setInvocationCursor(undefined);
+      }
     });
     return () => { cancelled = true; };
   }, [activeView, instanceId, open]);
+
+  const loadMoreInvocations = useCallback(async () => {
+    if (!invocationCursor || loadingMoreInvocations) return;
+    setLoadingMoreInvocations(true);
+    try {
+      const result = await worldInspectorApi.modelInvocations(instanceId, {
+        cursor: invocationCursor,
+        limit: 100,
+        sort: "timestamp",
+      });
+      setQueriedInvocations((current) => {
+        const seen = new Set(current.map((invocation) => invocation.id));
+        return [...current, ...result.items.filter((invocation) => !seen.has(invocation.id))];
+      });
+      setInvocationCursor(result.nextCursor);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法读取更多模型调用。");
+    } finally {
+      setLoadingMoreInvocations(false);
+    }
+  }, [instanceId, invocationCursor, loadingMoreInvocations]);
 
   const selectNode = useCallback((node: WorldInspectorNodeSummary) => {
     if (!data) return;
@@ -670,8 +699,11 @@ export default function WorldInspectorDialog({
                 {loadingInvocation && <p className="cg-inspector-stage__status" role="status">正在读取这次模型调用的完整记录…</p>}
                 {invocationError && <p className="cg-inspector-stage__warning" role="alert">{invocationError}</p>}
                 <WorldInspectorInvocationList
+                  hasMore={!detail && invocationCursor !== undefined}
                   invocations={selectedInvocations}
+                  loadingMore={loadingMoreInvocations}
                   onSelect={(invocation) => { setFollowLatest(false); void selectInvocation(invocation); }}
+                  onLoadMore={() => void loadMoreInvocations()}
                   query={query}
                   selectedId={selectedInvocationId}
                 />
