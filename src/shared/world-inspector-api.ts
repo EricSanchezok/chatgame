@@ -9,7 +9,7 @@ import type {
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 6 as const;
+export const WORLD_INSPECTOR_API_VERSION = 7 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -128,6 +128,8 @@ export interface WorldInspectorTransportAttempt {
 
 export interface WorldInspectorModelInvocationSummary {
   id: string;
+  /** Original modelInvocationId from the producer execution, scoped only within that execution. */
+  sourceInvocationId: string;
   ordinal: number;
   role?: string;
   subjectId?: string;

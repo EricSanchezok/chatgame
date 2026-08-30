@@ -143,7 +143,8 @@ describe("world inspector model invocation projection", () => {
     expect(result.items.map((item) => item.ordinal).sort((left, right) => left - right)).toEqual([1, 2]);
     expect(result.items.map((item) => item.transportAttempts.length)).toEqual([2, 1]);
     expect(result.items[0]).toMatchObject({
-      id: "invocation-action-1",
+      id: "execution-1::invocation-action-1",
+      sourceInvocationId: "invocation-action-1",
       status: "rejected",
       retryCount: 1,
       tokenUsage: { input: 148_537, output: 1_900, reasoning: 120 },
@@ -177,14 +178,41 @@ describe("world inspector model invocation projection", () => {
     });
 
     expect(firstPage.total).toBe(1);
-    expect(firstPage.items[0]?.id).toBe("invocation-action-1");
+    expect(firstPage.items[0]?.id).toBe("execution-1::invocation-action-1");
     expect(firstPage.items[0]).not.toHaveProperty("payload");
 
-    const detail = buildWorldInspectorModelInvocationDetail(record.id, "invocation-action-1", record, events);
+    const detail = buildWorldInspectorModelInvocationDetail(record.id, "execution-1::invocation-action-1", record, events);
     expect(detail?.eventSummaries).toHaveLength(8);
     expect(detail?.eventSummaries.every((event) => !("payload" in event))).toBe(true);
     expect(detail?.payloadEventIds.context).toBeDefined();
     expect(detail?.payloadEventIds.output).toBeDefined();
     expect(detail?.artifactHashes).toMatchObject({ context: "context-hash", output: "response-hash" });
+  });
+
+  it("scopes identical producer invocation IDs by execution", () => {
+    const secondRecord: ExecutionRecord = { ...record, id: "execution-2", traceId: "trace-2", startedAt: "2026-08-30T10:00:00.000Z" };
+    const secondEvents = runtimeEvents().map((event) => ({
+      ...event,
+      timestamp: new Date(Date.parse(event.timestamp) + 3_600_000).toISOString(),
+      correlation: event.correlation ? { ...event.correlation, executionId: secondRecord.id } : undefined,
+    }));
+    const result = queryWorldInspectorModelInvocations([record, secondRecord], [...runtimeEvents(), ...secondEvents]);
+    const actionInvocations = result.items.filter((item) => item.sourceInvocationId === "invocation-action-1");
+
+    expect(actionInvocations).toHaveLength(2);
+    expect(new Set(actionInvocations.map((item) => item.id))).toEqual(new Set([
+      "execution-1::invocation-action-1",
+      "execution-2::invocation-action-1",
+    ]));
+    expect(actionInvocations.every((item) => item.sourceInvocationId === "invocation-action-1")).toBe(true);
+
+    const secondDetail = buildWorldInspectorModelInvocationDetail(
+      secondRecord.id,
+      "execution-2::invocation-action-1",
+      secondRecord,
+      secondEvents,
+    );
+    expect(secondDetail?.id).toBe("execution-2::invocation-action-1");
+    expect(secondDetail?.sourceInvocationId).toBe("invocation-action-1");
   });
 });
