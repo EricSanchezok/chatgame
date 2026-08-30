@@ -247,7 +247,7 @@ export function GameThread({
             data-docked={!isEmpty}
             data-slot="aui-thread-viewport-footer"
             className={cn(
-              "relative flex flex-col gap-3 overflow-visible bg-background pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-6",
+              "cg-safe-area-bottom relative flex flex-col gap-3 overflow-visible bg-background md:pb-6",
               !isEmpty && "sticky bottom-0 mt-auto rounded-t-3xl",
             )}
           >

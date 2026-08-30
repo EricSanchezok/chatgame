@@ -2,13 +2,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { createTestModelCatalog, DeterministicModelProvider } from "../../engine/testing/model-provider";
+import { DeterministicModelProvider } from "../../engine/testing/model-provider";
+import { loadModelCatalog } from "../../engine/models/model-catalog";
 import { EagerReferenceAlgorithm } from "../../engine/algorithms/eager-reference/eager-reference";
 import { SimulationEngine } from "../../engine/runtime/simulation";
 import { loadWorldScript } from "../../script/world-loader";
 import { parseWorldArchive } from "../world-import";
 
 const worldRoot = path.resolve("worlds/blackmarsh/world");
+const blackmarshModelCatalog = loadModelCatalog();
 
 const agentIds = [
   "player",
@@ -185,7 +187,7 @@ function zipWorld(): Buffer {
 
 describe("Blackmarsh reference world", () => {
   it("locks the semantic adjudication calibration matrix and its relative effect ordering", () => {
-    const provider = new DeterministicModelProvider(undefined, false);
+    const provider = new DeterministicModelProvider(blackmarshModelCatalog, false);
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
     const calibrations = Object.fromEntries(definition.initialState.truth.mechanics.adjudicationCalibrations
       .map((entry) => [entry.id, entry]));
@@ -212,7 +214,7 @@ describe("Blackmarsh reference world", () => {
   });
 
   it("loads the complete geography, autonomous cast, and three opening deadlines", () => {
-    const provider = new DeterministicModelProvider(undefined, false);
+    const provider = new DeterministicModelProvider(blackmarshModelCatalog, false);
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
     const { truth } = definition.initialState;
 
@@ -544,7 +546,7 @@ describe("Blackmarsh reference world", () => {
   });
 
   it("passes the same strict ZIP import path as user-authored worlds", () => {
-    const provider = new DeterministicModelProvider(undefined, false);
+    const provider = new DeterministicModelProvider(blackmarshModelCatalog, false);
     expect(parseWorldArchive(zipWorld(), provider.catalog)).toMatchObject({
       id: "blackmarsh",
       name: "黑沼边境",
@@ -570,7 +572,7 @@ describe("Blackmarsh reference world", () => {
     // Truth observation batches carry the complete candidate truth by design;
     // this structural 48-Agent test uses a profile budget that can hold one
     // fixed twelve-slot request without clipping or adaptive shrinking.
-    const provider = new DeterministicModelProvider(createTestModelCatalog(undefined, { maxInputBytes: 8 * 1_048_576 }));
+    const provider = new DeterministicModelProvider(blackmarshModelCatalog);
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
     const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
     await engine.bootstrapAgents();

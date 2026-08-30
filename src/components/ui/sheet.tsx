@@ -18,7 +18,7 @@ export function SheetContent({
       <Dialog.Content
         {...props}
         className={cn(
-          "cg-sheet-surface fixed inset-x-0 bottom-0 z-60 max-h-[min(80dvh,42rem)] overflow-y-auto overscroll-contain rounded-t-3xl border-t bg-popover px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 text-popover-foreground data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom motion-reduce:animate-none",
+          "cg-sheet-surface cg-safe-area-bottom-lg fixed inset-x-0 bottom-0 z-60 max-h-[min(80dvh,42rem)] overflow-y-auto overscroll-contain rounded-t-3xl border-t bg-popover px-5 pt-3 text-popover-foreground data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom motion-reduce:animate-none",
           className,
         )}
       >

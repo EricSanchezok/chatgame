@@ -29,7 +29,7 @@ ratings:
   - { id: "influence:sir-dennis-langre", definition_id: influence, value: 4 }
 agent:
   id: sir-dennis-langre
-  model_profiles: { bootstrap: agent-zhipu-coding, mind: agent-zhipu-coding, reaction: agent-zhipu-coding }
+  model_profiles: { bootstrap: agent-qwen, mind: agent-qwen, reaction: agent-qwen }
   character:
     persona:
       summary: 见过边境盟友在地图上夸大威胁、也见过帝国军官因傲慢错失真向导；他接受帮助，但要让 Norbury 的下一步建立在两条独立证据链上。
