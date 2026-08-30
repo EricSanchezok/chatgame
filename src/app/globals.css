@@ -608,9 +608,9 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-invocation-list__load-more:disabled { cursor: wait; opacity: 0.55; }
 .cg-inspector-invocation { min-width: 0; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.15rem); background: color-mix(in oklab, var(--cg-card) 92%, var(--cg-muted)); }
 .cg-inspector-invocation[data-status="rejected"], .cg-inspector-invocation[data-status="failed"] { border-color: color-mix(in oklab, var(--cg-destructive) 34%, var(--cg-border)); }
-.cg-inspector-invocation[data-selected="true"] { border-color: color-mix(in oklab, var(--cg-inspector-mind) 58%, var(--cg-border)); background: color-mix(in oklab, var(--cg-inspector-mind) 5%, var(--cg-card)); }
+.cg-inspector-invocation[data-selected="true"] { border-color: color-mix(in oklab, var(--cg-ring) 58%, var(--cg-border)); background: color-mix(in oklab, var(--cg-ring) 5%, var(--cg-card)); }
 .cg-inspector-invocation__button { width: 100%; min-width: 0; display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: center; gap: 0.6rem; border: 0; border-radius: inherit; background: var(--cg-transparent); padding: 0.8rem; color: inherit; text-align: start; cursor: pointer; transition: background-color 150ms, box-shadow 150ms, scale 120ms; }
-.cg-inspector-invocation__button[data-selected="true"] { background: color-mix(in oklab, var(--cg-inspector-mind) 6%, var(--cg-card)); box-shadow: inset 3px 0 0 var(--cg-inspector-mind); }
+.cg-inspector-invocation__button[data-selected="true"] { background: color-mix(in oklab, var(--cg-ring) 6%, var(--cg-card)); box-shadow: none; }
 .cg-inspector-invocation__button:focus-visible { outline: 2px solid var(--cg-foreground); outline-offset: 3px; }
 .cg-inspector-invocation__button:active { scale: 0.995; }
 .cg-inspector-invocation__icon { width: 2rem; height: 2rem; display: grid; place-items: center; border-radius: var(--cg-radius); background: color-mix(in oklab, var(--cg-inspector-mind) 12%, var(--cg-muted)); color: var(--cg-inspector-mind); }
