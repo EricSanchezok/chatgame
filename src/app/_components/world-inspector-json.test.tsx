@@ -53,6 +53,18 @@ describe("console JSON inspector", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已复制完整对象"));
   });
 
+  it("switches between compact tree and complete raw text modes", () => {
+    const value = { longKey: "一段需要完整保留的中文证据", nested: { count: 2 } };
+    const { container } = render(<JsonInspector label="对象" value={value} />);
+
+    expect(container.querySelector(".cg-json-inspector__tree")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "原始文本" }));
+    expect(container.querySelector(".cg-json-inspector__tree")).not.toBeInTheDocument();
+    expect(container.querySelector(".cg-json-inspector__raw")?.textContent).toBe(JSON.stringify(value, null, 2));
+    fireEvent.click(screen.getByRole("button", { name: "树视图" }));
+    expect(container.querySelector(".cg-json-inspector__tree")).toBeInTheDocument();
+  });
+
   it("uses one labelled copy menu per field without duplicating root actions", async () => {
     const { container } = render(<JsonInspector label="对象" value={{ correlation: { requestId: "request-1" } }} />);
     expect(container.querySelector('.cg-json-branch[data-depth="0"] > .cg-json-copy-menu')).toBeNull();

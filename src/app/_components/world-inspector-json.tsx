@@ -1,11 +1,12 @@
 "use client";
 
-import { ChevronRight, Copy, Layers2, ListCollapse } from "lucide-react";
+import { Braces, ChevronRight, Copy, Layers2, ListCollapse } from "lucide-react";
 import { useRef, useState, type MouseEvent } from "react";
 import type { WorldInspectorRuntimeEventSummary } from "../../shared/world-inspector-api";
 import { worldInspectorApi } from "../lib/world-inspector-api-client";
 
 type ExpansionMode = "default" | "one" | "collapsed";
+type JsonViewMode = "tree" | "raw";
 type JsonKind = "array" | "boolean" | "null" | "number" | "object" | "string" | "undefined";
 
 function jsonKind(value: unknown): JsonKind {
@@ -159,7 +160,7 @@ function JsonNode({
               <JsonNode
                 depth={depth + 1}
                 expansionMode={expansionMode}
-                key={`${String(key)}:${depth}`}
+                key={pathLabel([...path, key])}
                 name={key}
                 onCopy={onCopy}
                 path={[...path, key]}
@@ -180,6 +181,7 @@ function JsonNode({
 }
 
 export function JsonInspector({ label, value }: { label: string; value: unknown }) {
+  const [viewMode, setViewMode] = useState<JsonViewMode>("tree");
   const [expansionMode, setExpansionMode] = useState<ExpansionMode>("default");
   const [collapseVersion, setCollapseVersion] = useState(0);
   const [announcement, setAnnouncement] = useState<{ id: number; message: string }>();
@@ -192,30 +194,41 @@ export function JsonInspector({ label, value }: { label: string; value: unknown 
     })));
   };
   const updateExpansion = (mode: ExpansionMode) => {
+    setViewMode("tree");
     setExpansionMode(mode);
     setCollapseVersion((version) => version + 1);
   };
+  const rawJson = JSON.stringify(value, null, 2) ?? String(value);
   return (
     <section className="cg-json-inspector" aria-label={label}>
       <header className="cg-json-inspector__toolbar">
         <strong>{label}</strong>
         <span>
-          <button onClick={() => updateExpansion("one")} type="button"><Layers2 aria-hidden="true" />展开一层</button>
-          <button onClick={() => updateExpansion("collapsed")} type="button"><ListCollapse aria-hidden="true" />收起全部</button>
-          <button onClick={() => copy("已复制完整对象", serializedValue(value))} type="button"><Copy aria-hidden="true" />复制对象</button>
+          <button aria-pressed={viewMode === "tree"} onClick={() => setViewMode("tree")} type="button"><Braces aria-hidden="true" />树视图</button>
+          <button aria-pressed={viewMode === "raw"} onClick={() => setViewMode("raw")} type="button">原始文本</button>
+          {viewMode === "tree" && <>
+            <button onClick={() => updateExpansion("one")} type="button"><Layers2 aria-hidden="true" />展开一层</button>
+            <button onClick={() => updateExpansion("default")} type="button"><Layers2 aria-hidden="true" />全部展开</button>
+            <button onClick={() => updateExpansion("collapsed")} type="button"><ListCollapse aria-hidden="true" />全部收起</button>
+          </>}
+          <button onClick={() => copy("已复制完整对象", rawJson)} type="button"><Copy aria-hidden="true" />复制对象</button>
         </span>
       </header>
-      <div className="cg-json-inspector__tree">
-        <JsonNode
-          depth={0}
-          expansionMode={expansionMode}
-          key={`${expansionMode}:${collapseVersion}`}
-          name="$"
-          onCopy={copy}
-          path={["$"]}
-          value={value}
-        />
-      </div>
+      {viewMode === "tree" ? (
+        <div className="cg-json-inspector__tree">
+          <JsonNode
+            depth={0}
+            expansionMode={expansionMode}
+            key={`${expansionMode}:${collapseVersion}`}
+            name="$"
+            onCopy={copy}
+            path={["$"]}
+            value={value}
+          />
+        </div>
+      ) : (
+        <pre className="cg-json-inspector__raw" tabIndex={0}>{rawJson}</pre>
+      )}
       <span className="cg-sr-only" key={announcement?.id} role="status">{announcement?.message}</span>
     </section>
   );

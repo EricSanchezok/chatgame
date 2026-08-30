@@ -7,6 +7,7 @@ import { WorldInspectorInvocationList } from "./world-inspector-invocation-list"
 
 const invocation: WorldInspectorModelInvocationSummary = {
   id: "invocation-1",
+  sourceInvocationId: "invocation-1",
   ordinal: 1,
   role: "action-compilation",
   providerId: "qwen",
@@ -56,7 +57,7 @@ describe("WorldInspectorInvocationList", () => {
     expect(screen.getByText("没有匹配“missing”的模型调用。")).toBeVisible();
   });
 
-  it("summarizes large slot batches while keeping every slot reachable", () => {
+  it("keeps large slot batches compact and moves the full mapping to the detail panel", () => {
     const batched = {
       ...invocation,
       slotRefs: Array.from({ length: 5 }, (_, slot) => ({ slot, agentId: `agent-${slot}` })),
@@ -64,7 +65,19 @@ describe("WorldInspectorInvocationList", () => {
     render(<WorldInspectorInvocationList invocations={[batched]} onSelect={() => {}} query="" />);
 
     expect(screen.getByText("5 个 slot")).toBeVisible();
-    fireEvent.click(screen.getByText("查看全部"));
-    expect(screen.getByText("agent-4")).toBeVisible();
+    expect(screen.queryByText("查看全部")).not.toBeInTheDocument();
+    expect(screen.getByText(/agent-0、agent-1、agent-2 等 2 个/)).toBeVisible();
+    expect(screen.queryByText("agent-4")).not.toBeInTheDocument();
+  });
+
+  it("uses one full-card button for selection", () => {
+    const onSelect = vi.fn();
+    render(<WorldInspectorInvocationList invocations={[invocation]} onSelect={onSelect} query="" />);
+
+    const card = screen.getByRole("button", { name: /Invocation 1/ });
+    expect(card).toHaveAttribute("aria-pressed", "false");
+    expect(card.querySelectorAll("button")).toHaveLength(0);
+    fireEvent.click(screen.getByText("Transport 1"));
+    expect(onSelect).toHaveBeenCalledWith(invocation);
   });
 });

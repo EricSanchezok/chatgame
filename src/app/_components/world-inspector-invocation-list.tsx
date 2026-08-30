@@ -5,6 +5,11 @@ import { useState } from "react";
 import type { WorldInspectorModelInvocationSummary } from "../../shared/world-inspector-api";
 import { WorldInspectorSlotSummary } from "./world-inspector-slot-summary";
 
+export type WorldInspectorInvocationListItem = WorldInspectorModelInvocationSummary & {
+  /** Query results carry this routing hint; step/attempt projections may omit it because their execution is implicit. */
+  executionId?: string;
+};
+
 function formatNumber(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : value.toLocaleString();
 }
@@ -29,14 +34,16 @@ export function WorldInspectorInvocationList({
   onSelect,
   query,
   selectedId,
+  scopeLabel,
   hasMore,
   loadingMore,
 }: {
-  invocations: WorldInspectorModelInvocationSummary[];
+  invocations: WorldInspectorInvocationListItem[];
   onLoadMore?: () => void;
-  onSelect: (invocation: WorldInspectorModelInvocationSummary) => void;
+  onSelect: (invocation: WorldInspectorInvocationListItem) => void;
   query: string;
   selectedId?: string;
+  scopeLabel?: string;
   hasMore?: boolean;
   loadingMore?: boolean;
 }) {
@@ -72,7 +79,7 @@ export function WorldInspectorInvocationList({
       <header className="cg-inspector-invocation-list__header">
         <div>
           <strong>模型调用清单</strong>
-          <small>逻辑调用与物理传输尝试分开记录</small>
+          <small>{scopeLabel ? `${scopeLabel} · ` : ""}逻辑调用与物理传输尝试分开记录</small>
         </div>
         <dl>
           <div><dt>调用</dt><dd>{visible.length}</dd></div>
@@ -107,48 +114,52 @@ export function WorldInspectorInvocationList({
         {visible.map((invocation) => {
           const Icon = statusIcon(invocation.status);
           return (
-            <article className="cg-inspector-invocation" data-status={invocation.status} key={invocation.id}>
+            <article
+              className="cg-inspector-invocation"
+              data-selected={selectedId === invocation.id || undefined}
+              data-status={invocation.status}
+              key={invocation.id}
+            >
               <button
                 aria-pressed={selectedId === invocation.id}
                 className="cg-inspector-invocation__button"
+                data-selected={selectedId === invocation.id || undefined}
                 onClick={() => onSelect(invocation)}
                 type="button"
               >
                 <span className="cg-inspector-invocation__icon"><Bot aria-hidden="true" /></span>
-                <div className="cg-inspector-invocation__identity">
+                <span className="cg-inspector-invocation__identity">
                   <strong>Invocation {invocation.ordinal || "?"} · {invocation.role ?? "模型调用"}</strong>
                   <small>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</small>
-                </div>
+                </span>
                 <span className="cg-inspector-invocation__status"><Icon aria-hidden="true" />{statusLabel(invocation.status)}</span>
-              </button>
-              <div className="cg-inspector-invocation__slot-line">
-                <span>Agent / slot：</span><WorldInspectorSlotSummary slotRefs={invocation.slotRefs} />
-              </div>
-              <dl className="cg-inspector-invocation__metrics">
-                <div><dt>单次输入 token</dt><dd>{formatNumber(invocation.tokenUsage.input)}</dd></div>
-                <div><dt>单次输出 token</dt><dd>{formatNumber(invocation.tokenUsage.output)}</dd></div>
-                <div><dt>调用耗时</dt><dd>{formatDuration(invocation.timings.invocationMs)}</dd></div>
-                <div><dt>上下文</dt><dd>{formatNumber(invocation.contextUtf8Bytes)} B</dd></div>
-              </dl>
-              {invocation.retryCount > 0 && (
-                <div className="cg-inspector-invocation__retry-summary"><RotateCcw aria-hidden="true" /> {invocation.retryCount} 次 retry · {invocation.transportAttempts.length} 次物理尝试</div>
-              )}
-              <div className="cg-inspector-invocation__transports" aria-label="物理传输尝试">
+                <span className="cg-inspector-invocation__slot-line">
+                  <span>Agent / slot：</span><WorldInspectorSlotSummary slotRefs={invocation.slotRefs} />
+                </span>
+                <span className="cg-inspector-invocation__metrics" role="list">
+                  <span role="listitem"><span>单次输入 token</span><strong>{formatNumber(invocation.tokenUsage.input)}</strong></span>
+                  <span role="listitem"><span>单次输出 token</span><strong>{formatNumber(invocation.tokenUsage.output)}</strong></span>
+                  <span role="listitem"><span>调用耗时</span><strong>{formatDuration(invocation.timings.invocationMs)}</strong></span>
+                  <span role="listitem"><span>上下文</span><strong>{formatNumber(invocation.contextUtf8Bytes)} B</strong></span>
+                </span>
+                {invocation.retryCount > 0 && (
+                  <span className="cg-inspector-invocation__retry-summary"><RotateCcw aria-hidden="true" /> {invocation.retryCount} 次 retry · {invocation.transportAttempts.length} 次物理尝试</span>
+                )}
+                <span className="cg-inspector-invocation__transports" aria-label="物理传输尝试">
                 {invocation.transportAttempts.map((transport) => (
-                  <button
+                  <span
                     className="cg-inspector-transport-row"
                     key={`${invocation.id}:${transport.attempt}`}
-                    onClick={() => onSelect(invocation)}
-                    type="button"
                   >
                     <span>Transport {transport.attempt}</span>
                     <span>{transport.status}</span>
                     <span>{formatDuration(transport.executionMs)}</span>
                     {transport.retryDelayMs > 0 && <span>等待 {formatDuration(transport.retryDelayMs)}</span>}
                     <Clock3 aria-hidden="true" />
-                  </button>
+                  </span>
                 ))}
-              </div>
+                </span>
+              </button>
             </article>
           );
         })}

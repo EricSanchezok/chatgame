@@ -54,9 +54,9 @@ import {
   type WorldInspectorView,
 } from "../_lib/world-inspector-preferences";
 import { worldInspectorApi } from "../lib/world-inspector-api-client";
-import { WorldInspectorDetail } from "./world-inspector-detail";
+import { WorldInspectorDetail, type WorldInspectorSelection } from "./world-inspector-detail";
 import { WorldInspectorGraph } from "./world-inspector-graph";
-import { WorldInspectorInvocationList } from "./world-inspector-invocation-list";
+import { WorldInspectorInvocationList, type WorldInspectorInvocationListItem } from "./world-inspector-invocation-list";
 import { WorldInspectorTimeline } from "./world-inspector-timeline";
 
 type InspectorDetail =
@@ -93,6 +93,33 @@ function actorActivity(
     transportAttempts: 0,
     retries: 0,
   };
+}
+
+function InspectorCollectionHeader({
+  actorName,
+  data,
+  view,
+}: {
+  actorName: string;
+  data: WorldInspectorWindow;
+  view: Exclude<CenterView, "calls">;
+}) {
+  const config = view === "timeline"
+    ? { title: "世界演化时间线", description: "按时间排列的 attempt 与已提交 Revision", firstLabel: "尝试", first: `${data.attempts.length}`, secondLabel: "提交", second: `${data.steps.length}` }
+    : { title: "世界演化图谱", description: "阶段、调用、传输与证据之间的关系", firstLabel: "节点", first: `${data.nodes.length}`, secondLabel: "关系", second: `${data.edges.length}` };
+  return (
+    <header className="cg-inspector-collection-header">
+      <div>
+        <span>当前范围 · {actorName}</span>
+        <h2>{config.title}</h2>
+        <p>{config.description}</p>
+      </div>
+      <dl>
+        <div><dt>{config.firstLabel}</dt><dd>{config.first}</dd></div>
+        <div><dt>{config.secondLabel}</dt><dd>{config.second}</dd></div>
+      </dl>
+    </header>
+  );
 }
 
 function InspectorResizer({
@@ -151,9 +178,9 @@ export default function WorldInspectorDialog({
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const requestRef = useRef(0);
   const detailRequestRef = useRef(0);
-  const selectedNodeRef = useRef<string | undefined>(undefined);
-  const selectedInvocationRef = useRef<string | undefined>(undefined);
+  const selectionRef = useRef<WorldInspectorSelection>(null);
   const detailRef = useRef<InspectorDetail | undefined>(undefined);
+  const activeViewRef = useRef<CenterView>("calls");
   const invocationRequestRef = useRef(0);
   const invocationDetailRequestRef = useRef(0);
   const followLatestRef = useRef(true);
@@ -182,25 +209,43 @@ export default function WorldInspectorDialog({
   const [actorsOpen, setActorsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedActorId, setSelectedActorId] = useState("world");
-  const [selectedNodeId, setSelectedNodeId] = useState<string>();
-  const [selectedInvocationId, setSelectedInvocationId] = useState<string>();
+  const [selection, setSelection] = useState<WorldInspectorSelection>(null);
   const [view, setView] = useState<CenterView>("calls");
   const [actorWidth, setActorWidth] = useState(WORLD_INSPECTOR_ACTOR_DEFAULT);
   const [detailWidth, setDetailWidth] = useState(WORLD_INSPECTOR_DETAIL_DEFAULT);
   const [failureViewOverride, setFailureViewOverride] = useState(false);
   const activeView: CenterView = narrow || failureViewOverride ? "calls" : view;
+  const selectedNodeId = selection?.kind === "attempt"
+    ? `attempt:${selection.id}`
+    : selection?.kind === "step"
+      ? `commit:${selection.revision}`
+      : selection?.kind === "node" ? selection.id : undefined;
+  const selectedInvocationId = selection?.kind === "invocation" ? selection.id : undefined;
+  const selectedGraphNode = selection?.kind === "node"
+    ? data?.nodes.find((node) => node.id === selection.id)
+    : undefined;
+  const graphNodeRelations = useMemo(() => {
+    if (!selectedGraphNode || !data) return undefined;
+    const byId = new Map(data.nodes.map((node) => [node.id, node]));
+    return {
+      upstream: data.edges
+        .filter((edge) => edge.target === selectedGraphNode.id)
+        .map((edge) => byId.get(edge.source))
+        .filter((node): node is WorldInspectorNodeSummary => node !== undefined),
+      downstream: data.edges
+        .filter((edge) => edge.source === selectedGraphNode.id)
+        .map((edge) => byId.get(edge.target))
+        .filter((node): node is WorldInspectorNodeSummary => node !== undefined),
+    };
+  }, [data, selectedGraphNode]);
   const closeActorDrawer = useCallback(() => {
     setActorsOpen(false);
     if (narrow) requestAnimationFrame(() => actorToggleRef.current?.focus());
   }, [narrow]);
 
   useEffect(() => {
-    selectedNodeRef.current = selectedNodeId;
-  }, [selectedNodeId]);
-
-  useEffect(() => {
-    selectedInvocationRef.current = selectedInvocationId;
-  }, [selectedInvocationId]);
+    selectionRef.current = selection;
+  }, [selection]);
 
   useEffect(() => {
     detailRef.current = detail;
@@ -209,6 +254,10 @@ export default function WorldInspectorDialog({
   useEffect(() => {
     followLatestRef.current = followLatest;
   }, [followLatest]);
+
+  useEffect(() => {
+    activeViewRef.current = activeView;
+  }, [activeView]);
 
   useEffect(() => {
     if (!open) return;
@@ -238,19 +287,36 @@ export default function WorldInspectorDialog({
     setFailureViewOverride(false);
     setView(next);
     persistLayout({ view: next });
-  }, [persistLayout]);
+    if (selection?.kind === "invocation") {
+      setSelection(null);
+      setInvocationDetail(undefined);
+      setInvocationError("");
+    }
+  }, [persistLayout, selection]);
 
   const chooseCenterView = useCallback((next: CenterView) => {
     setFailureViewOverride(false);
     setView(next);
     if (next !== "calls") persistLayout({ view: next });
-  }, [persistLayout]);
+    if (next === "calls") {
+      if (selection?.kind !== "invocation") {
+        setSelection(null);
+        setDetail(undefined);
+        setDetailError("");
+      }
+    } else if (selection?.kind === "invocation") {
+      setSelection(null);
+      setInvocationDetail(undefined);
+      setInvocationError("");
+    }
+  }, [persistLayout, selection]);
 
   const selectStep = useCallback(async (step: WorldInspectorStepSummary, nodeId = `commit:${step.revision}`) => {
     const request = ++detailRequestRef.current;
     invocationDetailRequestRef.current += 1;
-    setSelectedNodeId(nodeId);
-    setSelectedInvocationId(undefined);
+    setSelection(nodeId === `commit:${step.revision}`
+      ? { kind: "step", revision: step.revision }
+      : { kind: "node", id: nodeId });
     setInvocationDetail(undefined);
     setInvocationError("");
     setLoadingDetail(true);
@@ -269,7 +335,7 @@ export default function WorldInspectorDialog({
 
   const loadInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary, executionId: string) => {
     const request = ++invocationDetailRequestRef.current;
-    setSelectedInvocationId(invocation.id);
+    setSelection({ kind: "invocation", id: invocation.id, executionId });
     setInvocationError("");
     setLoadingInvocation(true);
     try {
@@ -286,11 +352,12 @@ export default function WorldInspectorDialog({
 
   const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary, preserveInvocation = false) => {
     const request = ++detailRequestRef.current;
-    const preservedInvocationId = preserveInvocation ? selectedInvocationRef.current : undefined;
-    setSelectedNodeId(`attempt:${attempt.id}`);
+    const preservedInvocationId = preserveInvocation && selectionRef.current?.kind === "invocation"
+      ? selectionRef.current.id : undefined;
+    if (!preservedInvocationId) setSelection({ kind: "attempt", id: attempt.id });
     if (!preserveInvocation) {
       invocationDetailRequestRef.current += 1;
-      setSelectedInvocationId(undefined);
+      setSelection({ kind: "attempt", id: attempt.id });
       setInvocationDetail(undefined);
       setInvocationError("");
     }
@@ -304,7 +371,7 @@ export default function WorldInspectorDialog({
           const refreshedInvocation = value.modelInvocations.find((invocation) => invocation.id === preservedInvocationId);
           if (refreshedInvocation) void loadInvocation(refreshedInvocation, attempt.id);
           else {
-            setSelectedInvocationId(undefined);
+            setSelection({ kind: "attempt", id: attempt.id });
             setInvocationDetail(undefined);
           }
         }
@@ -320,12 +387,12 @@ export default function WorldInspectorDialog({
     }
   }, [instanceId, loadInvocation]);
 
-  const selectInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary) => {
+  const selectInvocation = useCallback(async (invocation: WorldInspectorInvocationListItem) => {
     const executionId = detail?.kind === "attempt"
       ? detail.value.summary.id
       : detail?.kind === "step"
         ? detail.value.committed.executionRef?.executionId
-        : (invocation as WorldInspectorModelInvocationSummary & { executionId?: string }).executionId;
+        : invocation.executionId;
     if (!executionId) {
       setInvocationDetail(undefined);
       return;
@@ -348,18 +415,31 @@ export default function WorldInspectorDialog({
         (latestFailure.revision ?? incoming.instance.revision) >= (latestStep?.revision ?? 0);
       const nextAttempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
       if (!preserveHistory) {
-        if (nextAttempt) {
+        if (activeViewRef.current === "calls") {
+          setSelection(null);
+          setDetail(undefined);
+          setDetailError("");
+          setInvocationDetail(undefined);
+          setInvocationError("");
+        } else if (nextAttempt) {
           setFailureViewOverride(true);
           void selectAttempt(nextAttempt);
         } else if (latestStep) {
           void selectStep(latestStep);
         }
       } else if (followLatestRef.current) {
+        const currentSelection = selectionRef.current;
+        if (currentSelection?.kind === "invocation") return;
         const nextId = nextAttempt ? `attempt:${nextAttempt.id}` : latestStep ? `commit:${latestStep.revision}` : undefined;
-        if (nextAttempt && nextId !== selectedNodeRef.current) void selectAttempt(nextAttempt);
-        else if (nextAttempt && nextId === selectedNodeRef.current && detailRef.current?.kind === "attempt" &&
+        const currentNodeId = currentSelection?.kind === "attempt"
+          ? `attempt:${currentSelection.id}`
+          : currentSelection?.kind === "step"
+            ? `commit:${currentSelection.revision}`
+            : currentSelection?.kind === "node" ? currentSelection.id : undefined;
+        if (nextAttempt && nextId !== currentNodeId) void selectAttempt(nextAttempt);
+        else if (nextAttempt && nextId === currentNodeId && detailRef.current?.kind === "attempt" &&
           detailRef.current.value.summary.id === nextAttempt.id) void selectAttempt(nextAttempt, true);
-        else if (!nextAttempt && latestStep && nextId !== selectedNodeRef.current) void selectStep(latestStep);
+        else if (!nextAttempt && latestStep && nextId !== currentNodeId) void selectStep(latestStep);
       }
     } catch (reason) {
       if (request === requestRef.current) {
@@ -468,16 +548,14 @@ export default function WorldInspectorDialog({
     if (attemptId) {
       const attempt = data.attempts.find((candidate) => candidate.id === attemptId);
       if (attempt) {
-        const selected = await selectAttempt(attempt);
-        const invocation = node.relatedInvocationId && selected?.value.modelInvocations.find((candidate) =>
-          candidate.id === node.relatedInvocationId);
-        if (invocation) await loadInvocation(invocation, attempt.id);
+        await selectAttempt(attempt);
+        setSelection({ kind: "node", id: node.id });
       }
       return;
     }
     const step = data.steps.find((candidate) => candidate.revision === node.revision);
     if (step) void selectStep(step, node.id);
-  }, [data, loadInvocation, selectAttempt, selectStep]);
+  }, [data, selectAttempt, selectStep]);
 
   const loadOlder = useCallback(async () => {
     const beforeRevision = data?.pagination.oldestRevision;
@@ -521,7 +599,7 @@ export default function WorldInspectorDialog({
   const selectActor = useCallback((actorId: string) => {
     setSelectedActorId(actorId);
     invocationDetailRequestRef.current += 1;
-    setSelectedInvocationId(undefined);
+    setSelection(null);
     setInvocationDetail(undefined);
     setInvocationError("");
     closeActorDrawer();
@@ -782,35 +860,42 @@ export default function WorldInspectorDialog({
                   onLoadMore={() => void loadMoreInvocations()}
                   query={query}
                   selectedId={selectedInvocationId}
+                  scopeLabel={selectedActor?.name ?? "整个世界"}
                 />
               </>
             ) : activeView === "graph" ? (
-              <WorldInspectorGraph
-                actors={data.actors}
-                edges={data.edges}
-                followLatest={followLatest}
-                isolateActor={isolateActor}
-                nodes={data.nodes}
-                onInteract={() => setFollowLatest(false)}
-                onSelect={(node) => { setFollowLatest(false); selectNode(node); }}
-                query={query}
-                reduceMotion={reduceMotion}
-                selectedActorId={selectedActorId}
-                selectedNodeId={selectedNodeId}
-              />
+              <>
+                <InspectorCollectionHeader actorName={selectedActor?.name ?? "整个世界"} data={data} view="graph" />
+                <WorldInspectorGraph
+                  actors={data.actors}
+                  edges={data.edges}
+                  followLatest={followLatest}
+                  isolateActor={isolateActor}
+                  nodes={data.nodes}
+                  onInteract={() => setFollowLatest(false)}
+                  onSelect={(node) => { setFollowLatest(false); selectNode(node); }}
+                  query={query}
+                  reduceMotion={reduceMotion}
+                  selectedActorId={selectedActorId}
+                  selectedNodeId={selectedNodeId}
+                />
+              </>
             ) : (
-              <WorldInspectorTimeline
-                attempts={data.attempts}
-                hasOlder={data.pagination.hasOlder}
-                loadingOlder={loadingOlder}
-                onLoadOlder={() => void loadOlder()}
-                onSelectAttempt={(attempt) => { setFollowLatest(false); void selectAttempt(attempt); }}
-                onSelectStep={(step) => { setFollowLatest(false); void selectStep(step); }}
-                query={query}
-                selectedActorId={selectedActorId}
-                selectedId={selectedNodeId}
-                steps={data.steps}
-              />
+              <>
+                <InspectorCollectionHeader actorName={selectedActor?.name ?? "整个世界"} data={data} view="timeline" />
+                <WorldInspectorTimeline
+                  attempts={data.attempts}
+                  hasOlder={data.pagination.hasOlder}
+                  loadingOlder={loadingOlder}
+                  onLoadOlder={() => void loadOlder()}
+                  onSelectAttempt={(attempt) => { setFollowLatest(false); void selectAttempt(attempt); }}
+                  onSelectStep={(step) => { setFollowLatest(false); void selectStep(step); }}
+                  query={query}
+                  selectedActorId={selectedActorId}
+                  selectedId={selectedNodeId}
+                  steps={data.steps}
+                />
+              </>
             )}
             {error && <p className="cg-inspector-stage__warning" role="alert">{error}</p>}
           </section>
@@ -831,12 +916,15 @@ export default function WorldInspectorDialog({
             actorId={selectedActorId}
             actorName={selectedActor?.name ?? (selectedActorId === "world" ? "整个世界" : selectedActorId)}
             detail={detail}
-            error={detailError}
+            error={selection?.kind === "invocation" ? invocationError : detailError}
             invocation={invocationDetail}
-            key={selectedNodeId ?? "empty"}
-            loading={loadingDetail}
+            node={selectedGraphNode}
+            nodeRelations={graphNodeRelations}
+            key={selection ? `${selection.kind}:${"id" in selection ? selection.id : "revision" in selection ? selection.revision : "empty"}` : "empty"}
+            loading={selection?.kind === "invocation" ? loadingInvocation : loadingDetail}
             onSelectInvocation={(invocation) => { setView("calls"); void selectInvocation(invocation); }}
             instanceId={instanceId}
+            selection={selection}
           />
         </div>
       )}
