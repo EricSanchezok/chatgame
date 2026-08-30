@@ -229,7 +229,7 @@ export function JsonInspector({ label, value }: { label: string; value: unknown 
       ) : (
         <pre className="cg-json-inspector__raw" tabIndex={0}>{rawJson}</pre>
       )}
-      <span className="cg-sr-only" key={announcement?.id} role="status">{announcement?.message}</span>
+      {announcement && <span aria-live="polite" className="cg-json-inspector__announcement" role="status">{announcement.message}</span>}
     </section>
   );
 }

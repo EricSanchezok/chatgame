@@ -3,6 +3,7 @@
 import { AlertTriangle, Bot, Check, Clock3, LoaderCircle, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { WorldInspectorModelInvocationSummary } from "../../shared/world-inspector-api";
+import { worldInspectorInvocationExecutionHint } from "../_lib/world-inspector-invocation";
 import { WorldInspectorSlotSummary } from "./world-inspector-slot-summary";
 
 export type WorldInspectorInvocationListItem = WorldInspectorModelInvocationSummary & {
@@ -113,6 +114,7 @@ export function WorldInspectorInvocationList({
       <div className="cg-inspector-invocation-list__items">
         {visible.map((invocation) => {
           const Icon = statusIcon(invocation.status);
+          const executionHint = worldInspectorInvocationExecutionHint(invocation);
           return (
             <article
               className="cg-inspector-invocation"
@@ -130,7 +132,7 @@ export function WorldInspectorInvocationList({
                 <span className="cg-inspector-invocation__icon"><Bot aria-hidden="true" /></span>
                 <span className="cg-inspector-invocation__identity">
                   <strong>Invocation {invocation.ordinal || "?"} · {invocation.role ?? "模型调用"}</strong>
-                  <small>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</small>
+                  <small title={invocation.executionId}>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}{executionHint ? ` · 执行 ${executionHint}` : ""}</small>
                 </span>
                 <span className="cg-inspector-invocation__status"><Icon aria-hidden="true" />{statusLabel(invocation.status)}</span>
                 <span className="cg-inspector-invocation__slot-line">

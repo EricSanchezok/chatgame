@@ -409,7 +409,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-stage__warning { position: absolute; z-index: 8; inset-inline: 1rem; inset-block-end: 1rem; margin: 0; border: 1px solid var(--cg-destructive); border-radius: var(--cg-radius); background: var(--cg-card); color: var(--cg-destructive); padding: 0.65rem 0.8rem; font-size: 0.75rem; }
 .cg-inspector-graph { width: 100%; height: 100%; min-height: 18rem; }
 .cg-inspector-graph .react-flow { background: var(--cg-transparent); }
-.cg-inspector-graph .react-flow__node { width: 238px; border: 0; background: var(--cg-transparent); box-shadow: none; }
+.cg-inspector-graph .react-flow__node { width: 238px; border: 0; background: var(--cg-transparent); box-shadow: none; pointer-events: auto !important; }
 .cg-inspector-node__button { position: relative; width: 238px; min-height: 86px; display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: start; gap: 0.65rem; overflow: hidden; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.2rem); background: color-mix(in oklab, var(--cg-card) 94%, var(--cg-muted)); color: var(--cg-foreground); padding: 0.7rem; text-align: start; cursor: pointer; box-shadow: 0 10px 24px color-mix(in oklab, var(--cg-overlay) 13%, var(--cg-transparent)); transition: border-color 150ms, background-color 150ms, opacity 150ms, scale 120ms; }
 .cg-inspector-node__button::before { position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--cg-inspector-world); content: ""; }
 .cg-inspector-node__button[data-kind="action"]::before, .cg-inspector-node__button[data-kind="reaction"]::before { background: var(--cg-inspector-action); }
@@ -487,12 +487,6 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-resizer:focus-visible { outline: 2px solid var(--cg-foreground); outline-offset: -2px; }
 .cg-inspector-resizer:focus-visible::after, .cg-inspector-resizer:active::after { background: var(--cg-ring); }
 .cg-inspector-detail { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: color-mix(in oklab, var(--cg-card) 92%, var(--cg-background)); }
-.cg-inspector-detail__tabs { display: flex; min-width: 0; overflow-x: auto; border-bottom: 1px solid var(--cg-border); padding: 0.35rem; scrollbar-width: none; }
-.cg-inspector-detail__tabs::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.cg-inspector-detail__tabs button { position: relative; min-width: 0; min-height: 42px; display: grid; place-items: center; gap: 0.15rem; border: 0; border-radius: calc(var(--cg-radius) - 0.15rem); background: var(--cg-transparent); color: var(--cg-muted-foreground); font-size: 0.58rem; cursor: pointer; transition: background-color 150ms, color 150ms; }
-.cg-inspector-detail__tabs button { flex: 1 0 4rem; }
-.cg-inspector-detail__tabs button[aria-selected="true"] { background: var(--cg-accent); color: var(--cg-foreground); font-weight: 600; }
-.cg-inspector-detail__tabs svg { width: 0.85rem; }
 .cg-inspector-detail__body { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 1rem; scrollbar-width: none; }
 .cg-inspector-detail-stack { min-width: 0; display: grid; gap: 0.85rem; }
 .cg-inspector-detail-group { min-width: 0; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); background: color-mix(in oklab, var(--cg-card) 94%, var(--cg-muted)); }
@@ -593,20 +587,6 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-attempt-stages small, .cg-attempt-stages p { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--cg-muted-foreground); font-size: 0.58rem; line-height: 1.4; }
 .cg-attempt-stages strong { font-size: 0.72rem; }
 .cg-attempt-stages b { color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.56rem; font-weight: 500; white-space: nowrap; }
-.cg-model-invocation { display: grid; gap: 0.7rem; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) + 0.1rem); background: color-mix(in oklab, var(--cg-card) 92%, var(--cg-muted)); padding: 0.75rem; }
-.cg-model-invocation[data-status="rejected"] { border-color: color-mix(in oklab, var(--cg-destructive) 38%, var(--cg-border)); }
-.cg-model-invocation > header { min-width: 0; display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: center; gap: 0.6rem; }
-.cg-model-invocation > header > span { width: 2rem; height: 2rem; display: grid; place-items: center; border-radius: var(--cg-radius); background: color-mix(in oklab, var(--cg-inspector-mind) 12%, var(--cg-muted)); color: var(--cg-inspector-mind); }
-.cg-model-invocation > header svg { width: 0.9rem; }
-.cg-model-invocation > header > div { min-width: 0; display: grid; gap: 0.08rem; }
-.cg-model-invocation > header strong { overflow: hidden; font-size: 0.72rem; text-overflow: ellipsis; white-space: nowrap; }
-.cg-model-invocation > header small { overflow: hidden; color: var(--cg-muted-foreground); font-size: 0.58rem; text-overflow: ellipsis; white-space: nowrap; }
-.cg-model-invocation > header b { color: var(--cg-success); font-size: 0.58rem; font-weight: 600; white-space: nowrap; }
-.cg-model-invocation[data-status="rejected"] > header b { color: var(--cg-destructive); }
-.cg-model-invocation > dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; margin: 0; }
-.cg-model-invocation > dl > div { display: flex; justify-content: space-between; gap: 0.5rem; border-radius: calc(var(--cg-radius) - 0.2rem); background: var(--cg-muted); padding: 0.45rem 0.55rem; }
-.cg-model-invocation dt { color: var(--cg-muted-foreground); font-size: 0.56rem; }
-.cg-model-invocation dd { margin: 0; font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.58rem; }
 .cg-model-invocation__error { margin: 0; color: var(--cg-destructive); font-size: 0.65rem; line-height: 1.5; overflow-wrap: anywhere; }
 .cg-model-invocation__events > summary { min-height: 36px; display: flex; align-items: center; color: var(--cg-muted-foreground); font-size: 0.62rem; cursor: pointer; }
 .cg-inspector-invocation-list { height: 100%; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 1rem clamp(0.8rem, 3vw, 2.25rem) 3rem; scrollbar-width: none; }
@@ -688,11 +668,6 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-invocation-payloads > section { min-width: 0; display: grid; gap: 0.3rem; }
 .cg-inspector-invocation-payloads > section > strong { font-size: 0.65rem; }
 .cg-inspector-invocation-payloads::before { content: "按需读取原始请求、上下文、响应与结构化输出"; color: var(--cg-muted-foreground); font-size: 0.62rem; }
-.cg-inspector-failure-link { min-width: 0; min-height: 48px; display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; border: 1px solid color-mix(in oklab, var(--cg-destructive) 30%, var(--cg-border)); border-radius: var(--cg-radius); background: var(--cg-destructive-soft); color: var(--cg-destructive); padding: 0.55rem 0.65rem; text-align: start; cursor: pointer; }
-.cg-inspector-failure-link > svg { width: 0.85rem; }
-.cg-inspector-failure-link > span:nth-child(2) { min-width: 0; display: grid; gap: 0.12rem; }
-.cg-inspector-failure-link strong { font-size: 0.68rem; }
-.cg-inspector-failure-link small { overflow: hidden; color: var(--cg-muted-foreground); font-size: 0.58rem; text-overflow: ellipsis; white-space: nowrap; }
 .cg-runtime-event-list { display: grid; gap: 0.55rem; }
 .cg-runtime-event-list > header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .cg-runtime-event-list > header strong { font-size: 0.76rem; }
@@ -723,6 +698,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-json-inspector__toolbar svg, .cg-json-copy-menu > summary svg { width: 0.72rem; }
 .cg-json-inspector__tree, .cg-json-inspector__raw { max-height: min(34rem, 62dvh); overflow: auto; border-top: 1px solid var(--cg-border); padding: 0.3rem; font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; line-height: 1.35; scrollbar-width: thin; }
 .cg-json-inspector__raw { margin: 0; white-space: pre; overflow-wrap: normal; tab-size: 2; }
+.cg-json-inspector__announcement { display: block; margin: -0.05rem 0.65rem 0.35rem; color: var(--cg-success); font-size: 0.58rem; line-height: 1.35; }
 .cg-inspector-actor-list::-webkit-scrollbar,
 .cg-inspector-timeline::-webkit-scrollbar,
 .cg-inspector-detail__body::-webkit-scrollbar,
@@ -830,7 +806,6 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
   .cg-inspector-actor { width: 100%; min-width: 0; min-height: 54px; }
   .cg-inspector-actor--world { min-width: 0; margin-bottom: 0.35rem; }
   .cg-inspector-detail { border-inline-start: 0; border-top: 1px solid var(--cg-border); }
-  .cg-inspector-detail__tabs button { min-height: 40px; }
   .cg-inspector-invocation-list__header { display: grid; }
   .cg-inspector-invocation-list__header dl { justify-content: flex-start; }
   .cg-inspector-invocation__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1444,7 +1419,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 }
 
 @media (forced-colors: active) {
-  .aui-composer-shell, .cg-thread-status, .cg-thread-status__action, .cg-thread-status-message, .cg-thread-error, .cg-timeline-rail__preview, .cg-button--quiet, .cg-icon-button, .cg-launcher__action, .cg-world-nav a, .cg-import-world, .cg-switch, .cg-orb__trigger, .cg-orb__action-surface, .cg-orb__status, .cg-orb__notice, .cg-orb__confirm, .cg-modal-surface, .cg-workspace, .cg-inspector-node__button, .cg-inspector-log > button, .cg-inspector-resizer, .cg-json-inspector, .cg-runtime-event, .cg-start-card__surface, .cg-start-deck__toolbar button, .cg-selected-origin { border-color: var(--cg-forced-border); }
+  .aui-composer-shell, .cg-thread-status, .cg-thread-status__action, .cg-thread-status-message, .cg-thread-error, .cg-timeline-rail__preview, .cg-button--quiet, .cg-icon-button, .cg-launcher__action, .cg-world-nav a, .cg-import-world, .cg-switch, .cg-orb__trigger, .cg-orb__action-surface, .cg-orb__status, .cg-orb__notice, .cg-orb__confirm, .cg-modal-surface, .cg-workspace, .cg-inspector-node__button, .cg-inspector-log > button, .cg-inspector-resizer, .cg-inspector-invocation, .cg-inspector-detail-group, .cg-inspector-related-invocation, .cg-inspector-slot-table-wrap, .cg-json-inspector, .cg-runtime-event, .cg-start-card__surface, .cg-start-deck__toolbar button, .cg-selected-origin { border-color: var(--cg-forced-border); }
   .cg-instance-list li { border: 1px solid var(--cg-forced-border); }
   .cg-world-spirit svg { --mo-head: var(--cg-forced-control-foreground) !important; --mo-eye: var(--cg-forced-control-background) !important; }
   .cg-world-controls button, .cg-waiting-role button, .cg-arrival__suggestions button, .cg-start-deck__toolbar button {

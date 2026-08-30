@@ -45,6 +45,7 @@ import { worldInspectorFallbackPositions } from "../_lib/world-inspector-layout"
 interface InspectorNodeData extends Record<string, unknown> {
   actorName: string;
   dimmed: boolean;
+  onSelect: (summary: WorldInspectorNodeSummary) => void;
   selected: boolean;
   summary: WorldInspectorNodeSummary;
 }
@@ -53,6 +54,7 @@ type InspectorFlowNode = Node<InspectorNodeData, "inspector">;
 
 const inspectorNodeWidth = 238;
 const inspectorNodeHeight = 86;
+const inspectorMinZoom = 0.01;
 const inspectorHandleSize = 6;
 const inspectorNodeHandles: NonNullable<InspectorFlowNode["handles"]> = [
   {
@@ -119,6 +121,7 @@ function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
         data-kind={data.summary.kind}
         data-selected={data.selected || undefined}
         data-status={data.summary.status}
+        onClick={() => data.onSelect(data.summary)}
         onKeyDown={moveFocus}
         type="button"
       >
@@ -195,6 +198,7 @@ export function WorldInspectorGraph({
   const { resolvedTheme } = useTheme();
   const elkRef = useRef<ElkLayoutEngine | null>(null);
   const graphRef = useRef<HTMLDivElement>(null);
+  const hasFittedInitialLayoutRef = useRef(false);
   const requestIdRef = useRef(0);
   const instanceRef = useRef<ReactFlowInstance<InspectorFlowNode, Edge> | null>(null);
   const [flowReady, setFlowReady] = useState(false);
@@ -311,11 +315,12 @@ export function WorldInspectorGraph({
       data: {
         actorName: actorNames.get(summary.laneId) ?? summary.laneId,
         dimmed: !matchesQuery || !matchesActor,
+        onSelect,
         selected: selectedNodeId === summary.id,
         summary,
       },
     };
-  }), [actorNames, normalizedQuery, positions, provisionalPositions, selectedActorId, selectedNodeId, visibleSummaries]);
+  }), [actorNames, normalizedQuery, onSelect, positions, provisionalPositions, selectedActorId, selectedNodeId, visibleSummaries]);
 
   const edges = useMemo<Edge[]>(() => visibleEdges.map((edge) => ({
     id: edge.id,
@@ -332,7 +337,9 @@ export function WorldInspectorGraph({
   useEffect(() => {
     const graph = graphRef.current;
     const instance = instanceRef.current;
-    if (!followLatest || !flowReady || !graph || !instance || nodes.length === 0) return;
+    if (!flowReady || !graph || !instance || nodes.length === 0) return;
+    if (settledLayoutSignature !== layoutSignature) return;
+    if (!followLatest && hasFittedInitialLayoutRef.current) return;
     const minX = Math.min(...nodes.map((node) => node.position.x));
     const minY = Math.min(...nodes.map((node) => node.position.y));
     const maxX = Math.max(...nodes.map((node) => node.position.x + inspectorNodeWidth));
@@ -341,15 +348,16 @@ export function WorldInspectorGraph({
       { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
       graph.clientWidth,
       graph.clientHeight,
-      0.25,
+      inspectorMinZoom,
       1.05,
       0.14,
     );
     const frame = requestAnimationFrame(() => {
       void instance.setViewport(viewport, { duration: reduceMotion ? 0 : 240 });
+      hasFittedInitialLayoutRef.current = true;
     });
     return () => cancelAnimationFrame(frame);
-  }, [flowReady, followLatest, nodes, reduceMotion]);
+  }, [flowReady, followLatest, layoutSignature, nodes, reduceMotion, settledLayoutSignature]);
 
   const layoutReady = visibleSummaries.length > 0 && settledLayoutSignature === layoutSignature &&
     visibleSummaries.every((summary) => positions[summary.id] !== undefined);
@@ -372,7 +380,7 @@ export function WorldInspectorGraph({
         colorMode={resolvedTheme === "dark" ? "dark" : "light"}
         edges={edges}
         maxZoom={1.7}
-        minZoom={0.12}
+        minZoom={inspectorMinZoom}
         nodeTypes={nodeTypes}
         nodes={nodes}
         nodesConnectable={false}
@@ -388,7 +396,6 @@ export function WorldInspectorGraph({
           setSemanticZoom((current) => current === next ? current : next);
         }}
         onMoveStart={(event) => { if (event) onInteract(); }}
-        onNodeClick={(_, node) => onSelect(node.data.summary)}
         onlyRenderVisibleElements
         panOnScroll
         proOptions={{ hideAttribution: true }}

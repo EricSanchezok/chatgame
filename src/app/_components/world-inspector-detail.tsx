@@ -30,6 +30,7 @@ import type {
   WorldInspectorRuntimeEventSummary,
   WorldInspectorStepDetail,
 } from "../../shared/world-inspector-api";
+import { worldInspectorInvocationExecutionHint } from "../_lib/world-inspector-invocation";
 import { JsonInspector, RuntimeEventPayload } from "./world-inspector-json";
 
 type Detail =
@@ -626,7 +627,7 @@ function RelatedInvocationList({
           onClick={() => onSelectInvocation?.(invocation)}
           type="button"
         >
-          <span><strong>Invocation {invocation.ordinal || "?"}</strong><small>{invocation.role ?? "模型调用"}</small></span>
+          <span><strong>Invocation {invocation.ordinal || "?"}</strong><small>{invocation.role ?? "模型调用"}{worldInspectorInvocationExecutionHint(invocation) ? ` · 执行 ${worldInspectorInvocationExecutionHint(invocation)}` : ""}</small></span>
           <span><small>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</small><b data-status={invocation.status}>{statusLabel(invocation.status)}</b></span>
           <span aria-hidden="true">{onSelectInvocation ? "在调用视图打开 →" : ""}</span>
         </button>

@@ -80,4 +80,17 @@ describe("WorldInspectorInvocationList", () => {
     fireEvent.click(screen.getByText("Transport 1"));
     expect(onSelect).toHaveBeenCalledWith(invocation);
   });
+
+  it("keeps repeated invocation ordinals distinguishable across executions", () => {
+    const first = { ...invocation, id: "first-run::invocation-1", sourceInvocationId: "invocation-1", executionId: "first-run" };
+    const second = { ...invocation, id: "second-run::invocation-1", sourceInvocationId: "invocation-1", executionId: "second-run" };
+
+    render(<WorldInspectorInvocationList invocations={[first, second]} onSelect={() => {}} query="" />);
+
+    const buttons = screen.getAllByRole("button", { name: /Invocation 1/ });
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]).toHaveTextContent("执行 first-ru");
+    expect(buttons[1]).toHaveTextContent("执行 second-");
+    expect(buttons[0].textContent).not.toBe(buttons[1].textContent);
+  });
 });

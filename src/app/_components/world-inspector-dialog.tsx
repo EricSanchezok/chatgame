@@ -39,6 +39,7 @@ import type {
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
 import { mergeWorldInspectorWindows } from "../_lib/world-inspector-window";
+import { worldInspectorInvocationExecutionId } from "../_lib/world-inspector-invocation";
 import {
   WORLD_INSPECTOR_ACTOR_DEFAULT,
   WORLD_INSPECTOR_ACTOR_MAX,
@@ -213,7 +214,7 @@ export default function WorldInspectorDialog({
   const [view, setView] = useState<CenterView>("calls");
   const [actorWidth, setActorWidth] = useState(WORLD_INSPECTOR_ACTOR_DEFAULT);
   const [detailWidth, setDetailWidth] = useState(WORLD_INSPECTOR_DETAIL_DEFAULT);
-  const activeView: CenterView = narrow ? "calls" : view;
+  const activeView: CenterView = view;
   const selectedNodeId = selection?.kind === "attempt"
     ? `attempt:${selection.id}`
     : selection?.kind === "step"
@@ -384,11 +385,11 @@ export default function WorldInspectorDialog({
   }, [instanceId, loadInvocation]);
 
   const selectInvocation = useCallback(async (invocation: WorldInspectorInvocationListItem) => {
-    const executionId = detail?.kind === "attempt"
+    const executionId = worldInspectorInvocationExecutionId(invocation) ?? (detail?.kind === "attempt"
       ? detail.value.summary.id
       : detail?.kind === "step"
         ? detail.value.committed.executionRef?.executionId
-        : invocation.executionId;
+        : undefined);
     if (!executionId) {
       setInvocationDetail(undefined);
       return;
