@@ -62,7 +62,9 @@ type AlgorithmTelemetryBase = Omit<
 export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
   event: "algorithm.eager_reference.slot_batch_completed";
   attributes: Readonly<{
-    phase: "action-compilation" | "agent-bootstrap" | "agent-resume" | "agent-mind";
+    phase: "action-compilation" | "agent-bootstrap" | "agent-resume" | "agent-mind" |
+      "truth-resolution" | "truth-plan-verification" | "truth-transition" |
+      "truth-causal-verification" | "observation";
   }>;
   counts: Readonly<{
     configuredMaxSlots: number;
@@ -397,7 +399,11 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
       "singletonFailures",
     ],
     attributeValues: {
-      phase: ["action-compilation", "agent-bootstrap", "agent-resume", "agent-mind"],
+      phase: [
+        "action-compilation", "agent-bootstrap", "agent-resume", "agent-mind",
+        "truth-resolution", "truth-plan-verification", "truth-transition",
+        "truth-causal-verification", "observation",
+      ],
     },
   },
   "algorithm.eager_reference.overlap_completed": {

@@ -401,7 +401,9 @@ export class ObservationRenderer {
     return {
       packets,
       modelAudits: rendered.map((entry) => entry.audit),
-      batchCount: rendered.reduce((total, entry) => total + entry.calls, 0),
+      // A TruthBatchCoordinator shares one physical audit across all slots.
+      // Count invocation identities rather than logical observer slots.
+      batchCount: new Set(rendered.flatMap((entry) => entry.audit.invocations.map((invocation) => invocation.id))).size,
     };
   }
 }

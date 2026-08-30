@@ -223,9 +223,9 @@ describe("World Instance host", () => {
       expect(stored.schemaVersion).toBe(19);
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
-        version: "7",
+        version: "8",
         contractVersion: 5,
-        config: { actionCompilationMaxSlots: 12, agentMindMaxSlots: 8 },
+        config: { actionCompilationMaxSlots: 12, agentMindMaxSlots: 8, truthBatchMaxSlots: 12 },
       });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
@@ -853,6 +853,7 @@ describe("World Instance host", () => {
         agentMindMaxSlots: 2,
         reactionMaxSlots: 8,
         groundingMaxSlots: 16,
+        truthBatchMaxSlots: 12,
       });
       const created = await setup.host.createInstance(observerStart, "local", configured);
       expect(setup.database.readInstance(created.summary.id).document.executionAlgorithm).toEqual(configured);

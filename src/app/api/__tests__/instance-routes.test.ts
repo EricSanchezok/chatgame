@@ -116,6 +116,7 @@ describe("World Instance Route Handlers", () => {
       agentMindMaxSlots: 2,
       reactionMaxSlots: 8,
       groundingMaxSlots: 16,
+      truthBatchMaxSlots: 12,
     });
 
     const advancedResponse = await advanceInstance(jsonRequest(

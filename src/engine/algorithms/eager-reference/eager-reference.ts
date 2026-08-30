@@ -63,6 +63,7 @@ import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../../m
 import { runtimeId } from "../../runtime/runtime-id";
 import { applyTransitionProposal } from "../../runtime/transaction";
 import { TruthEngine, type OnsetPerceptionResult, type TruthResolution } from "../../mechanics/truth-engine";
+import { TruthBatchCoordinator } from "../../mechanics/truth-batch-provider";
 import type { ResolutionScope } from "../../contracts/prompts";
 import {
   cancelActivity,
@@ -102,13 +103,12 @@ const mindComponent = {
   config: { externalUpdates: false, repairExhaustion: "fail-step" },
 } as const;
 
-const TRUTH_RESOLUTION_MAX_CONCURRENT = 16;
-
 export interface EagerReferenceAlgorithmConfig {
   actionCompilationMaxSlots: number;
   agentMindMaxSlots: number;
   reactionMaxSlots: number;
   groundingMaxSlots: number;
+  truthBatchMaxSlots: number;
 }
 
 interface NormalizedEagerReferenceAlgorithmConfig {
@@ -116,6 +116,7 @@ interface NormalizedEagerReferenceAlgorithmConfig {
   agentMindMaxSlots: number;
   reactionMaxSlots: number;
   groundingMaxSlots: number;
+  truthBatchMaxSlots: number;
 }
 
 export const DEFAULT_EAGER_REFERENCE_CONFIG: Readonly<EagerReferenceAlgorithmConfig> = Object.freeze({
@@ -123,6 +124,7 @@ export const DEFAULT_EAGER_REFERENCE_CONFIG: Readonly<EagerReferenceAlgorithmCon
   agentMindMaxSlots: 8,
   reactionMaxSlots: 8,
   groundingMaxSlots: 16,
+  truthBatchMaxSlots: 12,
 });
 
 function slotLimit(value: unknown, label: string): number {
@@ -142,6 +144,7 @@ export function parseEagerReferenceAlgorithmConfig(value: unknown): NormalizedEa
     "agentMindMaxSlots",
     "groundingMaxSlots",
     "reactionMaxSlots",
+    "truthBatchMaxSlots",
   ];
   const keys = Object.keys(input).sort();
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
@@ -161,6 +164,7 @@ export function parseEagerReferenceAlgorithmConfig(value: unknown): NormalizedEa
       input.groundingMaxSlots,
       "groundingMaxSlots",
     ),
+    truthBatchMaxSlots: slotLimit(input.truthBatchMaxSlots, "truthBatchMaxSlots"),
   };
 }
 
@@ -170,12 +174,13 @@ export function createEagerReferenceManifest(
   const config = parseEagerReferenceAlgorithmConfig(value);
   return defineAlgorithmManifest({
     id: "eager-reference",
-    version: "7",
+    version: "8",
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,
       reactionMaxSlots: config.reactionMaxSlots,
       groundingMaxSlots: config.groundingMaxSlots,
+      truthBatchMaxSlots: config.truthBatchMaxSlots,
     },
     components: [compilationComponent, groundingComponent, truthComponent, mindComponent],
   });
@@ -185,6 +190,39 @@ export const EAGER_REFERENCE_MANIFEST = createEagerReferenceManifest();
 
 function observationsFor(packets: readonly ObservationPacket[], observerId: string): ObservationPacket[] {
   return packets.filter((packet) => packet.observerId === observerId);
+}
+
+function dedupeModelAudits(audits: readonly ModelExecutionAudit[]): ModelExecutionAudit[] {
+  const merged = new Map<string, ModelExecutionAudit>();
+  const invocations = new Map<string, ModelExecutionAudit["invocations"][number]>();
+  for (const audit of audits) {
+    const auditKey = contentHash({ ...audit, invocations: [] });
+    let target = merged.get(auditKey);
+    if (!target) {
+      target = { ...structuredClone(audit), invocations: [] };
+      merged.set(auditKey, target);
+    }
+    for (const invocation of audit.invocations) {
+      const existing = invocations.get(invocation.id);
+      if (existing) {
+        // A batch shares one physical invocation across logical slots. Slot
+        // validation may classify those views differently; retain the most
+        // conservative outcome and all issue codes in the physical audit.
+        existing.semanticOutcome = existing.semanticOutcome === "rejected" ||
+          invocation.semanticOutcome === "rejected" ? "rejected" : "accepted";
+        existing.validationIssueCodes = [...new Set([
+          ...existing.validationIssueCodes,
+          ...invocation.validationIssueCodes,
+        ])];
+        existing.resultKind ??= invocation.resultKind;
+        continue;
+      }
+      const copy = structuredClone(invocation);
+      target.invocations.push(copy);
+      invocations.set(copy.id, copy);
+    }
+  }
+  return [...merged.values()].filter((audit) => audit.invocations.length > 0);
 }
 
 type EagerMindOutput = AgentMindOutput;
@@ -700,8 +738,8 @@ function mergeResolutions(
     mechanicResults,
     causalAssertionResults: evaluateProposalCausality(source, checks, randomResults, proposal),
     causalVerification: { verdict: "accept", findings: [] },
-    modelAudits: resolutions.flatMap((resolution) => structuredClone(resolution.modelAudits)),
-    reactionModelAudits: resolutions.flatMap((resolution) => structuredClone(resolution.reactionModelAudits)),
+    modelAudits: dedupeModelAudits(resolutions.flatMap((resolution) => resolution.modelAudits)),
+    reactionModelAudits: dedupeModelAudits(resolutions.flatMap((resolution) => resolution.reactionModelAudits)),
   };
 }
 
@@ -721,11 +759,11 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   ) {
     this.config = Object.freeze(parseEagerReferenceAlgorithmConfig(config));
     this.manifest = createEagerReferenceManifest(this.config);
-    this.provider = provider;
+    this.provider = new TruthBatchCoordinator(provider, this.config.truthBatchMaxSlots);
     this.rulePackages = rulePackages ?? createCoreRulePackageRegistry();
-    this.truthEngine = new TruthEngine(provider, { rulePackages: this.rulePackages });
+    this.truthEngine = new TruthEngine(this.provider, { rulePackages: this.rulePackages });
     this.agentMind = new AgentMind(provider);
-    this.observationRenderer = new ObservationRenderer(provider);
+    this.observationRenderer = new ObservationRenderer(this.provider);
   }
 
   private emitSlotBatchMetrics(
@@ -1770,7 +1808,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           temporal,
         )),
         "truth resolution components",
-        TRUTH_RESOLUTION_MAX_CONCURRENT,
+        orderedComponents.length || 1,
       );
       const hasRandomCommitments = speculativeResults.some((result) =>
         result.resolution.rng.draws !== speculativeRng.draws ||
@@ -2110,7 +2148,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           nextAction: structuredClone(output.nextAction),
         };
       }),
-      modelAudits: [
+      modelAudits: dedupeModelAudits([
         ...structuredClone(preparation.modelAudits),
         ...replacementCompilationBatch.modelAudits.map((audit) => structuredClone(audit)),
         ...dependencyResults.flatMap((result) => result.audit ? [structuredClone(result.audit)] : []),
@@ -2118,7 +2156,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         ...reactionModelAudits,
         ...globalObservationAudits,
         ...finalMindAudits,
-      ],
+      ]),
       interactionDependencies: structuredClone(interactionDependencies),
       diagnostics: {
         activatedAgentIds: [...modelAgentIds],

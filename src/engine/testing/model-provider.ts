@@ -300,6 +300,29 @@ export class ScriptedModelProvider implements StructuredModelProvider {
   }
 
   private async handlerValue(request: ScriptedModelHandlerRequest): Promise<unknown> {
+    const batchContext = request.context as {
+      sharedContext?: Record<string, unknown>;
+      slots?: Array<{ slot: number; key: string; context: Record<string, unknown> }>;
+    };
+    if (request.schemaName.endsWith("_batch") && batchContext?.sharedContext && batchContext.slots) {
+      const baseSchemaName = request.schemaName
+        .replace("truth_resolution_batch", "truth_resolution_directive")
+        .replace("resolution_plan_verification_batch", "resolution_plan_verification")
+        .replace("truth_transition_batch", "truth_transition")
+        .replace("causal_verification_batch", "causal_verification")
+        .replace("observation_projection_batch", "observation_render");
+      const slots = [...batchContext.slots].sort((left, right) => left.slot - right.slot);
+      const values: unknown[] = [];
+      for (const slot of slots) {
+        values.push(await this.handlerValue({
+          ...request,
+          schemaName: baseSchemaName,
+          subjectId: slot.key,
+          context: { ...structuredClone(batchContext.sharedContext), ...structuredClone(slot.context) },
+        }));
+      }
+      return { slots: slots.map((slot, index) => ({ slot: slot.slot, result: values[index] })) };
+    }
     if (!this.adaptTruthScenario || !request.role.startsWith("truth-") && request.role !== "causal-verifier") {
       return this.handler(request);
     }

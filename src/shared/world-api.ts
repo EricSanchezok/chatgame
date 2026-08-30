@@ -185,6 +185,7 @@ export type CreateInstanceInput = {
     agentMindMaxSlots?: number;
     reactionMaxSlots?: number;
     groundingMaxSlots?: number;
+    truthBatchMaxSlots?: number;
   };
   start: {
     kind: "origin";

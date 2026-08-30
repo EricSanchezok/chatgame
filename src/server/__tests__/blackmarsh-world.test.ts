@@ -567,7 +567,10 @@ describe("Blackmarsh reference world", () => {
   });
 
   it("bootstraps all Agents and commits one deterministic open-world step", async () => {
-    const provider = new DeterministicModelProvider(createTestModelCatalog(undefined, { maxInputBytes: 1_048_576 }));
+    // Truth observation batches carry the complete candidate truth by design;
+    // this structural 48-Agent test uses a profile budget that can hold one
+    // fixed twelve-slot request without clipping or adaptive shrinking.
+    const provider = new DeterministicModelProvider(createTestModelCatalog(undefined, { maxInputBytes: 8 * 1_048_576 }));
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
     const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
     await engine.bootstrapAgents();

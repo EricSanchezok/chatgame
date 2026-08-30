@@ -34,6 +34,7 @@ export interface ExperimentOptions {
   steps: number[];
   actionCompilationSlots?: number[];
   agentMindSlots?: number[];
+  truthBatchSlots?: number[];
   write?: (record: ExperimentRecord) => void;
   ledger?: ExecutionLedger;
   parentExecutionId?: string;
@@ -53,6 +54,7 @@ export interface ExperimentResult {
     steps: number;
     actionCompilationMaxSlots: number;
     agentMindMaxSlots: number;
+    truthBatchMaxSlots: number;
     averageActionCompilationSlots: number;
     averageAgentMindSlots: number;
     rolePhysicalCalls: Record<string, number>;
@@ -68,6 +70,10 @@ export interface ExperimentResult {
     batchSplits: number;
     partialFailureSlots: number;
     mindFallbacks: number;
+    truthLogicalSlots: number;
+    truthPhysicalCalls: number;
+    truthRepairCalls: number;
+    truthBatchSplits: number;
     stepWallMs: number;
     successRate: number;
     cumulativeInputBytes: number;
@@ -100,15 +106,32 @@ const deterministicAdapter: ModelProviderAdapter = {
   },
   async generate(binding, request, contextJson) {
     const context = JSON.parse(contextJson);
-    let value: unknown;
-    if (request.role === "causal-verifier") value = { verdict: "accept", findings: [] };
-    else if (request.role === "truth-perception") value = { kind: "done" };
-    else if (request.role === "truth-resolution") value = deterministicModelOutput(request.profileId, context);
-    else if (request.role === "truth-reaction-routing") value = { requests: [] };
-    else if (request.role === "truth-transition") {
-      const generated = deterministicModelOutput(request.profileId, context) as { kind: "transition"; proposal: unknown };
-      value = generated.proposal;
-    } else value = deterministicModelOutput(request.profileId, context);
+    const generateOne = (slotContext: unknown): unknown => {
+      if (request.role === "causal-verifier") return { verdict: "accept", findings: [] };
+      if (request.role === "truth-perception") return { kind: "done" };
+      if (request.role === "truth-resolution") return deterministicModelOutput(request.profileId, slotContext);
+      if (request.role === "truth-reaction-routing") return { requests: [] };
+      if (request.role === "truth-transition") {
+        const generated = deterministicModelOutput(request.profileId, slotContext) as {
+          kind: "transition";
+          proposal: unknown;
+        };
+        return generated.proposal;
+      }
+      return deterministicModelOutput(request.profileId, slotContext);
+    };
+    const batch = context as {
+      sharedContext?: Record<string, unknown>;
+      slots?: Array<{ slot: number; context: Record<string, unknown> }>;
+    };
+    const value = request.schemaName.endsWith("_batch") && batch.sharedContext && batch.slots
+      ? {
+          slots: batch.slots.map((slot) => ({
+            slot: slot.slot,
+            result: generateOne({ ...structuredClone(batch.sharedContext), ...structuredClone(slot.context) }),
+          })),
+        }
+      : generateOne(context);
     return {
       value,
       responseId: request.modelInvocationId ?? "experiment-model-invocation",
@@ -166,22 +189,24 @@ function eagerSlotMatrix(values: readonly number[], label: string): number[] {
 export function parseExperimentMatrix(
   argv: readonly string[],
   defaults: { agents: number[]; steps: number[] } = { agents: [1, 10, 50], steps: [1, 10, 100] },
-): { agents: number[]; steps: number[]; actionCompilationSlots: number[]; agentMindSlots: number[] } {
+): { agents: number[]; steps: number[]; actionCompilationSlots: number[]; agentMindSlots: number[]; truthBatchSlots: number[] } {
   const values: {
     agents?: string;
     steps?: string;
     actionCompilationSlots?: string;
     agentMindSlots?: string;
+    truthBatchSlots?: string;
   } = {};
   const argumentKeys = {
     agents: "agents",
     steps: "steps",
     "action-compilation-slots": "actionCompilationSlots",
     "agent-mind-slots": "agentMindSlots",
+    "truth-batch-slots": "truthBatchSlots",
   } as const;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    const match = /^--(agents|steps|action-compilation-slots|agent-mind-slots)(?:=(.*))?$/.exec(argument);
+    const match = /^--(agents|steps|action-compilation-slots|agent-mind-slots|truth-batch-slots)(?:=(.*))?$/.exec(argument);
     if (!match) throw new Error(`unknown experiment argument: ${argument}`);
     const argumentName = match[1] as keyof typeof argumentKeys;
     const key = argumentKeys[argumentName];
@@ -205,6 +230,11 @@ export function parseExperimentMatrix(
       [DEFAULT_EAGER_REFERENCE_CONFIG.agentMindMaxSlots],
       "agent-mind-slots",
     ), "agent-mind-slots"),
+    truthBatchSlots: eagerSlotMatrix(parse(
+      values.truthBatchSlots,
+      [DEFAULT_EAGER_REFERENCE_CONFIG.truthBatchMaxSlots],
+      "truth-batch-slots",
+    ), "truth-batch-slots"),
   };
 }
 
@@ -323,6 +353,8 @@ function eagerBatchSummary(events: readonly RuntimeEvent[]) {
     eventsForPhase.reduce((sum, event) => sum + (event.counts?.[key] ?? 0), 0);
   const action = phase("action-compilation");
   const mind = batches.filter((event) => String(event.attributes?.phase).startsWith("agent-"));
+  const truth = batches.filter((event) => String(event.attributes?.phase).startsWith("truth-") ||
+    event.attributes?.phase === "observation");
   const average = (values: readonly RuntimeEvent[]) => {
     const calls = count(values, "physicalCalls");
     return calls === 0 ? 0 : Number((count(values, "submittedSlots") / calls).toFixed(3));
@@ -335,6 +367,10 @@ function eagerBatchSummary(events: readonly RuntimeEvent[]) {
     partialFailureSlots: count(batches, "partialFailureSlots"),
     mindFallbacks: events.filter((event) => event.event === "algorithm.agent_mind.repair_fallback")
       .reduce((sum, event) => sum + (event.counts?.mindFallbacks ?? 0), 0),
+    truthLogicalSlots: count(truth, "logicalSlots"),
+    truthPhysicalCalls: count(truth, "physicalCalls"),
+    truthRepairCalls: count(truth, "repairCalls"),
+    truthBatchSplits: count(truth, "batchSplits"),
   };
 }
 
@@ -370,7 +406,9 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
     records.push(complete);
     options.write?.(complete);
   };
-  const catalog = createTestModelCatalog(undefined, { maxInputBytes: 4 * 1024 * 1024 });
+  // Fixed Truth batches retain complete candidate truth; keep the deterministic
+  // scale experiment above the reference world's largest twelve-slot request.
+  const catalog = createTestModelCatalog(undefined, { maxInputBytes: 8 * 1024 * 1024 });
   const fixture = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
     seed: 20260823,
     modelCatalog: catalog,
@@ -384,19 +422,25 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
     options.agentMindSlots ?? [DEFAULT_EAGER_REFERENCE_CONFIG.agentMindMaxSlots],
     "agent-mind-slots",
   );
+  const truthBatchSlots = eagerSlotMatrix(
+    options.truthBatchSlots ?? [DEFAULT_EAGER_REFERENCE_CONFIG.truthBatchMaxSlots],
+    "truth-batch-slots",
+  );
   for (const agentCount of positiveMatrix(options.agents, "agents")) {
     for (const stepCount of positiveMatrix(options.steps, "steps")) {
       for (const actionCompilationMaxSlots of actionCompilationSlots) {
         for (const agentMindMaxSlots of agentMindSlots) {
+          for (const truthBatchMaxSlots of truthBatchSlots) {
       const algorithmConfig = {
         actionCompilationMaxSlots,
         agentMindMaxSlots,
         reactionMaxSlots: DEFAULT_EAGER_REFERENCE_CONFIG.reactionMaxSlots,
         groundingMaxSlots: DEFAULT_EAGER_REFERENCE_CONFIG.groundingMaxSlots,
+        truthBatchMaxSlots,
       };
       const algorithmManifest = createEagerReferenceManifest(algorithmConfig);
       const definition = scaledDefinition(fixture, agentCount);
-      const instanceId = `experiment-${agentCount}-${stepCount}-ac${actionCompilationMaxSlots}-am${agentMindMaxSlots}`;
+      const instanceId = `experiment-${agentCount}-${stepCount}-ac${actionCompilationMaxSlots}-am${agentMindMaxSlots}-tb${truthBatchMaxSlots}`;
       const trialId = options.ledger ? randomUUID() : undefined;
       const recording = new RecordingRuntimeObserver({ mode: options.ledger ? "full" : "metrics" });
       const code = runtimeCodeIdentity();
@@ -554,6 +598,7 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
         throw error;
       }
         }
+          }
       }
     }
   }

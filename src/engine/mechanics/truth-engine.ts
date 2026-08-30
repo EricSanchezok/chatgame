@@ -252,6 +252,25 @@ function cardinalityError(error: unknown): ResolutionPlanCardinalityError | null
   return null;
 }
 
+function combineCompatibleModelAudits(
+  audits: readonly ModelExecutionAudit[],
+): ModelExecutionAudit[] {
+  const groups: ModelExecutionAudit[][] = [];
+  for (const audit of audits) {
+    const compatible = groups.find((group) => {
+      try {
+        combineModelExecutionAudits([...group, audit]);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (compatible) compatible.push(audit);
+    else groups.push([audit]);
+  }
+  return groups.map((group) => combineModelExecutionAudits(group));
+}
+
 interface ValidatedCallInput<T> {
   provider: StructuredModelProvider;
   profileId: string;
@@ -1447,7 +1466,21 @@ export class TruthEngine {
     });
   }
 
+  async resolveBatch(
+    inputs: readonly TruthResolutionInput[],
+    scope: ModelExecutionScope,
+  ): Promise<TruthResolution[]> {
+    if (inputs.length === 0) return [];
+    return Promise.all(inputs.map((input) => this.resolveSingle(input, scope)));
+  }
+
   async resolve(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
+    const [resolution] = await this.resolveBatch([input], scope);
+    if (!resolution) throw new Error("truth resolution batch returned no result");
+    return resolution;
+  }
+
+  private async resolveSingle(input: TruthResolutionInput, scope: ModelExecutionScope): Promise<TruthResolution> {
     const truthSubject = input.identityOwner;
     let actions = input.initialActions.map((action) => structuredClone(action));
     let groundings = input.groundings.map((grounding) => structuredClone(grounding));
@@ -1484,7 +1517,7 @@ export class TruthEngine {
     const modelAudits: ModelExecutionAudit[] = [];
     let randomRngDrawsBefore: number | null = null;
     const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
-      combineModelExecutionAudits(audits);
+      combineCompatibleModelAudits(audits);
     const mechanicContracts = this.rulePackages.promptContracts(input.definition.rulePackages);
 
     const truthContext = (
@@ -2163,9 +2196,11 @@ export class TruthEngine {
         commitRandomRound(acceptedRandom);
       }
     }
-    if (resolutionAudits.length > 0) modelAudits.push(combineStageAudits(resolutionAudits));
+    if (resolutionAudits.length > 0) modelAudits.push(...combineStageAudits(resolutionAudits));
     modelAudits.push(...resolutionRepairAudits);
-    if (resolutionPlanVerifierAudits.length > 0) modelAudits.push(combineStageAudits(resolutionPlanVerifierAudits));
+    if (resolutionPlanVerifierAudits.length > 0) {
+      modelAudits.push(...combineStageAudits(resolutionPlanVerifierAudits));
+    }
 
     const stimulusObservations = reactionRequests.map((request) => request.stimulus);
     let transitionIssues: PromptValidationIssue[] = [];
@@ -2498,9 +2533,9 @@ export class TruthEngine {
           correlation,
           attributes: { resultKind: "truth-transition_transition" },
         });
-        modelAudits.push(combineModelExecutionAudits(transitionAudits));
+        modelAudits.push(...combineStageAudits(transitionAudits));
         modelAudits.push(...structuredClone(observationAudits));
-        modelAudits.push(combineStageAudits(verifierAudits));
+        modelAudits.push(...combineStageAudits(verifierAudits));
         return {
           proposal,
           initialActions: structuredClone(input.initialActions),

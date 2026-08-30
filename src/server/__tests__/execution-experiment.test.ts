@@ -32,7 +32,8 @@ describe("execution experiment core", () => {
       steps: 1,
       actionCompilationMaxSlots: 12,
       agentMindMaxSlots: 8,
-      modelInvocations: 17,
+      truthBatchMaxSlots: 12,
+      modelInvocations: 10,
       averageActionCompilationSlots: 2,
       averageAgentMindSlots: 2,
     })]);
@@ -51,6 +52,7 @@ describe("execution experiment core", () => {
       steps: [1, 10],
       actionCompilationSlots: [1, 4, 12],
       agentMindSlots: [1, 2, 8],
+      truthBatchSlots: [12],
     });
     expect(() => parseExperimentMatrix(["--steps", "0"])).toThrow("positive safe integers");
     expect(() => parseExperimentMatrix(["--steps"])).toThrow("requires a comma-separated value");

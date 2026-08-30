@@ -372,6 +372,7 @@ describe("eager reference safeguards", () => {
           agentMindMaxSlots,
           reactionMaxSlots: 8,
           groundingMaxSlots: 16,
+          truthBatchMaxSlots: 12,
         }),
       );
       await engine.bootstrapAgents();
@@ -494,8 +495,10 @@ describe("eager reference safeguards", () => {
     expect(result.committed.resolutionPlans).toHaveLength(result.committed.actions.length);
     expect(result.committed.outcomes).toHaveLength(result.committed.actions.length);
     expect(result.committed.operations.filter((operation) => operation.kind === "advance_time")).toHaveLength(1);
-    expect(provider.requests.filter((request) => request.role === "truth-resolution").length)
-      .toBeGreaterThan(Object.keys(source.agents).length);
+    const truthResolutionRequests = provider.requests.filter((request) => request.role === "truth-resolution");
+    expect(truthResolutionRequests.length).toBeGreaterThan(0);
+    expect(truthResolutionRequests.every((request) => request.schemaName === "truth_resolution_batch"))
+      .toBe(true);
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
   });
 
@@ -817,10 +820,10 @@ describe("eager reference safeguards", () => {
     expect(result.committed.observations.map((observation) => observation.observerId).sort())
       .toEqual(["keeper", "player"]);
     const globalProjections = provider.requests.filter((request) =>
-      request.role === "observation-renderer" && request.subjectId.startsWith("step-global-observation"));
-    expect(globalProjections).toHaveLength(2);
-    expect(globalProjections.every((request) =>
-      (request.context as { observationSlots?: unknown[] }).observationSlots?.length === 1)).toBe(true);
+      request.role === "observation-renderer" && request.schemaName === "observation_projection_batch");
+    expect(globalProjections.length).toBeGreaterThan(0);
+    expect(globalProjections.reduce((total, request) =>
+      total + ((request.context as { slots?: unknown[] }).slots?.length ?? 0), 0)).toBeGreaterThanOrEqual(2);
   });
 
   it("creates and bootstraps multiple dynamic Agents with a cohort profile", async () => {

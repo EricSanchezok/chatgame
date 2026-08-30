@@ -38,6 +38,7 @@ export async function POST(request: Request): Promise<Response> {
             "agentMindMaxSlots",
             "reactionMaxSlots",
             "groundingMaxSlots",
+            "truthBatchMaxSlots",
           ].includes(key));
         if (unknownKeys.length > 0) throw new Error(`unknown executionTuning field: ${unknownKeys[0]}`);
         const config = parseEagerReferenceAlgorithmConfig({

@@ -29,7 +29,7 @@ Use `npm run models:status` to inspect catalog health, credential presence, and 
 
 Use `npm run experiment:run -- --agents 1,10,50,1000 --steps 1` for the deterministic scale matrix. Replay, comparison, and export commands are defined by [Runtime observability](game-design/runtime-observability.md#研究命令).
 
-Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v3 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@7` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, and Action Grounding to sixteen, and remains the explicit experiment default.
+Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v3 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@8` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, Action Grounding to sixteen, and Truth Engine fixed batches to twelve, and remains the explicit experiment default.
 
 ## Source attribution
 

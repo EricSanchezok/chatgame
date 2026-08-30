@@ -731,6 +731,14 @@ export const transitionProposalSchema = z.strictObject({
   })),
 }) as z.ZodType<TransitionProposalDraft>;
 
+/** Strict engine-owned envelopes for independent Truth Engine slots. */
+export const truthTransitionBatchSchema = z.strictObject({
+  slots: z.array(z.strictObject({
+    slot: z.number().int().nonnegative(),
+    result: transitionProposalSchema,
+  })),
+});
+
 const observationRenderDraftSchema = z.strictObject({
   summary: z.string().trim().min(1),
   introductions: z.array(introductionSchema),
@@ -743,6 +751,13 @@ export const observationRenderSchema = observationRenderDraftSchema;
 
 export const observationBatchSchema = z.strictObject({
   observations: z.array(observationRenderDraftSchema),
+});
+
+export const observationProjectionBatchSchema = z.strictObject({
+  slots: z.array(z.strictObject({
+    slot: z.number().int().nonnegative(),
+    result: observationRenderDraftSchema,
+  })),
 });
 
 const footprintRefSchema = z.discriminatedUnion("kind", [
@@ -887,6 +902,13 @@ export const resolutionPlanVerificationSchema = z.discriminatedUnion("verdict", 
   }),
 ]);
 
+export const resolutionPlanVerificationBatchSchema = z.strictObject({
+  slots: z.array(z.strictObject({
+    slot: z.number().int().nonnegative(),
+    result: resolutionPlanVerificationSchema,
+  })),
+});
+
 export type ResolutionPlanVerification = z.infer<typeof resolutionPlanVerificationSchema>;
 
 const causalFindingSchema = z.strictObject({
@@ -911,6 +933,20 @@ export const causalVerificationSchema = z.discriminatedUnion("verdict", [
   z.strictObject({ verdict: z.literal("accept"), findings: z.tuple([]) }),
   z.strictObject({ verdict: z.literal("reject"), findings: z.array(causalFindingSchema).min(1) }),
 ]) as z.ZodType<CausalVerification>;
+
+export const causalVerificationBatchSchema = z.strictObject({
+  slots: z.array(z.strictObject({
+    slot: z.number().int().nonnegative(),
+    result: causalVerificationSchema,
+  })),
+});
+
+export const truthResolutionBatchSchema = z.strictObject({
+  slots: z.array(z.strictObject({
+    slot: z.number().int().nonnegative(),
+    result: resolutionDirectiveSchema,
+  })),
+});
 
 export const causalAssertionResultSchema = z.strictObject({
   target: z.strictObject({
