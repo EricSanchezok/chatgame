@@ -130,6 +130,13 @@ export function structuredOutputMode(
     if (binding.model.toolCall) return "tool-call-zod";
     throw new Error(`model ${binding.modelId} cannot produce verified structured output`);
   }
+  if (binding.account.dialect === "qwen") {
+    // The campus vLLM gateway supports JSON mode consistently across the
+    // engine's heterogeneous schemas. Strict JSON Schema can make vLLM pick
+    // different structured-output backends (xgrammar/guidance) between
+    // requests, while local Zod validation preserves the same semantic gate.
+    return "json-object-zod";
+  }
   if (binding.account.dialect === "zhipu" && binding.account.channel === "coding-plan" &&
     binding.model.structuredOutput) {
     // GLM Coding Plan supports JSON mode, while its function-call schema

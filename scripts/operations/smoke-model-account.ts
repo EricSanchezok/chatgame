@@ -7,6 +7,7 @@ import { loadModelCatalog } from "../../src/engine/models/model-catalog";
 import { createModelGateway } from "../../src/engine/models/model-gateway";
 import { promptBundle } from "../../src/engine/prompts";
 import { ModelRegistry } from "../../src/engine/models/model-registry";
+import { createModelFetchResolver } from "../../src/engine/models/model-network";
 
 function accountArgument(argv: readonly string[]): string {
   const index = argv.indexOf("--account");
@@ -33,7 +34,10 @@ async function main(): Promise<void> {
   try {
     const prompt = promptBundle("model-smoke");
     const registry = new ModelRegistry(catalog, dataRoot, { minimumRefreshIntervalMs: 0 });
-    const gateway = createModelGateway(catalog, process.env, { registry });
+    const gateway = createModelGateway(catalog, process.env, {
+      registry,
+      fetchForAccount: createModelFetchResolver(process.env),
+    });
     await gateway.assertProfilesAvailable([profile.id]);
     const result = await gateway.generateStructured({
       profileId: profile.id,

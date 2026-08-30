@@ -9,6 +9,7 @@ import {
 } from "../../src/engine/algorithms/eager-reference/eager-reference";
 import { loadModelCatalog } from "../../src/engine/models/model-catalog";
 import { createModelGateway } from "../../src/engine/models/model-gateway";
+import { createModelFetchResolver } from "../../src/engine/models/model-network";
 import { ModelRegistry } from "../../src/engine/models/model-registry";
 import { RecordingRuntimeObserver } from "../../src/engine/runtime/observability";
 import { SimulationEngine } from "../../src/engine/runtime/simulation";
@@ -17,16 +18,16 @@ import { MemoryWorldRepository } from "../../src/script/world-repository";
 import { LocalDatabase } from "../../src/server/local-database";
 import { WorldHost } from "../../src/server/world-host";
 
-type SmokeProfileSet = "glm" | "deepseek";
+type SmokeProfileSet = "glm" | "deepseek" | "qwen";
 type SmokeWorld = "blackmarsh" | "fixture" | "solo";
 
 function profileSetArgument(argv: readonly string[]): SmokeProfileSet {
   const index = argv.indexOf("--profile-set");
   const value = index >= 0 ? argv[index + 1]?.trim() : undefined;
-  if (value && value !== "glm" && value !== "deepseek") {
-    throw new Error("profile set must be glm or deepseek");
+  if (value && value !== "glm" && value !== "deepseek" && value !== "qwen") {
+    throw new Error("profile set must be glm, deepseek, or qwen");
   }
-  return (value as SmokeProfileSet | undefined) ?? "glm";
+  return (value as SmokeProfileSet | undefined) ?? "qwen";
 }
 
 function stepsArgument(argv: readonly string[]): number {
@@ -61,8 +62,12 @@ function smokeWorldDirectory(root: string, profileSet: SmokeProfileSet, world: S
     : "test/fixtures/open-world-script");
   const copy = path.join(root, `world-${world}-${profileSet}`);
   cpSync(source, copy, { recursive: true });
-  const truthProfile = profileSet === "glm" ? "truth-zhipu-coding" : "truth-deepseek";
-  const agentProfile = profileSet === "glm" ? "agent-zhipu-coding" : "agent-deepseek";
+  const truthProfile = profileSet === "glm"
+    ? "truth-zhipu-coding"
+    : profileSet === "qwen" ? "truth-qwen" : "truth-deepseek";
+  const agentProfile = profileSet === "glm"
+    ? "agent-zhipu-coding"
+    : profileSet === "qwen" ? "agent-qwen" : "agent-deepseek";
   for (const file of yamlFiles(copy)) {
     const contents = readFileSync(file, "utf8");
     writeFileSync(file, contents
@@ -248,7 +253,10 @@ async function main(): Promise<void> {
   const catalog = loadModelCatalog(path.resolve(process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml"));
   const root = mkdtempSync(path.join(tmpdir(), `lwe-${profileSet}-smoke-`));
   const registry = new ModelRegistry(catalog, root);
-  const provider = createModelGateway(catalog, process.env, { registry });
+  const provider = createModelGateway(catalog, process.env, {
+    registry,
+    fetchForAccount: createModelFetchResolver(process.env),
+  });
   const definition = loadWorldScript(smokeWorldDirectory(root, profileSet, world), {
     seed: 20260827,
     modelCatalog: catalog,

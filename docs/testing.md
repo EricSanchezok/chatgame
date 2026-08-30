@@ -9,7 +9,7 @@ Tests are executable evidence that a meaningful regression becomes visible befor
 - Playwright flows live under `e2e/flows/`, accessibility coverage under `e2e/a11y/`, shared support under `e2e/support/`, and platform-specific visual baselines beside the owning visual flow. `playwright.config.ts` selects the e2e and a11y projects.
 - `worlds/blackmarsh/` is the real reference-world entry used for structural and live compatibility checks.
 
-Repository-wide commands live in [AGENTS.md](../AGENTS.md). `npm run check:fast` owns lint, types, Vitest, the world fixture, workflow verification, and governance gates. `npm run check:ui` owns production E2E and accessibility. `npm run check:all` composes both. `npm run test:live:glm` and `npm run test:live:deepseek` are manual compatibility checks using process credentials and are not deterministic CI gates.
+Repository-wide commands live in [AGENTS.md](../AGENTS.md). `npm run check:fast` owns lint, types, Vitest, the world fixture, workflow verification, and governance gates. `npm run check:ui` owns production E2E and accessibility. `npm run check:all` composes both. `npm run test:live:qwen`, `npm run test:live:glm`, and `npm run test:live:deepseek` are manual compatibility checks using process credentials and are not deterministic CI gates; the Qwen command is the default local live smoke profile.
 
 Visual snapshots keep separate operating-system baselines with the same strict pixel threshold. Eliminate cross-platform geometry differences first; platform baselines absorb only irreducible font rasterization and rendering differences.
 
@@ -22,7 +22,7 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - Cognitive tests place conflicting truth and belief together and prove they do not overwrite each other. Public API tests search for canonical bindings, another Agent's belief, and Inspector payload leakage.
 - Random tests fix the seed and prove check requests, DC, stakes, and distribution are committed before RNG extraction.
 - Remote-model tests never print credentials, prompts, or raw responses and never replace deterministic semantic gates.
-- `npm run test:live:glm:batching` and `npm run test:live:deepseek:batching` are the credentialed eager-reference batching smokes. They execute real Blackmarsh Agent bootstrap and step preparation for their respective Profile sets, assert the default `12/8` limits, zero singleton failures, and invocation-ID uniqueness, and deliberately stop before the unchanged Truth-resolution boundary. The matching non-batching command remains the broader end-to-end smoke.
+- `npm run test:live:qwen:batching`, `npm run test:live:glm:batching`, and `npm run test:live:deepseek:batching` are the credentialed eager-reference batching smokes. They execute real Blackmarsh Agent bootstrap and step preparation for their respective Profile sets, assert the default `12/8` limits, zero singleton failures, and invocation-ID uniqueness, and deliberately stop before the unchanged Truth-resolution boundary. The matching non-batching command remains the broader end-to-end smoke.
 - A regression test fails for the escaped behavior before the fix and passes afterward, unless an existing deterministic reproduction already owns the contract.
 
 ## `eager-reference@8`

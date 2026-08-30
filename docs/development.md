@@ -27,6 +27,14 @@ Model selection, reasoning effort, timeouts, output limits, roles, and concurren
 
 Use `npm run models:status` to inspect catalog health, credential presence, and deterministic Profile resolution; use `npm run models:refresh` to request a rate-limited models.dev refresh. `npm run test:live:model -- --account <account-id>` is an explicit, credentialed transport smoke test for one configured account.
 
+For local live smoke tests, the default profile set is the campus `Qwen3.8-27B` gateway (`qwen-campus`, credential `INF_API_KEY`). Run `npm run test:live:qwen` or `npm run test:live:qwen:batching`; the existing GLM and DeepSeek commands remain available. Unit tests continue to use the deterministic test provider.
+
+When the local TUN route cannot reach the Qwen gateway, start the process with
+the physical-interface address in `QWEN_LOCAL_ADDRESS`, for example:
+`QWEN_LOCAL_ADDRESS="$(ipconfig getifaddr en0)" npm run dev`. This opt-in
+transport is scoped to `qwen-campus`; other model accounts keep the default
+Node route. Do not commit the resolved address or any credential.
+
 Use `npm run experiment:run -- --agents 1,10,50,1000 --steps 1` for the deterministic scale matrix. Replay, comparison, and export commands are defined by [Runtime observability](game-design/runtime-observability.md#研究命令).
 
 Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v3 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@8` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, Action Grounding to sixteen, and Truth Engine fixed batches to twelve, and remains the explicit experiment default.

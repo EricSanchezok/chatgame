@@ -68,6 +68,39 @@ function compileOpenAICompatible(
   };
 }
 
+/**
+ * Qwen-compatible OpenAI gateways expose thinking as a chat-template option
+ * rather than the generic `thinking` field used by other vendors. Keep this
+ * transport detail inside the dialect so profiles remain provider-neutral.
+ */
+function compileQwen(
+  binding: ResolvedModelBinding,
+): VendorDialectRequestPlan {
+  const inference = resolvedInference(binding);
+  return {
+    authentication: "bearer",
+    headers: {},
+    inference,
+    transformBody(body) {
+      const transformed = copyBody(body);
+      if (inference.thinking !== null) {
+        const existing = transformed.chat_template_kwargs;
+        transformed.chat_template_kwargs = {
+          ...(existing && typeof existing === "object" && !Array.isArray(existing)
+            ? existing as Record<string, unknown>
+            : {}),
+          enable_thinking: inference.thinking === "enabled",
+        };
+      }
+      if (inference.effort !== null) transformed.reasoning_effort = inference.effort;
+      if (inference.reasoningBudgetTokens !== null) {
+        transformed.reasoning_budget = inference.reasoningBudgetTokens;
+      }
+      return transformed;
+    },
+  };
+}
+
 function compileResponses(
   binding: ResolvedModelBinding,
 ): VendorDialectRequestPlan {
@@ -168,6 +201,7 @@ function dialect(
 
 const dialects = new Map<string, VendorDialect>([
   ["deepseek", dialect("deepseek", ["openai-chat"], compileOpenAICompatible)],
+  ["qwen", dialect("qwen", ["openai-chat"], compileQwen)],
   ["zhipu", dialect("zhipu", ["openai-chat"], compileOpenAICompatible)],
   ["moonshot", dialect("moonshot", ["openai-chat"], compileOpenAICompatible)],
   ["mimo", dialect("mimo", ["openai-chat"], compileMimo)],

@@ -112,6 +112,19 @@ accounts:
     base_url: https://token-plan-cn.xiaomimimo.com/v1
     api_key_env: MIMO_TOKEN_PLAN_API_KEY
     max_concurrency: 16
+  qwen-campus:
+    channel: api
+    region: cn
+    protocol: openai-chat
+    dialect: qwen
+    # The campus gateway is the transport destination. `hetzner` is only the
+    # models.dev metadata anchor for the exact Qwen3.8-27B model id.
+    models_dev_provider_id: hetzner
+    base_url: https://cqhbod8bjjjbcoakk8pmeebgkaq9akcq.openapi-sj.sii.edu.cn/v1
+    api_key_env: INF_API_KEY
+    max_concurrency: 16
+    network:
+      local_address_env: QWEN_LOCAL_ADDRESS
 
 profiles:
   truth-deepseek:
@@ -153,6 +166,22 @@ profiles:
       reasoning_summary: auto
       text_verbosity: auto
       temperature: auto
+      top_p: auto
+  truth-qwen:
+    account_id: qwen-campus
+    selector: { kind: exact, model_id: Qwen3.8-27B }
+    description: 校园网 Qwen3.8-27B 世界真值裁决
+    allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-compilation, action-grounding, observation-renderer, causal-verifier, arrival-generator]
+    request_timeout_ms: 300000
+    max_output_tokens: 65536
+    max_input_bytes: 8000000
+    inference:
+      thinking: disabled
+      effort: auto
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: 0
       top_p: auto
   agent-deepseek:
     account_id: deepseek-api
@@ -238,6 +267,22 @@ profiles:
       text_verbosity: auto
       temperature: auto
       top_p: auto
+  agent-qwen:
+    account_id: qwen-campus
+    selector: { kind: exact, model_id: Qwen3.8-27B }
+    description: 校园网 Qwen3.8-27B 自主角色心智
+    allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
+    request_timeout_ms: 180000
+    max_output_tokens: 8192
+    max_input_bytes: 8000000
+    inference:
+      thinking: disabled
+      effort: auto
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: 0
+      top_p: auto
   agent-minimax:
     account_id: minimax-api-cn
     selector: { kind: latest-compatible, include: ["MiniMax-*"] }
@@ -294,6 +339,16 @@ profiles:
     inference: *automatic-inference
 
 model_overrides:
+  hetzner:
+    Qwen3.8-27B:
+      # The internal gateway is text-only even though the public metadata
+      # advertises the upstream model's optional image input.
+      modalities:
+        input: [text]
+        output: [text]
+      # The campus endpoint accepts the explicit chat-template toggle used by
+      # the qwen dialect even though models.dev does not advertise it.
+      reasoning_toggle: true
   zhipuai-coding-plan:
     glm-5.3-flash:
       # The Coding Plan endpoint accepts explicit thinking disabled even though

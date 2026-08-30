@@ -20,6 +20,13 @@ const trustedBaseUrlSchema = z.url().refine((value) => {
     !url.username && !url.password && !url.search && !url.hash;
 }, "provider base URL must use HTTPS, or loopback HTTP, without credentials, query, or fragment");
 
+const modelNetworkSchema = z.object({
+  // The address is deliberately indirect: only the environment variable name
+  // is part of the catalog. The local address itself never enters a save,
+  // audit record, or source-controlled configuration.
+  local_address_env: environmentVariableSchema,
+}).strict();
+
 export const modelRoles = [
   "truth-perception",
   "truth-reaction-routing",
@@ -56,6 +63,7 @@ const providerAccountSchema = z.object({
   base_url: trustedBaseUrlSchema,
   api_key_env: environmentVariableSchema,
   max_concurrency: positiveIntegerSchema,
+  network: modelNetworkSchema.optional(),
 }).strict();
 
 const automaticStringSchema = z.union([z.literal("auto"), z.string().min(1).max(64)]);
@@ -155,6 +163,7 @@ const catalogDocumentSchema = z.object({
 }).strict();
 
 export type ProviderAccountConfig = z.infer<typeof providerAccountSchema>;
+export type ModelNetworkConfig = z.infer<typeof modelNetworkSchema>;
 export type ModelInferenceConfig = z.infer<typeof modelInferenceSchema>;
 export type ModelSelector = z.infer<typeof modelSelectorSchema>;
 export type ModelProfileConfig = z.infer<typeof profileSchema>;

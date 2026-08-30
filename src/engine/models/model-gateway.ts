@@ -46,6 +46,7 @@ import {
   type RuntimeObserver,
 } from "../runtime/observability";
 import type { ResolvedModelBinding } from "./model-registry";
+import type { ProviderAccountConfig } from "./model-catalog";
 import { structuredPromptBytes } from "../prompts";
 
 export interface ModelGatewayOptions {
@@ -54,6 +55,11 @@ export interface ModelGatewayOptions {
   adapters?: ReadonlyMap<string, ModelProviderAdapter>;
   maxTransportAttempts?: number;
   fetch?: typeof fetch;
+  /** Resolve an account-specific transport without changing other accounts. */
+  fetchForAccount?: (
+    accountId: string,
+    account: ProviderAccountConfig,
+  ) => typeof fetch | undefined;
   now?: () => number;
   random?: () => number;
   sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
@@ -197,11 +203,12 @@ export class ModelGateway implements StructuredModelProvider {
       const configuredAdapter = options.adapters?.get(accountId);
       const apiKey = env[account.api_key_env]?.trim();
       if (!configuredAdapter && !apiKey) continue;
+      const accountFetch = options.fetchForAccount?.(accountId, account);
       const adapter = configuredAdapter ?? createModelProviderAdapter(
         accountId,
         account,
         apiKey!,
-        options.fetch,
+        accountFetch ?? options.fetch,
       );
       if (adapter.accountId !== accountId || adapter.protocol !== account.protocol ||
         adapter.dialect !== account.dialect) {

@@ -26,6 +26,7 @@ const profileModels = {
   "agent-kimi-coding": "kimi-k2.5",
   "agent-mimo": "mimo-v2-flash",
   "agent-mimo-token-plan": "mimo-v2-flash",
+  "agent-qwen": "Qwen3.8-27B",
 } as const;
 
 function modelMetadata(id: string, structuredOutput: boolean) {
@@ -219,6 +220,11 @@ describe("provider account protocol matrix", () => {
       reasoning_effort: "high",
       reasoning_budget: 2_048,
     });
+    expect(compile("agent-qwen").body).toMatchObject({
+      chat_template_kwargs: { enable_thinking: true },
+      reasoning_effort: "high",
+      reasoning_budget: 2_048,
+    });
     expect(compile("agent-minimax").body).toMatchObject({
       thinking: { type: "enabled", budget_tokens: 2_048 },
       output_config: { effort: "high" },
@@ -277,6 +283,9 @@ describe("provider account protocol matrix", () => {
         catalogSchemaVersion: 3,
       });
       if (profileId === "agent-zhipu-coding") {
+        expect(result.audit.structuredOutputMode).toBe("json-object-zod");
+      }
+      if (profileId === "agent-qwen") {
         expect(result.audit.structuredOutputMode).toBe("json-object-zod");
       }
       expect(JSON.stringify(result.audit)).not.toContain(credentials[account.api_key_env]);

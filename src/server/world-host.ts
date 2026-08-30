@@ -22,6 +22,7 @@ import {
 import { arrivalDraftSchema } from "../engine/contracts/llm-schemas";
 import { loadModelCatalog } from "../engine/models/model-catalog";
 import { createModelGateway } from "../engine/models/model-gateway";
+import { createModelFetchResolver } from "../engine/models/model-network";
 import { contentHash } from "../engine/models/model-audit";
 import { ModelRegistry } from "../engine/models/model-registry";
 import {
@@ -473,7 +474,10 @@ export class WorldHost {
       );
       const modelRegistry = new ModelRegistry(catalog, dataRoot);
       modelRegistry.startBackgroundRefresh();
-      const provider = createModelGateway(catalog, process.env, { registry: modelRegistry });
+      const provider = createModelGateway(catalog, process.env, {
+        registry: modelRegistry,
+        fetchForAccount: createModelFetchResolver(process.env),
+      });
       const databaseFile = path.join(dataRoot, "livingworld.sqlite");
       const database = new LocalDatabase(databaseFile);
       try {

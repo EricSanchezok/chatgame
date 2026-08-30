@@ -43,7 +43,12 @@ profiles:
 model_overrides: {}
 ```
 
-账户 ID 与 Profile ID 使用小写 kebab-case。账户选择 `openai-chat`、`openai-responses` 或 `anthropic-messages` 协议驱动，并选择一个独立 vendor dialect；同一协议和方言下增加区域或套餐账户只修改配置。`base_url`、`api_key_env` 与鉴权目标只来自本地配置，远程目录不能改写它们。当前账户清单以 [`config/models.yaml`](../../config/models.yaml) 为准；SuperGrok 消费订阅不构成 xAI API 账户。
+账户 ID 与 Profile ID 使用小写 kebab-case。账户选择 `openai-chat`、`openai-responses` 或 `anthropic-messages` 协议驱动，并选择一个独立 vendor dialect；同一协议和方言下增加区域或套餐账户只修改配置。`base_url`、`api_key_env` 与鉴权目标只来自本地配置，远程目录不能改写它们。当前账户清单以 [`config/models.yaml`](../../config/models.yaml) 为准；校园网 `qwen-campus` 使用 Qwen 方言向内部 OpenAI-compatible 网关发送 `chat_template_kwargs.enable_thinking`，并以 models.dev 中同模型 ID 的元数据作为能力锚点；SuperGrok 消费订阅不构成 xAI API 账户。
+
+账户可以声明可选的 `network.local_address_env`，让服务从指定环境变量
+读取物理网卡 IP，并仅为该账户创建绑定 `localAddress` 的 Node transport。
+该值不进入模型审计或持久化状态；未设置时使用默认 Node 网络。当前
+`qwen-campus` 使用 `QWEN_LOCAL_ADDRESS` 作为本地 TUN 绕行开关。
 
 套餐账户表示引擎具备对应的传输能力，不代表扩大厂商许可的使用范围。部署者仍须遵守各产品当时的用途与工具限制；例如智谱区分通用 API 与 Coding 端点，MiniMax 为 Token Plan 单独签发 Key，Kimi 要求 Coding Key 与开放平台 URL 对应，MiMo 也将 Token Plan Key、端点和适用场景与按量 API 分开。具体约束以[智谱 Coding Plan](https://docs.bigmodel.cn/cn/coding-plan/quick-start)、[MiniMax Token Plan](https://platform.minimaxi.com/docs/token-plan/quickstart)、[Kimi Code FAQ](https://www.kimi.ai/help/kimi-code/faq)和[MiMo Token Plan](https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access)的当前官方说明为准；引擎不伪装客户端，也不绕过这些限制。
 
@@ -61,7 +66,7 @@ Profile 的 `allowed_roles` 覆盖 Truth、temporal planner、action grounding�
 
 `ProtocolDriver` 只负责 OpenAI Chat、OpenAI Responses 或 Anthropic Messages 的通用 wire contract。`VendorDialect` 负责 thinking/effort 字段、特殊 header、prompt cache 与响应差异。Kimi Coding 使用 `LivingWorldEngine/<version>` User-Agent，并以 Profile、prompt bundle 内容哈希和 bundle version 生成稳定 `prompt_cache_key`；它不伪装其他编码客户端。
 
-结构化结果按协议和模型能力使用三条路径：原生 strict JSON Schema；JSON Object 加 schema prompt 和本地 Zod；强制 `submit_result` tool call 加本地 Zod。所有成功结果再次通过调用点的 Zod schema。引擎不从 Markdown、前后缀文字、截断文本或普通自然语言中猜测 JSON。
+结构化结果按协议和模型能力使用三条路径：原生 strict JSON Schema；JSON Object 加 schema prompt 和本地 Zod；强制 `submit_result` tool call 加本地 Zod。所有成功结果再次通过调用点的 Zod schema。引擎不从 Markdown、前后缀文字、截断文本或普通自然语言中猜测 JSON。Qwen campus Profile 使用 JSON Object 加本地 Zod（避免 vLLM 在不同复杂 schema 间切换结构化输出后端），并由方言注入关闭 thinking 的 chat-template 参数。
 
 每个请求都携带 `system`、一到两句英文 `userPrompt` 和 `context`。Gateway 使用统一的 Context envelope，把任务放在原始 JSON 数据之前，并明确标记数据不是指令；严格 schema、JSON Object 与 tool-call transport 复用同一装配和字节计量函数。角色提示词与 transport 文本位于 [`src/engine/prompts/`](../../src/engine/prompts/)，通过缓存 loader 读取、trim、校验和内容哈希版本化；Next standalone 追踪该目录，浏览器代码不得导入它。
 
