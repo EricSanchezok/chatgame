@@ -1,5 +1,8 @@
 import type {
   WorldInspectorAttemptDetail,
+  WorldInspectorModelInvocationDetail,
+  WorldInspectorModelInvocationQuery,
+  WorldInspectorModelInvocationQueryResult,
   WorldInspectorRuntimeEventDetail,
   WorldInspectorStepDetail,
   WorldInspectorWindow,
@@ -24,6 +27,21 @@ export const worldInspectorApi = {
   attempt(instanceId: string, attemptId: string) {
     return requestJson<WorldInspectorAttemptDetail>(
       `${base(instanceId)}/attempts/${encodeURIComponent(attemptId)}`,
+    );
+  },
+  modelInvocations(instanceId: string, input: WorldInspectorModelInvocationQuery = {}) {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(input)) {
+      if (value !== undefined) search.set(key, String(value));
+    }
+    const query = search.size > 0 ? `?${search}` : "";
+    return requestJson<WorldInspectorModelInvocationQueryResult>(
+      `${base(instanceId)}/model-invocations${query}`,
+    );
+  },
+  modelInvocation(instanceId: string, executionId: string, invocationId: string) {
+    return requestJson<WorldInspectorModelInvocationDetail>(
+      `${base(instanceId)}/attempts/${encodeURIComponent(executionId)}/model-invocations/${encodeURIComponent(invocationId)}`,
     );
   },
   runtimeEvent(instanceId: string, eventId: string) {

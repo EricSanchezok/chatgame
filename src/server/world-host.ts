@@ -78,9 +78,11 @@ import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
 import {
   buildWorldInspectorAttemptDetail,
+  buildWorldInspectorModelInvocationDetail,
   buildWorldInspectorRuntimeEventDetail,
   buildWorldInspectorStepDetail,
   buildWorldInspectorWindow,
+  queryWorldInspectorModelInvocations,
   summarizeRuntimeEvent,
 } from "./world-inspector";
 import {
@@ -867,6 +869,32 @@ export class WorldHost {
       Object.keys(document.state.agents),
     );
     if (!detail) throw new WorldHostError("execution not found", 404);
+    return detail;
+  }
+
+  inspectorModelInvocations(
+    id: string,
+    input: import("../shared/world-inspector-api").WorldInspectorModelInvocationQuery = {},
+  ) {
+    this.read(id);
+    return queryWorldInspectorModelInvocations(
+      this.options.ledger?.executions({ instanceId: id }) ?? [],
+      this.options.ledger?.instanceEvents(id) ?? [],
+      input,
+    );
+  }
+
+  inspectorModelInvocation(id: string, executionId: string, invocationId: string) {
+    this.read(id);
+    const record = this.options.ledger?.execution(executionId);
+    if (!record || record.instanceId !== id) throw new WorldHostError("execution not found", 404);
+    const detail = buildWorldInspectorModelInvocationDetail(
+      executionId,
+      invocationId,
+      record,
+      this.options.ledger?.executionEvents(executionId) ?? [],
+    );
+    if (!detail) throw new WorldHostError("model invocation not found", 404);
     return detail;
   }
 

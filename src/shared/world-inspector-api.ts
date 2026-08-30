@@ -9,7 +9,7 @@ import type {
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 5 as const;
+export const WORLD_INSPECTOR_API_VERSION = 6 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -68,6 +68,83 @@ export interface WorldInspectorTokenUsage {
   unknown: boolean;
 }
 
+export interface WorldInspectorModelTokenUsage {
+  input: number | null;
+  output: number | null;
+  reasoning: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+}
+
+export type WorldInspectorModelInvocationStatus = "active" | "accepted" | "rejected" | "failed";
+
+export interface WorldInspectorSlotRef {
+  slot: number;
+  agentId?: string;
+  actionId?: string;
+  label?: string;
+  unresolvedReason?: string;
+}
+
+export interface WorldInspectorContextSectionSummary {
+  key: string;
+  utf8Bytes: number;
+  itemCount: number | null;
+  hash?: string;
+}
+
+export interface WorldInspectorTransportAttempt {
+  attempt: number;
+  status: "succeeded" | "retryable_error" | "failed";
+  statusCode?: number | null;
+  errorName?: string | null;
+  queueWaitMs: number;
+  executionMs: number;
+  retryDelayMs: number;
+  eventIds: string[];
+}
+
+export interface WorldInspectorModelInvocationSummary {
+  id: string;
+  ordinal: number;
+  role?: string;
+  subjectId?: string;
+  providerId?: string;
+  accountId?: string;
+  modelId?: string;
+  profileId?: string;
+  promptVersion?: string;
+  schemaName?: string;
+  status: WorldInspectorModelInvocationStatus;
+  startedAt?: string;
+  updatedAt?: string;
+  slotRefs: WorldInspectorSlotRef[];
+  transportAttempts: WorldInspectorTransportAttempt[];
+  retryCount: number;
+  tokenUsage: WorldInspectorModelTokenUsage;
+  requestUtf8Bytes?: number | null;
+  contextUtf8Bytes?: number | null;
+  responseUtf8Bytes?: number | null;
+  contextSections: WorldInspectorContextSectionSummary[];
+  timings: {
+    invocationMs?: number;
+    queueWaitMs: number;
+    transportMs: number;
+    parseMs: number;
+    retryDelayMs: number;
+  };
+  eventIds: string[];
+  payloadEventIds: {
+    context?: string;
+    request?: string;
+    response?: string;
+    output?: string;
+  };
+  validationIssueCodes: string[];
+  errorMessage?: string;
+  hasPayload: boolean;
+}
+
 export interface WorldInspectorStepSummary {
   revision: number;
   step: number;
@@ -123,6 +200,9 @@ export interface WorldInspectorAttemptSummary {
   latestEvent: string;
   eventCount: number;
   modelInvocationCount: number;
+  transportAttemptCount: number;
+  retryCount: number;
+  tokenUsage: WorldInspectorTokenUsage;
   actorIds: string[];
   relatedActorIds: string[];
   rejectionCount: number;
@@ -198,6 +278,7 @@ export interface WorldInspectorStepDetail {
   before: WorldInspectorStateSnapshot;
   after: WorldInspectorStateSnapshot;
   runtimeEvents: WorldInspectorRuntimeEventSummary[];
+  modelInvocations: WorldInspectorModelInvocationSummary[];
   trace: WorldInspectorTraceAvailability;
 }
 
@@ -207,7 +288,45 @@ export interface WorldInspectorAttemptDetail {
   attemptedActions: CommittedStep["initialActions"];
   stages: WorldInspectorAttemptStage[];
   events: WorldInspectorRuntimeEventSummary[];
+  modelInvocations: WorldInspectorModelInvocationSummary[];
   trace: WorldInspectorTraceAvailability;
+}
+
+export interface WorldInspectorModelInvocationQuery {
+  executionId?: string;
+  actorId?: string;
+  role?: string;
+  providerId?: string;
+  modelId?: string;
+  status?: WorldInspectorModelInvocationStatus;
+  minDurationMs?: number;
+  maxDurationMs?: number;
+  minInputTokens?: number;
+  maxInputTokens?: number;
+  minRetries?: number;
+  sort?: "duration" | "inputTokens" | "outputTokens" | "retries" | "timestamp";
+  cursor?: string;
+  limit?: number;
+}
+
+export interface WorldInspectorModelInvocationResult extends WorldInspectorModelInvocationSummary {
+  executionId: string;
+  attemptId: string;
+  revision?: number;
+  step?: number;
+  startedAt?: string;
+  updatedAt?: string;
+}
+
+export interface WorldInspectorModelInvocationQueryResult {
+  apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
+  items: WorldInspectorModelInvocationResult[];
+  nextCursor?: string;
+  total: number;
+}
+
+export interface WorldInspectorModelInvocationDetail extends WorldInspectorModelInvocationResult {
+  eventSummaries: WorldInspectorRuntimeEventSummary[];
 }
 
 export type WorldInspectorStreamEvent =

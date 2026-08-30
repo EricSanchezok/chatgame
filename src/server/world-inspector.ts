@@ -16,6 +16,12 @@ import {
   type WorldInspectorAttemptSummary,
   type WorldInspectorEdgeKind,
   type WorldInspectorEdgeSummary,
+  type WorldInspectorModelInvocationDetail,
+  type WorldInspectorModelInvocationQuery,
+  type WorldInspectorModelInvocationQueryResult,
+  type WorldInspectorModelInvocationResult,
+  type WorldInspectorModelInvocationSummary,
+  type WorldInspectorModelTokenUsage,
   type WorldInspectorNodeSummary,
   type WorldInspectorRuntimeEventDetail,
   type WorldInspectorRuntimeEventSummary,
@@ -313,6 +319,220 @@ export function summarizeRuntimeEvent(event: RuntimeEvent): WorldInspectorRuntim
   return { ...summary, id: worldInspectorRuntimeEventId(event), hasPayload: payload !== undefined };
 }
 
+function nullableMeasurement(event: RuntimeEvent | undefined, key: string): number | null {
+  const value = event?.measurements?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function modelTokenUsage(events: readonly RuntimeEvent[]): WorldInspectorModelTokenUsage {
+  const source = [...events].reverse().find((event) =>
+    event.event === "model.structured_output.parsed" || event.event === "model.structured_output.rejected");
+  return {
+    input: nullableMeasurement(source, "inputTokens"),
+    output: nullableMeasurement(source, "outputTokens"),
+    reasoning: nullableMeasurement(source, "reasoningTokens"),
+    cacheRead: nullableMeasurement(source, "cacheReadTokens"),
+    cacheWrite: nullableMeasurement(source, "cacheWriteTokens"),
+  };
+}
+
+function payloadEventId(event: RuntimeEvent | undefined): string | undefined {
+  return event && event.payload !== undefined ? worldInspectorRuntimeEventId(event) : undefined;
+}
+
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
+}
+
+function itemCount(value: unknown): number | null {
+  return Array.isArray(value) ? value.length
+    : value && typeof value === "object" ? Object.keys(value).length : null;
+}
+
+function contextSections(context: unknown): WorldInspectorModelInvocationSummary["contextSections"] {
+  if (!context || typeof context !== "object" || Array.isArray(context)) return [];
+  return Object.entries(context as Record<string, unknown>).map(([key, value]) => ({
+    key,
+    utf8Bytes: jsonBytes(value),
+    itemCount: itemCount(value),
+    hash: contentHash(value),
+  }));
+}
+
+function slotRefs(context: unknown): WorldInspectorModelInvocationSummary["slotRefs"] {
+  if (!context || typeof context !== "object" || Array.isArray(context)) return [];
+  const slots = (context as { slots?: unknown }).slots;
+  if (!Array.isArray(slots)) return [];
+  return slots.map((entry, index) => {
+    const value = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+    const action = value.action && typeof value.action === "object" ? value.action as Record<string, unknown> : undefined;
+    const perspective = (value.perspective ?? value.actorPerspective) &&
+      typeof (value.perspective ?? value.actorPerspective) === "object"
+      ? (value.perspective ?? value.actorPerspective) as Record<string, unknown>
+      : undefined;
+    const self = perspective?.self && typeof perspective.self === "object"
+      ? perspective.self as Record<string, unknown> : undefined;
+    const slot = typeof value.slot === "number" && Number.isSafeInteger(value.slot) ? value.slot : index;
+    const agentId = typeof action?.actorId === "string" ? action.actorId
+      : typeof perspective?.agentId === "string" ? perspective.agentId : undefined;
+    const actionId = typeof action?.id === "string" ? action.id : undefined;
+    const label = typeof action?.rawText === "string" ? action.rawText
+      : typeof self?.name === "string" ? self.name : undefined;
+    return {
+      slot,
+      ...(agentId ? { agentId } : {}),
+      ...(actionId ? { actionId } : {}),
+      ...(label ? { label } : {}),
+      ...(!agentId && !actionId ? { unresolvedReason: "request context does not expose an Agent or action identity" } : {}),
+    };
+  });
+}
+
+function invocationStatus(events: readonly RuntimeEvent[]): WorldInspectorModelInvocationSummary["status"] {
+  if (events.some((event) => event.event === "model.semantic.rejected" || event.event === "model.structured_output.rejected")) {
+    return "rejected";
+  }
+  if (events.some((event) => event.event === "model.invocation.failed")) return "failed";
+  if (events.some((event) => event.event === "model.semantic.accepted" || event.event === "model.structured_output.parsed")) {
+    return "accepted";
+  }
+  return "active";
+}
+
+function eventDuration(events: readonly RuntimeEvent[], eventName: string): number {
+  return events.filter((event) => event.event === eventName)
+    .reduce((sum, event) => sum + (event.durationMs ?? 0), 0);
+}
+
+function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspectorModelInvocationSummary[] {
+  const groups = new Map<string, RuntimeEvent[]>();
+  for (const event of events) {
+    if (!event.event.startsWith("model.")) continue;
+    const id = event.correlation?.modelInvocationId ??
+      `unresolved:${event.correlation?.modelRole ?? "model"}:${event.correlation?.modelSubject ?? "unknown"}:${event.sequence}`;
+    const group = groups.get(id) ?? [];
+    group.push(event);
+    groups.set(id, group);
+  }
+  return [...groups.entries()].map(([id, group]) => {
+    const ordered = [...group].sort((left, right) => left.sequence - right.sequence);
+    const started = ordered.find((event) => event.event === "model.invocation.started");
+    const contextEvent = ordered.find((event) => event.event === "model.context.serialized");
+    const parsed = [...ordered].reverse().find((event) =>
+      event.event === "model.structured_output.parsed" || event.event === "model.structured_output.rejected");
+    const terminal = [...ordered].reverse().find((event) =>
+      event.event === "model.semantic.accepted" || event.event === "model.semantic.rejected" ||
+      event.event === "model.invocation.failed" || event.event === "model.structured_output.rejected" ||
+      event.event === "model.structured_output.parsed");
+    const contextDocument = contextEvent?.payload && typeof contextEvent.payload === "object"
+      ? contextEvent.payload as { context?: unknown } : undefined;
+    const transportGroups = new Map<number, RuntimeEvent[]>();
+    for (const event of ordered) {
+      const attempt = event.correlation?.transportAttempt;
+      if (!attempt) continue;
+      const transport = transportGroups.get(attempt) ?? [];
+      transport.push(event);
+      transportGroups.set(attempt, transport);
+    }
+    const transportAttempts = [...transportGroups.entries()].sort(([left], [right]) => left - right).map(([attempt, transport]) => {
+      const completed = [...transport].reverse().find((event) => event.event === "model.transport.completed");
+      const failed = [...transport].reverse().find((event) => event.event === "model.transport.failed");
+      const retry = [...transport].reverse().find((event) => event.event === "model.transport.retry_wait");
+      const status: WorldInspectorModelInvocationSummary["transportAttempts"][number]["status"] = completed ? "succeeded" : failed
+        ? (failed.attributes?.status === "retryable_error" ? "retryable_error" : "failed")
+        : "failed";
+      return {
+        attempt,
+        status,
+        ...(failed?.attributes?.statusCode !== undefined ? { statusCode: failed.attributes.statusCode as number } : {}),
+        ...(failed?.error ? { errorName: failed.error.name } : {}),
+        queueWaitMs: eventDuration(transport, "model.queue.completed"),
+        executionMs: completed?.durationMs ?? failed?.durationMs ?? eventDuration(transport, "model.transport.completed"),
+        retryDelayMs: retry?.measurements?.retryDelayMs ?? retry?.durationMs ?? 0,
+        eventIds: transport.map(worldInspectorRuntimeEventId),
+      };
+    });
+    const requestEvent = ordered.find((event) => event.event === "model.transport.request.raw");
+    const responseEvent = [...ordered].reverse().find((event) => event.event === "model.transport.response.raw");
+    const outputEvent = [...ordered].reverse().find((event) =>
+      event.event === "model.structured_output.parsed" || event.event === "model.structured_output.rejected");
+    const invocationMs = started && terminal
+      ? Math.max(0, Date.parse(terminal.timestamp) - Date.parse(started.timestamp)) : undefined;
+    const errorEvent = [...ordered].reverse().find((event) => event.error);
+    const issueCodes = new Set<string>();
+    for (const event of ordered) {
+      if (event.error?.name) issueCodes.add(event.error.name);
+      const payload = event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : undefined;
+      const issues = payload?.issues;
+      if (Array.isArray(issues)) {
+        issues.forEach((issue) => {
+          if (issue && typeof issue === "object" && typeof (issue as { code?: unknown }).code === "string") {
+            issueCodes.add((issue as { code: string }).code);
+          }
+        });
+      }
+    }
+    const tokenUsage = modelTokenUsage(ordered);
+    const context = contextDocument?.context;
+    const requestMeasurements = contextEvent?.measurements;
+    const queueWaitMs = transportAttempts.reduce((sum, attempt) => sum + attempt.queueWaitMs, 0);
+    const transportMs = transportAttempts.reduce((sum, attempt) => sum + attempt.executionMs, 0);
+    const retryDelayMs = transportAttempts.reduce((sum, attempt) => sum + attempt.retryDelayMs, 0);
+    const payloadEventIds = {
+      ...(payloadEventId(contextEvent) ? { context: worldInspectorRuntimeEventId(contextEvent!) } : {}),
+      ...(payloadEventId(requestEvent) ? { request: worldInspectorRuntimeEventId(requestEvent!) } : {}),
+      ...(payloadEventId(responseEvent) ? { response: worldInspectorRuntimeEventId(responseEvent!) } : {}),
+      ...(payloadEventId(outputEvent) ? { output: worldInspectorRuntimeEventId(outputEvent!) } : {}),
+    };
+    return {
+      id,
+      ordinal: ordered.find((event) => event.correlation?.modelInvocation)?.correlation?.modelInvocation ?? 0,
+      ...(started?.correlation?.modelRole ? { role: started.correlation.modelRole } : {}),
+      ...(started?.correlation?.modelSubject ? { subjectId: started.correlation.modelSubject } : {}),
+      ...(started?.attributes?.providerId ? { providerId: String(started.attributes.providerId) } : {}),
+      ...(started?.attributes?.accountId ? { accountId: String(started.attributes.accountId) } : {}),
+      ...(started?.attributes?.modelId ? { modelId: String(started.attributes.modelId) } : {}),
+      ...(started?.attributes?.profileId ? { profileId: String(started.attributes.profileId) } : {}),
+      ...(started?.attributes?.promptVersion ? { promptVersion: String(started.attributes.promptVersion) } : {}),
+      ...(started?.attributes?.schemaName ? { schemaName: String(started.attributes.schemaName) } : {}),
+      status: invocationStatus(ordered),
+      ...(started ? { startedAt: started.timestamp } : {}),
+      ...(terminal ? { updatedAt: terminal.timestamp } : ordered.at(-1) ? { updatedAt: ordered.at(-1)!.timestamp } : {}),
+      slotRefs: slotRefs(context),
+      transportAttempts,
+      retryCount: Math.max(0, transportAttempts.length - 1),
+      tokenUsage,
+      ...(requestMeasurements?.requestUtf8Bytes !== undefined ? { requestUtf8Bytes: requestMeasurements.requestUtf8Bytes } : {}),
+      ...(requestMeasurements?.contextUtf8Bytes !== undefined ? { contextUtf8Bytes: requestMeasurements.contextUtf8Bytes } : {}),
+      ...(parsed?.measurements?.responseUtf8Bytes !== undefined ? { responseUtf8Bytes: parsed.measurements.responseUtf8Bytes } : {}),
+      contextSections: contextSections(context),
+      timings: {
+        ...(invocationMs === undefined ? {} : { invocationMs }),
+        queueWaitMs,
+        transportMs,
+        parseMs: eventDuration(ordered, "model.structured_output.parsed") + eventDuration(ordered, "model.structured_output.rejected"),
+        retryDelayMs,
+      },
+      eventIds: ordered.map(worldInspectorRuntimeEventId),
+      payloadEventIds,
+      validationIssueCodes: [...issueCodes],
+      ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
+      hasPayload: ordered.some((event) => event.payload !== undefined),
+    } satisfies WorldInspectorModelInvocationSummary;
+  }).sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id));
+}
+
+function sumModelTokens(invocations: readonly WorldInspectorModelInvocationSummary[]): WorldInspectorTokenUsage {
+  let input = 0;
+  let output = 0;
+  let unknown = false;
+  for (const invocation of invocations) {
+    if (invocation.tokenUsage.input === null) unknown = true; else input += invocation.tokenUsage.input;
+    if (invocation.tokenUsage.output === null) unknown = true; else output += invocation.tokenUsage.output;
+  }
+  return { input, output, total: input + output, unknown };
+}
+
 function eventActors(events: readonly RuntimeEvent[], knownAgents: ReadonlySet<string>): string[] {
   const found = new Set<string>();
   const visit = (value: unknown, depth = 0): void => {
@@ -399,7 +619,12 @@ function attemptSummary(
 ): WorldInspectorAttemptSummary {
   const last = events.at(-1);
   const error = [...events].reverse().find((event) => event.error)?.error;
-  const actorIds = attemptedActions(events).map((action) => action.actorId).sort();
+  const invocations = modelInvocationProjection(events);
+  const actorIds = new Set(attemptedActions(events).map((action) => action.actorId));
+  for (const invocation of invocations) {
+    for (const slot of invocation.slotRefs) if (slot.agentId && knownAgents.has(slot.agentId)) actorIds.add(slot.agentId);
+    if (invocation.subjectId && knownAgents.has(invocation.subjectId)) actorIds.add(invocation.subjectId);
+  }
   const status = record.status === "running" ? "active" : record.status === "succeeded"
     ? "committed" : record.status === "cancelled" ? "cancelled" : "failed";
   const failedEvent = [...events].reverse().find((event) => event.level === "error" || event.event.endsWith(".failed"));
@@ -407,6 +632,7 @@ function attemptSummary(
     (typeof failedEvent?.attributes?.phase === "string" ? failedEvent.attributes.phase : undefined);
   return {
     id: record.id,
+    ...(record.advanceId ? { advanceId: record.advanceId } : {}),
     ...(record.commitRevision !== undefined ? { revision: record.commitRevision } : {}),
     ...(record.step !== undefined ? { step: record.step } : {}),
     status,
@@ -416,9 +642,11 @@ function attemptSummary(
     ...(record.finishedAt ? { durationMs: Math.max(0, Date.parse(record.finishedAt) - Date.parse(record.startedAt ?? record.finishedAt)) } : {}),
     latestEvent: last?.event ?? `execution.${record.status}`,
     eventCount: events.length,
-    modelInvocationCount: new Set(events.flatMap((event) => event.correlation?.modelInvocationId
-      ? [event.correlation.modelInvocationId] : [])).size,
-    actorIds,
+    modelInvocationCount: invocations.length,
+    transportAttemptCount: invocations.reduce((sum, invocation) => sum + invocation.transportAttempts.length, 0),
+    retryCount: invocations.reduce((sum, invocation) => sum + invocation.retryCount, 0),
+    tokenUsage: sumModelTokens(invocations),
+    actorIds: [...actorIds].sort(),
     relatedActorIds: eventActors(events, knownAgents),
     rejectionCount: events.filter((event) => event.event === "model.semantic.rejected").length,
     repairCount: events.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
@@ -530,6 +758,7 @@ export function buildWorldInspectorStepDetail(
     before: snapshot(before),
     after: snapshot(after),
     runtimeEvents: executionEvents.map(summarizeRuntimeEvent),
+    modelInvocations: modelInvocationProjection(executionEvents),
     trace: traceAvailability(executionEvents),
   };
 }
@@ -548,7 +777,101 @@ export function buildWorldInspectorAttemptDetail(
     attemptedActions: attemptedActions(events),
     stages: attemptStages(events),
     events: events.map(summarizeRuntimeEvent),
+    modelInvocations: modelInvocationProjection(events),
     trace: traceAvailability(events),
+  };
+}
+
+function invocationResult(
+  record: ExecutionRecord,
+  invocation: WorldInspectorModelInvocationSummary,
+): WorldInspectorModelInvocationResult {
+  return {
+    ...invocation,
+    executionId: record.id,
+    attemptId: record.id,
+    ...(record.commitRevision !== undefined ? { revision: record.commitRevision } : {}),
+    ...(record.step !== undefined ? { step: record.step } : {}),
+  };
+}
+
+function cursorOffset(cursor: string | undefined): number {
+  if (!cursor) return 0;
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { offset?: unknown };
+    return typeof value.offset === "number" && Number.isSafeInteger(value.offset) && value.offset >= 0 ? value.offset : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function nextCursor(offset: number, total: number): string | undefined {
+  if (offset >= total) return undefined;
+  return Buffer.from(JSON.stringify({ offset }), "utf8").toString("base64url");
+}
+
+function querySortValue(item: WorldInspectorModelInvocationResult, sort: NonNullable<WorldInspectorModelInvocationQuery["sort"]>): number {
+  if (sort === "duration") return item.timings.invocationMs ?? -1;
+  if (sort === "inputTokens") return item.tokenUsage.input ?? -1;
+  if (sort === "outputTokens") return item.tokenUsage.output ?? -1;
+  if (sort === "retries") return item.retryCount;
+  return item.startedAt ? Date.parse(item.startedAt) : item.ordinal;
+}
+
+export function queryWorldInspectorModelInvocations(
+  records: readonly ExecutionRecord[],
+  runtimeEvents: readonly RuntimeEvent[],
+  input: WorldInspectorModelInvocationQuery = {},
+): WorldInspectorModelInvocationQueryResult {
+  const all = records.flatMap((record) => {
+    const events = runtimeEvents.filter((event) => event.correlation?.executionId === record.id);
+    return modelInvocationProjection(events).map((invocation) => invocationResult(record, invocation));
+  }).filter((item) => {
+    const actorMatch = !input.actorId || item.slotRefs.some((slot) => slot.agentId === input.actorId) || item.subjectId === input.actorId;
+    const duration = item.timings.invocationMs;
+    const inputTokens = item.tokenUsage.input;
+    return (!input.executionId || item.executionId === input.executionId) &&
+      actorMatch && (!input.role || item.role === input.role) &&
+      (!input.providerId || item.providerId === input.providerId) &&
+      (!input.modelId || item.modelId === input.modelId) &&
+      (!input.status || item.status === input.status) &&
+      (input.minDurationMs === undefined || duration !== undefined && duration >= input.minDurationMs) &&
+      (input.maxDurationMs === undefined || duration !== undefined && duration <= input.maxDurationMs) &&
+      (input.minInputTokens === undefined || inputTokens !== null && inputTokens !== undefined && inputTokens >= input.minInputTokens) &&
+      (input.maxInputTokens === undefined || inputTokens !== null && inputTokens !== undefined && inputTokens <= input.maxInputTokens) &&
+      (input.minRetries === undefined || item.retryCount >= input.minRetries);
+  });
+  const sort = input.sort ?? "timestamp";
+  all.sort((left, right) => {
+    const delta = querySortValue(right, sort) - querySortValue(left, sort);
+    return delta || right.ordinal - left.ordinal || right.executionId.localeCompare(left.executionId) || right.id.localeCompare(left.id);
+  });
+  const limit = Math.min(100, Math.max(1, input.limit ?? 50));
+  const offset = Math.min(cursorOffset(input.cursor), all.length);
+  const items = all.slice(offset, offset + limit);
+  return {
+    apiVersion: WORLD_INSPECTOR_API_VERSION,
+    items,
+    ...(nextCursor(offset + items.length, all.length) ? { nextCursor: nextCursor(offset + items.length, all.length) } : {}),
+    total: all.length,
+  };
+}
+
+export function buildWorldInspectorModelInvocationDetail(
+  executionId: string,
+  invocationId: string,
+  record: ExecutionRecord | undefined,
+  runtimeEvents: readonly RuntimeEvent[],
+): WorldInspectorModelInvocationDetail | undefined {
+  if (!record) return undefined;
+  const events = runtimeEvents.filter((event) => event.correlation?.executionId === executionId);
+  const invocation = modelInvocationProjection(events).find((candidate) => candidate.id === invocationId);
+  if (!invocation) return undefined;
+  const result = invocationResult(record, invocation);
+  const eventIds = new Set(invocation.eventIds);
+  return {
+    ...result,
+    eventSummaries: events.filter((event) => eventIds.has(worldInspectorRuntimeEventId(event))).map(summarizeRuntimeEvent),
   };
 }
 
