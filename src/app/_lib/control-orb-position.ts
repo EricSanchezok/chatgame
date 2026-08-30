@@ -1,6 +1,6 @@
 export const controlOrbSize = 64;
 export const radialActionSize = 44;
-export const radialActionRadius = 104;
+export const radialActionRadius = 76;
 export const radialClusterInset = radialActionRadius + 56;
 export const defaultControlPosition: ControlPosition = { x: 0.86, y: 0.72 };
 

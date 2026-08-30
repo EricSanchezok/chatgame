@@ -74,6 +74,8 @@ test("the observer conversation matches light and dark responsive baselines", as
     await page.setViewportSize({ width: 1_440, height: 900 });
     await page.goto(`/play/${instanceId}`);
     await expect(page.getByRole("button", { name: "单步" })).toBeVisible();
+    await expect(page.locator(".cg-timeline-rail")).toBeVisible();
+    await expect(page.getByLabel("你的行动")).toHaveCount(0);
     await expect(page).toHaveScreenshot(`instance-${colorScheme}-desktop.png`, screenshotOptions);
 
     await page.getByRole("button", { name: /打开游戏控制/ }).click();
@@ -100,6 +102,7 @@ test("the observer conversation matches light and dark responsive baselines", as
 
     await page.setViewportSize({ width: 320, height: 720 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(page.locator(".cg-timeline-rail")).toBeHidden();
     await settleResponsiveOverlay(page);
     await expect(page).toHaveScreenshot(`instance-${colorScheme}-mobile.png`, screenshotOptions);
   }
@@ -109,8 +112,10 @@ test("the participant conversation, control orb and inspector stay bounded", asy
   const instanceId = await preparedInstance(page, "origin");
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await page.goto(`/play/${instanceId}`);
-  await expect(page.getByText("此刻，你是小明")).toBeVisible();
+  await expect(page.locator('[data-role="assistant"] .cg-narrative').filter({ hasText: "此刻，你是小明" }).first()).toBeVisible();
   await expect(page).toHaveScreenshot("instance-participant-dark-desktop.png", screenshotOptions);
+  await expect(page.locator(".cg-timeline-rail")).toBeVisible();
+  await expect(page.getByLabel("你的行动")).toBeVisible();
 
   await page.evaluate(() => {
     localStorage.setItem("livingworld:preferences:v2", JSON.stringify({

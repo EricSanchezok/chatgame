@@ -1,0 +1,72 @@
+import type { PublicWorldRun } from "../../shared/world-api";
+
+export type RunStatusPresentation = {
+  title: string;
+  detail: string;
+};
+
+function activityDescription(run: PublicWorldRun): string | undefined {
+  const activity = run.activity;
+  if (!activity) return undefined;
+  if (activity.status === "queued") {
+    return `等待${activity.resourceNames.join("、") || "资源"} · 队列 ${activity.queuePosition ?? 1}`;
+  }
+  if (activity.status === "ready") return "资源已预留 · 等待推进";
+  const stage = activity.stage ?? "活动推进中";
+  if (!activity.progress) return stage;
+  return `${stage} · ${activity.progress.current.toFixed(2)} / ${activity.progress.target} ${activity.progress.unit}`;
+}
+
+export function runStatusPresentation(run: PublicWorldRun, hasParticipantAction = false): RunStatusPresentation {
+  let title: string;
+  let detail: string;
+  switch (run.status) {
+    case "queued":
+      title = "正在准备世界变化";
+      detail = "等待资源 → 生成 → 校验 → 提交";
+      break;
+    case "pausing":
+      title = "即将暂停";
+      detail = "完成当前边界后暂停";
+      break;
+    case "paused":
+      title = "世界推进已暂停";
+      detail = "可恢复，或提交新行动";
+      break;
+    case "budget-paused":
+      title = "本轮已达到上限";
+      detail = "恢复后开启新一轮推进";
+      break;
+    case "preparation-invalidated":
+      title = "需要重新准备";
+      detail = "世界状态已变化，原方案未提交";
+      break;
+    case "running":
+      title = hasParticipantAction ? "正在处理你的行动" : "世界正在自主推进";
+      detail = hasParticipantAction ? "生成 → 校验 → 提交" : "计算 → 校验 → 提交";
+      break;
+    default:
+      title = "世界正在推进";
+      detail = "准备下一次世界变化";
+  }
+  return { title, detail: activityDescription(run) || detail };
+}
+
+export function runBoundaryLabel(run: PublicWorldRun): string {
+  const lease = run.lease;
+  if (!lease) return "本轮推进准备中";
+  return `本轮推进 ${lease.commitCount} / ${lease.maxCommits} 个世界边界`;
+}
+
+export function formatRunElapsed(startedAt?: string, now = Date.now()): string | undefined {
+  if (!startedAt) return undefined;
+  const timestamp = Date.parse(startedAt);
+  if (!Number.isFinite(timestamp)) return undefined;
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  if (minutes < 60) return `${minutes} 分 ${String(remainder).padStart(2, "0")} 秒`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} 小时 ${String(minutes % 60).padStart(2, "0")} 分`;
+}
