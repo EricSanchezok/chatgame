@@ -6,7 +6,7 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 
 | Layer | Location | Responsibility |
 |---|---|---|
-| World contract | `src/script/` | Read schema v14 world packages, validate temporal/mechanics/resource profiles and assets, and construct `WorldDefinition` and `SimulationState` v14 |
+| World contract | `src/script/` | Read schema v14 world packages, validate temporal/mechanics/resource profiles and assets, and construct `WorldDefinition` and `SimulationState` v15 |
 | Execution algorithms | `src/engine/algorithms/` | Versioned algorithm definitions; `eager-reference/` owns Action Compilation, AgentMind, prompt call wiring, and slot batching while returning ordinary Candidates |
 | Model gateway | `src/engine/models/` | Trusted provider accounts, models.dev snapshots, deterministic Profile resolution, protocol drivers, vendor dialects, external prompt bundles, strict structured output, fair scheduling, and invocation audit |
 | Cognition | `src/engine/cognition/` | Agent perspective, private belief/character updates, observations, information boundaries, and mind commits |
@@ -15,7 +15,7 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 | Prompt resources | `src/engine/prompts/` | Server-loaded English role/task/transport Markdown, content-addressed bundle versions, and unified task/context serialization |
 | Shared contracts | `src/engine/contracts/` | Semantic state types, model-output schemas, and prompt/context contracts shared across owners |
 | Benchmarks | `src/engine/benchmarks/` | Benchmark-only code and evidence generators kept off the product execution path |
-| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v19, pinned configured `AlgorithmRef`, persistent WorldRuns, Participants, decision/reaction windows, Preparation v4 artifacts, leases, recovery, and generation fencing |
+| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v20, pinned configured `AlgorithmRef`, persistent WorldRuns, Participants, decision/reaction windows, Preparation v4 artifacts, leases, recovery, and generation fencing |
 | Execution evidence | `src/server/execution-ledger.ts` | The sole persisted source for executions, events, artifacts, experiments, replay, and Inspector data |
 | HTTP and browser | `src/app/` | API v12, world library, assistant-ui sessions, decision/reaction controls, unified Agent Perspective HUD, control orb, and read-only Inspector v8 |
 | Shared browser contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |
@@ -30,11 +30,11 @@ Dependencies flow browser → Route Handler → WorldHost → SimulationEngine �
 
 Models produce semantic drafts only. Agent, Entity, Fact, Meter, Rating, Condition, and subject-private cognition records use world semantic IDs. The engine deterministically assigns runtime identities for actions, Resolution Plans and Receipts, TemporalPlans, Activities, shared-resource pools, checks, random draws, mechanics, events, outcomes, observations, and apparent claims. It materializes revisions, steps, phases, lifecycle, progress, clock deltas, provenance, Profiles, and timestamps.
 
-## `eager-reference@9`
+## `eager-reference@10`
 
 The reference algorithm deliberately spends complete work to provide a precise semantic baseline:
 
-Action Compilation and AgentMind use private byte-aware slot batches inside the algorithm. Their immutable per-instance limits default to twelve and eight; independent Reaction and Action Grounding worker limits default to eight and sixteen. Truth Engine uses fixed twelve-slot batches for graph-proven independent resolution, plan verification, transition, causal verification, and observation work. All five limits remain configurable from one through sixty-four and participate in the manifest hash. Truth batches share the complete common world context once while keeping scoped responsibility in each slot; CanonicalCommitter, RNG/check commitment, privacy validation, and atomic commit remain unchanged. Each physical request has one audit, localized semantic failures retry only their slots, structural failures repair the current batch and then bisect it, context overflow is a hard error, and terminal provider errors propagate directly. The fixed engine, Gateway, Script schema, and CanonicalCommitter do not interpret these limits.
+Action Compilation and AgentMind use private byte-aware slot batches inside the algorithm. Their immutable per-instance limits default to twelve and eight; independent Reaction and Action Grounding worker limits default to eight and sixteen. Action Compilation sends one complete request-local reference namespace and deterministically includes detailed evidence only for referenced, text-matched, world, eligible temporal-profile, placement-neighbor, and dependency-connected candidates. Every omitted detail remains recoverable through the retained stable candidate handle; typed validation and bounded slot repair remain authoritative. Truth Engine uses fixed twelve-slot batches for graph-proven independent resolution, plan verification, transition, causal verification, and observation work. All five limits remain configurable from one through sixty-four and participate in the manifest hash. Truth batches share the complete common world context once while keeping scoped responsibility in each slot; CanonicalCommitter, RNG/check commitment, privacy validation, and atomic commit remain unchanged. Each physical request has one audit, localized semantic failures retry only their slots, structural failures repair the current batch and then bisect it, context overflow is a hard error, and terminal provider errors propagate directly. The fixed engine, Gateway, Script schema, and CanonicalCommitter do not interpret these limits.
 
 1. A model or external Agent supplies a new action only at an engine-owned decision point. An occupied Agent keeps its durable Activity and does not run ordinary AgentMind merely because another Activity reaches a boundary; a `ready` Activity supplies an engine-owned start trigger instead.
 2. Every new action independently selects one script-declared Temporal Profile. The same grounding invocation produces read/write/audience dependencies and structured shared-resource claims; the engine verifies explicit quantities and persists the footprint as Activity evidence.
@@ -65,7 +65,7 @@ A Participant session projects persisted Arrival, Participant intent, every comm
 
 Normalized world content receives a SHA-256 covering the manifest, laws, mechanics, entities, participation configuration, and static-asset identities. An instance pins its `WorldRuntimeContract` and world content hash, and reconstruction verifies both against the content-addressed version.
 
-World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`; content-addressed model-registry snapshots live beside it under `model-registry/`. Operational entrypoints are grouped under `scripts/experiments/` and `scripts/operations/`, while repo-seed governance scripts retain their managed root paths. The default v19 directory is `.livingworld-v19/`. SQLite uses WAL, `synchronous=FULL`, strict tables, process leases, write transactions, and generation compare-and-swap. Old schemas are not migrated; a different contract uses a new data root.
+World versions, instances, and the Execution Ledger live in `LIVINGWORLD_DATA_ROOT/livingworld.sqlite`; content-addressed model-registry snapshots live beside it under `model-registry/`. Operational entrypoints are grouped under `scripts/experiments/` and `scripts/operations/`, while repo-seed governance scripts retain their managed root paths. The default v20 directory is `.livingworld-v20/`. SQLite uses WAL, `synchronous=FULL`, strict tables, process leases, write transactions, and generation compare-and-swap. Old schemas are not migrated; a different contract uses a new data root.
 
 ## Hard invariants
 

@@ -1,7 +1,7 @@
 # Truth Engine Output Repair Boundaries
 
 ## Status
-Accepted
+Superseded by [0087](0087-bounded-action-compilation-context.md)
 Class: architecture
 
 ## Context and Problem Statement
@@ -52,3 +52,4 @@ All semantic repairs retain complete context: no truncation, slicing, summarizat
 - [0063 Eager Reference execution algorithm](0063-eager-reference-execution.md)
 - [0060 Model-output field ownership](0060-model-output-field-ownership.md)
 - [0059 Unified execution kernel and ledger](0059-unified-execution-kernel-and-ledger.md)
+- [0087 Bounded Action Compilation context](0087-bounded-action-compilation-context.md)

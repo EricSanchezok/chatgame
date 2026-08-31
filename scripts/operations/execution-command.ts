@@ -26,7 +26,7 @@ import { runtimeCodeIdentity } from "../../src/server/code-identity";
 
 function argumentsFor(argv: readonly string[]): { executionIds: string[]; database: string; output?: string } {
   const executionIds: string[] = [];
-  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v19", "livingworld.sqlite");
+  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v20", "livingworld.sqlite");
   let output: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];

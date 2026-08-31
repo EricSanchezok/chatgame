@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 Class: architecture
 
 ## Context and Problem Statement
@@ -29,7 +29,7 @@ The engine must distinguish complete semantic reachability from complete eager s
 
 ## Decision Outcome
 
-Choose option 3. A batch owns one `referenceCatalog`; every eligible handle remains present, while candidate details may be projected deterministically. The engine evaluates full-detail and selective-detail variants against the same recorded cases and promotes a selective variant only if semantic, commit, replay, causal, privacy, shared-resource, and onset-reaction gates pass. A single normalized complete catalog without duplicate canonical truth is the safe fallback.
+Choose option 3. A batch owns one `referenceCatalog`; every eligible handle remains present, while candidate details are projected deterministically. The evaluated C3 projector includes details for action references, eligible temporal profiles, the world clock, text matches, placement neighbors, and their reference closure, while all other candidates keep identity, meaning, allowed uses, scope, and `details: null`. Production has one projector in `action-compilation-context.ts` and no runtime variant switch.
 
 Field-specific resolvers enforce allowed kinds and uses. Unknown, fuzzy, private, or illegal references remain local typed issues and never become global scope. Global arbitration follows only from an accepted canonical world reference. Runtime-contract preflight and trusted execution remain authoritative.
 
@@ -37,7 +37,7 @@ Temporal profile selection is constrained by script-owned eligibility and exact 
 
 Action Compilation preserves accepted slots and repairs only rejected fields or slots with typed issues and bounded evidence. Stable failure fingerprints stop equivalent repair loops through deterministic engine-owned correction, bounded evidence expansion, or the existing conservative batch split/failure policy. The resolution-plan verifier continues repairing the smallest named plan and re-verifying before random commitment. Observer-local causal findings continue re-rendering only affected observers; findings not proven local remain in the owning atomic component.
 
-Transport, structured-output, semantic-validation, and context-limit failures retain separate telemetry. Repair orchestration does not choose canonical disposition. Context limit never silently removes candidate handles; a variant that cannot fit raises `ContextLimitExceeded` or uses the validated complete-catalog fallback/batch policy.
+Transport, structured-output, semantic-validation, and context-limit failures retain separate telemetry. Repair orchestration does not choose canonical disposition. Context limit never silently removes candidate handles; an oversized projected batch raises `ContextLimitExceeded` and follows the existing batch failure policy.
 
 ## Pros and Cons of the Options
 
@@ -64,6 +64,7 @@ Transport, structured-output, semantic-validation, and context-limit failures re
 ## Links
 
 - [Action Compilation context and temporal eligibility spec](../specs/0014-action-compilation-context-and-temporal-eligibility.md)
+- [Paired DeepSeek V4 Flash evaluation](../../test/fixtures/action-compilation/live-report.json)
 - [Model semantic contract and reference boundaries](0086-model-semantic-contract-and-reference-boundaries.md)
 - [Truth Engine output repair boundaries](0079-truth-engine-output-repair-boundaries.md)
 - [Event-boundary temporal runtime](0070-event-boundary-temporal-runtime.md)

@@ -44,4 +44,5 @@ next-env.d.ts
 /.livingworld/
 /.livingworld-v16/
 /.livingworld-v19/
+/.livingworld-v20/
 /.livingworld-benchmarks/

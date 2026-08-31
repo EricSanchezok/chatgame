@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v14 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan、模型执行审计与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v19 在其外层固定带 opaque config 的 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v4 artifact、调度配置和 WorldRun。
+`SimulationState` v15 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan、模型执行审计与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v20 在其外层固定带 opaque config 的 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v4 artifact、调度配置和 WorldRun。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -36,11 +36,11 @@ Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active
 
 终止 disposition 释放全部 claims，pause 按定义保留或释放。每次正时间提交先应用 disposition，再按相互连接的 pool 划分 FIFO 分量；每个分量遇到第一个无法完整满足的队首就停止，其他不相连分量仍可推进。满足者转为 `ready` 并持有原子 reservation，在下一次普通正时间步骤重新验证 assertions 后从当前 canonical 时间物化新 TemporalPlan；排队时间不回填进度。Entity retirement 或 capacity decrease 只有在同一 Candidate 释放足够 holder 时才合法。
 
-`eager-reference@9` 的阶段如下：
+`eager-reference@10` 的阶段如下：
 
 Truth Engine 的独立 interaction components 在 resolution、plan verification、transition、causal verification 与 observation 阶段使用固定 `truthBatchMaxSlots`（默认 12）slot batch。共享上下文完整发送一次，slot 仍独立校验、repair、审计和 replay；真实 global 或无法证明独立的分量保持原有全局路径。完整 batch 超过模型输入上限直接返回 `ContextLimitExceeded`，不缩小或裁剪上下文。
 
-Action Compilation 与 AgentMind 在算法内部使用独立上限的槽位批处理，默认分别为十二和八；Reaction worker 与 Action Grounding worker 上限默认分别为八和十六，合法范围均为一至六十四。Action Compilation 每批只发送一份 canonical catalog、Temporal Profiles、校准与世界时间；AgentMind 按 `bootstrap | resume | mind` 和 Agent model profile 分组，每批只共享 execution、revision 与 trust boundary，私有 perspective、Observation、current resolution 和 Character update policy 始终留在各自 slot。每个批次的 `userPrompt` 先于标记为 data 的 Context，字节预算与 Gateway 实际请求通过同一序列化函数计算；输入字节上限可继续缩小实际批次。局部语义失败只修复失败 slot，结构失败修复整批三次后稳定二分，terminal provider 错误不拆批。一个物理请求对应一份 audit，批结果不把 invocation ID 复制给各 Agent。四项上限随算法 manifest 固定，重启与 replay 使用同一配置。
+Action Compilation 与 AgentMind 在算法内部使用独立上限的槽位批处理，默认分别为十二和八；Reaction worker 与 Action Grounding worker 上限默认分别为八和十六，合法范围均为一至六十四。Action Compilation 每批发送一份完整 handle namespace，并只为当前 action、合法 Temporal Profile、世界时间、位置邻域与引用闭包保留详细 evidence；候选身份、语义、允许用途和 slot scope 始终完整，未选择的 details 显式为 `null`。AgentMind 按 `bootstrap | resume | mind` 和 Agent model profile 分组，每批只共享 execution、revision 与 trust boundary，私有 perspective、Observation、current resolution 和 Character update policy 始终留在各自 slot。每个批次的 `userPrompt` 先于标记为 data 的 Context，字节预算与 Gateway 实际请求通过同一序列化函数计算；输入字节上限可继续缩小实际批次。局部语义失败只修复失败 slot，结构失败修复整批三次后稳定二分，terminal provider 错误不拆批。一个物理请求对应一份 audit，批结果不把 invocation ID 复制给各 Agent。四项上限随算法 manifest 固定，重启与 replay 使用同一配置。
 
 1. 只为当前决策点的 model/external Agent 收集新行动；被 active Activity 占用的 Agent 不运行普通 AgentMind。
 2. 每个新行动独立规划 TemporalPlan，并用一次 grounding 生成 read/write/audience footprint 和共享资源 claims，在当前时刻物化带 continuation assertions 的 Activity。普通新行动替换本人可中断、queued 或 ready Activity 时，同一投影先取消旧 Activity。

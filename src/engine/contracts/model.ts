@@ -592,7 +592,7 @@ export interface AgentAdmissionCommit {
 export type WorldEventDraft = Omit<WorldEvent, "step">;
 
 export interface SimulationState {
-  schemaVersion: 14;
+  schemaVersion: 15;
   worldId: string;
   worldHash: string;
   lawIds: string[];

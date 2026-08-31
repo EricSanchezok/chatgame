@@ -18,7 +18,7 @@ English is the working language for new governance artifacts and code. Existing 
 
 ## Configuration
 
-- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v19/`. World versions, World Instances, WorldRuns, reaction preparations, model-registry snapshots, and the Execution Ledger share the data root; the SQLite records live in `livingworld.sqlite`. World Instance schema v19 embeds SimulationState v14 and its pinned algorithm reference; it does not read older saves, so use a new data root for another format.
+- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v20/`. World versions, World Instances, WorldRuns, reaction preparations, model-registry snapshots, and the Execution Ledger share the data root; the SQLite records live in `livingworld.sqlite`. World Instance schema v20 embeds SimulationState v15 and its pinned algorithm reference; it does not read older saves, so use a new data root for another format.
 - `LIVINGWORLD_MODEL_CATALOG_PATH` selects the complete model catalog and defaults to `config/models.yaml`.
 - Each provider's `api_key_env` names its credential environment variable. A credential is required only when the world or an Agent uses that provider's Profile. The bundled Blackmarsh reference world uses DeepSeek profiles pinned to `deepseek-v4-flash` with thinking disabled and therefore requires `DEEPSEEK_API_KEY` (unless its profiles are intentionally overridden for a test).
 - Normal execution, failure diagnosis, model I/O, and experiment evidence always enter the SQLite Execution Ledger. There is no `off|metrics|full` product switch or log directory; [Runtime observability](game-design/runtime-observability.md) owns the data boundary.
@@ -45,7 +45,7 @@ Node route. Do not commit the resolved address or any credential.
 
 Use `npm run experiment:run -- --agents 1,10,50,1000 --steps 1` for the deterministic scale matrix. Replay, comparison, and export commands are defined by [Runtime observability](game-design/runtime-observability.md#研究命令).
 
-Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v4 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@9` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, Action Grounding to sixteen, and Truth Engine fixed batches to twelve, and remains the explicit experiment default.
+Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v4 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@10` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, Action Grounding to sixteen, and Truth Engine fixed batches to twelve, and remains the explicit experiment default.
 
 ## Source attribution
 
