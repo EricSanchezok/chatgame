@@ -1,6 +1,8 @@
 import type { ActionCompilationDraft } from "../../runtime/execution";
+import type { SimulationState } from "../../contracts/model";
 import {
   isProposalReference,
+  type ExistingReferenceHandle,
   type ModelReference,
   type ModelReferenceKind,
   type ModelReferenceUse,
@@ -50,6 +52,37 @@ export class ActionCompilationValidationError extends Error {
     super(`action compilation contains ${issues.length} field-level reference issue(s)`);
     this.name = "ActionCompilationValidationError";
   }
+}
+
+export function normalizeActionCompilationDraftReferences(input: {
+  draft: ActionCompilationDraft;
+  resolver: ReferenceResolver;
+  state: Readonly<SimulationState>;
+}): { draft: ActionCompilationDraft; agentFootprintConversions: number } {
+  const draft = structuredClone(input.draft);
+  let agentFootprintConversions = 0;
+  const normalizeFootprint = (handle: ExistingReferenceHandle): ExistingReferenceHandle => {
+    try {
+      const resolved = input.resolver.resolve(handle);
+      if (resolved.kind !== "agent") return handle;
+      const agent = input.state.agents[resolved.engineId];
+      if (!agent) return handle;
+      const entity = input.state.truth.entities[agent.entityId];
+      if (!entity || entity.lifecycle !== "active") return handle;
+      const bindings = Object.values(input.state.agents).filter((candidate) => candidate.entityId === agent.entityId);
+      if (bindings.length !== 1) return handle;
+      const entityHandle = input.resolver.handleFor("entity", agent.entityId);
+      agentFootprintConversions += 1;
+      return entityHandle;
+    } catch {
+      return handle;
+    }
+  };
+  draft.interactionDependency.stateDependencies.requiredExistingRefs =
+    draft.interactionDependency.stateDependencies.requiredExistingRefs.map(normalizeFootprint);
+  draft.interactionDependency.stateDependencies.potentiallyAffectedExistingRefs =
+    draft.interactionDependency.stateDependencies.potentiallyAffectedExistingRefs.map(normalizeFootprint);
+  return { draft, agentFootprintConversions };
 }
 
 function allowedHandles(

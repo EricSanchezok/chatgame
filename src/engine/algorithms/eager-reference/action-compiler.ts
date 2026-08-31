@@ -58,6 +58,7 @@ import { contentHash } from "../../models/model-audit";
 import { semanticRepairFingerprint } from "../../models/semantic-repair";
 import {
   ActionCompilationValidationError,
+  normalizeActionCompilationDraftReferences,
   validateActionCompilationDraft,
 } from "./action-compilation-validation";
 
@@ -511,16 +512,18 @@ function materializeCompilation(
   draft: ActionCompilationDraft,
   resolver = actionGroundingReferenceResolver(state, action),
 ): CompiledAction {
-  if (isProposalReference(draft.temporalPlan.profileRef)) {
-    throw new Error(`temporal plan profile cannot use proposalKey ${draft.temporalPlan.profileRef.proposalKey}`);
+  const normalized = normalizeActionCompilationDraftReferences({ draft, resolver, state });
+  const normalizedDraft = normalized.draft;
+  if (isProposalReference(normalizedDraft.temporalPlan.profileRef)) {
+    throw new Error(`temporal plan profile cannot use proposalKey ${normalizedDraft.temporalPlan.profileRef.proposalKey}`);
   }
-  const profileId = resolver.resolve(draft.temporalPlan.profileRef, "profile").engineId;
+  const profileId = resolver.resolve(normalizedDraft.temporalPlan.profileRef, "profile").engineId;
   const profile = state.truth.mechanics.temporalProfiles[profileId];
   if (!profile) throw new Error(`unknown temporal profile ${profileId}`);
   const temporalEvidence = extractActionTemporalEvidence(action.rawText, state.truth.mechanics.temporalProfiles);
   const profileEligibility = eligibleTemporalProfiles(state.truth.mechanics.temporalProfiles, temporalEvidence);
   const fieldIssues = validateActionCompilationDraft({
-    draft,
+    draft: normalizedDraft,
     resolver,
     eligibleProfileHandles: new Set(profileEligibility
       .filter((entry) => entry.eligibility.eligible)
@@ -582,11 +585,11 @@ function materializeCompilation(
     rawText: action.rawText,
     startsAtSeconds: state.truth.elapsedSeconds,
     draft: {
-      ...structuredClone(draft.temporalPlan),
+      ...structuredClone(normalizedDraft.temporalPlan),
       profileId,
-      basis: materializeModelTemporalBasis(profile, draft.temporalPlan.basis, temporalEvidence),
-      causes: draft.temporalPlan.causes.map(resolveCause),
-      continuationAssertions: draft.temporalPlan.continuationAssertions.map(resolveAssertion),
+      basis: materializeModelTemporalBasis(profile, normalizedDraft.temporalPlan.basis, temporalEvidence),
+      causes: normalizedDraft.temporalPlan.causes.map(resolveCause),
+      continuationAssertions: normalizedDraft.temporalPlan.continuationAssertions.map(resolveAssertion),
     },
     profiles: state.truth.mechanics.temporalProfiles,
   });
@@ -608,7 +611,7 @@ function materializeCompilation(
     dependency: materializeModelInteractionDependency(
       state,
       action,
-      draft.interactionDependency,
+      normalizedDraft.interactionDependency,
       resolver,
     ),
   };

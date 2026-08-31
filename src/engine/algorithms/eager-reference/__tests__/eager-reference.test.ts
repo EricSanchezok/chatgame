@@ -821,6 +821,39 @@ describe("eager reference safeguards", () => {
     expect(issue.allowedHandles.length).toBeLessThanOrEqual(64);
   });
 
+  it("normalizes a unique active Agent footprint to its canonical Entity without repair", async () => {
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-compilation") {
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          const agentHandle = referenceHandleFor("agent", action.actorId);
+          compilation.interactionDependency.stateDependencies.requiredExistingRefs = [agentHandle];
+          compilation.interactionDependency.stateDependencies.potentiallyAffectedExistingRefs = [agentHandle];
+        });
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
+  });
+
   it("rolls back when an Action Compilation singleton exhausts semantic repair", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
