@@ -173,8 +173,15 @@ profiles:
     description: 校园网 Qwen3.8-27B 世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-compilation, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
-    max_output_tokens: 65536
-    max_input_bytes: 8000000
+    # Qwen3.8-27B exposes a 1,010,000-token context window. Blackmarsh
+    # action-compilation contexts can approach that ceiling, so leave ample
+    # headroom for the structured response instead of requesting the GLM-sized
+    # 65k budget.
+    max_output_tokens: 16384
+    # Keep each physical batch below Qwen's one-million-token context ceiling;
+    # eager-reference will bisect the 12-slot logical batch when this limit is
+    # reached, preserving all slots while leaving output headroom.
+    max_input_bytes: 4000000
     inference:
       thinking: disabled
       effort: auto

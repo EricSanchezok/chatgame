@@ -33,7 +33,10 @@ export function createModelFetchResolver(
     const existing = transports.get(key);
     if (existing) return existing.fetch;
 
-    const dispatcher = new Agent({ connect: { localAddress } });
+    // Undici's Agent takes `localAddress` at the top level. Putting it inside
+    // `connect` leaves the Client's per-request localAddress null, so macOS
+    // still routes the TLS handshake through the VPN TUN interface.
+    const dispatcher = new Agent({ localAddress });
     const boundFetch: typeof fetch = async (input, init) => {
       // Node's global Request type and undici's bundled Request type differ
       // slightly across supported Node versions, while the runtime contract
