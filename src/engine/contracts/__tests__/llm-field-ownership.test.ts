@@ -9,7 +9,9 @@ import {
   perceptionDirectiveSchema,
   reactionDecisionDraftSchema,
   reactionRoutingOutputSchema,
+  resolutionContinuationDirectiveSchema,
   resolutionDirectiveSchema,
+  resolutionPlanCommitDirectiveSchema,
   resolutionPlanVerificationSchema,
   transitionProposalSchema,
   observationRenderSchema,
@@ -188,6 +190,25 @@ describe("LLM output field ownership", () => {
       causes: [{ kind: "action" as const, ref: "ref:action:action-local" }],
     };
     expect(resolutionDirectiveSchema.safeParse({ kind: "commit_plans", plans: [plan] }).success).toBe(true);
+    expect(resolutionPlanCommitDirectiveSchema.safeParse({ kind: "commit_plans", plans: [plan] }).success).toBe(true);
+    expect(resolutionContinuationDirectiveSchema.safeParse({ kind: "commit_plans", plans: [plan] }).success).toBe(false);
+    expect(resolutionPlanCommitDirectiveSchema.safeParse({ kind: "done" }).success).toBe(false);
+    expect(resolutionContinuationDirectiveSchema.safeParse({ kind: "done" }).success).toBe(true);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{ ...plan, targetRefs: ["ref:local_entity:actor-local"] }],
+    }).success).toBe(false);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{
+        ...plan,
+        means: [{ description: "mismatched kind", source: { kind: "entity", ref: "ref:fact:actor-local" } }],
+      }],
+    }).success).toBe(false);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{ ...plan, causes: [{ kind: "action", ref: "ref:fact:actor-local" }] }],
+    }).success).toBe(false);
     expect(resolutionDirectiveSchema.safeParse({
       kind: "commit_plans",
       plans: [{
@@ -226,9 +247,23 @@ describe("LLM output field ownership", () => {
           direction: "helpful",
           steps: 2,
           authority: "authored",
+          source: { kind: "law", ref: "ref:law:world-law" },
         }],
       }],
     }).success).toBe(true);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{
+        ...plan,
+        factors: [{
+          ...factor,
+          role: "potency",
+          direction: "helpful",
+          steps: 2,
+          authority: "authored",
+        }],
+      }],
+    }).success).toBe(false);
     expect(resolutionDirectiveSchema.safeParse({
       kind: "commit_plans",
       plans: [{

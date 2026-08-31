@@ -5,7 +5,9 @@ import {
   mechanicInvocationRepairSchema,
   perceptionDirectiveSchema,
   reactionRoutingOutputSchema,
+  resolutionContinuationDirectiveSchema,
   resolutionDirectiveSchema,
+  resolutionPlanCommitDirectiveSchema,
   resolutionPlanVerificationSchema,
   transitionProposalSchema,
   type DiscreteRandomRequestProposal,
@@ -2515,14 +2517,19 @@ export class TruthEngine {
         pendingPlanVerification = null;
         continuationFromTargetedRepair = true;
       } else try {
-        call = await generateValidated({
+        const directiveSchema = (resolutionPlans.length === 0
+          ? resolutionPlanCommitDirectiveSchema
+          : resolutionContinuationDirectiveSchema) as z.ZodType<z.infer<typeof resolutionDirectiveSchema>>;
+        call = await generateValidated<z.infer<typeof resolutionDirectiveSchema>>({
           provider: this.provider,
           profileId: input.definition.modelProfiles.resolution,
           role: "truth-resolution",
           subjectId: truthSubject,
           promptId: "truth-resolution",
-          schemaName: "truth_resolution_directive",
-          schema: resolutionDirectiveSchema,
+          schemaName: resolutionPlans.length === 0
+            ? "truth_resolution_plan_commit"
+            : "truth_resolution_continuation",
+          schema: directiveSchema,
           scope,
           buildContext: (issues) => truthContext("resolution", [...resolutionPlanIssues, ...issues]),
           validate: (directive) => {
@@ -2602,8 +2609,8 @@ export class TruthEngine {
               role: "truth-resolution",
               subjectId: `${truthSubject}:repair:${action.id}`,
               promptId: "truth-resolution",
-              schemaName: "truth_resolution_directive",
-              schema: resolutionDirectiveSchema,
+              schemaName: "truth_resolution_plan_commit",
+              schema: resolutionPlanCommitDirectiveSchema,
               scope,
               buildContext: (issues) => truthContext("resolution", issues, repairScope),
               validate: (directive) => {
@@ -2781,7 +2788,7 @@ export class TruthEngine {
               subjectId: `${truthSubject}:plan-repair:${plan.id}`,
               promptId: "truth-resolution",
               schemaName: "truth_resolution_plan_repair",
-              schema: resolutionDirectiveSchema,
+              schema: resolutionPlanCommitDirectiveSchema,
               scope,
               buildContext: (issues) => truthContext(
                 "resolution",

@@ -43,6 +43,29 @@ export const modelReferenceSchema = z.union([
   z.strictObject({ proposalKey: proposalKeySchema }),
 ]) as z.ZodType<ModelReference>;
 
+/** Build a field-level reference contract. Generic handles are useful in a
+ * catalog, but output fields know the exact kind they accept. Encoding that
+ * kind in JSON Schema prevents a provider from selecting (for example) a
+ * local_entity for a field that the materializer can only resolve as entity. */
+export function existingReferenceHandleSchemaFor(
+  kind: ModelReferenceKind,
+): z.ZodType<ExistingReferenceHandle> {
+  return z.string().regex(
+    new RegExp(`^ref:${kind}:`),
+    `must be a ${kind} handle from the request reference catalog`,
+  ) as unknown as z.ZodType<ExistingReferenceHandle>;
+}
+
+export function modelReferenceSchemaFor(
+  kind: ModelReferenceKind,
+  options: { allowProposal: boolean },
+): z.ZodType<ModelReference> {
+  const existing = existingReferenceHandleSchemaFor(kind);
+  return (options.allowProposal
+    ? z.union([existing, z.strictObject({ proposalKey: proposalKeySchema })])
+    : existing) as z.ZodType<ModelReference>;
+}
+
 export type ModelReferenceKind =
   | "agent"
   | "entity"

@@ -38,7 +38,12 @@ import {
   isNormalizedBoundedId,
   runtimeIdSchema,
 } from "./state-schemas";
-import { existingReferenceHandleSchema, modelReferenceSchema, proposalKeySchema } from "./model-context";
+import {
+  existingReferenceHandleSchema,
+  modelReferenceSchema,
+  modelReferenceSchemaFor,
+  proposalKeySchema,
+} from "./model-context";
 import type { ModelCausalRef } from "./model-context";
 
 const draftAliasSchema = z.string().min(1).refine(
@@ -299,10 +304,15 @@ export interface AgentMindOutput {
   nextAction: AgentActionProposal;
 }
 
-export const modelCausalRefSchema = z.strictObject({
-  kind: z.enum(["action", "check", "random", "event", "fact", "law", "mechanic"]),
-  ref: modelReferenceSchema,
-});
+export const modelCausalRefSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("action"), ref: modelReferenceSchemaFor("action", { allowProposal: true }) }),
+  z.strictObject({ kind: z.literal("check"), ref: modelReferenceSchemaFor("check", { allowProposal: true }) }),
+  z.strictObject({ kind: z.literal("random"), ref: modelReferenceSchemaFor("random", { allowProposal: true }) }),
+  z.strictObject({ kind: z.literal("event"), ref: modelReferenceSchemaFor("event", { allowProposal: true }) }),
+  z.strictObject({ kind: z.literal("fact"), ref: modelReferenceSchemaFor("fact", { allowProposal: true }) }),
+  z.strictObject({ kind: z.literal("law"), ref: modelReferenceSchemaFor("law", { allowProposal: true }) }),
+  z.strictObject({ kind: z.literal("mechanic"), ref: modelReferenceSchemaFor("mechanic", { allowProposal: true }) }),
+]) as z.ZodType<ModelCausalRef>;
 export type { ModelCausalRef };
 
 export const modelFactValueSchema = z.discriminatedUnion("kind", [
@@ -559,13 +569,18 @@ const resolutionSourceRefSchema = z.discriminatedUnion("kind", [
 ]);
 
 const modelResolutionSourceRefSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("action"), ref: modelReferenceSchema }),
-  z.strictObject({ kind: z.literal("entity"), ref: modelReferenceSchema }),
-  z.strictObject({ kind: z.literal("fact"), ref: modelReferenceSchema }),
-  z.strictObject({ kind: z.literal("condition"), ref: modelReferenceSchema }),
-  z.strictObject({ kind: z.literal("rating"), ref: modelReferenceSchema }),
-  z.strictObject({ kind: z.literal("law"), ref: modelReferenceSchema }),
-  z.strictObject({ kind: z.literal("placement"), ref: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("action"), ref: modelReferenceSchemaFor("action", { allowProposal: false }) }),
+  z.strictObject({ kind: z.literal("entity"), ref: modelReferenceSchemaFor("entity", { allowProposal: false }) }),
+  z.strictObject({ kind: z.literal("fact"), ref: modelReferenceSchemaFor("fact", { allowProposal: false }) }),
+  z.strictObject({ kind: z.literal("condition"), ref: modelReferenceSchemaFor("condition", { allowProposal: false }) }),
+  z.strictObject({ kind: z.literal("rating"), ref: modelReferenceSchemaFor("rating", { allowProposal: false }) }),
+  z.strictObject({ kind: z.literal("law"), ref: modelReferenceSchemaFor("law", { allowProposal: false }) }),
+  z.strictObject({ kind: z.literal("placement"), ref: modelReferenceSchemaFor("placement", { allowProposal: false }) }),
+]);
+
+const modelAuthoredResolutionSourceRefSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("rating"), ref: modelReferenceSchemaFor("rating", { allowProposal: false }) }),
+  z.strictObject({ kind: z.literal("law"), ref: modelReferenceSchemaFor("law", { allowProposal: false }) }),
 ]);
 
 const resolutionFactorSchema = z.strictObject({
@@ -646,7 +661,7 @@ function resolutionPlanSchemaWithId(id: z.ZodType<string>) {
 
 const modelResolutionEffectBaseShape = {
   proposalKey: proposalKeySchema,
-  targetRef: modelReferenceSchema,
+  targetRef: modelReferenceSchemaFor("entity", { allowProposal: false }),
   channel: z.string().min(1),
   label: z.string().min(1),
   description: z.string().min(1),
@@ -655,16 +670,16 @@ const modelResolutionEffectBaseShape = {
 const modelMeterEffectIntentSchema = z.strictObject({
   kind: z.literal("meter"),
   ...modelResolutionEffectBaseShape,
-  meterRef: modelReferenceSchema,
-  impactProfileRef: modelReferenceSchema,
+  meterRef: modelReferenceSchemaFor("meter", { allowProposal: false }),
+  impactProfileRef: modelReferenceSchemaFor("mechanic", { allowProposal: false }),
   magnitude: magnitudeBandSchema,
 });
 const modelConditionEffectIntentSchema = z.strictObject({
   kind: z.literal("condition"),
   ...modelResolutionEffectBaseShape,
-  conditionRef: modelReferenceSchema,
-  conditionProfileRef: modelReferenceSchema.nullable(),
-  durationProfileRef: modelReferenceSchema,
+  conditionRef: modelReferenceSchemaFor("condition", { allowProposal: true }),
+  conditionProfileRef: modelReferenceSchemaFor("mechanic", { allowProposal: false }).nullable(),
+  durationProfileRef: modelReferenceSchemaFor("mechanic", { allowProposal: false }),
   access: modelAccessSchema,
   magnitude: magnitudeBandSchema,
 });
@@ -675,43 +690,63 @@ const modelThreatenedEffectSchema = z.discriminatedUnion("kind", [
 ]);
 const modelResolutionDifficultySchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("environment"), band: z.enum(["trivial", "easy", "challenging", "hard", "extreme"]), source: modelResolutionSourceRefSchema }),
-  z.strictObject({ kind: z.literal("opposed"), targetRef: modelReferenceSchema, ratingRef: modelReferenceSchema, source: modelResolutionSourceRefSchema }),
+  z.strictObject({
+    kind: z.literal("opposed"),
+    targetRef: modelReferenceSchemaFor("entity", { allowProposal: false }),
+    ratingRef: modelReferenceSchemaFor("rating", { allowProposal: false }),
+    source: modelResolutionSourceRefSchema,
+  }),
 ]);
-const modelResolutionFactorBaseShape = {
-  source: modelResolutionSourceRefSchema,
+const modelResolutionFactorBaseShape = (authority: "semantic" | "authored") => ({
+  source: authority === "authored" ? modelAuthoredResolutionSourceRefSchema : modelResolutionSourceRefSchema,
+  authority: z.literal(authority),
   explanation: z.string().min(1),
-};
-const modelNonNumericResolutionFactorSchema = (role: "permission" | "secondary" | "risk") => z.strictObject({
-  ...modelResolutionFactorBaseShape,
-  role: z.literal(role),
-  direction: z.literal("neutral"),
-  steps: z.literal(0),
-  authority: z.enum(["semantic", "authored"]),
-  channel: z.string().min(1).nullable(),
 });
-const modelControlResolutionFactorSchema = z.strictObject({
-  ...modelResolutionFactorBaseShape,
-  role: z.literal("control"),
-  direction: z.enum(["helpful", "hindering"]),
-  steps: z.literal(1),
-  authority: z.enum(["semantic", "authored"]),
-  channel: z.string().min(1).nullable(),
-});
+const modelNonNumericResolutionFactorSchema = (role: "permission" | "secondary" | "risk") => z.union([
+  z.strictObject({
+    ...modelResolutionFactorBaseShape("semantic"),
+    role: z.literal(role),
+    direction: z.literal("neutral"),
+    steps: z.literal(0),
+    channel: z.string().min(1).nullable(),
+  }),
+  z.strictObject({
+    ...modelResolutionFactorBaseShape("authored"),
+    role: z.literal(role),
+    direction: z.literal("neutral"),
+    steps: z.literal(0),
+    channel: z.string().min(1).nullable(),
+  }),
+]);
+const modelControlResolutionFactorSchema = z.union([
+  z.strictObject({
+    ...modelResolutionFactorBaseShape("semantic"),
+    role: z.literal("control"),
+    direction: z.enum(["helpful", "hindering"]),
+    steps: z.literal(1),
+    channel: z.string().min(1).nullable(),
+  }),
+  z.strictObject({
+    ...modelResolutionFactorBaseShape("authored"),
+    role: z.literal("control"),
+    direction: z.enum(["helpful", "hindering"]),
+    steps: z.literal(1),
+    channel: z.string().min(1).nullable(),
+  }),
+]);
 const modelMagnitudeResolutionFactorSchema = (role: "potency" | "protection") => z.union([
   z.strictObject({
-    ...modelResolutionFactorBaseShape,
+    ...modelResolutionFactorBaseShape("semantic"),
     role: z.literal(role),
     direction: z.enum(["helpful", "hindering"]),
     steps: z.literal(1),
-    authority: z.literal("semantic"),
     channel: z.string().min(1),
   }),
   z.strictObject({
-    ...modelResolutionFactorBaseShape,
+    ...modelResolutionFactorBaseShape("authored"),
     role: z.literal(role),
     direction: z.enum(["helpful", "hindering"]),
     steps: z.union([z.literal(1), z.literal(2)]),
-    authority: z.literal("authored"),
     channel: z.string().min(1),
   }),
 ]);
@@ -725,8 +760,8 @@ const modelResolutionFactorSchema = z.union([
 ]);
 const modelResolutionPlanBaseShape = {
   proposalKey: proposalKeySchema,
-  actionRef: modelReferenceSchema,
-  targetRefs: z.array(modelReferenceSchema),
+  actionRef: modelReferenceSchemaFor("action", { allowProposal: false }),
+  targetRefs: z.array(modelReferenceSchemaFor("entity", { allowProposal: false })),
   means: z.array(z.strictObject({ description: z.string().min(1), source: modelResolutionSourceRefSchema })),
   factors: z.array(modelResolutionFactorSchema),
   risk: z.enum(["safe", "risky", "dire"]),
@@ -748,7 +783,7 @@ const modelResolutionPlanSchema = z.discriminatedUnion("mode", [
     ...modelResolutionPlanBaseShape,
     mode: z.literal("check"),
     difficulty: modelResolutionDifficultySchema,
-    actorRatingRef: modelReferenceSchema.nullable(),
+    actorRatingRef: modelReferenceSchemaFor("rating", { allowProposal: false }).nullable(),
   }),
   z.strictObject({
     ...modelResolutionPlanBaseShape,
@@ -1127,13 +1162,22 @@ export const reactionRoutingOutputSchema = z.strictObject({
   requests: z.array(reactionRequestDraftSchema),
 });
 
-export const resolutionDirectiveSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("commit_plans"), plans: z.array(resolutionPlanDraftSchema).min(1) }),
+export const resolutionPlanCommitDirectiveSchema = z.strictObject({
+  kind: z.literal("commit_plans"),
+  plans: z.array(resolutionPlanDraftSchema).min(1),
+});
+
+export const resolutionContinuationDirectiveSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("request_random"),
     requests: z.array(discreteRandomRequestProposalSchema).min(1).max(MAX_RANDOM_REQUESTS_PER_ROUND),
   }),
   z.strictObject({ kind: z.literal("done") }),
+]);
+
+export const resolutionDirectiveSchema = z.union([
+  resolutionPlanCommitDirectiveSchema,
+  resolutionContinuationDirectiveSchema,
 ]);
 
 const resolutionPlanFindingSchema = z.strictObject({

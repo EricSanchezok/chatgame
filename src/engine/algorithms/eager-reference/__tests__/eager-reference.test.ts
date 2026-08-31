@@ -551,7 +551,12 @@ describe("eager reference safeguards", () => {
     const truthResolutionRequests = provider.requests.filter((request) => request.role === "truth-resolution");
     expect(truthResolutionRequests.length).toBeGreaterThan(0);
     expect(truthResolutionRequests.every((request) =>
-      request.schemaName === "truth_resolution_directive" || request.schemaName === "truth_resolution_batch"))
+      [
+        "truth_resolution_plan_commit",
+        "truth_resolution_continuation",
+        "truth_resolution_plan_repair",
+        "truth_resolution_batch",
+      ].includes(request.schemaName)))
       .toBe(true);
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
   });
