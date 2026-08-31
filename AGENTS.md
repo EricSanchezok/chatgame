@@ -50,6 +50,7 @@ When starting the local workbench for interactive testing, treat startup as an e
 3. After source or route changes, move the generated `.next/` directory aside (or otherwise clear the development cache) before restarting so stale route/compiler output cannot mask the current source.
 4. Start `npm run dev` and verify all of `GET /`, `GET /api/worlds`, and `GET /api/instances` return HTTP 200. A successful root-page response alone is not evidence that the world runtime is usable.
 5. Before handing the browser back to the user, confirm `/api/worlds` lists the bundled world and `/api/instances` is readable. Report any cleanup (including deleted instance IDs) and keep the service process running for the test.
+6. When a bundled world's model profile changes, treat its persisted catalog and instances as immutable snapshots: validate the source, clear or replace the test data root, restart, and verify a newly created instance's Inspector account/profile before running steps. Follow the detailed [profile-switch checklist](docs/development.md#switching-model-profiles).
 
 ## Governance loop (hard rules)
 

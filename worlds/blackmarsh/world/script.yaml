@@ -8,15 +8,15 @@ runtime_defaults:
   realtime_interval_ms: 300000
   action_window_ms: 60000
 model_profiles:
-  perception: truth-qwen
-  reaction_routing: truth-qwen
-  resolution: truth-qwen
-  transition: truth-qwen
-  causal_verifier: truth-qwen
-  grounding: truth-qwen
-  observation: truth-qwen
-  arrival: truth-qwen
+  perception: truth-deepseek
+  reaction_routing: truth-deepseek
+  resolution: truth-deepseek
+  transition: truth-deepseek
+  causal_verifier: truth-deepseek
+  grounding: truth-deepseek
+  observation: truth-deepseek
+  arrival: truth-deepseek
   dynamic_agent:
-    bootstrap: agent-qwen
-    mind: agent-qwen
-    reaction: agent-qwen
+    bootstrap: agent-deepseek
+    mind: agent-deepseek
+    reaction: agent-deepseek

@@ -594,7 +594,15 @@ describe("Blackmarsh reference world", () => {
       externalActions: [],
     });
     expect(completed.state).toMatchObject({ revision: 1, step: 1 });
-    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(4);
+    const actionCompilationRequests = provider.requests.filter((request) => request.role === "action-compilation");
+    const actionRefs = actionCompilationRequests.flatMap((request) =>
+      (request.context as { state: { slots: Array<{ action: { actionRef: string } }> } }).state.slots
+        .map((slot) => slot.action.actionRef));
+    expect(actionCompilationRequests.length).toBeGreaterThanOrEqual(4);
+    expect(actionCompilationRequests.every((request) =>
+      (request.context as { state: { slots: unknown[] } }).state.slots.length <= 12)).toBe(true);
+    expect(actionRefs).toHaveLength(Object.values(state.agents).length);
+    expect(new Set(actionRefs).size).toBe(actionRefs.length);
     expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(6);
     expect(provider.requests.filter((request) => request.role === "agent-mind").every((request) =>
       (request.context as { roleContract: { role: string }; state: { slots: Array<{ state: { perspective: { agentRef: string } } }> } }).roleContract.role === "agent-mind" &&
@@ -607,8 +615,8 @@ describe("Blackmarsh reference world", () => {
     const invocationIds = batchedAudits.flatMap((audit) => audit.invocations.map((invocation) => invocation.id));
     expect(new Set(invocationIds).size).toBe(invocationIds.length);
     expect(provider.requests.some((request) => request.role === "truth-perception")).toBe(false);
-  // This intentionally exercises 48 Agents, four action batches, and the
-  // full semantic Truth/observation pipeline. Keep the timeout above the
+  // This intentionally exercises 48 Agents, profile-dependent action batches,
+  // and the full semantic Truth/observation pipeline. Keep the timeout above the
   // structural workload's normal ~30s wall time so slower CI hosts do not
   // turn a valid contract check into a flaky failure.
   }, 45_000);

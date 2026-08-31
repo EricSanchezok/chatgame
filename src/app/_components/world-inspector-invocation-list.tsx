@@ -145,7 +145,10 @@ export function WorldInspectorInvocationList({
                   <span role="listitem"><span>上下文</span><strong>{formatNumber(invocation.contextUtf8Bytes)} B</strong></span>
                 </span>
                 {invocation.retryCount > 0 && (
-                  <span className="cg-inspector-invocation__retry-summary"><RotateCcw aria-hidden="true" /> {invocation.retryCount} 次 retry · {invocation.transportAttempts.length} 次物理尝试</span>
+                  <span className="cg-inspector-invocation__retry-summary">
+                    <RotateCcw aria-hidden="true" />
+                    <span className="cg-inspector-invocation__retry-copy">{invocation.retryCount} 次 retry · {invocation.transportAttempts.length} 次物理尝试</span>
+                  </span>
                 )}
                 <span className="cg-inspector-invocation__transports" aria-label="物理传输尝试">
                 {invocation.transportAttempts.map((transport) => (

@@ -36,8 +36,8 @@ model gateway resolves an account-specific `fetch` only when that environment
 variable contains an IP literal. The Qwen account opts in with
 `QWEN_LOCAL_ADDRESS`; the value is supplied at process start and is not part of
 the catalog, model audit, execution ledger, or repository. The transport uses
-an `undici.Agent` with `connect.localAddress` and is injected only for that
-account. Missing configuration preserves the default fetch path.
+an `undici.Agent` with the top-level `localAddress` option and is injected only
+for that account. Missing configuration preserves the default fetch path.
 
 ## Pros and Cons of the Options
 
