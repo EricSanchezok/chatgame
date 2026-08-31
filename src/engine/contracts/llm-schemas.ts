@@ -690,14 +690,11 @@ const modelResolutionFactorSchema = z.strictObject({
   channel: z.string().min(1).nullable(),
   explanation: z.string().min(1),
 });
-const modelResolutionPlanSchema = z.strictObject({
+const modelResolutionPlanBaseShape = {
   proposalKey: proposalKeySchema,
   actionRef: modelReferenceSchema,
   targetRefs: z.array(modelReferenceSchema),
   means: z.array(z.strictObject({ description: z.string().min(1), source: modelResolutionSourceRefSchema })),
-  mode: z.enum(["automatic", "check", "blocked"]),
-  difficulty: modelResolutionDifficultySchema.nullable(),
-  actorRatingRef: modelReferenceSchema.nullable(),
   factors: z.array(modelResolutionFactorSchema),
   risk: z.enum(["safe", "risky", "dire"]),
   baseEffect: magnitudeBandSchema,
@@ -706,7 +703,27 @@ const modelResolutionPlanSchema = z.strictObject({
   threatenedEffect: modelThreatenedEffectSchema.nullable(),
   visibility: z.enum(["full", "result_only", "hidden"]),
   causes: z.array(modelCausalRefSchema).min(1),
-});
+};
+const modelResolutionPlanSchema = z.discriminatedUnion("mode", [
+  z.strictObject({
+    ...modelResolutionPlanBaseShape,
+    mode: z.literal("automatic"),
+    difficulty: z.null(),
+    actorRatingRef: z.null(),
+  }),
+  z.strictObject({
+    ...modelResolutionPlanBaseShape,
+    mode: z.literal("check"),
+    difficulty: modelResolutionDifficultySchema,
+    actorRatingRef: modelReferenceSchema.nullable(),
+  }),
+  z.strictObject({
+    ...modelResolutionPlanBaseShape,
+    mode: z.literal("blocked"),
+    difficulty: z.null(),
+    actorRatingRef: z.null(),
+  }),
+]);
 
 export type ResolutionPlanDraft = z.infer<typeof modelResolutionPlanSchema>;
 export const resolutionPlanDraftSchema = modelResolutionPlanSchema;

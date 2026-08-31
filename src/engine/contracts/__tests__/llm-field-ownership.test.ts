@@ -145,6 +145,38 @@ describe("LLM output field ownership", () => {
     }).success).toBe(false);
   });
 
+  it("expresses resolution-mode legality in the model output schema", () => {
+    const plan = {
+      proposalKey: "plan-local",
+      actionRef: "ref:action:action-local",
+      targetRefs: ["ref:entity:actor-local"],
+      means: [],
+      mode: "automatic" as const,
+      difficulty: null,
+      actorRatingRef: null,
+      factors: [],
+      risk: "safe" as const,
+      baseEffect: "none" as const,
+      primaryEffect: null,
+      secondaryEffect: null,
+      threatenedEffect: null,
+      visibility: "full" as const,
+      causes: [{ kind: "action" as const, ref: "ref:action:action-local" }],
+    };
+    expect(resolutionDirectiveSchema.safeParse({ kind: "commit_plans", plans: [plan] }).success).toBe(true);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{
+        ...plan,
+        difficulty: { kind: "environment", band: "easy", source: { kind: "law", ref: "ref:law:world-law" } },
+      }],
+    }).success).toBe(false);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{ ...plan, causes: [{ kind: "entity", ref: "ref:entity:actor-local" }] }],
+    }).success).toBe(false);
+  });
+
   it("lets reaction routing describe private semantics without assigning runtime identities", () => {
     const request = {
       agentRef: "ref:agent:agent-xiaoming",
