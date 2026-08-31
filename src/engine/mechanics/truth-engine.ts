@@ -713,7 +713,7 @@ function resolutionEvidenceIndex(
     conditionOwners: new Map(Object.values(state.truth.conditions)
       .map((condition) => [condition.id, condition.subjectId])),
     laws: new Set(laws.map((law) => law.id)),
-    placements: new Set(Object.keys(state.truth.entities)),
+    placements: new Set(Object.keys(state.truth.placements)),
     ratingOwners: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.entityId])),
     ratingValues: new Map(Object.values(state.truth.ratings).map((rating) => [rating.id, rating.value])),
   };
@@ -952,9 +952,16 @@ function materializeResolutionPlans(input: {
     const grounding = input.groundings.find((candidate) =>
       candidate.kind === "action" && candidate.id === action.id);
     if (!grounding) throw new Error(`resolution plan ${plan.id} has no action grounding`);
-    for (const mean of plan.means) {
+    for (const [meanIndex, mean] of plan.means.entries()) {
       if (!groundingContainsSource(grounding, mean.source)) {
-        throw new Error(`resolution plan ${plan.id} uses means outside its committed grounding`);
+        const draftSource = draft.means[meanIndex]!.source;
+        const sourceRef = isProposalReference(draftSource.ref)
+          ? `proposal:${draftSource.ref.proposalKey}`
+          : draftSource.ref;
+        throw new Error(
+          `resolution plan ${plan.id} uses means source ${draftSource.kind}:${sourceRef} outside its committed grounding; ` +
+          "use the assigned action ref, a law ref, or a ref listed in the matching state.dependencySet.assigned record",
+        );
       }
     }
     if (visibilityRank[plan.visibility] > visibilityRank[input.definition.disclosure.defaultCheckVisibility]) {
