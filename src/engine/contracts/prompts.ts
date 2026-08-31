@@ -1349,7 +1349,7 @@ export function createTruthReferenceResolver(input: {
     })),
     ...Object.keys(state.truth.placements).map((placementId) => ({
       kind: "placement" as const, engineId: placementId, label: placementId,
-      meaning: "an existing world placement/container", allowedUses: ["assertion", "source"] as const,
+      meaning: "an existing world placement/container", allowedUses: ["target", "assertion", "source"] as const,
       visibility: "role" as const, statePath: `state.truth.placements.${placementId}`,
     })),
     ...Object.values(state.truth.facts).map((fact) => ({

@@ -245,7 +245,11 @@ describe("resolution pipeline", () => {
                 kind: "check_result",
                 checkId: check.checkRef.replace(/^ref:check:/u, ""),
                 expected: check.succeeded ? "succeeded" : "failed",
-              }] : [{ kind: "entity_lifecycle", entityId: action.actorId, expected: "active" }],
+              }] : [{
+                kind: "placement_equals",
+                entityId: action.actorId,
+                placementId: "courtyard",
+              }],
               knownAlternatives: [],
             };
           }),

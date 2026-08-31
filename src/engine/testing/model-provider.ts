@@ -432,7 +432,7 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
       case "entity_absent": return { kind: item.kind, entityRef: { proposalKey: item.entityId } };
       case "entity_lifecycle": return { kind: item.kind, entityRef: createdEntityIds.has(item.entityId) ? { proposalKey: item.entityId } : ref("entity", item.entityId), expected: item.expected };
       case "placement_equals":
-      case "placement_not_equals": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("entity", item.placementId) };
+      case "placement_not_equals": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("placement", item.placementId) };
       case "shared_placement": return { kind: item.kind, leftEntityRef: ref("entity", item.leftEntityId), rightEntityRef: ref("entity", item.rightEntityId) };
       case "meter_compare": return { kind: item.kind, meterRef: ref("meter", item.meterId), operator: item.operator, value: item.value };
       case "quantity_compare": return { kind: item.kind, definitionRef: ref("quantity", item.definitionId), holderRef: ref("entity", item.holderId), operator: item.operator, value: item.value };
@@ -444,9 +444,9 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
   const operation = (item: any): any => {
     const common = { causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) };
     switch (item.kind) {
-      case "create_entity": return { kind: item.kind, entity: { proposalKey: item.entity.id, kind: item.entity.kind, name: item.entity.name, description: item.entity.description }, placementRef: item.placementId === null ? null : ref("entity", item.placementId), ...common };
+      case "create_entity": return { kind: item.kind, entity: { proposalKey: item.entity.id, kind: item.entity.kind, name: item.entity.name, description: item.entity.description }, placementRef: item.placementId === null ? null : ref("placement", item.placementId), ...common };
       case "retire_entity": return { kind: item.kind, entityRef: ref("entity", item.entityId), ...common };
-      case "place_entity": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("entity", item.placementId), ...common };
+      case "place_entity": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("placement", item.placementId), ...common };
       case "set_fact": return { kind: item.kind, fact: { proposalKey: item.fact.id, subjectRef: ref("entity", item.fact.subjectId), predicate: item.fact.predicate, value: item.fact.value?.kind === "entity" ? { kind: "entity", entityRef: ref("entity", item.fact.value.entityId) } : item.fact.value, description: item.fact.description, access: item.fact.access }, ...common };
       case "create_agent": {
         const agent = item.agent ?? {};

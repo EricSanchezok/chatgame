@@ -1625,8 +1625,8 @@ function materializeTransitionProposal(
       case "fact_absent": return { kind: assertion.kind, factId: resolveReference(assertion.factRef, "assertion", "fact") };
       case "entity_absent": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity") };
       case "entity_lifecycle": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), expected: assertion.expected };
-      case "placement_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "entity") };
-      case "placement_not_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "entity") };
+      case "placement_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "placement") };
+      case "placement_not_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "placement") };
       case "shared_placement": return { kind: assertion.kind, leftEntityId: resolveReference(assertion.leftEntityRef, "assertion", "entity"), rightEntityId: resolveReference(assertion.rightEntityRef, "assertion", "entity") };
       case "meter_compare": return { kind: assertion.kind, meterId: resolveReference(assertion.meterRef, "assertion", "meter"), operator: assertion.operator, value: assertion.value };
       case "quantity_compare": {
@@ -1709,7 +1709,7 @@ function materializeTransitionProposal(
             name: operation.entity.name,
             description: operation.entity.description,
           },
-          placementId: operation.placementRef === null ? null : resolveReference(operation.placementRef, "target", "entity"),
+          placementId: operation.placementRef === null ? null : resolveReference(operation.placementRef, "target", "placement"),
           ...causal,
         };
       case "retire_entity":
@@ -1718,7 +1718,7 @@ function materializeTransitionProposal(
         return {
           kind: operation.kind,
           entityId: resolveReference(operation.entityRef, "target", "entity"),
-          placementId: operation.placementRef === null ? null : resolveReference(operation.placementRef, "target", "entity"),
+          placementId: operation.placementRef === null ? null : resolveReference(operation.placementRef, "target", "placement"),
           ...causal,
         };
       case "set_fact":
