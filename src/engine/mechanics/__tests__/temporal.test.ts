@@ -37,7 +37,7 @@ function fixedProfile(overrides: Partial<Extract<TemporalProfileDefinition, { ki
     kind: "fixed",
     durationSeconds: 1,
     checkpointSeconds: 1,
-    allowExplicitDuration: false,
+    selection: { semanticTags: ["short"], evidenceRequirement: "none" },
     interruptible: true,
     reactionFallback: "continue_if_valid",
     resourceClaims: [{ resourceId: "foreground", amount: 1 }],
@@ -65,6 +65,7 @@ function rateProfile(overrides: Partial<Extract<TemporalProfileDefinition, { kin
     unitsPerPeriod: 5,
     periodSeconds: 3_600,
     checkpointUnits: 1,
+    selection: { semanticTags: ["travel"], evidenceRequirement: "explicit_profile_quantity" },
     interruptible: true,
     reactionFallback: "continue_if_valid",
     resourceClaims: [{ resourceId: "foreground", amount: 1 }],
@@ -101,7 +102,10 @@ describe("event-boundary temporal kernel", () => {
   });
 
   it("extracts exact temporal spans and makes rate eligibility deterministic", () => {
-    const explicit = fixedProfile({ id: "explicit-rest", allowExplicitDuration: true });
+    const explicit = fixedProfile({
+      id: "explicit-rest",
+      selection: { semanticTags: ["explicit-duration"], evidenceRequirement: "explicit_duration" },
+    });
     const road = rateProfile();
     const profiles = { [explicit.id]: explicit, [road.id]: road };
     const evidence = extractActionTemporalEvidence("先休息1.5小时，再沿路走 12公里。", profiles);
@@ -129,21 +133,31 @@ describe("event-boundary temporal kernel", () => {
     ]);
     expect(temporalProfileEligibility(road, evidence)).toEqual({
       eligible: true,
-      evidenceRequirement: "required_quantity",
+      evidenceRequirement: "explicit_profile_quantity",
       evidenceKeys: ["quantity:14:18:km"],
       rejectionCode: null,
     });
     expect(temporalProfileEligibility(road, extractActionTemporalEvidence("沿道路前往城镇", profiles)))
       .toEqual({
         eligible: false,
-        evidenceRequirement: "required_quantity",
+        evidenceRequirement: "explicit_profile_quantity",
         evidenceKeys: [],
         rejectionCode: "missing_explicit_quantity",
+      });
+    expect(temporalProfileEligibility(explicit, extractActionTemporalEvidence("休息片刻", profiles)))
+      .toEqual({
+        eligible: false,
+        evidenceRequirement: "explicit_duration",
+        evidenceKeys: [],
+        rejectionCode: "missing_explicit_duration",
       });
   });
 
   it("materializes only an evidence key compatible with the selected profile", () => {
-    const explicit = fixedProfile({ id: "explicit-rest", allowExplicitDuration: true });
+    const explicit = fixedProfile({
+      id: "explicit-rest",
+      selection: { semanticTags: ["explicit-duration"], evidenceRequirement: "explicit_duration" },
+    });
     const road = rateProfile();
     const profiles = { [explicit.id]: explicit, [road.id]: road };
     const evidence = extractActionTemporalEvidence("休息两小时后走10公里", profiles);
@@ -172,7 +186,7 @@ describe("event-boundary temporal kernel", () => {
       name: "明确休息",
       durationSeconds: 60,
       checkpointSeconds: 3_600,
-      allowExplicitDuration: true,
+      selection: { semanticTags: ["explicit-duration"], evidenceRequirement: "explicit_duration" },
     });
     validateTemporalProfile(explicit, resources);
     const plan = materializeTemporalPlan({
@@ -211,7 +225,7 @@ describe("event-boundary temporal kernel", () => {
       name: "明确休息",
       durationSeconds: 60,
       checkpointSeconds: 3_600,
-      allowExplicitDuration: true,
+      selection: { semanticTags: ["explicit-duration"], evidenceRequirement: "explicit_duration" },
     });
     const plan = materializeTemporalPlan({
       id: "plan-rest",
@@ -291,7 +305,7 @@ describe("event-boundary temporal kernel", () => {
       draft: draft("road-travel", {
         kind: "explicit_quantity",
         amount: 100,
-        unit: "公里",
+        unit: "km",
         sourceText: "100公里",
       }),
       profiles: { "road-travel": travel },
@@ -421,6 +435,7 @@ describe("event-boundary temporal kernel", () => {
       interruptible: true,
       reactionFallback: "continue_if_valid",
       resourceClaims: [{ resourceId: "foreground", amount: 1 }],
+      selection: { semanticTags: ["staged-treatment"], evidenceRequirement: "none" },
     };
     const plan = materializeTemporalPlan({
       id: "plan-treatment",
@@ -507,14 +522,31 @@ describe("event-boundary temporal kernel", () => {
       interruptible: true,
       reactionFallback: "continue_if_valid",
       resourceClaims: [{ resourceId: "foreground", amount: 1 }],
+      selection: { semanticTags: ["conditional-wait"], evidenceRequirement: "none" },
     };
+    expect(() => materializeTemporalPlan({
+      id: "plan-daybreak-invalid",
+      actionId: "action-a",
+      actorId: "agent-a",
+      rawText: "等待天亮",
+      startsAtSeconds: 0,
+      draft: draft("daybreak"),
+      profiles: { daybreak: conditional },
+    })).toThrow("requires a continuation assertion");
     const plan = materializeTemporalPlan({
       id: "plan-daybreak",
       actionId: "action-a",
       actorId: "agent-a",
       rawText: "等待天亮",
       startsAtSeconds: 0,
-      draft: draft("daybreak"),
+      draft: {
+        ...draft("daybreak"),
+        continuationAssertions: [{
+          kind: "fact_matches",
+          factId: "daylight",
+          expected: { kind: "boolean", value: true },
+        }],
+      },
       profiles: { daybreak: conditional },
     });
     const activity = createActivity({ id: "activity-daybreak", plan, sourceAction: sourceAction(plan) });

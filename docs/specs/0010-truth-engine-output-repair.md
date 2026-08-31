@@ -21,7 +21,7 @@ Observation Renderer gives every observer an independent output, audit, and repa
 
 ## Plan
 
-Shared semantic-repair orchestration and transport/output telemetry define error classification. Action dependency, Action Compilation, RulePackageRegistry, TruthEngine, Observation Renderer, and deterministic fixtures implement their local contracts. Reference-world content remains script-driven; the test baseline uses schema v13 and the current core-resolution package.
+Shared semantic-repair orchestration and transport/output telemetry define error classification. Action dependency, Action Compilation, RulePackageRegistry, TruthEngine, Observation Renderer, and deterministic fixtures implement their local contracts. Reference-world content remains script-driven; the test baseline uses schema v14 and the current core-resolution package.
 
 ## Verification
 

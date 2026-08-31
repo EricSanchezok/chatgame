@@ -243,7 +243,10 @@ describe("Blackmarsh reference world", () => {
     });
     expect(truth.mechanics.temporalProfiles).toMatchObject({
       "momentary-action": { kind: "fixed", durationSeconds: 1, checkpointSeconds: 1 },
-      "explicit-duration": { kind: "fixed", allowExplicitDuration: true },
+      "explicit-duration": {
+        kind: "fixed",
+        selection: { semanticTags: ["explicit-duration"], evidenceRequirement: "explicit_duration" },
+      },
       "road-travel": { kind: "rate", unitsPerPeriod: 4, periodSeconds: 3_600, checkpointUnits: 1 },
       "rough-travel": { kind: "rate", unitsPerPeriod: 2, periodSeconds: 3_600, checkpointUnits: 1 },
       "field-treatment": {

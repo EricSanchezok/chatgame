@@ -34,7 +34,7 @@ const profile: TemporalProfileDefinition = {
   kind: "fixed",
   durationSeconds: 60,
   checkpointSeconds: 30,
-  allowExplicitDuration: false,
+  selection: { semanticTags: ["short"], evidenceRequirement: "none" },
   interruptible: true,
   reactionFallback: "continue_if_valid",
   resourceClaims: [{ resourceId: "foreground", amount: 1 }],

@@ -40,7 +40,7 @@ export function WorldList({
       </nav>
       <label className="cg-import-world">
         <Upload aria-hidden="true" />
-        <span><strong>{busy?.startsWith("world-import:") ? "正在导入…" : "导入世界包"}</strong><small>选择 schema v13 ZIP</small></span>
+        <span><strong>{busy?.startsWith("world-import:") ? "正在导入…" : "导入世界包"}</strong><small>选择 schema v14 ZIP</small></span>
         <input accept=".zip,application/zip" disabled={busy?.startsWith("world-import:")} onChange={selectFile} type="file" />
       </label>
     </aside>

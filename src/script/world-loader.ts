@@ -124,6 +124,10 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
       name: profile.name,
       interruptible: profile.interruptible,
       reactionFallback: profile.reaction_fallback,
+      selection: {
+        semanticTags: [...profile.selection.semantic_tags],
+        evidenceRequirement: profile.selection.evidence_requirement,
+      },
       resourceClaims: profile.resource_claims.map((claim) => ({
         resourceId: claim.resource_id,
         amount: claim.amount,
@@ -134,7 +138,6 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
       kind: profile.kind,
       durationSeconds: profile.duration_seconds,
       checkpointSeconds: profile.checkpoint_seconds,
-      allowExplicitDuration: profile.allow_explicit_duration,
     };
     if (profile.kind === "rate") return {
       ...base,
@@ -164,6 +167,14 @@ function mechanicsCatalog(document: MechanicsDocument): MechanicsCatalog {
   });
   const temporalProfileRecord = uniqueRecord(temporalProfiles, "temporal profile");
   for (const profile of temporalProfiles) validateTemporalProfile(profile, activityResourceRecord);
+  const requiredTemporalTags = document.temporal_profile_coverage.required_semantic_tags;
+  if (new Set(requiredTemporalTags).size !== requiredTemporalTags.length) {
+    throw new Error("temporal profile coverage repeats a semantic tag");
+  }
+  const coveredTemporalTags = new Set(temporalProfiles.flatMap((profile) => profile.selection.semanticTags));
+  for (const tag of requiredTemporalTags) {
+    if (!coveredTemporalTags.has(tag)) throw new Error(`temporal profile coverage is missing semantic tag ${tag}`);
+  }
   const conditionProfiles = document.condition_profiles.map((profile) => ({
     id: profile.id,
     name: profile.name,

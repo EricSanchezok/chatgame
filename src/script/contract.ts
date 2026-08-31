@@ -10,7 +10,7 @@ import {
 } from "../engine/contracts/state-schemas";
 
 export const scriptManifestSchema = z.object({
-  schema_version: z.literal(13),
+  schema_version: z.literal(14),
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().min(1),
   version: z.string().min(1),
@@ -103,12 +103,18 @@ const activityResourceClaimSchema = z.object({
   amount: z.number().positive().finite(),
 }).strict();
 
+const temporalSelectionSchema = z.object({
+  semantic_tags: z.array(safeIdSchema).min(1),
+  evidence_requirement: z.enum(["none", "explicit_duration", "explicit_profile_quantity"]),
+}).strict();
+
 const temporalProfileBase = {
   id: safeIdSchema,
   name: z.string().min(1),
   interruptible: z.boolean(),
   reaction_fallback: z.enum(["continue_if_valid", "pause", "cancel"]).default("continue_if_valid"),
   resource_claims: z.array(activityResourceClaimSchema).min(1),
+  selection: temporalSelectionSchema,
 };
 
 const temporalProfileSchema = z.discriminatedUnion("kind", [
@@ -117,7 +123,6 @@ const temporalProfileSchema = z.discriminatedUnion("kind", [
     kind: z.literal("fixed"),
     duration_seconds: z.number().int().positive(),
     checkpoint_seconds: z.number().int().positive(),
-    allow_explicit_duration: z.boolean().default(false),
   }).strict(),
   z.object({
     ...temporalProfileBase,
@@ -212,6 +217,9 @@ export const mechanicsFileSchema = z.object({
     paused_retention: z.enum(["retain", "release"]),
   }).strict()).default([]),
   temporal_profiles: z.array(temporalProfileSchema).min(1),
+  temporal_profile_coverage: z.object({
+    required_semantic_tags: z.array(safeIdSchema).min(1),
+  }).strict(),
   temporal_calibrations: z.array(z.object({
     id: safeIdSchema,
     situation: z.string().min(1),

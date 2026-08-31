@@ -11,6 +11,20 @@ import type {
   SimulationState,
 } from "../contracts/model";
 import type { SharedActivityResourceClaim } from "./shared-activity-resources";
+import { extractActionTemporalEvidence } from "./temporal-evidence";
+
+export {
+  explicitDurationSeconds,
+  extractActionTemporalEvidence,
+  type ActionTemporalEvidence,
+} from "./temporal-evidence";
+export {
+  eligibleTemporalProfiles,
+  materializeModelTemporalBasis,
+  ProfileCoverageError,
+  temporalProfileEligibility,
+  type TemporalProfileEligibility,
+} from "./temporal-eligibility";
 
 export interface ActivityResourceDefinition {
   id: string;
@@ -23,12 +37,16 @@ export interface ActivityResourceClaim {
   amount: number;
 }
 
-interface TemporalProfileBase {
+export interface TemporalProfileBase {
   id: string;
   name: string;
   interruptible: boolean;
   reactionFallback: "continue_if_valid" | "pause" | "cancel";
   resourceClaims: ActivityResourceClaim[];
+  selection: {
+    semanticTags: string[];
+    evidenceRequirement: "none" | "explicit_duration" | "explicit_profile_quantity";
+  };
 }
 
 export type TemporalProfileDefinition = TemporalProfileBase & (
@@ -36,7 +54,6 @@ export type TemporalProfileDefinition = TemporalProfileBase & (
       kind: "fixed";
       durationSeconds: number;
       checkpointSeconds: number;
-      allowExplicitDuration: boolean;
     }
   | {
       kind: "rate";
@@ -66,39 +83,9 @@ export interface TemporalCalibration {
   explanation: string;
 }
 
-export type ActionTemporalEvidence =
-  | {
-      key: string;
-      kind: "duration";
-      sourceText: string;
-      start: number;
-      end: number;
-      amount: number;
-      unit: string;
-      seconds: number;
-      compatibleProfileIds: string[];
-    }
-  | {
-      key: string;
-      kind: "quantity";
-      sourceText: string;
-      start: number;
-      end: number;
-      amount: number;
-      unit: string;
-      compatibleProfileIds: string[];
-    };
-
 export type ModelTemporalPlanBasis =
   | { kind: "profile" }
   | { kind: "action_text_evidence"; evidenceKey: string };
-
-export interface TemporalProfileEligibility {
-  eligible: boolean;
-  evidenceRequirement: "none" | "optional_duration" | "required_quantity";
-  evidenceKeys: string[];
-  rejectionCode: "missing_explicit_quantity" | null;
-}
 
 export type TemporalPlanBasis =
   | { kind: "profile"; profileId: string }
@@ -292,175 +279,6 @@ export interface TemporalStateSnapshot {
   timers: Record<string, WorldTimer>;
 }
 
-const durationUnits: Array<{ unit: string; aliases: string[]; seconds: number }> = [
-  { unit: "second", aliases: ["seconds", "second", "secs", "sec", "秒"], seconds: 1 },
-  { unit: "minute", aliases: ["minutes", "minute", "mins", "min", "分钟", "分"], seconds: 60 },
-  { unit: "hour", aliases: ["hours", "hour", "hrs", "hr", "小时", "时"], seconds: 3_600 },
-  { unit: "day", aliases: ["days", "day", "天", "日"], seconds: 86_400 },
-  { unit: "week", aliases: ["weeks", "week", "星期", "周"], seconds: 604_800 },
-];
-
-const numericSource = "([0-9]+(?:\\.[0-9]+)?|[零一二两三四五六七八九十半]{1,3})";
-
-function chineseNumber(value: string): number | null {
-  const direct: Record<string, number> = {
-    零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 半: 0.5,
-  };
-  if (value in direct) return direct[value]!;
-  if (/^十[一二三四五六七八九]$/u.test(value)) return 10 + direct[value[1]!]!;
-  if (/^[二三四五六七八九]十$/u.test(value)) return direct[value[0]!]! * 10;
-  if (/^[二三四五六七八九]十[一二三四五六七八九]$/u.test(value)) {
-    return direct[value[0]!]! * 10 + direct[value[2]!]!;
-  }
-  return null;
-}
-
-function numericToken(value: string): number | null {
-  const numeric = Number(value);
-  if (Number.isFinite(numeric)) return numeric;
-  return chineseNumber(value);
-}
-
-export function explicitDurationSeconds(text: string): number | null {
-  return extractActionTemporalEvidence(text, {}).find((evidence) => evidence.kind === "duration")?.seconds ?? null;
-}
-
-function explicitQuantity(text: string, aliases: readonly string[]): { amount: number; matchedAlias: string } | null {
-  const normalized = text.normalize("NFC");
-  const numberPattern = "([0-9]+(?:\\.[0-9]+)?|[零一二两三四五六七八九十半]{1,3})";
-  for (const alias of [...aliases].sort((left, right) => right.length - left.length)) {
-    const match = normalized.match(new RegExp(`${numberPattern}\\s*${escapeRegExp(alias)}`, "iu"));
-    if (!match) continue;
-    const amount = numericToken(match[1]!);
-    if (amount !== null && amount > 0 && Number.isFinite(amount)) return { amount, matchedAlias: alias };
-  }
-  return null;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function exactQuantityMatches(
-  text: string,
-  aliases: readonly string[],
-): Array<{ sourceText: string; start: number; end: number; amount: number; matchedAlias: string }> {
-  const alternatives = [...new Set(aliases.map((alias) => alias.normalize("NFC")))]
-    .sort((left, right) => right.length - left.length)
-    .map(escapeRegExp)
-    .join("|");
-  if (!alternatives) return [];
-  const pattern = new RegExp(`${numericSource}\\s*(${alternatives})`, "giu");
-  const matches: Array<{ sourceText: string; start: number; end: number; amount: number; matchedAlias: string }> = [];
-  for (const match of text.matchAll(pattern)) {
-    const amount = numericToken(match[1]!);
-    if (match.index === undefined || amount === null || amount <= 0 || !Number.isFinite(amount)) continue;
-    matches.push({
-      sourceText: match[0],
-      start: match.index,
-      end: match.index + match[0].length,
-      amount,
-      matchedAlias: match[2]!,
-    });
-  }
-  return matches;
-}
-
-export function extractActionTemporalEvidence(
-  text: string,
-  profiles: Readonly<Record<string, TemporalProfileDefinition>>,
-): ActionTemporalEvidence[] {
-  const durationProfileIds = Object.values(profiles)
-    .filter((profile) => profile.kind === "fixed" && profile.allowExplicitDuration)
-    .map((profile) => profile.id)
-    .sort();
-  const evidence: ActionTemporalEvidence[] = durationUnits.flatMap((definition) =>
-    exactQuantityMatches(text, definition.aliases).flatMap((match) => {
-      const seconds = match.amount * definition.seconds;
-      return Number.isSafeInteger(seconds) && seconds > 0 ? [{
-        key: `duration:${match.start}:${match.end}`,
-        kind: "duration" as const,
-        sourceText: match.sourceText,
-        start: match.start,
-        end: match.end,
-        amount: match.amount,
-        unit: definition.unit,
-        seconds,
-        compatibleProfileIds: durationProfileIds,
-      }] : [];
-    }));
-  const quantityBySpan = new Map<string, Extract<ActionTemporalEvidence, { kind: "quantity" }>>();
-  for (const profile of Object.values(profiles).filter((candidate) => candidate.kind === "rate")) {
-    for (const match of exactQuantityMatches(text, [profile.unit, ...profile.unitAliases])) {
-      const identity = `${match.start}:${match.end}:${profile.unit.normalize("NFC").toLocaleLowerCase("en")}`;
-      const existing = quantityBySpan.get(identity);
-      if (existing) {
-        existing.compatibleProfileIds = [...new Set([...existing.compatibleProfileIds, profile.id])].sort();
-        continue;
-      }
-      quantityBySpan.set(identity, {
-        key: `quantity:${identity}`,
-        kind: "quantity",
-        sourceText: match.sourceText,
-        start: match.start,
-        end: match.end,
-        amount: match.amount,
-        unit: profile.unit,
-        compatibleProfileIds: [profile.id],
-      });
-    }
-  }
-  return [...evidence, ...quantityBySpan.values()].sort((left, right) =>
-    left.start - right.start || left.end - right.end || left.key.localeCompare(right.key));
-}
-
-export function temporalProfileEligibility(
-  profile: TemporalProfileDefinition,
-  evidence: readonly ActionTemporalEvidence[],
-): TemporalProfileEligibility {
-  const evidenceKeys = evidence
-    .filter((candidate) => candidate.compatibleProfileIds.includes(profile.id))
-    .map((candidate) => candidate.key)
-    .sort();
-  if (profile.kind === "rate") {
-    return {
-      eligible: evidenceKeys.length > 0,
-      evidenceRequirement: "required_quantity",
-      evidenceKeys,
-      rejectionCode: evidenceKeys.length > 0 ? null : "missing_explicit_quantity",
-    };
-  }
-  if (profile.kind === "fixed" && profile.allowExplicitDuration) {
-    return { eligible: true, evidenceRequirement: "optional_duration", evidenceKeys, rejectionCode: null };
-  }
-  return { eligible: true, evidenceRequirement: "none", evidenceKeys: [], rejectionCode: null };
-}
-
-export function materializeModelTemporalBasis(
-  profile: TemporalProfileDefinition,
-  basis: ModelTemporalPlanBasis,
-  evidence: readonly ActionTemporalEvidence[],
-): TemporalPlanDraft["basis"] {
-  const eligibility = temporalProfileEligibility(profile, evidence);
-  if (!eligibility.eligible) {
-    throw new Error(`temporal profile ${profile.id} is ineligible: ${eligibility.rejectionCode}`);
-  }
-  if (basis.kind === "profile") {
-    if (profile.kind === "rate") {
-      throw new Error(`temporal profile ${profile.id} requires an action_text_evidence basis`);
-    }
-    return { kind: "profile" };
-  }
-  const selected = evidence.find((candidate) => candidate.key === basis.evidenceKey);
-  if (!selected) throw new Error(`unknown temporal evidence ${basis.evidenceKey}`);
-  if (!selected.compatibleProfileIds.includes(profile.id)) {
-    throw new Error(`temporal evidence ${basis.evidenceKey} is incompatible with profile ${profile.id}`);
-  }
-  return selected.kind === "duration"
-    ? { kind: "explicit_duration", seconds: selected.seconds, sourceText: selected.sourceText }
-    : { kind: "explicit_quantity", amount: selected.amount, unit: selected.unit, sourceText: selected.sourceText };
-}
-
 function assertPositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${label} must be a positive integer`);
 }
@@ -474,6 +292,10 @@ export function validateTemporalProfile(
   resources: Readonly<Record<string, ActivityResourceDefinition>>,
 ): void {
   if (!profile.id.trim() || !profile.name.trim()) throw new Error("temporal profile identity is required");
+  if (profile.selection.semanticTags.length === 0 ||
+    new Set(profile.selection.semanticTags).size !== profile.selection.semanticTags.length) {
+    throw new Error(`temporal profile ${profile.id} requires unique semantic tags`);
+  }
   if (!profile.interruptible && profile.reactionFallback !== "continue_if_valid") {
     throw new Error(`non-interruptible temporal profile ${profile.id} cannot declare a reaction fallback`);
   }
@@ -487,9 +309,15 @@ export function validateTemporalProfile(
     seen.add(claim.resourceId);
   }
   if (profile.kind === "fixed") {
+    if (profile.selection.evidenceRequirement === "explicit_profile_quantity") {
+      throw new Error(`fixed temporal profile ${profile.id} cannot require profile quantity evidence`);
+    }
     assertPositiveInteger(profile.durationSeconds, `temporal profile ${profile.id} duration`);
     assertPositiveInteger(profile.checkpointSeconds, `temporal profile ${profile.id} checkpoint`);
   } else if (profile.kind === "rate") {
+    if (profile.selection.evidenceRequirement !== "explicit_profile_quantity") {
+      throw new Error(`rate temporal profile ${profile.id} must require explicit profile quantity evidence`);
+    }
     if (!profile.unit.trim() || profile.unitAliases.length === 0 || profile.unitAliases.some((alias) => !alias.trim())) {
       throw new Error(`temporal profile ${profile.id} requires unit aliases`);
     }
@@ -497,6 +325,9 @@ export function validateTemporalProfile(
     assertPositiveInteger(profile.periodSeconds, `temporal profile ${profile.id} period`);
     assertPositiveFinite(profile.checkpointUnits, `temporal profile ${profile.id} checkpoint units`);
   } else if (profile.kind === "staged") {
+    if (profile.selection.evidenceRequirement !== "none") {
+      throw new Error(`staged temporal profile ${profile.id} cannot require text quantity evidence`);
+    }
     if (profile.stages.length === 0) throw new Error(`temporal profile ${profile.id} requires stages`);
     const stageIds = new Set<string>();
     for (const stage of profile.stages) {
@@ -508,8 +339,14 @@ export function validateTemporalProfile(
       assertPositiveInteger(stage.checkpointSeconds, `temporal profile ${profile.id} stage checkpoint`);
     }
   } else if (profile.kind === "conditional") {
+    if (profile.selection.evidenceRequirement !== "none") {
+      throw new Error(`conditional temporal profile ${profile.id} cannot require text quantity evidence`);
+    }
     assertPositiveInteger(profile.checkEverySeconds, `temporal profile ${profile.id} condition interval`);
   } else {
+    if (profile.selection.evidenceRequirement !== "none") {
+      throw new Error(`ongoing temporal profile ${profile.id} cannot require text quantity evidence`);
+    }
     assertPositiveInteger(profile.checkpointSeconds, `temporal profile ${profile.id} checkpoint`);
   }
 }
@@ -582,30 +419,45 @@ export function materializeTemporalPlan(input: {
 }): TemporalPlan {
   const profile = input.profiles[input.draft.profileId];
   if (!profile) throw new Error(`unknown temporal profile ${input.draft.profileId}`);
+  const actionEvidence = extractActionTemporalEvidence(input.rawText, input.profiles);
   let basis: TemporalPlanBasis;
   if (input.draft.basis.kind === "explicit_duration") {
     const duration = input.draft.basis;
-    if (profile.kind !== "fixed" || !profile.allowExplicitDuration) {
+    if (profile.kind !== "fixed" || profile.selection.evidenceRequirement !== "explicit_duration") {
       throw new Error(`temporal profile ${profile.id} does not allow explicit duration`);
     }
-    const parsed = explicitDurationSeconds(input.rawText);
-    if (parsed === null || parsed !== duration.seconds || !input.rawText.includes(duration.sourceText)) {
+    const grounded = actionEvidence.some((evidence) =>
+      evidence.kind === "duration" &&
+      evidence.compatibleProfileIds.includes(profile.id) &&
+      evidence.seconds === duration.seconds &&
+      evidence.sourceText === duration.sourceText);
+    if (!grounded) {
       throw new Error("explicit duration is not grounded in the action text");
     }
     basis = { profileId: profile.id, ...duration };
   } else if (input.draft.basis.kind === "explicit_quantity") {
     const quantity = input.draft.basis;
-    if (profile.kind !== "rate") throw new Error(`temporal profile ${profile.id} is not rate-based`);
-    const parsed = explicitQuantity(input.rawText, [profile.unit, ...profile.unitAliases]);
-    if (!parsed || parsed.amount !== quantity.amount ||
-      ![profile.unit, ...profile.unitAliases].some((unit) => unit.localeCompare(quantity.unit, undefined, { sensitivity: "accent" }) === 0) ||
-      !input.rawText.includes(quantity.sourceText)) {
+    if (profile.kind !== "rate" || profile.selection.evidenceRequirement !== "explicit_profile_quantity") {
+      throw new Error(`temporal profile ${profile.id} is not rate-based`);
+    }
+    const grounded = actionEvidence.some((evidence) =>
+      evidence.kind === "quantity" &&
+      evidence.compatibleProfileIds.includes(profile.id) &&
+      evidence.amount === quantity.amount &&
+      evidence.unit.localeCompare(quantity.unit, undefined, { sensitivity: "accent" }) === 0 &&
+      evidence.sourceText === quantity.sourceText);
+    if (!grounded) {
       throw new Error("explicit progress quantity is not grounded in the action text");
     }
     basis = { profileId: profile.id, ...quantity };
   } else {
-    if (profile.kind === "rate") throw new Error(`rate profile ${profile.id} requires explicit quantity`);
+    if (profile.selection.evidenceRequirement !== "none") {
+      throw new Error(`temporal profile ${profile.id} requires explicit action-text evidence`);
+    }
     basis = { kind: "profile", profileId: profile.id };
+  }
+  if (profile.kind === "conditional" && input.draft.continuationAssertions.length === 0) {
+    throw new Error(`conditional temporal profile ${profile.id} requires a continuation assertion`);
   }
   const schedule = derivedSchedule(profile, input.startsAtSeconds, basis);
   return {
@@ -1017,14 +869,15 @@ export function validateTemporalPlan(
     }
   } else {
     if (plan.basis.kind === "explicit_duration" &&
-      (profile.kind !== "fixed" || !profile.allowExplicitDuration)) {
+      (profile.kind !== "fixed" || profile.selection.evidenceRequirement !== "explicit_duration")) {
       throw new Error(`temporal plan ${plan.id} uses an unauthorized explicit duration`);
     }
-    if (plan.basis.kind === "explicit_quantity" && profile.kind !== "rate") {
+    if (plan.basis.kind === "explicit_quantity" &&
+      (profile.kind !== "rate" || profile.selection.evidenceRequirement !== "explicit_profile_quantity")) {
       throw new Error(`temporal plan ${plan.id} uses quantity with a non-rate profile`);
     }
-    if (plan.basis.kind === "profile" && profile.kind === "rate") {
-      throw new Error(`temporal plan ${plan.id} omits the required explicit quantity`);
+    if (plan.basis.kind === "profile" && profile.selection.evidenceRequirement !== "none") {
+      throw new Error(`temporal plan ${plan.id} omits required action-text evidence`);
     }
     const schedule = derivedSchedule(profile, plan.startsAtSeconds, plan.basis);
     if (plan.completionAtSeconds !== schedule.completionAtSeconds ||

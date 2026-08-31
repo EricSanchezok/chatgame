@@ -1109,7 +1109,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
             activities?: Record<string, { sourceActionId?: string; sourceActionRef?: string; completionAtSeconds: number | null }>;
           };
           temporalBoundary?: { toElapsedSeconds: number };
-          temporalProfiles?: Array<{ profileRef?: string; id?: string; kind: string; allowExplicitDuration?: boolean }>;
+          temporalProfiles?: Array<{ profileRef?: string; id?: string; kind: string; selection?: { evidenceRequirement?: string } }>;
           perspective?: { agentId: string; self: { name: string; location: { name: string } | null } };
           preparedAction?: unknown;
           stimulus?: unknown;
@@ -1124,7 +1124,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         observationSlots?: Array<{ observer: { agentId: string } }>;
         currentEvents?: Array<{ eventRef?: string; id?: string }>;
         committedResolutionPlans?: unknown[];
-        temporalProfiles?: Array<{ profileRef?: string; id?: string; kind: string; allowExplicitDuration?: boolean }>;
+        temporalProfiles?: Array<{ profileRef?: string; id?: string; kind: string; selection?: { evidenceRequirement?: string } }>;
         temporalBoundary?: { toElapsedSeconds: number };
         referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
         referenceCatalogs?: Array<{ slot: number; catalog: { candidates: Array<{ kind: string; handle: string; statePath?: string }> } }>;

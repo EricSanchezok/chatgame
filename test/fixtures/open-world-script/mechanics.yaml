@@ -53,7 +53,7 @@ temporal_profiles:
     kind: fixed
     duration_seconds: 1
     checkpoint_seconds: 1
-    allow_explicit_duration: false
+    selection: { semantic_tags: [short], evidence_requirement: none }
     interruptible: true
     resource_claims: [{ resource_id: foreground, amount: 1 }]
   - id: explicit-duration
@@ -61,7 +61,7 @@ temporal_profiles:
     kind: fixed
     duration_seconds: 60
     checkpoint_seconds: 60
-    allow_explicit_duration: true
+    selection: { semantic_tags: [explicit-duration], evidence_requirement: explicit_duration }
     interruptible: true
     resource_claims: [{ resource_id: foreground, amount: 1 }]
   - id: measured-travel
@@ -72,6 +72,7 @@ temporal_profiles:
     units_per_period: 5
     period_seconds: 3600
     checkpoint_units: 1
+    selection: { semantic_tags: [travel], evidence_requirement: explicit_profile_quantity }
     interruptible: true
     resource_claims: [{ resource_id: foreground, amount: 1 }]
   - id: staged-treatment
@@ -80,20 +81,25 @@ temporal_profiles:
     stages:
       - { id: assess, name: 检查, duration_seconds: 60, checkpoint_seconds: 60 }
       - { id: treat, name: 处理, duration_seconds: 300, checkpoint_seconds: 120 }
+    selection: { semantic_tags: [staged-treatment], evidence_requirement: none }
     interruptible: true
     resource_claims: [{ resource_id: foreground, amount: 1 }]
   - id: wait-condition
     name: 等待条件
     kind: conditional
     check_every_seconds: 60
+    selection: { semantic_tags: [conditional-wait], evidence_requirement: none }
     interruptible: true
     resource_claims: [{ resource_id: foreground, amount: 1 }]
   - id: ongoing-action
     name: 持续行动
     kind: ongoing
     checkpoint_seconds: 60
+    selection: { semantic_tags: [open-ended, reconnaissance], evidence_requirement: none }
     interruptible: true
     resource_claims: [{ resource_id: foreground, amount: 1 }]
+temporal_profile_coverage:
+  required_semantic_tags: [short, explicit-duration, travel, staged-treatment, conditional-wait, open-ended, reconnaissance]
 temporal_calibrations:
   - { id: fixture-strike, situation: 挥动手中武器完成一次攻击。, profile_id: brief-action, explanation: 单次短动作使用一秒边界。 }
   - { id: fixture-rest, situation: 按行动文本明确的时长休息。, profile_id: explicit-duration, explanation: 明确时长由行动文本验证。 }

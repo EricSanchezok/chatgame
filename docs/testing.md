@@ -5,7 +5,7 @@ Tests are executable evidence that a meaningful regression becomes visible befor
 ## Test topology
 
 - Vitest tests are colocated as `src/**/__tests__/*.test.ts`, `src/**/*.test.tsx`, and focused library tests under `src/app/_lib/__tests__/`; `vitest.config.ts` selects the unit project and `test/setup.ts` owns shared jsdom setup.
-- `test/fixtures/open-world-script/` is the shared schema v13 world fixture. It proves the generic contract and is not built-in playable content.
+- `test/fixtures/open-world-script/` is the shared schema v14 world fixture. It proves the generic contract and is not built-in playable content.
 - Playwright flows live under `e2e/flows/`, accessibility coverage under `e2e/a11y/`, shared support under `e2e/support/`, and platform-specific visual baselines beside the owning visual flow. `playwright.config.ts` selects the e2e and a11y projects.
 - `worlds/blackmarsh/` is the real reference-world entry used for structural and live compatibility checks.
 

@@ -23,7 +23,7 @@ world-id/
 ## `script.yaml`
 
 ```yaml
-schema_version: 13
+schema_version: 14
 id: immortal-realms
 name: 万域修途
 version: 1.0.0
@@ -117,7 +117,9 @@ temporal_profiles:
     kind: fixed
     duration_seconds: 1
     checkpoint_seconds: 1
-    allow_explicit_duration: false
+    selection:
+      semantic_tags: [instantaneous, short]
+      evidence_requirement: none
     interruptible: true
     reaction_fallback: continue_if_valid
     resource_claims: [{ resource_id: foreground, amount: 1 }]
@@ -129,9 +131,14 @@ temporal_profiles:
     units_per_period: 5
     period_seconds: 3600
     checkpoint_units: 1
+    selection:
+      semantic_tags: [travel]
+      evidence_requirement: explicit_profile_quantity
     interruptible: true
     reaction_fallback: continue_if_valid
     resource_claims: [{ resource_id: foreground, amount: 1 }]
+temporal_profile_coverage:
+  required_semantic_tags: [instantaneous, short, travel]
 temporal_calibrations:
   - id: ordinary-strike-time
     situation: 完成一次挥击、格挡或闪避。
@@ -173,7 +180,7 @@ random_distributions: []
 
 `activity_resources` 声明每名 Agent 可被活动占用的通用容量；引擎不内置手、移动、战斗或治疗槽位。`shared_activity_resources` 声明多个 Agent 可竞争的 typed pool 种类：正数默认 claim、单位、是否允许行动原文明示数量、`reject | queue | adjudicate` 争用策略，以及 pause 时 `retain | release`。它不在这里声明总容量；每个 Entity 实例化自己的 pool。混合 claims 按 `adjudicate > queue > reject` 选择路线，但最终必须全部满足，模型不能借此修改容量或 claim 数量。
 
-`temporal_profiles` 定义活动的 fixed、rate、staged、conditional 或 ongoing 时间形态、检查点、是否可中断、反应超时策略和每 Agent 资源占用。`reaction_fallback` 可为 `continue_if_valid | pause | cancel`，缺省为 `continue_if_valid`；不可中断 Profile 只能使用该缺省值，且客观 continuation assertion 失效始终优先于 fallback。rate 的总量必须来自可验证的行动文本或受信任规则；fixed 只有显式允许时才可采用行动文本中的明确时长。`temporal_calibrations` 帮助语义 planner 选择已声明 profile；模型不能提交原始世界时钟增量、最终进度或完成效果。`world_timers` 声明从 `elapsedSeconds = 0` 计算的绝对语义触发，只保存描述、到期时刻、唤醒 Agent 和授权 law；它不能携带未来 state delta。到期时内核把 Timer trigger 与同刻 Activity 联合交给 Truth 裁决。
+`temporal_profiles` 定义活动的 fixed、rate、staged、conditional 或 ongoing 时间形态、检查点、是否可中断、反应超时策略和每 Agent 资源占用。每个 Profile 的 `selection.semantic_tags` 描述它覆盖的行动语义；`selection.evidence_requirement` 明确选择它所需的确定性证据：`none`、行动原文中的 `explicit_duration`，或与该 rate Profile 单位匹配的 `explicit_profile_quantity`。rate Profile 必须要求 `explicit_profile_quantity`；只有 fixed Profile 可以要求 `explicit_duration`；其他时间形态必须使用 `none`。`temporal_profile_coverage.required_semantic_tags` 是世界作者声明的最低语义覆盖，加载器会在启动前拒绝存在缺口的世界。调用模型前，引擎先从行动原文抽取带精确字符范围的证据，并仅暴露合格 Profile；若一个也没有则在模型边界之前确定性失败。`reaction_fallback` 可为 `continue_if_valid | pause | cancel`，缺省为 `continue_if_valid`；不可中断 Profile 只能使用该缺省值，且客观 continuation assertion 失效始终优先于 fallback。conditional Profile 还必须提交至少一个可持久化的 continuation assertion。`temporal_calibrations` 帮助语义 planner 在合格 Profile 中选择；模型不能提交原始世界时钟增量、最终进度或完成效果。`world_timers` 声明从 `elapsedSeconds = 0` 计算的绝对语义触发，只保存描述、到期时刻、唤醒 Agent 和授权 law；它不能携带未来 state delta。到期时内核把 Timer trigger 与同刻 Activity 联合交给 Truth 裁决。
 
 离散随机分布由有序 step 组成。每个 step 声明等概率 outcome 槽位、抽取次数、`first | sum | values` 聚合和可选的前序条件；重复槽位表达权重。运行时在抽取前固定请求，并用 seeded RNG 执行。完整预算和提交语义见[Truth 与随机承诺](engine-runtime.md#truth-与随机承诺)。
 
@@ -276,4 +283,4 @@ Origin 定义身份幻想、出生位置、初始 persona、默认 goal、关系
 
 loader 验证 Entity、placement 无环、Fact、Agent self binding、character/belief 局部引用、全部 Mechanics Profile 与 shared-resource definition/pool 引用及范围、random distribution、模型 Profile、Origin spawn/mechanics/image、数量和所有 ID 唯一性。初始 Agent 的 `nextAction` 由引擎设为 null；初始 lifecycle、Fact provenance、character 时间戳和运行时身份由引擎注入。
 
-loader 只接受 `schema_version: 13`。旧世界包、状态和存档直接拒绝，不提供迁移或兼容层。
+loader 只接受 `schema_version: 14`。旧世界包、状态和存档直接拒绝，不提供迁移或兼容层。

@@ -218,12 +218,12 @@ describe("open world script loader", () => {
     });
   });
 
-  it("rejects schema v12 worlds and missing or duplicate Agent self bindings", () => {
+  it("rejects schema v13 worlds and missing or duplicate Agent self bindings", () => {
     const oldWorld = copiedFixture();
     const manifestFile = path.join(oldWorld, "script.yaml");
     writeFileSync(
       manifestFile,
-      readFileSync(manifestFile, "utf8").replace("schema_version: 13", "schema_version: 12"),
+      readFileSync(manifestFile, "utf8").replace("schema_version: 14", "schema_version: 13"),
       "utf8",
     );
     expect(() => loadWorldScript(oldWorld, { modelCatalog })).toThrow();
@@ -239,6 +239,34 @@ describe("open world script loader", () => {
       "utf8",
     );
     expect(() => loadWorldScript(duplicateSelf, { modelCatalog })).toThrow("exactly one self binding");
+  });
+
+  it("rejects temporal selection and coverage gaps before runtime", () => {
+    const missingCoverage = copiedFixture();
+    const missingCoverageFile = path.join(missingCoverage, "mechanics.yaml");
+    writeFileSync(
+      missingCoverageFile,
+      readFileSync(missingCoverageFile, "utf8").replace(
+        "required_semantic_tags: [short, explicit-duration, travel, staged-treatment, conditional-wait, open-ended, reconnaissance]",
+        "required_semantic_tags: [short, explicit-duration, travel, staged-treatment, conditional-wait, open-ended, reconnaissance, diplomacy]",
+      ),
+      "utf8",
+    );
+    expect(() => loadWorldScript(missingCoverage, { modelCatalog }))
+      .toThrow("temporal profile coverage is missing semantic tag diplomacy");
+
+    const invalidRate = copiedFixture();
+    const invalidRateFile = path.join(invalidRate, "mechanics.yaml");
+    writeFileSync(
+      invalidRateFile,
+      readFileSync(invalidRateFile, "utf8").replace(
+        "selection: { semantic_tags: [travel], evidence_requirement: explicit_profile_quantity }",
+        "selection: { semantic_tags: [travel], evidence_requirement: none }",
+      ),
+      "utf8",
+    );
+    expect(() => loadWorldScript(invalidRate, { modelCatalog }))
+      .toThrow("must require explicit profile quantity evidence");
   });
 
   it("loads only rule packages registered by the trusted server runtime", () => {
@@ -273,7 +301,7 @@ describe("open world script loader", () => {
       "utf8",
     );
     expect(() => loadWorldScript(missingCore, { seed: 1, rulePackages: registry, modelCatalog }))
-      .toThrow("schema v13 worlds require core-resolution@2.0.0");
+      .toThrow("schema v14 worlds require core-resolution@2.0.0");
   });
 
   it("enforces the exact canonical UTF-8 distribution budget during world loading", () => {

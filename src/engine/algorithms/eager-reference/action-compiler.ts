@@ -35,10 +35,10 @@ import {
 import { runtimeId } from "../../runtime/runtime-id";
 import {
   createActivity,
+  eligibleTemporalProfiles,
   extractActionTemporalEvidence,
   materializeModelTemporalBasis,
   materializeTemporalPlan,
-  temporalProfileEligibility,
   type ScheduledActivityState,
   type TemporalPlan,
 } from "../../mechanics/temporal";
@@ -201,10 +201,12 @@ function actionCompilationContext(
         actorPerspective: slotContext.actorPerspective,
         existingActivities: existingActivities(state, entry.payload.action, slotResolver),
         temporalEvidence,
-        temporalProfileEligibility: Object.values(state.truth.mechanics.temporalProfiles)
-          .map((profile) => ({
+        temporalProfileEligibility: eligibleTemporalProfiles(
+          state.truth.mechanics.temporalProfiles,
+          temporalEvidence,
+        ).map(({ profile, eligibility }) => ({
             profileRef: slotResolver.handleFor("temporal_profile", profile.id),
-            ...temporalProfileEligibility(profile, temporalEvidence),
+            ...eligibility,
           }))
           .sort((left, right) => left.profileRef.localeCompare(right.profileRef)),
       },
