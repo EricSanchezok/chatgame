@@ -1685,6 +1685,27 @@ describe("eager reference safeguards", () => {
       timerId: null,
     });
     expect(second.committed.beliefPatches).toContainEqual(expect.objectContaining({ agentId: "player" }));
+
+    const third = await engine.step({
+      player: { kind: "external", agentId: "player", participantId: "participant-player" },
+      keeper: { kind: "idle", agentId: "keeper", reason: "explicit" },
+    }, {
+      expectedRevision: second.state.revision,
+      trigger: "participant_action",
+      externalActions: [{
+        submissionId: "resume-after-decision",
+        agentId: "player",
+        rawText: "继续沿道路走完剩余100公里",
+        goal: "继续前往远方城镇",
+        means: "步行",
+        targetIds: [],
+      }],
+    });
+    expect(third.state.revision).toBe(second.state.revision + 1);
+    expect(Object.values(third.state.truth.activities)).toContainEqual(expect.objectContaining({
+      actorId: "player",
+      status: "active",
+    }));
   });
 
   it("re-grounds an Agent action that is replaced during the reaction window", async () => {

@@ -1175,7 +1175,11 @@ export function validateSimulationState(state: SimulationState, requireNextActio
     definitions: state.truth.mechanics.sharedActivityResources,
     entities: state.truth.entities,
   });
-  for (const point of state.history.at(-1)?.decisionPoints ?? []) {
+  const latestCommittedStep = state.history.at(-1);
+  const currentDecisionPoints = latestCommittedStep?.revision === state.revision
+    ? latestCommittedStep.decisionPoints
+    : [];
+  for (const point of currentDecisionPoints) {
     const occupying = Object.values(state.truth.activities).find((activity) =>
       activity.status === "active" && activity.participantAgentIds.includes(point.agentId));
     if (occupying) {
