@@ -60,6 +60,26 @@ type AlgorithmTelemetryBase = Omit<
 };
 
 export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
+  event: "algorithm.eager_reference.action_compilation_context_projected";
+  attributes: Readonly<{
+    phase: "action-compilation";
+    projection: "c0-repeated-slot-catalog" | "c1-shared-full-catalog" |
+      "c2-normalized-complete-catalog" | "c3-deterministic-details" |
+      "c4-bounded-expansion" | "c5-retrieval-supplement";
+    repair: boolean;
+  }>;
+  counts: Readonly<{
+    slots: number;
+    candidateHandles: number;
+    serializedCandidates: number;
+    detailedCandidates: number;
+    repairIssues: number;
+    contextUtf8Bytes: number;
+    referenceCatalogUtf8Bytes: number;
+    canonicalTruthUtf8Bytes: number;
+    taskUtf8Bytes: number;
+  }>;
+} | {
   event: "algorithm.eager_reference.slot_batch_completed";
   attributes: Readonly<{
     phase: "action-compilation" | "agent-bootstrap" | "agent-resume" | "agent-mind" |
@@ -386,6 +406,32 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
   counts: readonly string[];
   attributeValues?: Readonly<Record<string, readonly RuntimeAttribute[]>>;
 }> = {
+  "algorithm.eager_reference.action_compilation_context_projected": {
+    attributes: ["phase", "projection", "repair"],
+    counts: [
+      "slots",
+      "candidateHandles",
+      "serializedCandidates",
+      "detailedCandidates",
+      "repairIssues",
+      "contextUtf8Bytes",
+      "referenceCatalogUtf8Bytes",
+      "canonicalTruthUtf8Bytes",
+      "taskUtf8Bytes",
+    ],
+    attributeValues: {
+      phase: ["action-compilation"],
+      projection: [
+        "c0-repeated-slot-catalog",
+        "c1-shared-full-catalog",
+        "c2-normalized-complete-catalog",
+        "c3-deterministic-details",
+        "c4-bounded-expansion",
+        "c5-retrieval-supplement",
+      ],
+      repair: [true, false],
+    },
+  },
   "algorithm.eager_reference.slot_batch_completed": {
     attributes: ["phase"],
     counts: [

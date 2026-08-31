@@ -110,6 +110,9 @@ function buildReport(database: LocalDatabase, executionId: string) {
   const semanticRejections = events.filter((event) =>
     event.event === "model.semantic.rejected" && event.correlation?.modelRole === "action-compilation",
   );
+  const projectionEvents = events.filter((event) =>
+    event.event === "algorithm.eager_reference.action_compilation_context_projected",
+  );
   const issueReasons = contexts.flatMap((event) =>
     event.payload.context.repair?.issues?.map((issue) => issue.reason) ?? [],
   );
@@ -181,6 +184,16 @@ function buildReport(database: LocalDatabase, executionId: string) {
       total: issueReasons.length,
       categories: sortedCounts(issueReasons.map(repairIssueCategory)),
     },
+    ...(projectionEvents.length > 0 ? {
+      projectionTelemetry: {
+        events: projectionEvents.length,
+        variants: sortedCounts(projectionEvents.map((event) => String(event.attributes?.projection))),
+        candidateHandles: sumKnown(projectionEvents.map((event) => event.counts?.candidateHandles ?? null)),
+        serializedCandidates: sumKnown(projectionEvents.map((event) => event.counts?.serializedCandidates ?? null)),
+        detailedCandidates: sumKnown(projectionEvents.map((event) => event.counts?.detailedCandidates ?? null)),
+        repairIssues: sumKnown(projectionEvents.map((event) => event.counts?.repairIssues ?? null)),
+      },
+    } : {}),
   };
 }
 

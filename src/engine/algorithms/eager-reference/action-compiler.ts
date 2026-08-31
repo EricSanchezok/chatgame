@@ -169,6 +169,40 @@ function actionCompilationContext(
   };
 }
 
+function jsonUtf8Bytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function emitActionCompilationContextProjection(
+  scope: ModelExecutionScope,
+  owner: string,
+  identity: ReturnType<typeof modelInvocationIdentity>,
+  context: ReturnType<typeof actionCompilationContext>,
+): void {
+  const catalogs = context.referenceCatalogs.map((entry) => entry.catalog);
+  const candidates = catalogs.flatMap((catalog) => catalog.candidates);
+  scope.observer?.emit({
+    event: "algorithm.eager_reference.action_compilation_context_projected",
+    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+    attributes: {
+      phase: "action-compilation",
+      projection: "c0-repeated-slot-catalog",
+      repair: context.repair !== null,
+    },
+    counts: {
+      slots: context.state.slots.length,
+      candidateHandles: new Set(candidates.map((candidate) => candidate.handle)).size,
+      serializedCandidates: candidates.length,
+      detailedCandidates: candidates.length,
+      repairIssues: context.repair?.issues.length ?? 0,
+      contextUtf8Bytes: jsonUtf8Bytes(context),
+      referenceCatalogUtf8Bytes: jsonUtf8Bytes(context.referenceCatalogs),
+      canonicalTruthUtf8Bytes: jsonUtf8Bytes(context.state.canonicalTruth),
+      taskUtf8Bytes: jsonUtf8Bytes(context.task),
+    },
+  });
+}
+
 function assertSlotCoverage(
   slots: readonly CompilationSlot[],
   drafts: readonly (ActionCompilationDraft & { slot: number })[],
@@ -430,6 +464,8 @@ export async function compileActions(
     invoke: async (batch, attempt) => {
       const owner = eagerSlotBatchOwner("action-compilation", batch);
       const identity = modelInvocationIdentity(scope, "action-compilation", owner, attempt + 1);
+      const context = actionCompilationContext(state, batch, scope);
+      emitActionCompilationContextProjection(scope, owner, identity, context);
       let generated;
       try {
         generated = await provider.generateStructured({
@@ -446,7 +482,7 @@ export async function compileActions(
           schemaName: "action_compilation_batch",
           system: ACTION_COMPILER_PROMPT.system,
           userPrompt: ACTION_COMPILER_PROMPT.userPrompt,
-          context: actionCompilationContext(state, batch, scope),
+          context,
           schema: actionCompilationBatchSchema,
         });
         assertSlotCoverage(batch, generated.value.slots);

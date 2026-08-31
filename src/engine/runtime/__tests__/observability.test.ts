@@ -32,6 +32,21 @@ describe("model context measurements", () => {
       attributes: { phase: "mind" },
       counts: { mindFallbacks: 1 },
     })).toThrow("attributes fields must be exactly");
+    expect(() => validateAlgorithmTelemetryEvent({
+      event: "algorithm.eager_reference.action_compilation_context_projected",
+      attributes: { phase: "action-compilation", projection: "c0-repeated-slot-catalog", repair: false },
+      counts: {
+        slots: 5,
+        candidateHandles: 1_000,
+        serializedCandidates: 5_000,
+        detailedCandidates: 5_000,
+        repairIssues: 0,
+        contextUtf8Bytes: 3_000_000,
+        referenceCatalogUtf8Bytes: 2_400_000,
+        canonicalTruthUtf8Bytes: 380_000,
+        taskUtf8Bytes: 330_000,
+      },
+    })).not.toThrow();
     const observer = new RecordingRuntimeObserver();
     expect(() => observer.emit({ event: "resolution.unknown" }))
       .toThrow("unknown stable runtime event");
