@@ -15,6 +15,7 @@ import { loadModelCatalog } from "../../src/engine/models/model-catalog";
 import { createModelGateway } from "../../src/engine/models/model-gateway";
 import { createModelFetchResolver } from "../../src/engine/models/model-network";
 import type { StructuredModelProvider } from "../../src/engine/models/model-provider";
+import { ModelTransportError } from "../../src/engine/models/model-provider";
 import { ModelRegistry } from "../../src/engine/models/model-registry";
 import { contentHash } from "../../src/engine/models/model-audit";
 import { defineEngineOperationManifest } from "../../src/engine/runtime/execution";
@@ -28,6 +29,7 @@ interface Arguments {
   ledgerDirectory: string;
   world: string;
   corpus: string;
+  transportRetries: number;
 }
 
 interface LiveRun {
@@ -36,7 +38,9 @@ interface LiveRun {
   slots: number;
   repetition: number;
   executionId: string;
+  cellAttempt: number;
   success: boolean;
+  failureClass: "transport" | "semantic" | "other" | null;
   error: { name: string; message: string } | null;
   latencyMs: number;
   physicalCalls: number;
@@ -75,6 +79,7 @@ function argumentsFor(argv: readonly string[]): Arguments {
     ledgerDirectory: pathArgument(argv, "--ledger-directory", ".livingworld-benchmarks"),
     world: pathArgument(argv, "--world", "worlds/blackmarsh/world"),
     corpus: pathArgument(argv, "--corpus", "test/fixtures/action-compilation/live-corpus.jsonl"),
+    transportRetries: integerArgument(argv, "--transport-retries", 2, 0, 5),
   };
 }
 
@@ -163,7 +168,10 @@ function safeError(error: unknown): { name: string; message: string } {
 }
 
 function aggregate(runs: readonly LiveRun[], variant: "C2" | "C3") {
-  const selected = runs.filter((run) => run.variant === variant);
+  const attempts = runs.filter((run) => run.variant === variant);
+  const finalByCell = new Map<string, LiveRun>();
+  for (const run of attempts) finalByCell.set(`${run.repetition}:${run.batch}`, run);
+  const selected = [...finalByCell.values()];
   const successful = selected.filter((run) => run.success);
   const totalProfileChecks = selected.reduce((total, run) => total + run.profileChecks, 0);
   const totalProfileMatches = selected.reduce((total, run) => total + run.profileMatches, 0);
@@ -173,6 +181,8 @@ function aggregate(runs: readonly LiveRun[], variant: "C2" | "C3") {
   const perSlotInputTokens = selected.flatMap((run) =>
     run.inputTokens === null ? [] : [run.inputTokens / run.slots]);
   return {
+    attempts: attempts.length,
+    transportFailureAttempts: attempts.filter((run) => run.failureClass === "transport").length,
     runs: selected.length,
     successfulRuns: successful.length,
     runSuccessRate: selected.length === 0 ? 0 : successful.length / selected.length,
@@ -244,8 +254,9 @@ async function main(): Promise<void> {
         const records = Array.from({ length: slots }, (_, slot) => corpus[(batch * 7 + slot * 5) % corpus.length]!);
         const actions = records.map((record, slot) => actionFor(record, actorIds[slot]!, batch, slot));
         for (const variant of variantOrder) {
-          const executionId = randomUUID();
-          const writer = ledger.beginExecution({
+          for (let cellAttempt = 0; cellAttempt <= args.transportRetries; cellAttempt += 1) {
+            const executionId = randomUUID();
+            const writer = ledger.beginExecution({
             id: executionId,
             kind: "benchmark",
             manifest,
@@ -254,17 +265,17 @@ async function main(): Promise<void> {
             codeDirty: true,
             modelCatalogHash: catalog.hash,
             seed: 20260901,
-            runtimeConfig: { variant, repetition, batch, slots },
+            runtimeConfig: { variant, repetition, batch, slots, cellAttempt },
           });
-          writer.artifact("action-compilation-live.input", {
+            writer.artifact("action-compilation-live.input", {
             variant,
             repetition,
             batch,
             actions: records.map((record, slot) => ({ slot, corpusId: record.id, category: record.category })),
           });
-          const contextBytes: number[] = [];
-          const startedAt = performance.now();
-          try {
+            const contextBytes: number[] = [];
+            const startedAt = performance.now();
+            try {
             const result = await compileActions(
               projectedProvider(delegate, variant, contextBytes),
               definition.initialState,
@@ -289,7 +300,9 @@ async function main(): Promise<void> {
               slots,
               repetition,
               executionId,
+              cellAttempt,
               success: true,
+              failureClass: null,
               error: null,
               latencyMs: Math.round(performance.now() - startedAt),
               physicalCalls: result.modelAudits.flatMap((audit) => audit.invocations).length,
@@ -310,14 +323,18 @@ async function main(): Promise<void> {
               }))),
               stateHash: contentHash(definition.initialState),
             });
-          } catch (error) {
+            } catch (error) {
+            const failureClass = error instanceof ModelTransportError ? "transport" :
+              error instanceof Error && error.name === "ModelSemanticRepairError" ? "semantic" : "other";
             const run: LiveRun = {
               variant,
               batch,
               slots,
               repetition,
               executionId,
+              cellAttempt,
               success: false,
+              failureClass,
               error: safeError(error),
               latencyMs: Math.round(performance.now() - startedAt),
               physicalCalls: contextBytes.length,
@@ -336,8 +353,12 @@ async function main(): Promise<void> {
             runs.push(run);
             writer.artifact("action-compilation-live.result", run);
             ledger.finishExecution(executionId, { status: "failed", error });
+            }
+            const completed = runs.at(-1)!;
+            const retryTransport = completed.failureClass === "transport" && cellAttempt < args.transportRetries;
+            process.stdout.write(`${variant} batch=${batch + 1}/${args.batches} slots=${slots} repetition=${repetition + 1}/${args.repetitions} ${completed.success ? "passed" : retryTransport ? "transport-retry" : "failed"}\n`);
+            if (!retryTransport) break;
           }
-          process.stdout.write(`${variant} batch=${batch + 1}/${args.batches} slots=${slots} repetition=${repetition + 1}/${args.repetitions} ${runs.at(-1)!.success ? "passed" : "failed"}\n`);
         }
       }
     }
@@ -382,8 +403,11 @@ async function main(): Promise<void> {
       batches: args.batches,
       repetitions: args.repetitions,
       slotSizes: sizes,
-      pairedRuns: runs.length,
+      pairedRuns: args.batches * args.repetitions * 2,
+      expectedPairedRuns: args.batches * args.repetitions * 2,
+      attemptRuns: runs.length,
       orderAlternatesByRepetition: true,
+      transportRetriesPerCell: args.transportRetries,
     },
     registrySnapshotHash: registrySnapshotHashes.length === 1 ? registrySnapshotHashes[0] : null,
     variants: { C2: c2, C3: c3 },
