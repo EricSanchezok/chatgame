@@ -10,6 +10,7 @@ import {
   parseActionCompilationCorpus,
   type ActionCompilationCorpusRecord,
 } from "../../src/engine/benchmarks/action-compilation/gold-evaluator";
+import { selectActionCompilationLiveVariant } from "../../src/engine/benchmarks/action-compilation/live-selection";
 import type { AgentActionProposal, ModelExecutionAudit } from "../../src/engine/contracts/model";
 import { loadModelCatalog } from "../../src/engine/models/model-catalog";
 import { createModelGateway } from "../../src/engine/models/model-gateway";
@@ -30,6 +31,7 @@ interface Arguments {
   world: string;
   corpus: string;
   transportRetries: number;
+  reselect: string | null;
 }
 
 interface LiveRun {
@@ -72,6 +74,7 @@ function pathArgument(argv: readonly string[], name: string, fallback: string): 
 }
 
 function argumentsFor(argv: readonly string[]): Arguments {
+  const reselectIndex = argv.indexOf("--reselect");
   return {
     repetitions: integerArgument(argv, "--repetitions", 3, 1, 10),
     batches: integerArgument(argv, "--batches", 12, 1, 48),
@@ -80,6 +83,7 @@ function argumentsFor(argv: readonly string[]): Arguments {
     world: pathArgument(argv, "--world", "worlds/blackmarsh/world"),
     corpus: pathArgument(argv, "--corpus", "test/fixtures/action-compilation/live-corpus.jsonl"),
     transportRetries: integerArgument(argv, "--transport-retries", 2, 0, 5),
+    reselect: reselectIndex < 0 ? null : path.resolve(argv[reselectIndex + 1] ?? ""),
   };
 }
 
@@ -212,8 +216,59 @@ function aggregate(runs: readonly LiveRun[], variant: "C2" | "C3") {
   };
 }
 
+function evaluateSelection(
+  c2: ReturnType<typeof aggregate>,
+  c3: ReturnType<typeof aggregate>,
+  completePairedDesign: boolean,
+) {
+  const modelIdentity = [c2, c3].every((entry) =>
+    entry.modelIds.length === 1 && entry.modelIds[0] === "deepseek-v4-flash" &&
+    entry.thinkingModes.length === 1 && entry.thinkingModes[0] === "disabled");
+  return selectActionCompilationLiveVariant({
+    c2,
+    c3,
+    modelIdentity,
+    repeatedInvalidFingerprintSecondRepair: true,
+    completePairedDesign,
+  });
+}
+
 async function main(): Promise<void> {
   const args = argumentsFor(process.argv.slice(2));
+  if (args.reselect) {
+    const report = JSON.parse(readFileSync(args.reselect, "utf8")) as {
+      schemaVersion: number;
+      source?: { ledgerFile?: string; [key: string]: unknown };
+      design: { batches: number; repetitions: number };
+      variants: { C2: ReturnType<typeof aggregate>; C3: ReturnType<typeof aggregate> };
+      correctnessGates: unknown;
+      experimentGates: unknown;
+      comparison: unknown;
+      selected: "C2" | "C3";
+    };
+    const selection = evaluateSelection(
+      report.variants.C2,
+      report.variants.C3,
+      report.design.batches >= 12 && report.design.repetitions >= 3,
+    );
+    const updated = {
+      ...report,
+      schemaVersion: 2,
+      source: report.source
+        ? {
+            ...report.source,
+            ledgerFile: report.source.ledgerFile && path.isAbsolute(report.source.ledgerFile)
+              ? path.relative(process.cwd(), report.source.ledgerFile)
+              : report.source.ledgerFile,
+          }
+        : report.source,
+      ...selection,
+    };
+    writeFileSync(args.reselect, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+    process.stdout.write(`Action Compilation live evaluation reselected ${selection.selected}; report=${args.reselect}\n`);
+    if (selection.selected !== "C3") process.exitCode = 1;
+    return;
+  }
   const catalog = loadModelCatalog();
   const profile = catalog.profile("truth-deepseek");
   if (profile.selector.kind !== "exact" || profile.selector.model_id !== "deepseek-v4-flash" ||
@@ -367,27 +422,11 @@ async function main(): Promise<void> {
   }
   const c2 = aggregate(runs, "C2");
   const c3 = aggregate(runs, "C3");
-  const identityValid = [c2, c3].every((entry) =>
-    entry.modelIds.length === 1 && entry.modelIds[0] === "deepseek-v4-flash" &&
-    entry.thinkingModes.length === 1 && entry.thinkingModes[0] === "disabled");
   const registrySnapshotHashes = [...new Set([...c2.registrySnapshotHashes, ...c3.registrySnapshotHashes])].sort();
-  const correctnessGates = {
-    modelIdentity: identityValid,
-    noFailedRuns: c2.successfulRuns === c2.runs && c3.successfulRuns === c3.runs,
-    c3CommitNonInferior: c3.runSuccessRate >= c2.runSuccessRate,
-    c3ProfileAccuracyNonInferior: c3.profileAccuracy >= c2.profileAccuracy,
-    repeatedInvalidFingerprintSecondRepair: true,
-  };
-  const experimentGates = {
-    completePairedDesign: args.batches >= 12 && args.repetitions >= 3,
-    c3PerSlotInputP95Lower: c2.perSlotInputTokensP95 !== null && c3.perSlotInputTokensP95 !== null &&
-      c3.perSlotInputTokensP95 < c2.perSlotInputTokensP95,
-  };
-  const selected = Object.values(correctnessGates).every(Boolean) && Object.values(experimentGates).every(Boolean)
-    ? "C3"
-    : "C2";
+  const { correctnessGates, experimentGates, comparison, selected } =
+    evaluateSelection(c2, c3, args.batches >= 12 && args.repetitions >= 3);
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     source: {
       worldId: definition.id,
@@ -397,7 +436,7 @@ async function main(): Promise<void> {
       requestedModelId: "deepseek-v4-flash",
       requestedThinking: "disabled",
       corpusHash: contentHash(corpus),
-      ledgerFile,
+      ledgerFile: path.relative(process.cwd(), ledgerFile),
     },
     design: {
       batches: args.batches,
@@ -413,14 +452,7 @@ async function main(): Promise<void> {
     variants: { C2: c2, C3: c3 },
     correctnessGates,
     experimentGates,
-    comparison: {
-      c3PerSlotInputP95Reduction: c2.perSlotInputTokensP95 === null || c3.perSlotInputTokensP95 === null
-        ? null
-        : 1 - c3.perSlotInputTokensP95 / c2.perSlotInputTokensP95,
-      c3RequestBytesP95Reduction: c2.requestBytesP95 === null || c3.requestBytesP95 === null
-        ? null
-        : 1 - c3.requestBytesP95 / c2.requestBytesP95,
-    },
+    comparison,
     selected,
     runs,
   };

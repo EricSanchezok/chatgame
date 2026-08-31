@@ -1,0 +1,2421 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-31T21:50:12.073Z",
+  "source": {
+    "worldId": "blackmarsh",
+    "worldHash": "sha256:996be2ba44b7d60b0af3170f362319c4b1919b3eeb18b7ff2361abc564a9a591",
+    "modelCatalogHash": "67846b9fb010cb2e34899f103a96c6e0c19c7425a49cf454efde91d0995a030d",
+    "profileId": "truth-deepseek",
+    "requestedModelId": "deepseek-v4-flash",
+    "requestedThinking": "disabled",
+    "corpusHash": "d5512629d077ece75b4ba18483a090d2c316a23926942e5e369dcb481d801daa",
+    "ledgerFile": ".livingworld-benchmarks/action-compilation-live-1788212070803.sqlite"
+  },
+  "design": {
+    "batches": 12,
+    "repetitions": 3,
+    "slotSizes": [
+      1,
+      5,
+      12
+    ],
+    "pairedRuns": 72,
+    "expectedPairedRuns": 72,
+    "attemptRuns": 72,
+    "orderAlternatesByRepetition": true,
+    "transportRetriesPerCell": 2
+  },
+  "registrySnapshotHash": "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4",
+  "variants": {
+    "C2": {
+      "attempts": 36,
+      "transportFailureAttempts": 0,
+      "runs": 36,
+      "successfulRuns": 35,
+      "runSuccessRate": 0.9722222222222222,
+      "compiledSlots": 215,
+      "profileAccuracy": 0.9906976744186047,
+      "physicalCalls": 42,
+      "repairCalls": 4,
+      "repeatedFingerprintStops": 0,
+      "totalContextBytes": 34427356,
+      "meanContextBytes": 819699,
+      "requestBytesP95": 896051,
+      "perSlotInputTokensP95": 228338,
+      "repairAmplification": 0.11367708906510254,
+      "semanticRepairRate": 0.09523809523809523,
+      "inputTokens": 8993126,
+      "cacheReadTokens": 1654784,
+      "outputTokens": 30610,
+      "latencyMs": 480347,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    "C3": {
+      "attempts": 36,
+      "transportFailureAttempts": 0,
+      "runs": 36,
+      "successfulRuns": 36,
+      "runSuccessRate": 1,
+      "compiledSlots": 216,
+      "profileAccuracy": 1,
+      "physicalCalls": 39,
+      "repairCalls": 3,
+      "repeatedFingerprintStops": 0,
+      "totalContextBytes": 29381239,
+      "meanContextBytes": 753365,
+      "requestBytesP95": 865563,
+      "perSlotInputTokensP95": 195720,
+      "repairAmplification": 0.05927775517864211,
+      "semanticRepairRate": 0.07692307692307693,
+      "inputTokens": 7431785,
+      "cacheReadTokens": 916736,
+      "outputTokens": 28608,
+      "latencyMs": 460186,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    }
+  },
+  "correctnessGates": {
+    "modelIdentity": true,
+    "c3NoFailedRuns": true,
+    "c3CommitNonInferior": true,
+    "c3ProfileAccuracyNonInferior": true,
+    "repeatedInvalidFingerprintSecondRepair": true
+  },
+  "experimentGates": {
+    "completePairedDesign": true,
+    "c3PerSlotInputP95Lower": true
+  },
+  "comparison": {
+    "c3PerSlotInputP95Reduction": 0.14284963518993776,
+    "c3RequestBytesP95Reduction": 0.03402484903203051
+  },
+  "selected": "C3",
+  "runs": [
+    {
+      "variant": "C2",
+      "batch": 0,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "9df2b864-13ab-4d13-98c9-ec046a674c65",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 3196,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 0,
+      "contextBytes": [
+        827453
+      ],
+      "inputTokens": 228180,
+      "cacheReadTokens": 228096,
+      "outputTokens": 201,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 0,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "154e5e6f-d7b8-4bf7-bf23-6c05eafa4060",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 2660,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        705133
+      ],
+      "inputTokens": 195720,
+      "cacheReadTokens": 195712,
+      "outputTokens": 145,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 1,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "1392ce7f-0fc0-48f3-b963-1ac48c0f7ee4",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 5137,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        853692
+      ],
+      "inputTokens": 235092,
+      "cacheReadTokens": 235008,
+      "outputTokens": 716,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 1,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "37db92ec-79e0-47b5-bef7-0e8ab2c873ce",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 5894,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        787605
+      ],
+      "inputTokens": 217598,
+      "cacheReadTokens": 217472,
+      "outputTokens": 771,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 2,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "8aaa2537-a559-4f6d-bb6e-2ca4bdf55fee",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 9885,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025
+      ],
+      "inputTokens": 246199,
+      "cacheReadTokens": 246144,
+      "outputTokens": 1634,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 2,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "8f2dcfcc-6d2d-43b1-a171-7b8bf46be0a9",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 9419,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": 238084,
+      "cacheReadTokens": 238080,
+      "outputTokens": 1501,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 3,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "aced31ff-ff94-488f-8da7-d9e8816a0748",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 11278,
+      "physicalCalls": 2,
+      "repairCalls": 1,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        826716,
+        826937
+      ],
+      "inputTokens": 456070,
+      "cacheReadTokens": 219904,
+      "outputTokens": 140,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 3,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "2104bd7c-37e7-4877-ad9b-d64edf9b8adc",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 3117,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        685891
+      ],
+      "inputTokens": 190770,
+      "cacheReadTokens": 1536,
+      "outputTokens": 128,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 4,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "388d6c32-d148-4690-885a-c9f06dcada4f",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 6163,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        851870
+      ],
+      "inputTokens": 234620,
+      "cacheReadTokens": 1536,
+      "outputTokens": 698,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 4,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "b2805717-bca4-470e-977a-a55d1de45162",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 11624,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        804696
+      ],
+      "inputTokens": 221957,
+      "cacheReadTokens": 1536,
+      "outputTokens": 631,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 5,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "6658110e-aa73-4493-b993-efa1994b81e5",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 18984,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025
+      ],
+      "inputTokens": 246200,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1839,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 5,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "7a4c8ec4-df78-419d-bb39-29113af09a27",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 12843,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": null,
+      "cacheReadTokens": null,
+      "outputTokens": null,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 6,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "3c7c760e-046c-441e-9e98-45b1171ebdbd",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 10757,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        827270
+      ],
+      "inputTokens": 228147,
+      "cacheReadTokens": 1536,
+      "outputTokens": 273,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 6,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "07f9ff75-e0d7-4f28-bb78-05ac195e4788",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 7679,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        563374
+      ],
+      "inputTokens": 158226,
+      "cacheReadTokens": 1536,
+      "outputTokens": 189,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 7,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "8235d744-af20-41c7-8e36-0894e5a40bed",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 6194,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        851884
+      ],
+      "inputTokens": 234636,
+      "cacheReadTokens": 1536,
+      "outputTokens": 659,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 7,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "e424c975-2e44-40a5-ac6b-3c38318f05e4",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 6952,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        743430
+      ],
+      "inputTokens": 205942,
+      "cacheReadTokens": 1536,
+      "outputTokens": 689,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 8,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "bf3b5622-df29-43c7-91d5-56c8debab23a",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 11698,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025
+      ],
+      "inputTokens": 246205,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1752,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 8,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "e261b535-9ad1-4b69-81bf-caffe02b7463",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 21423,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": 238092,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1796,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 9,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "84eb3f52-a6f7-49f2-89ad-722e3624c249",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 10770,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        827914
+      ],
+      "inputTokens": 228338,
+      "cacheReadTokens": 1536,
+      "outputTokens": 137,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 9,
+      "slots": 1,
+      "repetition": 0,
+      "executionId": "ad90fdbe-0cef-4fbf-9a8c-3669187ee232",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 8582,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        700682
+      ],
+      "inputTokens": 194566,
+      "cacheReadTokens": 1536,
+      "outputTokens": 228,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 10,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "dbc632a3-651c-490c-8d35-4856d22981ce",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14834,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        853485
+      ],
+      "inputTokens": 235057,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1028,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 10,
+      "slots": 5,
+      "repetition": 0,
+      "executionId": "065b5bfa-0436-4a1c-8288-198505831fc3",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13273,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        792698
+      ],
+      "inputTokens": 218906,
+      "cacheReadTokens": 1536,
+      "outputTokens": 795,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 11,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "2e09969d-b09a-4227-9382-c55b6ad1f1bf",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 23447,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896051
+      ],
+      "inputTokens": 246202,
+      "cacheReadTokens": 1536,
+      "outputTokens": 2020,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 11,
+      "slots": 12,
+      "repetition": 0,
+      "executionId": "6767b15a-3953-4b7b-8d34-0719f224a433",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 12389,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865563
+      ],
+      "inputTokens": 238088,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1702,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 0,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "140b327d-fdbe-47e8-acf8-3c1abac4c11a",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 8741,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        705133
+      ],
+      "inputTokens": 195720,
+      "cacheReadTokens": 1536,
+      "outputTokens": 151,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 0,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "481e16d8-0ce6-4020-b58a-bbf45e4b0784",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 9819,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        827453
+      ],
+      "inputTokens": 228180,
+      "cacheReadTokens": 1536,
+      "outputTokens": 157,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 1,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "12520338-dcf1-4763-ac9d-ad456e410f0a",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13371,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        787605
+      ],
+      "inputTokens": null,
+      "cacheReadTokens": null,
+      "outputTokens": null,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 1,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "c43547ee-10fc-4265-ba57-42369aed488e",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13257,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        853692
+      ],
+      "inputTokens": 235092,
+      "cacheReadTokens": 1536,
+      "outputTokens": 759,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 2,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "2f53e98e-55a0-4eb8-87c1-0032b255ef86",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 19385,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": 238084,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1929,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 2,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "ec9f51a2-3def-4771-9ede-578f79e438c0",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 22987,
+      "physicalCalls": 2,
+      "repairCalls": 1,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025,
+        898677
+      ],
+      "inputTokens": 492998,
+      "cacheReadTokens": 230912,
+      "outputTokens": 1847,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 3,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "8be874a4-f74f-4138-a8c0-5aebe216fc7b",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 10058,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        685891
+      ],
+      "inputTokens": 190770,
+      "cacheReadTokens": 1536,
+      "outputTokens": 125,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 3,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "3e1f70cc-c3c6-4b4e-9653-c4a796ca7215",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 9604,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        826716
+      ],
+      "inputTokens": 228010,
+      "cacheReadTokens": 1536,
+      "outputTokens": 116,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 4,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "ec4137d6-0cce-4fea-8723-04db1f728a73",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13668,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        804696
+      ],
+      "inputTokens": 221957,
+      "cacheReadTokens": 1536,
+      "outputTokens": 747,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 4,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "6bc44681-7ce3-4003-a6b3-de277aaf6eb4",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14444,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        851870
+      ],
+      "inputTokens": 234620,
+      "cacheReadTokens": 1536,
+      "outputTokens": 705,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 5,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "924cfcac-ab23-46af-96f1-77da3153f944",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 19941,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": 238090,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1784,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 5,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "628b4aef-4d45-42a6-b467-176d4fb9f1b7",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14758,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025
+      ],
+      "inputTokens": null,
+      "cacheReadTokens": null,
+      "outputTokens": null,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 6,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "d715610a-4dba-4920-a12e-92ceabd4714f",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 6984,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        563374
+      ],
+      "inputTokens": 158226,
+      "cacheReadTokens": 1536,
+      "outputTokens": 221,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 6,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "2cf1a691-2e03-41ae-bc2c-8bd73aa40245",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 10874,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        827270
+      ],
+      "inputTokens": 228147,
+      "cacheReadTokens": 1536,
+      "outputTokens": 267,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 7,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "cf0d2b60-7cc6-4220-bbca-2f283256c3dc",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 12854,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        743430
+      ],
+      "inputTokens": 205942,
+      "cacheReadTokens": 1536,
+      "outputTokens": 719,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 7,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "d08bf842-f508-482e-8a58-0d0a8ee63aee",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14905,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        851884
+      ],
+      "inputTokens": 234636,
+      "cacheReadTokens": 1536,
+      "outputTokens": 803,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 8,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "d42aa133-0bc5-4a9a-8a49-0b27c1a79bbe",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 19114,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": 238092,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1583,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 8,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "7f02bbbd-3a06-4ebe-9c25-95bff31ede8f",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 19870,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025
+      ],
+      "inputTokens": 246205,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1870,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 9,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "e9d15df6-54ec-4013-a020-99eb90451c6b",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 8937,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        700682
+      ],
+      "inputTokens": 194566,
+      "cacheReadTokens": 1536,
+      "outputTokens": 234,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 9,
+      "slots": 1,
+      "repetition": 1,
+      "executionId": "a3727d97-afa9-48a1-8e94-cae61d4d4d78",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 11286,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        827914
+      ],
+      "inputTokens": 228338,
+      "cacheReadTokens": 1536,
+      "outputTokens": 154,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 10,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "63addcd5-5bca-4785-84ca-f26c2f1fbc1d",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14826,
+      "physicalCalls": 2,
+      "repairCalls": 1,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        792698,
+        36891
+      ],
+      "inputTokens": 233041,
+      "cacheReadTokens": 3072,
+      "outputTokens": 922,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 10,
+      "slots": 5,
+      "repetition": 1,
+      "executionId": "a744e0b6-d98b-4433-b4bb-bedab0a9cebf",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 12435,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        853485
+      ],
+      "inputTokens": 235057,
+      "cacheReadTokens": 1536,
+      "outputTokens": 740,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 11,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "42e83535-c288-49b8-bcbb-69776980b567",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 18503,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865563
+      ],
+      "inputTokens": 238088,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1697,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 11,
+      "slots": 12,
+      "repetition": 1,
+      "executionId": "2502d590-8ab0-4625-9956-9ad37fcf5d1e",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 18252,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896051
+      ],
+      "inputTokens": 246202,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1663,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 0,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "16e42374-8356-4f9e-aa41-8ecf1474d23d",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13416,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        827453
+      ],
+      "inputTokens": 228180,
+      "cacheReadTokens": 1536,
+      "outputTokens": 168,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 0,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "dff47d76-e78e-41fd-9d65-5de5de34fb13",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 8411,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        705133
+      ],
+      "inputTokens": 195720,
+      "cacheReadTokens": 1536,
+      "outputTokens": 159,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 1,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "cf845f56-9b97-44c7-803c-93ffd51a598f",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 18743,
+      "physicalCalls": 2,
+      "repairCalls": 1,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        853692,
+        854797
+      ],
+      "inputTokens": 470434,
+      "cacheReadTokens": 222336,
+      "outputTokens": 804,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 1,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "07bb811d-ce22-4661-acb9-5dd7b6beff95",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14187,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        787605
+      ],
+      "inputTokens": 217598,
+      "cacheReadTokens": 1536,
+      "outputTokens": 792,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 2,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "76fbd509-94a2-4810-b164-deacad8c70ad",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13995,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025
+      ],
+      "inputTokens": 246199,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1857,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 2,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "b8b69763-84b7-45a3-9091-c3b35ca2c419",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 19835,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": 238084,
+      "cacheReadTokens": 1536,
+      "outputTokens": 2049,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 3,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "a15c9049-cb7b-4f86-8879-e30d406331bc",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 9035,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        826716
+      ],
+      "inputTokens": 228010,
+      "cacheReadTokens": 1536,
+      "outputTokens": 120,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 3,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "8808f9b0-b4b9-4c69-9086-8a5d545185d4",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 7573,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        685891
+      ],
+      "inputTokens": 190770,
+      "cacheReadTokens": 1536,
+      "outputTokens": 123,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 4,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "cfafc51d-dda7-4d9b-8b12-48f191015189",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13644,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        851870
+      ],
+      "inputTokens": 234620,
+      "cacheReadTokens": 1536,
+      "outputTokens": 698,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 4,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "1fdcd882-2ad2-4b36-98ad-5cc472340b68",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14157,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        804696
+      ],
+      "inputTokens": 221957,
+      "cacheReadTokens": 1536,
+      "outputTokens": 784,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 5,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "86d1a47f-720a-44f7-9f0f-8adfb4ebb9a3",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 19226,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025
+      ],
+      "inputTokens": 246200,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1783,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 5,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "51ac4b4f-923a-4518-933f-5496a374692e",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 20530,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537
+      ],
+      "inputTokens": 238090,
+      "cacheReadTokens": 1536,
+      "outputTokens": 2017,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 6,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "e24cd58b-e740-4120-84e3-7e902de8f982",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 10348,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 0,
+      "contextBytes": [
+        827270
+      ],
+      "inputTokens": 228147,
+      "cacheReadTokens": 1536,
+      "outputTokens": 187,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 6,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "188e259c-7608-43dd-ae75-aed9a3820c47",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 7570,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        563374
+      ],
+      "inputTokens": 158226,
+      "cacheReadTokens": 1536,
+      "outputTokens": 216,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 7,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "426268ff-83ff-4452-b8b1-aa64db5f0e23",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14646,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        851884
+      ],
+      "inputTokens": 234636,
+      "cacheReadTokens": 1536,
+      "outputTokens": 793,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 7,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "19f0be8c-5941-46a4-93ef-e87c6bee120d",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 13862,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        743430
+      ],
+      "inputTokens": 205942,
+      "cacheReadTokens": 1536,
+      "outputTokens": 862,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 8,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "46e2da71-5fbb-49d0-b33b-b8ba3afda643",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 14811,
+      "physicalCalls": 2,
+      "repairCalls": 1,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896025,
+        898677
+      ],
+      "inputTokens": 493010,
+      "cacheReadTokens": 230912,
+      "outputTokens": 1503,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 8,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "d90e2ead-1724-4395-954e-8667135f0900",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 29085,
+      "physicalCalls": 2,
+      "repairCalls": 1,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865537,
+        739084
+      ],
+      "inputTokens": 204625,
+      "cacheReadTokens": 1536,
+      "outputTokens": 288,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 9,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "2eb47fe9-8d5d-4351-b27f-42663d311926",
+      "cellAttempt": 0,
+      "success": false,
+      "failureClass": "semantic",
+      "error": {
+        "name": "ModelSemanticRepairError",
+        "message": "action compilation failed after repairs for rinisar-anothil: action compilation rejected 1 slot(s): [{\"key\":\"live-9-0\",\"issues\":[{\"code\":\"action_compilation.invalid_slot\",\"class\":\"semantic\",\"path\":[],\"originalValue\":null,\"allowedHandles\":[],\"reason\":\"temporal evidence quantity:23:27:km is incompatible with profile travel-until-arrival\"}]}]"
+      },
+      "latencyMs": 15527,
+      "physicalCalls": 3,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 0,
+      "profileMatches": 0,
+      "contextBytes": [
+        827914,
+        17501,
+        17537
+      ],
+      "inputTokens": null,
+      "cacheReadTokens": null,
+      "outputTokens": null,
+      "modelIds": [],
+      "thinkingModes": [],
+      "registrySnapshotHashes": []
+    },
+    {
+      "variant": "C3",
+      "batch": 9,
+      "slots": 1,
+      "repetition": 2,
+      "executionId": "b8d96138-973c-431a-99b8-0284dd9ff019",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 9168,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 1,
+      "profileMatches": 1,
+      "contextBytes": [
+        700682
+      ],
+      "inputTokens": 194566,
+      "cacheReadTokens": 1536,
+      "outputTokens": 172,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 10,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "abbe08b6-7ef0-454f-8916-5990a9763262",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 12708,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        853485
+      ],
+      "inputTokens": 235057,
+      "cacheReadTokens": 1536,
+      "outputTokens": 717,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 10,
+      "slots": 5,
+      "repetition": 2,
+      "executionId": "a65ceb39-0616-4103-abb7-2ce3e75f752d",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 12851,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 5,
+      "profileMatches": 5,
+      "contextBytes": [
+        792698
+      ],
+      "inputTokens": 218906,
+      "cacheReadTokens": 1536,
+      "outputTokens": 827,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C2",
+      "batch": 11,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "a3cf5708-bc0b-4a31-a93e-f11e03f90620",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 19414,
+      "physicalCalls": 1,
+      "repairCalls": 0,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        896051
+      ],
+      "inputTokens": 246202,
+      "cacheReadTokens": 1536,
+      "outputTokens": 1802,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    },
+    {
+      "variant": "C3",
+      "batch": 11,
+      "slots": 12,
+      "repetition": 2,
+      "executionId": "302d32d1-5aac-4092-bbe4-2faff0fd89b0",
+      "cellAttempt": 0,
+      "success": true,
+      "failureClass": null,
+      "error": null,
+      "latencyMs": 20720,
+      "physicalCalls": 2,
+      "repairCalls": 1,
+      "repeatedFingerprintStops": 0,
+      "profileChecks": 12,
+      "profileMatches": 12,
+      "contextBytes": [
+        865563,
+        868215
+      ],
+      "inputTokens": 476776,
+      "cacheReadTokens": 217856,
+      "outputTokens": 1632,
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "thinkingModes": [
+        "disabled"
+      ],
+      "registrySnapshotHashes": [
+        "198243b2877ec84f329b203e172684bdcb1fb1ac974a96a6480e61db2baf5ce4"
+      ]
+    }
+  ]
+}
