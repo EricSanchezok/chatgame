@@ -1,0 +1,48 @@
+{"id":"instant-01","category":"instantaneous-short","action":{"rawText":"立刻拔剑格挡。","goal":"挡住眼前攻击","means":"用佩剑格挡"}}
+{"id":"instant-02","category":"instantaneous-short","action":{"rawText":"推开石门。","goal":"打开通路","means":"用肩膀推门"}}
+{"id":"instant-03","category":"instantaneous-short","action":{"rawText":"拾起密封索引。","goal":"拿到索引","means":"伸手拾取"}}
+{"id":"instant-04","category":"instantaneous-short","action":{"rawText":"观察 Thil 的手势。","goal":"判断他的意图","means":"仔细观察"}}
+{"id":"instant-05","category":"instantaneous-short","action":{"rawText":"向守卫点头示意。","goal":"表示同意","means":"简短示意"}}
+{"id":"instant-06","category":"instantaneous-short","action":{"rawText":"关上仓库的门。","goal":"封闭仓库","means":"拉门上锁"}}
+{"id":"duration-01","category":"explicit-duration","action":{"rawText":"在营地休息30分钟。","goal":"恢复体力","means":"保持警戒地休息"}}
+{"id":"duration-02","category":"explicit-duration","action":{"rawText":"等待两小时再出发。","goal":"避开巡逻","means":"原地等待"}}
+{"id":"duration-03","category":"explicit-duration","action":{"rawText":"守住路口1天。","goal":"阻止敌人通过","means":"轮流值守"}}
+{"id":"duration-04","category":"explicit-duration","action":{"rawText":"在档案室查阅45分钟。","goal":"找到航线记录","means":"逐页检索"}}
+{"id":"duration-05","category":"explicit-duration","action":{"rawText":"睡八小时。","goal":"充分休息","means":"在安全房间睡眠"}}
+{"id":"duration-06","category":"explicit-duration","action":{"rawText":"观察潮汐半小时。","goal":"确认涨潮速度","means":"记录水位"}}
+{"id":"distance-01","category":"explicit-distance","action":{"rawText":"沿道路步行12公里到北门。","goal":"抵达北门","means":"沿道路行进"}}
+{"id":"distance-02","category":"explicit-distance","action":{"rawText":"穿过沼泽前进3千米。","goal":"接近遗迹","means":"选择坚实地面"}}
+{"id":"distance-03","category":"explicit-distance","action":{"rawText":"沿商路走1.5 kilometers。","goal":"抵达驿站","means":"跟随路标"}}
+{"id":"distance-04","category":"explicit-distance","action":{"rawText":"翻过丘陵行进8公里。","goal":"到达山谷","means":"穿越复杂地形"}}
+{"id":"distance-05","category":"explicit-distance","action":{"rawText":"沿堤岸向东走20 kilometre。","goal":"抵达渡口","means":"沿堤岸行走"}}
+{"id":"distance-06","category":"explicit-distance","action":{"rawText":"在林间跋涉十公里。","goal":"找到猎人营地","means":"穿过森林"}}
+{"id":"travel-01","category":"no-distance-travel","action":{"rawText":"前往 Blackoak Castle。","goal":"抵达城堡","means":"沿已知道路前进"}}
+{"id":"travel-02","category":"no-distance-travel","action":{"rawText":"穿过沼泽去湖岸。","goal":"到达湖岸","means":"避开深水区域"}}
+{"id":"travel-03","category":"no-distance-travel","action":{"rawText":"跟随商队直到驿站。","goal":"安全抵达驿站","means":"保持在商队中"}}
+{"id":"travel-04","category":"no-distance-travel","action":{"rawText":"向北寻找最近的渡口。","goal":"找到渡口","means":"沿河岸搜索"}}
+{"id":"travel-05","category":"no-distance-travel","action":{"rawText":"返回 Temple of Thoth。","goal":"回到神殿","means":"按原路返回"}}
+{"id":"travel-06","category":"no-distance-travel","action":{"rawText":"绕过敌军营地抵达森林边缘。","goal":"避开敌军并抵达森林","means":"利用地形隐蔽行进"}}
+{"id":"treatment-01","category":"staged-treatment","action":{"rawText":"检查、清理并包扎 Hamdir 的伤口。","goal":"稳定 Hamdir 的伤势","means":"使用医疗包分阶段处理"}}
+{"id":"treatment-02","category":"staged-treatment","action":{"rawText":"为 Bedewald 清创并固定骨折。","goal":"防止伤势恶化","means":"先检查再固定"}}
+{"id":"treatment-03","category":"staged-treatment","action":{"rawText":"处理守卫的箭伤并重新包扎。","goal":"稳定守卫","means":"清洗伤口后包扎"}}
+{"id":"treatment-04","category":"staged-treatment","action":{"rawText":"检查 Naomi 的烧伤，涂药后覆盖敷料。","goal":"完成野外治疗","means":"按治疗步骤进行"}}
+{"id":"treatment-05","category":"staged-treatment","action":{"rawText":"替向导清理腿伤并做支撑。","goal":"让向导能够移动","means":"检查、清创和固定"}}
+{"id":"treatment-06","category":"staged-treatment","action":{"rawText":"为伤员止血、清创并包扎。","goal":"稳定伤员生命体征","means":"完成整套野外治疗"}}
+{"id":"wait-01","category":"conditional-wait","action":{"rawText":"等待到天亮再离开。","goal":"在光线充足时出发","means":"保持隐蔽等待"}}
+{"id":"wait-02","category":"conditional-wait","action":{"rawText":"等潮水退去后渡河。","goal":"安全过河","means":"观察水位直到条件成立"}}
+{"id":"wait-03","category":"conditional-wait","action":{"rawText":"等守卫换岗后潜入。","goal":"避开当班守卫","means":"监视入口直到换岗"}}
+{"id":"wait-04","category":"conditional-wait","action":{"rawText":"等浓雾散去再继续航行。","goal":"恢复安全视野","means":"抛锚等待天气变化"}}
+{"id":"wait-05","category":"conditional-wait","action":{"rawText":"等信号火点燃后发动进攻。","goal":"与盟军同步行动","means":"观察山顶信号"}}
+{"id":"wait-06","category":"conditional-wait","action":{"rawText":"等石门开启时穿过去。","goal":"进入内庭","means":"躲在附近观察机关"}}
+{"id":"ongoing-01","category":"open-ended-reconnaissance","action":{"rawText":"持续监视港口的船只动向。","goal":"掌握港口变化","means":"轮流观察并记录"}}
+{"id":"ongoing-02","category":"open-ended-reconnaissance","action":{"rawText":"在森林边缘长期放哨。","goal":"提前发现来敌","means":"保持隐蔽观察"}}
+{"id":"ongoing-03","category":"open-ended-reconnaissance","action":{"rawText":"搜索废墟，直到找到新的线索。","goal":"发现遗迹线索","means":"逐区持续搜索"}}
+{"id":"ongoing-04","category":"open-ended-reconnaissance","action":{"rawText":"跟踪商队并持续记录路线。","goal":"查明商队目的地","means":"保持距离尾随"}}
+{"id":"ongoing-05","category":"open-ended-reconnaissance","action":{"rawText":"守卫仓库，直到有人来接替。","goal":"保护仓库","means":"持续巡查入口"}}
+{"id":"ongoing-06","category":"open-ended-reconnaissance","action":{"rawText":"侦察沼泽中的敌军活动。","goal":"建立持续态势认知","means":"隐蔽移动并观察"}}
+{"id":"boundary-01","category":"reference-boundary","action":{"rawText":"把密封索引交给 Thil 查看。","goal":"确认索引笔迹","means":"让 Thil 在监督下查看"}}
+{"id":"boundary-02","category":"reference-boundary","action":{"rawText":"派信使向 Azure King 传递停战消息。","goal":"通知远方统治者","means":"使用可信信使"}}
+{"id":"boundary-03","category":"reference-boundary","action":{"rawText":"请 Hamdir 和 Naomi 一起搬开石门。","goal":"打开通路","means":"多人协作搬动"}}
+{"id":"boundary-04","category":"reference-boundary","action":{"rawText":"宣布全境进入戒严。","goal":"实施世界范围的管制","means":"通过所有行政节点发布命令"}}
+{"id":"boundary-05","category":"reference-boundary","action":{"rawText":"占用渡船运送伤员。","goal":"把伤员送到对岸","means":"申请渡船资源"}}
+{"id":"boundary-06","category":"reference-boundary","action":{"rawText":"调查传闻中的灰袍人，但不把未知身份当成现有居民。","goal":"核实陌生人的身份","means":"只使用可观察线索"}}

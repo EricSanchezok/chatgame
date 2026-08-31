@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "executionId": "15629bb7-a5c4-4132-8cda-d18d6cc78be2",
+    "instanceId": "a6f7b472-cd23-41c6-afcb-3b51f4f939ae",
+    "status": "failed",
+    "codeRevision": "6679276eb796dce64bfa03c5146dce2fc65c4216",
+    "codeDirty": true,
+    "worldHash": "sha256:3d4451b05a52bc6005a8d79bfa286374a9ae60e537e7419404af21a7da969af6",
+    "algorithm": {
+      "id": "eager-reference",
+      "version": "9",
+      "hash": "f194aacb840eaf5bc0c928a9a2862ba107152fe8b573f6e2d5955e05da13a2c5"
+    },
+    "traceHash": "3e26a31935f02ccdee31851c147e77fc92a5949e180bf351bf3ba8b6411ce46b"
+  },
+  "workload": {
+    "initialLogicalBatches": 9,
+    "physicalRequests": 20,
+    "repairOrSplitRequests": 11,
+    "distinctSubjects": 15,
+    "parsedResponses": 19,
+    "structuredOutputRejections": 1,
+    "semanticRejections": 11,
+    "semanticValidationIssues": 32
+  },
+  "tokens": {
+    "responsesWithKnownUsage": 19,
+    "responsesWithUnknownUsage": 1,
+    "totalInput": 12937354,
+    "initialInput": 7446404,
+    "repairInput": 5490950,
+    "cacheRead": 1804288,
+    "output": 17261,
+    "repairToInitialRatio": 0.737396,
+    "totalToInitialRatio": 1.737396
+  },
+  "bytes": {
+    "totalContext": 48994607,
+    "initialContext": 26536269,
+    "repairContext": 22458338,
+    "repairToInitialRatio": 0.846326,
+    "representativeInitialFiveSlot": {
+      "sequence": 120,
+      "context": 3198644,
+      "ledgerArtifactRaw": 3215915,
+      "sections": {
+        "contractVersion": 2,
+        "execution": 122,
+        "referenceCatalog": 103,
+        "referenceCatalogs": 2463826,
+        "repair": 4,
+        "roleContract": 667,
+        "state": 399810,
+        "task": 333993
+      },
+      "stateSections": {
+        "actors": 3618,
+        "canonicalTruth": 375831,
+        "currentElapsedSeconds": 1,
+        "slots": 16215,
+        "temporalCalibrations": 1542,
+        "temporalProfiles": 2496
+      }
+    }
+  },
+  "repairIssues": {
+    "total": 31,
+    "categories": {
+      "illegal_reference_use": 15,
+      "schema": 5,
+      "temporal_evidence": 7,
+      "unknown_handle": 4
+    }
+  },
+  "offlineExperiment": {
+    "schemaVersion": 1,
+    "corpus": {
+      "records": 48,
+      "categories": {
+        "conditional-wait": 6,
+        "explicit-distance": 6,
+        "explicit-duration": 6,
+        "instantaneous-short": 6,
+        "no-distance-travel": 6,
+        "open-ended-reconnaissance": 6,
+        "reference-boundary": 6,
+        "staged-treatment": 6
+      },
+      "temporalGoldFailures": [],
+      "propertyGeneratedCases": 1000,
+      "propertyFailures": []
+    },
+    "variants": {
+      "C0": {
+        "variant": "C0",
+        "contexts": 20,
+        "totalBytes": 48994607,
+        "p50RequestBytes": 3194830,
+        "p95RequestBytes": 3203309,
+        "p50PerSlotBytes": 640662,
+        "p95PerSlotBytes": 1137348,
+        "candidateNamespaceCompleteness": 1,
+        "uniqueCandidates": 36355,
+        "serializedCandidates": 129539,
+        "catalogDuplicationFactor": 3.563169,
+        "detailedCandidates": 0,
+        "projectorWallMs": 116.576
+      },
+      "C1": {
+        "variant": "C1",
+        "contexts": 20,
+        "totalBytes": 19425887,
+        "p50RequestBytes": 939747,
+        "p95RequestBytes": 1109562,
+        "p50PerSlotBytes": 188887,
+        "p95PerSlotBytes": 1108314,
+        "candidateNamespaceCompleteness": 1,
+        "uniqueCandidates": 36355,
+        "serializedCandidates": 36355,
+        "catalogDuplicationFactor": 1,
+        "detailedCandidates": 0,
+        "projectorWallMs": 299.252
+      },
+      "C2": {
+        "variant": "C2",
+        "contexts": 20,
+        "totalBytes": 16895407,
+        "p50RequestBytes": 847695,
+        "p95RequestBytes": 855077,
+        "p50PerSlotBytes": 171015,
+        "p95PerSlotBytes": 830794,
+        "candidateNamespaceCompleteness": 1,
+        "uniqueCandidates": 36355,
+        "serializedCandidates": 36355,
+        "catalogDuplicationFactor": 1,
+        "detailedCandidates": 35840,
+        "projectorWallMs": 404.601
+      },
+      "C3": {
+        "variant": "C3",
+        "contexts": 20,
+        "totalBytes": 13806380,
+        "p50RequestBytes": 721728,
+        "p95RequestBytes": 750944,
+        "p50PerSlotBytes": 150189,
+        "p95PerSlotBytes": 569168,
+        "candidateNamespaceCompleteness": 1,
+        "uniqueCandidates": 36355,
+        "serializedCandidates": 36355,
+        "catalogDuplicationFactor": 1,
+        "detailedCandidates": 17280,
+        "projectorWallMs": 511.928
+      },
+      "C4": {
+        "variant": "C4",
+        "contexts": 20,
+        "totalBytes": 13806380,
+        "p50RequestBytes": 721728,
+        "p95RequestBytes": 750944,
+        "p50PerSlotBytes": 150189,
+        "p95PerSlotBytes": 569168,
+        "candidateNamespaceCompleteness": 1,
+        "uniqueCandidates": 36355,
+        "serializedCandidates": 36355,
+        "catalogDuplicationFactor": 1,
+        "detailedCandidates": 17280,
+        "projectorWallMs": 511.208
+      },
+      "C5": {
+        "variant": "C5",
+        "contexts": 20,
+        "totalBytes": 13818650,
+        "p50RequestBytes": 721728,
+        "p95RequestBytes": 751427,
+        "p50PerSlotBytes": 150285,
+        "p95PerSlotBytes": 569168,
+        "candidateNamespaceCompleteness": 1,
+        "uniqueCandidates": 36355,
+        "serializedCandidates": 36355,
+        "catalogDuplicationFactor": 1,
+        "detailedCandidates": 17358,
+        "projectorWallMs": 660.888
+      }
+    },
+    "detailRecall": {
+      "C2": {
+        "required": 51,
+        "recalled": 51,
+        "recall": 1,
+        "failures": []
+      },
+      "C3": {
+        "required": 51,
+        "recalled": 51,
+        "recall": 1,
+        "failures": []
+      },
+      "C4": {
+        "required": 51,
+        "recalled": 51,
+        "recall": 1,
+        "failures": []
+      },
+      "C5": {
+        "required": 51,
+        "recalled": 51,
+        "recall": 1,
+        "failures": []
+      }
+    },
+    "dynamicEnums": {
+      "E0": {
+        "mode": "E0",
+        "schemaBytes": 0,
+        "enumFields": 0
+      },
+      "E1": {
+        "mode": "E1",
+        "schemaBytes": 1647,
+        "enumFields": 2
+      },
+      "e1AddedByteRatio": 0.001934,
+      "selected": "E0",
+      "reason": "E1 has no measured live repair improvement yet; the selection rule defaults to the simpler provider-independent E0 contract."
+    },
+    "gates": {
+      "C0": {
+        "candidateNamespace": true,
+        "temporalHardLegality": true,
+        "requiredDetailRecall": null,
+        "p95RequestByteReduction": 0,
+        "passesOffline": true
+      },
+      "C1": {
+        "candidateNamespace": true,
+        "temporalHardLegality": true,
+        "requiredDetailRecall": null,
+        "p95RequestByteReduction": 0.65362,
+        "passesOffline": true
+      },
+      "C2": {
+        "candidateNamespace": true,
+        "temporalHardLegality": true,
+        "requiredDetailRecall": 1,
+        "p95RequestByteReduction": 0.733064,
+        "passesOffline": true
+      },
+      "C3": {
+        "candidateNamespace": true,
+        "temporalHardLegality": true,
+        "requiredDetailRecall": 1,
+        "p95RequestByteReduction": 0.765572,
+        "passesOffline": true
+      },
+      "C4": {
+        "candidateNamespace": true,
+        "temporalHardLegality": true,
+        "requiredDetailRecall": 1,
+        "p95RequestByteReduction": 0.765572,
+        "passesOffline": true
+      },
+      "C5": {
+        "candidateNamespace": true,
+        "temporalHardLegality": true,
+        "requiredDetailRecall": 1,
+        "p95RequestByteReduction": 0.765422,
+        "passesOffline": true
+      }
+    },
+    "selection": {
+      "safeFallback": "C2",
+      "liveFinalists": [
+        "C2",
+        "C3"
+      ],
+      "projectedWinner": "C3",
+      "enumMode": "E0",
+      "rationale": "C3 preserves the complete namespace, reaches 100% reviewed detail recall and temporal legality, and clears the offline p95 request-byte gate. C4 adds no recall on this corpus, while C5 adds bytes and replay/version complexity; C2 remains the paired live baseline and mandatory fallback."
+    }
+  }
+}

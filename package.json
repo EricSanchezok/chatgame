@@ -19,6 +19,7 @@
     "prompt:evaluate": "tsx scripts/experiments/prompt-evaluation.ts",
     "benchmark:causal": "tsx scripts/experiments/causal-activity-benchmark.ts",
     "benchmark:action-compilation": "tsx scripts/experiments/action-compilation-evaluation.ts",
+    "experiment:action-compilation": "tsx scripts/experiments/action-compilation-evaluation.ts --variants --database .livingworld-v19/livingworld.sqlite --execution 15629bb7-a5c4-4132-8cda-d18d6cc78be2",
     "execution:replay": "tsx scripts/operations/execution-command.ts replay",
     "execution:compare": "tsx scripts/operations/execution-command.ts compare",
     "execution:export": "tsx scripts/operations/execution-command.ts export",
