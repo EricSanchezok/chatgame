@@ -18,6 +18,7 @@ import type {
   ModelInvocationAudit,
   ModelTransportAttemptAudit,
 } from "../contracts/model";
+import { createReferenceResolver, normalizeModelOutput } from "../contracts/model-context";
 import type {
   StructuredModelProvider,
   StructuredModelRequest,
@@ -48,6 +49,17 @@ import {
 import type { ResolvedModelBinding } from "./model-registry";
 import type { ProviderAccountConfig } from "./model-catalog";
 import { structuredPromptBytes } from "../prompts";
+
+function referenceCatalogAudit(context: unknown): { version: number; hash: string } {
+  const catalog = context && typeof context === "object" && !Array.isArray(context) &&
+    "referenceCatalog" in context
+    ? (context as { referenceCatalog?: { version?: number; hash?: string } }).referenceCatalog
+    : undefined;
+  return {
+    version: catalog?.version ?? 1,
+    hash: catalog?.hash ?? contentHash(catalog ?? null),
+  };
+}
 
 export interface ModelGatewayOptions {
   registry: ModelRegistryService;
@@ -165,8 +177,8 @@ function executionAudit(
     selector: structuredClone(binding.selector),
     registrySnapshotHash: binding.registrySnapshotHash,
     modelMetadataHash: binding.modelMetadataHash,
-    catalogSchemaVersion: catalog.schemaVersion,
-    catalogHash: catalog.hash,
+    modelCatalogSchemaVersion: catalog.schemaVersion,
+    modelCatalogHash: catalog.hash,
     promptVersion: request.promptVersion,
     requestedInference: structuredClone(binding.profile.inference),
     resolvedInference: structuredClone(adapter.resolvedInference),
@@ -404,7 +416,7 @@ export class ModelGateway implements StructuredModelProvider {
     const contextAudit = measureModelContext(context, contextJson);
     const contractHash = contentHash({ system: request.system, userPrompt: request.userPrompt, schema });
     const requestDocument = {
-      catalogHash: this.catalog.hash,
+      modelCatalogHash: this.catalog.hash,
       workloadId: request.workloadId,
       batchId: request.batchId,
       role: request.role,
@@ -541,9 +553,19 @@ export class ModelGateway implements StructuredModelProvider {
         });
         completedResult = scheduled.value;
         const parseStartedAt = this.now();
-        const output = request.schema.parse(scheduled.value.value);
+        const parsedOutput = request.schema.parse(scheduled.value.value);
+        const contextCatalog = request.context && typeof request.context === "object" && !Array.isArray(request.context) &&
+          "referenceCatalog" in request.context
+          ? (request.context as { referenceCatalog?: { candidates?: readonly { handle: string; kind: import("../contracts/model-context").ModelReferenceKind; label: string; meaning: string; allowedUses: readonly import("../contracts/model-context").ModelReferenceUse[]; visibility: "public" | "role" | "slot" }[] } }).referenceCatalog
+          : undefined;
+        const referenceResolver = contextCatalog
+          ? createReferenceResolver(contextCatalog.candidates?.map((candidate) => ({ ...candidate, engineId: candidate.handle })) ?? [])
+          : undefined;
+        const normalized = normalizeModelOutput(parsedOutput, { resolver: referenceResolver, dedupeArrays: true });
+        const output = normalized.value;
         const responseJson = JSON.stringify(canonicalize(output));
         const responseHash = contentHash(output);
+        const rawOutputHash = contentHash(parsedOutput);
         const invocation: ModelInvocationAudit = {
           id: modelInvocationId,
           ordinal: modelInvocation,
@@ -557,9 +579,22 @@ export class ModelGateway implements StructuredModelProvider {
           finishReason: scheduled.value.finishReason,
           providerRequestId: scheduled.value.responseId || null,
           resultKind: null,
-          semanticOutcome: "accepted",
-          validationIssueCodes: [],
+          outputDisposition: normalized.issues.length > 0 ? "rejected" : normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0 ? "auto-normalized" : "accepted",
+          issues: normalized.issues.map((issue) => ({
+            code: issue.code,
+            class: issue.class,
+            path: issue.path,
+            message: issue.reason,
+            originalValue: issue.originalValue,
+            allowedHandles: [...issue.allowedHandles],
+          })),
+          normalization: { applied: normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0, modifiedFieldCount: normalized.modifiedFieldCount, resolvedReferenceCount: normalized.resolvedReferenceCount, proposalCount: normalized.proposalCount, deduplicatedCount: normalized.deduplicatedCount },
+          referenceCatalogVersion: referenceCatalogAudit(request.context).version,
+          referenceCatalogHash: referenceCatalogAudit(request.context).hash,
+          rawOutputHash,
+          normalizedOutputHash: responseHash,
         };
+        const audit = executionAudit(binding, request, scheduled.value, this.catalog, [invocation]);
         observe?.({
           event: "model.structured_output.parsed",
           correlation,
@@ -580,6 +615,23 @@ export class ModelGateway implements StructuredModelProvider {
           payload: fullRuntimePayload(observer, output),
         });
         observe?.({
+          event: "model.output.normalized",
+          correlation,
+          attributes: { applied: invocation.normalization.applied },
+          counts: {
+            modifiedFields: normalized.modifiedFieldCount,
+            resolvedReferences: normalized.resolvedReferenceCount,
+            proposals: normalized.proposalCount,
+            deduplicated: normalized.deduplicatedCount,
+          },
+          hashes: { rawOutput: rawOutputHash, normalizedOutput: responseHash },
+        });
+        if (normalized.issues.length > 0) {
+          throw new ModelOutputError("model output contains unresolved semantic references", audit, {
+            rawValue: scheduled.value.value,
+          });
+        }
+        observe?.({
           event: "model.invocation.provider_completed",
           correlation,
           attributes: { result: "structured_output" },
@@ -594,7 +646,7 @@ export class ModelGateway implements StructuredModelProvider {
         observer.flush?.();
         return {
           value: output,
-          audit: executionAudit(binding, request, scheduled.value, this.catalog, [invocation]),
+          audit,
         };
       } catch (scheduledError) {
         let queueWaitMs = 0;
@@ -657,6 +709,7 @@ export class ModelGateway implements StructuredModelProvider {
         if (transportAttempts >= this.maxTransportAttempts ||
           !isRetryableTransportError(error, request.abortSignal)) {
           if (isOutputError(error)) {
+            if (error instanceof ModelOutputError && error.audit) throw error;
             const invocation: ModelInvocationAudit = {
               id: modelInvocationId,
               ordinal: modelInvocation,
@@ -678,8 +731,13 @@ export class ModelGateway implements StructuredModelProvider {
               finishReason: completedResult?.finishReason ?? null,
               providerRequestId: completedResult?.responseId || null,
               resultKind: null,
-              semanticOutcome: "rejected",
-              validationIssueCodes: [error instanceof Error ? error.name : "model_output_error"],
+              outputDisposition: "rejected",
+              issues: [{ code: error instanceof Error ? error.name : "model_output_error", class: "structure", path: [], message: error instanceof Error ? error.message : String(error) }],
+              normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+              referenceCatalogVersion: referenceCatalogAudit(request.context).version,
+              referenceCatalogHash: referenceCatalogAudit(request.context).hash,
+              rawOutputHash: completedResult ? contentHash(completedResult.value) : null,
+              normalizedOutputHash: null,
             };
             const audit = executionAudit(
               binding,

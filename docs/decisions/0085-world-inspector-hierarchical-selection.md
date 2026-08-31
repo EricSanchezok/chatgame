@@ -29,7 +29,7 @@ The Inspector showed ownership filters, record collections, and record evidence 
 
 The Inspector uses a hierarchical three-column contract. The left column selects the whole world or one Agent. The middle column retains Calls, Timeline, and Graph collections. The right column renders the current discriminated selection (`invocation`, `attempt`, `step`, `node`, or empty) and no longer exposes a universal detail tab strip. Time, state changes, causality, related model calls, and raw runtime evidence are explicit contextual sections. Related calls can open the Calls collection and select the invocation detail.
 
-Inspector API v7 normalizes every public invocation ID to `${executionId}::${sourceInvocationId}` and carries the producer-local ID as `sourceInvocationId`. Query results, step and attempt details, graph relations, React keys, selection state, and detail lookup use the normalized ID. Persisted events remain unchanged, and detail lookup still receives the execution ID separately so the source event group is unambiguous.
+Inspector API v8 normalizes every public invocation ID to `${executionId}::${sourceInvocationId}` and carries the producer-local ID as `sourceInvocationId`. Query results, step and attempt details, graph relations, React keys, selection state, and detail lookup use the normalized ID. Persisted events remain unchanged, and detail lookup still receives the execution ID separately so the source event group is unambiguous.
 
 Invocation cards are single native buttons spanning the complete card. Slot previews are compact and read-only; the complete mapping is a four-column table in invocation detail. JSON evidence uses a compact disclosure tree keyed by JSON path plus a raw-text mode with copy, one-level expansion, full expansion, and full collapse. Large arrays render in batches while raw text remains complete. Native disclosure is reserved for structural sections, not card-internal popup menus.
 
@@ -48,7 +48,7 @@ Invocation cards are single native buttons spanning the complete card. Slot prev
 ### Hierarchical selection with server-normalized IDs (selected)
 
 - Pros: ownership, collection, and evidence have one responsibility each; the entire card is selectable; real-time refresh can preserve the selected object; and the normalized identity is reusable by APIs, graph relations, and audit tooling.
-- Cons: API v7 is a breaking projection contract, and the right column needs contextual empty/reselection states when a selected object disappears.
+- Cons: API v8 is a breaking projection contract, and the right column needs contextual empty/reselection states when a selected object disappears.
 
 ### Raw-only or bespoke JSON viewers
 

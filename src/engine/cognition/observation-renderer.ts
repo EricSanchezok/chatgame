@@ -26,7 +26,7 @@ import {
   projectModelAction,
   projectModelEvent,
 } from "../contracts/prompts";
-import { createAgentReferenceResolver, isProposalReference, type ModelReference } from "../contracts/model-context";
+import { createAgentReferenceResolver, isProposalReference, modelRoleContract, type ModelReference } from "../contracts/model-context";
 import { contentHash } from "../models/model-audit";
 import { promptBundle, structuredPromptBytes } from "../prompts";
 import { materializeObservationPackets } from "../mechanics/truth-engine";
@@ -129,16 +129,14 @@ function scopedObservationTruth(
   return truth;
 }
 
-function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[]) {
+function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[], scope: Pick<ModelExecutionScope, "workloadId" | "batchId">) {
   const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
   const broadResolver = createTruthReferenceResolver({
-    state: input.state,
+    state: candidate,
     definition: input.definition,
     actions: input.actions,
     events: input.proposal.events,
     outcomes: input.proposal.outcomes,
-    contextState: candidate,
-    contextActions: input.actions,
   });
   const projectedTruth = scopedObservationTruth(
     candidate.truth,
@@ -180,29 +178,7 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
   const privateFacts = (observerId: string) => Object.values(candidate.truth.facts)
     .filter((fact) => fact.access.kind === "agents" && fact.access.agentIds.includes(observerId))
     .sort((left, right) => left.id.localeCompare(right.id));
-  const context = {
-    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    promptVersion: OBSERVATION_PROMPT.version,
-    world: {
-      description: input.definition.description,
-      disclosure: input.definition.disclosure,
-    },
-    baseRevision: input.state.revision,
-    nextStep: candidate.step,
-    referenceCatalog: truthResolver.catalog,
-    // The renderer is a trusted server-side adjudication boundary. It needs
-    // candidate truth to distinguish observable effects from hidden state;
-    // the model receives the semantic projection, never engine-owned IDs.
-    candidateTruth: projectCanonicalTruthForModel(projectedTruth, truthResolver, { includeMechanics: false }),
-    actions: input.actions.map((action) => projectModelAction(action, truthResolver)),
-    outcomes: input.proposal.outcomes.map((outcome) => ({
-      outcomeRef: truthResolver.handleFor("outcome", outcome.id),
-      actionRef: truthResolver.handleFor("action", outcome.proposalId),
-      status: outcome.status,
-      summary: outcome.summary,
-    })),
-    currentEvents: input.proposal.events.map((event) => projectModelEvent(event, truthResolver)),
-    observationSlots: observerIds.map((observerId, slot) => {
+  const observationSlots = observerIds.map((observerId, slot) => {
       const agent = candidate.agents[observerId];
       if (!agent) throw new Error(`observation slot references unknown Agent ${observerId}`);
       const privateResolver = createAgentReferenceResolver(agent, []);
@@ -242,10 +218,46 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
           })),
         },
       };
-    }),
-    validationIssues: issues,
+    });
+  // Keep the renderer on the same semantic envelope as every other model
+  // role. Candidate truth is exposed once, under state.canonicalTruth; task
+  // contains only this observer assignment and its slot-local view.
+  return {
+    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
+    roleContract: modelRoleContract("observation-renderer"),
+    execution: { worldId: input.state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: input.state.revision, step: candidate.step },
+    task: {
+      assignment: { targetHandles: observerIds.map((observerId) => truthResolver.handleFor("agent", observerId)), availableHandles: truthResolver.catalog.candidates.map((entry) => entry.handle), allowedProposalKinds: ["observation"] },
+      constraints: issues,
+      observationSlots,
+    },
+    state: {
+      world: {
+        id: input.definition.id,
+        name: input.definition.name,
+        description: input.definition.description,
+        laws: input.definition.laws,
+        disclosure: input.definition.disclosure,
+      },
+      baseRevision: input.state.revision,
+      step: candidate.step,
+      canonicalTruth: projectCanonicalTruthForModel(projectedTruth, truthResolver, { includeMechanics: false }),
+      actionSet: {
+        initial: input.actions.map((action) => projectModelAction(action, truthResolver)),
+        assigned: input.actions.map((action) => projectModelAction(action, truthResolver)),
+        available: input.actions.map((action) => projectModelAction(action, truthResolver)),
+      },
+      outcomes: input.proposal.outcomes.map((outcome) => ({
+        outcomeRef: truthResolver.handleFor("outcome", outcome.id),
+        actionRef: truthResolver.handleFor("action", outcome.proposalId),
+        status: outcome.status,
+        summary: outcome.summary,
+      })),
+      currentEvents: input.proposal.events.map((event) => projectModelEvent(event, truthResolver)),
+    },
+    referenceCatalog: truthResolver.catalog,
+    repair: issues.length > 0 ? { target: observerIds[0] ?? null, issues: issues.map((reason) => ({ code: "observation_validation", class: "semantic" as const, path: ["task"], originalValue: null, allowedHandles: [], reason })) } : null,
   };
-  return context;
 }
 
 function materializeModelObservationDraft(
@@ -257,13 +269,11 @@ function materializeModelObservationDraft(
   const observer = candidate.agents[observerId];
   if (!observer) throw new Error(`observation slot references unknown Agent ${observerId}`);
   const truthResolver = createTruthReferenceResolver({
-    state: input.state,
+    state: candidate,
     definition: input.definition,
     actions: input.actions,
     events: input.proposal.events,
     outcomes: input.proposal.outcomes,
-    contextState: candidate,
-    contextActions: input.actions,
   });
   const privateResolver = createAgentReferenceResolver(observer, []);
   const proposals = new Map<string, string>();
@@ -498,7 +508,7 @@ async function renderObserver(
       invoke: async (repair) => {
         const issues = repair.issues.map((issue) =>
           `${issue.code}${issue.path.length > 0 ? ` at ${issue.path.join(".")}` : ""}: ${issue.message}`);
-        const context = observationContext(input, [observerId], issues);
+        const context = observationContext(input, [observerId], issues, scope);
         const bytes = requestBytes(context);
         if (bytes > profile.max_input_bytes) {
           throw new ContextLimitExceededError(

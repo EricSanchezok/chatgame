@@ -5,6 +5,7 @@ import {
   isProposalReference,
   modelReferenceSchema,
   ModelReferenceError,
+  normalizeModelOutput,
   proposalKeySchema,
 } from "../model-context";
 
@@ -111,5 +112,32 @@ describe("model semantic references", () => {
     const narrowed = resolver.narrow((candidate) => candidate.engineId === "event-2");
     expect(narrowed.catalog.candidates).toHaveLength(1);
     expect(narrowed.catalog.candidates[0]!.handle).toBe(resolver.catalog.candidates[1]!.handle);
+  });
+
+  it("normalizes only deterministic list duplicates and reports exact proposal/reference failures", () => {
+    const resolver = createReferenceResolver([{
+      kind: "fact",
+      engineId: "door-open",
+      label: "门已打开",
+      meaning: "an existing fact",
+      allowedUses: ["cause"],
+      visibility: "role",
+    }]);
+    const result = normalizeModelOutput({
+      proposal: { proposalKey: "new-event", description: "门打开了" },
+      causeRefs: [resolver.catalog.candidates[0]!.handle, resolver.catalog.candidates[0]!.handle],
+      unsupportedRef: "ref:fact:not-in-catalog",
+      proposalRef: { proposalKey: "not-declared" },
+    }, { resolver, dedupeArrays: true });
+
+    expect(result.deduplicatedCount).toBe(1);
+    expect(result.proposalCount).toBe(1);
+    expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      "reference.unknown_handle",
+      "proposal.unknown_reference",
+    ]));
+    expect(result.value).toMatchObject({
+      causeRefs: [resolver.catalog.candidates[0]!.handle],
+    });
   });
 });

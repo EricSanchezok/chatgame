@@ -39,7 +39,7 @@ The model context contract is version 13 and the Inspector projection is version
 1. Keep model schemas, context projection, resolver/materializer code, and prompts in the same vocabulary.
 2. Remove raw runtime records from model contexts; retain only semantic summaries and references needed for the current decision.
 3. Add contract tests for duplicate labels, cross-execution identifiers, unknown references, proposal ordering, observer scoping, and context-size splitting.
-4. Use the Inspector API v7 audit trail to verify that a model call, its source invocation, and its related graph/step records share one normalized identity.
+4. Use the Inspector API v8 audit trail to verify that a model call, its source invocation, and its related graph/step records share one normalized identity.
 
 ## Verification
 

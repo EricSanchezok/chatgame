@@ -31,7 +31,7 @@ Use one semantic model protocol across model roles. Existing records are exposed
 
 The server projects Truth, actions, dependencies, plans, checks, random results, events, observations, and history before prompt composition. Candidate-only references use a task catalog. The materializer resolves references and assigns engine identities only after schema and semantic validation. Causal verifier findings are materialized from `{ kind, ref }` targets before they enter the internal verification type. Observer contexts contain only an authorized scoped truth projection. Context overflow is handled by deterministic bisection of a batch, preserving logical slot results.
 
-The protocol is forward-only. Model context version 13 and the Inspector projection version 7 are the active contracts. Persisted runtime events keep their internal identities, while the Inspector projects globally unique invocation IDs as `${executionId}::${sourceInvocationId}`.
+The protocol is forward-only. Model context version 13 and the Inspector projection version 8 are the active contracts. Persisted runtime events keep their internal identities, while the Inspector projects globally unique invocation IDs as `${executionId}::${sourceInvocationId}`.
 
 ## Pros and Cons of the Options
 

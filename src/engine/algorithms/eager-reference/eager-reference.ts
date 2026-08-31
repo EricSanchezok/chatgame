@@ -174,7 +174,7 @@ export function createEagerReferenceManifest(
   const config = parseEagerReferenceAlgorithmConfig(value);
   return defineAlgorithmManifest({
     id: "eager-reference",
-    version: "8",
+    version: "9",
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,
@@ -208,12 +208,18 @@ function dedupeModelAudits(audits: readonly ModelExecutionAudit[]): ModelExecuti
         // A batch shares one physical invocation across logical slots. Slot
         // validation may classify those views differently; retain the most
         // conservative outcome and all issue codes in the physical audit.
-        existing.semanticOutcome = existing.semanticOutcome === "rejected" ||
-          invocation.semanticOutcome === "rejected" ? "rejected" : "accepted";
-        existing.validationIssueCodes = [...new Set([
-          ...existing.validationIssueCodes,
-          ...invocation.validationIssueCodes,
-        ])];
+        const dispositionRank = { accepted: 0, "auto-normalized": 1, "llm-repaired": 2, rejected: 3 } as const;
+        existing.outputDisposition = dispositionRank[existing.outputDisposition] >= dispositionRank[invocation.outputDisposition]
+          ? existing.outputDisposition : invocation.outputDisposition;
+        existing.issues = [...existing.issues, ...invocation.issues].filter((issue, index, all) =>
+          all.findIndex((candidate) => candidate.code === issue.code && JSON.stringify(candidate.path) === JSON.stringify(issue.path)) === index);
+        existing.normalization = {
+          applied: existing.normalization.applied || invocation.normalization.applied,
+          modifiedFieldCount: existing.normalization.modifiedFieldCount + invocation.normalization.modifiedFieldCount,
+          resolvedReferenceCount: existing.normalization.resolvedReferenceCount + invocation.normalization.resolvedReferenceCount,
+          proposalCount: Math.max(existing.normalization.proposalCount, invocation.normalization.proposalCount),
+          deduplicatedCount: existing.normalization.deduplicatedCount + invocation.normalization.deduplicatedCount,
+        };
         existing.resultKind ??= invocation.resultKind;
         continue;
       }
@@ -992,7 +998,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     // Canonical facts may grant access to observers outside this component;
     // dropping those registry entries makes an otherwise unrelated component
     // fail validation before its local operations can be merged.  Model
-    // context remains scoped by the explicit contextState/contextActions
+    // model workset remains scoped by its explicit state and available actions
     // projections above, so this does not expose another subject's cognition.
     scopedState.agents = Object.fromEntries(Object.entries(input.state.agents)
       .map(([agentId, agent]) => [agentId, structuredClone(agent)]));
@@ -1018,10 +1024,12 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       temporalBoundary: temporal.boundary,
       identityOwner,
       groundings: scopedDependencies,
-      contextState: input.state,
-      contextInitialActions: actions,
-      contextActions: actions,
-      contextGroundings: dependencies,
+      modelWorkset: {
+        state: input.state,
+        initialActions: actions,
+        availableActions: actions,
+        availableDependencies: dependencies,
+      },
       resolutionScope: {
         mode: globalFallback ? "global" : "component",
         selectedActionIds: scopedActions.map((action) => action.id).sort(),

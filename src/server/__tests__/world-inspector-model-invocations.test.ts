@@ -152,7 +152,12 @@ describe("world inspector model invocation projection", () => {
       contextUtf8Bytes: 8_000,
       responseUtf8Bytes: 4_100,
       slotRefs: [{ slot: 0, agentId: "sigrun", actionId: "action-1", label: "看看周围有什么吧" }],
-      validationIssueCodes: ["ModelTransportError", "SchemaValidationError", "continuation_assertion"],
+      outputDisposition: "rejected",
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: "ModelTransportError" }),
+        expect.objectContaining({ code: "SchemaValidationError" }),
+        expect.objectContaining({ code: "continuation_assertion" }),
+      ]),
     });
     expect(result.items[0]?.transportAttempts[0]).toMatchObject({
       attempt: 1,

@@ -27,6 +27,7 @@ import { projectAgentPerspective } from "../cognition/agent-perspective";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
 import {
   createReferenceResolver,
+  modelRoleContract,
   type ExistingReferenceHandle,
   type ReferenceCandidateInput,
   type ReferenceResolver,
@@ -393,6 +394,28 @@ function actionGroundingReferenceInputs(
   for (const condition of Object.values(state.truth.conditions)) {
     add({ kind: "condition", engineId: condition.id, label: condition.id, meaning: "existing condition state", allowedUses: ["conflict", "assertion"] });
   }
+  for (const profile of Object.values(state.truth.mechanics.temporalProfiles)) {
+    add({
+      kind: "temporal_profile",
+      engineId: profile.id,
+      label: profile.name,
+      meaning: "an authored temporal profile selectable for this action",
+      allowedUses: ["profile"],
+      visibility: "role",
+      statePath: `state.world.temporalProfiles.${profile.id}`,
+    });
+  }
+  for (const activity of Object.values(state.truth.activities)) {
+    add({
+      kind: "activity",
+      engineId: activity.id,
+      label: ("plan" in activity ? activity.plan : activity.planDraft).description,
+      meaning: "an existing scheduled activity that may be affected by this action",
+      allowedUses: ["target", "conflict", "cause", "assertion"],
+      visibility: "role",
+      statePath: `state.canonicalTruth.activities.${activity.id}`,
+    });
+  }
   for (const pool of Object.values(state.truth.sharedActivityResourcePools)) {
     add({ kind: "shared_resource_pool", engineId: pool.id, label: pool.id, meaning: "existing shared physical resource pool", allowedUses: ["conflict"] });
   }
@@ -444,7 +467,7 @@ function resolveGroundingReference(
     resolved.kind === "evidence" || resolved.kind === "observation" || resolved.kind === "action" ||
     resolved.kind === "event" || resolved.kind === "check" || resolved.kind === "random" ||
     resolved.kind === "law" || resolved.kind === "mechanic" || resolved.kind === "outcome" ||
-    resolved.kind === "operation" || resolved.kind === "plan") {
+    resolved.kind === "operation" || resolved.kind === "plan" || resolved.kind === "temporal_profile") {
     throw new Error(`reference ${handle} has kind ${resolved.kind}, which cannot be an interaction footprint`);
   }
   return { kind: resolved.kind, id: resolved.engineId } as FootprintRef;
@@ -547,39 +570,42 @@ export function actionGroundingSharedContext(
     access.kind === "agents"
       ? { kind: "agents", agentRefs: access.agentIds.map((agentId) => handle("agent", agentId)) }
       : { kind: access.kind };
+  const canonicalTruth = {
+    entities: Object.values(state.truth.entities).map(({ id, kind, name, description, lifecycle }) => ({
+      ref: handle("entity", id), kind, name, description, lifecycle,
+      placementRef: state.truth.placements[id] ? handle("placement", state.truth.placements[id]!) : null,
+    })),
+    facts: Object.values(state.truth.facts).map(({ id, subjectId, predicate, value: factValue, description, access }) => ({
+      ref: handle("fact", id), subjectRef: handle("entity", subjectId), predicate, value: projectFactValue(factValue), description,
+      access: projectAccess(access),
+    })),
+    placements: Object.entries(state.truth.placements).map(([entityId, containerId]) => ({
+      entityRef: handle("placement", entityId),
+      containerRef: containerId ? handle("placement", containerId) : null,
+    })),
+    meters: Object.values(state.truth.meters).map((meter) => ({
+      ref: handle("meter", meter.id), definitionId: meter.definitionId, entityRef: handle("entity", meter.entityId), current: meter.current,
+    })),
+    quantities: Object.values(state.truth.quantities).map((quantity) => ({
+      ref: handle("quantity", quantity.id), definitionId: quantity.definitionId, holderRef: handle("entity", quantity.holderId), amount: quantity.amount,
+    })),
+    ratings: Object.values(state.truth.ratings).map((rating) => ({
+      ref: handle("rating", rating.id), definitionId: rating.definitionId, entityRef: handle("entity", rating.entityId), value: rating.value,
+    })),
+    conditions: Object.values(state.truth.conditions).map((condition) => ({
+      ref: handle("condition", condition.id), subjectRef: handle("entity", condition.subjectId), label: condition.label, description: condition.description,
+    })),
+    sharedActivityResourcePools: Object.values(state.truth.sharedActivityResourcePools).map((pool) => ({
+      ref: handle("shared_resource_pool", pool.id), definitionId: pool.definitionId, entityRef: handle("entity", pool.entityId),
+      capacity: pool.capacity,
+    })),
+  };
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     referenceCatalog: resolver.catalog,
     state: {
-      entities: Object.values(state.truth.entities).map(({ id, kind, name, description, lifecycle }) => ({
-        ref: handle("entity", id), kind, name, description, lifecycle,
-        placementRef: state.truth.placements[id] ? handle("placement", state.truth.placements[id]!) : null,
-      })),
-      facts: Object.values(state.truth.facts).map(({ id, subjectId, predicate, value: factValue, description, access }) => ({
-        ref: handle("fact", id), subjectRef: handle("entity", subjectId), predicate, value: projectFactValue(factValue), description,
-        access: projectAccess(access),
-      })),
-      placements: Object.entries(state.truth.placements).map(([entityId, containerId]) => ({
-        entityRef: handle("placement", entityId),
-        containerRef: containerId ? handle("placement", containerId) : null,
-      })),
-      meters: Object.values(state.truth.meters).map((meter) => ({
-        ref: handle("meter", meter.id), definitionId: meter.definitionId, entityRef: handle("entity", meter.entityId), current: meter.current,
-      })),
-      quantities: Object.values(state.truth.quantities).map((quantity) => ({
-        ref: handle("quantity", quantity.id), definitionId: quantity.definitionId, holderRef: handle("entity", quantity.holderId), amount: quantity.amount,
-      })),
-      ratings: Object.values(state.truth.ratings).map((rating) => ({
-        ref: handle("rating", rating.id), definitionId: rating.definitionId, entityRef: handle("entity", rating.entityId), value: rating.value,
-      })),
-      conditions: Object.values(state.truth.conditions).map((condition) => ({
-        ref: handle("condition", condition.id), subjectRef: handle("entity", condition.subjectId), label: condition.label, description: condition.description,
-      })),
-      sharedActivityResourcePools: Object.values(state.truth.sharedActivityResourcePools).map((pool) => ({
-        ref: handle("shared_resource_pool", pool.id), definitionId: pool.definitionId, entityRef: handle("entity", pool.entityId),
-        capacity: pool.capacity,
-      })),
-      agents: Object.values(state.agents).map(({ id, entityId }) => ({ ref: handle("agent", id), entityRef: handle("entity", entityId) })),
+      canonicalTruth,
+      actors: Object.values(state.agents).map(({ id, entityId }) => ({ ref: handle("agent", id), entityRef: handle("entity", entityId) })),
     },
   };
 }
@@ -588,20 +614,20 @@ export function actionGroundingSlotContext(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   issues: readonly string[],
+  referenceResolver = actionGroundingReferenceResolver(state, action),
 ) {
   const agent = state.agents[action.actorId];
-  const resolver = actionGroundingReferenceResolver(state, action);
   return {
     action: {
       rawText: action.rawText,
       goal: action.goal,
       means: action.means,
-      actionRef: resolver.handleFor("action", action.id),
-      actorRef: resolver.handleFor("agent", action.actorId),
-      targetRefs: action.targetIds.map((targetId) => resolver.handleFor("local_entity", `${action.actorId}::${targetId}`)),
+      actionRef: referenceResolver.handleFor("action", action.id),
+      actorRef: referenceResolver.handleFor("agent", action.actorId),
+      targetRefs: action.targetIds.map((targetId) => referenceResolver.handleFor("local_entity", `${action.actorId}::${targetId}`)),
     },
     actorPerspective: projectAgentPerspective(state, agent),
-    validationIssues: issues,
+    constraints: issues,
   };
 }
 
@@ -609,18 +635,29 @@ export function actionGroundingContext(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   issues: readonly string[],
+  scope: Pick<ModelExecutionScope, "workloadId" | "batchId">,
 ) {
   const shared = actionGroundingSharedContext(state, action);
   const slot = actionGroundingSlotContext(state, action, issues);
   return {
     contractVersion: shared.contractVersion,
+    roleContract: modelRoleContract("action-grounding"),
+    execution: { worldId: state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: state.revision, step: state.step },
     task: {
+      assignment: {
+        targetHandles: [slot.action.actionRef],
+        availableHandles: shared.referenceCatalog.candidates.map((candidate) => candidate.handle),
+        allowedProposalKinds: [],
+      },
+      constraints: slot.constraints,
       action: slot.action,
       actorPerspective: slot.actorPerspective,
-      validationIssues: slot.validationIssues,
     },
     state: shared.state,
     referenceCatalog: shared.referenceCatalog,
+    repair: issues.length > 0
+      ? { target: action.id, issues: issues.map((reason) => ({ code: "action_grounding", class: "semantic" as const, path: ["task"], originalValue: null, allowedHandles: [], reason })) }
+      : null,
   };
 }
 
@@ -664,6 +701,7 @@ export async function generateInteractionDependency(
             state,
             action,
             repairContext.issues.map((issue) => issue.message),
+            scope,
           ),
           schema: actionGroundingSchema,
         });

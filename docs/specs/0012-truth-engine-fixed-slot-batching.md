@@ -11,7 +11,7 @@ The complete world definition, canonical truth, semantic history, all actions, a
 
 ## Contract
 
-`executionTuning.truthBatchMaxSlots` is an integer from one through sixty-four and defaults to twelve. It is pinned in the eager-reference algorithm manifest, which is forward-only version `8`; old producers are obsolete saves and are not migrated.
+`executionTuning.truthBatchMaxSlots` is an integer from one through sixty-four and defaults to twelve. It is pinned in the eager-reference algorithm manifest, which is forward-only version `9`; old producers are obsolete saves and are not migrated.
 
 Truth roles use a fixed initial batch size. A complete batch that exceeds the selected profile's `max_input_bytes` raises `ContextLimitExceeded` immediately and is never shrunk or split. A structurally invalid batch may retry as the same batch and then split deterministically; a semantic slot failure repairs only that slot. Transport, configuration, overload, and cancellation errors remain terminal. No partial canonical state is committed.
 

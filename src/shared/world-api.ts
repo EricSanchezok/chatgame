@@ -126,7 +126,7 @@ export interface PublicConversationTurn {
     step: number;
     title?: string;
     text: string;
-    suggestions?: [string, string, string];
+    possibleNextActions?: [string, string, string];
     generated?: boolean;
     worldTimeSeconds?: number;
     activity?: PublicWorldRun["activity"];
@@ -226,6 +226,6 @@ export interface SubmitExternalActionInput {
 export interface ArrivalView {
   title: string;
   scene: string;
-  suggestions: [string, string, string];
+  possibleNextActions: [string, string, string];
   generated: boolean;
 }

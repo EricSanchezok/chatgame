@@ -31,16 +31,18 @@ import { AgentMind } from "../agent-mind";
 import { normalizeOutcomeAlternativeEvidence } from "../../../mechanics/truth-engine";
 import { loadWorldScript } from "../../../../script/world-loader";
 
+type AssignedModelAction = {
+  actionRef: string;
+  actorRef: string;
+  rawText: string;
+  goal: string;
+  means: string | null;
+  targetRefs: string[];
+};
+
 function assignedActions(context: unknown): AgentActionProposal[] {
-  const task = (context as { task?: { assignedActions?: Array<{
-    actionRef: string;
-    actorRef: string;
-    rawText: string;
-    goal: string;
-    means: string | null;
-    targetRefs: string[];
-  }> } }).task;
-  return (task?.assignedActions ?? []).map((action) => ({
+  const state = (context as { state?: { actionSet?: { assigned?: AssignedModelAction[] } } }).state;
+  return (state?.actionSet?.assigned ?? []).map((action) => ({
     id: action.actionRef.replace(/^ref:action:/u, ""),
     actorId: action.actorRef.replace(/^ref:agent:/u, ""),
     baseRevision: 0,
@@ -66,7 +68,7 @@ describe("eager reference safeguards", () => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
           compilation.temporalPlan = {
-            profileId: "ongoing-action",
+            profileRef: referenceHandleFor("temporal_profile", "ongoing-action"),
             basis: { kind: "profile" },
             description: action.rawText,
             continuationAssertions: [],
@@ -199,7 +201,7 @@ describe("eager reference safeguards", () => {
             : [];
           if (action.rawText.includes("工作台")) {
             compilation.temporalPlan = {
-              profileId: "ongoing-action",
+              profileRef: referenceHandleFor("temporal_profile", "ongoing-action"),
               basis: { kind: "profile" },
               description: action.rawText,
               continuationAssertions: [],
@@ -635,7 +637,7 @@ describe("eager reference safeguards", () => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
           if (!rejectedKeeper && action.actorId === "keeper") {
-            compilation.temporalPlan.profileId = "missing-temporal-profile";
+            compilation.temporalPlan.profileRef = referenceHandleFor("temporal_profile", "missing-temporal-profile");
             rejectedKeeper = true;
           }
         });
@@ -664,7 +666,7 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "action-compilation");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { slots: Array<{ action: { actorRef: string } }> }).slots
+      (request.context as { task: { slots: Array<{ action: { actorRef: string } }> } }).task.slots
         .map((slot) => slot.action.actorRef.replace(/^ref:agent:/u, "")))).toEqual([
       ["keeper", "player"],
       ["keeper"],
@@ -685,8 +687,8 @@ describe("eager reference safeguards", () => {
             basis: { kind: "default" },
           }];
         } else {
-          repairedIssues = (context as { slots: Array<{ validationIssues: string[] }> }).slots
-            .map((slot) => slot.validationIssues);
+          repairedIssues = (context as { slots: Array<{ constraints: string[] }> }).slots
+            .map((slot) => slot.constraints);
         }
         return output;
       }
@@ -722,7 +724,7 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
-          if (action.actorId === "keeper") compilation.temporalPlan.profileId = "missing-temporal-profile";
+          if (action.actorId === "keeper") compilation.temporalPlan.profileRef = referenceHandleFor("temporal_profile", "missing-temporal-profile");
         });
       }
       return deterministicModelOutput(profileId, context);
@@ -976,7 +978,7 @@ describe("eager reference safeguards", () => {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
           if (action.rawText.includes("100公里")) {
             compilation.temporalPlan = {
-              profileId: "measured-travel",
+              profileRef: referenceHandleFor("temporal_profile", "measured-travel"),
               basis: {
                 kind: "explicit_quantity",
                 amount: 100,
@@ -1151,7 +1153,7 @@ describe("eager reference safeguards", () => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
           compilation.temporalPlan = {
-            profileId: "brief-action",
+            profileRef: referenceHandleFor("temporal_profile", "brief-action"),
             basis: { kind: "profile" },
             description: action.rawText,
             continuationAssertions: [{
@@ -1440,7 +1442,7 @@ describe("eager reference safeguards", () => {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
           if (action.rawText.includes("100公里")) {
             compilation.temporalPlan = {
-              profileId: "measured-travel",
+              profileRef: referenceHandleFor("temporal_profile", "measured-travel"),
               basis: {
                 kind: "explicit_quantity",
                 amount: 100,
@@ -1628,7 +1630,7 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation"))
       .toHaveLength(2);
     expect(provider.requests.filter((request) => request.role === "action-compilation")
-      .flatMap((request) => (request.context as { slots: Array<{ action: AgentActionProposal }> }).slots)
+      .flatMap((request) => (request.context as { task: { slots: Array<{ action: AgentActionProposal }> } }).task.slots)
       .map((slot) => slot.action.rawText))
       .toContain("抓起庭院沙土戒备");
   });
@@ -1645,7 +1647,7 @@ describe("eager reference safeguards", () => {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
           if (action.rawText === `进行${replacementSeconds}秒的紧急戒备`) {
             compilation.temporalPlan = {
-              profileId: "explicit-duration",
+              profileRef: referenceHandleFor("temporal_profile", "explicit-duration"),
               basis: {
                 kind: "explicit_duration",
                 seconds: replacementSeconds,

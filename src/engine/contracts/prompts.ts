@@ -27,6 +27,7 @@ import { ObservationValidationError } from "../cognition/observation";
 import { projectAgentPerspective } from "../cognition/agent-perspective";
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalBoundary } from "../mechanics/temporal";
+import { quantityId } from "../runtime/runtime-id";
 import { MechanicInputValidationError, type MechanicPromptContract } from "../mechanics/rule-package";
 import { promptBundle, type PromptBundleId } from "../prompts";
 import {
@@ -36,6 +37,7 @@ import {
   modelRoleContract,
   type ReferenceCandidateInput,
   type ReferenceResolver,
+  type ModelWorkset,
 } from "./model-context";
 
 export const MODEL_CONTEXT_CONTRACT_VERSION = MODEL_CONTEXT_VERSION;
@@ -234,6 +236,7 @@ function scopedCanonicalTruth(
 type ModelReferenceResolvers = {
   existing: ReferenceResolver;
   task?: ReferenceResolver;
+  worldHash?: string;
 };
 
 function modelHandle(
@@ -308,8 +311,11 @@ function projectModelCausalAssertion(
     case "quantity_compare":
       return {
         kind: assertion.kind,
-        definitionRef: modelHandle(resolvers, "quantity", assertion.definitionId),
-        holderRef: modelHandle(resolvers, "entity", assertion.holderId),
+        quantityRef: modelHandle(
+          resolvers,
+          "quantity",
+          quantityId(resolvers.worldHash ?? "", assertion.definitionId, assertion.holderId),
+        ),
         operator: assertion.operator,
         value: assertion.value,
       };
@@ -369,7 +375,7 @@ function projectModelRandomRequest(
 ): Record<string, unknown> {
   return {
     randomRef: modelHandle(resolvers, "random", request.id),
-    distributionId: request.distributionId,
+    distributionRef: modelHandle(resolvers, "random_distribution", request.distributionId),
     distribution: {
       description: request.distribution.description,
       steps: request.distribution.steps.map((step) => ({
@@ -393,7 +399,7 @@ function projectModelRandomResult(
 ): Record<string, unknown> {
   return {
     randomRef: modelHandle(resolvers, "random", result.requestId),
-    distributionId: result.distributionId,
+    distributionRef: modelHandle(resolvers, "random_distribution", result.distributionId),
     steps: result.steps.map((step) => ({
       stepRef: modelHandle(resolvers, "random", step.stepId),
       skipped: step.skipped,
@@ -440,10 +446,10 @@ function projectModelObservation(
       canonicalEntityRef: canonicalEntityId === null ? null : modelHandle(resolvers, "entity", canonicalEntityId),
     })),
     apparentClaims: observation.apparentClaims.map((claim) => ({
-      subject: claim.subjectId,
+      subjectRef: modelHandle(resolvers, "local_entity", `${observation.observerId}::${claim.subjectId}`),
       predicate: claim.predicate,
       value: claim.value.kind === "local_entity"
-        ? { kind: "local_entity", name: claim.value.localEntityId }
+        ? { kind: "local_entity", entityRef: modelHandle(resolvers, "local_entity", `${observation.observerId}::${claim.value.localEntityId}`) }
         : structuredClone(claim.value),
       description: claim.description,
     })),
@@ -625,7 +631,7 @@ function projectModelTransitionProposal(
     decisionRequests: proposal.decisionRequests.map((request) => ({
       agentRef: modelHandle(resolvers, "agent", request.agentId),
       prompt: request.prompt,
-      suggestions: [...request.suggestions],
+      possibleNextActions: [...request.possibleNextActions],
     })),
   };
 }
@@ -660,6 +666,15 @@ function resolutionPlanReferenceCandidates(
   plans: readonly ResolutionPlan[],
 ): ReferenceCandidateInput[] {
   return plans.flatMap((plan) => [
+    {
+      kind: "plan" as const,
+      engineId: plan.id,
+      label: plan.goal,
+      meaning: "a committed resolution plan under review",
+      allowedUses: ["target", "assertion", "cause"] as const,
+      visibility: "role" as const,
+      statePath: `candidatePlans.${plan.id}`,
+    },
     ...[plan.primaryEffect, plan.secondaryEffect, plan.threatenedEffect]
       .filter((effect): effect is NonNullable<typeof effect> => effect !== null)
       .flatMap((effect) => {
@@ -952,17 +967,20 @@ export function createTruthReferenceResolver(input: {
   outcomes?: readonly ActionOutcome[];
   checkRequests?: readonly D20CheckRequest[];
   randomRequests?: readonly DiscreteRandomRequest[];
-  contextState?: Readonly<SimulationState>;
-  contextActions?: readonly AgentActionProposal[];
+  observations?: readonly ObservationPacket[];
   includeHistoryActions?: boolean;
   extraCandidates?: readonly ReferenceCandidateInput[];
 }): ReferenceResolver {
-  const state = input.contextState ?? input.state;
-  const actions = input.contextActions ?? input.actions;
+  const state = input.state;
+  const actions = input.actions;
   const events = input.events ?? [];
   const outcomes = input.outcomes ?? [];
   const checkRequests = input.checkRequests ?? [];
   const randomRequests = input.randomRequests ?? [];
+  const observations = [
+    ...state.history.flatMap((step) => step.observations),
+    ...(input.observations ?? []),
+  ];
   const includeHistoryActions = input.includeHistoryActions !== false;
   const compactLabel = (value: string, limit = 160): string =>
     value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
@@ -1004,6 +1022,22 @@ export function createTruthReferenceResolver(input: {
       visibility: "role" as const,
       statePath: `state.agents.${agent.id}.belief.localEntities.${entity.id}`,
       }))),
+    ...observations.flatMap((observation) => {
+      const localIds = new Set<string>([
+        ...observation.introductions.map((introduction) => introduction.localEntity.id),
+        ...observation.apparentClaims.map((claim) => claim.subjectId),
+        ...observation.apparentClaims.flatMap((claim) => claim.value.kind === "local_entity" ? [claim.value.localEntityId] : []),
+      ]);
+      return [...localIds].map((localId) => ({
+        kind: "local_entity" as const,
+        engineId: `${observation.observerId}::${localId}`,
+        label: localId,
+        meaning: "an observer-local name already present in delivered evidence",
+        allowedUses: ["target", "subject", "evidence", "source", "assertion"] as const,
+        visibility: "role" as const,
+        statePath: `history.observations.${observation.id}.localEntities.${localId}`,
+      }));
+    }),
     ...Object.values(state.truth.entities).map((entity) => ({
       kind: "entity" as const, engineId: entity.id, label: entity.name,
       meaning: "an existing canonical world entity", allowedUses: ["actor", "target", "subject", "cause", "assertion", "source"] as const,
@@ -1201,9 +1235,18 @@ export function createTruthReferenceResolver(input: {
       visibility: "role" as const, statePath: `state.truth.mechanics.entityMechanicsProfiles.${profile.id}`,
     })),
     ...Object.values(state.truth.mechanics.temporalProfiles).map((profile) => ({
-      kind: "mechanic" as const, engineId: profile.id, label: profile.id,
-      meaning: "an authored temporal profile", allowedUses: ["mechanic", "source"] as const,
+      kind: "temporal_profile" as const, engineId: profile.id, label: profile.name,
+      meaning: "an authored temporal profile selectable by the action compiler", allowedUses: ["profile", "source"] as const,
       visibility: "role" as const, statePath: `state.truth.mechanics.temporalProfiles.${profile.id}`,
+    })),
+    ...input.definition.randomDistributions.map((distribution) => ({
+      kind: "random_distribution" as const,
+      engineId: distribution.id,
+      label: distribution.id,
+      meaning: "an authored random distribution selectable for a committed random request",
+      allowedUses: ["distribution", "source"] as const,
+      visibility: "role" as const,
+      statePath: `state.world.randomDistributions.${distribution.id}`,
     })),
     { kind: "world" as const, engineId: "world", label: "world", meaning: "world-wide arbitration scope", allowedUses: ["conflict"] as const, visibility: "role" as const },
     ...(input.extraCandidates ?? []),
@@ -1213,8 +1256,7 @@ export function createTruthReferenceResolver(input: {
 export function buildTruthContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
-  initialActions: readonly AgentActionProposal[];
-  actions: readonly AgentActionProposal[];
+  workset: ModelWorkset<SimulationState, AgentActionProposal, InteractionDependency>;
   reactionRequests: readonly ReactionRequest[];
   reactionDecisions: readonly ReactionDecision[];
   reactionWindow: "open" | "closed";
@@ -1225,21 +1267,14 @@ export function buildTruthContext(input: {
   commitmentRounds: readonly CommitmentRound[];
   resolutionPlans: readonly ResolutionPlan[];
   resolutionReceipts: readonly ResolutionReceipt[];
-  groundings: readonly InteractionDependency[];
   temporalBoundary: TemporalBoundary;
   instanceId: string;
   advanceId: string;
   issues: readonly PromptValidationIssue[];
   stage?: "perception" | "reaction-routing" | "resolution" | "transition";
-  contextMode?: TruthContextMode;
-  contextState?: SimulationState;
-  contextActions?: readonly AgentActionProposal[];
-  contextInitialActions?: readonly AgentActionProposal[];
-  contextGroundings?: readonly InteractionDependency[];
   includeHistoryActions?: boolean;
-  outputActions?: readonly AgentActionProposal[];
-  outputGroundings?: readonly InteractionDependency[];
   resolutionScope?: ResolutionScope;
+  candidateResolutionPlans?: readonly ResolutionPlan[];
   mechanicContracts?: readonly MechanicPromptContract[];
   repairTarget?: {
     kind: "mechanic" | "plan" | "operation" | "event" | "outcome" | "observation";
@@ -1248,42 +1283,42 @@ export function buildTruthContext(input: {
   } | null;
 }): unknown {
   const stage = input.stage ?? "transition";
-  const contextMode = input.contextMode ?? "scoped";
-  const contextState = input.contextState ?? input.state;
-  const contextActions = input.contextActions ?? input.actions;
-  const contextInitialActions = input.contextInitialActions ?? input.initialActions;
-  const contextGroundings = input.contextGroundings ?? input.groundings;
+  const contextMode = input.workset.mode ?? "scoped";
+  const availableState = input.workset.state;
+  const availableActions = input.workset.availableActions;
+  const initialActions = input.workset.initialActions;
+  const availableGroundings = input.workset.availableDependencies;
+  const assignedActions = input.workset.assignedActions;
+  const assignedGroundings = input.workset.assignedDependencies;
   const canReuseFullProjection = contextMode === "full" &&
     input.committedCheckRequests.length === 0 && input.committedRandomRequests.length === 0;
   const projection = canReuseFullProjection
-    ? cachedFullTruthProjection(contextState, contextActions, input.definition, () => {
+    ? cachedFullTruthProjection(availableState, availableActions, input.definition, () => {
       const resolver = createTruthReferenceResolver({
-        state: contextState,
+        state: availableState,
         definition: input.definition,
-        actions: contextActions,
-        contextState,
-        contextActions,
+        actions: availableActions,
+        observations: input.reactionRequests.map((request) => request.stimulus),
         includeHistoryActions: input.includeHistoryActions,
       });
       return {
         resolver,
-        canonicalTruth: projectCanonicalTruthForModel(contextState.truth, resolver),
+        canonicalTruth: projectCanonicalTruthForModel(availableState.truth, resolver),
       };
     })
     : (() => {
       const resolver = createTruthReferenceResolver({
-        state: contextState,
+        state: availableState,
         definition: input.definition,
-        actions: contextActions,
-        contextState,
-        contextActions,
+        actions: availableActions,
+        observations: input.reactionRequests.map((request) => request.stimulus),
         includeHistoryActions: input.includeHistoryActions,
         checkRequests: input.committedCheckRequests,
         randomRequests: input.committedRandomRequests,
       });
       const visibleTruth = contextMode === "full"
-        ? contextState.truth
-        : scopedCanonicalTruth(input.state, input.actions, input.groundings);
+        ? availableState.truth
+        : scopedCanonicalTruth(input.state, availableActions, availableGroundings);
       return { resolver, canonicalTruth: projectCanonicalTruthForModel(visibleTruth, resolver) };
     })();
   // Resolution plans introduce semantic effect handles (for example a
@@ -1293,23 +1328,22 @@ export function buildTruthContext(input: {
   const plansForProjection = [
     ...input.resolutionPlans,
     ...input.resolutionReceipts.map((receipt) => receipt.plan),
+    ...(input.candidateResolutionPlans ?? []),
   ];
   const planCandidates = resolutionPlanReferenceCandidates(plansForProjection);
   const referenceResolver = planCandidates.length === 0
     ? projection.resolver
     : createTruthReferenceResolver({
-      state: contextState,
+      state: availableState,
       definition: input.definition,
-      actions: contextActions,
-      contextState,
-      contextActions,
+      actions: availableActions,
+      observations: input.reactionRequests.map((request) => request.stimulus),
       includeHistoryActions: input.includeHistoryActions,
       checkRequests: input.committedCheckRequests,
       randomRequests: input.committedRandomRequests,
       extraCandidates: planCandidates,
     });
-  const assignedActions = input.outputActions ?? input.actions;
-  const assignedGroundings = input.outputGroundings ?? input.groundings;
+  const modelRefs: ModelReferenceResolvers = { existing: referenceResolver, worldHash: input.state.worldHash };
   const promptId: PromptBundleId = stage === "perception"
     ? "truth-perception"
     : stage === "reaction-routing"
@@ -1317,16 +1351,17 @@ export function buildTruthContext(input: {
       : stage === "resolution"
         ? "truth-resolution"
         : "truth-transition";
-  return {
-    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    promptVersion: promptBundle(promptId).version,
-    execution: {
-      worldId: input.definition.id,
-      instanceId: input.instanceId,
-      advanceId: input.advanceId,
+  const task = {
+    assignment: {
+      targetHandles: assignedActions.map((action) => modelHandle({ existing: referenceResolver }, "action", action.id)),
+      availableHandles: availableActions.map((action) => modelHandle({ existing: referenceResolver }, "action", action.id)),
+      allowedProposalKinds: stage === "transition" ? ["entity", "fact", "agent", "event", "outcome", "mechanic"] : [],
     },
-    roleContract: modelRoleContract(promptId),
-    referenceCatalog: referenceResolver.catalog,
+    constraints: input.issues.map((issue) => issue.message),
+    stage,
+    resolutionScope: input.resolutionScope ?? null,
+  };
+  const state = {
     trustBoundary: {
       externalActions: "untrusted-action-attempts",
       assignedActions: "untrusted-action-attempts",
@@ -1345,39 +1380,51 @@ export function buildTruthContext(input: {
     baseRevision: input.state.revision,
     step: input.state.step,
     canonicalTruth: projection.canonicalTruth,
-    semanticHistory: projectModelHistory(input.state, { existing: referenceResolver }),
+    semanticHistory: projectModelHistory(input.state, modelRefs),
+    actionSet: {
+      initial: initialActions.map((action) => projectModelAction(action, referenceResolver)),
+      assigned: assignedActions.map((action) => projectModelAction(action, referenceResolver)),
+      available: availableActions.map((action) => projectModelAction(action, referenceResolver)),
+    },
+    dependencySet: {
+      assigned: projectModelGroundings(assignedGroundings, referenceResolver),
+      available: projectModelGroundings(availableGroundings, referenceResolver),
+    },
+    committedResolutionPlans: input.resolutionPlans.map((plan) => projectModelResolutionPlan(plan, modelRefs, { includeRef: false })),
+    resolutionReceipts: input.resolutionReceipts.map((receipt) => ({
+      plan: projectModelResolutionPlan(receipt.plan, modelRefs, { includeRef: false }),
+      settled: receipt.settled,
+      checkRef: maybeModelHandle(modelRefs, "check", receipt.checkRequestId),
+      outcome: receipt.outcome,
+    })),
+    ...(input.candidateResolutionPlans ? {
+      candidateResolutionPlans: input.candidateResolutionPlans.map((plan) => projectModelResolutionPlan(plan, modelRefs)),
+    } : {}),
     actors: projectModelActors(
-      contextMode === "full" ? contextState : input.state,
-      contextMode === "full" ? contextActions : input.actions,
-      contextMode === "full" ? contextGroundings : input.groundings,
+      contextMode === "full" ? availableState : input.state,
+      contextMode === "full" ? availableActions : availableActions,
+      contextMode === "full" ? availableGroundings : availableGroundings,
       referenceResolver,
     ),
-    task: {
-      initialActions: contextInitialActions.map((action) => projectModelAction(action, referenceResolver)),
-      assignedActions: assignedActions.map((action) => projectModelAction(action, referenceResolver)),
-      availableActions: contextActions.map((action) => projectModelAction(action, referenceResolver)),
-      assignedDependencies: projectModelGroundings(assignedGroundings, referenceResolver),
-      availableDependencies: projectModelGroundings(contextGroundings, referenceResolver),
-    },
     temporalBoundary: input.temporalBoundary,
     reactionRequests: input.reactionRequests.map((request) => ({
-      requestRef: maybeModelHandle({ existing: referenceResolver }, "operation", request.id),
-      agentRef: maybeModelHandle({ existing: referenceResolver }, "agent", request.agentId),
-      triggerActionRef: maybeModelHandle({ existing: referenceResolver }, "action", request.triggerActionId),
+      requestRef: maybeModelHandle(modelRefs, "operation", request.id),
+      agentRef: maybeModelHandle(modelRefs, "agent", request.agentId),
+      triggerActionRef: maybeModelHandle(modelRefs, "action", request.triggerActionId),
       originalIntent: request.originalIntent.kind === "prepared_action"
-        ? { kind: request.originalIntent.kind, actionRef: maybeModelHandle({ existing: referenceResolver }, "action", request.originalIntent.actionId) }
-        : { kind: request.originalIntent.kind, activityRef: maybeModelHandle({ existing: referenceResolver }, "activity", request.originalIntent.activityId), sourceActionRef: maybeModelHandle({ existing: referenceResolver }, "action", request.originalIntent.sourceActionId) },
-      stimulus: projectModelObservation(request.stimulus, { existing: referenceResolver }),
+        ? { kind: request.originalIntent.kind, actionRef: maybeModelHandle(modelRefs, "action", request.originalIntent.actionId) }
+        : { kind: request.originalIntent.kind, activityRef: maybeModelHandle(modelRefs, "activity", request.originalIntent.activityId), sourceActionRef: maybeModelHandle(modelRefs, "action", request.originalIntent.sourceActionId) },
+      stimulus: projectModelObservation(request.stimulus, modelRefs),
       basis: request.basis.map((basis) => basis.kind === "shared_placement"
-        ? { kind: basis.kind, placementRef: modelHandle({ existing: referenceResolver }, "placement", basis.placementId) }
+        ? { kind: basis.kind, placementRef: modelHandle(modelRefs, "placement", basis.placementId) }
         : basis.kind === "fact"
-          ? { kind: basis.kind, factRef: modelHandle({ existing: referenceResolver }, "fact", basis.factId) }
-          : { kind: basis.kind, checkRef: modelHandle({ existing: referenceResolver }, "check", basis.checkId) }),
+          ? { kind: basis.kind, factRef: modelHandle(modelRefs, "fact", basis.factId) }
+          : { kind: basis.kind, checkRef: modelHandle(modelRefs, "check", basis.checkId) }),
     })),
     reactionDecisions: input.reactionDecisions.map((decision) => ({
-      requestRef: maybeModelHandle({ existing: referenceResolver }, "operation", decision.requestId),
-      agentRef: maybeModelHandle({ existing: referenceResolver }, "agent", decision.agentId),
-      originalActionRef: maybeModelHandle({ existing: referenceResolver }, "action", decision.originalProposalId),
+      requestRef: maybeModelHandle(modelRefs, "operation", decision.requestId),
+      agentRef: maybeModelHandle(modelRefs, "agent", decision.agentId),
+      originalActionRef: maybeModelHandle(modelRefs, "action", decision.originalProposalId),
       source: decision.source,
       kind: decision.kind,
       ...(decision.kind === "keep"
@@ -1385,35 +1432,45 @@ export function buildTruthContext(input: {
         : { replacementAction: projectModelAction(decision.replacementAction, referenceResolver) }),
     })),
     reactionWindow: input.reactionWindow,
-    committedCheckRequests: input.committedCheckRequests.map((request) => projectModelCheckRequest(request, { existing: referenceResolver })),
-    checkResults: input.checkResults.map((result) => projectModelCheckResult(result, { existing: referenceResolver })),
-    committedRandomRequests: input.committedRandomRequests.map((request) => projectModelRandomRequest(request, { existing: referenceResolver })),
-    randomResults: input.randomResults.map((result) => projectModelRandomResult(result, { existing: referenceResolver })),
-    commitmentRounds: input.commitmentRounds.map((round) => projectModelCommitmentRound(round, { existing: referenceResolver })),
-    committedResolutionPlans: input.resolutionPlans.map((plan) => projectModelResolutionPlan(plan, { existing: referenceResolver }, { includeRef: false })),
-    resolutionReceipts: input.resolutionReceipts.map((receipt) => ({
-      plan: projectModelResolutionPlan(receipt.plan, { existing: referenceResolver }, { includeRef: false }),
-      settled: receipt.settled,
-      checkRef: maybeModelHandle({ existing: referenceResolver }, "check", receipt.checkRequestId),
-      outcome: receipt.outcome,
-      effectCount: receipt.effects.length,
-      operationCount: receipt.operations.length,
-    })),
-    validationIssues: input.issues,
-    resolutionScope: input.resolutionScope ?? null,
-    repairTarget: input.repairTarget ? structuredClone(input.repairTarget) : null,
+    committedCheckRequests: input.committedCheckRequests.map((request) => projectModelCheckRequest(request, modelRefs)),
+    checkResults: input.checkResults.map((result) => projectModelCheckResult(result, modelRefs)),
+    committedRandomRequests: input.committedRandomRequests.map((request) => projectModelRandomRequest(request, modelRefs)),
+    randomResults: input.randomResults.map((result) => projectModelRandomResult(result, modelRefs)),
+    commitmentRounds: input.commitmentRounds.map((round) => projectModelCommitmentRound(round, modelRefs)),
     ...(stage === "perception" ? {
-      perceptionCheckConstraints: perceptionCheckConstraints(input.state, input.actions, input.groundings),
+      perceptionCheckConstraints: perceptionCheckConstraints(input.state, availableActions, availableGroundings),
     } : {}),
-    stage,
+  };
+  return {
+    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
+    roleContract: modelRoleContract(promptId),
+    execution: {
+      worldId: input.definition.id,
+      instanceId: input.instanceId,
+      advanceId: input.advanceId,
+      revision: input.state.revision,
+      step: input.state.step,
+    },
+    task,
+    state,
+    referenceCatalog: referenceResolver.catalog,
+    repair: input.issues.length > 0 || input.repairTarget
+      ? { target: input.repairTarget?.id ?? null, issues: input.issues.map((issue) => ({
+        code: issue.code,
+        class: "semantic" as const,
+        path: [...issue.path],
+        originalValue: null,
+        allowedHandles: [],
+        reason: issue.message,
+      })) }
+      : null,
   };
 }
 
 export function buildCausalVerificationContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
-  actions: readonly AgentActionProposal[];
-  groundings: readonly InteractionDependency[];
+  workset: ModelWorkset<SimulationState, AgentActionProposal, InteractionDependency>;
   checkRequests: readonly D20CheckRequest[];
   checkResults: readonly D20CheckResult[];
   randomRequests: readonly DiscreteRandomRequest[];
@@ -1428,10 +1485,6 @@ export function buildCausalVerificationContext(input: {
   instanceId: string;
   advanceId: string;
   issues: readonly PromptValidationIssue[];
-  contextMode?: TruthContextMode;
-  contextState?: SimulationState;
-  contextActions?: readonly AgentActionProposal[];
-  contextGroundings?: readonly InteractionDependency[];
   resolutionScope?: ResolutionScope;
   mechanicContracts?: readonly MechanicPromptContract[];
   repairTarget?: {
@@ -1440,16 +1493,11 @@ export function buildCausalVerificationContext(input: {
     issueClass: string;
   } | null;
 }): unknown {
-  const contextMode = input.contextMode ?? "scoped";
-  const contextState = input.contextState ?? input.state;
-  const contextActions = input.contextActions ?? input.actions;
-  const contextGroundings = input.contextGroundings ?? input.groundings;
-  const referenceResolver = createTruthReferenceResolver({
-    state: input.state,
-    definition: input.definition,
-    actions: contextActions,
-  });
-  const taskReferenceResolver = createReferenceResolver([
+  const contextMode = input.workset.mode ?? "scoped";
+  const availableState = input.workset.state;
+  const availableActions = input.workset.availableActions;
+  const availableGroundings = input.workset.availableDependencies;
+  const taskReferenceInputs: ReferenceCandidateInput[] = [
       ...input.resolutionPlans.map((plan) => ({
         kind: "plan" as const,
         engineId: plan.id,
@@ -1535,22 +1583,28 @@ export function buildCausalVerificationContext(input: {
         visibility: "role" as const,
         statePath: `candidate.observations.${observation.id}`,
       })),
-    ]);
+    ];
+  const referenceResolver = createTruthReferenceResolver({
+    state: availableState,
+    definition: input.definition,
+    actions: availableActions,
+    observations: input.proposal.observations,
+    extraCandidates: taskReferenceInputs,
+  });
   const visibleTruth = contextMode === "full"
-    ? contextState.truth
-    : scopedCanonicalTruth(input.state, input.actions, input.groundings);
-  const modelRefs: ModelReferenceResolvers = { existing: referenceResolver, task: taskReferenceResolver };
-  return {
-    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    promptVersion: promptBundle("causal-verifier").version,
-    roleContract: modelRoleContract("causal-verifier"),
-    referenceCatalog: referenceResolver.catalog,
-    taskReferenceCatalog: taskReferenceResolver.catalog,
-    execution: {
-      worldId: input.definition.id,
-      instanceId: input.instanceId,
-      advanceId: input.advanceId,
+    ? availableState.truth
+    : scopedCanonicalTruth(input.state, availableActions, availableGroundings);
+  const modelRefs: ModelReferenceResolvers = { existing: referenceResolver, worldHash: input.state.worldHash };
+  const task = {
+    assignment: {
+      targetHandles: input.workset.assignedActions.map((action) => modelHandle({ existing: referenceResolver }, "action", action.id)),
+      availableHandles: availableActions.map((action) => modelHandle({ existing: referenceResolver }, "action", action.id)),
+      allowedProposalKinds: ["operation", "event", "outcome", "mechanic"],
     },
+    constraints: input.issues.map((issue) => issue.message),
+    resolutionScope: input.resolutionScope ?? null,
+  };
+  const state = {
     world: {
       id: input.definition.id,
       laws: input.definition.laws,
@@ -1560,9 +1614,16 @@ export function buildCausalVerificationContext(input: {
     },
     baseRevision: input.state.revision,
     canonicalTruth: projectCanonicalTruthForModel(visibleTruth, referenceResolver),
-    semanticHistory: projectModelHistory(contextState, modelRefs),
-    actions: contextActions.map((action) => projectModelAction(action, referenceResolver)),
-    groundings: projectModelGroundings(contextGroundings, referenceResolver),
+    semanticHistory: projectModelHistory(availableState, modelRefs),
+    actionSet: {
+      initial: input.workset.initialActions.map((action) => projectModelAction(action, referenceResolver)),
+      assigned: input.workset.assignedActions.map((action) => projectModelAction(action, referenceResolver)),
+      available: availableActions.map((action) => projectModelAction(action, referenceResolver)),
+    },
+    dependencySet: {
+      assigned: projectModelGroundings(input.workset.assignedDependencies, referenceResolver),
+      available: projectModelGroundings(availableGroundings, referenceResolver),
+    },
     committedCheckRequests: input.checkRequests.map((request) => projectModelCheckRequest(request, modelRefs)),
     checkResults: input.checkResults.map((result) => projectModelCheckResult(result, modelRefs)),
     committedRandomRequests: input.randomRequests.map((request) => projectModelRandomRequest(request, modelRefs)),
@@ -1587,51 +1648,54 @@ export function buildCausalVerificationContext(input: {
     })),
     deterministicAssertionResults: input.assertionResults.map((result) => projectModelAssertionResult(result, modelRefs)),
     previousReport: input.previousReport === null ? null : {
-      verdict: input.previousReport.verdict,
-      findings: input.previousReport.verdict === "reject"
+        verdict: input.previousReport.verdict,
+        findings: input.previousReport.verdict === "reject"
         ? input.previousReport.findings.map((finding) => ({
-            target: {
-              kind: finding.target.kind,
-              ref: modelHandle(modelRefs, finding.target.kind, finding.target.id),
-            },
+            target: { kind: finding.target.kind, targetHandle: modelHandle(modelRefs, finding.target.kind, finding.target.id) },
+            evidenceHandles: [],
             code: finding.code,
             message: finding.message,
             repairHint: finding.repairHint,
           }))
         : [],
     },
-    validationIssues: input.issues,
-    resolutionScope: input.resolutionScope ?? null,
     repairTarget: input.repairTarget ? structuredClone(input.repairTarget) : null,
+  };
+  return {
+    contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
+    roleContract: modelRoleContract("causal-verifier"),
+    referenceCatalog: referenceResolver.catalog,
+    execution: {
+      worldId: input.definition.id,
+      instanceId: input.instanceId,
+      advanceId: input.advanceId,
+      revision: input.state.revision,
+      step: input.state.step,
+    },
+    task,
+    state,
+    repair: input.issues.length > 0 || input.repairTarget
+      ? { target: input.repairTarget?.id ?? null, issues: input.issues.map((issue) => ({ code: issue.code, class: "semantic" as const, path: [...issue.path], originalValue: null, allowedHandles: [], reason: issue.message })) }
+      : null,
   };
 }
 
 export function buildResolutionPlanVerificationContext(input: {
   definition: WorldDefinition;
   state: SimulationState;
-  actions: readonly AgentActionProposal[];
-  groundings: readonly InteractionDependency[];
+  workset: ModelWorkset<SimulationState, AgentActionProposal, InteractionDependency>;
   plans: readonly ResolutionPlan[];
   commitmentRounds: readonly CommitmentRound[];
   instanceId: string;
   advanceId: string;
   issues: readonly PromptValidationIssue[];
-  contextMode?: TruthContextMode;
-  contextState?: SimulationState;
-  contextActions?: readonly AgentActionProposal[];
-  contextGroundings?: readonly InteractionDependency[];
   resolutionScope?: ResolutionScope;
 }): unknown {
-  const contextMode = input.contextMode ?? "scoped";
-  const contextState = input.contextState ?? input.state;
-  const contextActions = input.contextActions ?? input.actions;
-  const contextGroundings = input.contextGroundings ?? input.groundings;
-  const referenceResolver = createTruthReferenceResolver({
-    state: input.state,
-    definition: input.definition,
-    actions: contextActions,
-  });
-  const taskReferenceResolver = createReferenceResolver([
+  const contextMode = input.workset.mode ?? "scoped";
+  const availableState = input.workset.state;
+  const availableActions = input.workset.availableActions;
+  const availableGroundings = input.workset.availableDependencies;
+  const taskReferenceInputs: ReferenceCandidateInput[] = [
     ...input.plans.map((plan) => ({
       kind: "plan" as const,
       engineId: plan.id,
@@ -1642,38 +1706,60 @@ export function buildResolutionPlanVerificationContext(input: {
       statePath: `candidatePlans.${plan.id}`,
     })),
     ...resolutionPlanReferenceCandidates(input.plans),
-  ]);
+  ];
+  const referenceResolver = createTruthReferenceResolver({
+    state: availableState,
+    definition: input.definition,
+    actions: availableActions,
+    extraCandidates: taskReferenceInputs,
+  });
   const visibleTruth = contextMode === "full"
-    ? contextState.truth
-    : scopedCanonicalTruth(input.state, input.actions, input.groundings);
-  const modelRefs: ModelReferenceResolvers = { existing: referenceResolver, task: taskReferenceResolver };
+    ? availableState.truth
+    : scopedCanonicalTruth(input.state, availableActions, availableGroundings);
+  const modelRefs: ModelReferenceResolvers = { existing: referenceResolver, worldHash: input.state.worldHash };
   const { mechanics, ...canonicalTruth } = projectCanonicalTruthForModel(visibleTruth, referenceResolver);
+  const task = {
+    assignment: {
+      targetHandles: availableActions.map((action) => modelHandle({ existing: referenceResolver }, "action", action.id)),
+      availableHandles: availableActions.map((action) => modelHandle({ existing: referenceResolver }, "action", action.id)),
+      allowedProposalKinds: ["plan"],
+    },
+    constraints: input.issues.map((issue) => issue.message),
+    resolutionScope: input.resolutionScope ?? null,
+  };
+  const state = {
+    world: { id: input.definition.id, laws: input.definition.laws, rulePackages: input.definition.rulePackages, mechanics },
+    baseRevision: input.state.revision,
+    canonicalTruth,
+    semanticHistory: projectModelHistory(availableState, modelRefs),
+    actionSet: {
+      initial: input.workset.initialActions.map((action) => projectModelAction(action, referenceResolver)),
+      assigned: input.workset.assignedActions.map((action) => projectModelAction(action, referenceResolver)),
+      available: availableActions.map((action) => projectModelAction(action, referenceResolver)),
+    },
+    dependencySet: {
+      assigned: projectModelGroundings(input.workset.assignedDependencies, referenceResolver),
+      available: projectModelGroundings(availableGroundings, referenceResolver),
+    },
+    candidateResolutionPlans: input.plans.map((plan) => projectModelResolutionPlan(plan, modelRefs)),
+    priorCommitmentRounds: input.commitmentRounds.map((round) => projectModelCommitmentRound(round, modelRefs)),
+  };
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    promptVersion: promptBundle("resolution-plan-verifier").version,
     roleContract: modelRoleContract("resolution-plan-verifier"),
     referenceCatalog: referenceResolver.catalog,
-    taskReferenceCatalog: taskReferenceResolver.catalog,
     execution: {
       worldId: input.definition.id,
       instanceId: input.instanceId,
       advanceId: input.advanceId,
+      revision: input.state.revision,
+      step: input.state.step,
     },
-    world: {
-      id: input.definition.id,
-      laws: input.definition.laws,
-      rulePackages: input.definition.rulePackages,
-      mechanics,
-    },
-    baseRevision: input.state.revision,
-    canonicalTruth,
-    semanticHistory: projectModelHistory(contextState, modelRefs),
-    actions: contextActions.map((action) => projectModelAction(action, referenceResolver)),
-    groundings: projectModelGroundings(contextGroundings, referenceResolver),
-    candidatePlans: input.plans.map((plan) => projectModelResolutionPlan(plan, modelRefs)),
-    priorCommitmentRounds: input.commitmentRounds.map((round) => projectModelCommitmentRound(round, modelRefs)),
-    validationIssues: input.issues,
-    resolutionScope: input.resolutionScope ?? null,
+    task,
+    state,
+    repair: input.issues.length > 0
+      ? { target: null, issues: input.issues.map((issue) => ({ code: issue.code, class: "semantic" as const, path: [...issue.path], originalValue: null, allowedHandles: [], reason: issue.message })) }
+      : null,
   };
 }
 
@@ -1710,6 +1796,15 @@ export function buildAgentSlotContext(input: Omit<AgentContextInput, "instanceId
     .filter((event) => event.step === input.state.step)
     .map((event) => [event.id, event]));
   const resolver = createAgentReferenceResolver(input.agent, input.observations);
+  const projectOwnAction = (action: AgentActionProposal) => ({
+    rawText: action.rawText,
+    goal: action.goal,
+    means: action.means,
+    targetHandles: action.targetIds.flatMap((targetId) => {
+      try { return [resolver.handleFor("local_entity", targetId)]; }
+      catch { return []; }
+    }),
+  });
   return {
     referenceCatalog: resolver.catalog,
     task: {
@@ -1723,7 +1818,7 @@ export function buildAgentSlotContext(input: Omit<AgentContextInput, "instanceId
     state: {
       perspective: projectAgentPerspective(input.state, input.agent),
       currentResolution: {
-        ownAction: input.currentAction,
+        ownAction: input.currentAction ? projectOwnAction(input.currentAction) : null,
         perceivedOutcome: input.currentOutcome,
       },
       observations: input.observations.map(visibleObservation),
@@ -1771,6 +1866,15 @@ export function buildReactionContext(input: {
   issues: readonly PromptValidationIssue[];
 }): unknown {
   const resolver = createAgentReferenceResolver(input.agent, [input.stimulus]);
+  const preparedAction = {
+    rawText: input.originalAction.rawText,
+    goal: input.originalAction.goal,
+    means: input.originalAction.means,
+    targetHandles: input.originalAction.targetIds.flatMap((targetId) => {
+      try { return [resolver.handleFor("local_entity", targetId)]; }
+      catch { return []; }
+    }),
+  };
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     roleContract: modelRoleContract("agent-reaction"),
@@ -1791,7 +1895,7 @@ export function buildReactionContext(input: {
     },
     state: {
       perspective: projectAgentPerspective(input.state, input.agent),
-      preparedAction: input.originalAction,
+      preparedAction,
       stimulus: visibleObservation(input.stimulus),
     },
     referenceCatalog: resolver.catalog,

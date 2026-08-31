@@ -270,7 +270,7 @@ function conversationFor(
       step: arrival.step,
       title: arrival.title,
       text: arrival.scene,
-      suggestions: [...arrival.suggestions],
+      possibleNextActions: [...arrival.possibleNextActions],
       generated: arrival.generated,
     },
   }];
@@ -791,7 +791,7 @@ export class WorldHost {
           step: initial.state.step,
           title: "你已进入世界",
           scene: origin.fallbackArrival,
-          suggestions: ["观察四周", "确认自己所在的位置", "寻找一个可以交谈的人"],
+          possibleNextActions: ["观察四周", "确认自己所在的位置", "寻找一个可以交谈的人"],
           generated: false,
           createdAt: joinedAt,
         };
@@ -813,7 +813,7 @@ export class WorldHost {
           ...fallback,
           title: arrival.title,
           scene: arrival.scene,
-          suggestions: [...arrival.suggestions],
+          possibleNextActions: [...arrival.possibleNextActions],
           generated: arrival.generated,
         };
       }
@@ -1846,7 +1846,7 @@ export class WorldHost {
         step: document.state.step,
         title: `此刻，你是${entity.name}`,
         scene: fallbackText,
-        suggestions: ["观察四周", "回想刚才发生的事", "确认自己接下来要做什么"],
+        possibleNextActions: ["观察四周", "回想刚才发生的事", "确认自己接下来要做什么"],
         generated: false,
         createdAt: joinedAt,
       };
@@ -1873,7 +1873,7 @@ export class WorldHost {
         ...fallback,
         title: arrival.title,
         scene: arrival.scene,
-        suggestions: [...arrival.suggestions],
+          possibleNextActions: [...arrival.possibleNextActions],
         generated: arrival.generated,
       };
       document.updatedAt = this.now().toISOString();
@@ -1931,7 +1931,7 @@ export class WorldHost {
       return {
         title: "你已进入世界",
         scene: fallback,
-        suggestions: ["观察四周", "确认自己所在的位置", "寻找一个可以交谈的人"],
+        possibleNextActions: ["观察四周", "确认自己所在的位置", "寻找一个可以交谈的人"],
         generated: false,
       };
     }

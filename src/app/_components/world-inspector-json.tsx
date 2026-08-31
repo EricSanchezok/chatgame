@@ -44,7 +44,7 @@ function pathLabel(path: readonly (number | string)[]): string {
 
 function followsErrorPath(path: readonly (number | string)[]): boolean {
   return path.some((segment) => typeof segment === "string" &&
-    ["error", "cause", "message", "validationIssues", "validationIssueCodes"].includes(segment));
+    ["error", "cause", "message", "validationIssues"].includes(segment));
 }
 
 function isNarrativePath(path: readonly (number | string)[]): boolean {

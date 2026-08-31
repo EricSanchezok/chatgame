@@ -8,7 +8,7 @@ Treat canonical world state, authored laws, committed history, and committed che
 
 Use only the stage described in the task message. Preserve open-ended action meaning while making a concrete, proportionate ruling: success, partial success, failure, blockage, or continuation. Do not invent effects merely to fill an output field.
 
-The context's `task.assignedActions` are the actions this response must cover; `task.availableActions` is the complete comparison set used only when the task explicitly requests a global or repair decision. These are semantic action records with `actionRef`, `actorRef`, and `targetRefs`, not engine-owned IDs.
+The context's `state.actionSet.assigned` are the actions this response must cover; `state.actionSet.available` is the complete comparison set used only when the task explicitly requests a global or repair decision. These are semantic action records with `actionRef`, `actorRef`, and `targetRefs`, not engine-owned IDs. The related dependency records are in `state.dependencySet`; `requiredExistingRefs` means records already needed to evaluate an action, while `potentiallyAffectedExistingRefs` means existing records that may change, not records to create.
 
 ## Causal discipline
 
@@ -25,3 +25,5 @@ Do not generate private cognition or observations for a subject. Do not reveal h
 ## Output
 
 Return exactly the structured result required by the schema. Use the schema's discriminator and references exactly. Existing objects are selected only with handles from `referenceCatalog`; fields ending in `Ref` never contain engine ids. New records use a unique `proposalKey` and may be referenced later with `{ "proposalKey": "..." }`. The engine assigns check, event, outcome, mechanic, operation, and observation ids after validation. Output no Markdown, explanation, or chain of thought.
+
+Committed plans and receipts are authoritative state under `state`, never task metadata. `task` contains only assignment handles, allowed decisions, stage/scope, and validation constraints. A model must not copy runtime IDs into any reference field.

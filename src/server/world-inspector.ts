@@ -361,7 +361,10 @@ function contextSections(context: unknown): WorldInspectorModelInvocationSummary
 
 function slotRefs(context: unknown): WorldInspectorModelInvocationSummary["slotRefs"] {
   if (!context || typeof context !== "object" || Array.isArray(context)) return [];
-  const slots = (context as { slots?: unknown }).slots;
+  const task = (context as { task?: unknown }).task;
+  const slots = task && typeof task === "object" && !Array.isArray(task)
+    ? (task as { slots?: unknown }).slots
+    : (context as { slots?: unknown }).slots;
   if (!Array.isArray(slots)) return [];
   return slots.map((entry, index) => {
     const value = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
@@ -414,7 +417,7 @@ function scopeModelInvocation(
 ): WorldInspectorModelInvocationSummary {
   return {
     ...invocation,
-    id: worldInspectorModelInvocationId(executionId, invocation.sourceInvocationId),
+    id: invocation.id.includes("::") ? invocation.id : worldInspectorModelInvocationId(executionId, invocation.sourceInvocationId),
   };
 }
 
@@ -422,8 +425,10 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
   const groups = new Map<string, RuntimeEvent[]>();
   for (const event of events) {
     if (!event.event.startsWith("model.")) continue;
-    const id = event.correlation?.modelInvocationId ??
+    const sourceInvocationId = event.correlation?.modelInvocationId ??
       `unresolved:${event.correlation?.modelRole ?? "model"}:${event.correlation?.modelSubject ?? "unknown"}:${event.correlation?.modelInvocation ?? event.sequence}`;
+    const executionId = event.correlation?.executionId ?? "unscoped";
+    const id = worldInspectorModelInvocationId(executionId, sourceInvocationId);
     const group = groups.get(id) ?? [];
     group.push(event);
     groups.set(id, group);
@@ -508,7 +513,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     };
     return {
       id,
-      sourceInvocationId: id,
+      sourceInvocationId: id.slice(id.indexOf("::") + 2),
       // The provider correlation ordinal is scoped to the producer/batch and is
       // commonly `1` for every request in an attempt. The Inspector contract
       // needs a stable, human-readable sequence for the logical invocations in
@@ -544,7 +549,18 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       eventIds: ordered.map(worldInspectorRuntimeEventId),
       payloadEventIds,
       artifactHashes,
-      validationIssueCodes: [...issueCodes],
+      outputDisposition: ordered.some((event) => event.event === "model.semantic.rejected" || event.event === "model.structured_output.rejected")
+        ? "rejected"
+        : ordered.some((event) => event.event === "model.semantic.repaired")
+          ? "llm-repaired"
+          : "accepted",
+      issues: [...issueCodes].map((code) => ({ code, class: "semantic", path: [], message: code })),
+      normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+      referenceCatalogVersion: 1,
+      referenceCatalogHash: typeof context === "object" && context !== null && !Array.isArray(context) && "referenceCatalog" in context
+        ? contentHash((context as { referenceCatalog: unknown }).referenceCatalog) : contentHash(null),
+      rawOutputHash: outputEvent?.hashes?.response ?? null,
+      normalizedOutputHash: outputEvent?.hashes?.response ?? null,
       ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
       hasPayload: ordered.some((event) => event.payload !== undefined),
     } satisfies WorldInspectorModelInvocationSummary;
@@ -872,7 +888,8 @@ export function buildWorldInspectorWindow(
           edges.push({ id: `retry_of:${transportNodeId}:${previous}`, source: transportNodeId, target: previous, kind: "retry_of" });
         }
       });
-      for (const code of invocation.validationIssueCodes) {
+      for (const issue of invocation.issues) {
+        const code = issue.code;
         const validationNodeId = `validation:${attempt.id}:${invocation.sourceInvocationId}:${code}`;
         nodes.push({
           id: validationNodeId,

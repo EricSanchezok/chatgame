@@ -2,11 +2,13 @@ import { z } from "zod";
 import {
   actionCompilationBatchSchema,
   actionCompilationSlotSchema,
+  type ModelCausalAssertion,
 } from "../../contracts/llm-schemas";
 import {
   actionGroundingSharedContext,
   actionGroundingSlotContext,
   materializeModelInteractionDependency,
+  actionGroundingReferenceResolver,
 } from "../../mechanics/action-dependency";
 import {
   eagerRequestBytes,
@@ -19,7 +21,7 @@ import {
   type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
 import type { ActionCompilationDraft, InteractionDependency } from "../../runtime/execution";
-import type { AgentActionProposal, ModelExecutionAudit, SimulationState } from "../../contracts/model";
+import type { AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, SimulationState } from "../../contracts/model";
 import {
   ModelOutputError,
   ModelSemanticRepairError,
@@ -38,6 +40,7 @@ import {
   type TemporalPlan,
 } from "../../mechanics/temporal";
 import { promptBundle } from "../../prompts";
+import { isProposalReference, modelRoleContract, type ModelReference, type ModelReferenceUse } from "../../contracts/model-context";
 
 const ACTION_COMPILER_PROMPT = promptBundle("action-compilation");
 
@@ -62,15 +65,19 @@ interface CompilationPayload {
 
 type CompilationSlot = EagerSlot<CompilationPayload, string>;
 
-function existingActivities(state: Readonly<SimulationState>, action: Readonly<AgentActionProposal>) {
+function existingActivities(
+  state: Readonly<SimulationState>,
+  action: Readonly<AgentActionProposal>,
+  resolver: ReturnType<typeof actionGroundingReferenceResolver>,
+) {
   return Object.values(state.truth.activities)
     .filter((activity): activity is ScheduledActivityState =>
       activity.participantAgentIds.includes(action.actorId) &&
       (activity.status === "active" || activity.status === "paused"))
     .map(({ id, status, plan, progress }) => ({
-      id,
+      activityRef: resolver.handleFor("activity", id),
       status,
-      profileId: plan.profileId,
+      profileRef: resolver.handleFor("temporal_profile", plan.profileId),
       description: plan.description,
       progress,
     }));
@@ -79,24 +86,52 @@ function existingActivities(state: Readonly<SimulationState>, action: Readonly<A
 function actionCompilationContext(
   state: Readonly<SimulationState>,
   slots: readonly CompilationSlot[],
+  scope: Pick<ModelExecutionScope, "workloadId" | "batchId">,
 ) {
-  const shared = actionGroundingSharedContext(state, slots.map((slot) => slot.payload.action));
+  const actions = slots.map((slot) => slot.payload.action);
+  const referenceResolver = actionGroundingReferenceResolver(state, actions);
+  const shared = actionGroundingSharedContext(state, actions);
   return {
     contractVersion: shared.contractVersion,
-    promptVersion: ACTION_COMPILER_PROMPT.version,
-    currentElapsedSeconds: state.truth.elapsedSeconds,
-    temporalProfiles: Object.values(state.truth.mechanics.temporalProfiles)
-      .map((profile) => structuredClone(profile))
-      .sort((left, right) => left.id.localeCompare(right.id)),
-    temporalCalibrations: structuredClone(state.truth.mechanics.temporalCalibrations)
-      .sort((left, right) => left.id.localeCompare(right.id)),
-    state: shared.state,
+    roleContract: modelRoleContract("action-compilation"),
+    execution: { worldId: state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: state.revision, step: state.step },
+    task: {
+      assignment: { targetHandles: [], availableHandles: shared.referenceCatalog.candidates.map((candidate) => candidate.handle), allowedProposalKinds: [] },
+      constraints: slots.flatMap((slot) => slot.issues),
+      slots: slots.map((entry, slot) => ({
+        slot,
+        ...actionGroundingSlotContext(state, entry.payload.action, entry.issues, referenceResolver),
+        existingActivities: existingActivities(state, entry.payload.action, referenceResolver),
+      })),
+    },
+    state: {
+      canonicalTruth: shared.state.canonicalTruth,
+      actors: shared.state.actors,
+      currentElapsedSeconds: state.truth.elapsedSeconds,
+      temporalProfiles: Object.values(state.truth.mechanics.temporalProfiles)
+        .map((profile) => {
+          const { id: _profileId, ...profileWithoutId } = profile;
+          return profile.kind === "staged"
+            ? {
+                ...structuredClone(profileWithoutId),
+                profileRef: referenceResolver.handleFor("temporal_profile", _profileId),
+                stages: profile.stages.map(({ id: _stageId, ...stage }) => stage),
+              }
+            : {
+                ...structuredClone(profileWithoutId),
+                profileRef: referenceResolver.handleFor("temporal_profile", _profileId),
+              };
+        })
+        .sort((left, right) => left.profileRef.localeCompare(right.profileRef)),
+      temporalCalibrations: state.truth.mechanics.temporalCalibrations.map(({ id: _calibrationId, profileId: _profileId, ...calibration }) => ({
+        ...structuredClone(calibration),
+        profileRef: referenceResolver.handleFor("temporal_profile", _profileId),
+      })),
+    },
     referenceCatalog: shared.referenceCatalog,
-    slots: slots.map((entry, slot) => ({
-      slot,
-      ...actionGroundingSlotContext(state, entry.payload.action, entry.issues),
-      existingActivities: existingActivities(state, entry.payload.action),
-    })),
+    repair: slots.some((slot) => slot.issues.length > 0)
+      ? { target: null, issues: slots.flatMap((slot, index) => slot.issues.map((reason) => ({ code: "action_compilation", class: "semantic" as const, path: ["slots", index], originalValue: null, allowedHandles: [], reason }))) }
+      : null,
   };
 }
 
@@ -127,9 +162,9 @@ function errorChainText(error: unknown): string {
 
 function actionCompilationRepairIssues(error: unknown): string[] {
   const message = errorChainText(error);
-  if (message.includes("sharedResourceClaims") && message.includes("poolId")) {
+  if (message.includes("sharedResourceClaims") && (message.includes("poolId") || message.includes("resourcePoolHandle"))) {
     return [
-      "sharedResourceClaims.poolId 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
+      "sharedResourceClaims.resourcePoolHandle 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
     ];
   }
   if (message.includes("action compilation returned") ||
@@ -145,10 +180,10 @@ function actionCompilationRepairIssues(error: unknown): string[] {
 function actionCompilationSlotIssues(error: unknown): string[] {
   if (error instanceof z.ZodError) {
     const poolIssue = error.issues.find((issue) =>
-      issue.path.includes("sharedResourceClaims") && issue.path.includes("poolId"));
+      issue.path.includes("sharedResourceClaims") && (issue.path.includes("poolId") || issue.path.includes("resourcePoolHandle")));
     if (poolIssue) {
       return [
-        "sharedResourceClaims.poolId 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
+        "sharedResourceClaims.resourcePoolHandle 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
       ];
     }
   }
@@ -226,6 +261,42 @@ function materializeCompilation(
   action: AgentActionProposal,
   draft: ActionCompilationDraft,
 ): CompiledAction {
+  const resolver = actionGroundingReferenceResolver(state, action);
+  if (isProposalReference(draft.temporalPlan.profileRef)) {
+    throw new Error(`temporal plan profile cannot use proposalKey ${draft.temporalPlan.profileRef.proposalKey}`);
+  }
+  const profileId = resolver.resolve(draft.temporalPlan.profileRef, "profile").engineId;
+  const resolveCause = (cause: ActionCompilationDraft["temporalPlan"]["causes"][number]) => {
+    if (isProposalReference(cause.ref)) throw new Error(`temporal plan cause cannot use proposalKey ${cause.ref.proposalKey}`);
+    return { kind: cause.kind, id: resolver.resolve(cause.ref, "cause").engineId } as const;
+  };
+  const resolveAssertion = (assertion: ModelCausalAssertion): CausalAssertion => {
+    const resolve = (reference: ModelReference, use: ModelReferenceUse) => {
+      if (isProposalReference(reference)) throw new Error(`temporal continuation assertion cannot use proposalKey ${reference.proposalKey}`);
+      return resolver.resolve(reference, use).engineId;
+    };
+    switch (assertion.kind) {
+      case "check_result": return { kind: assertion.kind, checkId: resolve(assertion.checkRef, "assertion"), expected: assertion.expected };
+      case "random_result": return { kind: assertion.kind, requestId: resolve(assertion.requestRef, "assertion"), stepId: resolve(assertion.stepRef, "assertion"), expected: structuredClone(assertion.expected) as DiscreteRandomAggregate };
+      case "fact_matches": return { kind: assertion.kind, factId: resolve(assertion.factRef, "assertion"), expected: structuredClone(assertion.expected) as never };
+      case "fact_absent": return { kind: assertion.kind, factId: resolve(assertion.factRef, "assertion") };
+      case "entity_absent": return { kind: assertion.kind, entityId: resolve(assertion.entityRef, "assertion") };
+      case "entity_lifecycle": return { kind: assertion.kind, entityId: resolve(assertion.entityRef, "assertion"), expected: assertion.expected };
+      case "placement_equals": return { kind: assertion.kind, entityId: resolve(assertion.entityRef, "assertion"), placementId: assertion.placementRef === null ? null : resolve(assertion.placementRef, "assertion") };
+      case "shared_placement": return { kind: assertion.kind, leftEntityId: resolve(assertion.leftEntityRef, "assertion"), rightEntityId: resolve(assertion.rightEntityRef, "assertion") };
+      case "meter_compare": return { kind: assertion.kind, meterId: resolve(assertion.meterRef, "assertion"), operator: assertion.operator, value: assertion.value };
+      case "quantity_compare": {
+        const quantityId = resolve(assertion.quantityRef, "assertion");
+        const quantity = state.truth.quantities[quantityId];
+        if (!quantity) throw new Error(`quantity assertion references unknown quantity ${quantityId}`);
+        return { kind: assertion.kind, definitionId: quantity.definitionId, holderId: quantity.holderId, operator: assertion.operator, value: assertion.value };
+      }
+      case "rating_compare": return { kind: assertion.kind, ratingId: resolve(assertion.ratingRef, "assertion"), operator: assertion.operator, value: assertion.value };
+      case "shared_resource_capacity_compare": return { kind: assertion.kind, poolId: resolve(assertion.poolRef, "assertion"), operator: assertion.operator, value: assertion.value };
+      case "elapsed_seconds_compare": return { kind: assertion.kind, operator: assertion.operator, value: assertion.value };
+    }
+    throw new Error(`unsupported continuation assertion ${String((assertion as { kind?: unknown }).kind)}`);
+  };
   const plan = materializeTemporalPlan({
     id: runtimeId({
       worldHash: state.worldHash,
@@ -242,7 +313,9 @@ function materializeCompilation(
     startsAtSeconds: state.truth.elapsedSeconds,
     draft: {
       ...structuredClone(draft.temporalPlan),
-      causes: [{ kind: "action", id: action.id }],
+      profileId,
+      causes: draft.temporalPlan.causes.map(resolveCause),
+      continuationAssertions: draft.temporalPlan.continuationAssertions.map(resolveAssertion),
     },
     profiles: state.truth.mechanics.temporalProfiles,
   });
@@ -314,7 +387,7 @@ export async function compileActions(
     requestBytes: (batch) => eagerRequestBytes(
       ACTION_COMPILER_PROMPT.system,
       ACTION_COMPILER_PROMPT.userPrompt,
-      actionCompilationContext(state, batch),
+      actionCompilationContext(state, batch, scope),
       actionCompilationBatchSchema,
     ),
     label: "action compilation",
@@ -339,7 +412,7 @@ export async function compileActions(
           schemaName: "action_compilation_batch",
           system: ACTION_COMPILER_PROMPT.system,
           userPrompt: ACTION_COMPILER_PROMPT.userPrompt,
-          context: actionCompilationContext(state, batch),
+          context: actionCompilationContext(state, batch, scope),
           schema: actionCompilationBatchSchema,
         });
         assertSlotCoverage(batch, generated.value.slots);

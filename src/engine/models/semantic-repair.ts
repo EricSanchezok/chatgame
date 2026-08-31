@@ -95,8 +95,14 @@ function isTerminal(error: unknown): boolean {
 function markRejected(audit: ModelExecutionAudit, issues: readonly SemanticRepairIssue[]): void {
   const invocation = audit.invocations.at(-1);
   if (!invocation) return;
-  invocation.semanticOutcome = "rejected";
-  invocation.validationIssueCodes = [...new Set(issues.map((issue) => issue.code))];
+  invocation.outputDisposition = "rejected";
+  invocation.issues = issues.map((issue) => ({
+    code: issue.code,
+    class: issue.class,
+    path: [...issue.path],
+    message: issue.message,
+    ...(issue.targetIds ? { targetIds: [...issue.targetIds] } : {}),
+  }));
 }
 
 function combineAudits(audits: readonly ModelExecutionAudit[]): ModelExecutionAudit {
@@ -130,6 +136,10 @@ export async function runSemanticRepairLoop<T>(
       generatedAudit = generated.audit;
       audits.push(generated.audit);
       input.validate?.(generated.value, context);
+      if (attempt > 0) {
+        const invocation = generated.audit.invocations.at(-1);
+        if (invocation) invocation.outputDisposition = "llm-repaired";
+      }
       return {
         value: generated.value,
         audit: combineAudits(audits),
@@ -143,6 +153,19 @@ export async function runSemanticRepairLoop<T>(
         : undefined;
       if (audit) audits.push(audit);
       issues = input.classify?.(error) ?? defaultIssues(error);
+      // Providers already attach field-level semantic diagnostics to the
+      // invocation audit. Preserve those paths instead of replacing them
+      // with a generic ModelOutputError at the repair boundary.
+      const detailedIssues = audit?.invocations.at(-1)?.issues;
+      if (error instanceof ModelOutputError && detailedIssues && detailedIssues.length > 0) {
+        issues = detailedIssues.map((issue) => ({
+          code: issue.code,
+          class: issue.class,
+          path: [...issue.path],
+          message: issue.message,
+          ...(issue.targetIds ? { targetIds: [...issue.targetIds] } : {}),
+        }));
+      }
       const rejectedAudit = audit ?? generatedAudit;
       if (rejectedAudit) markRejected(rejectedAudit, issues);
       input.onRejected?.({ context, issues, audit: rejectedAudit, error });

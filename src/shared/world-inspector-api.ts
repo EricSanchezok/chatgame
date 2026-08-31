@@ -9,7 +9,7 @@ import type {
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 7 as const;
+export const WORLD_INSPECTOR_API_VERSION = 8 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -170,7 +170,24 @@ export interface WorldInspectorModelInvocationSummary {
     response?: string;
     output?: string;
   };
-  validationIssueCodes: string[];
+  outputDisposition: "accepted" | "auto-normalized" | "llm-repaired" | "rejected";
+  issues: Array<{
+    code: string;
+    class: string;
+    path: Array<string | number>;
+    message: string;
+  }>;
+  normalization: {
+    applied: boolean;
+    modifiedFieldCount: number;
+    resolvedReferenceCount: number;
+    proposalCount: number;
+    deduplicatedCount: number;
+  };
+  referenceCatalogVersion: number;
+  referenceCatalogHash: string;
+  rawOutputHash: string | null;
+  normalizedOutputHash: string | null;
   errorMessage?: string;
   hasPayload: boolean;
 }

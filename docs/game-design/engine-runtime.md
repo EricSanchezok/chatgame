@@ -37,7 +37,7 @@ Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active
 
 终止 disposition 释放全部 claims，pause 按定义保留或释放。每次正时间提交先应用 disposition，再按相互连接的 pool 划分 FIFO 分量；每个分量遇到第一个无法完整满足的队首就停止，其他不相连分量仍可推进。满足者转为 `ready` 并持有原子 reservation，在下一次普通正时间步骤重新验证 assertions 后从当前 canonical 时间物化新 TemporalPlan；排队时间不回填进度。Entity retirement 或 capacity decrease 只有在同一 Candidate 释放足够 holder 时才合法。
 
-`eager-reference@8` 的阶段如下：
+`eager-reference@9` 的阶段如下：
 
 Truth Engine 的独立 interaction components 在 resolution、plan verification、transition、causal verification 与 observation 阶段使用固定 `truthBatchMaxSlots`（默认 12）slot batch。共享上下文完整发送一次，slot 仍独立校验、repair、审计和 replay；真实 global 或无法证明独立的分量保持原有全局路径。完整 batch 超过模型输入上限直接返回 `ContextLimitExceeded`，不缩小或裁剪上下文。
 

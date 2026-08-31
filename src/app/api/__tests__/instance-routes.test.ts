@@ -150,7 +150,7 @@ describe("World Instance Route Handlers", () => {
     expect(originResponse.status).toBe(201);
     const origin = await originResponse.json();
     expect(origin.controlledView.self).toMatchObject({ name: "小明", location: { name: "石门前庭" } });
-    expect(origin.conversation.turns[0].response.suggestions).toHaveLength(3);
+    expect(origin.conversation.turns[0].response.possibleNextActions).toHaveLength(3);
     expect(JSON.stringify(origin)).not.toContain("canonicalEntityIds");
 
     const participant = origin.participants[0];

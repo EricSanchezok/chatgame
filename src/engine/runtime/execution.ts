@@ -1,4 +1,4 @@
-import type { AgentMindOutput } from "../contracts/llm-schemas";
+import type { AgentMindOutput, ModelCausalAssertion } from "../contracts/llm-schemas";
 import { contentHash } from "../models/model-audit";
 import type {
   AgentActionProposal,
@@ -34,7 +34,7 @@ import type {
   TemporalPlanDraft,
   TemporalStateSnapshot,
 } from "../mechanics/temporal";
-import type { ExistingReferenceHandle, ModelCausalRef } from "../contracts/model-context";
+import type { ExistingReferenceHandle, ModelCausalRef, ModelReference } from "../contracts/model-context";
 import type {
   SharedActivityResourceClaim,
   SharedActivityResourceClaimDraft,
@@ -45,8 +45,8 @@ export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay
 
 export const WORLD_EXECUTION_CONTRACT_VERSION = 5 as const;
 export const ENGINE_OPERATION_CONTRACT_VERSION = 1 as const;
-export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 4 as const;
-export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 3 as const;
+export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 5 as const;
+export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 4 as const;
 
 export class StepPreparationInvalidatedError extends Error {
   constructor(message = "step preparation no longer matches its execution inputs") {
@@ -494,7 +494,11 @@ export interface ActionSharedResourceClaimModel {
 }
 
 export interface ActionCompilationDraft {
-  temporalPlan: Omit<TemporalPlanDraft, "causes"> & { causes: ModelCausalRef[] };
+  temporalPlan: Omit<TemporalPlanDraft, "profileId" | "causes" | "continuationAssertions"> & {
+    profileRef: ModelReference;
+    causes: ModelCausalRef[];
+    continuationAssertions: ModelCausalAssertion[];
+  };
   interactionDependency: ActionGroundingModelOutput;
 }
 

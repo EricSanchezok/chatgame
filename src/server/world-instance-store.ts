@@ -118,9 +118,9 @@ function validateParticipant(
   if (!Number.isSafeInteger(arrival.step) || arrival.step < 0 || arrival.step > document.state.step) {
     throw new Error(`participant ${participantId} arrival step is invalid`);
   }
-  if (!Array.isArray(arrival.suggestions) || arrival.suggestions.length !== 3 ||
-    arrival.suggestions.some((suggestion) => typeof suggestion !== "string" || !suggestion.trim())) {
-    throw new Error(`participant ${participantId} arrival suggestions are invalid`);
+  if (!Array.isArray(arrival.possibleNextActions) || arrival.possibleNextActions.length !== 3 ||
+    arrival.possibleNextActions.some((suggestion) => typeof suggestion !== "string" || !suggestion.trim())) {
+    throw new Error(`participant ${participantId} arrival possibleNextActions are invalid`);
   }
   if (typeof arrival.generated !== "boolean" || !Number.isFinite(Date.parse(arrival.createdAt))) {
     throw new Error(`participant ${participantId} arrival metadata is invalid`);

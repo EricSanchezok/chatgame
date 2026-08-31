@@ -70,7 +70,7 @@ Observer 不能提交角色行动。接管成功后页面切换为 Participant �
 
 ## 控制球与 Inspector
 
-可拖动控制球提供主菜单、存档、设置和视角工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定、全部认知和完整时间因果证据。Inspector API v6 的调用清单、阶段时间线和因果图谱显示动态 Δt、边界来源、同刻到期集合、TemporalPlan、Activity 转换、Timer、决策点、共享资源容量/持有/队列/分配证据、提交前后快照，以及 logical invocation、transport attempt、retry、token、字节、payload artifact 和 validation 路径。失败或进行中的 attempt 在没有 Revision 时仍可从面板进入。
+可拖动控制球提供主菜单、存档、设置和视角工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定、全部认知和完整时间因果证据。Inspector API v8 的调用清单、阶段时间线和因果图谱显示动态 Δt、边界来源、同刻到期集合、TemporalPlan、Activity 转换、Timer、决策点、共享资源容量/持有/队列/分配证据、提交前后快照，以及 logical invocation、transport attempt、retry、token、字节、payload artifact 和 validation 路径。失败或进行中的 attempt 在没有 Revision 时仍可从面板进入。
 
 工具使用注册槽位扩展；没有数据的工具不显示。弹层关闭后焦点返回触发控件，控制球位置在浏览器偏好中恢复。
 

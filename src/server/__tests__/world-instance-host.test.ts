@@ -130,7 +130,7 @@ function reactionHarness(input: {
       return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
         if (action.rawText.includes("100公里")) {
           compilation.temporalPlan = {
-            profileId: "measured-travel",
+            profileRef: referenceHandleFor("temporal_profile", "measured-travel"),
             basis: {
               kind: "explicit_quantity",
               amount: 100,
@@ -219,13 +219,13 @@ describe("World Instance host", () => {
       expect(created.conversation?.turns).toHaveLength(1);
       expect(created.conversation?.turns[0]).toMatchObject({
         status: "committed",
-        response: { suggestions: expect.any(Array) },
+        response: { possibleNextActions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
       expect(stored.schemaVersion).toBe(19);
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
-        version: "8",
+        version: "9",
         contractVersion: 5,
         config: { actionCompilationMaxSlots: 12, agentMindMaxSlots: 8, truthBatchMaxSlots: 12 },
       });

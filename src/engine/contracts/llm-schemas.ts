@@ -345,7 +345,7 @@ export const modelCausalAssertionSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("placement_equals"), entityRef: modelReferenceSchema, placementRef: modelReferenceSchema.nullable() }),
   z.strictObject({ kind: z.literal("shared_placement"), leftEntityRef: modelReferenceSchema, rightEntityRef: modelReferenceSchema }),
   z.strictObject({ kind: z.literal("meter_compare"), meterRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
-  z.strictObject({ kind: z.literal("quantity_compare"), definitionRef: modelReferenceSchema, holderRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("quantity_compare"), quantityRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
   z.strictObject({ kind: z.literal("rating_compare"), ratingRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
   z.strictObject({ kind: z.literal("shared_resource_capacity_compare"), poolRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
   z.strictObject({ kind: z.literal("elapsed_seconds_compare"), operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
@@ -374,12 +374,102 @@ const modelTransitionFactSchema = z.strictObject({
   description: z.string(),
   access: modelAccessSchema,
 });
+
+const modelTransitionEvidenceSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  kind: z.enum(["observation", "testimony", "inference", "assumption"]),
+  description: z.string().min(1),
+  sourceRef: modelReferenceSchema.nullable(),
+});
+const modelTransitionLocalEntitySchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  name: z.string().min(1),
+  description: z.string(),
+  status: z.enum(["observed", "reported", "hypothesized"]),
+});
+const modelTransitionBeliefValueSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("text"), value: z.string() }),
+  z.strictObject({ kind: z.literal("number"), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("boolean"), value: z.boolean() }),
+  z.strictObject({ kind: z.literal("local_entity"), entityRef: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("none") }),
+]);
+const modelTransitionClaimSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  subjectRef: modelReferenceSchema,
+  predicate: z.string().min(1),
+  value: modelTransitionBeliefValueSchema,
+  description: z.string(),
+  stance: z.enum(["believed", "suspected", "disbelieved"]),
+  confidence: z.number().min(0).max(1),
+  evidenceRefs: z.array(modelReferenceSchema),
+});
+const modelTransitionEvidenceRefs = { evidenceRefs: z.array(modelReferenceSchema) };
+const modelTransitionFacetSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  description: z.string().min(1),
+  strength: z.number().min(0).max(1),
+  status: z.enum(["active", "retired"]),
+  ...modelTransitionEvidenceRefs,
+});
+const modelTransitionEmotionSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  description: z.string().min(1),
+  intensity: z.number().min(0).max(1),
+  status: z.enum(["active", "resolved"]),
+  ...modelTransitionEvidenceRefs,
+});
+const modelTransitionAttitudeSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  subjectRef: modelReferenceSchema,
+  description: z.string().min(1),
+  intensity: z.number().min(-1).max(1),
+  status: z.enum(["active", "retired"]),
+  ...modelTransitionEvidenceRefs,
+});
+const modelTransitionGoalSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  description: z.string().min(1),
+  priority: z.number().min(0).max(1),
+  progress: z.number().min(0).max(1),
+  targetRefs: z.array(modelReferenceSchema),
+  parentGoalRef: modelReferenceSchema.nullable(),
+  motivatedByRefs: z.array(modelReferenceSchema),
+  status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]),
+  ...modelTransitionEvidenceRefs,
+});
+const modelTransitionCommitmentSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  description: z.string().min(1),
+  priority: z.number().min(0).max(1),
+  subjectRefs: z.array(modelReferenceSchema),
+  status: z.enum(["active", "fulfilled", "broken", "released"]),
+  ...modelTransitionEvidenceRefs,
+});
+const modelTransitionCharacterSchema = z.strictObject({
+  persona: z.strictObject({ summary: z.string().min(1), voice: z.string(), ...modelTransitionEvidenceRefs }),
+  traits: z.array(modelTransitionFacetSchema),
+  values: z.array(modelTransitionFacetSchema),
+  emotions: z.array(modelTransitionEmotionSchema),
+  attitudes: z.array(modelTransitionAttitudeSchema),
+  goals: z.array(modelTransitionGoalSchema),
+  commitments: z.array(modelTransitionCommitmentSchema),
+});
+const modelTransitionBeliefSchema = z.strictObject({
+  localEntities: z.array(modelTransitionLocalEntitySchema),
+  claims: z.array(modelTransitionClaimSchema),
+  evidence: z.array(modelTransitionEvidenceSchema),
+});
+const modelTransitionBindingSchema = z.strictObject({
+  localEntityRef: modelReferenceSchema,
+  canonicalEntityRefs: z.array(modelReferenceSchema),
+});
 const modelTransitionAgentSchema = z.strictObject({
   proposalKey: proposalKeySchema,
   entityRef: modelReferenceSchema,
-  character: z.json(),
-  belief: z.json(),
-  bindings: z.json(),
+  character: modelTransitionCharacterSchema,
+  belief: modelTransitionBeliefSchema,
+  bindings: z.array(modelTransitionBindingSchema),
 });
 const modelWorldDeltaOperationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("create_entity"), entity: modelTransitionEntitySchema, placementRef: modelReferenceSchema.nullable(), ...modelTransitionCausalSourceShape }),
@@ -418,7 +508,7 @@ const modelWorldEventSchema = z.strictObject({
 const modelDecisionRequestSchema = z.strictObject({
   agentRef: modelReferenceSchema,
   prompt: z.string().min(1),
-  suggestions: z.array(z.string().min(1)).max(3),
+  possibleNextActions: z.array(z.string().min(1)).max(3),
 });
 export const modelTransitionProposalSchema = z.strictObject({
   outcomes: z.array(modelTransitionOutcomeSchema),
@@ -844,10 +934,13 @@ const persistedMechanicInvocationSchema = z.strictObject({
   ...causalSourceShape,
 });
 
+/** Model-facing random requests select an authored distribution from the
+ * request catalog. The engine assigns the runtime request id only after the
+ * whole round has passed semantic validation. */
 export const discreteRandomRequestProposalSchema = z.strictObject({
-  id: draftAliasSchema,
-  distributionId: safeIdSchema,
-  causes: z.array(causalRefSchema).min(1).max(16),
+  proposalKey: proposalKeySchema,
+  distributionRef: modelReferenceSchema,
+  causes: z.array(modelCausalRefSchema).min(1).max(16),
 });
 
 export type DiscreteRandomRequestProposal = z.infer<typeof discreteRandomRequestProposalSchema>;
@@ -1041,7 +1134,7 @@ export const actionGroundingSchema = z.strictObject({
 }) as z.ZodType<ActionCompilationDraft["interactionDependency"]>;
 
 export const temporalPlanDraftSchema = z.strictObject({
-  profileId: semanticIdSchema,
+  profileRef: modelReferenceSchema,
   basis: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("profile") }),
     z.strictObject({
@@ -1057,7 +1150,7 @@ export const temporalPlanDraftSchema = z.strictObject({
     }),
   ]),
   description: z.string().min(1),
-  continuationAssertions: z.array(causalAssertionSchema),
+  continuationAssertions: z.array(modelCausalAssertionSchema),
   causes: z.array(modelCausalRefSchema).min(1),
 }) as unknown as z.ZodType<ActionCompilationDraft["temporalPlan"]>;
 
@@ -1078,13 +1171,13 @@ export const actionCompilationBatchSchema = z.strictObject({
 export interface ArrivalDraft {
   title: string;
   scene: string;
-  suggestions: [string, string, string];
+  possibleNextActions: [string, string, string];
 }
 
 export const arrivalDraftSchema = z.strictObject({
   title: z.string().trim().min(1).max(120),
   scene: z.string().trim().min(1).max(4_000),
-  suggestions: z.tuple([
+  possibleNextActions: z.tuple([
     z.string().trim().min(1).max(500),
     z.string().trim().min(1).max(500),
     z.string().trim().min(1).max(500),
@@ -1101,7 +1194,7 @@ export const persistedTransitionProposalSchema = z.strictObject({
   decisionRequests: z.array(z.strictObject({
     agentId: semanticIdSchema,
     prompt: z.string().min(1),
-    suggestions: z.array(z.string().min(1)).max(3),
+    possibleNextActions: z.array(z.string().min(1)).max(3),
   })),
 }) as z.ZodType<TransitionProposal>;
 
@@ -1158,8 +1251,9 @@ export type ResolutionPlanVerification = z.infer<typeof resolutionPlanVerificati
 const causalFindingSchema = z.strictObject({
   target: z.strictObject({
     kind: z.enum(["check", "random", "operation", "mechanic", "event", "outcome", "observation"]),
-    ref: modelReferenceSchema,
+    targetHandle: modelReferenceSchema,
   }),
+  evidenceHandles: z.array(modelReferenceSchema),
   code: z.enum([
     "irrelevant-cause",
     "missing-precondition",

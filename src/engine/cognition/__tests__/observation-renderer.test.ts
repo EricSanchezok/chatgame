@@ -86,22 +86,22 @@ describe("ObservationRenderer", () => {
     expect(rendered.packets[0].summary).toBe("你仍只能依据商人的说法判断这把钥匙。");
     expect(provider.requests).toHaveLength(2);
     expect(provider.requests[1].context).toMatchObject({
-      validationIssues: [expect.stringContaining("protected information")],
+      repair: { issues: [{ reason: expect.stringContaining("protected information") }] },
     });
     const context = provider.requests[0].context as {
-      candidateTruth: { entities: Record<string, unknown>; facts: Record<string, unknown> };
-      observationSlots: Array<{ observer: Record<string, unknown> }>;
+      state: { canonicalTruth: { entities: Record<string, unknown>; facts: Record<string, unknown> } };
+      task: { observationSlots: Array<{ observer: Record<string, unknown> }> };
     };
-    expect(Object.keys(context.candidateTruth.entities)).toEqual(expect.arrayContaining([
+    expect(Object.keys(context.state.canonicalTruth.entities)).toEqual(expect.arrayContaining([
       "ref:entity:courtyard",
       "ref:entity:key",
       "ref:entity:player",
     ]));
-    expect(Object.keys(context.candidateTruth.facts)).toEqual(expect.arrayContaining([
+    expect(Object.keys(context.state.canonicalTruth.facts)).toEqual(expect.arrayContaining([
       "ref:fact:courtyard-sandy-ground",
       "ref:fact:gate-lock",
     ]));
-    expect(context.observationSlots[0]?.observer).toMatchObject({
+    expect(context.task.observationSlots[0]?.observer).toMatchObject({
       agentRef: "ref:agent:player",
       selfEntityRef: "ref:entity:player",
       placementRef: "ref:placement:player",
@@ -110,9 +110,9 @@ describe("ObservationRenderer", () => {
       ]),
       privateFacts: [],
     });
-    expect(context.observationSlots[0]?.observer).not.toHaveProperty("perspective");
-    expect(context.observationSlots[0]?.observer).not.toHaveProperty("history");
-    expect(context.observationSlots[0]?.observer).not.toHaveProperty("character");
+    expect(context.task.observationSlots[0]?.observer).not.toHaveProperty("perspective");
+    expect(context.task.observationSlots[0]?.observer).not.toHaveProperty("history");
+    expect(context.task.observationSlots[0]?.observer).not.toHaveProperty("character");
   });
 
   it("repairs and falls back one observer without replaying another observer", async () => {

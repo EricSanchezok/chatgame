@@ -11,7 +11,7 @@ The Inspector keeps the existing three-column layout: Agent/world index, executi
 
 ## Contract
 
-Inspector API v7 projects the hierarchy `Run/Advance → Attempt → Stage → Logical Invocation → Transport Attempt → Runtime Event → Artifact` from the Execution Ledger. Logical invocations, physical transport attempts, semantic rejection, repair, retry, tokens, UTF-8 byte measurements, queue/transport/parse timing, slot mappings, validation codes, event IDs, and artifact hashes remain separate facts. Public invocation IDs are normalized as `executionId::sourceInvocationId`; the original producer ID remains available as `sourceInvocationId`.
+Inspector API v8 projects the hierarchy `Run/Advance → Attempt → Stage → Logical Invocation → Transport Attempt → Runtime Event → Artifact` from the Execution Ledger. Logical invocations, physical transport attempts, semantic rejection, repair, retry, tokens, UTF-8 byte measurements, queue/transport/parse timing, slot mappings, validation codes, event IDs, and artifact hashes remain separate facts. Public invocation IDs are normalized as `executionId::sourceInvocationId`; the original producer ID remains available as `sourceInvocationId`.
 
 `GET /api/instances/:id/inspector/model-invocations` accepts execution, Agent, role, provider, model, status, duration, input-token, retry, sort, and cursor filters. The invocation detail route returns metadata and event/payload references; complete request, context, response, and structured output bodies remain lazy runtime-event artifacts and pass existing redaction.
 

@@ -30,7 +30,7 @@ export interface ParticipantArrivalRecord {
   step: number;
   title: string;
   scene: string;
-  suggestions: [string, string, string];
+  possibleNextActions: [string, string, string];
   generated: boolean;
   createdAt: string;
   executionId?: string;

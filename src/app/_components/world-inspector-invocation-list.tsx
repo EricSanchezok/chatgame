@@ -60,7 +60,7 @@ export function WorldInspectorInvocationList({
     if (!normalized) return true;
     const slots = invocation.slotRefs.flatMap((slot) => [slot.agentId, slot.actionId, slot.label]).filter(Boolean).join(" ");
     return [invocation.id, invocation.role, invocation.subjectId, invocation.providerId, invocation.modelId,
-      invocation.profileId, invocation.errorMessage, ...invocation.validationIssueCodes, ...invocation.eventIds,
+      invocation.profileId, invocation.errorMessage, ...invocation.issues.map((issue) => issue.code), ...invocation.eventIds,
       ...Object.values(invocation.artifactHashes), slots]
       .filter(Boolean).join(" ").toLocaleLowerCase().includes(normalized);
   }).sort((left, right) => {

@@ -15,6 +15,8 @@ const bundleIds = Object.keys(promptAssetManifest()) as PromptBundleId[];
 
 function sentenceCount(value: string): number {
   return value
+    // JSON paths and identifiers in inline code are not sentence endings.
+    .replace(/`[^`]*`/gu, "")
     .split(/[.!?]+/u)
     .map((part) => part.trim())
     .filter(Boolean)
@@ -74,8 +76,15 @@ describe("external prompt resources", () => {
     const context = buildTruthContext({
       definition,
       state,
-      initialActions: [actions[0]!],
-      actions: [actions[0]!],
+      workset: {
+        state,
+        mode: "full",
+        initialActions: actions,
+        availableActions: actions,
+        assignedActions: [actions[0]!],
+        availableDependencies: [],
+        assignedDependencies: [],
+      },
       reactionRequests: [],
       reactionDecisions: [],
       reactionWindow: "closed",
@@ -86,7 +95,6 @@ describe("external prompt resources", () => {
       commitmentRounds: [],
       resolutionPlans: [],
       resolutionReceipts: [],
-      groundings: [],
       temporalBoundary: {
         fromElapsedSeconds: state.truth.elapsedSeconds,
         toElapsedSeconds: state.truth.elapsedSeconds + 1,
@@ -100,29 +108,25 @@ describe("external prompt resources", () => {
       advanceId: "advance",
       issues: [],
       stage: "resolution",
-      contextMode: "full",
-      contextState: state,
-      contextInitialActions: actions,
-      contextActions: actions,
-      contextGroundings: [],
-      outputActions: [actions[0]!],
       resolutionScope: {
         mode: "repair",
         selectedActionIds: [actions[0]!.id],
         totalActionCount: actions.length,
       },
     }) as {
-      canonicalTruth: unknown;
-      task: {
-        assignedActions: Array<Record<string, unknown>>;
-        availableActions: Array<Record<string, unknown>>;
+      state: {
+        canonicalTruth: unknown;
+        actionSet: {
+          assigned: Array<Record<string, unknown>>;
+          available: Array<Record<string, unknown>>;
+        };
       };
     };
-    expect(context.canonicalTruth).not.toEqual(state.truth);
-    expect(JSON.stringify((context.canonicalTruth as { entities: unknown }).entities)).not.toContain('"id"');
-    expect(context.task.assignedActions).toHaveLength(1);
-    expect(context.task.availableActions).toHaveLength(actions.length);
-    expect(context.task.assignedActions[0]).toMatchObject({
+    expect(context.state.canonicalTruth).not.toEqual(state.truth);
+    expect(JSON.stringify((context.state.canonicalTruth as { entities: unknown }).entities)).not.toContain('"id"');
+    expect(context.state.actionSet.assigned).toHaveLength(1);
+    expect(context.state.actionSet.available).toHaveLength(actions.length);
+    expect(context.state.actionSet.assigned[0]).toMatchObject({
       actionRef: "ref:action:context-action-0",
       actorRef: expect.stringMatching(/^ref:agent:/u),
       rawText: "action-0",

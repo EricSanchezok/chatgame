@@ -861,8 +861,8 @@ function ModelInvocationDetailPanel({
           : <p className="cg-inspector-inline-empty">没有可解析的上下文分段。</p>}
         <JsonBlock label="查看 slot 映射原始 JSON" value={invocation.slotRefs} />
       </DetailSection>
-      {invocation.validationIssueCodes.length > 0 && <DetailSection count={`${invocation.validationIssueCodes.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
-        <ul className="cg-inspector-observation-list">{invocation.validationIssueCodes.map((code) => <li key={code}>{code}</li>)}</ul>
+      {invocation.issues.length > 0 && <DetailSection count={`${invocation.issues.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
+        <ul className="cg-inspector-observation-list">{invocation.issues.map((issue) => <li key={`${issue.code}:${issue.path.join(".")}`}>{issue.code} · {issue.message}</li>)}</ul>
         {invocation.errorMessage && <p className="cg-model-invocation__error">{invocation.errorMessage}</p>}
       </DetailSection>}
       <div className="cg-inspector-invocation-payloads">

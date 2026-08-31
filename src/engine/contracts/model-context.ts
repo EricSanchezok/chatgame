@@ -60,12 +60,14 @@ export type ModelReferenceKind =
   | "event"
   | "check"
   | "random"
+  | "random_distribution"
   | "rating"
   | "meter"
   | "quantity"
   | "placement"
   | "condition"
   | "activity"
+  | "temporal_profile"
   | "timer"
   | "law"
   | "mechanic"
@@ -88,7 +90,9 @@ export type ModelReferenceUse =
   | "mechanic"
   | "source"
   | "stimulus"
-  | "replacement";
+  | "replacement"
+  | "distribution"
+  | "profile";
 
 export interface ModelReferenceCandidate {
   handle: ExistingReferenceHandle;
@@ -146,6 +150,15 @@ export function modelRoleContract(role: string): ModelRoleContract {
       proposalRule: "replacement actions do not create canonical objects",
       failureRule: "return a targeted reference issue instead of guessing",
     },
+    "action-compilation": {
+      role,
+      purpose: "choose an authored temporal profile and describe the existing state footprint for each assigned action",
+      modelOwns: ["temporal profile selection", "semantic dependency and resource evidence"],
+      engineOwns: ["slot identity", "action identity", "canonical IDs", "state changes", "final conflict validation"],
+      existingReferenceRule: "select only existing action, actor, entity, resource-pool, and temporal-profile handles from this slot catalog",
+      proposalRule: "action compilation does not create canonical records; do not use proposalKey",
+      failureRule: "leave uncertain handles out and report the exact slot issue for targeted repair",
+    },
   };
   return contracts[role] ?? {
     role,
@@ -170,6 +183,20 @@ export interface ModelTask {
   constraints: readonly string[];
 }
 
+/** The single workset handed to a model role.  It is intentionally named by
+ * semantic responsibility rather than transport/history implementation
+ * details, so a prompt cannot accidentally confuse the complete state with
+ * the subset it is allowed to change. */
+export interface ModelWorkset<TState = unknown, TAction = unknown, TDependency = unknown> {
+  state: TState;
+  mode?: "scoped" | "full";
+  initialActions: readonly TAction[];
+  availableActions: readonly TAction[];
+  assignedActions: readonly TAction[];
+  availableDependencies: readonly TDependency[];
+  assignedDependencies: readonly TDependency[];
+}
+
 export interface ModelRepairIssue {
   code: string;
   class: "structure" | "reference" | "mechanic" | "privacy" | "causal" | "semantic";
@@ -177,6 +204,15 @@ export interface ModelRepairIssue {
   originalValue: unknown;
   allowedHandles: readonly ExistingReferenceHandle[];
   reason: string;
+}
+
+export interface ModelNormalizationResult<T> {
+  value: T;
+  issues: ModelRepairIssue[];
+  modifiedFieldCount: number;
+  resolvedReferenceCount: number;
+  proposalCount: number;
+  deduplicatedCount: number;
 }
 
 export interface ModelContextEnvelope<TState = unknown> {
@@ -244,12 +280,14 @@ function handleDigest(value: string): string {
 }
 
 export function referenceHandleFor(kind: ModelReferenceKind, engineId: string): ExistingReferenceHandle {
+  // Test fixtures and materializers may already carry a request-local handle;
+  // keep it stable instead of wrapping it as a second reference layer.
+  if (engineId.startsWith("ref:")) return engineId as ExistingReferenceHandle;
   const seed = normalizeHandleSeed(`${kind}:${engineId}`);
   /* Runtime IDs are intentionally long for audit integrity but are noise in a
    * prompt. Keep a readable prefix plus a deterministic digest in model
-   * handles; action handles stay verbatim because scripted fixtures use them
-   * to identify the assigned attempt. */
-  if (kind !== "action" && seed.length > 56) {
+   * handles for every kind, including actions. */
+  if (seed.length > 56) {
     const prefix = seed.slice(0, 28).replace(/[:-]+$/u, "");
     return `ref:${prefix}-${handleDigest(`${kind}:${engineId}`)}` as ExistingReferenceHandle;
   }
@@ -372,6 +410,176 @@ export class ModelReferenceError extends Error {
     this.originalValue = input.originalValue;
     this.allowedHandles = [...input.allowedHandles];
   }
+}
+
+function isReferenceField(key: string): boolean {
+  return key === "ref" || key.endsWith("Ref") || key.endsWith("Refs") || key === "evidenceHandles";
+}
+
+/** Validate every model-facing reference in a parsed value against the
+ * request-local catalog.  This is deliberately exact: there is no fuzzy
+ * matching, global fallback, dropping, or conversion of an unknown handle to
+ * a new object. */
+export function resolveModelReferences<T>(value: T, resolver: ReferenceResolver): ModelRepairIssue[] {
+  const issues: ModelRepairIssue[] = [];
+  const visit = (current: unknown, path: Array<string | number>): void => {
+    if (Array.isArray(current)) {
+      current.forEach((item, index) => visit(item, [...path, index]));
+      return;
+    }
+    if (!current || typeof current !== "object") return;
+    for (const [key, child] of Object.entries(current as Record<string, unknown>)) {
+      const childPath = [...path, key];
+      if (isReferenceField(key)) {
+        const values = Array.isArray(child) ? child : [child];
+        values.forEach((reference, index) => {
+          if (reference === null) return;
+          // Structured references such as `{ kind, ref }` are traversed
+          // below; the nested `ref` field is the value that must be resolved.
+          // Treating the wrapper as a direct handle produces a misleading
+          // invalid-shape issue for every causes/sourceRefs array.
+          if (typeof reference === "object" && reference !== null && "ref" in reference && !("proposalKey" in reference)) return;
+          if (typeof reference === "object" && reference !== null && "proposalKey" in reference) {
+            try { proposalKeySchema.parse((reference as { proposalKey: unknown }).proposalKey); }
+            catch (error) {
+              issues.push({ code: "proposal.invalid", class: "reference", path: [...childPath, ...(Array.isArray(child) ? [index] : [])], originalValue: reference, allowedHandles: [], reason: error instanceof Error ? error.message : String(error) });
+            }
+            return;
+          }
+          if (typeof reference !== "string") {
+            issues.push({ code: "reference.invalid_shape", class: "reference", path: [...childPath, ...(Array.isArray(child) ? [index] : [])], originalValue: reference, allowedHandles: resolver.catalog.candidates.map((candidate) => candidate.handle), reason: "Existing references must be exact catalog handles or proposal references." });
+            return;
+          }
+          try { resolver.resolve(reference); }
+          catch (error) {
+            if (error instanceof ModelReferenceError) issues.push(modelRepairIssueFromReferenceError(error, [...childPath, ...(Array.isArray(child) ? [index] : [])]));
+            else issues.push({ code: "reference.invalid", class: "reference", path: childPath, originalValue: reference, allowedHandles: [], reason: error instanceof Error ? error.message : String(error) });
+          }
+        });
+      }
+      visit(child, childPath);
+    }
+  };
+  visit(value, []);
+  return issues;
+}
+
+/** Apply only deterministic, semantics-preserving repairs.  The function is
+ * intentionally generic so every model role records the same repair counts;
+ * role-specific materializers still own domain validation and id assignment. */
+export function normalizeModelOutput<T>(value: T, options: {
+  resolver?: ReferenceResolver;
+  dedupeArrays?: boolean;
+} = {}): ModelNormalizationResult<T> {
+  let modifiedFieldCount = 0;
+  let deduplicatedCount = 0;
+  let proposalCount = 0;
+  const proposalPaths = new Map<string, Array<string | number>>();
+  const proposalIssues: ModelRepairIssue[] = [];
+  const normalize = (current: unknown, path: Array<string | number>): unknown => {
+    if (Array.isArray(current)) {
+      const normalized = current.map((item, index) => normalize(item, [...path, index]));
+      const arrayKey = path.at(-1);
+      const canDedupe = options.dedupeArrays === true && typeof arrayKey === "string" &&
+        (arrayKey.endsWith("Refs") || arrayKey.endsWith("Handles"));
+      if (canDedupe) {
+        const seen = new Set<string>();
+        const unique = normalized.filter((item) => {
+          const key = JSON.stringify(item);
+          if (seen.has(key)) { deduplicatedCount += 1; return false; }
+          seen.add(key); return true;
+        });
+        return unique;
+      }
+      return normalized;
+    }
+    if (!current || typeof current !== "object") return current;
+    const output: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(current as Record<string, unknown>)) {
+      // `{ proposalKey }` is a reference when it is the complete object (for
+      // example an effect's derived conditionRef), not a declaration. Only a
+      // record carrying additional fields declares a new object. Treating
+      // both shapes as declarations made every internal proposal reference
+      // look like a duplicate declaration during normalization.
+      const isProposalReferenceObject = key === "proposalKey" &&
+        typeof child === "string" && Object.keys(current as Record<string, unknown>).length === 1;
+      if (key === "proposalKey" && typeof child === "string" && !isProposalReferenceObject) {
+        const normalizedKey = child.normalize("NFC").trim();
+        if (normalizedKey !== child) modifiedFieldCount += 1;
+        proposalCount += 1;
+        const existingPath = proposalPaths.get(normalizedKey);
+        if (existingPath) {
+          proposalIssues.push({
+            code: "proposal.duplicate",
+            class: "reference",
+            path: [...path, key],
+            originalValue: child,
+            allowedHandles: [],
+            reason: `proposalKey ${normalizedKey} is already declared at ${JSON.stringify(existingPath)}.`,
+          });
+        } else {
+          proposalPaths.set(normalizedKey, [...path, key]);
+        }
+        output[key] = normalizedKey;
+      } else {
+        output[key] = normalize(child, [...path, key]);
+      }
+    }
+    return output;
+  };
+  const normalized = normalize(value, []) as T;
+  const validateProposalReferences = (current: unknown, path: Array<string | number>): void => {
+    if (Array.isArray(current)) {
+      current.forEach((item, index) => validateProposalReferences(item, [...path, index]));
+      return;
+    }
+    if (!current || typeof current !== "object") return;
+    const record = current as Record<string, unknown>;
+    if (Object.keys(record).length === 1 && typeof record.proposalKey === "string" &&
+      !proposalPaths.has(record.proposalKey)) {
+      proposalIssues.push({
+        code: "proposal.unknown_reference",
+        class: "reference",
+        path,
+        originalValue: structuredClone(record),
+        allowedHandles: [],
+        reason: `proposalKey ${record.proposalKey} is not declared by this output.`,
+      });
+    }
+    Object.entries(record).forEach(([key, child]) =>
+      validateProposalReferences(child, [...path, key]));
+  };
+  validateProposalReferences(normalized, []);
+  const issues = [
+    ...proposalIssues,
+    ...(options.resolver ? resolveModelReferences(normalized, options.resolver) : []),
+  ];
+  return {
+    value: normalized,
+    issues,
+    modifiedFieldCount,
+    resolvedReferenceCount: options.resolver ? countResolvedReferences(normalized, options.resolver) : 0,
+    proposalCount,
+    deduplicatedCount,
+  };
+}
+
+function countResolvedReferences(value: unknown, resolver: ReferenceResolver): number {
+  let count = 0;
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) { current.forEach(visit); return; }
+    if (!current || typeof current !== "object") return;
+    for (const [key, child] of Object.entries(current as Record<string, unknown>)) {
+      if (isReferenceField(key)) {
+        for (const reference of Array.isArray(child) ? child : [child]) {
+          if (typeof reference === "string") { try { resolver.resolve(reference); count += 1; } catch { /* issues carry the reason */ } }
+        }
+      }
+      visit(child);
+    }
+  };
+  visit(value);
+  return count;
 }
 
 export function proposalKey(value: string): ProposalKey {

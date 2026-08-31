@@ -17,7 +17,7 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 | Benchmarks | `src/engine/benchmarks/` | Benchmark-only code and evidence generators kept off the product execution path |
 | Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v19, pinned configured `AlgorithmRef`, persistent WorldRuns, Participants, decision/reaction windows, Preparation v3 artifacts, leases, recovery, and generation fencing |
 | Execution evidence | `src/server/execution-ledger.ts` | The sole persisted source for executions, events, artifacts, experiments, replay, and Inspector data |
-| HTTP and browser | `src/app/` | API v12, world library, assistant-ui sessions, decision/reaction controls, unified Agent Perspective HUD, control orb, and read-only Inspector v6 |
+| HTTP and browser | `src/app/` | API v12, world library, assistant-ui sessions, decision/reaction controls, unified Agent Perspective HUD, control orb, and read-only Inspector v8 |
 | Shared browser contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |
 
 Dependencies flow browser → Route Handler → WorldHost → SimulationEngine → WorldExecutionAlgorithm → CanonicalCommitter. WorldHost resolves the instance-pinned algorithm through the internal registry, and replay resolves the recorded producer through the same mechanism. An algorithm returns candidates but never holds authority to mutate canonical state or define stable telemetry. The engine and world YAML load only on the server.
@@ -30,7 +30,7 @@ Dependencies flow browser → Route Handler → WorldHost → SimulationEngine �
 
 Models produce semantic drafts only. Agent, Entity, Fact, Meter, Rating, Condition, and subject-private cognition records use world semantic IDs. The engine deterministically assigns runtime identities for actions, Resolution Plans and Receipts, TemporalPlans, Activities, shared-resource pools, checks, random draws, mechanics, events, outcomes, observations, and apparent claims. It materializes revisions, steps, phases, lifecycle, progress, clock deltas, provenance, Profiles, and timestamps.
 
-## `eager-reference@8`
+## `eager-reference@9`
 
 The reference algorithm deliberately spends complete work to provide a precise semantic baseline:
 

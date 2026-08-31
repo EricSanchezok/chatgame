@@ -445,7 +445,7 @@ describe("model catalog and provider adapters", () => {
     expect(invocation).toMatchObject({
       id: "invocation-1",
       ordinal: 1,
-      semanticOutcome: "accepted",
+      outputDisposition: "accepted",
       tokenUsage: { input: 13, output: 8, reasoning: 3, cacheRead: 2 },
     });
     expect(invocation.context.utf8Bytes).toBe(Buffer.byteLength(

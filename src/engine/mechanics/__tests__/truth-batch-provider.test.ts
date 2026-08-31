@@ -53,15 +53,15 @@ describe("TruthBatchCoordinator", () => {
       batched.generateStructured(
         request("component-a", {
           contractVersion: 13,
-          canonicalTruth: { entities: { a: 1 } },
-          task: { assignedActions: [{ actionRef: "a" }] },
+          state: { canonicalTruth: { entities: { a: 1 } }, actionSet: { assigned: [{ actionRef: "a" }] } },
+          task: { assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] }, constraints: [] },
         }),
       ),
       batched.generateStructured(
         request("component-b", {
           contractVersion: 13,
-          canonicalTruth: { entities: { a: 1 } },
-          task: { assignedActions: [{ actionRef: "b" }] },
+          state: { canonicalTruth: { entities: { a: 1 } }, actionSet: { assigned: [{ actionRef: "b" }] } },
+          task: { assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] }, constraints: [] },
         }),
       ),
     ]);
@@ -75,12 +75,10 @@ describe("TruthBatchCoordinator", () => {
       sharedContext: Record<string, unknown>;
       slots: Array<{ slot: number; context: Record<string, unknown> }>;
     };
-    expect(envelope.sharedContext.canonicalTruth).toEqual({
-      entities: { a: 1 },
-    });
-    expect(envelope.slots.map((slot) => slot.context.task)).toEqual([
-      { assignedActions: [{ actionRef: "a" }] },
-      { assignedActions: [{ actionRef: "b" }] },
+    expect(envelope.slots.every((slot) => (slot.context.state as { canonicalTruth: unknown }).canonicalTruth)).toBe(true);
+    expect(envelope.slots.map((slot) => (slot.context.state as { actionSet: unknown }).actionSet)).toEqual([
+      { assigned: [{ actionRef: "a" }] },
+      { assigned: [{ actionRef: "b" }] },
     ]);
   });
 

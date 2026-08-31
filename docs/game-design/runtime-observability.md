@@ -16,7 +16,7 @@ execution kind 只有 `interactive | diagnostic | benchmark | replay`。Benchmar
 
 ## 执行边界
 
-Execution Contract v5 的 `WorldExecutionAlgorithm` 生成 `BootstrapCandidate`，并用 `prepareStep` / `completeStep` 生成 Preparation v3 与 Candidate v4。每个 World Instance 固定一个包含 ID、版本、contract version、opaque config 与 manifest hash 的 `AlgorithmRef`；生产与 replay 都经校验 registry 从该配置构造独立算法实例。`CanonicalCommitter` 独立验证四类 interaction dependency、共享资源 claims/admissions/holder release/FIFO promotion、最早边界、ActivityDisposition、assertion evidence、引用、受众、单份 model audits 与 mind commits，并从 resolution 统一派生 Observation。唯一内置算法 `eager-reference@8` 在边界选择前完成有限 onset reaction 和资源准入，再以固定 Truth slot batches 进行正时间原子提交。
+Execution Contract v5 的 `WorldExecutionAlgorithm` 生成 `BootstrapCandidate`，并用 `prepareStep` / `completeStep` 生成 Preparation v3 与 Candidate v4。每个 World Instance 固定一个包含 ID、版本、contract version、opaque config 与 manifest hash 的 `AlgorithmRef`；生产与 replay 都经校验 registry 从该配置构造独立算法实例。`CanonicalCommitter` 独立验证四类 interaction dependency、共享资源 claims/admissions/holder release/FIFO promotion、最早边界、ActivityDisposition、assertion evidence、引用、受众、单份 model audits 与 mind commits，并从 resolution 统一派生 Observation。唯一内置算法 `eager-reference@9` 在边界选择前完成有限 onset reaction 和资源准入，再以固定 Truth slot batches 进行正时间原子提交。
 
 WorldHost 为 bootstrap、每个 WorldRun 时间边界和 Arrival 建立 execution。成功世界推进时，World Instance CAS、WorldRun revision 列表与 execution terminal record 在同一 SQLite 事务内完成；失败、取消、暂停、repair 耗尽、迟到结果或关键记录失败均不推进 revision。World Instance document schema 为 v19，旧实例不迁移；修改 host 默认算法或默认调优参数不会改变已存在实例。
 
@@ -34,7 +34,7 @@ Runtime event schema v2 的稳定语义归引擎所有。算法只能通过窄�
 
 ## Inspector
 
-Inspector 服务端按 World Instance 查询 Ledger，并按需解压 artifact；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v6 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
+Inspector 服务端按 World Instance 查询 Ledger，并按需解压 artifact；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v8 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
 
 v6 还提供 `GET /api/instances/:id/inspector/model-invocations` 与单条调用详情路由。调用投影区分 logical invocation、transport attempt、semantic rejection、repair 和 retry，并公开单次 token、request/context/response 字节数、queue/transport/parse 时间、slot/Agent 映射、validation code、runtime event ID 与 artifact hash。调用清单支持显式排序和阈值查询；完整 payload 继续通过 runtime-event artifact 按需读取，不进入窗口摘要。
 

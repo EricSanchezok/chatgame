@@ -949,9 +949,9 @@ export function validateModelAudit(
   if (!modelRoles.includes(audit.role) || !audit.subjectId.trim() || !audit.profileId.trim() ||
     !audit.accountId.trim() || !modelAccountChannels.includes(audit.accountChannel) ||
     !modelProtocols.includes(audit.protocol) || !audit.dialect.trim() ||
-    !audit.providerId.trim() || !audit.modelId.trim() || audit.catalogSchemaVersion !== 3 ||
+    !audit.providerId.trim() || !audit.modelId.trim() || audit.modelCatalogSchemaVersion !== 3 ||
     !isSha256(audit.registrySnapshotHash) || !isSha256(audit.modelMetadataHash) ||
-    !isSha256(audit.catalogHash) || !audit.promptVersion.trim() ||
+    !isSha256(audit.modelCatalogHash) || !audit.promptVersion.trim() ||
     !["json-schema-strict", "json-object-zod", "tool-call-zod", "deterministic-test"]
       .includes(audit.structuredOutputMode)) throw new Error(`${label} has invalid model identity`);
   modelSelectorSchema.parse(audit.selector);

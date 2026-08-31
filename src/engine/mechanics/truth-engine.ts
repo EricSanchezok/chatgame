@@ -43,8 +43,6 @@ import type {
   TransitionProposal,
   WorldDeltaOperation,
   WorldDeltaOperationDraft,
-  AgentBeliefStateDraft,
-  AgentCharacterStateDraft,
 } from "../contracts/model";
 import {
   deriveCheck,
@@ -83,6 +81,7 @@ import {
   type ResolutionScope,
   type PromptValidationIssue,
 } from "../contracts/prompts";
+import { createReferenceResolver, normalizeModelOutput } from "../contracts/model-context";
 import { promptBundle, type PromptBundleId } from "../prompts";
 import {
   resolveD20Checks,
@@ -142,10 +141,12 @@ export interface TruthResolutionInput {
    * component cannot mutate another component's state while still seeing the
    * full semantic picture required for an exact adjudication.
    */
-  contextState?: SimulationState;
-  contextInitialActions?: readonly AgentActionProposal[];
-  contextActions?: readonly AgentActionProposal[];
-  contextGroundings?: readonly InteractionDependency[];
+  modelWorkset?: {
+    state: SimulationState;
+    initialActions: readonly AgentActionProposal[];
+    availableActions: readonly AgentActionProposal[];
+    availableDependencies: readonly InteractionDependency[];
+  };
   resolutionScope?: ResolutionScope;
   enableReactionRouting?: boolean;
   resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
@@ -349,14 +350,66 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
           context,
           schema: input.schema,
         });
-        const value = generated.value as { kind?: unknown; verdict?: unknown };
+        const contextCatalog = context && typeof context === "object" && !Array.isArray(context)
+          ? (context as { referenceCatalog?: { candidates?: readonly { handle: string; kind: import("../contracts/model-context").ModelReferenceKind; label: string; meaning: string; allowedUses: readonly import("../contracts/model-context").ModelReferenceUse[]; visibility: "public" | "role" | "slot" }[] } }).referenceCatalog
+          : undefined;
+        const referenceResolver = contextCatalog
+          ? createReferenceResolver((contextCatalog.candidates ?? []).map((candidate) => ({ ...candidate, engineId: candidate.handle })))
+          : undefined;
+        const normalized = normalizeModelOutput(generated.value, { resolver: referenceResolver, dedupeArrays: true });
+        const invocationAudit = generated.audit.invocations.at(-1);
+        if (invocationAudit) {
+          invocationAudit.rawOutputHash = contentHash(generated.value);
+          invocationAudit.normalizedOutputHash = contentHash(normalized.value);
+          invocationAudit.normalization = {
+            applied: normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0,
+            modifiedFieldCount: normalized.modifiedFieldCount,
+            resolvedReferenceCount: normalized.resolvedReferenceCount,
+            proposalCount: normalized.proposalCount,
+            deduplicatedCount: normalized.deduplicatedCount,
+          };
+          if (normalized.issues.length > 0) {
+            invocationAudit.outputDisposition = "rejected";
+            invocationAudit.issues = normalized.issues.map((issue) => ({
+              code: issue.code,
+              class: issue.class,
+              path: issue.path,
+              message: issue.reason,
+              originalValue: issue.originalValue,
+              allowedHandles: [...issue.allowedHandles],
+            }));
+            throw new ModelOutputError(
+              `model output contains unresolved semantic references: ${normalized.issues.map((issue) => `${issue.code} at ${issue.path.join(".") || "$"}`).join("; ")}`,
+              generated.audit,
+              {
+              rawValue: generated.value,
+              },
+            );
+          }
+          observe?.({
+            event: "model.output.normalized",
+            correlation,
+            attributes: { applied: invocationAudit.normalization.applied },
+            counts: {
+              modifiedFields: normalized.modifiedFieldCount,
+              resolvedReferences: normalized.resolvedReferenceCount,
+              proposals: normalized.proposalCount,
+              deduplicated: normalized.deduplicatedCount,
+            },
+            hashes: {
+              rawOutput: invocationAudit.rawOutputHash,
+              normalizedOutput: invocationAudit.normalizedOutputHash,
+            },
+          });
+        }
+        const value = normalized.value as { kind?: unknown; verdict?: unknown };
         const resultKind = typeof value.kind === "string"
           ? `${input.role}_${value.kind}`
           : typeof value.verdict === "string"
             ? `${input.role}_${value.verdict}`
             : input.role;
         setModelInvocationResultKind(generated.audit, resultKind);
-        return generated;
+        return { ...generated, value: normalized.value as T };
       },
       validate: (value) => input.validate?.(value),
       classify: (error) => validationIssues(error).map((issue) => semanticIssue(
@@ -382,7 +435,7 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
       },
     });
     const acceptedInvocation = result.audit.invocations.at(-1);
-    if (acceptedInvocation) setModelInvocationOutcome(result.audit, "accepted");
+    if (acceptedInvocation) setModelInvocationOutcome(result.audit, result.repairs > 0 ? "llm-repaired" : "accepted");
     observe?.({
       event: "model.semantic.accepted",
       correlation: modelInvocationCorrelation(input.scope, input.role, input.subjectId, {
@@ -535,8 +588,14 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
       buildContext: (issues) => buildTruthContext({
         definition: input.definition,
         state: input.state,
-        initialActions: input.actions,
-        actions: input.actions,
+        workset: {
+          state: input.state,
+          initialActions: input.actions,
+          availableActions: input.actions,
+          assignedActions: input.actions,
+          availableDependencies: input.groundings,
+          assignedDependencies: input.groundings,
+        },
         reactionRequests: [],
         reactionDecisions: [],
         reactionWindow: "open",
@@ -547,7 +606,6 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
         commitmentRounds,
         resolutionPlans: [],
         resolutionReceipts: [],
-        groundings: input.groundings,
         temporalBoundary: input.temporalBoundary,
         instanceId: input.scope.workloadId,
         advanceId: input.scope.batchId,
@@ -1398,14 +1456,22 @@ function materializeCausalVerification(
       })),
     ] satisfies ReferenceCandidateInput[],
   });
+  for (const finding of input.report.findings) {
+    for (const evidenceHandle of finding.evidenceHandles) {
+      if (isProposalReference(evidenceHandle)) {
+        throw new Error(`causal verifier evidence cannot target proposal ${evidenceHandle.proposalKey}`);
+      }
+      resolver.resolve(evidenceHandle, "assertion");
+    }
+  }
   return {
     verdict: "reject",
     findings: input.report.findings.map((finding) => ({
       target: {
         kind: finding.target.kind,
-        id: isProposalReference(finding.target.ref)
-          ? (() => { throw new Error(`causal verifier cannot target proposal ${finding.target.ref.proposalKey}`); })()
-          : resolver.resolve(finding.target.ref).engineId,
+        id: isProposalReference(finding.target.targetHandle)
+          ? (() => { throw new Error(`causal verifier cannot target proposal ${finding.target.targetHandle.proposalKey}`); })()
+          : resolver.resolve(finding.target.targetHandle, "target").engineId,
       },
       code: finding.code,
       message: finding.message,
@@ -1538,7 +1604,12 @@ function materializeTransitionProposal(
       case "placement_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "entity") };
       case "shared_placement": return { kind: assertion.kind, leftEntityId: resolveReference(assertion.leftEntityRef, "assertion", "entity"), rightEntityId: resolveReference(assertion.rightEntityRef, "assertion", "entity") };
       case "meter_compare": return { kind: assertion.kind, meterId: resolveReference(assertion.meterRef, "assertion", "meter"), operator: assertion.operator, value: assertion.value };
-      case "quantity_compare": return { kind: assertion.kind, definitionId: resolveReference(assertion.definitionRef, "assertion", "quantity"), holderId: resolveReference(assertion.holderRef, "assertion", "entity"), operator: assertion.operator, value: assertion.value };
+      case "quantity_compare": {
+        const quantityId = resolveReference(assertion.quantityRef, "assertion", "quantity");
+        const quantity = state.truth.quantities[quantityId];
+        if (!quantity) throw new Error(`quantity assertion references unknown quantity ${quantityId}`);
+        return { kind: assertion.kind, definitionId: quantity.definitionId, holderId: quantity.holderId, operator: assertion.operator, value: assertion.value };
+      }
       case "rating_compare": return { kind: assertion.kind, ratingId: resolveReference(assertion.ratingRef, "assertion", "rating"), operator: assertion.operator, value: assertion.value };
       case "shared_resource_capacity_compare": return { kind: assertion.kind, poolId: resolveReference(assertion.poolRef, "assertion", "shared_resource_pool"), operator: assertion.operator, value: assertion.value };
       case "elapsed_seconds_compare": return structuredClone(assertion);
@@ -1576,6 +1647,7 @@ function materializeTransitionProposal(
     }));
   };
   const materializeOperation = (operation: ModelTransitionProposalDraft["operations"][number]): WorldDeltaOperationDraft => {
+    const nextStep = state.step + 1;
     const causal = {
       causes: operation.causes.map(rewriteModelCause),
       assertions: operation.assertions.map(rewriteAssertion),
@@ -1609,7 +1681,9 @@ function materializeTransitionProposal(
             id: factAliases.get(operation.fact.proposalKey)!,
             subjectId: resolveReference(operation.fact.subjectRef, "subject", "entity"),
             predicate: operation.fact.predicate,
-            value: materializeModelFactValue(operation.fact.value, resolver),
+            value: operation.fact.value.kind === "entity" && isProposalReference(operation.fact.value.entityRef)
+              ? { kind: "entity" as const, entityId: resolveReference(operation.fact.value.entityRef, "assertion", "entity") }
+              : materializeModelFactValue(operation.fact.value, resolver),
             description: operation.fact.description,
             access: materializeModelAccess(operation.fact.access, resolver),
           },
@@ -1617,23 +1691,56 @@ function materializeTransitionProposal(
         };
       case "create_agent": {
         const agentValue = operation.agent;
-        if (!agentValue || typeof agentValue !== "object") throw new Error("create_agent requires structured agent state");
-        const agent = structuredClone(agentValue) as unknown as Record<string, unknown>;
-        const { proposalKey: _proposalKey, entityRef: _entityRef, ...agentState } = agent;
-        void _proposalKey;
-        void _entityRef;
-        const character = structuredClone(agent.character) as AgentCharacterStateDraft;
-        const belief = structuredClone(agent.belief) as AgentBeliefStateDraft;
-        const bindings = Object.fromEntries(Object.entries(
-          structuredClone(agent.bindings) as Record<string, { localEntityId: string; canonicalEntityIds: string[] }>,
-        ).map(([key, binding]) => [key, {
-          ...binding,
-          canonicalEntityIds: binding.canonicalEntityIds.map((entityId) => entityAliases.get(entityId) ?? entityId),
-        }]));
+        const recordId = (kind: string, key: string): string =>
+          `${kind}-${contentHash({ worldHash: state.worldHash, revision: state.revision, agent: operation.agent.proposalKey, key }).slice(0, 32)}`;
+        const localEntityAliases = new Map(agentValue.belief.localEntities.map((entity) => [entity.proposalKey, recordId("local", entity.proposalKey)]));
+        const evidenceAliases = new Map(agentValue.belief.evidence.map((evidence) => [evidence.proposalKey, recordId("evidence", evidence.proposalKey)]));
+        const facetAliases = new Map<string, string>();
+        const addFacetAliases = (kind: string, records: readonly { proposalKey: string }[]) =>
+          records.forEach((record) => facetAliases.set(`${kind}:${record.proposalKey}`, recordId(kind, record.proposalKey)));
+        addFacetAliases("trait", agentValue.character.traits);
+        addFacetAliases("value", agentValue.character.values);
+        addFacetAliases("emotion", agentValue.character.emotions);
+        addFacetAliases("attitude", agentValue.character.attitudes);
+        const goalAliases = new Map(agentValue.character.goals.map((goal) => [goal.proposalKey, recordId("goal", goal.proposalKey)]));
+        const commitmentAliases = new Map(agentValue.character.commitments.map((commitment) => [commitment.proposalKey, recordId("commitment", commitment.proposalKey)]));
+        const resolveReference = (reference: ModelReference, use: Parameters<ReferenceResolver["resolve"]>[1], expectedKind?: string): string => {
+          if (isProposalReference(reference)) {
+            const id = localEntityAliases.get(reference.proposalKey) ?? evidenceAliases.get(reference.proposalKey) ??
+              facetAliases.get(`trait:${reference.proposalKey}`) ?? facetAliases.get(`value:${reference.proposalKey}`) ??
+              facetAliases.get(`emotion:${reference.proposalKey}`) ?? facetAliases.get(`attitude:${reference.proposalKey}`) ??
+              goalAliases.get(reference.proposalKey) ?? commitmentAliases.get(reference.proposalKey) ??
+              entityAliases.get(reference.proposalKey);
+            if (!id) throw new Error(`unknown create_agent proposalKey ${reference.proposalKey}`);
+            return id;
+          }
+          const resolved = resolver.resolve(reference, use);
+          if (expectedKind && resolved.kind !== expectedKind) throw new Error(`expected ${expectedKind} reference, got ${resolved.kind}`);
+          return resolved.engineId;
+        };
+        const evidenceIds = (refs: readonly ModelReference[]) => refs.map((reference) => resolveReference(reference, "evidence", "evidence"));
+        const localId = (reference: ModelReference) => resolveReference(reference, "subject", "local_entity");
+        const character = {
+          persona: { summary: agentValue.character.persona.summary, voice: agentValue.character.persona.voice, evidenceIds: evidenceIds(agentValue.character.persona.evidenceRefs) },
+          traits: Object.fromEntries(agentValue.character.traits.map((facet) => [facetAliases.get(`trait:${facet.proposalKey}`)!, { id: facetAliases.get(`trait:${facet.proposalKey}`)!, description: facet.description, strength: facet.strength, status: facet.status, createdAtStep: nextStep, updatedAtStep: nextStep, evidenceIds: evidenceIds(facet.evidenceRefs) }])),
+          values: Object.fromEntries(agentValue.character.values.map((facet) => [facetAliases.get(`value:${facet.proposalKey}`)!, { id: facetAliases.get(`value:${facet.proposalKey}`)!, description: facet.description, strength: facet.strength, status: facet.status, createdAtStep: nextStep, updatedAtStep: nextStep, evidenceIds: evidenceIds(facet.evidenceRefs) }])),
+          emotions: Object.fromEntries(agentValue.character.emotions.map((emotion) => [facetAliases.get(`emotion:${emotion.proposalKey}`)!, { id: facetAliases.get(`emotion:${emotion.proposalKey}`)!, description: emotion.description, intensity: emotion.intensity, status: emotion.status, createdAtStep: nextStep, updatedAtStep: nextStep, evidenceIds: evidenceIds(emotion.evidenceRefs) }])),
+          attitudes: Object.fromEntries(agentValue.character.attitudes.map((attitude) => [facetAliases.get(`attitude:${attitude.proposalKey}`)!, { id: facetAliases.get(`attitude:${attitude.proposalKey}`)!, subjectId: localId(attitude.subjectRef), description: attitude.description, intensity: attitude.intensity, status: attitude.status, createdAtStep: nextStep, updatedAtStep: nextStep, evidenceIds: evidenceIds(attitude.evidenceRefs) }])),
+          goals: Object.fromEntries(agentValue.character.goals.map((goal) => [goalAliases.get(goal.proposalKey)!, { id: goalAliases.get(goal.proposalKey)!, description: goal.description, priority: goal.priority, progress: goal.progress, targetIds: goal.targetRefs.map(localId), parentGoalId: goal.parentGoalRef === null ? undefined : resolveReference(goal.parentGoalRef, "source", "goal"), motivatedByIds: goal.motivatedByRefs.map((reference) => resolveReference(reference, "source")), status: goal.status, createdAtStep: nextStep, updatedAtStep: nextStep, evidenceIds: evidenceIds(goal.evidenceRefs) }])),
+          commitments: Object.fromEntries(agentValue.character.commitments.map((commitment) => [commitmentAliases.get(commitment.proposalKey)!, { id: commitmentAliases.get(commitment.proposalKey)!, description: commitment.description, priority: commitment.priority, subjectIds: commitment.subjectRefs.map(localId), status: commitment.status, createdAtStep: nextStep, updatedAtStep: nextStep, evidenceIds: evidenceIds(commitment.evidenceRefs) }])),
+        };
+        const belief = {
+          localEntities: Object.fromEntries(agentValue.belief.localEntities.map((entity) => [localEntityAliases.get(entity.proposalKey)!, { id: localEntityAliases.get(entity.proposalKey)!, name: entity.name, description: entity.description, status: entity.status }])),
+          evidence: Object.fromEntries(agentValue.belief.evidence.map((evidence) => [evidenceAliases.get(evidence.proposalKey)!, { id: evidenceAliases.get(evidence.proposalKey)!, kind: evidence.kind, description: evidence.description, sourceId: evidence.sourceRef === null ? null : resolveReference(evidence.sourceRef, "source"), step: nextStep }])),
+          claims: Object.fromEntries(agentValue.belief.claims.map((claim) => [recordId("claim", claim.proposalKey), { id: recordId("claim", claim.proposalKey), subjectId: localId(claim.subjectRef), predicate: claim.predicate, value: claim.value.kind === "local_entity" ? { kind: "local_entity" as const, localEntityId: localId(claim.value.entityRef) } : structuredClone(claim.value), description: claim.description, stance: claim.stance, confidence: claim.confidence, evidenceIds: evidenceIds(claim.evidenceRefs) }])),
+        };
+        const bindings = Object.fromEntries(agentValue.bindings.map((binding) => {
+          const localEntityId = localId(binding.localEntityRef);
+          return [localEntityId, { localEntityId, canonicalEntityIds: binding.canonicalEntityRefs.map((reference) => resolveReference(reference, "target", "entity")) }];
+        }));
         return {
           kind: operation.kind,
           agent: {
-            ...agentState,
             id: agentAliases.get(operation.agent.proposalKey)!,
             entityId: resolveReference(operation.agent.entityRef, "target", "entity"),
             character,
@@ -1689,7 +1796,7 @@ function materializeTransitionProposal(
     decisionRequests: direct.decisionRequests.map((request) => ({
       agentId: resolveReference(request.agentRef, "audience", "agent"),
       prompt: request.prompt,
-      suggestions: structuredClone(request.suggestions),
+      possibleNextActions: structuredClone(request.possibleNextActions),
     })),
     observations: [],
   };
@@ -1931,6 +2038,7 @@ export class TruthEngine {
         id: string;
         issueClass: string;
       },
+      candidateResolutionPlans?: readonly ResolutionPlan[],
     ) => {
       const selectedActionIds = new Set(
         (resolutionScopeOverride?.selectedActionIds ?? actions.map((action) => action.id)),
@@ -1938,8 +2046,16 @@ export class TruthEngine {
       return buildTruthContext({
         definition: input.definition,
         state: input.state,
-        initialActions: input.initialActions,
-        actions,
+        workset: {
+          state: input.modelWorkset?.state ?? input.state,
+          mode: input.modelWorkset ? "full" : "scoped",
+          initialActions: input.modelWorkset?.initialActions ?? input.initialActions,
+          availableActions: input.modelWorkset?.availableActions ?? actions,
+          assignedActions: actions.filter((action) => selectedActionIds.has(action.id)),
+          availableDependencies: input.modelWorkset?.availableDependencies ?? groundings,
+          assignedDependencies: groundings.filter((grounding) =>
+            grounding.kind !== "action" || selectedActionIds.has(grounding.id)),
+        },
         reactionRequests,
         reactionDecisions,
         reactionWindow: stage === "perception" || stage === "reaction-routing" ? "open" : "closed",
@@ -1950,24 +2066,17 @@ export class TruthEngine {
         commitmentRounds,
         resolutionPlans,
         resolutionReceipts,
-        groundings,
         temporalBoundary: input.temporalBoundary,
         instanceId: scope.workloadId,
         advanceId: scope.batchId,
         issues,
         stage,
-        contextMode: "full",
-        contextState: input.contextState ?? input.state,
-        contextInitialActions: input.contextInitialActions ?? input.initialActions,
-        contextActions: input.contextActions ?? actions,
-        outputActions: actions.filter((action) => selectedActionIds.has(action.id)),
-        outputGroundings: groundings.filter((grounding) =>
-          grounding.kind !== "action" || selectedActionIds.has(grounding.id)),
         resolutionScope: resolutionScopeOverride ?? input.resolutionScope ?? {
           mode: "component",
           selectedActionIds: actions.map((action) => action.id).sort(),
           totalActionCount: actions.length,
         },
+        candidateResolutionPlans,
         mechanicContracts: stage === "transition" ? mechanicContracts : undefined,
         repairTarget: repairTarget ?? null,
       });
@@ -2104,7 +2213,7 @@ export class TruthEngine {
       }
       const aliases = new Map<string, string>();
       for (const [ordinal, request] of round.entries()) {
-        if (aliases.has(request.id)) throw new Error(`duplicate random request alias ${request.id}`);
+        if (aliases.has(request.proposalKey)) throw new Error(`duplicate random request proposalKey ${request.proposalKey}`);
         const canonicalId = runtimeId({
           worldHash: input.state.worldHash,
           revision: input.state.revision,
@@ -2114,29 +2223,51 @@ export class TruthEngine {
           round: commitmentRounds.length,
           ordinal,
         });
-        aliases.set(request.id, canonicalId);
+        aliases.set(request.proposalKey, canonicalId);
       }
+      const resolver = createTruthReferenceResolver({
+        state: input.state,
+        definition: input.definition,
+        actions,
+        checkRequests: requests,
+        randomRequests,
+      });
+      const resolveCause = (cause: ModelCausalRef, requestProposalKey: string): CausalRef => {
+        if (isProposalReference(cause.ref)) {
+          throw new Error(`random request ${requestProposalKey} cannot use new proposal ${cause.ref.proposalKey} as a cause; select an existing handle`);
+        }
+        const resolved = resolver.resolve(cause.ref, "cause");
+        if (resolved.kind !== cause.kind) {
+          throw new Error(`random request ${requestProposalKey} expected ${cause.kind} cause, got ${resolved.kind}`);
+        }
+        return { kind: cause.kind, id: resolved.engineId };
+      };
       const normalized = round.map((request) => {
-        const canonicalId = aliases.get(request.id)!;
-        const causes = request.causes.map((cause) => cause.kind === "random" && aliases.has(cause.id)
-          ? { ...cause, id: aliases.get(cause.id)! }
-          : structuredClone(cause));
+        const canonicalId = aliases.get(request.proposalKey)!;
+        const distributionRef = request.distributionRef;
+        if (isProposalReference(distributionRef)) {
+          throw new Error(`random request ${request.proposalKey} must select an existing random distribution handle`);
+        }
+        const distribution = resolver.resolve(distributionRef, "distribution");
+        if (distribution.kind !== "random_distribution") {
+          throw new Error(`random request ${request.proposalKey} expected a random distribution reference, got ${distribution.kind}`);
+        }
+        const definition = input.definition.randomDistributions.find((candidate) => candidate.id === distribution.engineId);
+        if (!definition) {
+          throw new Error(`random request ${canonicalId} references unknown distribution ${distribution.engineId}`);
+        }
+        const causes = request.causes.map((cause) => resolveCause(cause, request.proposalKey));
         if (randomRequestIds.has(canonicalId)) {
           throw new Error(`duplicate random request ${canonicalId}`);
         }
         for (const cause of causes) {
           validateCausalReference(cause, allowedForCommitments, `random request ${canonicalId}`);
         }
-        const distribution = input.definition.randomDistributions.find((candidate) =>
-          candidate.id === request.distributionId);
-        if (!distribution) {
-          throw new Error(`random request ${canonicalId} references unknown distribution ${request.distributionId}`);
-        }
         return {
-          ...structuredClone(request),
           id: canonicalId,
+          distributionId: definition.id,
           causes,
-          distribution: structuredClone(distribution),
+          distribution: structuredClone(definition),
         };
       });
       validateDiscreteRandomCommitmentBudget([...randomRequests, ...normalized]);
@@ -2168,7 +2299,7 @@ export class TruthEngine {
     ): void => {
       draft.forEach((request, index) => {
         const canonicalId = normalized[index]!.id;
-        randomAliases.set(request.id, randomAliases.has(request.id) ? null : canonicalId);
+        randomAliases.set(request.proposalKey, randomAliases.has(request.proposalKey) ? null : canonicalId);
       });
     };
 
@@ -2440,17 +2571,20 @@ export class TruthEngine {
           buildContext: (issues) => buildResolutionPlanVerificationContext({
             definition: input.definition,
             state: input.state,
-            actions,
-            groundings,
+            workset: {
+              state: input.modelWorkset?.state ?? input.state,
+              mode: "full",
+              initialActions: input.modelWorkset?.initialActions ?? input.initialActions,
+              availableActions: input.modelWorkset?.availableActions ?? actions,
+              assignedActions: actions,
+              availableDependencies: input.modelWorkset?.availableDependencies ?? groundings,
+              assignedDependencies: groundings,
+            },
             plans: acceptedPlans,
             commitmentRounds,
             instanceId: scope.workloadId,
             advanceId: scope.batchId,
             issues,
-            contextMode: "full",
-            contextState: input.contextState ?? input.state,
-            contextActions: input.contextActions ?? actions,
-            contextGroundings: input.contextGroundings ?? groundings,
             resolutionScope: input.resolutionScope ?? {
               mode: "component",
               selectedActionIds: actions.map((action) => action.id).sort(),
@@ -2552,11 +2686,13 @@ export class TruthEngine {
               schemaName: "truth_resolution_plan_repair",
               schema: resolutionDirectiveSchema,
               scope,
-              buildContext: (issues) => ({
-                ...(truthContext("resolution", [...findingIssues, ...issues], repairScope) as Record<string, unknown>),
-                repairTarget: { kind: "plan", id: plan.id, issueClass: "causal" },
-                candidateResolutionPlans: structuredClone(acceptedPlans),
-              }),
+              buildContext: (issues) => truthContext(
+                "resolution",
+                [...findingIssues, ...issues],
+                repairScope,
+                { kind: "plan", id: plan.id, issueClass: "causal" },
+                acceptedPlans,
+              ),
               validate: (directive) => {
                 if (directive.kind !== "commit_plans") {
                   throw new Error("targeted plan repair must return commit_plans");
@@ -2890,8 +3026,15 @@ export class TruthEngine {
           buildContext: (issues) => buildCausalVerificationContext({
             definition: input.definition,
             state: input.state,
-            actions,
-            groundings,
+            workset: {
+              state: input.modelWorkset?.state ?? input.state,
+              mode: "full",
+              initialActions: input.modelWorkset?.initialActions ?? input.initialActions,
+              availableActions: input.modelWorkset?.availableActions ?? actions,
+              assignedActions: actions,
+              availableDependencies: input.modelWorkset?.availableDependencies ?? groundings,
+              assignedDependencies: groundings,
+            },
             checkRequests: requests,
             checkResults: checks,
             randomRequests,
@@ -2906,10 +3049,6 @@ export class TruthEngine {
             instanceId: scope.workloadId,
             advanceId: scope.batchId,
             issues,
-            contextMode: "full",
-            contextState: input.contextState ?? input.state,
-            contextActions: input.contextActions ?? actions,
-            contextGroundings: input.contextGroundings ?? groundings,
             mechanicContracts,
             resolutionScope: input.resolutionScope ?? {
               mode: "component",

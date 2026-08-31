@@ -218,14 +218,14 @@ describe("committed random resource limits", () => {
 
   it("enforces request limits at both model-round and committed-step boundaries", () => {
     const proposals = Array.from({ length: MAX_RANDOM_REQUESTS_PER_ROUND }, (_, index) => ({
-      id: `round-${index}`,
-      distributionId: "world-distribution",
-      causes: [{ kind: "law" as const, id: "time-passes" }],
+      proposalKey: `round-${index}`,
+      distributionRef: "ref:random_distribution:world-distribution",
+      causes: [{ kind: "law" as const, ref: "ref:law:time-passes" }],
     }));
     expect(resolutionDirectiveSchema.safeParse({ kind: "request_random", requests: proposals }).success).toBe(true);
     expect(resolutionDirectiveSchema.safeParse({
       kind: "request_random",
-      requests: [...proposals, { ...proposals[0], id: "round-over" }],
+      requests: [...proposals, { ...proposals[0], proposalKey: "round-over" }],
     }).success).toBe(false);
 
     const distribution = simpleDefinition("step-requests");

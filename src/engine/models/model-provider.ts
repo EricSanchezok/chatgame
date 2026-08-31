@@ -4,6 +4,7 @@ import type {
   ModelExecutionAudit,
   ModelInvocationAudit,
   ModelTokenUsage,
+  ModelOutputIssue,
 } from "../contracts/model";
 import type { RuntimeCorrelation, RuntimeObserver } from "../runtime/observability";
 import type { ModelRegistryStatus } from "./model-registry";
@@ -161,10 +162,10 @@ export function combineModelExecutionAudits(
       audit.profileId !== first.profileId || audit.providerId !== first.providerId ||
       audit.accountId !== first.accountId || audit.accountChannel !== first.accountChannel ||
       audit.protocol !== first.protocol || audit.dialect !== first.dialect ||
-      audit.modelId !== first.modelId || audit.catalogHash !== first.catalogHash ||
+      audit.modelId !== first.modelId || audit.modelCatalogHash !== first.modelCatalogHash ||
       audit.registrySnapshotHash !== first.registrySnapshotHash ||
       audit.modelMetadataHash !== first.modelMetadataHash ||
-      audit.catalogSchemaVersion !== first.catalogSchemaVersion ||
+      audit.modelCatalogSchemaVersion !== first.modelCatalogSchemaVersion ||
       audit.promptVersion !== first.promptVersion ||
       audit.structuredOutputMode !== first.structuredOutputMode ||
       JSON.stringify(audit.selector) !== JSON.stringify(first.selector) ||
@@ -201,7 +202,7 @@ export function summarizeModelExecutionAudit(audit: ModelExecutionAudit): ModelE
   return {
     invocations: invocations.length,
     transportAttempts: invocations.reduce((sum, invocation) => sum + invocation.transports.length, 0),
-    repairAttempts: invocations.filter((invocation) => invocation.semanticOutcome === "rejected").length,
+    repairAttempts: invocations.filter((invocation) => invocation.outputDisposition === "llm-repaired" || invocation.outputDisposition === "rejected").length,
     queueWaitMs: invocations.flatMap((invocation) => invocation.transports)
       .reduce((sum, attempt) => sum + attempt.queueWaitMs, 0),
     executionMs: invocations.flatMap((invocation) => invocation.transports)
@@ -220,13 +221,15 @@ export function summarizeModelExecutionAudit(audit: ModelExecutionAudit): ModelE
 
 export function setModelInvocationOutcome(
   audit: ModelExecutionAudit,
-  outcome: ModelInvocationAudit["semanticOutcome"],
-  validationIssueCodes: readonly string[] = [],
+  disposition: ModelInvocationAudit["outputDisposition"],
+  issues: readonly (string | ModelOutputIssue)[] = [],
 ): void {
   const invocation = audit.invocations.at(-1);
   if (!invocation) throw new Error("model audit has no invocation to classify");
-  invocation.semanticOutcome = outcome;
-  invocation.validationIssueCodes = [...new Set(validationIssueCodes)];
+  invocation.outputDisposition = disposition;
+  invocation.issues = issues.map((issue) => typeof issue === "string"
+    ? { code: issue, class: "semantic", path: [], message: issue }
+    : structuredClone(issue));
 }
 
 export function setModelInvocationResultKind(

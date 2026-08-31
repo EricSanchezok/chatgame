@@ -991,7 +991,7 @@ export interface ObservationRenderDraft {
 export interface DecisionRequest {
   agentId: AgentId;
   prompt: string;
-  suggestions: string[];
+  possibleNextActions: string[];
 }
 
 export interface ModelTokenUsage {
@@ -1032,6 +1032,38 @@ export interface ModelTransportAttemptAudit {
   statusCode: number | null;
 }
 
+export type ModelOutputDisposition =
+  | "accepted"
+  | "auto-normalized"
+  | "llm-repaired"
+  | "rejected";
+
+export type ModelOutputIssueClass =
+  | "structure"
+  | "reference"
+  | "mechanic"
+  | "privacy"
+  | "causal"
+  | "semantic";
+
+export interface ModelOutputIssue {
+  code: string;
+  class: ModelOutputIssueClass;
+  path: Array<string | number>;
+  message: string;
+  originalValue?: unknown;
+  allowedHandles?: string[];
+  targetIds?: string[];
+}
+
+export interface ModelNormalizationSummary {
+  applied: boolean;
+  modifiedFieldCount: number;
+  resolvedReferenceCount: number;
+  proposalCount: number;
+  deduplicatedCount: number;
+}
+
 export interface ModelInvocationAudit {
   id: string;
   ordinal: number;
@@ -1045,8 +1077,13 @@ export interface ModelInvocationAudit {
   finishReason: string | null;
   providerRequestId: string | null;
   resultKind: string | null;
-  semanticOutcome: "accepted" | "rejected";
-  validationIssueCodes: string[];
+  outputDisposition: ModelOutputDisposition;
+  issues: ModelOutputIssue[];
+  normalization: ModelNormalizationSummary;
+  referenceCatalogVersion: number;
+  referenceCatalogHash: string;
+  rawOutputHash: string | null;
+  normalizedOutputHash: string | null;
 }
 
 export interface ModelExecutionAudit {
@@ -1062,8 +1099,8 @@ export interface ModelExecutionAudit {
   selector: ModelSelector;
   registrySnapshotHash: string;
   modelMetadataHash: string;
-  catalogSchemaVersion: 3;
-  catalogHash: string;
+  modelCatalogSchemaVersion: 3;
+  modelCatalogHash: string;
   promptVersion: string;
   requestedInference: ModelInferenceConfig;
   resolvedInference: ResolvedModelInference;

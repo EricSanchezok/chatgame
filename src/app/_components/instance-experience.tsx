@@ -560,7 +560,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
   }
 
   const roleView = detail.controlledView ?? observer?.selected?.perspective;
-  const suggestions = detail.conversation?.turns.find((turn) => !turn.action)?.response?.suggestions ?? [];
+  const possibleNextActions = detail.conversation?.turns.find((turn) => !turn.action)?.response?.possibleNextActions ?? [];
   const orbPhase: ControlOrbPhase = worldProcessing ? "running" : busy ? "confirming" : "saved";
 
   return (
@@ -652,7 +652,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
           readOnly={!detail.controlledView}
           reduceMotion={preferences.reduceMotion}
           streamWarning={streamWarning}
-          suggestions={suggestions}
+          suggestions={possibleNextActions}
           timeline={timeline}
           timelineStep={detail.summary.step}
         />

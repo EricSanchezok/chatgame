@@ -280,7 +280,7 @@ describe("provider account protocol matrix", () => {
         modelId,
         registrySnapshotHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         modelMetadataHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-        catalogSchemaVersion: 3,
+        modelCatalogSchemaVersion: 3,
       });
       if (profileId === "agent-zhipu-coding") {
         expect(result.audit.structuredOutputMode).toBe("json-object-zod");

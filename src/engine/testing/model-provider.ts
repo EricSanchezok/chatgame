@@ -190,8 +190,8 @@ export function createTestModelAudit(
     selector: structuredClone(profile.selector),
     registrySnapshotHash,
     modelMetadataHash,
-    catalogSchemaVersion: catalog.schemaVersion,
-    catalogHash: catalog.hash,
+    modelCatalogSchemaVersion: catalog.schemaVersion,
+    modelCatalogHash: catalog.hash,
     promptVersion: "test-v1",
     requestedInference: structuredClone(profile.inference),
     resolvedInference: {
@@ -229,8 +229,13 @@ export function createTestModelAudit(
       finishReason: "stop",
       providerRequestId: null,
       resultKind: "test-fixture",
-      semanticOutcome: "accepted",
-      validationIssueCodes: [],
+      outputDisposition: "accepted",
+      issues: [],
+      normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+      referenceCatalogVersion: 1,
+      referenceCatalogHash: contentHash({}),
+      rawOutputHash: contentHash({ role, subjectId, revision, response: true }),
+      normalizedOutputHash: contentHash({ role, subjectId, revision, response: true }),
     }],
   };
 }
@@ -243,16 +248,32 @@ export type ScriptedModelHandler = (
   request: ScriptedModelHandlerRequest,
 ) => unknown | Promise<unknown>;
 
+/* Test fixtures may still destructure a section directly while they migrate
+ * to the envelope. This projection exists only inside the scripted provider;
+ * captured requests and production providers always retain the canonical
+ * contract shape. */
+function fixtureHandlerRequest(request: ScriptedModelHandlerRequest): ScriptedModelHandlerRequest {
+  const context = request.context;
+  if (!context || typeof context !== "object" || Array.isArray(context)) return request;
+  const envelope = context as Record<string, unknown>;
+  const state = envelope.state && typeof envelope.state === "object" && !Array.isArray(envelope.state)
+    ? envelope.state as Record<string, unknown>
+    : {};
+  const task = envelope.task && typeof envelope.task === "object" && !Array.isArray(envelope.task)
+    ? envelope.task as Record<string, unknown>
+    : {};
+  return { ...request, context: { ...envelope, ...state, ...task } };
+}
+
 function automaticPlanDirective(context: unknown): unknown {
   const input = context as {
-    task?: { assignedActions?: Array<{ actionRef: string; actorRef: string; goal: string }> };
-    actors?: Array<{ agentRef: string; entityRef: string }>;
-    world?: { disclosure?: { defaultCheckVisibility?: "full" | "result_only" | "hidden" } };
+    task?: { assignment?: { targetHandles?: string[] } };
+    state?: { actionSet?: { assigned?: Array<{ actionRef: string; actorRef: string; goal: string }> }; actors?: Array<{ agentRef: string; entityRef: string }>; world?: { disclosure?: { defaultCheckVisibility?: "full" | "result_only" | "hidden" } } };
   };
-  const actorEntity = new Map((input.actors ?? []).map((actor) => [actor.agentRef, actor.entityRef]));
+  const actorEntity = new Map((input.state?.actors ?? []).map((actor) => [actor.agentRef, actor.entityRef]));
   return {
     kind: "commit_plans",
-    plans: (input.task?.assignedActions ?? []).map((action, index) => {
+    plans: (input.state?.actionSet?.assigned ?? []).map((action, index) => {
       const actorEntityRef = actorEntity.get(action.actorRef);
       if (!actorEntityRef) throw new Error(`deterministic plan has no actor entity for ${action.actorRef}`);
       return {
@@ -269,7 +290,7 @@ function automaticPlanDirective(context: unknown): unknown {
         primaryEffect: null,
         secondaryEffect: null,
         threatenedEffect: null,
-        visibility: input.world?.disclosure?.defaultCheckVisibility ?? "full",
+        visibility: input.state?.world?.disclosure?.defaultCheckVisibility ?? "full",
         causes: [{ kind: "action", ref: action.actionRef }],
       };
     }),
@@ -291,9 +312,9 @@ function assignedModelActions(context: unknown): Array<{
   targetIds: string[];
 }> {
   const input = context as {
-    task?: { assignedActions?: Array<{ actionRef: string; actorRef: string; rawText: string; goal: string; means: string | null; targetRefs: string[] }> };
+    state?: { actionSet?: { assigned?: Array<{ actionRef: string; actorRef: string; rawText: string; goal: string; means: string | null; targetRefs: string[] }> } };
   };
-  return (input.task?.assignedActions ?? []).map((action) => ({
+  return (input.state?.actionSet?.assigned ?? []).map((action) => ({
     id: referenceSeed(action.actionRef, "action"),
     actorId: referenceSeed(action.actorRef, "agent"),
     actionRef: action.actionRef,
@@ -315,7 +336,9 @@ function adaptScriptedResolutionOutput(raw: unknown): unknown {
   const value = raw as { kind?: string; plans?: unknown[] };
   if (value.kind !== "commit_plans" || !Array.isArray(value.plans)) return raw;
   const ref = (kind: string, id: unknown): unknown =>
-    typeof id === "string" ? referenceHandleFor(kind as "action", id) : id;
+    typeof id === "string"
+      ? id.startsWith("ref:") ? id : referenceHandleFor(kind as "action", id)
+      : id;
   const source = (item: any): any => ({ kind: item.kind, ref: ref(item.kind, item.id) });
   const effect = (item: any, includeMagnitude = true): any => item === null ? null : item.kind === "meter" ? {
     kind: item.kind,
@@ -336,7 +359,10 @@ function adaptScriptedResolutionOutput(raw: unknown): unknown {
     label: item.label,
     description: item.description,
     sourceRefs: (item.sourceRefs ?? []).map(source),
-    conditionRef: item.conditionRef ?? { proposalKey: item.conditionId },
+    // A condition is derived from the effect proposal.  Reusing the effect's
+    // key keeps the fixture in the same-object proposal namespace instead of
+    // inventing an undeclared second condition record.
+    conditionRef: item.conditionRef ?? { proposalKey: item.proposalKey ?? item.id },
     durationProfileRef: item.durationProfileRef ?? ref("mechanic", item.durationProfileId),
     conditionProfileRef: item.conditionProfileRef === null ? null : item.conditionProfileRef ?? ref("mechanic", item.conditionProfileId),
     access: item.access,
@@ -391,7 +417,10 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
   const createdEntityIds = new Set((value.operations ?? [])
     .filter((item) => item?.kind === "create_entity" && typeof item.entity?.id === "string")
     .map((item) => item.entity.id as string));
-  const ref = (kind: string, id: unknown): unknown => typeof id === "string" ? referenceHandleFor(kind as "action", id) : id;
+  const ref = (kind: string, id: unknown): unknown =>
+    typeof id === "string"
+      ? id.startsWith("ref:") ? id : referenceHandleFor(kind as "action", id)
+      : id;
   const causal = (item: any): any => ({ kind: item.kind, ref: item.ref ?? ref(item.kind, item.id) });
   const assertion = (item: any): any => {
     switch (item.kind) {
@@ -417,7 +446,112 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
       case "retire_entity": return { kind: item.kind, entityRef: ref("entity", item.entityId), ...common };
       case "place_entity": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("entity", item.placementId), ...common };
       case "set_fact": return { kind: item.kind, fact: { proposalKey: item.fact.id, subjectRef: ref("entity", item.fact.subjectId), predicate: item.fact.predicate, value: item.fact.value?.kind === "entity" ? { kind: "entity", entityRef: ref("entity", item.fact.value.entityId) } : item.fact.value, description: item.fact.description, access: item.fact.access }, ...common };
-      case "create_agent": return { kind: item.kind, agent: { proposalKey: item.agent.id, entityRef: { proposalKey: item.agent.entityId }, character: item.agent.character, belief: item.agent.belief, bindings: item.agent.bindings }, ...common };
+      case "create_agent": {
+        const agent = item.agent ?? {};
+        const reference = (kind: string, id: unknown): unknown =>
+          typeof id === "string" ? (id.startsWith("ref:") ? id : referenceHandleFor(kind as "action", id)) : id;
+        const evidenceRefs = (ids: unknown): unknown[] =>
+          Array.isArray(ids) ? ids.map((id) => reference("evidence", id)) : [];
+        const records = (value: unknown): any[] => {
+          if (Array.isArray(value)) return value;
+          if (!value || typeof value !== "object") return [];
+          return Object.entries(value as Record<string, unknown>).map(([id, record]) => ({
+            ...(record && typeof record === "object" ? record : {}),
+            id,
+          }));
+        };
+        const character = agent.character ?? {};
+        const persona = character.persona ?? {};
+        const facets = (value: unknown, defaults: Record<string, unknown>) => records(value).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          description: record.description ?? "未命名特征",
+          strength: record.strength ?? 0,
+          status: record.status ?? defaults.status,
+          evidenceRefs: record.evidenceRefs ?? evidenceRefs(record.evidenceIds),
+        }));
+        const emotions = records(character.emotions).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          description: record.description ?? "未命名情绪",
+          intensity: record.intensity ?? 0,
+          status: record.status ?? "active",
+          evidenceRefs: record.evidenceRefs ?? evidenceRefs(record.evidenceIds),
+        }));
+        const attitudes = records(character.attitudes).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          subjectRef: record.subjectRef ?? { proposalKey: record.subjectId ?? "self" },
+          description: record.description ?? "未命名态度",
+          intensity: record.intensity ?? 0,
+          status: record.status ?? "active",
+          evidenceRefs: record.evidenceRefs ?? evidenceRefs(record.evidenceIds),
+        }));
+        const goals = records(character.goals).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          description: record.description ?? "未命名目标",
+          priority: record.priority ?? 0,
+          progress: record.progress ?? 0,
+          targetRefs: record.targetRefs ?? (record.targetIds ?? []).map((id: unknown) => ({ proposalKey: id })),
+          parentGoalRef: record.parentGoalRef ?? (record.parentGoalId ? { proposalKey: record.parentGoalId } : null),
+          motivatedByRefs: record.motivatedByRefs ?? (record.motivatedByIds ?? []).map((id: unknown) => ({ proposalKey: id })),
+          status: record.status ?? "active",
+          evidenceRefs: record.evidenceRefs ?? evidenceRefs(record.evidenceIds),
+        }));
+        const commitments = records(character.commitments).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          description: record.description ?? "未命名承诺",
+          priority: record.priority ?? 0,
+          subjectRefs: record.subjectRefs ?? (record.subjectIds ?? []).map((id: unknown) => ({ proposalKey: id })),
+          status: record.status ?? "active",
+          evidenceRefs: record.evidenceRefs ?? evidenceRefs(record.evidenceIds),
+        }));
+        const belief = agent.belief ?? {};
+        const localEntities = records(belief.localEntities).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          name: record.name ?? record.id ?? "未命名实体",
+          description: record.description ?? "",
+          status: record.status ?? "observed",
+        }));
+        const claims = records(belief.claims).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          subjectRef: record.subjectRef ?? { proposalKey: record.subjectId ?? "self" },
+          predicate: record.predicate ?? "unknown",
+          value: record.value?.kind === "local_entity"
+            ? { kind: "local_entity", entityRef: record.value.entityRef ?? { proposalKey: record.value.localEntityId } }
+            : record.value ?? { kind: "none" },
+          description: record.description ?? "",
+          stance: record.stance ?? "believed",
+          confidence: record.confidence ?? 0,
+          evidenceRefs: record.evidenceRefs ?? evidenceRefs(record.evidenceIds),
+        }));
+        const evidence = records(belief.evidence).map((record: any) => ({
+          proposalKey: record.proposalKey ?? record.id,
+          kind: record.kind ?? "observation",
+          description: record.description ?? "",
+          sourceRef: record.sourceRef ?? (record.sourceId ? reference("event", record.sourceId) : null),
+        }));
+        const bindings = records(agent.bindings).map((record: any) => ({
+          localEntityRef: record.localEntityRef ?? { proposalKey: record.localEntityId ?? record.id },
+          canonicalEntityRefs: record.canonicalEntityRefs ?? (record.canonicalEntityIds ?? []).map((id: unknown) => ({ proposalKey: id })),
+        }));
+        return {
+          kind: item.kind,
+          agent: {
+            proposalKey: agent.proposalKey ?? agent.id,
+            entityRef: agent.entityRef ?? { proposalKey: agent.entityId },
+            character: {
+              persona: { summary: persona.summary ?? "", voice: persona.voice ?? "", evidenceRefs: persona.evidenceRefs ?? evidenceRefs(persona.evidenceIds) },
+              traits: facets(character.traits, { status: "active" }),
+              values: facets(character.values, { status: "active" }),
+              emotions,
+              attitudes,
+              goals,
+              commitments,
+            },
+            belief: { localEntities, claims, evidence },
+            bindings,
+          },
+          ...common,
+        };
+      }
       case "remove_fact": return { kind: item.kind, factRef: ref("fact", item.factId), ...common };
       case "remove_agent": return { kind: item.kind, agentRef: ref("agent", item.agentId), ...common };
       default: return item;
@@ -428,19 +562,19 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
     mechanicInvocations: (value.mechanicInvocations ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id, packageId: item.packageId, ruleId: item.ruleId, input: item.input, causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) })),
     operations: (value.operations ?? []).map(operation),
     events: (value.events ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id, description: item.description, impact: item.impact, causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) })),
-    decisionRequests: (value.decisionRequests ?? []).map((item) => ({ agentRef: item.agentRef ?? ref("agent", item.agentId), prompt: item.prompt, suggestions: item.suggestions })),
+    decisionRequests: (value.decisionRequests ?? []).map((item) => ({ agentRef: item.agentRef ?? ref("agent", item.agentId), prompt: item.prompt, possibleNextActions: item.possibleNextActions ?? [] })),
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /* Normalize legacy verifier fixtures at the test provider boundary. */
 /* eslint-disable @typescript-eslint/no-explicit-any -- isolated fixture adapter. */
-function adaptScriptedVerifierOutput(raw: unknown): unknown {
+function adaptScriptedVerifierOutput(raw: unknown, includeEvidenceHandles = false): unknown {
   if (!raw || typeof raw !== "object") return raw;
   if ("slots" in raw && Array.isArray(raw.slots)) {
     return {
       ...raw,
-      slots: raw.slots.map((slot: any) => ({ ...slot, result: adaptScriptedVerifierOutput(slot.result) })),
+      slots: raw.slots.map((slot: any) => ({ ...slot, result: adaptScriptedVerifierOutput(slot.result, includeEvidenceHandles) })),
     };
   }
   const value = raw as { verdict?: string; findings?: any[] };
@@ -451,16 +585,21 @@ function adaptScriptedVerifierOutput(raw: unknown): unknown {
       const { planId: legacyPlanId, target: legacyTarget, ...rest } = finding;
       const target = legacyTarget && typeof legacyTarget === "object"
         ? (() => {
-          const { id: legacyTargetId, ...targetRest } = legacyTarget;
+          const { id: legacyTargetId, ref: legacyTargetRef, targetHandle, ...targetRest } = legacyTarget;
           return legacyTargetId !== undefined
-            ? { ...targetRest, ref: refForVerifier(legacyTarget.kind, legacyTargetId) }
-            : legacyTarget;
+            ? { ...targetRest, targetHandle: refForVerifier(legacyTarget.kind, legacyTargetId) }
+            : { ...targetRest, targetHandle: targetHandle ?? legacyTargetRef };
         })()
         : legacyTarget;
       return {
         ...rest,
         ...(legacyPlanId !== undefined ? { planRef: refForVerifier("plan", legacyPlanId) } : {}),
         ...(target !== undefined ? { target } : {}),
+        ...(includeEvidenceHandles ? {
+          evidenceHandles: Array.isArray((finding as { evidenceHandles?: unknown }).evidenceHandles)
+            ? (finding as { evidenceHandles: unknown[] }).evidenceHandles
+            : [],
+        } : {}),
       };
     }),
   };
@@ -484,7 +623,9 @@ function adaptScriptedCompilationOutput(raw: unknown): unknown {
                 const { id: _legacyId, ...rest } = cause;
                 return {
                   kind: rest.kind,
-                  ref: rest.ref ?? (typeof _legacyId === "string" ? referenceHandleFor(rest.kind, _legacyId) : rest.ref),
+                  ref: rest.ref ?? (typeof _legacyId === "string"
+                    ? (_legacyId.startsWith("ref:") ? _legacyId : referenceHandleFor(rest.kind, _legacyId))
+                    : rest.ref),
                 };
               })
               : slot.temporalPlan.causes,
@@ -498,7 +639,9 @@ function adaptScriptedCompilationOutput(raw: unknown): unknown {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 function refForVerifier(kind: string, id: unknown): unknown {
-  return typeof id === "string" ? referenceHandleFor(kind as "action", id) : id;
+  return typeof id === "string"
+    ? id.startsWith("ref:") ? id : referenceHandleFor(kind as "action", id)
+    : id;
 }
 
 export class ScriptedModelProvider implements StructuredModelProvider {
@@ -550,7 +693,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       return { slots: slots.map((slot, index) => ({ slot: slot.slot, result: values[index] })) };
     }
     if (!this.adaptTruthScenario || !request.role.startsWith("truth-") && request.role !== "causal-verifier") {
-      return this.handler(request);
+      return this.handler(fixtureHandlerRequest(request));
     }
     if (request.role === "causal-verifier") return { verdict: "accept", findings: [] };
     if (request.role === "truth-transition" && this.pendingTransition !== undefined) {
@@ -559,8 +702,8 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       return value;
     }
     if (request.role === "truth-resolution" && this.pendingResolution !== undefined) {
-      const context = request.context as { committedResolutionPlans?: unknown[] };
-      if (!context.committedResolutionPlans?.length) return automaticPlanDirective(request.context);
+      const context = request.context as { state?: { committedResolutionPlans?: unknown[] } };
+      if (!context.state?.committedResolutionPlans?.length) return automaticPlanDirective(request.context);
       const value = this.pendingResolution;
       this.pendingResolution = undefined;
       return value;
@@ -575,11 +718,11 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       return { requests: [] };
     }
     if (request.role === "truth-resolution" && this.pendingTransition !== undefined) {
-      const context = request.context as { committedResolutionPlans?: unknown[] };
-      return context.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(request.context);
+      const context = request.context as { state?: { committedResolutionPlans?: unknown[] } };
+      return context.state?.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(request.context);
     }
 
-    const value = await this.handler(request) as {
+    const value = await this.handler(fixtureHandlerRequest(request)) as {
       kind?: string;
       requests?: Array<{ phase?: string }>;
       proposal?: unknown;
@@ -602,8 +745,8 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       if (value.kind === "commit_plans") return value;
       if (value.kind === "transition") {
         this.pendingTransition = value.proposal;
-        const context = request.context as { committedResolutionPlans?: unknown[] };
-        return context.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(request.context);
+        const context = request.context as { state?: { committedResolutionPlans?: unknown[] } };
+        return context.state?.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(request.context);
       }
       return { kind: "done" };
     }
@@ -680,8 +823,8 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       selector: structuredClone(profile.selector),
       registrySnapshotHash: request.modelRegistrySnapshotHash ?? contentHash({ testRegistry: this.catalog.hash }),
       modelMetadataHash: contentHash({ modelId, deterministic: true }),
-      catalogSchemaVersion: this.catalog.schemaVersion,
-      catalogHash: this.catalog.hash,
+      modelCatalogSchemaVersion: this.catalog.schemaVersion,
+      modelCatalogHash: this.catalog.hash,
       promptVersion: request.promptVersion,
       requestedInference: structuredClone(profile.inference),
       resolvedInference: {
@@ -715,8 +858,14 @@ export class ScriptedModelProvider implements StructuredModelProvider {
         finishReason: "stop",
         providerRequestId: null,
         resultKind: null,
-        semanticOutcome: "accepted",
-        validationIssueCodes: [],
+        outputDisposition: "accepted",
+        issues: [],
+        normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+        referenceCatalogVersion: (context as { referenceCatalog?: { version?: number } }).referenceCatalog?.version ?? 1,
+        referenceCatalogHash: (context as { referenceCatalog?: { hash?: string } }).referenceCatalog?.hash
+          ?? contentHash((context as { referenceCatalog?: unknown }).referenceCatalog ?? null),
+        rawOutputHash: contentHash(raw),
+        normalizedOutputHash: contentHash(raw),
       }],
     };
     try {
@@ -727,12 +876,12 @@ export class ScriptedModelProvider implements StructuredModelProvider {
           : request.schemaName.startsWith("action_compilation")
             ? adaptScriptedCompilationOutput(raw)
           : request.schemaName.startsWith("resolution_plan_verification") || request.schemaName.startsWith("causal_verification")
-            ? adaptScriptedVerifierOutput(raw)
+            ? adaptScriptedVerifierOutput(raw, request.schemaName.startsWith("causal_verification"))
           : raw;
       return { value: request.schema.parse(normalizedRaw), audit };
     } catch (error) {
-      audit.invocations[0]!.semanticOutcome = "rejected";
-      audit.invocations[0]!.validationIssueCodes = ["schema_validation"];
+      audit.invocations[0]!.outputDisposition = "rejected";
+      audit.invocations[0]!.issues = [{ code: "schema_validation", class: "structure", path: [], message: error instanceof Error ? error.message : String(error) }];
       throw new ModelOutputError("scripted model output failed schema validation", audit, {
         cause: error,
         rawValue: raw,
@@ -743,11 +892,13 @@ export class ScriptedModelProvider implements StructuredModelProvider {
 
 interface DeterministicCompilationAction {
   id: string;
+  actionRef?: string;
   actorId: string;
   rawText: string;
 }
 
 interface DeterministicCompilationContextAction {
+  key?: string;
   id?: string;
   actionRef?: string;
   actorId?: string;
@@ -799,17 +950,20 @@ interface DeterministicMindSlot {
 
 function deterministicActionCompilation(
   action: DeterministicCompilationAction,
-  temporalProfiles: readonly { id: string }[],
+  temporalProfiles: readonly { profileRef?: string; id?: string }[],
 ): ActionCompilationDraft {
   const profile = temporalProfiles[0];
   if (!profile) throw new Error("deterministic action compiler has no temporal profile");
-  return {
+  const profileRef = profile.profileRef ?? (profile.id ? referenceHandleFor("temporal_profile", profile.id) : undefined);
+  if (!profileRef) throw new Error("deterministic action compiler has no temporal profile reference");
+  const compilation: ActionCompilationDraft = {
     temporalPlan: {
-      profileId: profile.id,
+      profileRef: profileRef as ExistingReferenceHandle,
       basis: { kind: "profile" },
       description: action.rawText,
       continuationAssertions: [],
-      causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
+      causes: [{ kind: "action", ref: (action.actionRef as ExistingReferenceHandle | undefined)
+        ?? referenceHandleFor("action", action.id) }],
     },
     interactionDependency: {
       // Ordinary deterministic actions are sparse by default. Tests that
@@ -824,6 +978,7 @@ function deterministicActionCompilation(
       requiresWorldWideArbitration: false,
     },
   };
+  return compilation;
 }
 
 export function deterministicGlobalActionCompilationBatch(
@@ -836,8 +991,13 @@ export function deterministicGlobalActionCompilationBatch(
   ) => void,
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   return deterministicActionCompilationBatch(profileId, context, (compilation, slot) => {
-    const candidates = (context as { referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> } })
-      .referenceCatalog?.candidates ?? [];
+    const envelope = context as {
+      referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> };
+      sharedContext?: { referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> } };
+    };
+    const candidates = envelope.referenceCatalog?.candidates
+      ?? envelope.sharedContext?.referenceCatalog?.candidates
+      ?? [];
     const worldHandle = candidates.find((candidate) => candidate.kind === "world")?.handle;
     if (!worldHandle) throw new Error("deterministic global action compiler requires a world reference handle");
     const handle = worldHandle as ExistingReferenceHandle;
@@ -859,19 +1019,29 @@ export function deterministicActionCompilationBatch(
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   void profileId;
   const input = context as {
+    task?: { slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }> };
     slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }>;
-    temporalProfiles?: Array<{ id: string }>;
+    state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }> };
+    sharedContext?: { state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }> } };
   };
-  if (!input.slots || !input.temporalProfiles) {
+  const slots = input.task?.slots ?? input.slots;
+  const temporalProfiles = input.state?.temporalProfiles ?? input.sharedContext?.state?.temporalProfiles;
+  if (!slots || !temporalProfiles) {
     throw new Error("deterministic action compiler expected a slot batch");
   }
   return {
-    slots: input.slots.map((slot) => {
-      const actionId = slot.action.id ?? slot.action.actionRef?.replace(/^ref:action:/u, "");
-      const actorId = slot.action.actorId ?? slot.action.actorRef?.replace(/^ref:agent:/u, "");
-      if (!actionId || !actorId) throw new Error("deterministic action compiler could not recover fixture identities");
+    slots: slots.map((slot) => {
+      const actionReference = slot.action.id ?? slot.action.actionRef;
+      const actorReference = slot.action.actorId ?? slot.action.actorRef;
+      const actionId = typeof actionReference === "string"
+        ? actionReference.replace(/^ref:action:/u, "")
+        : actionReference;
+      const actorId = typeof actorReference === "string"
+        ? actorReference.replace(/^ref:agent:/u, "")
+        : actorReference ?? "model-agent";
+      if (!actionId) throw new Error("deterministic action compiler requires an action reference");
       const fixtureSlot = { ...slot, action: { ...slot.action, id: actionId, actorId } } as DeterministicCompilationSlot;
-      const compilation = deterministicActionCompilation(fixtureSlot.action, input.temporalProfiles!);
+      const compilation = deterministicActionCompilation(fixtureSlot.action, temporalProfiles);
       customize?.(compilation, fixtureSlot, context);
       return { slot: fixtureSlot.slot, ...compilation };
     }),
@@ -908,10 +1078,7 @@ export function deterministicAgentMindBatch(
 
 export function deterministicModelOutput(profileId: string, context: unknown): unknown {
       const input = context as {
-        stage?: "perception" | "reaction-routing" | "resolution" | "transition";
-        revision?: number;
-        step?: number;
-        baseRevision?: number;
+        execution?: { revision?: number; step?: number };
         agent?: { id: string };
         perspective?: {
           agentId: string;
@@ -920,35 +1087,47 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         action?: { id: string; actorId: string; rawText: string };
         slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot>;
         entity?: { name: string; location: string | null };
-        world?: { laws: Array<{ id: string }> };
-        actors?: Record<string, unknown>;
-        observationSlots?: Array<{ observer: { agentId: string } }>;
-        currentEvents?: Array<{ eventRef?: string; id?: string }>;
-        committedResolutionPlans?: unknown[];
-        temporalProfiles?: Array<{ id: string; kind: string; allowExplicitDuration?: boolean }>;
-        temporalBoundary?: { toElapsedSeconds: number };
-        canonicalTruth?: {
-          activities?: Record<string, { sourceActionId?: string; sourceActionRef?: string; completionAtSeconds: number | null }>;
-        };
-        referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
-        task?: { action?: DeterministicCompilationAction };
         state?: {
+          world?: { laws: Array<{ id: string }> };
+          actors?: Record<string, unknown> | Array<{ agentRef: string; entityRef: string }>;
+          canonicalTruth?: {
+            activities?: Record<string, { sourceActionId?: string; sourceActionRef?: string; completionAtSeconds: number | null }>;
+          };
+          temporalBoundary?: { toElapsedSeconds: number };
+          temporalProfiles?: Array<{ profileRef?: string; id?: string; kind: string; allowExplicitDuration?: boolean }>;
           perspective?: { agentId: string; self: { name: string; location: { name: string } | null } };
           preparedAction?: unknown;
           stimulus?: unknown;
+          entity?: { name: string; location: string | null };
+          committedResolutionPlans?: unknown[];
+          currentEvents?: Array<{ eventRef?: string; id?: string }>;
         };
+        observationSlots?: Array<{ observer: { agentId: string } }>;
+        currentEvents?: Array<{ eventRef?: string; id?: string }>;
+        committedResolutionPlans?: unknown[];
+        temporalProfiles?: Array<{ profileRef?: string; id?: string; kind: string; allowExplicitDuration?: boolean }>;
+        temporalBoundary?: { toElapsedSeconds: number };
+        referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
+        task?: { action?: DeterministicCompilationAction; stage?: "perception" | "reaction-routing" | "resolution" | "transition"; assignedActions?: unknown[]; committedResolutionPlans?: unknown[]; observationSlots?: unknown[]; slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot> };
       };
+      const stateSection = input.state ?? {};
+      const stage = input.task?.stage;
+      const baseRevision = input.execution?.revision;
+      const step = input.execution?.step;
+      const world = stateSection.world;
+      const canonicalTruth = stateSection.canonicalTruth;
+      const slots = input.task?.slots ?? input.slots;
+      const temporalProfiles = stateSection.temporalProfiles ?? input.temporalProfiles;
       const actionInput = input.action ?? input.task?.action;
-      if (input.slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) &&
-        input.temporalProfiles) {
+      if (slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) && temporalProfiles) {
         return deterministicActionCompilationBatch(profileId, context);
       }
-      if (input.slots?.every((slot): slot is DeterministicMindSlot => "state" in slot &&
+      if (slots?.every((slot): slot is DeterministicMindSlot => "state" in slot &&
         Boolean((slot as DeterministicMindSlot).state?.perspective))) {
         return deterministicAgentMindBatch(context);
       }
-      if (actionInput && input.temporalProfiles) {
-        return deterministicActionCompilation(actionInput, input.temporalProfiles);
+      if (actionInput && temporalProfiles) {
+        return deterministicActionCompilation(actionInput, temporalProfiles);
       }
       if (actionInput) {
         const worldHandle = (input.referenceCatalog?.candidates as Array<{ kind: string; handle: string; statePath?: string }> | undefined)
@@ -964,44 +1143,44 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           requiresWorldWideArbitration: true,
         };
       }
-      if (input.state?.preparedAction && input.state.stimulus) return { kind: "keep" };
-      if (input.perspective && input.revision === undefined) {
+      if (stateSection.preparedAction && stateSection.stimulus) return { kind: "keep" };
+      if (stateSection.perspective && input.execution?.revision === undefined) {
         return {
-          title: `此刻，你是${input.perspective.self.name}`,
-          scene: input.perspective.self.location
-            ? `你在${input.perspective.self.location.name}恢复了对周围的注意。`
+          title: `此刻，你是${stateSection.perspective.self.name}`,
+          scene: stateSection.perspective.self.location
+            ? `你在${stateSection.perspective.self.location.name}恢复了对周围的注意。`
             : "你恢复了对周围的注意，但还不能确定当前位置。",
-          suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
+          possibleNextActions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
         };
       }
-      if (input.entity) {
+      if (stateSection.entity) {
         return {
-          title: `此刻，你是${input.entity.name}`,
-          scene: input.entity.location
-            ? `你在${input.entity.location}恢复了对周围的注意。`
+          title: `此刻，你是${stateSection.entity.name}`,
+          scene: stateSection.entity.location
+            ? `你在${stateSection.entity.location}恢复了对周围的注意。`
             : "你恢复了对周围的注意，但还不能确定当前位置。",
-          suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
+          possibleNextActions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
         };
       }
-      if (input.observationSlots) {
+      const observationSlots = input.task?.observationSlots;
+      if (observationSlots) {
         return {
           summary: "世界继续变化。",
           introductions: [],
           apparentClaims: [],
-          sourceEventRefs: (input.currentEvents ?? [])
+          sourceEventRefs: (input.currentEvents ?? (stateSection.currentEvents as Array<{ eventRef?: string }> | undefined) ?? [])
             .map((event) => event.eventRef)
             .filter((handle): handle is string => Boolean(handle)),
         };
       }
       if (profileId.startsWith("truth-")) {
-        if (input.stage === "perception") return { kind: "done" };
-        if (input.stage === "reaction-routing") return { requests: [] };
-        if (input.stage === "resolution") {
-          return input.committedResolutionPlans?.length ? { kind: "done" } : automaticPlanDirective(context);
+        if (stage === "perception") return { kind: "done" };
+        if (stage === "reaction-routing") return { requests: [] };
+        if (stage === "resolution") {
+          return (stateSection.committedResolutionPlans ?? []).length ? { kind: "done" } : automaticPlanDirective(context);
         }
-        const step = input.step;
-        const revision = input.baseRevision;
-        const lawId = input.world?.laws[0]?.id;
+        const revision = baseRevision;
+        const lawId = world?.laws?.[0]?.id;
         const lawRef = input.referenceCatalog?.candidates.find((candidate) => candidate.kind === "law")?.handle;
         const actions = assignedModelActions(context);
         if (step === undefined || revision === undefined || !lawId || !lawRef || !actions) {
@@ -1012,11 +1191,11 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           kind: "transition",
           proposal: {
             outcomes: actions.map((action, index) => {
-              const activity = Object.values(input.canonicalTruth?.activities ?? {})
+              const activity = Object.values(canonicalTruth?.activities ?? {})
                 .find((candidate) => candidate.sourceActionId === action.id ||
                   candidate.sourceActionRef === `ref:action:${action.id}`);
               const continuing = Boolean(activity && (activity.completionAtSeconds === null ||
-                activity.completionAtSeconds > (input.temporalBoundary?.toElapsedSeconds ?? 0)));
+                activity.completionAtSeconds > (stateSection.temporalBoundary?.toElapsedSeconds ?? 0)));
               return {
               proposalKey: `outcome-${index}`,
               actionRef: action.actionRef,
@@ -1039,8 +1218,8 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           },
         };
       }
-      const agentId = input.perspective?.agentId;
-      const revision = input.revision;
+      const agentId = stateSection.perspective?.agentId;
+      const revision = baseRevision;
       if (!agentId || revision === undefined) throw new Error("deterministic AgentMind context is incomplete");
       return deterministicAgentMindOutput();
 }

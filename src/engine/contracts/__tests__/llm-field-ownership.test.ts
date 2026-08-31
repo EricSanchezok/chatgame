@@ -19,13 +19,13 @@ const causalSource = {
 };
 
 const emptyCharacter = {
-  persona: { summary: "新生主体", voice: "平静", evidenceIds: [] },
-  traits: {},
-  values: {},
-  emotions: {},
-  attitudes: {},
-  goals: {},
-  commitments: {},
+  persona: { summary: "新生主体", voice: "平静", evidenceRefs: [] },
+  traits: [],
+  values: [],
+  emotions: [],
+  attitudes: [],
+  goals: [],
+  commitments: [],
 };
 
 function transitionWith(operation?: unknown) {
@@ -195,13 +195,11 @@ describe("LLM output field ownership", () => {
           entityRef: { proposalKey: "xiaoming-body" },
           character: emptyCharacter,
           belief: {
-            localEntities: {
-              self: { id: "self", name: "我", description: "小明自己", status: "observed" },
-            },
-            claims: {},
-            evidence: {},
+            localEntities: [{ proposalKey: "self", name: "我", description: "小明自己", status: "observed" }],
+            claims: [],
+            evidence: [],
           },
-          bindings: { self: { localEntityId: "self", canonicalEntityRefs: [{ proposalKey: "xiaoming-body" }] } },
+          bindings: [{ localEntityRef: { proposalKey: "self" }, canonicalEntityRefs: [{ proposalKey: "xiaoming-body" }] }],
         },
         ...causalSource,
       },

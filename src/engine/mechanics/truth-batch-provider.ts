@@ -95,20 +95,22 @@ function contextBoundary(request: StructuredModelRequest<unknown>): string {
   if (!context || typeof context !== "object" || Array.isArray(context))
     return "unknown";
   const execution = context.execution as Record<string, unknown> | undefined;
-  const scope = context.resolutionScope as
+  const task = context.task as Record<string, unknown> | undefined;
+  const state = context.state as Record<string, unknown> | undefined;
+  const scope = task?.resolutionScope as
     Record<string, unknown> | null | undefined;
-  const observationSlots = Array.isArray(context.observationSlots)
-    ? context.observationSlots
+  const observationSlots = Array.isArray(task?.observationSlots)
+    ? task.observationSlots
     : null;
   return contentHash({
     contractVersion: context.contractVersion ?? null,
     promptVersion: context.promptVersion ?? request.promptVersion,
-    worldId: (context.world as Record<string, unknown> | undefined)?.id ?? null,
+    worldId: (execution?.worldId as string | undefined) ?? null,
     instanceId: execution?.instanceId ?? request.workloadId,
     advanceId: execution?.advanceId ?? request.batchId,
-    baseRevision: context.baseRevision ?? null,
-    step: context.step ?? context.nextStep ?? null,
-    stage: context.stage ?? request.schemaName,
+    baseRevision: state?.baseRevision ?? execution?.revision ?? null,
+    step: state?.step ?? execution?.step ?? null,
+    stage: task?.stage ?? request.schemaName,
     resolutionMode: scope?.mode ?? null,
     observerProjection: observationSlots ? "observation" : null,
   });
@@ -118,11 +120,9 @@ function repairBoundary(request: StructuredModelRequest<unknown>): string {
   const context = request.context as Record<string, unknown> | null;
   if (!context || typeof context !== "object" || Array.isArray(context))
     return "normal";
-  const repairTarget = context.repairTarget;
-  if (repairTarget && typeof repairTarget === "object") {
-    return `target:${(repairTarget as Record<string, unknown>).kind ?? "unknown"}`;
-  }
-  const issues = context.validationIssues;
+  const repair = context.repair as Record<string, unknown> | null | undefined;
+  if (repair?.target) return `target:${repair.target}`;
+  const issues = repair?.issues;
   return Array.isArray(issues) && issues.length > 0 ? "issues" : "normal";
 }
 
