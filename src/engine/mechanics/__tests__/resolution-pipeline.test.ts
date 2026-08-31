@@ -209,11 +209,18 @@ describe("resolution pipeline", () => {
         }
         transitionAttempts += 1;
         const input = context as {
-          state: { actionSet: { assigned: Array<{ actionRef: string; actorRef: string; rawText: string; goal: string; means: string | null; targetRefs: string[] }> } };
+          state: {
+            actionSet: { assigned: Array<{ actionRef: string; actorRef: string; rawText: string; goal: string; means: string | null; targetRefs: string[] }> };
+            world: { mechanicContracts: Array<{ mechanicRef: string }> };
+          };
           committedResolutionPlans: Array<{ planRef: string; actionRef: string }>;
           resolutionReceipts: Array<{ plan: { planRef: string; actionRef: string }; outcome: string | null; checkRef: string | null }>;
           checkResults: Array<{ checkRef: string; succeeded: boolean }>;
         };
+        expect(input.state.world.mechanicContracts.map((contract) => contract.mechanicRef))
+          .not.toContain("ref:mechanic:core-resolution::apply-receipt");
+        expect(input.state.world.mechanicContracts.map((contract) => contract.mechanicRef))
+          .not.toContain("ref:mechanic:core-resolution::advance-conditions");
         const actions = input.state.actionSet.assigned.map((action) => ({
           id: action.actionRef.replace(/^ref:action:/u, ""),
           actorId: action.actorRef.replace(/^ref:agent:/u, ""),

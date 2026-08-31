@@ -2097,7 +2097,9 @@ export class TruthEngine {
     let randomRngDrawsBefore: number | null = null;
     const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
       combineCompatibleModelAudits(audits);
-    const mechanicContracts = this.rulePackages.promptContracts(input.definition.rulePackages);
+    const mechanicContracts = this.rulePackages.promptContracts(input.definition.rulePackages)
+      .filter((contract) => !(contract.packageId === "core-resolution" &&
+        (contract.ruleId === "apply-receipt" || contract.ruleId === "advance-conditions")));
     const mechanicIdentity = (reference: ModelReference): { packageId: string; ruleId: string } => {
       if (isProposalReference(reference)) {
         throw new Error(`mechanicRef cannot be a proposal: ${reference.proposalKey}`);
