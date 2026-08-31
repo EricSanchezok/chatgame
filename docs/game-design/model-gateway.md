@@ -30,8 +30,10 @@ profiles:
     description: 高吞吐世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, temporal-planner, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
-    max_output_tokens: 32768
-    max_input_bytes: 524288
+    max_output_tokens: 131072
+    # Application-level UTF-8 request budget; this is not the provider's
+    # token-based context window. Oversized batches are split before transport.
+    max_input_bytes: 4000000
     inference:
       thinking: disabled
       effort: auto

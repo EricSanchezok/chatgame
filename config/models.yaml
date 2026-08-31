@@ -137,7 +137,12 @@ profiles:
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-compilation, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
     max_output_tokens: 131072
-    max_input_bytes: 2000000
+    # DeepSeek V4 Pro and GLM-5.3-Flash both advertise a one-million-token
+    # context. Keep a byte-level guardrail that accommodates the current
+    # Blackmarsh action context (~3.54 MB observed) without allowing the
+    # provider-facing request to grow into the range that previously failed.
+    # Batching still bisects deterministically when a request reaches this cap.
+    max_input_bytes: 4000000
     inference:
       thinking: disabled
       effort: auto
