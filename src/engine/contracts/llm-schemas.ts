@@ -681,15 +681,52 @@ const modelResolutionDifficultySchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("environment"), band: z.enum(["trivial", "easy", "challenging", "hard", "extreme"]), source: modelResolutionSourceRefSchema }),
   z.strictObject({ kind: z.literal("opposed"), targetRef: modelReferenceSchema, ratingRef: modelReferenceSchema, source: modelResolutionSourceRefSchema }),
 ]);
-const modelResolutionFactorSchema = z.strictObject({
+const modelResolutionFactorBaseShape = {
   source: modelResolutionSourceRefSchema,
-  role: z.enum(["permission", "control", "potency", "protection", "secondary", "risk"]),
-  direction: z.enum(["helpful", "hindering", "neutral"]),
-  steps: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  explanation: z.string().min(1),
+};
+const modelNonNumericResolutionFactorSchema = (role: "permission" | "secondary" | "risk") => z.strictObject({
+  ...modelResolutionFactorBaseShape,
+  role: z.literal(role),
+  direction: z.literal("neutral"),
+  steps: z.literal(0),
   authority: z.enum(["semantic", "authored"]),
   channel: z.string().min(1).nullable(),
-  explanation: z.string().min(1),
 });
+const modelControlResolutionFactorSchema = z.strictObject({
+  ...modelResolutionFactorBaseShape,
+  role: z.literal("control"),
+  direction: z.enum(["helpful", "hindering"]),
+  steps: z.literal(1),
+  authority: z.enum(["semantic", "authored"]),
+  channel: z.string().min(1).nullable(),
+});
+const modelMagnitudeResolutionFactorSchema = (role: "potency" | "protection") => z.union([
+  z.strictObject({
+    ...modelResolutionFactorBaseShape,
+    role: z.literal(role),
+    direction: z.enum(["helpful", "hindering"]),
+    steps: z.literal(1),
+    authority: z.literal("semantic"),
+    channel: z.string().min(1),
+  }),
+  z.strictObject({
+    ...modelResolutionFactorBaseShape,
+    role: z.literal(role),
+    direction: z.enum(["helpful", "hindering"]),
+    steps: z.union([z.literal(1), z.literal(2)]),
+    authority: z.literal("authored"),
+    channel: z.string().min(1),
+  }),
+]);
+const modelResolutionFactorSchema = z.union([
+  modelNonNumericResolutionFactorSchema("permission"),
+  modelNonNumericResolutionFactorSchema("secondary"),
+  modelNonNumericResolutionFactorSchema("risk"),
+  modelControlResolutionFactorSchema,
+  modelMagnitudeResolutionFactorSchema("potency"),
+  modelMagnitudeResolutionFactorSchema("protection"),
+]);
 const modelResolutionPlanBaseShape = {
   proposalKey: proposalKeySchema,
   actionRef: modelReferenceSchema,

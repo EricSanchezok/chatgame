@@ -175,6 +175,48 @@ describe("LLM output field ownership", () => {
       kind: "commit_plans",
       plans: [{ ...plan, causes: [{ kind: "entity", ref: "ref:entity:actor-local" }] }],
     }).success).toBe(false);
+    const factor = {
+      source: { kind: "entity" as const, ref: "ref:entity:actor-local" },
+      role: "permission" as const,
+      direction: "neutral" as const,
+      steps: 0 as const,
+      authority: "semantic" as const,
+      channel: "perception",
+      explanation: "The actor is present and permitted to observe.",
+    };
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{ ...plan, factors: [factor] }],
+    }).success).toBe(true);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{ ...plan, factors: [{ ...factor, direction: "helpful" }] }],
+    }).success).toBe(false);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{
+        ...plan,
+        factors: [{
+          ...factor,
+          role: "potency",
+          direction: "helpful",
+          steps: 2,
+          authority: "authored",
+        }],
+      }],
+    }).success).toBe(true);
+    expect(resolutionDirectiveSchema.safeParse({
+      kind: "commit_plans",
+      plans: [{
+        ...plan,
+        factors: [{
+          ...factor,
+          role: "potency",
+          direction: "helpful",
+          steps: 2,
+        }],
+      }],
+    }).success).toBe(false);
   });
 
   it("lets reaction routing describe private semantics without assigning runtime identities", () => {
