@@ -1,5 +1,6 @@
 import { contentHash } from "../models/model-audit";
 import { z } from "zod";
+import type { AgentState, ObservationPacket } from "./model";
 
 /**
  * The model-facing contract is deliberately separate from the engine's
@@ -12,6 +13,10 @@ export const MODEL_REFERENCE_CATALOG_VERSION = 1 as const;
 
 export type ExistingReferenceHandle = string & { readonly __existingReferenceHandle: unique symbol };
 export type ProposalKey = string & { readonly __proposalKey: unique symbol };
+export interface ProposalReference {
+  proposalKey: ProposalKey;
+}
+export type ModelReference = ExistingReferenceHandle | ProposalReference;
 
 export const existingReferenceHandleSchema = z.string().regex(
   /^ref:[\p{L}\p{N}_:-]+$/u,
@@ -23,6 +28,14 @@ export const proposalKeySchema = z.string().min(1).max(128).refine(
   "must be NFC, trimmed, and control-free",
 ) as unknown as z.ZodType<ProposalKey>;
 
+/** A model may either select an existing catalog entry or refer to a proposal
+ * made earlier in the same response. Proposal references never resolve to a
+ * canonical id until the engine has validated the complete patch. */
+export const modelReferenceSchema = z.union([
+  existingReferenceHandleSchema,
+  z.strictObject({ proposalKey: proposalKeySchema }),
+]) as z.ZodType<ModelReference>;
+
 export type ModelReferenceKind =
   | "agent"
   | "entity"
@@ -30,6 +43,11 @@ export type ModelReferenceKind =
   | "fact"
   | "claim"
   | "evidence"
+  | "character_facet"
+  | "emotion"
+  | "attitude"
+  | "goal"
+  | "commitment"
   | "observation"
   | "action"
   | "event"
@@ -90,6 +108,47 @@ export interface ModelRoleContract {
   existingReferenceRule: string;
   proposalRule: string;
   failureRule: string;
+}
+
+export function modelRoleContract(role: string): ModelRoleContract {
+  const contracts: Record<string, ModelRoleContract> = {
+    "agent-bootstrap": {
+      role,
+      purpose: "initialize one Agent's private belief and character state and propose its first action",
+      modelOwns: ["evidence-supported private changes", "natural-language action intent"],
+      engineOwns: ["Agent identity", "revision", "timestamps", "persistent IDs", "canonical bindings"],
+      existingReferenceRule: "select existing private objects with this slot's handles",
+      proposalRule: "use proposalKey for new private objects",
+      failureRule: "leave uncertain references out and report the exact issue for targeted repair",
+    },
+    "agent-mind": {
+      role,
+      purpose: "update one Agent's private state from authorized evidence and propose its next action",
+      modelOwns: ["evidence-supported private changes", "natural-language action intent"],
+      engineOwns: ["Agent identity", "revision", "timestamps", "persistent IDs", "canonical bindings"],
+      existingReferenceRule: "select existing private objects with this slot's handles",
+      proposalRule: "use proposalKey for new private objects",
+      failureRule: "leave uncertain references out and report the exact issue for targeted repair",
+    },
+    "agent-reaction": {
+      role,
+      purpose: "keep or replace one prepared action after one private stimulus",
+      modelOwns: ["keep or replace decision", "natural-language replacement intent"],
+      engineOwns: ["request identity", "Agent identity", "revision", "action identity"],
+      existingReferenceRule: "select targetable local objects with this slot's handles",
+      proposalRule: "replacement actions do not create canonical objects",
+      failureRule: "return a targeted reference issue instead of guessing",
+    },
+  };
+  return contracts[role] ?? {
+    role,
+    purpose: "complete the assigned semantic decision",
+    modelOwns: ["the semantic decision described by the task"],
+    engineOwns: ["identity", "revision", "persistence", "validation"],
+    existingReferenceRule: "select only candidates from the reference catalog",
+    proposalRule: "use proposalKey for newly proposed objects",
+    failureRule: "report an exact issue for targeted repair",
+  };
 }
 
 export interface ModelTaskAssignment {
@@ -253,6 +312,10 @@ export function proposalKey(value: string): ProposalKey {
   return normalized as ProposalKey;
 }
 
+export function isProposalReference(value: ModelReference): value is ProposalReference {
+  return typeof value === "object" && value !== null && "proposalKey" in value;
+}
+
 export function modelRepairIssueFromReferenceError(
   error: ModelReferenceError,
   path: Array<string | number>,
@@ -266,4 +329,103 @@ export function modelRepairIssueFromReferenceError(
     allowedHandles: [...error.allowedHandles],
     reason,
   };
+}
+
+export function createAgentReferenceResolver(
+  agent: Readonly<AgentState>,
+  observations: readonly ObservationPacket[] = [],
+): ReferenceResolver {
+  const candidates: ReferenceCandidateInput[] = [
+    ...Object.values(agent.belief.localEntities).map((entity) => ({
+      kind: "local_entity" as const,
+      engineId: entity.id,
+      label: entity.name,
+      meaning: "an entity in this Agent's private belief namespace",
+      allowedUses: ["target", "subject", "evidence", "assertion"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.belief.localEntities.${entity.id}`,
+    })),
+    ...Object.values(agent.belief.evidence).map((evidence) => ({
+      kind: "evidence" as const,
+      engineId: evidence.id,
+      label: evidence.description,
+      meaning: "private evidence available to this Agent",
+      allowedUses: ["evidence", "source"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.belief.evidence.${evidence.id}`,
+    })),
+    ...Object.values(agent.belief.claims).map((claim) => ({
+      kind: "claim" as const,
+      engineId: claim.id,
+      label: claim.predicate,
+      meaning: "a claim in this Agent's private belief state",
+      allowedUses: ["target", "subject", "assertion", "source"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.belief.claims.${claim.id}`,
+    })),
+    ...Object.values(agent.character.traits).map((facet) => ({
+      kind: "character_facet" as const,
+      engineId: facet.id,
+      label: facet.description,
+      meaning: "an existing private character trait",
+      allowedUses: ["source", "replacement"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.character.traits.${facet.id}`,
+    })),
+    ...Object.values(agent.character.values).map((facet) => ({
+      kind: "character_facet" as const,
+      engineId: facet.id,
+      label: facet.description,
+      meaning: "an existing private character value",
+      allowedUses: ["source", "replacement"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.character.values.${facet.id}`,
+    })),
+    ...Object.values(agent.character.emotions).map((emotion) => ({
+      kind: "emotion" as const,
+      engineId: emotion.id,
+      label: emotion.description,
+      meaning: "an existing private emotion",
+      allowedUses: ["source", "replacement"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.character.emotions.${emotion.id}`,
+    })),
+    ...Object.values(agent.character.attitudes).map((attitude) => ({
+      kind: "attitude" as const,
+      engineId: attitude.id,
+      label: attitude.description,
+      meaning: "an existing private attitude",
+      allowedUses: ["source", "replacement"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.character.attitudes.${attitude.id}`,
+    })),
+    ...Object.values(agent.character.goals).map((goal) => ({
+      kind: "goal" as const,
+      engineId: goal.id,
+      label: goal.description,
+      meaning: "an existing private goal",
+      allowedUses: ["source", "replacement"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.character.goals.${goal.id}`,
+    })),
+    ...Object.values(agent.character.commitments).map((commitment) => ({
+      kind: "commitment" as const,
+      engineId: commitment.id,
+      label: commitment.description,
+      meaning: "an existing private commitment",
+      allowedUses: ["source", "replacement"] as const,
+      visibility: "slot" as const,
+      statePath: `state.agent.character.commitments.${commitment.id}`,
+    })),
+    ...observations.map((observation) => ({
+      kind: "observation" as const,
+      engineId: observation.id,
+      label: observation.summary,
+      meaning: "an observation this Agent is allowed to use as evidence",
+      allowedUses: ["evidence", "source", "stimulus"] as const,
+      visibility: "slot" as const,
+      statePath: `state.observations.${observation.id}`,
+    })),
+  ];
+  return createReferenceResolver(candidates);
 }

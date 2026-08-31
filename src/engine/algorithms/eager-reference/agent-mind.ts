@@ -10,7 +10,9 @@ import {
 import type {
   AgentActionProposal,
   AgentState,
+  BeliefPatch,
   BeliefPatchOperation,
+  CharacterPatch,
   ModelExecutionAudit,
   ObservationPacket,
   ReactionDecision,
@@ -46,6 +48,12 @@ import {
   validationIssues,
   type PromptValidationIssue,
 } from "../../contracts/prompts";
+import {
+  createAgentReferenceResolver,
+  isProposalReference,
+  type ModelReference,
+  type ReferenceResolver,
+} from "../../contracts/model-context";
 import { promptBundle } from "../../prompts";
 import { runtimeId } from "../../runtime/runtime-id";
 import {
@@ -57,7 +65,7 @@ import {
 function assertBeliefIdentityHistory(
   state: SimulationState,
   agent: AgentState,
-  output: AgentMindDraftOutput,
+  patch: BeliefPatch,
 ): void {
   const usedLocalIds = new Set([
     ...Object.keys(state.historyBase?.agents[agent.id]?.belief.localEntities ?? {}),
@@ -103,7 +111,7 @@ function assertBeliefIdentityHistory(
     }
   }
   const activeLocalIds = new Set(Object.keys(agent.belief.localEntities));
-  for (const operation of output.beliefPatch.operations) {
+  for (const operation of patch.operations) {
     if (operation.kind === "upsert_local_entity") {
       if (!activeLocalIds.has(operation.entity.id) && usedLocalIds.has(operation.entity.id)) {
         throw new Error(`AgentMind ${agent.id} reuses retired local identity ${operation.entity.id}`);
@@ -133,6 +141,220 @@ function assertBeliefIdentityHistory(
   }
 }
 
+type ProposalBinding = { kind: string; id: string };
+
+function modelOwnedId(
+  agent: AgentState,
+  revision: number,
+  namespace: string,
+  key: string,
+): string {
+  return `agent-${namespace}-${contentHash({ agentId: agent.id, revision, namespace, key }).slice(0, 32)}`;
+}
+
+function resolveModelReference(
+  reference: ModelReference,
+  use: Parameters<ReferenceResolver["resolve"]>[1],
+  resolver: ReferenceResolver,
+  proposals: ReadonlyMap<string, ProposalBinding>,
+  expectedKinds: readonly string[],
+): string {
+  if (isProposalReference(reference)) {
+    const proposal = proposals.get(reference.proposalKey);
+    if (!proposal) {
+      throw new Error(`unknown proposalKey ${reference.proposalKey}; proposal keys must be declared before use`);
+    }
+    if (expectedKinds.length > 0 && !expectedKinds.includes(proposal.kind)) {
+      throw new Error(`proposalKey ${reference.proposalKey} is ${proposal.kind}, expected ${expectedKinds.join(" or ")}`);
+    }
+    return proposal.id;
+  }
+  const resolved = resolver.resolve(reference, use);
+  if (expectedKinds.length > 0 && !expectedKinds.includes(resolved.kind)) {
+    throw new Error(`reference ${reference} is ${resolved.kind}, expected ${expectedKinds.join(" or ")}`);
+  }
+  return resolved.engineId;
+}
+
+function registerProposal(
+  proposals: Map<string, ProposalBinding>,
+  key: string,
+  kind: string,
+  id: string,
+): void {
+  if (proposals.has(key)) throw new Error(`duplicate proposalKey ${key}`);
+  proposals.set(key, { kind, id });
+}
+
+function materializeBeliefPatch(
+  agent: AgentState,
+  state: SimulationState,
+  observations: readonly ObservationPacket[],
+  output: AgentMindDraftOutput,
+  resolver: ReferenceResolver,
+): { patch: BeliefPatch; proposals: ReadonlyMap<string, ProposalBinding> } {
+  const proposals = new Map<string, ProposalBinding>();
+  const operations: BeliefPatchOperation[] = [];
+  const resolve = (reference: ModelReference, use: Parameters<ReferenceResolver["resolve"]>[1], kinds: readonly string[]) =>
+    resolveModelReference(reference, use, resolver, proposals, kinds);
+  for (const [operationIndex, operation] of output.beliefChanges.operations.entries()) {
+    const path = `beliefChanges.operations[${operationIndex}]`;
+    switch (operation.kind) {
+      case "upsert_local_entity": {
+        const id = modelOwnedId(agent, state.revision, "local", operation.entity.proposalKey);
+        registerProposal(proposals, operation.entity.proposalKey, "local_entity", id);
+        operations.push({ kind: "upsert_local_entity", entity: { id, name: operation.entity.name, description: operation.entity.description, status: operation.entity.status } });
+        break;
+      }
+      case "remove_local_entity":
+        operations.push({ kind: operation.kind, localEntityId: resolve(operation.localEntityRef, "target", ["local_entity"]) });
+        break;
+      case "upsert_evidence": {
+        const id = modelOwnedId(agent, state.revision, "evidence", operation.evidence.proposalKey);
+        registerProposal(proposals, operation.evidence.proposalKey, "evidence", id);
+        const sourceId = operation.evidence.sourceRef === null
+          ? null
+          : resolve(operation.evidence.sourceRef, "source", ["observation", "evidence"]);
+        operations.push({
+          kind: operation.kind,
+          evidence: { id, kind: operation.evidence.kind, description: operation.evidence.description, sourceId, step: state.step },
+        });
+        break;
+      }
+      case "upsert_claim": {
+        const id = modelOwnedId(agent, state.revision, "claim", operation.claim.proposalKey);
+        registerProposal(proposals, operation.claim.proposalKey, "claim", id);
+        const value = operation.claim.value.kind === "local_entity"
+          ? { kind: "local_entity" as const, localEntityId: resolve(operation.claim.value.entityRef, "subject", ["local_entity"]) }
+          : structuredClone(operation.claim.value);
+        operations.push({
+          kind: operation.kind,
+          claim: {
+            id,
+            subjectId: resolve(operation.claim.subjectRef, "subject", ["local_entity"]),
+            predicate: operation.claim.predicate,
+            value,
+            description: operation.claim.description,
+            stance: operation.claim.stance,
+            confidence: operation.claim.confidence,
+            evidenceIds: operation.claim.evidenceRefs.map((reference) => resolve(reference, "evidence", ["evidence"])),
+          },
+        });
+        break;
+      }
+      case "remove_claim":
+        operations.push({ kind: operation.kind, claimId: resolve(operation.claimRef, "target", ["claim"]) });
+        break;
+      case "merge_local_entities":
+        operations.push({
+          kind: operation.kind,
+          fromId: resolve(operation.fromRef, "target", ["local_entity"]),
+          intoId: resolve(operation.intoRef, "target", ["local_entity"]),
+        });
+        break;
+      case "split_local_entity": {
+        const entities = operation.entities.map((entity) => {
+          const id = modelOwnedId(agent, state.revision, "local", entity.proposalKey);
+          registerProposal(proposals, entity.proposalKey, "local_entity", id);
+          return { id, name: entity.name, description: entity.description, status: entity.status };
+        });
+        operations.push({
+          kind: operation.kind,
+          fromId: resolve(operation.fromRef, "target", ["local_entity"]),
+          entities,
+          assignments: operation.assignments.map((assignment) => ({
+            claimId: resolve(assignment.claimRef, "target", ["claim"]),
+            subjectId: assignment.subjectRef === null ? null : resolve(assignment.subjectRef, "subject", ["local_entity"]),
+            valueId: assignment.valueRef === null ? null : resolve(assignment.valueRef, "subject", ["local_entity"]),
+          })),
+        });
+        break;
+      }
+      default:
+        throw new Error(`${path} has an unsupported belief operation`);
+    }
+  }
+  return {
+    patch: { agentId: agent.id, baseRevision: state.revision, operations },
+    proposals,
+  };
+}
+
+function materializeCharacterPatch(
+  agent: AgentState,
+  state: SimulationState,
+  observations: readonly ObservationPacket[],
+  output: AgentMindDraftOutput,
+  resolver: ReferenceResolver,
+  beliefProposals: ReadonlyMap<string, ProposalBinding>,
+): CharacterPatch {
+  const proposals = new Map<string, ProposalBinding>(beliefProposals);
+  const resolve = (reference: ModelReference, use: Parameters<ReferenceResolver["resolve"]>[1], kinds: readonly string[]) =>
+    resolveModelReference(reference, use, resolver, proposals, kinds);
+  const source = (operation: { observationRefs: ModelReference[]; evidenceRefs: ModelReference[] }) => ({
+    sourceObservationIds: operation.observationRefs.map((reference) => resolve(reference, "source", ["observation"])),
+    evidenceIds: operation.evidenceRefs.map((reference) => resolve(reference, "evidence", ["evidence"])),
+  });
+  const operations: CharacterPatch["operations"] = [];
+  const newId = (kind: string, key: string): string => {
+    const id = modelOwnedId(agent, state.revision, kind, key);
+    registerProposal(proposals, key, kind, id);
+    return id;
+  };
+  for (const operation of output.characterChanges.operations) {
+    switch (operation.kind) {
+      case "replace_persona":
+        operations.push({ kind: operation.kind, summary: operation.summary, voice: operation.voice, ...source(operation) });
+        break;
+      case "create_trait":
+      case "create_value":
+        operations.push({ kind: operation.kind, facet: { id: newId("character_facet", operation.facet.proposalKey), description: operation.facet.description, strength: operation.facet.strength }, ...source(operation) });
+        break;
+      case "update_trait":
+      case "update_value":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["character_facet"]), description: operation.description, strength: operation.strength, ...source(operation) });
+        break;
+      case "retire_trait":
+      case "retire_value":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["character_facet"]), ...source(operation) });
+        break;
+      case "set_emotion":
+        operations.push({ kind: operation.kind, emotion: { id: newId("emotion", operation.emotion.proposalKey), description: operation.emotion.description, intensity: operation.emotion.intensity }, ...source(operation) });
+        break;
+      case "resolve_emotion":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["emotion"]), ...source(operation) });
+        break;
+      case "set_attitude":
+        operations.push({ kind: operation.kind, attitude: { id: newId("attitude", operation.attitude.proposalKey), subjectId: resolve(operation.attitude.subjectRef, "subject", ["local_entity"]), description: operation.attitude.description, intensity: operation.attitude.intensity }, ...source(operation) });
+        break;
+      case "retire_attitude":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["attitude"]), ...source(operation) });
+        break;
+      case "create_goal":
+        operations.push({ kind: operation.kind, goal: { id: newId("goal", operation.goal.proposalKey), description: operation.goal.description, priority: operation.goal.priority, progress: operation.goal.progress, targetIds: operation.goal.targetRefs.map((reference) => resolve(reference, "target", ["local_entity"])), parentGoalId: operation.goal.parentGoalRef === null ? null : resolve(operation.goal.parentGoalRef, "replacement", ["goal"]), motivatedByIds: operation.goal.motivatedByRefs.map((reference) => resolve(reference, "replacement", ["character_facet", "commitment"])) }, ...source(operation) });
+        break;
+      case "update_goal":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["goal"]), description: operation.description, priority: operation.priority, progress: operation.progress, targetIds: operation.targetRefs === null ? null : operation.targetRefs.map((reference) => resolve(reference, "target", ["local_entity"])), parentGoal: operation.parentGoal.kind === "unchanged" ? operation.parentGoal : operation.parentGoal.kind === "none" ? operation.parentGoal : { kind: "goal", goalId: resolve(operation.parentGoal.goalRef, "replacement", ["goal"]) }, motivatedByIds: operation.motivatedByRefs === null ? null : operation.motivatedByRefs.map((reference) => resolve(reference, "replacement", ["character_facet", "commitment"])), ...source(operation) });
+        break;
+      case "set_goal_status":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["goal"]), status: operation.status, ...source(operation) });
+        break;
+      case "create_commitment":
+        operations.push({ kind: operation.kind, commitment: { id: newId("commitment", operation.commitment.proposalKey), description: operation.commitment.description, priority: operation.commitment.priority, subjectIds: operation.commitment.subjectRefs.map((reference) => resolve(reference, "target", ["local_entity"])) }, ...source(operation) });
+        break;
+      case "update_commitment":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["commitment"]), description: operation.description, priority: operation.priority, subjectIds: operation.subjectRefs === null ? null : operation.subjectRefs.map((reference) => resolve(reference, "target", ["local_entity"])), ...source(operation) });
+        break;
+      case "set_commitment_status":
+        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["commitment"]), status: operation.status, ...source(operation) });
+        break;
+      default:
+        throw new Error("characterChanges contains an unsupported operation");
+    }
+  }
+  return { agentId: agent.id, baseRevision: state.revision, operations };
+}
+
 function validateMindOutput(
   agent: AgentState,
   state: SimulationState,
@@ -141,23 +363,10 @@ function validateMindOutput(
   output: AgentMindDraftOutput,
 ): AgentMindOutput {
   const { revision, step, worldHash } = state;
-  assertBeliefIdentityHistory(state, agent, output);
-  const beliefPatch = {
-    agentId: agent.id,
-    baseRevision: revision,
-    operations: output.beliefPatch.operations.map((operation): BeliefPatchOperation =>
-      operation.kind === "upsert_evidence"
-        ? {
-            ...structuredClone(operation),
-            evidence: { ...structuredClone(operation.evidence), step },
-          }
-        : structuredClone(operation)),
-  };
-  const characterPatch = {
-    agentId: agent.id,
-    baseRevision: revision,
-    operations: structuredClone(output.characterPatch.operations),
-  };
+  const resolver = createAgentReferenceResolver(agent, observations);
+  const beliefMaterialization = materializeBeliefPatch(agent, state, observations, output, resolver);
+  const beliefPatch = beliefMaterialization.patch;
+  assertBeliefIdentityHistory(state, agent, beliefPatch);
   const belief = applyBeliefPatch(agent.belief, beliefPatch);
   // Local identity is an Agent-owned namespace. A model may describe a
   // canonical entity, but it must choose a distinct local alias (for example
@@ -168,17 +377,30 @@ function validateMindOutput(
       throw new Error(`AgentMind ${agent.id} local entity ${localEntityId} collides with canonical entity id; choose a local alias`);
     }
   }
+  const characterPatch = materializeCharacterPatch(
+    agent,
+    state,
+    observations,
+    output,
+    resolver,
+    beliefMaterialization.proposals,
+  );
   applyCharacterPatch(agent.character, belief, characterPatch, step, observations, events);
-  for (const targetId of output.nextAction.targetIds) {
-    if (!belief.localEntities[targetId]) {
-      throw new Error(`AgentMind ${agent.id} targeted unknown local entity ${targetId}`);
+  const targetIds = output.nextActionIntent.targetHandles.map((handle) => {
+    const resolved = resolver.resolve(handle, "target");
+    if (resolved.kind !== "local_entity" || !belief.localEntities[resolved.engineId]) {
+      throw new Error(`AgentMind ${agent.id} targeted unknown local entity handle ${handle}`);
     }
-  }
+    return resolved.engineId;
+  });
+  const { targetHandles: _targetHandles, ...nextActionText } = output.nextActionIntent;
+  void _targetHandles;
   return {
     beliefPatch,
     characterPatch,
     nextAction: {
-      ...output.nextAction,
+      ...nextActionText,
+      targetIds,
       id: runtimeId({
         worldHash,
         revision,
@@ -216,15 +438,20 @@ function validateReactionDecision(
   }
 
   const replacement = decision.replacementAction;
+  const resolver = createAgentReferenceResolver(agent, [stimulus]);
   const allowedTargets = new Set([
     ...Object.keys(agent.belief.localEntities),
     ...stimulus.introductions.map((introduction) => introduction.localEntity.id),
   ]);
-  for (const targetId of replacement.targetIds) {
-    if (!allowedTargets.has(targetId)) {
-      throw new Error(`Agent reaction ${agent.id} targeted unknown local entity ${targetId}`);
+  const targetIds = replacement.targetHandles.map((handle) => {
+    const resolved = resolver.resolve(handle, "target");
+    if (resolved.kind !== "local_entity" || !allowedTargets.has(resolved.engineId)) {
+      throw new Error(`Agent reaction ${agent.id} targeted unknown local entity handle ${handle}`);
     }
-  }
+    return resolved.engineId;
+  });
+  const { targetHandles: _targetHandles, ...replacementText } = replacement;
+  void _targetHandles;
   return {
     requestId: request.id,
     source: "model",
@@ -233,7 +460,8 @@ function validateReactionDecision(
     originalProposalId: originalAction.id,
     kind: "replace",
     replacementAction: {
-      ...replacement,
+      ...replacementText,
+      targetIds,
       id: runtimeId({
         worldHash,
         revision,

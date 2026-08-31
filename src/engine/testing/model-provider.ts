@@ -248,22 +248,24 @@ function automaticPlanDirective(context: unknown): unknown {
     jointActions?: Array<{ id: string; actorId: string; goal: string }>;
     actors?: Record<string, { entityId: string }>;
     world?: { disclosure?: { defaultCheckVisibility?: "full" | "result_only" | "hidden" } };
+    referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
   };
+  const handleFor = (kind: string, statePath: string, fallbackId: string): string =>
+    input.referenceCatalog?.candidates.find((candidate) => candidate.kind === kind && candidate.statePath === statePath)?.handle
+      ?? referenceHandleFor(kind as "action", fallbackId);
   return {
     kind: "commit_plans",
     plans: (input.jointActions ?? []).map((action, index) => {
       const actorId = input.actors?.[action.actorId]?.entityId;
       if (!actorId) throw new Error(`deterministic plan has no actor entity for ${action.actorId}`);
       return {
-        id: `plan-${index}`,
-        actionId: action.id,
-        actorId,
-        targetIds: [actorId],
-        goal: action.goal,
+        proposalKey: `plan-${index}`,
+        actionRef: handleFor("action", `task.actions.${action.id}`, action.id),
+        targetRefs: [referenceHandleFor("entity", actorId)],
         means: [],
         mode: "automatic",
         difficulty: null,
-        actorRatingId: null,
+        actorRatingRef: null,
         factors: [],
         risk: "safe",
         baseEffect: "none",
@@ -271,11 +273,176 @@ function automaticPlanDirective(context: unknown): unknown {
         secondaryEffect: null,
         threatenedEffect: null,
         visibility: input.world?.disclosure?.defaultCheckVisibility ?? "full",
-        causes: [{ kind: "action", id: action.id }],
+        causes: [{ kind: "action", ref: handleFor("action", `task.actions.${action.id}`, action.id) }],
       };
     }),
   };
 }
+
+/** Existing unit fixtures intentionally describe the internal plan shape. The
+ * scripted provider is a test boundary, so normalize those fixtures into the
+ * model-facing reference protocol before strict schema parsing. Production
+ * providers never receive this adapter. */
+/* eslint-disable @typescript-eslint/no-explicit-any -- legacy fixture adapter is isolated to tests. */
+function adaptScriptedResolutionOutput(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const value = raw as { kind?: string; plans?: unknown[] };
+  if (value.kind !== "commit_plans" || !Array.isArray(value.plans)) return raw;
+  const ref = (kind: string, id: unknown): unknown =>
+    typeof id === "string" ? referenceHandleFor(kind as "action", id) : id;
+  const source = (item: any): any => ({ kind: item.kind, ref: ref(item.kind, item.id) });
+  const effect = (item: any, includeMagnitude = true): any => item === null ? null : item.kind === "meter" ? {
+    kind: item.kind,
+    proposalKey: item.proposalKey ?? item.id,
+    targetRef: item.targetRef ?? ref("entity", item.targetId),
+    channel: item.channel,
+    label: item.label,
+    description: item.description,
+    sourceRefs: (item.sourceRefs ?? []).map(source),
+    meterRef: item.meterRef ?? ref("meter", item.meterId),
+    impactProfileRef: item.impactProfileRef ?? ref("mechanic", item.impactProfileId),
+    ...(includeMagnitude ? { magnitude: item.magnitude } : {}),
+  } : {
+    kind: item.kind,
+    proposalKey: item.proposalKey ?? item.id,
+    targetRef: item.targetRef ?? ref("entity", item.targetId),
+    channel: item.channel,
+    label: item.label,
+    description: item.description,
+    sourceRefs: (item.sourceRefs ?? []).map(source),
+    conditionRef: item.conditionRef ?? { proposalKey: item.conditionId },
+    durationProfileRef: item.durationProfileRef ?? ref("mechanic", item.durationProfileId),
+    conditionProfileRef: item.conditionProfileRef === null ? null : item.conditionProfileRef ?? ref("mechanic", item.conditionProfileId),
+    access: item.access,
+    ...(includeMagnitude ? { magnitude: item.magnitude } : {}),
+  };
+  const plan = (item: any): any => ({
+    proposalKey: item.proposalKey ?? item.id,
+    actionRef: item.actionRef ?? ref("action", item.actionId),
+    targetRefs: item.targetRefs ?? (item.targetIds ?? []).map((id: string) => ref("entity", id)),
+    means: (item.means ?? []).map((mean: any) => ({ ...mean, source: mean.source?.ref ? mean.source : source(mean.source) })),
+    mode: item.mode,
+    difficulty: item.difficulty === null ? null : item.difficulty ? item.difficulty.kind === "opposed"
+      ? { kind: "opposed", targetRef: item.difficulty.targetRef ?? ref("entity", item.difficulty.targetId), ratingRef: item.difficulty.ratingRef ?? ref("rating", item.difficulty.ratingId), source: item.difficulty.source?.ref ? item.difficulty.source : source(item.difficulty.source) }
+      : { kind: "environment", band: item.difficulty.band, source: item.difficulty.source?.ref ? item.difficulty.source : source(item.difficulty.source) }
+      : null,
+    actorRatingRef: item.actorRatingRef !== undefined
+      ? item.actorRatingRef
+      : item.actorRatingId == null ? null : ref("rating", item.actorRatingId),
+    factors: (item.factors ?? []).map((factor: any) => ({ ...factor, source: factor.source?.ref ? factor.source : source(factor.source) })),
+    risk: item.risk,
+    baseEffect: item.baseEffect,
+    primaryEffect: effect(item.primaryEffect),
+    secondaryEffect: effect(item.secondaryEffect),
+    threatenedEffect: effect(item.threatenedEffect, false),
+    visibility: item.visibility,
+    causes: (item.causes ?? []).map((cause: any) => ({ kind: cause.kind, ref: cause.ref ?? ref(cause.kind, cause.id) })),
+  });
+  return { ...value, plans: value.plans.map(plan) };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/* Unit fixtures may still use the persisted transition vocabulary. This
+ * adapter is intentionally confined to ScriptedModelProvider; production
+ * model providers are parsed directly against the semantic protocol. */
+/* eslint-disable @typescript-eslint/no-explicit-any -- isolated fixture adapter. */
+function adaptScriptedTransitionOutput(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  if ("slots" in raw && Array.isArray(raw.slots)) {
+    return {
+      ...raw,
+      slots: raw.slots.map((slot: any) => ({ ...slot, result: adaptScriptedTransitionOutput(slot.result) })),
+    };
+  }
+  if ((raw as { kind?: string }).kind === "transition" && "proposal" in raw) {
+    return adaptScriptedTransitionOutput((raw as { proposal: unknown }).proposal);
+  }
+  if ("invocation" in raw && raw.invocation && typeof raw.invocation === "object") {
+    const adapted = adaptScriptedTransitionOutput({ mechanicInvocations: [raw.invocation] }) as { mechanicInvocations: unknown[] };
+    return { invocation: adapted.mechanicInvocations[0] };
+  }
+  const value = raw as { outcomes?: any[]; mechanicInvocations?: any[]; operations?: any[]; events?: any[]; decisionRequests?: any[] };
+  const createdEntityIds = new Set((value.operations ?? [])
+    .filter((item) => item?.kind === "create_entity" && typeof item.entity?.id === "string")
+    .map((item) => item.entity.id as string));
+  const ref = (kind: string, id: unknown): unknown => typeof id === "string" ? referenceHandleFor(kind as "action", id) : id;
+  const causal = (item: any): any => ({ kind: item.kind, ref: item.ref ?? ref(item.kind, item.id) });
+  const assertion = (item: any): any => {
+    switch (item.kind) {
+      case "check_result": return { kind: item.kind, checkRef: ref("check", item.checkId), expected: item.expected };
+      case "random_result": return { kind: item.kind, requestRef: ref("random", item.requestId), stepRef: ref("random", item.stepId), expected: item.expected };
+      case "fact_matches": return { kind: item.kind, factRef: ref("fact", item.factId), expected: item.expected?.kind === "entity" ? { kind: "entity", entityRef: ref("entity", item.expected.entityId) } : item.expected };
+      case "fact_absent": return { kind: item.kind, factRef: ref("fact", item.factId) };
+      case "entity_absent": return { kind: item.kind, entityRef: { proposalKey: item.entityId } };
+      case "entity_lifecycle": return { kind: item.kind, entityRef: createdEntityIds.has(item.entityId) ? { proposalKey: item.entityId } : ref("entity", item.entityId), expected: item.expected };
+      case "placement_equals": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("entity", item.placementId) };
+      case "shared_placement": return { kind: item.kind, leftEntityRef: ref("entity", item.leftEntityId), rightEntityRef: ref("entity", item.rightEntityId) };
+      case "meter_compare": return { kind: item.kind, meterRef: ref("meter", item.meterId), operator: item.operator, value: item.value };
+      case "quantity_compare": return { kind: item.kind, definitionRef: ref("quantity", item.definitionId), holderRef: ref("entity", item.holderId), operator: item.operator, value: item.value };
+      case "rating_compare": return { kind: item.kind, ratingRef: ref("rating", item.ratingId), operator: item.operator, value: item.value };
+      case "shared_resource_capacity_compare": return { kind: item.kind, poolRef: ref("shared_resource_pool", item.poolId), operator: item.operator, value: item.value };
+      default: return item;
+    }
+  };
+  const operation = (item: any): any => {
+    const common = { causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) };
+    switch (item.kind) {
+      case "create_entity": return { kind: item.kind, entity: { proposalKey: item.entity.id, kind: item.entity.kind, name: item.entity.name, description: item.entity.description }, placementRef: item.placementId === null ? null : ref("entity", item.placementId), ...common };
+      case "retire_entity": return { kind: item.kind, entityRef: ref("entity", item.entityId), ...common };
+      case "place_entity": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("entity", item.placementId), ...common };
+      case "set_fact": return { kind: item.kind, fact: { proposalKey: item.fact.id, subjectRef: ref("entity", item.fact.subjectId), predicate: item.fact.predicate, value: item.fact.value?.kind === "entity" ? { kind: "entity", entityRef: ref("entity", item.fact.value.entityId) } : item.fact.value, description: item.fact.description, access: item.fact.access }, ...common };
+      case "create_agent": return { kind: item.kind, agent: { proposalKey: item.agent.id, entityRef: { proposalKey: item.agent.entityId }, character: item.agent.character, belief: item.agent.belief, bindings: item.agent.bindings }, ...common };
+      case "remove_fact": return { kind: item.kind, factRef: ref("fact", item.factId), ...common };
+      case "remove_agent": return { kind: item.kind, agentRef: ref("agent", item.agentId), ...common };
+      default: return item;
+    }
+  };
+  return {
+    outcomes: (value.outcomes ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id ?? item.proposalId, actionRef: item.actionRef ?? ref("action", item.proposalId), status: item.status, summary: item.summary, causes: (item.causes ?? item.causeRefs ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion), knownAlternatives: (item.knownAlternatives ?? []).map((alternative: any) => ({ description: alternative.description, evidenceRefs: alternative.evidenceRefs ?? alternative.basis?.evidenceIds?.map((id: string) => ref("evidence", id)) ?? [] })) })),
+    mechanicInvocations: (value.mechanicInvocations ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id, packageId: item.packageId, ruleId: item.ruleId, input: item.input, causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) })),
+    operations: (value.operations ?? []).map(operation),
+    events: (value.events ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id, description: item.description, impact: item.impact, causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) })),
+    decisionRequests: (value.decisionRequests ?? []).map((item) => ({ agentRef: item.agentRef ?? ref("agent", item.agentId), prompt: item.prompt, suggestions: item.suggestions })),
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/* Normalize legacy verifier fixtures at the test provider boundary. */
+/* eslint-disable @typescript-eslint/no-explicit-any -- isolated fixture adapter. */
+function adaptScriptedVerifierOutput(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  if ("slots" in raw && Array.isArray(raw.slots)) {
+    return {
+      ...raw,
+      slots: raw.slots.map((slot: any) => ({ ...slot, result: adaptScriptedVerifierOutput(slot.result) })),
+    };
+  }
+  const value = raw as { verdict?: string; findings?: any[] };
+  if (!Array.isArray(value.findings)) return raw;
+  return {
+    ...value,
+    findings: value.findings.map((finding) => {
+      const { planId: legacyPlanId, target: legacyTarget, ...rest } = finding;
+      const target = legacyTarget && typeof legacyTarget === "object"
+        ? (() => {
+          const { id: legacyTargetId, ...targetRest } = legacyTarget;
+          return legacyTargetId !== undefined
+            ? { ...targetRest, ref: refForVerifier(legacyTarget.kind, legacyTargetId) }
+            : legacyTarget;
+        })()
+        : legacyTarget;
+      return {
+        ...rest,
+        ...(legacyPlanId !== undefined ? { planRef: refForVerifier("plan", legacyPlanId) } : {}),
+        ...(target !== undefined ? { target } : {}),
+      };
+    }),
+  };
+}
+function refForVerifier(kind: string, id: unknown): unknown {
+  return typeof id === "string" ? referenceHandleFor(kind as "action", id) : id;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export class ScriptedModelProvider implements StructuredModelProvider {
   readonly requests: ScriptedModelHandlerRequest[] = [];
@@ -493,7 +660,14 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       }],
     };
     try {
-      return { value: request.schema.parse(raw), audit };
+      const normalizedRaw = request.schemaName.startsWith("truth_resolution")
+        ? adaptScriptedResolutionOutput(raw)
+        : request.schemaName.startsWith("truth_transition")
+          ? adaptScriptedTransitionOutput(raw)
+          : request.schemaName.startsWith("resolution_plan_verification") || request.schemaName.startsWith("causal_verification")
+            ? adaptScriptedVerifierOutput(raw)
+          : raw;
+      return { value: request.schema.parse(normalizedRaw), audit };
     } catch (error) {
       audit.invocations[0]!.semanticOutcome = "rejected";
       audit.invocations[0]!.validationIssueCodes = ["schema_validation"];
@@ -545,9 +719,11 @@ export function deterministicInteractionDependency(
 
 interface DeterministicMindSlot {
   slot: number;
-  perspective: {
-    agentId: string;
-    self: { name: string; location: { name: string } | null };
+  state: {
+    perspective: {
+      agentId: string;
+      self: { name: string; location: { name: string } | null };
+    };
   };
 }
 
@@ -630,13 +806,13 @@ export function deterministicActionCompilationBatch(
 
 function deterministicAgentMindOutput(): AgentMindDraftOutput {
   return {
-    beliefPatch: { operations: [] },
-    characterPatch: { operations: [] },
-    nextAction: {
+    beliefChanges: { operations: [] },
+    characterChanges: { operations: [] },
+    nextActionIntent: {
       rawText: "维持当前目标并观察世界",
       goal: "继续自主行动",
       means: null,
-      targetIds: [],
+      targetHandles: [],
     },
   };
 }
@@ -681,22 +857,28 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         canonicalTruth?: {
           activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
         };
-        referenceCatalog?: { candidates: Array<{ kind: string; handle: string }> };
+        referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
         task?: { action?: DeterministicCompilationAction };
+        state?: {
+          perspective?: { agentId: string; self: { name: string; location: { name: string } | null } };
+          preparedAction?: unknown;
+          stimulus?: unknown;
+        };
       };
       const actionInput = input.action ?? input.task?.action;
       if (input.slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) &&
         input.temporalProfiles) {
         return deterministicActionCompilationBatch(profileId, context);
       }
-      if (input.slots?.every((slot): slot is DeterministicMindSlot => "perspective" in slot)) {
+      if (input.slots?.every((slot): slot is DeterministicMindSlot => "state" in slot &&
+        Boolean((slot as DeterministicMindSlot).state?.perspective))) {
         return deterministicAgentMindBatch(context);
       }
       if (actionInput && input.temporalProfiles) {
         return deterministicActionCompilation(actionInput, input.temporalProfiles);
       }
       if (actionInput) {
-        const worldHandle = (input.referenceCatalog?.candidates as Array<{ kind: string; handle: string }> | undefined)
+        const worldHandle = (input.referenceCatalog?.candidates as Array<{ kind: string; handle: string; statePath?: string }> | undefined)
           ?.find((candidate) => candidate.kind === "world")?.handle;
         if (!worldHandle) throw new Error("deterministic grounding requires a world reference handle");
         return {
@@ -709,6 +891,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           requiresWorldWideArbitration: true,
         };
       }
+      if (input.state?.preparedAction && input.state.stimulus) return { kind: "keep" };
       if (input.perspective && input.revision === undefined) {
         return {
           title: `此刻，你是${input.perspective.self.name}`,
@@ -732,7 +915,10 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           summary: "世界继续变化。",
           introductions: [],
           apparentClaims: [],
-          sourceEventIds: input.currentEvents?.map((event) => event.id) ?? [],
+          sourceEventRefs: (input.currentEvents ?? []).map((event) =>
+            input.referenceCatalog?.candidates.find((candidate) =>
+              candidate.kind === "event" && candidate.statePath === `proposal.events.${event.id}`)?.handle,
+          ).filter((handle): handle is string => Boolean(handle)),
         };
       }
       if (profileId.startsWith("truth-")) {

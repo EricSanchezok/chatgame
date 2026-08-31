@@ -30,6 +30,7 @@ import type {
   SharedActivityResourceDefinition,
   SharedActivityResourcePool,
 } from "../mechanics/shared-activity-resources";
+import type { ExistingReferenceHandle } from "./model-context";
 
 export type EntityId = string;
 export type AgentId = string;
@@ -376,8 +377,8 @@ export interface AgentActionProposal {
 
 export type AgentActionDraft = Pick<
   AgentActionProposal,
-  "rawText" | "goal" | "means" | "targetIds"
->;
+  "rawText" | "goal" | "means"
+> & { targetHandles: ExistingReferenceHandle[] };
 
 export interface AgentState {
   id: AgentId;

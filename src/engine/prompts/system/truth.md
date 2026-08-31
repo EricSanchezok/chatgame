@@ -22,4 +22,4 @@ Do not generate private cognition or observations for a subject. Do not reveal h
 
 ## Output
 
-Return exactly the structured result required by the schema. Use the schema's discriminator and references exactly; output no Markdown, explanation, or chain of thought.
+Return exactly the structured result required by the schema. Use the schema's discriminator and references exactly. Existing objects are selected only with handles from `referenceCatalog`; fields ending in `Ref` never contain engine ids. New records use a unique `proposalKey` and may be referenced later with `{ "proposalKey": "..." }`. The engine assigns check, event, outcome, mechanic, operation, and observation ids after validation. Output no Markdown, explanation, or chain of thought.

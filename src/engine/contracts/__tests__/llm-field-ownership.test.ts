@@ -14,7 +14,7 @@ import {
 } from "../llm-schemas";
 
 const causalSource = {
-  causes: [{ kind: "law" as const, id: "world-law" }],
+  causes: [{ kind: "law" as const, ref: "ref:law:world-law" }],
   assertions: [{ kind: "elapsed_seconds_compare" as const, operator: "gte" as const, value: 0 }],
 };
 
@@ -34,7 +34,7 @@ function transitionWith(operation?: unknown) {
     mechanicInvocations: [],
     operations: operation === undefined ? [] : [operation],
     events: [{
-      id: "event-local",
+      proposalKey: "event-local",
       description: "候选内事件。",
       impact: "ordinary",
       ...causalSource,
@@ -83,7 +83,7 @@ describe("LLM output field ownership", () => {
       summary: "看见庭院中的变化。",
       introductions: [],
       apparentClaims: [],
-      sourceEventIds: [],
+      sourceEventRefs: [],
     };
     expect(observationBatchSchema.safeParse({ observations: [observation] }).success).toBe(true);
     expect(observationBatchSchema.safeParse({
@@ -113,17 +113,17 @@ describe("LLM output field ownership", () => {
 
   it("keeps check aliases semantic while the engine owns phase", () => {
     const request = {
-      id: "check-local",
-      actorId: "agent-xiaoming",
-      targetId: null,
-      ratingId: null,
+      proposalKey: "check-local",
+      actorRef: "ref:entity:agent-xiaoming",
+      targetRef: null,
+      ratingRef: null,
       modifier: 0,
       modifierSources: [],
       dc: 10,
       mode: "normal",
       stakes: "判断是否成功。",
       visibility: "result_only",
-      causes: [{ kind: "law", id: "world-law" }],
+      causes: [{ kind: "law", ref: "ref:law:world-law" }],
     };
     expect(perceptionDirectiveSchema.safeParse({ kind: "request_checks", requests: [request] }).success)
       .toBe(true);
@@ -135,19 +135,20 @@ describe("LLM output field ownership", () => {
 
   it("lets reaction routing describe private semantics without assigning runtime identities", () => {
     const request = {
-      agentId: "agent-xiaoming",
-      sourceActionId: "action-local",
+      agentRef: "ref:agent:agent-xiaoming",
+      sourceActionRef: "ref:action:action-local",
       stimulus: {
         summary: "有人在呼唤。",
         introductions: [],
         apparentClaims: [{
-          subjectId: "speaker-local",
+          subjectRef: "ref:local_entity:speaker-local",
           predicate: "utterance",
           value: { kind: "text", value: "hello" },
           description: "听见一句话。",
         }],
+        sourceEventRefs: [],
       },
-      basis: [{ kind: "fact", factId: "audible-channel" }],
+      basis: [{ kind: "fact", factRef: "ref:fact:audible-channel" }],
     };
     expect(reactionRoutingOutputSchema.safeParse({ requests: [request] }).success).toBe(true);
     expect(reactionRoutingOutputSchema.safeParse({
@@ -167,19 +168,19 @@ describe("LLM output field ownership", () => {
       {
         kind: "create_entity",
         entity: {
-          id: "xiaoming-body",
+          proposalKey: "xiaoming-body",
           kind: "person",
           name: "小明",
           description: "一个新出现的人。",
         },
-        placementId: null,
+        placementRef: null,
         ...causalSource,
       },
       {
         kind: "set_fact",
         fact: {
-          id: "xiaoming-is-awake",
-          subjectId: "xiaoming-body",
+          proposalKey: "xiaoming-is-awake",
+          subjectRef: { proposalKey: "xiaoming-body" },
           predicate: "awake",
           value: { kind: "boolean", value: true },
           description: "小明醒着。",
@@ -190,8 +191,8 @@ describe("LLM output field ownership", () => {
       {
         kind: "create_agent",
         agent: {
-          id: "agent-xiaoming",
-          entityId: "xiaoming-body",
+          proposalKey: "agent-xiaoming",
+          entityRef: { proposalKey: "xiaoming-body" },
           character: emptyCharacter,
           belief: {
             localEntities: {
@@ -200,7 +201,7 @@ describe("LLM output field ownership", () => {
             claims: {},
             evidence: {},
           },
-          bindings: { self: { localEntityId: "self", canonicalEntityIds: ["xiaoming-body"] } },
+          bindings: { self: { localEntityId: "self", canonicalEntityRefs: [{ proposalKey: "xiaoming-body" }] } },
         },
         ...causalSource,
       },
@@ -250,27 +251,27 @@ describe("LLM output field ownership", () => {
 
   it("lets AgentMind name evidence while the engine owns its step", () => {
     const output = {
-      beliefPatch: {
+      beliefChanges: {
         operations: [{
           kind: "upsert_evidence",
           evidence: {
-            id: "heard-the-bell",
+            proposalKey: "heard-the-bell",
             kind: "observation",
             description: "我听见钟声。",
-            sourceId: "rt:observation:source",
+            sourceRef: null,
           },
         }],
       },
-      characterPatch: { operations: [] },
-      nextAction: { rawText: "寻找钟声来源", goal: "调查", means: null, targetIds: [] },
+      characterChanges: { operations: [] },
+      nextActionIntent: { rawText: "寻找钟声来源", goal: "调查", means: null, targetHandles: [] },
     };
     expect(agentMindOutputSchema.safeParse(output).success).toBe(true);
     expect(agentMindOutputSchema.safeParse({
       ...output,
       beliefPatch: {
         operations: [{
-          ...output.beliefPatch.operations[0],
-          evidence: { ...output.beliefPatch.operations[0].evidence, step: 1 },
+          ...output.beliefChanges.operations[0],
+          evidence: { ...output.beliefChanges.operations[0].evidence, step: 1 },
         }],
       },
     }).success).toBe(false);

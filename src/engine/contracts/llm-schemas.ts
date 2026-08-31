@@ -5,19 +5,15 @@ import type {
   AgentCharacterStateDraft,
   AgentStateDraft,
   BeliefPatch,
-  BeliefPatchDraftOperation,
   CausalAssertionResult,
   CausalVerification,
   CharacterPatch,
   D20CheckRequest,
-  D20CheckRequestDraft,
   MechanicResult,
   ReactionDecision,
   ReactionRequest,
-  ReactionStimulusDraft,
   TransitionProposal,
   TransitionProposalDraft,
-  ObservationRenderDraft,
   WorldDeltaOperation,
   WorldDeltaOperationDraft,
 } from "./model";
@@ -49,7 +45,7 @@ import {
   isNormalizedBoundedId,
   runtimeIdSchema,
 } from "./state-schemas";
-import { existingReferenceHandleSchema } from "./model-context";
+import { existingReferenceHandleSchema, modelReferenceSchema, proposalKeySchema } from "./model-context";
 
 const draftAliasSchema = z.string().min(1).refine(
   isNormalizedBoundedId,
@@ -60,7 +56,7 @@ export const actionDraftSchema = z.strictObject({
   rawText: z.string().min(1),
   goal: z.string().min(1),
   means: z.string().min(1).nullable(),
-  targetIds: z.array(semanticIdSchema),
+  targetHandles: z.array(existingReferenceHandleSchema),
 }) as z.ZodType<AgentActionDraft>;
 
 const causalSourceShape = {
@@ -104,10 +100,6 @@ export const beliefPatchSchema = z.strictObject({
   agentId: semanticIdSchema,
   baseRevision: z.number().int().nonnegative(),
   operations: z.array(makeBeliefPatchOperationSchema(evidenceSchema)),
-});
-
-const beliefPatchDraftSchema = z.strictObject({
-  operations: z.array(makeBeliefPatchOperationSchema(evidenceDraftSchema)),
 });
 
 const characterPatchSource = {
@@ -211,16 +203,95 @@ export const characterPatchSchema = z.strictObject({
   ])),
 });
 
+const modelLocalEntitySchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  name: z.string().min(1),
+  description: z.string(),
+  status: z.enum(["observed", "reported", "hypothesized"]),
+});
+
+export const modelBeliefValueSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("text"), value: z.string() }),
+  z.strictObject({ kind: z.literal("number"), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("boolean"), value: z.boolean() }),
+  z.strictObject({ kind: z.literal("local_entity"), entityRef: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("none") }),
+]);
+
+const modelEvidenceSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  kind: z.enum(["observation", "testimony", "inference", "assumption"]),
+  description: z.string().min(1),
+  sourceRef: modelReferenceSchema.nullable(),
+});
+
+const modelClaimSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  subjectRef: modelReferenceSchema,
+  predicate: z.string().min(1),
+  value: modelBeliefValueSchema,
+  description: z.string(),
+  stance: z.enum(["believed", "suspected", "disbelieved"]),
+  confidence: z.number().min(0).max(1),
+  evidenceRefs: z.array(modelReferenceSchema),
+});
+
+const modelBeliefChangesSchema = z.strictObject({
+  operations: z.array(z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("upsert_local_entity"), entity: modelLocalEntitySchema }),
+    z.strictObject({ kind: z.literal("remove_local_entity"), localEntityRef: modelReferenceSchema }),
+    z.strictObject({ kind: z.literal("upsert_evidence"), evidence: modelEvidenceSchema }),
+    z.strictObject({ kind: z.literal("upsert_claim"), claim: modelClaimSchema }),
+    z.strictObject({ kind: z.literal("remove_claim"), claimRef: modelReferenceSchema }),
+    z.strictObject({ kind: z.literal("merge_local_entities"), fromRef: modelReferenceSchema, intoRef: modelReferenceSchema }),
+    z.strictObject({
+      kind: z.literal("split_local_entity"),
+      fromRef: modelReferenceSchema,
+      entities: z.array(modelLocalEntitySchema).min(2),
+      assignments: z.array(z.strictObject({
+        claimRef: modelReferenceSchema,
+        subjectRef: modelReferenceSchema.nullable(),
+        valueRef: modelReferenceSchema.nullable(),
+      })),
+    }),
+  ])),
+});
+
+const modelCharacterSource = {
+  observationRefs: z.array(modelReferenceSchema).min(1),
+  evidenceRefs: z.array(modelReferenceSchema).min(1),
+};
+const modelExistingCharacterId = { ref: modelReferenceSchema };
+const modelNewCharacterId = { proposalKey: proposalKeySchema };
+const modelCharacterChangesSchema = z.strictObject({
+  operations: z.array(z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("replace_persona"), summary: z.string().min(1), voice: z.string(), ...modelCharacterSource }),
+    z.strictObject({ kind: z.enum(["create_trait", "create_value"]), facet: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), strength: z.number().min(0).max(1) }), ...modelCharacterSource }),
+    z.strictObject({ kind: z.enum(["update_trait", "update_value"]), ...modelExistingCharacterId, description: z.string().min(1).nullable(), strength: z.number().min(0).max(1).nullable(), ...modelCharacterSource }),
+    z.strictObject({ kind: z.enum(["retire_trait", "retire_value"]), ...modelExistingCharacterId, ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("set_emotion"), emotion: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), intensity: z.number().min(0).max(1) }), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("resolve_emotion"), ...modelExistingCharacterId, ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("set_attitude"), attitude: z.strictObject({ ...modelNewCharacterId, subjectRef: modelReferenceSchema, description: z.string().min(1), intensity: z.number().min(-1).max(1) }), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("retire_attitude"), ...modelExistingCharacterId, ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("create_goal"), goal: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), priority: z.number().min(0).max(1), progress: z.number().min(0).max(1), targetRefs: z.array(modelReferenceSchema), parentGoalRef: modelReferenceSchema.nullable(), motivatedByRefs: z.array(modelReferenceSchema) }), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("update_goal"), ...modelExistingCharacterId, description: z.string().min(1).nullable(), priority: z.number().min(0).max(1).nullable(), progress: z.number().min(0).max(1).nullable(), targetRefs: z.array(modelReferenceSchema).nullable(), parentGoal: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("unchanged") }), z.strictObject({ kind: z.literal("none") }), z.strictObject({ kind: z.literal("goal"), goalRef: modelReferenceSchema })]), motivatedByRefs: z.array(modelReferenceSchema).nullable(), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("set_goal_status"), ...modelExistingCharacterId, status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("create_commitment"), commitment: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), priority: z.number().min(0).max(1), subjectRefs: z.array(modelReferenceSchema) }), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("update_commitment"), ...modelExistingCharacterId, description: z.string().min(1).nullable(), priority: z.number().min(0).max(1).nullable(), subjectRefs: z.array(modelReferenceSchema).nullable(), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("set_commitment_status"), ...modelExistingCharacterId, status: z.enum(["active", "fulfilled", "broken", "released"]), ...modelCharacterSource }),
+  ])),
+});
+
 export interface AgentMindDraftOutput {
-  beliefPatch: { operations: BeliefPatchDraftOperation[] };
-  characterPatch: Pick<CharacterPatch, "operations">;
-  nextAction: AgentActionDraft;
+  beliefChanges: z.infer<typeof modelBeliefChangesSchema>;
+  characterChanges: z.infer<typeof modelCharacterChangesSchema>;
+  nextActionIntent: AgentActionDraft;
 }
 
 export const agentMindOutputSchema = z.strictObject({
-  beliefPatch: beliefPatchDraftSchema,
-  characterPatch: characterPatchSchema.pick({ operations: true }),
-  nextAction: actionDraftSchema,
+  beliefChanges: modelBeliefChangesSchema,
+  characterChanges: modelCharacterChangesSchema,
+  nextActionIntent: actionDraftSchema,
 }) as z.ZodType<AgentMindDraftOutput>;
 
 export interface AgentMindBatchDraftOutput {
@@ -230,9 +301,9 @@ export interface AgentMindBatchDraftOutput {
 export const agentMindBatchOutputSchema = z.strictObject({
   slots: z.array(z.strictObject({
     slot: z.number().int().nonnegative(),
-    beliefPatch: beliefPatchDraftSchema,
-    characterPatch: characterPatchSchema.pick({ operations: true }),
-    nextAction: actionDraftSchema,
+    beliefChanges: modelBeliefChangesSchema,
+    characterChanges: modelCharacterChangesSchema,
+    nextActionIntent: actionDraftSchema,
   })),
 }) as z.ZodType<AgentMindBatchDraftOutput>;
 
@@ -242,7 +313,137 @@ export interface AgentMindOutput {
   nextAction: AgentActionProposal;
 }
 
-const checkRequestShape = {
+export const modelCausalRefSchema = z.strictObject({
+  kind: z.enum(["action", "check", "random", "event", "fact", "law", "mechanic"]),
+  ref: modelReferenceSchema,
+});
+export type ModelCausalRef = z.infer<typeof modelCausalRefSchema>;
+
+export const modelFactValueSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("text"), value: z.string() }),
+  z.strictObject({ kind: z.literal("number"), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("boolean"), value: z.boolean() }),
+  z.strictObject({ kind: z.literal("entity"), entityRef: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("none") }),
+]);
+export type ModelFactValue = z.infer<typeof modelFactValueSchema>;
+
+export const modelCausalAssertionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("check_result"), checkRef: modelReferenceSchema, expected: z.enum(["succeeded", "failed"]) }),
+  z.strictObject({ kind: z.literal("random_result"), requestRef: modelReferenceSchema, stepRef: modelReferenceSchema, expected: z.json() }),
+  z.strictObject({ kind: z.literal("fact_matches"), factRef: modelReferenceSchema, expected: modelFactValueSchema }),
+  z.strictObject({ kind: z.literal("fact_absent"), factRef: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("entity_absent"), entityRef: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("entity_lifecycle"), entityRef: modelReferenceSchema, expected: z.enum(["active", "retired"]) }),
+  z.strictObject({ kind: z.literal("placement_equals"), entityRef: modelReferenceSchema, placementRef: modelReferenceSchema.nullable() }),
+  z.strictObject({ kind: z.literal("shared_placement"), leftEntityRef: modelReferenceSchema, rightEntityRef: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("meter_compare"), meterRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("quantity_compare"), definitionRef: modelReferenceSchema, holderRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("rating_compare"), ratingRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("shared_resource_capacity_compare"), poolRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("elapsed_seconds_compare"), operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+]);
+
+export type ModelCausalAssertion = z.infer<typeof modelCausalAssertionSchema>;
+
+/* Model-facing transition records use handles and proposal keys. The
+ * persistence schemas below intentionally remain engine-owned and are never
+ * supplied to a model. */
+const modelTransitionCausalSourceShape = {
+  causes: z.array(modelCausalRefSchema).min(1),
+  assertions: z.array(modelCausalAssertionSchema).min(1),
+};
+const modelTransitionEntitySchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  kind: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+});
+const modelTransitionFactSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  subjectRef: modelReferenceSchema,
+  predicate: z.string().min(1),
+  value: modelFactValueSchema,
+  description: z.string(),
+  access: accessSchema,
+});
+const modelTransitionAgentSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  entityRef: modelReferenceSchema,
+  character: z.json(),
+  belief: z.json(),
+  bindings: z.json(),
+});
+const modelWorldDeltaOperationSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("create_entity"), entity: modelTransitionEntitySchema, placementRef: modelReferenceSchema.nullable(), ...modelTransitionCausalSourceShape }),
+  z.strictObject({ kind: z.literal("retire_entity"), entityRef: modelReferenceSchema, ...modelTransitionCausalSourceShape }),
+  z.strictObject({ kind: z.literal("place_entity"), entityRef: modelReferenceSchema, placementRef: modelReferenceSchema.nullable(), ...modelTransitionCausalSourceShape }),
+  z.strictObject({ kind: z.literal("set_fact"), fact: modelTransitionFactSchema, ...modelTransitionCausalSourceShape }),
+  z.strictObject({ kind: z.literal("remove_fact"), factRef: modelReferenceSchema, ...modelTransitionCausalSourceShape }),
+  z.strictObject({ kind: z.literal("create_agent"), agent: modelTransitionAgentSchema, ...modelTransitionCausalSourceShape }),
+  z.strictObject({ kind: z.literal("remove_agent"), agentRef: modelReferenceSchema, ...modelTransitionCausalSourceShape }),
+]);
+const modelMechanicInvocationSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  packageId: safeIdSchema,
+  ruleId: safeIdSchema,
+  input: z.json(),
+  ...modelTransitionCausalSourceShape,
+});
+const modelTransitionOutcomeSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  actionRef: modelReferenceSchema,
+  status: z.enum(["succeeded", "partial", "failed", "blocked", "continuing"]),
+  summary: z.string(),
+  causes: z.array(modelCausalRefSchema),
+  assertions: z.array(modelCausalAssertionSchema).min(1),
+  knownAlternatives: z.array(z.strictObject({
+    description: z.string().min(1),
+    evidenceRefs: z.array(modelReferenceSchema).min(1),
+  })),
+});
+const modelWorldEventSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  description: z.string(),
+  impact: z.enum(["ordinary", "significant", "transformative"]),
+  ...modelTransitionCausalSourceShape,
+});
+const modelDecisionRequestSchema = z.strictObject({
+  agentRef: modelReferenceSchema,
+  prompt: z.string().min(1),
+  suggestions: z.array(z.string().min(1)).max(3),
+});
+export const modelTransitionProposalSchema = z.strictObject({
+  outcomes: z.array(modelTransitionOutcomeSchema),
+  mechanicInvocations: z.array(modelMechanicInvocationSchema),
+  operations: z.array(modelWorldDeltaOperationSchema),
+  events: z.array(modelWorldEventSchema),
+  decisionRequests: z.array(modelDecisionRequestSchema),
+});
+export type ModelTransitionProposalDraft = z.infer<typeof modelTransitionProposalSchema>;
+
+const modelCheckRequestShape = {
+  proposalKey: proposalKeySchema,
+  actorRef: modelReferenceSchema,
+  targetRef: modelReferenceSchema.nullable(),
+  ratingRef: modelReferenceSchema.nullable(),
+  modifier: z.number().int(),
+  modifierSources: z.array(z.strictObject({
+    kind: z.literal("rating"),
+    ref: modelReferenceSchema,
+    amount: z.number().int().min(-100).max(100),
+  })).max(1),
+  dc: z.number().int().min(0).max(100),
+  mode: z.enum(["normal", "advantage", "disadvantage"]),
+  stakes: z.string().min(1),
+  visibility: z.enum(["full", "result_only", "hidden"]),
+  causes: z.array(modelCausalRefSchema).min(1),
+};
+
+export const checkRequestSchema = z.strictObject(modelCheckRequestShape);
+export type ModelCheckRequestDraft = z.infer<typeof checkRequestSchema>;
+
+const persistedCheckRequestShape = {
   actorId: semanticIdSchema,
   targetId: semanticIdSchema.nullable(),
   ratingId: semanticIdSchema.nullable(),
@@ -259,14 +460,9 @@ const checkRequestShape = {
   causes: z.array(causalRefSchema).min(1),
 };
 
-export const checkRequestSchema = z.strictObject({
-  id: draftAliasSchema,
-  ...checkRequestShape,
-}) as z.ZodType<D20CheckRequestDraft>;
-
 export const persistedCheckRequestSchema = z.strictObject({
   id: runtimeIdSchema,
-  ...checkRequestShape,
+  ...persistedCheckRequestShape,
   phase: z.enum(["perception", "resolution"]),
 }) as z.ZodType<D20CheckRequest>;
 
@@ -278,6 +474,16 @@ const resolutionSourceRefSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("rating"), id: semanticIdSchema }),
   z.strictObject({ kind: z.literal("law"), id: semanticIdSchema }),
   z.strictObject({ kind: z.literal("placement"), id: semanticIdSchema }),
+]);
+
+const modelResolutionSourceRefSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("action"), ref: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("entity"), ref: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("fact"), ref: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("condition"), ref: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("rating"), ref: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("law"), ref: modelReferenceSchema }),
+  z.strictObject({ kind: z.literal("placement"), ref: modelReferenceSchema }),
 ]);
 
 const resolutionFactorSchema = z.strictObject({
@@ -356,8 +562,68 @@ function resolutionPlanSchemaWithId(id: z.ZodType<string>) {
   });
 }
 
-export type ResolutionPlanDraft = ResolutionPlan;
-export const resolutionPlanDraftSchema = resolutionPlanSchemaWithId(draftAliasSchema) as z.ZodType<ResolutionPlanDraft>;
+const modelResolutionEffectBaseShape = {
+  proposalKey: proposalKeySchema,
+  targetRef: modelReferenceSchema,
+  channel: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string().min(1),
+  sourceRefs: z.array(modelResolutionSourceRefSchema).min(1),
+};
+const modelMeterEffectIntentSchema = z.strictObject({
+  kind: z.literal("meter"),
+  ...modelResolutionEffectBaseShape,
+  meterRef: modelReferenceSchema,
+  impactProfileRef: modelReferenceSchema,
+  magnitude: magnitudeBandSchema,
+});
+const modelConditionEffectIntentSchema = z.strictObject({
+  kind: z.literal("condition"),
+  ...modelResolutionEffectBaseShape,
+  conditionRef: modelReferenceSchema,
+  conditionProfileRef: modelReferenceSchema.nullable(),
+  durationProfileRef: modelReferenceSchema,
+  access: accessSchema,
+  magnitude: magnitudeBandSchema,
+});
+const modelEffectIntentSchema = z.discriminatedUnion("kind", [modelMeterEffectIntentSchema, modelConditionEffectIntentSchema]);
+const modelThreatenedEffectSchema = z.discriminatedUnion("kind", [
+  modelMeterEffectIntentSchema.omit({ magnitude: true }),
+  modelConditionEffectIntentSchema.omit({ magnitude: true }),
+]);
+const modelResolutionDifficultySchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("environment"), band: z.enum(["trivial", "easy", "challenging", "hard", "extreme"]), source: modelResolutionSourceRefSchema }),
+  z.strictObject({ kind: z.literal("opposed"), targetRef: modelReferenceSchema, ratingRef: modelReferenceSchema, source: modelResolutionSourceRefSchema }),
+]);
+const modelResolutionFactorSchema = z.strictObject({
+  source: modelResolutionSourceRefSchema,
+  role: z.enum(["permission", "control", "potency", "protection", "secondary", "risk"]),
+  direction: z.enum(["helpful", "hindering", "neutral"]),
+  steps: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  authority: z.enum(["semantic", "authored"]),
+  channel: z.string().min(1).nullable(),
+  explanation: z.string().min(1),
+});
+const modelResolutionPlanSchema = z.strictObject({
+  proposalKey: proposalKeySchema,
+  actionRef: modelReferenceSchema,
+  targetRefs: z.array(modelReferenceSchema),
+  means: z.array(z.strictObject({ description: z.string().min(1), source: modelResolutionSourceRefSchema })),
+  mode: z.enum(["automatic", "check", "blocked"]),
+  difficulty: modelResolutionDifficultySchema.nullable(),
+  actorRatingRef: modelReferenceSchema.nullable(),
+  factors: z.array(modelResolutionFactorSchema),
+  risk: z.enum(["safe", "risky", "dire"]),
+  baseEffect: magnitudeBandSchema,
+  primaryEffect: modelEffectIntentSchema.nullable(),
+  secondaryEffect: modelEffectIntentSchema.nullable(),
+  threatenedEffect: modelThreatenedEffectSchema.nullable(),
+  visibility: z.enum(["full", "result_only", "hidden"]),
+  causes: z.array(modelCausalRefSchema).min(1),
+});
+
+export type ResolutionPlanDraft = z.infer<typeof modelResolutionPlanSchema>;
+export const resolutionPlanDraftSchema = modelResolutionPlanSchema;
 export const resolutionPlanSchema = resolutionPlanSchemaWithId(
   runtimeIdSchema.refine((id) => id.startsWith("rt:resolution-plan:")),
 ) as z.ZodType<ResolutionPlan>;
@@ -561,7 +827,7 @@ export const mechanicInvocationSchema = z.strictObject({
   ...causalSourceShape,
 });
 export const mechanicInvocationRepairSchema = z.strictObject({
-  invocation: mechanicInvocationSchema,
+  invocation: modelMechanicInvocationSchema,
 });
 const persistedMechanicInvocationSchema = z.strictObject({
   id: runtimeIdSchema.refine((id) => id.startsWith("rt:mechanic:")),
@@ -591,15 +857,6 @@ const actionOutcomeSchema = z.strictObject({
       z.strictObject({ kind: z.literal("knowledge"), evidenceIds: z.array(safeIdSchema).min(1) }),
       z.strictObject({ kind: z.literal("observation"), observationId: safeIdSchema }),
     ]),
-  })),
-});
-const transitionActionOutcomeSchema = actionOutcomeSchema.extend({
-  knownAlternatives: z.array(z.strictObject({
-    description: z.string().min(1),
-    basis: z.strictObject({
-      kind: z.literal("knowledge"),
-      evidenceIds: z.array(safeIdSchema).min(1),
-    }),
   })),
 });
 const persistedActionOutcomeSchema = z.strictObject({
@@ -632,12 +889,25 @@ const observationDraftShape = {
   sourceEventIds: z.array(safeIdSchema),
 };
 
-const apparentClaimDraftSchema = z.strictObject({
-  subjectId: semanticIdSchema,
+const modelObservationIntroductionSchema = z.strictObject({
+  localEntity: modelLocalEntitySchema,
+  canonicalEntityRef: modelReferenceSchema.nullable(),
+});
+
+const modelApparentClaimSchema = z.strictObject({
+  subjectRef: modelReferenceSchema,
   predicate: z.string().min(1),
-  value: beliefValueSchema,
+  value: modelBeliefValueSchema,
   description: z.string(),
 });
+
+export const modelObservationRenderDraftSchema = z.strictObject({
+  summary: z.string().trim().min(1),
+  introductions: z.array(modelObservationIntroductionSchema),
+  apparentClaims: z.array(modelApparentClaimSchema),
+  sourceEventRefs: z.array(modelReferenceSchema),
+});
+export type ModelObservationRenderDraft = z.infer<typeof modelObservationRenderDraftSchema>;
 
 export const persistedObservationSchema = z.strictObject({
   id: runtimeIdSchema,
@@ -674,17 +944,13 @@ export const reactionRequestSchema = z.strictObject({
 }) as z.ZodType<ReactionRequest>;
 
 const reactionRequestDraftSchema = z.strictObject({
-  agentId: semanticIdSchema,
-  sourceActionId: safeIdSchema,
-  stimulus: z.strictObject({
-    summary: z.string(),
-    introductions: z.array(introductionSchema),
-    apparentClaims: z.array(apparentClaimDraftSchema),
-  }) as z.ZodType<ReactionStimulusDraft>,
+  agentRef: modelReferenceSchema,
+  sourceActionRef: modelReferenceSchema,
+  stimulus: modelObservationRenderDraftSchema,
   basis: z.array(z.discriminatedUnion("kind", [
-    z.strictObject({ kind: z.literal("shared_placement"), placementId: safeIdSchema }),
-    z.strictObject({ kind: z.literal("fact"), factId: safeIdSchema }),
-    z.strictObject({ kind: z.literal("perception_check"), checkId: safeIdSchema }),
+    z.strictObject({ kind: z.literal("shared_placement"), placementRef: modelReferenceSchema }),
+    z.strictObject({ kind: z.literal("fact"), factRef: modelReferenceSchema }),
+    z.strictObject({ kind: z.literal("perception_check"), checkRef: modelReferenceSchema }),
   ])).min(1),
 });
 
@@ -720,17 +986,7 @@ export const reactionDecisionDraftSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("replace"), replacementAction: actionDraftSchema }),
 ]) as z.ZodType<ReactionDecisionDraft>;
 
-export const transitionProposalSchema = z.strictObject({
-  outcomes: z.array(transitionActionOutcomeSchema),
-  mechanicInvocations: z.array(mechanicInvocationSchema),
-  operations: z.array(worldDeltaOperationDraftSchema),
-  events: z.array(worldEventSchema),
-  decisionRequests: z.array(z.strictObject({
-    agentId: semanticIdSchema,
-    prompt: z.string().min(1),
-    suggestions: z.array(z.string().min(1)).max(3),
-  })),
-}) as z.ZodType<TransitionProposalDraft>;
+export const transitionProposalSchema = modelTransitionProposalSchema;
 
 /** Strict engine-owned envelopes for independent Truth Engine slots. */
 export const truthTransitionBatchSchema = z.strictObject({
@@ -740,24 +996,17 @@ export const truthTransitionBatchSchema = z.strictObject({
   })),
 });
 
-const observationRenderDraftSchema = z.strictObject({
-  summary: z.string().trim().min(1),
-  introductions: z.array(introductionSchema),
-  apparentClaims: z.array(apparentClaimDraftSchema),
-  sourceEventIds: z.array(safeIdSchema),
-}) as z.ZodType<ObservationRenderDraft>;
-
 /** One observer slot; batch orchestration is intentionally engine-owned. */
-export const observationRenderSchema = observationRenderDraftSchema;
+export const observationRenderSchema = modelObservationRenderDraftSchema;
 
 export const observationBatchSchema = z.strictObject({
-  observations: z.array(observationRenderDraftSchema),
+  observations: z.array(modelObservationRenderDraftSchema),
 });
 
 export const observationProjectionBatchSchema = z.strictObject({
   slots: z.array(z.strictObject({
     slot: z.number().int().nonnegative(),
-    result: observationRenderDraftSchema,
+    result: modelObservationRenderDraftSchema,
   })),
 });
 
@@ -868,7 +1117,7 @@ export const resolutionDirectiveSchema = z.discriminatedUnion("kind", [
 ]);
 
 const resolutionPlanFindingSchema = z.strictObject({
-  planId: safeIdSchema,
+  planRef: modelReferenceSchema,
   code: z.enum([
     "ungrounded-mean",
     "omitted-factor",
@@ -902,7 +1151,7 @@ export type ResolutionPlanVerification = z.infer<typeof resolutionPlanVerificati
 const causalFindingSchema = z.strictObject({
   target: z.strictObject({
     kind: z.enum(["check", "random", "operation", "mechanic", "event", "outcome", "observation"]),
-    id: safeIdSchema,
+    ref: modelReferenceSchema,
   }),
   code: z.enum([
     "irrelevant-cause",

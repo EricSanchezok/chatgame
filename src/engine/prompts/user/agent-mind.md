@@ -1,1 +1,3 @@
-Process this character's current observations and resolution, update private beliefs, evolve character only from eligible evidence, and draft the next action the character would attempt. Preserve uncertainty and use local entity aliases.
+Process this character's supplied observations and current resolution. Update only private state justified by eligible evidence, preserve uncertainty, and draft the next action.
+
+Use the current slot's reference catalog for existing local entities, evidence, claims, observations, and character records. Use `proposalKey` for every new private record and `{ "proposalKey": "..." }` when a later operation refers to it. `observationRefs` identify the observations that justify a character change; `evidenceRefs` identify evidence records supporting it. Return only `beliefChanges`, `characterChanges`, and `nextActionIntent`.

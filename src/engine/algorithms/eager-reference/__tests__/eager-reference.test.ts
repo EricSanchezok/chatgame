@@ -10,7 +10,7 @@ import {
 import { historyReplayBaseHash } from "../../../runtime/history-replay";
 import { replaySimulationState } from "../../../runtime/transaction";
 import type { AgentActionProposal, SimulationState } from "../../../contracts/model";
-import type { ExistingReferenceHandle } from "../../../contracts/model-context";
+import { referenceHandleFor, type ExistingReferenceHandle } from "../../../contracts/model-context";
 import { contentHash } from "../../../models/model-audit";
 import { ModelSemanticRepairError } from "../../../models/model-provider";
 import { SimulationEngine } from "../../../runtime/simulation";
@@ -509,8 +509,8 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "agent-mind") {
         return deterministicAgentMindBatch(context, (output, slot) => {
-          if (!rejectedKeeper && slot.perspective.agentId === "keeper") {
-            output.nextAction.targetIds = ["unknown-local-target"];
+          if (!rejectedKeeper && slot.state.perspective.agentId === "keeper") {
+          output.nextActionIntent.targetHandles = ["ref:local_entity:unknown-local-target" as ExistingReferenceHandle];
             rejectedKeeper = true;
           }
         });
@@ -539,8 +539,8 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "agent-mind");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { slots: Array<{ perspective: { agentId: string } }> }).slots
-        .map((slot) => slot.perspective.agentId))).toEqual([
+      (request.context as { slots: Array<{ state: { perspective: { agentId: string } } }> }).slots
+        .map((slot) => slot.state.perspective.agentId))).toEqual([
       ["keeper", "player"],
       ["keeper"],
     ]);
@@ -582,12 +582,12 @@ describe("eager reference safeguards", () => {
     expect(requests.map((request) => {
       const context = request.context as {
         purpose: "bootstrap" | "resume" | "mind";
-        slots: Array<{ perspective: { agentId: string } }>;
+      slots: Array<{ state: { perspective: { agentId: string } } }>;
       };
       return {
         purpose: context.purpose,
         profileId: request.profileId,
-        agents: context.slots.map((slot) => slot.perspective.agentId),
+        agents: context.slots.map((slot) => slot.state.perspective.agentId),
       };
     })).toEqual([
       { purpose: "bootstrap", profileId: "agent-deepseek", agents: ["player"] },
@@ -724,7 +724,7 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "agent-mind") {
         return deterministicAgentMindBatch(context, (output, slot) => {
-          if (slot.perspective.agentId === "keeper") output.nextAction.targetIds = ["unknown-local-target"];
+          if (slot.state.perspective.agentId === "keeper") output.nextActionIntent.targetHandles = ["ref:local_entity:unknown-local-target" as ExistingReferenceHandle];
         });
       }
       return deterministicModelOutput(profileId, context);
@@ -916,19 +916,27 @@ describe("eager reference safeguards", () => {
       }],
     });
 
-    for (const [index, entityId] of summoned.entries()) {
-      const agentId = `skeleton-agent-${index + 1}`;
+    const summonedAgents = Object.entries(result.state.agents)
+      .filter(([agentId]) => agentId.startsWith("agent-") && result.state.agents[agentId]?.entityId !== "player" && result.state.agents[agentId]?.entityId !== "keeper")
+      .sort(([left], [right]) => left.localeCompare(right));
+    const summonedEntityIds = summonedAgents.map(([, agent]) => agent.entityId);
+    for (const entityId of summonedEntityIds) {
+      const actualAgent = Object.values(result.state.agents).find((agent) => agent.entityId === entityId)!;
       expect(result.state.truth.entities[entityId]).toMatchObject({ kind: "undead", lifecycle: "active" });
-      expect(result.state.agents[agentId]).toMatchObject({ entityId, nextAction: expect.any(Object) });
+      expect(actualAgent).toMatchObject({ entityId, nextAction: expect.any(Object) });
       expect(result.state.truth.meters[`${entityId}-health`]?.current).toBe(20);
-      expect(result.committed.nextActions).toContainEqual(expect.objectContaining({ actorId: agentId }));
+      expect(result.committed.nextActions).toContainEqual(expect.objectContaining({ actorId: actualAgent.id }));
     }
     expect(result.committed.observations.map((observation) => observation.observerId))
-      .toEqual(expect.arrayContaining(summoned.map((_entityId, index) => `skeleton-agent-${index + 1}`)));
-    expect(result.committed.mechanicInvocations).toContainEqual(expect.objectContaining({
+      .toEqual(expect.arrayContaining(summonedAgents.map(([agentId]) => agentId)));
+    const cohortInvocation = result.committed.mechanicInvocations.find((invocation) => invocation.ruleId === "instantiate-entity-cohort");
+    expect(cohortInvocation).toEqual(expect.objectContaining({
       ruleId: "instantiate-entity-cohort",
-      input: { entityIds: summoned, profileId: "wanderer" },
+      input: expect.objectContaining({ profileId: "wanderer" }),
     }));
+    const cohortInput = cohortInvocation?.input as { entityIds?: unknown[] };
+    expect(cohortInput.entityIds).toEqual(expect.arrayContaining(summonedEntityIds));
+    expect(cohortInput.entityIds).toHaveLength(summonedEntityIds.length);
     expect(result.committed.temporalBoundary.deltaSeconds).toBeGreaterThan(0);
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
   });
@@ -1030,9 +1038,9 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
     const finalMind = provider.requests.filter((request) => request.role === "agent-mind").at(-1);
     const playerSlot = (finalMind?.context as {
-      slots?: Array<{ perspective: { agentId: string }; observations: unknown[] }>;
-    }).slots?.find((slot) => slot.perspective.agentId === "player");
-    expect(playerSlot?.observations).toHaveLength(2);
+      slots?: Array<{ state: { perspective: { agentId: string }; observations: unknown[] } }>;
+    }).slots?.find((slot) => slot.state.perspective.agentId === "player");
+    expect(playerSlot?.state.observations).toHaveLength(2);
     expect(second.state.agents.player.observationCursorStep).toBe(2);
 
     const replayed = replaySimulationState(second.state);
@@ -1530,14 +1538,15 @@ describe("eager reference safeguards", () => {
         return {
           kind: "request_reactions",
           requests: [{
-            agentId: "keeper",
-            sourceActionId: playerAction.id,
+            agentRef: referenceHandleFor("agent", "keeper"),
+            sourceActionRef: referenceHandleFor("action", playerAction.id),
             stimulus: {
               summary: "旅人突然有所动作。",
               introductions: [],
               apparentClaims: [],
+              sourceEventRefs: [],
             },
-            basis: [{ kind: "shared_placement", placementId: "courtyard" }],
+            basis: [{ kind: "shared_placement", placementRef: referenceHandleFor("placement", "courtyard") }],
           }],
         };
       }
@@ -1548,7 +1557,7 @@ describe("eager reference safeguards", () => {
             rawText: "抓起庭院沙土戒备",
             goal: "利用现场沙土做好防备",
             means: "庭院地面的沙土",
-            targetIds: [],
+            targetHandles: [],
           },
         };
       }
@@ -1634,7 +1643,7 @@ describe("eager reference safeguards", () => {
             rawText: `进行${replacementSeconds}秒的紧急戒备`,
             goal: "立即戒备",
             means: null,
-            targetIds: [],
+            targetHandles: [],
           },
         };
       }
@@ -1717,10 +1726,10 @@ describe("eager reference safeguards", () => {
         return {
           kind: "request_checks",
           requests: [{
-            id: "notice-player-action",
-            actorId: "keeper",
-            targetId: "player",
-            ratingId: null,
+            proposalKey: "notice-player-action",
+            actorRef: referenceHandleFor("entity", "keeper"),
+            targetRef: referenceHandleFor("entity", "player"),
+            ratingRef: null,
             modifier: 0,
             modifierSources: [],
             dc: 0,
@@ -1728,8 +1737,8 @@ describe("eager reference safeguards", () => {
             stakes: "守门人是否察觉远处旅人的行动开始",
             visibility: "full",
             causes: [
-              { kind: "action", id: playerAction.id },
-              { kind: "law", id: "time-passes" },
+              { kind: "action", ref: referenceHandleFor("action", playerAction.id) },
+              { kind: "law", ref: referenceHandleFor("law", "time-passes") },
             ],
           }],
         };

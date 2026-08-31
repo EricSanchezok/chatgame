@@ -39,7 +39,7 @@ describe("ObservationRenderer", () => {
       summary: calls++ === 0 ? "钥匙是仿制品，无法打开石门。" : "你仍只能依据商人的说法判断这把钥匙。",
       introductions: [],
       apparentClaims: [],
-      sourceEventIds: [],
+      sourceEventRefs: [],
     }), catalog, false);
     const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
       seed: 1,
@@ -125,14 +125,14 @@ describe("ObservationRenderer", () => {
         return {
           summary: "缺少结构字段的观察。",
           introductions: [],
-          sourceEventIds: [],
+          sourceEventRefs: [],
         };
       }
       return {
         summary: "你观察到世界仍在变化。",
         introductions: [],
         apparentClaims: [],
-        sourceEventIds: [],
+        sourceEventRefs: [],
       };
     }, catalog, false);
     const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {

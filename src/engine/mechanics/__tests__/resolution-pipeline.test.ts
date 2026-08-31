@@ -180,14 +180,14 @@ describe("resolution pipeline", () => {
         if (schemaName === "truth_transition_mechanic_repair") {
           mechanicRepairAttempts += 1;
           const repairContext = context as {
-            mechanicRepair: { targetInvocation: { id: string }; packageId: string; ruleId: string };
+            mechanicRepair: { targetInvocation: { proposalKey: string }; packageId: string; ruleId: string };
           };
           const canonicalTruth = (context as { canonicalTruth: { quantities: Record<string, unknown> } }).canonicalTruth;
           const existingQuantityId = Object.keys(canonicalTruth.quantities)[0];
           if (!existingQuantityId) throw new Error("fixture must expose a quantity for mechanic repair");
           return {
             invocation: {
-              id: repairContext.mechanicRepair.targetInvocation.id,
+              id: repairContext.mechanicRepair.targetInvocation.proposalKey,
               packageId: repairContext.mechanicRepair.packageId,
               ruleId: repairContext.mechanicRepair.ruleId,
               input: {
@@ -322,7 +322,8 @@ describe("resolution pipeline", () => {
     const meterOperation = receipt.operations.find((operation) => operation.kind === "adjust_meter");
     const expectedVitality = 15 + (meterOperation?.kind === "adjust_meter" ? meterOperation.amount : 0);
     expect(result.state.truth.meters["health:keeper"].current).toBe(expectedVitality);
-    expect(result.state.truth.conditions["keeper-sand-in-eyes"]).toMatchObject({
+    const sandInEyes = Object.values(result.state.truth.conditions).find((condition) => condition.label === "sand in eyes");
+    expect(sandInEyes).toMatchObject({
       subjectId: "keeper",
       label: "sand in eyes",
       magnitude: "minor",

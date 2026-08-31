@@ -1,4 +1,4 @@
-import { observationRenderSchema } from "../contracts/llm-schemas";
+import { observationRenderSchema, type ModelObservationRenderDraft } from "../contracts/llm-schemas";
 import type {
   AgentActionProposal,
   ModelExecutionAudit,
@@ -19,7 +19,12 @@ import {
 } from "../models/model-provider";
 import { validatePublicInformationBoundary } from "./information-boundary";
 import { validateObservations } from "./observation";
-import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
+import {
+  MODEL_CONTEXT_CONTRACT_VERSION,
+  createTruthReferenceResolver,
+} from "../contracts/prompts";
+import { createAgentReferenceResolver, isProposalReference, type ModelReference } from "../contracts/model-context";
+import { contentHash } from "../models/model-audit";
 import { promptBundle, structuredPromptBytes } from "../prompts";
 import { materializeObservationPackets } from "../mechanics/truth-engine";
 import { applyTransitionProposal } from "../runtime/transaction";
@@ -65,6 +70,14 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
     },
     baseRevision: input.state.revision,
     nextStep: candidate.step,
+    referenceCatalog: createTruthReferenceResolver({
+      state: input.state,
+      definition: input.definition,
+      actions: input.actions,
+      events: input.proposal.events,
+      contextState: candidate,
+      contextActions: input.actions,
+    }).catalog,
     // The renderer is a trusted server-side adjudication boundary.  It needs
     // the complete candidate truth to distinguish observable effects from
     // hidden state; the observer slot below remains the only cognition and
@@ -107,6 +120,73 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
     }),
     validationIssues: issues,
   };
+}
+
+function materializeModelObservationDraft(
+  input: RenderInput,
+  observerId: string,
+  draft: ModelObservationRenderDraft,
+): ObservationRenderDraft {
+  const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
+  const observer = candidate.agents[observerId];
+  if (!observer) throw new Error(`observation slot references unknown Agent ${observerId}`);
+  const truthResolver = createTruthReferenceResolver({
+    state: input.state,
+    definition: input.definition,
+    actions: input.actions,
+    events: input.proposal.events,
+    contextState: candidate,
+    contextActions: input.actions,
+  });
+  const privateResolver = createAgentReferenceResolver(observer, []);
+  const proposals = new Map<string, string>();
+  const proposalId = (namespace: string, key: string): string => {
+    if (proposals.has(key)) throw new Error(`duplicate observation proposalKey ${key}`);
+    const id = `observation-${namespace}-${contentHash({ observerId, step: candidate.step, namespace, key }).slice(0, 32)}`;
+    proposals.set(key, id);
+    return id;
+  };
+  const resolveLocal = (reference: ModelReference): string => {
+    if (isProposalReference(reference)) {
+      const id = proposals.get(reference.proposalKey);
+      if (!id) throw new Error(`observation references undeclared proposalKey ${reference.proposalKey}`);
+      return id;
+    }
+    const resolved = privateResolver.resolve(reference, "target");
+    if (resolved.kind !== "local_entity") throw new Error(`observation reference ${reference} is ${resolved.kind}, expected local_entity`);
+    return resolved.engineId;
+  };
+  const resolveCanonical = (reference: ModelReference | null): string | null => {
+    if (reference === null) return null;
+    if (isProposalReference(reference)) throw new Error("observation canonicalEntityRef cannot point to a proposal");
+    const resolved = truthResolver.resolve(reference, "target");
+    if (resolved.kind !== "entity") throw new Error(`observation canonicalEntityRef must reference an entity, got ${resolved.kind}`);
+    return resolved.engineId;
+  };
+  const introductions = draft.introductions.map((introduction) => ({
+    localEntity: {
+      id: proposalId("local", introduction.localEntity.proposalKey),
+      name: introduction.localEntity.name,
+      description: introduction.localEntity.description,
+      status: introduction.localEntity.status,
+    },
+    canonicalEntityId: resolveCanonical(introduction.canonicalEntityRef),
+  }));
+  const apparentClaims = draft.apparentClaims.map((claim) => ({
+    subjectId: resolveLocal(claim.subjectRef),
+    predicate: claim.predicate,
+    value: claim.value.kind === "local_entity"
+      ? { kind: "local_entity" as const, localEntityId: resolveLocal(claim.value.entityRef) }
+      : structuredClone(claim.value),
+    description: claim.description,
+  }));
+  const sourceEventIds = draft.sourceEventRefs.map((reference) => {
+    if (isProposalReference(reference)) throw new Error("observation sourceEventRefs cannot point to a proposal");
+    const resolved = truthResolver.resolve(reference, "source");
+    if (resolved.kind !== "event") throw new Error(`observation sourceEventRefs must reference events, got ${resolved.kind}`);
+    return resolved.engineId;
+  });
+  return { summary: draft.summary, introductions, apparentClaims, sourceEventIds };
 }
 
 function requestBytes(context: unknown): number {
@@ -215,12 +295,13 @@ export function normalizeObservationLocalReferences(
 function materializeObserver(
   input: RenderInput,
   observerId: string,
-  draft: ObservationRenderDraft,
+  draft: ModelObservationRenderDraft,
   slotKey: string,
   scope: ModelExecutionScope,
 ): ObservationPacket {
+  const internalDraft = materializeModelObservationDraft(input, observerId, draft);
   const eventIds = new Set(input.proposal.events.map((event) => event.id));
-  const eventNormalized = normalizeObservationSourceEventIds([draft], eventIds);
+  const eventNormalized = normalizeObservationSourceEventIds([internalDraft], eventIds);
   const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
   const localNormalized = normalizeObservationLocalReferences(
     candidate,
@@ -365,7 +446,7 @@ async function renderObserver(
       summary: `你能确认：${status}。除此之外，本步骤没有形成其他可确认的观察。`,
       introductions: [],
       apparentClaims: [],
-      sourceEventIds: [],
+      sourceEventRefs: [],
     }, `${slot}.fallback`, scope);
     scope.observer?.emit({
       event: "algorithm.observation.repair_fallback",

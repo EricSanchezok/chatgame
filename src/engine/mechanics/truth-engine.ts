@@ -9,8 +9,13 @@ import {
   resolutionPlanVerificationSchema,
   transitionProposalSchema,
   type DiscreteRandomRequestProposal,
+  type ModelCheckRequestDraft,
+  type ModelCausalAssertion,
+  type ModelCausalRef,
+  type ModelFactValue,
   type ReactionRequestDraft,
   type ResolutionPlanDraft,
+  type ModelTransitionProposalDraft,
 } from "../contracts/llm-schemas";
 import type {
   InteractionDependency,
@@ -23,7 +28,6 @@ import type {
   CausalVerification,
   CommitmentRound,
   D20CheckRequest,
-  D20CheckRequestDraft,
   D20CheckResult,
   DiscreteRandomRequest,
   DiscreteRandomResult,
@@ -35,7 +39,6 @@ import type {
   ReactionRequest,
   SimulationState,
   TransitionProposal,
-  TransitionProposalDraft,
   WorldDeltaOperation,
   WorldDeltaOperationDraft,
 } from "../contracts/model";
@@ -70,6 +73,7 @@ import { validateObservations } from "../cognition/observation";
 import {
   buildCausalVerificationContext,
   buildResolutionPlanVerificationContext,
+  createTruthReferenceResolver,
   buildTruthContext,
   validationIssues,
   type ResolutionScope,
@@ -97,6 +101,12 @@ import {
   semanticIssue,
   type SemanticRepairScope,
 } from "../models/semantic-repair";
+import {
+  type ModelReference,
+  type ReferenceResolver,
+  createAgentReferenceResolver,
+  isProposalReference,
+} from "../contracts/model-context";
 
 export interface ReactionResolution {
   decisions: ReactionDecision[];
@@ -437,42 +447,58 @@ function validateCheckRequest(
   }
 }
 
+function resolveTruthReference(
+  reference: ModelReference,
+  use: Parameters<ReferenceResolver["resolve"]>[1],
+  resolver: ReferenceResolver,
+  expectedKind: string,
+): string {
+  if (typeof reference !== "string") {
+    throw new Error(`truth model cannot use proposal ${reference.proposalKey} for ${expectedKind}; this reference must already exist`);
+  }
+  const resolved = resolver.resolve(reference, use);
+  if (resolved.kind !== expectedKind) throw new Error(`truth reference ${reference} is ${resolved.kind}, expected ${expectedKind}`);
+  return resolved.engineId;
+}
+
+function materializeCheckDraft(
+  draft: ModelCheckRequestDraft,
+  resolver: ReferenceResolver,
+  id: string,
+): D20CheckRequest {
+  const resolve = (reference: ModelReference, use: Parameters<ReferenceResolver["resolve"]>[1], kind: string) =>
+    resolveTruthReference(reference, use, resolver, kind);
+  return {
+    id,
+    actorId: resolve(draft.actorRef, "actor", "entity"),
+    targetId: draft.targetRef === null ? null : resolve(draft.targetRef, "target", "entity"),
+    ratingId: draft.ratingRef === null ? null : resolve(draft.ratingRef, "modifier", "rating"),
+    modifier: draft.modifier,
+    modifierSources: draft.modifierSources.map((source) => ({
+      kind: "rating" as const,
+      id: resolve(source.ref, "modifier", "rating"),
+      amount: source.amount,
+    })),
+    dc: draft.dc,
+    mode: draft.mode,
+    stakes: draft.stakes,
+    visibility: draft.visibility,
+    phase: "perception",
+    causes: draft.causes.map((cause) => ({
+      kind: cause.kind,
+      id: resolve(cause.ref, "cause", cause.kind),
+    })),
+  };
+}
+
 async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
   provider: StructuredModelProvider;
   repairAttempts: number;
   maxCommitmentRounds: number;
   scope: ModelExecutionScope;
 }): Promise<OnsetPerceptionResult> {
-  const ratingIdsByActor = new Map<string, string[]>();
-  for (const rating of Object.values(input.state.truth.ratings)) {
-    const ids = ratingIdsByActor.get(rating.entityId) ?? [];
-    ids.push(rating.id);
-    ratingIdsByActor.set(rating.entityId, ids);
-  }
-  for (const ids of ratingIdsByActor.values()) ids.sort();
-  const perceptionSchema = perceptionDirectiveSchema.superRefine((directive, refinement) => {
-    if (directive.kind !== "request_checks") return;
-    for (const [index, request] of directive.requests.entries()) {
-      if (request.ratingId && !(ratingIdsByActor.get(request.actorId) ?? []).includes(request.ratingId)) {
-        const allowed = ratingIdsByActor.get(request.actorId) ?? [];
-        refinement.addIssue({
-          code: "custom",
-          path: ["requests", index, "ratingId"],
-          message: `ratingId must be null or one of the actor's ratings: ${allowed.join(", ") || "(none)"}`,
-        });
-      }
-      for (const [sourceIndex, source] of request.modifierSources.entries()) {
-        const rating = input.state.truth.ratings[source.id];
-        if (!rating || rating.entityId !== request.actorId || rating.value !== source.amount) {
-          refinement.addIssue({
-            code: "custom",
-            path: ["requests", index, "modifierSources", sourceIndex],
-            message: "modifier source must name one rating owned by actorId and copy its canonical value",
-          });
-        }
-      }
-    }
-  });
+  const perceptionSchema = perceptionDirectiveSchema;
+  const resolver = createTruthReferenceResolver({ state: input.state, definition: input.definition, actions: input.actions });
   const allowed: Record<CausalRef["kind"], Set<string>> = {
     action: new Set(input.actions.map((action) => action.id)),
     check: new Set(),
@@ -491,7 +517,7 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
 
   while (true) {
     const accepted = { round: null as D20CheckRequest[] | null };
-    let draftRound: D20CheckRequestDraft[] = [];
+    let draftRound: ModelCheckRequestDraft[] = [];
     const call = await generateValidated({
       provider: input.provider,
       profileId: input.definition.modelProfiles.perception,
@@ -531,8 +557,8 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
         draftRound = structuredClone(directive.requests);
         const roundAliases = new Map<string, string>();
         for (const [ordinal, request] of directive.requests.entries()) {
-          if (roundAliases.has(request.id)) throw new Error(`duplicate check request alias ${request.id}`);
-          roundAliases.set(request.id, runtimeId({
+          if (roundAliases.has(request.proposalKey)) throw new Error(`duplicate check proposalKey ${request.proposalKey}`);
+          roundAliases.set(request.proposalKey, runtimeId({
             worldHash: input.state.worldHash,
             revision: input.state.revision,
             kind: "check",
@@ -542,14 +568,8 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
             ordinal,
           }));
         }
-        const normalized = directive.requests.map((request) => ({
-          ...structuredClone(request),
-          id: roundAliases.get(request.id)!,
-          phase: "perception" as const,
-          causes: request.causes.map((cause) => cause.kind === "check" && roundAliases.has(cause.id)
-            ? { ...cause, id: roundAliases.get(cause.id)! }
-            : structuredClone(cause)),
-        }));
+        const normalized = directive.requests.map((request) =>
+          materializeCheckDraft(request, resolver, roundAliases.get(request.proposalKey)!));
         for (const request of normalized) {
           validateCheckRequest(
             input.state,
@@ -581,7 +601,7 @@ async function runOnsetPerceptionStage(input: Readonly<OnsetPerceptionInput> & {
     acceptedRound.forEach((request) => allowed.check.add(request.id));
     draftRound.forEach((request, index) => {
       const canonicalId = acceptedRound![index]!.id;
-      aliases.set(request.id, aliases.has(request.id) ? null : canonicalId);
+      aliases.set(request.proposalKey, aliases.has(request.proposalKey) ? null : canonicalId);
     });
   }
 
@@ -651,35 +671,88 @@ function validatePlanEffect(
   }
 }
 
-function canonicalActionEntityId(
-  state: SimulationState,
-  action: AgentActionProposal,
-  value: string,
-): string {
-  if (state.truth.entities[value]) return value;
-  const binding = state.agents[action.actorId]?.bindings[value];
-  const canonicalIds = binding?.canonicalEntityIds.filter((id) => Boolean(state.truth.entities[id])) ?? [];
-  return canonicalIds.length === 1 ? canonicalIds[0]! : value;
-}
-
-function canonicalResolutionSource(
-  state: SimulationState,
-  action: AgentActionProposal,
-  source: ResolutionSourceRef,
+function materializeResolutionSource(
+  source: ResolutionPlanDraft["means"][number]["source"],
+  resolver: ReferenceResolver,
 ): ResolutionSourceRef {
-  if (source.kind !== "entity") return source;
-  return { ...source, id: canonicalActionEntityId(state, action, source.id) };
+  if (isProposalReference(source.ref)) throw new Error(`resolution source ${source.kind} cannot use a new proposal`);
+  const resolved = resolver.resolve(source.ref, "source");
+  if (resolved.kind !== source.kind) throw new Error(`resolution source expected ${source.kind}, got ${resolved.kind}`);
+  return { kind: source.kind, id: resolved.engineId };
 }
 
-function canonicalResolutionEffect<T extends {
-  targetId: string;
-  sourceRefs: ResolutionSourceRef[];
-}>(state: SimulationState, action: AgentActionProposal, effect: T | null): T | null {
+type ModelResolutionEffect =
+  NonNullable<ResolutionPlanDraft["primaryEffect"]> |
+  NonNullable<ResolutionPlanDraft["threatenedEffect"]>;
+
+function materializeModelFactValue(value: ModelFactValue, resolver: ReferenceResolver): import("../contracts/model").FactValue {
+  if (value.kind !== "entity") return structuredClone(value);
+  if (isProposalReference(value.entityRef)) throw new Error("fact value entityRef must identify an existing entity");
+  const entity = resolver.resolve(value.entityRef, "assertion");
+  if (entity.kind !== "entity") throw new Error(`fact value expected entity, got ${entity.kind}`);
+  return { kind: "entity", entityId: entity.engineId };
+}
+
+function materializeResolutionEffect(
+  effect: NonNullable<ResolutionPlanDraft["primaryEffect"]> | null,
+  resolver: ReferenceResolver,
+  state: SimulationState,
+  includeMagnitude: true,
+): NonNullable<ResolutionPlan["primaryEffect"]>;
+function materializeResolutionEffect(
+  effect: NonNullable<ResolutionPlanDraft["threatenedEffect"]> | null,
+  resolver: ReferenceResolver,
+  state: SimulationState,
+  includeMagnitude: false,
+): NonNullable<ResolutionPlan["threatenedEffect"]>;
+function materializeResolutionEffect(
+  effect: ModelResolutionEffect | null,
+  resolver: ReferenceResolver,
+  state: SimulationState,
+  includeMagnitude: boolean,
+): ResolutionPlan["primaryEffect"] | ResolutionPlan["threatenedEffect"] {
   if (!effect) return null;
+  const targetRef = effect.targetRef;
+  if (isProposalReference(targetRef)) throw new Error("resolution effect target must be an existing entity");
+  const target = resolver.resolve(targetRef, "target");
+  if (target.kind !== "entity") throw new Error(`resolution effect target is ${target.kind}, expected entity`);
+  const sourceRefs = effect.sourceRefs.map((source) => materializeResolutionSource(source, resolver));
+  const id = `effect-${contentHash({ revision: state.revision, proposalKey: effect.proposalKey }).slice(0, 32)}`;
+  if (effect.kind === "meter") {
+    const meterRef = effect.meterRef;
+    const impactRef = effect.impactProfileRef;
+    if (isProposalReference(meterRef) || isProposalReference(impactRef)) throw new Error("meter effects require existing meter and impact profile references");
+    const meter = resolver.resolve(meterRef, "source");
+    const impact = resolver.resolve(impactRef, "mechanic");
+    if (meter.kind !== "meter" || impact.kind !== "mechanic") throw new Error("meter effect references have the wrong kinds");
+    return {
+      kind: "meter", id, targetId: target.engineId, channel: effect.channel, label: effect.label,
+      description: effect.description, sourceRefs, meterId: meter.engineId, impactProfileId: impact.engineId,
+      ...(includeMagnitude && "magnitude" in effect ? { magnitude: effect.magnitude } : {}),
+    };
+  }
+  const conditionRef = effect.conditionRef;
+  const durationRef = effect.durationProfileRef;
+  const conditionProfileRef = effect.conditionProfileRef;
+  if (isProposalReference(durationRef) || (conditionProfileRef && isProposalReference(conditionProfileRef))) {
+    throw new Error("condition effects require an existing duration and condition profile");
+  }
+  const conditionProposal = isProposalReference(conditionRef);
+  const condition = conditionProposal ? null : resolver.resolve(conditionRef, "source");
+  const duration = resolver.resolve(durationRef, "mechanic");
+  const conditionProfile = conditionProfileRef === null ? null : resolver.resolve(conditionProfileRef, "mechanic");
+  if ((condition && condition.kind !== "condition") || duration.kind !== "mechanic" || (conditionProfile && conditionProfile.kind !== "mechanic")) {
+    throw new Error("condition effect references have the wrong kinds");
+  }
+  const conditionId = condition
+    ? condition.engineId
+    : `condition-${contentHash({ revision: state.revision, proposalKey: conditionProposal ? conditionRef.proposalKey : "unknown" }).slice(0, 32)}`;
   return {
-    ...effect,
-    targetId: canonicalActionEntityId(state, action, effect.targetId),
-    sourceRefs: effect.sourceRefs.map((source) => canonicalResolutionSource(state, action, source)),
+    kind: "condition", id, targetId: target.engineId, channel: effect.channel, label: effect.label,
+    description: effect.description, sourceRefs, conditionId,
+    conditionProfileId: conditionProfile?.engineId ?? null, durationProfileId: duration.engineId,
+    access: structuredClone(effect.access),
+    ...(includeMagnitude && "magnitude" in effect ? { magnitude: effect.magnitude } : {}),
   };
 }
 
@@ -695,23 +768,31 @@ function materializeResolutionPlans(input: {
   if (input.drafts.length !== input.actions.length) {
     throw new ResolutionPlanCardinalityError(
       input.actions.map((action) => action.id),
-      input.drafts.map((draft) => draft.actionId),
+      input.drafts.map((draft) => draft.proposalKey),
     );
   }
   const aliases = new Set<string>();
   const actionIds = new Set<string>();
   const conditionSubjects = new Map<string, string>();
   const evidence = resolutionEvidenceIndex(input.state, input.actions, input.definition.laws);
+  const resolver = createTruthReferenceResolver({ state: input.state, definition: input.definition, actions: input.actions });
+  const resolve = (reference: ModelReference, use: Parameters<ReferenceResolver["resolve"]>[1], kind: string): string => {
+    if (isProposalReference(reference)) throw new Error(`resolution plan cannot use proposal ${reference.proposalKey} for ${kind}`);
+    const resolved = resolver.resolve(reference, use);
+    if (resolved.kind !== kind) throw new Error(`resolution plan reference ${reference} is ${resolved.kind}, expected ${kind}`);
+    return resolved.engineId;
+  };
   const visibilityRank = { hidden: 0, result_only: 1, full: 2 } as const;
   const plans = input.drafts.map((draft, ordinal) => {
-    if (aliases.has(draft.id)) throw new Error(`duplicate resolution plan alias ${draft.id}`);
-    aliases.add(draft.id);
-    if (actionIds.has(draft.actionId)) throw new Error(`duplicate resolution plan for action ${draft.actionId}`);
-    actionIds.add(draft.actionId);
-    const action = input.actions.find((candidate) => candidate.id === draft.actionId);
-    if (!action) throw new Error(`resolution plan references unknown action ${draft.actionId}`);
+    if (aliases.has(draft.proposalKey)) throw new Error(`duplicate resolution plan proposalKey ${draft.proposalKey}`);
+    aliases.add(draft.proposalKey);
+    const actionId = resolve(draft.actionRef, "source", "action");
+    if (actionIds.has(actionId)) throw new Error(`duplicate resolution plan for action ${actionId}`);
+    actionIds.add(actionId);
+    const action = input.actions.find((candidate) => candidate.id === actionId);
+    if (!action) throw new Error(`resolution plan references unknown action ${actionId}`);
     const actor = input.state.agents[action.actorId];
-    if (!actor) throw new Error(`resolution plan ${draft.id} references unknown action actor ${action.actorId}`);
+    if (!actor) throw new Error(`resolution plan ${draft.proposalKey} references unknown action actor ${action.actorId}`);
     // The action binding is authoritative for identity and intent.  These two
     // fields are repeated in the draft for provider readability, but accepting
     // a paraphrase (or a stale actor id) would let a model retarget a plan.
@@ -720,38 +801,22 @@ function materializeResolutionPlans(input: {
     // the action's natural-language intent, but cannot be persisted as a
     // Truth reference.  Omit only that unresolved index; effects and explicit
     // difficulty targets remain strict and continue to fail closed.
-    const targetIds = [...new Set(draft.targetIds.map((targetId) =>
-      canonicalActionEntityId(input.state, action, targetId)))].filter((targetId) =>
-        Boolean(input.state.truth.entities[targetId]));
+    const targetIds = [...new Set(draft.targetRefs.map((targetRef) => resolve(targetRef, "target", "entity")))];
     const difficulty = draft.difficulty
       ? draft.difficulty.kind === "opposed"
         ? {
-            ...structuredClone(draft.difficulty),
-            targetId: canonicalActionEntityId(input.state, action, draft.difficulty.targetId),
-            source: canonicalResolutionSource(input.state, action, draft.difficulty.source),
+            kind: "opposed" as const,
+            targetId: resolve(draft.difficulty.targetRef, "target", "entity"),
+            ratingId: resolve(draft.difficulty.ratingRef, "source", "rating"),
+            source: materializeResolutionSource(draft.difficulty.source, resolver),
           }
         : {
-            ...structuredClone(draft.difficulty),
-            source: canonicalResolutionSource(input.state, action, draft.difficulty.source),
+            kind: "environment" as const,
+            band: draft.difficulty.band,
+            source: materializeResolutionSource(draft.difficulty.source, resolver),
           }
       : null;
     const plan: ResolutionPlan = {
-      ...structuredClone(draft),
-      actorId: actor.entityId,
-      goal: action.goal,
-      targetIds,
-      difficulty,
-      means: draft.means.map((mean) => ({
-        ...structuredClone(mean),
-        source: canonicalResolutionSource(input.state, action, mean.source),
-      })),
-      factors: draft.factors.map((factor) => ({
-        ...structuredClone(factor),
-        source: canonicalResolutionSource(input.state, action, factor.source),
-      })),
-      primaryEffect: canonicalResolutionEffect(input.state, action, draft.primaryEffect),
-      secondaryEffect: canonicalResolutionEffect(input.state, action, draft.secondaryEffect),
-      threatenedEffect: canonicalResolutionEffect(input.state, action, draft.threatenedEffect),
       id: runtimeId({
         worldHash: input.state.worldHash,
         revision: input.state.revision,
@@ -761,6 +826,30 @@ function materializeResolutionPlans(input: {
         round: 0,
         ordinal,
       }),
+      actionId: action.id,
+      actorId: actor.entityId,
+      goal: action.goal,
+      targetIds,
+      difficulty,
+      means: draft.means.map((mean) => ({ description: mean.description, source: materializeResolutionSource(mean.source, resolver) })),
+      factors: draft.factors.map((factor) => ({
+        role: factor.role,
+        direction: factor.direction,
+        steps: factor.steps,
+        authority: factor.authority,
+        channel: factor.channel,
+        explanation: factor.explanation,
+        source: materializeResolutionSource(factor.source, resolver),
+      })),
+      primaryEffect: materializeResolutionEffect(draft.primaryEffect, resolver, input.state, true),
+      secondaryEffect: materializeResolutionEffect(draft.secondaryEffect, resolver, input.state, true),
+      threatenedEffect: materializeResolutionEffect(draft.threatenedEffect, resolver, input.state, false),
+      actorRatingId: draft.actorRatingRef === null ? null : resolve(draft.actorRatingRef, "modifier", "rating"),
+      mode: draft.mode,
+      risk: draft.risk,
+      baseEffect: draft.baseEffect,
+      visibility: draft.visibility,
+      causes: draft.causes.map((cause) => ({ kind: cause.kind, id: resolve(cause.ref, "cause", cause.kind) })),
     };
     const grounding = input.groundings.find((candidate) =>
       candidate.kind === "action" && candidate.id === action.id);
@@ -1061,34 +1150,94 @@ export function materializeObservationPackets(
 function materializeReactionRequests(
   input: TruthResolutionInput,
   requests: readonly ReactionRequestDraft[],
+  committedChecks: readonly D20CheckRequest[] = [],
 ): ReactionRequest[] {
+  const truthResolver = createTruthReferenceResolver({
+    state: input.state,
+    definition: input.definition,
+    actions: input.initialActions,
+    checkRequests: committedChecks,
+  });
+  const resolveTruth = (reference: ModelReference, use: Parameters<ReferenceResolver["resolve"]>[1], kind: string): string => {
+    if (isProposalReference(reference)) throw new Error(`reaction routing cannot use proposal ${reference.proposalKey} for ${kind}`);
+    const resolved = truthResolver.resolve(reference, use);
+    if (resolved.kind !== kind) throw new Error(`reaction routing reference ${reference} is ${resolved.kind}, expected ${kind}`);
+    return resolved.engineId;
+  };
+  const materializeStimulus = (request: ReactionRequestDraft, agentId: string, index: number): ObservationPacketDraft => {
+    const agent = input.state.agents[agentId];
+    if (!agent) throw new Error(`reaction request references unknown Agent ${agentId}`);
+    const localResolver = createAgentReferenceResolver(agent, []);
+    const proposalIds = new Map<string, string>();
+    const newLocalId = (key: string): string => {
+      if (proposalIds.has(key)) throw new Error(`reaction stimulus duplicates proposalKey ${key}`);
+      const id = `reaction-local-${contentHash({ agentId, step: input.state.step + 1, index, key }).slice(0, 32)}`;
+      proposalIds.set(key, id);
+      return id;
+    };
+    const resolveLocal = (reference: ModelReference): string => {
+      if (isProposalReference(reference)) {
+        const id = proposalIds.get(reference.proposalKey);
+        if (!id) throw new Error(`reaction stimulus references undeclared proposalKey ${reference.proposalKey}`);
+        return id;
+      }
+      const resolved = localResolver.resolve(reference, "target");
+      if (resolved.kind !== "local_entity") throw new Error(`reaction stimulus reference ${reference} is ${resolved.kind}, expected local_entity`);
+      return resolved.engineId;
+    };
+    const introductions = request.stimulus.introductions.map((introduction) => ({
+      localEntity: {
+        id: newLocalId(introduction.localEntity.proposalKey),
+        name: introduction.localEntity.name,
+        description: introduction.localEntity.description,
+        status: introduction.localEntity.status,
+      },
+      canonicalEntityId: introduction.canonicalEntityRef === null
+        ? null
+        : resolveTruth(introduction.canonicalEntityRef, "target", "entity"),
+    }));
+    return {
+      id: `reaction-stimulus-${index}`,
+      observerId: agentId,
+      summary: request.stimulus.summary,
+      introductions,
+      apparentClaims: request.stimulus.apparentClaims.map((claim) => ({
+        subjectId: resolveLocal(claim.subjectRef),
+        predicate: claim.predicate,
+        value: claim.value.kind === "local_entity"
+          ? { kind: "local_entity" as const, localEntityId: resolveLocal(claim.value.entityRef) }
+          : structuredClone(claim.value),
+        description: claim.description,
+      })),
+        sourceEventIds: request.stimulus.sourceEventRefs.map((reference) => resolveTruth(reference, "source", "event")),
+    };
+  };
   const materialized = materializeObservationPackets(
     input.state,
     requests.map((request, index) => ({
-      ...structuredClone(request.stimulus),
-      id: `reaction-stimulus-${index}`,
-      observerId: request.agentId,
-      sourceEventIds: [],
+      ...materializeStimulus(request, resolveTruth(request.agentRef, "target", "agent"), index),
     })),
     "stimulus",
   ).packets;
   return requests.map((request, index) => {
-    const prepared = input.initialActions.find((action) => action.actorId === request.agentId);
+    const agentId = resolveTruth(request.agentRef, "target", "agent");
+    const sourceActionId = resolveTruth(request.sourceActionRef, "source", "action");
+    const prepared = input.initialActions.find((action) => action.actorId === agentId);
     const ongoing = Object.values(input.state.truth.activities)
-      .find((activity) => activity.status === "active" && activity.actorId === request.agentId);
-    if (!prepared && !ongoing) throw new Error(`reaction request for ${request.agentId} has no original intent`);
+      .find((activity) => activity.status === "active" && activity.actorId === agentId);
+    if (!prepared && !ongoing) throw new Error(`reaction request for ${agentId} has no original intent`);
     return {
       id: runtimeId({
         worldHash: input.state.worldHash,
         revision: input.state.revision,
         kind: "reaction-request",
         stage: "truth-routing",
-        owner: [request.agentId, request.sourceActionId],
+        owner: [agentId, sourceActionId],
         round: 0,
         ordinal: index,
       }),
-      agentId: request.agentId,
-      triggerActionId: request.sourceActionId,
+      agentId,
+      triggerActionId: sourceActionId,
       originalIntent: prepared
         ? { kind: "prepared_action" as const, actionId: prepared.id }
         : {
@@ -1097,7 +1246,11 @@ function materializeReactionRequests(
             sourceActionId: ongoing!.sourceActionId,
           },
       stimulus: materialized[index],
-      basis: structuredClone(request.basis),
+      basis: request.basis.map((basis) => basis.kind === "shared_placement"
+        ? { kind: basis.kind, placementId: resolveTruth(basis.placementRef, "assertion", "placement") }
+        : basis.kind === "fact"
+          ? { kind: basis.kind, factId: resolveTruth(basis.factRef, "assertion", "fact") }
+          : { kind: basis.kind, checkId: resolveTruth(basis.checkRef, "assertion", "check") }),
     };
   });
 }
@@ -1183,15 +1336,20 @@ function materializeWorldOperation(
 function materializeTransitionProposal(
   definition: WorldDefinition,
   state: SimulationState,
-  direct: TransitionProposalDraft,
+  actions: readonly AgentActionProposal[],
+  direct: ModelTransitionProposalDraft,
   checkAliases: ReadonlyMap<string, string | null>,
   randomAliases: ReadonlyMap<string, string | null>,
   identityOwner: string,
+  checkRequests: readonly D20CheckRequest[] = [],
 ): TransitionProposal {
+  const resolver = createTruthReferenceResolver({ state, definition, actions, checkRequests });
+  const proposalAliases = new Map<string, string>();
   const mechanicAliases = new Map<string, string>();
   for (const [ordinal, invocation] of direct.mechanicInvocations.entries()) {
-    if (mechanicAliases.has(invocation.id)) throw new Error(`duplicate mechanic alias ${invocation.id}`);
-    mechanicAliases.set(invocation.id, runtimeId({
+    if (mechanicAliases.has(invocation.proposalKey)) throw new Error(`duplicate mechanic proposalKey ${invocation.proposalKey}`);
+    /* IDs are assigned by the engine after semantic validation. */
+    const id = runtimeId({
       worldHash: state.worldHash,
       revision: state.revision,
       kind: "mechanic",
@@ -1199,12 +1357,14 @@ function materializeTransitionProposal(
       owner: identityOwner,
       round: 0,
       ordinal,
-    }));
+    });
+    mechanicAliases.set(invocation.proposalKey, id);
+    proposalAliases.set(invocation.proposalKey, id);
   }
   const eventAliases = new Map<string, string>();
   for (const [ordinal, event] of direct.events.entries()) {
-    if (eventAliases.has(event.id)) throw new Error(`duplicate event alias ${event.id}`);
-    eventAliases.set(event.id, runtimeId({
+    if (eventAliases.has(event.proposalKey)) throw new Error(`duplicate event proposalKey ${event.proposalKey}`);
+    const id = runtimeId({
       worldHash: state.worldHash,
       revision: state.revision,
       kind: "event",
@@ -1212,40 +1372,119 @@ function materializeTransitionProposal(
       owner: identityOwner,
       round: 0,
       ordinal,
-    }));
+    });
+    eventAliases.set(event.proposalKey, id);
+    proposalAliases.set(event.proposalKey, id);
   }
-  const rewriteCause = (cause: CausalRef): CausalRef => {
-    const checkId = cause.kind === "check" ? checkAliases.get(cause.id) : undefined;
-    if (checkId) {
-      return { ...cause, id: checkId };
+  const outcomeAliases = new Map<string, string>();
+  for (const [ordinal, outcome] of direct.outcomes.entries()) {
+    if (outcomeAliases.has(outcome.proposalKey)) throw new Error(`duplicate outcome proposalKey ${outcome.proposalKey}`);
+    const id = runtimeId({
+      worldHash: state.worldHash,
+      revision: state.revision,
+      kind: "outcome",
+      stage: "transition",
+      owner: outcome.proposalKey,
+      round: 0,
+      ordinal,
+    });
+    outcomeAliases.set(outcome.proposalKey, id);
+    proposalAliases.set(outcome.proposalKey, id);
+  }
+  const entityAliases = new Map<string, string>();
+  const factAliases = new Map<string, string>();
+  const agentAliases = new Map<string, string>();
+  for (const operation of direct.operations) {
+    if (operation.kind === "create_entity") {
+      if (entityAliases.has(operation.entity.proposalKey)) throw new Error(`duplicate entity proposalKey ${operation.entity.proposalKey}`);
+      const id = `entity-${contentHash({ worldHash: state.worldHash, revision: state.revision, proposalKey: operation.entity.proposalKey }).slice(0, 32)}`;
+      entityAliases.set(operation.entity.proposalKey, id);
+      proposalAliases.set(operation.entity.proposalKey, id);
     }
-    const randomId = cause.kind === "random" ? randomAliases.get(cause.id) : undefined;
-    if (randomId) {
-      return { ...cause, id: randomId };
+    if (operation.kind === "set_fact") {
+      if (factAliases.has(operation.fact.proposalKey)) throw new Error(`duplicate fact proposalKey ${operation.fact.proposalKey}`);
+      const id = `fact-${contentHash({ worldHash: state.worldHash, revision: state.revision, proposalKey: operation.fact.proposalKey }).slice(0, 32)}`;
+      factAliases.set(operation.fact.proposalKey, id);
+      proposalAliases.set(operation.fact.proposalKey, id);
     }
-    if (cause.kind === "mechanic" && mechanicAliases.has(cause.id)) {
-      return { ...cause, id: mechanicAliases.get(cause.id)! };
+    if (operation.kind === "create_agent") {
+      if (agentAliases.has(operation.agent.proposalKey)) throw new Error(`duplicate agent proposalKey ${operation.agent.proposalKey}`);
+      const id = `agent-${contentHash({ worldHash: state.worldHash, revision: state.revision, proposalKey: operation.agent.proposalKey }).slice(0, 32)}`;
+      agentAliases.set(operation.agent.proposalKey, id);
+      proposalAliases.set(operation.agent.proposalKey, id);
     }
-    if (cause.kind === "event" && eventAliases.has(cause.id)) {
-      return { ...cause, id: eventAliases.get(cause.id)! };
+  }
+  const resolveReference = (reference: ModelReference, use: Parameters<ReferenceResolver["resolve"]>[1], expectedKind?: string): string => {
+    if (isProposalReference(reference)) {
+      const id = expectedKind === "check"
+        ? checkAliases.get(reference.proposalKey)
+        : expectedKind === "random"
+          ? randomAliases.get(reference.proposalKey)
+          : proposalAliases.get(reference.proposalKey);
+      if (!id) throw new Error(`unknown proposalKey ${reference.proposalKey}`);
+      return id;
     }
-    return structuredClone(cause);
+    const resolved = resolver.resolve(reference, use);
+    if (expectedKind && resolved.kind !== expectedKind) throw new Error(`expected ${expectedKind} reference, got ${resolved.kind}`);
+    return resolved.engineId;
   };
-  const rewriteAssertion = (assertion: CausalAssertion): CausalAssertion => {
-    const checkId = assertion.kind === "check_result" ? checkAliases.get(assertion.checkId) : undefined;
-    if (assertion.kind === "check_result" && checkId) {
-      return { ...structuredClone(assertion), checkId };
+  const rewriteModelCause = (cause: ModelCausalRef): CausalRef => {
+    const referenceKey = isProposalReference(cause.ref) ? cause.ref.proposalKey : cause.ref;
+    const checkId = cause.kind === "check" ? checkAliases.get(referenceKey) : undefined;
+    if (checkId) {
+      return { kind: cause.kind, id: checkId };
     }
-    const randomId = assertion.kind === "random_result" ? randomAliases.get(assertion.requestId) : undefined;
-    if (assertion.kind === "random_result" && randomId) {
-      return { ...structuredClone(assertion), requestId: randomId };
+    const randomId = cause.kind === "random" ? randomAliases.get(referenceKey) : undefined;
+    if (randomId) {
+      return { kind: cause.kind, id: randomId };
     }
-    return structuredClone(assertion);
+    if (cause.kind === "mechanic" && isProposalReference(cause.ref) && mechanicAliases.has(cause.ref.proposalKey)) {
+      return { kind: cause.kind, id: mechanicAliases.get(cause.ref.proposalKey)! };
+    }
+    if (cause.kind === "event" && isProposalReference(cause.ref) && eventAliases.has(cause.ref.proposalKey)) {
+      return { kind: cause.kind, id: eventAliases.get(cause.ref.proposalKey)! };
+    }
+    return { kind: cause.kind, id: resolveReference(cause.ref, "cause", cause.kind) };
+  };
+  const rewriteAssertion = (assertion: ModelCausalAssertion): CausalAssertion => {
+    switch (assertion.kind) {
+      case "check_result": return { kind: assertion.kind, checkId: resolveReference(assertion.checkRef, "assertion", "check"), expected: assertion.expected };
+      case "random_result": return { kind: assertion.kind, requestId: resolveReference(assertion.requestRef, "assertion", "random"), stepId: resolveReference(assertion.stepRef, "assertion", "random"), expected: structuredClone(assertion.expected) as never };
+      case "fact_matches": return { kind: assertion.kind, factId: resolveReference(assertion.factRef, "assertion", "fact"), expected: materializeModelFactValue(assertion.expected, resolver) };
+      case "fact_absent": return { kind: assertion.kind, factId: resolveReference(assertion.factRef, "assertion", "fact") };
+      case "entity_absent": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity") };
+      case "entity_lifecycle": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), expected: assertion.expected };
+      case "placement_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "entity") };
+      case "shared_placement": return { kind: assertion.kind, leftEntityId: resolveReference(assertion.leftEntityRef, "assertion", "entity"), rightEntityId: resolveReference(assertion.rightEntityRef, "assertion", "entity") };
+      case "meter_compare": return { kind: assertion.kind, meterId: resolveReference(assertion.meterRef, "assertion", "meter"), operator: assertion.operator, value: assertion.value };
+      case "quantity_compare": return { kind: assertion.kind, definitionId: resolveReference(assertion.definitionRef, "assertion", "quantity"), holderId: resolveReference(assertion.holderRef, "assertion", "entity"), operator: assertion.operator, value: assertion.value };
+      case "rating_compare": return { kind: assertion.kind, ratingId: resolveReference(assertion.ratingRef, "assertion", "rating"), operator: assertion.operator, value: assertion.value };
+      case "shared_resource_capacity_compare": return { kind: assertion.kind, poolId: resolveReference(assertion.poolRef, "assertion", "shared_resource_pool"), operator: assertion.operator, value: assertion.value };
+      case "elapsed_seconds_compare": return structuredClone(assertion);
+    }
   };
   const rewriteMechanicInput = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(rewriteMechanicInput);
+    if (typeof value === "string") {
+      const checkId = checkAliases.get(value);
+      if (checkId) return checkId;
+      const randomId = randomAliases.get(value);
+      if (randomId) return randomId;
+      if (value.startsWith("ref:")) return resolver.resolve(value, "source").engineId;
+      return value;
+    }
     if (!value || typeof value !== "object") return structuredClone(value);
+    if ("proposalKey" in value && typeof value.proposalKey === "string") {
+      return proposalAliases.get(value.proposalKey) ?? value;
+    }
     return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+      if (key === "entityId" && typeof item === "string" && entityAliases.has(item)) {
+        return [key, entityAliases.get(item)!];
+      }
+      if (key === "entityIds" && Array.isArray(item)) {
+        return [key, item.map((entry) => typeof entry === "string" && entityAliases.has(entry)
+          ? entityAliases.get(entry)! : rewriteMechanicInput(entry))];
+      }
       if (key === "checkId" && typeof item === "string" && checkAliases.get(item)) {
         return [key, checkAliases.get(item)!];
       }
@@ -1255,39 +1494,121 @@ function materializeTransitionProposal(
       return [key, rewriteMechanicInput(item)];
     }));
   };
+  const materializeOperation = (operation: ModelTransitionProposalDraft["operations"][number]): WorldDeltaOperationDraft => {
+    const causal = {
+      causes: operation.causes.map(rewriteModelCause),
+      assertions: operation.assertions.map(rewriteAssertion),
+    };
+    switch (operation.kind) {
+      case "create_entity":
+        return {
+          kind: operation.kind,
+          entity: {
+            id: entityAliases.get(operation.entity.proposalKey)!,
+            kind: operation.entity.kind,
+            name: operation.entity.name,
+            description: operation.entity.description,
+          },
+          placementId: operation.placementRef === null ? null : resolveReference(operation.placementRef, "target", "entity"),
+          ...causal,
+        };
+      case "retire_entity":
+        return { kind: operation.kind, entityId: resolveReference(operation.entityRef, "target", "entity"), ...causal };
+      case "place_entity":
+        return {
+          kind: operation.kind,
+          entityId: resolveReference(operation.entityRef, "target", "entity"),
+          placementId: operation.placementRef === null ? null : resolveReference(operation.placementRef, "target", "entity"),
+          ...causal,
+        };
+      case "set_fact":
+        return {
+          kind: operation.kind,
+          fact: {
+            id: factAliases.get(operation.fact.proposalKey)!,
+            subjectId: resolveReference(operation.fact.subjectRef, "subject", "entity"),
+            predicate: operation.fact.predicate,
+            value: materializeModelFactValue(operation.fact.value, resolver),
+            description: operation.fact.description,
+            access: structuredClone(operation.fact.access),
+          },
+          ...causal,
+        };
+      case "create_agent": {
+        const agentValue = operation.agent;
+        if (!agentValue || typeof agentValue !== "object") throw new Error("create_agent requires structured agent state");
+        const agent = structuredClone(agentValue) as unknown as Record<string, unknown>;
+        const { proposalKey: _proposalKey, entityRef: _entityRef, ...agentState } = agent;
+        void _proposalKey;
+        void _entityRef;
+        const character = structuredClone(agent.character);
+        const belief = structuredClone(agent.belief);
+        const bindings = Object.fromEntries(Object.entries(
+          structuredClone(agent.bindings) as Record<string, { localEntityId: string; canonicalEntityIds: string[] }>,
+        ).map(([key, binding]) => [key, {
+          ...binding,
+          canonicalEntityIds: binding.canonicalEntityIds.map((entityId) => entityAliases.get(entityId) ?? entityId),
+        }]));
+        return {
+          kind: operation.kind,
+          agent: {
+            ...agentState,
+            id: agentAliases.get(operation.agent.proposalKey)!,
+            entityId: resolveReference(operation.agent.entityRef, "target", "entity"),
+            character,
+            belief,
+            bindings,
+          },
+          ...causal,
+        };
+      }
+      case "remove_fact":
+        return { kind: operation.kind, factId: resolveReference(operation.factRef, "target", "fact"), ...causal };
+      case "remove_agent":
+        return { kind: operation.kind, agentId: resolveReference(operation.agentRef, "target", "agent"), ...causal };
+    }
+  };
   return {
-    ...structuredClone(direct),
     baseRevision: state.revision,
     mechanicInvocations: direct.mechanicInvocations.map((invocation) => ({
-      ...structuredClone(invocation),
-      id: mechanicAliases.get(invocation.id)!,
-      causes: invocation.causes.map(rewriteCause),
+      id: mechanicAliases.get(invocation.proposalKey)!,
+      packageId: invocation.packageId,
+      ruleId: invocation.ruleId,
+      causes: invocation.causes.map(rewriteModelCause),
       assertions: invocation.assertions.map(rewriteAssertion),
       input: rewriteMechanicInput(invocation.input),
     })),
-    operations: direct.operations.map((operation) =>
-      materializeWorldOperation(state, definition, operation, rewriteCause, rewriteAssertion)),
+    operations: direct.operations.map((operation) => materializeWorldOperation(
+      state,
+      definition,
+      materializeOperation(operation),
+      (cause) => cause,
+      (assertion) => assertion,
+    )),
     events: direct.events.map((event) => ({
-      ...structuredClone(event),
-      id: eventAliases.get(event.id)!,
+      id: eventAliases.get(event.proposalKey)!,
       step: state.step + 1,
-      causes: event.causes.map(rewriteCause),
+      description: event.description,
+      impact: event.impact,
+      causes: event.causes.map(rewriteModelCause),
       assertions: event.assertions.map(rewriteAssertion),
     })),
     outcomes: direct.outcomes.map((outcome, ordinal) => ({
-      ...structuredClone(outcome),
-      id: runtimeId({
-        worldHash: state.worldHash,
-        revision: state.revision,
-        kind: "outcome",
-        stage: "transition",
-        owner: outcome.proposalId,
-        round: 0,
-        ordinal,
-      }),
-      causeRefs: outcome.causeRefs.map(rewriteCause),
+      id: outcomeAliases.get(outcome.proposalKey)!,
+      proposalId: resolveReference(outcome.actionRef, "cause", "action"),
+      status: outcome.status,
+      summary: outcome.summary,
+      causeRefs: outcome.causes.map(rewriteModelCause),
       assertions: outcome.assertions.map(rewriteAssertion),
-      knownAlternatives: outcome.knownAlternatives.map((alternative) => structuredClone(alternative)),
+      knownAlternatives: outcome.knownAlternatives.map((alternative) => ({
+        description: alternative.description,
+        basis: { kind: "knowledge" as const, evidenceIds: alternative.evidenceRefs.map((reference) => resolveReference(reference, "evidence", "evidence")) },
+      })),
+    })),
+    decisionRequests: direct.decisionRequests.map((request) => ({
+      agentId: resolveReference(request.agentRef, "audience", "agent"),
+      prompt: request.prompt,
+      suggestions: structuredClone(request.suggestions),
     })),
     observations: [],
   };
@@ -1572,27 +1893,25 @@ export class TruthEngine {
     };
 
     const repairMechanicInvocation = async (
-      target: MechanicInvocation,
+      target: ModelTransitionProposalDraft["mechanicInvocations"][number],
       failure: MechanicInputValidationError,
-    ): Promise<MechanicInvocation> => {
-      const selectedActionIds = [...new Set(target.causes
-        .filter((cause) => cause.kind === "action")
-        .map((cause) => cause.id))];
+    ): Promise<ModelTransitionProposalDraft["mechanicInvocations"][number]> => {
+      const selectedActionIds = actions.map((action) => action.id);
       const repairActions = selectedActionIds.length > 0
         ? selectedActionIds
         : actions.map((action) => action.id).sort();
       const result = await runSemanticRepairLoop({
         role: "truth-transition",
         repairScope: "invocation",
-        targetIds: [target.id],
+        targetIds: [target.proposalKey],
         maxRepairs: this.repairAttempts,
         invoke: async (repairContext) => {
           const repairIssues = repairContext.issues.length > 0
             ? repairContext.issues
             : [semanticIssue("mechanic_input_contract", failure.message, {
               class: "mechanic",
-              path: ["mechanicInvocations", target.id, ...failure.issues[0]?.path ?? []],
-              targetIds: [target.id],
+              path: ["mechanicInvocations", target.proposalKey, ...failure.issues[0]?.path ?? []],
+              targetIds: [target.proposalKey],
             })];
           const issues: PromptValidationIssue[] = repairIssues.map((issue) => ({
             code: issue.code,
@@ -1608,7 +1927,7 @@ export class TruthEngine {
                 selectedActionIds: repairActions,
                 totalActionCount: actions.length,
               },
-              { kind: "mechanic", id: target.id, issueClass: "mechanic" },
+              { kind: "mechanic", id: target.proposalKey, issueClass: "mechanic" },
             ) as Record<string, unknown>),
             mechanicRepair: {
               targetInvocation: structuredClone(target),
@@ -1645,24 +1964,31 @@ export class TruthEngine {
         },
         validate: (value) => {
           const repaired = value.invocation;
-          if (repaired.id !== target.id) throw new Error(`mechanic repair changed invocation id to ${repaired.id}`);
+          if (repaired.proposalKey !== target.proposalKey) throw new Error(`mechanic repair changed invocation proposalKey to ${repaired.proposalKey}`);
           if (repaired.packageId !== target.packageId || repaired.ruleId !== target.ruleId) {
             throw new Error("mechanic repair changed the invocation contract identity");
           }
-          this.rulePackages.validateInvocationInputs(input.definition.rulePackages, [repaired]);
+          this.rulePackages.validateInvocationInputs(input.definition.rulePackages, [{
+            id: repaired.proposalKey,
+            packageId: repaired.packageId,
+            ruleId: repaired.ruleId,
+            input: repaired.input,
+            causes: [],
+            assertions: [],
+          }]);
         },
         classify: (error) => {
           if (error instanceof MechanicInputValidationError) {
             return error.issues.map((issue) => semanticIssue(
               "mechanic_input_contract",
               issue.message,
-              { class: "mechanic", path: issue.path, targetIds: [target.id] },
+              { class: "mechanic", path: issue.path, targetIds: [target.proposalKey] },
             ));
           }
           return validationIssues(error).map((issue) => semanticIssue(
             issue.code,
             issue.message,
-            { class: "mechanic", path: issue.path, targetIds: [target.id] },
+            { class: "mechanic", path: issue.path, targetIds: [target.proposalKey] },
           ));
         },
       });
@@ -1797,7 +2123,7 @@ export class TruthEngine {
         buildContext: (issues) => truthContext("reaction-routing", issues),
         validate: (output) => validateReactionRequests(
           input,
-          materializeReactionRequests(input, output.requests),
+          materializeReactionRequests(input, output.requests, requests),
           requests,
           checks,
         ),
@@ -1806,7 +2132,7 @@ export class TruthEngine {
         targetIds: actions.map((action) => action.id),
       });
       modelAudits.push(routing.audit);
-      reactionRequests = materializeReactionRequests(input, routing.value.requests);
+      reactionRequests = materializeReactionRequests(input, routing.value.requests, requests);
       if (reactionRequests.length > 0) {
         try {
           const resolved = await input.resolveReactions(reactionRequests);
@@ -1847,6 +2173,18 @@ export class TruthEngine {
     let resolutionPlanIssues: PromptValidationIssue[] = [];
     let resolutionPlanRepairs = 0;
     let lastPlanDrafts: ResolutionPlanDraft[] = [];
+    const planReferenceResolver = createTruthReferenceResolver({
+      state: input.state,
+      definition: input.definition,
+      actions,
+      checkRequests: requests,
+    });
+    const draftActionId = (draft: ResolutionPlanDraft): string => {
+      if (isProposalReference(draft.actionRef)) throw new Error(`resolution plan actionRef cannot be a proposal`);
+      const resolved = planReferenceResolver.resolve(draft.actionRef, "source");
+      if (resolved.kind !== "action") throw new Error(`resolution plan actionRef must reference an action`);
+      return resolved.engineId;
+    };
     let pendingPlanVerification: {
       plans: ResolutionPlan[];
       checks: D20CheckRequest[];
@@ -1922,10 +2260,10 @@ export class TruthEngine {
         }
 
         const allActionIds = new Set(actions.map((action) => action.id));
-        const receivedActionIds = new Set(lastPlanDrafts.map((draft) => draft.actionId));
+        const receivedActionIds = new Set(lastPlanDrafts.map(draftActionId));
         const partialActions = actions.filter((action) => receivedActionIds.has(action.id));
         if (partialActions.length === 0 || partialActions.length !== lastPlanDrafts.length ||
-          lastPlanDrafts.some((draft) => !allActionIds.has(draft.actionId))) {
+          lastPlanDrafts.some((draft) => !allActionIds.has(draftActionId(draft)))) {
           throw error;
         }
 
@@ -1963,7 +2301,7 @@ export class TruthEngine {
                 if (directive.kind !== "commit_plans") {
                   throw new Error("targeted resolution repair must return commit_plans");
                 }
-                const scopedDrafts = directive.plans.filter((draft) => draft.actionId === action.id);
+                const scopedDrafts = directive.plans.filter((draft) => draftActionId(draft) === action.id);
                 repairedPlans = materializeResolutionPlans({
                   state: input.state,
                   definition: input.definition,
@@ -2040,11 +2378,22 @@ export class TruthEngine {
           }),
           validate: (report) => {
             if (report.verdict !== "reject") return;
-            const planIds = new Set(acceptedPlans.map((plan) => plan.id));
+            const planResolver = createTruthReferenceResolver({
+              state: input.state,
+              definition: input.definition,
+              actions,
+              extraCandidates: acceptedPlans.map((plan) => ({
+                kind: "plan" as const,
+                engineId: plan.id,
+                label: plan.goal,
+                meaning: "a committed resolution plan under review",
+                allowedUses: ["target", "assertion", "cause"] as const,
+                visibility: "role" as const,
+              })),
+            });
             for (const finding of report.findings) {
-              if (!planIds.has(finding.planId)) {
-                throw new Error(`resolution plan verifier references unknown plan ${finding.planId}`);
-              }
+              if (isProposalReference(finding.planRef)) throw new Error(`resolution plan verifier cannot target proposal ${finding.planRef.proposalKey}`);
+              planResolver.resolve(finding.planRef, "target");
             }
           },
           repairAttempts: this.repairAttempts,
@@ -2055,9 +2404,26 @@ export class TruthEngine {
         });
         resolutionPlanVerifierAudits.push(verification.audit);
         if (verification.value.verdict === "reject") {
+          const planResolver = createTruthReferenceResolver({
+            state: input.state,
+            definition: input.definition,
+            actions,
+            extraCandidates: acceptedPlans.map((plan) => ({
+              kind: "plan" as const,
+              engineId: plan.id,
+              label: plan.goal,
+              meaning: "a committed resolution plan under review",
+              allowedUses: ["target", "assertion", "cause"] as const,
+              visibility: "role" as const,
+            })),
+          });
+          const planIdFor = (reference: ModelReference): string => {
+            if (isProposalReference(reference)) throw new Error(`resolution plan verifier cannot target proposal ${reference.proposalKey}`);
+            return planResolver.resolve(reference, "target").engineId;
+          };
           resolutionPlanIssues = verification.value.findings.map((finding) => ({
             code: finding.code,
-            path: ["plans", finding.planId],
+            path: ["plans", planIdFor(finding.planRef)],
             message: `${finding.message} Repair: ${finding.repairHint}`,
           }));
           setModelInvocationOutcome(
@@ -2074,7 +2440,7 @@ export class TruthEngine {
                 .join(" | ")}`,
             );
           }
-          const targetPlanIds = [...new Set(verification.value.findings.map((finding) => finding.planId))];
+          const targetPlanIds = [...new Set(verification.value.findings.map((finding) => planIdFor(finding.planRef)))];
           const targetActions = targetPlanIds
             .map((planId) => acceptedPlans.find((plan) => plan.id === planId))
             .filter((plan): plan is ResolutionPlan => Boolean(plan));
@@ -2090,7 +2456,7 @@ export class TruthEngine {
               totalActionCount: actions.length,
             };
             const findingIssues = verification.value.findings
-              .filter((finding) => finding.planId === plan.id)
+              .filter((finding) => planIdFor(finding.planRef) === plan.id)
               .map((finding) => ({
                 code: finding.code,
                 path: ["plans", plan.id],
@@ -2114,7 +2480,7 @@ export class TruthEngine {
                 if (directive.kind !== "commit_plans") {
                   throw new Error("targeted plan repair must return commit_plans");
                 }
-                const scopedDrafts = directive.plans.filter((draft) => draft.actionId === plan.actionId);
+                const scopedDrafts = directive.plans.filter((draft) => draftActionId(draft) === plan.actionId);
                 if (scopedDrafts.length !== 1 || directive.plans.length !== 1) {
                   throw new Error(`targeted plan repair must return exactly one plan for ${plan.actionId}`);
                 }
@@ -2139,8 +2505,8 @@ export class TruthEngine {
               actions: [actions.find((action) => action.id === plan.actionId)!],
               groundings,
               identityOwner: input.identityOwner,
-              drafts: result.value.kind === "commit_plans"
-                ? result.value.plans.filter((draft) => draft.actionId === plan.actionId)
+                drafts: result.value.kind === "commit_plans"
+                ? result.value.plans.filter((draft) => draftActionId(draft) === plan.actionId)
                 : [],
               allowedCauses: allowedForCommitments,
             });
@@ -2261,13 +2627,20 @@ export class TruthEngine {
           try {
             this.rulePackages.validateInvocationInputs(
               input.definition.rulePackages,
-              transitionDraft.mechanicInvocations,
+              transitionDraft.mechanicInvocations.map((invocation) => ({
+                id: invocation.proposalKey,
+                packageId: invocation.packageId,
+                ruleId: invocation.ruleId,
+                input: invocation.input,
+                causes: [],
+                assertions: [],
+              })),
             );
             break;
           } catch (error) {
             if (!(error instanceof MechanicInputValidationError)) throw error;
             const target = transitionDraft.mechanicInvocations.find((candidate) =>
-              candidate.id === error.invocationId);
+              candidate.proposalKey === error.invocationId);
             if (!target) throw error;
             setModelInvocationOutcome(
               generated.audit,
@@ -2278,17 +2651,19 @@ export class TruthEngine {
             transitionDraft = {
               ...transitionDraft,
               mechanicInvocations: transitionDraft.mechanicInvocations.map((candidate) =>
-                candidate.id === repaired.id ? structuredClone(repaired) : candidate),
+                candidate.proposalKey === repaired.proposalKey ? structuredClone(repaired) : candidate),
             };
           }
         }
         const materializedProposal = materializeTransitionProposal(
           input.definition,
           input.state,
+          actions,
           transitionDraft,
           checkAliases,
           randomAliases,
           input.identityOwner,
+          requests,
         );
         const normalizedAlternatives = normalizeOutcomeAlternativeEvidence(
           input.state,
