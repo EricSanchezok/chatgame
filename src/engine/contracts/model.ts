@@ -69,6 +69,7 @@ export type CausalAssertion =
   | { kind: "entity_absent"; entityId: EntityId }
   | { kind: "entity_lifecycle"; entityId: EntityId; expected: WorldEntity["lifecycle"] }
   | { kind: "placement_equals"; entityId: EntityId; placementId: EntityId | null }
+  | { kind: "placement_not_equals"; entityId: EntityId; placementId: EntityId | null }
   | { kind: "shared_placement"; leftEntityId: EntityId; rightEntityId: EntityId }
   | { kind: "meter_compare"; meterId: string; operator: NumericComparison; value: number }
   | {

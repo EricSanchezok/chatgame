@@ -70,6 +70,7 @@ export function causalAssertionFootprintRefs(
       case "entity_lifecycle":
         return [{ kind: "entity", id: assertion.entityId }];
       case "placement_equals":
+      case "placement_not_equals":
         return [
           { kind: "entity", id: assertion.entityId },
           ...(assertion.placementId ? [{ kind: "placement" as const, id: assertion.placementId }] : []),

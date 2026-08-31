@@ -1626,6 +1626,7 @@ function materializeTransitionProposal(
       case "entity_absent": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity") };
       case "entity_lifecycle": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), expected: assertion.expected };
       case "placement_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "entity") };
+      case "placement_not_equals": return { kind: assertion.kind, entityId: resolveReference(assertion.entityRef, "assertion", "entity"), placementId: assertion.placementRef === null ? null : resolveReference(assertion.placementRef, "assertion", "entity") };
       case "shared_placement": return { kind: assertion.kind, leftEntityId: resolveReference(assertion.leftEntityRef, "assertion", "entity"), rightEntityId: resolveReference(assertion.rightEntityRef, "assertion", "entity") };
       case "meter_compare": return { kind: assertion.kind, meterId: resolveReference(assertion.meterRef, "assertion", "meter"), operator: assertion.operator, value: assertion.value };
       case "quantity_compare": {

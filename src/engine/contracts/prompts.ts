@@ -582,6 +582,7 @@ function projectModelCausalAssertion(
     case "entity_lifecycle":
       return { kind: assertion.kind, entityRef: modelHandle(resolvers, "entity", assertion.entityId), expected: assertion.expected };
     case "placement_equals":
+    case "placement_not_equals":
       return {
         kind: assertion.kind,
         entityRef: modelHandle(resolvers, "entity", assertion.entityId),

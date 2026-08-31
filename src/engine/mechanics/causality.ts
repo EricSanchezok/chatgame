@@ -69,6 +69,14 @@ export function evaluateCausalAssertion(
         observed: { known, placementId: placementId ?? null },
       };
     }
+    case "placement_not_equals": {
+      const known = Boolean(state.truth.entities[assertion.entityId]);
+      const placementId = known ? state.truth.placements[assertion.entityId] : undefined;
+      return {
+        passed: known && placementId !== assertion.placementId,
+        observed: { known, placementId: placementId ?? null },
+      };
+    }
     case "shared_placement": {
       const left = state.truth.placements[assertion.leftEntityId];
       const right = state.truth.placements[assertion.rightEntityId];

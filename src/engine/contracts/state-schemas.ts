@@ -207,6 +207,11 @@ export const causalAssertionSchema = z.discriminatedUnion("kind", [
     placementId: safeIdSchema.nullable(),
   }),
   z.strictObject({
+    kind: z.literal("placement_not_equals"),
+    entityId: safeIdSchema,
+    placementId: safeIdSchema.nullable(),
+  }),
+  z.strictObject({
     kind: z.literal("shared_placement"),
     leftEntityId: safeIdSchema,
     rightEntityId: safeIdSchema,

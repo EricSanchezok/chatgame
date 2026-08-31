@@ -174,7 +174,8 @@ function assertionReferences(
     case "fact_absent": return [{ value: assertion.factRef, path: [...base, "factRef"], contract: ACTION_COMPILATION_FIELD_USES.assertionFact }];
     case "entity_absent":
     case "entity_lifecycle": return [{ value: assertion.entityRef, path: [...base, "entityRef"], contract: ACTION_COMPILATION_FIELD_USES.assertionEntity }];
-    case "placement_equals": return [
+    case "placement_equals":
+    case "placement_not_equals": return [
       { value: assertion.entityRef, path: [...base, "entityRef"], contract: ACTION_COMPILATION_FIELD_USES.assertionEntity },
       ...(assertion.placementRef === null ? [] : [{ value: assertion.placementRef, path: [...base, "placementRef"], contract: ACTION_COMPILATION_FIELD_USES.assertionPlacement }]),
     ];

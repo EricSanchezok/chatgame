@@ -431,7 +431,8 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
       case "fact_absent": return { kind: item.kind, factRef: ref("fact", item.factId) };
       case "entity_absent": return { kind: item.kind, entityRef: { proposalKey: item.entityId } };
       case "entity_lifecycle": return { kind: item.kind, entityRef: createdEntityIds.has(item.entityId) ? { proposalKey: item.entityId } : ref("entity", item.entityId), expected: item.expected };
-      case "placement_equals": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("entity", item.placementId) };
+      case "placement_equals":
+      case "placement_not_equals": return { kind: item.kind, entityRef: ref("entity", item.entityId), placementRef: item.placementId === null ? null : ref("entity", item.placementId) };
       case "shared_placement": return { kind: item.kind, leftEntityRef: ref("entity", item.leftEntityId), rightEntityRef: ref("entity", item.rightEntityId) };
       case "meter_compare": return { kind: item.kind, meterRef: ref("meter", item.meterId), operator: item.operator, value: item.value };
       case "quantity_compare": return { kind: item.kind, definitionRef: ref("quantity", item.definitionId), holderRef: ref("entity", item.holderId), operator: item.operator, value: item.value };

@@ -556,6 +556,7 @@ function materializeCompilation(
       case "entity_absent": return { kind: assertion.kind, entityId: resolve(assertion.entityRef, "assertion") };
       case "entity_lifecycle": return { kind: assertion.kind, entityId: resolve(assertion.entityRef, "assertion"), expected: assertion.expected };
       case "placement_equals": return { kind: assertion.kind, entityId: resolve(assertion.entityRef, "assertion"), placementId: assertion.placementRef === null ? null : resolve(assertion.placementRef, "assertion") };
+      case "placement_not_equals": return { kind: assertion.kind, entityId: resolve(assertion.entityRef, "assertion"), placementId: assertion.placementRef === null ? null : resolve(assertion.placementRef, "assertion") };
       case "shared_placement": return { kind: assertion.kind, leftEntityId: resolve(assertion.leftEntityRef, "assertion"), rightEntityId: resolve(assertion.rightEntityRef, "assertion") };
       case "meter_compare": return { kind: assertion.kind, meterId: resolve(assertion.meterRef, "assertion"), operator: assertion.operator, value: assertion.value };
       case "quantity_compare": {

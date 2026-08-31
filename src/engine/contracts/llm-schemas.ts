@@ -331,6 +331,7 @@ export const modelCausalAssertionSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("entity_absent"), entityRef: modelReferenceSchema }),
   z.strictObject({ kind: z.literal("entity_lifecycle"), entityRef: modelReferenceSchema, expected: z.enum(["active", "retired"]) }),
   z.strictObject({ kind: z.literal("placement_equals"), entityRef: modelReferenceSchema, placementRef: modelReferenceSchema.nullable() }),
+  z.strictObject({ kind: z.literal("placement_not_equals"), entityRef: modelReferenceSchema, placementRef: modelReferenceSchema.nullable() }),
   z.strictObject({ kind: z.literal("shared_placement"), leftEntityRef: modelReferenceSchema, rightEntityRef: modelReferenceSchema }),
   z.strictObject({ kind: z.literal("meter_compare"), meterRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
   z.strictObject({ kind: z.literal("quantity_compare"), quantityRef: modelReferenceSchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
