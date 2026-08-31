@@ -327,6 +327,7 @@ function emitBatchMetric(
       physicalCalls: 1,
       submittedSlots: logicalSlots,
       repairCalls,
+      repeatedFingerprints: 0,
       batchSplits,
       partialFailureSlots: 0,
       singletonFailures: 0,

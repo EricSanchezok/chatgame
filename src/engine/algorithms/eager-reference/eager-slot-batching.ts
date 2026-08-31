@@ -30,6 +30,7 @@ export interface EagerSlotBatchFailure<TPayload, TIssue> {
 export interface EagerSlotBatchMetrics {
   submittedSlots: number;
   repairCalls: number;
+  repeatedFingerprints: number;
   splitCount: number;
   partialFailureSlots: number;
   singletonFailures: number;
@@ -132,6 +133,7 @@ function mergeBatchResults<TResult, TPayload, TIssue>(
     metrics: {
       submittedSlots: entries.reduce((total, entry) => total + entry.metrics.submittedSlots, 0),
       repairCalls: entries.reduce((total, entry) => total + entry.metrics.repairCalls, 0),
+      repeatedFingerprints: entries.reduce((total, entry) => total + entry.metrics.repeatedFingerprints, 0),
       splitCount: entries.reduce((total, entry) => total + entry.metrics.splitCount, 0),
       partialFailureSlots: entries.reduce((total, entry) => total + entry.metrics.partialFailureSlots, 0),
       singletonFailures: entries.reduce((total, entry) => total + entry.metrics.singletonFailures, 0),
@@ -149,6 +151,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
     attempt: number,
   ): Promise<EagerSlotAttemptResult<TResult, TPayload, TIssue>>;
   issuesForError(error: unknown, slot: EagerSlot<TPayload, TIssue>): TIssue[];
+  issueFingerprint?: (issue: TIssue) => string;
   label: string;
   maxRepairs?: number;
 }): Promise<EagerSlotBatchResult<TResult, TPayload, TIssue>> {
@@ -175,12 +178,14 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
     const metrics: EagerSlotBatchMetrics = {
       submittedSlots: 0,
       repairCalls: 0,
+      repeatedFingerprints: 0,
       splitCount: 0,
       partialFailureSlots: 0,
       singletonFailures: 0,
     };
     let lastAudit: ModelExecutionAudit | undefined;
     let lastError: unknown = new Error(`${input.label} failed without a model attempt`);
+    const seenFailureFingerprints = new Set<string>();
     for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
       if (pending.length === 0) break;
       const repairedFit = partitionEagerSlots({
@@ -201,6 +206,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
           metrics: {
             submittedSlots: metrics.submittedSlots + recovered.metrics.submittedSlots,
             repairCalls: metrics.repairCalls + recovered.metrics.repairCalls,
+            repeatedFingerprints: metrics.repeatedFingerprints + recovered.metrics.repeatedFingerprints,
             splitCount: metrics.splitCount + recovered.metrics.splitCount + 1,
             partialFailureSlots: metrics.partialFailureSlots + recovered.metrics.partialFailureSlots,
             singletonFailures: metrics.singletonFailures + recovered.metrics.singletonFailures,
@@ -241,6 +247,18 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
           issues: input.issuesForError(error, slot),
         }));
       }
+      if (pending.length > 0 && input.issueFingerprint) {
+        const issueFingerprint = input.issueFingerprint;
+        const fingerprint = contentHash(pending.map((slot) => ({
+          key: slot.key,
+          issues: slot.issues.map(issueFingerprint),
+        })));
+        if (seenFailureFingerprints.has(fingerprint)) {
+          metrics.repeatedFingerprints += pending.length;
+          break;
+        }
+        seenFailureFingerprints.add(fingerprint);
+      }
     }
 
     if (pending.length === 0) return { results, audits, failures: [], batchCount, metrics };
@@ -264,6 +282,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
       metrics: {
         submittedSlots: metrics.submittedSlots + recovered.metrics.submittedSlots,
         repairCalls: metrics.repairCalls + recovered.metrics.repairCalls,
+        repeatedFingerprints: metrics.repeatedFingerprints + recovered.metrics.repeatedFingerprints,
         splitCount: metrics.splitCount + recovered.metrics.splitCount + 1,
         partialFailureSlots: metrics.partialFailureSlots + recovered.metrics.partialFailureSlots,
         singletonFailures: metrics.singletonFailures + recovered.metrics.singletonFailures,

@@ -3,6 +3,7 @@ import { createTestModelAudit } from "../../testing/model-provider";
 import {
   runSemanticRepairLoop,
   semanticIssue,
+  semanticRepairFingerprint,
 } from "../semantic-repair";
 
 const scope = {
@@ -15,6 +16,26 @@ const scope = {
 } as const;
 
 describe("semantic repair loop", () => {
+  it("fingerprints deterministic issue identity instead of wording or order", () => {
+    const left = semanticRepairFingerprint([
+      { code: "reference.unknown_handle", path: ["refs", 1], originalValue: "ref:fact:missing" },
+      { code: "temporal.ineligible", path: ["profileRef"], originalValue: "ref:temporal_profile:rate" },
+    ], 14);
+    const reordered = semanticRepairFingerprint([
+      { code: "temporal.ineligible", path: ["profileRef"], originalValue: "ref:temporal_profile:rate" },
+      { code: "reference.unknown_handle", path: ["refs", 1], originalValue: "ref:fact:missing" },
+    ], 14);
+
+    expect(reordered).toBe(left);
+    expect(semanticRepairFingerprint([
+      { code: "reference.unknown_handle", path: ["refs", 1], originalValue: "ref:fact:other" },
+    ], 14)).not.toBe(left);
+    expect(semanticRepairFingerprint([
+      { code: "reference.unknown_handle", path: ["refs", 1], originalValue: "ref:fact:missing" },
+      { code: "temporal.ineligible", path: ["profileRef"], originalValue: "ref:temporal_profile:rate" },
+    ], 15)).not.toBe(left);
+  });
+
   it("retries one scoped issue and combines its audits", async () => {
     let calls = 0;
     const result = await runSemanticRepairLoop({

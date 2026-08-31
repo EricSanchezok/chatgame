@@ -21,7 +21,7 @@ import {
   type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
 import type { ActionCompilationDraft, InteractionDependency } from "../../runtime/execution";
-import type { AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, SimulationState } from "../../contracts/model";
+import type { AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, ModelOutputIssue, SimulationState } from "../../contracts/model";
 import {
   ModelOutputError,
   ModelSemanticRepairError,
@@ -45,12 +45,17 @@ import {
 import { promptBundle } from "../../prompts";
 import {
   isProposalReference,
+  MODEL_CONTEXT_CONTRACT_VERSION,
+  modelRepairIssueFromReferenceError,
   modelRoleContract,
   normalizeModelOutput,
+  ModelReferenceError,
+  type ModelRepairIssue,
   type ModelReference,
   type ModelReferenceUse,
 } from "../../contracts/model-context";
 import { contentHash } from "../../models/model-audit";
+import { semanticRepairFingerprint } from "../../models/semantic-repair";
 
 const ACTION_COMPILER_PROMPT = promptBundle("action-compilation");
 
@@ -71,9 +76,33 @@ export type PlannedTemporalActivity = Pick<CompiledAction, "plan" | "activity">;
 
 interface CompilationPayload {
   action: AgentActionProposal;
+  previousOutput?: unknown;
 }
 
-type CompilationSlot = EagerSlot<CompilationPayload, string>;
+type CompilationSlot = EagerSlot<CompilationPayload, ModelRepairIssue>;
+
+function compilationIssue(input: {
+  code: string;
+  reason: string;
+  class?: ModelRepairIssue["class"];
+  path?: Array<string | number>;
+  originalValue?: unknown;
+  allowedHandles?: readonly string[];
+}): ModelRepairIssue {
+  return {
+    code: input.code,
+    class: input.class ?? "semantic",
+    path: [...(input.path ?? [])],
+    originalValue: input.originalValue === undefined ? null : structuredClone(input.originalValue),
+    allowedHandles: [...(input.allowedHandles ?? [])],
+    reason: input.reason,
+  };
+}
+
+function modelIssuePath(path: readonly PropertyKey[]): Array<string | number> {
+  return path.filter((segment): segment is string | number =>
+    typeof segment === "string" || typeof segment === "number");
+}
 
 function existingActivities(
   state: Readonly<SimulationState>,
@@ -93,6 +122,43 @@ function existingActivities(
     }));
 }
 
+const MAX_BOUNDED_REPAIR_ALTERNATIVES = 64;
+
+function collectModelHandles(value: unknown, target: Set<string>): void {
+  if (typeof value === "string") {
+    if (value.startsWith("ref:")) target.add(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectModelHandles(entry, target));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  Object.values(value as Record<string, unknown>).forEach((entry) => collectModelHandles(entry, target));
+}
+
+function actionCompilationRepairResolver(
+  resolver: ReturnType<typeof actionGroundingReferenceResolver>,
+  slots: readonly CompilationSlot[],
+): ReturnType<typeof actionGroundingReferenceResolver> {
+  if (slots.every((slot) => slot.issues.length === 0)) return resolver;
+  if (slots.some((slot) => slot.issues.some((issue) => issue.class === "structure"))) return resolver;
+  const alternatives = slots.flatMap((slot) => slot.issues.flatMap((issue) => issue.allowedHandles));
+  if (new Set(alternatives).size > MAX_BOUNDED_REPAIR_ALTERNATIVES) return resolver;
+
+  const includedHandles = new Set(alternatives);
+  slots.forEach((slot) => collectModelHandles(slot.payload.previousOutput, includedHandles));
+  for (const [slotIndex, slot] of slots.entries()) {
+    includedHandles.add(resolver.handleFor("action", slot.payload.action.id));
+    includedHandles.add(resolver.handleFor("agent", slot.payload.action.actorId));
+    resolver.catalog.candidates
+      .filter((candidate) => candidate.slot === slotIndex || candidate.kind === "temporal_profile")
+      .forEach((candidate) => includedHandles.add(candidate.handle));
+  }
+  return resolver.narrow((candidate) =>
+    includedHandles.has(resolver.handleFor(candidate.kind, candidate.engineId)));
+}
+
 function actionCompilationContext(
   state: Readonly<SimulationState>,
   slots: readonly CompilationSlot[],
@@ -103,10 +169,15 @@ function actionCompilationContext(
   const slotByActionId = new Map(slots.map((entry, slot) => [entry.payload.action.id, slot]));
   const initialResolver = batchResolver ?? actionGroundingReferenceResolver(state, actions, slotByActionId);
   const shared = actionGroundingSharedContext(state, actions, initialResolver, true);
-  const referenceResolver = shared.referenceResolver;
+  const referenceResolver = actionCompilationRepairResolver(shared.referenceResolver, slots);
   const slotContexts = slots.map((entry, slot) => {
     const slotResolver = referenceResolver.scopedToSlot(slot);
-    const slotContext = actionGroundingSlotContext(state, entry.payload.action, entry.issues, slotResolver);
+    const slotContext = actionGroundingSlotContext(
+      state,
+      entry.payload.action,
+      entry.issues.map((issue) => issue.reason),
+      slotResolver,
+    );
     const temporalEvidence = extractActionTemporalEvidence(
       entry.payload.action.rawText,
       state.truth.mechanics.temporalProfiles,
@@ -117,7 +188,14 @@ function actionCompilationContext(
         targetHandles: [slotContext.action.actionRef],
         allowedProposalKinds: [],
       },
-      constraints: entry.issues,
+      constraints: entry.issues.map((issue) => issue.reason),
+      repair: entry.issues.length > 0
+        ? {
+            fingerprint: semanticRepairFingerprint(entry.issues, MODEL_CONTEXT_CONTRACT_VERSION),
+            previousOutput: structuredClone(entry.payload.previousOutput ?? null),
+            issues: structuredClone(entry.issues),
+          }
+        : null,
       state: {
         action: slotContext.action,
         actorPerspective: slotContext.actorPerspective,
@@ -138,8 +216,8 @@ function actionCompilationContext(
     execution: { worldId: state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: state.revision, step: state.step },
     task: {
       assignment: { targetHandles: [], allowedProposalKinds: [] },
-      constraints: slots.flatMap((slot) => slot.issues),
-      slots: slotContexts.map(({ slot, assignment, constraints }) => ({ slot, assignment, constraints })),
+      constraints: slots.flatMap((slot) => slot.issues.map((issue) => issue.reason)),
+      slots: slotContexts.map(({ slot, assignment, constraints, repair }) => ({ slot, assignment, constraints, repair })),
     },
     state: {
       currentElapsedSeconds: state.truth.elapsedSeconds,
@@ -170,9 +248,15 @@ function actionCompilationContext(
       })),
       slots: slotContexts.map(({ slot, state: slotState }) => ({ slot, ...slotState })),
     },
-    referenceCatalog: shared.referenceCatalog,
+    referenceCatalog: referenceResolver.catalog,
     repair: slots.some((slot) => slot.issues.length > 0)
-      ? { target: null, issues: slots.flatMap((slot, index) => slot.issues.map((reason) => ({ code: "action_compilation", class: "semantic" as const, path: ["slots", index], originalValue: null, allowedHandles: [], reason }))) }
+      ? {
+          target: null,
+          issues: slots.flatMap((slot, index) => slot.issues.map((issue) => ({
+            ...structuredClone(issue),
+            path: ["slots", index, ...issue.path],
+          }))),
+        }
       : null,
   };
 }
@@ -235,50 +319,95 @@ function errorChainText(error: unknown): string {
   return messages.join("\n");
 }
 
-function actionCompilationRepairIssues(error: unknown): string[] {
+function actionCompilationRepairIssues(error: unknown): ModelRepairIssue[] {
   const message = errorChainText(error);
   if (message.includes("sharedResourceClaims") && (message.includes("poolId") || message.includes("resourcePoolHandle"))) {
     return [
-      "sharedResourceClaims.resourcePoolHandle 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
+      compilationIssue({
+        code: "reference.shared_resource_pool_required",
+        class: "reference",
+        path: ["interactionDependency", "sharedResourceClaims"],
+        reason: "resourcePoolHandle must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
+      }),
     ];
   }
   if (message.includes("action compilation returned") ||
     message.includes("action compilation did not cover")) {
-    return ["输出必须恰好覆盖当前输入的每个 slot：数量相同，slot 从 0 连续编号，不得重复或遗漏。"];
+    return [compilationIssue({
+      code: "structure.slot_coverage",
+      class: "structure",
+      path: ["slots"],
+      reason: "Return exactly one result for every current slot, numbered contiguously from zero without duplicates.",
+    })];
   }
   if (error instanceof EagerSlotAttemptError && error.cause instanceof ModelOutputError) {
-    return ["上一次输出未通过结构化 schema 验证；请严格按 schema 返回当前所有 slot。"];
+    return [compilationIssue({
+      code: "structure.batch_schema",
+      class: "structure",
+      reason: "The previous output failed the structured schema; return the complete current slot batch in schema form.",
+    })];
   }
-  return [message];
+  return [compilationIssue({ code: "action_compilation.invalid_batch", reason: message })];
 }
 
-function actionCompilationSlotIssues(error: unknown): string[] {
+function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
+  if (error instanceof ModelReferenceError) {
+    return [modelRepairIssueFromReferenceError(error, [])];
+  }
   if (error instanceof z.ZodError) {
     const poolIssue = error.issues.find((issue) =>
       issue.path.includes("sharedResourceClaims") && (issue.path.includes("poolId") || issue.path.includes("resourcePoolHandle")));
     if (poolIssue) {
       return [
-        "sharedResourceClaims.resourcePoolHandle 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
+        compilationIssue({
+          code: "reference.shared_resource_pool_required",
+          class: "reference",
+          path: modelIssuePath(poolIssue.path),
+          originalValue: poolIssue.input,
+          reason: "resourcePoolHandle must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
+        }),
       ];
     }
+    return error.issues.map((issue) => compilationIssue({
+      code: `structure.${issue.code}`,
+      class: "structure",
+      path: modelIssuePath(issue.path),
+      originalValue: issue.input,
+      reason: issue.message,
+    }));
   }
   const message = error instanceof Error ? error.message : String(error);
   if (message === "explicit duration is not grounded in the action text") {
     return [
-      "action.rawText 没有可逐字复制的数字时长与单位；改选非 rate temporal profile 并使用 {\"kind\":\"profile\"}，不得估算时长或改写 sourceText。",
+      compilationIssue({
+        code: "temporal.duration_evidence_missing",
+        class: "mechanic",
+        path: ["temporalPlan", "basis"],
+        reason: "The action has no exact duration-and-unit span. Select an eligible non-rate profile with profile basis; do not estimate or rewrite evidence.",
+      }),
     ];
   }
   if (message === "explicit progress quantity is not grounded in the action text") {
     return [
-      "action.rawText 没有可逐字复制的数字距离与 rate profile 单位；改选非 rate temporal profile 并使用 {\"kind\":\"profile\"}，不得把人数、物品数、地点数或轮次当作距离。",
+      compilationIssue({
+        code: "temporal.progress_evidence_missing",
+        class: "mechanic",
+        path: ["temporalPlan", "basis"],
+        reason: "The action has no exact progress quantity compatible with the rate profile. Select an eligible non-rate profile; counts are not distance.",
+      }),
     ];
   }
   if (message.includes("requires explicit quantity")) {
     return [
-      "rate temporal profile 只能用 action.rawText 中明写的数字距离和相同单位；如果原文没有，改选非 rate profile 并使用 {\"kind\":\"profile\"}。",
+      compilationIssue({
+        code: "temporal.profile_ineligible",
+        class: "mechanic",
+        path: ["temporalPlan", "profileRef"],
+        reason: "A rate profile requires an exact compatible quantity in action.rawText. Select an eligible non-rate profile when the evidence is absent.",
+      }),
     ];
   }
-  return [message];
+  return [compilationIssue({ code: "action_compilation.invalid_slot", reason: message })];
 }
 
 function localizedSchemaFailure(
@@ -286,12 +415,12 @@ function localizedSchemaFailure(
   batch: readonly CompilationSlot[],
   state: Readonly<SimulationState>,
   resolver: ReturnType<typeof actionGroundingReferenceResolver>,
-): EagerSlotAttemptResult<CompiledAction, CompilationPayload, string> | null {
+): EagerSlotAttemptResult<CompiledAction, CompilationPayload, ModelRepairIssue> | null {
   if (!(error instanceof ModelOutputError) || !error.audit || !error.rawValue || typeof error.rawValue !== "object" ||
     !Array.isArray((error.rawValue as { slots?: unknown }).slots)) return null;
   const rawSlots = (error.rawValue as { slots: unknown[] }).slots;
   const accepted: Array<{ key: string; result: CompiledAction }> = [];
-  const rejected: Array<{ slot: CompilationSlot; issues: string[] }> = [];
+  const rejected: Array<{ slot: CompilationSlot; issues: ModelRepairIssue[] }> = [];
   const rawByIndex = new Map<number, unknown>();
   const duplicateIndexes = new Set<number>();
   rawSlots.forEach((raw, position) => {
@@ -307,15 +436,21 @@ function localizedSchemaFailure(
     const raw = rawByIndex.get(index);
     if (raw === undefined || duplicateIndexes.has(index)) {
       rejected.push({
-        slot,
-        issues: [`slot ${index} 未通过结构化 schema：${raw === undefined ? "slot missing" : "slot duplicated"}`],
+        slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(raw ?? null) } },
+        issues: [compilationIssue({
+          code: raw === undefined ? "structure.slot_missing" : "structure.slot_duplicated",
+          class: "structure",
+          path: ["slot"],
+          originalValue: raw ?? null,
+          reason: `Slot ${index} ${raw === undefined ? "is missing" : "is duplicated"}.`,
+        })],
       });
       continue;
     }
     const parsed = actionCompilationSlotSchema.safeParse(raw);
     if (!parsed.success) {
       rejected.push({
-        slot,
+        slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(raw) } },
         issues: actionCompilationSlotIssues(parsed.error),
       });
       continue;
@@ -326,10 +461,28 @@ function localizedSchemaFailure(
         result: materializeCompilation(state, slot.payload.action, parsed.data, resolver.scopedToSlot(index)),
       });
     } catch (materializationError) {
-      rejected.push({ slot, issues: actionCompilationSlotIssues(materializationError) });
+      rejected.push({
+        slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(parsed.data) } },
+        issues: actionCompilationSlotIssues(materializationError),
+      });
     }
   }
   return { audit: error.audit!, accepted, rejected };
+}
+
+function actionCompilationAuditIssues(
+  rejected: readonly { slot: CompilationSlot; issues: readonly ModelRepairIssue[] }[],
+  batch: readonly CompilationSlot[],
+): ModelOutputIssue[] {
+  return rejected.flatMap(({ slot, issues }) => issues.map((issue) => ({
+    code: issue.code,
+    class: issue.class,
+    path: ["slots", batch.findIndex((entry) => entry.key === slot.key), ...issue.path],
+    message: issue.reason,
+    originalValue: structuredClone(issue.originalValue),
+    allowedHandles: [...issue.allowedHandles],
+    targetIds: [slot.key],
+  })));
 }
 
 function materializeCompilation(
@@ -454,7 +607,7 @@ export async function compileActions(
       compilations: [],
       modelAudits: [],
       batchCount: 0,
-      metrics: { submittedSlots: 0, repairCalls: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
+      metrics: { submittedSlots: 0, repairCalls: 0, repeatedFingerprints: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
     };
   }
   const slots: CompilationSlot[] = [...actions]
@@ -473,6 +626,7 @@ export async function compileActions(
     ),
     label: "action compilation",
     issuesForError: actionCompilationRepairIssues,
+    issueFingerprint: (issue) => semanticRepairFingerprint([issue], MODEL_CONTEXT_CONTRACT_VERSION),
     maxRepairs: repairAttempts,
     invoke: async (batch, attempt) => {
       const owner = eagerSlotBatchOwner("action-compilation", batch);
@@ -483,13 +637,14 @@ export async function compileActions(
         batch.map((entry) => entry.payload.action),
         slotByActionId,
       );
-      const batchResolver = actionGroundingSharedContext(
+      const fullBatchResolver = actionGroundingSharedContext(
         state,
         batch.map((entry) => entry.payload.action),
         baseResolver,
         true,
       ).referenceResolver;
-      const context = actionCompilationContext(state, batch, scope, batchResolver);
+      const batchResolver = actionCompilationRepairResolver(fullBatchResolver, batch);
+      const context = actionCompilationContext(state, batch, scope, fullBatchResolver);
       emitActionCompilationContextProjection(scope, owner, identity, context);
       let generated;
       try {
@@ -517,7 +672,11 @@ export async function compileActions(
         if (localized) {
           setModelInvocationResultKind(localized.audit, "action_compilation_batch");
           if (localized.rejected.length === 0) setModelInvocationOutcome(localized.audit, "accepted");
-          else setModelInvocationOutcome(localized.audit, "rejected", ["invalid_action_compilation_slot"]);
+          else setModelInvocationOutcome(
+            localized.audit,
+            "rejected",
+            actionCompilationAuditIssues(localized.rejected, batch),
+          );
           emitSemanticRejection(
             scope,
             owner,
@@ -548,7 +707,7 @@ export async function compileActions(
       }
 
       const accepted: Array<{ key: string; result: CompiledAction }> = [];
-      const rejected: Array<{ slot: CompilationSlot; issues: string[] }> = [];
+      const rejected: Array<{ slot: CompilationSlot; issues: ModelRepairIssue[] }> = [];
       const normalizedSlots: Array<{ slot: number; result: unknown }> = [];
       let modifiedFieldCount = 0;
       let resolvedReferenceCount = 0;
@@ -569,14 +728,10 @@ export async function compileActions(
           deduplicatedCount += normalized.deduplicatedCount;
           normalizedSlots.push({ slot: draft.slot, result: normalized.value });
           if (normalized.issues.length > 0) {
-            const issueText = normalized.issues.map((issue) => {
-              const path = issue.path.length > 0 ? ` at ${issue.path.join(".")}` : "";
-              const allowed = issue.allowedHandles.length > 0
-                ? ` allowed=${issue.allowedHandles.join(",")}`
-                : "";
-              return `${issue.code}${path}: ${issue.reason}${allowed}`;
+            rejected.push({
+              slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(draft) } },
+              issues: normalized.issues,
             });
-            rejected.push({ slot, issues: issueText });
             const invocationAudit = generated.audit.invocations.at(-1);
             if (invocationAudit) {
               invocationAudit.issues = [
@@ -600,7 +755,10 @@ export async function compileActions(
             result: materializeCompilation(state, slot.payload.action, normalized.value, slotResolver),
           });
         } catch (error) {
-          rejected.push({ slot, issues: actionCompilationSlotIssues(error) });
+          rejected.push({
+            slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(draft) } },
+            issues: actionCompilationSlotIssues(error),
+          });
         }
       }
       const invocationAudit = generated.audit.invocations.at(-1);
@@ -637,7 +795,11 @@ export async function compileActions(
       if (rejected.length === 0) {
         setModelInvocationOutcome(generated.audit, "accepted");
       } else {
-        setModelInvocationOutcome(generated.audit, "rejected", ["invalid_action_compilation_slot"]);
+        setModelInvocationOutcome(
+          generated.audit,
+          "rejected",
+          actionCompilationAuditIssues(rejected, batch),
+        );
         emitSemanticRejection(
           scope,
           owner,

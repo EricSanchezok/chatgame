@@ -688,6 +688,24 @@ describe("eager reference safeguards", () => {
       ["keeper", "player"],
       ["keeper"],
     ]);
+    const initialContext = requests[0]!.context as {
+      referenceCatalog: { candidates: unknown[] };
+    };
+    const repairContext = requests[1]!.context as {
+      task: { slots: Array<{ repair: { fingerprint: string; previousOutput: unknown; issues: Array<{ code: string; path: unknown[] }> } }> };
+      repair: { issues: Array<{ code: string; path: unknown[]; allowedHandles: string[] }> };
+      referenceCatalog: { candidates: unknown[] };
+    };
+    expect(repairContext.task.slots[0]?.repair.previousOutput).toEqual(expect.objectContaining({
+      temporalPlan: expect.objectContaining({ profileRef: "ref:temporal_profile:missing-temporal-profile" }),
+    }));
+    expect(repairContext.task.slots[0]?.repair.fingerprint).toMatch(/^[a-f0-9]{64}$/u);
+    expect(repairContext.repair.issues).toContainEqual(expect.objectContaining({
+      code: "reference.unknown_handle",
+      path: ["slots", 0, "temporalPlan", "profileRef"],
+    }));
+    expect(repairContext.referenceCatalog.candidates.length)
+      .toBeLessThan(initialContext.referenceCatalog.candidates.length);
   });
 
   it("projects rate profiles as ineligible without quantity evidence and repairs only that slot", async () => {
@@ -828,7 +846,7 @@ describe("eager reference safeguards", () => {
     })).rejects.toBeInstanceOf(ModelSemanticRepairError);
 
     expect(contentHash(engine.snapshot)).toBe(contentHash(source));
-    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(3);
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
   });
 
   it("rolls back when an AgentMind singleton exhausts semantic repair", async () => {

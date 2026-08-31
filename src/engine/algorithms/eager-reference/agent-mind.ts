@@ -585,7 +585,7 @@ export class AgentMind {
         failures: [],
         modelAudits: [],
         batchCount: 0,
-        metrics: { submittedSlots: 0, repairCalls: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
+        metrics: { submittedSlots: 0, repairCalls: 0, repeatedFingerprints: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
       };
     }
     const ids = inputs.map((input) => input.agent.id);
@@ -796,6 +796,7 @@ export class AgentMind {
       metrics: {
         submittedSlots: groupResults.reduce((total, result) => total + result.metrics.submittedSlots, 0),
         repairCalls: groupResults.reduce((total, result) => total + result.metrics.repairCalls, 0),
+        repeatedFingerprints: groupResults.reduce((total, result) => total + result.metrics.repeatedFingerprints, 0),
         splitCount: groupResults.reduce((total, result) => total + result.metrics.splitCount, 0),
         partialFailureSlots: groupResults.reduce((total, result) => total + result.metrics.partialFailureSlots, 0),
         singletonFailures: groupResults.reduce((total, result) => total + result.metrics.singletonFailures, 0),

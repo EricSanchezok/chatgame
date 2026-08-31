@@ -168,4 +168,34 @@ describe("eager slot batching", () => {
       invoke: async () => { throw cancellation; },
     })).rejects.toBe(cancellation);
   });
+
+  it("stops an equivalent repair fingerprint before sending a third identical request", async () => {
+    let calls = 0;
+    const result = await runEagerSlotBatches({
+      slots: slots(1),
+      maxSlots: 1,
+      maxInputBytes: 10_000,
+      requestBytes: (batch) => batch.length,
+      label: "test",
+      maxRepairs: 5,
+      issuesForError: () => ["same deterministic failure"],
+      issueFingerprint: (issue) => issue,
+      invoke: async (batch, attempt) => {
+        calls += 1;
+        return {
+          audit: audit(attempt + 1),
+          accepted: [],
+          rejected: [{ slot: batch[0]!, issues: ["same deterministic failure"] }],
+        };
+      },
+    });
+
+    expect(calls).toBe(2);
+    expect(result.failures).toHaveLength(1);
+    expect(result.metrics).toMatchObject({
+      repairCalls: 1,
+      repeatedFingerprints: 1,
+      singletonFailures: 1,
+    });
+  });
 });

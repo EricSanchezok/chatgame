@@ -7,6 +7,7 @@ import {
 } from "./model-provider";
 import type { ModelRole } from "./model-catalog";
 import { ModelOverloadedError } from "./model-scheduler";
+import { contentHash } from "./model-audit";
 
 export type SemanticRepairScope = "slot" | "invocation" | "observer" | "component" | "step";
 
@@ -27,6 +28,34 @@ export interface SemanticRepairIssue {
   originalValue?: unknown;
   allowedHandles?: readonly string[];
   targetIds?: string[];
+}
+
+export interface SemanticRepairFingerprintIssue {
+  code: string;
+  path: readonly (string | number)[];
+  originalValue?: unknown;
+}
+
+/**
+ * Identifies an equivalent deterministic failure without depending on prose,
+ * provider wording, or attempt number. Contract changes deliberately produce
+ * a new fingerprint so an obsolete repair history cannot suppress a new
+ * protocol attempt.
+ */
+export function semanticRepairFingerprint(
+  issues: readonly SemanticRepairFingerprintIssue[],
+  contractVersion: string | number,
+): string {
+  return contentHash({
+    contractVersion,
+    issues: issues
+      .map((issue) => ({
+        code: issue.code,
+        path: [...issue.path],
+        originalValue: issue.originalValue === undefined ? null : structuredClone(issue.originalValue),
+      }))
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+  });
 }
 
 export interface SemanticRepairContext {

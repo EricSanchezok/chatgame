@@ -92,6 +92,7 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     physicalCalls: number;
     submittedSlots: number;
     repairCalls: number;
+    repeatedFingerprints: number;
     batchSplits: number;
     partialFailureSlots: number;
     singletonFailures: number;
@@ -440,6 +441,7 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
       "physicalCalls",
       "submittedSlots",
       "repairCalls",
+      "repeatedFingerprints",
       "batchSplits",
       "partialFailureSlots",
       "singletonFailures",

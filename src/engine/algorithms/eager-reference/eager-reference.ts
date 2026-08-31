@@ -789,6 +789,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         physicalCalls: batchCount,
         submittedSlots: metrics.submittedSlots,
         repairCalls: metrics.repairCalls,
+        repeatedFingerprints: metrics.repeatedFingerprints,
         batchSplits: metrics.splitCount,
         partialFailureSlots: metrics.partialFailureSlots,
         singletonFailures: metrics.singletonFailures,
@@ -807,7 +808,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         outputs: [],
         modelAudits: [],
         batchCount: 0,
-        metrics: { submittedSlots: 0, repairCalls: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
+        metrics: { submittedSlots: 0, repairCalls: 0, repeatedFingerprints: 0, splitCount: 0, partialFailureSlots: 0, singletonFailures: 0 },
       };
     }
     const result = await this.agentMind.thinkBatch(
