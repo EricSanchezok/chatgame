@@ -1144,6 +1144,7 @@ export function validateSimulationState(state: SimulationState, requireNextActio
         ref.kind === "quantity" && Boolean(state.truth.quantities[ref.id]) ||
         ref.kind === "rating" && Boolean(state.truth.ratings[ref.id]) ||
         ref.kind === "condition" && Boolean(state.truth.conditions[ref.id]) ||
+        ref.kind === "activity" && Boolean(state.truth.activities[ref.id]) ||
         ref.kind === "shared_resource_pool" && Boolean(state.truth.sharedActivityResourcePools[ref.id]);
       if (!known) throw new Error(`activity ${id} footprint references unknown ${ref.kind} ${ref.id}`);
     }

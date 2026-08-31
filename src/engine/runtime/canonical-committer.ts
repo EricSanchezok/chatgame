@@ -144,6 +144,7 @@ function validateInteractionDependencies(
     quantity: source.truth.quantities,
     rating: source.truth.ratings,
     condition: source.truth.conditions,
+    activity: source.truth.activities,
     shared_resource_pool: source.truth.sharedActivityResourcePools,
   };
   for (const dependency of dependencies) {

@@ -185,6 +185,33 @@ describe("action dependencies", () => {
     expect(normalized.fallbackReasons).toEqual(["unknown_audience_agent", "unknown_entity"]);
   });
 
+  it("treats a known Activity as a first-class dependency footprint", () => {
+    const state = {
+      agents: { a: { id: "a", entityId: "entity-a" } },
+      truth: {
+        entities: { "entity-a": { id: "entity-a" } },
+        facts: {},
+        placements: {},
+        meters: {},
+        quantities: {},
+        ratings: {},
+        conditions: {},
+        activities: { "activity-watch": { id: "activity-watch" } },
+        sharedActivityResourcePools: {},
+      },
+    } as unknown as SimulationState;
+    const action = { id: "action-a", actorId: "a" } as AgentActionProposal;
+
+    const normalized = normalizeInteractionDependency(state, action, dependency(
+      "a",
+      [],
+      [{ kind: "activity", id: "activity-watch" }],
+    ));
+
+    expect(normalized.dependency.writes).toEqual([{ kind: "activity", id: "activity-watch" }]);
+    expect(normalized.fallbackReasons).toEqual([]);
+  });
+
   it("does not treat a non-canonical global reference as world scope", () => {
     const state = {
       agents: { a: { id: "a", entityId: "entity-a" } },

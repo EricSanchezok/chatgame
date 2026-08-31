@@ -291,6 +291,7 @@ export function normalizeInteractionDependency(
     quantity: state.truth.quantities,
     rating: state.truth.ratings,
     condition: state.truth.conditions,
+    activity: state.truth.activities,
     shared_resource_pool: state.truth.sharedActivityResourcePools,
   };
   const fallbackReasons: string[] = [];

@@ -456,6 +456,7 @@ export type FootprintRef =
   | { kind: "quantity"; id: string }
   | { kind: "rating"; id: string }
   | { kind: "condition"; id: string }
+  | { kind: "activity"; id: string }
   | { kind: "shared_resource_pool"; id: string }
   | { kind: "global"; id: "world" };
 
