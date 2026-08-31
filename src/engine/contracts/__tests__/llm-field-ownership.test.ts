@@ -67,6 +67,7 @@ describe("LLM output field ownership", () => {
     expect(JSON.stringify(schemas.resolution)).not.toContain('"dc"');
     expect(JSON.stringify(schemas.resolution)).not.toContain('"modifier"');
     const transitionSchema = JSON.stringify(schemas.transition);
+    expect(transitionSchema).not.toContain('"knownAlternatives"');
     for (const field of [
       "baseRevision",
       "createdAtStep",
@@ -120,6 +121,29 @@ describe("LLM output field ownership", () => {
       scene: "你在庭院中恢复了注意。",
       suggestions: ["观察"],
       possibleNextActions: ["观察", "等待", "离开"],
+    }).success).toBe(false);
+  });
+
+  it("keeps Agent-private alternatives out of canonical transition output", () => {
+    const transition = transitionWith();
+    const outcome = {
+      proposalKey: "outcome-local",
+      actionRef: "ref:action:action-local",
+      status: "succeeded" as const,
+      summary: "The action is resolved.",
+      causes: [{ kind: "action" as const, ref: "ref:action:action-local" }],
+      assertions: [{ kind: "elapsed_seconds_compare" as const, operator: "gte" as const, value: 0 }],
+    };
+    expect(transitionProposalSchema.safeParse({ ...transition, outcomes: [outcome] }).success).toBe(true);
+    expect(transitionProposalSchema.safeParse({
+      ...transition,
+      outcomes: [{
+        ...outcome,
+        knownAlternatives: [{
+          description: "A private interpretation.",
+          evidenceRefs: ["ref:fact:canonical-truth"],
+        }],
+      }],
     }).success).toBe(false);
   });
 

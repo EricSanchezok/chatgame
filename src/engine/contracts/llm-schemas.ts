@@ -483,10 +483,6 @@ const modelTransitionOutcomeSchema = z.strictObject({
   summary: z.string(),
   causes: z.array(modelCausalRefSchema),
   assertions: z.array(modelCausalAssertionSchema).min(1),
-  knownAlternatives: z.array(z.strictObject({
-    description: z.string().min(1),
-    evidenceRefs: z.array(modelReferenceSchema).min(1),
-  })),
 });
 const modelWorldEventSchema = z.strictObject({
   proposalKey: proposalKeySchema,

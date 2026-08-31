@@ -1838,10 +1838,10 @@ function materializeTransitionProposal(
       summary: outcome.summary,
       causeRefs: outcome.causes.map(rewriteModelCause),
       assertions: outcome.assertions.map(rewriteAssertion),
-      knownAlternatives: outcome.knownAlternatives.map((alternative) => ({
-        description: alternative.description,
-        basis: { kind: "knowledge" as const, evidenceIds: alternative.evidenceRefs.map((reference) => resolveReference(reference, "evidence", "evidence")) },
-      })),
+      // Truth roles cannot see Agent-private evidence. Subjective alternatives
+      // therefore belong to a later cognition/observation boundary, not this
+      // canonical transition proposal.
+      knownAlternatives: [],
     })),
     decisionRequests: direct.decisionRequests.map((request) => ({
       agentId: resolveReference(request.agentRef, "audience", "agent"),

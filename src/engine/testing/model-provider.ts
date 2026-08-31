@@ -560,7 +560,7 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
     }
   };
   return {
-    outcomes: (value.outcomes ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id ?? item.proposalId, actionRef: item.actionRef ?? ref("action", item.proposalId), status: item.status, summary: item.summary, causes: (item.causes ?? item.causeRefs ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion), knownAlternatives: (item.knownAlternatives ?? []).map((alternative: any) => ({ description: alternative.description, evidenceRefs: alternative.evidenceRefs ?? alternative.basis?.evidenceIds?.map((id: string) => ref("evidence", id)) ?? [] })) })),
+    outcomes: (value.outcomes ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id ?? item.proposalId, actionRef: item.actionRef ?? ref("action", item.proposalId), status: item.status, summary: item.summary, causes: (item.causes ?? item.causeRefs ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) })),
     mechanicInvocations: (value.mechanicInvocations ?? []).map((item) => ({
       proposalKey: item.proposalKey ?? item.id,
       mechanicRef: item.mechanicRef ?? (
@@ -1256,7 +1256,6 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
               summary: continuing ? "行动推进到下一个时间检查点。" : "模拟 Truth Engine 已联合裁决行动。",
               causes: [{ kind: "action", ref: action.actionRef }],
               assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
-              knownAlternatives: [],
             }; }),
             mechanicInvocations: [],
             operations: [],
