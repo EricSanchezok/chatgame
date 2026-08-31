@@ -34,7 +34,7 @@ import type {
   TemporalPlanDraft,
   TemporalStateSnapshot,
 } from "../mechanics/temporal";
-import type { ExistingReferenceHandle } from "../contracts/model-context";
+import type { ExistingReferenceHandle, ModelCausalRef } from "../contracts/model-context";
 import type {
   SharedActivityResourceClaim,
   SharedActivityResourceClaimDraft,
@@ -494,7 +494,7 @@ export interface ActionSharedResourceClaimModel {
 }
 
 export interface ActionCompilationDraft {
-  temporalPlan: TemporalPlanDraft;
+  temporalPlan: Omit<TemporalPlanDraft, "causes"> & { causes: ModelCausalRef[] };
   interactionDependency: ActionGroundingModelOutput;
 }
 

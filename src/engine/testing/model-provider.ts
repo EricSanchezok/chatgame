@@ -283,6 +283,8 @@ function referenceSeed(reference: string, kind: string): string {
 function assignedModelActions(context: unknown): Array<{
   id: string;
   actorId: string;
+  actionRef: string;
+  actorRef: string;
   rawText: string;
   goal: string;
   means: string | null;
@@ -294,6 +296,8 @@ function assignedModelActions(context: unknown): Array<{
   return (input.task?.assignedActions ?? []).map((action) => ({
     id: referenceSeed(action.actionRef, "action"),
     actorId: referenceSeed(action.actorRef, "agent"),
+    actionRef: action.actionRef,
+    actorRef: action.actorRef,
     rawText: action.rawText,
     goal: action.goal,
     means: action.means,
@@ -537,7 +541,10 @@ export class ScriptedModelProvider implements StructuredModelProvider {
           ...request,
           schemaName: baseSchemaName,
           subjectId: slot.key,
-          context: { ...structuredClone(batchContext.sharedContext), ...structuredClone(slot.context) },
+          // Shared context is immutable by contract; avoid cloning the same
+          // multi-megabyte truth projection once per logical slot in tests.
+          // Each slot still receives a fresh top-level envelope.
+          context: { ...batchContext.sharedContext, ...slot.context },
         }));
       }
       return { slots: slots.map((slot, index) => ({ slot: slot.slot, result: values[index] })) };
@@ -802,7 +809,7 @@ function deterministicActionCompilation(
       basis: { kind: "profile" },
       description: action.rawText,
       continuationAssertions: [],
-      causes: [{ kind: "action", id: action.id }],
+      causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
     },
     interactionDependency: {
       // Ordinary deterministic actions are sparse by default. Tests that
@@ -995,36 +1002,37 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         const step = input.step;
         const revision = input.baseRevision;
         const lawId = input.world?.laws[0]?.id;
+        const lawRef = input.referenceCatalog?.candidates.find((candidate) => candidate.kind === "law")?.handle;
         const actions = assignedModelActions(context);
-        if (step === undefined || revision === undefined || !lawId || !actions) {
+        if (step === undefined || revision === undefined || !lawId || !lawRef || !actions) {
           throw new Error("deterministic Truth Engine context is incomplete");
         }
         const nextStep = step + 1;
-        const eventId = `mock-event:${nextStep}`;
         return {
           kind: "transition",
           proposal: {
-            outcomes: actions.map((action) => {
+            outcomes: actions.map((action, index) => {
               const activity = Object.values(input.canonicalTruth?.activities ?? {})
                 .find((candidate) => candidate.sourceActionId === action.id ||
                   candidate.sourceActionRef === `ref:action:${action.id}`);
               const continuing = Boolean(activity && (activity.completionAtSeconds === null ||
                 activity.completionAtSeconds > (input.temporalBoundary?.toElapsedSeconds ?? 0)));
               return {
-              proposalId: action.id,
+              proposalKey: `outcome-${index}`,
+              actionRef: action.actionRef,
               status: continuing ? "continuing" : "succeeded",
               summary: continuing ? "行动推进到下一个时间检查点。" : "模拟 Truth Engine 已联合裁决行动。",
-              causeRefs: [{ kind: "action", id: action.id }],
+              causes: [{ kind: "action", ref: action.actionRef }],
               assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
               knownAlternatives: [],
             }; }),
             mechanicInvocations: [],
             operations: [],
             events: [{
-              id: eventId,
+              proposalKey: `event-${nextStep}`,
               description: "模拟世界推进了一秒。",
               impact: "ordinary",
-              causes: [{ kind: "law", id: lawId }],
+              causes: [{ kind: "law", ref: lawRef }],
               assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
             }],
             decisionRequests: [],

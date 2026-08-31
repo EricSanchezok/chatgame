@@ -17,7 +17,6 @@ import type {
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt } from "../mechanics/resolution";
 import type { ActionCompilationDraft } from "../runtime/execution";
-import type { TemporalPlanDraft } from "../mechanics/temporal";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "../mechanics/random-limits";
 import { isRuntimeId } from "../runtime/runtime-id";
 import {
@@ -44,6 +43,7 @@ import {
   runtimeIdSchema,
 } from "./state-schemas";
 import { existingReferenceHandleSchema, modelReferenceSchema, proposalKeySchema } from "./model-context";
+import type { ModelCausalRef } from "./model-context";
 
 const draftAliasSchema = z.string().min(1).refine(
   isNormalizedBoundedId,
@@ -315,7 +315,7 @@ export const modelCausalRefSchema = z.strictObject({
   kind: z.enum(["action", "check", "random", "event", "fact", "law", "mechanic"]),
   ref: modelReferenceSchema,
 });
-export type ModelCausalRef = z.infer<typeof modelCausalRefSchema>;
+export type { ModelCausalRef };
 
 export const modelFactValueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("text"), value: z.string() }),
@@ -1059,7 +1059,7 @@ export const temporalPlanDraftSchema = z.strictObject({
   description: z.string().min(1),
   continuationAssertions: z.array(causalAssertionSchema),
   causes: z.array(modelCausalRefSchema).min(1),
-}) as unknown as z.ZodType<TemporalPlanDraft>;
+}) as unknown as z.ZodType<ActionCompilationDraft["temporalPlan"]>;
 
 export interface ActionCompilationBatchDraft {
   slots: Array<ActionCompilationDraft & { slot: number }>;

@@ -18,6 +18,13 @@ export interface ProposalReference {
 }
 export type ModelReference = ExistingReferenceHandle | ProposalReference;
 
+/** A causal link in a model response points at an existing request-local
+ * handle (or a proposal created in the same response), never at a runtime id. */
+export interface ModelCausalRef {
+  kind: "action" | "check" | "random" | "event" | "fact" | "law" | "mechanic";
+  ref: ModelReference;
+}
+
 export const existingReferenceHandleSchema = z.string().regex(
   /^ref:[\p{L}\p{N}_:-]+$/u,
   "must be a handle from the request reference catalog",

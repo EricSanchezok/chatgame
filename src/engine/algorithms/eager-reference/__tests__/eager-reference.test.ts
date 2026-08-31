@@ -70,7 +70,7 @@ describe("eager reference safeguards", () => {
             basis: { kind: "profile" },
             description: action.rawText,
             continuationAssertions: [],
-            causes: [{ kind: "action", id: action.id }],
+            causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
           };
           compilation.interactionDependency = deterministicInteractionDependency({
             reads: [{ kind: "shared_resource_pool", id: poolId }],
@@ -117,11 +117,11 @@ describe("eager reference safeguards", () => {
       const output = deterministicModelOutput(profileId, context);
       if (role === "truth-transition") {
         const transition = structuredClone(output) as {
-          proposal: { outcomes: Array<{ proposalId: string; status: string; summary: string }> };
+          proposal: { outcomes: Array<{ actionRef: string; status: string; summary: string }> };
         };
         const actions = assignedActions(context);
         const contender = actions.find((action) => action.actorId === "keeper");
-        const outcome = contender && transition.proposal.outcomes.find((entry) => entry.proposalId === contender.id);
+        const outcome = contender && transition.proposal.outcomes.find((entry) => entry.actionRef === referenceHandleFor("action", contender.id));
         if (outcome) {
           outcome.status = "blocked";
           outcome.summary = "现有持有者保住了唯一资源。";
@@ -203,7 +203,7 @@ describe("eager reference safeguards", () => {
               basis: { kind: "profile" },
               description: action.rawText,
               continuationAssertions: [],
-              causes: [{ kind: "action", id: action.id }],
+              causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
             };
           }
           compilation.interactionDependency = deterministicInteractionDependency({
@@ -985,7 +985,7 @@ describe("eager reference safeguards", () => {
               },
               description: "沿道路逐段前往一百公里外的地点",
               continuationAssertions: [],
-              causes: [{ kind: "action", id: action.id }],
+              causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
             };
           }
         });
@@ -1159,7 +1159,7 @@ describe("eager reference safeguards", () => {
               operator: "lte",
               value: 1,
             }],
-            causes: [{ kind: "action", id: action.id }],
+            causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
           };
         });
       }
@@ -1449,7 +1449,7 @@ describe("eager reference safeguards", () => {
               },
               description: "持续前往远方",
               continuationAssertions: [],
-              causes: [{ kind: "action", id: action.id }],
+              causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
             };
           }
           compilation.interactionDependency = deterministicInteractionDependency({
@@ -1653,7 +1653,7 @@ describe("eager reference safeguards", () => {
               },
               description: `进行${replacementSeconds}秒的紧急戒备`,
               continuationAssertions: [],
-              causes: [{ kind: "action", id: action.id }],
+              causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
             };
           }
           compilation.interactionDependency = deterministicInteractionDependency({

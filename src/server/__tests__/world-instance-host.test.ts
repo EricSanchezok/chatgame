@@ -27,6 +27,7 @@ import {
   deterministicInteractionDependency,
   deterministicModelOutput,
 } from "../../engine/testing/model-provider";
+import { referenceHandleFor } from "../../engine/contracts/model-context";
 import { loadWorldScript } from "../../script/world-loader";
 import { MemoryWorldRepository } from "../../script/world-repository";
 import { LocalDatabase } from "../local-database";
@@ -138,7 +139,7 @@ function reactionHarness(input: {
             },
             description: "持续前往一百公里外",
             continuationAssertions: [],
-            causes: [{ kind: "action", id: action.id }],
+            causes: [{ kind: "action", ref: referenceHandleFor("action", action.id) }],
           };
         }
         const isKeeper = action.actorId === "keeper";

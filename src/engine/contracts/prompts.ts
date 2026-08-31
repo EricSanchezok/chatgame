@@ -61,6 +61,39 @@ export interface ResolutionScope {
   totalActionCount: number;
 }
 
+type CachedTruthProjection = {
+  resolver: ReferenceResolver;
+  canonicalTruth: Record<string, unknown>;
+};
+
+/* A transition component may ask for the same full-world projection many
+ * times in one step. Keep the immutable projection request-local and reuse it
+ * across those calls; slot-specific task data is still built per request. */
+const fullTruthProjectionCache = new WeakMap<object, WeakMap<object, WeakMap<object, CachedTruthProjection>>>();
+
+function cachedFullTruthProjection(
+  state: SimulationState,
+  actions: readonly AgentActionProposal[],
+  definition: WorldDefinition,
+  build: () => CachedTruthProjection,
+): CachedTruthProjection {
+  let byActions = fullTruthProjectionCache.get(state);
+  if (!byActions) {
+    byActions = new WeakMap();
+    fullTruthProjectionCache.set(state, byActions);
+  }
+  let byDefinition = byActions.get(actions);
+  if (!byDefinition) {
+    byDefinition = new WeakMap();
+    byActions.set(actions, byDefinition);
+  }
+  const cached = byDefinition.get(definition);
+  if (cached) return cached;
+  const projection = build();
+  byDefinition.set(definition, projection);
+  return projection;
+}
+
 export function validationIssues(error: unknown): PromptValidationIssue[] {
   if (error instanceof MechanicInputValidationError) {
     return error.issues.map((issue) => ({
@@ -447,7 +480,6 @@ function projectModelEffect(
 ): Record<string, unknown> {
   return {
     kind: effect.kind,
-    effectId: effect.id,
     targetRef: modelHandle(resolvers, "entity", effect.targetId),
     channel: effect.channel,
     label: effect.label,
@@ -472,9 +504,10 @@ function projectModelEffect(
 function projectModelResolutionPlan(
   plan: Readonly<ResolutionPlan>,
   resolvers: ModelReferenceResolvers,
+  options: { includeRef?: boolean } = {},
 ): Record<string, unknown> {
   return {
-    planRef: modelHandle(resolvers, "plan", plan.id),
+    ...(options.includeRef === false ? {} : { planRef: modelHandle(resolvers, "plan", plan.id) }),
     actionRef: modelHandle(resolvers, "action", plan.actionId),
     actorRef: modelHandle(resolvers, "entity", plan.actorId),
     targetRefs: plan.targetIds.map((id) => modelHandle(resolvers, "entity", id)),
@@ -1220,30 +1253,61 @@ export function buildTruthContext(input: {
   const contextActions = input.contextActions ?? input.actions;
   const contextInitialActions = input.contextInitialActions ?? input.initialActions;
   const contextGroundings = input.contextGroundings ?? input.groundings;
-  const referenceResolver = createTruthReferenceResolver({
-    state: contextState,
-    definition: input.definition,
-    actions: contextActions,
-    contextState,
-    contextActions,
-    includeHistoryActions: input.includeHistoryActions,
-    checkRequests: input.committedCheckRequests,
-    randomRequests: input.committedRandomRequests,
-    extraCandidates: [
-      ...input.resolutionPlans.map((plan) => ({
-        kind: "plan" as const,
-        engineId: plan.id,
-        label: plan.goal,
-        meaning: "a committed resolution plan for this transition",
-        allowedUses: ["cause", "assertion", "source", "target"] as const,
-        visibility: "role" as const,
-      })),
-      ...resolutionPlanReferenceCandidates(input.resolutionPlans),
-    ],
-  });
-  const visibleTruth = contextMode === "full"
-    ? contextState.truth
-    : scopedCanonicalTruth(input.state, input.actions, input.groundings);
+  const canReuseFullProjection = contextMode === "full" &&
+    input.committedCheckRequests.length === 0 && input.committedRandomRequests.length === 0;
+  const projection = canReuseFullProjection
+    ? cachedFullTruthProjection(contextState, contextActions, input.definition, () => {
+      const resolver = createTruthReferenceResolver({
+        state: contextState,
+        definition: input.definition,
+        actions: contextActions,
+        contextState,
+        contextActions,
+        includeHistoryActions: input.includeHistoryActions,
+      });
+      return {
+        resolver,
+        canonicalTruth: projectCanonicalTruthForModel(contextState.truth, resolver),
+      };
+    })
+    : (() => {
+      const resolver = createTruthReferenceResolver({
+        state: contextState,
+        definition: input.definition,
+        actions: contextActions,
+        contextState,
+        contextActions,
+        includeHistoryActions: input.includeHistoryActions,
+        checkRequests: input.committedCheckRequests,
+        randomRequests: input.committedRandomRequests,
+      });
+      const visibleTruth = contextMode === "full"
+        ? contextState.truth
+        : scopedCanonicalTruth(input.state, input.actions, input.groundings);
+      return { resolver, canonicalTruth: projectCanonicalTruthForModel(visibleTruth, resolver) };
+    })();
+  // Resolution plans introduce semantic effect handles (for example a
+  // condition proposed by a plan) that do not exist in canonical truth yet.
+  // Extend the cached base resolver for this request without rebuilding the
+  // expensive canonical-truth projection.
+  const plansForProjection = [
+    ...input.resolutionPlans,
+    ...input.resolutionReceipts.map((receipt) => receipt.plan),
+  ];
+  const planCandidates = resolutionPlanReferenceCandidates(plansForProjection);
+  const referenceResolver = planCandidates.length === 0
+    ? projection.resolver
+    : createTruthReferenceResolver({
+      state: contextState,
+      definition: input.definition,
+      actions: contextActions,
+      contextState,
+      contextActions,
+      includeHistoryActions: input.includeHistoryActions,
+      checkRequests: input.committedCheckRequests,
+      randomRequests: input.committedRandomRequests,
+      extraCandidates: planCandidates,
+    });
   const assignedActions = input.outputActions ?? input.actions;
   const assignedGroundings = input.outputGroundings ?? input.groundings;
   const promptId: PromptBundleId = stage === "perception"
@@ -1280,7 +1344,7 @@ export function buildTruthContext(input: {
     },
     baseRevision: input.state.revision,
     step: input.state.step,
-    canonicalTruth: projectCanonicalTruthForModel(visibleTruth, referenceResolver),
+    canonicalTruth: projection.canonicalTruth,
     semanticHistory: projectModelHistory(input.state, { existing: referenceResolver }),
     actors: projectModelActors(
       contextMode === "full" ? contextState : input.state,
@@ -1326,9 +1390,9 @@ export function buildTruthContext(input: {
     committedRandomRequests: input.committedRandomRequests.map((request) => projectModelRandomRequest(request, { existing: referenceResolver })),
     randomResults: input.randomResults.map((result) => projectModelRandomResult(result, { existing: referenceResolver })),
     commitmentRounds: input.commitmentRounds.map((round) => projectModelCommitmentRound(round, { existing: referenceResolver })),
-    committedResolutionPlans: input.resolutionPlans.map((plan) => projectModelResolutionPlan(plan, { existing: referenceResolver })),
+    committedResolutionPlans: input.resolutionPlans.map((plan) => projectModelResolutionPlan(plan, { existing: referenceResolver }, { includeRef: false })),
     resolutionReceipts: input.resolutionReceipts.map((receipt) => ({
-      plan: projectModelResolutionPlan(receipt.plan, { existing: referenceResolver }),
+      plan: projectModelResolutionPlan(receipt.plan, { existing: referenceResolver }, { includeRef: false }),
       settled: receipt.settled,
       checkRef: maybeModelHandle({ existing: referenceResolver }, "check", receipt.checkRequestId),
       outcome: receipt.outcome,
