@@ -772,7 +772,9 @@ describe("eager reference safeguards", () => {
 
   it("repairs a structural resource-pool error with compact catalog guidance", async () => {
     let firstCompilation = true;
-    let repairedIssues: string[][] = [];
+    let repairContext: {
+      task: { slots: Array<{ repair: { issues: Array<{ code: string; path: unknown[]; allowedHandles: string[] }> } }> };
+    } | null = null;
     const provider = new ScriptedModelProvider(({ role, profileId, context, system }) => {
       if (role === "action-compilation") {
         expect(system).toContain("concurrency footprint");
@@ -780,12 +782,11 @@ describe("eager reference safeguards", () => {
         if (firstCompilation) {
           firstCompilation = false;
           output.slots[0]!.interactionDependency.sharedResourceClaims = [{
-            resourcePoolHandle: "ref:shared_resource_pool:default" as ExistingReferenceHandle,
+            resourcePoolHandle: output.slots[0]!.temporalPlan.profileRef as ExistingReferenceHandle,
             basis: { kind: "default" },
           }];
         } else {
-          repairedIssues = (context as { task: { slots: Array<{ constraints: string[] }> } }).task.slots
-            .map((slot) => slot.constraints);
+          repairContext = context as typeof repairContext;
         }
         return output;
       }
@@ -811,10 +812,13 @@ describe("eager reference safeguards", () => {
     });
 
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
-    expect(repairedIssues).toEqual([
-      [expect.stringMatching(/reference catalog/)],
-    ]);
-    expect(repairedIssues.flat().every((issue) => issue.includes("reference catalog"))).toBe(true);
+    expect(repairContext).not.toBeNull();
+    const issue = repairContext!.task.slots[0]!.repair.issues[0]!;
+    expect(issue).toMatchObject({
+      code: "reference.disallowed_use",
+      path: ["interactionDependency", "sharedResourceClaims", 0, "resourcePoolHandle"],
+    });
+    expect(issue.allowedHandles.length).toBeLessThanOrEqual(64);
   });
 
   it("rolls back when an Action Compilation singleton exhausts semantic repair", async () => {

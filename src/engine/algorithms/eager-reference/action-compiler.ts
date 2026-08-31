@@ -56,6 +56,10 @@ import {
 } from "../../contracts/model-context";
 import { contentHash } from "../../models/model-audit";
 import { semanticRepairFingerprint } from "../../models/semantic-repair";
+import {
+  ActionCompilationValidationError,
+  validateActionCompilationDraft,
+} from "./action-compilation-validation";
 
 const ACTION_COMPILER_PROMPT = promptBundle("action-compilation");
 
@@ -353,6 +357,9 @@ function actionCompilationRepairIssues(error: unknown): ModelRepairIssue[] {
 }
 
 function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
+  if (error instanceof ActionCompilationValidationError) {
+    return error.issues.map((issue) => structuredClone(issue));
+  }
   if (error instanceof ModelReferenceError) {
     return [modelRepairIssueFromReferenceError(error, [])];
   }
@@ -511,6 +518,24 @@ function materializeCompilation(
   const profile = state.truth.mechanics.temporalProfiles[profileId];
   if (!profile) throw new Error(`unknown temporal profile ${profileId}`);
   const temporalEvidence = extractActionTemporalEvidence(action.rawText, state.truth.mechanics.temporalProfiles);
+  const profileEligibility = eligibleTemporalProfiles(state.truth.mechanics.temporalProfiles, temporalEvidence);
+  const fieldIssues = validateActionCompilationDraft({
+    draft,
+    resolver,
+    eligibleProfileHandles: new Set(profileEligibility
+      .filter((entry) => entry.eligibility.eligible)
+      .map((entry) => resolver.handleFor("temporal_profile", entry.profile.id))),
+    ineligibleProfileReasons: new Map(profileEligibility
+      .filter((entry) => !entry.eligibility.eligible && entry.eligibility.rejectionCode !== null)
+      .map((entry) => [
+        resolver.handleFor("temporal_profile", entry.profile.id),
+        entry.eligibility.rejectionCode!,
+      ])),
+    conditionalProfileHandles: new Set(Object.values(state.truth.mechanics.temporalProfiles)
+      .filter((entry) => entry.kind === "conditional")
+      .map((entry) => resolver.handleFor("temporal_profile", entry.id))),
+  });
+  if (fieldIssues.length > 0) throw new ActionCompilationValidationError(fieldIssues);
   const resolveCause = (cause: ActionCompilationDraft["temporalPlan"]["causes"][number]) => {
     if (isProposalReference(cause.ref)) throw new Error(`temporal plan cause cannot use proposalKey ${cause.ref.proposalKey}`);
     return { kind: cause.kind, id: resolver.resolve(cause.ref, "cause").engineId } as const;
