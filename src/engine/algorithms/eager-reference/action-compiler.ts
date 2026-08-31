@@ -42,6 +42,7 @@ import {
   type ScheduledActivityState,
   type TemporalPlan,
 } from "../../mechanics/temporal";
+import { evaluateCausalAssertion } from "../../mechanics/causality";
 import { promptBundle } from "../../prompts";
 import {
   isProposalReference,
@@ -589,6 +590,19 @@ function materializeCompilation(
     }
     throw new Error(`unsupported continuation assertion ${String((assertion as { kind?: unknown }).kind)}`);
   };
+  const resolvedContinuationAssertions = normalizedDraft.temporalPlan.continuationAssertions.map(resolveAssertion);
+  const onsetIssues = resolvedContinuationAssertions.flatMap((assertion, index) => {
+    const evaluation = evaluateCausalAssertion(state, assertion);
+    if (evaluation.passed) return [];
+    return [compilationIssue({
+      code: "temporal.continuation_assertion_false",
+      class: "mechanic",
+      path: ["temporalPlan", "continuationAssertions", index],
+      originalValue: normalizedDraft.temporalPlan.continuationAssertions[index],
+      reason: `Continuation assertions are onset invariants and must already be true when the activity starts; observed ${JSON.stringify(evaluation.observed)} for ${assertion.kind}. Choose a condition that is true now and remains true until the trusted boundary.`,
+    })];
+  });
+  if (onsetIssues.length > 0) throw new ActionCompilationValidationError(onsetIssues);
   const plan = materializeTemporalPlan({
     id: runtimeId({
       worldHash: state.worldHash,
@@ -608,7 +622,7 @@ function materializeCompilation(
       profileId,
       basis: materializeModelTemporalBasis(profile, normalizedDraft.temporalPlan.basis, temporalEvidence),
       causes: normalizedDraft.temporalPlan.causes.map(resolveCause),
-      continuationAssertions: normalizedDraft.temporalPlan.continuationAssertions.map(resolveAssertion),
+      continuationAssertions: resolvedContinuationAssertions,
     },
     profiles: state.truth.mechanics.temporalProfiles,
   });

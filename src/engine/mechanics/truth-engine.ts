@@ -1893,6 +1893,14 @@ function validateTransitionEnvelope(
   const outcomeIds = proposal.outcomes.map((outcome) => outcome.proposalId);
   if (new Set(outcomeIds).size !== outcomeIds.length) throw new Error("transition has duplicate action outcomes");
   if (proposalIds.length !== outcomeIds.length || proposalIds.some((id) => !outcomeIds.includes(id))) {
+    const missingOutcomeIds = proposalIds.filter((id) => !outcomeIds.includes(id));
+    const activeActivityActionIds = new Set(Object.values(input.state.truth.activities)
+      .filter((activity) => activity.status === "active" || activity.status === "paused")
+      .map((activity) => activity.sourceActionId));
+    const missingContinuingOutcomeIds = missingOutcomeIds.filter((id) => activeActivityActionIds.has(id));
+    if (missingContinuingOutcomeIds.length > 0) {
+      throw new Error(`transition omitted the continuing outcome for active Activity action(s): ${missingContinuingOutcomeIds.join(", ")}; emit exactly one status=continuing outcome for each until its trusted boundary`);
+    }
     throw new Error("transition must contain exactly one outcome for every final joint action");
   }
   if (proposal.baseRevision !== input.state.revision) throw new Error("transition has a stale base revision");
