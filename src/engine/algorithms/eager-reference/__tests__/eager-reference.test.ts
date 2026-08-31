@@ -704,6 +704,7 @@ describe("eager reference safeguards", () => {
       code: "reference.unknown_handle",
       path: ["slots", 0, "temporalPlan", "profileRef"],
     }));
+    expect(repairContext.repair.issues[0]!.allowedHandles.length).toBeLessThanOrEqual(64);
     expect(repairContext.referenceCatalog.candidates.length)
       .toBeLessThan(initialContext.referenceCatalog.candidates.length);
   });

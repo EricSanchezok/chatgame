@@ -529,9 +529,6 @@ function materializeCompilation(
   if (isProposalReference(normalizedDraft.temporalPlan.profileRef)) {
     throw new Error(`temporal plan profile cannot use proposalKey ${normalizedDraft.temporalPlan.profileRef.proposalKey}`);
   }
-  const profileId = resolver.resolve(normalizedDraft.temporalPlan.profileRef, "profile").engineId;
-  const profile = state.truth.mechanics.temporalProfiles[profileId];
-  if (!profile) throw new Error(`unknown temporal profile ${profileId}`);
   const temporalEvidence = extractActionTemporalEvidence(action.rawText, state.truth.mechanics.temporalProfiles);
   const profileEligibility = eligibleTemporalProfiles(state.truth.mechanics.temporalProfiles, temporalEvidence);
   const fieldIssues = validateActionCompilationDraft({
@@ -551,6 +548,9 @@ function materializeCompilation(
       .map((entry) => resolver.handleFor("temporal_profile", entry.id))),
   });
   if (fieldIssues.length > 0) throw new ActionCompilationValidationError(fieldIssues);
+  const profileId = resolver.resolve(normalizedDraft.temporalPlan.profileRef, "profile").engineId;
+  const profile = state.truth.mechanics.temporalProfiles[profileId];
+  if (!profile) throw new Error(`unknown temporal profile ${profileId}`);
   const resolveCause = (cause: ActionCompilationDraft["temporalPlan"]["causes"][number]) => {
     if (isProposalReference(cause.ref)) throw new Error(`temporal plan cause cannot use proposalKey ${cause.ref.proposalKey}`);
     return { kind: cause.kind, id: resolver.resolve(cause.ref, "cause").engineId } as const;
@@ -808,29 +808,6 @@ export async function compileActions(
           proposalCount += normalized.proposalCount;
           deduplicatedCount += normalized.deduplicatedCount;
           normalizedSlots.push({ slot: draft.slot, result: normalized.value });
-          if (normalized.issues.length > 0) {
-            rejected.push({
-              slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(draft) } },
-              issues: normalized.issues,
-            });
-            const invocationAudit = generated.audit.invocations.at(-1);
-            if (invocationAudit) {
-              invocationAudit.issues = [
-                ...invocationAudit.issues,
-                ...normalized.issues.map((issue) => ({
-                  code: issue.code,
-                  class: issue.class,
-                  path: [...issue.path],
-                  message: issue.reason,
-                  originalValue: structuredClone(issue.originalValue),
-                  allowedHandles: [...issue.allowedHandles],
-                })),
-              ].filter((issue, issueIndex, all) => all.findIndex((candidate) =>
-                candidate.code === issue.code && JSON.stringify(candidate.path) === JSON.stringify(issue.path) &&
-                candidate.message === issue.message) === issueIndex);
-            }
-            continue;
-          }
           accepted.push({
             key: slot.key,
             result: materializeCompilation(state, slot.payload.action, normalized.value, slotResolver),
