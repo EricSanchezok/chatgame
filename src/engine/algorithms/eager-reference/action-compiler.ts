@@ -58,6 +58,7 @@ import { contentHash } from "../../models/model-audit";
 import { semanticRepairFingerprint } from "../../models/semantic-repair";
 import {
   ActionCompilationValidationError,
+  normalizeActionCompilationContextCauses,
   normalizeActionCompilationDraftReferences,
   validateActionCompilationDraft,
 } from "./action-compilation-validation";
@@ -436,12 +437,17 @@ function localizedSchemaFailure(
   batch: readonly CompilationSlot[],
   state: Readonly<SimulationState>,
   resolver: ReturnType<typeof actionGroundingReferenceResolver>,
-): EagerSlotAttemptResult<CompiledAction, CompilationPayload, ModelRepairIssue> | null {
+): (EagerSlotAttemptResult<CompiledAction, CompilationPayload, ModelRepairIssue> & {
+  contextualCauseRemovals: number;
+  normalizedSlots: Array<{ slot: number; result: unknown }>;
+}) | null {
   if (!(error instanceof ModelOutputError) || !error.audit || !error.rawValue || typeof error.rawValue !== "object" ||
     !Array.isArray((error.rawValue as { slots?: unknown }).slots)) return null;
   const rawSlots = (error.rawValue as { slots: unknown[] }).slots;
   const accepted: Array<{ key: string; result: CompiledAction }> = [];
   const rejected: Array<{ slot: CompilationSlot; issues: ModelRepairIssue[] }> = [];
+  const normalizedSlots: Array<{ slot: number; result: unknown }> = [];
+  let contextualCauseRemovals = 0;
   const rawByIndex = new Map<number, unknown>();
   const duplicateIndexes = new Set<number>();
   rawSlots.forEach((raw, position) => {
@@ -468,7 +474,12 @@ function localizedSchemaFailure(
       });
       continue;
     }
-    const parsed = actionCompilationSlotSchema.safeParse(raw);
+    const normalized = normalizeActionCompilationContextCauses({
+      value: raw,
+      expectedActionRef: resolver.scopedToSlot(index).handleFor("action", slot.payload.action.id),
+    });
+    contextualCauseRemovals += normalized.removedCount;
+    const parsed = actionCompilationSlotSchema.safeParse(normalized.value);
     if (!parsed.success) {
       rejected.push({
         slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(raw) } },
@@ -476,6 +487,7 @@ function localizedSchemaFailure(
       });
       continue;
     }
+    normalizedSlots.push({ slot: parsed.data.slot, result: parsed.data });
     try {
       accepted.push({
         key: slot.key,
@@ -488,7 +500,7 @@ function localizedSchemaFailure(
       });
     }
   }
-  return { audit: error.audit!, accepted, rejected };
+  return { audit: error.audit!, accepted, rejected, contextualCauseRemovals, normalizedSlots };
 }
 
 function actionCompilationAuditIssues(
@@ -712,6 +724,33 @@ export async function compileActions(
         if (isTerminalEagerModelError(error)) throw error;
         const localized = localizedSchemaFailure(error, batch, state, batchResolver);
         if (localized) {
+          const invocationAudit = localized.audit.invocations.at(-1);
+          if (invocationAudit && localized.contextualCauseRemovals > 0) {
+            invocationAudit.normalization = {
+              ...invocationAudit.normalization,
+              applied: true,
+              modifiedFieldCount: invocationAudit.normalization.modifiedFieldCount +
+                localized.contextualCauseRemovals,
+            };
+            invocationAudit.normalizedOutputHash = contentHash({ slots: localized.normalizedSlots });
+            invocationAudit.outputDisposition = "auto-normalized";
+            scope.observer?.emit({
+              event: "model.output.normalized",
+              correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+              attributes: { applied: true, rule: "drop_context_only_causes" },
+              counts: {
+                modifiedFields: localized.contextualCauseRemovals,
+                resolvedReferences: 0,
+                proposals: 0,
+                deduplicated: 0,
+                contextualCausesRemoved: localized.contextualCauseRemovals,
+              },
+              hashes: {
+                ...(invocationAudit.rawOutputHash ? { rawOutput: invocationAudit.rawOutputHash } : {}),
+                normalizedOutput: invocationAudit.normalizedOutputHash,
+              },
+            });
+          }
           setModelInvocationResultKind(localized.audit, "action_compilation_batch");
           if (localized.rejected.length === 0) setModelInvocationOutcome(localized.audit, "accepted");
           else setModelInvocationOutcome(

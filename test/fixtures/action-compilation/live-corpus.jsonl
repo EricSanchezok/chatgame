@@ -9,4 +9,4 @@
 {"id":"live-ongoing-02","category":"open-ended-reconnaissance","action":{"rawText":"持续巡视 黑沼堡港区。","goal":"发现港区异常","means":"沿码头循环巡查"},"live":{"actorId":"egil-longhair","expectedProfileIds":["ongoing-watch"]}}
 {"id":"live-instant-02","category":"instantaneous-short","action":{"rawText":"立即观察 Hamdir 的神情。","goal":"判断 Hamdir 当前状态","means":"近距离快速观察"},"live":{"actorId":"naomi","expectedProfileIds":["momentary-action","brief-action"]}}
 {"id":"live-travel-02","category":"no-distance-travel","action":{"rawText":"前往 Blackoak Castle。","goal":"抵达 Blackoak Castle","means":"选择安全路线赶路"},"live":{"actorId":"duke-caedwine","expectedProfileIds":["travel-until-arrival"]}}
-{"id":"live-ongoing-03","category":"open-ended-reconnaissance","action":{"rawText":"在 The Black Marshes 持续搜寻可通行路线。","goal":"找出稳定通路","means":"边移动边记录地形"},"live":{"actorId":"gmung","expectedProfileIds":["ongoing-watch"]}}
+{"id":"live-ongoing-03","category":"open-ended-reconnaissance","action":{"rawText":"在 Bloodcrusher Caves 持续守卫入口。","goal":"持续监控洞窟入口","means":"保持岗位并定期巡视"},"live":{"actorId":"gmung","expectedProfileIds":["ongoing-watch"]}}

@@ -12,6 +12,46 @@ import {
 
 const MAX_FIELD_ALTERNATIVES = 64;
 
+const CONTEXT_ONLY_REFERENCE_KINDS = new Set([
+  "agent",
+  "entity",
+  "placement",
+  "meter",
+  "quantity",
+  "rating",
+  "condition",
+  "activity",
+  "shared_resource_pool",
+  "world",
+  "temporal_profile",
+]);
+
+export function normalizeActionCompilationContextCauses(input: {
+  value: unknown;
+  expectedActionRef: string;
+}): { value: unknown; removedCount: number } {
+  const value = structuredClone(input.value);
+  if (!value || typeof value !== "object") return { value, removedCount: 0 };
+  const temporalPlan = (value as { temporalPlan?: unknown }).temporalPlan;
+  if (!temporalPlan || typeof temporalPlan !== "object") return { value, removedCount: 0 };
+  const causes = (temporalPlan as { causes?: unknown }).causes;
+  if (!Array.isArray(causes)) return { value, removedCount: 0 };
+  const hasExpectedActionCause = causes.some((cause) =>
+    cause !== null && typeof cause === "object" &&
+    (cause as { kind?: unknown }).kind === "action" &&
+    (cause as { ref?: unknown }).ref === input.expectedActionRef);
+  if (!hasExpectedActionCause) return { value, removedCount: 0 };
+
+  const filtered = causes.filter((cause) => {
+    if (!cause || typeof cause !== "object") return true;
+    const kind = (cause as { kind?: unknown }).kind;
+    return typeof kind !== "string" || !CONTEXT_ONLY_REFERENCE_KINDS.has(kind);
+  });
+  const removedCount = causes.length - filtered.length;
+  if (removedCount > 0) (temporalPlan as { causes: unknown[] }).causes = filtered;
+  return { value, removedCount };
+}
+
 interface ActionCompilationFieldContract {
   use: ModelReferenceUse;
   kinds: readonly ModelReferenceKind[];
