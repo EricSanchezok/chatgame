@@ -45,19 +45,30 @@ describe("resolution pipeline", () => {
       if (role === "truth-reaction-routing") return { requests: [] };
       if (role === "truth-resolution") {
         const input = context as {
-          jointActions: AgentActionProposal[];
-          actors: Record<string, { entityId: string }>;
+          task: { assignedActions: Array<{ actionRef: string; actorRef: string; rawText: string; goal: string; means: string | null; targetRefs: string[] }> };
+          actors: Array<{ agentRef: string; entityRef: string }>;
           committedResolutionPlans: unknown[];
           validationIssues: Array<{ code: string }>;
+          resolutionReceipts: Array<{ plan: { actionRef: string }; outcome: string | null; checkRef: string | null }>;
+          checkResults: Array<{ checkRef: string; succeeded: boolean }>;
         };
         if (input.committedResolutionPlans.length > 0) return { kind: "done" };
         const repaired = input.validationIssues.some((issue) => issue.code === "impact-overstated");
+        const actorEntities = new Map(input.actors.map((actor) => [actor.agentRef, actor.entityRef]));
+        const actions = input.task.assignedActions.map((action) => ({
+          id: action.actionRef.replace(/^ref:action:/u, ""),
+          actorId: action.actorRef.replace(/^ref:agent:/u, ""),
+          rawText: action.rawText,
+          goal: action.goal,
+          means: action.means,
+          targetIds: action.targetRefs,
+        }));
         return {
           kind: "commit_plans",
-          plans: input.jointActions.map((action, index) => action.actorId === "player" ? {
+          plans: actions.map((action, index) => action.actorId === "player" ? {
             id: `plan-${index}`,
             actionId: action.id,
-            actorId: input.actors[action.actorId].entityId,
+            actorId: actorEntities.get(`ref:agent:${action.actorId}`) ?? "player",
             targetIds: ["keeper", "player"],
             goal: action.goal,
             means: [
@@ -130,8 +141,8 @@ describe("resolution pipeline", () => {
           } : {
             id: `plan-${index}`,
             actionId: action.id,
-            actorId: input.actors[action.actorId].entityId,
-            targetIds: [input.actors[action.actorId].entityId],
+            actorId: actorEntities.get(`ref:agent:${action.actorId}`) ?? "player",
+            targetIds: [actorEntities.get(`ref:agent:${action.actorId}`) ?? "player"],
             goal: action.goal,
             means: [],
             mode: "automatic",
@@ -151,8 +162,8 @@ describe("resolution pipeline", () => {
       if (role === "causal-verifier" && schemaName === "resolution_plan_verification") {
         planVerificationAttempts += 1;
         const plans = (context as { candidatePlans: Array<{
-          id: string;
-          actorId: string;
+          planRef: string;
+          actorRef: string;
           baseEffect: string;
         }>;
         priorCommitmentRounds: Array<{ kind: string; phase?: string }>;
@@ -160,13 +171,13 @@ describe("resolution pipeline", () => {
         expect(plans.priorCommitmentRounds).not.toContainEqual(
           expect.objectContaining({ kind: "check", phase: "resolution" }),
         );
-        const playerPlan = plans.candidatePlans.find((plan) => plan.actorId === "player")!;
+        const playerPlan = plans.candidatePlans.find((plan) => plan.actorRef === "ref:entity:player")!;
         if (planVerificationAttempts === 1) {
           expect(playerPlan.baseEffect).toBe("major");
           return {
             verdict: "reject",
             findings: [{
-              planId: playerPlan.id,
+              planRef: playerPlan.planRef,
               code: "impact-overstated",
               message: "The improvised key does not justify major harm.",
               repairHint: "Recalibrate the primary effect against the grounded improvised means.",
@@ -194,26 +205,32 @@ describe("resolution pipeline", () => {
                 entityId: "repaired-entity",
                 profileId: "wanderer",
               },
-              causes: [{ kind: "action", id: (context as { jointActions: AgentActionProposal[] }).jointActions[0]!.id }],
+              causes: [{ kind: "action", id: (context as { task: { assignedActions: Array<{ actionRef: string }> } }).task.assignedActions[0]!.actionRef.replace(/^ref:action:/u, "") }],
               assertions: [{ kind: "entity_lifecycle", entityId: "player", expected: "active" }],
             },
           };
         }
         transitionAttempts += 1;
         const input = context as {
-          jointActions: AgentActionProposal[];
-          resolutionReceipts: Array<{
-            plan: { actionId: string };
-            outcome: string | null;
-            checkRequestId: string | null;
-          }>;
-          checkResults: Array<{ requestId: string; succeeded: boolean }>;
+          task: { assignedActions: Array<{ actionRef: string; actorRef: string; rawText: string; goal: string; means: string | null; targetRefs: string[] }> };
+          committedResolutionPlans: Array<{ planRef: string; actionRef: string }>;
+          resolutionReceipts: Array<{ plan: { planRef: string; actionRef: string }; outcome: string | null; checkRef: string | null }>;
+          checkResults: Array<{ checkRef: string; succeeded: boolean }>;
         };
+        const actions = input.task.assignedActions.map((action) => ({
+          id: action.actionRef.replace(/^ref:action:/u, ""),
+          actorId: action.actorRef.replace(/^ref:agent:/u, ""),
+          rawText: action.rawText,
+          goal: action.goal,
+          means: action.means,
+          targetIds: action.targetRefs,
+        }));
         const output: TransitionProposalDraft = {
-          outcomes: input.jointActions.map((action) => {
-            const receipt = input.resolutionReceipts.find((candidate) => candidate.plan.actionId === action.id)!;
-            const check = receipt.checkRequestId
-              ? input.checkResults.find((candidate) => candidate.requestId === receipt.checkRequestId)
+          outcomes: actions.map((action) => {
+            const plan = input.committedResolutionPlans.find((candidate) => candidate.actionRef === `ref:action:${action.id}`)!;
+            const receipt = input.resolutionReceipts.find((candidate) => candidate.plan.planRef === plan.planRef)!;
+            const check = receipt.checkRef
+              ? input.checkResults.find((candidate) => candidate.checkRef === receipt.checkRef)
               : null;
             return {
               proposalId: action.id,
@@ -222,7 +239,7 @@ describe("resolution pipeline", () => {
               causeRefs: [{ kind: "action", id: action.id }],
               assertions: check ? [{
                 kind: "check_result",
-                checkId: check.requestId,
+                checkId: check.checkRef.replace(/^ref:check:/u, ""),
                 expected: check.succeeded ? "succeeded" : "failed",
               }] : [{ kind: "entity_lifecycle", entityId: action.actorId, expected: "active" }],
               knownAlternatives: [],
@@ -242,7 +259,7 @@ describe("resolution pipeline", () => {
               entityId: "repaired-entity",
               staleProfile: "wanderer",
             },
-            causes: [{ kind: "action", id: input.jointActions[0]!.id }],
+              causes: [{ kind: "action", id: actions[0]!.id }],
             assertions: [{ kind: "entity_lifecycle", entityId: "player", expected: "active" }],
           }];
           output.operations = [{
@@ -254,7 +271,7 @@ describe("resolution pipeline", () => {
               description: "用于验证 invocation 局部修复。",
             },
             placementId: "courtyard",
-            causes: [{ kind: "action", id: input.jointActions[0]!.id }],
+            causes: [{ kind: "action", id: actions[0]!.id }],
             assertions: [{ kind: "entity_absent", entityId: "repaired-entity" }],
           }];
         }
@@ -264,11 +281,11 @@ describe("resolution pipeline", () => {
         if (schemaName === "causal_verification") {
           causalVerificationAttempts += 1;
           if (causalVerificationAttempts === 1) {
-            const candidate = (context as { candidate: { observations: Array<{ id: string }> } }).candidate;
+            const candidate = (context as { candidate: { observations: Array<{ observationRef: string }> } }).candidate;
             return {
               verdict: "reject",
               findings: [{
-                target: { kind: "observation", id: candidate.observations[0]!.id },
+                target: { kind: "observation", ref: candidate.observations[0]!.observationRef },
                 code: "observation-mismatch",
                 message: "observer-local draft needs a more cautious rendering",
                 repairHint: "Re-render only this observer using authorized evidence.",

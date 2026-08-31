@@ -74,4 +74,42 @@ describe("model semantic references", () => {
     expect(isProposalReference(proposed)).toBe(true);
     expect(proposalKeySchema.safeParse(" new-witness ").success).toBe(false);
   });
+
+  it("deduplicates candidate metadata and can narrow a shared catalog", () => {
+    const resolver = createReferenceResolver([
+      {
+        kind: "event",
+        engineId: "event-1",
+        label: "",
+        meaning: "",
+        allowedUses: ["cause"],
+        visibility: "role",
+      },
+      {
+        kind: "event",
+        engineId: "event-1",
+        label: "门打开",
+        meaning: "current transition event",
+        allowedUses: ["source"],
+        visibility: "role",
+      },
+      {
+        kind: "event",
+        engineId: "event-2",
+        label: "钟声",
+        meaning: "another event",
+        allowedUses: ["cause"],
+        visibility: "role",
+      },
+    ]);
+    expect(resolver.catalog.candidates).toHaveLength(2);
+    expect(resolver.catalog.candidates[0]).toMatchObject({
+      label: "门打开",
+      meaning: "current transition event",
+      allowedUses: ["cause", "source"],
+    });
+    const narrowed = resolver.narrow((candidate) => candidate.engineId === "event-2");
+    expect(narrowed.catalog.candidates).toHaveLength(1);
+    expect(narrowed.catalog.candidates[0]!.handle).toBe(resolver.catalog.candidates[1]!.handle);
+  });
 });

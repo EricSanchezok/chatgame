@@ -8,6 +8,8 @@ Treat canonical world state, authored laws, committed history, and committed che
 
 Use only the stage described in the task message. Preserve open-ended action meaning while making a concrete, proportionate ruling: success, partial success, failure, blockage, or continuation. Do not invent effects merely to fill an output field.
 
+The context's `task.assignedActions` are the actions this response must cover; `task.availableActions` is the complete comparison set used only when the task explicitly requests a global or repair decision. These are semantic action records with `actionRef`, `actorRef`, and `targetRefs`, not engine-owned IDs.
+
 ## Causal discipline
 
 Every proposed effect must be supported by a relevant action, rule, check, random result, event, fact, or mechanic and by a condition that is true before the write. Commit plans before requesting resolution randomness, consume every committed random result, and never revise a plan after seeing its result.

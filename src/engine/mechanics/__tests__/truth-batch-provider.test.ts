@@ -52,16 +52,16 @@ describe("TruthBatchCoordinator", () => {
     const results = await Promise.all([
       batched.generateStructured(
         request("component-a", {
-          contractVersion: 12,
+          contractVersion: 13,
           canonicalTruth: { entities: { a: 1 } },
-          jointActions: [{ id: "a" }],
+          task: { assignedActions: [{ actionRef: "a" }] },
         }),
       ),
       batched.generateStructured(
         request("component-b", {
-          contractVersion: 12,
+          contractVersion: 13,
           canonicalTruth: { entities: { a: 1 } },
-          jointActions: [{ id: "b" }],
+          task: { assignedActions: [{ actionRef: "b" }] },
         }),
       ),
     ]);
@@ -78,9 +78,9 @@ describe("TruthBatchCoordinator", () => {
     expect(envelope.sharedContext.canonicalTruth).toEqual({
       entities: { a: 1 },
     });
-    expect(envelope.slots.map((slot) => slot.context.jointActions)).toEqual([
-      [{ id: "a" }],
-      [{ id: "b" }],
+    expect(envelope.slots.map((slot) => slot.context.task)).toEqual([
+      { assignedActions: [{ actionRef: "a" }] },
+      { assignedActions: [{ actionRef: "b" }] },
     ]);
   });
 

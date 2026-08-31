@@ -13,6 +13,8 @@ import {
   type ModelCausalAssertion,
   type ModelCausalRef,
   type ModelFactValue,
+  type ModelAccess,
+  type ModelCausalVerification,
   type ReactionRequestDraft,
   type ResolutionPlanDraft,
   type ModelTransitionProposalDraft,
@@ -41,6 +43,8 @@ import type {
   TransitionProposal,
   WorldDeltaOperation,
   WorldDeltaOperationDraft,
+  AgentBeliefStateDraft,
+  AgentCharacterStateDraft,
 } from "../contracts/model";
 import {
   deriveCheck,
@@ -104,6 +108,7 @@ import {
 import {
   type ModelReference,
   type ReferenceResolver,
+  type ReferenceCandidateInput,
   createAgentReferenceResolver,
   isProposalReference,
 } from "../contracts/model-context";
@@ -693,6 +698,19 @@ function materializeModelFactValue(value: ModelFactValue, resolver: ReferenceRes
   return { kind: "entity", entityId: entity.engineId };
 }
 
+function materializeModelAccess(access: ModelAccess, resolver: ReferenceResolver): import("../contracts/model").WorldFact["access"] {
+  if (access.kind !== "agents") return { kind: access.kind };
+  return {
+    kind: "agents",
+    agentIds: access.agentRefs.map((reference) => {
+      if (isProposalReference(reference)) throw new Error("access agentRefs must identify existing Agents");
+      const agent = resolver.resolve(reference, "audience");
+      if (agent.kind !== "agent") throw new Error(`access agentRef expected agent, got ${agent.kind}`);
+      return agent.engineId;
+    }),
+  };
+}
+
 function materializeResolutionEffect(
   effect: NonNullable<ResolutionPlanDraft["primaryEffect"]> | null,
   resolver: ReferenceResolver,
@@ -751,7 +769,7 @@ function materializeResolutionEffect(
     kind: "condition", id, targetId: target.engineId, channel: effect.channel, label: effect.label,
     description: effect.description, sourceRefs, conditionId,
     conditionProfileId: conditionProfile?.engineId ?? null, durationProfileId: duration.engineId,
-    access: structuredClone(effect.access),
+    access: materializeModelAccess(effect.access, resolver),
     ...(includeMagnitude && "magnitude" in effect ? { magnitude: effect.magnitude } : {}),
   };
 }
@@ -1333,6 +1351,69 @@ function materializeWorldOperation(
   }
 }
 
+function materializeCausalVerification(
+  input: {
+    definition: WorldDefinition;
+    state: SimulationState;
+    actions: readonly AgentActionProposal[];
+    checkRequests: readonly D20CheckRequest[];
+    randomRequests: readonly DiscreteRandomRequest[];
+    proposal: TransitionProposal;
+    report: ModelCausalVerification;
+  },
+): CausalVerification {
+  if (input.report.verdict === "accept") return { verdict: "accept", findings: [] };
+  const resolver = createTruthReferenceResolver({
+    state: input.state,
+    definition: input.definition,
+    actions: input.actions,
+    events: input.proposal.events,
+    outcomes: input.proposal.outcomes,
+    checkRequests: input.checkRequests,
+    randomRequests: input.randomRequests,
+    extraCandidates: [
+      ...input.proposal.operations.map((operation, index) => ({
+        kind: "operation" as const,
+        engineId: `${index}:${operation.kind}`,
+        label: operation.kind,
+        meaning: "a deterministic world operation proposed by the candidate transition",
+        allowedUses: ["target", "assertion", "cause", "source"] as const,
+        visibility: "role" as const,
+      })),
+      ...input.proposal.mechanicInvocations.map((invocation) => ({
+        kind: "mechanic" as const,
+        engineId: invocation.id,
+        label: `${invocation.packageId}/${invocation.ruleId}`,
+        meaning: "a mechanic invocation proposed by the candidate transition",
+        allowedUses: ["target", "assertion", "cause", "source"] as const,
+        visibility: "role" as const,
+      })),
+      ...input.proposal.observations.map((observation) => ({
+        kind: "observation" as const,
+        engineId: observation.id,
+        label: observation.summary,
+        meaning: "an observation rendered from the candidate transition",
+        allowedUses: ["target", "assertion", "cause", "source"] as const,
+        visibility: "role" as const,
+      })),
+    ] satisfies ReferenceCandidateInput[],
+  });
+  return {
+    verdict: "reject",
+    findings: input.report.findings.map((finding) => ({
+      target: {
+        kind: finding.target.kind,
+        id: isProposalReference(finding.target.ref)
+          ? (() => { throw new Error(`causal verifier cannot target proposal ${finding.target.ref.proposalKey}`); })()
+          : resolver.resolve(finding.target.ref).engineId,
+      },
+      code: finding.code,
+      message: finding.message,
+      repairHint: finding.repairHint,
+    })),
+  };
+}
+
 function materializeTransitionProposal(
   definition: WorldDefinition,
   state: SimulationState,
@@ -1530,7 +1611,7 @@ function materializeTransitionProposal(
             predicate: operation.fact.predicate,
             value: materializeModelFactValue(operation.fact.value, resolver),
             description: operation.fact.description,
-            access: structuredClone(operation.fact.access),
+            access: materializeModelAccess(operation.fact.access, resolver),
           },
           ...causal,
         };
@@ -1541,8 +1622,8 @@ function materializeTransitionProposal(
         const { proposalKey: _proposalKey, entityRef: _entityRef, ...agentState } = agent;
         void _proposalKey;
         void _entityRef;
-        const character = structuredClone(agent.character);
-        const belief = structuredClone(agent.belief);
+        const character = structuredClone(agent.character) as AgentCharacterStateDraft;
+        const belief = structuredClone(agent.belief) as AgentBeliefStateDraft;
         const bindings = Object.fromEntries(Object.entries(
           structuredClone(agent.bindings) as Record<string, { localEntityId: string; canonicalEntityIds: string[] }>,
         ).map(([key, binding]) => [key, {
@@ -1593,7 +1674,7 @@ function materializeTransitionProposal(
       causes: event.causes.map(rewriteModelCause),
       assertions: event.assertions.map(rewriteAssertion),
     })),
-    outcomes: direct.outcomes.map((outcome, ordinal) => ({
+    outcomes: direct.outcomes.map((outcome) => ({
       id: outcomeAliases.get(outcome.proposalKey)!,
       proposalId: resolveReference(outcome.actionRef, "cause", "action"),
       status: outcome.status,
@@ -2797,7 +2878,7 @@ export class TruthEngine {
 
         let verification: { value: CausalVerification; audit: ModelExecutionAudit };
         while (true) {
-          verification = await generateValidated({
+          const generatedVerification = await generateValidated({
           provider: this.provider,
           profileId: input.definition.modelProfiles.causalVerifier,
           role: "causal-verifier",
@@ -2838,20 +2919,15 @@ export class TruthEngine {
           }),
           validate: (report) => {
             if (report.verdict !== "reject") return;
-            const targets = new Set([
-              ...requests.map((request) => `check:${request.id}`),
-              ...randomRequests.map((request) => `random:${request.id}`),
-              ...proposal.operations.map((operation, index) => `operation:${index}:${operation.kind}`),
-              ...proposal.mechanicInvocations.map((invocation) => `mechanic:${invocation.id}`),
-              ...proposal.events.map((event) => `event:${event.id}`),
-              ...proposal.outcomes.map((outcome) => `outcome:${outcome.id}`),
-              ...proposal.observations.map((observation) => `observation:${observation.id}`),
-            ]);
-            for (const finding of report.findings) {
-              if (!targets.has(`${finding.target.kind}:${finding.target.id}`)) {
-                throw new Error(`causal verifier references unknown target ${finding.target.kind}:${finding.target.id}`);
-              }
-            }
+            materializeCausalVerification({
+              definition: input.definition,
+              state: input.state,
+              actions,
+              checkRequests: requests,
+              randomRequests,
+              proposal,
+              report,
+            });
           },
           repairAttempts: this.repairAttempts,
           invocationOffset: [resolutionPlanVerifierAudits, verifierAudits]
@@ -2860,6 +2936,18 @@ export class TruthEngine {
           repairScope: "component",
           targetIds: actions.map((action) => action.id),
           });
+          verification = {
+            value: materializeCausalVerification({
+              definition: input.definition,
+              state: input.state,
+              actions,
+              checkRequests: requests,
+              randomRequests,
+              proposal,
+              report: generatedVerification.value,
+            }),
+            audit: generatedVerification.audit,
+          };
           verifierAudits.push(verification.audit);
           if (verification.value.verdict !== "reject") break;
           setModelInvocationOutcome(

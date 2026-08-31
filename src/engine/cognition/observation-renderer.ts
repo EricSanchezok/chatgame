@@ -22,6 +22,9 @@ import { validateObservations } from "./observation";
 import {
   MODEL_CONTEXT_CONTRACT_VERSION,
   createTruthReferenceResolver,
+  projectCanonicalTruthForModel,
+  projectModelAction,
+  projectModelEvent,
 } from "../contracts/prompts";
 import { createAgentReferenceResolver, isProposalReference, type ModelReference } from "../contracts/model-context";
 import { contentHash } from "../models/model-audit";
@@ -49,77 +52,200 @@ interface RenderInput {
   temporalState?: Readonly<TemporalStateSnapshot>;
 }
 
+/** Keep the observation prompt focused on the observer's authorized view and
+ * the evidence needed to explain this transition. The full canonical state
+ * remains an engine concern; an observer only needs handles for objects it can
+ * actually name. */
+function scopedObservationTruth(
+  candidate: Readonly<SimulationState["truth"]>,
+  observerId: string,
+  actions: readonly AgentActionProposal[],
+  agents: Readonly<SimulationState["agents"]>,
+): SimulationState["truth"] {
+  const entityIds = new Set<string>();
+  const observer = agents[observerId];
+  if (observer) {
+    entityIds.add(observer.entityId);
+    for (const binding of Object.values(observer.bindings)) {
+      binding.canonicalEntityIds.forEach((id) => entityIds.add(id));
+    }
+  }
+  for (const action of actions) {
+    const agent = agents[action.actorId];
+    for (const targetId of action.targetIds) {
+      agent?.bindings[targetId]?.canonicalEntityIds.forEach((id) => entityIds.add(id));
+    }
+  }
+  const placements = candidate.placements;
+  for (const entityId of [...entityIds]) {
+    let parent = placements[entityId];
+    const seen = new Set<string>();
+    while (parent && !seen.has(parent)) {
+      seen.add(parent);
+      entityIds.add(parent);
+      parent = placements[parent];
+    }
+  }
+  const retain = <T>(record: Readonly<Record<string, T>>, ids: ReadonlySet<string>) =>
+    Object.fromEntries(Object.entries(record).filter(([id]) => ids.has(id)));
+  const factIds = new Set<string>();
+  for (const [id, fact] of Object.entries(candidate.facts)) {
+    if (fact.access.kind === "public" ||
+      fact.access.kind === "agents" && fact.access.agentIds.includes(observerId)) factIds.add(id);
+  }
+  for (const factId of factIds) {
+    const fact = candidate.facts[factId];
+    if (!fact) continue;
+    entityIds.add(fact.subjectId);
+    if (fact.value.kind === "entity") entityIds.add(fact.value.entityId);
+  }
+  for (const entityId of [...entityIds]) {
+    let parent = placements[entityId];
+    const seen = new Set<string>();
+    while (parent && !seen.has(parent)) {
+      seen.add(parent);
+      entityIds.add(parent);
+      parent = placements[parent];
+    }
+  }
+  const truth = structuredClone(candidate) as SimulationState["truth"];
+  truth.entities = retain(candidate.entities, entityIds);
+  truth.placements = Object.fromEntries(Object.entries(placements)
+    .filter(([entityId, parent]) => entityIds.has(entityId) || (parent !== null && entityIds.has(parent))));
+  truth.facts = retain(candidate.facts, factIds);
+  truth.factTombstones = candidate.factTombstones.filter((id) => factIds.has(id));
+  // Temporal/mechanics records are engine evidence, not observer-facing
+  // ontology. Their observable consequences are represented by current
+  // events and facts; omitting them avoids duplicating private implementation
+  // detail in every observer slot.
+  truth.meters = {};
+  truth.quantities = {};
+  truth.ratings = {};
+  truth.conditions = {};
+  truth.activities = {};
+  truth.timers = {};
+  truth.sharedActivityResourcePools = {};
+  truth.events = [];
+  return truth;
+}
+
 function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[]) {
   const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
-  const publicFacts = Object.values(candidate.truth.facts)
-    .filter((fact) => fact.access.kind === "public")
-    .sort((left, right) => left.id.localeCompare(right.id));
+  const broadResolver = createTruthReferenceResolver({
+    state: input.state,
+    definition: input.definition,
+    actions: input.actions,
+    events: input.proposal.events,
+    outcomes: input.proposal.outcomes,
+    contextState: candidate,
+    contextActions: input.actions,
+  });
+  const projectedTruth = scopedObservationTruth(
+    candidate.truth,
+    observerIds[0]!,
+    input.actions,
+    candidate.agents,
+  );
+  const allowedByKind = new Map<string, Set<string>>();
+  const allow = (kind: string, ids: Iterable<string>) => allowedByKind.set(kind, new Set(ids));
+  allow("agent", Object.keys(candidate.agents));
+  allow("entity", Object.keys(projectedTruth.entities));
+  allow("placement", Object.keys(projectedTruth.placements));
+  allow("fact", Object.keys(projectedTruth.facts));
+  allow("meter", Object.keys(projectedTruth.meters));
+  allow("quantity", Object.keys(projectedTruth.quantities));
+  allow("rating", Object.keys(projectedTruth.ratings));
+  allow("condition", Object.keys(projectedTruth.conditions));
+  allow("activity", Object.keys(projectedTruth.activities));
+  allow("timer", Object.keys(projectedTruth.timers));
+  allow("shared_resource_pool", Object.keys(projectedTruth.sharedActivityResourcePools));
+  allow("event", [...input.proposal.events.map((event) => event.id), ...projectedTruth.events.map((event) => event.id)]);
+  allow("outcome", input.proposal.outcomes.map((outcome) => outcome.id));
+  allow("action", [
+    ...input.actions.map((action) => action.id),
+    ...Object.values(projectedTruth.activities).map((activity) => activity.sourceActionId),
+  ]);
+  allow("law", input.definition.laws.map((law) => law.id));
+  allow("world", ["world"]);
+  for (const event of projectedTruth.events) {
+    for (const cause of event.causes) {
+      const kind = cause.kind;
+      const ids = allowedByKind.get(kind) ?? new Set<string>();
+      ids.add(cause.id);
+      allowedByKind.set(kind, ids);
+    }
+  }
+  const truthResolver = broadResolver.narrow((entry) =>
+    allowedByKind.get(entry.kind)?.has(entry.engineId) ?? false);
   const privateFacts = (observerId: string) => Object.values(candidate.truth.facts)
     .filter((fact) => fact.access.kind === "agents" && fact.access.agentIds.includes(observerId))
     .sort((left, right) => left.id.localeCompare(right.id));
-  return {
+  const context = {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     promptVersion: OBSERVATION_PROMPT.version,
     world: {
-      id: input.definition.id,
       description: input.definition.description,
-      laws: input.definition.laws,
-      rulePackages: input.definition.rulePackages,
-      randomDistributions: input.definition.randomDistributions,
       disclosure: input.definition.disclosure,
     },
     baseRevision: input.state.revision,
     nextStep: candidate.step,
-    referenceCatalog: createTruthReferenceResolver({
-      state: input.state,
-      definition: input.definition,
-      actions: input.actions,
-      events: input.proposal.events,
-      contextState: candidate,
-      contextActions: input.actions,
-    }).catalog,
-    // The renderer is a trusted server-side adjudication boundary.  It needs
-    // the complete candidate truth to distinguish observable effects from
-    // hidden state; the observer slot below remains the only cognition and
-    // authorization view exposed for rendering.
-    candidateTruth: structuredClone(candidate.truth),
-    semanticHistory: input.state.history.map((step) => structuredClone(step)),
-    candidateWorld: {
-      elapsedSeconds: candidate.truth.elapsedSeconds,
-      entities: Object.values(candidate.truth.entities).map(({ id, kind, name, lifecycle }) => ({
-        id, kind, name, lifecycle,
-      })),
-      placements: candidate.truth.placements,
-      publicFacts,
-    },
-    actions: input.actions,
-    outcomes: input.proposal.outcomes,
-    operations: input.proposal.operations,
-    currentEvents: input.proposal.events,
+    referenceCatalog: truthResolver.catalog,
+    // The renderer is a trusted server-side adjudication boundary. It needs
+    // candidate truth to distinguish observable effects from hidden state;
+    // the model receives the semantic projection, never engine-owned IDs.
+    candidateTruth: projectCanonicalTruthForModel(projectedTruth, truthResolver, { includeMechanics: false }),
+    actions: input.actions.map((action) => projectModelAction(action, truthResolver)),
+    outcomes: input.proposal.outcomes.map((outcome) => ({
+      outcomeRef: truthResolver.handleFor("outcome", outcome.id),
+      actionRef: truthResolver.handleFor("action", outcome.proposalId),
+      status: outcome.status,
+      summary: outcome.summary,
+    })),
+    currentEvents: input.proposal.events.map((event) => projectModelEvent(event, truthResolver)),
     observationSlots: observerIds.map((observerId, slot) => {
       const agent = candidate.agents[observerId];
       if (!agent) throw new Error(`observation slot references unknown Agent ${observerId}`);
+      const privateResolver = createAgentReferenceResolver(agent, []);
+      const canonicalBindings = new Map<string, string[]>();
+      for (const binding of Object.values(agent.bindings)) {
+        canonicalBindings.set(binding.localEntityId, binding.canonicalEntityIds
+          .flatMap((canonicalId) => {
+            try { return [truthResolver.handleFor("entity", canonicalId)]; }
+            catch { return []; }
+          }));
+      }
       return {
         slot,
         observer: {
-          agentId: observerId,
-          entityId: agent.entityId,
-          placementEntityId: candidate.truth.placements[agent.entityId] ?? null,
+          agentRef: truthResolver.handleFor("agent", observerId),
+          selfEntityRef: truthResolver.handleFor("entity", agent.entityId),
+          placementRef: candidate.truth.placements[agent.entityId]
+            ? truthResolver.handleFor("placement", agent.entityId)
+            : null,
           localEntities: Object.values(agent.belief.localEntities)
-            .map((entity) => structuredClone(entity))
-            .sort((left, right) => left.id.localeCompare(right.id)),
-          knownBindings: Object.values(agent.bindings)
-            .map((binding) => ({
-              localEntityId: binding.localEntityId,
-              canonicalEntityIds: [...binding.canonicalEntityIds].sort(),
+            .map((entity) => ({
+              ref: privateResolver.handleFor("local_entity", entity.id),
+              name: entity.name,
+              description: entity.description,
+              status: entity.status,
+              canonicalEntityRefs: canonicalBindings.get(entity.id) ?? [],
             }))
-            .sort((left, right) => left.localEntityId.localeCompare(right.localEntityId)),
-          privateFacts: privateFacts(observerId),
+            .sort((left, right) => left.ref.localeCompare(right.ref)),
+          privateFacts: privateFacts(observerId).map((fact) => ({
+            ref: truthResolver.handleFor("fact", fact.id),
+            subjectRef: truthResolver.handleFor("entity", fact.subjectId),
+            predicate: fact.predicate,
+            value: fact.value.kind === "entity"
+              ? { kind: "entity", entityRef: truthResolver.handleFor("entity", fact.value.entityId) }
+              : structuredClone(fact.value),
+            description: fact.description,
+          })),
         },
       };
     }),
     validationIssues: issues,
   };
+  return context;
 }
 
 function materializeModelObservationDraft(
@@ -135,6 +261,7 @@ function materializeModelObservationDraft(
     definition: input.definition,
     actions: input.actions,
     events: input.proposal.events,
+    outcomes: input.proposal.outcomes,
     contextState: candidate,
     contextActions: input.actions,
   });

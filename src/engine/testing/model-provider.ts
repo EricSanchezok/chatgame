@@ -245,23 +245,20 @@ export type ScriptedModelHandler = (
 
 function automaticPlanDirective(context: unknown): unknown {
   const input = context as {
-    jointActions?: Array<{ id: string; actorId: string; goal: string }>;
-    actors?: Record<string, { entityId: string }>;
+    task?: { assignedActions?: Array<{ actionRef: string; actorRef: string; goal: string }> };
+    actors?: Array<{ agentRef: string; entityRef: string }>;
     world?: { disclosure?: { defaultCheckVisibility?: "full" | "result_only" | "hidden" } };
-    referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
   };
-  const handleFor = (kind: string, statePath: string, fallbackId: string): string =>
-    input.referenceCatalog?.candidates.find((candidate) => candidate.kind === kind && candidate.statePath === statePath)?.handle
-      ?? referenceHandleFor(kind as "action", fallbackId);
+  const actorEntity = new Map((input.actors ?? []).map((actor) => [actor.agentRef, actor.entityRef]));
   return {
     kind: "commit_plans",
-    plans: (input.jointActions ?? []).map((action, index) => {
-      const actorId = input.actors?.[action.actorId]?.entityId;
-      if (!actorId) throw new Error(`deterministic plan has no actor entity for ${action.actorId}`);
+    plans: (input.task?.assignedActions ?? []).map((action, index) => {
+      const actorEntityRef = actorEntity.get(action.actorRef);
+      if (!actorEntityRef) throw new Error(`deterministic plan has no actor entity for ${action.actorRef}`);
       return {
         proposalKey: `plan-${index}`,
-        actionRef: handleFor("action", `task.actions.${action.id}`, action.id),
-        targetRefs: [referenceHandleFor("entity", actorId)],
+        actionRef: action.actionRef,
+        targetRefs: [actorEntityRef],
         means: [],
         mode: "automatic",
         difficulty: null,
@@ -273,10 +270,35 @@ function automaticPlanDirective(context: unknown): unknown {
         secondaryEffect: null,
         threatenedEffect: null,
         visibility: input.world?.disclosure?.defaultCheckVisibility ?? "full",
-        causes: [{ kind: "action", ref: handleFor("action", `task.actions.${action.id}`, action.id) }],
+        causes: [{ kind: "action", ref: action.actionRef }],
       };
     }),
   };
+}
+
+function referenceSeed(reference: string, kind: string): string {
+  return reference.replace(new RegExp(`^ref:${kind}:`, "u"), "");
+}
+
+function assignedModelActions(context: unknown): Array<{
+  id: string;
+  actorId: string;
+  rawText: string;
+  goal: string;
+  means: string | null;
+  targetIds: string[];
+}> {
+  const input = context as {
+    task?: { assignedActions?: Array<{ actionRef: string; actorRef: string; rawText: string; goal: string; means: string | null; targetRefs: string[] }> };
+  };
+  return (input.task?.assignedActions ?? []).map((action) => ({
+    id: referenceSeed(action.actionRef, "action"),
+    actorId: referenceSeed(action.actorRef, "agent"),
+    rawText: action.rawText,
+    goal: action.goal,
+    means: action.means,
+    targetIds: action.targetRefs.map((target) => referenceSeed(target, "local_entity")),
+  }));
 }
 
 /** Existing unit fixtures intentionally describe the internal plan shape. The
@@ -439,10 +461,41 @@ function adaptScriptedVerifierOutput(raw: unknown): unknown {
     }),
   };
 }
+
+/* Action compilation fixtures predate model-owned causal handles. Keep the
+ * compatibility shim in the scripted provider only; production providers are
+ * parsed directly against the semantic temporal-plan schema. */
+/* eslint-disable @typescript-eslint/no-explicit-any -- isolated fixture adapter. */
+function adaptScriptedCompilationOutput(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  if ("slots" in raw && Array.isArray(raw.slots)) {
+    return {
+      ...raw,
+      slots: raw.slots.map((slot: any) => {
+        const temporalPlan = slot.temporalPlan && typeof slot.temporalPlan === "object"
+          ? {
+            ...slot.temporalPlan,
+            causes: Array.isArray(slot.temporalPlan.causes)
+              ? slot.temporalPlan.causes.map((cause: any) => {
+                const { id: _legacyId, ...rest } = cause;
+                return {
+                  kind: rest.kind,
+                  ref: rest.ref ?? (typeof _legacyId === "string" ? referenceHandleFor(rest.kind, _legacyId) : rest.ref),
+                };
+              })
+              : slot.temporalPlan.causes,
+          }
+          : slot.temporalPlan;
+        return { ...slot, temporalPlan };
+      }),
+    };
+  }
+  return raw;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 function refForVerifier(kind: string, id: unknown): unknown {
   return typeof id === "string" ? referenceHandleFor(kind as "action", id) : id;
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export class ScriptedModelProvider implements StructuredModelProvider {
   readonly requests: ScriptedModelHandlerRequest[] = [];
@@ -662,8 +715,10 @@ export class ScriptedModelProvider implements StructuredModelProvider {
     try {
       const normalizedRaw = request.schemaName.startsWith("truth_resolution")
         ? adaptScriptedResolutionOutput(raw)
-        : request.schemaName.startsWith("truth_transition")
+          : request.schemaName.startsWith("truth_transition")
           ? adaptScriptedTransitionOutput(raw)
+          : request.schemaName.startsWith("action_compilation")
+            ? adaptScriptedCompilationOutput(raw)
           : request.schemaName.startsWith("resolution_plan_verification") || request.schemaName.startsWith("causal_verification")
             ? adaptScriptedVerifierOutput(raw)
           : raw;
@@ -682,6 +737,14 @@ export class ScriptedModelProvider implements StructuredModelProvider {
 interface DeterministicCompilationAction {
   id: string;
   actorId: string;
+  rawText: string;
+}
+
+interface DeterministicCompilationContextAction {
+  id?: string;
+  actionRef?: string;
+  actorId?: string;
+  actorRef?: string;
   rawText: string;
 }
 
@@ -789,7 +852,7 @@ export function deterministicActionCompilationBatch(
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   void profileId;
   const input = context as {
-    slots?: DeterministicCompilationSlot[];
+    slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }>;
     temporalProfiles?: Array<{ id: string }>;
   };
   if (!input.slots || !input.temporalProfiles) {
@@ -797,9 +860,13 @@ export function deterministicActionCompilationBatch(
   }
   return {
     slots: input.slots.map((slot) => {
-      const compilation = deterministicActionCompilation(slot.action, input.temporalProfiles!);
-    customize?.(compilation, slot, context);
-      return { slot: slot.slot, ...compilation };
+      const actionId = slot.action.id ?? slot.action.actionRef?.replace(/^ref:action:/u, "");
+      const actorId = slot.action.actorId ?? slot.action.actorRef?.replace(/^ref:agent:/u, "");
+      if (!actionId || !actorId) throw new Error("deterministic action compiler could not recover fixture identities");
+      const fixtureSlot = { ...slot, action: { ...slot.action, id: actionId, actorId } } as DeterministicCompilationSlot;
+      const compilation = deterministicActionCompilation(fixtureSlot.action, input.temporalProfiles!);
+      customize?.(compilation, fixtureSlot, context);
+      return { slot: fixtureSlot.slot, ...compilation };
     }),
   };
 }
@@ -848,14 +915,13 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         entity?: { name: string; location: string | null };
         world?: { laws: Array<{ id: string }> };
         actors?: Record<string, unknown>;
-        jointActions?: Array<{ id: string }>;
         observationSlots?: Array<{ observer: { agentId: string } }>;
-        currentEvents?: Array<{ id: string }>;
+        currentEvents?: Array<{ eventRef?: string; id?: string }>;
         committedResolutionPlans?: unknown[];
         temporalProfiles?: Array<{ id: string; kind: string; allowExplicitDuration?: boolean }>;
         temporalBoundary?: { toElapsedSeconds: number };
         canonicalTruth?: {
-          activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
+          activities?: Record<string, { sourceActionId?: string; sourceActionRef?: string; completionAtSeconds: number | null }>;
         };
         referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
         task?: { action?: DeterministicCompilationAction };
@@ -915,10 +981,9 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           summary: "世界继续变化。",
           introductions: [],
           apparentClaims: [],
-          sourceEventRefs: (input.currentEvents ?? []).map((event) =>
-            input.referenceCatalog?.candidates.find((candidate) =>
-              candidate.kind === "event" && candidate.statePath === `proposal.events.${event.id}`)?.handle,
-          ).filter((handle): handle is string => Boolean(handle)),
+          sourceEventRefs: (input.currentEvents ?? [])
+            .map((event) => event.eventRef)
+            .filter((handle): handle is string => Boolean(handle)),
         };
       }
       if (profileId.startsWith("truth-")) {
@@ -930,7 +995,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         const step = input.step;
         const revision = input.baseRevision;
         const lawId = input.world?.laws[0]?.id;
-        const actions = input.jointActions;
+        const actions = assignedModelActions(context);
         if (step === undefined || revision === undefined || !lawId || !actions) {
           throw new Error("deterministic Truth Engine context is incomplete");
         }
@@ -941,7 +1006,8 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           proposal: {
             outcomes: actions.map((action) => {
               const activity = Object.values(input.canonicalTruth?.activities ?? {})
-                .find((candidate) => candidate.sourceActionId === action.id);
+                .find((candidate) => candidate.sourceActionId === action.id ||
+                  candidate.sourceActionRef === `ref:action:${action.id}`);
               const continuing = Boolean(activity && (activity.completionAtSeconds === null ||
                 activity.completionAtSeconds > (input.temporalBoundary?.toElapsedSeconds ?? 0)));
               return {

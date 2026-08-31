@@ -6,14 +6,12 @@ import type {
   AgentStateDraft,
   BeliefPatch,
   CausalAssertionResult,
-  CausalVerification,
   CharacterPatch,
   D20CheckRequest,
   MechanicResult,
   ReactionDecision,
   ReactionRequest,
   TransitionProposal,
-  TransitionProposalDraft,
   WorldDeltaOperation,
   WorldDeltaOperationDraft,
 } from "./model";
@@ -328,6 +326,15 @@ export const modelFactValueSchema = z.discriminatedUnion("kind", [
 ]);
 export type ModelFactValue = z.infer<typeof modelFactValueSchema>;
 
+/** Access policy in the model vocabulary. Agent membership is expressed with
+ * request-local references so a model never has to copy engine Agent IDs. */
+export const modelAccessSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("public") }),
+  z.strictObject({ kind: z.literal("private") }),
+  z.strictObject({ kind: z.literal("agents"), agentRefs: z.array(modelReferenceSchema) }),
+]);
+export type ModelAccess = z.infer<typeof modelAccessSchema>;
+
 export const modelCausalAssertionSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("check_result"), checkRef: modelReferenceSchema, expected: z.enum(["succeeded", "failed"]) }),
   z.strictObject({ kind: z.literal("random_result"), requestRef: modelReferenceSchema, stepRef: modelReferenceSchema, expected: z.json() }),
@@ -365,7 +372,7 @@ const modelTransitionFactSchema = z.strictObject({
   predicate: z.string().min(1),
   value: modelFactValueSchema,
   description: z.string(),
-  access: accessSchema,
+  access: modelAccessSchema,
 });
 const modelTransitionAgentSchema = z.strictObject({
   proposalKey: proposalKeySchema,
@@ -583,7 +590,7 @@ const modelConditionEffectIntentSchema = z.strictObject({
   conditionRef: modelReferenceSchema,
   conditionProfileRef: modelReferenceSchema.nullable(),
   durationProfileRef: modelReferenceSchema,
-  access: accessSchema,
+  access: modelAccessSchema,
   magnitude: magnitudeBandSchema,
 });
 const modelEffectIntentSchema = z.discriminatedUnion("kind", [modelMeterEffectIntentSchema, modelConditionEffectIntentSchema]);
@@ -1051,8 +1058,8 @@ export const temporalPlanDraftSchema = z.strictObject({
   ]),
   description: z.string().min(1),
   continuationAssertions: z.array(causalAssertionSchema),
-  causes: z.array(causalRefSchema).min(1),
-}) as z.ZodType<TemporalPlanDraft>;
+  causes: z.array(modelCausalRefSchema).min(1),
+}) as unknown as z.ZodType<TemporalPlanDraft>;
 
 export interface ActionCompilationBatchDraft {
   slots: Array<ActionCompilationDraft & { slot: number }>;
@@ -1169,7 +1176,8 @@ const causalFindingSchema = z.strictObject({
 export const causalVerificationSchema = z.discriminatedUnion("verdict", [
   z.strictObject({ verdict: z.literal("accept"), findings: z.tuple([]) }),
   z.strictObject({ verdict: z.literal("reject"), findings: z.array(causalFindingSchema).min(1) }),
-]) as z.ZodType<CausalVerification>;
+]);
+export type ModelCausalVerification = z.infer<typeof causalVerificationSchema>;
 
 export const causalVerificationBatchSchema = z.strictObject({
   slots: z.array(z.strictObject({

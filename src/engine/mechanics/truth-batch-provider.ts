@@ -434,7 +434,19 @@ export class TruthBatchCoordinator implements StructuredModelProvider {
         `truth batch ${entries.map((entry) => entry.key).join(",")} uses ${requestBytes} bytes; ` +
           `profile max_input_bytes is ${profile.max_input_bytes}`,
       );
-      entries.forEach((entry) => entry.reject(error));
+      // A batch can exceed the provider limit even when each logical slot is
+      // individually valid: non-shared context is repeated once per slot.
+      // Bisect deterministically until each physical request fits, preserving
+      // the caller-visible slot results and avoiding a false terminal failure.
+      if (entries.length > 1) {
+        const midpoint = Math.ceil(entries.length / 2);
+        await Promise.all([
+          this.executeBatch(entries.slice(0, midpoint), attempt, `${splitPath}L`),
+          this.executeBatch(entries.slice(midpoint), attempt, `${splitPath}R`),
+        ]);
+      } else {
+        entries[0]!.reject(error);
+      }
       return;
     }
     const owner = `truth-batch-${contentHash({

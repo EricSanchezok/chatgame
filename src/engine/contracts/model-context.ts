@@ -200,8 +200,14 @@ export interface ReferenceResolution {
 
 export interface ReferenceResolver {
   readonly catalog: ModelReferenceCatalog;
+  /** Resolve an engine-owned identity to the one request-local handle exposed
+   * to the model. This is used only while projecting context; model output
+   * must still go through `resolve`. */
+  handleFor(kind: ModelReferenceKind, engineId: string): ExistingReferenceHandle;
   resolve(handle: string, use?: ModelReferenceUse): ReferenceResolution;
   candidatesFor(use: ModelReferenceUse): readonly ModelReferenceCandidate[];
+  /** Build a smaller request-local catalog without exposing engine ids to the model. */
+  narrow(predicate: (candidate: ReferenceCandidateInput) => boolean): ReferenceResolver;
 }
 
 export interface ReferenceCandidateInput {
@@ -218,8 +224,29 @@ function normalizeHandleSeed(value: string): string {
   return value.normalize("NFC").trim().replace(/[^\p{L}\p{N}_:-]+/gu, "-").replace(/^-+|-+$/gu, "");
 }
 
+function handleDigest(value: string): string {
+  // Handles are presentation identities, not audit hashes. A tiny stable
+  // string hash keeps large Agent catalogs cheap to build while the engine's
+  // canonical ids remain behind the resolver for validation and audit.
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
 export function referenceHandleFor(kind: ModelReferenceKind, engineId: string): ExistingReferenceHandle {
-  return `ref:${normalizeHandleSeed(`${kind}:${engineId}`)}` as ExistingReferenceHandle;
+  const seed = normalizeHandleSeed(`${kind}:${engineId}`);
+  /* Runtime IDs are intentionally long for audit integrity but are noise in a
+   * prompt. Keep a readable prefix plus a deterministic digest in model
+   * handles; action handles stay verbatim because scripted fixtures use them
+   * to identify the assigned attempt. */
+  if (kind !== "action" && seed.length > 56) {
+    const prefix = seed.slice(0, 28).replace(/[:-]+$/u, "");
+    return `ref:${prefix}-${handleDigest(`${kind}:${engineId}`)}` as ExistingReferenceHandle;
+  }
+  return `ref:${seed}` as ExistingReferenceHandle;
 }
 
 /**
@@ -230,8 +257,28 @@ export function referenceHandleFor(kind: ModelReferenceKind, engineId: string): 
 export function createReferenceResolver(
   candidates: readonly ReferenceCandidateInput[],
 ): ReferenceResolver {
+  const uniqueCandidates = new Map<string, ReferenceCandidateInput>();
+  for (const candidate of candidates) {
+    const key = `${candidate.kind}:${candidate.engineId}`;
+    const existing = uniqueCandidates.get(key);
+    if (!existing) {
+      uniqueCandidates.set(key, candidate);
+      continue;
+    }
+    uniqueCandidates.set(key, {
+      ...existing,
+      label: existing.label || candidate.label,
+      meaning: existing.meaning || candidate.meaning,
+      allowedUses: [...new Set([...existing.allowedUses, ...candidate.allowedUses])],
+      visibility: existing.visibility === "public" || candidate.visibility === "public" ? "public" :
+        existing.visibility === "role" || candidate.visibility === "role" ? "role" : "slot",
+      statePath: existing.statePath ?? candidate.statePath,
+    });
+  }
+  candidates = [...uniqueCandidates.values()];
   const used = new Set<string>();
   const resolutions = new Map<string, ReferenceResolution>();
+  const handlesByEngineKey = new Map<string, ExistingReferenceHandle>();
   const visibleCandidates = candidates.map((candidate) => {
     const baseHandle = referenceHandleFor(candidate.kind, candidate.engineId);
     let handle = baseHandle;
@@ -239,6 +286,8 @@ export function createReferenceResolver(
     while (used.has(handle)) handle = `${baseHandle}:${suffix++}` as ExistingReferenceHandle;
     used.add(handle);
     resolutions.set(handle, { handle, kind: candidate.kind, engineId: candidate.engineId });
+    const engineKey = `${candidate.kind}:${candidate.engineId}`;
+    if (!handlesByEngineKey.has(engineKey)) handlesByEngineKey.set(engineKey, handle);
     return {
       handle,
       kind: candidate.kind,
@@ -246,7 +295,6 @@ export function createReferenceResolver(
       meaning: candidate.meaning,
       allowedUses: [...new Set(candidate.allowedUses)],
       visibility: candidate.visibility ?? "role",
-      ...(candidate.statePath ? { statePath: candidate.statePath } : {}),
     } satisfies ModelReferenceCandidate;
   });
   const catalog: ModelReferenceCatalog = {
@@ -257,6 +305,18 @@ export function createReferenceResolver(
   const byHandle = new Map(visibleCandidates.map((candidate) => [candidate.handle, candidate]));
   return {
     catalog,
+    handleFor(kind: ModelReferenceKind, engineId: string): ExistingReferenceHandle {
+      const handle = handlesByEngineKey.get(`${kind}:${engineId}`);
+      if (!handle) {
+        throw new ModelReferenceError({
+          code: "reference.projection_missing",
+          originalValue: engineId,
+          allowedHandles: visibleCandidates.map((entry) => entry.handle),
+          reason: `No ${kind} candidate exists for the requested context projection.`,
+        });
+      }
+      return handle;
+    },
     resolve(handle: string, use?: ModelReferenceUse): ReferenceResolution {
       const typedHandle = handle as ExistingReferenceHandle;
       const candidate = byHandle.get(typedHandle);
@@ -281,6 +341,9 @@ export function createReferenceResolver(
     },
     candidatesFor(use: ModelReferenceUse): readonly ModelReferenceCandidate[] {
       return visibleCandidates.filter((candidate) => candidate.allowedUses.includes(use));
+    },
+    narrow(predicate: (candidate: ReferenceCandidateInput) => boolean): ReferenceResolver {
+      return createReferenceResolver(candidates.filter(predicate));
     },
   };
 }

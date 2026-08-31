@@ -569,9 +569,8 @@ describe("Blackmarsh reference world", () => {
   });
 
   it("bootstraps all Agents and commits one deterministic open-world step", async () => {
-    // Truth observation batches carry the complete candidate truth by design;
-    // this structural 48-Agent test uses a profile budget that can hold one
-    // fixed twelve-slot request without clipping or adaptive shrinking.
+    // The structural 48-Agent test keeps the production twelve-slot batching
+    // policy while exercising observer-scoped semantic context.
     const provider = new DeterministicModelProvider(blackmarshModelCatalog);
     const definition = loadWorldScript(worldRoot, { seed: 47, modelCatalog: provider.catalog });
     const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
@@ -581,10 +580,10 @@ describe("Blackmarsh reference world", () => {
     expect(Object.values(state.agents).every((agent) => agent.nextAction !== null)).toBe(true);
     expect(provider.requests.filter((request) => request.role === "agent-bootstrap")).toHaveLength(6);
     expect(provider.requests.filter((request) => request.role === "agent-bootstrap").every((request) =>
-      (request.context as { purpose: string; slots: Array<{ perspective: { agentId: string } }> }).purpose ===
+      (request.context as { purpose: string; slots: Array<{ state: { perspective: { agentId: string } } }> }).purpose ===
         "bootstrap" &&
-      (request.context as { slots: Array<{ perspective: { agentId: string } }> }).slots.every((slot) =>
-        state.agents[slot.perspective.agentId]?.modelProfiles.bootstrap === request.profileId))).toBe(true);
+      (request.context as { slots: Array<{ state: { perspective: { agentId: string } } }> }).slots.every((slot) =>
+        state.agents[slot.state.perspective.agentId]?.modelProfiles.bootstrap === request.profileId))).toBe(true);
     const roster = Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
       kind: "model" as const,
       agentId: agent.id,
@@ -599,9 +598,9 @@ describe("Blackmarsh reference world", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(4);
     expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(6);
     expect(provider.requests.filter((request) => request.role === "agent-mind").every((request) =>
-      (request.context as { purpose: string; slots: Array<{ perspective: { agentId: string } }> }).purpose === "mind" &&
-      (request.context as { slots: Array<{ perspective: { agentId: string } }> }).slots.every((slot) =>
-        state.agents[slot.perspective.agentId]?.modelProfiles.mind === request.profileId))).toBe(true);
+      (request.context as { purpose: string; slots: Array<{ state: { perspective: { agentId: string } } }> }).purpose === "mind" &&
+      (request.context as { slots: Array<{ state: { perspective: { agentId: string } } }> }).slots.every((slot) =>
+        state.agents[slot.state.perspective.agentId]?.modelProfiles.mind === request.profileId))).toBe(true);
     const batchedAudits = [...engine.bootstrapModelAudits, ...completed.modelAudits]
       .filter((audit) => audit.role === "action-compilation" || audit.role === "agent-bootstrap" ||
         audit.role === "agent-mind");

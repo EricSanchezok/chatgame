@@ -344,7 +344,11 @@ export class GroundingValidationError extends Error {
   }
 }
 
-function actionGroundingReferenceInputs(state: Readonly<SimulationState>): ReferenceCandidateInput[] {
+function actionGroundingReferenceInputs(
+  state: Readonly<SimulationState>,
+  actionInput?: Readonly<AgentActionProposal> | readonly Readonly<AgentActionProposal>[],
+): ReferenceCandidateInput[] {
+  const actions = actionInput === undefined ? [] : Array.isArray(actionInput) ? actionInput : [actionInput];
   const inputs: ReferenceCandidateInput[] = [];
   const add = (candidate: ReferenceCandidateInput): void => {
     inputs.push(candidate);
@@ -395,12 +399,39 @@ function actionGroundingReferenceInputs(state: Readonly<SimulationState>): Refer
   for (const agent of Object.values(state.agents)) {
     add({ kind: "agent", engineId: agent.id, label: agent.id, meaning: "existing Agent that may receive the action's observable effects", allowedUses: ["audience", "target"] });
   }
+  for (const action of actions) {
+    add({
+      kind: "action",
+      engineId: action.id,
+      label: action.rawText,
+      meaning: "the assigned action attempt",
+      allowedUses: ["cause", "source"],
+      visibility: "slot",
+      statePath: "task.action",
+    });
+    const actor = state.agents[action.actorId];
+    if (!actor) continue;
+    for (const localEntity of Object.values(actor.belief.localEntities)) {
+      add({
+        kind: "local_entity",
+        engineId: `${actor.id}::${localEntity.id}`,
+        label: localEntity.name,
+        meaning: "an actor-local target name; use only to explain which entity the action addresses",
+        allowedUses: ["target", "subject"],
+        visibility: "slot",
+        statePath: `state.actorPerspective.entities.local:${localEntity.id}`,
+      });
+    }
+  }
   add({ kind: "world", engineId: "world", label: "world", meaning: "world-wide arbitration only; never use for a local action", allowedUses: ["conflict"] });
   return inputs;
 }
 
-export function actionGroundingReferenceResolver(state: Readonly<SimulationState>): ReferenceResolver {
-  return createReferenceResolver(actionGroundingReferenceInputs(state));
+export function actionGroundingReferenceResolver(
+  state: Readonly<SimulationState>,
+  action?: Readonly<AgentActionProposal> | readonly Readonly<AgentActionProposal>[],
+): ReferenceResolver {
+  return createReferenceResolver(actionGroundingReferenceInputs(state, action));
 }
 
 function resolveGroundingReference(
@@ -423,7 +454,7 @@ export function materializeModelInteractionDependency(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   value: import("../runtime/execution").ActionGroundingModelOutput,
-  resolver = actionGroundingReferenceResolver(state),
+  resolver = actionGroundingReferenceResolver(state, action),
 ): InteractionDependency {
   const requiredExistingRefs = value.stateDependencies.requiredExistingRefs.map((handle) => resolveGroundingReference(resolver, handle));
   const potentiallyAffectedExistingRefs = value.stateDependencies.potentiallyAffectedExistingRefs.map((handle) => resolveGroundingReference(resolver, handle));
@@ -502,29 +533,53 @@ export function materializeInteractionDependency(
   return enrichDependency(state, action, normalized.dependency);
 }
 
-export function actionGroundingSharedContext(state: Readonly<SimulationState>) {
-  const resolver = actionGroundingReferenceResolver(state);
+export function actionGroundingSharedContext(
+  state: Readonly<SimulationState>,
+  action?: Readonly<AgentActionProposal> | readonly Readonly<AgentActionProposal>[],
+) {
+  const resolver = actionGroundingReferenceResolver(state, action);
+  const handle = (kind: Parameters<ReferenceResolver["handleFor"]>[0], id: string) => resolver.handleFor(kind, id);
+  const projectFactValue = (factValue: Readonly<SimulationState["truth"]["facts"][string]["value"]>): unknown =>
+    factValue.kind === "entity"
+      ? { kind: "entity", entityRef: handle("entity", factValue.entityId) }
+      : structuredClone(factValue);
+  const projectAccess = (access: Readonly<SimulationState["truth"]["facts"][string]["access"]>): unknown =>
+    access.kind === "agents"
+      ? { kind: "agents", agentRefs: access.agentIds.map((agentId) => handle("agent", agentId)) }
+      : { kind: access.kind };
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
     referenceCatalog: resolver.catalog,
     state: {
       entities: Object.values(state.truth.entities).map(({ id, kind, name, description, lifecycle }) => ({
-        id, kind, name, description, lifecycle,
+        ref: handle("entity", id), kind, name, description, lifecycle,
+        placementRef: state.truth.placements[id] ? handle("placement", state.truth.placements[id]!) : null,
       })),
-      facts: Object.values(state.truth.facts).map(({ id, subjectId, predicate, value, description, access }) => ({
-        id, subjectId, predicate, value, description, access,
+      facts: Object.values(state.truth.facts).map(({ id, subjectId, predicate, value: factValue, description, access }) => ({
+        ref: handle("fact", id), subjectRef: handle("entity", subjectId), predicate, value: projectFactValue(factValue), description,
+        access: projectAccess(access),
       })),
-      placements: structuredClone(state.truth.placements),
-      meters: structuredClone(state.truth.meters),
-      quantities: structuredClone(state.truth.quantities),
-      ratings: structuredClone(state.truth.ratings),
-      conditions: structuredClone(state.truth.conditions),
+      placements: Object.entries(state.truth.placements).map(([entityId, containerId]) => ({
+        entityRef: handle("placement", entityId),
+        containerRef: containerId ? handle("placement", containerId) : null,
+      })),
+      meters: Object.values(state.truth.meters).map((meter) => ({
+        ref: handle("meter", meter.id), definitionId: meter.definitionId, entityRef: handle("entity", meter.entityId), current: meter.current,
+      })),
+      quantities: Object.values(state.truth.quantities).map((quantity) => ({
+        ref: handle("quantity", quantity.id), definitionId: quantity.definitionId, holderRef: handle("entity", quantity.holderId), amount: quantity.amount,
+      })),
+      ratings: Object.values(state.truth.ratings).map((rating) => ({
+        ref: handle("rating", rating.id), definitionId: rating.definitionId, entityRef: handle("entity", rating.entityId), value: rating.value,
+      })),
+      conditions: Object.values(state.truth.conditions).map((condition) => ({
+        ref: handle("condition", condition.id), subjectRef: handle("entity", condition.subjectId), label: condition.label, description: condition.description,
+      })),
       sharedActivityResourcePools: Object.values(state.truth.sharedActivityResourcePools).map((pool) => ({
-        ...structuredClone(pool),
-        definition: structuredClone(state.truth.mechanics.sharedActivityResources[pool.definitionId]),
-        entityLifecycle: state.truth.entities[pool.entityId]?.lifecycle ?? "retired",
+        ref: handle("shared_resource_pool", pool.id), definitionId: pool.definitionId, entityRef: handle("entity", pool.entityId),
+        capacity: pool.capacity,
       })),
-      agents: Object.values(state.agents).map(({ id, entityId }) => ({ id, entityId })),
+      agents: Object.values(state.agents).map(({ id, entityId }) => ({ ref: handle("agent", id), entityRef: handle("entity", entityId) })),
     },
   };
 }
@@ -535,8 +590,16 @@ export function actionGroundingSlotContext(
   issues: readonly string[],
 ) {
   const agent = state.agents[action.actorId];
+  const resolver = actionGroundingReferenceResolver(state, action);
   return {
-    action,
+    action: {
+      rawText: action.rawText,
+      goal: action.goal,
+      means: action.means,
+      actionRef: resolver.handleFor("action", action.id),
+      actorRef: resolver.handleFor("agent", action.actorId),
+      targetRefs: action.targetIds.map((targetId) => resolver.handleFor("local_entity", `${action.actorId}::${targetId}`)),
+    },
     actorPerspective: projectAgentPerspective(state, agent),
     validationIssues: issues,
   };
@@ -547,7 +610,7 @@ export function actionGroundingContext(
   action: AgentActionProposal,
   issues: readonly string[],
 ) {
-  const shared = actionGroundingSharedContext(state);
+  const shared = actionGroundingSharedContext(state, action);
   const slot = actionGroundingSlotContext(state, action, issues);
   return {
     contractVersion: shared.contractVersion,

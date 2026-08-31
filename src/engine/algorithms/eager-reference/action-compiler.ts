@@ -80,7 +80,7 @@ function actionCompilationContext(
   state: Readonly<SimulationState>,
   slots: readonly CompilationSlot[],
 ) {
-  const shared = actionGroundingSharedContext(state);
+  const shared = actionGroundingSharedContext(state, slots.map((slot) => slot.payload.action));
   return {
     contractVersion: shared.contractVersion,
     promptVersion: ACTION_COMPILER_PROMPT.version,

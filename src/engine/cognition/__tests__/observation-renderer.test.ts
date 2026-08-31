@@ -89,22 +89,24 @@ describe("ObservationRenderer", () => {
       validationIssues: [expect.stringContaining("protected information")],
     });
     const context = provider.requests[0].context as {
-      candidateWorld: { publicFacts: unknown[] };
       candidateTruth: { entities: Record<string, unknown>; facts: Record<string, unknown> };
       observationSlots: Array<{ observer: Record<string, unknown> }>;
     };
-    expect(context.candidateWorld.publicFacts).toBeInstanceOf(Array);
-    expect(Object.keys(context.candidateTruth.entities)).toEqual(Object.keys(state.truth.entities));
-    expect(Object.keys(context.candidateTruth.facts)).toEqual(Object.keys(state.truth.facts));
+    expect(Object.keys(context.candidateTruth.entities)).toEqual(expect.arrayContaining([
+      "ref:entity:courtyard",
+      "ref:entity:key",
+      "ref:entity:player",
+    ]));
+    expect(Object.keys(context.candidateTruth.facts)).toEqual(expect.arrayContaining([
+      "ref:fact:courtyard-sandy-ground",
+      "ref:fact:gate-lock",
+    ]));
     expect(context.observationSlots[0]?.observer).toMatchObject({
-      agentId: "player",
-      entityId: "player",
-      placementEntityId: "courtyard",
+      agentRef: "ref:agent:player",
+      selfEntityRef: "ref:entity:player",
+      placementRef: "ref:placement:player",
       localEntities: expect.arrayContaining([
-        expect.objectContaining({ id: "copper-key" }),
-      ]),
-      knownBindings: expect.arrayContaining([
-        { localEntityId: "copper-key", canonicalEntityIds: ["key"] },
+        expect.objectContaining({ ref: "ref:local_entity:copper-key", name: "铜钥匙" }),
       ]),
       privateFacts: [],
     });
@@ -117,9 +119,10 @@ describe("ObservationRenderer", () => {
     const catalog = createTestModelCatalog();
     const calls = new Map<string, number>();
     const provider = new ScriptedModelProvider(({ context }) => {
-      const observerId = (context as {
-        observationSlots: Array<{ observer: { agentId: string } }>;
-      }).observationSlots[0]!.observer.agentId;
+      const observerRef = (context as {
+        observationSlots: Array<{ observer: { agentRef: string } }>;
+      }).observationSlots[0]!.observer.agentRef;
+      const observerId = observerRef.replace(/^ref:agent:/u, "");
       calls.set(observerId, (calls.get(observerId) ?? 0) + 1);
       if (observerId === "keeper") {
         return {

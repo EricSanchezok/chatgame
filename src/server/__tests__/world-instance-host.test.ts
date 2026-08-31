@@ -253,7 +253,7 @@ describe("World Instance host", () => {
       expect(arrivalRequest).toMatchObject({
         promptVersion: promptBundle("arrival-generator").version,
         context: {
-          contractVersion: 12,
+          contractVersion: 13,
           perspective: { agentId: "courtyard-wanderer-1" },
         },
       });

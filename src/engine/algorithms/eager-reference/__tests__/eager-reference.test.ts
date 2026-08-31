@@ -31,6 +31,34 @@ import { AgentMind } from "../agent-mind";
 import { normalizeOutcomeAlternativeEvidence } from "../../../mechanics/truth-engine";
 import { loadWorldScript } from "../../../../script/world-loader";
 
+function assignedActions(context: unknown): AgentActionProposal[] {
+  const task = (context as { task?: { assignedActions?: Array<{
+    actionRef: string;
+    actorRef: string;
+    rawText: string;
+    goal: string;
+    means: string | null;
+    targetRefs: string[];
+  }> } }).task;
+  return (task?.assignedActions ?? []).map((action) => ({
+    id: action.actionRef.replace(/^ref:action:/u, ""),
+    actorId: action.actorRef.replace(/^ref:agent:/u, ""),
+    baseRevision: 0,
+    rawText: action.rawText,
+    goal: action.goal,
+    means: action.means,
+    targetIds: action.targetRefs.map((target) => target.replace(/^ref:local_entity:[^:]+::/u, "")),
+  }));
+}
+
+function actorEntities(context: unknown): Record<string, { entityId: string }> {
+  const actors = (context as { actors?: Array<{ agentRef: string; entityRef: string }> }).actors ?? [];
+  return Object.fromEntries(actors.map((actor) => [
+    actor.agentRef.replace(/^ref:agent:/u, ""),
+    { entityId: actor.entityRef.replace(/^ref:entity:/u, "") },
+  ]));
+}
+
 describe("eager reference safeguards", () => {
   it("adjudicates a unique resource with its incumbent and commits only a capacity-legal winner", async () => {
     let poolId = "";
@@ -56,18 +84,20 @@ describe("eager reference safeguards", () => {
       if (role === "truth-resolution") {
         const input = context as {
           committedResolutionPlans?: unknown[];
-          jointActions: AgentActionProposal[];
-          actors: Record<string, { entityId: string }>;
+          task: { assignedActions: Array<{ actionRef: string; actorRef: string; goal: string }> };
+          actors: Array<{ agentRef: string; entityRef: string }>;
           world: { disclosure: { defaultCheckVisibility: "full" | "result_only" | "hidden" } };
         };
         if (input.committedResolutionPlans?.length) return { kind: "done" };
+        const actions = assignedActions(context);
+        const actors = actorEntities(context);
         return {
           kind: "commit_plans",
-          plans: input.jointActions.map((action, index) => ({
+          plans: actions.map((action, index) => ({
             id: `resource-plan-${index}`,
             actionId: action.id,
-            actorId: input.actors[action.actorId]!.entityId,
-            targetIds: [input.actors[action.actorId]!.entityId],
+            actorId: actors[action.actorId]!.entityId,
+            targetIds: [actors[action.actorId]!.entityId],
             goal: action.goal,
             means: [],
             mode: action.actorId === "keeper" ? "blocked" : "automatic",
@@ -89,7 +119,7 @@ describe("eager reference safeguards", () => {
         const transition = structuredClone(output) as {
           proposal: { outcomes: Array<{ proposalId: string; status: string; summary: string }> };
         };
-        const actions = (context as { jointActions: AgentActionProposal[] }).jointActions;
+        const actions = assignedActions(context);
         const contender = actions.find((action) => action.actorId === "keeper");
         const outcome = contender && transition.proposal.outcomes.find((entry) => entry.proposalId === contender.id);
         if (outcome) {
@@ -466,7 +496,7 @@ describe("eager reference safeguards", () => {
           kind: string;
           plans?: unknown[];
         };
-        const actions = (context as { jointActions?: unknown[] }).jointActions ?? [];
+        const actions = assignedActions(context);
         if (generated.kind === "commit_plans" && actions.length > 1) {
           return { ...generated, plans: generated.plans?.slice(0, 1) };
         }
@@ -634,8 +664,8 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "action-compilation");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { slots: Array<{ action: AgentActionProposal }> }).slots
-        .map((slot) => slot.action.actorId))).toEqual([
+      (request.context as { slots: Array<{ action: { actorRef: string } }> }).slots
+        .map((slot) => slot.action.actorRef.replace(/^ref:agent:/u, "")))).toEqual([
       ["keeper", "player"],
       ["keeper"],
     ]);
@@ -832,8 +862,7 @@ describe("eager reference safeguards", () => {
     const summoned = ["skeleton-1", "skeleton-2", "skeleton-3"];
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role !== "truth-transition") return deterministicModelOutput(profileId, context);
-      const input = context as { jointActions: AgentActionProposal[] };
-      const action = input.jointActions[0];
+      const action = assignedActions(context)[0];
       if (!action) throw new Error("cohort test expected one action");
       const draftAgent = (index: number) => ({
         id: `skeleton-agent-${index + 1}`,
@@ -1533,7 +1562,7 @@ describe("eager reference safeguards", () => {
         });
       }
       if (role === "truth-perception") {
-        const playerAction = (context as { jointActions: AgentActionProposal[] }).jointActions
+        const playerAction = assignedActions(context)
           .find((action) => action.actorId === "player")!;
         return {
           kind: "request_reactions",
@@ -1721,7 +1750,7 @@ describe("eager reference safeguards", () => {
       if (role === "truth-perception") {
         perceptionRounds += 1;
         if (perceptionRounds > 1) return { kind: "done" };
-        const playerAction = (context as { jointActions: AgentActionProposal[] }).jointActions
+        const playerAction = assignedActions(context)
           .find((action) => action.actorId === "player")!;
         return {
           kind: "request_checks",

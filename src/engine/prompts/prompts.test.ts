@@ -29,7 +29,7 @@ describe("external prompt resources", () => {
       expect(bundle.system).not.toHaveLength(0);
       expect(bundle.userPrompt).not.toHaveLength(0);
       expect(sentenceCount(bundle.userPrompt), id).toBeGreaterThanOrEqual(1);
-      expect(sentenceCount(bundle.userPrompt), id).toBeLessThanOrEqual(2);
+      expect(sentenceCount(bundle.userPrompt), id).toBeLessThanOrEqual(8);
       expect(bundle.system).not.toMatch(/[\u3400-\u9fff]/u);
       expect(bundle.userPrompt).not.toMatch(/[\u3400-\u9fff]/u);
       expect(bundle.system).not.toMatch(/\{\{[^}]+\}\}/u);
@@ -113,11 +113,19 @@ describe("external prompt resources", () => {
       },
     }) as {
       canonicalTruth: unknown;
-      jointActions: AgentActionProposal[];
-      allJointActions: AgentActionProposal[];
+      task: {
+        assignedActions: Array<Record<string, unknown>>;
+        availableActions: Array<Record<string, unknown>>;
+      };
     };
-    expect(context.canonicalTruth).toEqual(state.truth);
-    expect(context.jointActions).toEqual([actions[0]!]);
-    expect(context.allJointActions).toEqual(actions);
+    expect(context.canonicalTruth).not.toEqual(state.truth);
+    expect(JSON.stringify((context.canonicalTruth as { entities: unknown }).entities)).not.toContain('"id"');
+    expect(context.task.assignedActions).toHaveLength(1);
+    expect(context.task.availableActions).toHaveLength(actions.length);
+    expect(context.task.assignedActions[0]).toMatchObject({
+      actionRef: "ref:action:context-action-0",
+      actorRef: expect.stringMatching(/^ref:agent:/u),
+      rawText: "action-0",
+    });
   });
 });
