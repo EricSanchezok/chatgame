@@ -66,6 +66,20 @@ describe("world spirit", () => {
     });
   });
 
+  it("uses one clean body silhouette without detached decorative circles", () => {
+    const view = render(
+      <WorldSpirit
+        appReducedMotion
+        gaze={null}
+        phase="running"
+        worldContentHash="sha256:world-with-nub-shape"
+      />,
+    );
+    const body = view.container.querySelector(".mo-bob > g:not(.mo-eyes)");
+    expect(body).not.toBeNull();
+    expect(body?.querySelectorAll("circle")).toHaveLength(0);
+  });
+
   it("writes gaze offsets without React frame state and removes its pointer listener", async () => {
     const add = vi.spyOn(window, "addEventListener");
     const remove = vi.spyOn(window, "removeEventListener");

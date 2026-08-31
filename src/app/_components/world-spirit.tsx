@@ -33,6 +33,12 @@ const expressions: Record<WorldSpiritPose, Expression> = {
   unsure,
 };
 
+// Decorative Blobatar silhouettes such as `nub` add detached circles around
+// the body. At the control's 54px size those read as stray dots instead of a
+// coherent character, so keep the world spirit's body round while allowing the
+// world hash to continue driving its face and motion timing.
+const worldSpiritTraits = { shape: 0.1 } as const;
+
 export function worldSpiritPose(
   phase: ControlOrbPhase,
   tone?: ControlOrbNoticeTone,
@@ -137,6 +143,7 @@ export function WorldSpirit({
       eye: "var(--cg-background)",
     },
     size: 54,
+    traits: worldSpiritTraits,
   };
 
   return (
