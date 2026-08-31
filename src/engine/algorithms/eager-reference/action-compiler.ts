@@ -97,12 +97,15 @@ function actionCompilationContext(
   state: Readonly<SimulationState>,
   slots: readonly CompilationSlot[],
   scope: Pick<ModelExecutionScope, "workloadId" | "batchId">,
+  batchResolver?: ReturnType<typeof actionGroundingReferenceResolver>,
 ) {
   const actions = slots.map((slot) => slot.payload.action);
-  const referenceResolver = actionGroundingReferenceResolver(state, actions);
-  const shared = actionGroundingSharedContext(state, actions);
+  const slotByActionId = new Map(slots.map((entry, slot) => [entry.payload.action.id, slot]));
+  const initialResolver = batchResolver ?? actionGroundingReferenceResolver(state, actions, slotByActionId);
+  const shared = actionGroundingSharedContext(state, actions, initialResolver, true);
+  const referenceResolver = shared.referenceResolver;
   const slotContexts = slots.map((entry, slot) => {
-    const slotResolver = actionGroundingReferenceResolver(state, entry.payload.action);
+    const slotResolver = referenceResolver.scopedToSlot(slot);
     const slotContext = actionGroundingSlotContext(state, entry.payload.action, entry.issues, slotResolver);
     const temporalEvidence = extractActionTemporalEvidence(
       entry.payload.action.rawText,
@@ -110,10 +113,8 @@ function actionCompilationContext(
     );
     return {
       slot,
-      referenceCatalog: slotResolver.catalog,
       assignment: {
         targetHandles: [slotContext.action.actionRef],
-        availableHandles: slotResolver.catalog.candidates.map((candidate) => candidate.handle),
         allowedProposalKinds: [],
       },
       constraints: entry.issues,
@@ -131,19 +132,16 @@ function actionCompilationContext(
       },
     };
   });
-  const slotCatalogs = slotContexts.map(({ slot, referenceCatalog }) => ({ slot, catalog: referenceCatalog }));
   return {
     contractVersion: shared.contractVersion,
     roleContract: modelRoleContract("action-compilation"),
     execution: { worldId: state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: state.revision, step: state.step },
     task: {
-      assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] },
+      assignment: { targetHandles: [], allowedProposalKinds: [] },
       constraints: slots.flatMap((slot) => slot.issues),
       slots: slotContexts.map(({ slot, assignment, constraints }) => ({ slot, assignment, constraints })),
     },
     state: {
-      canonicalTruth: shared.state.canonicalTruth,
-      actors: shared.state.actors,
       currentElapsedSeconds: state.truth.elapsedSeconds,
       temporalProfiles: Object.values(state.truth.mechanics.temporalProfiles)
         .map((profile) => {
@@ -172,11 +170,7 @@ function actionCompilationContext(
       })),
       slots: slotContexts.map(({ slot, state: slotState }) => ({ slot, ...slotState })),
     },
-    // A physical batch has no shared model namespace. Each slot receives the
-    // catalog that its materializer will use, while the top-level catalog is
-    // an empty integrity index.
-    referenceCatalog: { version: 1, hash: contentHash(slotCatalogs), candidates: [] },
-    referenceCatalogs: slotCatalogs,
+    referenceCatalog: shared.referenceCatalog,
     repair: slots.some((slot) => slot.issues.length > 0)
       ? { target: null, issues: slots.flatMap((slot, index) => slot.issues.map((reason) => ({ code: "action_compilation", class: "semantic" as const, path: ["slots", index], originalValue: null, allowedHandles: [], reason }))) }
       : null,
@@ -193,25 +187,24 @@ function emitActionCompilationContextProjection(
   identity: ReturnType<typeof modelInvocationIdentity>,
   context: ReturnType<typeof actionCompilationContext>,
 ): void {
-  const catalogs = context.referenceCatalogs.map((entry) => entry.catalog);
-  const candidates = catalogs.flatMap((catalog) => catalog.candidates);
+  const candidates = context.referenceCatalog.candidates;
   scope.observer?.emit({
     event: "algorithm.eager_reference.action_compilation_context_projected",
     correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
     attributes: {
       phase: "action-compilation",
-      projection: "c0-repeated-slot-catalog",
+      projection: "c2-normalized-complete-catalog",
       repair: context.repair !== null,
     },
     counts: {
       slots: context.state.slots.length,
       candidateHandles: new Set(candidates.map((candidate) => candidate.handle)).size,
       serializedCandidates: candidates.length,
-      detailedCandidates: candidates.length,
+      detailedCandidates: candidates.filter((candidate) => candidate.details !== undefined).length,
       repairIssues: context.repair?.issues.length ?? 0,
       contextUtf8Bytes: jsonUtf8Bytes(context),
-      referenceCatalogUtf8Bytes: jsonUtf8Bytes(context.referenceCatalogs),
-      canonicalTruthUtf8Bytes: jsonUtf8Bytes(context.state.canonicalTruth),
+      referenceCatalogUtf8Bytes: jsonUtf8Bytes(context.referenceCatalog),
+      canonicalTruthUtf8Bytes: 0,
       taskUtf8Bytes: jsonUtf8Bytes(context.task),
     },
   });
@@ -292,6 +285,7 @@ function localizedSchemaFailure(
   error: unknown,
   batch: readonly CompilationSlot[],
   state: Readonly<SimulationState>,
+  resolver: ReturnType<typeof actionGroundingReferenceResolver>,
 ): EagerSlotAttemptResult<CompiledAction, CompilationPayload, string> | null {
   if (!(error instanceof ModelOutputError) || !error.audit || !error.rawValue || typeof error.rawValue !== "object" ||
     !Array.isArray((error.rawValue as { slots?: unknown }).slots)) return null;
@@ -329,7 +323,7 @@ function localizedSchemaFailure(
     try {
       accepted.push({
         key: slot.key,
-        result: materializeCompilation(state, slot.payload.action, parsed.data),
+        result: materializeCompilation(state, slot.payload.action, parsed.data, resolver.scopedToSlot(index)),
       });
     } catch (materializationError) {
       rejected.push({ slot, issues: actionCompilationSlotIssues(materializationError) });
@@ -342,8 +336,8 @@ function materializeCompilation(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
   draft: ActionCompilationDraft,
+  resolver = actionGroundingReferenceResolver(state, action),
 ): CompiledAction {
-  const resolver = actionGroundingReferenceResolver(state, action);
   if (isProposalReference(draft.temporalPlan.profileRef)) {
     throw new Error(`temporal plan profile cannot use proposalKey ${draft.temporalPlan.profileRef.proposalKey}`);
   }
@@ -424,6 +418,7 @@ function materializeCompilation(
       state,
       action,
       draft.interactionDependency,
+      resolver,
     ),
   };
 }
@@ -482,7 +477,19 @@ export async function compileActions(
     invoke: async (batch, attempt) => {
       const owner = eagerSlotBatchOwner("action-compilation", batch);
       const identity = modelInvocationIdentity(scope, "action-compilation", owner, attempt + 1);
-      const context = actionCompilationContext(state, batch, scope);
+      const slotByActionId = new Map(batch.map((entry, slot) => [entry.payload.action.id, slot]));
+      const baseResolver = actionGroundingReferenceResolver(
+        state,
+        batch.map((entry) => entry.payload.action),
+        slotByActionId,
+      );
+      const batchResolver = actionGroundingSharedContext(
+        state,
+        batch.map((entry) => entry.payload.action),
+        baseResolver,
+        true,
+      ).referenceResolver;
+      const context = actionCompilationContext(state, batch, scope, batchResolver);
       emitActionCompilationContextProjection(scope, owner, identity, context);
       let generated;
       try {
@@ -506,7 +513,7 @@ export async function compileActions(
         assertSlotCoverage(batch, generated.value.slots);
       } catch (error) {
         if (isTerminalEagerModelError(error)) throw error;
-        const localized = localizedSchemaFailure(error, batch, state);
+        const localized = localizedSchemaFailure(error, batch, state, batchResolver);
         if (localized) {
           setModelInvocationResultKind(localized.audit, "action_compilation_batch");
           if (localized.rejected.length === 0) setModelInvocationOutcome(localized.audit, "accepted");
@@ -551,11 +558,10 @@ export async function compileActions(
       for (const [index, draft] of ordered.entries()) {
         const slot = batch[index]!;
         try {
-          // A physical batch has one envelope but one reference namespace per
-          // slot. Normalize against the same slot resolver used by the
-          // materializer so unknown handles are rejected before any domain
-          // mapping and their exact allowed candidates reach targeted repair.
-          const slotResolver = actionGroundingReferenceResolver(state, slot.payload.action);
+          // The physical batch has one catalog. Resolution is scoped to the
+          // output slot so a private candidate from another slot is rejected
+          // before domain materialization.
+          const slotResolver = batchResolver.scopedToSlot(index);
           const normalized = normalizeModelOutput(draft, { resolver: slotResolver, dedupeArrays: true });
           modifiedFieldCount += normalized.modifiedFieldCount;
           resolvedReferenceCount += normalized.resolvedReferenceCount;
@@ -591,7 +597,7 @@ export async function compileActions(
           }
           accepted.push({
             key: slot.key,
-            result: materializeCompilation(state, slot.payload.action, normalized.value),
+            result: materializeCompilation(state, slot.payload.action, normalized.value, slotResolver),
           });
         } catch (error) {
           rejected.push({ slot, issues: actionCompilationSlotIssues(error) });

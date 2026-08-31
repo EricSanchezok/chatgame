@@ -233,7 +233,7 @@ export function createTestModelAudit(
       outputDisposition: "accepted",
       issues: [],
       normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
-      referenceCatalogVersion: 1,
+      referenceCatalogVersion: 2,
       referenceCatalogHash: contentHash({}),
       rawOutputHash: contentHash({ role, subjectId, revision, response: true }),
       normalizedOutputHash: contentHash({ role, subjectId, revision, response: true }),
@@ -925,7 +925,6 @@ export function deterministicInteractionDependency(
     writes?: readonly FootprintRef[];
     audienceAgentIds?: readonly string[];
     sharedResourceClaims?: Array<{ poolId: string; basis: ActionCompilationDraft["interactionDependency"]["sharedResourceClaims"][number]["basis"] }>;
-    globalFallback?: boolean;
   },
 ): ActionCompilationDraft["interactionDependency"] {
   const handle = (ref: FootprintRef): ExistingReferenceHandle => referenceHandleFor(
@@ -942,7 +941,6 @@ export function deterministicInteractionDependency(
       resourcePoolHandle: referenceHandleFor("shared_resource_pool", claim.poolId),
       basis: structuredClone(claim.basis),
     })),
-    requiresWorldWideArbitration: input.globalFallback ?? false,
   };
 }
 
@@ -983,7 +981,6 @@ function deterministicActionCompilation(
       },
       audienceAgentHandles: [],
       sharedResourceClaims: [],
-      requiresWorldWideArbitration: false,
     },
   };
   return compilation;
@@ -1013,7 +1010,6 @@ export function deterministicGlobalActionCompilationBatch(
     const handle = worldHandle as ExistingReferenceHandle;
     compilation.interactionDependency.stateDependencies.requiredExistingRefs = [handle];
     compilation.interactionDependency.stateDependencies.potentiallyAffectedExistingRefs = [handle];
-    compilation.interactionDependency.requiresWorldWideArbitration = true;
     customize?.(compilation, slot, context);
   });
 }
@@ -1190,7 +1186,6 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           },
           audienceAgentHandles: [],
           sharedResourceClaims: [],
-          requiresWorldWideArbitration: true,
         };
       }
       if (stateSection.preparedAction && stateSection.stimulus) return { kind: "keep" };

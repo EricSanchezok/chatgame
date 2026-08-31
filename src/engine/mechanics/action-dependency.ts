@@ -27,6 +27,7 @@ import { MODEL_CONTEXT_CONTRACT_VERSION, projectAgentPerspectiveForModel } from 
 import {
   createReferenceResolver,
   modelRoleContract,
+  withReferenceCandidateDetails,
   type ExistingReferenceHandle,
   type ReferenceCandidateInput,
   type ReferenceResolver,
@@ -347,6 +348,7 @@ export class GroundingValidationError extends Error {
 function actionGroundingReferenceInputs(
   state: Readonly<SimulationState>,
   actionInput?: Readonly<AgentActionProposal> | readonly Readonly<AgentActionProposal>[],
+  slotByActionId: ReadonlyMap<string, number> = new Map(),
 ): ReferenceCandidateInput[] {
   const actions = actionInput === undefined ? [] : Array.isArray(actionInput) ? actionInput : [actionInput];
   const inputs: ReferenceCandidateInput[] = [];
@@ -422,6 +424,7 @@ function actionGroundingReferenceInputs(
     add({ kind: "agent", engineId: agent.id, label: agent.id, meaning: "existing Agent that may receive the action's observable effects", allowedUses: ["audience", "target"] });
   }
   for (const action of actions) {
+    const slot = slotByActionId.get(action.id);
     add({
       kind: "action",
       engineId: action.id,
@@ -429,6 +432,7 @@ function actionGroundingReferenceInputs(
       meaning: "the assigned action attempt",
       allowedUses: ["cause", "source"],
       visibility: "slot",
+      ...(slot === undefined ? {} : { slot }),
       statePath: "state.action",
     });
     const actor = state.agents[action.actorId];
@@ -441,6 +445,7 @@ function actionGroundingReferenceInputs(
         meaning: "an actor-local target name; use only to explain which entity the action addresses",
         allowedUses: ["target", "subject"],
         visibility: "slot",
+        ...(slot === undefined ? {} : { slot }),
         statePath: `state.actorPerspective.entities.local:${localEntity.id}`,
       });
     }
@@ -452,8 +457,9 @@ function actionGroundingReferenceInputs(
 export function actionGroundingReferenceResolver(
   state: Readonly<SimulationState>,
   action?: Readonly<AgentActionProposal> | readonly Readonly<AgentActionProposal>[],
+  slotByActionId: ReadonlyMap<string, number> = new Map(),
 ): ReferenceResolver {
-  return createReferenceResolver(actionGroundingReferenceInputs(state, action));
+  return createReferenceResolver(actionGroundingReferenceInputs(state, action, slotByActionId));
 }
 
 function resolveGroundingReference(
@@ -494,11 +500,6 @@ export function materializeModelInteractionDependency(
   });
   const worldHandle = [...requiredExistingRefs, ...potentiallyAffectedExistingRefs]
     .some((ref) => ref.kind === "global" && ref.id === "world");
-  if (value.requiresWorldWideArbitration !== worldHandle) {
-    throw new GroundingValidationError(action.id, [
-      "requiresWorldWideArbitration must match the presence of the world-wide arbitration handle",
-    ]);
-  }
   return materializeInteractionDependency(state, action, {
     reads: requiredExistingRefs,
     writes: potentiallyAffectedExistingRefs,
@@ -558,8 +559,10 @@ export function materializeInteractionDependency(
 export function actionGroundingSharedContext(
   state: Readonly<SimulationState>,
   action?: Readonly<AgentActionProposal> | readonly Readonly<AgentActionProposal>[],
+  referenceResolver = actionGroundingReferenceResolver(state, action),
+  includeReferenceDetails = false,
 ) {
-  const resolver = actionGroundingReferenceResolver(state, action);
+  const resolver = referenceResolver;
   const handle = (kind: Parameters<ReferenceResolver["handleFor"]>[0], id: string) => resolver.handleFor(kind, id);
   const projectFactValue = (factValue: Readonly<SimulationState["truth"]["facts"][string]["value"]>): unknown =>
     factValue.kind === "entity"
@@ -599,12 +602,50 @@ export function actionGroundingSharedContext(
       capacity: pool.capacity,
     })),
   };
+  const details = new Map<string, unknown>();
+  const register = (reference: unknown, value: Record<string, unknown>, referenceKey = "ref"): void => {
+    if (typeof reference !== "string") return;
+    details.set(reference, Object.fromEntries(Object.entries(value).filter(([key]) =>
+      key !== referenceKey)));
+  };
+  canonicalTruth.entities.forEach((value) => register(value.ref, value));
+  canonicalTruth.facts.forEach((value) => register(value.ref, value));
+  canonicalTruth.placements.forEach((value) => register(value.entityRef, value, "entityRef"));
+  canonicalTruth.meters.forEach((value) => register(value.ref, value));
+  canonicalTruth.quantities.forEach((value) => register(value.ref, value));
+  canonicalTruth.ratings.forEach((value) => register(value.ref, value));
+  canonicalTruth.conditions.forEach((value) => register(value.ref, value));
+  canonicalTruth.sharedActivityResourcePools.forEach((value) => register(value.ref, value));
+  const actors = Object.values(state.agents).map(({ id, entityId }) => ({
+    ref: handle("agent", id),
+    entityRef: handle("entity", entityId),
+  }));
+  actors.forEach((value) => register(value.ref, value));
+  for (const profile of Object.values(state.truth.mechanics.temporalProfiles)) {
+    details.set(handle("temporal_profile", profile.id), Object.fromEntries(
+      Object.entries(profile).filter(([key]) => key !== "id"),
+    ));
+  }
+  for (const activity of Object.values(state.truth.activities)) {
+    const plan = "plan" in activity ? activity.plan : activity.planDraft;
+    details.set(handle("activity", activity.id), {
+      status: activity.status,
+      description: plan.description,
+      profileRef: handle("temporal_profile", plan.profileId),
+      participantAgentRefs: activity.participantAgentIds.map((agentId) => handle("agent", agentId)),
+    });
+  }
+  details.set(handle("world", "world"), { currentElapsedSeconds: state.truth.elapsedSeconds });
+  const projectedResolver = includeReferenceDetails
+    ? withReferenceCandidateDetails(resolver, (resolution) => details.get(resolution.handle))
+    : resolver;
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    referenceCatalog: resolver.catalog,
+    referenceCatalog: projectedResolver.catalog,
+    referenceResolver: projectedResolver,
     state: {
       canonicalTruth,
-      actors: Object.values(state.agents).map(({ id, entityId }) => ({ ref: handle("agent", id), entityRef: handle("entity", entityId) })),
+      actors,
     },
   };
 }
@@ -710,15 +751,6 @@ export async function generateInteractionDependency(
         return generated;
       },
       validate: (value) => {
-        const hasGlobalReference = [
-          ...value.stateDependencies.requiredExistingRefs,
-          ...value.stateDependencies.potentiallyAffectedExistingRefs,
-        ].some((handle) => handle.includes(":world"));
-        if (value.requiresWorldWideArbitration !== hasGlobalReference) {
-          throw new GroundingValidationError(action.id, [
-            "requiresWorldWideArbitration must match the presence of the world-wide arbitration handle",
-          ]);
-        }
         materializeModelInteractionDependency(state, action, value);
       },
       classify: (error) => {

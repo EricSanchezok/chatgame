@@ -7,6 +7,7 @@ import {
   ModelReferenceError,
   normalizeModelOutput,
   proposalKeySchema,
+  withReferenceCandidateDetails,
 } from "../model-context";
 
 describe("model semantic references", () => {
@@ -65,6 +66,75 @@ describe("model semantic references", () => {
 
     expect(() => left.resolve(right.catalog.candidates[0]!.handle, "target")).toThrow(ModelReferenceError);
     expect(() => right.resolve(left.catalog.candidates[0]!.handle, "target")).toThrow(ModelReferenceError);
+  });
+
+  it("keeps one batch catalog while enforcing slot-private resolution", () => {
+    const resolver = createReferenceResolver([
+      {
+        kind: "world",
+        engineId: "world",
+        label: "world",
+        meaning: "shared arbitration scope",
+        allowedUses: ["target"],
+        visibility: "role",
+      },
+      {
+        kind: "action",
+        engineId: "left-action",
+        label: "left",
+        meaning: "slot zero action",
+        allowedUses: ["cause"],
+        visibility: "slot",
+        slot: 0,
+      },
+      {
+        kind: "action",
+        engineId: "right-action",
+        label: "right",
+        meaning: "slot one action",
+        allowedUses: ["cause"],
+        visibility: "slot",
+        slot: 1,
+      },
+    ]);
+    const left = resolver.scopedToSlot(0);
+    const rightHandle = resolver.handleFor("action", "right-action");
+
+    expect(resolver.catalog.version).toBe(2);
+    expect(resolver.catalog.candidates.map((candidate) => candidate.slot)).toEqual([undefined, 0, 1]);
+    expect(left.resolve(resolver.handleFor("world", "world"), "target")).toMatchObject({ kind: "world" });
+    try {
+      left.resolve(rightHandle, "cause");
+      throw new Error("expected cross-slot resolution to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ModelReferenceError);
+      expect((error as ModelReferenceError).code).toBe("reference.cross_slot");
+    }
+    expect(left.candidatesFor("cause").map((candidate) => candidate.slot)).toEqual([0]);
+  });
+
+  it("adds normalized candidate details without changing handles", () => {
+    const resolver = createReferenceResolver([{
+      kind: "fact",
+      engineId: "door-open",
+      label: "门已打开",
+      meaning: "canonical fact",
+      allowedUses: ["cause"],
+      visibility: "role",
+    }]);
+    const detailed = withReferenceCandidateDetails(resolver, (resolution) => ({
+      predicate: resolution.engineId,
+      value: true,
+    }));
+
+    expect(detailed.catalog.candidates[0]).toMatchObject({
+      handle: resolver.catalog.candidates[0]!.handle,
+      details: { predicate: "door-open", value: true },
+    });
+    expect(detailed.catalog.hash).not.toBe(resolver.catalog.hash);
+    expect(detailed.resolve(resolver.catalog.candidates[0]!.handle, "cause")).toMatchObject({
+      engineId: "door-open",
+    });
   });
 
   it("distinguishes existing handles from same-response proposal references", () => {

@@ -39,6 +39,7 @@ import {
   type StructuredModelProvider,
 } from "../../models/model-provider";
 import { contentHash } from "../../models/model-audit";
+import { MODEL_REFERENCE_CATALOG_VERSION } from "../../contracts/model-context";
 import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "../../runtime/observability";
 import {
   buildAgentSharedContext,
@@ -544,7 +545,7 @@ function agentMindBatchContext(
     },
     // Keep private catalogs isolated. The request-level catalog is only an
     // integrity index and intentionally contains no candidates.
-    referenceCatalog: { version: 1, hash: contentHash(slotCatalogs), candidates: [] },
+    referenceCatalog: { version: MODEL_REFERENCE_CATALOG_VERSION, hash: contentHash(slotCatalogs), candidates: [] },
     referenceCatalogs: slotCatalogs,
     repair: slotContexts.some(({ repair }) => repair !== null)
       ? { target: null, issues: slotContexts.flatMap(({ repair }) => repair?.issues ?? []) }

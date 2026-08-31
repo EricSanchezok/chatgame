@@ -9,7 +9,7 @@ import type { AgentState, ObservationPacket } from "./model";
  * ids as canonical identities.
  */
 export const MODEL_CONTEXT_CONTRACT_VERSION = 14 as const;
-export const MODEL_REFERENCE_CATALOG_VERSION = 1 as const;
+export const MODEL_REFERENCE_CATALOG_VERSION = 2 as const;
 
 export type ExistingReferenceHandle = string & { readonly __existingReferenceHandle: unique symbol };
 export type ProposalKey = string & { readonly __proposalKey: unique symbol };
@@ -109,8 +109,12 @@ export interface ModelReferenceCandidate {
   meaning: string;
   allowedUses: readonly ModelReferenceUse[];
   visibility: "public" | "role" | "slot";
+  /** Present only for a slot-private candidate in a physical batch. */
+  slot?: number;
   /** A human-readable state path. It is never used for resolution. */
   statePath?: string;
+  /** Complete normalized state for this candidate when the role needs it. */
+  details?: unknown;
 }
 
 export interface ModelReferenceCatalog {
@@ -163,7 +167,7 @@ export function modelRoleContract(role: string): ModelRoleContract {
       purpose: "choose an authored temporal profile and describe the existing state footprint for each assigned action",
       modelOwns: ["temporal profile selection", "semantic dependency and resource evidence"],
       engineOwns: ["slot identity", "action identity", "canonical IDs", "state changes", "final conflict validation"],
-      existingReferenceRule: "select only existing action, actor, entity, resource-pool, and temporal-profile handles from this slot catalog",
+      existingReferenceRule: "select shared handles and only this slot's private handles from the batch catalog",
       proposalRule: "action compilation does not create canonical records; do not use proposalKey",
       failureRule: "leave uncertain handles out and report the exact slot issue for targeted repair",
     },
@@ -367,6 +371,8 @@ export interface ReferenceResolver {
   handleFor(kind: ModelReferenceKind, engineId: string): ExistingReferenceHandle;
   resolve(handle: string, use?: ModelReferenceUse): ReferenceResolution;
   candidatesFor(use: ModelReferenceUse): readonly ModelReferenceCandidate[];
+  /** Restrict projection and resolution to shared candidates plus one slot's private candidates. */
+  scopedToSlot(slot: number): ReferenceResolver;
   /** Build a smaller request-local catalog without exposing engine ids to the model. */
   narrow(predicate: (candidate: ReferenceCandidateInput) => boolean): ReferenceResolver;
 }
@@ -378,6 +384,7 @@ export interface ReferenceCandidateInput {
   meaning: string;
   allowedUses: readonly ModelReferenceUse[];
   visibility?: ModelReferenceCandidate["visibility"];
+  slot?: number;
   statePath?: string;
 }
 
@@ -418,15 +425,18 @@ export function referenceHandleFor(kind: ModelReferenceKind, engineId: string): 
  * second copy of the underlying state.
  */
 export function createReferenceResolver(
-  candidates: readonly ReferenceCandidateInput[],
+  inputCandidates: readonly ReferenceCandidateInput[],
 ): ReferenceResolver {
   const uniqueCandidates = new Map<string, ReferenceCandidateInput>();
-  for (const candidate of candidates) {
+  for (const candidate of inputCandidates) {
     const key = `${candidate.kind}:${candidate.engineId}`;
     const existing = uniqueCandidates.get(key);
     if (!existing) {
       uniqueCandidates.set(key, candidate);
       continue;
+    }
+    if (existing.slot !== candidate.slot) {
+      throw new Error(`reference candidate ${key} has conflicting slot ownership`);
     }
     uniqueCandidates.set(key, {
       ...existing,
@@ -436,9 +446,10 @@ export function createReferenceResolver(
       visibility: existing.visibility === "public" || candidate.visibility === "public" ? "public" :
         existing.visibility === "role" || candidate.visibility === "role" ? "role" : "slot",
       statePath: existing.statePath ?? candidate.statePath,
+      slot: existing.slot,
     });
   }
-  candidates = [...uniqueCandidates.values()];
+  const candidates = [...uniqueCandidates.values()];
   const used = new Set<string>();
   const resolutions = new Map<string, ReferenceResolution>();
   const handlesByEngineKey = new Map<string, ExistingReferenceHandle>();
@@ -458,6 +469,8 @@ export function createReferenceResolver(
       meaning: candidate.meaning,
       allowedUses: [...new Set(candidate.allowedUses)],
       visibility: candidate.visibility ?? "role",
+      ...(candidate.slot === undefined ? {} : { slot: candidate.slot }),
+      ...(candidate.statePath === undefined ? {} : { statePath: candidate.statePath }),
     } satisfies ModelReferenceCandidate;
   });
   const catalog: ModelReferenceCatalog = {
@@ -466,15 +479,22 @@ export function createReferenceResolver(
     candidates: visibleCandidates,
   };
   const byHandle = new Map(visibleCandidates.map((candidate) => [candidate.handle, candidate]));
-  return {
+  const buildResolver = (activeSlot?: number): ReferenceResolver => {
+    const candidateAllowedInScope = (candidate: ModelReferenceCandidate): boolean =>
+      activeSlot === undefined || candidate.slot === undefined || candidate.slot === activeSlot;
+    const allowedHandles = (use?: ModelReferenceUse): ExistingReferenceHandle[] => visibleCandidates
+      .filter((candidate) => candidateAllowedInScope(candidate) && (!use || candidate.allowedUses.includes(use)))
+      .map((candidate) => candidate.handle);
+    return {
     catalog,
     handleFor(kind: ModelReferenceKind, engineId: string): ExistingReferenceHandle {
       const handle = handlesByEngineKey.get(`${kind}:${engineId}`);
-      if (!handle) {
+      const candidate = handle ? byHandle.get(handle) : undefined;
+      if (!handle || !candidate || !candidateAllowedInScope(candidate)) {
         throw new ModelReferenceError({
           code: "reference.projection_missing",
           originalValue: engineId,
-          allowedHandles: visibleCandidates.map((entry) => entry.handle),
+          allowedHandles: allowedHandles(),
           reason: `No ${kind} candidate exists for the requested context projection.`,
         });
       }
@@ -488,27 +508,67 @@ export function createReferenceResolver(
         throw new ModelReferenceError({
           code: "reference.unknown_handle",
           originalValue: handle,
-          allowedHandles: visibleCandidates.map((entry) => entry.handle),
+          allowedHandles: allowedHandles(use),
           reason: "The value is not a handle from this request's reference catalog.",
+        });
+      }
+      if (!candidateAllowedInScope(candidate)) {
+        throw new ModelReferenceError({
+          code: "reference.cross_slot",
+          originalValue: handle,
+          allowedHandles: allowedHandles(use),
+          reason: `The ${candidate.kind} candidate belongs to slot ${candidate.slot}, not slot ${activeSlot}.`,
         });
       }
       if (use && !candidate.allowedUses.includes(use)) {
         throw new ModelReferenceError({
           code: "reference.disallowed_use",
           originalValue: handle,
-          allowedHandles: visibleCandidates.filter((entry) => entry.allowedUses.includes(use)).map((entry) => entry.handle),
+          allowedHandles: allowedHandles(use),
           reason: `The ${candidate.kind} candidate cannot be used as ${use}.`,
         });
       }
       return resolution;
     },
     candidatesFor(use: ModelReferenceUse): readonly ModelReferenceCandidate[] {
-      return visibleCandidates.filter((candidate) => candidate.allowedUses.includes(use));
+      return visibleCandidates.filter((candidate) =>
+        candidateAllowedInScope(candidate) && candidate.allowedUses.includes(use));
+    },
+    scopedToSlot(slot: number): ReferenceResolver {
+      if (!Number.isSafeInteger(slot) || slot < 0) throw new RangeError("reference slot must be a non-negative integer");
+      return buildResolver(slot);
     },
     narrow(predicate: (candidate: ReferenceCandidateInput) => boolean): ReferenceResolver {
-      return createReferenceResolver(candidates.filter(predicate));
+      const narrowed = createReferenceResolver(candidates.filter(predicate));
+      return activeSlot === undefined ? narrowed : narrowed.scopedToSlot(activeSlot);
     },
+    };
   };
+  return buildResolver();
+}
+
+export function withReferenceCandidateDetails(
+  resolver: ReferenceResolver,
+  detailsFor: (resolution: ReferenceResolution, resolver: ReferenceResolver) => unknown,
+): ReferenceResolver {
+  const catalog: ModelReferenceCatalog = {
+    version: MODEL_REFERENCE_CATALOG_VERSION,
+    hash: "",
+    candidates: resolver.catalog.candidates.map((candidate) => {
+      const details = detailsFor(resolver.resolve(candidate.handle), resolver);
+      return details === undefined ? candidate : { ...candidate, details: structuredClone(details) };
+    }),
+  };
+  catalog.hash = contentHash(catalog.candidates);
+  const wrap = (source: ReferenceResolver): ReferenceResolver => ({
+    catalog,
+    handleFor: source.handleFor.bind(source),
+    resolve: source.resolve.bind(source),
+    candidatesFor: source.candidatesFor.bind(source),
+    scopedToSlot: (slot) => wrap(source.scopedToSlot(slot)),
+    narrow: (predicate) => withReferenceCandidateDetails(source.narrow(predicate), detailsFor),
+  });
+  return wrap(resolver);
 }
 
 export class ModelReferenceError extends Error {

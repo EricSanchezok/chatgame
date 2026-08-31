@@ -95,17 +95,15 @@ describe("LLM output field ownership", () => {
       stateDependencies: { requiredExistingRefs: [], potentiallyAffectedExistingRefs: [] },
       audienceAgentHandles: [],
       sharedResourceClaims: [],
-      requiresWorldWideArbitration: false,
     };
     expect(actionGroundingSchema.safeParse(grounding).success).toBe(true);
-    expect(actionGroundingSchema.safeParse({ ...grounding, requiresWorldWideArbitration: true }).success).toBe(true);
+    expect(actionGroundingSchema.safeParse({ ...grounding, requiresWorldWideArbitration: true }).success).toBe(false);
     expect(actionGroundingSchema.safeParse({
       ...grounding,
       stateDependencies: {
         requiredExistingRefs: ["ref:world:world"],
         potentiallyAffectedExistingRefs: ["ref:world:world"],
       },
-      requiresWorldWideArbitration: true,
     }).success).toBe(true);
     expect(actionGroundingSchema.safeParse({
       ...grounding,

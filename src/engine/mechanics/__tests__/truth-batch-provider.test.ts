@@ -36,7 +36,7 @@ function request(
       execution: { worldId: "world", instanceId: "instance", advanceId: "advance", revision: 0, step: 0 },
       task,
       state,
-      referenceCatalog: { version: 1, hash: "test", candidates: [] },
+      referenceCatalog: { version: 2, hash: "test", candidates: [] },
       repair: null,
     },
     schema: resolutionDirectiveSchema,

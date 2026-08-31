@@ -79,7 +79,6 @@ describe("eager reference safeguards", () => {
             writes: [{ kind: "shared_resource_pool", id: poolId }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [{ poolId, basis: { kind: "default" } }],
-            globalFallback: false,
           });
         });
       }
@@ -213,7 +212,6 @@ describe("eager reference safeguards", () => {
             writes: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
             audienceAgentIds: [action.actorId],
             sharedResourceClaims: claims,
-            globalFallback: false,
           });
         });
       }
@@ -432,10 +430,23 @@ describe("eager reference safeguards", () => {
     expect(singleton.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(2);
     expect(batched.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
     const batchedCompilationRequest = batched.provider.requests.find((request) => request.role === "action-compilation");
-    expect((batchedCompilationRequest?.context as { referenceCatalog?: { candidates?: unknown[] } }).referenceCatalog?.candidates)
-      .toEqual([]);
-    expect((batchedCompilationRequest?.context as { referenceCatalogs?: unknown[] }).referenceCatalogs)
-      .toHaveLength(2);
+    const batchedContext = batchedCompilationRequest?.context as {
+      referenceCatalog?: { version: number; candidates?: Array<{ handle: string; slot?: number; details?: unknown }> };
+      referenceCatalogs?: unknown[];
+      state?: { canonicalTruth?: unknown };
+    };
+    expect(batchedContext.referenceCatalog?.version).toBe(2);
+    expect(batchedContext.referenceCatalog?.candidates?.length).toBeGreaterThan(0);
+    expect(new Set(batchedContext.referenceCatalog?.candidates?.map((candidate) => candidate.handle)).size)
+      .toBe(batchedContext.referenceCatalog?.candidates?.length);
+    expect(batchedContext.referenceCatalog?.candidates?.filter((candidate) => candidate.slot !== undefined))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ slot: 0 }),
+        expect.objectContaining({ slot: 1 }),
+      ]));
+    expect(batchedContext.referenceCatalogs).toBeUndefined();
+    expect(batchedContext.state?.canonicalTruth).toBeUndefined();
+    expect(JSON.stringify(batchedContext)).not.toContain("availableHandles");
   });
 
   it("starts known action compilation before a resumed AgentMind completes", async () => {
@@ -892,7 +903,6 @@ describe("eager reference safeguards", () => {
             writes: [{ kind: "entity", id: action.actorId }],
             audienceAgentIds: [action.actorId],
             sharedResourceClaims: [],
-            globalFallback: false,
           });
         });
       }
@@ -1527,7 +1537,6 @@ describe("eager reference safeguards", () => {
             writes: [{ kind: "entity", id: action.actorId }],
             audienceAgentIds: action.actorId === "keeper" ? ["keeper", "player"] : [action.actorId],
             sharedResourceClaims: [],
-            globalFallback: false,
           });
         });
       }
@@ -1627,7 +1636,6 @@ describe("eager reference safeguards", () => {
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
-            globalFallback: true,
           });
         });
       }
@@ -1732,7 +1740,6 @@ describe("eager reference safeguards", () => {
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
-            globalFallback: true,
           });
         });
       }
@@ -1814,7 +1821,6 @@ describe("eager reference safeguards", () => {
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
-            globalFallback: true,
           });
         });
       }
@@ -1911,7 +1917,6 @@ describe("eager reference safeguards", () => {
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
-            globalFallback: true,
           });
         });
       }

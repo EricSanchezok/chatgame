@@ -1174,7 +1174,6 @@ function projectModelGrounding(
       unit: claim.basis.kind === "explicit_quantity" ? claim.basis.unit : null,
       basis: claim.basis.kind,
     })),
-    requiresWorldWideArbitration: grounding.globalFallback,
   };
 }
 

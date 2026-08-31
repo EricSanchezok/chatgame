@@ -19,6 +19,7 @@ import { ModelOverloadedError } from "../models/model-scheduler";
 import type { ModelProfileSummary, ModelRole } from "../models/model-catalog";
 import { canonicalize, contentHash } from "../models/model-audit";
 import { structuredPromptBytes } from "../prompts";
+import { MODEL_REFERENCE_CATALOG_VERSION } from "../contracts/model-context";
 
 type BatchableSchemaName =
   | "truth_resolution_directive"
@@ -200,7 +201,11 @@ function splitSharedContext(requests: readonly PendingRequest[]): SplitBatchEnve
   }
   const catalogs = contexts.map((context, slot) => ({ slot, catalog: structuredClone(context.referenceCatalog) }));
   const repairs = contexts.map((context) => context.repair).filter((repair) => repair !== null && repair !== undefined);
-  const referenceCatalog = { version: 1, hash: contentHash(catalogs), candidates: [] as readonly unknown[] };
+  const referenceCatalog = {
+    version: MODEL_REFERENCE_CATALOG_VERSION,
+    hash: contentHash(catalogs),
+    candidates: [] as readonly unknown[],
+  };
   return {
     contractVersion: Number(first.contractVersion ?? 14),
     roleContract: structuredClone(first.roleContract),

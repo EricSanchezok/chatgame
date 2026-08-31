@@ -1007,7 +1007,6 @@ export const actionGroundingSchema = z.strictObject({
   }),
   audienceAgentHandles: z.array(existingReferenceHandleSchema),
   sharedResourceClaims: z.array(sharedActivityResourceClaimDraftSchema),
-  requiresWorldWideArbitration: z.boolean(),
 }) as z.ZodType<ActionCompilationDraft["interactionDependency"]>;
 
 export const temporalPlanDraftSchema = z.strictObject({

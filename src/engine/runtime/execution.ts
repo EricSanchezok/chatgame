@@ -483,7 +483,6 @@ export interface ActionGroundingModelOutput {
   };
   audienceAgentHandles: ExistingReferenceHandle[];
   sharedResourceClaims: ActionSharedResourceClaimModel[];
-  requiresWorldWideArbitration: boolean;
 }
 
 export interface ActionSharedResourceClaimModel {

@@ -151,7 +151,6 @@ function reactionHarness(input: {
             ? ["keeper", travelerId]
             : [action.actorId],
           sharedResourceClaims: [],
-          globalFallback: true,
         });
       });
     }
@@ -258,7 +257,7 @@ describe("World Instance host", () => {
           roleContract: expect.objectContaining({ role: "arrival-generator" }),
           task: expect.objectContaining({ assignment: expect.any(Object) }),
           state: { perspective: expect.objectContaining({ agentRef: "ref:agent:courtyard-wanderer-1" }) },
-          referenceCatalog: expect.objectContaining({ version: 1 }),
+          referenceCatalog: expect.objectContaining({ version: 2 }),
         },
       });
     } finally {
