@@ -959,7 +959,7 @@ function resolutionPlanReferenceCandidates(
       engineId: plan.id,
       label: plan.goal,
       meaning: "a committed resolution plan under review",
-      allowedUses: ["target", "assertion", "cause"] as const,
+      allowedUses: ["target", "assertion"] as const,
       visibility: "role" as const,
       statePath: `candidatePlans.${plan.id}`,
     },
@@ -1300,10 +1300,10 @@ export function createTruthReferenceResolver(input: {
     visibility: "role" as const,
     statePath: `state.world.mechanicContracts.${contract.packageId}.${contract.ruleId}`,
   }));
-  return createReferenceResolver([
+  const candidates = [
     ...Object.values(state.agents).map((agent) => ({
       kind: "agent" as const, engineId: agent.id, label: agent.id,
-      meaning: "an Agent participating in this execution", allowedUses: ["actor", "target", "audience", "cause"] as const,
+      meaning: "an Agent participating in this execution", allowedUses: ["actor", "target", "audience"] as const,
       visibility: "role" as const, statePath: `state.agents.${agent.id}`,
     })),
     ...[...historicalAgentIds]
@@ -1311,7 +1311,7 @@ export function createTruthReferenceResolver(input: {
       .map((agentId) => ({
         kind: "agent" as const, engineId: agentId, label: agentId,
         meaning: "an Agent referenced by committed history",
-        allowedUses: ["actor", "target", "audience", "cause"] as const,
+        allowedUses: ["actor", "target", "audience"] as const,
         visibility: "role" as const,
         statePath: `history.agents.${agentId}`,
       })),
@@ -1344,7 +1344,7 @@ export function createTruthReferenceResolver(input: {
     }),
     ...Object.values(state.truth.entities).map((entity) => ({
       kind: "entity" as const, engineId: entity.id, label: entity.name,
-      meaning: "an existing canonical world entity", allowedUses: ["actor", "target", "subject", "cause", "assertion", "source"] as const,
+      meaning: "an existing canonical world entity", allowedUses: ["actor", "target", "subject", "assertion", "source"] as const,
       visibility: "role" as const, statePath: `state.truth.entities.${entity.id}`,
     })),
     ...Object.keys(state.truth.placements).map((placementId) => ({
@@ -1427,13 +1427,13 @@ export function createTruthReferenceResolver(input: {
     ...Object.values(state.truth.activities).map((activity) => ({
       kind: "activity" as const, engineId: activity.id, label: ("plan" in activity ? activity.plan : activity.planDraft).description,
       meaning: "an existing scheduled activity whose continuation state may affect this decision",
-      allowedUses: ["cause", "assertion", "source"] as const,
+      allowedUses: ["assertion", "source"] as const,
       visibility: "role" as const, statePath: `state.truth.activities.${activity.id}`,
     })),
     ...Object.values(state.truth.timers).map((timer) => ({
       kind: "timer" as const, engineId: timer.id, label: timer.id,
       meaning: "an existing timer that may wake an Agent or advance a condition",
-      allowedUses: ["cause", "assertion", "source"] as const,
+      allowedUses: ["assertion", "source"] as const,
       visibility: "role" as const, statePath: `state.truth.timers.${timer.id}`,
     })),
     ...Object.values(state.truth.events).map((event) => ({
@@ -1448,7 +1448,7 @@ export function createTruthReferenceResolver(input: {
     })),
     ...outcomes.map((outcome) => ({
       kind: "outcome" as const, engineId: outcome.id, label: compactLabel(outcome.summary),
-      meaning: "an action outcome proposed by the current transition", allowedUses: ["cause", "assertion", "source"] as const,
+      meaning: "an action outcome proposed by the current transition", allowedUses: ["assertion", "source"] as const,
       visibility: "role" as const, statePath: `proposal.outcomes.${outcome.id}`,
     })),
     ...randomRequests.map((request) => ({
@@ -1464,8 +1464,8 @@ export function createTruthReferenceResolver(input: {
       kind: "resolution_receipt" as const,
       engineId: receipt.id,
       label: receipt.plan.goal,
-      meaning: "a committed resolution receipt available to the settlement mechanic",
-      allowedUses: ["mechanic", "source", "cause", "assertion"] as const,
+      meaning: "an adjudication receipt available as mechanic input, not an in-world cause",
+      allowedUses: ["mechanic", "source"] as const,
       visibility: "role" as const,
       statePath: `execution.resolutionReceipts.${receipt.id}`,
     })),
@@ -1483,7 +1483,7 @@ export function createTruthReferenceResolver(input: {
       engineId: outcome.id,
       label: compactLabel(outcome.summary),
       meaning: "an already committed action outcome",
-      allowedUses: ["cause", "assertion", "source"] as const,
+      allowedUses: ["assertion", "source"] as const,
       visibility: "role" as const,
       statePath: `history.${step.revision}.outcomes.${outcome.id}`,
     }))),
@@ -1492,7 +1492,7 @@ export function createTruthReferenceResolver(input: {
       engineId: observation.id,
       label: compactLabel(observation.summary),
       meaning: "an observation already delivered to an Agent",
-      allowedUses: ["cause", "assertion", "source"] as const,
+      allowedUses: ["assertion", "source"] as const,
       visibility: "role" as const,
       statePath: `history.${step.revision}.observations.${observation.id}`,
     }))),
@@ -1501,7 +1501,7 @@ export function createTruthReferenceResolver(input: {
       engineId: `${step.revision}:${index}:${operation.kind}`,
       label: operation.kind,
       meaning: "an already committed deterministic world operation",
-      allowedUses: ["cause", "assertion", "source"] as const,
+      allowedUses: ["assertion", "source"] as const,
       visibility: "role" as const,
       statePath: `history.${step.revision}.operations.${index}`,
     }))),
@@ -1519,7 +1519,7 @@ export function createTruthReferenceResolver(input: {
       engineId: plan.id,
       label: compactLabel(plan.goal),
       meaning: "an already committed resolution plan",
-      allowedUses: ["cause", "assertion", "source", "target"] as const,
+      allowedUses: ["assertion", "source", "target"] as const,
       visibility: "role" as const,
       statePath: `history.${step.revision}.resolutionPlans.${plan.id}`,
     }))),
@@ -1606,7 +1606,17 @@ export function createTruthReferenceResolver(input: {
     ...mechanicCandidates,
     { kind: "world" as const, engineId: "world", label: "world", meaning: "world-wide arbitration scope", allowedUses: ["conflict"] as const, visibility: "role" as const },
     ...(input.extraCandidates ?? []),
-  ]);
+  ] satisfies ReferenceCandidateInput[];
+  const causalKinds = new Set(["action", "check", "random", "event", "fact", "law", "mechanic"]);
+  const invalidCausalCandidate = candidates.find((candidate) =>
+    candidate.allowedUses.some((use) => use === "cause") && !causalKinds.has(candidate.kind));
+  if (invalidCausalCandidate) {
+    throw new Error(
+      `Truth reference candidate ${invalidCausalCandidate.kind}:${invalidCausalCandidate.engineId} ` +
+      "advertises cause use but is not a model causal-reference kind",
+    );
+  }
+  return createReferenceResolver(candidates);
 }
 
 export function buildTruthContext(input: {
@@ -1855,7 +1865,7 @@ export function buildCausalVerificationContext(input: {
         engineId: plan.id,
         label: plan.goal,
         meaning: "a committed resolution plan being verified",
-        allowedUses: ["target", "assertion", "cause", "source"] as const,
+        allowedUses: ["target", "assertion", "source"] as const,
         visibility: "role" as const,
       })),
       ...resolutionPlanReferenceCandidates(input.resolutionPlans),
@@ -1896,15 +1906,15 @@ export function buildCausalVerificationContext(input: {
         engineId: `${index}:${operation.kind}`,
         label: operation.kind,
         meaning: "a deterministic world operation proposed by the candidate transition",
-        allowedUses: ["assertion", "cause", "source"] as const,
+        allowedUses: ["assertion", "source"] as const,
         visibility: "role" as const,
       })),
       ...input.proposal.operations.flatMap((operation): ReferenceCandidateInput[] => {
-        if (operation.kind === "create_entity") return [{ kind: "entity" as const, engineId: operation.entity.id, label: operation.entity.name, meaning: "an entity created by the candidate transition", allowedUses: ["target", "subject", "assertion", "cause", "source"] as const, visibility: "role" as const }];
+        if (operation.kind === "create_entity") return [{ kind: "entity" as const, engineId: operation.entity.id, label: operation.entity.name, meaning: "an entity created by the candidate transition", allowedUses: ["target", "subject", "assertion", "source"] as const, visibility: "role" as const }];
         if (operation.kind === "set_fact") return [{ kind: "fact" as const, engineId: operation.fact.id, label: operation.fact.predicate, meaning: "a fact created by the candidate transition", allowedUses: ["assertion", "cause", "source"] as const, visibility: "role" as const }];
         if (operation.kind === "create_agent") return [
-          { kind: "agent" as const, engineId: operation.agent.id, label: operation.agent.id, meaning: "an Agent created by the candidate transition", allowedUses: ["actor", "target", "audience", "cause"] as const, visibility: "role" as const },
-          { kind: "entity" as const, engineId: operation.agent.entityId, label: operation.agent.entityId, meaning: "the entity bound to an Agent created by the candidate transition", allowedUses: ["actor", "target", "subject", "assertion", "cause", "source"] as const, visibility: "role" as const },
+          { kind: "agent" as const, engineId: operation.agent.id, label: operation.agent.id, meaning: "an Agent created by the candidate transition", allowedUses: ["actor", "target", "audience"] as const, visibility: "role" as const },
+          { kind: "entity" as const, engineId: operation.agent.entityId, label: operation.agent.entityId, meaning: "the entity bound to an Agent created by the candidate transition", allowedUses: ["actor", "target", "subject", "assertion", "source"] as const, visibility: "role" as const },
         ];
         return [];
       }),
@@ -1922,7 +1932,7 @@ export function buildCausalVerificationContext(input: {
         engineId: outcome.id,
         label: outcome.summary,
         meaning: "an action outcome proposed by the candidate transition",
-        allowedUses: ["assertion", "cause"] as const,
+        allowedUses: ["assertion"] as const,
         visibility: "role" as const,
         statePath: `candidate.outcomes.${outcome.id}`,
       })),
@@ -1931,7 +1941,7 @@ export function buildCausalVerificationContext(input: {
         engineId: observation.id,
         label: observation.summary,
         meaning: "an observation rendered from the candidate transition",
-        allowedUses: ["assertion", "cause"] as const,
+        allowedUses: ["assertion"] as const,
         visibility: "role" as const,
         statePath: `candidate.observations.${observation.id}`,
       })),
@@ -2059,7 +2069,7 @@ export function buildResolutionPlanVerificationContext(input: {
       engineId: plan.id,
       label: plan.goal,
       meaning: "a committed resolution plan under review",
-      allowedUses: ["target", "assertion", "cause"] as const,
+      allowedUses: ["target", "assertion"] as const,
       visibility: "role" as const,
       statePath: `candidatePlans.${plan.id}`,
     })),

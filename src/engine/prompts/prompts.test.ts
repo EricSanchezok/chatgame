@@ -6,7 +6,7 @@ import {
   type PromptBundleId,
 } from ".";
 import path from "node:path";
-import { buildAgentContext, buildTruthContext } from "../contracts/prompts";
+import { buildAgentContext, buildTruthContext, createTruthReferenceResolver } from "../contracts/prompts";
 import { loadWorldScript } from "../../script/world-loader";
 import { DeterministicModelProvider } from "../testing/model-provider";
 import type { AgentActionProposal } from "../contracts/model";
@@ -142,6 +142,28 @@ describe("external prompt resources", () => {
     expect((context as { task: { resolutionScope: { selectedActionRefs: string[] } } }).task.resolutionScope.selectedActionRefs)
       .toEqual(["ref:action:context-action-0"]);
     expect(JSON.stringify(context)).not.toContain("selectedActionIds");
+  });
+
+  it("never advertises adjudication records as in-world causal references", () => {
+    const provider = new DeterministicModelProvider();
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    expect(() => createTruthReferenceResolver({
+      state: definition.initialState,
+      definition,
+      actions: [],
+      extraCandidates: [{
+        kind: "resolution_receipt",
+        engineId: "receipt-under-test",
+        label: "receipt",
+        meaning: "adjudication record",
+        allowedUses: ["cause"],
+      }],
+    })).toThrow(/not a model causal-reference kind/u);
+    expect(promptBundle("truth-transition").userPrompt)
+      .toContain("never cite a `resolution_receipt` in `causes`");
   });
 
   it("projects Agent cognition without persistence ids or canonical bindings", () => {
