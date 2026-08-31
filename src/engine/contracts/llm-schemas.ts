@@ -954,7 +954,7 @@ const observationDraftShape = {
 
 const modelObservationIntroductionSchema = z.strictObject({
   localEntity: modelLocalEntitySchema,
-  canonicalEntityRef: modelReferenceSchema.nullable(),
+  canonicalEntityRef: modelReferenceSchemaFor("entity", { allowProposal: false }).nullable(),
 });
 
 const modelApparentClaimSchema = z.strictObject({
@@ -968,7 +968,7 @@ export const modelObservationRenderDraftSchema = z.strictObject({
   summary: z.string().trim().min(1),
   introductions: z.array(modelObservationIntroductionSchema),
   apparentClaims: z.array(modelApparentClaimSchema),
-  sourceEventRefs: z.array(modelReferenceSchema),
+  sourceEventRefs: z.array(modelReferenceSchemaFor("event", { allowProposal: false })),
 });
 export type ModelObservationRenderDraft = z.infer<typeof modelObservationRenderDraftSchema>;
 
