@@ -17,6 +17,7 @@ import {
   runTemporalEvidencePropertyCases,
   type ActionCompilationGold,
 } from "./gold-evaluator";
+import { projectActionCompilationContextForModel } from "../../algorithms/eager-reference/action-compilation-context";
 
 const fixtureRoot = path.resolve("test/fixtures/action-compilation");
 
@@ -102,6 +103,12 @@ describe("Action Compilation context experiment", () => {
       .toContainEqual(expect.objectContaining({ handle: "ref:entity:unused", details: expect.any(Object) }));
     expect(() => projectActionCompilationContext(source, "C4", { expansionHandles: ["ref:missing"] }))
       .toThrow("unknown handle");
+  });
+
+  it("promotes the byte-identical C3 projection into the production algorithm", () => {
+    const source = syntheticRecordedContext();
+    expect(projectActionCompilationContextForModel(source))
+      .toEqual(projectActionCompilationContext(source, "C3"));
   });
 
   it("preserves the rejected slot issue and previous attempt in normalized repair contexts", () => {

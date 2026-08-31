@@ -266,14 +266,14 @@ export function validateActionCompilationDraft(input: {
     path: ["interactionDependency", "stateDependencies", "potentiallyAffectedExistingRefs", index],
     contract: ACTION_COMPILATION_FIELD_USES.stateDependency,
   }));
-  input.draft.interactionDependency.audienceAgentHandles.forEach((value, index) => references.push({
+  input.draft.interactionDependency.audienceAgentRefs.forEach((value, index) => references.push({
     value,
-    path: ["interactionDependency", "audienceAgentHandles", index],
+    path: ["interactionDependency", "audienceAgentRefs", index],
     contract: ACTION_COMPILATION_FIELD_USES.audience,
   }));
   input.draft.interactionDependency.sharedResourceClaims.forEach((claim, index) => references.push({
-    value: claim.resourcePoolHandle,
-    path: ["interactionDependency", "sharedResourceClaims", index, "resourcePoolHandle"],
+    value: claim.resourcePoolRef,
+    path: ["interactionDependency", "sharedResourceClaims", index, "resourcePoolRef"],
     contract: ACTION_COMPILATION_FIELD_USES.resourcePool,
   }));
   const issues = references.flatMap((reference) => {

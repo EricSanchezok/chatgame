@@ -989,7 +989,7 @@ export const observationProjectionBatchSchema = z.strictObject({
 });
 
 const sharedActivityResourceClaimDraftSchema = z.strictObject({
-  resourcePoolHandle: existingReferenceHandleSchema,
+  resourcePoolRef: existingReferenceHandleSchema,
   basis: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("default") }),
     z.strictObject({
@@ -1006,7 +1006,7 @@ export const actionGroundingSchema = z.strictObject({
     requiredExistingRefs: z.array(existingReferenceHandleSchema),
     potentiallyAffectedExistingRefs: z.array(existingReferenceHandleSchema),
   }),
-  audienceAgentHandles: z.array(existingReferenceHandleSchema),
+  audienceAgentRefs: z.array(existingReferenceHandleSchema),
   sharedResourceClaims: z.array(sharedActivityResourceClaimDraftSchema),
 }) as z.ZodType<ActionCompilationDraft["interactionDependency"]>;
 

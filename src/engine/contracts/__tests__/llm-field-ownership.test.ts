@@ -93,7 +93,7 @@ describe("LLM output field ownership", () => {
     }).success).toBe(false);
     const grounding = {
       stateDependencies: { requiredExistingRefs: [], potentiallyAffectedExistingRefs: [] },
-      audienceAgentHandles: [],
+      audienceAgentRefs: [],
       sharedResourceClaims: [],
     };
     expect(actionGroundingSchema.safeParse(grounding).success).toBe(true);

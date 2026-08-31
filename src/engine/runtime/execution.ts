@@ -481,12 +481,12 @@ export interface ActionGroundingModelOutput {
     requiredExistingRefs: ExistingReferenceHandle[];
     potentiallyAffectedExistingRefs: ExistingReferenceHandle[];
   };
-  audienceAgentHandles: ExistingReferenceHandle[];
+  audienceAgentRefs: ExistingReferenceHandle[];
   sharedResourceClaims: ActionSharedResourceClaimModel[];
 }
 
 export interface ActionSharedResourceClaimModel {
-  resourcePoolHandle: ExistingReferenceHandle;
+  resourcePoolRef: ExistingReferenceHandle;
   basis:
     | { kind: "default" }
     | { kind: "explicit_quantity"; amount: number; unit: string; sourceText: string };

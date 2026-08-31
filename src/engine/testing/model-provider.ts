@@ -937,9 +937,9 @@ export function deterministicInteractionDependency(
       requiredExistingRefs: (input.reads ?? []).map(handle),
       potentiallyAffectedExistingRefs: (input.writes ?? []).map(handle),
     },
-    audienceAgentHandles: (input.audienceAgentIds ?? []).map((id) => referenceHandleFor("agent", id)),
+    audienceAgentRefs: (input.audienceAgentIds ?? []).map((id) => referenceHandleFor("agent", id)),
     sharedResourceClaims: (input.sharedResourceClaims ?? []).map((claim) => ({
-      resourcePoolHandle: referenceHandleFor("shared_resource_pool", claim.poolId),
+      resourcePoolRef: referenceHandleFor("shared_resource_pool", claim.poolId),
       basis: structuredClone(claim.basis),
     })),
   };
@@ -980,7 +980,7 @@ function deterministicActionCompilation(
         requiredExistingRefs: [],
         potentiallyAffectedExistingRefs: [],
       },
-      audienceAgentHandles: [],
+      audienceAgentRefs: [],
       sharedResourceClaims: [],
     },
   };
@@ -1027,13 +1027,17 @@ export function deterministicActionCompilationBatch(
   void profileId;
   const input = context as {
     task?: { slots?: Array<{ slot: number; assignment?: unknown; action?: DeterministicCompilationContextAction }> };
+    referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> };
     slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }>;
     state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }>; slots?: Array<{ slot: number; action: DeterministicCompilationContextAction; temporalEvidence?: ActionTemporalEvidence[] }> };
     sharedContext?: { state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }> } };
   };
   const slots = input.state?.slots ?? input.slots ?? input.task?.slots
     ?.filter((slot): slot is { slot: number; action: DeterministicCompilationContextAction } => Boolean(slot.action));
-  const temporalProfiles = input.state?.temporalProfiles ?? input.sharedContext?.state?.temporalProfiles;
+  const temporalProfiles = input.state?.temporalProfiles ?? input.sharedContext?.state?.temporalProfiles ??
+    input.referenceCatalog?.candidates
+      ?.filter((entry) => entry.kind === "temporal_profile")
+      .map((entry) => ({ profileRef: entry.handle }));
   if (!slots || !temporalProfiles) {
     throw new Error("deterministic action compiler expected a slot batch");
   }
@@ -1162,11 +1166,14 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
       const canonicalTruth = stateSection.canonicalTruth;
       const slots = stateSection.slots ?? input.task?.slots ?? input.slots;
       const temporalProfiles = stateSection.temporalProfiles ?? input.temporalProfiles;
+      const hasTemporalProfileCandidates = input.referenceCatalog?.candidates
+        .some((candidate) => candidate.kind === "temporal_profile") ?? false;
       const actionInput = stateSection.action ?? input.action ?? input.task?.action;
       if (stateSection.perspective && !input.task?.kind && !stateSection.preparedAction && !stateSection.stimulus && !actionInput) {
         return deterministicAgentMindOutput();
       }
-      if (slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) && temporalProfiles) {
+      if (slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) &&
+        (temporalProfiles || hasTemporalProfileCandidates)) {
         return deterministicActionCompilationBatch(profileId, context);
       }
       if (slots?.every((slot): slot is DeterministicMindSlot => "state" in slot &&
@@ -1185,7 +1192,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
             requiredExistingRefs: [worldHandle as ExistingReferenceHandle],
             potentiallyAffectedExistingRefs: [worldHandle as ExistingReferenceHandle],
           },
-          audienceAgentHandles: [],
+          audienceAgentRefs: [],
           sharedResourceClaims: [],
         };
       }

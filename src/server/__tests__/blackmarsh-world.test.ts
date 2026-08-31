@@ -601,11 +601,11 @@ describe("Blackmarsh reference world", () => {
     expect(completed.state).toMatchObject({ revision: 1, step: 1 });
     const actionCompilationRequests = provider.requests.filter((request) => request.role === "action-compilation");
     const actionRefs = actionCompilationRequests.flatMap((request) =>
-      (request.context as { state: { slots: Array<{ action: { actionRef: string } }> } }).state.slots
+      (request.context as { task: { slots: Array<{ action: { actionRef: string } }> } }).task.slots
         .map((slot) => slot.action.actionRef));
     expect(actionCompilationRequests.length).toBeGreaterThanOrEqual(4);
     expect(actionCompilationRequests.every((request) =>
-      (request.context as { state: { slots: unknown[] } }).state.slots.length <= 12)).toBe(true);
+      (request.context as { task: { slots: unknown[] } }).task.slots.length <= 12)).toBe(true);
     expect(actionRefs).toHaveLength(Object.values(state.agents).length);
     expect(new Set(actionRefs).size).toBe(actionRefs.length);
     expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(6);

@@ -487,15 +487,15 @@ export function materializeModelInteractionDependency(
 ): InteractionDependency {
   const requiredExistingRefs = value.stateDependencies.requiredExistingRefs.map((handle) => resolveGroundingReference(resolver, handle));
   const potentiallyAffectedExistingRefs = value.stateDependencies.potentiallyAffectedExistingRefs.map((handle) => resolveGroundingReference(resolver, handle));
-  const audienceAgentIds = value.audienceAgentHandles.map((handle) => {
+  const audienceAgentIds = value.audienceAgentRefs.map((handle) => {
     const resolved = resolver.resolve(handle, "audience");
     if (resolved.kind !== "agent") throw new Error(`audience handle ${handle} is not an Agent candidate`);
     return resolved.engineId;
   });
   const sharedResourceClaims = value.sharedResourceClaims.map((claim) => {
-    const resolved = resolver.resolve(claim.resourcePoolHandle, "conflict");
+    const resolved = resolver.resolve(claim.resourcePoolRef, "conflict");
     if (resolved.kind !== "shared_resource_pool") {
-      throw new Error(`resource pool handle ${claim.resourcePoolHandle} is not a shared resource pool`);
+      throw new Error(`resource pool reference ${claim.resourcePoolRef} is not a shared resource pool`);
     }
     return { poolId: resolved.engineId, basis: structuredClone(claim.basis) };
   });

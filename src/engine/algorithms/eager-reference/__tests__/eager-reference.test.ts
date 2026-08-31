@@ -431,7 +431,10 @@ describe("eager reference safeguards", () => {
     expect(batched.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
     const batchedCompilationRequest = batched.provider.requests.find((request) => request.role === "action-compilation");
     const batchedContext = batchedCompilationRequest?.context as {
-      referenceCatalog?: { version: number; candidates?: Array<{ handle: string; slot?: number; details?: unknown }> };
+      referenceCatalog?: {
+        version: number;
+        candidates?: Array<{ handle: string; scope?: { kind: "shared" } | { kind: "slot"; slot: number }; details?: unknown }>;
+      };
       referenceCatalogs?: unknown[];
       state?: { canonicalTruth?: unknown };
     };
@@ -439,10 +442,10 @@ describe("eager reference safeguards", () => {
     expect(batchedContext.referenceCatalog?.candidates?.length).toBeGreaterThan(0);
     expect(new Set(batchedContext.referenceCatalog?.candidates?.map((candidate) => candidate.handle)).size)
       .toBe(batchedContext.referenceCatalog?.candidates?.length);
-    expect(batchedContext.referenceCatalog?.candidates?.filter((candidate) => candidate.slot !== undefined))
+    expect(batchedContext.referenceCatalog?.candidates?.filter((candidate) => candidate.scope?.kind === "slot"))
       .toEqual(expect.arrayContaining([
-        expect.objectContaining({ slot: 0 }),
-        expect.objectContaining({ slot: 1 }),
+        expect.objectContaining({ scope: { kind: "slot", slot: 0 } }),
+        expect.objectContaining({ scope: { kind: "slot", slot: 1 } }),
       ]));
     expect(batchedContext.referenceCatalogs).toBeUndefined();
     expect(batchedContext.state?.canonicalTruth).toBeUndefined();
@@ -683,7 +686,7 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "action-compilation");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { state: { slots: Array<{ action: { actorRef: string } }> } }).state.slots
+      (request.context as { task: { slots: Array<{ action: { actorRef: string } }> } }).task.slots
         .map((slot) => slot.action.actorRef.replace(/^ref:agent:/u, "")))).toEqual([
       ["keeper", "player"],
       ["keeper"],
@@ -692,19 +695,20 @@ describe("eager reference safeguards", () => {
       referenceCatalog: { candidates: unknown[] };
     };
     const repairContext = requests[1]!.context as {
-      task: { slots: Array<{ repair: { fingerprint: string; previousOutput: unknown; issues: Array<{ code: string; path: unknown[] }> } }> };
-      repair: { issues: Array<{ code: string; path: unknown[]; allowedHandles: string[] }> };
+      task: { slots: Array<{
+        previousAttempt: unknown;
+        issue: { code: string; path: unknown[]; allowedHandles: string[] };
+      }> };
       referenceCatalog: { candidates: unknown[] };
     };
-    expect(repairContext.task.slots[0]?.repair.previousOutput).toEqual(expect.objectContaining({
+    expect(repairContext.task.slots[0]?.previousAttempt).toEqual(expect.objectContaining({
       temporalPlan: expect.objectContaining({ profileRef: "ref:temporal_profile:missing-temporal-profile" }),
     }));
-    expect(repairContext.task.slots[0]?.repair.fingerprint).toMatch(/^[a-f0-9]{64}$/u);
-    expect(repairContext.repair.issues).toContainEqual(expect.objectContaining({
+    expect(repairContext.task.slots[0]?.issue).toEqual(expect.objectContaining({
       code: "reference.unknown_handle",
-      path: ["slots", 0, "temporalPlan", "profileRef"],
+      path: ["temporalPlan", "profileRef"],
     }));
-    expect(repairContext.repair.issues[0]!.allowedHandles.length).toBeLessThanOrEqual(64);
+    expect(repairContext.task.slots[0]!.issue.allowedHandles.length).toBeLessThanOrEqual(64);
     expect(repairContext.referenceCatalog.candidates.length)
       .toBeLessThan(initialContext.referenceCatalog.candidates.length);
   });
@@ -715,7 +719,7 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
         const stateSlots = (context as {
-          state: { slots: Array<{
+          task: { slots: Array<{
             action: { actorRef: string };
             temporalEvidence: unknown[];
             temporalProfileEligibility: Array<{
@@ -723,9 +727,9 @@ describe("eager reference safeguards", () => {
               eligible: boolean;
               rejectionCode: string | null;
             }>;
+            issue: { reason: string } | null;
           }> };
-          task: { slots: Array<{ constraints: string[] }> };
-        }).state.slots;
+        }).task.slots;
         const keeper = stateSlots.find((slot) => slot.action.actorRef === "ref:agent:keeper");
         if (keeper) {
           expect(keeper.temporalEvidence).toEqual([]);
@@ -741,8 +745,8 @@ describe("eager reference safeguards", () => {
             compilation.temporalPlan.profileRef = referenceHandleFor("temporal_profile", "measured-travel");
             compilation.temporalPlan.basis = { kind: "profile" };
           } else if (action.actorId === "keeper") {
-            const taskSlots = (context as { task: { slots: Array<{ constraints: string[] }> } }).task.slots;
-            repairedConstraint = taskSlots[0]?.constraints.join("\n") ?? "";
+            const taskSlots = (context as { task: { slots: Array<{ issue: { reason: string } | null }> } }).task.slots;
+            repairedConstraint = taskSlots[0]?.issue?.reason ?? "";
           }
         });
       }
@@ -774,7 +778,7 @@ describe("eager reference safeguards", () => {
   it("repairs a structural resource-pool error with compact catalog guidance", async () => {
     let firstCompilation = true;
     let repairContext: {
-      task: { slots: Array<{ repair: { issues: Array<{ code: string; path: unknown[]; allowedHandles: string[] }> } }> };
+      task: { slots: Array<{ issue: { code: string; path: unknown[]; allowedHandles: string[] } }> };
     } | null = null;
     const provider = new ScriptedModelProvider(({ role, profileId, context, system }) => {
       if (role === "action-compilation") {
@@ -783,7 +787,7 @@ describe("eager reference safeguards", () => {
         if (firstCompilation) {
           firstCompilation = false;
           output.slots[0]!.interactionDependency.sharedResourceClaims = [{
-            resourcePoolHandle: output.slots[0]!.temporalPlan.profileRef as ExistingReferenceHandle,
+            resourcePoolRef: output.slots[0]!.temporalPlan.profileRef as ExistingReferenceHandle,
             basis: { kind: "default" },
           }];
         } else {
@@ -814,10 +818,10 @@ describe("eager reference safeguards", () => {
 
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
     expect(repairContext).not.toBeNull();
-    const issue = repairContext!.task.slots[0]!.repair.issues[0]!;
+    const issue = repairContext!.task.slots[0]!.issue;
     expect(issue).toMatchObject({
       code: "reference.disallowed_use",
-      path: ["interactionDependency", "sharedResourceClaims", 0, "resourcePoolHandle"],
+      path: ["interactionDependency", "sharedResourceClaims", 0, "resourcePoolRef"],
     });
     expect(issue.allowedHandles.length).toBeLessThanOrEqual(64);
   });
@@ -1762,7 +1766,7 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation"))
       .toHaveLength(2);
     expect(provider.requests.filter((request) => request.role === "action-compilation")
-      .flatMap((request) => (request.context as { state: { slots: Array<{ action: AgentActionProposal }> } }).state.slots)
+      .flatMap((request) => (request.context as { task: { slots: Array<{ action: AgentActionProposal }> } }).task.slots)
       .map((slot) => slot.action.rawText))
       .toContain("抓起庭院沙土戒备");
   });

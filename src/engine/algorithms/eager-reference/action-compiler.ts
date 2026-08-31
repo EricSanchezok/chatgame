@@ -62,6 +62,10 @@ import {
   normalizeActionCompilationDraftReferences,
   validateActionCompilationDraft,
 } from "./action-compilation-validation";
+import {
+  actionCompilationContextProjectionMetrics,
+  projectActionCompilationContextForModel,
+} from "./action-compilation-context";
 
 const ACTION_COMPILER_PROMPT = promptBundle("action-compilation");
 
@@ -218,7 +222,7 @@ function actionCompilationContext(
       },
     };
   });
-  return {
+  return projectActionCompilationContextForModel({
     contractVersion: shared.contractVersion,
     roleContract: modelRoleContract("action-compilation"),
     execution: { worldId: state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: state.revision, step: state.step },
@@ -266,7 +270,7 @@ function actionCompilationContext(
           }))),
         }
       : null,
-  };
+  });
 }
 
 function jsonUtf8Bytes(value: unknown): number {
@@ -280,21 +284,23 @@ function emitActionCompilationContextProjection(
   context: ReturnType<typeof actionCompilationContext>,
 ): void {
   const candidates = context.referenceCatalog.candidates;
+  const metrics = actionCompilationContextProjectionMetrics(context);
+  const repair = context.task.slots.some((slot) => slot.issue !== null);
   scope.observer?.emit({
     event: "algorithm.eager_reference.action_compilation_context_projected",
     correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
     attributes: {
       phase: "action-compilation",
-      projection: "c2-normalized-complete-catalog",
-      repair: context.repair !== null,
+      projection: "c3-deterministic-details",
+      repair,
     },
     counts: {
-      slots: context.state.slots.length,
+      slots: metrics.slots,
       candidateHandles: new Set(candidates.map((candidate) => candidate.handle)).size,
       serializedCandidates: candidates.length,
-      detailedCandidates: candidates.filter((candidate) => candidate.details !== undefined).length,
-      repairIssues: context.repair?.issues.length ?? 0,
-      contextUtf8Bytes: jsonUtf8Bytes(context),
+      detailedCandidates: metrics.detailedCandidates,
+      repairIssues: context.task.slots.filter((slot) => slot.issue !== null).length,
+      contextUtf8Bytes: metrics.bytes,
       referenceCatalogUtf8Bytes: jsonUtf8Bytes(context.referenceCatalog),
       canonicalTruthUtf8Bytes: 0,
       taskUtf8Bytes: jsonUtf8Bytes(context.task),
@@ -329,13 +335,13 @@ function errorChainText(error: unknown): string {
 
 function actionCompilationRepairIssues(error: unknown): ModelRepairIssue[] {
   const message = errorChainText(error);
-  if (message.includes("sharedResourceClaims") && (message.includes("poolId") || message.includes("resourcePoolHandle"))) {
+  if (message.includes("sharedResourceClaims") && (message.includes("poolId") || message.includes("resourcePoolRef"))) {
     return [
       compilationIssue({
         code: "reference.shared_resource_pool_required",
         class: "reference",
         path: ["interactionDependency", "sharedResourceClaims"],
-        reason: "resourcePoolHandle must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
+        reason: "resourcePoolRef must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
       }),
     ];
   }
@@ -367,7 +373,7 @@ function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
   }
   if (error instanceof z.ZodError) {
     const poolIssue = error.issues.find((issue) =>
-      issue.path.includes("sharedResourceClaims") && (issue.path.includes("poolId") || issue.path.includes("resourcePoolHandle")));
+      issue.path.includes("sharedResourceClaims") && (issue.path.includes("poolId") || issue.path.includes("resourcePoolRef")));
     if (poolIssue) {
       return [
         compilationIssue({
@@ -375,7 +381,7 @@ function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
           class: "reference",
           path: modelIssuePath(poolIssue.path),
           originalValue: poolIssue.input,
-          reason: "resourcePoolHandle must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
+          reason: "resourcePoolRef must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
         }),
       ];
     }
