@@ -110,22 +110,28 @@ function actionCompilationContext(
       currentElapsedSeconds: state.truth.elapsedSeconds,
       temporalProfiles: Object.values(state.truth.mechanics.temporalProfiles)
         .map((profile) => {
-          const { id: _profileId, ...profileWithoutId } = profile;
+          const profileWithoutId = Object.fromEntries(
+            Object.entries(profile).filter(([key]) => key !== "id"),
+          );
           return profile.kind === "staged"
             ? {
                 ...structuredClone(profileWithoutId),
-                profileRef: referenceResolver.handleFor("temporal_profile", _profileId),
-                stages: profile.stages.map(({ id: _stageId, ...stage }) => stage),
+                profileRef: referenceResolver.handleFor("temporal_profile", profile.id),
+                stages: profile.stages.map((stage) => Object.fromEntries(
+                  Object.entries(stage).filter(([key]) => key !== "id"),
+                )),
               }
             : {
                 ...structuredClone(profileWithoutId),
-                profileRef: referenceResolver.handleFor("temporal_profile", _profileId),
+                profileRef: referenceResolver.handleFor("temporal_profile", profile.id),
               };
         })
         .sort((left, right) => left.profileRef.localeCompare(right.profileRef)),
-      temporalCalibrations: state.truth.mechanics.temporalCalibrations.map(({ id: _calibrationId, profileId: _profileId, ...calibration }) => ({
-        ...structuredClone(calibration),
-        profileRef: referenceResolver.handleFor("temporal_profile", _profileId),
+      temporalCalibrations: state.truth.mechanics.temporalCalibrations.map((calibration) => ({
+        ...structuredClone(Object.fromEntries(
+          Object.entries(calibration).filter(([key]) => key !== "id" && key !== "profileId"),
+        )),
+        profileRef: referenceResolver.handleFor("temporal_profile", calibration.profileId),
       })),
     },
     referenceCatalog: shared.referenceCatalog,
