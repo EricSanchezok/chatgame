@@ -160,6 +160,20 @@ describe("Action Compilation context experiment", () => {
     expect(detail.recall).toBe(1);
   });
 
+  it("keeps the live corpus bound to authored Agents and explicit expected profiles", () => {
+    const live = parseActionCompilationCorpus(readFileSync(path.join(fixtureRoot, "live-corpus.jsonl"), "utf8"));
+    const world = loadWorldScript(path.resolve("worlds/blackmarsh/world"), {
+      seed: 47,
+      modelCatalog: loadModelCatalog(),
+    });
+    expect(live).toHaveLength(12);
+    expect(new Set(live.map((record) => record.category)).size).toBeGreaterThanOrEqual(7);
+    for (const record of live) {
+      expect(record.live?.expectedProfileIds.length, record.id).toBeGreaterThan(0);
+      expect(world.initialState.agents[record.live!.actorId], record.id).toBeDefined();
+    }
+  });
+
   it("grounds at least one thousand generated numeric/unit cases", () => {
     const world = loadWorldScript(path.resolve("worlds/blackmarsh/world"), {
       seed: 47,

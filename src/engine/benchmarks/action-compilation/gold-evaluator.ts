@@ -17,6 +17,10 @@ export interface ActionCompilationCorpusRecord {
     goal: string;
     means: string | null;
   };
+  live?: {
+    actorId: string;
+    expectedProfileIds: string[];
+  };
 }
 
 export interface ActionCompilationGoldRecord {
