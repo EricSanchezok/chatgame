@@ -34,6 +34,7 @@ import type {
   TemporalPlanDraft,
   TemporalStateSnapshot,
 } from "../mechanics/temporal";
+import type { ExistingReferenceHandle } from "../contracts/model-context";
 import type {
   SharedActivityResourceClaim,
   SharedActivityResourceClaimDraft,
@@ -473,9 +474,28 @@ export type InteractionDependencyDraft = Omit<InteractionDependency, "kind" | "i
   sharedResourceClaims: SharedActivityResourceClaimDraft[];
 };
 
+/** Model-facing dependency vocabulary. It is resolved into InteractionDependency
+ * only after candidate handles have been checked against the request catalog. */
+export interface ActionGroundingModelOutput {
+  stateDependencies: {
+    requiredExistingRefs: ExistingReferenceHandle[];
+    potentiallyAffectedExistingRefs: ExistingReferenceHandle[];
+  };
+  audienceAgentHandles: ExistingReferenceHandle[];
+  sharedResourceClaims: ActionSharedResourceClaimModel[];
+  requiresWorldWideArbitration: boolean;
+}
+
+export interface ActionSharedResourceClaimModel {
+  resourcePoolHandle: ExistingReferenceHandle;
+  basis:
+    | { kind: "default" }
+    | { kind: "explicit_quantity"; amount: number; unit: string; sourceText: string };
+}
+
 export interface ActionCompilationDraft {
   temporalPlan: TemporalPlanDraft;
-  interactionDependency: InteractionDependencyDraft;
+  interactionDependency: ActionGroundingModelOutput;
 }
 
 export interface WorldExecutionAlgorithm {

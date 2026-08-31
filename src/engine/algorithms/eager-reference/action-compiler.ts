@@ -6,7 +6,7 @@ import {
 import {
   actionGroundingSharedContext,
   actionGroundingSlotContext,
-  materializeInteractionDependency,
+  materializeModelInteractionDependency,
 } from "../../mechanics/action-dependency";
 import {
   eagerRequestBytes,
@@ -90,7 +90,8 @@ function actionCompilationContext(
       .sort((left, right) => left.id.localeCompare(right.id)),
     temporalCalibrations: structuredClone(state.truth.mechanics.temporalCalibrations)
       .sort((left, right) => left.id.localeCompare(right.id)),
-    canonicalCatalog: shared.canonicalCatalog,
+    state: shared.state,
+    referenceCatalog: shared.referenceCatalog,
     slots: slots.map((entry, slot) => ({
       slot,
       ...actionGroundingSlotContext(state, entry.payload.action, entry.issues),
@@ -128,7 +129,7 @@ function actionCompilationRepairIssues(error: unknown): string[] {
   const message = errorChainText(error);
   if (message.includes("sharedResourceClaims") && message.includes("poolId")) {
     return [
-      "sharedResourceClaims.poolId 必须原样复制 canonicalCatalog.sharedActivityResourcePools[].id；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
+      "sharedResourceClaims.poolId 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
     ];
   }
   if (message.includes("action compilation returned") ||
@@ -147,7 +148,7 @@ function actionCompilationSlotIssues(error: unknown): string[] {
       issue.path.includes("sharedResourceClaims") && issue.path.includes("poolId"));
     if (poolIssue) {
       return [
-        "sharedResourceClaims.poolId 必须原样复制 canonicalCatalog.sharedActivityResourcePools[].id；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
+        "sharedResourceClaims.poolId 必须复制 referenceCatalog 中共享资源池候选的 handle；目录为空或无明确匹配时输出 []，不得把 default 或 definitionId 当作 poolId。",
       ];
     }
   }
@@ -260,7 +261,7 @@ function materializeCompilation(
       plan,
       sourceAction: action,
     }),
-    dependency: materializeInteractionDependency(
+    dependency: materializeModelInteractionDependency(
       state,
       action,
       draft.interactionDependency,

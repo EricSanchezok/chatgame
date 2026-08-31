@@ -10,6 +10,7 @@ import {
 import { historyReplayBaseHash } from "../../../runtime/history-replay";
 import { replaySimulationState } from "../../../runtime/transaction";
 import type { AgentActionProposal, SimulationState } from "../../../contracts/model";
+import type { ExistingReferenceHandle } from "../../../contracts/model-context";
 import { contentHash } from "../../../models/model-audit";
 import { ModelSemanticRepairError } from "../../../models/model-provider";
 import { SimulationEngine } from "../../../runtime/simulation";
@@ -17,6 +18,7 @@ import { CanonicalCommitter } from "../../../runtime/canonical-committer";
 import {
   DeterministicModelProvider,
   deterministicActionCompilationBatch,
+  deterministicInteractionDependency,
   deterministicAgentMindBatch,
   deterministicModelOutput,
   ScriptedModelProvider,
@@ -42,13 +44,13 @@ describe("eager reference safeguards", () => {
             continuationAssertions: [],
             causes: [{ kind: "action", id: action.id }],
           };
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: [{ kind: "shared_resource_pool", id: poolId }],
             writes: [{ kind: "shared_resource_pool", id: poolId }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [{ poolId, basis: { kind: "default" } }],
             globalFallback: false,
-          };
+          });
         });
       }
       if (role === "truth-resolution") {
@@ -174,13 +176,13 @@ describe("eager reference safeguards", () => {
               causes: [{ kind: "action", id: action.id }],
             };
           }
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
             writes: claims.map((claim) => ({ kind: "shared_resource_pool" as const, id: claim.poolId })),
             audienceAgentIds: [action.actorId],
             sharedResourceClaims: claims,
             globalFallback: false,
-          };
+          });
         });
       }
       return deterministicModelOutput(profileId, context);
@@ -644,12 +646,12 @@ describe("eager reference safeguards", () => {
     let repairedIssues: string[][] = [];
     const provider = new ScriptedModelProvider(({ role, profileId, context, system }) => {
       if (role === "action-compilation") {
-        expect(system).toContain("Keep the footprint conservative");
+        expect(system).toContain("concurrency footprint");
         const output = deterministicActionCompilationBatch(profileId, context);
         if (firstCompilation) {
           firstCompilation = false;
           output.slots[0]!.interactionDependency.sharedResourceClaims = [{
-            poolId: "default",
+            resourcePoolHandle: "ref:shared_resource_pool:default" as ExistingReferenceHandle,
             basis: { kind: "default" },
           }];
         } else {
@@ -681,9 +683,9 @@ describe("eager reference safeguards", () => {
 
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
     expect(repairedIssues).toEqual([
-      [expect.stringMatching(/^sharedResourceClaims\.poolId .*canonicalCatalog/)],
+      [expect.stringMatching(/reference catalog/)],
     ]);
-    expect(repairedIssues.flat().every((issue) => issue.includes("canonicalCatalog"))).toBe(true);
+    expect(repairedIssues.flat().every((issue) => issue.includes("reference catalog"))).toBe(true);
   });
 
   it("rolls back when an Action Compilation singleton exhausts semantic repair", async () => {
@@ -785,13 +787,13 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: [],
             writes: [{ kind: "entity", id: action.actorId }],
             audienceAgentIds: [action.actorId],
             sharedResourceClaims: [],
             globalFallback: false,
-          };
+          });
         });
       }
       return deterministicModelOutput(profileId, context);
@@ -1413,13 +1415,13 @@ describe("eager reference safeguards", () => {
               causes: [{ kind: "action", id: action.id }],
             };
           }
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: [],
             writes: [{ kind: "entity", id: action.actorId }],
             audienceAgentIds: action.actorId === "keeper" ? ["keeper", "player"] : [action.actorId],
             sharedResourceClaims: [],
             globalFallback: false,
-          };
+          });
         });
       }
       return deterministicModelOutput(profileId, context);
@@ -1513,13 +1515,13 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation) => {
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: [{ kind: "global", id: "world" }],
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
             globalFallback: true,
-          };
+          });
         });
       }
       if (role === "truth-perception") {
@@ -1616,13 +1618,13 @@ describe("eager reference safeguards", () => {
               causes: [{ kind: "action", id: action.id }],
             };
           }
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: [{ kind: "global", id: "world" }],
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
             globalFallback: true,
-          };
+          });
         });
       }
       if (role === "agent-reaction") {
@@ -1698,13 +1700,13 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation) => {
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: [{ kind: "global", id: "world" }],
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
             globalFallback: true,
-          };
+          });
         });
       }
       if (role === "truth-perception") {
@@ -1795,13 +1797,13 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
         return deterministicActionCompilationBatch(profileId, context, (compilation) => {
-          compilation.interactionDependency = {
+          compilation.interactionDependency = deterministicInteractionDependency({
             reads: [{ kind: "global", id: "world" }],
             writes: [{ kind: "global", id: "world" }],
             audienceAgentIds: ["keeper", "player"],
             sharedResourceClaims: [],
             globalFallback: true,
-          };
+          });
         });
       }
       return deterministicModelOutput(profileId, context);

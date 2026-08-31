@@ -22,7 +22,7 @@ import type {
   WorldDeltaOperationDraft,
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt } from "../mechanics/resolution";
-import type { ActionCompilationDraft, InteractionDependencyDraft } from "../runtime/execution";
+import type { ActionCompilationDraft } from "../runtime/execution";
 import type { TemporalPlanDraft } from "../mechanics/temporal";
 import { MAX_RANDOM_REQUESTS_PER_ROUND } from "../mechanics/random-limits";
 import { isRuntimeId } from "../runtime/runtime-id";
@@ -49,6 +49,7 @@ import {
   isNormalizedBoundedId,
   runtimeIdSchema,
 } from "./state-schemas";
+import { existingReferenceHandleSchema } from "./model-context";
 
 const draftAliasSchema = z.string().min(1).refine(
   isNormalizedBoundedId,
@@ -760,23 +761,8 @@ export const observationProjectionBatchSchema = z.strictObject({
   })),
 });
 
-const footprintRefSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("entity"), id: semanticIdSchema }),
-  z.strictObject({ kind: z.literal("fact"), id: persistedFactIdSchema }),
-  z.strictObject({ kind: z.literal("placement"), id: semanticIdSchema }),
-  z.strictObject({ kind: z.literal("meter"), id: semanticIdSchema }),
-  z.strictObject({ kind: z.literal("quantity"), id: runtimeIdSchema }),
-  z.strictObject({ kind: z.literal("rating"), id: semanticIdSchema }),
-  z.strictObject({ kind: z.literal("condition"), id: semanticIdSchema }),
-  z.strictObject({
-    kind: z.literal("shared_resource_pool"),
-    id: runtimeIdSchema.refine((id) => isRuntimeId(id, "shared-resource-pool")),
-  }),
-  z.strictObject({ kind: z.literal("global"), id: z.literal("world") }),
-]);
-
 const sharedActivityResourceClaimDraftSchema = z.strictObject({
-  poolId: runtimeIdSchema.refine((id) => isRuntimeId(id, "shared-resource-pool")),
+  resourcePoolHandle: existingReferenceHandleSchema,
   basis: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("default") }),
     z.strictObject({
@@ -789,12 +775,14 @@ const sharedActivityResourceClaimDraftSchema = z.strictObject({
 });
 
 export const actionGroundingSchema = z.strictObject({
-  reads: z.array(footprintRefSchema),
-  writes: z.array(footprintRefSchema),
-  audienceAgentIds: z.array(semanticIdSchema),
+  stateDependencies: z.strictObject({
+    requiredExistingRefs: z.array(existingReferenceHandleSchema),
+    potentiallyAffectedExistingRefs: z.array(existingReferenceHandleSchema),
+  }),
+  audienceAgentHandles: z.array(existingReferenceHandleSchema),
   sharedResourceClaims: z.array(sharedActivityResourceClaimDraftSchema),
-  globalFallback: z.boolean(),
-}) as z.ZodType<InteractionDependencyDraft>;
+  requiresWorldWideArbitration: z.boolean(),
+}) as z.ZodType<ActionCompilationDraft["interactionDependency"]>;
 
 export const temporalPlanDraftSchema = z.strictObject({
   profileId: semanticIdSchema,

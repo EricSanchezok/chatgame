@@ -89,21 +89,25 @@ describe("LLM output field ownership", () => {
     expect(observationBatchSchema.safeParse({
       observations: [{ ...observation, id: "forged", observerId: "agent", step: 1, kind: "outcome" }],
     }).success).toBe(false);
-    const grounding = { reads: [], writes: [], audienceAgentIds: [], sharedResourceClaims: [], globalFallback: false };
+    const grounding = {
+      stateDependencies: { requiredExistingRefs: [], potentiallyAffectedExistingRefs: [] },
+      audienceAgentHandles: [],
+      sharedResourceClaims: [],
+      requiresWorldWideArbitration: false,
+    };
     expect(actionGroundingSchema.safeParse(grounding).success).toBe(true);
-    // Scope consistency is validated per action after parsing so one malformed
-    // slot cannot invalidate an otherwise valid batch response.
-    expect(actionGroundingSchema.safeParse({ ...grounding, globalFallback: true }).success).toBe(true);
+    expect(actionGroundingSchema.safeParse({ ...grounding, requiresWorldWideArbitration: true }).success).toBe(true);
     expect(actionGroundingSchema.safeParse({
       ...grounding,
-      reads: [{ kind: "global", id: "world" }],
-      writes: [{ kind: "global", id: "world" }],
-      globalFallback: true,
+      stateDependencies: {
+        requiredExistingRefs: ["ref:world:world"],
+        potentiallyAffectedExistingRefs: ["ref:world:world"],
+      },
+      requiresWorldWideArbitration: true,
     }).success).toBe(true);
     expect(actionGroundingSchema.safeParse({
       ...grounding,
-      actionId: "rt:action:forged",
-      actorId: "agent-xiaoming",
+      stateDependencies: { requiredExistingRefs: ["forged"], potentiallyAffectedExistingRefs: [] },
     }).success).toBe(false);
   });
 

@@ -27,8 +27,9 @@ import type { WorldDefinition } from "../runtime/world-definition";
 import type { TemporalBoundary } from "../mechanics/temporal";
 import { MechanicInputValidationError, type MechanicPromptContract } from "../mechanics/rule-package";
 import { promptBundle, type PromptBundleId } from "../prompts";
+import { MODEL_CONTEXT_CONTRACT_VERSION as MODEL_CONTEXT_VERSION } from "./model-context";
 
-export const MODEL_CONTEXT_CONTRACT_VERSION = 12;
+export const MODEL_CONTEXT_CONTRACT_VERSION = MODEL_CONTEXT_VERSION;
 
 export { promptBundle } from "../prompts";
 export type { PromptBundle, PromptBundleId } from "../prompts";

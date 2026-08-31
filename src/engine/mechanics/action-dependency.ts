@@ -25,6 +25,12 @@ import {
 } from "../models/model-provider";
 import { projectAgentPerspective } from "../cognition/agent-perspective";
 import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
+import {
+  createReferenceResolver,
+  type ExistingReferenceHandle,
+  type ReferenceCandidateInput,
+  type ReferenceResolver,
+} from "../contracts/model-context";
 import { promptBundle } from "../prompts";
 import { quantityId } from "../runtime/runtime-id";
 import { contentHash } from "../models/model-audit";
@@ -338,6 +344,117 @@ export class GroundingValidationError extends Error {
   }
 }
 
+function actionGroundingReferenceInputs(state: Readonly<SimulationState>): ReferenceCandidateInput[] {
+  const inputs: ReferenceCandidateInput[] = [];
+  const add = (candidate: ReferenceCandidateInput): void => {
+    inputs.push(candidate);
+  };
+  for (const entity of Object.values(state.truth.entities)) {
+    add({
+      kind: "entity",
+      engineId: entity.id,
+      label: entity.name,
+      meaning: `${entity.kind} entity; can be required or potentially affected by an action`,
+      allowedUses: ["target", "subject", "conflict", "cause", "assertion"],
+      statePath: `state.truth.entities.${entity.id}`,
+    });
+    add({
+      kind: "placement",
+      engineId: entity.id,
+      label: entity.name,
+      meaning: "the entity's current placement; use only when location can be affected",
+      allowedUses: ["conflict", "assertion"],
+      statePath: `state.truth.placements.${entity.id}`,
+    });
+  }
+  for (const fact of Object.values(state.truth.facts)) {
+    add({
+      kind: "fact",
+      engineId: fact.id,
+      label: `${fact.predicate}: ${fact.description}`,
+      meaning: "an existing canonical fact; it is never a proposal for a future fact",
+      allowedUses: ["target", "subject", "conflict", "cause", "assertion"],
+      statePath: `state.truth.facts.${fact.id}`,
+    });
+  }
+  for (const meter of Object.values(state.truth.meters)) {
+    add({ kind: "meter", engineId: meter.id, label: meter.id, meaning: "existing meter state", allowedUses: ["conflict", "assertion"] });
+  }
+  for (const quantity of Object.values(state.truth.quantities)) {
+    add({ kind: "quantity", engineId: quantity.id, label: quantity.id, meaning: "existing quantity state", allowedUses: ["conflict", "assertion"] });
+  }
+  for (const rating of Object.values(state.truth.ratings)) {
+    add({ kind: "rating", engineId: rating.id, label: rating.id, meaning: "existing rating state", allowedUses: ["conflict", "modifier", "assertion"] });
+  }
+  for (const condition of Object.values(state.truth.conditions)) {
+    add({ kind: "condition", engineId: condition.id, label: condition.id, meaning: "existing condition state", allowedUses: ["conflict", "assertion"] });
+  }
+  for (const pool of Object.values(state.truth.sharedActivityResourcePools)) {
+    add({ kind: "shared_resource_pool", engineId: pool.id, label: pool.id, meaning: "existing shared physical resource pool", allowedUses: ["conflict"] });
+  }
+  for (const agent of Object.values(state.agents)) {
+    add({ kind: "agent", engineId: agent.id, label: agent.id, meaning: "existing Agent that may receive the action's observable effects", allowedUses: ["audience", "target"] });
+  }
+  add({ kind: "world", engineId: "world", label: "world", meaning: "world-wide arbitration only; never use for a local action", allowedUses: ["conflict"] });
+  return inputs;
+}
+
+export function actionGroundingReferenceResolver(state: Readonly<SimulationState>): ReferenceResolver {
+  return createReferenceResolver(actionGroundingReferenceInputs(state));
+}
+
+function resolveGroundingReference(
+  resolver: ReferenceResolver,
+  handle: ExistingReferenceHandle,
+): FootprintRef {
+  const resolved = resolver.resolve(handle, "conflict");
+  if (resolved.kind === "world") return { kind: "global", id: "world" };
+  if (resolved.kind === "agent" || resolved.kind === "local_entity" || resolved.kind === "claim" ||
+    resolved.kind === "evidence" || resolved.kind === "observation" || resolved.kind === "action" ||
+    resolved.kind === "event" || resolved.kind === "check" || resolved.kind === "random" ||
+    resolved.kind === "law" || resolved.kind === "mechanic" || resolved.kind === "outcome" ||
+    resolved.kind === "operation" || resolved.kind === "plan") {
+    throw new Error(`reference ${handle} has kind ${resolved.kind}, which cannot be an interaction footprint`);
+  }
+  return { kind: resolved.kind, id: resolved.engineId } as FootprintRef;
+}
+
+export function materializeModelInteractionDependency(
+  state: Readonly<SimulationState>,
+  action: AgentActionProposal,
+  value: import("../runtime/execution").ActionGroundingModelOutput,
+  resolver = actionGroundingReferenceResolver(state),
+): InteractionDependency {
+  const requiredExistingRefs = value.stateDependencies.requiredExistingRefs.map((handle) => resolveGroundingReference(resolver, handle));
+  const potentiallyAffectedExistingRefs = value.stateDependencies.potentiallyAffectedExistingRefs.map((handle) => resolveGroundingReference(resolver, handle));
+  const audienceAgentIds = value.audienceAgentHandles.map((handle) => {
+    const resolved = resolver.resolve(handle, "audience");
+    if (resolved.kind !== "agent") throw new Error(`audience handle ${handle} is not an Agent candidate`);
+    return resolved.engineId;
+  });
+  const sharedResourceClaims = value.sharedResourceClaims.map((claim) => {
+    const resolved = resolver.resolve(claim.resourcePoolHandle, "conflict");
+    if (resolved.kind !== "shared_resource_pool") {
+      throw new Error(`resource pool handle ${claim.resourcePoolHandle} is not a shared resource pool`);
+    }
+    return { poolId: resolved.engineId, basis: structuredClone(claim.basis) };
+  });
+  const worldHandle = [...requiredExistingRefs, ...potentiallyAffectedExistingRefs]
+    .some((ref) => ref.kind === "global" && ref.id === "world");
+  if (value.requiresWorldWideArbitration !== worldHandle) {
+    throw new GroundingValidationError(action.id, [
+      "requiresWorldWideArbitration must match the presence of the world-wide arbitration handle",
+    ]);
+  }
+  return materializeInteractionDependency(state, action, {
+    reads: requiredExistingRefs,
+    writes: potentiallyAffectedExistingRefs,
+    audienceAgentIds,
+    sharedResourceClaims,
+    globalFallback: worldHandle,
+  });
+}
+
 function enrichDependency(
   state: Readonly<SimulationState>,
   action: AgentActionProposal,
@@ -386,20 +503,22 @@ export function materializeInteractionDependency(
 }
 
 export function actionGroundingSharedContext(state: Readonly<SimulationState>) {
+  const resolver = actionGroundingReferenceResolver(state);
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-    canonicalCatalog: {
+    referenceCatalog: resolver.catalog,
+    state: {
       entities: Object.values(state.truth.entities).map(({ id, kind, name, description, lifecycle }) => ({
         id, kind, name, description, lifecycle,
       })),
       facts: Object.values(state.truth.facts).map(({ id, subjectId, predicate, value, description, access }) => ({
         id, subjectId, predicate, value, description, access,
       })),
-      placements: state.truth.placements,
-      meters: state.truth.meters,
-      quantities: state.truth.quantities,
-      ratings: state.truth.ratings,
-      conditions: state.truth.conditions,
+      placements: structuredClone(state.truth.placements),
+      meters: structuredClone(state.truth.meters),
+      quantities: structuredClone(state.truth.quantities),
+      ratings: structuredClone(state.truth.ratings),
+      conditions: structuredClone(state.truth.conditions),
       sharedActivityResourcePools: Object.values(state.truth.sharedActivityResourcePools).map((pool) => ({
         ...structuredClone(pool),
         definition: structuredClone(state.truth.mechanics.sharedActivityResources[pool.definitionId]),
@@ -432,10 +551,13 @@ export function actionGroundingContext(
   const slot = actionGroundingSlotContext(state, action, issues);
   return {
     contractVersion: shared.contractVersion,
-    action: slot.action,
-    actorPerspective: slot.actorPerspective,
-    canonicalCatalog: shared.canonicalCatalog,
-    validationIssues: slot.validationIssues,
+    task: {
+      action: slot.action,
+      actorPerspective: slot.actorPerspective,
+      validationIssues: slot.validationIssues,
+    },
+    state: shared.state,
+    referenceCatalog: shared.referenceCatalog,
   };
 }
 
@@ -486,14 +608,16 @@ export async function generateInteractionDependency(
         return generated;
       },
       validate: (value) => {
-        const hasGlobalReference = [...value.reads, ...value.writes]
-          .some((ref) => ref.kind === "global");
-        if (value.globalFallback !== hasGlobalReference) {
+        const hasGlobalReference = [
+          ...value.stateDependencies.requiredExistingRefs,
+          ...value.stateDependencies.potentiallyAffectedExistingRefs,
+        ].some((handle) => handle.includes(":world"));
+        if (value.requiresWorldWideArbitration !== hasGlobalReference) {
           throw new GroundingValidationError(action.id, [
-            "globalFallback must match the presence of a global world reference",
+            "requiresWorldWideArbitration must match the presence of the world-wide arbitration handle",
           ]);
         }
-        materializeInteractionDependency(state, action, value);
+        materializeModelInteractionDependency(state, action, value);
       },
       classify: (error) => {
         const reasons = error instanceof GroundingValidationError
@@ -524,7 +648,7 @@ export async function generateInteractionDependency(
     const last = result.audit.invocations.at(-1);
     if (last) setModelInvocationOutcome(result.audit, "accepted");
     return {
-      dependency: materializeInteractionDependency(state, action, result.value),
+      dependency: materializeModelInteractionDependency(state, action, result.value),
       audit: result.audit,
     };
   } catch (error) {

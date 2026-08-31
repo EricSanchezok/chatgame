@@ -12,9 +12,10 @@ import type {
 } from "../models/model-provider";
 import type { ModelExecutionAudit } from "../contracts/model";
 import { ContextLimitExceededError, modelInvocationIdentity, ModelOutputError } from "../models/model-provider";
-import type { ActionCompilationDraft } from "../runtime/execution";
+import type { ActionCompilationDraft, FootprintRef } from "../runtime/execution";
 import type { AgentMindDraftOutput } from "../contracts/llm-schemas";
 import { structuredPromptBytes } from "../prompts";
+import { referenceHandleFor, type ExistingReferenceHandle } from "../contracts/model-context";
 
 const TEST_PROFILE_IDS = [
   "truth-engine",
@@ -515,6 +516,33 @@ interface DeterministicCompilationSlot {
   action: DeterministicCompilationAction;
 }
 
+export function deterministicInteractionDependency(
+  input: {
+    reads?: readonly FootprintRef[];
+    writes?: readonly FootprintRef[];
+    audienceAgentIds?: readonly string[];
+    sharedResourceClaims?: Array<{ poolId: string; basis: ActionCompilationDraft["interactionDependency"]["sharedResourceClaims"][number]["basis"] }>;
+    globalFallback?: boolean;
+  },
+): ActionCompilationDraft["interactionDependency"] {
+  const handle = (ref: FootprintRef): ExistingReferenceHandle => referenceHandleFor(
+    ref.kind === "global" ? "world" : ref.kind,
+    ref.id,
+  );
+  return {
+    stateDependencies: {
+      requiredExistingRefs: (input.reads ?? []).map(handle),
+      potentiallyAffectedExistingRefs: (input.writes ?? []).map(handle),
+    },
+    audienceAgentHandles: (input.audienceAgentIds ?? []).map((id) => referenceHandleFor("agent", id)),
+    sharedResourceClaims: (input.sharedResourceClaims ?? []).map((claim) => ({
+      resourcePoolHandle: referenceHandleFor("shared_resource_pool", claim.poolId),
+      basis: structuredClone(claim.basis),
+    })),
+    requiresWorldWideArbitration: input.globalFallback ?? false,
+  };
+}
+
 interface DeterministicMindSlot {
   slot: number;
   perspective: {
@@ -541,11 +569,13 @@ function deterministicActionCompilation(
       // Ordinary deterministic actions are sparse by default. Tests that
       // exercise world-wide semantics must opt in through the explicit global
       // helper below instead of making every fixture a single component.
-      reads: [],
-      writes: [],
-      audienceAgentIds: [action.actorId],
+      stateDependencies: {
+        requiredExistingRefs: [],
+        potentiallyAffectedExistingRefs: [],
+      },
+      audienceAgentHandles: [],
       sharedResourceClaims: [],
-      globalFallback: false,
+      requiresWorldWideArbitration: false,
     },
   };
 }
@@ -556,13 +586,19 @@ export function deterministicGlobalActionCompilationBatch(
   customize?: (
     compilation: ActionCompilationDraft,
     slot: DeterministicCompilationSlot,
+    context: unknown,
   ) => void,
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   return deterministicActionCompilationBatch(profileId, context, (compilation, slot) => {
-    compilation.interactionDependency.reads = [{ kind: "global", id: "world" }];
-    compilation.interactionDependency.writes = [{ kind: "global", id: "world" }];
-    compilation.interactionDependency.globalFallback = true;
-    customize?.(compilation, slot);
+    const candidates = (context as { referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> } })
+      .referenceCatalog?.candidates ?? [];
+    const worldHandle = candidates.find((candidate) => candidate.kind === "world")?.handle;
+    if (!worldHandle) throw new Error("deterministic global action compiler requires a world reference handle");
+    const handle = worldHandle as ExistingReferenceHandle;
+    compilation.interactionDependency.stateDependencies.requiredExistingRefs = [handle];
+    compilation.interactionDependency.stateDependencies.potentiallyAffectedExistingRefs = [handle];
+    compilation.interactionDependency.requiresWorldWideArbitration = true;
+    customize?.(compilation, slot, context);
   });
 }
 
@@ -572,6 +608,7 @@ export function deterministicActionCompilationBatch(
   customize?: (
     compilation: ActionCompilationDraft,
     slot: DeterministicCompilationSlot,
+    context: unknown,
   ) => void,
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   void profileId;
@@ -585,7 +622,7 @@ export function deterministicActionCompilationBatch(
   return {
     slots: input.slots.map((slot) => {
       const compilation = deterministicActionCompilation(slot.action, input.temporalProfiles!);
-      customize?.(compilation, slot);
+    customize?.(compilation, slot, context);
       return { slot: slot.slot, ...compilation };
     }),
   };
@@ -644,7 +681,10 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         canonicalTruth?: {
           activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
         };
+        referenceCatalog?: { candidates: Array<{ kind: string; handle: string }> };
+        task?: { action?: DeterministicCompilationAction };
       };
+      const actionInput = input.action ?? input.task?.action;
       if (input.slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) &&
         input.temporalProfiles) {
         return deterministicActionCompilationBatch(profileId, context);
@@ -652,16 +692,21 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
       if (input.slots?.every((slot): slot is DeterministicMindSlot => "perspective" in slot)) {
         return deterministicAgentMindBatch(context);
       }
-      if (input.action && input.temporalProfiles) {
-        return deterministicActionCompilation(input.action, input.temporalProfiles);
+      if (actionInput && input.temporalProfiles) {
+        return deterministicActionCompilation(actionInput, input.temporalProfiles);
       }
-      if (input.action) {
+      if (actionInput) {
+        const worldHandle = (input.referenceCatalog?.candidates as Array<{ kind: string; handle: string }> | undefined)
+          ?.find((candidate) => candidate.kind === "world")?.handle;
+        if (!worldHandle) throw new Error("deterministic grounding requires a world reference handle");
         return {
-          reads: [{ kind: "global", id: "world" }],
-          writes: [{ kind: "global", id: "world" }],
-          audienceAgentIds: [input.action.actorId],
+          stateDependencies: {
+            requiredExistingRefs: [worldHandle as ExistingReferenceHandle],
+            potentiallyAffectedExistingRefs: [worldHandle as ExistingReferenceHandle],
+          },
+          audienceAgentHandles: [],
           sharedResourceClaims: [],
-          globalFallback: true,
+          requiresWorldWideArbitration: true,
         };
       }
       if (input.perspective && input.revision === undefined) {

@@ -1,1 +1,3 @@
-For every slot, choose the authored temporal profile that best fits the action and produce its conservative interaction footprint. Use an explicit duration or quantity only when the action text itself provides a verifiable number and unit; copy only exact IDs from that slot's canonical catalog, and treat private evidence or unknown aliases as local repairable references that must never be widened to global scope.
+Compile the assigned action slots.
+
+For each slot, select a temporal profile and return the model-facing dependency object. Copy only exact handles from that slot's `referenceCatalog`; never use canonical IDs. A future fact belongs in a proposal-capable role, not in either dependency list. Explicit duration or quantity must be copied from the action text with its original unit. Return slots in order and include no extra fields.

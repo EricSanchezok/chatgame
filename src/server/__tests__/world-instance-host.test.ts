@@ -24,6 +24,7 @@ import {
   DeterministicModelProvider,
   ScriptedModelProvider,
   deterministicActionCompilationBatch,
+  deterministicInteractionDependency,
   deterministicModelOutput,
 } from "../../engine/testing/model-provider";
 import { loadWorldScript } from "../../script/world-loader";
@@ -142,7 +143,7 @@ function reactionHarness(input: {
         }
         const isKeeper = action.actorId === "keeper";
         if (isKeeper) keeperCompilations += 1;
-        compilation.interactionDependency = {
+        compilation.interactionDependency = deterministicInteractionDependency({
           reads: [{ kind: "global", id: "world" }],
           writes: [{ kind: "global", id: "world" }],
           audienceAgentIds: isKeeper && keeperCompilations > 1
@@ -150,7 +151,7 @@ function reactionHarness(input: {
             : [action.actorId],
           sharedResourceClaims: [],
           globalFallback: true,
-        };
+        });
       });
     }
     return deterministicModelOutput(profileId, context);
