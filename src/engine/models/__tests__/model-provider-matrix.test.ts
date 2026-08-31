@@ -15,7 +15,7 @@ import { TEST_WORLD_HASH } from "../../testing/world";
 const outputSchema = z.strictObject({ answer: z.string() });
 
 const profileModels = {
-  "agent-deepseek": "deepseek-v4-pro",
+  "agent-deepseek": "deepseek-v4-flash",
   "agent-openai": "gpt-5.6",
   "agent-xai": "grok-4.6",
   "agent-zhipu": "glm-5.3-flash",
@@ -185,6 +185,24 @@ function request(profileId: keyof typeof profileModels, ordinal = 1) {
 }
 
 describe("provider account protocol matrix", () => {
+  it("pins every production DeepSeek profile to non-thinking V4 Flash", () => {
+    const catalog = loadModelCatalog();
+    const deepSeekProfiles = Object.entries(catalog.profiles)
+      .filter(([, profile]) => catalog.account(profile.account_id).dialect === "deepseek");
+
+    expect(deepSeekProfiles.map(([profileId]) => profileId).sort()).toEqual([
+      "agent-deepseek",
+      "truth-deepseek",
+    ]);
+    for (const [, profile] of deepSeekProfiles) {
+      expect(profile.selector).toEqual({
+        kind: "exact",
+        model_id: "deepseek-v4-flash",
+      });
+      expect(profile.inference.thinking).toBe("disabled");
+    }
+  });
+
   it("keeps vendor inference mapping inside independent dialect plugins", async () => {
     const catalog = loadModelCatalog();
     const snapshot = await registry(catalog).capture();
@@ -310,6 +328,12 @@ describe("provider account protocol matrix", () => {
         expect(call.body.tool_choice).toBe("auto");
       }
     }
+    const deepSeekCall = calls.find((candidate) => candidate.url.includes("api.deepseek.com"));
+    expect(deepSeekCall?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+      thinking: { type: "disabled" },
+    });
+    expect(deepSeekCall?.body).not.toHaveProperty("reasoning_effort");
     for (const call of calls) {
       expect(call.url).not.toContain("models.dev");
       if (call.url.includes("xiaomimimo.com")) {
@@ -353,7 +377,7 @@ describe("provider account protocol matrix", () => {
     const base = await registry(catalog).capture();
     const snapshotWith = (modelId: string, releaseDate: string): ModelRegistrySnapshot => {
       const document = structuredClone(base.document);
-      document.providers.deepseek!.models = {
+      document.providers.zhipuai!.models = {
         [modelId]: {
           ...modelMetadata(modelId, true),
           releaseDate,
@@ -362,8 +386,8 @@ describe("provider account protocol matrix", () => {
       };
       return { hash: contentHash(document), document };
     };
-    const oldSnapshot = snapshotWith("deepseek-v4-old", "2026-01-01");
-    const newSnapshot = snapshotWith("deepseek-v4-new", "2026-08-01");
+    const oldSnapshot = snapshotWith("glm-old", "2026-01-01");
+    const newSnapshot = snapshotWith("glm-new", "2026-08-01");
     let current = oldSnapshot;
     let captures = 0;
     const snapshots = new Map([
@@ -394,7 +418,7 @@ describe("provider account protocol matrix", () => {
         lastError: null,
       }),
     };
-    const gateway = new ModelGateway(catalog, { DEEPSEEK_API_KEY: "deepseek-secret" }, {
+    const gateway = new ModelGateway(catalog, { ZHIPU_API_KEY: "zhipu-secret" }, {
       registry: service,
       fetch: async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as { model: string };
@@ -402,7 +426,7 @@ describe("provider account protocol matrix", () => {
       },
     });
     const sameExecution = (ordinal: number) => ({
-      ...request("agent-deepseek", ordinal),
+      ...request("agent-zhipu", ordinal),
       correlation: { executionId: "execution-old" },
     });
 
@@ -414,26 +438,26 @@ describe("provider account protocol matrix", () => {
     expect(new Set(oldResults.map((result) => result.audit.registrySnapshotHash)))
       .toEqual(new Set([oldSnapshot.hash]));
     expect(new Set(oldResults.map((result) => result.audit.modelId)))
-      .toEqual(new Set(["deepseek-v4-old"]));
+      .toEqual(new Set(["glm-old"]));
     expect(captures).toBe(1);
 
     const next = await gateway.generateStructured({
-      ...request("agent-deepseek", 31),
+      ...request("agent-zhipu", 31),
       correlation: { executionId: "execution-new" },
     });
     expect(next.audit).toMatchObject({
       registrySnapshotHash: newSnapshot.hash,
-      modelId: "deepseek-v4-new",
+      modelId: "glm-new",
     });
 
     const replay = await gateway.generateStructured({
-      ...request("agent-deepseek", 32),
+      ...request("agent-zhipu", 32),
       correlation: { executionId: "execution-replay" },
       modelRegistrySnapshotHash: oldSnapshot.hash,
     });
     expect(replay.audit).toMatchObject({
       registrySnapshotHash: oldSnapshot.hash,
-      modelId: "deepseek-v4-old",
+      modelId: "glm-old",
     });
     expect(captures).toBe(3);
   });

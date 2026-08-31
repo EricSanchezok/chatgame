@@ -129,15 +129,12 @@ accounts:
 profiles:
   truth-deepseek:
     account_id: deepseek-api
-    selector:
-      kind: latest-compatible
-      include: ["deepseek-*"]
-      exclude: ["*vision*"]
+    selector: { kind: exact, model_id: deepseek-v4-flash }
     description: 高吞吐世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, action-compilation, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
     max_output_tokens: 131072
-    # DeepSeek V4 Pro and GLM-5.3-Flash both advertise a one-million-token
+    # DeepSeek V4 Flash and GLM-5.3-Flash both advertise a one-million-token
     # context. Keep a byte-level guardrail that accommodates the current
     # Blackmarsh action context (~3.54 MB observed) without allowing the
     # provider-facing request to grow into the range that previously failed.
@@ -197,10 +194,7 @@ profiles:
       top_p: auto
   agent-deepseek:
     account_id: deepseek-api
-    selector:
-      kind: latest-compatible
-      include: ["deepseek-*"]
-      exclude: ["*vision*"]
+    selector: { kind: exact, model_id: deepseek-v4-flash }
     description: 高吞吐自主角色心智
     allowed_roles: [agent-bootstrap, agent-mind, agent-reaction]
     request_timeout_ms: 180000
@@ -208,8 +202,8 @@ profiles:
     # AgentMind batching carries the scoped graph/context contract; keep the
     # DeepSeek path usable at Blackmarsh scale after that contract grows.
     max_input_bytes: 524288
-    inference: &automatic-inference
-      thinking: auto
+    inference:
+      thinking: disabled
       effort: auto
       reasoning_budget_tokens: auto
       reasoning_summary: auto
@@ -262,7 +256,14 @@ profiles:
     request_timeout_ms: 180000
     max_output_tokens: 8192
     max_input_bytes: 131072
-    inference: *automatic-inference
+    inference: &automatic-inference
+      thinking: auto
+      effort: auto
+      reasoning_budget_tokens: auto
+      reasoning_summary: auto
+      text_verbosity: auto
+      temperature: auto
+      top_p: auto
   agent-zhipu-coding:
     account_id: zhipu-coding-plan
     selector: { kind: exact, model_id: glm-5.3-flash }

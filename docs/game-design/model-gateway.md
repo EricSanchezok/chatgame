@@ -23,10 +23,7 @@ accounts:
 profiles:
   truth-deepseek:
     account_id: deepseek-api
-    selector:
-      kind: latest-compatible
-      include: ["deepseek-*"]
-      exclude: ["*vision*"]
+    selector: { kind: exact, model_id: deepseek-v4-flash }
     description: 高吞吐世界真值裁决
     allowed_roles: [truth-perception, truth-reaction-routing, truth-resolution, truth-transition, temporal-planner, action-grounding, observation-renderer, causal-verifier, arrival-generator]
     request_timeout_ms: 300000
@@ -62,7 +59,7 @@ Profile 的 `allowed_roles` 覆盖 Truth、temporal planner、action grounding�
 
 规范化快照按内容 SHA-256 写入 `LIVINGWORLD_DATA_ROOT/model-registry/snapshots/`，检查时间另存，因此相同目录内容不会制造新快照。刷新使用十秒超时、ETag/304、single-flight 和每小时后台周期；失败保留最后有效快照，损坏响应不能切换 current pointer。一次 execution 在第一次模型调用时捕获一个快照，全部并行 Agent 复用该 hash；后续 execution 才能看到新快照。Benchmark 与回放可在 `modelRegistrySnapshotHash` 中固定历史快照，历史文件缺失即失败。
 
-`exact` selector 只接受指定 ID，模型缺失、禁用、deprecated 或能力不兼容时不替换。`latest-compatible` 在单个 models.dev provider 内应用 family、简单 include/exclude glob、文本 modality、结构化结果、输出 limit 与显式 inference 要求，再按 `release_date` 降序、`last_updated` 降序、ID 升序选出唯一模型。运行中没有跨模型、跨账户、跨套餐或跨供应商 fallback。
+`exact` selector 只接受指定 ID，模型缺失、禁用、deprecated 或能力不兼容时不替换。生产目录中所有使用 DeepSeek 账户的 Profile 都精确绑定 `deepseek-v4-flash` 并显式关闭 thinking，避免目录刷新后静默切换到 Pro 或推理模式。`latest-compatible` 在单个 models.dev provider 内应用 family、简单 include/exclude glob、文本 modality、结构化结果、输出 limit 与显式 inference 要求，再按 `release_date` 降序、`last_updated` 降序、ID 升序选出唯一模型。运行中没有跨模型、跨账户、跨套餐或跨供应商 fallback。
 
 ## 协议、方言与结构化结果
 

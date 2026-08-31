@@ -25,7 +25,7 @@ Model execution audits identify the provider account, vendor channel, protocol, 
 
 `GET /api/model-registry` returns source health, snapshot identity, credential presence, provider-account state, and profile resolution without returning credentials. `POST /api/model-registry/refresh` refreshes only the fixed source and is single-flight and rate-limited. Settings presents the same read-only diagnostics with an explicit refresh action, textual status, and accessible dynamic announcements. CLI status, refresh, and opt-in live smoke commands use the same application core.
 
-Bundled worlds continue to select the existing DeepSeek deployment profiles. Those profiles use a latest-compatible non-vision DeepSeek track. Missing credentials block only profiles that are actually activated.
+Bundled worlds continue to select the existing DeepSeek deployment profiles. Every production profile assigned to a DeepSeek account selects the exact `deepseek-v4-flash` model and explicitly disables thinking; registry refreshes must not switch any of them to DeepSeek Pro or a reasoning mode. Missing credentials block only profiles that are actually activated.
 
 ## Plan
 
