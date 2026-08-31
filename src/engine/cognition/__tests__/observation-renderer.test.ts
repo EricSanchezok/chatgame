@@ -89,8 +89,10 @@ describe("ObservationRenderer", () => {
       repair: { issues: [{ reason: expect.stringContaining("protected information") }] },
     });
     const context = provider.requests[0].context as {
-      state: { canonicalTruth: { entities: Record<string, unknown>; facts: Record<string, unknown> } };
-      task: { observationSlots: Array<{ observer: Record<string, unknown> }> };
+      state: {
+        canonicalTruth: { entities: Record<string, unknown>; facts: Record<string, unknown> };
+        observationSlots: Array<{ observer: Record<string, unknown> }>;
+      };
     };
     expect(Object.keys(context.state.canonicalTruth.entities)).toEqual(expect.arrayContaining([
       "ref:entity:courtyard",
@@ -101,18 +103,18 @@ describe("ObservationRenderer", () => {
       "ref:fact:courtyard-sandy-ground",
       "ref:fact:gate-lock",
     ]));
-    expect(context.task.observationSlots[0]?.observer).toMatchObject({
+    expect(context.state.observationSlots[0]?.observer).toMatchObject({
       agentRef: "ref:agent:player",
       selfEntityRef: "ref:entity:player",
       placementRef: "ref:placement:player",
       localEntities: expect.arrayContaining([
-        expect.objectContaining({ ref: "ref:local_entity:copper-key", name: "铜钥匙" }),
+        expect.objectContaining({ ref: "ref:local_entity:player::copper-key", name: "铜钥匙" }),
       ]),
       privateFacts: [],
     });
-    expect(context.task.observationSlots[0]?.observer).not.toHaveProperty("perspective");
-    expect(context.task.observationSlots[0]?.observer).not.toHaveProperty("history");
-    expect(context.task.observationSlots[0]?.observer).not.toHaveProperty("character");
+    expect(context.state.observationSlots[0]?.observer).not.toHaveProperty("perspective");
+    expect(context.state.observationSlots[0]?.observer).not.toHaveProperty("history");
+    expect(context.state.observationSlots[0]?.observer).not.toHaveProperty("character");
   });
 
   it("repairs and falls back one observer without replaying another observer", async () => {
@@ -120,8 +122,8 @@ describe("ObservationRenderer", () => {
     const calls = new Map<string, number>();
     const provider = new ScriptedModelProvider(({ context }) => {
       const observerRef = (context as {
-        observationSlots: Array<{ observer: { agentRef: string } }>;
-      }).observationSlots[0]!.observer.agentRef;
+        state: { observationSlots: Array<{ observer: { agentRef: string } }> };
+      }).state.observationSlots[0]!.observer.agentRef;
       const observerId = observerRef.replace(/^ref:agent:/u, "");
       calls.set(observerId, (calls.get(observerId) ?? 0) + 1);
       if (observerId === "keeper") {

@@ -176,6 +176,8 @@ export interface WorldInspectorModelInvocationSummary {
     class: string;
     path: Array<string | number>;
     message: string;
+    originalValue?: unknown;
+    allowedHandles?: string[];
   }>;
   normalization: {
     applied: boolean;

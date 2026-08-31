@@ -54,8 +54,10 @@ describe("core-resolution trusted rules", () => {
     expect(transfer).toMatchObject({ packageId: "core-resolution", version: "2.0.0" });
     expect(transfer?.inputSchema).toMatchObject({
       type: "object",
-      required: ["definitionId", "fromHolderId", "toHolderId", "amountSource"],
+      required: ["definitionRef", "fromHolderRef", "toHolderRef", "amountSource"],
     });
+    expect(transfer?.inputSchema).toHaveProperty("properties.definitionRef.pattern", "^ref:");
+    expect(transfer?.inputSchema).toHaveProperty("properties.fromHolderRef.pattern", "^ref:");
     expect(transfer).not.toHaveProperty("config");
     expect(transfer).not.toHaveProperty("resolve");
   });

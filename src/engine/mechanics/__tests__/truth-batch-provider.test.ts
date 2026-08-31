@@ -14,6 +14,12 @@ function request(
   subjectId: string,
   context: Record<string, unknown>,
 ): StructuredModelRequest<unknown> {
+  const task = context.task && typeof context.task === "object"
+    ? context.task
+    : { assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] }, constraints: [] };
+  const state = context.state && typeof context.state === "object"
+    ? context.state
+    : context;
   return {
     profileId: "truth-engine",
     workloadId: "instance",
@@ -24,7 +30,15 @@ function request(
     schemaName: "truth_resolution_directive",
     system: "system",
     userPrompt: "resolve",
-    context,
+    context: {
+      contractVersion: 13,
+      roleContract: { role: "truth-resolution", purpose: "test", modelOwns: [], engineOwns: [], existingReferenceRule: "", proposalRule: "", failureRule: "" },
+      execution: { worldId: "world", instanceId: "instance", advanceId: "advance", revision: 0, step: 0 },
+      task,
+      state,
+      referenceCatalog: { version: 1, hash: "test", candidates: [] },
+      repair: null,
+    },
     schema: resolutionDirectiveSchema,
     runtimeIdentity: { worldHash: `sha256:${"a".repeat(64)}`, revision: 0 },
   };
@@ -34,10 +48,10 @@ describe("TruthBatchCoordinator", () => {
   it("shares common context and preserves independent slot results", async () => {
     const provider = new ScriptedModelProvider(
       (input) => {
-        const context = input.context as { slots?: Array<{ slot: number }> };
+        const context = input.context as { state?: { slots?: Array<{ slot: number }> } };
         if (input.schemaName === "truth_resolution_batch") {
           return {
-            slots: (context.slots ?? []).map((slot) => ({
+            slots: (context.state?.slots ?? []).map((slot) => ({
               slot: slot.slot,
               result: { kind: "done" },
             })),
@@ -72,20 +86,27 @@ describe("TruthBatchCoordinator", () => {
     expect(results[0]!.audit.invocations[0]!.id).toBe(results[1]!.audit.invocations[0]!.id);
     expect(provider.requests).toHaveLength(1);
     const envelope = provider.requests[0]!.context as {
-      sharedContext: Record<string, unknown>;
-      slots: Array<{ slot: number; context: Record<string, unknown> }>;
+      state: { slots: Array<{ slot: number; state: { canonicalTruth: unknown; actionSet: unknown } }> };
+      task: { slots: Array<{ slot: number }> };
+      referenceCatalog: { candidates: unknown[] };
+      referenceCatalogs: Array<{ slot: number; catalog: unknown }>;
     };
-    expect(envelope.slots.every((slot) => (slot.context.state as { canonicalTruth: unknown }).canonicalTruth)).toBe(true);
-    expect(envelope.slots.map((slot) => (slot.context.state as { actionSet: unknown }).actionSet)).toEqual([
+    expect(envelope.state.slots.every((slot) => slot.state.canonicalTruth)).toBe(true);
+    expect(envelope.state.slots.map((slot) => slot.state.actionSet)).toEqual([
       { assigned: [{ actionRef: "a" }] },
       { assigned: [{ actionRef: "b" }] },
     ]);
+    expect(envelope.referenceCatalog.candidates).toHaveLength(0);
+    expect(envelope.referenceCatalogs).toHaveLength(2);
   });
 
   it("keeps a tail singleton on the original provider path", async () => {
     const provider = new ScriptedModelProvider(
-      (input) => input.schemaName === "truth_resolution_directive"
-        ? { kind: "done" }
+      (input) => input.schemaName === "truth_resolution_batch"
+        ? {
+          slots: ((input.context as { state: { slots: Array<{ slot: number }> } }).state.slots)
+            .map((slot) => ({ slot: slot.slot, result: { kind: "done" } })),
+        }
         : { kind: "done" },
       createTestModelCatalog(),
       false,
@@ -129,9 +150,9 @@ describe("TruthBatchCoordinator", () => {
       (input) => {
         if (input.schemaName === "truth_resolution_directive") {
           slotCalls += 1;
-          return slotCalls <= 6 ? { kind: "invalid" } : { kind: "done" };
+          return { kind: "done" };
         }
-        return { kind: "done" };
+        return { kind: "invalid" };
       },
       createTestModelCatalog(),
       false,
@@ -141,7 +162,7 @@ describe("TruthBatchCoordinator", () => {
       batched.generateStructured(request("component-a", { value: "a" })),
       batched.generateStructured(request("component-b", { value: "b" })),
     ]);
-    expect(slotCalls).toBe(8);
+    expect(slotCalls).toBe(2);
     expect(provider.requests).toHaveLength(5);
   });
 });

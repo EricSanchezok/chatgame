@@ -255,7 +255,10 @@ describe("World Instance host", () => {
         promptVersion: promptBundle("arrival-generator").version,
         context: {
           contractVersion: 13,
-          perspective: { agentId: "courtyard-wanderer-1" },
+          roleContract: expect.objectContaining({ role: "arrival-generator" }),
+          task: expect.objectContaining({ assignment: expect.any(Object) }),
+          state: { perspective: expect.objectContaining({ agentRef: "ref:agent:courtyard-wanderer-1" }) },
+          referenceCatalog: expect.objectContaining({ version: 1 }),
         },
       });
     } finally {

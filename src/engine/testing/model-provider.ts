@@ -559,7 +559,16 @@ function adaptScriptedTransitionOutput(raw: unknown): unknown {
   };
   return {
     outcomes: (value.outcomes ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id ?? item.proposalId, actionRef: item.actionRef ?? ref("action", item.proposalId), status: item.status, summary: item.summary, causes: (item.causes ?? item.causeRefs ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion), knownAlternatives: (item.knownAlternatives ?? []).map((alternative: any) => ({ description: alternative.description, evidenceRefs: alternative.evidenceRefs ?? alternative.basis?.evidenceIds?.map((id: string) => ref("evidence", id)) ?? [] })) })),
-    mechanicInvocations: (value.mechanicInvocations ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id, packageId: item.packageId, ruleId: item.ruleId, input: item.input, causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) })),
+    mechanicInvocations: (value.mechanicInvocations ?? []).map((item) => ({
+      proposalKey: item.proposalKey ?? item.id,
+      mechanicRef: item.mechanicRef ?? (
+        item.packageId && item.ruleId
+          ? referenceHandleFor("mechanic", `${item.packageId}::${item.ruleId}`)
+          : undefined),
+      input: item.input,
+      causes: (item.causes ?? []).map(causal),
+      assertions: (item.assertions ?? []).map(assertion),
+    })),
     operations: (value.operations ?? []).map(operation),
     events: (value.events ?? []).map((item) => ({ proposalKey: item.proposalKey ?? item.id, description: item.description, impact: item.impact, causes: (item.causes ?? []).map(causal), assertions: (item.assertions ?? []).map(assertion) })),
     decisionRequests: (value.decisionRequests ?? []).map((item) => ({ agentRef: item.agentRef ?? ref("agent", item.agentId), prompt: item.prompt, possibleNextActions: item.possibleNextActions ?? [] })),
@@ -667,30 +676,27 @@ export class ScriptedModelProvider implements StructuredModelProvider {
 
   private async handlerValue(request: ScriptedModelHandlerRequest): Promise<unknown> {
     const batchContext = request.context as {
-      sharedContext?: Record<string, unknown>;
-      slots?: Array<{ slot: number; key: string; context: Record<string, unknown> }>;
+      contractVersion?: number;
+      roleContract?: unknown;
+      execution?: unknown;
+      task?: { slots?: Array<{ slot: number; assignment: unknown; constraints: readonly string[] }> };
+      state?: { slots?: Array<{ slot: number; state: Record<string, unknown> }> };
+      referenceCatalogs?: Array<{ slot: number; catalog: unknown }>;
     };
-    if (request.schemaName.endsWith("_batch") && batchContext?.sharedContext && batchContext.slots) {
-      const baseSchemaName = request.schemaName
-        .replace("truth_resolution_batch", "truth_resolution_directive")
-        .replace("resolution_plan_verification_batch", "resolution_plan_verification")
-        .replace("truth_transition_batch", "truth_transition")
-        .replace("causal_verification_batch", "causal_verification")
-        .replace("observation_projection_batch", "observation_render");
-      const slots = [...batchContext.slots].sort((left, right) => left.slot - right.slot);
-      const values: unknown[] = [];
-      for (const slot of slots) {
-        values.push(await this.handlerValue({
-          ...request,
-          schemaName: baseSchemaName,
-          subjectId: slot.key,
-          // Shared context is immutable by contract; avoid cloning the same
-          // multi-megabyte truth projection once per logical slot in tests.
-          // Each slot still receives a fresh top-level envelope.
-          context: { ...batchContext.sharedContext, ...slot.context },
-        }));
+    if ((request.schemaName.endsWith("_batch") || request.schemaName.endsWith("_batch_output")) &&
+      batchContext?.state?.slots && batchContext.task?.slots) {
+      if (this.adaptTruthScenario && request.role === "causal-verifier") {
+        return {
+          slots: batchContext.state.slots.map((slot) => ({
+            slot: slot.slot,
+            result: { verdict: "accept", findings: [] },
+          })),
+        };
       }
-      return { slots: slots.map((slot, index) => ({ slot: slot.slot, result: values[index] })) };
+      // Scripted fixtures receive the physical batch exactly once. Helpers
+      // such as deterministicAgentMindBatch can then inspect every isolated
+      // slot, while production providers never see this test-only adapter.
+      return this.handler(fixtureHandlerRequest(request));
     }
     if (!this.adaptTruthScenario || !request.role.startsWith("truth-") && request.role !== "causal-verifier") {
       return this.handler(fixtureHandlerRequest(request));
@@ -942,7 +948,7 @@ interface DeterministicMindSlot {
   slot: number;
   state: {
     perspective: {
-      agentId: string;
+      agentRef: string;
       self: { name: string; location: { name: string } | null };
     };
   };
@@ -993,9 +999,11 @@ export function deterministicGlobalActionCompilationBatch(
   return deterministicActionCompilationBatch(profileId, context, (compilation, slot) => {
     const envelope = context as {
       referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> };
+      referenceCatalogs?: Array<{ slot: number; catalog?: { candidates?: Array<{ kind: string; handle: string }> } }>;
       sharedContext?: { referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> } };
     };
-    const candidates = envelope.referenceCatalog?.candidates
+    const candidates = envelope.referenceCatalogs?.find((entry) => entry.slot === slot.slot)?.catalog?.candidates
+      ?? envelope.referenceCatalog?.candidates
       ?? envelope.sharedContext?.referenceCatalog?.candidates
       ?? [];
     const worldHandle = candidates.find((candidate) => candidate.kind === "world")?.handle;
@@ -1019,12 +1027,13 @@ export function deterministicActionCompilationBatch(
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   void profileId;
   const input = context as {
-    task?: { slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }> };
+    task?: { slots?: Array<{ slot: number; assignment?: unknown; action?: DeterministicCompilationContextAction }> };
     slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }>;
-    state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }> };
+    state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }>; slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }> };
     sharedContext?: { state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }> } };
   };
-  const slots = input.task?.slots ?? input.slots;
+  const slots = input.state?.slots ?? input.slots ?? input.task?.slots
+    ?.filter((slot): slot is { slot: number; action: DeterministicCompilationContextAction } => Boolean(slot.action));
   const temporalProfiles = input.state?.temporalProfiles ?? input.sharedContext?.state?.temporalProfiles;
   if (!slots || !temporalProfiles) {
     throw new Error("deterministic action compiler expected a slot batch");
@@ -1065,10 +1074,14 @@ export function deterministicAgentMindBatch(
   context: unknown,
   customize?: (output: AgentMindDraftOutput, slot: DeterministicMindSlot) => void,
 ): unknown {
-  const input = context as { slots?: DeterministicMindSlot[] };
-  if (!input.slots) throw new Error("deterministic AgentMind expected a slot batch");
+  const input = context as {
+    state?: { slots?: Array<{ slot: number; state: DeterministicMindSlot["state"] }> };
+    slots?: DeterministicMindSlot[];
+  };
+  const slots = input.state?.slots?.map((entry) => ({ slot: entry.slot, state: entry.state })) ?? input.slots;
+  if (!slots) throw new Error("deterministic AgentMind expected a slot batch");
   return {
-    slots: input.slots.map((slot) => {
+    slots: slots.map((slot) => {
       const output = deterministicAgentMindOutput();
       customize?.(output, slot);
       return { slot: slot.slot, ...output };
@@ -1101,6 +1114,10 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           entity?: { name: string; location: string | null };
           committedResolutionPlans?: unknown[];
           currentEvents?: Array<{ eventRef?: string; id?: string }>;
+          slots?: Array<{ slot: number; action?: DeterministicCompilationContextAction; state?: DeterministicMindSlot["state"] }>;
+          action?: DeterministicCompilationAction;
+          actorPerspective?: unknown;
+          observationSlots?: unknown[];
         };
         observationSlots?: Array<{ observer: { agentId: string } }>;
         currentEvents?: Array<{ eventRef?: string; id?: string }>;
@@ -1108,17 +1125,44 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         temporalProfiles?: Array<{ profileRef?: string; id?: string; kind: string; allowExplicitDuration?: boolean }>;
         temporalBoundary?: { toElapsedSeconds: number };
         referenceCatalog?: { candidates: Array<{ kind: string; handle: string; statePath?: string }> };
-        task?: { action?: DeterministicCompilationAction; stage?: "perception" | "reaction-routing" | "resolution" | "transition"; assignedActions?: unknown[]; committedResolutionPlans?: unknown[]; observationSlots?: unknown[]; slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot> };
+        referenceCatalogs?: Array<{ slot: number; catalog: { candidates: Array<{ kind: string; handle: string; statePath?: string }> } }>;
+        task?: { kind?: string; action?: DeterministicCompilationAction; stage?: "perception" | "reaction-routing" | "resolution" | "transition"; assignedActions?: unknown[]; committedResolutionPlans?: unknown[]; observationSlots?: unknown[]; slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot> };
       };
       const stateSection = input.state ?? {};
+      const isPhysicalBatch = Array.isArray(input.state?.slots) &&
+        input.state.slots.every((entry) => "state" in entry) && Boolean(input.task?.slots);
+      if (isPhysicalBatch && input.state?.slots && input.task?.slots) {
+        const batchSlots = [...input.state.slots].sort((left, right) => left.slot - right.slot) as Array<{ slot: number; state: Record<string, unknown> }>;
+        const results = batchSlots.map((entry) => {
+          const taskSlot = input.task?.slots?.find((slot) => slot.slot === entry.slot);
+          const catalogSlot = input.referenceCatalogs?.find((slot) => slot.slot === entry.slot);
+          const slotContext = {
+            ...input,
+            task: taskSlot,
+            state: entry.state,
+            referenceCatalog: catalogSlot?.catalog,
+            referenceCatalogs: undefined,
+          };
+          return deterministicModelOutput(profileId, slotContext);
+        });
+        const isAgentMindBatch = batchSlots.every((entry) => Boolean((entry.state as { perspective?: unknown }).perspective));
+        return {
+          slots: batchSlots.map((entry, index) => isAgentMindBatch
+            ? { slot: entry.slot, ...(results[index] as Record<string, unknown>) }
+            : { slot: entry.slot, result: results[index] }),
+        };
+      }
       const stage = input.task?.stage;
       const baseRevision = input.execution?.revision;
       const step = input.execution?.step;
       const world = stateSection.world;
       const canonicalTruth = stateSection.canonicalTruth;
-      const slots = input.task?.slots ?? input.slots;
+      const slots = stateSection.slots ?? input.task?.slots ?? input.slots;
       const temporalProfiles = stateSection.temporalProfiles ?? input.temporalProfiles;
-      const actionInput = input.action ?? input.task?.action;
+      const actionInput = stateSection.action ?? input.action ?? input.task?.action;
+      if (stateSection.perspective && !input.task?.kind && !stateSection.preparedAction && !stateSection.stimulus && !actionInput) {
+        return deterministicAgentMindOutput();
+      }
       if (slots?.every((slot): slot is DeterministicCompilationSlot => "action" in slot) && temporalProfiles) {
         return deterministicActionCompilationBatch(profileId, context);
       }
@@ -1144,7 +1188,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         };
       }
       if (stateSection.preparedAction && stateSection.stimulus) return { kind: "keep" };
-      if (stateSection.perspective && input.execution?.revision === undefined) {
+      if (stateSection.perspective && (input.task?.kind === "arrival" || input.execution?.revision === undefined)) {
         return {
           title: `此刻，你是${stateSection.perspective.self.name}`,
           scene: stateSection.perspective.self.location
@@ -1162,7 +1206,7 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           possibleNextActions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
         };
       }
-      const observationSlots = input.task?.observationSlots;
+      const observationSlots = stateSection.observationSlots ?? input.task?.observationSlots;
       if (observationSlots) {
         return {
           summary: "世界继续变化。",

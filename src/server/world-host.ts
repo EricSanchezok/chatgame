@@ -31,7 +31,8 @@ import {
   type ModelRegistryRefreshDiagnostics,
   type StructuredModelProvider,
 } from "../engine/models/model-provider";
-import { MODEL_CONTEXT_CONTRACT_VERSION } from "../engine/contracts/prompts";
+import { MODEL_CONTEXT_CONTRACT_VERSION, projectAgentPerspectiveForModel } from "../engine/contracts/prompts";
+import { createAgentReferenceResolver, modelRoleContract } from "../engine/contracts/model-context";
 import { promptBundle } from "../engine/prompts";
 import {
   NOOP_RUNTIME_OBSERVER,
@@ -1900,6 +1901,7 @@ export class WorldHost {
         runtimeIdentity: { worldHash: document.state.worldHash, revision: document.state.revision },
       };
       const identity = modelInvocationIdentity(scope, "arrival-generator", participant.agentId, 1);
+      const referenceResolver = createAgentReferenceResolver(document.state.agents[participant.agentId], []);
       const result = await this.options.provider.generateStructured({
         ...scope,
         ...identity,
@@ -1912,7 +1914,31 @@ export class WorldHost {
         userPrompt: ARRIVAL_PROMPT.userPrompt,
         context: {
           contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
-          perspective: agentPerspective(document, participant.agentId),
+          roleContract: modelRoleContract("arrival-generator"),
+          execution: {
+            worldId: document.state.worldId,
+            instanceId: document.id,
+            advanceId: `arrival:${participantId}`,
+            revision: document.state.revision,
+            step: document.state.step,
+          },
+          task: {
+            assignment: {
+              targetHandles: [referenceResolver.handleFor("agent", participant.agentId)],
+              availableHandles: referenceResolver.catalog.candidates.map((candidate) => candidate.handle),
+              allowedProposalKinds: [],
+            },
+            constraints: ["Write only from this Agent's private perspective; possibleNextActions are suggestions, not executed actions."],
+          },
+          state: {
+            perspective: projectAgentPerspectiveForModel(
+              document.state,
+              document.state.agents[participant.agentId],
+              referenceResolver,
+            ),
+          },
+          referenceCatalog: referenceResolver.catalog,
+          repair: null,
         },
         schema: arrivalDraftSchema,
       });

@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Superseded by [0086](0086-model-semantic-contract-and-reference-boundaries.md).
+
 Class: architecture
 
 ## Context and Problem Statement

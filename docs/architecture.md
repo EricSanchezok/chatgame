@@ -15,7 +15,7 @@ Living World Engine maintains one canonical world and multiple Agents with priva
 | Prompt resources | `src/engine/prompts/` | Server-loaded English role/task/transport Markdown, content-addressed bundle versions, and unified task/context serialization |
 | Shared contracts | `src/engine/contracts/` | Semantic state types, model-output schemas, and prompt/context contracts shared across owners |
 | Benchmarks | `src/engine/benchmarks/` | Benchmark-only code and evidence generators kept off the product execution path |
-| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v19, pinned configured `AlgorithmRef`, persistent WorldRuns, Participants, decision/reaction windows, Preparation v3 artifacts, leases, recovery, and generation fencing |
+| Instance host | `src/server/world-host.ts` | `WorldInstanceDocument` v19, pinned configured `AlgorithmRef`, persistent WorldRuns, Participants, decision/reaction windows, Preparation v4 artifacts, leases, recovery, and generation fencing |
 | Execution evidence | `src/server/execution-ledger.ts` | The sole persisted source for executions, events, artifacts, experiments, replay, and Inspector data |
 | HTTP and browser | `src/app/` | API v12, world library, assistant-ui sessions, decision/reaction controls, unified Agent Perspective HUD, control orb, and read-only Inspector v8 |
 | Shared browser contracts | `src/shared/` | Browser-safe DTOs and trusted-local Inspector DTOs |

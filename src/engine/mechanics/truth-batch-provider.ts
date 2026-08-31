@@ -36,15 +36,29 @@ interface PendingRequest {
   reject: (error: unknown) => void;
 }
 
-interface BatchSlotContext {
-  slot: number;
-  key: string;
-  context: unknown;
+interface SplitBatchEnvelope {
+  contractVersion: number;
+  roleContract: unknown;
+  execution: unknown;
+  task: Record<string, unknown> & {
+    slots: Array<Record<string, unknown> & { slot: number; assignment: unknown; constraints: readonly string[] }>;
+  };
+  state: {
+    slots: Array<{ slot: number; state: unknown }>;
+  };
+  referenceCatalog: {
+    version: number;
+    hash: string;
+    candidates: readonly unknown[];
+  };
+  referenceCatalogs: Array<{ slot: number; catalog: unknown }>;
+  repair: unknown;
 }
 
 const BATCH_PROMPT_SUFFIX = [
   "This is a fixed independent slot batch.",
   "Treat every slot as a separate task with the same complete shared context.",
+  "For each numbered slot, use only referenceCatalogs[slot] when resolving handles; a handle from another slot is invalid even when its text matches.",
   "Do not infer, merge, omit, reorder, or transfer causes, actions, plans, proposals, events, observations, or identities between slots.",
   "Return exactly one result for every numbered slot and preserve the input slot numbers.",
 ].join(" ");
@@ -99,8 +113,8 @@ function contextBoundary(request: StructuredModelRequest<unknown>): string {
   const state = context.state as Record<string, unknown> | undefined;
   const scope = task?.resolutionScope as
     Record<string, unknown> | null | undefined;
-  const observationSlots = Array.isArray(task?.observationSlots)
-    ? task.observationSlots
+  const observationSlots = Array.isArray(state?.observationSlots)
+    ? state.observationSlots
     : null;
   return contentHash({
     contractVersion: context.contractVersion ?? null,
@@ -112,6 +126,7 @@ function contextBoundary(request: StructuredModelRequest<unknown>): string {
     step: state?.step ?? execution?.step ?? null,
     stage: task?.stage ?? request.schemaName,
     resolutionMode: scope?.mode ?? null,
+    selectedActionRefs: scope?.selectedActionRefs ?? null,
     observerProjection: observationSlots ? "observation" : null,
   });
 }
@@ -121,7 +136,14 @@ function repairBoundary(request: StructuredModelRequest<unknown>): string {
   if (!context || typeof context !== "object" || Array.isArray(context))
     return "normal";
   const repair = context.repair as Record<string, unknown> | null | undefined;
-  if (repair?.target) return `target:${repair.target}`;
+  if (repair?.target) {
+    const target = typeof repair.target === "string"
+      ? repair.target
+      : typeof repair.target === "object" && repair.target !== null && "proposalKey" in repair.target
+        ? repair.target.proposalKey
+        : JSON.stringify(repair.target);
+    return `target:${target}`;
+  }
   const issues = repair?.issues;
   return Array.isArray(issues) && issues.length > 0 ? "issues" : "normal";
 }
@@ -141,10 +163,7 @@ function batchGroupKey(request: StructuredModelRequest<unknown>): string {
   });
 }
 
-function splitSharedContext(requests: readonly PendingRequest[]): {
-  sharedContext: Record<string, unknown>;
-  slots: BatchSlotContext[];
-} {
+function splitSharedContext(requests: readonly PendingRequest[]): SplitBatchEnvelope {
   const contexts = requests.map((entry) => {
     const context = entry.request.context;
     if (!context || typeof context !== "object" || Array.isArray(context)) {
@@ -156,31 +175,58 @@ function splitSharedContext(requests: readonly PendingRequest[]): {
     }
     return context as Record<string, unknown>;
   });
-  const keys = [
-    ...new Set(contexts.flatMap((context) => Object.keys(context))),
-  ].sort();
-  const sharedContext: Record<string, unknown> = {};
-  const slotContexts = contexts.map(() => ({}) as Record<string, unknown>);
-  for (const key of keys) {
-    const values = contexts.map((context) => context[key]);
-    const hashes = values.map((value) =>
-      contentHash(value === undefined ? null : canonicalize(value)),
-    );
-    if (hashes.every((hash) => hash === hashes[0])) {
-      sharedContext[key] = structuredClone(values[0]);
-    } else {
-      values.forEach((value, index) => {
-        slotContexts[index]![key] = structuredClone(value);
-      });
+  const first = contexts[0]!;
+  const taskValues = contexts.map((context) => {
+    const task = context.task;
+    if (!task || typeof task !== "object" || Array.isArray(task)) {
+      throw new ModelOutputError("truth batch requires an envelope task", undefined, { rawValue: task });
     }
+    return task as Record<string, unknown>;
+  });
+  const stateValues = contexts.map((context) => {
+    const state = context.state;
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      throw new ModelOutputError("truth batch requires an envelope state", undefined, { rawValue: state });
+    }
+    return state;
+  });
+  const commonTask: Record<string, unknown> = {};
+  const taskKeys = [...new Set(taskValues.flatMap((task) => Object.keys(task)))].sort();
+  for (const key of taskKeys) {
+    if (key === "assignment" || key === "constraints") continue;
+    const values = taskValues.map((task) => task[key]);
+    const hashes = values.map((value) => contentHash(value === undefined ? null : canonicalize(value)));
+    if (hashes.every((hash) => hash === hashes[0])) commonTask[key] = structuredClone(values[0]);
   }
+  const catalogs = contexts.map((context, slot) => ({ slot, catalog: structuredClone(context.referenceCatalog) }));
+  const repairs = contexts.map((context) => context.repair).filter((repair) => repair !== null && repair !== undefined);
+  const referenceCatalog = { version: 1, hash: contentHash(catalogs), candidates: [] as readonly unknown[] };
   return {
-    sharedContext,
-    slots: requests.map((entry, slot) => ({
-      slot,
-      key: entry.key,
-      context: slotContexts[slot],
-    })),
+    contractVersion: Number(first.contractVersion ?? 13),
+    roleContract: structuredClone(first.roleContract),
+    execution: structuredClone(first.execution),
+    task: {
+      assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] },
+      constraints: [],
+      ...commonTask,
+      slots: taskValues.map((task, slot) => ({
+        slot,
+        assignment: structuredClone(task.assignment ?? {}),
+        constraints: Array.isArray(task.constraints) ? [...task.constraints] : [],
+        ...Object.fromEntries(Object.entries(task).filter(([key]) => key !== "assignment" && key !== "constraints")),
+      })),
+    },
+    state: {
+      slots: stateValues.map((state, slot) => ({ slot, state: structuredClone(state) })),
+    },
+    referenceCatalog,
+    referenceCatalogs: catalogs,
+    repair: repairs.length > 0
+      ? { target: null, issues: repairs.flatMap((repair) => {
+        const value = repair as { issues?: unknown[] };
+        return Array.isArray(value.issues) ? value.issues : [];
+      }) }
+      : null,
   };
 }
 
@@ -403,23 +449,29 @@ export class TruthBatchCoordinator implements StructuredModelProvider {
     attempt: number,
     splitPath: string,
   ): Promise<void> {
+    // Once a malformed physical batch has been bisected to one logical slot,
+    // send that slot through its original schema/context. There is no value
+    // in wrapping a singleton in a batch envelope and retrying the same
+    // structural failure again.
+    if (entries.length === 1) {
+      try {
+        entries[0]!.resolve(await this.inner.generateStructured(entries[0]!.request));
+      } catch (error) {
+        entries[0]!.reject(error);
+      }
+      return;
+    }
     const first = entries[0]!.request;
     const selected = batchSchemaFor(first.schemaName);
     if (!selected)
       throw new Error(`schema ${first.schemaName} is not batchable`);
-    let sharedContext: Record<string, unknown>;
-    let slots: BatchSlotContext[];
+    let context: SplitBatchEnvelope;
     try {
-      ({ sharedContext, slots } = splitSharedContext(entries));
+      context = splitSharedContext(entries);
     } catch (error) {
       entries.forEach((entry) => entry.reject(error));
       return;
     }
-    const context = {
-      batchVersion: 1,
-      sharedContext,
-      slots,
-    };
     const profile = this.catalog.profile(first.profileId);
     const promptVersion = `${first.promptVersion}:truth-slot-batch-v1`;
     const userPrompt = `${first.userPrompt}\n\n${BATCH_PROMPT_SUFFIX}`;
@@ -538,7 +590,15 @@ export class TruthBatchCoordinator implements StructuredModelProvider {
           ]);
           return;
         }
-        entries[0]!.reject(error);
+        if (entries.length === 1) {
+          try {
+            entries[0]!.resolve(await this.inner.generateStructured(entries[0]!.request));
+          } catch (directError) {
+            entries[0]!.reject(directError);
+          }
+        } else {
+          entries[0]!.reject(error);
+        }
         return;
       }
     } catch (error) {
@@ -558,10 +618,11 @@ export class TruthBatchCoordinator implements StructuredModelProvider {
         ]);
         return;
       }
-      entries.forEach((entry) => entry.reject(error));
+      try {
+        entries[0]!.resolve(await this.inner.generateStructured(entries[0]!.request));
+      } catch (directError) {
+        entries[0]!.reject(directError);
+      }
     }
   }
 }
-
-/** Backward-compatible internal name for callers that only need the provider boundary. */
-export { TruthBatchCoordinator as TruthBatchProvider };

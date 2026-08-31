@@ -71,7 +71,10 @@ export function loadPromptAsset(relativePath: string, options: { allowTemplates?
 }
 
 function composeSystem(assets: readonly string[]): string {
-  return assets.map((asset) => loadPromptAsset(asset)).join("\n\n").trim();
+  return [...assets, "shared/semantic-contract.md", "shared/failure-examples.md"]
+    .map((asset) => loadPromptAsset(asset))
+    .join("\n\n")
+    .trim();
 }
 
 interface PromptSpec {

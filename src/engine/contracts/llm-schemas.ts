@@ -2,8 +2,6 @@ import { z } from "zod";
 import type {
   AgentActionDraft,
   AgentActionProposal,
-  AgentCharacterStateDraft,
-  AgentStateDraft,
   BeliefPatch,
   CausalAssertionResult,
   CharacterPatch,
@@ -13,7 +11,6 @@ import type {
   ReactionRequest,
   TransitionProposal,
   WorldDeltaOperation,
-  WorldDeltaOperationDraft,
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt } from "../mechanics/resolution";
 import type { ActionCompilationDraft } from "../runtime/execution";
@@ -30,7 +27,6 @@ import {
   conditionStateSchema,
   entitySchema,
   evidenceSchema,
-  factValueSchema,
   factSchema,
   localEntitySchema,
   meterSchema,
@@ -61,13 +57,6 @@ const causalSourceShape = {
   causes: z.array(causalRefSchema).min(1),
   assertions: z.array(causalAssertionSchema).min(1),
 };
-
-const evidenceDraftSchema = z.strictObject({
-  id: semanticIdSchema,
-  kind: z.enum(["observation", "testimony", "inference", "assumption"]),
-  description: z.string().min(1),
-  sourceId: safeIdSchema.nullable(),
-});
 
 function makeBeliefPatchOperationSchema(evidence: z.ZodTypeAny) {
   return z.discriminatedUnion("kind", [
@@ -259,24 +248,23 @@ const modelCharacterSource = {
   observationRefs: z.array(modelReferenceSchema).min(1),
   evidenceRefs: z.array(modelReferenceSchema).min(1),
 };
-const modelExistingCharacterId = { ref: modelReferenceSchema };
 const modelNewCharacterId = { proposalKey: proposalKeySchema };
 const modelCharacterChangesSchema = z.strictObject({
   operations: z.array(z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("replace_persona"), summary: z.string().min(1), voice: z.string(), ...modelCharacterSource }),
     z.strictObject({ kind: z.enum(["create_trait", "create_value"]), facet: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), strength: z.number().min(0).max(1) }), ...modelCharacterSource }),
-    z.strictObject({ kind: z.enum(["update_trait", "update_value"]), ...modelExistingCharacterId, description: z.string().min(1).nullable(), strength: z.number().min(0).max(1).nullable(), ...modelCharacterSource }),
-    z.strictObject({ kind: z.enum(["retire_trait", "retire_value"]), ...modelExistingCharacterId, ...modelCharacterSource }),
+    z.strictObject({ kind: z.enum(["update_trait", "update_value"]), facetRef: modelReferenceSchema, description: z.string().min(1).nullable(), strength: z.number().min(0).max(1).nullable(), ...modelCharacterSource }),
+    z.strictObject({ kind: z.enum(["retire_trait", "retire_value"]), facetRef: modelReferenceSchema, ...modelCharacterSource }),
     z.strictObject({ kind: z.literal("set_emotion"), emotion: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), intensity: z.number().min(0).max(1) }), ...modelCharacterSource }),
-    z.strictObject({ kind: z.literal("resolve_emotion"), ...modelExistingCharacterId, ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("resolve_emotion"), emotionRef: modelReferenceSchema, ...modelCharacterSource }),
     z.strictObject({ kind: z.literal("set_attitude"), attitude: z.strictObject({ ...modelNewCharacterId, subjectRef: modelReferenceSchema, description: z.string().min(1), intensity: z.number().min(-1).max(1) }), ...modelCharacterSource }),
-    z.strictObject({ kind: z.literal("retire_attitude"), ...modelExistingCharacterId, ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("retire_attitude"), attitudeRef: modelReferenceSchema, ...modelCharacterSource }),
     z.strictObject({ kind: z.literal("create_goal"), goal: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), priority: z.number().min(0).max(1), progress: z.number().min(0).max(1), targetRefs: z.array(modelReferenceSchema), parentGoalRef: modelReferenceSchema.nullable(), motivatedByRefs: z.array(modelReferenceSchema) }), ...modelCharacterSource }),
-    z.strictObject({ kind: z.literal("update_goal"), ...modelExistingCharacterId, description: z.string().min(1).nullable(), priority: z.number().min(0).max(1).nullable(), progress: z.number().min(0).max(1).nullable(), targetRefs: z.array(modelReferenceSchema).nullable(), parentGoal: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("unchanged") }), z.strictObject({ kind: z.literal("none") }), z.strictObject({ kind: z.literal("goal"), goalRef: modelReferenceSchema })]), motivatedByRefs: z.array(modelReferenceSchema).nullable(), ...modelCharacterSource }),
-    z.strictObject({ kind: z.literal("set_goal_status"), ...modelExistingCharacterId, status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("update_goal"), goalRef: modelReferenceSchema, description: z.string().min(1).nullable(), priority: z.number().min(0).max(1).nullable(), progress: z.number().min(0).max(1).nullable(), targetRefs: z.array(modelReferenceSchema).nullable(), parentGoal: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("unchanged") }), z.strictObject({ kind: z.literal("none") }), z.strictObject({ kind: z.literal("goal"), goalRef: modelReferenceSchema })]), motivatedByRefs: z.array(modelReferenceSchema).nullable(), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("set_goal_status"), goalRef: modelReferenceSchema, status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]), ...modelCharacterSource }),
     z.strictObject({ kind: z.literal("create_commitment"), commitment: z.strictObject({ ...modelNewCharacterId, description: z.string().min(1), priority: z.number().min(0).max(1), subjectRefs: z.array(modelReferenceSchema) }), ...modelCharacterSource }),
-    z.strictObject({ kind: z.literal("update_commitment"), ...modelExistingCharacterId, description: z.string().min(1).nullable(), priority: z.number().min(0).max(1).nullable(), subjectRefs: z.array(modelReferenceSchema).nullable(), ...modelCharacterSource }),
-    z.strictObject({ kind: z.literal("set_commitment_status"), ...modelExistingCharacterId, status: z.enum(["active", "fulfilled", "broken", "released"]), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("update_commitment"), commitmentRef: modelReferenceSchema, description: z.string().min(1).nullable(), priority: z.number().min(0).max(1).nullable(), subjectRefs: z.array(modelReferenceSchema).nullable(), ...modelCharacterSource }),
+    z.strictObject({ kind: z.literal("set_commitment_status"), commitmentRef: modelReferenceSchema, status: z.enum(["active", "fulfilled", "broken", "released"]), ...modelCharacterSource }),
   ])),
 });
 
@@ -482,8 +470,8 @@ const modelWorldDeltaOperationSchema = z.discriminatedUnion("kind", [
 ]);
 const modelMechanicInvocationSchema = z.strictObject({
   proposalKey: proposalKeySchema,
-  packageId: safeIdSchema,
-  ruleId: safeIdSchema,
+  /** Select one server-authored typed mechanic contract from the catalog. */
+  mechanicRef: modelReferenceSchema,
   input: z.json(),
   ...modelTransitionCausalSourceShape,
 });
@@ -725,110 +713,6 @@ export const resolutionPlanSchema = resolutionPlanSchemaWithId(
   runtimeIdSchema.refine((id) => id.startsWith("rt:resolution-plan:")),
 ) as z.ZodType<ResolutionPlan>;
 
-const characterRecordDraftShape = {
-  id: semanticIdSchema,
-  description: z.string().min(1),
-  evidenceIds: z.array(safeIdSchema),
-};
-
-const characterFacetDraftSchema = z.strictObject({
-  ...characterRecordDraftShape,
-  strength: z.number().min(0).max(1),
-  status: z.enum(["active", "retired"]),
-});
-const emotionStateDraftSchema = z.strictObject({
-  ...characterRecordDraftShape,
-  intensity: z.number().min(0).max(1),
-  status: z.enum(["active", "resolved"]),
-});
-const attitudeStateDraftSchema = z.strictObject({
-  ...characterRecordDraftShape,
-  subjectId: semanticIdSchema,
-  intensity: z.number().min(0).max(1),
-  status: z.enum(["active", "retired"]),
-});
-const agentGoalDraftSchema = z.strictObject({
-  ...characterRecordDraftShape,
-  priority: z.number().min(0).max(1),
-  progress: z.number().min(0).max(1),
-  targetIds: z.array(semanticIdSchema),
-  parentGoalId: semanticIdSchema.optional(),
-  motivatedByIds: z.array(semanticIdSchema),
-  status: z.enum(["active", "suspended", "completed", "failed", "abandoned"]),
-});
-const agentCommitmentDraftSchema = z.strictObject({
-  ...characterRecordDraftShape,
-  priority: z.number().min(0).max(1),
-  subjectIds: z.array(semanticIdSchema),
-  status: z.enum(["active", "fulfilled", "broken", "released"]),
-});
-const agentCharacterStateDraftSchema = z.strictObject({
-  persona: z.strictObject({
-    summary: z.string().min(1),
-    voice: z.string(),
-    evidenceIds: z.array(safeIdSchema),
-  }),
-  traits: z.record(semanticIdSchema, characterFacetDraftSchema),
-  values: z.record(semanticIdSchema, characterFacetDraftSchema),
-  emotions: z.record(semanticIdSchema, emotionStateDraftSchema),
-  attitudes: z.record(semanticIdSchema, attitudeStateDraftSchema),
-  goals: z.record(semanticIdSchema, agentGoalDraftSchema),
-  commitments: z.record(semanticIdSchema, agentCommitmentDraftSchema),
-}) as z.ZodType<AgentCharacterStateDraft>;
-
-const beliefStateDraftSchema = z.strictObject({
-  localEntities: z.record(semanticIdSchema, localEntitySchema),
-  claims: z.record(semanticIdSchema, beliefClaimSchema),
-  evidence: z.record(semanticIdSchema, evidenceDraftSchema),
-});
-
-const agentStateDraftSchema = z.strictObject({
-  id: semanticIdSchema,
-  entityId: semanticIdSchema,
-  character: agentCharacterStateDraftSchema,
-  belief: beliefStateDraftSchema,
-  bindings: z.record(semanticIdSchema, z.strictObject({
-    localEntityId: semanticIdSchema,
-    canonicalEntityIds: z.array(semanticIdSchema),
-  })),
-}) as z.ZodType<AgentStateDraft>;
-
-const entityDraftSchema = z.strictObject({
-  id: semanticIdSchema,
-  kind: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string(),
-});
-
-const factDraftSchema = z.strictObject({
-  id: semanticIdSchema,
-  subjectId: semanticIdSchema,
-  predicate: z.string().min(1),
-  value: factValueSchema,
-  description: z.string(),
-  access: accessSchema,
-});
-
-export const worldDeltaOperationDraftSchema = z.discriminatedUnion("kind", [
-  z.strictObject({
-    kind: z.literal("create_entity"),
-    entity: entityDraftSchema,
-    placementId: semanticIdSchema.nullable(),
-    ...causalSourceShape,
-  }),
-  z.strictObject({ kind: z.literal("retire_entity"), entityId: semanticIdSchema, ...causalSourceShape }),
-  z.strictObject({
-    kind: z.literal("place_entity"),
-    entityId: semanticIdSchema,
-    placementId: semanticIdSchema.nullable(),
-    ...causalSourceShape,
-  }),
-  z.strictObject({ kind: z.literal("set_fact"), fact: factDraftSchema, ...causalSourceShape }),
-  z.strictObject({ kind: z.literal("remove_fact"), factId: persistedFactIdSchema, ...causalSourceShape }),
-  z.strictObject({ kind: z.literal("create_agent"), agent: agentStateDraftSchema, ...causalSourceShape }),
-  z.strictObject({ kind: z.literal("remove_agent"), agentId: semanticIdSchema, ...causalSourceShape }),
-]) as z.ZodType<WorldDeltaOperationDraft>;
-
 export const worldDeltaOperationSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("create_entity"),
@@ -916,13 +800,6 @@ export const mechanicResultSchema = z.strictObject({
   operations: z.array(worldDeltaOperationSchema),
 }) as z.ZodType<MechanicResult>;
 
-export const mechanicInvocationSchema = z.strictObject({
-  id: draftAliasSchema,
-  packageId: safeIdSchema,
-  ruleId: safeIdSchema,
-  input: z.json(),
-  ...causalSourceShape,
-});
 export const mechanicInvocationRepairSchema = z.strictObject({
   invocation: modelMechanicInvocationSchema,
 });

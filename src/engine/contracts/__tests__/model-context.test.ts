@@ -140,4 +140,23 @@ describe("model semantic references", () => {
       causeRefs: [resolver.catalog.candidates[0]!.handle],
     });
   });
+
+  it("validates handle-named fields as references, including batch target handles", () => {
+    const resolver = createReferenceResolver([{
+      kind: "local_entity",
+      engineId: "guard",
+      label: "守卫",
+      meaning: "an existing local entity",
+      allowedUses: ["target"],
+      visibility: "slot",
+    }]);
+    const result = normalizeModelOutput({
+      targetHandles: [resolver.catalog.candidates[0]!.handle, "ref:local_entity:missing"],
+    }, { resolver });
+
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "reference.unknown_handle", path: ["targetHandles", 1] }),
+    ]));
+    expect(result.resolvedReferenceCount).toBe(1);
+  });
 });

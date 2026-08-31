@@ -40,7 +40,14 @@ import {
   type TemporalPlan,
 } from "../../mechanics/temporal";
 import { promptBundle } from "../../prompts";
-import { isProposalReference, modelRoleContract, type ModelReference, type ModelReferenceUse } from "../../contracts/model-context";
+import {
+  isProposalReference,
+  modelRoleContract,
+  normalizeModelOutput,
+  type ModelReference,
+  type ModelReferenceUse,
+} from "../../contracts/model-context";
+import { contentHash } from "../../models/model-audit";
 
 const ACTION_COMPILER_PROMPT = promptBundle("action-compilation");
 
@@ -91,18 +98,34 @@ function actionCompilationContext(
   const actions = slots.map((slot) => slot.payload.action);
   const referenceResolver = actionGroundingReferenceResolver(state, actions);
   const shared = actionGroundingSharedContext(state, actions);
+  const slotContexts = slots.map((entry, slot) => {
+    const slotResolver = actionGroundingReferenceResolver(state, entry.payload.action);
+    const slotContext = actionGroundingSlotContext(state, entry.payload.action, entry.issues, slotResolver);
+    return {
+      slot,
+      referenceCatalog: slotResolver.catalog,
+      assignment: {
+        targetHandles: [slotContext.action.actionRef],
+        availableHandles: slotResolver.catalog.candidates.map((candidate) => candidate.handle),
+        allowedProposalKinds: [],
+      },
+      constraints: entry.issues,
+      state: {
+        action: slotContext.action,
+        actorPerspective: slotContext.actorPerspective,
+        existingActivities: existingActivities(state, entry.payload.action, slotResolver),
+      },
+    };
+  });
+  const slotCatalogs = slotContexts.map(({ slot, referenceCatalog }) => ({ slot, catalog: referenceCatalog }));
   return {
     contractVersion: shared.contractVersion,
     roleContract: modelRoleContract("action-compilation"),
     execution: { worldId: state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: state.revision, step: state.step },
     task: {
-      assignment: { targetHandles: [], availableHandles: shared.referenceCatalog.candidates.map((candidate) => candidate.handle), allowedProposalKinds: [] },
+      assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] },
       constraints: slots.flatMap((slot) => slot.issues),
-      slots: slots.map((entry, slot) => ({
-        slot,
-        ...actionGroundingSlotContext(state, entry.payload.action, entry.issues, referenceResolver),
-        existingActivities: existingActivities(state, entry.payload.action, referenceResolver),
-      })),
+      slots: slotContexts.map(({ slot, assignment, constraints }) => ({ slot, assignment, constraints })),
     },
     state: {
       canonicalTruth: shared.state.canonicalTruth,
@@ -133,8 +156,13 @@ function actionCompilationContext(
         )),
         profileRef: referenceResolver.handleFor("temporal_profile", calibration.profileId),
       })),
+      slots: slotContexts.map(({ slot, state: slotState }) => ({ slot, ...slotState })),
     },
-    referenceCatalog: shared.referenceCatalog,
+    // A physical batch has no shared model namespace. Each slot receives the
+    // catalog that its materializer will use, while the top-level catalog is
+    // an empty integrity index.
+    referenceCatalog: { version: 1, hash: contentHash(slotCatalogs), candidates: [] },
+    referenceCatalogs: slotCatalogs,
     repair: slots.some((slot) => slot.issues.length > 0)
       ? { target: null, issues: slots.flatMap((slot, index) => slot.issues.map((reason) => ({ code: "action_compilation", class: "semantic" as const, path: ["slots", index], originalValue: null, allowedHandles: [], reason }))) }
       : null,
@@ -460,17 +488,90 @@ export async function compileActions(
 
       const accepted: Array<{ key: string; result: CompiledAction }> = [];
       const rejected: Array<{ slot: CompilationSlot; issues: string[] }> = [];
+      const normalizedSlots: Array<{ slot: number; result: unknown }> = [];
+      let modifiedFieldCount = 0;
+      let resolvedReferenceCount = 0;
+      let proposalCount = 0;
+      let deduplicatedCount = 0;
       const ordered = [...generated.value.slots].sort((left, right) => left.slot - right.slot);
       for (const [index, draft] of ordered.entries()) {
         const slot = batch[index]!;
         try {
+          // A physical batch has one envelope but one reference namespace per
+          // slot. Normalize against the same slot resolver used by the
+          // materializer so unknown handles are rejected before any domain
+          // mapping and their exact allowed candidates reach targeted repair.
+          const slotResolver = actionGroundingReferenceResolver(state, slot.payload.action);
+          const normalized = normalizeModelOutput(draft, { resolver: slotResolver, dedupeArrays: true });
+          modifiedFieldCount += normalized.modifiedFieldCount;
+          resolvedReferenceCount += normalized.resolvedReferenceCount;
+          proposalCount += normalized.proposalCount;
+          deduplicatedCount += normalized.deduplicatedCount;
+          normalizedSlots.push({ slot: draft.slot, result: normalized.value });
+          if (normalized.issues.length > 0) {
+            const issueText = normalized.issues.map((issue) => {
+              const path = issue.path.length > 0 ? ` at ${issue.path.join(".")}` : "";
+              const allowed = issue.allowedHandles.length > 0
+                ? ` allowed=${issue.allowedHandles.join(",")}`
+                : "";
+              return `${issue.code}${path}: ${issue.reason}${allowed}`;
+            });
+            rejected.push({ slot, issues: issueText });
+            const invocationAudit = generated.audit.invocations.at(-1);
+            if (invocationAudit) {
+              invocationAudit.issues = [
+                ...invocationAudit.issues,
+                ...normalized.issues.map((issue) => ({
+                  code: issue.code,
+                  class: issue.class,
+                  path: [...issue.path],
+                  message: issue.reason,
+                  originalValue: structuredClone(issue.originalValue),
+                  allowedHandles: [...issue.allowedHandles],
+                })),
+              ].filter((issue, issueIndex, all) => all.findIndex((candidate) =>
+                candidate.code === issue.code && JSON.stringify(candidate.path) === JSON.stringify(issue.path) &&
+                candidate.message === issue.message) === issueIndex);
+            }
+            continue;
+          }
           accepted.push({
             key: slot.key,
-            result: materializeCompilation(state, slot.payload.action, draft),
+            result: materializeCompilation(state, slot.payload.action, normalized.value),
           });
         } catch (error) {
           rejected.push({ slot, issues: actionCompilationSlotIssues(error) });
         }
+      }
+      const invocationAudit = generated.audit.invocations.at(-1);
+      if (invocationAudit) {
+        invocationAudit.rawOutputHash ??= contentHash(generated.value);
+        invocationAudit.normalizedOutputHash = contentHash({ slots: normalizedSlots });
+        invocationAudit.normalization = {
+          applied: modifiedFieldCount > 0 || deduplicatedCount > 0,
+          modifiedFieldCount,
+          resolvedReferenceCount,
+          proposalCount,
+          deduplicatedCount,
+        };
+        if (rejected.length === 0) {
+          invocationAudit.outputDisposition = invocationAudit.normalization.applied ? "auto-normalized" : "accepted";
+        }
+        scope.observer?.emit({
+          event: "model.output.normalized",
+          correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+          attributes: { applied: invocationAudit.normalization.applied },
+          counts: {
+            modifiedFields: modifiedFieldCount,
+            resolvedReferences: resolvedReferenceCount,
+            proposals: proposalCount,
+            deduplicated: deduplicatedCount,
+          },
+          hashes: {
+            rawOutput: invocationAudit.rawOutputHash,
+            normalizedOutput: invocationAudit.normalizedOutputHash,
+          },
+        });
       }
       setModelInvocationResultKind(generated.audit, "action_compilation_batch");
       if (rejected.length === 0) {

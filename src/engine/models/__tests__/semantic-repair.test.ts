@@ -31,7 +31,7 @@ describe("semantic repair loop", () => {
       },
       classify: () => [semanticIssue("unknown_entity", "use a canonical entity id", {
         class: "reference",
-        path: ["reads", 0, "id"],
+        path: ["stateDependencies", "requiredExistingRefs", 0],
         targetIds: ["action-a"],
       })],
     });
@@ -55,14 +55,21 @@ describe("semantic repair loop", () => {
       validate: () => { throw new Error("unknown private evidence"); },
       classify: () => [semanticIssue("private_reference", "private evidence is not canonical", {
         class: "reference",
-        path: ["writes", 0, "id"],
+        path: ["stateDependencies", "potentiallyAffectedExistingRefs", 0],
+        originalValue: "rt:fact:private",
+        allowedHandles: ["ref:fact:public"],
         targetIds: ["action-a"],
       })],
     })).rejects.toMatchObject({
       name: "SemanticRepairExhaustedError",
       repairScope: "slot",
       targetIds: ["action-a"],
-      issues: [{ code: "private_reference", class: "reference" }],
+      issues: [{
+        code: "private_reference",
+        class: "reference",
+        originalValue: "rt:fact:private",
+        allowedHandles: ["ref:fact:public"],
+      }],
     });
   });
 });

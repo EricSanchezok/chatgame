@@ -33,7 +33,7 @@ describe("execution experiment core", () => {
       actionCompilationMaxSlots: 12,
       agentMindMaxSlots: 8,
       truthBatchMaxSlots: 12,
-      modelInvocations: 12,
+      modelInvocations: 15,
       averageActionCompilationSlots: 2,
       averageAgentMindSlots: 2,
     })]);

@@ -20,6 +20,7 @@ import type {
   TransitionProposal,
   WorldDeltaOperation,
   WorldEvent,
+  AgentPerspectiveView,
 } from "./model";
 import type { ResolutionPlan, ResolutionReceipt, ResolutionSourceRef } from "../mechanics/resolution";
 import type { InteractionDependency } from "../runtime/execution";
@@ -34,7 +35,9 @@ import {
   MODEL_CONTEXT_CONTRACT_VERSION as MODEL_CONTEXT_VERSION,
   createAgentReferenceResolver,
   createReferenceResolver,
+  ModelReferenceError,
   modelRoleContract,
+  type ModelRepairIssue,
   type ReferenceCandidateInput,
   type ReferenceResolver,
   type ModelWorkset,
@@ -53,6 +56,9 @@ export interface PromptValidationIssue {
   code: string;
   path: Array<string | number>;
   message: string;
+  class?: ModelRepairIssue["class"];
+  originalValue?: unknown;
+  allowedHandles?: readonly string[];
 }
 
 export type TruthContextMode = "scoped" | "full";
@@ -61,6 +67,41 @@ export interface ResolutionScope {
   mode: "component" | "global" | "repair";
   selectedActionIds: string[];
   totalActionCount: number;
+}
+
+type RepairTarget = {
+  kind: "mechanic" | "plan" | "operation" | "event" | "outcome" | "observation";
+  id: string;
+  issueClass: string;
+};
+
+/** Project internal repair metadata into the same request-local vocabulary as
+ * the rest of the model context. Runtime ids never cross this boundary. A
+ * mechanic invocation repair may target a same-response proposal key, which
+ * is intentionally represented as a proposal marker when it is not yet in
+ * the catalog. */
+function projectRepairTarget(target: RepairTarget | null | undefined, resolver: ReferenceResolver): Record<string, unknown> | null {
+  if (!target) return null;
+  try {
+    return {
+      kind: target.kind,
+      targetRef: resolver.handleFor(target.kind, target.id),
+      issueClass: target.issueClass,
+    };
+  } catch {
+    return target.kind === "mechanic"
+      ? { kind: target.kind, targetRef: { proposalKey: target.id }, issueClass: target.issueClass }
+      : { kind: target.kind, issueClass: target.issueClass };
+  }
+}
+
+function projectResolutionScope(scope: ResolutionScope | null | undefined, resolver: ReferenceResolver): Record<string, unknown> | null {
+  if (!scope) return null;
+  return {
+    mode: scope.mode,
+    selectedActionRefs: scope.selectedActionIds.map((id) => resolver.handleFor("action", id)),
+    totalActionCount: scope.totalActionCount,
+  };
 }
 
 type CachedTruthProjection = {
@@ -97,9 +138,20 @@ function cachedFullTruthProjection(
 }
 
 export function validationIssues(error: unknown): PromptValidationIssue[] {
+  if (error instanceof ModelReferenceError) {
+    return [{
+      code: error.code,
+      class: "reference",
+      path: [],
+      message: error.message,
+      originalValue: error.originalValue,
+      allowedHandles: error.allowedHandles,
+    }];
+  }
   if (error instanceof MechanicInputValidationError) {
     return error.issues.map((issue) => ({
       code: "mechanic_input_contract",
+      class: "mechanic" as const,
       path: ["mechanicInvocations", error.invocationId, ...issue.path],
       message: issue.message,
     }));
@@ -121,14 +173,249 @@ export function validationIssues(error: unknown): PromptValidationIssue[] {
   }];
 }
 
-function visibleObservation(packet: ObservationPacket): ObservationPacket {
+function projectPromptIssue(issue: PromptValidationIssue): ModelRepairIssue {
   return {
-    ...structuredClone(packet),
+    code: issue.code,
+    class: issue.class ?? "semantic",
+    path: [...issue.path],
+    originalValue: issue.originalValue ?? null,
+    allowedHandles: [...(issue.allowedHandles ?? [])],
+    reason: issue.message,
+  };
+}
+
+/**
+ * Project a delivered observation for an Agent.  Observation packet ids and
+ * canonical bindings are engine-owned; the model only receives request-local
+ * handles and the perceivable content.  Keep this projection separate from
+ * the persisted ObservationPacket type so a future field cannot accidentally
+ * leak into an Agent prompt by spreading the runtime object.
+ */
+function projectAgentObservation(
+  packet: Readonly<ObservationPacket>,
+  resolver: ReferenceResolver,
+): Record<string, unknown> {
+  const localRef = (localEntityId: string): string => resolver.handleFor("local_entity", localEntityId);
+  return {
+    observationRef: resolver.handleFor("observation", packet.id),
+    step: packet.step,
+    kind: packet.kind,
+    summary: packet.summary,
     introductions: packet.introductions.map(({ localEntity }) => ({
-      localEntity: structuredClone(localEntity),
-      canonicalEntityId: null,
+      localEntityRef: localRef(localEntity.id),
+      name: localEntity.name,
+      description: localEntity.description,
+      status: localEntity.status,
+    })),
+    apparentClaims: packet.apparentClaims.map((claim) => ({
+      subjectRef: localRef(claim.subjectId),
+      predicate: claim.predicate,
+      value: claim.value.kind === "local_entity"
+        ? { kind: "local_entity", entityRef: localRef(claim.value.localEntityId) }
+        : structuredClone(claim.value),
+      description: claim.description,
+    })),
+    sourceEventCount: packet.sourceEventIds.length,
+  };
+}
+
+/** Safe, reference-free projection retained for callers that only need to
+ * sanitize an observation outside a model request. */
+function visibleObservation(packet: Readonly<ObservationPacket>): Record<string, unknown> {
+  return {
+    step: packet.step,
+    kind: packet.kind,
+    summary: packet.summary,
+    introductions: packet.introductions.map(({ localEntity }) => ({ localEntity: structuredClone(localEntity) })),
+    apparentClaims: packet.apparentClaims.map((claim) => structuredClone(claim)),
+    sourceEventCount: packet.sourceEventIds.length,
+  };
+}
+
+/**
+ * Project the rich public Agent perspective into the model vocabulary. The
+ * public perspective intentionally keeps persistence ids for trusted UI/API
+ * consumers; model requests instead receive only request-local handles and
+ * semantic fields. This adapter is the one boundary used by AgentMind,
+ * reaction, action grounding, and arrival contexts.
+ */
+export function projectAgentPerspectiveForModel(
+  state: Readonly<SimulationState>,
+  agent: Readonly<AgentState>,
+  resolver: ReferenceResolver,
+  options: { includePrivateCognition?: boolean } = {},
+): Record<string, unknown> {
+  const perspective = projectAgentPerspective(state, agent);
+  const tryHandle = (kind: Parameters<ReferenceResolver["handleFor"]>[0], id: string): string | null => {
+    try { return resolver.handleFor(kind, id); }
+    catch { return null; }
+  };
+  const localHandle = (id: string): string | null => tryHandle("local_entity", id);
+  const localRef = (value: string): string | null => value.startsWith("local:")
+    ? localHandle(value.slice("local:".length))
+    : value.startsWith("ref:") ? value : null;
+  const evidenceRefs = (ids: readonly string[]): string[] => ids.flatMap((id) => {
+    const handle = tryHandle("evidence", id);
+    return handle ? [handle] : [];
+  });
+  const beliefValue = (value: Readonly<AgentState["belief"]["claims"][string]["value"]>): unknown =>
+    value.kind === "local_entity"
+      ? (() => {
+          const entityRef = localHandle(value.localEntityId);
+          return entityRef
+            ? { kind: "local_entity", entityRef }
+            : { kind: "text", value: "未识别的局部实体" };
+        })()
+      : structuredClone(value);
+  const character = {
+    persona: {
+      summary: agent.character.persona.summary,
+      voice: agent.character.persona.voice,
+      evidenceRefs: evidenceRefs(agent.character.persona.evidenceIds),
+    },
+    traits: Object.values(agent.character.traits).map((facet) => ({
+      facetRef: tryHandle("character_facet", facet.id),
+      description: facet.description,
+      strength: facet.strength,
+      status: facet.status,
+      evidenceRefs: evidenceRefs(facet.evidenceIds),
+    })),
+    values: Object.values(agent.character.values).map((facet) => ({
+      facetRef: tryHandle("character_facet", facet.id),
+      description: facet.description,
+      strength: facet.strength,
+      status: facet.status,
+      evidenceRefs: evidenceRefs(facet.evidenceIds),
+    })),
+    emotions: Object.values(agent.character.emotions).map((emotion) => ({
+      emotionRef: tryHandle("emotion", emotion.id),
+      description: emotion.description,
+      intensity: emotion.intensity,
+      status: emotion.status,
+      evidenceRefs: evidenceRefs(emotion.evidenceIds),
+    })),
+    attitudes: Object.values(agent.character.attitudes).map((attitude) => ({
+      attitudeRef: tryHandle("attitude", attitude.id),
+      ...(localHandle(attitude.subjectId)
+        ? { subjectRef: localHandle(attitude.subjectId) }
+        : { subjectDescription: "未识别的局部主体" }),
+      description: attitude.description,
+      intensity: attitude.intensity,
+      status: attitude.status,
+      evidenceRefs: evidenceRefs(attitude.evidenceIds),
+    })),
+    goals: Object.values(agent.character.goals).map((goal) => ({
+      goalRef: tryHandle("goal", goal.id),
+      description: goal.description,
+      priority: goal.priority,
+      progress: goal.progress,
+      targetRefs: goal.targetIds.flatMap((id) => {
+        const handle = localHandle(id);
+        return handle ? [handle] : [];
+      }),
+      parentGoalRef: goal.parentGoalId ? tryHandle("goal", goal.parentGoalId) : null,
+      motivatedByRefs: goal.motivatedByIds.flatMap((id) => {
+        const handle = tryHandle("character_facet", id) ?? tryHandle("commitment", id);
+        return handle ? [handle] : [];
+      }),
+      status: goal.status,
+      evidenceRefs: evidenceRefs(goal.evidenceIds),
+    })),
+    commitments: Object.values(agent.character.commitments).map((commitment) => ({
+      commitmentRef: tryHandle("commitment", commitment.id),
+      description: commitment.description,
+      priority: commitment.priority,
+      subjectRefs: commitment.subjectIds.map(localHandle),
+      status: commitment.status,
+      evidenceRefs: evidenceRefs(commitment.evidenceIds),
     })),
   };
+  const mapObservation = (observation: AgentPerspectiveView["history"][number]["observations"][number]) => ({
+    kind: observation.kind,
+    summary: observation.summary,
+    introductions: observation.introductions.map((introduction) => ({
+      localEntityRef: localHandle(introduction.id),
+      name: introduction.name,
+      description: introduction.description,
+      status: introduction.status,
+    })),
+    apparentClaims: observation.apparentClaims.map((claim) => {
+      const subjectRef = localHandle(claim.subjectId);
+      return subjectRef
+        ? { subjectRef, predicate: claim.predicate, value: beliefValue(claim.value), description: claim.description }
+        : { subjectDescription: "未识别的局部主体", predicate: claim.predicate, value: beliefValue(claim.value), description: claim.description };
+    }),
+  });
+  const projected: Record<string, unknown> = {
+    agentRef: resolver.handleFor("agent", agent.id),
+    elapsedSeconds: perspective.elapsedSeconds,
+    self: {
+      selfRef: localHandle(perspective.self.localEntityId),
+      name: perspective.self.name,
+      description: perspective.self.description,
+      lifecycle: perspective.self.lifecycle,
+      location: perspective.self.location ? {
+        ...(perspective.self.location.localEntityId ? { entityRef: localHandle(perspective.self.location.localEntityId) } : {}),
+        name: perspective.self.location.name,
+        description: perspective.self.location.description,
+      } : null,
+    },
+    mechanics: structuredClone(perspective.mechanics),
+    knowledge: {
+      entities: perspective.knowledge.entities.map((entity) => {
+        const entityRef = entity.localEntityId ? localHandle(entity.localEntityId) : null;
+        return {
+          ...(entityRef ? { entityRef } : {}),
+          name: entity.name,
+          description: entity.description,
+          status: entity.status,
+          targetable: entity.targetable,
+        };
+      }),
+      containment: perspective.knowledge.containment.map((entry) => ({
+        ...(localRef(entry.entityRef) ? { entityRef: localRef(entry.entityRef) } : { entityDescription: "未识别的随身存在" }),
+        ...(localRef(entry.containerRef) ? { containerRef: localRef(entry.containerRef) } : { containerDescription: "未识别的容器" }),
+        depth: entry.depth,
+        viaUnknownContainer: entry.viaUnknownContainer,
+      })),
+      exactFacts: perspective.knowledge.exactFacts.map((fact) => {
+        const subjectRef = localRef(fact.subjectRef);
+        const value = fact.value.kind === "entity"
+          ? { kind: "entity", ...(localRef(fact.value.entityRef) ? { entityRef: localRef(fact.value.entityRef) } : { entityDescription: "未识别的实体" }) }
+          : structuredClone(fact.value);
+        return {
+          ...(subjectRef ? { subjectRef } : { subjectDescription: "未识别的实体" }),
+          predicate: fact.predicate,
+          value,
+          description: fact.description,
+        };
+      }),
+      claims: options.includePrivateCognition === false ? [] : Object.values(agent.belief.claims).flatMap((claim) => {
+        const claimRef = tryHandle("claim", claim.id);
+        const subjectRef = localHandle(claim.subjectId);
+        return claimRef && subjectRef
+          ? [{ claimRef, subjectRef, predicate: claim.predicate, value: beliefValue(claim.value), description: claim.description, stance: claim.stance, confidence: claim.confidence, evidenceRefs: evidenceRefs(claim.evidenceIds) }]
+          : [];
+      }),
+      evidence: options.includePrivateCognition === false ? [] : Object.values(agent.belief.evidence).map((evidence) => ({
+        evidenceRef: tryHandle("evidence", evidence.id),
+        kind: evidence.kind,
+        description: evidence.description,
+        sourceRef: evidence.sourceId
+          ? tryHandle("local_entity", evidence.sourceId) ?? tryHandle("observation", evidence.sourceId)
+          : null,
+      })),
+    },
+    character: options.includePrivateCognition === false ? undefined : character,
+    history: options.includePrivateCognition === false ? [] : perspective.history.map((turn) => ({
+      ownAction: turn.ownAction,
+      perceivedOutcome: turn.perceivedOutcome,
+      observations: turn.observations.map(mapObservation),
+      resolutions: structuredClone(turn.resolutions),
+    })),
+  };
+  if (options.includePrivateCognition === false) delete projected.character;
+  return projected;
 }
 
 function scopedCanonicalTruth(
@@ -777,7 +1064,11 @@ export function projectCanonicalTruthForModel(
   const timers = Object.fromEntries(Object.values(truth.timers).map((timer) => [
     handle("timer", timer.id), {
       wakeAgentRefs: timer.wakeAgentIds.map((id) => handle("agent", id)),
-      assertions: structuredClone(timer.assertions),
+      causes: timer.causes.map((cause) => ({
+        kind: cause.kind,
+        ref: handle(cause.kind as Parameters<ReferenceResolver["handleFor"]>[0], cause.id),
+      })),
+      assertions: timer.assertions.map((assertion) => projectModelCausalAssertion(assertion, { existing: resolver })),
     },
   ]));
   const events = Object.fromEntries(Object.values(truth.events).map((event) => [
@@ -941,16 +1232,17 @@ function perceptionCheckConstraints(
   state: Readonly<SimulationState>,
   actions: readonly AgentActionProposal[],
   groundings: readonly InteractionDependency[],
+  resolver: ReferenceResolver,
 ): unknown {
   const actorEntityIds = new Set(Object.values(scopedActors(state, actions, groundings))
     .map((actor) => actor.entityId));
   return {
     actors: [...actorEntityIds].sort().map((actorId) => ({
-      actorId,
+      actorRef: resolver.handleFor("entity", actorId),
       ratings: Object.values(state.truth.ratings)
         .filter((rating) => rating.entityId === actorId)
         .sort((left, right) => left.id.localeCompare(right.id))
-        .map((rating) => ({ id: rating.id, value: rating.value })),
+        .map((rating) => ({ ratingRef: resolver.handleFor("rating", rating.id), value: rating.value })),
     })),
   };
 }
@@ -964,11 +1256,13 @@ export function createTruthReferenceResolver(input: {
   definition: WorldDefinition;
   actions: readonly AgentActionProposal[];
   events?: readonly WorldEvent[];
-  outcomes?: readonly ActionOutcome[];
+    outcomes?: readonly ActionOutcome[];
   checkRequests?: readonly D20CheckRequest[];
   randomRequests?: readonly DiscreteRandomRequest[];
+  resolutionReceipts?: readonly ResolutionReceipt[];
   observations?: readonly ObservationPacket[];
   includeHistoryActions?: boolean;
+  mechanicContracts?: readonly MechanicPromptContract[];
   extraCandidates?: readonly ReferenceCandidateInput[];
 }): ReferenceResolver {
   const state = input.state;
@@ -977,6 +1271,7 @@ export function createTruthReferenceResolver(input: {
   const outcomes = input.outcomes ?? [];
   const checkRequests = input.checkRequests ?? [];
   const randomRequests = input.randomRequests ?? [];
+  const resolutionReceipts = input.resolutionReceipts ?? [];
   const observations = [
     ...state.history.flatMap((step) => step.observations),
     ...(input.observations ?? []),
@@ -996,6 +1291,15 @@ export function createTruthReferenceResolver(input: {
     localTargetsByAgent.set(action.actorId, targets);
   }
   const relevantAgentIds = new Set(actions.map((action) => action.actorId));
+  const mechanicCandidates = (input.mechanicContracts ?? []).map((contract) => ({
+    kind: "mechanic" as const,
+    engineId: `${contract.packageId}::${contract.ruleId}`,
+    label: `${contract.packageId}/${contract.ruleId}`,
+    meaning: contract.description,
+    allowedUses: ["mechanic", "source", "cause", "assertion"] as const,
+    visibility: "role" as const,
+    statePath: `state.world.mechanicContracts.${contract.packageId}.${contract.ruleId}`,
+  }));
   return createReferenceResolver([
     ...Object.values(state.agents).map((agent) => ({
       kind: "agent" as const, engineId: agent.id, label: agent.id,
@@ -1068,6 +1372,48 @@ export function createTruthReferenceResolver(input: {
       meaning: "an existing holder quantity", allowedUses: ["assertion", "source"] as const,
       visibility: "role" as const, statePath: `state.truth.quantities.${quantity.id}`,
     })),
+    ...Object.values(state.truth.mechanics.quantities).map((definition) => ({
+      kind: "quantity_definition" as const, engineId: definition.id, label: definition.name,
+      meaning: `an authored quantity definition (${definition.unit}) used by a typed mechanic input`,
+      allowedUses: ["mechanic", "source"] as const,
+      visibility: "role" as const, statePath: `state.world.mechanics.quantities.${definition.id}`,
+    })),
+    ...Object.values(state.truth.mechanics.meters).map((definition) => ({
+      kind: "meter_definition" as const, engineId: definition.id, label: definition.name,
+      meaning: "an authored meter definition used by a typed mechanic input",
+      allowedUses: ["mechanic", "source"] as const,
+      visibility: "role" as const, statePath: `state.world.mechanics.meters.${definition.id}`,
+    })),
+    ...Object.values(state.truth.mechanics.ratings).map((definition) => ({
+      kind: "rating_definition" as const, engineId: definition.id, label: definition.name,
+      meaning: "an authored rating definition used by a typed mechanic input",
+      allowedUses: ["mechanic", "source"] as const,
+      visibility: "role" as const, statePath: `state.world.mechanics.ratings.${definition.id}`,
+    })),
+    ...Object.values(state.truth.mechanics.impactProfiles).map((profile) => ({
+      kind: "impact_profile" as const, engineId: profile.id, label: profile.id,
+      meaning: "an authored impact profile used by a typed mechanic input",
+      allowedUses: ["mechanic", "source"] as const,
+      visibility: "role" as const, statePath: `state.world.mechanics.impactProfiles.${profile.id}`,
+    })),
+    ...Object.values(state.truth.mechanics.durationProfiles).map((profile) => ({
+      kind: "duration_profile" as const, engineId: profile.id, label: profile.id,
+      meaning: "an authored duration profile used by a typed mechanic input",
+      allowedUses: ["mechanic", "source"] as const,
+      visibility: "role" as const, statePath: `state.world.mechanics.durationProfiles.${profile.id}`,
+    })),
+    ...Object.values(state.truth.mechanics.conditionProfiles).map((profile) => ({
+      kind: "condition_profile" as const, engineId: profile.id, label: profile.id,
+      meaning: "an authored condition profile used by a typed mechanic input",
+      allowedUses: ["mechanic", "source"] as const,
+      visibility: "role" as const, statePath: `state.world.mechanics.conditionProfiles.${profile.id}`,
+    })),
+    ...Object.values(state.truth.mechanics.entityMechanicsProfiles).map((profile) => ({
+      kind: "entity_mechanics_profile" as const, engineId: profile.id, label: profile.id,
+      meaning: "an authored entity mechanics profile used by a typed mechanic input",
+      allowedUses: ["mechanic", "source"] as const,
+      visibility: "role" as const, statePath: `state.world.mechanics.entityMechanicsProfiles.${profile.id}`,
+    })),
     ...Object.values(state.truth.conditions).map((condition) => ({
       kind: "condition" as const, engineId: condition.id, label: condition.label,
       meaning: "an existing world condition", allowedUses: ["assertion", "source"] as const,
@@ -1113,6 +1459,15 @@ export function createTruthReferenceResolver(input: {
       allowedUses: ["cause", "assertion", "source"] as const,
       visibility: "role" as const,
       statePath: `execution.randomRequests.${request.id}`,
+    })),
+    ...resolutionReceipts.map((receipt) => ({
+      kind: "resolution_receipt" as const,
+      engineId: receipt.id,
+      label: receipt.plan.goal,
+      meaning: "a committed resolution receipt available to the settlement mechanic",
+      allowedUses: ["mechanic", "source", "cause", "assertion"] as const,
+      visibility: "role" as const,
+      statePath: `execution.resolutionReceipts.${receipt.id}`,
     })),
     ...randomRequests.flatMap((request) => request.distribution.steps.map((randomStep) => ({
       kind: "random" as const,
@@ -1175,7 +1530,7 @@ export function createTruthReferenceResolver(input: {
     ].map((action) => ({
       kind: "action" as const, engineId: action.id, label: compactLabel(action.rawText),
       meaning: "an action being adjudicated in this step", allowedUses: ["cause", "assertion", "source"] as const,
-      visibility: "role" as const, statePath: `task.actions.${action.id}`,
+      visibility: "role" as const, statePath: `state.actionSet.assigned.${action.id}`,
     })),
     ...checkRequests.map((check) => ({
       kind: "check" as const, engineId: check.id, label: check.stakes,
@@ -1248,6 +1603,7 @@ export function createTruthReferenceResolver(input: {
       visibility: "role" as const,
       statePath: `state.world.randomDistributions.${distribution.id}`,
     })),
+    ...mechanicCandidates,
     { kind: "world" as const, engineId: "world", label: "world", meaning: "world-wide arbitration scope", allowedUses: ["conflict"] as const, visibility: "role" as const },
     ...(input.extraCandidates ?? []),
   ]);
@@ -1276,11 +1632,7 @@ export function buildTruthContext(input: {
   resolutionScope?: ResolutionScope;
   candidateResolutionPlans?: readonly ResolutionPlan[];
   mechanicContracts?: readonly MechanicPromptContract[];
-  repairTarget?: {
-    kind: "mechanic" | "plan" | "operation" | "event" | "outcome" | "observation";
-    id: string;
-    issueClass: string;
-  } | null;
+  repairTarget?: RepairTarget | null;
 }): unknown {
   const stage = input.stage ?? "transition";
   const contextMode = input.workset.mode ?? "scoped";
@@ -1299,7 +1651,9 @@ export function buildTruthContext(input: {
         definition: input.definition,
         actions: availableActions,
         observations: input.reactionRequests.map((request) => request.stimulus),
+        resolutionReceipts: input.resolutionReceipts,
         includeHistoryActions: input.includeHistoryActions,
+        mechanicContracts: input.mechanicContracts,
       });
       return {
         resolver,
@@ -1312,9 +1666,11 @@ export function buildTruthContext(input: {
         definition: input.definition,
         actions: availableActions,
         observations: input.reactionRequests.map((request) => request.stimulus),
+        resolutionReceipts: input.resolutionReceipts,
         includeHistoryActions: input.includeHistoryActions,
         checkRequests: input.committedCheckRequests,
         randomRequests: input.committedRandomRequests,
+        mechanicContracts: input.mechanicContracts,
       });
       const visibleTruth = contextMode === "full"
         ? availableState.truth
@@ -1338,9 +1694,11 @@ export function buildTruthContext(input: {
       definition: input.definition,
       actions: availableActions,
       observations: input.reactionRequests.map((request) => request.stimulus),
+      resolutionReceipts: input.resolutionReceipts,
       includeHistoryActions: input.includeHistoryActions,
       checkRequests: input.committedCheckRequests,
       randomRequests: input.committedRandomRequests,
+      mechanicContracts: input.mechanicContracts,
       extraCandidates: planCandidates,
     });
   const modelRefs: ModelReferenceResolvers = { existing: referenceResolver, worldHash: input.state.worldHash };
@@ -1359,7 +1717,7 @@ export function buildTruthContext(input: {
     },
     constraints: input.issues.map((issue) => issue.message),
     stage,
-    resolutionScope: input.resolutionScope ?? null,
+    resolutionScope: projectResolutionScope(input.resolutionScope, referenceResolver),
   };
   const state = {
     trustBoundary: {
@@ -1375,7 +1733,12 @@ export function buildTruthContext(input: {
       disclosure: input.definition.disclosure,
       rulePackages: input.definition.rulePackages,
       randomDistributions: input.definition.randomDistributions,
-      mechanicContracts: input.mechanicContracts ? structuredClone(input.mechanicContracts) : [],
+      mechanicContracts: input.mechanicContracts?.map((contract) => ({
+        mechanicRef: modelHandle(modelRefs, "mechanic", `${contract.packageId}::${contract.ruleId}`),
+        version: contract.version,
+        description: contract.description,
+        inputSchema: structuredClone(contract.inputSchema),
+      })) ?? [],
     },
     baseRevision: input.state.revision,
     step: input.state.step,
@@ -1438,7 +1801,7 @@ export function buildTruthContext(input: {
     randomResults: input.randomResults.map((result) => projectModelRandomResult(result, modelRefs)),
     commitmentRounds: input.commitmentRounds.map((round) => projectModelCommitmentRound(round, modelRefs)),
     ...(stage === "perception" ? {
-      perceptionCheckConstraints: perceptionCheckConstraints(input.state, availableActions, availableGroundings),
+      perceptionCheckConstraints: perceptionCheckConstraints(input.state, availableActions, availableGroundings, referenceResolver),
     } : {}),
   };
   return {
@@ -1455,14 +1818,7 @@ export function buildTruthContext(input: {
     state,
     referenceCatalog: referenceResolver.catalog,
     repair: input.issues.length > 0 || input.repairTarget
-      ? { target: input.repairTarget?.id ?? null, issues: input.issues.map((issue) => ({
-        code: issue.code,
-        class: "semantic" as const,
-        path: [...issue.path],
-        originalValue: null,
-        allowedHandles: [],
-        reason: issue.message,
-      })) }
+      ? { target: projectRepairTarget(input.repairTarget, referenceResolver)?.targetRef ?? null, issues: input.issues.map(projectPromptIssue) }
       : null,
   };
 }
@@ -1487,11 +1843,7 @@ export function buildCausalVerificationContext(input: {
   issues: readonly PromptValidationIssue[];
   resolutionScope?: ResolutionScope;
   mechanicContracts?: readonly MechanicPromptContract[];
-  repairTarget?: {
-    kind: "mechanic" | "plan" | "operation" | "event" | "outcome" | "observation";
-    id: string;
-    issueClass: string;
-  } | null;
+  repairTarget?: RepairTarget | null;
 }): unknown {
   const contextMode = input.workset.mode ?? "scoped";
   const availableState = input.workset.state;
@@ -1589,6 +1941,7 @@ export function buildCausalVerificationContext(input: {
     definition: input.definition,
     actions: availableActions,
     observations: input.proposal.observations,
+    mechanicContracts: input.mechanicContracts,
     extraCandidates: taskReferenceInputs,
   });
   const visibleTruth = contextMode === "full"
@@ -1602,7 +1955,7 @@ export function buildCausalVerificationContext(input: {
       allowedProposalKinds: ["operation", "event", "outcome", "mechanic"],
     },
     constraints: input.issues.map((issue) => issue.message),
-    resolutionScope: input.resolutionScope ?? null,
+    resolutionScope: projectResolutionScope(input.resolutionScope, referenceResolver),
   };
   const state = {
     world: {
@@ -1610,7 +1963,12 @@ export function buildCausalVerificationContext(input: {
       laws: input.definition.laws,
       rulePackages: input.definition.rulePackages,
       randomDistributions: input.definition.randomDistributions,
-      mechanicContracts: input.mechanicContracts ? structuredClone(input.mechanicContracts) : [],
+      mechanicContracts: input.mechanicContracts?.map((contract) => ({
+        mechanicRef: modelHandle(modelRefs, "mechanic", `${contract.packageId}::${contract.ruleId}`),
+        version: contract.version,
+        description: contract.description,
+        inputSchema: structuredClone(contract.inputSchema),
+      })) ?? [],
     },
     baseRevision: input.state.revision,
     canonicalTruth: projectCanonicalTruthForModel(visibleTruth, referenceResolver),
@@ -1659,7 +2017,7 @@ export function buildCausalVerificationContext(input: {
           }))
         : [],
     },
-    repairTarget: input.repairTarget ? structuredClone(input.repairTarget) : null,
+    repairTarget: projectRepairTarget(input.repairTarget, referenceResolver),
   };
   return {
     contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
@@ -1675,7 +2033,7 @@ export function buildCausalVerificationContext(input: {
     task,
     state,
     repair: input.issues.length > 0 || input.repairTarget
-      ? { target: input.repairTarget?.id ?? null, issues: input.issues.map((issue) => ({ code: issue.code, class: "semantic" as const, path: [...issue.path], originalValue: null, allowedHandles: [], reason: issue.message })) }
+      ? { target: projectRepairTarget(input.repairTarget, referenceResolver)?.targetRef ?? null, issues: input.issues.map(projectPromptIssue) }
       : null,
   };
 }
@@ -1725,7 +2083,7 @@ export function buildResolutionPlanVerificationContext(input: {
       allowedProposalKinds: ["plan"],
     },
     constraints: input.issues.map((issue) => issue.message),
-    resolutionScope: input.resolutionScope ?? null,
+    resolutionScope: projectResolutionScope(input.resolutionScope, referenceResolver),
   };
   const state = {
     world: { id: input.definition.id, laws: input.definition.laws, rulePackages: input.definition.rulePackages, mechanics },
@@ -1758,7 +2116,7 @@ export function buildResolutionPlanVerificationContext(input: {
     task,
     state,
     repair: input.issues.length > 0
-      ? { target: null, issues: input.issues.map((issue) => ({ code: issue.code, class: "semantic" as const, path: [...issue.path], originalValue: null, allowedHandles: [], reason: issue.message })) }
+      ? { target: null, issues: input.issues.map(projectPromptIssue) }
       : null,
   };
 }
@@ -1816,36 +2174,29 @@ export function buildAgentSlotContext(input: Omit<AgentContextInput, "instanceId
       constraints: input.issues.map((issue) => issue.message),
     },
     state: {
-      perspective: projectAgentPerspective(input.state, input.agent),
+      perspective: projectAgentPerspectiveForModel(input.state, input.agent, resolver),
       currentResolution: {
         ownAction: input.currentAction ? projectOwnAction(input.currentAction) : null,
         perceivedOutcome: input.currentOutcome,
       },
-      observations: input.observations.map(visibleObservation),
+      observations: input.observations.map((observation) => projectAgentObservation(observation, resolver)),
       characterUpdatePolicy: {
         rule: "每个 character change 的 source observation 必须来自 eligible=true 的 Observation；没有 eligible source 时不得修改 character。",
         sources: input.observations.map((observation) => {
           const eventBasis = observation.sourceEventIds.flatMap((eventId) => {
             const event = currentEvents.get(eventId);
-            return event ? [{ eventId, impact: event.impact }] : [];
+            return event ? [{ impact: event.impact }] : [];
           });
           return {
-            observationId: observation.id,
+            observationRef: resolver.handleFor("observation", observation.id),
             eligible: observation.observerId === input.agent.id && observation.step === input.state.step &&
               eventBasis.length > 0,
-            eventBasis,
+              eventBasis: eventBasis.map(({ impact }) => ({ impact })),
           };
         }),
       },
     },
-    repair: input.issues.length > 0 ? { target: input.agent.id, issues: input.issues.map((issue) => ({
-      code: issue.code,
-      class: "semantic" as const,
-      path: issue.path,
-      originalValue: null,
-      allowedHandles: [],
-      reason: issue.message,
-    })) } : null,
+    repair: input.issues.length > 0 ? { target: resolver.handleFor("agent", input.agent.id), issues: input.issues.map(projectPromptIssue) } : null,
   };
 }
 
@@ -1894,22 +2245,15 @@ export function buildReactionContext(input: {
       constraints: input.issues.map((issue) => issue.message),
     },
     state: {
-      perspective: projectAgentPerspective(input.state, input.agent),
+      perspective: projectAgentPerspectiveForModel(input.state, input.agent, resolver),
       preparedAction,
-      stimulus: visibleObservation(input.stimulus),
+      stimulus: projectAgentObservation(input.stimulus, resolver),
     },
     referenceCatalog: resolver.catalog,
-    repair: input.issues.length > 0 ? { target: input.agent.id, issues: input.issues.map((issue) => ({
-      code: issue.code,
-      class: "semantic" as const,
-      path: issue.path,
-      originalValue: null,
-      allowedHandles: [],
-      reason: issue.message,
-    })) } : null,
+    repair: input.issues.length > 0 ? { target: resolver.handleFor("agent", input.agent.id), issues: input.issues.map(projectPromptIssue) } : null,
   };
 }
 
-export function sanitizeObservationForAgent(packet: ObservationPacket): ObservationPacket {
+export function sanitizeObservationForAgent(packet: ObservationPacket): Record<string, unknown> {
   return visibleObservation(packet);
 }

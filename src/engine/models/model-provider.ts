@@ -226,7 +226,15 @@ export function setModelInvocationOutcome(
 ): void {
   const invocation = audit.invocations.at(-1);
   if (!invocation) throw new Error("model audit has no invocation to classify");
-  invocation.outputDisposition = disposition;
+  // A caller that only knows validation succeeded commonly reports
+  // `accepted` after the gateway has already classified deterministic
+  // normalization or the repair loop has classified an LLM retry. Preserve
+  // those stronger audit dispositions instead of erasing the evidence.
+  const effectiveDisposition = disposition === "accepted" &&
+    (invocation.outputDisposition === "auto-normalized" || invocation.outputDisposition === "llm-repaired")
+    ? invocation.outputDisposition
+    : disposition;
+  invocation.outputDisposition = effectiveDisposition;
   invocation.issues = issues.map((issue) => typeof issue === "string"
     ? { code: issue, class: "semantic", path: [], message: issue }
     : structuredClone(issue));

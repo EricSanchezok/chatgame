@@ -51,10 +51,20 @@ import type { ProviderAccountConfig } from "./model-catalog";
 import { structuredPromptBytes } from "../prompts";
 
 function referenceCatalogAudit(context: unknown): { version: number; hash: string } {
-  const catalog = context && typeof context === "object" && !Array.isArray(context) &&
-    "referenceCatalog" in context
-    ? (context as { referenceCatalog?: { version?: number; hash?: string } }).referenceCatalog
+  const record = context && typeof context === "object" && !Array.isArray(context)
+    ? context as {
+        referenceCatalog?: { version?: number; hash?: string };
+        referenceCatalogs?: readonly { slot: number; catalog: { version?: number; hash?: string } }[];
+      }
     : undefined;
+  const catalog = record?.referenceCatalog;
+  const isolatedCatalogs = record?.referenceCatalogs;
+  if (isolatedCatalogs?.length) {
+    return {
+      version: isolatedCatalogs[0]?.catalog.version ?? catalog?.version ?? 1,
+      hash: contentHash(isolatedCatalogs.map(({ slot, catalog: entry }) => ({ slot, version: entry.version ?? 1, hash: entry.hash ?? null }))),
+    };
+  }
   return {
     version: catalog?.version ?? 1,
     hash: catalog?.hash ?? contentHash(catalog ?? null),
@@ -558,7 +568,13 @@ export class ModelGateway implements StructuredModelProvider {
           "referenceCatalog" in request.context
           ? (request.context as { referenceCatalog?: { candidates?: readonly { handle: string; kind: import("../contracts/model-context").ModelReferenceKind; label: string; meaning: string; allowedUses: readonly import("../contracts/model-context").ModelReferenceUse[]; visibility: "public" | "role" | "slot" }[] } }).referenceCatalog
           : undefined;
-        const referenceResolver = contextCatalog
+        // Batched Agent requests carry one isolated catalog per slot. The
+        // slot materializer performs the authoritative reference check; a
+        // single request-level resolver would either leak private handles or
+        // reject valid handles from every slot as unknown.
+        const hasIsolatedSlotCatalogs = request.context && typeof request.context === "object" &&
+          !Array.isArray(request.context) && "referenceCatalogs" in request.context;
+        const referenceResolver = contextCatalog && !hasIsolatedSlotCatalogs
           ? createReferenceResolver(contextCatalog.candidates?.map((candidate) => ({ ...candidate, engineId: candidate.handle })) ?? [])
           : undefined;
         const normalized = normalizeModelOutput(parsedOutput, { resolver: referenceResolver, dedupeArrays: true });
@@ -625,6 +641,9 @@ export class ModelGateway implements StructuredModelProvider {
             deduplicated: normalized.deduplicatedCount,
           },
           hashes: { rawOutput: rawOutputHash, normalizedOutput: responseHash },
+          payload: normalized.issues.length > 0
+            ? fullRuntimePayload(observer, { issues: normalized.issues })
+            : undefined,
         });
         if (normalized.issues.length > 0) {
           throw new ModelOutputError("model output contains unresolved semantic references", audit, {

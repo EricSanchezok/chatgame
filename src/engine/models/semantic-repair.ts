@@ -23,6 +23,9 @@ export interface SemanticRepairIssue {
   path: Array<string | number>;
   message: string;
   class: SemanticRepairIssueClass;
+  /** Optional field-level evidence preserved from deterministic normalization. */
+  originalValue?: unknown;
+  allowedHandles?: readonly string[];
   targetIds?: string[];
 }
 
@@ -101,6 +104,8 @@ function markRejected(audit: ModelExecutionAudit, issues: readonly SemanticRepai
     class: issue.class,
     path: [...issue.path],
     message: issue.message,
+    ...(issue.originalValue !== undefined ? { originalValue: structuredClone(issue.originalValue) } : {}),
+    ...(issue.allowedHandles ? { allowedHandles: [...issue.allowedHandles] } : {}),
     ...(issue.targetIds ? { targetIds: [...issue.targetIds] } : {}),
   }));
 }
@@ -163,6 +168,8 @@ export async function runSemanticRepairLoop<T>(
           class: issue.class,
           path: [...issue.path],
           message: issue.message,
+          ...(issue.originalValue !== undefined ? { originalValue: structuredClone(issue.originalValue) } : {}),
+          ...(issue.allowedHandles ? { allowedHandles: [...issue.allowedHandles] } : {}),
           ...(issue.targetIds ? { targetIds: [...issue.targetIds] } : {}),
         }));
       }
@@ -187,7 +194,15 @@ export async function runSemanticRepairLoop<T>(
 export function semanticIssue(
   code: string,
   message: string,
-  options: Pick<SemanticRepairIssue, "class" | "path" | "targetIds"> = { class: "semantic", path: [] },
+  options: Pick<SemanticRepairIssue, "class" | "path" | "targetIds" | "originalValue" | "allowedHandles"> = { class: "semantic", path: [] },
 ): SemanticRepairIssue {
-  return { code, message, class: options.class, path: [...options.path], ...(options.targetIds ? { targetIds: [...options.targetIds] } : {}) };
+  return {
+    code,
+    message,
+    class: options.class,
+    path: [...options.path],
+    ...(options.originalValue !== undefined ? { originalValue: structuredClone(options.originalValue) } : {}),
+    ...(options.allowedHandles ? { allowedHandles: [...options.allowedHandles] } : {}),
+    ...(options.targetIds ? { targetIds: [...options.targetIds] } : {}),
+  };
 }

@@ -25,6 +25,7 @@ import {
   projectCanonicalTruthForModel,
   projectModelAction,
   projectModelEvent,
+  type PromptValidationIssue,
 } from "../contracts/prompts";
 import { createAgentReferenceResolver, isProposalReference, modelRoleContract, type ModelReference } from "../contracts/model-context";
 import { contentHash } from "../models/model-audit";
@@ -129,7 +130,12 @@ function scopedObservationTruth(
   return truth;
 }
 
-function observationContext(input: RenderInput, observerIds: readonly string[], issues: readonly string[], scope: Pick<ModelExecutionScope, "workloadId" | "batchId">) {
+function observationContext(
+  input: RenderInput,
+  observerIds: readonly string[],
+  issues: readonly PromptValidationIssue[],
+  scope: Pick<ModelExecutionScope, "workloadId" | "batchId">,
+) {
   const candidate = applyTransitionProposal(input.state, input.proposal, input.temporalState);
   const broadResolver = createTruthReferenceResolver({
     state: candidate,
@@ -137,6 +143,20 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
     actions: input.actions,
     events: input.proposal.events,
     outcomes: input.proposal.outcomes,
+    extraCandidates: observerIds.flatMap((observerId) => {
+      const agent = candidate.agents[observerId];
+      return agent
+        ? Object.values(agent.belief.localEntities).map((entity) => ({
+            kind: "local_entity" as const,
+            engineId: `${observerId}::${entity.id}`,
+            label: entity.name,
+            meaning: "an observer-local entity available to this observation slot",
+            allowedUses: ["target", "subject", "evidence", "source", "assertion"] as const,
+            visibility: "slot" as const,
+            statePath: `state.observationSlots.${observerId}.localEntities.${entity.id}`,
+          }))
+        : [];
+    }),
   });
   const projectedTruth = scopedObservationTruth(
     candidate.truth,
@@ -157,6 +177,10 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
   allow("activity", Object.keys(projectedTruth.activities));
   allow("timer", Object.keys(projectedTruth.timers));
   allow("shared_resource_pool", Object.keys(projectedTruth.sharedActivityResourcePools));
+  allow("local_entity", observerIds.flatMap((observerId) => {
+    const agent = candidate.agents[observerId];
+    return agent ? Object.keys(agent.belief.localEntities).map((localId) => `${observerId}::${localId}`) : [];
+  }));
   allow("event", [...input.proposal.events.map((event) => event.id), ...projectedTruth.events.map((event) => event.id)]);
   allow("outcome", input.proposal.outcomes.map((outcome) => outcome.id));
   allow("action", [
@@ -181,7 +205,6 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
   const observationSlots = observerIds.map((observerId, slot) => {
       const agent = candidate.agents[observerId];
       if (!agent) throw new Error(`observation slot references unknown Agent ${observerId}`);
-      const privateResolver = createAgentReferenceResolver(agent, []);
       const canonicalBindings = new Map<string, string[]>();
       for (const binding of Object.values(agent.bindings)) {
         canonicalBindings.set(binding.localEntityId, binding.canonicalEntityIds
@@ -200,7 +223,7 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
             : null,
           localEntities: Object.values(agent.belief.localEntities)
             .map((entity) => ({
-              ref: privateResolver.handleFor("local_entity", entity.id),
+              ref: truthResolver.handleFor("local_entity", `${observerId}::${entity.id}`),
               name: entity.name,
               description: entity.description,
               status: entity.status,
@@ -228,8 +251,14 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
     execution: { worldId: input.state.worldId, instanceId: scope.workloadId, advanceId: scope.batchId, revision: input.state.revision, step: candidate.step },
     task: {
       assignment: { targetHandles: observerIds.map((observerId) => truthResolver.handleFor("agent", observerId)), availableHandles: truthResolver.catalog.candidates.map((entry) => entry.handle), allowedProposalKinds: ["observation"] },
-      constraints: issues,
-      observationSlots,
+      constraints: issues.map((issue) => {
+        const path = issue.path.length > 0 ? ` at ${issue.path.join(".")}` : "";
+        const original = issue.originalValue === undefined ? "" : ` 原值=${JSON.stringify(issue.originalValue)}`;
+        const allowed = issue.allowedHandles && issue.allowedHandles.length > 0
+          ? ` 允许句柄=${issue.allowedHandles.join(",")}`
+          : "";
+        return `${issue.code}${path}: ${issue.message}${original}${allowed}`;
+      }),
     },
     state: {
       world: {
@@ -254,9 +283,20 @@ function observationContext(input: RenderInput, observerIds: readonly string[], 
         summary: outcome.summary,
       })),
       currentEvents: input.proposal.events.map((event) => projectModelEvent(event, truthResolver)),
+      observationSlots,
     },
     referenceCatalog: truthResolver.catalog,
-    repair: issues.length > 0 ? { target: observerIds[0] ?? null, issues: issues.map((reason) => ({ code: "observation_validation", class: "semantic" as const, path: ["task"], originalValue: null, allowedHandles: [], reason })) } : null,
+    repair: issues.length > 0 ? {
+      target: observerIds[0] ? truthResolver.handleFor("agent", observerIds[0]) : null,
+      issues: issues.map((issue) => ({
+        code: issue.code,
+        class: issue.class ?? "semantic",
+        path: [...issue.path],
+        originalValue: issue.originalValue ?? null,
+        allowedHandles: [...(issue.allowedHandles ?? [])],
+        reason: issue.message,
+      })),
+    } : null,
   };
 }
 
@@ -274,6 +314,15 @@ function materializeModelObservationDraft(
     actions: input.actions,
     events: input.proposal.events,
     outcomes: input.proposal.outcomes,
+    extraCandidates: Object.values(observer.belief.localEntities).map((entity) => ({
+      kind: "local_entity" as const,
+      engineId: `${observerId}::${entity.id}`,
+      label: entity.name,
+      meaning: "an observer-local entity available to this observation slot",
+      allowedUses: ["target", "subject", "evidence", "source", "assertion"] as const,
+      visibility: "slot" as const,
+      statePath: `state.observationSlots.${observerId}.localEntities.${entity.id}`,
+    })),
   });
   const privateResolver = createAgentReferenceResolver(observer, []);
   const proposals = new Map<string, string>();
@@ -289,9 +338,17 @@ function materializeModelObservationDraft(
       if (!id) throw new Error(`observation references undeclared proposalKey ${reference.proposalKey}`);
       return id;
     }
-    const resolved = privateResolver.resolve(reference, "target");
-    if (resolved.kind !== "local_entity") throw new Error(`observation reference ${reference} is ${resolved.kind}, expected local_entity`);
-    return resolved.engineId;
+    try {
+      const resolved = privateResolver.resolve(reference, "target");
+      if (resolved.kind !== "local_entity") throw new Error(`observation reference ${reference} is ${resolved.kind}, expected local_entity`);
+      return resolved.engineId;
+    } catch (privateError) {
+      const resolved = truthResolver.resolve(reference, "target");
+      if (resolved.kind !== "local_entity") throw privateError;
+      const prefix = `${observerId}::`;
+      if (!resolved.engineId.startsWith(prefix)) throw privateError;
+      return resolved.engineId.slice(prefix.length);
+    }
   };
   const resolveCanonical = (reference: ModelReference | null): string | null => {
     if (reference === null) return null;
@@ -506,8 +563,14 @@ async function renderObserver(
       targetIds: [observerId],
       maxRepairs: 2,
       invoke: async (repair) => {
-        const issues = repair.issues.map((issue) =>
-          `${issue.code}${issue.path.length > 0 ? ` at ${issue.path.join(".")}` : ""}: ${issue.message}`);
+        const issues = repair.issues.map((issue) => ({
+          code: issue.code,
+          path: [...issue.path],
+          message: issue.message,
+          class: issue.class,
+          ...(issue.originalValue !== undefined ? { originalValue: structuredClone(issue.originalValue) } : {}),
+          ...(issue.allowedHandles ? { allowedHandles: [...issue.allowedHandles] } : {}),
+        }));
         const context = observationContext(input, [observerId], issues, scope);
         const bytes = requestBytes(context);
         if (bytes > profile.max_input_bytes) {

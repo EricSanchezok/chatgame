@@ -51,6 +51,7 @@ import {
 import {
   createAgentReferenceResolver,
   isProposalReference,
+  normalizeModelOutput,
   type ModelReference,
   type ReferenceResolver,
 } from "../../contracts/model-context";
@@ -312,41 +313,41 @@ function materializeCharacterPatch(
         break;
       case "update_trait":
       case "update_value":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["character_facet"]), description: operation.description, strength: operation.strength, ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.facetRef, "replacement", ["character_facet"]), description: operation.description, strength: operation.strength, ...source(operation) });
         break;
       case "retire_trait":
       case "retire_value":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["character_facet"]), ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.facetRef, "replacement", ["character_facet"]), ...source(operation) });
         break;
       case "set_emotion":
         operations.push({ kind: operation.kind, emotion: { id: newId("emotion", operation.emotion.proposalKey), description: operation.emotion.description, intensity: operation.emotion.intensity }, ...source(operation) });
         break;
       case "resolve_emotion":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["emotion"]), ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.emotionRef, "replacement", ["emotion"]), ...source(operation) });
         break;
       case "set_attitude":
         operations.push({ kind: operation.kind, attitude: { id: newId("attitude", operation.attitude.proposalKey), subjectId: resolve(operation.attitude.subjectRef, "subject", ["local_entity"]), description: operation.attitude.description, intensity: operation.attitude.intensity }, ...source(operation) });
         break;
       case "retire_attitude":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["attitude"]), ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.attitudeRef, "replacement", ["attitude"]), ...source(operation) });
         break;
       case "create_goal":
         operations.push({ kind: operation.kind, goal: { id: newId("goal", operation.goal.proposalKey), description: operation.goal.description, priority: operation.goal.priority, progress: operation.goal.progress, targetIds: operation.goal.targetRefs.map((reference) => resolve(reference, "target", ["local_entity"])), parentGoalId: operation.goal.parentGoalRef === null ? null : resolve(operation.goal.parentGoalRef, "replacement", ["goal"]), motivatedByIds: operation.goal.motivatedByRefs.map((reference) => resolve(reference, "replacement", ["character_facet", "commitment"])) }, ...source(operation) });
         break;
       case "update_goal":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["goal"]), description: operation.description, priority: operation.priority, progress: operation.progress, targetIds: operation.targetRefs === null ? null : operation.targetRefs.map((reference) => resolve(reference, "target", ["local_entity"])), parentGoal: operation.parentGoal.kind === "unchanged" ? operation.parentGoal : operation.parentGoal.kind === "none" ? operation.parentGoal : { kind: "goal", goalId: resolve(operation.parentGoal.goalRef, "replacement", ["goal"]) }, motivatedByIds: operation.motivatedByRefs === null ? null : operation.motivatedByRefs.map((reference) => resolve(reference, "replacement", ["character_facet", "commitment"])), ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.goalRef, "replacement", ["goal"]), description: operation.description, priority: operation.priority, progress: operation.progress, targetIds: operation.targetRefs === null ? null : operation.targetRefs.map((reference) => resolve(reference, "target", ["local_entity"])), parentGoal: operation.parentGoal.kind === "unchanged" ? operation.parentGoal : operation.parentGoal.kind === "none" ? operation.parentGoal : { kind: "goal", goalId: resolve(operation.parentGoal.goalRef, "replacement", ["goal"]) }, motivatedByIds: operation.motivatedByRefs === null ? null : operation.motivatedByRefs.map((reference) => resolve(reference, "replacement", ["character_facet", "commitment"])), ...source(operation) });
         break;
       case "set_goal_status":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["goal"]), status: operation.status, ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.goalRef, "replacement", ["goal"]), status: operation.status, ...source(operation) });
         break;
       case "create_commitment":
         operations.push({ kind: operation.kind, commitment: { id: newId("commitment", operation.commitment.proposalKey), description: operation.commitment.description, priority: operation.commitment.priority, subjectIds: operation.commitment.subjectRefs.map((reference) => resolve(reference, "target", ["local_entity"])) }, ...source(operation) });
         break;
       case "update_commitment":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["commitment"]), description: operation.description, priority: operation.priority, subjectIds: operation.subjectRefs === null ? null : operation.subjectRefs.map((reference) => resolve(reference, "target", ["local_entity"])), ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.commitmentRef, "replacement", ["commitment"]), description: operation.description, priority: operation.priority, subjectIds: operation.subjectRefs === null ? null : operation.subjectRefs.map((reference) => resolve(reference, "target", ["local_entity"])), ...source(operation) });
         break;
       case "set_commitment_status":
-        operations.push({ kind: operation.kind, id: resolve(operation.ref, "replacement", ["commitment"]), status: operation.status, ...source(operation) });
+        operations.push({ kind: operation.kind, id: resolve(operation.commitmentRef, "replacement", ["commitment"]), status: operation.status, ...source(operation) });
         break;
       default:
         throw new Error("characterChanges contains an unsupported operation");
@@ -505,26 +506,49 @@ function agentMindBatchContext(
   purpose: "bootstrap" | "mind" | "resume",
   slots: readonly AgentMindSlot[],
 ) {
-  return {
-    ...buildAgentSharedContext({
+  const shared = buildAgentSharedContext({
+    state,
+    instanceId: scope.workloadId,
+    advanceId: scope.batchId,
+    promptId: purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind",
+  });
+  const slotContexts = slots.map((slot, index) => ({
+    slot: index,
+    ...buildAgentSlotContext({
       state,
-      instanceId: scope.workloadId,
-      advanceId: scope.batchId,
-      promptId: purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind",
+      agent: slot.payload.agent,
+      observations: slot.payload.observations,
+      events: slot.payload.events,
+      currentAction: slot.payload.currentResolution.action,
+      currentOutcome: slot.payload.currentResolution.outcome,
+      issues: slot.issues,
     }),
-    purpose,
-    slots: slots.map((slot, index) => ({
-      slot: index,
-      ...buildAgentSlotContext({
-        state,
-        agent: slot.payload.agent,
-        observations: slot.payload.observations,
-        events: slot.payload.events,
-        currentAction: slot.payload.currentResolution.action,
-        currentOutcome: slot.payload.currentResolution.outcome,
-        issues: slot.issues,
-      }),
-    })),
+  }));
+  const slotCatalogs = slotContexts.map(({ slot, referenceCatalog }) => ({ slot, catalog: referenceCatalog }));
+  return {
+    ...shared,
+    task: {
+      assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] },
+      constraints: [],
+      slots: slotContexts.map(({ slot, task }) => ({
+        slot,
+        assignment: task.assignment,
+        constraints: task.constraints,
+      })),
+    },
+    state: {
+      slots: slotContexts.map(({ slot, state: slotState }) => ({
+        slot,
+        state: slotState,
+      })),
+    },
+    // Keep private catalogs isolated. The request-level catalog is only an
+    // integrity index and intentionally contains no candidates.
+    referenceCatalog: { version: 1, hash: contentHash(slotCatalogs), candidates: [] },
+    referenceCatalogs: slotCatalogs,
+    repair: slotContexts.some(({ repair }) => repair !== null)
+      ? { target: null, issues: slotContexts.flatMap(({ repair }) => repair?.issues ?? []) }
+      : null,
   };
 }
 
@@ -648,10 +672,41 @@ export class AgentMind {
 
           const accepted: Array<{ key: string; result: AgentMindOutput }> = [];
           const rejected: Array<{ slot: AgentMindSlot; issues: PromptValidationIssue[] }> = [];
+          const normalizedSlots: Array<{ slot: number; result: unknown }> = [];
+          let modifiedFieldCount = 0;
+          let resolvedReferenceCount = 0;
+          let proposalCount = 0;
+          let deduplicatedCount = 0;
           const ordered = [...generated.value.slots].sort((left, right) => left.slot - right.slot);
           for (const [index, draft] of ordered.entries()) {
             const slot = batch[index]!;
             try {
+              // The gateway cannot safely normalize a physical batch with one
+              // resolver: each slot has a private catalog. Normalize each
+              // parsed slot against its own catalog before materialization so
+              // AgentMind follows the same deterministic protocol as every
+              // single-slot role.
+              const slotResolver = createAgentReferenceResolver(slot.payload.agent, slot.payload.observations);
+              const normalized = normalizeModelOutput(draft, { resolver: slotResolver, dedupeArrays: true });
+              modifiedFieldCount += normalized.modifiedFieldCount;
+              resolvedReferenceCount += normalized.resolvedReferenceCount;
+              proposalCount += normalized.proposalCount;
+              deduplicatedCount += normalized.deduplicatedCount;
+              normalizedSlots.push({ slot: draft.slot, result: normalized.value });
+              if (normalized.issues.length > 0) {
+                rejected.push({
+                  slot,
+                  issues: normalized.issues.map((issue) => ({
+                    code: issue.code,
+                    class: issue.class,
+                    path: [...issue.path],
+                    message: issue.reason,
+                    originalValue: issue.originalValue,
+                    allowedHandles: [...issue.allowedHandles],
+                  })),
+                });
+                continue;
+              }
               accepted.push({
                 key: slot.key,
                 result: validateMindOutput(
@@ -659,16 +714,44 @@ export class AgentMind {
                   state,
                   slot.payload.observations,
                   slot.payload.events,
-                  draft,
+                  normalized.value,
                 ),
               });
             } catch (error) {
               rejected.push({ slot, issues: validationIssues(error) });
             }
           }
+          const invocationAudit = generated.audit.invocations.at(-1);
+          if (invocationAudit) {
+            invocationAudit.rawOutputHash ??= contentHash(generated.value);
+            invocationAudit.normalizedOutputHash = contentHash({ slots: normalizedSlots });
+            invocationAudit.normalization = {
+              applied: modifiedFieldCount > 0 || deduplicatedCount > 0,
+              modifiedFieldCount,
+              resolvedReferenceCount,
+              proposalCount,
+              deduplicatedCount,
+            };
+            observe?.({
+              event: "model.output.normalized",
+              correlation,
+              attributes: { applied: invocationAudit.normalization.applied },
+              counts: {
+                modifiedFields: modifiedFieldCount,
+                resolvedReferences: resolvedReferenceCount,
+                proposals: proposalCount,
+                deduplicated: deduplicatedCount,
+              },
+              hashes: {
+                rawOutput: invocationAudit.rawOutputHash,
+                normalizedOutput: invocationAudit.normalizedOutputHash,
+              },
+            });
+          }
           setModelInvocationResultKind(generated.audit, `agent_mind_${purpose}_batch`);
           if (rejected.length === 0) {
-            setModelInvocationOutcome(generated.audit, "accepted");
+            const normalized = invocationAudit?.normalization.applied === true;
+            setModelInvocationOutcome(generated.audit, attempt > 0 ? "llm-repaired" : normalized ? "auto-normalized" : "accepted");
             observe?.({
               event: "model.semantic.accepted",
               correlation,
@@ -677,7 +760,14 @@ export class AgentMind {
             });
           } else {
             const issues = rejected.flatMap((entry) => entry.issues);
-            setModelInvocationOutcome(generated.audit, "rejected", issues.map((issue) => issue.code));
+            setModelInvocationOutcome(generated.audit, "rejected", issues.map((issue) => ({
+              code: issue.code,
+              class: issue.class ?? "semantic",
+              path: issue.path,
+              message: issue.message,
+              ...(issue.originalValue !== undefined ? { originalValue: issue.originalValue } : {}),
+              ...(issue.allowedHandles ? { allowedHandles: [...issue.allowedHandles] } : {}),
+            })));
             observe?.({
               event: "model.semantic.rejected",
               level: "warn",
@@ -733,6 +823,9 @@ export class AgentMind {
             code: issue.code,
             path: issue.path,
             message: issue.message,
+            class: issue.class,
+            ...(issue.originalValue !== undefined ? { originalValue: structuredClone(issue.originalValue) } : {}),
+            ...(issue.allowedHandles ? { allowedHandles: [...issue.allowedHandles] } : {}),
           }));
           const context = buildReactionContext({
           state,
@@ -785,7 +878,13 @@ export class AgentMind {
         classify: (error) => validationIssues(error).map((issue) => semanticIssue(
           issue.code,
           issue.message,
-          { class: "semantic", path: issue.path, targetIds: [agent.id] },
+          {
+            class: issue.class ?? "semantic",
+            path: issue.path,
+            originalValue: issue.originalValue,
+            allowedHandles: issue.allowedHandles,
+            targetIds: [agent.id],
+          },
         )),
         onRejected: ({ audit, issues, error }) => {
           if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));

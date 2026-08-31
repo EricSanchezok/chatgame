@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   agentMindOutputSchema,
   actionGroundingSchema,
+  arrivalDraftSchema,
   causalVerificationSchema,
   observationBatchSchema,
   perceptionDirectiveSchema,
@@ -11,6 +12,7 @@ import {
   resolutionDirectiveSchema,
   resolutionPlanVerificationSchema,
   transitionProposalSchema,
+  observationRenderSchema,
 } from "../llm-schemas";
 
 const causalSource = {
@@ -108,6 +110,18 @@ describe("LLM output field ownership", () => {
     expect(actionGroundingSchema.safeParse({
       ...grounding,
       stateDependencies: { requiredExistingRefs: ["forged"], potentiallyAffectedExistingRefs: [] },
+    }).success).toBe(false);
+    expect(actionGroundingSchema.safeParse({
+      ...grounding,
+      reads: [],
+      writes: [],
+    }).success).toBe(false);
+    expect(observationRenderSchema.safeParse({ ...observation, canonicalEntityId: "key" }).success).toBe(false);
+    expect(arrivalDraftSchema.safeParse({
+      title: "进入世界",
+      scene: "你在庭院中恢复了注意。",
+      suggestions: ["观察"],
+      possibleNextActions: ["观察", "等待", "离开"],
     }).success).toBe(false);
   });
 
@@ -218,6 +232,19 @@ describe("LLM output field ownership", () => {
     ]) {
       expect(transitionProposalSchema.safeParse(transitionWith({ ...operation, ...causalSource })).success).toBe(false);
     }
+    expect(transitionProposalSchema.safeParse({ ...transitionWith(), mechanicInvocations: [{
+        proposalKey: "invoke",
+        packageId: "core-resolution",
+        ruleId: "transfer-quantity",
+        input: {},
+        ...causalSource,
+      }] }).success).toBe(false);
+    expect(transitionProposalSchema.safeParse({ ...transitionWith(), mechanicInvocations: [{
+        proposalKey: "invoke",
+        mechanicRef: "ref:mechanic:core-resolution-transfer-quantity",
+        input: {},
+        ...causalSource,
+      }] }).success).toBe(true);
 
     const base = transitionWith();
     expect(transitionProposalSchema.safeParse({ ...base, baseRevision: 9 }).success).toBe(false);
@@ -271,6 +298,12 @@ describe("LLM output field ownership", () => {
           ...output.beliefChanges.operations[0],
           evidence: { ...output.beliefChanges.operations[0].evidence, step: 1 },
         }],
+      },
+    }).success).toBe(false);
+    expect(agentMindOutputSchema.safeParse({
+      ...output,
+      beliefChanges: {
+        operations: [{ kind: "remove_local_entity", localEntityId: "old-id" }],
       },
     }).success).toBe(false);
   });

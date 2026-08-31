@@ -18,7 +18,7 @@ The scope includes Truth, action grounding, resolution planning, causal verifica
 - Cross-record fields use explicit `*Ref` names (`actorRef`, `subjectRef`, `actionRef`, `factRef`, `sourceEventRefs`). Engine-owned `id`, `revision`, timestamps, and canonical bindings are not model output fields.
 - `requiredExistingRefs` means existing records whose present values are required to evaluate the action. `potentiallyAffectedExistingRefs` means existing records whose concurrent mutation would make the action unsafe. The latter is a conflict footprint, not a list of records that the action will create or write.
 - Access is explicit: `public`, `private`, or `agents` with `agentRefs`. An access policy is not inferred from a string list.
-- Authored configuration identifiers (`packageId`, `ruleId`, `definitionId`, and mechanic profile keys) remain visible when they name a contract or rule rather than a runtime record. Runtime identity remains behind the resolver.
+- Authored configuration descriptions remain available for reasoning, but typed mechanic inputs expose their `*Id`/`*Ids` fields to the model as `*Ref`/`*Refs` handles. Runtime package, rule, definition, and profile identities remain behind the resolver at materialization time.
 
 ### Projection boundary
 
@@ -32,7 +32,7 @@ Schemas reject unknown fields and raw engine-owned fields at the model boundary.
 
 ### Compatibility
 
-The model context contract is version 13 and the Inspector projection is version 7. These are forward-only contracts: old model contexts and saved projection payloads are not migrated or accepted as alternate shapes. Persisted runtime events retain their engine-owned IDs; projection layers are responsible for request-local handles.
+The model context contract is version 13 and the Inspector projection is version 8. These are forward-only contracts: old model contexts and saved projection payloads are not migrated or accepted as alternate shapes. Persisted runtime events retain their engine-owned IDs; projection layers are responsible for request-local handles.
 
 ## Plan
 
@@ -52,4 +52,4 @@ The model context contract is version 13 and the Inspector projection is version
 
 ## Evidence
 
-Pending human approval. The permanent rationale is recorded in [ADR 0086](../decisions/0086-model-semantic-contract-and-reference-boundaries.md); implementation evidence is maintained by the linked contract tests after this draft is approved and numbered.
+Pending human approval. The permanent rationale is recorded in [Decision 0086](../decisions/0086-model-semantic-contract-and-reference-boundaries.md); implementation evidence is maintained by the linked contract tests after this draft is approved and numbered.

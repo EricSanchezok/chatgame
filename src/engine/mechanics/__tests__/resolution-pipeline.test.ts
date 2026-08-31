@@ -189,7 +189,7 @@ describe("resolution pipeline", () => {
         if (schemaName === "truth_transition_mechanic_repair") {
           mechanicRepairAttempts += 1;
           const repairContext = context as {
-            mechanicRepair: { targetInvocation: { proposalKey: string }; packageId: string; ruleId: string };
+            mechanicRepair: { targetInvocation: { proposalKey: string }; mechanicRef: string };
           };
           const canonicalTruth = (context as { canonicalTruth: { quantities: Record<string, unknown> } }).canonicalTruth;
           const existingQuantityId = Object.keys(canonicalTruth.quantities)[0];
@@ -197,11 +197,10 @@ describe("resolution pipeline", () => {
           return {
             invocation: {
               id: repairContext.mechanicRepair.targetInvocation.proposalKey,
-              packageId: repairContext.mechanicRepair.packageId,
-              ruleId: repairContext.mechanicRepair.ruleId,
+              mechanicRef: repairContext.mechanicRepair.mechanicRef,
               input: {
-                entityId: "repaired-entity",
-                profileId: "wanderer",
+                entityRef: { proposalKey: "repaired-entity" },
+                profileRef: "ref:entity_mechanics_profile:wanderer",
               },
               causes: [{ kind: "action", id: (context as { state: { actionSet: { assigned: Array<{ actionRef: string }> } } }).state.actionSet.assigned[0]!.actionRef.replace(/^ref:action:/u, "") }],
               assertions: [{ kind: "entity_lifecycle", entityId: "player", expected: "active" }],

@@ -23,8 +23,7 @@ import {
   type ModelExecutionScope,
   type StructuredModelProvider,
 } from "../models/model-provider";
-import { projectAgentPerspective } from "../cognition/agent-perspective";
-import { MODEL_CONTEXT_CONTRACT_VERSION } from "../contracts/prompts";
+import { MODEL_CONTEXT_CONTRACT_VERSION, projectAgentPerspectiveForModel } from "../contracts/prompts";
 import {
   createReferenceResolver,
   modelRoleContract,
@@ -430,7 +429,7 @@ function actionGroundingReferenceInputs(
       meaning: "the assigned action attempt",
       allowedUses: ["cause", "source"],
       visibility: "slot",
-      statePath: "task.action",
+      statePath: "state.action",
     });
     const actor = state.agents[action.actorId];
     if (!actor) continue;
@@ -626,7 +625,7 @@ export function actionGroundingSlotContext(
       actorRef: referenceResolver.handleFor("agent", action.actorId),
       targetRefs: action.targetIds.map((targetId) => referenceResolver.handleFor("local_entity", `${action.actorId}::${targetId}`)),
     },
-    actorPerspective: projectAgentPerspective(state, agent),
+    actorPerspective: projectAgentPerspectiveForModel(state, agent, referenceResolver, { includePrivateCognition: false }),
     constraints: issues,
   };
 }
@@ -650,13 +649,15 @@ export function actionGroundingContext(
         allowedProposalKinds: [],
       },
       constraints: slot.constraints,
+    },
+    state: {
+      ...shared.state,
       action: slot.action,
       actorPerspective: slot.actorPerspective,
     },
-    state: shared.state,
     referenceCatalog: shared.referenceCatalog,
     repair: issues.length > 0
-      ? { target: action.id, issues: issues.map((reason) => ({ code: "action_grounding", class: "semantic" as const, path: ["task"], originalValue: null, allowedHandles: [], reason })) }
+      ? { target: slot.action.actionRef, issues: issues.map((reason) => ({ code: "action_grounding", class: "semantic" as const, path: ["task"], originalValue: null, allowedHandles: [], reason })) }
       : null,
   };
 }

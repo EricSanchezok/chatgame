@@ -554,6 +554,11 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-inline-empty { border-inline-start: 2px solid var(--cg-border); padding-inline-start: 0.65rem; }
 .cg-inspector-observation-list { display: grid; gap: 0.45rem; margin: 0; padding-inline-start: 1rem; }
 .cg-inspector-observation-list li { padding-inline-start: 0.15rem; font-size: 0.68rem; line-height: 1.55; text-wrap: pretty; }
+.cg-inspector-issue-list { display: grid; gap: 0.45rem; margin: 0; padding: 0; list-style: none; }
+.cg-inspector-issue-list li { display: grid; gap: 0.16rem; min-width: 0; padding: 0.5rem 0.6rem; border: 1px solid var(--cg-border); border-radius: calc(var(--cg-radius) - 4px); background: var(--cg-muted); font-size: 0.66rem; line-height: 1.45; }
+.cg-inspector-issue-list strong { color: var(--cg-destructive); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.61rem; overflow-wrap: anywhere; }
+.cg-inspector-issue-list span { color: var(--cg-foreground); overflow-wrap: anywhere; }
+.cg-inspector-issue-list code { color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.58rem; overflow-wrap: anywhere; white-space: pre-wrap; }
 .cg-inspector-record-list { display: grid; gap: 0.45rem; }
 .cg-inspector-change-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border-radius: var(--cg-radius); background: var(--cg-muted); }
 .cg-inspector-change-summary > div { min-width: 0; display: grid; gap: 0.2rem; padding: 0.7rem 0.45rem; text-align: center; }

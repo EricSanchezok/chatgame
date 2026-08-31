@@ -431,6 +431,11 @@ describe("eager reference safeguards", () => {
     expect(batched.provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
     expect(singleton.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(2);
     expect(batched.provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(1);
+    const batchedCompilationRequest = batched.provider.requests.find((request) => request.role === "action-compilation");
+    expect((batchedCompilationRequest?.context as { referenceCatalog?: { candidates?: unknown[] } }).referenceCatalog?.candidates)
+      .toEqual([]);
+    expect((batchedCompilationRequest?.context as { referenceCatalogs?: unknown[] }).referenceCatalogs)
+      .toHaveLength(2);
   });
 
   it("starts known action compilation before a resumed AgentMind completes", async () => {
@@ -531,7 +536,8 @@ describe("eager reference safeguards", () => {
     expect(result.committed.operations.filter((operation) => operation.kind === "advance_time")).toHaveLength(1);
     const truthResolutionRequests = provider.requests.filter((request) => request.role === "truth-resolution");
     expect(truthResolutionRequests.length).toBeGreaterThan(0);
-    expect(truthResolutionRequests.every((request) => request.schemaName === "truth_resolution_batch"))
+    expect(truthResolutionRequests.every((request) =>
+      request.schemaName === "truth_resolution_directive" || request.schemaName === "truth_resolution_batch"))
       .toBe(true);
     expect(contentHash(replaySimulationState(result.state).truth)).toBe(contentHash(result.state.truth));
   });
@@ -541,7 +547,7 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "agent-mind") {
         return deterministicAgentMindBatch(context, (output, slot) => {
-          if (!rejectedKeeper && slot.state.perspective.agentId === "keeper") {
+          if (!rejectedKeeper && slot.state.perspective.agentRef === "ref:agent:keeper") {
           output.nextActionIntent.targetHandles = ["ref:local_entity:unknown-local-target" as ExistingReferenceHandle];
             rejectedKeeper = true;
           }
@@ -571,8 +577,8 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "agent-mind");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { slots: Array<{ state: { perspective: { agentId: string } } }> }).slots
-        .map((slot) => slot.state.perspective.agentId))).toEqual([
+      (request.context as { state: { slots: Array<{ state: { perspective: { agentRef: string } } }> } }).state.slots
+        .map((slot) => slot.state.perspective.agentRef.replace(/^ref:agent:/u, "")))).toEqual([
       ["keeper", "player"],
       ["keeper"],
     ]);
@@ -613,21 +619,21 @@ describe("eager reference safeguards", () => {
     expect(requests).toHaveLength(6);
     expect(requests.map((request) => {
       const context = request.context as {
-        purpose: "bootstrap" | "resume" | "mind";
-      slots: Array<{ state: { perspective: { agentId: string } } }>;
+        roleContract: { role: "agent-bootstrap" | "agent-mind" };
+        state: { slots: Array<{ state: { perspective: { agentRef: string } } }> };
       };
       return {
-        purpose: context.purpose,
+        role: context.roleContract.role,
         profileId: request.profileId,
-        agents: context.slots.map((slot) => slot.state.perspective.agentId),
+      agents: context.state.slots.map((slot) => slot.state.perspective.agentRef.replace(/^ref:agent:/u, "")),
       };
     })).toEqual([
-      { purpose: "bootstrap", profileId: "agent-deepseek", agents: ["player"] },
-      { purpose: "bootstrap", profileId: "agent-openai", agents: ["keeper"] },
-      { purpose: "resume", profileId: "agent-deepseek", agents: ["player"] },
-      { purpose: "resume", profileId: "agent-xai", agents: ["keeper"] },
-      { purpose: "mind", profileId: "agent-deepseek", agents: ["player"] },
-      { purpose: "mind", profileId: "agent-xai", agents: ["keeper"] },
+      { role: "agent-bootstrap", profileId: "agent-deepseek", agents: ["player"] },
+      { role: "agent-bootstrap", profileId: "agent-openai", agents: ["keeper"] },
+      { role: "agent-mind", profileId: "agent-deepseek", agents: ["player"] },
+      { role: "agent-mind", profileId: "agent-xai", agents: ["keeper"] },
+      { role: "agent-mind", profileId: "agent-deepseek", agents: ["player"] },
+      { role: "agent-mind", profileId: "agent-xai", agents: ["keeper"] },
     ]);
   });
 
@@ -666,7 +672,7 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "action-compilation");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { task: { slots: Array<{ action: { actorRef: string } }> } }).task.slots
+      (request.context as { state: { slots: Array<{ action: { actorRef: string } }> } }).state.slots
         .map((slot) => slot.action.actorRef.replace(/^ref:agent:/u, "")))).toEqual([
       ["keeper", "player"],
       ["keeper"],
@@ -687,7 +693,7 @@ describe("eager reference safeguards", () => {
             basis: { kind: "default" },
           }];
         } else {
-          repairedIssues = (context as { slots: Array<{ constraints: string[] }> }).slots
+          repairedIssues = (context as { task: { slots: Array<{ constraints: string[] }> } }).task.slots
             .map((slot) => slot.constraints);
         }
         return output;
@@ -756,7 +762,7 @@ describe("eager reference safeguards", () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "agent-mind") {
         return deterministicAgentMindBatch(context, (output, slot) => {
-          if (slot.state.perspective.agentId === "keeper") output.nextActionIntent.targetHandles = ["ref:local_entity:unknown-local-target" as ExistingReferenceHandle];
+          if (slot.state.perspective.agentRef === "ref:agent:keeper") output.nextActionIntent.targetHandles = ["ref:local_entity:unknown-local-target" as ExistingReferenceHandle];
         });
       }
       return deterministicModelOutput(profileId, context);
@@ -857,7 +863,7 @@ describe("eager reference safeguards", () => {
       request.role === "observation-renderer" && request.schemaName === "observation_projection_batch");
     expect(globalProjections.length).toBeGreaterThan(0);
     expect(globalProjections.reduce((total, request) =>
-      total + ((request.context as { slots?: unknown[] }).slots?.length ?? 0), 0)).toBeGreaterThanOrEqual(2);
+      total + ((request.context as { state?: { slots?: unknown[] } }).state?.slots?.length ?? 0), 0)).toBeGreaterThanOrEqual(2);
   });
 
   it("creates and bootstraps multiple dynamic Agents with a cohort profile", async () => {
@@ -1069,8 +1075,8 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
     const finalMind = provider.requests.filter((request) => request.role === "agent-mind").at(-1);
     const playerSlot = (finalMind?.context as {
-      slots?: Array<{ state: { perspective: { agentId: string }; observations: unknown[] } }>;
-    }).slots?.find((slot) => slot.state.perspective.agentId === "player");
+      state?: { slots?: Array<{ state: { perspective: { agentRef: string }; observations: unknown[] } }> };
+    }).state?.slots?.find((slot) => slot.state.perspective.agentRef === "ref:agent:player");
     expect(playerSlot?.state.observations).toHaveLength(2);
     expect(second.state.agents.player.observationCursorStep).toBe(2);
 
@@ -1630,7 +1636,7 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation"))
       .toHaveLength(2);
     expect(provider.requests.filter((request) => request.role === "action-compilation")
-      .flatMap((request) => (request.context as { task: { slots: Array<{ action: AgentActionProposal }> } }).task.slots)
+      .flatMap((request) => (request.context as { state: { slots: Array<{ action: AgentActionProposal }> } }).state.slots)
       .map((slot) => slot.action.rawText))
       .toContain("抓起庭院沙土戒备");
   });

@@ -6,7 +6,7 @@ import {
   type PromptBundleId,
 } from ".";
 import path from "node:path";
-import { buildTruthContext } from "../contracts/prompts";
+import { buildAgentContext, buildTruthContext } from "../contracts/prompts";
 import { loadWorldScript } from "../../script/world-loader";
 import { DeterministicModelProvider } from "../testing/model-provider";
 import type { AgentActionProposal } from "../contracts/model";
@@ -36,6 +36,13 @@ describe("external prompt resources", () => {
       expect(bundle.userPrompt).not.toMatch(/[\u3400-\u9fff]/u);
       expect(bundle.system).not.toMatch(/\{\{[^}]+\}\}/u);
       expect(bundle.userPrompt).not.toMatch(/\{\{[^}]+\}\}/u);
+      expect(bundle.system, id).toContain("Model responsibility:");
+      expect(bundle.system, id).toContain("Engine responsibility:");
+      expect(bundle.system, id).toContain("Existing references:");
+      expect(bundle.system, id).toContain("New proposals:");
+      expect(bundle.system, id).toContain("Failure handling:");
+      expect(bundle.system, id).toContain("## Failure examples");
+      expect(bundle.system, id).toContain("Never choose the closest label");
       expect(bundle.version).toMatch(new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}@[a-f0-9]{16}$`));
       versions.add(bundle.version);
     }
@@ -113,7 +120,8 @@ describe("external prompt resources", () => {
         selectedActionIds: [actions[0]!.id],
         totalActionCount: actions.length,
       },
-    }) as {
+    }) as unknown as {
+      task: { resolutionScope: { selectedActionRefs: string[] } };
       state: {
         canonicalTruth: unknown;
         actionSet: {
@@ -131,5 +139,35 @@ describe("external prompt resources", () => {
       actorRef: expect.stringMatching(/^ref:agent:/u),
       rawText: "action-0",
     });
+    expect((context as { task: { resolutionScope: { selectedActionRefs: string[] } } }).task.resolutionScope.selectedActionRefs)
+      .toEqual(["ref:action:context-action-0"]);
+    expect(JSON.stringify(context)).not.toContain("selectedActionIds");
+  });
+
+  it("projects Agent cognition without persistence ids or canonical bindings", () => {
+    const provider = new DeterministicModelProvider();
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const state = structuredClone(definition.initialState);
+    const agent = Object.values(state.agents)[0]!;
+    const context = buildAgentContext({
+      state,
+      agent,
+      observations: [],
+      events: [],
+      currentAction: null,
+      currentOutcome: null,
+      instanceId: "instance",
+      advanceId: "advance",
+      issues: [],
+    }) as Record<string, unknown>;
+    const perspectiveJson = JSON.stringify((context.state as Record<string, unknown>).perspective);
+    expect(perspectiveJson).not.toContain("canonicalEntityIds");
+    expect(perspectiveJson).not.toContain("localEntityId");
+    expect(perspectiveJson).not.toContain("\"agentId\"");
+    expect(perspectiveJson).not.toContain("view:");
+    expect(perspectiveJson).not.toContain("unresolved-");
   });
 });

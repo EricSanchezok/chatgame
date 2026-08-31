@@ -29,7 +29,7 @@ Model requests combined natural-language intent with engine-owned runtime record
 
 Use one semantic model protocol across model roles. Existing records are exposed through a request-local `referenceCatalog` with a handle, kind, human meaning, allowed uses, and visibility. New records use `proposalKey`; cross-record fields use explicit `*Ref` names. The action dependency contract distinguishes `requiredExistingRefs` from `potentiallyAffectedExistingRefs`, making the second a concurrency footprint rather than a future write list. Access policies use explicit `public`, `private`, or `agents` forms with agent references.
 
-The server projects Truth, actions, dependencies, plans, checks, random results, events, observations, and history before prompt composition. Candidate-only references use a task catalog. The materializer resolves references and assigns engine identities only after schema and semantic validation. Causal verifier findings are materialized from `{ kind, ref }` targets before they enter the internal verification type. Observer contexts contain only an authorized scoped truth projection. Context overflow is handled by deterministic bisection of a batch, preserving logical slot results.
+The server projects Truth, actions, dependencies, plans, checks, random results, events, observations, and history before prompt composition. Candidate-only references use a task catalog. Typed mechanic contracts are projected with `*Ref`/`*Refs` fields even though runtime rules consume `*Id`/`*Ids`; the materializer resolves those handles and assigns engine identities only after schema and semantic validation. Causal verifier findings are materialized from `{ kind, ref }` targets before they enter the internal verification type. Observer contexts contain only an authorized scoped truth projection. Context overflow is handled by deterministic bisection of a batch, preserving logical slot results.
 
 The protocol is forward-only. Model context version 13 and the Inspector projection version 8 are the active contracts. Persisted runtime events keep their internal identities, while the Inspector projects globally unique invocation IDs as `${executionId}::${sourceInvocationId}`.
 
@@ -58,7 +58,7 @@ The protocol is forward-only. Model context version 13 and the Inspector project
 ## Links
 
 - [Model semantic contract draft](../specs/draft-model-semantic-contract.md)
-- [Model-output field ownership](0060-model-output-field-ownership.md)
+- Supersedes [Model-output field ownership](0060-model-output-field-ownership.md).
 - [Open semantic resolution plans](0067-open-semantic-resolution-plans.md)
 - [Causal assurance and staged model profiles](0042-causal-assurance-and-staged-model-profiles.md)
 - [World Inspector hierarchical selection](0085-world-inspector-hierarchical-selection.md)

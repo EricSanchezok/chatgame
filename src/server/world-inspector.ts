@@ -477,10 +477,19 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     const responseEvent = [...ordered].reverse().find((event) => event.event === "model.transport.response.raw");
     const outputEvent = [...ordered].reverse().find((event) =>
       event.event === "model.structured_output.parsed" || event.event === "model.structured_output.rejected");
+    const normalizationEvent = [...ordered].reverse().find((event) => event.event === "model.output.normalized");
     const invocationMs = started && terminal
       ? Math.max(0, Date.parse(terminal.timestamp) - Date.parse(started.timestamp)) : undefined;
     const errorEvent = [...ordered].reverse().find((event) => event.error);
     const issueCodes = new Set<string>();
+    const issueDetails = new Map<string, {
+      code: string;
+      class: string;
+      path: Array<string | number>;
+      message: string;
+      originalValue?: unknown;
+      allowedHandles?: string[];
+    }>();
     for (const event of ordered) {
       if (event.error?.name) issueCodes.add(event.error.name);
       const payload = event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : undefined;
@@ -488,11 +497,36 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       if (Array.isArray(issues)) {
         issues.forEach((issue) => {
           if (issue && typeof issue === "object" && typeof (issue as { code?: unknown }).code === "string") {
-            issueCodes.add((issue as { code: string }).code);
+            const value = issue as {
+              code: string;
+              class?: unknown;
+              path?: unknown;
+              message?: unknown;
+              reason?: unknown;
+              originalValue?: unknown;
+              allowedHandles?: unknown;
+            };
+            issueCodes.add(value.code);
+            const path = Array.isArray(value.path)
+              ? value.path.filter((part): part is string | number => typeof part === "string" || typeof part === "number")
+              : [];
+            const key = `${value.code}:${JSON.stringify(path)}:${String(value.message ?? value.reason ?? value.code)}`;
+            issueDetails.set(key, {
+              code: value.code,
+              class: typeof value.class === "string" ? value.class : "semantic",
+              path,
+              message: typeof value.message === "string" ? value.message : typeof value.reason === "string" ? value.reason : value.code,
+              ...(value.originalValue !== undefined ? { originalValue: structuredClone(value.originalValue) } : {}),
+              ...(Array.isArray(value.allowedHandles) ? { allowedHandles: value.allowedHandles.filter((handle): handle is string => typeof handle === "string") } : {}),
+            });
           }
         });
       }
     }
+    const normalizationCounts = normalizationEvent?.counts ?? {};
+    const normalizationApplied = normalizationEvent?.attributes?.applied === true;
+    const normalizedOutputHash = normalizationEvent?.hashes?.normalizedOutput ?? outputEvent?.hashes?.response ?? null;
+    const rawOutputHash = normalizationEvent?.hashes?.rawOutput ?? outputEvent?.hashes?.response ?? null;
     const tokenUsage = modelTokenUsage(ordered);
     const context = contextDocument?.context;
     const requestMeasurements = contextEvent?.measurements;
@@ -503,13 +537,13 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       ...(payloadEventId(contextEvent) ? { context: worldInspectorRuntimeEventId(contextEvent!) } : {}),
       ...(payloadEventId(requestEvent) ? { request: worldInspectorRuntimeEventId(requestEvent!) } : {}),
       ...(payloadEventId(responseEvent) ? { response: worldInspectorRuntimeEventId(responseEvent!) } : {}),
-      ...(payloadEventId(outputEvent) ? { output: worldInspectorRuntimeEventId(outputEvent!) } : {}),
+      ...((normalizationEvent ?? outputEvent) ? { output: worldInspectorRuntimeEventId((normalizationEvent ?? outputEvent)!) } : {}),
     };
     const artifactHashes = {
       ...(contextEvent?.hashes?.request ? { context: contextEvent.hashes.context ?? contextEvent.hashes.request } : {}),
       ...(requestEvent?.hashes?.request ? { request: requestEvent.hashes.request } : {}),
       ...(responseEvent?.hashes?.response ? { response: responseEvent.hashes.response } : {}),
-      ...(outputEvent?.hashes?.response ? { output: outputEvent.hashes.response } : {}),
+      ...(normalizationEvent?.hashes?.normalizedOutput ?? outputEvent?.hashes?.response ? { output: normalizationEvent?.hashes?.normalizedOutput ?? outputEvent?.hashes?.response } : {}),
     };
     return {
       id,
@@ -553,14 +587,47 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
         ? "rejected"
         : ordered.some((event) => event.event === "model.semantic.repaired")
           ? "llm-repaired"
-          : "accepted",
-      issues: [...issueCodes].map((code) => ({ code, class: "semantic", path: [], message: code })),
-      normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+          : normalizationApplied ? "auto-normalized" : "accepted",
+      issues: (() => {
+        const details = new Map(issueDetails);
+        for (const code of issueCodes) {
+          if (details.has(`${code}:[]:${code}`) || [...details.values()].some((issue) => issue.code === code)) continue;
+          const event = ordered.find((candidate) => candidate.error?.name === code);
+          details.set(`${code}:[]:${code}`, {
+            code,
+            class: code.includes("Transport") ? "transport" : code.includes("Schema") ? "structure" : "semantic",
+            path: [],
+            message: event?.error?.message ?? code,
+          });
+        }
+        return [...details.values()];
+      })(),
+      normalization: {
+        applied: normalizationApplied,
+        modifiedFieldCount: typeof normalizationCounts.modifiedFields === "number" ? normalizationCounts.modifiedFields : 0,
+        resolvedReferenceCount: typeof normalizationCounts.resolvedReferences === "number" ? normalizationCounts.resolvedReferences : 0,
+        proposalCount: typeof normalizationCounts.proposals === "number" ? normalizationCounts.proposals : 0,
+        deduplicatedCount: typeof normalizationCounts.deduplicated === "number" ? normalizationCounts.deduplicated : 0,
+      },
       referenceCatalogVersion: 1,
-      referenceCatalogHash: typeof context === "object" && context !== null && !Array.isArray(context) && "referenceCatalog" in context
-        ? contentHash((context as { referenceCatalog: unknown }).referenceCatalog) : contentHash(null),
-      rawOutputHash: outputEvent?.hashes?.response ?? null,
-      normalizedOutputHash: outputEvent?.hashes?.response ?? null,
+      referenceCatalogHash: (() => {
+        if (typeof context !== "object" || context === null || Array.isArray(context)) return contentHash(null);
+        const envelope = context as {
+          referenceCatalog?: { hash?: unknown };
+          referenceCatalogs?: readonly { slot: number; catalog?: { hash?: unknown } }[];
+        };
+        if (typeof envelope.referenceCatalog?.hash === "string") return envelope.referenceCatalog.hash;
+        if (Array.isArray(envelope.referenceCatalogs)) {
+          const scopedHashes = envelope.referenceCatalogs
+            .map((entry) => ({ slot: entry.slot, hash: entry.catalog?.hash }))
+            .filter((entry): entry is { slot: number; hash: string } => typeof entry.hash === "string")
+            .sort((left, right) => left.slot - right.slot);
+          if (scopedHashes.length > 0) return contentHash(scopedHashes);
+        }
+        return contentHash(null);
+      })(),
+      rawOutputHash,
+      normalizedOutputHash,
       ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
       hasPayload: ordered.some((event) => event.payload !== undefined),
     } satisfies WorldInspectorModelInvocationSummary;

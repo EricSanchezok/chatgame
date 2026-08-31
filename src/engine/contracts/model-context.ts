@@ -64,11 +64,19 @@ export type ModelReferenceKind =
   | "rating"
   | "meter"
   | "quantity"
+  | "quantity_definition"
+  | "meter_definition"
+  | "rating_definition"
   | "placement"
   | "condition"
+  | "condition_profile"
+  | "duration_profile"
+  | "impact_profile"
+  | "entity_mechanics_profile"
   | "activity"
   | "temporal_profile"
   | "timer"
+  | "resolution_receipt"
   | "law"
   | "mechanic"
   | "shared_resource_pool"
@@ -159,6 +167,87 @@ export function modelRoleContract(role: string): ModelRoleContract {
       proposalRule: "action compilation does not create canonical records; do not use proposalKey",
       failureRule: "leave uncertain handles out and report the exact slot issue for targeted repair",
     },
+    "action-grounding": {
+      role,
+      purpose: "ground one action's semantic interaction footprint and audience without changing the action",
+      modelOwns: ["required existing references", "potentially affected existing references", "audience and resource claims"],
+      engineOwns: ["action and actor identity", "canonical reads/writes projection", "conflict validation", "global fallback decisions"],
+      existingReferenceRule: "select only existing action, entity, agent, rating, condition, activity, and resource-pool handles from this action's catalog",
+      proposalRule: "grounding cannot create records; do not use proposalKey",
+      failureRule: "return a precise footprint issue instead of inventing a state record or widening to global scope",
+    },
+    "truth-perception": {
+      role,
+      purpose: "decide which authored checks and random requests are justified by the assigned action semantics",
+      modelOwns: ["check stakes", "visible actor and target selection", "modifier sources", "requested random distributions"],
+      engineOwns: ["check and random request identity", "phase", "revision", "dice and totals", "canonical state"],
+      existingReferenceRule: "select actors, targets, ratings, laws, facts, and distributions only from this stage's catalog",
+      proposalRule: "request records use proposalKey only for same-response references; the engine assigns request identities",
+      failureRule: "omit an unsupported request and identify the exact missing handle or semantic justification",
+    },
+    "truth-reaction-routing": {
+      role,
+      purpose: "route an observable stimulus to eligible Agent subjects with an explicit causal basis",
+      modelOwns: ["eligible subject selection", "stimulus interpretation", "routing basis"],
+      engineOwns: ["reaction request identity", "subject ownership", "private cognition", "revision"],
+      existingReferenceRule: "use only stimulus, source-action, Agent, fact, placement, and check handles supplied for this stage",
+      proposalRule: "routing does not create world records; do not invent proposal identities",
+      failureRule: "return no route when eligibility is unproven and report the exact causal gap",
+    },
+    "truth-resolution": {
+      role,
+      purpose: "commit semantically grounded action plans before the engine requests or consumes resolution randomness",
+      modelOwns: ["plan goal, means, difficulty, risk, effects, and causal support"],
+      engineOwns: ["plan identity", "check phase and randomness", "numeric modifiers", "persistent IDs", "commit ordering"],
+      existingReferenceRule: "select action, actor, target, law, fact, rating, placement, and mechanic handles from the assigned scope",
+      proposalRule: "new effects use proposalKey only where the schema allows; never emit a plan ID",
+      failureRule: "reject only the affected plan with its exact unsupported reference or causal issue",
+    },
+    "truth-transition": {
+      role,
+      purpose: "propose the next canonical transition from committed plans, results, mechanics, and evidence",
+      modelOwns: ["semantic operations, events, outcomes, and typed mechanic inputs"],
+      engineOwns: ["existing state, operation identity, timestamps, revision, persistent IDs, conservation, atomic commit"],
+      existingReferenceRule: "use existing-state handles for reads, causes, assertions, and targets; use mechanic handles only with their typed contract",
+      proposalRule: "declare new entities, facts, agents, events, outcomes, and operations with unique proposalKey values",
+      failureRule: "isolate the invalid proposal or mechanic invocation and report its exact path; never turn an unknown handle into global state",
+    },
+    "resolution-plan-verifier": {
+      role,
+      purpose: "verify candidate resolution plans against canonical evidence and committed constraints",
+      modelOwns: ["verdict", "finding target", "evidence handles", "repair hint"],
+      engineOwns: ["plan identity", "canonical truth", "check results", "commit and retry boundaries"],
+      existingReferenceRule: "target only plans and evidence handles in this verification scope",
+      proposalRule: "verification findings do not create world records",
+      failureRule: "return a finding at the smallest affected handle and precise JSON path rather than broad rejection",
+    },
+    "observation-renderer": {
+      role,
+      purpose: "render an observer-scoped, uncertainty-preserving observation from a committed transition",
+      modelOwns: ["summary", "introductions", "apparent claims", "visible uncertainty"],
+      engineOwns: ["observer identity", "packet identity", "canonical bindings", "step", "source event linkage"],
+      existingReferenceRule: "use only authorized entity and event handles in the observer's catalog",
+      proposalRule: "new entities are observer-local proposalKey records, never canonical IDs",
+      failureRule: "omit unsupported introductions and report the exact privacy or reference issue",
+    },
+    "causal-verifier": {
+      role,
+      purpose: "audit a candidate transition for causal, assertion, mechanic, and privacy consistency",
+      modelOwns: ["verdict", "targeted findings", "supporting evidence", "repair hint"],
+      engineOwns: ["candidate identity", "canonical state", "assertion execution", "commit decision"],
+      existingReferenceRule: "use only candidate, evidence, action, mechanic, and committed-state handles from this scope",
+      proposalRule: "verification never creates canonical records or new proposals",
+      failureRule: "identify one concrete causal gap at its exact path; do not speculate or widen the affected scope",
+    },
+    "arrival-generator": {
+      role,
+      purpose: "write a first-person arrival scene and editable possible next actions from one Agent perspective",
+      modelOwns: ["scene prose", "voice", "possible next actions"],
+      engineOwns: ["participant and Agent identity", "world state", "action identity", "persistence"],
+      existingReferenceRule: "do not invent references; use the supplied perspective only",
+      proposalRule: "possibleNextActions are text possibilities, not state proposals or executed actions",
+      failureRule: "fall back to a neutral scene when the perspective is insufficient",
+    },
   };
   return contracts[role] ?? {
     role,
@@ -202,7 +291,8 @@ export interface ModelRepairIssue {
   class: "structure" | "reference" | "mechanic" | "privacy" | "causal" | "semantic";
   path: Array<string | number>;
   originalValue: unknown;
-  allowedHandles: readonly ExistingReferenceHandle[];
+  /** Handles are serialized diagnostics; the resolver still enforces the branded type at lookup time. */
+  allowedHandles: readonly string[];
   reason: string;
 }
 
@@ -230,9 +320,37 @@ export interface ModelContextEnvelope<TState = unknown> {
   state: TState;
   referenceCatalog: ModelReferenceCatalog;
   repair: {
-    target: string | null;
+    /** The object being repaired, as an existing handle or same-output proposal key. */
+    target: ModelReference | null;
     issues: readonly ModelRepairIssue[];
   } | null;
+}
+
+/**
+ * A batched model request still has one protocol envelope.  Slot-private
+ * catalogs live in `referenceCatalogs` and are repeated only as indexes in
+ * `task.slots`/`state.slots`; the top-level catalog is intentionally empty so
+ * a handle from one slot cannot be mistaken for a handle in another slot.
+ */
+export interface ModelBatchContextEnvelope<TSlotState = unknown> extends Omit<
+  ModelContextEnvelope<{ slots: readonly { slot: number; state: TSlotState }[] }>,
+  "task" | "state" | "referenceCatalog"
+> {
+  task: ModelTask & {
+    slots: readonly {
+      slot: number;
+      assignment: ModelTaskAssignment;
+      constraints: readonly string[];
+    }[];
+  };
+  state: {
+    slots: readonly { slot: number; state: TSlotState }[];
+  };
+  referenceCatalog: ModelReferenceCatalog;
+  referenceCatalogs: readonly {
+    slot: number;
+    catalog: ModelReferenceCatalog;
+  }[];
 }
 
 export interface ReferenceResolution {
@@ -413,7 +531,8 @@ export class ModelReferenceError extends Error {
 }
 
 function isReferenceField(key: string): boolean {
-  return key === "ref" || key.endsWith("Ref") || key.endsWith("Refs") || key === "evidenceHandles";
+  return key === "ref" || key.endsWith("Ref") || key.endsWith("Refs") ||
+    key.endsWith("Handle") || key.endsWith("Handles");
 }
 
 /** Validate every model-facing reference in a parsed value against the
@@ -614,6 +733,15 @@ export function createAgentReferenceResolver(
   observations: readonly ObservationPacket[] = [],
 ): ReferenceResolver {
   const candidates: ReferenceCandidateInput[] = [
+    {
+      kind: "agent",
+      engineId: agent.id,
+      label: "this Agent",
+      meaning: "the Agent whose private state owns this request",
+      allowedUses: ["actor", "target", "audience", "source"],
+      visibility: "slot",
+      statePath: "execution.subject",
+    },
     ...Object.values(agent.belief.localEntities).map((entity) => ({
       kind: "local_entity" as const,
       engineId: entity.id,
@@ -704,6 +832,23 @@ export function createAgentReferenceResolver(
       visibility: "slot" as const,
       statePath: `state.observations.${observation.id}`,
     })),
+    ...observations.flatMap((observation) => {
+      const localIds = new Set<string>([
+        ...observation.introductions.map((introduction) => introduction.localEntity.id),
+        ...observation.apparentClaims.map((claim) => claim.subjectId),
+        ...observation.apparentClaims.flatMap((claim) =>
+          claim.value.kind === "local_entity" ? [claim.value.localEntityId] : []),
+      ]);
+      return [...localIds].map((localId) => ({
+        kind: "local_entity" as const,
+        engineId: localId,
+        label: localId,
+        meaning: "an observer-local entity named in delivered evidence",
+        allowedUses: ["target", "subject", "evidence", "assertion"] as const,
+        visibility: "slot" as const,
+        statePath: `state.observations.${observation.id}.localEntities.${localId}`,
+      }));
+    }),
   ];
   return createReferenceResolver(candidates);
 }

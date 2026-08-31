@@ -36,6 +36,63 @@ export interface MechanicPromptContract {
   inputSchema: unknown;
 }
 
+/**
+ * Project a runtime mechanic input schema into the vocabulary used by the
+ * model protocol. Runtime rules intentionally keep `*Id`/`*Ids` fields: the
+ * rule implementation receives canonical identities after materialization.
+ * A model must see the same typed shape with `*Ref`/`*Refs` fields instead, so
+ * it cannot mistake an engine id for a model-owned value. This only rewrites
+ * JSON Schema metadata; runtime validation continues to use the authored
+ * Zod schema in the registry.
+ */
+export function projectMechanicInputSchema(input: unknown): unknown {
+  const rewriteKey = (key: string): string =>
+    key.endsWith("Ids") ? `${key.slice(0, -3)}Refs` :
+      key.endsWith("Id") ? `${key.slice(0, -2)}Ref` : key;
+  const visit = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!value || typeof value !== "object") return value;
+    const object = value as Record<string, unknown>;
+    const output: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(object)) {
+      if (key === "properties" && child && typeof child === "object" && !Array.isArray(child)) {
+        const properties: Record<string, unknown> = {};
+        for (const [propertyName, propertySchema] of Object.entries(child as Record<string, unknown>)) {
+          const modelName = rewriteKey(propertyName);
+          const projected = visit(propertySchema);
+          if (modelName !== propertyName && projected && typeof projected === "object" && !Array.isArray(projected)) {
+            const schema = projected as Record<string, unknown>;
+            const description = typeof schema.description === "string" ? schema.description : "";
+            const hint = "模型引用字段：使用当前请求目录中的 ref 句柄，不要填写引擎 ID。";
+            const next: Record<string, unknown> = {
+              ...schema,
+              description: description ? `${description} ${hint}` : hint,
+            };
+            if (next.type === "string" && next.pattern === undefined) next.pattern = "^ref:";
+            if (next.type === "array" && next.items && typeof next.items === "object" && !Array.isArray(next.items)) {
+              const items = { ...(next.items as Record<string, unknown>) };
+              if (items.type === "string" && items.pattern === undefined) items.pattern = "^ref:";
+              next.items = items;
+            }
+            properties[modelName] = next;
+          } else {
+            properties[modelName] = projected;
+          }
+        }
+        output[key] = properties;
+        continue;
+      }
+      if (key === "required" && Array.isArray(child)) {
+        output[key] = child.map((entry) => typeof entry === "string" ? rewriteKey(entry) : entry);
+        continue;
+      }
+      output[key] = visit(child);
+    }
+    return output;
+  };
+  return visit(input);
+}
+
 export interface MechanicInputValidationIssue {
   path: Array<string | number>;
   message: string;
@@ -250,7 +307,7 @@ export class RulePackageRegistry {
         version: rulePackage.version,
         ruleId: rule.id,
         description: rule.description,
-        inputSchema: z.toJSONSchema(rule.inputSchema, { target: "draft-07" }),
+        inputSchema: projectMechanicInputSchema(z.toJSONSchema(rule.inputSchema, { target: "draft-07" })),
       }));
     }).sort((left, right) =>
       `${left.packageId}:${left.ruleId}`.localeCompare(`${right.packageId}:${right.ruleId}`));

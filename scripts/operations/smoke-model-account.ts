@@ -8,6 +8,7 @@ import { createModelGateway } from "../../src/engine/models/model-gateway";
 import { promptBundle } from "../../src/engine/prompts";
 import { ModelRegistry } from "../../src/engine/models/model-registry";
 import { createModelFetchResolver } from "../../src/engine/models/model-network";
+import { MODEL_CONTEXT_CONTRACT_VERSION, modelRoleContract } from "../../src/engine/contracts/model-context";
 
 function accountArgument(argv: readonly string[]): string {
   const index = argv.indexOf("--account");
@@ -50,7 +51,24 @@ async function main(): Promise<void> {
       schemaName: "live_smoke_output",
       system: prompt.system,
       userPrompt: prompt.userPrompt,
-      context: { instruction: "Return ok=true and a brief provider-neutral message." },
+      context: {
+        contractVersion: MODEL_CONTEXT_CONTRACT_VERSION,
+        roleContract: modelRoleContract(profile.allowedRoles.includes("agent-mind") ? "agent-mind" : profile.allowedRoles[0]!),
+        execution: {
+          worldId: "live-smoke",
+          instanceId: `live-smoke:${accountId}`,
+          advanceId: randomUUID(),
+          revision: 0,
+          step: 0,
+        },
+        task: {
+          assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] },
+          constraints: ["Return ok=true and a brief provider-neutral message."],
+        },
+        state: { instruction: "Return ok=true and a brief provider-neutral message." },
+        referenceCatalog: { version: 1, hash: "live-smoke-empty", candidates: [] },
+        repair: null,
+      },
       schema: z.strictObject({ ok: z.literal(true), message: z.string().min(1).max(200) }),
       runtimeIdentity: { worldHash: `sha256:${"0".repeat(64)}`, revision: 0 },
     });

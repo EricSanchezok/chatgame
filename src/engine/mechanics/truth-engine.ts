@@ -70,7 +70,7 @@ import {
 } from "../models/model-provider";
 import { contentHash } from "../models/model-audit";
 import { ModelOverloadedError } from "../models/model-scheduler";
-import { runtimeEventEmitter, serializeRuntimeError } from "../runtime/observability";
+import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "../runtime/observability";
 import { validateObservations } from "../cognition/observation";
 import {
   buildCausalVerificationContext,
@@ -92,6 +92,7 @@ import { MAX_RANDOM_REQUESTS_PER_ROUND } from "./random-limits";
 import {
   createCoreRulePackageRegistry,
   MechanicInputValidationError,
+  type MechanicPromptContract,
   type RulePackageRegistry,
 } from "./rule-package";
 import type { WorldDefinition } from "../runtime/world-definition";
@@ -321,6 +322,9 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
           code: issue.code,
           path: issue.path,
           message: issue.message,
+          class: issue.class,
+          ...(issue.originalValue !== undefined ? { originalValue: structuredClone(issue.originalValue) } : {}),
+          ...(issue.allowedHandles ? { allowedHandles: [...issue.allowedHandles] } : {}),
         }));
         const context = input.buildContext(issues);
         const prompt = promptBundle(input.promptId);
@@ -359,6 +363,13 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
         const normalized = normalizeModelOutput(generated.value, { resolver: referenceResolver, dedupeArrays: true });
         const invocationAudit = generated.audit.invocations.at(-1);
         if (invocationAudit) {
+          const providerNormalization = invocationAudit.normalization;
+          const providerAlreadyAuditedNormalization = generated.audit.structuredOutputMode !== "deterministic-test" &&
+            normalized.issues.length === 0 &&
+            providerNormalization.modifiedFieldCount === normalized.modifiedFieldCount &&
+            providerNormalization.resolvedReferenceCount === normalized.resolvedReferenceCount &&
+            providerNormalization.proposalCount === normalized.proposalCount &&
+            providerNormalization.deduplicatedCount === normalized.deduplicatedCount;
           invocationAudit.rawOutputHash = contentHash(generated.value);
           invocationAudit.normalizedOutputHash = contentHash(normalized.value);
           invocationAudit.normalization = {
@@ -368,6 +379,26 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
             proposalCount: normalized.proposalCount,
             deduplicatedCount: normalized.deduplicatedCount,
           };
+          if (!providerAlreadyAuditedNormalization) {
+            observe?.({
+              event: "model.output.normalized",
+              correlation,
+              attributes: { applied: invocationAudit.normalization.applied },
+              counts: {
+                modifiedFields: normalized.modifiedFieldCount,
+                resolvedReferences: normalized.resolvedReferenceCount,
+                proposals: normalized.proposalCount,
+                deduplicated: normalized.deduplicatedCount,
+              },
+              hashes: {
+                rawOutput: invocationAudit.rawOutputHash,
+                normalizedOutput: invocationAudit.normalizedOutputHash,
+              },
+              payload: normalized.issues.length > 0 && input.scope.observer
+                ? fullRuntimePayload(input.scope.observer, { issues: normalized.issues })
+                : undefined,
+            });
+          }
           if (normalized.issues.length > 0) {
             invocationAudit.outputDisposition = "rejected";
             invocationAudit.issues = normalized.issues.map((issue) => ({
@@ -386,21 +417,6 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
               },
             );
           }
-          observe?.({
-            event: "model.output.normalized",
-            correlation,
-            attributes: { applied: invocationAudit.normalization.applied },
-            counts: {
-              modifiedFields: normalized.modifiedFieldCount,
-              resolvedReferences: normalized.resolvedReferenceCount,
-              proposals: normalized.proposalCount,
-              deduplicated: normalized.deduplicatedCount,
-            },
-            hashes: {
-              rawOutput: invocationAudit.rawOutputHash,
-              normalizedOutput: invocationAudit.normalizedOutputHash,
-            },
-          });
         }
         const value = normalized.value as { kind?: unknown; verdict?: unknown };
         const resultKind = typeof value.kind === "string"
@@ -415,7 +431,13 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
       classify: (error) => validationIssues(error).map((issue) => semanticIssue(
         issue.code,
         issue.message,
-        { path: issue.path, class: "semantic", targetIds: input.targetIds ? [...input.targetIds] : undefined },
+        {
+          path: issue.path,
+          class: issue.class ?? "semantic",
+          originalValue: issue.originalValue,
+          allowedHandles: issue.allowedHandles,
+          targetIds: input.targetIds ? [...input.targetIds] : undefined,
+        },
       )),
       onRejected: ({ audit, issues, error }) => {
         const invocation = audit?.invocations.at(-1);
@@ -1489,8 +1511,10 @@ function materializeTransitionProposal(
   randomAliases: ReadonlyMap<string, string | null>,
   identityOwner: string,
   checkRequests: readonly D20CheckRequest[] = [],
+  resolutionReceipts: readonly ResolutionReceipt[] = [],
+  mechanicContracts: readonly MechanicPromptContract[] = [],
 ): TransitionProposal {
-  const resolver = createTruthReferenceResolver({ state, definition, actions, checkRequests });
+  const resolver = createTruthReferenceResolver({ state, definition, actions, checkRequests, resolutionReceipts, mechanicContracts });
   const proposalAliases = new Map<string, string>();
   const mechanicAliases = new Map<string, string>();
   for (const [ordinal, invocation] of direct.mechanicInvocations.entries()) {
@@ -1622,29 +1646,51 @@ function materializeTransitionProposal(
       if (checkId) return checkId;
       const randomId = randomAliases.get(value);
       if (randomId) return randomId;
-      if (value.startsWith("ref:")) return resolver.resolve(value, "source").engineId;
+      if (value.startsWith("ref:")) return resolver.resolve(value).engineId;
       return value;
     }
     if (!value || typeof value !== "object") return structuredClone(value);
-    if ("proposalKey" in value && typeof value.proposalKey === "string") {
-      return proposalAliases.get(value.proposalKey) ?? value;
+    if ("proposalKey" in value && typeof value.proposalKey === "string" &&
+      Object.keys(value as Record<string, unknown>).length === 1) {
+      const resolved = proposalAliases.get(value.proposalKey);
+      if (!resolved) throw new Error(`unknown mechanic input proposalKey ${value.proposalKey}`);
+      return resolved;
     }
     return Object.fromEntries(Object.entries(value).map(([key, item]) => {
-      if (key === "entityId" && typeof item === "string" && entityAliases.has(item)) {
-        return [key, entityAliases.get(item)!];
+      // Mechanic contracts are authored with runtime `*Id` fields, while the
+      // model sees the same shape as `*Ref`/`*Refs`. Rename only at this
+      // boundary and resolve every model reference through the request-local
+      // catalog. Literal fields such as `kind`, `amount`, and `seconds` keep
+      // their authored names and values.
+      const runtimeKey = key.endsWith("Refs") ? `${key.slice(0, -4)}Ids` :
+        key.endsWith("Ref") ? `${key.slice(0, -3)}Id` : key;
+      if (runtimeKey === "entityId" && typeof item === "string" && entityAliases.has(item)) {
+        return [runtimeKey, entityAliases.get(item)!];
       }
-      if (key === "entityIds" && Array.isArray(item)) {
-        return [key, item.map((entry) => typeof entry === "string" && entityAliases.has(entry)
+      if (runtimeKey === "entityIds" && Array.isArray(item)) {
+        return [runtimeKey, item.map((entry) => typeof entry === "string" && entityAliases.has(entry)
           ? entityAliases.get(entry)! : rewriteMechanicInput(entry))];
       }
-      if (key === "checkId" && typeof item === "string" && checkAliases.get(item)) {
-        return [key, checkAliases.get(item)!];
+      if (runtimeKey === "checkId" && typeof item === "string" && checkAliases.get(item)) {
+        return [runtimeKey, checkAliases.get(item)!];
       }
-      if (key === "requestId" && typeof item === "string" && randomAliases.get(item)) {
-        return [key, randomAliases.get(item)!];
+      if (runtimeKey === "requestId" && typeof item === "string" && randomAliases.get(item)) {
+        return [runtimeKey, randomAliases.get(item)!];
       }
-      return [key, rewriteMechanicInput(item)];
+      return [runtimeKey, rewriteMechanicInput(item)];
     }));
+  };
+  const mechanicIdentity = (reference: ModelReference): { packageId: string; ruleId: string } => {
+    if (isProposalReference(reference)) {
+      throw new Error(`mechanicRef cannot be a proposal: ${reference.proposalKey}`);
+    }
+    const resolved = resolver.resolve(reference, "mechanic");
+    if (resolved.kind !== "mechanic") throw new Error(`mechanicRef ${reference} is ${resolved.kind}, expected mechanic`);
+    const separator = resolved.engineId.indexOf("::");
+    if (separator <= 0 || separator === resolved.engineId.length - 2) {
+      throw new Error(`mechanicRef ${reference} does not identify an authored mechanic contract`);
+    }
+    return { packageId: resolved.engineId.slice(0, separator), ruleId: resolved.engineId.slice(separator + 2) };
   };
   const materializeOperation = (operation: ModelTransitionProposalDraft["operations"][number]): WorldDeltaOperationDraft => {
     const nextStep = state.step + 1;
@@ -1758,14 +1804,17 @@ function materializeTransitionProposal(
   };
   return {
     baseRevision: state.revision,
-    mechanicInvocations: direct.mechanicInvocations.map((invocation) => ({
+    mechanicInvocations: direct.mechanicInvocations.map((invocation) => {
+      const { packageId, ruleId } = mechanicIdentity(invocation.mechanicRef);
+      return {
       id: mechanicAliases.get(invocation.proposalKey)!,
-      packageId: invocation.packageId,
-      ruleId: invocation.ruleId,
+      packageId,
+      ruleId,
       causes: invocation.causes.map(rewriteModelCause),
       assertions: invocation.assertions.map(rewriteAssertion),
       input: rewriteMechanicInput(invocation.input),
-    })),
+      };
+    }),
     operations: direct.operations.map((operation) => materializeWorldOperation(
       state,
       definition,
@@ -1800,6 +1849,26 @@ function materializeTransitionProposal(
     })),
     observations: [],
   };
+}
+
+/**
+ * Runtime rule schemas intentionally keep canonical `*Id`/`*Ids` names. The
+ * model-facing mechanic contract uses `*Ref`/`*Refs`; before the registry's
+ * shape-only preflight we project those names back without resolving them.
+ * Exact handle/proposal resolution remains the responsibility of
+ * `materializeTransitionProposal`, where the request-local catalog and the
+ * same-response proposal aliases are available.
+ */
+function runtimeMechanicInputShape(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(runtimeMechanicInputShape);
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).length === 1 && typeof record.proposalKey === "string") return record.proposalKey;
+  return Object.fromEntries(Object.entries(record).map(([key, item]) => {
+    const runtimeKey = key.endsWith("Refs") ? `${key.slice(0, -4)}Ids` :
+      key.endsWith("Ref") ? `${key.slice(0, -3)}Id` : key;
+    return [runtimeKey, runtimeMechanicInputShape(item)];
+  }));
 }
 
 function validateTransitionEnvelope(
@@ -2028,6 +2097,24 @@ export class TruthEngine {
     const combineStageAudits = (audits: readonly ModelExecutionAudit[]) =>
       combineCompatibleModelAudits(audits);
     const mechanicContracts = this.rulePackages.promptContracts(input.definition.rulePackages);
+    const mechanicIdentity = (reference: ModelReference): { packageId: string; ruleId: string } => {
+      if (isProposalReference(reference)) {
+        throw new Error(`mechanicRef cannot be a proposal: ${reference.proposalKey}`);
+      }
+      const resolver = createTruthReferenceResolver({
+        state: input.state,
+        definition: input.definition,
+        actions,
+        mechanicContracts,
+      });
+      const resolved = resolver.resolve(reference, "mechanic");
+      if (resolved.kind !== "mechanic") throw new Error(`mechanicRef ${reference} is ${resolved.kind}, expected mechanic`);
+      const separator = resolved.engineId.indexOf("::");
+      if (separator <= 0 || separator === resolved.engineId.length - 2) {
+        throw new Error(`mechanicRef ${reference} does not identify an authored mechanic contract`);
+      }
+      return { packageId: resolved.engineId.slice(0, separator), ruleId: resolved.engineId.slice(separator + 2) };
+    };
 
     const truthContext = (
       stage: "perception" | "reaction-routing" | "resolution" | "transition",
@@ -2121,8 +2208,7 @@ export class TruthEngine {
             ) as Record<string, unknown>),
             mechanicRepair: {
               targetInvocation: structuredClone(target),
-              packageId: target.packageId,
-              ruleId: target.ruleId,
+              mechanicRef: structuredClone(target.mechanicRef),
               invalidInput: structuredClone(target.input),
             },
           };
@@ -2155,14 +2241,15 @@ export class TruthEngine {
         validate: (value) => {
           const repaired = value.invocation;
           if (repaired.proposalKey !== target.proposalKey) throw new Error(`mechanic repair changed invocation proposalKey to ${repaired.proposalKey}`);
-          if (repaired.packageId !== target.packageId || repaired.ruleId !== target.ruleId) {
+          if (JSON.stringify(repaired.mechanicRef) !== JSON.stringify(target.mechanicRef)) {
             throw new Error("mechanic repair changed the invocation contract identity");
           }
+          const { packageId, ruleId } = mechanicIdentity(repaired.mechanicRef);
           this.rulePackages.validateInvocationInputs(input.definition.rulePackages, [{
             id: repaired.proposalKey,
-            packageId: repaired.packageId,
-            ruleId: repaired.ruleId,
-            input: repaired.input,
+            packageId,
+            ruleId,
+            input: runtimeMechanicInputShape(repaired.input),
             causes: [],
             assertions: [],
           }]);
@@ -2846,9 +2933,8 @@ export class TruthEngine {
               input.definition.rulePackages,
               transitionDraft.mechanicInvocations.map((invocation) => ({
                 id: invocation.proposalKey,
-                packageId: invocation.packageId,
-                ruleId: invocation.ruleId,
-                input: invocation.input,
+                ...mechanicIdentity(invocation.mechanicRef),
+                input: runtimeMechanicInputShape(invocation.input),
                 causes: [],
                 assertions: [],
               })),
@@ -2881,6 +2967,8 @@ export class TruthEngine {
           randomAliases,
           input.identityOwner,
           requests,
+          resolutionReceipts,
+          mechanicContracts,
         );
         const normalizedAlternatives = normalizeOutcomeAlternativeEvidence(
           input.state,

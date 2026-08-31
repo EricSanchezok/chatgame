@@ -529,6 +529,23 @@ function formatNumber(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : value.toLocaleString();
 }
 
+function formatIssuePath(path: readonly (string | number)[]): string {
+  return path.reduce<string>((current, segment) => {
+    if (typeof segment === "number") return `${current}[${segment}]`;
+    return /^[A-Za-z_$][\w$]*$/u.test(segment)
+      ? `${current}.${segment}`
+      : `${current}[${JSON.stringify(segment)}]`;
+  }, "$");
+}
+
+function formatIssueValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function statusLabel(status: WorldInspectorModelInvocationDetail["status"]): string {
   return status === "accepted" ? "语义接受" : status === "rejected" ? "输出拒绝" : status === "failed" ? "调用失败" : "进行中";
 }
@@ -862,7 +879,12 @@ function ModelInvocationDetailPanel({
         <JsonBlock label="查看 slot 映射原始 JSON" value={invocation.slotRefs} />
       </DetailSection>
       {invocation.issues.length > 0 && <DetailSection count={`${invocation.issues.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
-        <ul className="cg-inspector-observation-list">{invocation.issues.map((issue) => <li key={`${issue.code}:${issue.path.join(".")}`}>{issue.code} · {issue.message}</li>)}</ul>
+        <ul className="cg-inspector-issue-list">{invocation.issues.map((issue, index) => <li key={`${issue.code}:${JSON.stringify(issue.path)}:${index}`}>
+          <strong>{issue.code}</strong>
+          <span>路径 {formatIssuePath(issue.path)} · {issue.message}</span>
+          {issue.originalValue !== undefined && <code>原值：{formatIssueValue(issue.originalValue)}</code>}
+          {issue.allowedHandles && issue.allowedHandles.length > 0 && <code>允许句柄：{issue.allowedHandles.join(", ")}</code>}
+        </li>)}</ul>
         {invocation.errorMessage && <p className="cg-model-invocation__error">{invocation.errorMessage}</p>}
       </DetailSection>}
       <div className="cg-inspector-invocation-payloads">
