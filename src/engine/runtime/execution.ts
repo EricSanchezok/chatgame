@@ -494,8 +494,9 @@ export interface ActionSharedResourceClaimModel {
 }
 
 export interface ActionCompilationDraft {
-  temporalPlan: Omit<TemporalPlanDraft, "profileId" | "causes" | "continuationAssertions"> & {
+  temporalPlan: Omit<TemporalPlanDraft, "profileId" | "basis" | "causes" | "continuationAssertions"> & {
     profileRef: ModelReference;
+    basis: import("../mechanics/temporal").ModelTemporalPlanBasis;
     causes: ModelCausalRef[];
     continuationAssertions: ModelCausalAssertion[];
   };

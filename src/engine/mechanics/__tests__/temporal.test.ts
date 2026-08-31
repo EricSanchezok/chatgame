@@ -4,13 +4,16 @@ import {
   advanceTemporalState,
   createActivity,
   cancelActivity,
+  extractActionTemporalEvidence,
   explicitDurationSeconds,
+  materializeModelTemporalBasis,
   materializeTemporalPlan,
   materializeTrustedTemporalPlan,
   pauseActivity,
   resumeActivity,
   reconcileTemporalOutcomes,
   selectTemporalBoundary,
+  temporalProfileEligibility,
   validateActivityState,
   validateActivityResources,
   validateTemporalPlan,
@@ -52,6 +55,23 @@ function draft(profileId: string, basis: TemporalPlanDraft["basis"] = { kind: "p
   };
 }
 
+function rateProfile(overrides: Partial<Extract<TemporalProfileDefinition, { kind: "rate" }>> = {}): TemporalProfileDefinition {
+  return {
+    id: "road-travel",
+    name: "道路步行",
+    kind: "rate",
+    unit: "km",
+    unitAliases: ["公里", "kilometers", "kilometres"],
+    unitsPerPeriod: 5,
+    periodSeconds: 3_600,
+    checkpointUnits: 1,
+    interruptible: true,
+    reactionFallback: "continue_if_valid",
+    resourceClaims: [{ resourceId: "foreground", amount: 1 }],
+    ...overrides,
+  };
+}
+
 function sourceAction(plan: TemporalPlan) {
   return {
     id: plan.actionId,
@@ -78,6 +98,72 @@ describe("event-boundary temporal kernel", () => {
     expect(explicitDurationSeconds("wait 1.5 hours")).toBe(5_400);
     expect(explicitDurationSeconds("休息半小时")).toBe(1_800);
     expect(explicitDurationSeconds("走到城镇")).toBeNull();
+  });
+
+  it("extracts exact temporal spans and makes rate eligibility deterministic", () => {
+    const explicit = fixedProfile({ id: "explicit-rest", allowExplicitDuration: true });
+    const road = rateProfile();
+    const profiles = { [explicit.id]: explicit, [road.id]: road };
+    const evidence = extractActionTemporalEvidence("先休息1.5小时，再沿路走 12公里。", profiles);
+
+    expect(evidence).toEqual([
+      expect.objectContaining({
+        key: "duration:3:8",
+        kind: "duration",
+        sourceText: "1.5小时",
+        start: 3,
+        end: 8,
+        seconds: 5_400,
+        compatibleProfileIds: ["explicit-rest"],
+      }),
+      expect.objectContaining({
+        key: "quantity:14:18:km",
+        kind: "quantity",
+        sourceText: "12公里",
+        start: 14,
+        end: 18,
+        amount: 12,
+        unit: "km",
+        compatibleProfileIds: ["road-travel"],
+      }),
+    ]);
+    expect(temporalProfileEligibility(road, evidence)).toEqual({
+      eligible: true,
+      evidenceRequirement: "required_quantity",
+      evidenceKeys: ["quantity:14:18:km"],
+      rejectionCode: null,
+    });
+    expect(temporalProfileEligibility(road, extractActionTemporalEvidence("沿道路前往城镇", profiles)))
+      .toEqual({
+        eligible: false,
+        evidenceRequirement: "required_quantity",
+        evidenceKeys: [],
+        rejectionCode: "missing_explicit_quantity",
+      });
+  });
+
+  it("materializes only an evidence key compatible with the selected profile", () => {
+    const explicit = fixedProfile({ id: "explicit-rest", allowExplicitDuration: true });
+    const road = rateProfile();
+    const profiles = { [explicit.id]: explicit, [road.id]: road };
+    const evidence = extractActionTemporalEvidence("休息两小时后走10公里", profiles);
+    const duration = evidence.find((candidate) => candidate.kind === "duration")!;
+    const quantity = evidence.find((candidate) => candidate.kind === "quantity")!;
+
+    expect(materializeModelTemporalBasis(explicit, {
+      kind: "action_text_evidence",
+      evidenceKey: duration.key,
+    }, evidence)).toEqual({ kind: "explicit_duration", seconds: 7_200, sourceText: "两小时" });
+    expect(materializeModelTemporalBasis(road, {
+      kind: "action_text_evidence",
+      evidenceKey: quantity.key,
+    }, evidence)).toEqual({ kind: "explicit_quantity", amount: 10, unit: "km", sourceText: "10公里" });
+    expect(() => materializeModelTemporalBasis(road, {
+      kind: "action_text_evidence",
+      evidenceKey: duration.key,
+    }, evidence)).toThrow("incompatible");
+    expect(() => materializeModelTemporalBasis(road, { kind: "profile" }, evidence))
+      .toThrow("requires an action_text_evidence");
   });
 
   it("materializes fixed and explicit-duration plans without model-owned clock writes", () => {
@@ -194,19 +280,7 @@ describe("event-boundary temporal kernel", () => {
   });
 
   it("derives rate duration and progress from an explicit action quantity", () => {
-    const travel: TemporalProfileDefinition = {
-      id: "road-travel",
-      name: "道路步行",
-      kind: "rate",
-      unit: "km",
-      unitAliases: ["公里", "kilometers", "kilometres"],
-      unitsPerPeriod: 5,
-      periodSeconds: 3_600,
-      checkpointUnits: 10,
-      interruptible: true,
-      reactionFallback: "continue_if_valid",
-      resourceClaims: [{ resourceId: "foreground", amount: 1 }],
-    };
+    const travel = rateProfile({ checkpointUnits: 10 });
     validateTemporalProfile(travel, resources);
     const plan = materializeTemporalPlan({
       id: "plan-travel",

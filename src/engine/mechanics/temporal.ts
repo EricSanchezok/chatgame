@@ -66,6 +66,40 @@ export interface TemporalCalibration {
   explanation: string;
 }
 
+export type ActionTemporalEvidence =
+  | {
+      key: string;
+      kind: "duration";
+      sourceText: string;
+      start: number;
+      end: number;
+      amount: number;
+      unit: string;
+      seconds: number;
+      compatibleProfileIds: string[];
+    }
+  | {
+      key: string;
+      kind: "quantity";
+      sourceText: string;
+      start: number;
+      end: number;
+      amount: number;
+      unit: string;
+      compatibleProfileIds: string[];
+    };
+
+export type ModelTemporalPlanBasis =
+  | { kind: "profile" }
+  | { kind: "action_text_evidence"; evidenceKey: string };
+
+export interface TemporalProfileEligibility {
+  eligible: boolean;
+  evidenceRequirement: "none" | "optional_duration" | "required_quantity";
+  evidenceKeys: string[];
+  rejectionCode: "missing_explicit_quantity" | null;
+}
+
 export type TemporalPlanBasis =
   | { kind: "profile"; profileId: string }
   | { kind: "explicit_duration"; profileId: string; seconds: number; sourceText: string }
@@ -258,13 +292,15 @@ export interface TemporalStateSnapshot {
   timers: Record<string, WorldTimer>;
 }
 
-const durationUnits: Array<{ pattern: RegExp; seconds: number }> = [
-  { pattern: /(?:秒|seconds?|secs?)/iu, seconds: 1 },
-  { pattern: /(?:分钟|分(?:钟)?|minutes?|mins?)/iu, seconds: 60 },
-  { pattern: /(?:小时|时|hours?|hrs?)/iu, seconds: 3_600 },
-  { pattern: /(?:天|日|days?)/iu, seconds: 86_400 },
-  { pattern: /(?:周|星期|weeks?)/iu, seconds: 604_800 },
+const durationUnits: Array<{ unit: string; aliases: string[]; seconds: number }> = [
+  { unit: "second", aliases: ["seconds", "second", "secs", "sec", "秒"], seconds: 1 },
+  { unit: "minute", aliases: ["minutes", "minute", "mins", "min", "分钟", "分"], seconds: 60 },
+  { unit: "hour", aliases: ["hours", "hour", "hrs", "hr", "小时", "时"], seconds: 3_600 },
+  { unit: "day", aliases: ["days", "day", "天", "日"], seconds: 86_400 },
+  { unit: "week", aliases: ["weeks", "week", "星期", "周"], seconds: 604_800 },
 ];
+
+const numericSource = "([0-9]+(?:\\.[0-9]+)?|[零一二两三四五六七八九十半]{1,3})";
 
 function chineseNumber(value: string): number | null {
   const direct: Record<string, number> = {
@@ -286,17 +322,7 @@ function numericToken(value: string): number | null {
 }
 
 export function explicitDurationSeconds(text: string): number | null {
-  const normalized = text.normalize("NFC");
-  const numberPattern = "([0-9]+(?:\\.[0-9]+)?|[零一二两三四五六七八九十半]{1,3})";
-  for (const unit of durationUnits) {
-    const match = normalized.match(new RegExp(`${numberPattern}\\s*${unit.pattern.source}`, "iu"));
-    if (!match) continue;
-    const amount = numericToken(match[1]!);
-    if (amount === null || amount <= 0) return null;
-    const seconds = amount * unit.seconds;
-    return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
-  }
-  return null;
+  return extractActionTemporalEvidence(text, {}).find((evidence) => evidence.kind === "duration")?.seconds ?? null;
 }
 
 function explicitQuantity(text: string, aliases: readonly string[]): { amount: number; matchedAlias: string } | null {
@@ -313,6 +339,126 @@ function explicitQuantity(text: string, aliases: readonly string[]): { amount: n
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function exactQuantityMatches(
+  text: string,
+  aliases: readonly string[],
+): Array<{ sourceText: string; start: number; end: number; amount: number; matchedAlias: string }> {
+  const alternatives = [...new Set(aliases.map((alias) => alias.normalize("NFC")))]
+    .sort((left, right) => right.length - left.length)
+    .map(escapeRegExp)
+    .join("|");
+  if (!alternatives) return [];
+  const pattern = new RegExp(`${numericSource}\\s*(${alternatives})`, "giu");
+  const matches: Array<{ sourceText: string; start: number; end: number; amount: number; matchedAlias: string }> = [];
+  for (const match of text.matchAll(pattern)) {
+    const amount = numericToken(match[1]!);
+    if (match.index === undefined || amount === null || amount <= 0 || !Number.isFinite(amount)) continue;
+    matches.push({
+      sourceText: match[0],
+      start: match.index,
+      end: match.index + match[0].length,
+      amount,
+      matchedAlias: match[2]!,
+    });
+  }
+  return matches;
+}
+
+export function extractActionTemporalEvidence(
+  text: string,
+  profiles: Readonly<Record<string, TemporalProfileDefinition>>,
+): ActionTemporalEvidence[] {
+  const durationProfileIds = Object.values(profiles)
+    .filter((profile) => profile.kind === "fixed" && profile.allowExplicitDuration)
+    .map((profile) => profile.id)
+    .sort();
+  const evidence: ActionTemporalEvidence[] = durationUnits.flatMap((definition) =>
+    exactQuantityMatches(text, definition.aliases).flatMap((match) => {
+      const seconds = match.amount * definition.seconds;
+      return Number.isSafeInteger(seconds) && seconds > 0 ? [{
+        key: `duration:${match.start}:${match.end}`,
+        kind: "duration" as const,
+        sourceText: match.sourceText,
+        start: match.start,
+        end: match.end,
+        amount: match.amount,
+        unit: definition.unit,
+        seconds,
+        compatibleProfileIds: durationProfileIds,
+      }] : [];
+    }));
+  const quantityBySpan = new Map<string, Extract<ActionTemporalEvidence, { kind: "quantity" }>>();
+  for (const profile of Object.values(profiles).filter((candidate) => candidate.kind === "rate")) {
+    for (const match of exactQuantityMatches(text, [profile.unit, ...profile.unitAliases])) {
+      const identity = `${match.start}:${match.end}:${profile.unit.normalize("NFC").toLocaleLowerCase("en")}`;
+      const existing = quantityBySpan.get(identity);
+      if (existing) {
+        existing.compatibleProfileIds = [...new Set([...existing.compatibleProfileIds, profile.id])].sort();
+        continue;
+      }
+      quantityBySpan.set(identity, {
+        key: `quantity:${identity}`,
+        kind: "quantity",
+        sourceText: match.sourceText,
+        start: match.start,
+        end: match.end,
+        amount: match.amount,
+        unit: profile.unit,
+        compatibleProfileIds: [profile.id],
+      });
+    }
+  }
+  return [...evidence, ...quantityBySpan.values()].sort((left, right) =>
+    left.start - right.start || left.end - right.end || left.key.localeCompare(right.key));
+}
+
+export function temporalProfileEligibility(
+  profile: TemporalProfileDefinition,
+  evidence: readonly ActionTemporalEvidence[],
+): TemporalProfileEligibility {
+  const evidenceKeys = evidence
+    .filter((candidate) => candidate.compatibleProfileIds.includes(profile.id))
+    .map((candidate) => candidate.key)
+    .sort();
+  if (profile.kind === "rate") {
+    return {
+      eligible: evidenceKeys.length > 0,
+      evidenceRequirement: "required_quantity",
+      evidenceKeys,
+      rejectionCode: evidenceKeys.length > 0 ? null : "missing_explicit_quantity",
+    };
+  }
+  if (profile.kind === "fixed" && profile.allowExplicitDuration) {
+    return { eligible: true, evidenceRequirement: "optional_duration", evidenceKeys, rejectionCode: null };
+  }
+  return { eligible: true, evidenceRequirement: "none", evidenceKeys: [], rejectionCode: null };
+}
+
+export function materializeModelTemporalBasis(
+  profile: TemporalProfileDefinition,
+  basis: ModelTemporalPlanBasis,
+  evidence: readonly ActionTemporalEvidence[],
+): TemporalPlanDraft["basis"] {
+  const eligibility = temporalProfileEligibility(profile, evidence);
+  if (!eligibility.eligible) {
+    throw new Error(`temporal profile ${profile.id} is ineligible: ${eligibility.rejectionCode}`);
+  }
+  if (basis.kind === "profile") {
+    if (profile.kind === "rate") {
+      throw new Error(`temporal profile ${profile.id} requires an action_text_evidence basis`);
+    }
+    return { kind: "profile" };
+  }
+  const selected = evidence.find((candidate) => candidate.key === basis.evidenceKey);
+  if (!selected) throw new Error(`unknown temporal evidence ${basis.evidenceKey}`);
+  if (!selected.compatibleProfileIds.includes(profile.id)) {
+    throw new Error(`temporal evidence ${basis.evidenceKey} is incompatible with profile ${profile.id}`);
+  }
+  return selected.kind === "duration"
+    ? { kind: "explicit_duration", seconds: selected.seconds, sourceText: selected.sourceText }
+    : { kind: "explicit_quantity", amount: selected.amount, unit: selected.unit, sourceText: selected.sourceText };
 }
 
 function assertPositiveInteger(value: number, label: string): void {

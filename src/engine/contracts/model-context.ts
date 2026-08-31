@@ -8,7 +8,7 @@ import type { AgentState, ObservationPacket } from "./model";
  * request and slot that issued it; the resolver never trusts model supplied
  * ids as canonical identities.
  */
-export const MODEL_CONTEXT_CONTRACT_VERSION = 13 as const;
+export const MODEL_CONTEXT_CONTRACT_VERSION = 14 as const;
 export const MODEL_REFERENCE_CATALOG_VERSION = 1 as const;
 
 export type ExistingReferenceHandle = string & { readonly __existingReferenceHandle: unique symbol };

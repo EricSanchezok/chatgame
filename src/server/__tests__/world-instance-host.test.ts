@@ -127,15 +127,15 @@ function reactionHarness(input: {
   const travelerId = "courtyard-wanderer-1";
   const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
     if (role === "action-compilation") {
-      return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+      return deterministicActionCompilationBatch(profileId, context, (compilation, { action, temporalEvidence }) => {
         if (action.rawText.includes("100公里")) {
+          const evidence = temporalEvidence.find((candidate) => candidate.kind === "quantity");
+          if (!evidence) throw new Error("test action is missing quantity evidence");
           compilation.temporalPlan = {
             profileRef: referenceHandleFor("temporal_profile", "measured-travel"),
             basis: {
-              kind: "explicit_quantity",
-              amount: 100,
-              unit: "公里",
-              sourceText: "100公里",
+              kind: "action_text_evidence",
+              evidenceKey: evidence.key,
             },
             description: "持续前往一百公里外",
             continuationAssertions: [],
@@ -254,7 +254,7 @@ describe("World Instance host", () => {
       expect(arrivalRequest).toMatchObject({
         promptVersion: promptBundle("arrival-generator").version,
         context: {
-          contractVersion: 13,
+          contractVersion: 14,
           roleContract: expect.objectContaining({ role: "arrival-generator" }),
           task: expect.objectContaining({ assignment: expect.any(Object) }),
           state: { perspective: expect.objectContaining({ agentRef: "ref:agent:courtyard-wanderer-1" }) },

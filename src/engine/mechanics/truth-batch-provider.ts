@@ -202,7 +202,7 @@ function splitSharedContext(requests: readonly PendingRequest[]): SplitBatchEnve
   const repairs = contexts.map((context) => context.repair).filter((repair) => repair !== null && repair !== undefined);
   const referenceCatalog = { version: 1, hash: contentHash(catalogs), candidates: [] as readonly unknown[] };
   return {
-    contractVersion: Number(first.contractVersion ?? 13),
+    contractVersion: Number(first.contractVersion ?? 14),
     roleContract: structuredClone(first.roleContract),
     execution: structuredClone(first.execution),
     task: {

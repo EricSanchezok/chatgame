@@ -1015,15 +1015,8 @@ export const temporalPlanDraftSchema = z.strictObject({
   basis: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("profile") }),
     z.strictObject({
-      kind: z.literal("explicit_duration"),
-      seconds: z.number().int().positive(),
-      sourceText: z.string().min(1),
-    }),
-    z.strictObject({
-      kind: z.literal("explicit_quantity"),
-      amount: z.number().positive(),
-      unit: z.string().min(1),
-      sourceText: z.string().min(1),
+      kind: z.literal("action_text_evidence"),
+      evidenceKey: z.string().min(1),
     }),
   ]),
   description: z.string().min(1),

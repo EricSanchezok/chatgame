@@ -13,6 +13,7 @@ import type {
 import type { ModelExecutionAudit } from "../contracts/model";
 import { ContextLimitExceededError, modelInvocationIdentity, ModelOutputError } from "../models/model-provider";
 import type { ActionCompilationDraft, FootprintRef } from "../runtime/execution";
+import type { ActionTemporalEvidence } from "../mechanics/temporal";
 import type { AgentMindDraftOutput } from "../contracts/llm-schemas";
 import { structuredPromptBytes } from "../prompts";
 import { referenceHandleFor, type ExistingReferenceHandle } from "../contracts/model-context";
@@ -915,6 +916,7 @@ interface DeterministicCompilationContextAction {
 interface DeterministicCompilationSlot {
   slot: number;
   action: DeterministicCompilationAction;
+  temporalEvidence: ActionTemporalEvidence[];
 }
 
 export function deterministicInteractionDependency(
@@ -1029,7 +1031,7 @@ export function deterministicActionCompilationBatch(
   const input = context as {
     task?: { slots?: Array<{ slot: number; assignment?: unknown; action?: DeterministicCompilationContextAction }> };
     slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }>;
-    state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }>; slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }> };
+    state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }>; slots?: Array<{ slot: number; action: DeterministicCompilationContextAction; temporalEvidence?: ActionTemporalEvidence[] }> };
     sharedContext?: { state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }> } };
   };
   const slots = input.state?.slots ?? input.slots ?? input.task?.slots
@@ -1049,7 +1051,11 @@ export function deterministicActionCompilationBatch(
         ? actorReference.replace(/^ref:agent:/u, "")
         : actorReference ?? "model-agent";
       if (!actionId) throw new Error("deterministic action compiler requires an action reference");
-      const fixtureSlot = { ...slot, action: { ...slot.action, id: actionId, actorId } } as DeterministicCompilationSlot;
+      const fixtureSlot = {
+        ...slot,
+        action: { ...slot.action, id: actionId, actorId },
+        temporalEvidence: structuredClone("temporalEvidence" in slot ? slot.temporalEvidence ?? [] : []),
+      } as DeterministicCompilationSlot;
       const compilation = deterministicActionCompilation(fixtureSlot.action, temporalProfiles);
       customize?.(compilation, fixtureSlot, context);
       return { slot: fixtureSlot.slot, ...compilation };

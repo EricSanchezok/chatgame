@@ -255,6 +255,7 @@ describe("Blackmarsh reference world", () => {
         ],
       },
       "wait-until": { kind: "conditional", checkEverySeconds: 300 },
+      "travel-until-arrival": { kind: "conditional", checkEverySeconds: 600 },
       "ongoing-watch": { kind: "ongoing", checkpointSeconds: 300 },
     });
     expect(truth.mechanics.temporalCalibrations.map((entry) => [entry.id, entry.profileId])).toEqual([
@@ -265,6 +266,7 @@ describe("Blackmarsh reference world", () => {
       ["rough-travel-time", "rough-travel"],
       ["field-treatment-time", "field-treatment"],
       ["wait-condition-time", "wait-until"],
+      ["unknown-distance-travel-time", "travel-until-arrival"],
       ["ongoing-watch-time", "ongoing-watch"],
     ]);
 

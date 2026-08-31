@@ -35,7 +35,10 @@ import {
 import { runtimeId } from "../../runtime/runtime-id";
 import {
   createActivity,
+  extractActionTemporalEvidence,
+  materializeModelTemporalBasis,
   materializeTemporalPlan,
+  temporalProfileEligibility,
   type ScheduledActivityState,
   type TemporalPlan,
 } from "../../mechanics/temporal";
@@ -101,6 +104,10 @@ function actionCompilationContext(
   const slotContexts = slots.map((entry, slot) => {
     const slotResolver = actionGroundingReferenceResolver(state, entry.payload.action);
     const slotContext = actionGroundingSlotContext(state, entry.payload.action, entry.issues, slotResolver);
+    const temporalEvidence = extractActionTemporalEvidence(
+      entry.payload.action.rawText,
+      state.truth.mechanics.temporalProfiles,
+    );
     return {
       slot,
       referenceCatalog: slotResolver.catalog,
@@ -114,6 +121,13 @@ function actionCompilationContext(
         action: slotContext.action,
         actorPerspective: slotContext.actorPerspective,
         existingActivities: existingActivities(state, entry.payload.action, slotResolver),
+        temporalEvidence,
+        temporalProfileEligibility: Object.values(state.truth.mechanics.temporalProfiles)
+          .map((profile) => ({
+            profileRef: slotResolver.handleFor("temporal_profile", profile.id),
+            ...temporalProfileEligibility(profile, temporalEvidence),
+          }))
+          .sort((left, right) => left.profileRef.localeCompare(right.profileRef)),
       },
     };
   });
@@ -334,6 +348,9 @@ function materializeCompilation(
     throw new Error(`temporal plan profile cannot use proposalKey ${draft.temporalPlan.profileRef.proposalKey}`);
   }
   const profileId = resolver.resolve(draft.temporalPlan.profileRef, "profile").engineId;
+  const profile = state.truth.mechanics.temporalProfiles[profileId];
+  if (!profile) throw new Error(`unknown temporal profile ${profileId}`);
+  const temporalEvidence = extractActionTemporalEvidence(action.rawText, state.truth.mechanics.temporalProfiles);
   const resolveCause = (cause: ActionCompilationDraft["temporalPlan"]["causes"][number]) => {
     if (isProposalReference(cause.ref)) throw new Error(`temporal plan cause cannot use proposalKey ${cause.ref.proposalKey}`);
     return { kind: cause.kind, id: resolver.resolve(cause.ref, "cause").engineId } as const;
@@ -382,6 +399,7 @@ function materializeCompilation(
     draft: {
       ...structuredClone(draft.temporalPlan),
       profileId,
+      basis: materializeModelTemporalBasis(profile, draft.temporalPlan.basis, temporalEvidence),
       causes: draft.temporalPlan.causes.map(resolveCause),
       continuationAssertions: draft.temporalPlan.continuationAssertions.map(resolveAssertion),
     },

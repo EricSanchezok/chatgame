@@ -679,6 +679,68 @@ describe("eager reference safeguards", () => {
     ]);
   });
 
+  it("projects rate profiles as ineligible without quantity evidence and repairs only that slot", async () => {
+    let selectedIneligibleRate = false;
+    let repairedConstraint = "";
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-compilation") {
+        const stateSlots = (context as {
+          state: { slots: Array<{
+            action: { actorRef: string };
+            temporalEvidence: unknown[];
+            temporalProfileEligibility: Array<{
+              profileRef: string;
+              eligible: boolean;
+              rejectionCode: string | null;
+            }>;
+          }> };
+          task: { slots: Array<{ constraints: string[] }> };
+        }).state.slots;
+        const keeper = stateSlots.find((slot) => slot.action.actorRef === "ref:agent:keeper");
+        if (keeper) {
+          expect(keeper.temporalEvidence).toEqual([]);
+          expect(keeper.temporalProfileEligibility).toContainEqual(expect.objectContaining({
+            profileRef: "ref:temporal_profile:measured-travel",
+            eligible: false,
+            rejectionCode: "missing_explicit_quantity",
+          }));
+        }
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+          if (!selectedIneligibleRate && action.actorId === "keeper") {
+            selectedIneligibleRate = true;
+            compilation.temporalPlan.profileRef = referenceHandleFor("temporal_profile", "measured-travel");
+            compilation.temporalPlan.basis = { kind: "profile" };
+          } else if (action.actorId === "keeper") {
+            const taskSlots = (context as { task: { slots: Array<{ constraints: string[] }> } }).task.slots;
+            repairedConstraint = taskSlots[0]?.constraints.join("\n") ?? "";
+          }
+        });
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(2);
+    expect(repairedConstraint).toContain("missing_explicit_quantity");
+  });
+
   it("repairs a structural resource-pool error with compact catalog guidance", async () => {
     let firstCompilation = true;
     let repairedIssues: string[][] = [];
@@ -981,15 +1043,15 @@ describe("eager reference safeguards", () => {
   it("uses the earliest authored activity checkpoint instead of a fixed step duration", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action, temporalEvidence }) => {
           if (action.rawText.includes("100公里")) {
+            const evidence = temporalEvidence.find((candidate) => candidate.kind === "quantity");
+            if (!evidence) throw new Error("test action is missing quantity evidence");
             compilation.temporalPlan = {
               profileRef: referenceHandleFor("temporal_profile", "measured-travel"),
               basis: {
-                kind: "explicit_quantity",
-                amount: 100,
-                unit: "公里",
-                sourceText: "100公里",
+                kind: "action_text_evidence",
+                evidenceKey: evidence.key,
               },
               description: "沿道路逐段前往一百公里外的地点",
               continuationAssertions: [],
@@ -1445,15 +1507,15 @@ describe("eager reference safeguards", () => {
   it("creates a decision point when another action produces an authorized relevant observation", async () => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action, temporalEvidence }) => {
           if (action.rawText.includes("100公里")) {
+            const evidence = temporalEvidence.find((candidate) => candidate.kind === "quantity");
+            if (!evidence) throw new Error("test action is missing quantity evidence");
             compilation.temporalPlan = {
               profileRef: referenceHandleFor("temporal_profile", "measured-travel"),
               basis: {
-                kind: "explicit_quantity",
-                amount: 100,
-                unit: "公里",
-                sourceText: "100公里",
+                kind: "action_text_evidence",
+                evidenceKey: evidence.key,
               },
               description: "持续前往远方",
               continuationAssertions: [],
@@ -1650,14 +1712,15 @@ describe("eager reference safeguards", () => {
   }) => {
     const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
       if (role === "action-compilation") {
-        return deterministicActionCompilationBatch(profileId, context, (compilation, { action }) => {
+        return deterministicActionCompilationBatch(profileId, context, (compilation, { action, temporalEvidence }) => {
           if (action.rawText === `进行${replacementSeconds}秒的紧急戒备`) {
+            const evidence = temporalEvidence.find((candidate) => candidate.kind === "duration");
+            if (!evidence) throw new Error("test action is missing duration evidence");
             compilation.temporalPlan = {
               profileRef: referenceHandleFor("temporal_profile", "explicit-duration"),
               basis: {
-                kind: "explicit_duration",
-                seconds: replacementSeconds,
-                sourceText: `${replacementSeconds}秒`,
+                kind: "action_text_evidence",
+                evidenceKey: evidence.key,
               },
               description: `进行${replacementSeconds}秒的紧急戒备`,
               continuationAssertions: [],
