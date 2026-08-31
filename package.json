@@ -18,6 +18,7 @@
     "experiment:run": "tsx scripts/experiments/experiment-run.ts",
     "prompt:evaluate": "tsx scripts/experiments/prompt-evaluation.ts",
     "benchmark:causal": "tsx scripts/experiments/causal-activity-benchmark.ts",
+    "benchmark:action-compilation": "tsx scripts/experiments/action-compilation-evaluation.ts",
     "execution:replay": "tsx scripts/operations/execution-command.ts replay",
     "execution:compare": "tsx scripts/operations/execution-command.ts compare",
     "execution:export": "tsx scripts/operations/execution-command.ts export",

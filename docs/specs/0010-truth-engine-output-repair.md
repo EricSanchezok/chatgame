@@ -9,7 +9,7 @@ Model output quality, semantic repair, conflict scope, and observation rendering
 
 ## Contract
 
-Model output failures enter a bounded semantic repair loop that records scope, issue class, attempt, target IDs, and complete model audits. Transport, configuration, overload, and cancellation failures do not enter semantic repair. Context is built from complete canonical truth, semantic history, joint actions, and groundings; exceeding a profile's `max_input_bytes` raises `ContextLimitExceeded` directly, without truncation, summarization, or implicit field removal.
+Model output failures enter a bounded semantic repair loop that records scope, issue class, attempt, target IDs, and complete model audits. Transport, configuration, overload, and cancellation failures do not enter semantic repair. Every repair retains the complete semantic namespace and the evidence needed by its rejected target; exceeding a profile's `max_input_bytes` raises `ContextLimitExceeded` directly rather than silently removing candidates. Action Compilation's batch projection, evidence expansion, and minimal-repair contract are defined by [Spec 0014](0014-action-compilation-context-and-temporal-eligibility.md).
 
 Unknown entities, facts, audiences, pools, aliases, and private evidence produce only action- or invocation-local reference issues. `globalFallback` is true only when the model supplies the canonical `{kind:"global",id:"world"}` reference and validation accepts it; genuine global semantics still use the global component. Action Compilation preserves valid slots and, when raw output identifies them, retries only malformed slots.
 

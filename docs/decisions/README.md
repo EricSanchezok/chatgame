@@ -125,3 +125,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0084 — Account-scoped Node Network Binding](0084-account-scoped-node-network-binding.md)
 - [0085 — World Inspector Hierarchical Selection](0085-world-inspector-hierarchical-selection.md)
 - [0086 — Model Semantic Contract and Reference Boundaries](0086-model-semantic-contract-and-reference-boundaries.md)
+- [0087 — Bounded Action Compilation Context](0087-bounded-action-compilation-context.md)
