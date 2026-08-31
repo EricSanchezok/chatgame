@@ -191,10 +191,14 @@ function normalizedContext(context: JsonRecord, candidates: readonly CandidateRe
     slots: array(state.slots).map((value, index) => {
       const slotState = record(value) ?? {};
       const slotTask = taskSlots[index] ?? {};
+      const repair = record(slotTask.repair);
+      const repairIssues = array(repair?.issues);
       return {
         ...slotState,
-        issue: array(slotTask.constraints).length > 0 ? array(slotTask.constraints)[0] : null,
-        previousAttempt: null,
+        issue: repairIssues[0] ?? (array(slotTask.constraints)[0] ?? null),
+        previousAttempt: repair === null
+          ? null
+          : structuredClone(repair.previousOutput ?? null),
       };
     }),
   };

@@ -43,7 +43,7 @@ function syntheticRecordedContext() {
   const catalog = (slot: number) => ({ version: 1, hash: String(slot), candidates: [...shared, ...slotPrivate] });
   return {
     contractVersion: 13,
-    task: { assignment: { availableHandles: shared.map((entry) => entry.handle) }, slots: [] },
+    task: { assignment: { availableHandles: shared.map((entry) => entry.handle) }, slots: [] as unknown[] },
     state: {
       currentElapsedSeconds: 7,
       actors: [{ ref: "ref:agent:a", entityRef: "ref:entity:actor" }],
@@ -102,6 +102,36 @@ describe("Action Compilation context experiment", () => {
       .toContainEqual(expect.objectContaining({ handle: "ref:entity:unused", details: expect.any(Object) }));
     expect(() => projectActionCompilationContext(source, "C4", { expansionHandles: ["ref:missing"] }))
       .toThrow("unknown handle");
+  });
+
+  it("preserves the rejected slot issue and previous attempt in normalized repair contexts", () => {
+    const source = syntheticRecordedContext();
+    const previousOutput = { temporalPlan: { profileRef: "ref:temporal_profile:brief" } };
+    source.task.slots = [{
+      slot: 0,
+      assignment: { targetHandles: ["ref:action:a"], allowedProposalKinds: [] },
+      constraints: ["conditional profile requires a continuation assertion"],
+      repair: {
+        fingerprint: "repair-fingerprint",
+        previousOutput,
+        issues: [{
+          code: "temporal.continuation_condition_missing",
+          path: ["temporalPlan", "continuationAssertions"],
+          reason: "conditional profile requires a continuation assertion",
+        }],
+      },
+    }];
+    for (const variant of ["C2", "C3"] as const) {
+      const projected = projectActionCompilationContext(source, variant);
+      expect(projected).toMatchObject({
+        task: {
+          slots: [{
+            issue: { code: "temporal.continuation_condition_missing" },
+            previousAttempt: previousOutput,
+          }],
+        },
+      });
+    }
   });
 
   it("limits E1 dynamic enums to small profile, audience, and pool fields", () => {

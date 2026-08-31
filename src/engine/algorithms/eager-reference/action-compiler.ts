@@ -409,6 +409,17 @@ function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
       }),
     ];
   }
+  if (message.includes("requires a continuation assertion")) {
+    return [
+      compilationIssue({
+        code: "temporal.continuation_condition_missing",
+        class: "mechanic",
+        path: ["temporalPlan", "continuationAssertions"],
+        originalValue: [],
+        reason: "The selected conditional temporal profile requires at least one continuation assertion grounded in exact catalog handles. Preserve the selected profile and describe the still-pending world condition; do not return an empty array or invent a reference.",
+      }),
+    ];
+  }
   return [compilationIssue({ code: "action_compilation.invalid_slot", reason: message })];
 }
 
