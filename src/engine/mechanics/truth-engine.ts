@@ -1464,7 +1464,7 @@ function materializeCausalVerification(
         engineId: `${index}:${operation.kind}`,
         label: operation.kind,
         meaning: "a deterministic world operation proposed by the candidate transition",
-        allowedUses: ["target", "assertion", "cause", "source"] as const,
+        allowedUses: ["target", "assertion", "source"] as const,
         visibility: "role" as const,
       })),
       ...input.proposal.mechanicInvocations.map((invocation) => ({
@@ -1480,7 +1480,7 @@ function materializeCausalVerification(
         engineId: observation.id,
         label: observation.summary,
         meaning: "an observation rendered from the candidate transition",
-        allowedUses: ["target", "assertion", "cause", "source"] as const,
+        allowedUses: ["target", "assertion", "source"] as const,
         visibility: "role" as const,
       })),
     ] satisfies ReferenceCandidateInput[],
@@ -2699,7 +2699,7 @@ export class TruthEngine {
                 engineId: plan.id,
                 label: plan.goal,
                 meaning: "a committed resolution plan under review",
-                allowedUses: ["target", "assertion", "cause"] as const,
+                allowedUses: ["target", "assertion"] as const,
                 visibility: "role" as const,
               })),
             });
@@ -2725,7 +2725,7 @@ export class TruthEngine {
               engineId: plan.id,
               label: plan.goal,
               meaning: "a committed resolution plan under review",
-              allowedUses: ["target", "assertion", "cause"] as const,
+              allowedUses: ["target", "assertion"] as const,
               visibility: "role" as const,
             })),
           });
