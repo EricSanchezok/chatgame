@@ -4,10 +4,8 @@ import {
   temporalProfileEligibility,
 } from "../../mechanics/temporal";
 import {
-  actionCompilationProjectionMetrics,
-  projectActionCompilationContext,
-  type ActionCompilationContextVariant,
-} from "./context-variants";
+  projectActionCompilationContextForModel,
+} from "../../algorithms/eager-reference/action-compilation-context";
 
 export interface ActionCompilationCorpusRecord {
   id: string;
@@ -160,7 +158,6 @@ function syntheticGoldContext(record: ActionCompilationCorpusRecord, gold: Actio
 export function evaluateGoldDetailRecall(
   corpus: readonly ActionCompilationCorpusRecord[],
   gold: ActionCompilationGold,
-  variant: Extract<ActionCompilationContextVariant, "C2" | "C3" | "C4" | "C5"> = "C3",
 ): { required: number; recalled: number; recall: number; failures: string[] } {
   let required = 0;
   let recalled = 0;
@@ -169,16 +166,16 @@ export function evaluateGoldDetailRecall(
     const expected = expectedGoldRecord(record, gold);
     if (!expected) continue;
     const context = syntheticGoldContext(record, expected);
-    const projected = projectActionCompilationContext(context, variant);
+    const projected = projectActionCompilationContextForModel(context);
     const candidates = ((projected.referenceCatalog as { candidates: Array<{ label: string; details: unknown }> }).candidates);
     for (const anchor of expected.requiredCandidateAnchors) {
       required += 1;
       if (candidates.some((entry) => entry.label === anchor && entry.details != null)) recalled += 1;
       else failures.push(`${record.id}: missing details for ${anchor}`);
     }
-    if (actionCompilationProjectionMetrics(projected).candidates !== actionCompilationProjectionMetrics(
-      projectActionCompilationContext(context, "C2"),
-    ).candidates) {
+    const projectedCandidates = (projected.referenceCatalog as { candidates: unknown[] }).candidates;
+    const sourceCandidates = (context.referenceCatalog as { candidates: unknown[] }).candidates;
+    if (projectedCandidates.length !== sourceCandidates.length) {
       failures.push(`${record.id}: candidate namespace changed`);
     }
   }

@@ -5,7 +5,7 @@ This fixture is the immutable C0 measurement for failed execution `15629bb7-a5c4
 Recompute and verify it against the preserved local database:
 
 ```sh
-npm run benchmark:action-compilation -- \
+tsx scripts/experiments/action-compilation-evaluation.ts \
   --database .livingworld-v19/livingworld.sqlite \
   --execution 15629bb7-a5c4-4132-8cda-d18d6cc78be2 \
   --verify test/fixtures/action-compilation/baseline/metrics.json

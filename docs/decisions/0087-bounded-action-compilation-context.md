@@ -29,7 +29,7 @@ The engine must distinguish complete semantic reachability from complete eager s
 
 ## Decision Outcome
 
-Choose option 3. A batch owns one `referenceCatalog`; every eligible handle remains present, while candidate details are projected deterministically. The evaluated C3 projector includes details for action references, eligible temporal profiles, the world clock, text matches, placement neighbors, and their reference closure, while all other candidates keep identity, meaning, allowed uses, scope, and `details: null`. Production has one projector in `action-compilation-context.ts` and no runtime variant switch.
+Choose option 3. A batch owns one `referenceCatalog`; every eligible handle remains present, while candidate details are projected deterministically. The evaluated C3 projector includes details for action references, eligible temporal profiles, the world clock, text matches, placement neighbors, and their reference closure, while all other candidates keep identity, meaning, allowed uses, scope, and `details: null`. Production has one projector in `action-compilation-context.ts`; after promotion the comparison projectors and runtime variant switches were removed, with their reports retained as evidence.
 
 Field-specific resolvers enforce allowed kinds and uses. Unknown, fuzzy, private, or illegal references remain local typed issues and never become global scope. Global arbitration follows only from an accepted canonical world reference. Runtime-contract preflight and trusted execution remain authoritative.
 
