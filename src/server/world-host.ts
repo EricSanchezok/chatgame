@@ -19,7 +19,12 @@ import {
   WORLD_STEP_PREPARATION_SCHEMA_VERSION,
   WorldExecutionAlgorithmRegistry,
 } from "../engine/runtime/execution";
-import { executionStage, type ExecutionStageHooks, type ExecutionStagePosition } from "../engine/runtime/stages";
+import {
+  EXECUTION_STAGES,
+  executionStage,
+  type ExecutionStageHooks,
+  type ExecutionStagePosition,
+} from "../engine/runtime/stages";
 import { arrivalDraftSchema } from "../engine/contracts/llm-schemas";
 import { loadModelCatalog } from "../engine/models/model-catalog";
 import { createModelGateway } from "../engine/models/model-gateway";
@@ -37,8 +42,8 @@ import { createAgentReferenceResolver, modelRoleContract } from "../engine/contr
 import { promptBundle } from "../engine/prompts";
 import {
   NOOP_RUNTIME_OBSERVER,
+  serializeRuntimeError,
   type RuntimeCorrelation,
-  type RuntimeError,
   type RuntimeObserver,
 } from "../engine/runtime/observability";
 import { quantityId } from "../engine/runtime/runtime-id";
@@ -78,6 +83,12 @@ import type {
 } from "../shared/world-observer-api";
 import { runtimeCodeIdentity } from "./code-identity";
 import { installBundledWorlds } from "./bundled-worlds";
+import {
+  DebugCheckpointModelProvider,
+  EXECUTION_CHECKPOINT_SCHEMA_VERSION,
+  debugCheckpointReplayValidationError,
+  type ExecutionCheckpoint,
+} from "./debug-checkpoint-provider";
 import type { ExecutionLedger, FinishExecutionInput } from "./execution-ledger";
 import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
@@ -145,11 +156,18 @@ class DebugStageGate implements ExecutionStageHooks {
   private waiters: Array<() => void> = [];
   private currentStageValue?: ExecutionStagePosition;
   private cancelled = false;
+  private readonly completedStageIndex: number;
+  private authorizedStageIndex: number | undefined;
 
   constructor(
     private readonly onPause: (stage: ExecutionStagePosition) => Promise<void>,
-    private readonly onFailure: (stage: ExecutionStagePosition, error: Error) => void,
-  ) {}
+    recoveredCompletedStageIndex?: number,
+  ) {
+    this.completedStageIndex = recoveredCompletedStageIndex ?? -1;
+    this.authorizedStageIndex = recoveredCompletedStageIndex === undefined
+      ? undefined
+      : recoveredCompletedStageIndex + 1;
+  }
 
   get current(): ExecutionStagePosition | undefined {
     return this.currentStageValue;
@@ -189,25 +207,25 @@ class DebugStageGate implements ExecutionStageHooks {
 
   async before(stage: ExecutionStagePosition): Promise<void> {
     this.currentStageValue = stage;
-    // Atomic commit has no engine work inside SimulationEngine. Pause before the
-    // persistence boundary so the final logical step still requires an explicit
-    // debug permit, while earlier stages pause after their work in `after`.
-    if (stage.index >= 9) {
-      await this.onPause(stage);
-      await this.waitForPermit();
-    }
+    if (stage.index <= this.completedStageIndex || this.authorizedStageIndex === stage.index) return;
+    await this.onPause(stage);
+    await this.waitForPermit();
+    this.authorizedStageIndex = stage.index;
   }
 
   async after(stage: ExecutionStagePosition): Promise<void> {
     this.currentStageValue = stage;
+    if (stage.index <= this.completedStageIndex) return;
     if (stage.index >= 9) return;
-    await this.onPause(stage);
+    const next = EXECUTION_STAGES[stage.index + 1];
+    if (!next) throw new Error(`debug stage ${stage.index} has no successor`);
+    await this.onPause(executionStage(next.key));
     await this.waitForPermit();
+    this.authorizedStageIndex = next.index;
   }
 
-  failed(stage: ExecutionStagePosition, error: RuntimeError): void {
+  failed(stage: ExecutionStagePosition): void {
     this.currentStageValue = stage;
-    this.onFailure(stage, new Error(error.message));
   }
 }
 
@@ -511,6 +529,7 @@ export class WorldHost {
   private readonly runTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly runControllers = new Map<string, AbortController>();
   private readonly debugStageGates = new Map<string, DebugStageGate>();
+  private readonly debugRecoveries = new Map<string, { executionId: string; completedStageIndex: number }>();
   private readonly setTimer: WorldHostOptions["setTimer"];
   private readonly clearTimer: NonNullable<WorldHostOptions["clearTimer"]>;
   readonly runtimeObserver: RuntimeObserver;
@@ -754,7 +773,8 @@ export class WorldHost {
       return "debug checkpoint artifact payload is invalid";
     }
     const value = artifact.value as Record<string, unknown>;
-    if (value.schemaVersion !== 1 || value.id !== checkpoint.id || value.executionId !== checkpoint.executionId ||
+    if (value.schemaVersion !== EXECUTION_CHECKPOINT_SCHEMA_VERSION || value.id !== checkpoint.id ||
+      value.executionId !== checkpoint.executionId ||
       value.runId !== run.id || value.generation !== run.generation ||
       value.boundaryIndex !== checkpoint.boundaryIndex ||
       value.stageIndex !== checkpoint.stageIndex || value.stageKey !== checkpoint.stageKey) {
@@ -770,22 +790,50 @@ export class WorldHost {
     }
     const range = eventRange as Record<string, unknown>;
     if ((range.fromSequence !== null && (!Number.isSafeInteger(range.fromSequence) || Number(range.fromSequence) < 1)) ||
-      (range.toSequence !== null && (!Number.isSafeInteger(range.toSequence) || Number(range.toSequence) < 1))) {
+      (range.toSequence !== null && (!Number.isSafeInteger(range.toSequence) || Number(range.toSequence) < 1)) ||
+      (typeof range.fromSequence === "number" && typeof range.toSequence === "number" &&
+        range.fromSequence > range.toSequence)) {
       return "debug checkpoint event range is invalid";
+    }
+    const sourceEvents = this.options.ledger.executionEvents(checkpoint.executionId);
+    if (range.fromSequence !== (sourceEvents[0]?.sequence ?? null) ||
+      !sourceEvents.some((event) => event.sequence === range.toSequence)) {
+      return "debug checkpoint event range does not match the execution";
     }
     if (!Array.isArray(value.priorArtifactRefs) ||
       value.priorArtifactRefs.some((hash) => typeof hash !== "string" || !hash.trim())) {
       return "debug checkpoint artifact references are invalid";
+    }
+    if (value.priorArtifactRefs.some((hash) => !this.options.ledger!.artifact(String(hash)))) {
+      return "debug checkpoint artifact references are missing";
     }
     const continuation = value.continuation;
     if (!continuation || typeof continuation !== "object" || Array.isArray(continuation)) {
       return "debug checkpoint continuation is invalid";
     }
     const envelope = continuation as Record<string, unknown>;
-    if (envelope.schemaVersion !== 1 || envelope.kind !== "in-process-stage-gate" ||
-      !Number.isSafeInteger(envelope.nextStageIndex) || Number(envelope.nextStageIndex) < 1 ||
-      Number(envelope.nextStageIndex) >= 10) {
+    if (envelope.schemaVersion !== 1 || envelope.kind !== "recorded-stage-replay" ||
+      !Number.isSafeInteger(envelope.nextStageIndex) || Number(envelope.nextStageIndex) < 0 ||
+      Number(envelope.nextStageIndex) >= 10 || envelope.nextStageIndex !== checkpoint.stageIndex) {
       return "debug checkpoint continuation is invalid";
+    }
+    const sourceExecution = this.options.ledger.execution(checkpoint.executionId);
+    if (!sourceExecution || sourceExecution.instanceId !== document.id ||
+      envelope.producerManifestHash !== sourceExecution.manifest.hash ||
+      envelope.worldHash !== sourceExecution.worldHash ||
+      envelope.modelCatalogHash !== sourceExecution.modelCatalogHash ||
+      envelope.codeRevision !== sourceExecution.codeRevision ||
+      envelope.codeDirty !== sourceExecution.codeDirty) {
+      return "debug checkpoint continuation ownership does not match";
+    }
+    if (validateActiveSource) {
+      const code = runtimeCodeIdentity();
+      if (sourceExecution.manifest.hash !== document.executionAlgorithm.manifestHash ||
+        sourceExecution.worldHash !== document.state.worldHash ||
+        sourceExecution.modelCatalogHash !== this.options.provider.catalog.hash ||
+        sourceExecution.codeRevision !== code.revision || sourceExecution.codeDirty !== code.dirty) {
+        return "debug checkpoint continuation runtime does not match";
+      }
     }
     return null;
   }
@@ -807,8 +855,10 @@ export class WorldHost {
       ? [stored.document.actionWindow.preparationArtifactHash]
       : [];
     const executionEvents = this.options.ledger.executionEvents(executionId);
+    const sourceExecution = this.options.ledger.execution(executionId);
+    if (!sourceExecution) throw new WorldHostError("debug execution is missing", 409);
     const checkpoint = {
-      schemaVersion: 1,
+      schemaVersion: EXECUTION_CHECKPOINT_SCHEMA_VERSION,
       id: checkpointId,
       executionId,
       runId,
@@ -825,11 +875,16 @@ export class WorldHost {
       priorArtifactRefs,
       continuation: {
         schemaVersion: 1,
-        kind: "in-process-stage-gate" as const,
-        nextStageIndex: Math.min(stage.index + 1, 9),
+        kind: "recorded-stage-replay" as const,
+        nextStageIndex: stage.index,
+        producerManifestHash: sourceExecution.manifest.hash,
+        worldHash: sourceExecution.worldHash,
+        modelCatalogHash: sourceExecution.modelCatalogHash,
+        codeRevision: sourceExecution.codeRevision,
+        codeDirty: sourceExecution.codeDirty,
       },
       createdAt: this.now().toISOString(),
-    };
+    } satisfies ExecutionCheckpoint;
     const artifactHash = this.options.ledger.putExecutionArtifact(executionId, "world-debug-checkpoint", checkpoint);
     const next = structuredClone(stored.document);
     const nextRun = next.runs[runId];
@@ -839,6 +894,7 @@ export class WorldHost {
     }
     nextRun.status = "debug-paused";
     nextRun.stopReason = "debug-stage-paused";
+    if (!nextRun.executionIds.includes(executionId)) nextRun.executionIds.push(executionId);
     nextRun.debugCheckpoint = {
       id: checkpointId,
       executionId,
@@ -1373,6 +1429,7 @@ export class WorldHost {
   ): Promise<PublicInstanceDetail> {
     let duplicateRequest = false;
     let invalidCheckpoint: string | null = null;
+    const liveGate = this.debugStageGates.get(input.runId);
     const document = await this.serialized(instanceId, async () => {
       const stored = this.read(instanceId);
       const run = stored.document.runs[input.runId];
@@ -1389,6 +1446,12 @@ export class WorldHost {
       const next = structuredClone(stored.document);
       const nextRun = next.runs[input.runId]!;
       invalidCheckpoint = this.debugCheckpointValidationError(stored.document, run);
+      if (!invalidCheckpoint && !liveGate) {
+        invalidCheckpoint = debugCheckpointReplayValidationError(
+          this.options.ledger!.executionEvents(run.debugCheckpoint!.executionId),
+          run.debugCheckpoint!.stageIndex - 1,
+        );
+      }
       if (invalidCheckpoint) {
         nextRun.generation += 1;
         nextRun.status = "preparation-invalidated";
@@ -1399,7 +1462,12 @@ export class WorldHost {
         next.updatedAt = nextRun.updatedAt;
         return this.persist(stored, next).document;
       }
-      nextRun.status = "running";
+      if (!liveGate) {
+        nextRun.status = "queued";
+        nextRun.lease = null;
+      } else {
+        nextRun.status = "running";
+      }
       nextRun.stopReason = null;
       nextRun.lastDebugRequestId = input.requestId;
       nextRun.updatedAt = this.now().toISOString();
@@ -1413,9 +1481,21 @@ export class WorldHost {
       this.debugStageGates.delete(input.runId);
       throw new WorldHostError(invalidCheckpoint, 409);
     }
-    const gate = this.debugStageGates.get(input.runId);
-    if (!gate) throw new WorldHostError("debug checkpoint is no longer active", 409);
-    gate.release();
+    if (!liveGate) {
+      const checkpoint = document.runs[input.runId]?.debugCheckpoint;
+      if (!checkpoint) throw new WorldHostError("debug checkpoint is no longer active", 409);
+      const recovery = {
+        executionId: checkpoint.executionId,
+        completedStageIndex: checkpoint.stageIndex - 1,
+      };
+      this.debugRecoveries.set(input.runId, recovery);
+      const interrupted = new Error("debug checkpoint continuation moved to a recovered execution");
+      interrupted.name = "AbortError";
+      this.failExecution(recovery.executionId, interrupted);
+      this.scheduleRun(instanceId, input.runId);
+      return this.project(document, principalId);
+    }
+    liveGate.release();
     return this.project(document, principalId);
   }
 
@@ -1545,8 +1625,17 @@ export class WorldHost {
         return [];
       }));
     }
+    const recovery = this.debugRecoveries.get(runId);
+    this.debugRecoveries.delete(runId);
+    const executionProvider = recovery && this.options.ledger
+      ? new DebugCheckpointModelProvider(
+          this.options.provider,
+          this.options.ledger.executionEvents(recovery.executionId),
+          recovery.completedStageIndex,
+        )
+      : this.options.provider;
     const algorithm = this.registry.create(document.executionAlgorithm, {
-      provider: this.options.provider,
+      provider: executionProvider,
       rulePackages: this.options.repository.rulePackages,
     });
     const execution = this.beginExecution(
@@ -1579,8 +1668,28 @@ export class WorldHost {
     this.runControllers.set(runId, controller);
     const debugGate = runRecord.debugMode === "step"
       ? new DebugStageGate(
-          (stage) => this.persistDebugCheckpoint(document.id, runId, execution?.id, stage),
-          () => undefined,
+          async (stage) => {
+            execution?.trace.emit({
+              event: "stage.paused",
+              correlation: {
+                executionId: execution?.id,
+                instanceId: document.id,
+                revision: request.expectedRevision,
+                step: document.state.step + 1,
+                logicalStageIndex: stage.index,
+                logicalStageKey: stage.key,
+              },
+              attributes: {
+                stageIndex: stage.index,
+                stageKey: stage.key,
+                label: stage.label,
+                parallelGroupId: `${execution?.id}:stage:${stage.index}`,
+              },
+            });
+            execution?.trace.flush();
+            await this.persistDebugCheckpoint(document.id, runId, execution?.id, stage);
+          },
+          recovery?.completedStageIndex,
         )
       : undefined;
     if (debugGate) this.debugStageGates.set(runId, debugGate);
@@ -1599,6 +1708,7 @@ export class WorldHost {
       abortSignal: controller.signal,
       ...(debugGate ? { stageHooks: debugGate } : {}),
     };
+    let atomicStageEntered = false;
     try {
       execution?.trace.emit({
         event: "action_window.resolved",
@@ -1782,8 +1892,9 @@ export class WorldHost {
       };
       const commitStage = executionStage("atomic-commit");
       if (debugGate) {
+        atomicStageEntered = true;
         execution?.trace.emit({
-          event: "debug.stage.started",
+          event: "stage.started",
           correlation: {
             executionId: execution?.id,
             instanceId: document.id,
@@ -1792,12 +1903,17 @@ export class WorldHost {
             logicalStageIndex: commitStage.index,
             logicalStageKey: commitStage.key,
           },
-          attributes: { stageIndex: commitStage.index, stageKey: commitStage.key, label: commitStage.label },
+          attributes: {
+            stageIndex: commitStage.index,
+            stageKey: commitStage.key,
+            label: commitStage.label,
+            parallelGroupId: `${execution?.id}:stage:${commitStage.index}`,
+          },
         });
         execution?.trace.flush();
         await debugGate.before(commitStage);
         execution?.trace.emit({
-          event: "debug.stage.completed",
+          event: "stage.completed",
           correlation: {
             executionId: execution?.id,
             instanceId: document.id,
@@ -1806,7 +1922,12 @@ export class WorldHost {
             logicalStageIndex: commitStage.index,
             logicalStageKey: commitStage.key,
           },
-          attributes: { stageIndex: commitStage.index, stageKey: commitStage.key, label: commitStage.label },
+          attributes: {
+            stageIndex: commitStage.index,
+            stageKey: commitStage.key,
+            label: commitStage.label,
+            parallelGroupId: `${execution?.id}:stage:${commitStage.index}`,
+          },
         });
         await debugGate.after(commitStage);
       }
@@ -1843,6 +1964,29 @@ export class WorldHost {
     } catch (error) {
       this.runControllers.delete(runId);
       this.debugStageGates.delete(runId);
+      if (atomicStageEntered && !(error instanceof Error && error.name === "AbortError")) {
+        const stage = executionStage("atomic-commit");
+        execution?.trace.emit({
+          event: "stage.failed",
+          level: "error",
+          correlation: {
+            executionId: execution?.id,
+            instanceId: document.id,
+            revision: request.expectedRevision,
+            step: document.state.step,
+            logicalStageIndex: stage.index,
+            logicalStageKey: stage.key,
+          },
+          attributes: {
+            stageIndex: stage.index,
+            stageKey: stage.key,
+            label: stage.label,
+            parallelGroupId: `${execution?.id}:stage:${stage.index}`,
+          },
+          error: serializeRuntimeError(error),
+        });
+        execution?.trace.flush();
+      }
       this.failExecution(execution?.id, error);
       const latest = this.read(document.id);
       const failed = structuredClone(latest.document);
@@ -2058,6 +2202,9 @@ export class WorldHost {
       const next = structuredClone(stored.document);
       const run = next.runs[input.runId];
       if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
+      if (run.debugMode === "step") {
+        throw new WorldHostError("single-step runs use next-step control and cannot be manually paused", 409);
+      }
       if (!["queued", "running", "pausing", "debug-paused"].includes(run.status)) {
         if (run.status === "paused") return next;
         throw new WorldHostError("world run cannot be paused", 409);
@@ -2089,8 +2236,8 @@ export class WorldHost {
       const next = structuredClone(stored.document);
       const run = next.runs[input.runId];
       if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
-      if (run.status === "preparation-invalidated" && run.debugMode === "step") {
-        throw new WorldHostError("debug continuation is invalid; start a new run", 409);
+      if (run.debugMode === "step") {
+        throw new WorldHostError("single-step runs cannot be resumed; use next-step or start a new run", 409);
       }
       if (run.status !== "paused" && run.status !== "budget-paused" &&
         run.status !== "preparation-invalidated") {
@@ -2405,9 +2552,20 @@ export class WorldHost {
     let changed = false;
     for (const run of Object.values(recovered.runs)) {
       if (!["queued", "running", "pausing", "debug-paused"].includes(run.status)) continue;
-      const checkpointError = run.debugMode === "step"
+      let checkpointError = run.debugMode === "step"
         ? this.debugCheckpointValidationError(stored.document, run)
         : null;
+      if (!checkpointError && run.debugMode === "step" && run.debugCheckpoint) {
+        checkpointError = debugCheckpointReplayValidationError(
+          this.options.ledger!.executionEvents(run.debugCheckpoint.executionId),
+          run.debugCheckpoint.stageIndex - 1,
+        );
+      }
+      if (run.debugMode === "step" && run.status === "debug-paused" && !checkpointError) {
+        // The persisted source state, model outputs, audit payloads, and stage
+        // cursor are sufficient to rebuild the continuation on the next CAS.
+        continue;
+      }
       run.generation += 1;
       run.status = run.debugMode === "step"
         ? "preparation-invalidated"

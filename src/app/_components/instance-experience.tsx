@@ -86,8 +86,8 @@ function PlayerRunConsole({
   onResume: () => void;
 }) {
   const debugPaused = run.status === "debug-paused" && run.debug.canAdvance;
-  const resumable = run.status === "paused" || run.status === "budget-paused" ||
-    run.status === "preparation-invalidated";
+  const resumable = run.debug.mode !== "step" && (run.status === "paused" ||
+    run.status === "budget-paused" || run.status === "preparation-invalidated");
   const [now, setNow] = useState(() => Date.now());
   const presentation = runStatusPresentation(run, Boolean(run.status === "running" && hasParticipantAction));
   const elapsed = formatRunElapsed(run.lease?.startedAt, now);
@@ -112,7 +112,7 @@ function PlayerRunConsole({
       </div>
       {debugPaused ? (
         <button className="cg-thread-status__action" disabled={busy} onClick={onNext} type="button"><FastForward aria-hidden="true" /> 下一步</button>
-      ) : (
+      ) : run.debug.mode === "step" ? null : (
         <button className="cg-thread-status__action" disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
           {resumable ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
           {run.status === "preparation-invalidated" ? "重新准备" : resumable ? "恢复" : "暂停"}

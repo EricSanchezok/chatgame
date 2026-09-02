@@ -18,6 +18,15 @@ function activityDescription(run: PublicWorldRun): string | undefined {
 }
 
 export function runStatusPresentation(run: PublicWorldRun, hasParticipantAction = false): RunStatusPresentation {
+  if (run.debug.mode === "step" && (run.status === "queued" || run.status === "running")) {
+    return run.debug.stageKey ? {
+      title: `阶段 ${run.debug.stageIndex + 1} / ${run.debug.stageCount} · ${run.debug.stageLabel ?? run.debug.stageKey}`,
+      detail: "正在执行当前逻辑阶段",
+    } : {
+      title: "正在准备单步推演",
+      detail: "即将在第一个逻辑阶段前暂停",
+    };
+  }
   let title: string;
   let detail: string;
   switch (run.status) {
@@ -45,7 +54,9 @@ export function runStatusPresentation(run: PublicWorldRun, hasParticipantAction 
       break;
     case "preparation-invalidated":
       title = "需要重新准备";
-      detail = "世界状态已变化，原方案未提交";
+      detail = run.debug.mode === "step"
+        ? "单步证据已失效，请开始新的推演"
+        : "世界状态已变化，原方案未提交";
       break;
     case "running":
       title = hasParticipantAction ? "正在处理你的行动" : "世界正在自主推进";

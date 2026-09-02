@@ -788,11 +788,11 @@ function attemptStages(events: readonly RuntimeEvent[]): WorldInspectorAttemptSt
   }
   return [...groups.entries()].sort(([left], [right]) => left - right).map(([index, group]) => {
     const ordered = [...group].sort((left, right) => left.sequence - right.sequence);
-    const terminal = [...ordered].reverse().find((event) => event.event === "debug.stage.completed" ||
-      event.event === "debug.stage.failed" || event.event === "model.semantic.accepted" ||
+    const terminal = [...ordered].reverse().find((event) => event.event === "stage.completed" ||
+      event.event === "stage.failed" || event.event === "model.semantic.accepted" ||
       event.event === "model.semantic.rejected" || event.event === "model.structured_output.parsed" ||
       event.event === "model.structured_output.rejected" || event.event === "model.invocation.failed");
-    const failed = terminal?.event === "debug.stage.failed" || terminal?.event === "model.semantic.rejected" ||
+    const failed = terminal?.event === "stage.failed" || terminal?.event === "model.semantic.rejected" ||
       terminal?.event === "model.structured_output.rejected" || terminal?.event === "model.invocation.failed";
     const error = [...ordered].reverse().find((event) => event.error)?.error;
     const stage = EXECUTION_STAGES.find((candidate) => candidate.index === index);
@@ -1378,8 +1378,8 @@ export function buildWorldInspectorReplay(
       ? [worldInspectorModelInvocationId(executionId, event.correlation.modelInvocationId)] : []))];
     const artifactHashes = [...new Set(group.flatMap((event) => Object.values(event.hashes ?? {})
       .filter((hash): hash is string => typeof hash === "string")))];
-    const failed = group.some((event) => event.level === "error" || event.event === "debug.stage.failed");
-    const active = group.length > 0 && !group.some((event) => event.event === "debug.stage.completed" || event.event === "step.committed");
+    const failed = group.some((event) => event.level === "error" || event.event === "stage.failed");
+    const active = group.length > 0 && !group.some((event) => event.event === "stage.completed" || event.event === "step.committed");
     return {
       index,
       boundaryIndex,

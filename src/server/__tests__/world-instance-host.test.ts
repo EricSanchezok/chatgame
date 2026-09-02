@@ -30,6 +30,7 @@ import {
 import { referenceHandleFor } from "../../engine/contracts/model-context";
 import { loadWorldScript } from "../../script/world-loader";
 import { MemoryWorldRepository } from "../../script/world-repository";
+import { debugCheckpointReplayValidationError } from "../debug-checkpoint-provider";
 import { LocalDatabase } from "../local-database";
 import { WorldHost } from "../world-host";
 import { validateWorldInstanceDocument } from "../world-instance-store";
@@ -227,6 +228,18 @@ describe("World Instance host", () => {
       expect(paused.run?.debug).toMatchObject({ stageIndex: 0, stageCount: 10, canAdvance: true });
       expect(paused.summary.revision).toBe(0);
       expect(provider.requests).toHaveLength(bootstrapRequestCount);
+      const initialExecutionId = database.readInstance(created.summary.id).document
+        .runs[paused.run!.id]!.debugCheckpoint!.executionId;
+      const initialStageEvents = database.executionEvents(initialExecutionId)
+        .filter((event) => event.correlation?.logicalStageIndex === 0)
+        .map((event) => event.event);
+      expect(initialStageEvents).toContain("stage.started");
+      expect(initialStageEvents).toContain("stage.paused");
+      expect(initialStageEvents).not.toContain("stage.completed");
+      await expect(host.pauseRun(created.summary.id, {
+        runId: paused.run!.id,
+        generation: paused.run!.generation,
+      })).rejects.toThrow("single-step runs use next-step control");
       const next = await host.advanceDebugStep(created.summary.id, {
         runId: paused.run!.id,
         generation: paused.run!.generation,
@@ -238,9 +251,20 @@ describe("World Instance host", () => {
         : await waitForRunStatus(host, created.summary.id, "debug-paused");
       expect(stageTwo.run?.debug.stageIndex).toBe(1);
       expect(stageTwo.summary.revision).toBe(0);
-      expect(provider.requests.length).toBeGreaterThan(0);
-      expect(host.inspectorModelInvocations(created.summary.id, { sort: "stage" }).items)
-        .toContainEqual(expect.objectContaining({ logicalStageIndex: 1 }));
+      expect(provider.requests).toHaveLength(bootstrapRequestCount);
+      const afterFirstStepEvents = database.executionEvents(initialExecutionId);
+      expect(afterFirstStepEvents).toContainEqual(expect.objectContaining({
+        event: "stage.completed",
+        correlation: expect.objectContaining({ logicalStageIndex: 0 }),
+      }));
+      expect(afterFirstStepEvents).toContainEqual(expect.objectContaining({
+        event: "stage.paused",
+        correlation: expect.objectContaining({ logicalStageIndex: 1 }),
+      }));
+      expect(afterFirstStepEvents).not.toContainEqual(expect.objectContaining({
+        event: "stage.started",
+        correlation: expect.objectContaining({ logicalStageIndex: 1 }),
+      }));
 
       let cursor = stageTwo;
       for (let stageIndex = 2; stageIndex < 10; stageIndex += 1) {
@@ -255,6 +279,11 @@ describe("World Instance host", () => {
           : await waitForRunStatus(host, created.summary.id, "debug-paused");
         expect(cursor.run?.debug.stageIndex).toBe(stageIndex);
         expect(cursor.summary.revision).toBe(0);
+        if (stageIndex === 2) {
+          expect(provider.requests.length).toBeGreaterThan(bootstrapRequestCount);
+          expect(host.inspectorModelInvocations(created.summary.id, { sort: "stage" }).items)
+            .toContainEqual(expect.objectContaining({ logicalStageIndex: 1 }));
+        }
       }
 
       const committed = await host.advanceDebugStep(created.summary.id, {
@@ -313,6 +342,80 @@ describe("World Instance host", () => {
       });
       await new Promise((resolve) => setTimeout(resolve, 10));
     } finally {
+      database.close();
+    }
+  }, 30_000);
+
+  it("recovers a debug continuation from recorded stage outputs after process restart", async () => {
+    const { database, host, provider, repository } = harness();
+    let reopened: LocalDatabase | undefined;
+    try {
+      const created = await host.createInstance(observerStart);
+      await host.setDebugMode(created.summary.id, {
+        enabled: true,
+        expectedRevision: created.summary.revision,
+      });
+      await host.advance(created.summary.id, {
+        expectedRevision: created.summary.revision,
+        trigger: "manual",
+        steps: 1,
+      });
+      const stageOne = await waitForRunStatus(host, created.summary.id, "debug-paused");
+      await host.advanceDebugStep(created.summary.id, {
+        runId: stageOne.run!.id,
+        generation: stageOne.run!.generation,
+        checkpointId: stageOne.run!.debug.checkpointId!,
+        requestId: "before-restart-stage-one",
+      });
+      const stageTwo = await waitForRunStatus(host, created.summary.id, "debug-paused");
+      expect(stageTwo.run?.debug.stageIndex).toBe(1);
+      await host.advanceDebugStep(created.summary.id, {
+        runId: stageTwo.run!.id,
+        generation: stageTwo.run!.generation,
+        checkpointId: stageTwo.run!.debug.checkpointId!,
+        requestId: "before-restart-stage-two",
+      });
+      const stageThree = await waitForRunStatus(host, created.summary.id, "debug-paused");
+      expect(stageThree.run?.debug.stageIndex).toBe(2);
+      const liveRequestCount = provider.requests.length;
+      const sourceExecutionId = database.readInstance(created.summary.id).document
+        .runs[stageThree.run!.id]!.debugCheckpoint!.executionId;
+      const sourceEvents = database.executionEvents(sourceExecutionId);
+      expect(debugCheckpointReplayValidationError(sourceEvents, 1)).toBeNull();
+      const damagedEvents = structuredClone(sourceEvents);
+      const recordedOutput = damagedEvents.find((event) => event.event === "model.structured_output.parsed");
+      expect(recordedOutput).toBeDefined();
+      recordedOutput!.payload = { tampered: true };
+      expect(debugCheckpointReplayValidationError(damagedEvents, 1))
+        .toBe("debug checkpoint contains invalid recorded model continuation evidence");
+
+      const databaseFile = database.file;
+      database.close();
+      reopened = new LocalDatabase(databaseFile, { heartbeat: false });
+      const recoveredHost = new WorldHost({
+        repository,
+        store: reopened,
+        ledger: reopened,
+        provider,
+      });
+      const recovered = recoveredHost.instance(created.summary.id);
+      expect(recovered.run).toMatchObject({
+        status: "debug-paused",
+        debug: { stageIndex: 2, canAdvance: true },
+      });
+      await recoveredHost.advanceDebugStep(created.summary.id, {
+        runId: recovered.run!.id,
+        generation: recovered.run!.generation,
+        checkpointId: recovered.run!.debug.checkpointId!,
+        requestId: "after-restart-stage-two",
+      });
+      const stageFour = await waitForRunStatus(recoveredHost, created.summary.id, "debug-paused");
+      expect(stageFour.run?.debug.stageIndex).toBe(3);
+      expect(stageFour.summary.revision).toBe(0);
+      expect(provider.requests).toHaveLength(liveRequestCount);
+      expect(reopened.execution(sourceExecutionId)?.status).toBe("failed");
+    } finally {
+      reopened?.close();
       database.close();
     }
   }, 30_000);

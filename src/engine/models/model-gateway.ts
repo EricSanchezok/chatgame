@@ -511,6 +511,7 @@ export class ModelGateway implements StructuredModelProvider {
     observer.flush?.();
     const transports: ModelTransportAttemptAudit[] = [];
     let transportAttempts = 0;
+    let auditPersisted = false;
 
     while (transportAttempts < this.maxTransportAttempts) {
       transportAttempts += 1;
@@ -621,6 +622,13 @@ export class ModelGateway implements StructuredModelProvider {
           normalizedOutputHash: responseHash,
         };
         const audit = executionAudit(binding, request, scheduled.value, this.catalog, [invocation]);
+        observe?.({
+          event: "model.audit.persisted",
+          correlation,
+          hashes: { request: requestHash, response: responseHash },
+          payload: fullRuntimePayload(observer, audit),
+        });
+        auditPersisted = true;
         observe?.({
           event: "model.structured_output.parsed",
           correlation,
@@ -738,7 +746,19 @@ export class ModelGateway implements StructuredModelProvider {
         if (transportAttempts >= this.maxTransportAttempts ||
           !isRetryableTransportError(error, request.abortSignal)) {
           if (isOutputError(error)) {
-            if (error instanceof ModelOutputError && error.audit) throw error;
+            if (error instanceof ModelOutputError && error.audit) {
+              if (!auditPersisted) {
+                observe?.({
+                  event: "model.audit.persisted",
+                  level: "warn",
+                  correlation,
+                  hashes: { request: requestHash },
+                  payload: fullRuntimePayload(observer, error.audit),
+                });
+              }
+              observer.flush?.();
+              throw error;
+            }
             const invocation: ModelInvocationAudit = {
               id: modelInvocationId,
               ordinal: modelInvocation,
@@ -775,6 +795,17 @@ export class ModelGateway implements StructuredModelProvider {
               this.catalog,
               [invocation],
             );
+            observe?.({
+              event: "model.audit.persisted",
+              level: "warn",
+              correlation,
+              hashes: {
+                request: requestHash,
+                ...(invocation.responseHash ? { response: invocation.responseHash } : {}),
+              },
+              payload: fullRuntimePayload(observer, audit),
+            });
+            auditPersisted = true;
             observe?.({
               event: "model.structured_output.rejected",
               level: "warn",

@@ -74,6 +74,37 @@ describe("run status presentation", () => {
     }))).toEqual({ title: "阶段 4 / 10 · 反应与感知", detail: "等待你的下一步" });
   });
 
+  it("keeps the logical stage visible while a debug step is executing", () => {
+    expect(runStatusPresentation(run({
+      debug: {
+        mode: "step",
+        boundaryIndex: 0,
+        stageIndex: 1,
+        stageCount: 10,
+        stageKey: "action-compilation",
+        stageLabel: "行动编译",
+        checkpointId: "checkpoint-1",
+        canAdvance: false,
+      },
+    }))).toEqual({ title: "阶段 2 / 10 · 行动编译", detail: "正在执行当前逻辑阶段" });
+  });
+
+  it("does not describe an invalid debug continuation as resumable", () => {
+    expect(runStatusPresentation(run({
+      status: "preparation-invalidated",
+      debug: {
+        mode: "step",
+        boundaryIndex: 0,
+        stageIndex: 1,
+        stageCount: 10,
+        stageKey: "action-compilation",
+        stageLabel: "行动编译",
+        checkpointId: "checkpoint-1",
+        canAdvance: false,
+      },
+    })).detail).toBe("单步证据已失效，请开始新的推演");
+  });
+
   it("formats elapsed wall time for the waiting state", () => {
     expect(formatRunElapsed("2026-08-29T08:00:00.000Z", Date.parse("2026-08-29T08:01:12.000Z"))).toBe("1 分 12 秒");
   });

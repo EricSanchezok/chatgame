@@ -561,7 +561,7 @@ export default function WorldInspectorDialog({
       if (payload.type !== "runtime") return;
       const type = payload.event.event;
       if (type.startsWith("model.") || type.startsWith("step.") || type.startsWith("run.") ||
-        type.startsWith("execution.") || type.startsWith("debug.stage.") || type.startsWith("instance.bootstrap.") || type === "arrival.generated") scheduleRefresh();
+        type.startsWith("execution.") || type.startsWith("stage.") || type.startsWith("instance.bootstrap.") || type === "arrival.generated") scheduleRefresh();
     };
     const onResync = () => {
       void loadWindow(true);

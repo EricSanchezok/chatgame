@@ -185,15 +185,27 @@ class TracedExecutionStageHooks implements ExecutionStageHooks {
     };
   }
 
+  private parallelGroupId(stage: ExecutionStagePosition): string {
+    return `${this.modelScope.correlation?.executionId ?? this.modelScope.batchId}:stage:${stage.index}`;
+  }
+
   async before(stage: ExecutionStagePosition): Promise<void> {
     this.current = stage;
     this.modelScope.logicalStage = structuredClone(stage);
     this.modelScope.correlation = this.correlation(stage);
     this.trace.emit({
-      event: "debug.stage.started",
+      event: "stage.started",
       correlation: this.correlation(stage),
-      attributes: { stageIndex: stage.index, stageKey: stage.key, label: stage.label },
+      attributes: {
+        stageIndex: stage.index,
+        stageKey: stage.key,
+        label: stage.label,
+        parallelGroupId: this.parallelGroupId(stage),
+      },
     });
+    // A pre-stage checkpoint must include the lifecycle marker that names the
+    // stage it is waiting to execute.
+    this.trace.flush();
     await this.delegate.before(stage);
   }
 
@@ -202,9 +214,14 @@ class TracedExecutionStageHooks implements ExecutionStageHooks {
     this.modelScope.logicalStage = structuredClone(stage);
     this.modelScope.correlation = this.correlation(stage);
     this.trace.emit({
-      event: "debug.stage.completed",
+      event: "stage.completed",
       correlation: this.correlation(stage),
-      attributes: { stageIndex: stage.index, stageKey: stage.key, label: stage.label },
+      attributes: {
+        stageIndex: stage.index,
+        stageKey: stage.key,
+        label: stage.label,
+        parallelGroupId: this.parallelGroupId(stage),
+      },
     });
     // Persist the lifecycle marker before a debug gate parks the worker so the
     // checkpoint's event range includes the stage boundary it represents.
@@ -218,10 +235,15 @@ class TracedExecutionStageHooks implements ExecutionStageHooks {
     this.modelScope.logicalStage = structuredClone(stage);
     this.modelScope.correlation = this.correlation(stage);
     this.trace.emit({
-      event: "debug.stage.failed",
+      event: "stage.failed",
       level: "error",
       correlation: this.correlation(stage),
-      attributes: { stageIndex: stage.index, stageKey: stage.key, label: stage.label },
+      attributes: {
+        stageIndex: stage.index,
+        stageKey: stage.key,
+        label: stage.label,
+        parallelGroupId: this.parallelGroupId(stage),
+      },
       error,
     });
     this.delegate.failed(stage, error);
@@ -671,7 +693,9 @@ export class SimulationEngine {
       };
     } catch (error) {
       const currentStage = context.stages?.current;
-      if (currentStage && context.stages) context.stages.failed(currentStage, serializeRuntimeError(error));
+      if (currentStage && context.stages && !(error instanceof Error && error.name === "AbortError")) {
+        context.stages.failed(currentStage, serializeRuntimeError(error));
+      }
       trace.emit({
         event: "step.rolled_back",
         level: "error",

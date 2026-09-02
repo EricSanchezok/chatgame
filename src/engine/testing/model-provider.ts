@@ -876,6 +876,30 @@ export class ScriptedModelProvider implements StructuredModelProvider {
         normalizedOutputHash: contentHash(raw),
       }],
     };
+    const correlation = {
+      ...request.correlation,
+      ...(request.logicalStage ? {
+        logicalStageIndex: request.logicalStage.index,
+        logicalStageKey: request.logicalStage.key,
+      } : {}),
+      modelInvocationId,
+      modelRole: request.role,
+      modelSubject: request.subjectId,
+      modelInvocation,
+    };
+    request.observer?.emit({
+      event: "model.invocation.started",
+      correlation,
+      attributes: {
+        profileId: request.profileId,
+        accountId: profile.account_id,
+        providerId: account.models_dev_provider_id,
+        modelId,
+        promptVersion: request.promptVersion,
+        schemaName: request.schemaName,
+      },
+      hashes: { request: audit.invocations[0]!.requestHash },
+    });
     try {
       const normalizedRaw = request.schemaName.startsWith("truth_resolution")
         ? adaptScriptedResolutionOutput(raw)
@@ -886,10 +910,35 @@ export class ScriptedModelProvider implements StructuredModelProvider {
           : request.schemaName.startsWith("resolution_plan_verification") || request.schemaName.startsWith("causal_verification")
             ? adaptScriptedVerifierOutput(raw, request.schemaName.startsWith("causal_verification"))
           : raw;
-      return { value: request.schema.parse(normalizedRaw), audit };
+      const value = request.schema.parse(normalizedRaw);
+      const normalizedResponseHash = contentHash(value);
+      audit.invocations[0]!.responseHash = normalizedResponseHash;
+      audit.invocations[0]!.responseUtf8Bytes = Buffer.byteLength(
+        JSON.stringify(canonicalize(value)),
+        "utf8",
+      );
+      audit.invocations[0]!.normalizedOutputHash = normalizedResponseHash;
+      request.observer?.emit({
+        event: "model.structured_output.parsed",
+        correlation,
+        hashes: { request: audit.invocations[0]!.requestHash, response: normalizedResponseHash },
+        payload: value,
+      });
+      request.observer?.emit({ event: "model.audit.persisted", correlation, payload: audit });
+      request.observer?.flush?.();
+      return { value, audit };
     } catch (error) {
       audit.invocations[0]!.outputDisposition = "rejected";
       audit.invocations[0]!.issues = [{ code: "schema_validation", class: "structure", path: [], message: error instanceof Error ? error.message : String(error) }];
+      request.observer?.emit({
+        event: "model.structured_output.rejected",
+        level: "warn",
+        correlation,
+        hashes: { request: audit.invocations[0]!.requestHash, response: contentHash(raw) },
+        payload: raw,
+      });
+      request.observer?.emit({ event: "model.audit.persisted", level: "warn", correlation, payload: audit });
+      request.observer?.flush?.();
       throw new ModelOutputError("scripted model output failed schema validation", audit, {
         cause: error,
         rawValue: raw,
