@@ -737,6 +737,59 @@ export class WorldHost {
     });
   }
 
+  private debugCheckpointValidationError(
+    document: Readonly<WorldInstanceDocument>,
+    run: Readonly<WorldRunRecord>,
+    validateActiveSource = true,
+  ): string | null {
+    const checkpoint = run.debugCheckpoint;
+    if (!checkpoint) return "debug checkpoint metadata is missing";
+    if (!this.options.ledger) return "debug checkpoint ledger is unavailable";
+    const artifact = this.options.ledger.artifact(checkpoint.artifactHash);
+    if (!artifact || artifact.hash !== checkpoint.artifactHash) return "debug checkpoint artifact is missing";
+    if (artifact.kind !== "world-debug-checkpoint" || artifact.executionId !== checkpoint.executionId) {
+      return "debug checkpoint artifact ownership does not match";
+    }
+    if (!artifact.value || typeof artifact.value !== "object" || Array.isArray(artifact.value)) {
+      return "debug checkpoint artifact payload is invalid";
+    }
+    const value = artifact.value as Record<string, unknown>;
+    if (value.schemaVersion !== 1 || value.id !== checkpoint.id || value.executionId !== checkpoint.executionId ||
+      value.runId !== run.id || value.generation !== run.generation ||
+      value.boundaryIndex !== checkpoint.boundaryIndex ||
+      value.stageIndex !== checkpoint.stageIndex || value.stageKey !== checkpoint.stageKey) {
+      return "debug checkpoint artifact does not match the active run";
+    }
+    if (validateActiveSource && (value.sourceRevision !== document.state.revision ||
+      value.sourceStateHash !== contentHash(document.state) || value.boundaryIndex !== run.committedRevisions.length)) {
+      return "debug checkpoint source state does not match the active run";
+    }
+    const eventRange = value.eventRange;
+    if (!eventRange || typeof eventRange !== "object" || Array.isArray(eventRange)) {
+      return "debug checkpoint event range is invalid";
+    }
+    const range = eventRange as Record<string, unknown>;
+    if ((range.fromSequence !== null && (!Number.isSafeInteger(range.fromSequence) || Number(range.fromSequence) < 1)) ||
+      (range.toSequence !== null && (!Number.isSafeInteger(range.toSequence) || Number(range.toSequence) < 1))) {
+      return "debug checkpoint event range is invalid";
+    }
+    if (!Array.isArray(value.priorArtifactRefs) ||
+      value.priorArtifactRefs.some((hash) => typeof hash !== "string" || !hash.trim())) {
+      return "debug checkpoint artifact references are invalid";
+    }
+    const continuation = value.continuation;
+    if (!continuation || typeof continuation !== "object" || Array.isArray(continuation)) {
+      return "debug checkpoint continuation is invalid";
+    }
+    const envelope = continuation as Record<string, unknown>;
+    if (envelope.schemaVersion !== 1 || envelope.kind !== "in-process-stage-gate" ||
+      !Number.isSafeInteger(envelope.nextStageIndex) || Number(envelope.nextStageIndex) < 1 ||
+      Number(envelope.nextStageIndex) >= 10) {
+      return "debug checkpoint continuation is invalid";
+    }
+    return null;
+  }
+
   private async persistDebugCheckpoint(
     instanceId: string,
     runId: string,
@@ -1005,9 +1058,11 @@ export class WorldHost {
     const document = this.read(id).document;
     const record = this.options.ledger?.execution(executionId);
     if (!record || record.instanceId !== id) throw new WorldHostError(`execution not found: ${executionId}`, 404);
-    const checkpoint = Object.values(document.runs)
-      .map((run) => run.debugCheckpoint)
-      .find((candidate) => candidate?.executionId === executionId);
+    const checkpointRun = Object.values(document.runs)
+      .find((run) => run.debugCheckpoint?.executionId === executionId);
+    const checkpoint = checkpointRun && !this.debugCheckpointValidationError(document, checkpointRun, false)
+      ? checkpointRun.debugCheckpoint
+      : null;
     const replay = buildWorldInspectorReplay(
       document,
       executionId,
@@ -1317,6 +1372,7 @@ export class WorldHost {
     principalId = "local",
   ): Promise<PublicInstanceDetail> {
     let duplicateRequest = false;
+    let invalidCheckpoint: string | null = null;
     const document = await this.serialized(instanceId, async () => {
       const stored = this.read(instanceId);
       const run = stored.document.runs[input.runId];
@@ -1332,6 +1388,17 @@ export class WorldHost {
       }
       const next = structuredClone(stored.document);
       const nextRun = next.runs[input.runId]!;
+      invalidCheckpoint = this.debugCheckpointValidationError(stored.document, run);
+      if (invalidCheckpoint) {
+        nextRun.generation += 1;
+        nextRun.status = "preparation-invalidated";
+        nextRun.stopReason = "debug-checkpoint-invalid";
+        nextRun.lease = null;
+        nextRun.error = invalidCheckpoint;
+        nextRun.updatedAt = this.now().toISOString();
+        next.updatedAt = nextRun.updatedAt;
+        return this.persist(stored, next).document;
+      }
       nextRun.status = "running";
       nextRun.stopReason = null;
       nextRun.lastDebugRequestId = input.requestId;
@@ -1340,6 +1407,12 @@ export class WorldHost {
       return this.persist(stored, next).document;
     });
     if (duplicateRequest) return this.project(document, principalId);
+    if (invalidCheckpoint) {
+      this.runControllers.get(input.runId)?.abort("debug-checkpoint-invalid");
+      this.debugStageGates.get(input.runId)?.cancel();
+      this.debugStageGates.delete(input.runId);
+      throw new WorldHostError(invalidCheckpoint, 409);
+    }
     const gate = this.debugStageGates.get(input.runId);
     if (!gate) throw new WorldHostError("debug checkpoint is no longer active", 409);
     gate.release();
@@ -2332,9 +2405,19 @@ export class WorldHost {
     let changed = false;
     for (const run of Object.values(recovered.runs)) {
       if (!["queued", "running", "pausing", "debug-paused"].includes(run.status)) continue;
+      const checkpointError = run.debugMode === "step"
+        ? this.debugCheckpointValidationError(stored.document, run)
+        : null;
       run.generation += 1;
-      run.status = "paused";
-      run.stopReason = "process-recovered";
+      run.status = run.debugMode === "step"
+        ? "preparation-invalidated"
+        : "paused";
+      run.stopReason = run.status === "preparation-invalidated"
+        ? checkpointError ? "debug-checkpoint-invalid" : "debug-checkpoint-continuation-unavailable"
+        : "process-recovered";
+      if (run.status === "preparation-invalidated") {
+        run.error = checkpointError ?? "单步调试的 continuation 无法在进程重启后恢复；该次推演未提交。";
+      }
       run.lease = null;
       run.updatedAt = this.now().toISOString();
       recovered.updatedAt = run.updatedAt;

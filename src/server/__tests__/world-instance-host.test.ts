@@ -280,6 +280,43 @@ describe("World Instance host", () => {
     }
   }, 30_000);
 
+  it("invalidates a damaged debug checkpoint instead of releasing the stage gate", async () => {
+    const { database, host } = harness();
+    try {
+      const created = await host.createInstance(observerStart);
+      await host.setDebugMode(created.summary.id, {
+        enabled: true,
+        expectedRevision: created.summary.revision,
+      });
+      const started = await host.advance(created.summary.id, {
+        expectedRevision: created.summary.revision,
+        trigger: "manual",
+        steps: 1,
+      });
+      const paused = started.run?.status === "debug-paused"
+        ? started
+        : await waitForRunStatus(host, created.summary.id, "debug-paused");
+      const stored = database.readInstance(created.summary.id);
+      const damaged = structuredClone(stored.document);
+      damaged.runs[paused.run!.id]!.debugCheckpoint!.artifactHash = "missing-debug-checkpoint";
+      database.compareAndSwapInstance(created.summary.id, stored.generation, damaged);
+
+      await expect(host.advanceDebugStep(created.summary.id, {
+        runId: paused.run!.id,
+        generation: paused.run!.generation,
+        checkpointId: paused.run!.debug.checkpointId!,
+        requestId: "damaged-checkpoint-next",
+      })).rejects.toThrow("debug checkpoint artifact is missing");
+      expect(host.instance(created.summary.id)).toMatchObject({
+        summary: { revision: 0 },
+        run: { status: "preparation-invalidated", stopReason: "debug-checkpoint-invalid" },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
   it("creates Origin admission and Arrival with the instance and no orphan shell", async () => {
     const { database, host, provider } = harness();
     try {
