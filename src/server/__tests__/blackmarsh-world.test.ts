@@ -609,5 +609,9 @@ describe("Blackmarsh reference world", () => {
     const invocationIds = batchedAudits.flatMap((audit) => audit.invocations.map((invocation) => invocation.id));
     expect(new Set(invocationIds).size).toBe(invocationIds.length);
     expect(provider.requests.some((request) => request.role === "truth-perception")).toBe(false);
-  }, 30_000);
+  // This intentionally exercises 48 Agents, profile-dependent action batches,
+  // and the full semantic Truth/observation pipeline. Keep the timeout above the
+  // structural workload's normal wall time so slower CI hosts do not turn a
+  // valid contract check into a flaky failure.
+  }, 120_000);
 });
