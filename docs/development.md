@@ -45,6 +45,8 @@ Node route. Do not commit the resolved address or any credential.
 
 Use `npm run experiment:run -- --agents 1,10,50,1000 --steps 1` for the deterministic scale matrix. Replay, comparison, and export commands are defined by [Runtime observability](game-design/runtime-observability.md#研究命令).
 
+For any local failure, use the CLI-first [debugging reference](debugging.md). `npm run debug:doctor` checks the active Ledger and its rebuildable lookup projections; `debug find` accepts execution, invocation, request, trace, span, event, artifact, and diagnostic identifiers without manual SQL.
+
 Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v4 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@10` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, Action Grounding to sixteen, and Truth Engine fixed batches to twelve, and remains the explicit experiment default.
 
 ## Source attribution

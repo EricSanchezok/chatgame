@@ -22,11 +22,22 @@ export interface RuntimeCorrelation {
   transportAttempt?: number;
   logicalStageIndex?: number;
   logicalStageKey?: string;
+  component?: string;
+  operation?: string;
+  logicalInvocationId?: string;
+  parentInvocationId?: string;
+  repairOf?: string;
+  attemptGroupId?: string;
+  trigger?: string;
 }
 
 export interface RuntimeError {
   name: string;
   message: string;
+  code?: string;
+  domain?: string;
+  owner?: string;
+  retryability?: "not_retryable" | "retryable" | "unknown";
   stack?: string;
   status?: number;
   cause?: RuntimeError;

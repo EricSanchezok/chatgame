@@ -53,7 +53,7 @@ Action Compilation 与 AgentMind 在算法内部使用独立上限的槽位批�
 9. Observation Renderer 根据 transition 后状态、事件和 interaction audience 生成固定槽位 observation；reject、入队、预留、开始和争用结果不维护第二套叙事事实。onset `keep` 可以让 Activity 在接收本次刺激后继续；没有预警的相关结果则可在同一提交中暂停 Activity。只有已解除 active 占用的真正决策点才允许运行 AgentMind。
 10. CanonicalCommitter 重新应用 Candidate v5，并独立重建 source hash、最早边界、四类 interaction nodes、affected Activity 集、claims、holder 释放、admissions、FIFO promotion、dispositions、assertion evidence、统一 Observation 和全部 canonical 不变量，随后构造 `CommittedStep` 与下一状态。
 
-算法不持有状态写入能力，也不能定义稳定事件或指标语义。Execution Contract v5 将一步拆为可 JSON 持久化的 Preparation v4 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、带配置 manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v2 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
+算法不持有状态写入能力，也不能定义稳定事件或指标语义。Execution Contract v5 将一步拆为可 JSON 持久化的 Preparation v4 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、带配置 manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v3 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
 
 ## Truth 与随机承诺
 

@@ -41,6 +41,25 @@ import type {
   ExecutionRecord,
   FinishExecutionInput,
 } from "./execution-ledger";
+import {
+  DEBUG_API_VERSION,
+  DEBUG_INDEX_VERSION,
+  type DebugArtifact,
+  type DebugDiagnostic,
+  type DebugDoctorReport,
+  type DebugEventSummary,
+  type DebugInspection,
+  type DebugInvocationSummary,
+  type DebugLineageRef,
+  type DebugQuery,
+  type DebugSearchResult,
+} from "../shared/debug-api";
+import {
+  diagnosticCodeFor,
+  diagnosticDefinition,
+  publicDiagnostic,
+} from "./debug-diagnostics";
+import { currentRuntimeCorrelation } from "./request-context";
 
 const INSTANCE_HEARTBEAT_MS = 5_000;
 const INSTANCE_LEASE_MS = 15_000;
@@ -147,6 +166,90 @@ interface ExecutionArtifactRow {
   created_at: string;
 }
 
+interface DebugEventIndexRow {
+  sequence: number;
+  execution_id: string;
+  instance_id: string | null;
+  timestamp: string;
+  event_name: string;
+  level: string;
+  phase: string | null;
+  component: string | null;
+  operation: string | null;
+  request_id: string | null;
+  trace_id: string;
+  span_id: string;
+  parent_span_id: string | null;
+  model_invocation_id: string | null;
+  logical_invocation_id: string | null;
+  parent_invocation_id: string | null;
+  repair_of: string | null;
+  model_role: string | null;
+  model_subject: string | null;
+  transport_attempt: number | null;
+  provider_id: string | null;
+  profile_id: string | null;
+  model_id: string | null;
+  artifact_hash: string | null;
+  diagnostic_code: string | null;
+  has_payload: number;
+}
+
+interface DebugInvocationIndexRow {
+  id: string;
+  execution_id: string;
+  instance_id: string | null;
+  source_invocation_id: string;
+  logical_invocation_id: string | null;
+  parent_invocation_id: string | null;
+  repair_of: string | null;
+  role: string | null;
+  subject_id: string | null;
+  provider_id: string | null;
+  profile_id: string | null;
+  model_id: string | null;
+  status: "active" | "accepted" | "rejected" | "failed";
+  first_sequence: number;
+  last_sequence: number;
+  event_count: number;
+  retry_count: number;
+  issue_codes_json: string;
+  artifact_hashes_json: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
+}
+
+function publicInvocationId(executionId: string, sourceInvocationId: string): string {
+  return `${executionId}::${sourceInvocationId}`;
+}
+
+function debugInvocationStatus(events: readonly DebugEventIndexRow[]): DebugInvocationSummary["status"] {
+  if (events.some((event) => event.event_name === "model.semantic.rejected" || event.event_name === "model.structured_output.rejected")) {
+    return "rejected";
+  }
+  if (events.some((event) => event.event_name === "model.invocation.failed" || event.event_name === "model.transport.failed")) {
+    return "failed";
+  }
+  if (events.some((event) => event.event_name === "model.semantic.accepted" || event.event_name === "model.structured_output.parsed")) {
+    return "accepted";
+  }
+  return "active";
+}
+
 class LocalExecutionTraceWriter implements ExecutionTraceWriter {
   readonly mode = "full" as const;
   readonly degraded = false;
@@ -201,13 +304,14 @@ class LocalExecutionTraceWriter implements ExecutionTraceWriter {
 
   emit(input: RuntimeEventInput): RuntimeEvent | undefined {
     const spanId = input.spanId ?? this.spanId(input);
+    const inheritedCorrelation = currentRuntimeCorrelation();
     this.pendingEvents.push(structuredClone({
       ...input,
       traceId: input.traceId ?? this.traceId,
       spanId,
       parentSpanId: input.parentSpanId ?? this.parentSpanId(input, spanId),
       links: input.links ?? (spanId === this.rootSpanId() && this.parentLink ? [this.parentLink] : undefined),
-      correlation: { ...input.correlation, executionId: this.executionId },
+      correlation: { ...inheritedCorrelation, ...input.correlation, executionId: this.executionId },
     }));
     if (this.pendingEvents.length < MAX_PENDING_EXECUTION_EVENTS) return undefined;
     return this.flushEvents().at(-1);
@@ -367,9 +471,9 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
       const current = this.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations")
         .get() as { version: number | null };
       const currentVersion = current.version ?? 0;
-      if (currentVersion > 6) throw new Error("local database schema is newer than this application");
-      if (currentVersion > 0 && currentVersion < 6) {
-        throw new Error("local database schema is older than v6; use a new LIVINGWORLD_DATA_ROOT");
+      if (currentVersion > 7) throw new Error("local database schema is newer than this application");
+      if (currentVersion > 0 && currentVersion < 7) {
+        throw new Error("local database schema is older than v7; use a new LIVINGWORLD_DATA_ROOT");
       }
       if (currentVersion === 0) this.connection.exec(`
         CREATE TABLE instance_lock (
@@ -464,6 +568,91 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
         CREATE INDEX execution_events_instance ON execution_events(
           json_extract(correlation_json, '$.instanceId'), sequence
         );
+        CREATE TABLE execution_event_index (
+          sequence INTEGER PRIMARY KEY,
+          execution_id TEXT NOT NULL,
+          instance_id TEXT,
+          timestamp TEXT NOT NULL,
+          event_name TEXT NOT NULL,
+          level TEXT NOT NULL,
+          phase TEXT,
+          component TEXT,
+          operation TEXT,
+          request_id TEXT,
+          trace_id TEXT NOT NULL,
+          span_id TEXT NOT NULL,
+          parent_span_id TEXT,
+          model_invocation_id TEXT,
+          logical_invocation_id TEXT,
+          parent_invocation_id TEXT,
+          repair_of TEXT,
+          model_role TEXT,
+          model_subject TEXT,
+          transport_attempt INTEGER,
+          provider_id TEXT,
+          profile_id TEXT,
+          model_id TEXT,
+          artifact_hash TEXT,
+          diagnostic_code TEXT,
+          has_payload INTEGER NOT NULL CHECK (has_payload IN (0, 1)),
+          FOREIGN KEY (sequence) REFERENCES execution_events(sequence) ON DELETE CASCADE,
+          FOREIGN KEY (execution_id) REFERENCES executions(id),
+          FOREIGN KEY (artifact_hash) REFERENCES execution_artifacts(hash)
+        ) STRICT;
+        CREATE INDEX execution_event_index_invocation ON execution_event_index(model_invocation_id, execution_id, sequence);
+        CREATE INDEX execution_event_index_request ON execution_event_index(request_id, sequence);
+        CREATE INDEX execution_event_index_trace ON execution_event_index(trace_id, sequence);
+        CREATE INDEX execution_event_index_execution ON execution_event_index(execution_id, sequence);
+        CREATE INDEX execution_event_index_instance_time ON execution_event_index(instance_id, timestamp, sequence);
+        CREATE INDEX execution_event_index_event_time ON execution_event_index(event_name, timestamp, sequence);
+        CREATE INDEX execution_event_index_diagnostic ON execution_event_index(diagnostic_code, timestamp, sequence);
+        CREATE INDEX execution_event_index_artifact ON execution_event_index(artifact_hash);
+        CREATE TABLE execution_issue_index (
+          execution_id TEXT NOT NULL,
+          event_sequence INTEGER NOT NULL,
+          code TEXT NOT NULL,
+          issue_class TEXT,
+          path_json TEXT NOT NULL,
+          message TEXT,
+          PRIMARY KEY (event_sequence, code, path_json),
+          FOREIGN KEY (execution_id) REFERENCES executions(id),
+          FOREIGN KEY (event_sequence) REFERENCES execution_events(sequence) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX execution_issue_index_code ON execution_issue_index(code, event_sequence);
+        CREATE INDEX execution_issue_index_execution ON execution_issue_index(execution_id, code, event_sequence);
+        CREATE TABLE execution_invocation_index (
+          id TEXT PRIMARY KEY,
+          execution_id TEXT NOT NULL,
+          instance_id TEXT,
+          source_invocation_id TEXT NOT NULL,
+          logical_invocation_id TEXT,
+          parent_invocation_id TEXT,
+          repair_of TEXT,
+          role TEXT,
+          subject_id TEXT,
+          provider_id TEXT,
+          profile_id TEXT,
+          model_id TEXT,
+          status TEXT NOT NULL CHECK (status IN ('active', 'accepted', 'rejected', 'failed')),
+          first_sequence INTEGER NOT NULL,
+          last_sequence INTEGER NOT NULL,
+          event_count INTEGER NOT NULL,
+          retry_count INTEGER NOT NULL,
+          issue_codes_json TEXT NOT NULL,
+          artifact_hashes_json TEXT NOT NULL,
+          started_at TEXT,
+          finished_at TEXT,
+          FOREIGN KEY (execution_id) REFERENCES executions(id)
+        ) STRICT;
+        CREATE INDEX execution_invocation_index_execution ON execution_invocation_index(execution_id, first_sequence, id);
+        CREATE INDEX execution_invocation_index_instance ON execution_invocation_index(instance_id, first_sequence, id);
+        CREATE INDEX execution_invocation_index_status ON execution_invocation_index(status, first_sequence, id);
+        CREATE INDEX execution_invocation_index_issue ON execution_invocation_index(issue_codes_json);
+        CREATE TABLE debug_index_meta (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          version INTEGER NOT NULL,
+          rebuilt_at TEXT NOT NULL
+        ) STRICT;
         CREATE TABLE world_instances (
           id TEXT PRIMARY KEY,
           generation INTEGER NOT NULL CHECK (generation > 0),
@@ -476,8 +665,10 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
         CREATE INDEX world_instances_world_version ON world_instances(world_id, world_hash);
       `);
       if (currentVersion === 0) {
-        this.connection.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (6, ?)")
+        this.connection.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (7, ?)")
           .run(new Date(this.now()).toISOString());
+        this.connection.prepare("INSERT INTO debug_index_meta(singleton, version, rebuilt_at) VALUES (1, ?, ?)")
+          .run(DEBUG_INDEX_VERSION, new Date(this.now()).toISOString());
       }
       return currentVersion === 0;
     })();
@@ -628,6 +819,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
           JSON.stringify(canonicalize(persisted)),
         );
         const sequence = Number(result.lastInsertRowid);
+        this.indexRuntimeEvent(executionId, provisional, sequence, artifactHash, safeInput.payload);
         return {
           ...provisional,
           sequence,
@@ -652,7 +844,157 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     );
     if (result.changes !== 1) throw new Error("execution event batch measurement update failed");
     persistedEvents[persistedEvents.length - 1] = completed;
+    this.refreshInvocationIndex(executionId);
     return persistedEvents;
+  }
+
+  private indexRuntimeEvent(
+    executionId: string,
+    event: RuntimeEvent,
+    sequence: number,
+    artifactHash: string | null,
+    payload: unknown,
+  ): void {
+    const executionRow = this.connection.prepare("SELECT instance_id FROM executions WHERE id = ?")
+      .get(executionId) as { instance_id: string | null } | undefined;
+    const correlation = record(event.correlation);
+    const attributes = record(event.attributes);
+    const error = record(event.error);
+    const diagnosticCode = stringValue(error.code) ??
+      (event.level === "error" || event.event.includes("failed") || event.event.includes("rejected")
+        ? diagnosticCodeFor(stringValue(error.name), event.event)
+        : undefined);
+    this.connection.prepare(`
+      INSERT OR REPLACE INTO execution_event_index(
+        sequence, execution_id, instance_id, timestamp, event_name, level, phase,
+        component, operation, request_id, trace_id, span_id, parent_span_id,
+        model_invocation_id, logical_invocation_id, parent_invocation_id, repair_of,
+        model_role, model_subject, transport_attempt, provider_id, profile_id, model_id,
+        artifact_hash, diagnostic_code, has_payload
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sequence,
+      executionId,
+      stringValue(correlation.instanceId) ?? executionRow?.instance_id ?? null,
+      event.timestamp,
+      event.event,
+      event.level,
+      stringValue(attributes.phase) ?? null,
+      stringValue(correlation.component) ?? stringValue(attributes.component) ?? null,
+      stringValue(correlation.operation) ?? stringValue(attributes.operation) ?? null,
+      stringValue(correlation.requestId) ?? null,
+      event.traceId ?? "",
+      event.spanId ?? "",
+      event.parentSpanId ?? null,
+      stringValue(correlation.modelInvocationId) ?? null,
+      stringValue(correlation.logicalInvocationId) ?? null,
+      stringValue(correlation.parentInvocationId) ?? null,
+      stringValue(correlation.repairOf) ?? null,
+      stringValue(correlation.modelRole) ?? null,
+      stringValue(correlation.modelSubject) ?? null,
+      numberValue(correlation.transportAttempt) ?? null,
+      stringValue(attributes.providerId) ?? null,
+      stringValue(attributes.profileId) ?? null,
+      stringValue(attributes.modelId) ?? null,
+      artifactHash,
+      diagnosticCode ?? null,
+      payload === undefined ? 0 : 1,
+    );
+
+    const issueValues: Array<{ code: string; issueClass?: string; path: unknown[]; message?: string }> = [];
+    if (diagnosticCode) {
+      issueValues.push({ code: diagnosticCode, path: [], message: stringValue(error.message) });
+    }
+    const payloadRecord = record(payload);
+    const issues = Array.isArray(payloadRecord.issues) ? payloadRecord.issues : [];
+    for (const issue of issues) {
+      const entry = record(issue);
+      const code = stringValue(entry.code);
+      if (!code) continue;
+      issueValues.push({
+        code,
+        issueClass: stringValue(entry.class),
+        path: Array.isArray(entry.path) ? entry.path : [],
+        message: stringValue(entry.message) ?? stringValue(entry.reason),
+      });
+    }
+    const insertIssue = this.connection.prepare(`
+      INSERT OR REPLACE INTO execution_issue_index(
+        execution_id, event_sequence, code, issue_class, path_json, message
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const issue of issueValues) {
+      insertIssue.run(
+        executionId,
+        sequence,
+        issue.code,
+        issue.issueClass ?? null,
+        JSON.stringify(issue.path),
+        issue.message ?? null,
+      );
+    }
+  }
+
+  private refreshInvocationIndex(executionId: string): void {
+    const rows = this.connection.prepare(`
+      SELECT * FROM execution_event_index
+      WHERE execution_id = ? AND model_invocation_id IS NOT NULL
+      ORDER BY sequence
+    `).all(executionId) as DebugEventIndexRow[];
+    const groups = new Map<string, DebugEventIndexRow[]>();
+    for (const row of rows) {
+      const id = publicInvocationId(executionId, row.model_invocation_id!);
+      const group = groups.get(id) ?? [];
+      group.push(row);
+      groups.set(id, group);
+    }
+    this.connection.prepare("DELETE FROM execution_invocation_index WHERE execution_id = ?").run(executionId);
+    const insert = this.connection.prepare(`
+      INSERT INTO execution_invocation_index(
+        id, execution_id, instance_id, source_invocation_id, logical_invocation_id,
+        parent_invocation_id, repair_of, role, subject_id, provider_id, profile_id,
+        model_id, status, first_sequence, last_sequence, event_count, retry_count,
+        issue_codes_json, artifact_hashes_json, started_at, finished_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const [id, group] of groups) {
+      const first = group[0]!;
+      const last = group.at(-1)!;
+      const issueCodes = this.connection.prepare(`
+        SELECT DISTINCT code FROM execution_issue_index
+        WHERE execution_id = ? AND event_sequence BETWEEN ? AND ?
+          AND event_sequence IN (SELECT sequence FROM execution_event_index WHERE execution_id = ? AND model_invocation_id = ?)
+        ORDER BY code
+      `).all(executionId, first.sequence, last.sequence, executionId, first.model_invocation_id) as Array<{ code: string }>;
+      const artifactHashes = [...new Set(group.flatMap((row) => row.artifact_hash ? [row.artifact_hash] : []))].sort();
+      const attempts = group.map((row) => row.transport_attempt ?? 1);
+      const completed = group.filter((row) => row.event_name === "model.structured_output.parsed" ||
+        row.event_name === "model.structured_output.rejected" || row.event_name === "model.invocation.failed" ||
+        row.event_name === "model.semantic.accepted" || row.event_name === "model.semantic.rejected");
+      insert.run(
+        id,
+        executionId,
+        first.instance_id ?? null,
+        first.model_invocation_id!,
+        first.logical_invocation_id ?? null,
+        first.parent_invocation_id ? publicInvocationId(executionId, first.parent_invocation_id) : null,
+        first.repair_of ? publicInvocationId(executionId, first.repair_of) : null,
+        first.model_role ?? null,
+        first.model_subject ?? null,
+        first.provider_id ?? null,
+        first.profile_id ?? null,
+        first.model_id ?? null,
+        debugInvocationStatus(group),
+        first.sequence,
+        last.sequence,
+        group.length,
+        Math.max(0, Math.max(...attempts) - 1),
+        JSON.stringify(issueCodes.map((issue) => issue.code)),
+        JSON.stringify(artifactHashes),
+        first.timestamp,
+        completed.at(-1)?.timestamp ?? null,
+      );
+    }
   }
 
   private publishExecutionEvents(events: readonly RuntimeEvent[]): void {
@@ -880,6 +1222,403 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     ).all(instanceId) as Array<{ id: string }>;
     for (const { id } of runningIds) this.executionWriters.get(id)?.flush();
     return this.eventsFor("executions.instance_id", instanceId);
+  }
+
+  private debugEventSummary(row: DebugEventIndexRow, includePayload = false): DebugEventSummary {
+    const diagnosticCodes = [
+      ...(row.diagnostic_code ? [row.diagnostic_code] : []),
+      ...(this.connection.prepare(
+        "SELECT code FROM execution_issue_index WHERE event_sequence = ? ORDER BY code",
+      ).all(row.sequence) as Array<{ code: string }>).map((issue) => issue.code),
+    ];
+    const summary: DebugEventSummary = {
+      sequence: row.sequence,
+      executionId: row.execution_id,
+      ...(row.instance_id ? { instanceId: row.instance_id } : {}),
+      timestamp: row.timestamp,
+      eventName: row.event_name,
+      level: row.level,
+      ...(row.phase ? { phase: row.phase } : {}),
+      ...(row.component ? { component: row.component } : {}),
+      ...(row.operation ? { operation: row.operation } : {}),
+      ...(row.request_id ? { requestId: row.request_id } : {}),
+      traceId: row.trace_id,
+      spanId: row.span_id,
+      ...(row.parent_span_id ? { parentSpanId: row.parent_span_id } : {}),
+      ...(row.model_invocation_id ? { modelInvocationId: row.model_invocation_id } : {}),
+      ...(row.logical_invocation_id ? { logicalInvocationId: row.logical_invocation_id } : {}),
+      ...(row.model_role ? { modelRole: row.model_role } : {}),
+      ...(row.model_subject ? { modelSubject: row.model_subject } : {}),
+      ...(row.transport_attempt !== null ? { transportAttempt: row.transport_attempt } : {}),
+      ...(row.artifact_hash ? { artifactHash: row.artifact_hash } : {}),
+      hasPayload: row.has_payload === 1,
+      diagnosticCodes: [...new Set(diagnosticCodes)],
+    };
+    if (includePayload && row.artifact_hash) {
+      summary.payload = this.artifact(row.artifact_hash)?.value;
+    }
+    return summary;
+  }
+
+  private debugInvocationSummary(row: DebugInvocationIndexRow): DebugInvocationSummary {
+    const lineage: DebugLineageRef[] = [];
+    if (row.parent_invocation_id) {
+      lineage.push({ kind: "parent", id: row.parent_invocation_id, executionId: row.execution_id });
+    }
+    if (row.repair_of) {
+      lineage.push({ kind: "repair", id: row.repair_of, executionId: row.execution_id });
+    }
+    const children = this.connection.prepare(`
+      SELECT id, execution_id, source_invocation_id
+      FROM execution_invocation_index
+      WHERE parent_invocation_id = ? OR repair_of = ?
+      ORDER BY first_sequence, id
+    `).all(row.id, row.id) as Array<{ id: string; execution_id: string; source_invocation_id: string }>;
+    for (const child of children) {
+      lineage.push({ kind: "child", id: child.id, executionId: child.execution_id, sourceInvocationId: child.source_invocation_id });
+    }
+    const issueCodes = JSON.parse(row.issue_codes_json) as string[];
+    const artifactHashes = JSON.parse(row.artifact_hashes_json) as string[];
+    return {
+      id: row.id,
+      executionId: row.execution_id,
+      ...(row.instance_id ? { instanceId: row.instance_id } : {}),
+      sourceInvocationId: row.source_invocation_id,
+      ...(row.logical_invocation_id ? { logicalInvocationId: row.logical_invocation_id } : {}),
+      ...(row.parent_invocation_id ? { parentInvocationId: row.parent_invocation_id } : {}),
+      ...(row.repair_of ? { repairOf: row.repair_of } : {}),
+      ...(row.role ? { role: row.role } : {}),
+      ...(row.subject_id ? { subjectId: row.subject_id } : {}),
+      ...(row.provider_id ? { providerId: row.provider_id } : {}),
+      ...(row.profile_id ? { profileId: row.profile_id } : {}),
+      ...(row.model_id ? { modelId: row.model_id } : {}),
+      status: row.status,
+      firstSequence: row.first_sequence,
+      lastSequence: row.last_sequence,
+      eventCount: row.event_count,
+      retryCount: row.retry_count,
+      issueCodes,
+      artifactHashes,
+      ...(row.started_at ? { startedAt: row.started_at } : {}),
+      ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
+      lineage,
+    };
+  }
+
+  private debugCursorValue(cursor: string | undefined): number {
+    if (!cursor) return 0;
+    try {
+      const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { firstSequence?: unknown };
+      return typeof parsed.firstSequence === "number" && Number.isSafeInteger(parsed.firstSequence)
+        ? parsed.firstSequence
+        : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private debugCursor(firstSequence: number): string {
+    return Buffer.from(JSON.stringify({ firstSequence }), "utf8").toString("base64url");
+  }
+
+  private flushExecutionWriters(): void {
+    for (const writer of this.executionWriters.values()) writer.flush();
+  }
+
+  debugQuery(input: DebugQuery = {}): DebugSearchResult {
+    this.flushExecutionWriters();
+    const limit = Math.min(100, Math.max(1, input.limit ?? 50));
+    const parameters: Array<string | number> = [];
+    const clauses: string[] = [];
+    if (input.executionId) { clauses.push("v.execution_id = ?"); parameters.push(input.executionId); }
+    if (input.instanceId) { clauses.push("v.instance_id = ?"); parameters.push(input.instanceId); }
+    if (input.sourceInvocationId) { clauses.push("v.source_invocation_id = ?"); parameters.push(input.sourceInvocationId); }
+    if (input.invocationId) { clauses.push("v.id = ?"); parameters.push(input.invocationId); }
+    const invocationEventFilter = (condition: string, ...values: Array<string | number>): void => {
+      clauses.push(`EXISTS (
+        SELECT 1 FROM execution_event_index event
+        WHERE event.execution_id = v.execution_id
+          AND event.model_invocation_id = v.source_invocation_id
+          AND ${condition}
+      )`);
+      parameters.push(...values);
+    };
+    if (input.requestId) invocationEventFilter("event.request_id = ?", input.requestId);
+    if (input.traceId) invocationEventFilter("event.trace_id = ?", input.traceId);
+    if (input.spanId) invocationEventFilter("event.span_id = ?", input.spanId);
+    if (input.eventSequence !== undefined) invocationEventFilter("event.sequence = ?", input.eventSequence);
+    if (input.artifactHash) invocationEventFilter("event.artifact_hash = ?", input.artifactHash);
+    if (input.eventName) invocationEventFilter("event.event_name = ?", input.eventName);
+    if (input.component) invocationEventFilter("event.component = ?", input.component);
+    if (input.operation) invocationEventFilter("event.operation = ?", input.operation);
+    if (input.diagnosticCode) {
+      clauses.push(`EXISTS (
+        SELECT 1 FROM execution_event_index event
+        WHERE event.execution_id = v.execution_id
+          AND event.model_invocation_id = v.source_invocation_id
+          AND (event.diagnostic_code = ? OR EXISTS (
+            SELECT 1 FROM execution_issue_index issue
+            WHERE issue.event_sequence = event.sequence AND issue.code = ?
+          ))
+      )`);
+      parameters.push(input.diagnosticCode, input.diagnosticCode);
+    }
+    if (input.from) { clauses.push("COALESCE(v.started_at, '') >= ?"); parameters.push(input.from); }
+    if (input.to) { clauses.push("COALESCE(v.started_at, '') <= ?"); parameters.push(input.to); }
+    const cursor = this.debugCursorValue(input.cursor);
+    if (cursor > 0) { clauses.push("v.first_sequence > ?"); parameters.push(cursor); }
+    const invocationWhere = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const invocationTotal = Number((this.connection.prepare(`
+      SELECT COUNT(*) AS count FROM execution_invocation_index v ${invocationWhere}
+    `).get(...parameters) as { count: number }).count);
+    const invocationSql = `
+      SELECT v.* FROM execution_invocation_index v
+      ${invocationWhere}
+      ORDER BY v.first_sequence, v.id
+      LIMIT ?
+    `;
+    const rawInvocationRows = this.connection.prepare(invocationSql).all(...parameters, limit + 1) as DebugInvocationIndexRow[];
+    const hasMoreInvocations = rawInvocationRows.length > limit;
+    const invocationRows = rawInvocationRows.slice(0, limit);
+    const invocationSummaries = invocationRows.map((row) => this.debugInvocationSummary(row));
+    const invocationIds = invocationRows.map((row) => row.source_invocation_id);
+
+    const eventParameters: Array<string | number> = [];
+    const eventClauses: string[] = [];
+    if (input.executionId) { eventClauses.push("e.execution_id = ?"); eventParameters.push(input.executionId); }
+    if (input.instanceId) { eventClauses.push("e.instance_id = ?"); eventParameters.push(input.instanceId); }
+    if (input.invocationId) {
+      eventClauses.push(`EXISTS (
+        SELECT 1 FROM execution_invocation_index invocation
+        WHERE invocation.id = ?
+          AND invocation.execution_id = e.execution_id
+          AND invocation.source_invocation_id = e.model_invocation_id
+      )`);
+      eventParameters.push(input.invocationId);
+    }
+    if (input.sourceInvocationId) { eventClauses.push("e.model_invocation_id = ?"); eventParameters.push(input.sourceInvocationId); }
+    if (input.requestId) { eventClauses.push("e.request_id = ?"); eventParameters.push(input.requestId); }
+    if (input.traceId) { eventClauses.push("e.trace_id = ?"); eventParameters.push(input.traceId); }
+    if (input.spanId) { eventClauses.push("e.span_id = ?"); eventParameters.push(input.spanId); }
+    if (input.eventSequence !== undefined) { eventClauses.push("e.sequence = ?"); eventParameters.push(input.eventSequence); }
+    if (input.artifactHash) { eventClauses.push("e.artifact_hash = ?"); eventParameters.push(input.artifactHash); }
+    if (input.eventName) { eventClauses.push("e.event_name = ?"); eventParameters.push(input.eventName); }
+    if (input.component) { eventClauses.push("e.component = ?"); eventParameters.push(input.component); }
+    if (input.operation) { eventClauses.push("e.operation = ?"); eventParameters.push(input.operation); }
+    if (input.diagnosticCode) {
+      eventClauses.push(`(e.diagnostic_code = ? OR EXISTS (
+        SELECT 1 FROM execution_issue_index issue
+        WHERE issue.event_sequence = e.sequence AND issue.code = ?
+      ))`);
+      eventParameters.push(input.diagnosticCode, input.diagnosticCode);
+    }
+    if (input.from) { eventClauses.push("e.timestamp >= ?"); eventParameters.push(input.from); }
+    if (input.to) { eventClauses.push("e.timestamp <= ?"); eventParameters.push(input.to); }
+    if (cursor > 0) { eventClauses.push("e.sequence > ?"); eventParameters.push(cursor); }
+    const eventWhere = eventClauses.length > 0 ? `WHERE ${eventClauses.join(" AND ")}` : "";
+    const eventTotal = Number((this.connection.prepare(`
+      SELECT COUNT(*) AS count FROM execution_event_index e ${eventWhere}
+    `).get(...eventParameters) as { count: number }).count);
+    const rawEventRows = this.connection.prepare(`
+      SELECT e.* FROM execution_event_index e
+      ${eventWhere}
+      ORDER BY e.sequence
+      LIMIT ?
+    `).all(...eventParameters, limit + 1) as DebugEventIndexRow[];
+    const hasMoreEvents = rawEventRows.length > limit;
+    const eventRows = rawEventRows.slice(0, limit);
+    const events = eventRows.map((row) => this.debugEventSummary(row, input.includePayload === true));
+
+    const executionIds = new Set<string>([
+      ...invocationRows.map((row) => row.execution_id),
+      ...eventRows.map((row) => row.execution_id),
+    ]);
+    const executions = [...executionIds].flatMap((id) => {
+      const row = this.connection.prepare(`
+        SELECT id, instance_id, parent_execution_id, status, kind, trace_id, started_at, finished_at
+        FROM executions WHERE id = ?
+      `).get(id) as {
+        id: string; instance_id: string | null; parent_execution_id: string | null; status: string;
+        kind: string; trace_id: string; started_at: string; finished_at: string | null;
+      } | undefined;
+      return row ? [{
+        id: row.id,
+        ...(row.instance_id ? { instanceId: row.instance_id } : {}),
+        ...(row.parent_execution_id ? { parentExecutionId: row.parent_execution_id } : {}),
+        status: row.status,
+        kind: row.kind,
+        traceId: row.trace_id,
+        startedAt: row.started_at,
+        ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
+      }] : [];
+    });
+    const total = invocationTotal > 0 ? invocationTotal : eventTotal > 0 ? eventTotal : executions.length;
+    const hasMore = invocationRows.length > 0 ? hasMoreInvocations : hasMoreEvents;
+    const lastSequence = invocationRows.at(-1)?.first_sequence ?? eventRows.at(-1)?.sequence ?? 0;
+    return {
+      apiVersion: DEBUG_API_VERSION,
+      query: structuredClone(input),
+      total,
+      invocations: invocationSummaries,
+      executions,
+      events,
+      ...(hasMore && lastSequence > 0 ? { nextCursor: this.debugCursor(lastSequence) } : {}),
+      warnings: invocationIds.length === 0 && Object.keys(input).length > 0 && total === 0
+        ? ["no matching durable debug evidence"]
+        : [],
+    };
+  }
+
+  debugInspect(invocationId: string, includePayload = false): DebugInspection | undefined {
+    this.flushExecutionWriters();
+    const row = this.connection.prepare(
+      "SELECT * FROM execution_invocation_index WHERE id = ?",
+    ).get(invocationId) as DebugInvocationIndexRow | undefined;
+    if (!row) return undefined;
+    const summary = this.debugInvocationSummary(row);
+    const eventRows = this.connection.prepare(`
+      SELECT * FROM execution_event_index
+      WHERE execution_id = ? AND model_invocation_id = ?
+      ORDER BY sequence
+    `).all(row.execution_id, row.source_invocation_id) as DebugEventIndexRow[];
+    const diagnostics: DebugDiagnostic[] = [];
+    const diagnosticCodes = new Set<string>();
+    for (const event of eventRows) {
+      const codes = [
+        ...(event.diagnostic_code ? [event.diagnostic_code] : []),
+        ...(this.connection.prepare(
+          "SELECT code FROM execution_issue_index WHERE event_sequence = ? ORDER BY code",
+        ).all(event.sequence) as Array<{ code: string }>).map((issue) => issue.code),
+      ];
+      for (const code of codes) {
+        if (diagnosticCodes.has(code)) continue;
+        diagnosticCodes.add(code);
+        diagnostics.push(publicDiagnostic(diagnosticDefinition(code), {
+          eventSequence: event.sequence,
+          artifactHash: event.artifact_hash ?? undefined,
+        }));
+      }
+    }
+    return {
+      apiVersion: DEBUG_API_VERSION,
+      ...summary,
+      events: eventRows.map((event) => this.debugEventSummary(event, includePayload)),
+      diagnostics,
+    };
+  }
+
+  debugArtifact(hash: string): DebugArtifact | undefined {
+    const artifact = this.artifact(hash);
+    if (!artifact) return undefined;
+    return {
+      apiVersion: DEBUG_API_VERSION,
+      hash: artifact.hash,
+      executionId: artifact.executionId,
+      kind: artifact.kind,
+      mediaType: artifact.mediaType,
+      encoding: artifact.encoding,
+      rawBytes: artifact.rawBytes,
+      storedBytes: artifact.storedBytes,
+      createdAt: artifact.createdAt,
+      value: artifact.value,
+    };
+  }
+
+  debugExplain(code: string): {
+    apiVersion: typeof DEBUG_API_VERSION;
+    code: string;
+    definition: ReturnType<typeof diagnosticDefinition>;
+    suggestedCommands: string[];
+  } {
+    const definition = diagnosticDefinition(code);
+    return {
+      apiVersion: DEBUG_API_VERSION,
+      code,
+      definition,
+      suggestedCommands: [
+        `npm run debug -- find --issue ${code}`,
+        ...definition.sourcePaths.map((source) => `rg -n "${code}" ${source}`),
+      ],
+    };
+  }
+
+  debugRebuildIndex(): void {
+    this.flushExecutionWriters();
+    this.connection.transaction(() => {
+      this.connection.exec("DELETE FROM execution_issue_index; DELETE FROM execution_invocation_index; DELETE FROM execution_event_index;");
+      const rows = this.connection.prepare(`
+        SELECT sequence, execution_id, event_json, artifact_hash
+        FROM execution_events ORDER BY sequence
+      `).all() as Array<{ sequence: number; execution_id: string; event_json: string; artifact_hash: string | null }>;
+      const executions = new Set<string>();
+      for (const row of rows) {
+        const event = JSON.parse(row.event_json) as RuntimeEvent;
+        const payload = row.artifact_hash ? this.artifact(row.artifact_hash)?.value : undefined;
+        this.indexRuntimeEvent(row.execution_id, event, row.sequence, row.artifact_hash, payload);
+        executions.add(row.execution_id);
+      }
+      for (const executionId of executions) this.refreshInvocationIndex(executionId);
+      this.connection.prepare(`
+        INSERT INTO debug_index_meta(singleton, version, rebuilt_at) VALUES (1, ?, ?)
+        ON CONFLICT(singleton) DO UPDATE SET version = excluded.version, rebuilt_at = excluded.rebuilt_at
+      `).run(DEBUG_INDEX_VERSION, new Date(this.now()).toISOString());
+    })();
+  }
+
+  debugDoctor(): DebugDoctorReport {
+    this.flushExecutionWriters();
+    const scalar = (sql: string): number => Number((this.connection.prepare(sql).get() as { count: number }).count);
+    const schemaVersion = Number((this.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version);
+    const executionCount = scalar("SELECT COUNT(*) AS count FROM executions");
+    const eventCount = scalar("SELECT COUNT(*) AS count FROM execution_events");
+    const artifactCount = scalar("SELECT COUNT(*) AS count FROM execution_artifacts");
+    const indexedEventCount = scalar("SELECT COUNT(*) AS count FROM execution_event_index");
+    const indexedInvocationCount = scalar("SELECT COUNT(*) AS count FROM execution_invocation_index");
+    const issueCount = scalar("SELECT COUNT(*) AS count FROM execution_issue_index");
+    const indexVersion = Number((this.connection.prepare("SELECT version FROM debug_index_meta WHERE singleton = 1").get() as { version?: number } | undefined)?.version ?? 0);
+    const orphanedIndexRows = scalar(`
+      SELECT COUNT(*) AS count FROM execution_event_index idx
+      LEFT JOIN execution_events event ON event.sequence = idx.sequence
+      WHERE event.sequence IS NULL
+    `) + scalar(`
+      SELECT COUNT(*) AS count FROM execution_invocation_index idx
+      LEFT JOIN executions execution ON execution.id = idx.execution_id
+      WHERE execution.id IS NULL
+    `);
+    const missingIndexRows = scalar(`
+      SELECT COUNT(*) AS count FROM execution_events event
+      LEFT JOIN execution_event_index idx ON idx.sequence = event.sequence
+      WHERE idx.sequence IS NULL
+    `);
+    const orphanedArtifacts = scalar(`
+      SELECT COUNT(*) AS count FROM execution_artifacts artifact
+      LEFT JOIN executions execution ON execution.id = artifact.execution_id
+      WHERE execution.id IS NULL
+    `);
+    const warnings: string[] = [];
+    if (schemaVersion !== 7) warnings.push(`expected database schema v7, found v${schemaVersion}`);
+    if (indexVersion !== DEBUG_INDEX_VERSION) warnings.push(`expected debug index v${DEBUG_INDEX_VERSION}, found v${indexVersion}`);
+    if (indexedEventCount !== eventCount) warnings.push(`event index count ${indexedEventCount} differs from Ledger count ${eventCount}`);
+    if (orphanedIndexRows > 0) warnings.push(`${orphanedIndexRows} orphaned debug index row(s)`);
+    if (missingIndexRows > 0) warnings.push(`${missingIndexRows} Ledger event(s) are missing debug index rows`);
+    if (orphanedArtifacts > 0) warnings.push(`${orphanedArtifacts} orphaned artifact row(s)`);
+    return {
+      apiVersion: DEBUG_API_VERSION,
+      indexVersion,
+      database: this.file,
+      schemaVersion,
+      indexFresh: warnings.length === 0,
+      executionCount,
+      eventCount,
+      artifactCount,
+      indexedEventCount,
+      indexedInvocationCount,
+      issueCount,
+      orphanedIndexRows,
+      missingIndexRows,
+      orphanedArtifacts,
+      warnings,
+    };
   }
 
   artifact(hash: string): ExecutionArtifactRecord | undefined {

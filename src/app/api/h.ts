@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { WorldHost, WorldHostError } from "../../server/world-host";
 import { WorldImportError } from "../../server/world-import";
 import { contentHash } from "../../engine/models/model-audit";
+import { runWithRuntimeCorrelation } from "../../server/request-context";
 import {
   fullRuntimePayload,
   runtimeEventEmitter,
@@ -54,18 +55,18 @@ export interface HttpObservationScope {
 export function beginHttpRequest(request: Request): HttpObservationScope {
   const observer = WorldHost.observer();
   const observe = runtimeEventEmitter(observer);
+  const correlation = { requestId: randomUUID() };
+  const url = new URL(request.url);
   if (!observe) {
     return {
       observer,
-      correlation: {},
-      startedAt: 0,
+      correlation,
+      startedAt: Date.now(),
       method: request.method,
-      path: "",
+      path: url.pathname,
       observe,
     };
   }
-  const correlation = { requestId: randomUUID() };
-  const url = new URL(request.url);
   const scope: HttpObservationScope = {
     observer,
     correlation,
@@ -167,13 +168,15 @@ export async function observedRoute(
 ): Promise<Response> {
   const scope = beginHttpRequest(request);
   try {
-    const response = await handler(scope);
+    const response = await runWithRuntimeCorrelation(scope.correlation, () => handler(scope));
     await completeHttpRequest(scope, response);
+    response.headers.set("x-lwe-request-id", scope.correlation.requestId!);
     return response;
   } catch (error) {
     failHttpRequest(scope, error);
     const response = errorResponse(error);
     await completeHttpRequest(scope, response);
+    response.headers.set("x-lwe-request-id", scope.correlation.requestId!);
     return response;
   }
 }

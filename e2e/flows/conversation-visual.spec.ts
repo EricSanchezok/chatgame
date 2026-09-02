@@ -136,4 +136,18 @@ test("the participant conversation, control orb and inspector stay bounded", asy
   await page.setViewportSize({ width: 320, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(page).toHaveScreenshot("instance-participant-dark-mobile.png", screenshotOptions);
+
+  const debugResponse = await page.request.get(`/api/debug?instance=${instanceId}&limit=1`);
+  expect(debugResponse.ok(), await debugResponse.text()).toBe(true);
+  const debugResult = await debugResponse.json() as { invocations: Array<{ id: string }> };
+  const publicInvocationId = debugResult.invocations[0]?.id;
+  expect(publicInvocationId).toBeTruthy();
+  await page.getByRole("button", { name: /打开游戏控制/ }).click();
+  await page.getByRole("button", { name: "世界演化" }).click();
+  const reopenedInspector = page.getByRole("dialog", { name: "世界演化" });
+  await reopenedInspector.getByRole("button", { name: "调用", exact: true }).click();
+  await reopenedInspector.getByLabel("public invocation id").fill(publicInvocationId!);
+  await reopenedInspector.getByRole("button", { name: "定位证据" }).click();
+  await expect(reopenedInspector.getByText("已定位耐久证据")).toBeVisible();
+  await expect(reopenedInspector.getByText(publicInvocationId!, { exact: true })).toBeVisible();
 });

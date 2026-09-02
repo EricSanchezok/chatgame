@@ -17,6 +17,10 @@ import { GET as getObserver } from "../instances/[id]/observer/route";
 import { POST as createInstance } from "../instances/route";
 import { GET as getModelRegistry } from "../model-registry/route";
 import { POST as refreshModelRegistry } from "../model-registry/refresh/route";
+import { GET as getDebug } from "../debug/route";
+import { GET as getDebugDoctor } from "../debug/doctor/route";
+import { GET as getDebugArtifact } from "../debug/artifacts/[hash]/route";
+import { GET as getDebugInvocation } from "../debug/invocations/[id]/route";
 
 let root: string;
 let database: LocalDatabase;
@@ -224,4 +228,48 @@ describe("World Instance Route Handlers", () => {
     expect(malformedReaction.status).toBe(400);
     expect(await malformedReaction.json()).toEqual({ error: "invalid external reaction" });
   });
+
+  it("resolves local debug evidence by execution and public invocation id", async () => {
+    const response = await createInstance(jsonRequest("http://local/api/instances", {
+      worldId: "open-world-fixture",
+      seed: 71,
+      start: { kind: "observer" },
+    }));
+    expect(response.status).toBe(201);
+    const created = await response.json();
+    const requestId = response.headers.get("x-lwe-request-id");
+    expect(requestId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(database.debugQuery({ requestId: requestId! }).invocations.length).toBeGreaterThan(0);
+    const execution = database.executions({ instanceId: created.summary.id })[0];
+    expect(execution).toBeDefined();
+    const found = await getDebug(new Request(`http://local/api/debug?execution=${execution!.id}`));
+    expect(found.status).toBe(200);
+    expect(found.headers.get("x-lwe-request-id")).toMatch(/^[0-9a-f-]{36}$/u);
+    const result = await found.json();
+    expect(result.executions[0].id).toBe(execution!.id);
+    expect(result.invocations.length).toBeGreaterThan(0);
+    const artifactHash = result.events.find((event: { artifactHash?: string }) => event.artifactHash)?.artifactHash as string | undefined;
+    expect(artifactHash).toBeTruthy();
+    const artifact = await getDebugArtifact(
+      new Request(`http://local/api/debug/artifacts/${artifactHash}`),
+      { params: Promise.resolve({ hash: artifactHash! }) },
+    );
+    expect(artifact.status).toBe(200);
+    expect((await artifact.json()).hash).toBe(artifactHash);
+
+    const invocationId = result.invocations[0].id as string;
+    const detail = await getDebugInvocation(
+      new Request(`http://local/api/debug/invocations/${encodeURIComponent(invocationId)}`),
+      { params: Promise.resolve({ id: invocationId }) },
+    );
+    expect(detail.status).toBe(200);
+    expect((await detail.json()).id).toBe(invocationId);
+
+    const doctor = await getDebugDoctor(new Request("http://local/api/debug/doctor"));
+    expect(doctor.status).toBe(200);
+    expect((await doctor.json()).indexFresh).toBe(true);
+
+    const invalidQuery = await getDebug(new Request("http://local/api/debug?limit=0"));
+    expect(invalidQuery.status).toBe(400);
+  }, 30_000);
 });

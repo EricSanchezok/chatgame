@@ -81,6 +81,13 @@ import type {
   ObserverAgentSummary,
   WorldObserverDetail,
 } from "../shared/world-observer-api";
+import type {
+  DebugArtifact,
+  DebugDoctorReport,
+  DebugInspection,
+  DebugQuery,
+  DebugSearchResult,
+} from "../shared/debug-api";
 import { runtimeCodeIdentity } from "./code-identity";
 import { installBundledWorlds } from "./bundled-worlds";
 import {
@@ -245,6 +252,22 @@ export interface WorldHostOptions {
   runLeaseMaxWallTimeMs?: number;
   setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+}
+
+interface DebugLedger extends ExecutionLedger {
+  debugQuery(input?: DebugQuery): DebugSearchResult;
+  debugInspect(invocationId: string, includePayload?: boolean): DebugInspection | undefined;
+  debugArtifact(hash: string): DebugArtifact | undefined;
+  debugExplain(code: string): unknown;
+  debugDoctor(): DebugDoctorReport;
+  debugRebuildIndex(): void;
+}
+
+function debugLedger(ledger: ExecutionLedger | undefined): DebugLedger {
+  if (!ledger || typeof (ledger as Partial<DebugLedger>).debugQuery !== "function") {
+    throw new WorldHostError("local debug query is unavailable", 501);
+  }
+  return ledger as DebugLedger;
 }
 
 export class WorldHostError extends Error {
@@ -1178,6 +1201,36 @@ export class WorldHost {
     );
     if (!detail) throw new WorldHostError("runtime event not found", 404);
     return detail;
+  }
+
+  debugQuery(input: DebugQuery = {}): DebugSearchResult {
+    return debugLedger(this.options.ledger).debugQuery(input);
+  }
+
+  debugInspect(invocationId: string, includePayload = false): DebugInspection {
+    const result = debugLedger(this.options.ledger).debugInspect(invocationId, includePayload);
+    if (!result) throw new WorldHostError(`model invocation not found: ${invocationId}`, 404);
+    return result;
+  }
+
+  debugArtifact(hash: string): DebugArtifact {
+    const result = debugLedger(this.options.ledger).debugArtifact(hash);
+    if (!result) throw new WorldHostError(`execution artifact not found: ${hash}`, 404);
+    return result;
+  }
+
+  debugExplain(code: string) {
+    return debugLedger(this.options.ledger).debugExplain(code);
+  }
+
+  debugDoctor(): DebugDoctorReport {
+    return debugLedger(this.options.ledger).debugDoctor();
+  }
+
+  debugRebuildIndex(): DebugDoctorReport {
+    const ledger = debugLedger(this.options.ledger);
+    ledger.debugRebuildIndex();
+    return ledger.debugDoctor();
   }
 
   subscribeInspectorEvents(id: string, listener: (event: ReturnType<typeof summarizeRuntimeEvent>) => void): () => void {

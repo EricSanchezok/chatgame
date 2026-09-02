@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { deterministicActionCompilationBatch } from "../../src/engine/testing/model-provider";
+import { deterministicModelOutput } from "../../src/engine/testing/model-provider";
 
 const port = Number(process.env.LIVINGWORLD_E2E_MODEL_PORT ?? 32128);
 
@@ -35,183 +35,72 @@ function contextFrom(body: Record<string, unknown>): Record<string, unknown> {
 
 function agentOutput(context: Record<string, unknown>) {
   const output = {
-    beliefPatch: { operations: [] },
-    characterPatch: { operations: [] },
-    nextAction: {
+    beliefChanges: { operations: [] },
+    characterChanges: { operations: [] },
+    nextActionIntent: {
       rawText: "根据当前认知继续观察世界",
       goal: "继续自主行动",
       means: null,
-      targetIds: [],
+      targetHandles: [],
     },
   };
-  if (Array.isArray(context.slots)) {
+  const state = context.state && typeof context.state === "object" && !Array.isArray(context.state)
+    ? context.state as Record<string, unknown>
+    : undefined;
+  const slots = Array.isArray(context.slots) ? context.slots : state?.slots;
+  if (Array.isArray(slots)) {
     return {
-      slots: context.slots.map((_, slot) => ({ slot, ...output })),
+      slots: slots.map((_, slot) => ({ slot, ...output })),
     };
   }
   return output;
 }
 
 function truthOutput(context: Record<string, unknown>) {
-  if (Array.isArray(context.slots) && context.slots.every((slot) =>
-    slot && typeof slot === "object" && "action" in slot)) {
-    return deterministicActionCompilationBatch("e2e-truth", context);
+  // Keep the HTTP fixture on the same contract as the in-process deterministic
+  // provider. The production request envelope stores stage/task/state data in
+  // nested sections; duplicating that branching here made the fixture drift
+  // whenever a schema evolved and masked the real browser path behind 500s.
+  const roleContract = context.roleContract && typeof context.roleContract === "object" && !Array.isArray(context.roleContract)
+    ? context.roleContract as Record<string, unknown>
+    : undefined;
+  const role = typeof roleContract?.role === "string" ? roleContract.role : undefined;
+  if (role === "arrival-generator") {
+    const task = context.task && typeof context.task === "object" && !Array.isArray(context.task)
+      ? context.task as Record<string, unknown>
+      : {};
+    return deterministicModelOutput("truth-e2e", {
+      ...context,
+      task: { ...task, kind: "arrival" },
+    });
   }
-  if (Array.isArray(context.candidatePlans) ||
-    context.candidate && typeof context.candidate === "object" &&
-      "deterministicAssertionResults" in context) {
+  if (role === "causal-verifier" || role === "resolution-plan-verifier") {
     return { verdict: "accept", findings: [] };
   }
-  if (context.temporalAction && Array.isArray(context.temporalProfiles)) {
-    const action = context.temporalAction as { id: string; rawText: string };
-    const profiles = context.temporalProfiles as Array<{ id: string }>;
-    const findProfile = (...ids: string[]) => ids
-      .map((id) => profiles.find((candidate) => candidate.id === id))
-      .find(Boolean);
-    const quantity = action.rawText.match(/([0-9]+(?:\.[0-9]+)?)\s*(公里|千米|kilometers?|kilometres?)/iu);
-    const duration = action.rawText.match(/([0-9]+(?:\.[0-9]+)?)\s*(秒|分钟|小时|天|日|seconds?|minutes?|hours?|days?)/iu);
-    const profile = /挥剑|格挡|闪避|swing|parry|dodge/iu.test(action.rawText)
-      ? findProfile("momentary-action", "brief-action")
-      : quantity ? findProfile("road-travel", "measured-travel")
-        : /治疗|清创|包扎|treat|dress.*wound/iu.test(action.rawText) ? findProfile("field-treatment", "staged-action")
-          : /天亮|潮汐|until/iu.test(action.rawText) ? findProfile("wait-until", "conditional-action")
-            : /放哨|守候|站岗|watch|guard/iu.test(action.rawText) ? findProfile("ongoing-watch", "ongoing-action")
-              : duration ? findProfile("explicit-duration")
-                : findProfile("brief-action") ?? profiles[0];
-    if (!profile) throw new Error("temporal planner has no authored profile");
-    const durationMultipliers: Record<string, number> = {
-      秒: 1, second: 1, seconds: 1,
-      分钟: 60, minute: 60, minutes: 60,
-      小时: 3_600, hour: 3_600, hours: 3_600,
-      天: 86_400, 日: 86_400, day: 86_400, days: 86_400,
-    };
-    const basis = quantity ? {
-      kind: "explicit_quantity",
-      amount: Number(quantity[1]),
-      unit: quantity[2],
-      sourceText: quantity[0],
-    } : duration ? {
-      kind: "explicit_duration",
-      seconds: Number(duration[1]) * durationMultipliers[duration[2].toLocaleLowerCase()]!,
-      sourceText: duration[0],
-    } : { kind: "profile" };
-    return {
-      profileId: profile.id,
-      basis,
-      description: action.rawText,
-      continuationAssertions: [],
-      causes: [{ kind: "action", id: action.id }],
-    };
+  const output = deterministicModelOutput("truth-e2e", context);
+  // ScriptedModelProvider unwraps the deterministic Truth directive before
+  // validating a transition proposal. Mirror that adapter at the HTTP edge.
+  if (output && typeof output === "object" && !Array.isArray(output) &&
+    (output as Record<string, unknown>).kind === "transition" &&
+    "proposal" in output) {
+    return (output as Record<string, unknown>).proposal;
   }
-  if (Array.isArray(context.observationSlots)) {
-    const events = context.currentEvents as Array<{ id: string }>;
-    return {
-      // Observation rendering is intentionally one model slot per request.
-      // Keep the E2E provider aligned with observationRenderSchema rather
-      // than the removed observationBatchSchema envelope.
-      summary: "你看见庭院中的世界继续变化。",
-      introductions: [],
-      apparentClaims: [],
-      sourceEventIds: events.map((event) => event.id),
-    };
-  }
-  if (context.action && typeof context.action === "object") {
-    const action = context.action as { actorId: string };
-    return {
-      reads: [{ kind: "global", id: "world" }],
-      writes: [{ kind: "global", id: "world" }],
-      audienceAgentIds: [action.actorId],
-      sharedResourceClaims: [],
-      globalFallback: true,
-    };
-  }
-  if (context.perspective && typeof context.perspective === "object" && context.revision === undefined) {
-    const perspective = context.perspective as {
-      self: { name: string; location: { name: string } | null };
-    };
-    return {
-      title: `此刻，你是${perspective.self.name}`,
-      scene: perspective.self.location
-        ? `你在${perspective.self.location.name}恢复了对周围的注意。`
-        : "你暂时无法确认所在位置。",
-      suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
-    };
-  }
-  if (context.entity && typeof context.entity === "object") {
-    const entity = context.entity as { name: string; location: string | null };
-    return {
-      title: `此刻，你是${entity.name}`,
-      scene: entity.location ? `你在${entity.location}恢复了对周围的注意。` : "你暂时无法确认所在位置。",
-      suggestions: ["观察四周", "确认当前位置", "寻找可以交谈的人"],
-    };
-  }
-  if (context.stage === "perception") return { kind: "done" };
-  if (context.stage === "resolution") {
-    const committedPlans = context.committedResolutionPlans as unknown[];
-    if (committedPlans.length > 0) return { kind: "done" };
-    const actions = context.jointActions as Array<{ id: string; actorId: string; goal: string }>;
-    const actors = context.actors as Record<string, { entityId: string }>;
-    return {
-      kind: "commit_plans",
-      plans: actions.map((action, index) => ({
-        id: `e2e-plan-${index}`,
-        actionId: action.id,
-        actorId: actors[action.actorId].entityId,
-        targetIds: [],
-        goal: action.goal,
-        means: [],
-        mode: "automatic",
-        difficulty: null,
-        actorRatingId: null,
-        factors: [],
-        risk: "safe",
-        baseEffect: "none",
-        primaryEffect: null,
-        secondaryEffect: null,
-        threatenedEffect: null,
-        visibility: "full",
-        causes: [{ kind: "action", id: action.id }],
-      })),
-    };
-  }
-  if (context.stage === "reaction-routing") return { requests: [] };
-  if (context.stage !== "transition") throw new Error(`unexpected Truth stage ${String(context.stage)}`);
-  const step = context.step as number;
-  const actions = context.jointActions as Array<{ id: string }>;
-  const world = context.world as { laws: Array<{ id: string }> };
-  const boundary = context.temporalBoundary as { deltaSeconds: number; toElapsedSeconds: number };
-  const canonicalTruth = context.canonicalTruth as {
-    activities?: Record<string, { sourceActionId: string; completionAtSeconds: number | null }>;
-  };
-  const nextStep = step + 1;
-  const eventId = `e2e-event:${nextStep}`;
-  const lawId = world.laws[0].id;
-  return {
-    outcomes: actions.map((action) => {
-      const activity = Object.values(canonicalTruth.activities ?? {})
-        .find((candidate) => candidate.sourceActionId === action.id);
-      const continuing = Boolean(activity && (activity.completionAtSeconds === null ||
-        activity.completionAtSeconds > boundary.toElapsedSeconds));
+  if (role === "observation-renderer" && output && typeof output === "object") {
+    const restoreSummary = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(restoreSummary);
+      if (!value || typeof value !== "object") return value;
+      const record = value as Record<string, unknown>;
       return {
-        proposalId: action.id,
-        status: continuing ? "continuing" : "succeeded",
-        summary: continuing ? "行动推进到下一个时间检查点。" : "模拟 Truth Engine 已联合裁决行动。",
-        causeRefs: [{ kind: "action", id: action.id }],
-        assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
-        knownAlternatives: [],
+        ...record,
+        ...(typeof record.summary === "string" ? { summary: "你看见庭院中的世界继续变化。" } : {}),
+        ...(Array.isArray(record.slots) ? { slots: record.slots.map(restoreSummary) } : {}),
+        ...(record.result && typeof record.result === "object" ? { result: restoreSummary(record.result) } : {}),
       };
-    }),
-    mechanicInvocations: [],
-    operations: [],
-    events: [{
-      id: eventId,
-      description: `世界在联合裁决后推进了 ${boundary.deltaSeconds} 秒。`,
-      impact: "ordinary",
-      causes: [{ kind: "law", id: lawId }],
-      assertions: [{ kind: "elapsed_seconds_compare", operator: "gte", value: 0 }],
-    }],
-    decisionRequests: [],
-  };
+    };
+    return restoreSummary(output);
+  }
+  return output;
+
 }
 
 const server = createServer(async (request, response) => {
