@@ -9,6 +9,7 @@ import type {
 import type { RuntimeCorrelation, RuntimeObserver } from "../runtime/observability";
 import type { ModelRegistryStatus } from "./model-registry";
 import { runtimeId } from "../runtime/runtime-id";
+import type { ExecutionStageHooks, ExecutionStagePosition } from "../runtime/stages";
 
 export interface ModelExecutionScope {
   workloadId: string;
@@ -19,6 +20,10 @@ export interface ModelExecutionScope {
   runtimeIdentity?: { worldHash: string; revision: number };
   /** Pins benchmark/replay work to one immutable historical registry snapshot. */
   modelRegistrySnapshotHash?: string;
+  /** Engine-owned logical stage metadata for Inspector ordering and debug gates. */
+  logicalStage?: ExecutionStagePosition;
+  /** Trusted local debug control; never serialized into model context. */
+  stageHooks?: ExecutionStageHooks;
 }
 
 export interface StructuredModelRequest<T> extends ModelExecutionScope {

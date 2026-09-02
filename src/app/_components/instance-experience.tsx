@@ -75,14 +75,17 @@ function PlayerRunConsole({
   hasParticipantAction,
   run,
   onPause,
+  onNext,
   onResume,
 }: {
   busy: boolean;
   hasParticipantAction?: boolean;
   run: PublicWorldRun;
   onPause: () => void;
+  onNext: () => void;
   onResume: () => void;
 }) {
+  const debugPaused = run.status === "debug-paused" && run.debug.canAdvance;
   const resumable = run.status === "paused" || run.status === "budget-paused" ||
     run.status === "preparation-invalidated";
   const [now, setNow] = useState(() => Date.now());
@@ -107,10 +110,14 @@ function PlayerRunConsole({
           {elapsed ? <span>已运行 {elapsed}</span> : null}
         </div>
       </div>
-      <button className="cg-thread-status__action" disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
-        {resumable ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
-        {run.status === "preparation-invalidated" ? "重新准备" : resumable ? "恢复" : "暂停"}
-      </button>
+      {debugPaused ? (
+        <button className="cg-thread-status__action" disabled={busy} onClick={onNext} type="button"><FastForward aria-hidden="true" /> 下一步</button>
+      ) : (
+        <button className="cg-thread-status__action" disabled={busy || run.status === "pausing"} onClick={resumable ? onResume : onPause} type="button">
+          {resumable ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+          {run.status === "preparation-invalidated" ? "重新准备" : resumable ? "恢复" : "暂停"}
+        </button>
+      )}
     </div>
   );
 }
@@ -622,6 +629,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
             "pausing",
             "paused",
             "budget-paused",
+            "debug-paused",
             "preparation-invalidated",
           ].includes(detail.run.status) ? (
             <>
@@ -632,6 +640,17 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
                   runId: detail.run!.id,
                   generation: detail.run!.generation,
                 }))}
+                onNext={() => {
+                  const currentRun = detail.run;
+                  const checkpointId = currentRun?.debug.checkpointId;
+                  if (!currentRun || !checkpointId) return;
+                  void perform("debug-next", () => worldApi.nextDebugStep(instanceId, {
+                    runId: currentRun.id,
+                    generation: currentRun.generation,
+                    checkpointId,
+                    requestId: crypto.randomUUID(),
+                  }));
+                }}
                 onResume={() => void perform("resume-run", () => worldApi.resumeRun(instanceId, {
                   runId: detail.run!.id,
                   generation: detail.run!.generation,
@@ -694,7 +713,12 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
           open={overlay === "settings"}
           title="设置"
         >
-          <SettingsPanel />
+          <SettingsPanel
+            debugSteppingEnabled={detail.summary.debugSteppingEnabled}
+            instanceId={instanceId}
+            onUpdated={setDetail}
+            revision={detail.summary.revision}
+          />
         </GameOverlay>
         <GameOverlay
           description="这里只显示当前角色被允许知道的内容。"

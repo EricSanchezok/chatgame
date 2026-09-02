@@ -4,6 +4,7 @@ import type {
   WorldInspectorModelInvocationQuery,
   WorldInspectorModelInvocationQueryResult,
   WorldInspectorRuntimeEventDetail,
+  WorldInspectorReplay,
   WorldInspectorStepDetail,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
@@ -47,6 +48,11 @@ export const worldInspectorApi = {
   runtimeEvent(instanceId: string, eventId: string) {
     return requestJson<WorldInspectorRuntimeEventDetail>(
       `${base(instanceId)}/runtime-events/${encodeURIComponent(eventId)}`,
+    );
+  },
+  replay(instanceId: string, executionId: string) {
+    return requestJson<WorldInspectorReplay>(
+      `${base(instanceId)}/replay/${encodeURIComponent(executionId)}`,
     );
   },
   eventsUrl(instanceId: string) {

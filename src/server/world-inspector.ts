@@ -8,6 +8,7 @@ import type {
 } from "../engine/contracts/model";
 import { contentHash } from "../engine/models/model-audit";
 import type { RuntimeError, RuntimeEvent } from "../engine/runtime/observability";
+import { EXECUTION_STAGES } from "../engine/runtime/stages";
 import { replaySimulationState } from "../engine/runtime/transaction";
 import {
   WORLD_INSPECTOR_API_VERSION,
@@ -26,6 +27,8 @@ import {
   type WorldInspectorNodeSummary,
   type WorldInspectorRuntimeEventDetail,
   type WorldInspectorRuntimeEventSummary,
+  type WorldInspectorReplay,
+  type WorldInspectorReplayFrame,
   type WorldInspectorStateSnapshot,
   type WorldInspectorStepDetail,
   type WorldInspectorStepSummary,
@@ -456,8 +459,17 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     group.push(event);
     groups.set(id, group);
   }
+  const firstSequenceById = new Map(
+    [...groups.entries()].map(([id, group]) => [id, Math.min(...group.map((event) => event.sequence))]),
+  );
   const projected = [...groups.entries()].map(([id, group]) => {
     const ordered = [...group].sort((left, right) => left.sequence - right.sequence);
+    const stageEvent = ordered.find((event) => event.correlation?.logicalStageIndex !== undefined || event.correlation?.logicalStageKey);
+    const logicalStageIndex = stageEvent?.correlation?.logicalStageIndex ?? Number.MAX_SAFE_INTEGER;
+    const logicalStageKey = stageEvent?.correlation?.logicalStageKey ?? "unclassified";
+    const logicalStageLabel = EXECUTION_STAGES.find((stage) => stage.key === logicalStageKey)?.label ?? "未分类证据";
+    const parallelGroupId = typeof stageEvent?.attributes?.parallelGroupId === "string"
+      ? stageEvent.attributes.parallelGroupId : logicalStageIndex === Number.MAX_SAFE_INTEGER ? undefined : `stage:${logicalStageIndex}`;
     const started = ordered.find((event) => event.event === "model.invocation.started");
     const contextEvent = ordered.find((event) => event.event === "model.context.serialized");
     const parsed = [...ordered].reverse().find((event) =>
@@ -578,6 +590,10 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       // this attempt, so ordinals are assigned after grouping and chronological
       // ordering below.
       ordinal: ordered.find((event) => event.correlation?.modelInvocation)?.correlation?.modelInvocation ?? 0,
+      logicalStageIndex,
+      logicalStageKey,
+      logicalStageLabel,
+      ...(parallelGroupId ? { parallelGroupId } : {}),
       ...(started?.correlation?.modelRole ? { role: started.correlation.modelRole } : {}),
       ...(started?.correlation?.modelSubject ? { subjectId: started.correlation.modelSubject } : {}),
       ...(started?.attributes?.providerId ? { providerId: String(started.attributes.providerId) } : {}),
@@ -649,11 +665,18 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       hasPayload: ordered.some((event) => event.payload !== undefined),
     } satisfies WorldInspectorModelInvocationSummary;
   });
-  return projected.sort((left, right) => {
-    const leftTimestamp = left.startedAt ? Date.parse(left.startedAt) : Number.MAX_SAFE_INTEGER;
-    const rightTimestamp = right.startedAt ? Date.parse(right.startedAt) : Number.MAX_SAFE_INTEGER;
-    return leftTimestamp - rightTimestamp || left.ordinal - right.ordinal || left.id.localeCompare(right.id);
-  }).map((invocation, index) => ({ ...invocation, ordinal: index + 1 }));
+  const ordered = projected.sort((left, right) => {
+    return (left.logicalStageIndex ?? Number.MAX_SAFE_INTEGER) - (right.logicalStageIndex ?? Number.MAX_SAFE_INTEGER) ||
+      (firstSequenceById.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (firstSequenceById.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
+      left.id.localeCompare(right.id);
+  });
+  const stageOrdinals = new Map<number, number>();
+  return ordered.map((invocation, index) => {
+    const stageIndex = invocation.logicalStageIndex ?? Number.MAX_SAFE_INTEGER;
+    const logicalInvocationOrdinal = (stageOrdinals.get(stageIndex) ?? 0) + 1;
+    stageOrdinals.set(stageIndex, logicalInvocationOrdinal);
+    return { ...invocation, ordinal: index + 1, logicalInvocationOrdinal };
+  });
 }
 
 function sumModelTokens(invocations: readonly WorldInspectorModelInvocationSummary[]): WorldInspectorTokenUsage {
@@ -755,36 +778,38 @@ const stageLabels: Readonly<Record<string, string>> = {
 };
 
 function attemptStages(events: readonly RuntimeEvent[]): WorldInspectorAttemptStage[] {
-  const groups = new Map<string, RuntimeEvent[]>();
+  const groups = new Map<number, RuntimeEvent[]>();
   for (const event of events) {
-    const role = event.correlation?.modelRole;
-    const phase = role ? `model:${role}` : typeof event.attributes?.phase === "string"
-      ? `phase:${event.attributes.phase}` : undefined;
-    if (!phase) continue;
-    const group = groups.get(phase) ?? [];
+    const index = event.correlation?.logicalStageIndex;
+    if (typeof index !== "number") continue;
+    const group = groups.get(index) ?? [];
     group.push(event);
-    groups.set(phase, group);
+    groups.set(index, group);
   }
-  return [...groups.entries()].map(([id, group]) => {
-    const role = group.find((event) => event.correlation?.modelRole)?.correlation?.modelRole;
-    const terminal = [...group].reverse().find((event) => event.event === "model.semantic.accepted" ||
+  return [...groups.entries()].sort(([left], [right]) => left - right).map(([index, group]) => {
+    const ordered = [...group].sort((left, right) => left.sequence - right.sequence);
+    const terminal = [...ordered].reverse().find((event) => event.event === "debug.stage.completed" ||
+      event.event === "debug.stage.failed" || event.event === "model.semantic.accepted" ||
       event.event === "model.semantic.rejected" || event.event === "model.structured_output.parsed" ||
       event.event === "model.structured_output.rejected" || event.event === "model.invocation.failed");
-    const failed = terminal?.event === "model.semantic.rejected" || terminal?.event === "model.structured_output.rejected" ||
-      terminal?.event === "model.invocation.failed";
-    const error = [...group].reverse().find((event) => event.error)?.error;
+    const failed = terminal?.event === "debug.stage.failed" || terminal?.event === "model.semantic.rejected" ||
+      terminal?.event === "model.structured_output.rejected" || terminal?.event === "model.invocation.failed";
+    const error = [...ordered].reverse().find((event) => event.error)?.error;
+    const stage = EXECUTION_STAGES.find((candidate) => candidate.index === index);
+    const role = ordered.find((event) => event.correlation?.modelRole)?.correlation?.modelRole;
     return {
-      id,
-      label: role ? stageLabels[role] ?? role : id.slice("phase:".length),
+      id: `stage:${index}`,
+      label: stage?.label ?? `阶段 ${index + 1}`,
       status: failed ? "failed" : terminal ? "succeeded" : "active",
-      startedAt: group[0].timestamp,
-      updatedAt: group.at(-1)!.timestamp,
-      eventCount: group.length,
-      modelInvocationCount: new Set(group.flatMap((event) => event.correlation?.modelInvocationId
+      startedAt: ordered[0].timestamp,
+      updatedAt: ordered.at(-1)!.timestamp,
+      eventCount: ordered.length,
+      modelInvocationCount: new Set(ordered.flatMap((event) => event.correlation?.modelInvocationId
         ? [event.correlation.modelInvocationId] : [])).size,
-      rejectionCount: group.filter((event) => event.event === "model.semantic.rejected").length,
-      repairCount: group.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
+      rejectionCount: ordered.filter((event) => event.event === "model.semantic.rejected").length,
+      repairCount: ordered.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
       ...(role ? { modelRole: role } : {}),
+      ...(stage ? { logicalStageIndex: stage.index, logicalStageKey: stage.key } : {}),
       ...(error?.message ? { errorMessage: diagnosticErrorMessage(error) } : {}),
     };
   });
@@ -818,7 +843,7 @@ function attemptSummary(
   const failedEvent = [...events].reverse().find((event) =>
     event.event === "model.semantic.rejected" || event.event === "model.structured_output.rejected" ||
     event.event === "model.invocation.failed" || (event.level === "error" && !event.event.startsWith("model.transport.")));
-  const failureStage = failedEvent?.correlation?.modelRole ??
+  const failureStage = failedEvent?.correlation?.logicalStageKey ?? failedEvent?.correlation?.modelRole ??
     (typeof failedEvent?.attributes?.phase === "string" ? failedEvent.attributes.phase : undefined);
   return {
     id: record.id,
@@ -841,7 +866,7 @@ function attemptSummary(
     stages,
     rejectionCount: events.filter((event) => event.event === "model.semantic.rejected").length,
     repairCount: events.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
-    ...(failureStage ? { failureStage, failureStageLabel: stageLabels[failureStage] ?? failureStage } : {}),
+    ...(failureStage ? { failureStage, failureStageLabel: EXECUTION_STAGES.find((stage) => stage.key === failureStage)?.label ?? stageLabels[failureStage] ?? failureStage } : {}),
     ...(error?.message ? { errorMessage: diagnosticErrorMessage(error) } : {}),
   };
 }
@@ -855,6 +880,72 @@ function traceAvailability(events: readonly RuntimeEvent[]): WorldInspectorTrace
     ...(events.at(-1) ? { latestTimestamp: events.at(-1)!.timestamp } : {}),
     hasFullPayload: true,
   };
+}
+
+function semanticGraph(
+  document: WorldInstanceDocument,
+  attempts: readonly WorldInspectorAttemptSummary[],
+  steps: readonly WorldInspectorStepSummary[],
+): { nodes: WorldInspectorNodeSummary[]; edges: WorldInspectorEdgeSummary[] } {
+  const nodes: WorldInspectorNodeSummary[] = [];
+  const edges: WorldInspectorEdgeSummary[] = [];
+  const attempt = attempts.at(-1);
+  const step = steps.at(-1);
+  const revision = attempt?.revision ?? step?.revision ?? document.state.revision;
+  const rootId = attempt ? `semantic:intent:${attempt.id}` : `semantic:intent:revision-${revision}`;
+  nodes.push({
+    id: rootId,
+    revision,
+    laneId: WORLD_LANE_ID,
+    kind: "action",
+    label: "用户企图",
+    description: attempt?.errorMessage ?? step?.primaryAction ?? "等待世界推演",
+    status: attempt?.status === "failed" ? "failed" : attempt?.status === "active" ? "active" : "succeeded",
+    ...(attempt ? { relatedAttemptId: attempt.id } : {}),
+  });
+  const stageByIndex = new Map((attempt?.stages ?? []).flatMap((stage) =>
+    stage.logicalStageIndex === undefined ? [] : [[stage.logicalStageIndex, stage]]));
+  let previous = rootId;
+  for (const stage of EXECUTION_STAGES) {
+    const evidence = stageByIndex.get(stage.index);
+    const id = `semantic:stage:${attempt?.id ?? `revision-${revision}`}:${stage.index}`;
+    const status = evidence?.status ?? (attempt ? "active" : "succeeded");
+    nodes.push({
+      id,
+      revision,
+      laneId: WORLD_LANE_ID,
+      kind: "stage",
+      label: `${stage.index + 1}. ${stage.label}`,
+      description: evidence
+        ? `${evidence.modelInvocationCount} 个逻辑调用 · ${evidence.eventCount} 条证据`
+        : attempt ? "尚未到达" : "由已有 Ledger 证据推导",
+      status,
+      ...(evidence?.modelInvocationCount ? { count: evidence.modelInvocationCount } : {}),
+      ...(attempt ? { relatedAttemptId: attempt.id } : {}),
+    });
+    edges.push({
+      id: `semantic:feeds:${previous}:${id}`,
+      source: previous,
+      target: id,
+      kind: "causal",
+      label: stage.index === 0 ? "开始" : "推进",
+    });
+    previous = id;
+  }
+  if (step) {
+    const commitId = `semantic:commit:${step.revision}`;
+    nodes.push({
+      id: commitId,
+      revision: step.revision,
+      laneId: WORLD_LANE_ID,
+      kind: "commit",
+      label: "提交",
+      description: `Revision ${step.revision} · 世界时间 ${step.elapsedSeconds} 秒`,
+      status: "succeeded",
+    });
+    edges.push({ id: `semantic:commit:${previous}:${commitId}`, source: previous, target: commitId, kind: "commits", label: "原子提交" });
+  }
+  return { nodes, edges };
 }
 
 export function buildWorldInspectorWindow(
@@ -882,6 +973,8 @@ export function buildWorldInspectorWindow(
     runtimeEvents.filter((event) => event.correlation?.executionId === record.id),
     actorIds,
   )).slice(-50);
+  const semantic = semanticGraph(document, attempts, projected.map((item) => item.summary));
+  const activeRun = Object.values(document.runs).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
   const actorStats = actorActivityMap(actors);
   const attemptIds = new Set(attempts.map((attempt) => attempt.id));
   for (const step of selected) {
@@ -1032,6 +1125,20 @@ export function buildWorldInspectorWindow(
       step: document.state.step,
       elapsedSeconds: document.state.truth.elapsedSeconds,
       updatedAt: document.updatedAt,
+      ...(activeRun ? {
+        run: {
+          id: activeRun.id,
+          generation: activeRun.generation,
+          status: activeRun.status,
+          boundaryIndex: activeRun.debugCheckpoint?.boundaryIndex ?? activeRun.committedRevisions.length,
+          stageIndex: activeRun.debugCheckpoint?.stageIndex ?? 0,
+          stageCount: EXECUTION_STAGES.length,
+          stageKey: activeRun.debugCheckpoint?.stageKey ?? null,
+          stageLabel: activeRun.debugCheckpoint ? EXECUTION_STAGES.find((stage) => stage.key === activeRun.debugCheckpoint?.stageKey)?.label ?? null : null,
+          checkpointId: activeRun.debugCheckpoint?.id ?? null,
+          canAdvance: activeRun.status === "debug-paused",
+        },
+      } : {}),
     },
     actors: actors.map((actor) => {
       const activity = actorStats.get(actor.id);
@@ -1052,6 +1159,8 @@ export function buildWorldInspectorWindow(
     steps: projected.map((item) => item.summary),
     nodes,
     edges,
+    semanticNodes: semantic.nodes,
+    semanticEdges: semantic.edges,
     attempts,
     trace: traceAvailability(runtimeEvents),
     pagination: {
@@ -1119,12 +1228,15 @@ export function buildWorldInspectorAttemptDetail(
 function invocationResult(
   record: ExecutionRecord,
   invocation: WorldInspectorModelInvocationSummary,
+  ledgerSequence: number,
 ): WorldInspectorModelInvocationResult {
   return {
     ...invocation,
     id: worldInspectorModelInvocationId(record.id, invocation.sourceInvocationId),
     executionId: record.id,
     attemptId: record.id,
+    boundaryIndex: record.step ?? record.commitRevision ?? 0,
+    ledgerSequence,
     ...(record.commitRevision !== undefined ? { revision: record.commitRevision } : {}),
     ...(record.step !== undefined ? { step: record.step } : {}),
   };
@@ -1146,6 +1258,7 @@ function nextCursor(offset: number, total: number): string | undefined {
 }
 
 function querySortValue(item: WorldInspectorModelInvocationResult, sort: NonNullable<WorldInspectorModelInvocationQuery["sort"]>): number {
+  if (sort === "stage") return (item.logicalStageIndex ?? Number.MAX_SAFE_INTEGER) * 1_000_000 + (item.logicalInvocationOrdinal ?? item.ordinal);
   if (sort === "duration") return item.timings.invocationMs ?? -1;
   if (sort === "inputTokens") return item.tokenUsage.input ?? -1;
   if (sort === "outputTokens") return item.tokenUsage.output ?? -1;
@@ -1160,7 +1273,8 @@ export function queryWorldInspectorModelInvocations(
 ): WorldInspectorModelInvocationQueryResult {
   const all = records.flatMap((record) => {
     const events = runtimeEvents.filter((event) => event.correlation?.executionId === record.id);
-    return modelInvocationProjection(events).map((invocation) => invocationResult(record, invocation));
+    return modelInvocationProjection(events).map((invocation) => invocationResult(record, invocation,
+      events.find((event) => event.correlation?.modelInvocationId === invocation.sourceInvocationId)?.sequence ?? Number.MAX_SAFE_INTEGER));
   }).filter((item) => {
     const actorMatch = !input.actorId || item.slotRefs.some((slot) => slot.agentId === input.actorId) || item.subjectId === input.actorId;
     const duration = item.timings.invocationMs;
@@ -1176,8 +1290,14 @@ export function queryWorldInspectorModelInvocations(
       (input.maxInputTokens === undefined || inputTokens !== null && inputTokens !== undefined && inputTokens <= input.maxInputTokens) &&
       (input.minRetries === undefined || item.retryCount >= input.minRetries);
   });
-  const sort = input.sort ?? "timestamp";
+  const sort = input.sort ?? "stage";
   all.sort((left, right) => {
+    if (sort === "stage") {
+      return left.boundaryIndex - right.boundaryIndex ||
+        (left.logicalStageIndex ?? Number.MAX_SAFE_INTEGER) - (right.logicalStageIndex ?? Number.MAX_SAFE_INTEGER) ||
+        (left.logicalInvocationOrdinal ?? left.ordinal) - (right.logicalInvocationOrdinal ?? right.ordinal) ||
+        left.ledgerSequence - right.ledgerSequence || left.id.localeCompare(right.id);
+    }
     const delta = querySortValue(right, sort) - querySortValue(left, sort);
     return delta || right.ordinal - left.ordinal || right.executionId.localeCompare(left.executionId) || right.id.localeCompare(left.id);
   });
@@ -1203,7 +1323,8 @@ export function buildWorldInspectorModelInvocationDetail(
   const invocation = modelInvocationProjection(events).find((candidate) =>
     worldInspectorModelInvocationId(executionId, candidate.sourceInvocationId) === invocationId);
   if (!invocation) return undefined;
-  const result = invocationResult(record, invocation);
+  const result = invocationResult(record, invocation,
+    events.find((event) => event.correlation?.modelInvocationId === invocation.sourceInvocationId)?.sequence ?? Number.MAX_SAFE_INTEGER);
   const eventIds = new Set(invocation.eventIds);
   return {
     ...result,
@@ -1217,4 +1338,67 @@ export function buildWorldInspectorRuntimeEventDetail(
 ): WorldInspectorRuntimeEventDetail | undefined {
   const event = runtimeEvents.find((candidate) => worldInspectorRuntimeEventId(candidate) === eventId);
   return event ? { apiVersion: WORLD_INSPECTOR_API_VERSION, event: structuredClone(event) } : undefined;
+}
+
+function derivedStageIndex(event: RuntimeEvent): number {
+  if (typeof event.correlation?.logicalStageIndex === "number") return event.correlation.logicalStageIndex;
+  const role = event.correlation?.modelRole ?? "";
+  if (role.includes("action") || event.event.includes("action.compil")) return 1;
+  if (role.includes("ground") || role.includes("resource")) return 2;
+  if (role.includes("reaction") || role.includes("perception")) return 3;
+  if (role.includes("truth") || role.includes("resolution")) return 5;
+  if (role.includes("mind") || role.includes("observation")) return 7;
+  if (event.event.startsWith("canonical.validation")) return 8;
+  if (event.event === "step.committed") return 9;
+  return 0;
+}
+
+export function buildWorldInspectorReplay(
+  document: WorldInstanceDocument,
+  executionId: string,
+  record: ExecutionRecord | undefined,
+  runtimeEvents: readonly RuntimeEvent[],
+  checkpoint?: { id: string; artifactHash: string },
+): WorldInspectorReplay | undefined {
+  if (!record) return undefined;
+  const events = runtimeEvents
+    .filter((event) => event.correlation?.executionId === executionId)
+    .sort((left, right) => left.sequence - right.sequence);
+  const groups = new Map<number, RuntimeEvent[]>();
+  for (const event of events) {
+    const index = derivedStageIndex(event);
+    const group = groups.get(index) ?? [];
+    group.push(event);
+    groups.set(index, group);
+  }
+  const boundaryIndex = Math.max(0, (record.commitRevision ?? document.state.revision) - (record.step ?? 0) + 1);
+  const frames: WorldInspectorReplayFrame[] = EXECUTION_STAGES.map((stage, index) => {
+    const group = groups.get(index) ?? [];
+    const invocationIds = [...new Set(group.flatMap((event) => event.correlation?.modelInvocationId
+      ? [worldInspectorModelInvocationId(executionId, event.correlation.modelInvocationId)] : []))];
+    const artifactHashes = [...new Set(group.flatMap((event) => Object.values(event.hashes ?? {})
+      .filter((hash): hash is string => typeof hash === "string")))];
+    const failed = group.some((event) => event.level === "error" || event.event === "debug.stage.failed");
+    const active = group.length > 0 && !group.some((event) => event.event === "debug.stage.completed" || event.event === "step.committed");
+    return {
+      index,
+      boundaryIndex,
+      stageIndex: index,
+      stageKey: stage.key,
+      stageLabel: stage.label,
+      status: failed ? "failed" : active ? "active" : group.length > 0 ? "succeeded" : "pending",
+      eventIds: group.map(worldInspectorRuntimeEventId),
+      invocationIds,
+      nodeIds: [`semantic:stage:${executionId}:${index}`],
+      artifactHashes,
+      derived: !group.some((event) => event.correlation?.logicalStageIndex === index),
+    };
+  });
+  return {
+    apiVersion: WORLD_INSPECTOR_API_VERSION,
+    executionId,
+    source: checkpoint ? "checkpoint" : "derived",
+    ...(checkpoint ? { checkpointId: checkpoint.id } : {}),
+    frames,
+  };
 }

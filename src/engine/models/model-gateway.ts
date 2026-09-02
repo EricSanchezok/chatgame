@@ -401,6 +401,10 @@ export class ModelGateway implements StructuredModelProvider {
     ).modelInvocationId;
     const correlation: RuntimeCorrelation = {
       ...request.correlation,
+      ...(request.logicalStage ? {
+        logicalStageIndex: request.logicalStage.index,
+        logicalStageKey: request.logicalStage.key,
+      } : {}),
       modelInvocationId,
       modelRole: request.role,
       modelSubject: request.subjectId,

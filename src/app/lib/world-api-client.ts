@@ -1,5 +1,7 @@
 import type {
   AdvanceWorldInput,
+  DebugModeInput,
+  DebugNextInput,
   ControlTransferInput,
   ControlOptions,
   CreateInstanceInput,
@@ -38,6 +40,8 @@ export const worldApi = {
     requestJson<void>(`/api/instances/${encodeURIComponent(id)}`, { method: "DELETE" }),
   advance: (id: string, input: AdvanceWorldInput) =>
     requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/advance`, body("POST", input)),
+  setDebugMode: (id: string, input: DebugModeInput) =>
+    requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/debug`, body("PUT", input)),
   realtime: (id: string, enabled: boolean) =>
     requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/realtime`, body("PUT", { enabled })),
   transferControl: (id: string, input: ControlTransferInput) =>
@@ -64,6 +68,8 @@ export const worldApi = {
       `/api/instances/${encodeURIComponent(id)}/run/resume`,
       body("POST", input),
     ),
+  nextDebugStep: (id: string, input: DebugNextInput) =>
+    requestJson<PublicInstanceDetail>(`/api/instances/${encodeURIComponent(id)}/run/next`, body("POST", input)),
   importWorld: (file: File, options: { replace?: boolean; expectedWorldId?: string } = {}) => {
     const form = new FormData();
     form.set("file", file);

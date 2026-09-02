@@ -19,6 +19,7 @@ import {
   WORLD_STEP_PREPARATION_SCHEMA_VERSION,
   WorldExecutionAlgorithmRegistry,
 } from "../engine/runtime/execution";
+import { executionStage, type ExecutionStageHooks, type ExecutionStagePosition } from "../engine/runtime/stages";
 import { arrivalDraftSchema } from "../engine/contracts/llm-schemas";
 import { loadModelCatalog } from "../engine/models/model-catalog";
 import { createModelGateway } from "../engine/models/model-gateway";
@@ -37,6 +38,7 @@ import { promptBundle } from "../engine/prompts";
 import {
   NOOP_RUNTIME_OBSERVER,
   type RuntimeCorrelation,
+  type RuntimeError,
   type RuntimeObserver,
 } from "../engine/runtime/observability";
 import { quantityId } from "../engine/runtime/runtime-id";
@@ -61,6 +63,8 @@ import type {
   PublicInstanceDetail,
   PublicInstanceSummary,
   PublicWorldRun,
+  DebugModeInput,
+  DebugNextInput,
   SubmitExternalActionInput,
   SubmitExternalReactionInput,
   WorldRunControlInput,
@@ -80,6 +84,7 @@ import type { WorldImportResult } from "./world-import";
 import {
   buildWorldInspectorAttemptDetail,
   buildWorldInspectorModelInvocationDetail,
+  buildWorldInspectorReplay,
   buildWorldInspectorRuntimeEventDetail,
   buildWorldInspectorStepDetail,
   buildWorldInspectorWindow,
@@ -132,6 +137,71 @@ function isAtomicStore(store: WorldInstanceStore): store is AtomicExecutionInsta
   const candidate = store as Partial<AtomicExecutionInstanceStore>;
   return typeof candidate.createInstanceAndFinishExecution === "function" &&
     typeof candidate.compareAndSwapInstanceAndFinishExecution === "function";
+}
+
+class DebugStageGate implements ExecutionStageHooks {
+  readonly enabled = true;
+  private permits = 0;
+  private waiters: Array<() => void> = [];
+  private currentStageValue?: ExecutionStagePosition;
+  private cancelled = false;
+
+  constructor(
+    private readonly onPause: (stage: ExecutionStagePosition) => Promise<void>,
+    private readonly onFailure: (stage: ExecutionStagePosition, error: Error) => void,
+  ) {}
+
+  get current(): ExecutionStagePosition | undefined {
+    return this.currentStageValue;
+  }
+
+  private waitForPermit(): Promise<void> {
+    if (this.cancelled) {
+      const error = new Error("debug stage gate cancelled");
+      error.name = "AbortError";
+      return Promise.reject(error);
+    }
+    if (this.permits > 0) {
+      this.permits -= 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => this.waiters.push(() => {
+      if (this.cancelled) {
+        const error = new Error("debug stage gate cancelled");
+        error.name = "AbortError";
+        reject(error);
+      } else resolve();
+    }));
+  }
+
+  release(): void {
+    if (this.cancelled) return;
+    const resolve = this.waiters.shift();
+    if (resolve) resolve();
+    else this.permits += 1;
+  }
+
+  cancel(): void {
+    this.cancelled = true;
+    const waiters = this.waiters.splice(0);
+    for (const resolve of waiters) resolve();
+  }
+
+  async before(stage: ExecutionStagePosition): Promise<void> {
+    this.currentStageValue = stage;
+  }
+
+  async after(stage: ExecutionStagePosition): Promise<void> {
+    this.currentStageValue = stage;
+    if (stage.index >= 9) return;
+    await this.onPause(stage);
+    await this.waitForPermit();
+  }
+
+  failed(stage: ExecutionStagePosition, error: RuntimeError): void {
+    this.currentStageValue = stage;
+    this.onFailure(stage, new Error(error.message));
+  }
 }
 
 export interface WorldHostOptions {
@@ -234,6 +304,7 @@ function publicSummary(document: WorldInstanceDocument): PublicInstanceSummary {
     elapsedSeconds: document.state.truth.elapsedSeconds,
     participantCount: activeParticipants(document).length,
     schedulerMode: document.scheduler.mode,
+    debugSteppingEnabled: document.runtime.debugSteppingEnabled,
     ...(currentRun(document) ? { runStatus: currentRun(document)!.status } : {}),
   };
 }
@@ -309,7 +380,7 @@ function conversationFor(
       ? "committed"
       : run?.status === "failed"
         ? "failed"
-        : run?.status === "paused" || run?.status === "budget-paused" ||
+        : run?.status === "paused" || run?.status === "budget-paused" || run?.status === "debug-paused" ||
           run?.status === "preparation-invalidated"
           ? "paused"
         : run?.status === "running" || run?.status === "queued" || run?.status === "pausing"
@@ -432,6 +503,7 @@ export class WorldHost {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly runTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly runControllers = new Map<string, AbortController>();
+  private readonly debugStageGates = new Map<string, DebugStageGate>();
   private readonly setTimer: WorldHostOptions["setTimer"];
   private readonly clearTimer: NonNullable<WorldHostOptions["clearTimer"]>;
   readonly runtimeObserver: RuntimeObserver;
@@ -658,6 +730,55 @@ export class WorldHost {
     });
   }
 
+  private async persistDebugCheckpoint(
+    instanceId: string,
+    runId: string,
+    executionId: string | undefined,
+    stage: ExecutionStagePosition,
+  ): Promise<void> {
+    if (!executionId || !this.options.ledger) {
+      throw new WorldHostError("single-step debugging requires an execution ledger", 503);
+    }
+    const checkpointId = this.idFactory();
+    const stored = this.read(instanceId);
+    const run = stored.document.runs[runId];
+    if (!run || run.debugMode !== "step") throw new WorldHostError("debug run changed", 409);
+    const checkpoint = {
+      schemaVersion: 1,
+      id: checkpointId,
+      executionId,
+      runId,
+      sourceRevision: stored.document.state.revision,
+      sourceStateHash: contentHash(stored.document.state),
+      boundaryIndex: run.committedRevisions.length,
+      stageIndex: stage.index,
+      stageKey: stage.key,
+      continuation: { kind: "in-process-stage-gate" as const },
+      createdAt: this.now().toISOString(),
+    };
+    const artifactHash = this.options.ledger.putExecutionArtifact(executionId, "world-debug-checkpoint", checkpoint);
+    const next = structuredClone(stored.document);
+    const nextRun = next.runs[runId];
+    if (!nextRun || nextRun.debugMode !== "step" ||
+      !["running", "debug-paused"].includes(nextRun.status)) {
+      throw new WorldHostError("debug run changed", 409);
+    }
+    nextRun.status = "debug-paused";
+    nextRun.stopReason = "debug-stage-paused";
+    nextRun.debugCheckpoint = {
+      id: checkpointId,
+      executionId,
+      artifactHash,
+      boundaryIndex: checkpoint.boundaryIndex,
+      stageIndex: stage.index,
+      stageKey: stage.key,
+      updatedAt: checkpoint.createdAt,
+    };
+    nextRun.updatedAt = checkpoint.createdAt;
+    next.updatedAt = checkpoint.createdAt;
+    this.persist(stored, next);
+  }
+
   worldStartOptions(worldId: string): WorldStartOptions {
     const definition = this.options.repository.load(worldId, 1, this.options.provider.catalog);
     return {
@@ -693,7 +814,7 @@ export class WorldHost {
     const id = this.idFactory();
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 20,
+      schemaVersion: 21,
       id,
       world: toWorldRuntimeContract(definition),
       executionAlgorithm: structuredClone(executionAlgorithm),
@@ -704,7 +825,7 @@ export class WorldHost {
       participants: {},
       policyBindings: policyRoster(definition.initialState),
       actionWindow: null,
-      runtime: structuredClone(definition.runtimeDefaults),
+      runtime: { ...structuredClone(definition.runtimeDefaults), debugSteppingEnabled: false },
       scheduler: { mode: "paused", generation: 1, nextTickAt: null },
       runs: {},
       participantIntents: [],
@@ -857,6 +978,24 @@ export class WorldHost {
     );
     if (!detail) throw new WorldHostError(`committed revision not found: ${revision}`, 404);
     return detail;
+  }
+
+  inspectorReplay(id: string, executionId: string) {
+    const document = this.read(id).document;
+    const record = this.options.ledger?.execution(executionId);
+    if (!record || record.instanceId !== id) throw new WorldHostError(`execution not found: ${executionId}`, 404);
+    const checkpoint = Object.values(document.runs)
+      .map((run) => run.debugCheckpoint)
+      .find((candidate) => candidate?.executionId === executionId);
+    const replay = buildWorldInspectorReplay(
+      document,
+      executionId,
+      record,
+      this.options.ledger?.executionEvents(executionId) ?? [],
+      checkpoint ? { id: checkpoint.id, artifactHash: checkpoint.artifactHash } : undefined,
+    );
+    if (!replay) throw new WorldHostError(`execution not found: ${executionId}`, 404);
+    return replay;
   }
 
   inspectorAttempt(id: string, executionId: string) {
@@ -1072,6 +1211,16 @@ export class WorldHost {
             startedAt: run.lease.startedAt,
           } : null,
           activity: activity ? publicActivity(document, activity) : null,
+          debug: {
+            mode: run.debugMode,
+            boundaryIndex: run.debugCheckpoint?.boundaryIndex ?? run.committedRevisions.length,
+            stageIndex: run.debugCheckpoint?.stageIndex ?? 0,
+            stageCount: 10,
+            stageKey: run.debugCheckpoint?.stageKey ?? null,
+            stageLabel: run.debugCheckpoint ? executionStage(run.debugCheckpoint.stageKey).label : null,
+            checkpointId: run.debugCheckpoint?.id ?? null,
+            canAdvance: run.status === "debug-paused",
+          },
         },
       } : {}),
       ...(controlled ? {
@@ -1094,6 +1243,7 @@ export class WorldHost {
         "running",
         "pausing",
         "paused",
+        "debug-paused",
         "budget-paused",
         "awaiting-decision",
         "awaiting-reaction",
@@ -1115,6 +1265,54 @@ export class WorldHost {
     if (document.actionWindow) this.scheduleWindowDeadline(document);
     if (document.scheduler.mode === "realtime") this.scheduleRealtime(document);
     return this.project(document);
+  }
+
+  async setDebugMode(
+    instanceId: string,
+    input: DebugModeInput,
+    principalId = "local",
+  ): Promise<PublicInstanceDetail> {
+    const document = await this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
+      if (input.expectedRevision !== stored.document.state.revision) {
+        throw new WorldHostError("world revision changed", 409);
+      }
+      const next = structuredClone(stored.document);
+      next.runtime.debugSteppingEnabled = input.enabled;
+      next.updatedAt = this.now().toISOString();
+      return this.persist(stored, next).document;
+    });
+    return this.project(document, principalId);
+  }
+
+  async advanceDebugStep(
+    instanceId: string,
+    input: DebugNextInput,
+    principalId = "local",
+  ): Promise<PublicInstanceDetail> {
+    const document = await this.serialized(instanceId, async () => {
+      const stored = this.read(instanceId);
+      const run = stored.document.runs[input.runId];
+      if (!run || run.generation !== input.generation) {
+        throw new WorldHostError("debug checkpoint changed; refresh before advancing", 409);
+      }
+      if (run.lastDebugRequestId === input.requestId) return stored.document;
+      if (run.status !== "debug-paused" || run.debugCheckpoint?.id !== input.checkpointId) {
+        throw new WorldHostError("debug checkpoint changed; refresh before advancing", 409);
+      }
+      const next = structuredClone(stored.document);
+      const nextRun = next.runs[input.runId]!;
+      nextRun.status = "running";
+      nextRun.stopReason = null;
+      nextRun.lastDebugRequestId = input.requestId;
+      nextRun.updatedAt = this.now().toISOString();
+      next.updatedAt = nextRun.updatedAt;
+      return this.persist(stored, next).document;
+    });
+    const gate = this.debugStageGates.get(input.runId);
+    if (!gate) throw new WorldHostError("debug checkpoint is no longer active", 409);
+    gate.release();
+    return this.project(document, principalId);
   }
 
   private openWindow(document: WorldInstanceDocument, requiredAgentIds: string[]): ActionWindow {
@@ -1154,6 +1352,9 @@ export class WorldHost {
       committedRevisions: [],
       stopReason: status === "awaiting-decision" ? "external-decision-required" : null,
       lease: null,
+      debugMode: document.runtime.debugSteppingEnabled ? "step" : "off",
+      debugCheckpoint: null,
+      lastDebugRequestId: null,
     };
     document.runs[run.id] = run;
     return run;
@@ -1272,6 +1473,13 @@ export class WorldHost {
     };
     const controller = new AbortController();
     this.runControllers.set(runId, controller);
+    const debugGate = runRecord.debugMode === "step"
+      ? new DebugStageGate(
+          (stage) => this.persistDebugCheckpoint(document.id, runId, execution?.id, stage),
+          () => undefined,
+        )
+      : undefined;
+    if (debugGate) this.debugStageGates.set(runId, debugGate);
     const modelScope = {
       workloadId: document.id,
       batchId: window?.kind === "reaction"
@@ -1285,6 +1493,7 @@ export class WorldHost {
       },
       observer: execution?.trace ?? this.runtimeObserver,
       abortSignal: controller.signal,
+      ...(debugGate ? { stageHooks: debugGate } : {}),
     };
     try {
       execution?.trace.emit({
@@ -1362,6 +1571,7 @@ export class WorldHost {
           runRecord.updatedAt = this.now().toISOString();
           document.updatedAt = runRecord.updatedAt;
           this.runControllers.delete(runId);
+          this.debugStageGates.delete(runId);
           const finish: FinishExecutionInput = {
             status: "succeeded",
             stateHash: contentHash(document.state),
@@ -1393,6 +1603,7 @@ export class WorldHost {
         modelScope,
       );
       this.runControllers.delete(runId);
+      this.debugStageGates.delete(runId);
       document.state = result.state;
       for (const agent of Object.values(document.state.agents)) {
         if (!document.policyBindings[agent.id]) {
@@ -1466,6 +1677,36 @@ export class WorldHost {
         stateHash: contentHash(document.state),
         commitRevision: document.state.revision,
       };
+      const commitStage = executionStage("atomic-commit");
+      if (debugGate) {
+        execution?.trace.emit({
+          event: "debug.stage.started",
+          correlation: {
+            executionId: execution?.id,
+            instanceId: document.id,
+            revision: request.expectedRevision,
+            step: document.state.step,
+            logicalStageIndex: commitStage.index,
+            logicalStageKey: commitStage.key,
+          },
+          attributes: { stageIndex: commitStage.index, stageKey: commitStage.key, label: commitStage.label },
+        });
+        await debugGate.before(commitStage);
+        execution?.trace.emit({
+          event: "debug.stage.completed",
+          correlation: {
+            executionId: execution?.id,
+            instanceId: document.id,
+            revision: request.expectedRevision,
+            step: document.state.step,
+            logicalStageIndex: commitStage.index,
+            logicalStageKey: commitStage.key,
+          },
+          attributes: { stageIndex: commitStage.index, stageKey: commitStage.key, label: commitStage.label },
+        });
+        await debugGate.after(commitStage);
+      }
+      execution?.trace.flush();
       const latest = this.read(document.id);
       const latestRun = latest.document.runs[runId];
       if (!latestRun || latestRun.generation !== runGeneration || latestRun.status !== "running" ||
@@ -1490,6 +1731,7 @@ export class WorldHost {
       return committed;
     } catch (error) {
       this.runControllers.delete(runId);
+      this.debugStageGates.delete(runId);
       this.failExecution(execution?.id, error);
       const latest = this.read(document.id);
       const failed = structuredClone(latest.document);
@@ -1548,7 +1790,7 @@ export class WorldHost {
 
       let requiredAgentIds = externalDecisionAgentIds(document);
       const pausedRun = currentRun(document);
-      if (pausedRun && (pausedRun.status === "paused" || pausedRun.status === "budget-paused") &&
+      if (pausedRun && (pausedRun.status === "paused" || pausedRun.status === "budget-paused" || pausedRun.status === "debug-paused") &&
         document.policyBindings[participant.agentId]?.kind === "external") {
         pausedRun.status = "completed";
         pausedRun.stopReason = "replaced-by-external-action";
@@ -1705,7 +1947,7 @@ export class WorldHost {
       const next = structuredClone(stored.document);
       const run = next.runs[input.runId];
       if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
-      if (!["queued", "running", "pausing"].includes(run.status)) {
+      if (!["queued", "running", "pausing", "debug-paused"].includes(run.status)) {
         if (run.status === "paused") return next;
         throw new WorldHostError("world run cannot be paused", 409);
       }
@@ -1721,6 +1963,8 @@ export class WorldHost {
     if (timer) this.clearTimer(timer);
     this.runTimers.delete(input.runId);
     this.runControllers.get(input.runId)?.abort("user-paused");
+    this.debugStageGates.get(input.runId)?.cancel();
+    this.debugStageGates.delete(input.runId);
     return this.project(document, principalId);
   }
 
@@ -1734,7 +1978,7 @@ export class WorldHost {
       const next = structuredClone(stored.document);
       const run = next.runs[input.runId];
       if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
-      if (run.status !== "paused" && run.status !== "budget-paused" &&
+      if (run.status !== "paused" && run.status !== "budget-paused" && run.status !== "debug-paused" &&
         run.status !== "preparation-invalidated") {
         throw new WorldHostError("world run cannot be resumed", 409);
       }
@@ -1763,7 +2007,7 @@ export class WorldHost {
         throw new WorldHostError("world revision changed", 409);
       }
       const activeRun = currentRun(document);
-      if (["queued", "running", "pausing"].includes(activeRun?.status ?? "") ||
+      if (["queued", "running", "pausing", "debug-paused"].includes(activeRun?.status ?? "") ||
         (document.actionWindow && document.actionWindow.status !== "open")) {
         throw new WorldHostError("control can change only at a committed revision boundary", 409);
       }
@@ -2046,7 +2290,7 @@ export class WorldHost {
     const recovered = structuredClone(stored.document);
     let changed = false;
     for (const run of Object.values(recovered.runs)) {
-      if (!["queued", "running", "pausing"].includes(run.status)) continue;
+      if (!["queued", "running", "pausing", "debug-paused"].includes(run.status)) continue;
       run.generation += 1;
       run.status = "paused";
       run.stopReason = "process-recovered";

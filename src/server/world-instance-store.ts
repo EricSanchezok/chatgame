@@ -207,7 +207,7 @@ function validateActionWindow(document: WorldInstanceDocument): void {
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 20) throw new Error("world instance schema v20 required");
+  if (document.schemaVersion !== 21) throw new Error("world instance schema v21 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
   validateAlgorithmRef(document.executionAlgorithm);
@@ -238,8 +238,11 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
     }
   }
   validateActionWindow(document);
-  for (const value of Object.values(document.runtime)) {
-    if (!Number.isSafeInteger(value) || value <= 0) throw new Error("runtime durations must be positive integers");
+  if (!Number.isSafeInteger(document.runtime.maxAutonomousSpanSeconds) || document.runtime.maxAutonomousSpanSeconds <= 0 ||
+    !Number.isSafeInteger(document.runtime.realtimeIntervalMs) || document.runtime.realtimeIntervalMs <= 0 ||
+    !Number.isSafeInteger(document.runtime.actionWindowMs) || document.runtime.actionWindowMs <= 0 ||
+    typeof document.runtime.debugSteppingEnabled !== "boolean") {
+    throw new Error("runtime configuration is invalid");
   }
   if (document.scheduler.mode !== "paused" && document.scheduler.mode !== "realtime") {
     throw new Error("scheduler mode is invalid");
@@ -255,7 +258,7 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
   }
   for (const [runId, run] of Object.entries(document.runs)) {
     if (run.id !== runId) throw new Error(`run key mismatch for ${runId}`);
-    if (!["queued", "running", "pausing", "paused", "awaiting-decision", "awaiting-reaction",
+    if (!["queued", "running", "pausing", "paused", "debug-paused", "awaiting-decision", "awaiting-reaction",
       "preparation-invalidated", "completed", "failed", "budget-paused"]
       .includes(run.status)) throw new Error(`run ${runId} has an invalid status`);
     if (!Number.isSafeInteger(run.generation) || run.generation < 1 ||
@@ -306,7 +309,25 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
         throw new Error(`run ${runId} lease is invalid`);
       }
     }
-    if (run.status === "running" && !run.lease) throw new Error(`running run ${runId} requires a lease`);
+    if (["running", "debug-paused"].includes(run.status) && !run.lease) {
+      throw new Error(`active run ${runId} requires a lease`);
+    }
+    if (run.debugMode !== "off" && run.debugMode !== "step") {
+      throw new Error(`run ${runId} has an invalid debug mode`);
+    }
+    if (run.debugCheckpoint !== null) {
+      requireText(run.debugCheckpoint.id, `run ${runId} debug checkpoint id`);
+      requireText(run.debugCheckpoint.executionId, `run ${runId} debug checkpoint execution id`);
+      requireText(run.debugCheckpoint.artifactHash, `run ${runId} debug checkpoint artifact hash`);
+      if (!Number.isSafeInteger(run.debugCheckpoint.boundaryIndex) || run.debugCheckpoint.boundaryIndex < 0 ||
+        !Number.isSafeInteger(run.debugCheckpoint.stageIndex) || run.debugCheckpoint.stageIndex < 0 ||
+        !Number.isFinite(Date.parse(run.debugCheckpoint.updatedAt))) {
+        throw new Error(`run ${runId} debug checkpoint metadata is invalid`);
+      }
+    }
+    if (run.lastDebugRequestId !== null && typeof run.lastDebugRequestId !== "string") {
+      throw new Error(`run ${runId} last debug request id must be null or text`);
+    }
     if (run.error !== undefined) requireText(run.error, `run ${runId} error`);
   }
   for (const intent of document.participantIntents) {

@@ -173,6 +173,9 @@ function semanticZoomLevel(zoom: number): SemanticZoom {
 export function WorldInspectorGraph({
   actors,
   edges: sourceEdges,
+  mode,
+  semanticEdges,
+  semanticNodes,
   followLatest,
   isolateActor,
   nodes: sourceNodes,
@@ -185,6 +188,9 @@ export function WorldInspectorGraph({
 }: {
   actors: WorldInspectorActor[];
   edges: WorldInspectorEdgeSummary[];
+  mode: "semantic" | "technical";
+  semanticEdges: WorldInspectorEdgeSummary[];
+  semanticNodes: WorldInspectorNodeSummary[];
   followLatest: boolean;
   isolateActor: boolean;
   nodes: WorldInspectorNodeSummary[];
@@ -210,24 +216,26 @@ export function WorldInspectorGraph({
     ...actors.map((actor) => [actor.id, actor.name] as const),
   ]), [actors]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const graphNodes = mode === "semantic" ? semanticNodes : sourceNodes;
+  const graphEdges = mode === "semantic" ? semanticEdges : sourceEdges;
   const scopedSourceNodes = useMemo(() => {
     if (selectedNodeId?.startsWith("attempt:")) {
       const attemptId = selectedNodeId.slice("attempt:".length);
-      return sourceNodes.filter((node) => node.id === selectedNodeId || node.relatedAttemptId === attemptId);
+      return graphNodes.filter((node) => node.id === selectedNodeId || node.relatedAttemptId === attemptId);
     }
     if (selectedNodeId?.startsWith("commit:")) {
       const revision = Number(selectedNodeId.slice("commit:".length));
-      if (Number.isSafeInteger(revision)) return sourceNodes.filter((node) => node.revision === revision);
+      if (Number.isSafeInteger(revision)) return graphNodes.filter((node) => node.revision === revision);
     }
-    return sourceNodes;
-  }, [selectedNodeId, sourceNodes]);
+    return graphNodes;
+  }, [graphNodes, selectedNodeId]);
   const visibleSummaries = useMemo(() => scopedSourceNodes.filter((node) =>
     !isolateActor || selectedActorId === "world" || node.laneId === selectedActorId ||
     (node.laneId === "world" && node.kind !== "attempt") || node.relatedActorIds?.includes(selectedActorId)),
   [isolateActor, selectedActorId, scopedSourceNodes]);
   const visibleIds = useMemo(() => new Set(visibleSummaries.map((node) => node.id)), [visibleSummaries]);
-  const visibleEdges = useMemo(() => sourceEdges.filter((edge) =>
-    visibleIds.has(edge.source) && visibleIds.has(edge.target)), [sourceEdges, visibleIds]);
+  const visibleEdges = useMemo(() => graphEdges.filter((edge) =>
+    visibleIds.has(edge.source) && visibleIds.has(edge.target)), [graphEdges, visibleIds]);
   const layoutSignature = useMemo(() => [
     visibleSummaries.map((node) => node.id).join("|"),
     visibleEdges.map((edge) => edge.id).join("|"),

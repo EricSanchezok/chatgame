@@ -1,7 +1,7 @@
 import type { AgentPerspectiveView } from "../engine/contracts/model";
 export type { AgentPerspectiveView, BeliefValue, PerspectiveFactValue } from "../engine/contracts/model";
 
-export const WORLD_API_VERSION = 12 as const;
+export const WORLD_API_VERSION = 13 as const;
 
 export interface WorldSummary {
   id: string;
@@ -24,6 +24,7 @@ export type WorldRunStatus =
   | "running"
   | "pausing"
   | "paused"
+  | "debug-paused"
   | "awaiting-decision"
   | "awaiting-reaction"
   | "preparation-invalidated"
@@ -42,6 +43,7 @@ export interface PublicInstanceSummary {
   elapsedSeconds: number;
   participantCount: number;
   schedulerMode: "paused" | "realtime";
+  debugSteppingEnabled: boolean;
   runStatus?: WorldRunStatus;
 }
 
@@ -67,6 +69,16 @@ export interface PublicWorldRun {
     completionAtSeconds: number | null;
     queuePosition: number | null;
     resourceNames: string[];
+  };
+  debug: {
+    mode: "off" | "step";
+    boundaryIndex: number;
+    stageIndex: number;
+    stageCount: number;
+    stageKey: string | null;
+    stageLabel: string | null;
+    checkpointId: string | null;
+    canAdvance: boolean;
   };
 }
 
@@ -155,6 +167,18 @@ export interface PublicInstanceDetail {
 export interface WorldRunControlInput {
   runId: string;
   generation: number;
+}
+
+export interface DebugModeInput {
+  enabled: boolean;
+  expectedRevision: number;
+}
+
+export interface DebugNextInput {
+  runId: string;
+  generation: number;
+  checkpointId: string;
+  requestId: string;
 }
 
 export type SubmitExternalReactionInput =

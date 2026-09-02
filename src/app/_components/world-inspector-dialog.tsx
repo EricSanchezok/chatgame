@@ -4,12 +4,16 @@ import {
   ArrowDownToLine,
   Binoculars,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   CircleDot,
   Focus,
   GitBranch,
   ListTree,
   LocateFixed,
   Network,
+  Pause,
+  Play,
   RefreshCw,
   Search,
   Users,
@@ -36,6 +40,7 @@ import type {
   WorldInspectorStepDetail,
   WorldInspectorStepSummary,
   WorldInspectorStreamEvent,
+  WorldInspectorReplay,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
 import { mergeWorldInspectorWindows } from "../_lib/world-inspector-window";
@@ -106,8 +111,8 @@ function InspectorCollectionHeader({
   view: Exclude<CenterView, "calls">;
 }) {
   const config = view === "timeline"
-    ? { title: "世界演化时间线", description: "按时间排列的 attempt 与已提交 Revision", firstLabel: "尝试", first: `${data.attempts.length}`, secondLabel: "提交", second: `${data.steps.length}` }
-    : { title: "世界演化图谱", description: "阶段、调用、传输与证据之间的关系", firstLabel: "节点", first: `${data.nodes.length}`, secondLabel: "关系", second: `${data.edges.length}` };
+    ? { title: "世界演化流程", description: "按 Run → Boundary → Stage 展开成功与失败的完整尝试", firstLabel: "尝试", first: `${data.attempts.length}`, secondLabel: "提交", second: `${data.steps.length}` }
+    : { title: "世界演化图谱", description: "先看可解释的语义主链，再按需展开底层证据", firstLabel: "语义节点", first: `${data.semanticNodes?.length ?? 0}`, secondLabel: "关系", second: `${data.semanticEdges?.length ?? 0}` };
   return (
     <header className="cg-inspector-collection-header">
       <div>
@@ -212,32 +217,40 @@ export default function WorldInspectorDialog({
   const [selectedActorId, setSelectedActorId] = useState("world");
   const [selection, setSelection] = useState<WorldInspectorSelection>(null);
   const [view, setView] = useState<CenterView>("calls");
+  const [graphMode, setGraphMode] = useState<"semantic" | "technical">("semantic");
+  const [replay, setReplay] = useState<WorldInspectorReplay>();
+  const [replayFrameIndex, setReplayFrameIndex] = useState(0);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replayRate, setReplayRate] = useState<1 | 4 | 16>(1);
   const [actorWidth, setActorWidth] = useState(WORLD_INSPECTOR_ACTOR_DEFAULT);
   const [detailWidth, setDetailWidth] = useState(WORLD_INSPECTOR_DETAIL_DEFAULT);
   const activeView: CenterView = view;
+  const replayFrame = replay?.frames[replayFrameIndex];
   const selectedNodeId = selection?.kind === "attempt"
     ? `attempt:${selection.id}`
     : selection?.kind === "step"
       ? `commit:${selection.revision}`
-      : selection?.kind === "node" ? selection.id : undefined;
+      : selection?.kind === "node" ? selection.id : replayFrame?.nodeIds[0];
   const selectedInvocationId = selection?.kind === "invocation" ? selection.id : undefined;
   const selectedGraphNode = selection?.kind === "node"
-    ? data?.nodes.find((node) => node.id === selection.id)
+    ? [...(data?.semanticNodes ?? []), ...(data?.nodes ?? [])].find((node) => node.id === selection.id)
     : undefined;
   const graphNodeRelations = useMemo(() => {
     if (!selectedGraphNode || !data) return undefined;
-    const byId = new Map(data.nodes.map((node) => [node.id, node]));
+    const graphNodes = graphMode === "semantic" ? data.semanticNodes ?? [] : data.nodes;
+    const graphEdges = graphMode === "semantic" ? data.semanticEdges ?? [] : data.edges;
+    const byId = new Map(graphNodes.map((node) => [node.id, node]));
     return {
-      upstream: data.edges
+      upstream: graphEdges
         .filter((edge) => edge.target === selectedGraphNode.id)
         .map((edge) => byId.get(edge.source))
         .filter((node): node is WorldInspectorNodeSummary => node !== undefined),
-      downstream: data.edges
+      downstream: graphEdges
         .filter((edge) => edge.source === selectedGraphNode.id)
         .map((edge) => byId.get(edge.target))
         .filter((node): node is WorldInspectorNodeSummary => node !== undefined),
     };
-  }, [data, selectedGraphNode]);
+  }, [data, graphMode, selectedGraphNode]);
   const closeActorDrawer = useCallback(() => {
     setActorsOpen(false);
     if (narrow) requestAnimationFrame(() => actorToggleRef.current?.focus());
@@ -384,6 +397,20 @@ export default function WorldInspectorDialog({
     }
   }, [instanceId, loadInvocation]);
 
+  const openReplay = useCallback(async (attempt: WorldInspectorAttemptSummary) => {
+    setError("");
+    try {
+      const value = await worldInspectorApi.replay(instanceId, attempt.id);
+      setReplay(value);
+      setReplayFrameIndex(0);
+      setReplayPlaying(false);
+      setView("timeline");
+      await selectAttempt(attempt);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法读取这次执行的回放。");
+    }
+  }, [instanceId, selectAttempt]);
+
   const selectInvocation = useCallback(async (invocation: WorldInspectorInvocationListItem) => {
     const executionId = worldInspectorInvocationExecutionId(invocation) ?? (detail?.kind === "attempt"
       ? detail.value.summary.id
@@ -462,7 +489,7 @@ export default function WorldInspectorDialog({
   const loadInvocations = useCallback(async () => {
     const request = ++invocationRequestRef.current;
     try {
-      const result = await worldInspectorApi.modelInvocations(instanceId, { limit: 100, sort: "timestamp" });
+      const result = await worldInspectorApi.modelInvocations(instanceId, { limit: 100, sort: "stage" });
       if (request !== invocationRequestRef.current) return;
       setQueriedInvocations(result.items);
       setInvocationCursor(result.nextCursor);
@@ -494,7 +521,7 @@ export default function WorldInspectorDialog({
       if (payload.type !== "runtime") return;
       const type = payload.event.event;
       if (type.startsWith("model.") || type.startsWith("step.") || type.startsWith("run.") ||
-        type.startsWith("execution.") || type.startsWith("instance.bootstrap.") || type === "arrival.generated") scheduleRefresh();
+        type.startsWith("execution.") || type.startsWith("debug.stage.") || type.startsWith("instance.bootstrap.") || type === "arrival.generated") scheduleRefresh();
     };
     const onResync = () => {
       void loadWindow(true);
@@ -524,7 +551,7 @@ export default function WorldInspectorDialog({
       const result = await worldInspectorApi.modelInvocations(instanceId, {
         cursor: invocationCursor,
         limit: 100,
-        sort: "timestamp",
+        sort: "stage",
       });
       setQueriedInvocations((current) => {
         const seen = new Set(current.map((invocation) => invocation.id));
@@ -588,10 +615,50 @@ export default function WorldInspectorDialog({
     const invocations = detail?.kind === "attempt" || detail?.kind === "step"
       ? detail.value.modelInvocations
       : queriedInvocations;
-    if (selectedActorId === "world") return invocations;
-    return invocations.filter((invocation) => invocation.subjectId === selectedActorId ||
+    const scoped = replayFrame
+      ? invocations.filter((invocation) => replayFrame.invocationIds.includes(invocation.id) || invocation.logicalStageIndex === replayFrame.stageIndex)
+      : invocations;
+    if (selectedActorId === "world") return scoped;
+    return scoped.filter((invocation) => invocation.subjectId === selectedActorId ||
       invocation.slotRefs.some((slot) => slot.agentId === selectedActorId));
-  }, [detail, queriedInvocations, selectedActorId]);
+  }, [detail, queriedInvocations, replayFrame, selectedActorId]);
+
+  useEffect(() => {
+    if (!replay || !open) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setReplayFrameIndex((index) => Math.max(0, index - 1));
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setReplayFrameIndex((index) => Math.min(replay.frames.length - 1, index + 1));
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        setReplayFrameIndex(0);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        setReplayFrameIndex(replay.frames.length - 1);
+      } else return;
+      setFollowLatest(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, replay]);
+
+  useEffect(() => {
+    if (!replayPlaying || !replay) return;
+    const timer = window.setInterval(() => {
+      setReplayFrameIndex((index) => {
+        if (index >= replay.frames.length - 1) {
+          setReplayPlaying(false);
+          return index;
+        }
+        return index + 1;
+      });
+    }, Math.max(60, 700 / replayRate));
+    return () => window.clearInterval(timer);
+  }, [replay, replayPlaying, replayRate]);
+
   const selectActor = useCallback((actorId: string) => {
     setSelectedActorId(actorId);
     invocationDetailRequestRef.current += 1;
@@ -843,6 +910,21 @@ export default function WorldInspectorDialog({
           />
 
           <section className="cg-inspector-stage" aria-label={`${selectedActor?.name ?? "整个世界"}推演记录`}>
+            {replay && (
+              <div className="cg-inspector-replay" aria-label="执行回放控制">
+                <strong>回放 · {replayFrame ? `${replayFrame.stageIndex + 1} / ${replay.frames.length} · ${replayFrame.stageLabel}` : "准备中"}</strong>
+                <button aria-label="上一阶段" disabled={replayFrameIndex <= 0} onClick={() => setReplayFrameIndex((index) => Math.max(0, index - 1))} type="button"><ChevronLeft aria-hidden="true" /></button>
+                <button aria-label={replayPlaying ? "暂停回放" : "播放回放"} onClick={() => setReplayPlaying((value) => !value)} type="button">
+                  {replayPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+                </button>
+                <button aria-label="下一阶段" disabled={replayFrameIndex >= replay.frames.length - 1} onClick={() => setReplayFrameIndex((index) => Math.min(replay.frames.length - 1, index + 1))} type="button"><ChevronRight aria-hidden="true" /></button>
+                <input aria-label="回放阶段" max={Math.max(0, replay.frames.length - 1)} min={0} onChange={(event) => setReplayFrameIndex(Number(event.target.value))} type="range" value={replayFrameIndex} />
+                <select aria-label="回放速度" onChange={(event) => setReplayRate(Number(event.target.value) as 1 | 4 | 16)} value={replayRate}>
+                  <option value={1}>1x</option><option value={4}>4x</option><option value={16}>16x</option>
+                </select>
+                <button onClick={() => { setReplay(undefined); setReplayPlaying(false); returnToLatest(); }} type="button">退出回放</button>
+              </div>
+            )}
             {activeView === "calls" ? (
               <>
                 {loadingInvocation && <p className="cg-inspector-stage__status" role="status">正在读取这次模型调用的完整记录…</p>}
@@ -861,9 +943,16 @@ export default function WorldInspectorDialog({
             ) : activeView === "graph" ? (
               <>
                 <InspectorCollectionHeader actorName={selectedActor?.name ?? "整个世界"} data={data} view="graph" />
+                <div className="cg-inspector-graph-mode" aria-label="图谱层级">
+                  <button aria-pressed={graphMode === "semantic"} onClick={() => setGraphMode("semantic")} type="button">语义主链</button>
+                  <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据图（{data.nodes.length} 节点）</button>
+                </div>
                 <WorldInspectorGraph
                   actors={data.actors}
                   edges={data.edges}
+                  mode={graphMode}
+                  semanticEdges={data.semanticEdges ?? []}
+                  semanticNodes={data.semanticNodes ?? []}
                   followLatest={followLatest}
                   isolateActor={isolateActor}
                   nodes={data.nodes}
@@ -883,6 +972,7 @@ export default function WorldInspectorDialog({
                   hasOlder={data.pagination.hasOlder}
                   loadingOlder={loadingOlder}
                   onLoadOlder={() => void loadOlder()}
+                  onReplay={(attempt) => void openReplay(attempt)}
                   onSelectAttempt={(attempt) => { setFollowLatest(false); void selectAttempt(attempt); }}
                   onSelectStep={(step) => { setFollowLatest(false); void selectStep(step); }}
                   query={query}

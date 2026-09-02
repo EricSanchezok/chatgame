@@ -11,8 +11,19 @@ import {
 } from "../_lib/browser-state";
 import { normalizeThemePreference, themePreferences } from "../_lib/theme-preference";
 import { ModelRegistrySettings } from "./model-registry-settings";
+import { worldApi } from "../lib/world-api-client";
 
-export function SettingsPanel() {
+export function SettingsPanel({
+  debugSteppingEnabled,
+  instanceId,
+  revision,
+  onUpdated,
+}: {
+  debugSteppingEnabled?: boolean;
+  instanceId?: string;
+  revision?: number;
+  onUpdated?: (detail: Awaited<ReturnType<typeof worldApi.setDebugMode>>) => void;
+}) {
   const { setTheme, theme } = useTheme();
   const themeReady = useSyncExternalStore(() => () => undefined, () => true, () => false);
   const serialized = useSyncExternalStore(
@@ -116,6 +127,29 @@ export function SettingsPanel() {
             </button>
           </div>
         </div>
+        {instanceId && revision !== undefined && debugSteppingEnabled !== undefined ? (
+          <div className="cg-setting-row">
+            <span>
+              <strong>启用世界单步调试</strong>
+              <small>新推演会在每个逻辑阶段暂停；仅对下一次世界运行生效。</small>
+            </span>
+            <div className="cg-setting-row__control">
+              <button
+                aria-checked={debugSteppingEnabled}
+                aria-label="启用世界单步调试"
+                className="cg-switch"
+                onClick={() => void worldApi.setDebugMode(instanceId, {
+                  enabled: !debugSteppingEnabled,
+                  expectedRevision: revision,
+                }).then(onUpdated)}
+                role="switch"
+                type="button"
+              >
+                <span aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );

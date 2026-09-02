@@ -26,6 +26,7 @@ import {
   type RuntimeEventInput,
   type RuntimeObserver,
 } from "./observability";
+import { executionStage, type ExecutionStageHooks, type ExecutionStagePosition } from "./stages";
 import { validateModelAudit, validateSimulationState } from "./transaction";
 import type { WorldDefinition } from "./world-definition";
 import { validateWorldDefinition } from "./world-definition";
@@ -164,6 +165,64 @@ class AlgorithmRuntimeObserver implements RuntimeObserver {
   }
 }
 
+class TracedExecutionStageHooks implements ExecutionStageHooks {
+  readonly enabled: boolean;
+  current?: ExecutionStagePosition;
+
+  constructor(
+    private readonly delegate: ExecutionStageHooks,
+    private readonly trace: ScopedTraceWriter,
+    private readonly modelScope: ModelExecutionScope,
+  ) {
+    this.enabled = delegate.enabled;
+  }
+
+  private correlation(stage: ExecutionStagePosition) {
+    return {
+      ...this.modelScope.correlation,
+      logicalStageIndex: stage.index,
+      logicalStageKey: stage.key,
+    };
+  }
+
+  async before(stage: ExecutionStagePosition): Promise<void> {
+    this.current = stage;
+    this.modelScope.logicalStage = structuredClone(stage);
+    this.trace.emit({
+      event: "debug.stage.started",
+      correlation: this.correlation(stage),
+      attributes: { stageIndex: stage.index, stageKey: stage.key, label: stage.label },
+    });
+    await this.delegate.before(stage);
+  }
+
+  async after(stage: ExecutionStagePosition): Promise<void> {
+    this.current = stage;
+    this.modelScope.logicalStage = structuredClone(stage);
+    this.trace.emit({
+      event: "debug.stage.completed",
+      correlation: this.correlation(stage),
+      attributes: { stageIndex: stage.index, stageKey: stage.key, label: stage.label },
+    });
+    await this.delegate.after(stage);
+    this.trace.flush();
+  }
+
+  failed(stage: ExecutionStagePosition, error: ReturnType<typeof serializeRuntimeError>): void {
+    this.current = stage;
+    this.modelScope.logicalStage = structuredClone(stage);
+    this.trace.emit({
+      event: "debug.stage.failed",
+      level: "error",
+      correlation: this.correlation(stage),
+      attributes: { stageIndex: stage.index, stageKey: stage.key, label: stage.label },
+      error,
+    });
+    this.delegate.failed(stage, error);
+    this.trace.flush();
+  }
+}
+
 function createExecutionContext(scope: ModelExecutionScope, source: SimulationState): {
   context: ExecutionContext;
   trace: ScopedTraceWriter;
@@ -180,12 +239,16 @@ function createExecutionContext(scope: ModelExecutionScope, source: SimulationSt
     observer: algorithmObserver,
     runtimeIdentity: { worldHash: source.worldHash, revision: source.revision },
   };
+  const stages = scope.stageHooks
+    ? new TracedExecutionStageHooks(scope.stageHooks, trace, modelScope)
+    : undefined;
   return {
     trace,
     work,
     context: {
       modelScope,
       instrumentation: { emit: (input) => algorithmObserver.emit(input) },
+      stages,
     },
   };
 }
@@ -513,6 +576,11 @@ export class SimulationEngine {
       },
     });
     try {
+      if (!prepared) {
+        const stage = executionStage("input-roster");
+        await context.stages?.before(stage);
+        await context.stages?.after(stage);
+      }
       const stepInput = {
         definition: structuredClone(this.definition),
         state: structuredClone(source),
@@ -555,12 +623,15 @@ export class SimulationEngine {
       trace.flush();
       const validationStartedAt = performance.now();
       trace.emit({ event: "canonical.validation.started", attributes: { phase: "step" } });
+      const validationStage = executionStage("canonical-validation");
+      await context.stages?.before(validationStage);
       const result = this.committer.step(
         source,
         candidate,
         policyRoster,
         this.definition.runtimeDefaults.maxAutonomousSpanSeconds,
       );
+      if (context.stages) await context.stages.after(validationStage);
       trace.emit({
         event: "canonical.validation.completed",
         attributes: {
@@ -593,6 +664,8 @@ export class SimulationEngine {
         decisionRequests: structuredClone(result.committed.decisionRequests),
       };
     } catch (error) {
+      const currentStage = context.stages?.current;
+      if (currentStage && context.stages) context.stages.failed(currentStage, serializeRuntimeError(error));
       trace.emit({
         event: "step.rolled_back",
         level: "error",
@@ -651,6 +724,9 @@ export class SimulationEngine {
       hashes: { state: contentHash(source), algorithmManifest: this.algorithm.manifest.hash },
       payload: stepInput,
     });
+    const stage = executionStage("input-roster");
+    await context.stages?.before(stage);
+    await context.stages?.after(stage);
     const preparation = await this.algorithm.prepareStep(stepInput, context);
     validateCandidateModelAudits(preparation.modelAudits, source);
     trace.emit({

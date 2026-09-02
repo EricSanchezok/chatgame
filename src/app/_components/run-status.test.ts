@@ -16,6 +16,16 @@ function run(overrides: Partial<PublicWorldRun> = {}): PublicWorldRun {
       startedAt: "2026-08-29T08:00:00.000Z",
     },
     activity: null,
+    debug: {
+      mode: "off",
+      boundaryIndex: 0,
+      stageIndex: 0,
+      stageCount: 10,
+      stageKey: null,
+      stageLabel: null,
+      checkpointId: null,
+      canAdvance: false,
+    },
     ...overrides,
   };
 }

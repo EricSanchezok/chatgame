@@ -40,6 +40,7 @@ import type {
   SharedActivityResourceClaimDraft,
 } from "../mechanics/shared-activity-resources";
 import type { SharedResourceAdmission } from "../mechanics/shared-resource-allocation";
+import type { ExecutionStageHooks } from "./stages";
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
@@ -284,6 +285,7 @@ export interface ExecutionTraceWriter extends RuntimeObserver {
 export interface ExecutionContext {
   modelScope: ModelExecutionScope;
   instrumentation: AlgorithmInstrumentation;
+  stages?: ExecutionStageHooks;
 }
 
 export interface BootstrapInput {

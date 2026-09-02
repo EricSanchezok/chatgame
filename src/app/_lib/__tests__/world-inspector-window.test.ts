@@ -9,7 +9,7 @@ function inspectorWindow(
   const oldestRevision = revisions[0];
   const newestRevision = revisions.at(-1);
   return {
-    apiVersion: 8,
+    apiVersion: 9,
     instance: {
       id: "instance-1",
       title: "存档",
@@ -58,6 +58,8 @@ function inspectorWindow(
       target: `commit:${revision}`,
       kind: "temporal",
     })),
+    semanticNodes: [],
+    semanticEdges: [],
     attempts: [],
     trace: { mode: "full", degraded: false, retainedEventCount: 0, hasFullPayload: true },
     pagination: {

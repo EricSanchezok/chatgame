@@ -48,7 +48,7 @@ export function WorldInspectorInvocationList({
   hasMore?: boolean;
   loadingMore?: boolean;
 }) {
-  const [sort, setSort] = useState<"timestamp" | "duration" | "inputTokens" | "outputTokens" | "retries">("timestamp");
+  const [sort, setSort] = useState<"stage" | "timestamp" | "duration" | "inputTokens" | "outputTokens" | "retries">("stage");
   const [minInputTokens, setMinInputTokens] = useState("");
   const [minRetries, setMinRetries] = useState("");
   const normalized = query.trim().toLocaleLowerCase();
@@ -64,13 +64,15 @@ export function WorldInspectorInvocationList({
       ...Object.values(invocation.artifactHashes), slots]
       .filter(Boolean).join(" ").toLocaleLowerCase().includes(normalized);
   }).sort((left, right) => {
-    const value = (invocation: WorldInspectorModelInvocationSummary): number => sort === "duration"
+    const value = (invocation: WorldInspectorModelInvocationSummary): number => sort === "stage"
+      ? (invocation.logicalStageIndex ?? Number.MAX_SAFE_INTEGER) * 1_000_000 + (invocation.logicalInvocationOrdinal ?? invocation.ordinal)
+      : sort === "duration"
       ? invocation.timings.invocationMs ?? -1
       : sort === "inputTokens" ? invocation.tokenUsage.input ?? -1
       : sort === "outputTokens" ? invocation.tokenUsage.output ?? -1
       : sort === "retries" ? invocation.retryCount
       : invocation.startedAt ? Date.parse(invocation.startedAt) : invocation.ordinal;
-    return value(right) - value(left) || right.ordinal - left.ordinal;
+    return value(left) - value(right) || left.ordinal - right.ordinal;
   });
   const input = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.input ?? 0), 0);
   const output = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.output ?? 0), 0);
@@ -92,6 +94,7 @@ export function WorldInspectorInvocationList({
       <div className="cg-inspector-invocation-list__controls" aria-label="调用排序与筛选">
         <label>排序
           <select onChange={(event) => setSort(event.target.value as typeof sort)} value={sort}>
+            <option value="stage">引擎顺序</option>
             <option value="timestamp">时间</option>
             <option value="duration">调用耗时</option>
             <option value="inputTokens">输入 token</option>
@@ -132,7 +135,7 @@ export function WorldInspectorInvocationList({
                 <span className="cg-inspector-invocation__icon"><Bot aria-hidden="true" /></span>
                 <span className="cg-inspector-invocation__identity">
                   <strong>Invocation {invocation.ordinal || "?"} · {invocation.role ?? "模型调用"}</strong>
-                  <small title={invocation.executionId}>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}{executionHint ? ` · 执行 ${executionHint}` : ""}</small>
+                  <small title={invocation.executionId}>阶段 {invocation.logicalStageIndex === undefined ? "?" : invocation.logicalStageIndex + 1} · 逻辑调用 {invocation.logicalInvocationOrdinal ?? invocation.ordinal}/{invocations.filter((candidate) => candidate.logicalStageIndex === invocation.logicalStageIndex).length} · {invocation.logicalStageLabel ?? "未分类阶段"} · {invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}{executionHint ? ` · 执行 ${executionHint}` : ""}</small>
                 </span>
                 <span className="cg-inspector-invocation__status"><Icon aria-hidden="true" />{statusLabel(invocation.status)}</span>
                 <span className="cg-inspector-invocation__slot-line">

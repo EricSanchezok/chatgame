@@ -61,6 +61,7 @@ import { applyObservationBindings, pendingObservationsFor, validateObservations 
 import { ObservationRenderer } from "../../cognition/observation-renderer";
 import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../../mechanics/rule-package";
 import { runtimeId } from "../../runtime/runtime-id";
+import { executionStage } from "../../runtime/stages";
 import { applyTransitionProposal } from "../../runtime/transaction";
 import { TruthEngine, type OnsetPerceptionResult, type TruthResolution } from "../../mechanics/truth-engine";
 import { TruthBatchCoordinator } from "../../mechanics/truth-batch-provider";
@@ -1178,6 +1179,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       .sort();
     const knownActions = collectKnownActions(input, eligibleAgentIds, new Set(resumedAgentIds));
     const actionOverlapStartedAt = performance.now();
+    const actionCompilationStage = executionStage("action-compilation");
+    await context.stages?.before(actionCompilationStage);
     const knownActionCompilation = compileActions(
       this.provider,
       planningState,
@@ -1224,6 +1227,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.config.actionCompilationMaxSlots,
       compilationComponent.config.repairAttempts,
     );
+    await context.stages?.after(actionCompilationStage);
     if (knownActions.length > 0) {
       this.emitSlotBatchMetrics(
         context,
@@ -1267,6 +1271,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       plan: structuredClone(result.plan),
       activity: structuredClone(result.activity),
     }));
+    const groundingStage = executionStage("grounding-resource-admission");
+    await context.stages?.before(groundingStage);
     const newDependencyResults: PreparedInteractionDependency[] = actionCompilations.map((result) => ({
       dependency: structuredClone(result.dependency),
     }));
@@ -1323,6 +1329,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       planningState.truth.activities,
       planningState.truth.mechanics.activityResources,
     );
+    await context.stages?.after(groundingStage);
     const reactionCandidates = collectOnsetReactionCandidates({
       state: source,
       planningState,
@@ -1334,6 +1341,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       reactionBasis(source, candidate.trigger, candidate.agentId, { requests: [], checks: [] }).length > 0);
     const perceptionReactionCandidates = reactionCandidates.filter((candidate) =>
       reactionBasis(source, candidate.trigger, candidate.agentId, { requests: [], checks: [] }).length === 0);
+    const reactionStage = executionStage("reaction-perception");
+    await context.stages?.before(reactionStage);
     const directReactionRequests = materializeOnsetReactionRequests(
       source,
       directReactionCandidates,
@@ -1417,6 +1426,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       context,
       this.config.reactionMaxSlots,
     );
+    await context.stages?.after(reactionStage);
     context.instrumentation.emit({
       event: "algorithm.eager_reference.overlap_completed",
       durationMs: Math.max(0, performance.now() - reactionOverlapStartedAt),
@@ -1650,6 +1660,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       planningState.truth.activities,
       planningState.truth.mechanics.activityResources,
     );
+    const temporalStage = executionStage("temporal-dependency");
+    await context.stages?.before(temporalStage);
     const temporalBoundary = selectTemporalBoundary({
       elapsedSeconds: source.truth.elapsedSeconds,
       maxAutonomousSpanSeconds: input.definition.runtimeDefaults.maxAutonomousSpanSeconds,
@@ -1675,6 +1687,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
       point,
     ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
+    await context.stages?.after(temporalStage);
     const dueActions = temporalBoundary.dueActivityIds.flatMap((activityId) => {
       const activity = planningState.truth.activities[activityId];
       if (!activity) throw new Error(`temporal boundary references unknown activity ${activityId}`);
@@ -1942,6 +1955,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       resolution.randomResults,
       resolution.proposal,
     );
+    const truthResolutionStage = executionStage("truth-resolution");
+    await context.stages?.before(truthResolutionStage);
     resolution.requests = [
       ...structuredClone(payload.onsetPerception.requests),
       ...resolution.requests,
@@ -1964,6 +1979,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     resolution.reactionDecisions = structuredClone(reactionDecisions);
     resolution.stimulusObservations = payload.reactionRequests.map((request) =>
       structuredClone(request.stimulus));
+    await context.stages?.after(truthResolutionStage);
     temporal = reconcileTemporalOutcomes(temporal, resolution.proposal.outcomes);
     const globalObservationAudits: ModelExecutionAudit[] = [];
     const dynamicLifecycleChange = resolution.proposal.operations.some((operation) =>
@@ -2058,8 +2074,11 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       observations = [...resolution.stimulusObservations, ...resolution.proposal.observations];
       validateObservations(preview, observations, preview.step);
     }
+    const transitionStage = executionStage("transition-causal-verification");
+    await context.stages?.before(transitionStage);
     const candidate = applyTransitionProposal(source, resolution.proposal, temporal);
     candidate.truth.rng = structuredClone(resolution.rng);
+    await context.stages?.after(transitionStage);
     const postBoundaryDecisionAgents = new Set(temporal.decisionPoints.map((point) => point.agentId));
     const busyAfterBoundary = new Set(Object.values(temporal.activities)
       .filter((activity) => activity.status === "active" || activity.status === "paused" ||
@@ -2103,6 +2122,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         } satisfies AgentMindBatchInput,
       };
     });
+    const mindStage = executionStage("observation-agent-mind");
+    await context.stages?.before(mindStage);
     const finalMindBatches = await Promise.all((["bootstrap", "mind"] as const).map(async (purpose) => {
       const work = mindWork.filter((entry) => entry.purpose === purpose);
       const batch = await this.thinkBatchWithFallback(
@@ -2121,6 +2142,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       return output;
     });
     const finalMindAudits = finalMindBatches.flatMap(({ batch }) => batch.modelAudits);
+    await context.stages?.after(mindStage);
     const {
       modelAudits: resolutionModelAudits,
       reactionModelAudits,

@@ -2,7 +2,7 @@ import { modelRoles, type ModelRole } from "../models/model-catalog";
 import type { ActionOutcome, WorldDeltaOperation } from "../contracts/model";
 import type { ActivityTransition, TemporalBoundaryReason } from "../mechanics/temporal";
 
-export const RUNTIME_EVENT_SCHEMA_VERSION = 2 as const;
+export const RUNTIME_EVENT_SCHEMA_VERSION = 3 as const;
 
 export type RuntimeObservabilityMode = "off" | "metrics" | "full";
 export type RuntimeEventLevel = "debug" | "info" | "warn" | "error";
@@ -20,6 +20,8 @@ export interface RuntimeCorrelation {
   modelSubject?: string;
   modelInvocation?: number;
   transportAttempt?: number;
+  logicalStageIndex?: number;
+  logicalStageKey?: string;
 }
 
 export interface RuntimeError {

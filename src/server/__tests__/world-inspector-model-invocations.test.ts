@@ -35,7 +35,7 @@ function runtimeEvents(): RuntimeEvent[] {
   let sequence = 0;
   const at = (milliseconds: number) => new Date(Date.parse("2026-08-30T09:00:00.000Z") + milliseconds).toISOString();
   const event = (milliseconds: number, input: RuntimeEventInput): RuntimeEvent => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
     sequence: ++sequence,
     timestamp: at(milliseconds),
     level: input.level ?? "info",

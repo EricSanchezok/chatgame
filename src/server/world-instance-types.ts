@@ -9,6 +9,7 @@ import type {
 import type { AgentId, SimulationState } from "../engine/contracts/model";
 import type { ReactionRequest } from "../engine/contracts/model";
 import type { WorldRuntimeContract } from "../engine/runtime/world-definition";
+import type { ExecutionStageKey } from "../engine/runtime/stages";
 
 export interface ParticipantRecord {
   id: ParticipantId;
@@ -70,6 +71,7 @@ export interface InstanceRuntimeConfig {
   maxAutonomousSpanSeconds: number;
   realtimeIntervalMs: number;
   actionWindowMs: number;
+  debugSteppingEnabled: boolean;
 }
 
 export interface SchedulerState {
@@ -83,6 +85,7 @@ export type WorldRunStatus =
   | "running"
   | "pausing"
   | "paused"
+  | "debug-paused"
   | "awaiting-decision"
   | "awaiting-reaction"
   | "preparation-invalidated"
@@ -113,6 +116,17 @@ export interface WorldRunRecord {
   committedRevisions: number[];
   stopReason: string | null;
   lease: WorldRunLease | null;
+  debugMode: "off" | "step";
+  debugCheckpoint: {
+    id: string;
+    executionId: string;
+    artifactHash: string;
+    boundaryIndex: number;
+    stageIndex: number;
+    stageKey: ExecutionStageKey;
+    updatedAt: string;
+  } | null;
+  lastDebugRequestId: string | null;
   error?: string;
 }
 
@@ -139,7 +153,7 @@ export interface ParticipantReactionRecord {
 }
 
 export interface WorldInstanceDocument {
-  schemaVersion: 20;
+  schemaVersion: 21;
   id: string;
   world: WorldRuntimeContract;
   executionAlgorithm: AlgorithmRef;

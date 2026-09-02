@@ -34,6 +34,7 @@ export function WorldInspectorTimeline({
   onLoadOlder,
   onSelectAttempt,
   onSelectStep,
+  onReplay,
   query,
   selectedActorId,
   selectedId,
@@ -45,6 +46,7 @@ export function WorldInspectorTimeline({
   onLoadOlder: () => void;
   onSelectAttempt: (attempt: WorldInspectorAttemptSummary) => void;
   onSelectStep: (step: WorldInspectorStepSummary) => void;
+  onReplay: (attempt: WorldInspectorAttemptSummary) => void;
   query: string;
   selectedActorId: string;
   selectedId?: string;
@@ -65,7 +67,7 @@ export function WorldInspectorTimeline({
   });
 
   return (
-    <div className="cg-inspector-timeline" role="feed" aria-label="世界提交时间线">
+    <div className="cg-inspector-timeline" role="feed" aria-label="世界演化流程">
       {visibleAttempts.map((attempt) => {
         const active = attempt.status === "active";
         const Icon = active ? LoaderCircle : attempt.status === "committed" ? Check : AlertTriangle;
@@ -94,6 +96,7 @@ export function WorldInspectorTimeline({
                 <span>{attempt.tokenUsage.unknown ? "部分 token 未知" : `输入 ${attempt.tokenUsage.input} · 输出 ${attempt.tokenUsage.output} tokens`}</span>
               </span>
             </button>
+            <button className="cg-inspector-log__replay" onClick={(event) => { event.stopPropagation(); onReplay(attempt); }} type="button">回放</button>
             {attempt.stages.length > 0 && (
               <details className="cg-inspector-timeline__stages" onClick={(event) => event.stopPropagation()}>
                 <summary>查看 {attempt.stages.length} 个阶段</summary>
@@ -137,7 +140,7 @@ export function WorldInspectorTimeline({
       {visibleSteps.length === 0 && visibleAttempts.length === 0 && (
         <div className="cg-inspector-empty">
           <strong>{steps.length === 0 && attempts.length > 0 && !normalized ? `暂无已提交 Revision；当前有 ${attempts.length} 次未提交尝试` : "没有匹配的推演记录"}</strong>
-          <span>{steps.length === 0 && attempts.length > 0 && !normalized ? "切换到调用清单查看每次逻辑调用、物理尝试和失败输出。" : "清除搜索或切换到“整个世界”。"}</span>
+          <span>{steps.length === 0 && attempts.length > 0 && !normalized ? "失败尝试也会按阶段显示；打开调用清单查看物理证据。" : "清除搜索或切换到“整个世界”。"}</span>
         </div>
       )}
       {hasOlder && (

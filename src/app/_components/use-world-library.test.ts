@@ -63,6 +63,7 @@ describe("world library success notices", () => {
       elapsedSeconds: 0,
       participantCount: 1,
       schedulerMode: "paused",
+      debugSteppingEnabled: false,
     };
     const { result } = renderHook(() => useWorldLibrary());
 

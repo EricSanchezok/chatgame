@@ -1,0 +1,41 @@
+import type { RuntimeError } from "./observability";
+
+export const EXECUTION_STAGES = [
+  { index: 0, key: "input-roster", label: "输入绑定与 Agent roster" },
+  { index: 1, key: "action-compilation", label: "行动编译" },
+  { index: 2, key: "grounding-resource-admission", label: "Grounding 与资源准入" },
+  { index: 3, key: "reaction-perception", label: "反应与感知" },
+  { index: 4, key: "temporal-dependency", label: "时间边界与依赖图" },
+  { index: 5, key: "truth-resolution", label: "Truth 裁决与计划校验" },
+  { index: 6, key: "transition-causal-verification", label: "状态变更与因果校验" },
+  { index: 7, key: "observation-agent-mind", label: "观察与 AgentMind" },
+  { index: 8, key: "canonical-validation", label: "Canonical 校验" },
+  { index: 9, key: "atomic-commit", label: "原子提交" },
+] as const;
+
+export type ExecutionStageKey = typeof EXECUTION_STAGES[number]["key"];
+export type ExecutionStage = typeof EXECUTION_STAGES[number];
+
+export interface ExecutionStagePosition {
+  index: number;
+  key: ExecutionStageKey;
+  label: string;
+}
+
+export interface ExecutionStageHooks {
+  readonly enabled: boolean;
+  readonly current?: ExecutionStagePosition;
+  before(stage: ExecutionStagePosition): Promise<void>;
+  after(stage: ExecutionStagePosition): Promise<void>;
+  failed(stage: ExecutionStagePosition, error: RuntimeError): void;
+}
+
+export function executionStage(key: ExecutionStageKey): ExecutionStagePosition {
+  const stage = EXECUTION_STAGES.find((candidate) => candidate.key === key);
+  if (!stage) throw new Error(`unknown execution stage: ${key}`);
+  return stage;
+}
+
+export function executionStageIndex(key: ExecutionStageKey): number {
+  return executionStage(key).index;
+}

@@ -10,7 +10,7 @@ import type {
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 8 as const;
+export const WORLD_INSPECTOR_API_VERSION = 9 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -132,6 +132,11 @@ export interface WorldInspectorModelInvocationSummary {
   /** Original modelInvocationId from the producer execution, scoped only within that execution. */
   sourceInvocationId: string;
   ordinal: number;
+  logicalStageIndex?: number;
+  logicalStageKey?: string;
+  logicalStageLabel?: string;
+  parallelGroupId?: string;
+  logicalInvocationOrdinal?: number;
   role?: string;
   subjectId?: string;
   providerId?: string;
@@ -236,6 +241,8 @@ export interface WorldInspectorAttemptStage {
   repairCount: number;
   modelRole?: string;
   errorMessage?: string;
+  logicalStageIndex?: number;
+  logicalStageKey?: string;
 }
 
 export interface WorldInspectorAttemptSummary {
@@ -297,11 +304,25 @@ export interface WorldInspectorWindow {
     step: number;
     elapsedSeconds: number;
     updatedAt: string;
+    run?: {
+      id: string;
+      generation: number;
+      status: string;
+      boundaryIndex: number;
+      stageIndex: number;
+      stageCount: number;
+      stageKey: string | null;
+      stageLabel: string | null;
+      checkpointId: string | null;
+      canAdvance: boolean;
+    };
   };
   actors: WorldInspectorActor[];
   steps: WorldInspectorStepSummary[];
   nodes: WorldInspectorNodeSummary[];
   edges: WorldInspectorEdgeSummary[];
+  semanticNodes?: WorldInspectorNodeSummary[];
+  semanticEdges?: WorldInspectorEdgeSummary[];
   attempts: WorldInspectorAttemptSummary[];
   trace: WorldInspectorTraceAvailability;
   pagination: {
@@ -357,7 +378,7 @@ export interface WorldInspectorModelInvocationQuery {
   minInputTokens?: number;
   maxInputTokens?: number;
   minRetries?: number;
-  sort?: "duration" | "inputTokens" | "outputTokens" | "retries" | "timestamp";
+  sort?: "stage" | "duration" | "inputTokens" | "outputTokens" | "retries" | "timestamp";
   cursor?: string;
   limit?: number;
 }
@@ -365,6 +386,8 @@ export interface WorldInspectorModelInvocationQuery {
 export interface WorldInspectorModelInvocationResult extends WorldInspectorModelInvocationSummary {
   executionId: string;
   attemptId: string;
+  boundaryIndex: number;
+  ledgerSequence: number;
   revision?: number;
   step?: number;
   startedAt?: string;
@@ -380,6 +403,28 @@ export interface WorldInspectorModelInvocationQueryResult {
 
 export interface WorldInspectorModelInvocationDetail extends WorldInspectorModelInvocationResult {
   eventSummaries: WorldInspectorRuntimeEventSummary[];
+}
+
+export interface WorldInspectorReplayFrame {
+  index: number;
+  boundaryIndex: number;
+  stageIndex: number;
+  stageKey: string;
+  stageLabel: string;
+  status: "pending" | "active" | "succeeded" | "failed";
+  eventIds: string[];
+  invocationIds: string[];
+  nodeIds: string[];
+  artifactHashes: string[];
+  derived: boolean;
+}
+
+export interface WorldInspectorReplay {
+  apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
+  executionId: string;
+  source: "checkpoint" | "derived";
+  checkpointId?: string;
+  frames: WorldInspectorReplayFrame[];
 }
 
 export type WorldInspectorStreamEvent =

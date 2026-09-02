@@ -221,7 +221,7 @@ describe("World Instance host", () => {
         response: { possibleNextActions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(20);
+      expect(stored.schemaVersion).toBe(21);
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
         version: "10",
@@ -826,7 +826,7 @@ describe("World Instance host", () => {
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
       (legacy as unknown as { schemaVersion: number }).schemaVersion = 17;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v20 required");
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v21 required");
 
       const invalidPolicy = structuredClone(source);
       (invalidPolicy.policyBindings.player as { kind: string }).kind = "unknown";
