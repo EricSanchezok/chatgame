@@ -1,5 +1,8 @@
 import { createServer } from "node:http";
-import { deterministicModelOutput } from "../../src/engine/testing/model-provider";
+import {
+  deterministicActionCompilationBatch,
+  deterministicModelOutput,
+} from "../../src/engine/testing/model-provider";
 
 const port = Number(process.env.LIVINGWORLD_E2E_MODEL_PORT ?? 32128);
 
@@ -56,7 +59,25 @@ function agentOutput(context: Record<string, unknown>) {
   return output;
 }
 
-function truthOutput(context: Record<string, unknown>) {
+function truthOutput(context: Record<string, unknown>): unknown {
+  const batch = context as {
+    sharedContext?: Record<string, unknown>;
+    slots?: Array<{ slot: number; context: Record<string, unknown> }>;
+  };
+  if (batch.sharedContext && Array.isArray(batch.slots) && batch.slots.every((slot) =>
+    slot && typeof slot === "object" && typeof slot.slot === "number" &&
+    slot.context && typeof slot.context === "object" && !Array.isArray(slot.context))) {
+    return {
+      slots: batch.slots.map((slot) => ({
+        slot: slot.slot,
+        result: truthOutput({ ...batch.sharedContext, ...slot.context }),
+      })),
+    };
+  }
+  if (Array.isArray(context.slots) && context.slots.every((slot) =>
+    slot && typeof slot === "object" && "action" in slot)) {
+    return deterministicActionCompilationBatch("e2e-truth", context);
+  }
   // Keep the HTTP fixture on the same contract as the in-process deterministic
   // provider. The production request envelope stores stage/task/state data in
   // nested sections; duplicating that branching here made the fixture drift
@@ -100,7 +121,6 @@ function truthOutput(context: Record<string, unknown>) {
     return restoreSummary(output);
   }
   return output;
-
 }
 
 const server = createServer(async (request, response) => {

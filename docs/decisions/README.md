@@ -130,3 +130,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0089 — World Inspector Staged Debugging and Replay](0089-world-inspector-staged-debug-and-replay.md)
 - [0090 — Model Reliability Optimization and Local Transparency](0090-model-reliability-optimization-and-local-transparency.md)
 - [0091 — AgentMind Slot Context and Bounded JSON Recovery](0091-agentmind-slot-context-and-bounded-json-recovery.md)
+- [0092 — Agent-Native Debug Query Projections](0092-agent-native-debug-query-projections.md)

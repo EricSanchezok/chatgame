@@ -161,6 +161,28 @@ test("world detail keeps historical saves in a scrollable middle panel", async (
   expect(mobileDeleteBox).not.toBeNull();
   expect(mobileHistoryBox!.x + mobileHistoryBox!.width).toBeLessThanOrEqual(320);
   expect(mobileDeleteBox!.x + mobileDeleteBox!.width).toBeLessThanOrEqual(320);
+
+  let deleteRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "DELETE" && request.url().includes("/api/instances/")) deleteRequests += 1;
+  });
+  await firstRow.locator(".cg-instance-delete").click();
+  const deleteDialog = page.getByRole("dialog", { name: "删除存档" });
+  await expect(deleteDialog).toBeVisible();
+  await expect(deleteDialog.getByText(/确定要删除/)).toBeVisible();
+  expect(deleteRequests).toBe(0);
+  await page.keyboard.press("Escape");
+  await expect(deleteDialog).toBeHidden();
+  expect(deleteRequests).toBe(0);
+  await expect(firstRow.locator(".cg-instance-delete")).toBeFocused();
+
+  await firstRow.locator(".cg-instance-delete").click();
+  const deleteResponse = page.waitForResponse((response) => response.request().method() === "DELETE" && response.url().includes("/api/instances/"));
+  await page.getByRole("dialog", { name: "删除存档" }).getByRole("button", { name: "删除存档", exact: true }).click();
+  await expect((await deleteResponse).ok()).toBe(true);
+  await expect(deleteDialog).toBeHidden();
+  expect(deleteRequests).toBe(1);
+  await expect(history.locator("li")).toHaveCount(initialCount + 6);
 });
 
 test("a world starts in observer mode without replacing the conversation core", async ({ page }) => {

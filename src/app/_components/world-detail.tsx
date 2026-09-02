@@ -108,7 +108,9 @@ export function WorldDetail({
   onDeleteWorld: (world: WorldSummary) => Promise<void>;
   world: WorldSummary;
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmWorldDelete, setConfirmWorldDelete] = useState(false);
+  const [instanceToDelete, setInstanceToDelete] = useState<PublicInstanceSummary>();
+  const [deleteError, setDeleteError] = useState("");
   const [startOpen, setStartOpen] = useState(false);
   const [options, setOptions] = useState<WorldStartOptions>();
   const [startStage, setStartStage] = useState<WorldStartStage>({ kind: "choice" });
@@ -123,6 +125,9 @@ export function WorldDetail({
   const displayNameRef = useRef<HTMLInputElement>(null);
   const startDialogRef = useRef<HTMLElement>(null);
   const startTriggerRef = useRef<HTMLButtonElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const savesViewportRef = useRef<HTMLDivElement>(null);
+  const savesHeadingRef = useRef<HTMLHeadingElement>(null);
   const serializedPreferences = useSyncExternalStore(
     subscribePreferences,
     preferencesSnapshot,
@@ -221,6 +226,23 @@ export function WorldDetail({
     setStartStage({ kind: "customize" });
   }
 
+  function requestDeleteInstance(instance: PublicInstanceSummary, trigger: HTMLButtonElement): void {
+    deleteTriggerRef.current = trigger;
+    setDeleteError("");
+    setInstanceToDelete(instance);
+  }
+
+  async function confirmDeleteInstance(): Promise<void> {
+    if (!instanceToDelete || busy === `instance-delete:${instanceToDelete.id}`) return;
+    setDeleteError("");
+    try {
+      await onDeleteInstance(instanceToDelete);
+      setInstanceToDelete(undefined);
+    } catch {
+      setDeleteError("存档删除失败，请稍后重试。");
+    }
+  }
+
   return (
     <section className="cg-world-detail" aria-labelledby="world-detail-title">
       <header className="cg-world-detail__intro">
@@ -241,12 +263,13 @@ export function WorldDetail({
       </header>
       <section className="cg-world-saves" aria-labelledby="world-instances-title">
         <div className="cg-world-saves__heading">
-          <h2 id="world-instances-title">历史存档</h2>
+          <h2 id="world-instances-title" ref={savesHeadingRef} tabIndex={-1}>历史存档</h2>
           <p><strong>{instances.length}</strong> 个存档</p>
         </div>
         <div
           aria-label="历史存档列表"
           className="cg-world-saves__viewport"
+          ref={savesViewportRef}
           role="region"
           tabIndex={instances.length > 0 ? 0 : undefined}
         >
@@ -267,7 +290,7 @@ export function WorldDetail({
                     aria-label={`删除实例“${instance.title}”`}
                     className="cg-instance-delete"
                     disabled={busy === `instance-delete:${instance.id}`}
-                    onClick={() => void onDeleteInstance(instance)}
+                    onClick={(event) => requestDeleteInstance(instance, event.currentTarget)}
                     type="button"
                   >
                     <Trash2 aria-hidden="true" />
@@ -285,7 +308,7 @@ export function WorldDetail({
           <button
             className="cg-button--quiet cg-button--danger cg-world-package__delete"
             disabled={instances.length > 0}
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => setConfirmWorldDelete(true)}
             type="button"
           >
             <Trash2 aria-hidden="true" />卸载
@@ -295,11 +318,11 @@ export function WorldDetail({
           <div><dt>版本</dt><dd>{world.version}</dd></div>
           <div><dt>内容标识</dt><dd>{world.contentHash}</dd></div>
         </dl>
-        {confirmDelete ? (
+        {confirmWorldDelete ? (
           <div className="cg-inline-confirm" role="group" aria-label="确认卸载世界包">
             <p>卸载“{world.name}”？</p>
             <button onClick={() => void onDeleteWorld(world)} type="button">确认卸载</button>
-            <button className="cg-button--quiet" onClick={() => setConfirmDelete(false)} type="button">取消</button>
+            <button className="cg-button--quiet" onClick={() => setConfirmWorldDelete(false)} type="button">取消</button>
           </div>
         ) : null}
       </footer>
@@ -479,6 +502,67 @@ export function WorldDetail({
           </Dialog.Root>
         </MotionConfig>
       </LazyMotion>
+
+      <Dialog.Root
+        onOpenChange={(open) => {
+          if (open) return;
+          if (instanceToDelete && busy === `instance-delete:${instanceToDelete.id}`) return;
+          setDeleteError("");
+          setInstanceToDelete(undefined);
+        }}
+        open={Boolean(instanceToDelete)}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="cg-modal-overlay" />
+          <Dialog.Content
+            aria-describedby="cg-delete-instance-description"
+            aria-busy={Boolean(instanceToDelete && busy === `instance-delete:${instanceToDelete.id}`) || undefined}
+            className="cg-delete-dialog cg-modal-surface"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              window.setTimeout(() => {
+                if (deleteTriggerRef.current?.isConnected) deleteTriggerRef.current.focus();
+                else if (savesViewportRef.current?.tabIndex === 0) savesViewportRef.current.focus();
+                else savesHeadingRef.current?.focus();
+              }, 0);
+            }}
+            onEscapeKeyDown={(event) => {
+              if (instanceToDelete && busy === `instance-delete:${instanceToDelete.id}`) event.preventDefault();
+            }}
+            onInteractOutside={(event) => {
+              if (instanceToDelete && busy === `instance-delete:${instanceToDelete.id}`) event.preventDefault();
+            }}
+          >
+            <header className="cg-delete-dialog__header">
+              <p className="cg-eyebrow">永久删除</p>
+              <Dialog.Title>删除存档</Dialog.Title>
+              <Dialog.Description id="cg-delete-instance-description">
+                确定要删除“{instanceToDelete?.title}”吗？删除后无法恢复。
+              </Dialog.Description>
+            </header>
+            {deleteError ? <p className="cg-alert cg-delete-dialog__error" role="alert">{deleteError}</p> : null}
+            <footer className="cg-delete-dialog__actions">
+              <Dialog.Close asChild>
+                <button className="cg-button--quiet" disabled={Boolean(instanceToDelete && busy === `instance-delete:${instanceToDelete.id}`)} type="button">
+                  取消
+                </button>
+              </Dialog.Close>
+              <button
+                aria-busy={Boolean(instanceToDelete && busy === `instance-delete:${instanceToDelete.id}`) || undefined}
+                className="cg-delete-dialog__confirm"
+                disabled={Boolean(instanceToDelete && busy === `instance-delete:${instanceToDelete.id}`)}
+                onClick={() => void confirmDeleteInstance()}
+                type="button"
+              >
+                删除存档
+              </button>
+            </footer>
+            <Dialog.Close aria-label="关闭删除存档确认" className="cg-modal-close">
+              <X aria-hidden="true" />
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </section>
   );
 }
