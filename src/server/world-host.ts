@@ -1409,6 +1409,9 @@ export class WorldHost {
     input: DebugModeInput,
     principalId = "local",
   ): Promise<PublicInstanceDetail> {
+    if (input.enabled && !this.options.ledger) {
+      throw new WorldHostError("single-step debugging requires an execution ledger", 503);
+    }
     const document = await this.serialized(instanceId, async () => {
       const stored = this.read(instanceId);
       if (input.expectedRevision !== stored.document.state.revision) {
