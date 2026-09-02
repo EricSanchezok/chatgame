@@ -224,7 +224,7 @@ describe("world inspector model invocation projection", () => {
   it("projects trusted Action Compilation candidate resolution evidence", () => {
     const events = runtimeEvents();
     events.push({
-      schemaVersion: 2,
+      schemaVersion: 3,
       sequence: 99,
       timestamp: "2026-08-30T09:00:03.400Z",
       level: "info",
