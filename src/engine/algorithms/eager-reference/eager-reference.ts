@@ -1687,7 +1687,6 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       `${point.agentId}:${point.reason}:${point.activityId ?? ""}:${point.timerId ?? ""}`,
       point,
     ])).values()].sort((left, right) => left.agentId.localeCompare(right.agentId));
-    await context.stages?.after(temporalStage);
     const dueActions = temporalBoundary.dueActivityIds.flatMap((activityId) => {
       const activity = planningState.truth.activities[activityId];
       if (!activity) throw new Error(`temporal boundary references unknown activity ${activityId}`);
@@ -1816,6 +1815,9 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     const orderedComponents = adjudicatedComponents
       .map((component) => [...component].sort())
       .sort((left, right) => left[0]!.localeCompare(right[0]!));
+    await context.stages?.after(temporalStage);
+    const truthResolutionStage = executionStage("truth-resolution");
+    await context.stages?.before(truthResolutionStage);
     if (orderedComponents.length > 1) {
       const speculativeRng = structuredClone(rng);
       const speculativeResults = await settledValues(
@@ -1955,8 +1957,6 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       resolution.randomResults,
       resolution.proposal,
     );
-    const truthResolutionStage = executionStage("truth-resolution");
-    await context.stages?.before(truthResolutionStage);
     resolution.requests = [
       ...structuredClone(payload.onsetPerception.requests),
       ...resolution.requests,
@@ -1980,6 +1980,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     resolution.stimulusObservations = payload.reactionRequests.map((request) =>
       structuredClone(request.stimulus));
     await context.stages?.after(truthResolutionStage);
+    const transitionStage = executionStage("transition-causal-verification");
+    await context.stages?.before(transitionStage);
     temporal = reconcileTemporalOutcomes(temporal, resolution.proposal.outcomes);
     const globalObservationAudits: ModelExecutionAudit[] = [];
     const dynamicLifecycleChange = resolution.proposal.operations.some((operation) =>
@@ -2074,8 +2076,6 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       observations = [...resolution.stimulusObservations, ...resolution.proposal.observations];
       validateObservations(preview, observations, preview.step);
     }
-    const transitionStage = executionStage("transition-causal-verification");
-    await context.stages?.before(transitionStage);
     const candidate = applyTransitionProposal(source, resolution.proposal, temporal);
     candidate.truth.rng = structuredClone(resolution.rng);
     await context.stages?.after(transitionStage);

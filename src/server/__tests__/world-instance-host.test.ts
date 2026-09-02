@@ -206,6 +206,80 @@ describe("World Instance host", () => {
     }
   }, 30_000);
 
+  it("pauses a debug run between logical stages without committing early", async () => {
+    const { database, host, provider } = harness();
+    try {
+      const created = await host.createInstance(observerStart);
+      const bootstrapRequestCount = provider.requests.length;
+      const configured = await host.setDebugMode(created.summary.id, {
+        enabled: true,
+        expectedRevision: created.summary.revision,
+      });
+      expect(configured.summary.debugSteppingEnabled).toBe(true);
+      const started = await host.advance(configured.summary.id, {
+        expectedRevision: configured.summary.revision,
+        trigger: "manual",
+        steps: 1,
+      });
+      const paused = started.run?.status === "debug-paused"
+        ? started
+        : await waitForRunStatus(host, created.summary.id, "debug-paused");
+      expect(paused.run?.debug).toMatchObject({ stageIndex: 0, stageCount: 10, canAdvance: true });
+      expect(paused.summary.revision).toBe(0);
+      expect(provider.requests).toHaveLength(bootstrapRequestCount);
+      const next = await host.advanceDebugStep(created.summary.id, {
+        runId: paused.run!.id,
+        generation: paused.run!.generation,
+        checkpointId: paused.run!.debug.checkpointId!,
+        requestId: "debug-next-1",
+      });
+      const stageTwo = next.run?.status === "debug-paused"
+        ? next
+        : await waitForRunStatus(host, created.summary.id, "debug-paused");
+      expect(stageTwo.run?.debug.stageIndex).toBe(1);
+      expect(stageTwo.summary.revision).toBe(0);
+      expect(provider.requests.length).toBeGreaterThan(0);
+      expect(host.inspectorModelInvocations(created.summary.id, { sort: "stage" }).items)
+        .toContainEqual(expect.objectContaining({ logicalStageIndex: 1 }));
+
+      let cursor = stageTwo;
+      for (let stageIndex = 2; stageIndex < 10; stageIndex += 1) {
+        const stepped = await host.advanceDebugStep(created.summary.id, {
+          runId: cursor.run!.id,
+          generation: cursor.run!.generation,
+          checkpointId: cursor.run!.debug.checkpointId!,
+          requestId: `debug-next-${stageIndex}`,
+        });
+        cursor = stepped.run?.status === "debug-paused"
+          ? stepped
+          : await waitForRunStatus(host, created.summary.id, "debug-paused");
+        expect(cursor.run?.debug.stageIndex).toBe(stageIndex);
+        expect(cursor.summary.revision).toBe(0);
+      }
+
+      const committed = await host.advanceDebugStep(created.summary.id, {
+        runId: cursor.run!.id,
+        generation: cursor.run!.generation,
+        checkpointId: cursor.run!.debug.checkpointId!,
+        requestId: "debug-next-commit",
+      });
+      expect(committed.summary.revision).toBe(0);
+      const completed = await waitForRevision(host, created.summary.id, 1);
+      expect(completed.summary.revision).toBe(1);
+      const persisted = database.readInstance(created.summary.id).document;
+      const executionId = persisted.runs[completed.run!.id]!.executionIds.at(-1)!;
+      const requestCountBeforeReplay = provider.requests.length;
+      const stateHashBeforeReplay = contentHash(persisted.state);
+      const replay = host.inspectorReplay(created.summary.id, executionId);
+      expect(replay).toMatchObject({ source: "checkpoint", executionId });
+      expect(replay.frames).toHaveLength(10);
+      expect(provider.requests).toHaveLength(requestCountBeforeReplay);
+      expect(contentHash(database.readInstance(created.summary.id).document.state)).toBe(stateHashBeforeReplay);
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
   it("creates Origin admission and Arrival with the instance and no orphan shell", async () => {
     const { database, host, provider } = harness();
     try {

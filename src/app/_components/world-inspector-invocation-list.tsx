@@ -118,6 +118,9 @@ export function WorldInspectorInvocationList({
         {visible.map((invocation) => {
           const Icon = statusIcon(invocation.status);
           const executionHint = worldInspectorInvocationExecutionHint(invocation);
+          const stageInvocationCount = invocations.filter((candidate) =>
+            candidate.executionId === invocation.executionId &&
+            candidate.logicalStageIndex === invocation.logicalStageIndex).length;
           return (
             <article
               className="cg-inspector-invocation"
@@ -135,7 +138,7 @@ export function WorldInspectorInvocationList({
                 <span className="cg-inspector-invocation__icon"><Bot aria-hidden="true" /></span>
                 <span className="cg-inspector-invocation__identity">
                   <strong>Invocation {invocation.ordinal || "?"} · {invocation.role ?? "模型调用"}</strong>
-                  <small title={invocation.executionId}>阶段 {invocation.logicalStageIndex === undefined ? "?" : invocation.logicalStageIndex + 1} · 逻辑调用 {invocation.logicalInvocationOrdinal ?? invocation.ordinal}/{invocations.filter((candidate) => candidate.logicalStageIndex === invocation.logicalStageIndex).length} · {invocation.logicalStageLabel ?? "未分类阶段"} · {invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}{executionHint ? ` · 执行 ${executionHint}` : ""}</small>
+                  <small title={invocation.executionId}>阶段 {invocation.logicalStageIndex === undefined ? "?" : invocation.logicalStageIndex + 1} · 逻辑调用 {invocation.logicalInvocationOrdinal ?? invocation.ordinal}/{stageInvocationCount} · {invocation.logicalStageLabel ?? "未分类阶段"} · {stageInvocationCount > 1 ? `${stageInvocationCount} 个并行调用，不代表因果先后` : "单个逻辑调用"} · {invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}{executionHint ? ` · 执行 ${executionHint}` : ""}</small>
                 </span>
                 <span className="cg-inspector-invocation__status"><Icon aria-hidden="true" />{statusLabel(invocation.status)}</span>
                 <span className="cg-inspector-invocation__slot-line">

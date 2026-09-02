@@ -58,6 +58,22 @@ describe("run status presentation", () => {
     expect(runBoundaryLabel(run())).toBe("本轮推进 0 / 100 个世界边界");
   });
 
+  it("shows the current logical stage while single-step debugging is paused", () => {
+    expect(runStatusPresentation(run({
+      status: "debug-paused",
+      debug: {
+        mode: "step",
+        boundaryIndex: 0,
+        stageIndex: 3,
+        stageCount: 10,
+        stageKey: "reaction-perception",
+        stageLabel: "反应与感知",
+        checkpointId: "checkpoint-1",
+        canAdvance: true,
+      },
+    }))).toEqual({ title: "阶段 4 / 10 · 反应与感知", detail: "等待你的下一步" });
+  });
+
   it("formats elapsed wall time for the waiting state", () => {
     expect(formatRunElapsed("2026-08-29T08:00:00.000Z", Date.parse("2026-08-29T08:01:12.000Z"))).toBe("1 分 12 秒");
   });

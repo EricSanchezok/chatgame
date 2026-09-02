@@ -189,6 +189,13 @@ class DebugStageGate implements ExecutionStageHooks {
 
   async before(stage: ExecutionStagePosition): Promise<void> {
     this.currentStageValue = stage;
+    // Atomic commit has no engine work inside SimulationEngine. Pause before the
+    // persistence boundary so the final logical step still requires an explicit
+    // debug permit, while earlier stages pause after their work in `after`.
+    if (stage.index >= 9) {
+      await this.onPause(stage);
+      await this.waitForPermit();
+    }
   }
 
   async after(stage: ExecutionStagePosition): Promise<void> {
@@ -743,17 +750,31 @@ export class WorldHost {
     const stored = this.read(instanceId);
     const run = stored.document.runs[runId];
     if (!run || run.debugMode !== "step") throw new WorldHostError("debug run changed", 409);
+    const priorArtifactRefs = stored.document.actionWindow?.kind === "reaction"
+      ? [stored.document.actionWindow.preparationArtifactHash]
+      : [];
+    const executionEvents = this.options.ledger.executionEvents(executionId);
     const checkpoint = {
       schemaVersion: 1,
       id: checkpointId,
       executionId,
       runId,
+      generation: run.generation,
       sourceRevision: stored.document.state.revision,
       sourceStateHash: contentHash(stored.document.state),
       boundaryIndex: run.committedRevisions.length,
       stageIndex: stage.index,
       stageKey: stage.key,
-      continuation: { kind: "in-process-stage-gate" as const },
+      eventRange: {
+        fromSequence: executionEvents[0]?.sequence ?? null,
+        toSequence: executionEvents.at(-1)?.sequence ?? null,
+      },
+      priorArtifactRefs,
+      continuation: {
+        schemaVersion: 1,
+        kind: "in-process-stage-gate" as const,
+        nextStageIndex: Math.min(stage.index + 1, 9),
+      },
       createdAt: this.now().toISOString(),
     };
     const artifactHash = this.options.ledger.putExecutionArtifact(executionId, "world-debug-checkpoint", checkpoint);
@@ -1247,7 +1268,6 @@ export class WorldHost {
         "budget-paused",
         "awaiting-decision",
         "awaiting-reaction",
-        "preparation-invalidated",
       ].includes(existing.status)) {
         throw new WorldHostError("another world run is already in progress", 409);
       }
@@ -1260,7 +1280,13 @@ export class WorldHost {
       return this.persist(stored, document).document;
     });
     const run = currentRun(started)!;
-    if (run.status === "queued") await this.driveRun(id, run.id);
+    if (run.status === "queued") {
+      if (run.debugMode === "step") {
+        void this.driveRun(id, run.id).catch(() => undefined);
+      } else {
+        await this.driveRun(id, run.id);
+      }
+    }
     const document = this.read(id).document;
     if (document.actionWindow) this.scheduleWindowDeadline(document);
     if (document.scheduler.mode === "realtime") this.scheduleRealtime(document);
@@ -1290,13 +1316,17 @@ export class WorldHost {
     input: DebugNextInput,
     principalId = "local",
   ): Promise<PublicInstanceDetail> {
+    let duplicateRequest = false;
     const document = await this.serialized(instanceId, async () => {
       const stored = this.read(instanceId);
       const run = stored.document.runs[input.runId];
       if (!run || run.generation !== input.generation) {
         throw new WorldHostError("debug checkpoint changed; refresh before advancing", 409);
       }
-      if (run.lastDebugRequestId === input.requestId) return stored.document;
+      if (run.lastDebugRequestId === input.requestId) {
+        duplicateRequest = true;
+        return stored.document;
+      }
       if (run.status !== "debug-paused" || run.debugCheckpoint?.id !== input.checkpointId) {
         throw new WorldHostError("debug checkpoint changed; refresh before advancing", 409);
       }
@@ -1309,6 +1339,7 @@ export class WorldHost {
       next.updatedAt = nextRun.updatedAt;
       return this.persist(stored, next).document;
     });
+    if (duplicateRequest) return this.project(document, principalId);
     const gate = this.debugStageGates.get(input.runId);
     if (!gate) throw new WorldHostError("debug checkpoint is no longer active", 409);
     gate.release();
@@ -1603,7 +1634,6 @@ export class WorldHost {
         modelScope,
       );
       this.runControllers.delete(runId);
-      this.debugStageGates.delete(runId);
       document.state = result.state;
       for (const agent of Object.values(document.state.agents)) {
         if (!document.policyBindings[agent.id]) {
@@ -1691,6 +1721,7 @@ export class WorldHost {
           },
           attributes: { stageIndex: commitStage.index, stageKey: commitStage.key, label: commitStage.label },
         });
+        execution?.trace.flush();
         await debugGate.before(commitStage);
         execution?.trace.emit({
           event: "debug.stage.completed",
@@ -1714,8 +1745,14 @@ export class WorldHost {
         const cancelled = new Error("world run generation changed before commit");
         cancelled.name = "AbortError";
         this.failExecution(execution?.id, cancelled);
+        this.debugStageGates.delete(runId);
         return latest;
       }
+      // Checkpoint controls are persisted while this boundary is parked. Carry
+      // those CAS-owned fields into the final document instead of overwriting
+      // them with the boundary's original in-memory run snapshot.
+      runRecord.debugCheckpoint = structuredClone(latestRun.debugCheckpoint);
+      runRecord.lastDebugRequestId = latestRun.lastDebugRequestId;
       const committed = execution && this.options.ledger && isAtomicStore(this.options.store)
         ? this.options.store.compareAndSwapInstanceAndFinishExecution(
             document.id,
@@ -1728,6 +1765,7 @@ export class WorldHost {
       if (execution && this.options.ledger && !isAtomicStore(this.options.store)) {
         this.options.ledger.finishExecution(execution.id, finish);
       }
+      this.debugStageGates.delete(runId);
       return committed;
     } catch (error) {
       this.runControllers.delete(runId);
@@ -1978,7 +2016,10 @@ export class WorldHost {
       const next = structuredClone(stored.document);
       const run = next.runs[input.runId];
       if (!run || run.generation !== input.generation) throw new WorldHostError("world run changed", 409);
-      if (run.status !== "paused" && run.status !== "budget-paused" && run.status !== "debug-paused" &&
+      if (run.status === "preparation-invalidated" && run.debugMode === "step") {
+        throw new WorldHostError("debug continuation is invalid; start a new run", 409);
+      }
+      if (run.status !== "paused" && run.status !== "budget-paused" &&
         run.status !== "preparation-invalidated") {
         throw new WorldHostError("world run cannot be resumed", 409);
       }

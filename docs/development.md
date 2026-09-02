@@ -18,7 +18,7 @@ English is the working language for new governance artifacts and code. Existing 
 
 ## Configuration
 
-- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v20/`. World versions, World Instances, WorldRuns, reaction preparations, model-registry snapshots, and the Execution Ledger share the data root; the SQLite records live in `livingworld.sqlite`. World Instance schema v20 embeds SimulationState v15 and its pinned algorithm reference; it does not read older saves, so use a new data root for another format.
+- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v20/`. World versions, World Instances, WorldRuns, reaction preparations, model-registry snapshots, debug checkpoints, and the Execution Ledger share the data root; the SQLite records live in `livingworld.sqlite`. World Instance schema v21 embeds SimulationState v15 and its pinned algorithm reference; it does not read older saves, so use a new data root for another format.
 - `LIVINGWORLD_MODEL_CATALOG_PATH` selects the complete model catalog and defaults to `config/models.yaml`.
 - Each provider's `api_key_env` names its credential environment variable. A credential is required only when the world or an Agent uses that provider's Profile. The bundled Blackmarsh reference world uses DeepSeek profiles pinned to `deepseek-v4-flash` with thinking disabled and therefore requires `DEEPSEEK_API_KEY` (unless its profiles are intentionally overridden for a test).
 - Normal execution, failure diagnosis, model I/O, and experiment evidence always enter the SQLite Execution Ledger. There is no `off|metrics|full` product switch or log directory; [Runtime observability](game-design/runtime-observability.md) owns the data boundary.

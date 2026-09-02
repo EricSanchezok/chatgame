@@ -174,6 +174,7 @@ export function WorldInspectorGraph({
   actors,
   edges: sourceEdges,
   mode,
+  nodeLimit,
   semanticEdges,
   semanticNodes,
   followLatest,
@@ -189,6 +190,7 @@ export function WorldInspectorGraph({
   actors: WorldInspectorActor[];
   edges: WorldInspectorEdgeSummary[];
   mode: "semantic" | "technical";
+  nodeLimit: number;
   semanticEdges: WorldInspectorEdgeSummary[];
   semanticNodes: WorldInspectorNodeSummary[];
   followLatest: boolean;
@@ -219,16 +221,20 @@ export function WorldInspectorGraph({
   const graphNodes = mode === "semantic" ? semanticNodes : sourceNodes;
   const graphEdges = mode === "semantic" ? semanticEdges : sourceEdges;
   const scopedSourceNodes = useMemo(() => {
+    let scoped: WorldInspectorNodeSummary[];
     if (selectedNodeId?.startsWith("attempt:")) {
       const attemptId = selectedNodeId.slice("attempt:".length);
-      return graphNodes.filter((node) => node.id === selectedNodeId || node.relatedAttemptId === attemptId);
-    }
-    if (selectedNodeId?.startsWith("commit:")) {
+      scoped = graphNodes.filter((node) => node.id === selectedNodeId || node.relatedAttemptId === attemptId);
+    } else if (selectedNodeId?.startsWith("commit:")) {
       const revision = Number(selectedNodeId.slice("commit:".length));
-      if (Number.isSafeInteger(revision)) return graphNodes.filter((node) => node.revision === revision);
+      scoped = Number.isSafeInteger(revision)
+        ? graphNodes.filter((node) => node.revision === revision)
+        : graphNodes;
+    } else {
+      scoped = graphNodes;
     }
-    return graphNodes;
-  }, [graphNodes, selectedNodeId]);
+    return mode === "technical" && scoped.length > nodeLimit ? scoped.slice(-nodeLimit) : scoped;
+  }, [graphNodes, mode, nodeLimit, selectedNodeId]);
   const visibleSummaries = useMemo(() => scopedSourceNodes.filter((node) =>
     !isolateActor || selectedActorId === "world" || node.laneId === selectedActorId ||
     (node.laneId === "world" && node.kind !== "attempt") || node.relatedActorIds?.includes(selectedActorId)),

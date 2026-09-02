@@ -188,6 +188,7 @@ class TracedExecutionStageHooks implements ExecutionStageHooks {
   async before(stage: ExecutionStagePosition): Promise<void> {
     this.current = stage;
     this.modelScope.logicalStage = structuredClone(stage);
+    this.modelScope.correlation = this.correlation(stage);
     this.trace.emit({
       event: "debug.stage.started",
       correlation: this.correlation(stage),
@@ -199,11 +200,15 @@ class TracedExecutionStageHooks implements ExecutionStageHooks {
   async after(stage: ExecutionStagePosition): Promise<void> {
     this.current = stage;
     this.modelScope.logicalStage = structuredClone(stage);
+    this.modelScope.correlation = this.correlation(stage);
     this.trace.emit({
       event: "debug.stage.completed",
       correlation: this.correlation(stage),
       attributes: { stageIndex: stage.index, stageKey: stage.key, label: stage.label },
     });
+    // Persist the lifecycle marker before a debug gate parks the worker so the
+    // checkpoint's event range includes the stage boundary it represents.
+    this.trace.flush();
     await this.delegate.after(stage);
     this.trace.flush();
   }
@@ -211,6 +216,7 @@ class TracedExecutionStageHooks implements ExecutionStageHooks {
   failed(stage: ExecutionStagePosition, error: ReturnType<typeof serializeRuntimeError>): void {
     this.current = stage;
     this.modelScope.logicalStage = structuredClone(stage);
+    this.modelScope.correlation = this.correlation(stage);
     this.trace.emit({
       event: "debug.stage.failed",
       level: "error",

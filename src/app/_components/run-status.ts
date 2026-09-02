@@ -34,10 +34,10 @@ export function runStatusPresentation(run: PublicWorldRun, hasParticipantAction 
       detail = "可恢复，或提交新行动";
       break;
     case "debug-paused":
-      title = "单步调试已暂停";
-      detail = run.debug.stageKey
+      title = run.debug.stageKey
         ? `阶段 ${run.debug.stageIndex + 1} / ${run.debug.stageCount} · ${run.debug.stageLabel ?? run.debug.stageKey}`
         : "等待第一个逻辑阶段";
+      detail = "等待你的下一步";
       break;
     case "budget-paused":
       title = "本轮已达到上限";

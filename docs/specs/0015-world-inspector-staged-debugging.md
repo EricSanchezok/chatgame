@@ -31,4 +31,4 @@ Cover stage order under parallel calls and retries, checkpoint CAS and idempoten
 
 ## Evidence
 
-Pending implementation. Permanent evidence will link the stage/checkpoint runtime tests, WorldHost/API tests, Inspector projection tests, replay tests, and UI interaction tests.
+Implemented in the staged runtime, WorldHost control routes, Inspector projections, and replay controls. Coverage includes logical-stage ordering and grouping, pre-commit debug pauses, CAS/idempotent next-step control, invalid preparation handling, semantic/technical graph projections, and replay frame derivation. The repository gates run the focused Vitest suites, typecheck, prompt/world validation, workflow verification, governance checks, and production build.

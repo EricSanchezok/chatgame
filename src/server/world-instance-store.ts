@@ -1,4 +1,5 @@
 import { validateAlgorithmRef, type PolicyBinding } from "../engine/runtime/execution";
+import { EXECUTION_STAGES } from "../engine/runtime/stages";
 import { reactionRequestSchema } from "../engine/contracts/llm-schemas";
 import { contentHash } from "../engine/models/model-audit";
 import type { RuntimeCorrelation } from "../engine/runtime/observability";
@@ -321,6 +322,8 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
       requireText(run.debugCheckpoint.artifactHash, `run ${runId} debug checkpoint artifact hash`);
       if (!Number.isSafeInteger(run.debugCheckpoint.boundaryIndex) || run.debugCheckpoint.boundaryIndex < 0 ||
         !Number.isSafeInteger(run.debugCheckpoint.stageIndex) || run.debugCheckpoint.stageIndex < 0 ||
+        run.debugCheckpoint.stageIndex >= EXECUTION_STAGES.length ||
+        EXECUTION_STAGES[run.debugCheckpoint.stageIndex]?.key !== run.debugCheckpoint.stageKey ||
         !Number.isFinite(Date.parse(run.debugCheckpoint.updatedAt))) {
         throw new Error(`run ${runId} debug checkpoint metadata is invalid`);
       }

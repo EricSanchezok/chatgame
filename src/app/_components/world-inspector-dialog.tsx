@@ -36,6 +36,7 @@ import type {
   WorldInspectorModelInvocationDetail,
   WorldInspectorModelInvocationSummary,
   WorldInspectorActor,
+  WorldInspectorEdgeSummary,
   WorldInspectorNodeSummary,
   WorldInspectorStepDetail,
   WorldInspectorStepSummary,
@@ -218,6 +219,7 @@ export default function WorldInspectorDialog({
   const [selection, setSelection] = useState<WorldInspectorSelection>(null);
   const [view, setView] = useState<CenterView>("calls");
   const [graphMode, setGraphMode] = useState<"semantic" | "technical">("semantic");
+  const [technicalNodeLimit, setTechnicalNodeLimit] = useState<100 | 200 | 500 | 1000>(200);
   const [replay, setReplay] = useState<WorldInspectorReplay>();
   const [replayFrameIndex, setReplayFrameIndex] = useState(0);
   const [replayPlaying, setReplayPlaying] = useState(false);
@@ -226,19 +228,57 @@ export default function WorldInspectorDialog({
   const [detailWidth, setDetailWidth] = useState(WORLD_INSPECTOR_DETAIL_DEFAULT);
   const activeView: CenterView = view;
   const replayFrame = replay?.frames[replayFrameIndex];
-  const selectedNodeId = selection?.kind === "attempt"
+  const replaySemanticNodes = useMemo<WorldInspectorNodeSummary[]>(() => replay?.frames.map((frame) => ({
+    id: frame.nodeIds[0] ?? `semantic:stage:${replay.executionId}:${frame.stageIndex}`,
+    revision: data?.instance.revision ?? 0,
+    laneId: "world",
+    kind: "stage",
+    label: `${frame.stageIndex + 1}. ${frame.stageLabel}`,
+    description: frame.derived
+      ? `由已有 Ledger 证据推导 · ${frame.eventIds.length} 条事件`
+      : `${frame.eventIds.length} 条事件 · ${frame.invocationIds.length} 次逻辑调用`,
+    ...(frame.status === "pending" ? {} : { status: frame.status }),
+    relatedAttemptId: replay.executionId,
+  })) ?? [], [data?.instance, replay]);
+  const replaySemanticEdges = useMemo<WorldInspectorEdgeSummary[]>(() => replaySemanticNodes.slice(1).map((node, index) => ({
+    id: `semantic:replay:${replaySemanticNodes[index].id}:${node.id}`,
+    source: replaySemanticNodes[index].id,
+    target: node.id,
+    kind: "causal",
+    label: "推进",
+  })), [replaySemanticNodes]);
+  const semanticNodes = useMemo(
+    () => replay ? replaySemanticNodes : data?.semanticNodes ?? [],
+    [data?.semanticNodes, replay, replaySemanticNodes],
+  );
+  const semanticEdges = useMemo(
+    () => replay ? replaySemanticEdges : data?.semanticEdges ?? [],
+    [data?.semanticEdges, replay, replaySemanticEdges],
+  );
+  const technicalNodes = useMemo(() => {
+    const nodes = data?.nodes ?? [];
+    if (!replay || !replayFrame) return nodes;
+    const invocationIds = new Set(replayFrame.invocationIds);
+    const stageNodeId = `stage:${replay.executionId}:stage:${replayFrame.stageIndex}`;
+    return nodes.filter((node) => node.id === `attempt:${replay.executionId}` ||
+      node.id === stageNodeId || node.relatedInvocationId && invocationIds.has(node.relatedInvocationId));
+  }, [data?.nodes, replay, replayFrame]);
+  const selectedNodeId = replayFrame?.nodeIds[0] ?? (selection?.kind === "attempt"
     ? `attempt:${selection.id}`
     : selection?.kind === "step"
       ? `commit:${selection.revision}`
-      : selection?.kind === "node" ? selection.id : replayFrame?.nodeIds[0];
+      : selection?.kind === "node" ? selection.id : undefined);
+  const effectiveSelection: WorldInspectorSelection = selection?.kind === "invocation"
+    ? selection
+    : replayFrame && selectedNodeId ? { kind: "node", id: selectedNodeId } : selection;
   const selectedInvocationId = selection?.kind === "invocation" ? selection.id : undefined;
-  const selectedGraphNode = selection?.kind === "node"
-    ? [...(data?.semanticNodes ?? []), ...(data?.nodes ?? [])].find((node) => node.id === selection.id)
+  const selectedGraphNode = effectiveSelection?.kind === "node"
+    ? [...semanticNodes, ...technicalNodes].find((node) => node.id === effectiveSelection.id)
     : undefined;
   const graphNodeRelations = useMemo(() => {
     if (!selectedGraphNode || !data) return undefined;
-    const graphNodes = graphMode === "semantic" ? data.semanticNodes ?? [] : data.nodes;
-    const graphEdges = graphMode === "semantic" ? data.semanticEdges ?? [] : data.edges;
+    const graphNodes = graphMode === "semantic" ? semanticNodes : technicalNodes;
+    const graphEdges = graphMode === "semantic" ? semanticEdges : data.edges;
     const byId = new Map(graphNodes.map((node) => [node.id, node]));
     return {
       upstream: graphEdges
@@ -250,7 +290,7 @@ export default function WorldInspectorDialog({
         .map((edge) => byId.get(edge.target))
         .filter((node): node is WorldInspectorNodeSummary => node !== undefined),
     };
-  }, [data, graphMode, selectedGraphNode]);
+  }, [data, graphMode, selectedGraphNode, semanticEdges, semanticNodes, technicalNodes]);
   const closeActorDrawer = useCallback(() => {
     setActorsOpen(false);
     if (narrow) requestAnimationFrame(() => actorToggleRef.current?.focus());
@@ -769,7 +809,7 @@ export default function WorldInspectorDialog({
             <Network aria-hidden="true" /> 图谱
           </button>
           <button aria-pressed={activeView === "timeline"} onClick={() => chooseView("timeline")} type="button">
-            <ListTree aria-hidden="true" /> 时间线
+            <ListTree aria-hidden="true" /> 流程
           </button>
         </div>
         <button
@@ -946,16 +986,25 @@ export default function WorldInspectorDialog({
                 <div className="cg-inspector-graph-mode" aria-label="图谱层级">
                   <button aria-pressed={graphMode === "semantic"} onClick={() => setGraphMode("semantic")} type="button">语义主链</button>
                   <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据图（{data.nodes.length} 节点）</button>
+                  {graphMode === "technical" && (
+                    <label>节点上限
+                      <select onChange={(event) => setTechnicalNodeLimit(Number(event.target.value) as typeof technicalNodeLimit)} value={technicalNodeLimit}>
+                        <option value={100}>100</option><option value={200}>200</option><option value={500}>500</option><option value={1000}>1000</option>
+                      </select>
+                    </label>
+                  )}
+                  {replayFrame && <span>当前阶段 {replayFrame.stageIndex + 1} · {replayFrame.stageLabel}</span>}
                 </div>
                 <WorldInspectorGraph
                   actors={data.actors}
                   edges={data.edges}
                   mode={graphMode}
-                  semanticEdges={data.semanticEdges ?? []}
-                  semanticNodes={data.semanticNodes ?? []}
+                  nodeLimit={technicalNodeLimit}
+                  semanticEdges={semanticEdges}
+                  semanticNodes={semanticNodes}
                   followLatest={followLatest}
                   isolateActor={isolateActor}
-                  nodes={data.nodes}
+                  nodes={technicalNodes}
                   onInteract={() => setFollowLatest(false)}
                   onSelect={(node) => { setFollowLatest(false); selectNode(node); }}
                   query={query}
@@ -1001,15 +1050,15 @@ export default function WorldInspectorDialog({
             actorId={selectedActorId}
             actorName={selectedActor?.name ?? (selectedActorId === "world" ? "整个世界" : selectedActorId)}
             detail={detail}
-            error={selection?.kind === "invocation" ? invocationError : detailError}
+            error={effectiveSelection?.kind === "invocation" ? invocationError : detailError}
             invocation={invocationDetail}
             node={selectedGraphNode}
             nodeRelations={graphNodeRelations}
-            key={selection ? `${selection.kind}:${"id" in selection ? selection.id : "revision" in selection ? selection.revision : "empty"}` : "empty"}
-            loading={selection?.kind === "invocation" ? loadingInvocation : loadingDetail}
+            key={effectiveSelection ? `${effectiveSelection.kind}:${"id" in effectiveSelection ? effectiveSelection.id : "revision" in effectiveSelection ? effectiveSelection.revision : "empty"}` : "empty"}
+            loading={effectiveSelection?.kind === "invocation" ? loadingInvocation : loadingDetail}
             onSelectInvocation={(invocation) => { setView("calls"); void selectInvocation(invocation); }}
             instanceId={instanceId}
-            selection={selection}
+            selection={effectiveSelection}
           />
         </div>
       )}
