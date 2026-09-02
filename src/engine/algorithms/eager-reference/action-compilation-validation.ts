@@ -1,4 +1,5 @@
 import type { ActionCompilationDraft } from "../../runtime/execution";
+import type { ActionCompilationModelOutput, ActionCompilationCausalAssertion } from "../../contracts/llm-schemas";
 import type { SimulationState } from "../../contracts/model";
 import {
   isProposalReference,
@@ -8,6 +9,7 @@ import {
   type ModelReferenceUse,
   type ModelRepairIssue,
   type ReferenceResolver,
+  type ActionCompilationReferenceResolver,
 } from "../../contracts/model-context";
 
 const MAX_FIELD_ALTERNATIVES = 64;
@@ -94,6 +96,97 @@ export class ActionCompilationValidationError extends Error {
   }
 }
 
+/** Convert the model-only candidateKey vocabulary into engine-owned handles.
+ * This is the sole boundary where Action Compilation references become
+ * resolvable runtime identities; all downstream validation remains unchanged. */
+export function materializeActionCompilationCandidateKeys(input: {
+  value: ActionCompilationModelOutput;
+  resolver: ActionCompilationReferenceResolver;
+}): { draft: ActionCompilationDraft; resolvedCandidateCount: number } {
+  const value = structuredClone(input.value) as ActionCompilationModelOutput;
+  let resolvedCandidateCount = 0;
+  const resolve = (candidateKey: string, use: ModelReferenceUse, path?: Array<string | number>): ExistingReferenceHandle => {
+    let handle: ExistingReferenceHandle;
+    try {
+      handle = input.resolver.handleForCandidateKey(candidateKey, use);
+    } catch (error) {
+      if (error instanceof Error) {
+        error.message = `${error.message} (candidate use: ${use})`;
+        if (path) (error as Error & { path?: Array<string | number> }).path = path;
+      }
+      throw error;
+    }
+    resolvedCandidateCount += 1;
+    return handle;
+  };
+  value.temporalPlan.profileRef = resolve(value.temporalPlan.profileRef, "profile", ["temporalPlan", "profileRef"]) as never;
+  value.temporalPlan.causes = value.temporalPlan.causes.map((cause, index) => ({
+    ...cause,
+    ref: resolve(cause.ref, "cause", ["temporalPlan", "causes", index, "ref"]) as never,
+  }));
+  const materializeAssertion = (assertion: ActionCompilationCausalAssertion): ActionCompilationCausalAssertion => {
+    switch (assertion.kind) {
+      case "check_result": return { ...assertion, checkRef: resolve(assertion.checkRef, "assertion", ["temporalPlan", "continuationAssertions"]) as never };
+      case "random_result": return {
+        ...assertion,
+        requestRef: resolve(assertion.requestRef, "assertion") as never,
+        stepRef: resolve(assertion.stepRef, "assertion") as never,
+      };
+      case "fact_matches": return {
+        ...assertion,
+        factRef: resolve(assertion.factRef, "assertion") as never,
+        expected: assertion.expected.kind === "entity"
+          ? { ...assertion.expected, entityRef: resolve(assertion.expected.entityRef, "assertion") as never }
+          : assertion.expected,
+      };
+      case "fact_absent": return { ...assertion, factRef: resolve(assertion.factRef, "assertion") as never };
+      case "entity_absent":
+      case "entity_lifecycle": return { ...assertion, entityRef: resolve(assertion.entityRef, "assertion") as never };
+      case "placement_equals":
+      case "placement_not_equals": return {
+        ...assertion,
+        entityRef: resolve(assertion.entityRef, "assertion") as never,
+        placementRef: assertion.placementRef === null ? null : resolve(assertion.placementRef, "assertion") as never,
+      };
+      case "shared_placement": return {
+        ...assertion,
+        leftEntityRef: resolve(assertion.leftEntityRef, "assertion") as never,
+        rightEntityRef: resolve(assertion.rightEntityRef, "assertion") as never,
+      };
+      case "meter_compare": return { ...assertion, meterRef: resolve(assertion.meterRef, "assertion") as never };
+      case "quantity_compare": return { ...assertion, quantityRef: resolve(assertion.quantityRef, "assertion") as never };
+      case "rating_compare": return { ...assertion, ratingRef: resolve(assertion.ratingRef, "assertion") as never };
+      case "shared_resource_capacity_compare": return { ...assertion, poolRef: resolve(assertion.poolRef, "assertion") as never };
+      case "elapsed_seconds_compare": return assertion;
+    }
+  };
+  value.temporalPlan.continuationAssertions = value.temporalPlan.continuationAssertions.map(materializeAssertion);
+  const requiredRefs = value.interactionDependency.stateDependencies.requiredExistingCandidateKeys
+    .map((key, index) => resolve(key, "conflict", ["interactionDependency", "stateDependencies", "requiredExistingCandidateKeys", index]));
+  const potentiallyAffectedRefs = value.interactionDependency.stateDependencies.potentiallyAffectedCandidateKeys
+    .map((key, index) => resolve(key, "conflict", ["interactionDependency", "stateDependencies", "potentiallyAffectedCandidateKeys", index]));
+  const audienceAgentRefs = value.interactionDependency.audienceAgentCandidateKeys
+    .map((key, index) => resolve(key, "audience", ["interactionDependency", "audienceAgentCandidateKeys", index]));
+  const sharedResourceClaims = value.interactionDependency.sharedResourceClaims.map((claim, index) => ({
+    resourcePoolRef: resolve(claim.resourcePoolCandidateKey, "conflict", ["interactionDependency", "sharedResourceClaims", index, "resourcePoolCandidateKey"]),
+    basis: structuredClone(claim.basis),
+  }));
+  return {
+    draft: {
+      temporalPlan: value.temporalPlan as unknown as ActionCompilationDraft["temporalPlan"],
+      interactionDependency: {
+        stateDependencies: {
+          requiredExistingRefs: requiredRefs,
+          potentiallyAffectedExistingRefs: potentiallyAffectedRefs,
+        },
+        audienceAgentRefs,
+        sharedResourceClaims,
+      },
+    },
+    resolvedCandidateCount,
+  };
+}
+
 export function normalizeActionCompilationDraftReferences(input: {
   draft: ActionCompilationDraft;
   resolver: ReferenceResolver;
@@ -154,7 +247,7 @@ function validateReference(input: {
       path: input.path,
       originalValue: structuredClone(input.value),
       allowedHandles: alternatives,
-      reason: "Action Compilation may select only existing request-local handles; proposal references are not allowed in this field.",
+      reason: "Action Compilation may select only existing request-local candidate keys; proposal references are not allowed in this field.",
     };
   }
   try {
@@ -166,7 +259,7 @@ function validateReference(input: {
         path: input.path,
         originalValue: input.value,
         allowedHandles: alternatives,
-        reason: `This field accepts only ${input.contract.kinds.join(" | ")} handles, not ${resolved.kind}.`,
+        reason: `This field accepts only ${input.contract.kinds.join(" | ")} candidate keys, not ${resolved.kind}.`,
       };
     }
     if (input.eligibleProfileHandles !== undefined && !input.eligibleProfileHandles.has(input.value)) {
@@ -237,6 +330,7 @@ export function validateActionCompilationDraft(input: {
   eligibleProfileHandles: ReadonlySet<string>;
   ineligibleProfileReasons: ReadonlyMap<string, string>;
   conditionalProfileHandles: ReadonlySet<string>;
+  requiredActionHandle?: ExistingReferenceHandle;
 }): ModelRepairIssue[] {
   const references: Array<{
     value: ModelReference;
@@ -286,6 +380,22 @@ export function validateActionCompilationDraft(input: {
     });
     return issue === null ? [] : [issue];
   });
+  if (input.requiredActionHandle) {
+    const actionCauseIndexes = input.draft.temporalPlan.causes
+      .map((cause, index) => cause.kind === "action" && cause.ref === input.requiredActionHandle ? index : -1)
+      .filter((index) => index >= 0);
+    if (actionCauseIndexes.length === 0) {
+      issues.push({
+        code: "causal.action_cause_required",
+        class: "causal",
+        path: ["temporalPlan", "causes"],
+        originalValue: structuredClone(input.draft.temporalPlan.causes),
+        allowedHandles: allowedHandles(input.resolver, ACTION_COMPILATION_FIELD_USES.cause)
+          .filter((handle) => input.resolver.resolve(handle).kind === "action"),
+        reason: "temporalPlan.causes must include the assigned action's exact candidate key as its causal anchor.",
+      });
+    }
+  }
   if (typeof input.draft.temporalPlan.profileRef === "string" &&
     input.conditionalProfileHandles.has(input.draft.temporalPlan.profileRef) &&
     input.draft.temporalPlan.continuationAssertions.length === 0) {
@@ -295,7 +405,7 @@ export function validateActionCompilationDraft(input: {
       path: ["temporalPlan", "continuationAssertions"],
       originalValue: [],
       allowedHandles: [],
-      reason: "The selected conditional temporal profile requires at least one continuation assertion grounded in exact catalog handles.",
+      reason: "The selected conditional temporal profile requires at least one continuation assertion grounded in exact catalog candidate keys.",
     });
   }
   return issues;

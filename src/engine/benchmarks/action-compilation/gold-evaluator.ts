@@ -167,7 +167,7 @@ export function evaluateGoldDetailRecall(
     if (!expected) continue;
     const context = syntheticGoldContext(record, expected);
     const projected = projectActionCompilationContextForModel(context);
-    const candidates = ((projected.referenceCatalog as { candidates: Array<{ label: string; details: unknown }> }).candidates);
+    const candidates = projected.referenceCatalog.candidates;
     for (const anchor of expected.requiredCandidateAnchors) {
       required += 1;
       if (candidates.some((entry) => entry.label === anchor && entry.details != null)) recalled += 1;

@@ -566,7 +566,7 @@ export class ModelGateway implements StructuredModelProvider {
         const parsedOutput = request.schema.parse(scheduled.value.value);
         const contextCatalog = request.context && typeof request.context === "object" && !Array.isArray(request.context) &&
           "referenceCatalog" in request.context
-          ? (request.context as { referenceCatalog?: { candidates?: readonly { handle: string; kind: import("../contracts/model-context").ModelReferenceKind; label: string; meaning: string; allowedUses: readonly import("../contracts/model-context").ModelReferenceUse[]; visibility: "public" | "role" | "slot" }[] } }).referenceCatalog
+          ? (request.context as { referenceCatalog?: { candidates?: readonly { handle?: string; candidateKey?: string; kind: import("../contracts/model-context").ModelReferenceKind; label: string; meaning: string; allowedUses: readonly import("../contracts/model-context").ModelReferenceUse[]; visibility?: "public" | "role" | "slot" }[] } }).referenceCatalog
           : undefined;
         // Batched Agent requests carry one isolated catalog per slot. The
         // slot materializer performs the authoritative reference check; a
@@ -574,8 +574,14 @@ export class ModelGateway implements StructuredModelProvider {
         // reject valid handles from every slot as unknown.
         const hasIsolatedSlotCatalogs = request.context && typeof request.context === "object" &&
           !Array.isArray(request.context) && "referenceCatalogs" in request.context;
-        const referenceResolver = contextCatalog && !hasIsolatedSlotCatalogs
-          ? createReferenceResolver(contextCatalog.candidates?.map((candidate) => ({ ...candidate, engineId: candidate.handle })) ?? [])
+        const catalogCandidates = contextCatalog?.candidates ?? [];
+        const referenceResolver = contextCatalog && !hasIsolatedSlotCatalogs &&
+          catalogCandidates.length > 0 && catalogCandidates.every((candidate) => typeof candidate.handle === "string")
+          ? createReferenceResolver(catalogCandidates.map((candidate) => ({
+              ...candidate,
+              engineId: candidate.handle as string,
+              visibility: candidate.visibility ?? "role",
+            })))
           : undefined;
         const normalized = normalizeModelOutput(parsedOutput, { resolver: referenceResolver, dedupeArrays: true });
         const output = normalized.value;

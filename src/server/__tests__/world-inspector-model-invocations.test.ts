@@ -220,4 +220,73 @@ describe("world inspector model invocation projection", () => {
     expect(secondDetail?.id).toBe("execution-2::invocation-action-1");
     expect(secondDetail?.sourceInvocationId).toBe("invocation-action-1");
   });
+
+  it("projects trusted Action Compilation candidate resolution evidence", () => {
+    const events = runtimeEvents();
+    events.push({
+      schemaVersion: 2,
+      sequence: 99,
+      timestamp: "2026-08-30T09:00:03.400Z",
+      level: "info",
+      event: "model.action_compilation.references",
+      correlation: {
+        executionId: record.id,
+        modelInvocationId: "invocation-action-1",
+        modelRole: "action-compilation",
+        modelSubject: "batch:0",
+        modelInvocation: 1,
+      },
+      payload: {
+        protocolVersion: 1,
+        projection: "candidate-key-v1-deterministic-details",
+        context: {
+          utf8Bytes: 12_345,
+          referenceCatalogUtf8Bytes: 4_000,
+          slots: 1,
+          candidates: 3,
+          detailedCandidates: 2,
+          duplicateSemanticDefinitionCount: 0,
+          canonicalRefSerializedCount: 0,
+          rawPrivateReferenceSerializedCount: 0,
+        },
+        slots: [{
+          slot: 0,
+          actionId: "action-1",
+          actionLabel: "看看周围有什么吧",
+          actionCandidateKey: "candidate_action",
+          actor: {
+            agentId: "sigrun",
+            entityId: "entity-sigrun",
+            status: "unique",
+            agentCandidateKey: "candidate_agent",
+            boundEntityCandidateKey: "candidate_entity",
+            agentHandle: "ref:agent:sigrun",
+            entityHandle: "ref:entity:entity-sigrun",
+          },
+          targets: [],
+          selections: [{
+            path: ["temporalPlan", "profileRef"],
+            use: "profile",
+            candidateKey: "candidate_profile",
+            engineHandle: "ref:temporal_profile:default",
+            kind: "temporal_profile",
+            status: "resolved",
+          }],
+        }],
+      },
+    });
+
+    const result = queryWorldInspectorModelInvocations([record], events, { role: "action-compilation" });
+    expect(result.items[0]?.slotRefs).toEqual([{ slot: 0, agentId: "sigrun", actionId: "action-1", label: "看看周围有什么吧" }]);
+    expect(result.items[0]?.actionCompilationReferenceAudit?.context).toMatchObject({
+      utf8Bytes: 12_345,
+      duplicateSemanticDefinitionCount: 0,
+    });
+    expect(result.items[0]?.actionCompilationReferenceAudit?.slots[0]?.selections[0]).toMatchObject({
+      candidateKey: "candidate_profile",
+      engineHandle: "ref:temporal_profile:default",
+      use: "profile",
+      status: "resolved",
+    });
+  });
 });

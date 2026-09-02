@@ -1,4 +1,5 @@
 import type {
+  ActionCompilationReferenceAudit,
   CausalRef,
   CommittedStep,
   ModelExecutionAudit,
@@ -359,14 +360,23 @@ function contextSections(context: unknown): WorldInspectorModelInvocationSummary
   }));
 }
 
-function slotRefs(context: unknown): WorldInspectorModelInvocationSummary["slotRefs"] {
-  if (!context || typeof context !== "object" || Array.isArray(context)) return [];
+function slotRefs(
+  context: unknown,
+  actionCompilationAudit?: ActionCompilationReferenceAudit,
+): WorldInspectorModelInvocationSummary["slotRefs"] {
+  const auditSlots = () => actionCompilationAudit?.slots.map((auditSlot) => ({
+    slot: auditSlot.slot,
+    agentId: auditSlot.actor.agentId,
+    actionId: auditSlot.actionId,
+    label: auditSlot.actionLabel,
+  })) ?? [];
+  if (!context || typeof context !== "object" || Array.isArray(context)) return auditSlots();
   const task = (context as { task?: unknown }).task;
   const slots = task && typeof task === "object" && !Array.isArray(task)
     ? (task as { slots?: unknown }).slots
     : (context as { slots?: unknown }).slots;
-  if (!Array.isArray(slots)) return [];
-  return slots.map((entry, index) => {
+  if (!Array.isArray(slots)) return auditSlots();
+  const projected = slots.map((entry, index) => {
     const value = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
     const action = value.action && typeof value.action === "object" ? value.action as Record<string, unknown> : undefined;
     const perspective = (value.perspective ?? value.actorPerspective) &&
@@ -389,6 +399,19 @@ function slotRefs(context: unknown): WorldInspectorModelInvocationSummary["slotR
       ...(!agentId && !actionId ? { unresolvedReason: "request context does not expose an Agent or action identity" } : {}),
     };
   });
+  if (actionCompilationAudit) return auditSlots();
+  return projected;
+}
+
+function actionCompilationAuditFromEvents(events: readonly RuntimeEvent[]): ActionCompilationReferenceAudit | undefined {
+  const event = [...events].reverse().find((candidate) => candidate.event === "model.action_compilation.references");
+  const payload = event?.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const value = payload as Partial<ActionCompilationReferenceAudit>;
+  return value.protocolVersion === 1 && value.projection === "candidate-key-v1-deterministic-details" &&
+    Array.isArray(value.slots) && value.context && typeof value.context === "object"
+    ? structuredClone(payload) as ActionCompilationReferenceAudit
+    : undefined;
 }
 
 function invocationStatus(events: readonly RuntimeEvent[]): WorldInspectorModelInvocationSummary["status"] {
@@ -445,6 +468,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       event.event === "model.structured_output.parsed");
     const contextDocument = contextEvent?.payload && typeof contextEvent.payload === "object"
       ? contextEvent.payload as { context?: unknown } : undefined;
+    const actionCompilationReferenceAudit = actionCompilationAuditFromEvents(ordered);
     const transportGroups = new Map<number, RuntimeEvent[]>();
     for (const event of ordered) {
       const attempt = event.correlation?.transportAttempt;
@@ -565,7 +589,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       status: invocationStatus(ordered),
       ...(started ? { startedAt: started.timestamp } : {}),
       ...(terminal ? { updatedAt: terminal.timestamp } : ordered.at(-1) ? { updatedAt: ordered.at(-1)!.timestamp } : {}),
-      slotRefs: slotRefs(context),
+      slotRefs: slotRefs(context, actionCompilationReferenceAudit),
       transportAttempts,
       retryCount: Math.max(0, transportAttempts.length - 1),
       tokenUsage,
@@ -614,20 +638,13 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
         if (typeof context !== "object" || context === null || Array.isArray(context)) return contentHash(null);
         const envelope = context as {
           referenceCatalog?: { hash?: unknown };
-          referenceCatalogs?: readonly { slot: number; catalog?: { hash?: unknown } }[];
         };
         if (typeof envelope.referenceCatalog?.hash === "string") return envelope.referenceCatalog.hash;
-        if (Array.isArray(envelope.referenceCatalogs)) {
-          const scopedHashes = envelope.referenceCatalogs
-            .map((entry) => ({ slot: entry.slot, hash: entry.catalog?.hash }))
-            .filter((entry): entry is { slot: number; hash: string } => typeof entry.hash === "string")
-            .sort((left, right) => left.slot - right.slot);
-          if (scopedHashes.length > 0) return contentHash(scopedHashes);
-        }
         return contentHash(null);
       })(),
       rawOutputHash,
       normalizedOutputHash,
+      ...(actionCompilationReferenceAudit ? { actionCompilationReferenceAudit } : {}),
       ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
       hasPayload: ordered.some((event) => event.payload !== undefined),
     } satisfies WorldInspectorModelInvocationSummary;

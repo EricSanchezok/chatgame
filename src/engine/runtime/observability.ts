@@ -65,19 +65,23 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     phase: "action-compilation";
     projection: "c0-repeated-slot-catalog" | "c1-shared-full-catalog" |
       "c2-normalized-complete-catalog" | "c3-deterministic-details" |
+      "candidate-key-v1-deterministic-details" |
       "c4-bounded-expansion" | "c5-retrieval-supplement";
     repair: boolean;
   }>;
   counts: Readonly<{
     slots: number;
-    candidateHandles: number;
+    candidateKeys: number;
     serializedCandidates: number;
     detailedCandidates: number;
+    duplicateSemanticDefinitionCount: number;
     repairIssues: number;
     contextUtf8Bytes: number;
     referenceCatalogUtf8Bytes: number;
     canonicalTruthUtf8Bytes: number;
     taskUtf8Bytes: number;
+    canonicalRefSerializedCount: number;
+    rawPrivateReferenceSerializedCount: number;
   }>;
 } | {
   event: "algorithm.eager_reference.slot_batch_completed";
@@ -411,14 +415,17 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
     attributes: ["phase", "projection", "repair"],
     counts: [
       "slots",
-      "candidateHandles",
+      "candidateKeys",
       "serializedCandidates",
       "detailedCandidates",
+      "duplicateSemanticDefinitionCount",
       "repairIssues",
       "contextUtf8Bytes",
       "referenceCatalogUtf8Bytes",
       "canonicalTruthUtf8Bytes",
       "taskUtf8Bytes",
+      "canonicalRefSerializedCount",
+      "rawPrivateReferenceSerializedCount",
     ],
     attributeValues: {
       phase: ["action-compilation"],
@@ -427,6 +434,7 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
         "c1-shared-full-catalog",
         "c2-normalized-complete-catalog",
         "c3-deterministic-details",
+        "candidate-key-v1-deterministic-details",
         "c4-bounded-expansion",
         "c5-retrieval-supplement",
       ],

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   actionCompilationBatchSchema,
   actionCompilationSlotSchema,
+  type ActionCompilationModelOutput,
   type ModelCausalAssertion,
 } from "../../contracts/llm-schemas";
 import {
@@ -21,7 +22,7 @@ import {
   type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
 import type { ActionCompilationDraft, InteractionDependency } from "../../runtime/execution";
-import type { AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, ModelOutputIssue, SimulationState } from "../../contracts/model";
+import type { ActionCompilationReferenceAudit, AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, ModelOutputIssue, SimulationState } from "../../contracts/model";
 import {
   ModelOutputError,
   ModelSemanticRepairError,
@@ -45,6 +46,7 @@ import {
 import { evaluateCausalAssertion } from "../../mechanics/causality";
 import { promptBundle } from "../../prompts";
 import {
+  createActionCompilationReferenceResolver,
   isProposalReference,
   MODEL_CONTEXT_CONTRACT_VERSION,
   modelRepairIssueFromReferenceError,
@@ -54,11 +56,14 @@ import {
   type ModelRepairIssue,
   type ModelReference,
   type ModelReferenceUse,
+  type ActionCompilationReferenceResolver,
 } from "../../contracts/model-context";
 import { contentHash } from "../../models/model-audit";
+import { fullRuntimePayload } from "../../runtime/observability";
 import { semanticRepairFingerprint } from "../../models/semantic-repair";
 import {
   ActionCompilationValidationError,
+  materializeActionCompilationCandidateKeys,
   normalizeActionCompilationContextCauses,
   normalizeActionCompilationDraftReferences,
   validateActionCompilationDraft,
@@ -135,39 +140,226 @@ function existingActivities(
 
 const MAX_BOUNDED_REPAIR_ALTERNATIVES = 64;
 
-function collectModelHandles(value: unknown, target: Set<string>): void {
+function collectModelCandidateKeys(value: unknown, target: Set<string>): void {
   if (typeof value === "string") {
-    if (value.startsWith("ref:")) target.add(value);
+    if (value.startsWith("candidate_")) target.add(value);
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((entry) => collectModelHandles(entry, target));
+    value.forEach((entry) => collectModelCandidateKeys(entry, target));
     return;
   }
   if (!value || typeof value !== "object") return;
-  Object.values(value as Record<string, unknown>).forEach((entry) => collectModelHandles(entry, target));
+  Object.values(value as Record<string, unknown>).forEach((entry) => collectModelCandidateKeys(entry, target));
 }
 
 function actionCompilationRepairResolver(
   resolver: ReturnType<typeof actionGroundingReferenceResolver>,
   slots: readonly CompilationSlot[],
 ): ReturnType<typeof actionGroundingReferenceResolver> {
+  const fullResolver = createActionCompilationReferenceResolver(resolver);
   if (slots.every((slot) => slot.issues.length === 0)) return resolver;
   if (slots.some((slot) => slot.issues.some((issue) => issue.class === "structure"))) return resolver;
   const alternatives = slots.flatMap((slot) => slot.issues.flatMap((issue) => issue.allowedHandles));
   if (new Set(alternatives).size > MAX_BOUNDED_REPAIR_ALTERNATIVES) return resolver;
 
-  const includedHandles = new Set(alternatives);
-  slots.forEach((slot) => collectModelHandles(slot.payload.previousOutput, includedHandles));
+  const includedKeys = new Set(alternatives);
+  slots.forEach((slot) => collectModelCandidateKeys(slot.payload.previousOutput, includedKeys));
   for (const [slotIndex, slot] of slots.entries()) {
-    includedHandles.add(resolver.handleFor("action", slot.payload.action.id));
-    includedHandles.add(resolver.handleFor("agent", slot.payload.action.actorId));
+    includedKeys.add(fullResolver.candidateKeyForHandle(resolver.handleFor("action", slot.payload.action.id)));
+    includedKeys.add(fullResolver.candidateKeyForHandle(resolver.handleFor("agent", slot.payload.action.actorId)));
     resolver.catalog.candidates
       .filter((candidate) => candidate.slot === slotIndex || candidate.kind === "temporal_profile")
-      .forEach((candidate) => includedHandles.add(candidate.handle));
+      .forEach((candidate) => includedKeys.add(fullResolver.candidateKeyForHandle(candidate.handle)));
   }
-  return resolver.narrow((candidate) =>
-    includedHandles.has(resolver.handleFor(candidate.kind, candidate.engineId)));
+  const narrowed = resolver.narrow((candidate) => {
+    const handle = resolver.handleFor(candidate.kind, candidate.engineId);
+    return includedKeys.has(fullResolver.candidateKeyForHandle(handle));
+  });
+  return narrowed;
+}
+
+function actionReferenceStatus(
+  resolver: ActionCompilationReferenceResolver,
+  handleResolver: ReturnType<typeof actionGroundingReferenceResolver>,
+  state: Readonly<SimulationState>,
+  action: Readonly<AgentActionProposal>,
+) {
+  const actionHandle = handleResolver.handleFor("action", action.id);
+  const actor = state.agents[action.actorId];
+  const actorCandidateKey = actor ? resolver.candidateKeyForHandle(handleResolver.handleFor("agent", actor.id)) : null;
+  const actorEntityCandidateKey = actor && state.truth.entities[actor.entityId]?.lifecycle === "active"
+    ? resolver.candidateKeyForHandle(handleResolver.handleFor("entity", actor.entityId))
+    : null;
+  const targets = action.targetIds.map((localEntityId, targetIndex) => {
+    const binding = actor?.bindings[localEntityId];
+    const canonicalIds = (binding?.canonicalEntityIds ?? []).filter((id) => state.truth.entities[id]?.lifecycle === "active");
+    const keys = canonicalIds.map((id) => resolver.candidateKeyForHandle(handleResolver.handleFor("entity", id)));
+    return {
+      targetIndex,
+      label: actor?.belief.localEntities[localEntityId]?.name ?? null,
+      status: !binding ? "unresolved" : canonicalIds.length === 1 ? "unique" : canonicalIds.length > 1 ? "ambiguous" : "stale",
+      candidateKeys: keys,
+    } as const;
+  });
+  return {
+    actionCandidateKey: resolver.candidateKeyForHandle(actionHandle),
+    actor: {
+      status: actorCandidateKey && actorEntityCandidateKey ? "unique" : "stale",
+      agentCandidateKey: actorCandidateKey,
+      boundEntityCandidateKey: actorEntityCandidateKey,
+    },
+    targets,
+  };
+}
+
+type ActionCompilationSelection = ActionCompilationReferenceAudit["slots"][number]["selections"][number];
+
+function collectActionCompilationSelections(
+  value: ActionCompilationModelOutput,
+  resolver: ActionCompilationReferenceResolver,
+): ActionCompilationSelection[] {
+  const selections: ActionCompilationSelection[] = [];
+  const add = (path: Array<string | number>, candidateKey: unknown, use: ModelReferenceUse): void => {
+    if (typeof candidateKey !== "string") return;
+    try {
+      const resolved = resolver.resolve(candidateKey, use);
+      selections.push({ path, use, candidateKey, engineHandle: resolved.handle, kind: resolved.kind, status: "resolved" });
+    } catch (error) {
+      selections.push({
+        path,
+        use,
+        candidateKey,
+        engineHandle: null,
+        kind: null,
+        status: "invalid",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  add(["temporalPlan", "profileRef"], value.temporalPlan.profileRef, "profile");
+  value.temporalPlan.causes.forEach((cause, index) => add(["temporalPlan", "causes", index, "ref"], cause.ref, "cause"));
+  value.temporalPlan.continuationAssertions.forEach((assertion, index) => {
+    const base = ["temporalPlan", "continuationAssertions", index] as Array<string | number>;
+    switch (assertion.kind) {
+      case "check_result": add([...base, "checkRef"], assertion.checkRef, "assertion"); break;
+      case "random_result":
+        add([...base, "requestRef"], assertion.requestRef, "assertion");
+        add([...base, "stepRef"], assertion.stepRef, "assertion");
+        break;
+      case "fact_matches":
+        add([...base, "factRef"], assertion.factRef, "assertion");
+        if (assertion.expected.kind === "entity") add([...base, "expected", "entityRef"], assertion.expected.entityRef, "assertion");
+        break;
+      case "fact_absent": add([...base, "factRef"], assertion.factRef, "assertion"); break;
+      case "entity_absent":
+      case "entity_lifecycle": add([...base, "entityRef"], assertion.entityRef, "assertion"); break;
+      case "placement_equals":
+      case "placement_not_equals":
+        add([...base, "entityRef"], assertion.entityRef, "assertion");
+        if (assertion.placementRef !== null) add([...base, "placementRef"], assertion.placementRef, "assertion");
+        break;
+      case "shared_placement":
+        add([...base, "leftEntityRef"], assertion.leftEntityRef, "assertion");
+        add([...base, "rightEntityRef"], assertion.rightEntityRef, "assertion");
+        break;
+      case "meter_compare": add([...base, "meterRef"], assertion.meterRef, "assertion"); break;
+      case "quantity_compare": add([...base, "quantityRef"], assertion.quantityRef, "assertion"); break;
+      case "rating_compare": add([...base, "ratingRef"], assertion.ratingRef, "assertion"); break;
+      case "shared_resource_capacity_compare": add([...base, "poolRef"], assertion.poolRef, "assertion"); break;
+      case "elapsed_seconds_compare": break;
+    }
+  });
+  value.interactionDependency.stateDependencies.requiredExistingCandidateKeys.forEach((key, index) =>
+    add(["interactionDependency", "stateDependencies", "requiredExistingCandidateKeys", index], key, "conflict"));
+  value.interactionDependency.stateDependencies.potentiallyAffectedCandidateKeys.forEach((key, index) =>
+    add(["interactionDependency", "stateDependencies", "potentiallyAffectedCandidateKeys", index], key, "conflict"));
+  value.interactionDependency.audienceAgentCandidateKeys.forEach((key, index) =>
+    add(["interactionDependency", "audienceAgentCandidateKeys", index], key, "audience"));
+  value.interactionDependency.sharedResourceClaims.forEach((claim, index) =>
+    add(["interactionDependency", "sharedResourceClaims", index, "resourcePoolCandidateKey"], claim.resourcePoolCandidateKey, "conflict"));
+  return selections;
+}
+
+function actionCompilationReferenceAudit(input: {
+  state: Readonly<SimulationState>;
+  batch: readonly CompilationSlot[];
+  context: ReturnType<typeof actionCompilationContext>;
+  actionResolver: ActionCompilationReferenceResolver;
+  handleResolver: ReturnType<typeof actionGroundingReferenceResolver>;
+  selectionsBySlot?: ReadonlyMap<number, readonly ActionCompilationSelection[]>;
+}): ActionCompilationReferenceAudit {
+  const metrics = actionCompilationContextProjectionMetrics(input.context);
+  return {
+    protocolVersion: 1,
+    projection: "candidate-key-v1-deterministic-details",
+    context: {
+      utf8Bytes: metrics.bytes,
+      referenceCatalogUtf8Bytes: jsonUtf8Bytes(input.context.referenceCatalog),
+      slots: metrics.slots,
+      candidates: metrics.candidates,
+      detailedCandidates: metrics.detailedCandidates,
+      duplicateSemanticDefinitionCount: metrics.duplicateSemanticDefinitionCount,
+      canonicalRefSerializedCount: metrics.canonicalRefSerializedCount,
+      rawPrivateReferenceSerializedCount: metrics.rawPrivateReferenceSerializedCount,
+    },
+    slots: input.batch.map((entry, slot) => {
+      const action = entry.payload.action;
+      const scopedActionResolver = input.actionResolver.scopedToSlot(slot);
+      const scopedHandleResolver = input.handleResolver.scopedToSlot(slot);
+      const referenceStatus = actionReferenceStatus(scopedActionResolver, scopedHandleResolver, input.state, action);
+      const actor = input.state.agents[action.actorId];
+      const actorHandle = actor ? scopedHandleResolver.handleFor("agent", actor.id) : null;
+      const entityHandle = actor && input.state.truth.entities[actor.entityId]?.lifecycle === "active"
+        ? scopedHandleResolver.handleFor("entity", actor.entityId) : null;
+      return {
+        slot,
+        actionId: action.id,
+        actionLabel: action.rawText,
+        actionCandidateKey: referenceStatus.actionCandidateKey,
+        actor: {
+          agentId: action.actorId,
+          entityId: actor?.entityId ?? null,
+          status: referenceStatus.actor.status as "unique" | "stale",
+          agentCandidateKey: referenceStatus.actor.agentCandidateKey,
+          boundEntityCandidateKey: referenceStatus.actor.boundEntityCandidateKey,
+          agentHandle: actorHandle,
+          entityHandle,
+        },
+        targets: referenceStatus.targets.map((target) => {
+          const localId = action.targetIds[target.targetIndex] ?? String(target.targetIndex);
+          const localReference = `${action.actorId}::${localId}`;
+          const canonicalEntityIds = actor?.bindings[localId]?.canonicalEntityIds
+            ?.filter((id) => input.state.truth.entities[id]?.lifecycle === "active") ?? [];
+          return {
+            targetIndex: target.targetIndex,
+            localReference,
+            label: target.label,
+            status: target.status,
+            canonicalEntityIds: [...canonicalEntityIds],
+            canonicalCandidateKeys: [...target.candidateKeys],
+            canonicalHandles: canonicalEntityIds.map((id) => scopedHandleResolver.handleFor("entity", id)),
+          };
+        }),
+        selections: [...(input.selectionsBySlot?.get(slot) ?? [])],
+      };
+    }),
+  };
+}
+
+function emitActionCompilationReferenceAudit(
+  scope: ModelExecutionScope,
+  owner: string,
+  identity: ReturnType<typeof modelInvocationIdentity>,
+  audit: ActionCompilationReferenceAudit,
+): void {
+  const observer = scope.observer;
+  if (!observer) return;
+  observer.emit({
+    event: "model.action_compilation.references",
+    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+    payload: fullRuntimePayload(observer, audit),
+  });
 }
 
 function actionCompilationContext(
@@ -181,6 +373,8 @@ function actionCompilationContext(
   const initialResolver = batchResolver ?? actionGroundingReferenceResolver(state, actions, slotByActionId);
   const shared = actionGroundingSharedContext(state, actions, initialResolver, true);
   const referenceResolver = actionCompilationRepairResolver(shared.referenceResolver, slots);
+  const actionReferenceResolver = createActionCompilationReferenceResolver(shared.referenceResolver, shared.referenceResolver);
+  const handleResolver = shared.referenceResolver;
   const slotContexts = slots.map((entry, slot) => {
     const slotResolver = referenceResolver.scopedToSlot(slot);
     const slotContext = actionGroundingSlotContext(
@@ -196,7 +390,7 @@ function actionCompilationContext(
     return {
       slot,
       assignment: {
-        targetHandles: [slotContext.action.actionRef],
+        targetHandles: [],
         allowedProposalKinds: [],
       },
       constraints: entry.issues.map((issue) => issue.reason),
@@ -208,7 +402,12 @@ function actionCompilationContext(
           }
         : null,
       state: {
-        action: slotContext.action,
+        action: {
+          rawText: entry.payload.action.rawText,
+          goal: entry.payload.action.goal,
+          means: entry.payload.action.means,
+        },
+        actionReferences: actionReferenceStatus(actionReferenceResolver.scopedToSlot(slot), handleResolver.scopedToSlot(slot), state, entry.payload.action),
         actorPerspective: slotContext.actorPerspective,
         existingActivities: existingActivities(state, entry.payload.action, slotResolver),
         temporalEvidence,
@@ -261,7 +460,7 @@ function actionCompilationContext(
       })),
       slots: slotContexts.map(({ slot, state: slotState }) => ({ slot, ...slotState })),
     },
-    referenceCatalog: referenceResolver.catalog,
+    referenceCatalog: handleResolver.catalog,
     repair: slots.some((slot) => slot.issues.length > 0)
       ? {
           target: null,
@@ -292,26 +491,29 @@ function emitActionCompilationContextProjection(
     correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
     attributes: {
       phase: "action-compilation",
-      projection: "c3-deterministic-details",
+      projection: "candidate-key-v1-deterministic-details",
       repair,
     },
     counts: {
       slots: metrics.slots,
-      candidateHandles: new Set(candidates.map((candidate) => candidate.handle)).size,
+      candidateKeys: new Set(candidates.map((candidate) => candidate.candidateKey)).size,
       serializedCandidates: candidates.length,
       detailedCandidates: metrics.detailedCandidates,
+      duplicateSemanticDefinitionCount: metrics.duplicateSemanticDefinitionCount,
       repairIssues: context.task.slots.filter((slot) => slot.issue !== null).length,
       contextUtf8Bytes: metrics.bytes,
       referenceCatalogUtf8Bytes: jsonUtf8Bytes(context.referenceCatalog),
       canonicalTruthUtf8Bytes: 0,
       taskUtf8Bytes: jsonUtf8Bytes(context.task),
+      canonicalRefSerializedCount: metrics.canonicalRefSerializedCount,
+      rawPrivateReferenceSerializedCount: metrics.rawPrivateReferenceSerializedCount,
     },
   });
 }
 
 function assertSlotCoverage(
   slots: readonly CompilationSlot[],
-  drafts: readonly (ActionCompilationDraft & { slot: number })[],
+  drafts: readonly (ActionCompilationModelOutput & { slot: number })[],
 ): void {
   if (drafts.length !== slots.length) {
     throw new Error(`action compilation returned ${drafts.length} items for ${slots.length} slots`);
@@ -336,13 +538,13 @@ function errorChainText(error: unknown): string {
 
 function actionCompilationRepairIssues(error: unknown): ModelRepairIssue[] {
   const message = errorChainText(error);
-  if (message.includes("sharedResourceClaims") && (message.includes("poolId") || message.includes("resourcePoolRef"))) {
+  if (message.includes("sharedResourceClaims") && (message.includes("poolId") || message.includes("resourcePoolRef") || message.includes("resourcePoolCandidateKey"))) {
     return [
       compilationIssue({
         code: "reference.shared_resource_pool_required",
         class: "reference",
         path: ["interactionDependency", "sharedResourceClaims"],
-        reason: "resourcePoolRef must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
+        reason: "resourcePoolCandidateKey must be copied from a shared-resource-pool candidate; use [] when no listed pool is justified.",
       }),
     ];
   }
@@ -365,16 +567,39 @@ function actionCompilationRepairIssues(error: unknown): ModelRepairIssue[] {
   return [compilationIssue({ code: "action_compilation.invalid_batch", reason: message })];
 }
 
-function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
+function actionCompilationSlotIssues(error: unknown, actionResolver?: ActionCompilationReferenceResolver): ModelRepairIssue[] {
   if (error instanceof ActionCompilationValidationError) {
-    return error.issues.map((issue) => structuredClone(issue));
+    return error.issues.map((issue) => {
+      const next = structuredClone(issue);
+      if (actionResolver) {
+        next.allowedHandles = next.allowedHandles.flatMap((handle) => {
+          if (handle.startsWith("candidate_")) return [handle];
+          try { return [actionResolver.candidateKeyForHandle(handle as never)]; } catch { return []; }
+        });
+        if (typeof next.originalValue === "string" && next.originalValue.startsWith("ref:")) {
+          try { next.originalValue = actionResolver.candidateKeyForHandle(next.originalValue as never); } catch { /* keep diagnostic value */ }
+        }
+      }
+      return next;
+    });
   }
   if (error instanceof ModelReferenceError) {
-    return [modelRepairIssueFromReferenceError(error, [])];
+    const errorPath = (error as ModelReferenceError & { path?: unknown }).path;
+    const path = Array.isArray(errorPath)
+      ? errorPath.filter((segment): segment is string | number => typeof segment === "string" || typeof segment === "number")
+      : [];
+    const issue = modelRepairIssueFromReferenceError(error, path);
+    if (!actionResolver) return [issue];
+    return [{
+      ...issue,
+      allowedHandles: issue.allowedHandles.flatMap((handle) => handle.startsWith("candidate_")
+        ? [handle]
+        : (() => { try { return [actionResolver.candidateKeyForHandle(handle as never)]; } catch { return []; } })()),
+    }];
   }
   if (error instanceof z.ZodError) {
     const poolIssue = error.issues.find((issue) =>
-      issue.path.includes("sharedResourceClaims") && (issue.path.includes("poolId") || issue.path.includes("resourcePoolRef")));
+      issue.path.includes("sharedResourceClaims") && (issue.path.includes("poolId") || issue.path.includes("resourcePoolRef") || issue.path.includes("resourcePoolCandidateKey")));
     if (poolIssue) {
       return [
         compilationIssue({
@@ -382,7 +607,7 @@ function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
           class: "reference",
           path: modelIssuePath(poolIssue.path),
           originalValue: poolIssue.input,
-          reason: "resourcePoolRef must be an exact shared-resource-pool handle from referenceCatalog; use [] when no listed pool is justified.",
+          reason: "resourcePoolCandidateKey must be copied from a shared-resource-pool candidate; use [] when no listed pool is justified.",
         }),
       ];
     }
@@ -432,7 +657,7 @@ function actionCompilationSlotIssues(error: unknown): ModelRepairIssue[] {
         class: "mechanic",
         path: ["temporalPlan", "continuationAssertions"],
         originalValue: [],
-        reason: "The selected conditional temporal profile requires at least one continuation assertion grounded in exact catalog handles. Preserve the selected profile and describe the still-pending world condition; do not return an empty array or invent a reference.",
+        reason: "The selected conditional temporal profile requires at least one continuation assertion grounded in exact catalog candidate keys. Preserve the selected profile and describe the still-pending world condition; do not return an empty array or invent a reference.",
       }),
     ];
   }
@@ -443,7 +668,7 @@ function localizedSchemaFailure(
   error: unknown,
   batch: readonly CompilationSlot[],
   state: Readonly<SimulationState>,
-  resolver: ReturnType<typeof actionGroundingReferenceResolver>,
+  resolver: ActionCompilationReferenceResolver,
 ): (EagerSlotAttemptResult<CompiledAction, CompilationPayload, ModelRepairIssue> & {
   contextualCauseRemovals: number;
   normalizedSlots: Array<{ slot: number; result: unknown }>;
@@ -483,7 +708,9 @@ function localizedSchemaFailure(
     }
     const normalized = normalizeActionCompilationContextCauses({
       value: raw,
-      expectedActionRef: resolver.scopedToSlot(index).handleFor("action", slot.payload.action.id),
+      expectedActionRef: resolver.scopedToSlot(index).candidateKeyForHandle(
+        actionGroundingReferenceResolver(state, slot.payload.action, new Map([[slot.payload.action.id, index]])).handleFor("action", slot.payload.action.id),
+      ),
     });
     contextualCauseRemovals += normalized.removedCount;
     const parsed = actionCompilationSlotSchema.safeParse(normalized.value);
@@ -496,14 +723,21 @@ function localizedSchemaFailure(
     }
     normalizedSlots.push({ slot: parsed.data.slot, result: parsed.data });
     try {
+      const slotResolver = resolver.scopedToSlot(index);
+      const materialized = materializeActionCompilationCandidateKeys({ value: parsed.data, resolver: slotResolver });
       accepted.push({
         key: slot.key,
-        result: materializeCompilation(state, slot.payload.action, parsed.data, resolver.scopedToSlot(index)),
+        result: materializeCompilation(
+          state,
+          slot.payload.action,
+          materialized.draft,
+          actionGroundingReferenceResolver(state, batch.map((entry) => entry.payload.action), new Map(batch.map((entry, slotIndex) => [entry.payload.action.id, slotIndex]))).scopedToSlot(index),
+        ),
       });
     } catch (materializationError) {
       rejected.push({
         slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(parsed.data) } },
-        issues: actionCompilationSlotIssues(materializationError),
+        issues: actionCompilationSlotIssues(materializationError, resolver.scopedToSlot(index)),
       });
     }
   }
@@ -553,6 +787,7 @@ function materializeCompilation(
     conditionalProfileHandles: new Set(Object.values(state.truth.mechanics.temporalProfiles)
       .filter((entry) => entry.kind === "conditional")
       .map((entry) => resolver.handleFor("temporal_profile", entry.id))),
+    requiredActionHandle: resolver.handleFor("action", action.id),
   });
   if (fieldIssues.length > 0) throw new ActionCompilationValidationError(fieldIssues);
   const profileId = resolver.resolve(normalizedDraft.temporalPlan.profileRef, "profile").engineId;
@@ -718,8 +953,22 @@ export async function compileActions(
         true,
       ).referenceResolver;
       const batchResolver = actionCompilationRepairResolver(fullBatchResolver, batch);
+      const batchActionResolver = createActionCompilationReferenceResolver(batchResolver, fullBatchResolver);
+      const fullBatchActionResolver = createActionCompilationReferenceResolver(fullBatchResolver, fullBatchResolver);
       const context = actionCompilationContext(state, batch, scope, fullBatchResolver);
       emitActionCompilationContextProjection(scope, owner, identity, context);
+      emitActionCompilationReferenceAudit(
+        scope,
+        owner,
+        identity,
+        actionCompilationReferenceAudit({
+          state,
+          batch,
+          context,
+          actionResolver: fullBatchActionResolver,
+          handleResolver: fullBatchResolver,
+        }),
+      );
       let generated;
       try {
         generated = await provider.generateStructured({
@@ -742,7 +991,7 @@ export async function compileActions(
         assertSlotCoverage(batch, generated.value.slots);
       } catch (error) {
         if (isTerminalEagerModelError(error)) throw error;
-        const localized = localizedSchemaFailure(error, batch, state, batchResolver);
+        const localized = localizedSchemaFailure(error, batch, state, batchActionResolver);
         if (localized) {
           const invocationAudit = localized.audit.invocations.at(-1);
           if (invocationAudit && localized.contextualCauseRemovals > 0) {
@@ -810,6 +1059,7 @@ export async function compileActions(
       const accepted: Array<{ key: string; result: CompiledAction }> = [];
       const rejected: Array<{ slot: CompilationSlot; issues: ModelRepairIssue[] }> = [];
       const normalizedSlots: Array<{ slot: number; result: unknown }> = [];
+      const selectionsBySlot = new Map<number, readonly ActionCompilationSelection[]>();
       let modifiedFieldCount = 0;
       let resolvedReferenceCount = 0;
       let proposalCount = 0;
@@ -822,23 +1072,39 @@ export async function compileActions(
           // output slot so a private candidate from another slot is rejected
           // before domain materialization.
           const slotResolver = batchResolver.scopedToSlot(index);
-          const normalized = normalizeModelOutput(draft, { resolver: slotResolver, dedupeArrays: true });
+          const slotActionResolver = batchActionResolver.scopedToSlot(index);
+          selectionsBySlot.set(index, collectActionCompilationSelections(draft, slotActionResolver));
+          const materialized = materializeActionCompilationCandidateKeys({ value: draft, resolver: slotActionResolver });
+          const normalized = normalizeModelOutput(materialized.draft, { resolver: slotResolver, dedupeArrays: true });
           modifiedFieldCount += normalized.modifiedFieldCount;
-          resolvedReferenceCount += normalized.resolvedReferenceCount;
+          resolvedReferenceCount += materialized.resolvedCandidateCount + normalized.resolvedReferenceCount;
           proposalCount += normalized.proposalCount;
           deduplicatedCount += normalized.deduplicatedCount;
           normalizedSlots.push({ slot: draft.slot, result: normalized.value });
           accepted.push({
             key: slot.key,
-            result: materializeCompilation(state, slot.payload.action, normalized.value, slotResolver),
+            result: materializeCompilation(state, slot.payload.action, normalized.value as ActionCompilationDraft, slotResolver),
           });
         } catch (error) {
           rejected.push({
             slot: { ...slot, payload: { ...slot.payload, previousOutput: structuredClone(draft) } },
-            issues: actionCompilationSlotIssues(error),
+            issues: actionCompilationSlotIssues(error, batchActionResolver.scopedToSlot(index)),
           });
         }
       }
+      emitActionCompilationReferenceAudit(
+        scope,
+        owner,
+        identity,
+        actionCompilationReferenceAudit({
+          state,
+          batch,
+          context,
+          actionResolver: fullBatchActionResolver,
+          handleResolver: fullBatchResolver,
+          selectionsBySlot,
+        }),
+      );
       const invocationAudit = generated.audit.invocations.at(-1);
       if (invocationAudit) {
         invocationAudit.rawOutputHash ??= contentHash(generated.value);

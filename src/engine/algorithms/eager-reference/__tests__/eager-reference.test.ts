@@ -10,7 +10,7 @@ import {
 import { historyReplayBaseHash } from "../../../runtime/history-replay";
 import { replaySimulationState } from "../../../runtime/transaction";
 import type { AgentActionProposal, SimulationState } from "../../../contracts/model";
-import { referenceHandleFor, type ExistingReferenceHandle } from "../../../contracts/model-context";
+import { actionCompilationCandidateKeyForHandle, referenceHandleFor, type ExistingReferenceHandle } from "../../../contracts/model-context";
 import { contentHash } from "../../../models/model-audit";
 import { ModelSemanticRepairError } from "../../../models/model-provider";
 import { SimulationEngine } from "../../../runtime/simulation";
@@ -433,14 +433,14 @@ describe("eager reference safeguards", () => {
     const batchedContext = batchedCompilationRequest?.context as {
       referenceCatalog?: {
         version: number;
-        candidates?: Array<{ handle: string; scope?: { kind: "shared" } | { kind: "slot"; slot: number }; details?: unknown }>;
+        candidates?: Array<{ candidateKey: string; scope?: { kind: "shared" } | { kind: "slot"; slot: number }; details?: unknown }>;
       };
       referenceCatalogs?: unknown[];
       state?: { canonicalTruth?: unknown };
     };
-    expect(batchedContext.referenceCatalog?.version).toBe(2);
+    expect(batchedContext.referenceCatalog?.version).toBe(1);
     expect(batchedContext.referenceCatalog?.candidates?.length).toBeGreaterThan(0);
-    expect(new Set(batchedContext.referenceCatalog?.candidates?.map((candidate) => candidate.handle)).size)
+    expect(new Set(batchedContext.referenceCatalog?.candidates?.map((candidate) => candidate.candidateKey)).size)
       .toBe(batchedContext.referenceCatalog?.candidates?.length);
     expect(batchedContext.referenceCatalog?.candidates?.filter((candidate) => candidate.scope?.kind === "slot"))
       .toEqual(expect.arrayContaining([
@@ -691,10 +691,10 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "action-compilation");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { task: { slots: Array<{ action: { actorRef: string } }> } }).task.slots
-        .map((slot) => slot.action.actorRef.replace(/^ref:agent:/u, "")))).toEqual([
-      ["keeper", "player"],
-      ["keeper"],
+      (request.context as { task: { slots: Array<{ actionReferences: { actor: { agentCandidateKey: string } } }> } }).task.slots
+        .map((slot) => slot.actionReferences.actor.agentCandidateKey))).toEqual([
+      [expect.stringMatching(/^candidate_/u), expect.stringMatching(/^candidate_/u)],
+      [expect.stringMatching(/^candidate_/u)],
     ]);
     const initialContext = requests[0]!.context as {
       referenceCatalog: { candidates: unknown[] };
@@ -707,10 +707,10 @@ describe("eager reference safeguards", () => {
       referenceCatalog: { candidates: unknown[] };
     };
     expect(repairContext.task.slots[0]?.previousAttempt).toEqual(expect.objectContaining({
-      temporalPlan: expect.objectContaining({ profileRef: "ref:temporal_profile:missing-temporal-profile" }),
+      temporalPlan: expect.objectContaining({ profileRef: actionCompilationCandidateKeyForHandle("ref:temporal_profile:missing-temporal-profile") }),
     }));
     expect(repairContext.task.slots[0]?.issue).toEqual(expect.objectContaining({
-      code: "reference.unknown_handle",
+      code: "reference.unknown_candidate_key",
       path: ["temporalPlan", "profileRef"],
     }));
     expect(repairContext.task.slots[0]!.issue.allowedHandles.length).toBeLessThanOrEqual(64);
@@ -825,8 +825,8 @@ describe("eager reference safeguards", () => {
     expect(repairContext).not.toBeNull();
     const issue = repairContext!.task.slots[0]!.issue;
     expect(issue).toMatchObject({
-      code: "reference.disallowed_use",
-      path: ["interactionDependency", "sharedResourceClaims", 0, "resourcePoolRef"],
+      code: "reference.shared_resource_pool_required",
+      path: ["interactionDependency", "sharedResourceClaims", 0, "resourcePoolCandidateKey"],
     });
     expect(issue.allowedHandles.length).toBeLessThanOrEqual(64);
   });

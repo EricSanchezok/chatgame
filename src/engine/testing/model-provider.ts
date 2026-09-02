@@ -16,7 +16,7 @@ import type { ActionCompilationDraft, FootprintRef } from "../runtime/execution"
 import type { ActionTemporalEvidence } from "../mechanics/temporal";
 import type { AgentMindDraftOutput } from "../contracts/llm-schemas";
 import { structuredPromptBytes } from "../prompts";
-import { referenceHandleFor, type ExistingReferenceHandle } from "../contracts/model-context";
+import { actionCompilationCandidateKeyForHandle, referenceHandleFor, type ActionCompilationCandidateKey, type ExistingReferenceHandle } from "../contracts/model-context";
 
 const TEST_PROFILE_IDS = [
   "truth-engine",
@@ -901,6 +901,7 @@ export class ScriptedModelProvider implements StructuredModelProvider {
 interface DeterministicCompilationAction {
   id: string;
   actionRef?: string;
+  actionCandidateKey?: string;
   actorId: string;
   rawText: string;
 }
@@ -912,12 +913,29 @@ interface DeterministicCompilationContextAction {
   actorId?: string;
   actorRef?: string;
   rawText: string;
+  actionCandidateKey?: string;
 }
 
 interface DeterministicCompilationSlot {
   slot: number;
   action: DeterministicCompilationAction;
   temporalEvidence: ActionTemporalEvidence[];
+}
+
+interface DeterministicActionReferenceContext {
+  actionCandidateKey?: string;
+  actor?: {
+    agentCandidateKey?: string;
+    boundEntityCandidateKey?: string;
+  };
+}
+
+interface DeterministicBatchSlot {
+  slot: number;
+  action: DeterministicCompilationContextAction;
+  actionReferences?: DeterministicActionReferenceContext;
+  temporalEvidence?: ActionTemporalEvidence[];
+  temporalProfileEligibility?: Array<{ profileRef?: string; eligible?: boolean }>;
 }
 
 export function deterministicInteractionDependency(
@@ -957,9 +975,17 @@ interface DeterministicMindSlot {
 
 function deterministicActionCompilation(
   action: DeterministicCompilationAction,
-  temporalProfiles: readonly { profileRef?: string; id?: string }[],
+  temporalProfiles: readonly { profileRef?: string; id?: string; kind?: string }[],
+  eligibleProfileRefs?: ReadonlySet<string>,
 ): ActionCompilationDraft {
-  const profile = temporalProfiles[0];
+  const eligibleProfiles = eligibleProfileRefs && eligibleProfileRefs.size > 0
+    ? temporalProfiles.filter((candidate) => {
+        const profileRef = candidate.profileRef ?? (candidate.id ? referenceHandleFor("temporal_profile", candidate.id) : undefined);
+        return profileRef !== undefined && eligibleProfileRefs.has(profileRef);
+      })
+    : temporalProfiles;
+  const profile = eligibleProfiles.find((candidate) => candidate.kind !== "conditional") ?? eligibleProfiles[0] ??
+    temporalProfiles.find((candidate) => candidate.kind !== "conditional") ?? temporalProfiles[0];
   if (!profile) throw new Error("deterministic action compiler has no temporal profile");
   const profileRef = profile.profileRef ?? (profile.id ? referenceHandleFor("temporal_profile", profile.id) : undefined);
   if (!profileRef) throw new Error("deterministic action compiler has no temporal profile reference");
@@ -969,7 +995,8 @@ function deterministicActionCompilation(
       basis: { kind: "profile" },
       description: action.rawText,
       continuationAssertions: [],
-      causes: [{ kind: "action", ref: (action.actionRef as ExistingReferenceHandle | undefined)
+      causes: [{ kind: "action", ref: (action.actionCandidateKey as ExistingReferenceHandle | undefined)
+        ?? (action.actionRef as ExistingReferenceHandle | undefined)
         ?? referenceHandleFor("action", action.id) }],
     },
     interactionDependency: {
@@ -987,6 +1014,65 @@ function deterministicActionCompilation(
   return compilation;
 }
 
+function actionCompilationCandidateKey(value: string): ActionCompilationCandidateKey {
+  return value.startsWith("candidate_")
+    ? value as ActionCompilationCandidateKey
+    : actionCompilationCandidateKeyForHandle(value);
+}
+
+function toActionCompilationModelOutput(compilation: ActionCompilationDraft, actionCandidateKey?: string, actorCandidateKey?: string, actorEntityCandidateKey?: string): Record<string, unknown> {
+  const profileRef = compilation.temporalPlan.profileRef;
+  const currentActionKey = typeof actionCandidateKey === "string" ? actionCandidateKey : undefined;
+  return {
+    temporalPlan: {
+      basis: structuredClone(compilation.temporalPlan.basis),
+      description: compilation.temporalPlan.description,
+      profileRef: actionCompilationCandidateKey(String(profileRef)),
+      causes: compilation.temporalPlan.causes.map((cause) => ({
+        ...cause,
+        ref: cause.kind === "action" && currentActionKey
+          ? currentActionKey
+          : actionCompilationCandidateKey(String(cause.ref)),
+      })),
+      continuationAssertions: compilation.temporalPlan.continuationAssertions.map((assertion) => {
+        const next = structuredClone(assertion) as Record<string, unknown>;
+        for (const [key, value] of Object.entries(next)) {
+          if (typeof value === "string" && value.startsWith("ref:")) next[key] = actionCompilationCandidateKey(value);
+          if (value && typeof value === "object" && !Array.isArray(value)) {
+            const nested = value as Record<string, unknown>;
+            for (const [nestedKey, nestedValue] of Object.entries(nested)) {
+              if (typeof nestedValue === "string" && nestedValue.startsWith("ref:")) nested[nestedKey] = actionCompilationCandidateKey(nestedValue);
+            }
+          }
+        }
+        return next;
+      }),
+    },
+    interactionDependency: {
+      stateDependencies: {
+        requiredExistingCandidateKeys: compilation.interactionDependency.stateDependencies.requiredExistingRefs
+          .map((ref) => (String(ref) === "ref:entity:model-agent" || String(ref) === "ref:agent:model-agent" ||
+            (actorCandidateKey && actionCompilationCandidateKey(String(ref)) === actorCandidateKey)) && actorEntityCandidateKey
+            ? actorEntityCandidateKey as ActionCompilationCandidateKey
+            : actionCompilationCandidateKey(String(ref))),
+        potentiallyAffectedCandidateKeys: compilation.interactionDependency.stateDependencies.potentiallyAffectedExistingRefs
+          .map((ref) => (String(ref) === "ref:entity:model-agent" || String(ref) === "ref:agent:model-agent" ||
+            (actorCandidateKey && actionCompilationCandidateKey(String(ref)) === actorCandidateKey)) && actorEntityCandidateKey
+            ? actorEntityCandidateKey as ActionCompilationCandidateKey
+            : actionCompilationCandidateKey(String(ref))),
+      },
+      audienceAgentCandidateKeys: compilation.interactionDependency.audienceAgentRefs
+        .map((ref) => String(ref) === "ref:agent:model-agent" && actorCandidateKey
+          ? actorCandidateKey as ActionCompilationCandidateKey
+          : actionCompilationCandidateKey(String(ref))),
+      sharedResourceClaims: compilation.interactionDependency.sharedResourceClaims.map((claim) => ({
+        resourcePoolCandidateKey: actionCompilationCandidateKey(String(claim.resourcePoolRef)),
+        basis: structuredClone(claim.basis),
+      })),
+    },
+  };
+}
+
 export function deterministicGlobalActionCompilationBatch(
   profileId: string,
   context: unknown,
@@ -997,18 +1083,17 @@ export function deterministicGlobalActionCompilationBatch(
   ) => void,
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   return deterministicActionCompilationBatch(profileId, context, (compilation, slot) => {
-    const envelope = context as {
-      referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> };
-      referenceCatalogs?: Array<{ slot: number; catalog?: { candidates?: Array<{ kind: string; handle: string }> } }>;
-      sharedContext?: { referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> } };
+      const envelope = context as {
+      referenceCatalog?: { candidates?: Array<{ kind: string; label?: string; details?: unknown; handle?: string; candidateKey?: string }> };
+      referenceCatalogs?: Array<{ slot: number; catalog?: { candidates?: Array<{ kind: string; label?: string; details?: unknown; handle?: string; candidateKey?: string }> } }>;
+      sharedContext?: { referenceCatalog?: { candidates?: Array<{ kind: string; label?: string; details?: unknown; handle?: string; candidateKey?: string }> } };
     };
     const candidates = envelope.referenceCatalogs?.find((entry) => entry.slot === slot.slot)?.catalog?.candidates
       ?? envelope.referenceCatalog?.candidates
       ?? envelope.sharedContext?.referenceCatalog?.candidates
       ?? [];
-    const worldHandle = candidates.find((candidate) => candidate.kind === "world")?.handle;
-    if (!worldHandle) throw new Error("deterministic global action compiler requires a world reference handle");
-    const handle = worldHandle as ExistingReferenceHandle;
+    const worldCandidate = candidates.find((candidate) => candidate.kind === "world");
+    const handle = (worldCandidate?.handle ?? worldCandidate?.candidateKey ?? "ref:world:world") as ExistingReferenceHandle;
     compilation.interactionDependency.stateDependencies.requiredExistingRefs = [handle];
     compilation.interactionDependency.stateDependencies.potentiallyAffectedExistingRefs = [handle];
     customize?.(compilation, slot, context);
@@ -1026,40 +1111,66 @@ export function deterministicActionCompilationBatch(
 ): { slots: Array<ActionCompilationDraft & { slot: number }> } {
   void profileId;
   const input = context as {
-    task?: { slots?: Array<{ slot: number; assignment?: unknown; action?: DeterministicCompilationContextAction }> };
-    referenceCatalog?: { candidates?: Array<{ kind: string; handle: string }> };
-    slots?: Array<{ slot: number; action: DeterministicCompilationContextAction }>;
-    state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }>; slots?: Array<{ slot: number; action: DeterministicCompilationContextAction; temporalEvidence?: ActionTemporalEvidence[] }> };
-    sharedContext?: { state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string }> } };
+    task?: { slots?: Array<{ slot: number; assignment?: unknown; action?: DeterministicCompilationContextAction; actionReferences?: DeterministicActionReferenceContext; temporalEvidence?: ActionTemporalEvidence[] }> };
+    referenceCatalog?: { candidates?: Array<{ kind: string; label?: string; details?: unknown; handle?: string; candidateKey?: string }> };
+    slots?: DeterministicBatchSlot[];
+    state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string; kind?: string }>; slots?: DeterministicBatchSlot[] };
+    sharedContext?: { state?: { temporalProfiles?: Array<{ profileRef?: string; id?: string; kind?: string }> } };
   };
-  const slots = input.state?.slots ?? input.slots ?? input.task?.slots
-    ?.filter((slot): slot is { slot: number; action: DeterministicCompilationContextAction } => Boolean(slot.action));
+  const slots: DeterministicBatchSlot[] | undefined = input.state?.slots ?? input.slots ?? input.task?.slots
+    ?.filter((slot): slot is DeterministicBatchSlot => Boolean(slot.action));
   const temporalProfiles = input.state?.temporalProfiles ?? input.sharedContext?.state?.temporalProfiles ??
     input.referenceCatalog?.candidates
       ?.filter((entry) => entry.kind === "temporal_profile")
-      .map((entry) => ({ profileRef: entry.handle }));
+      .map((entry) => ({
+        profileRef: entry.candidateKey ?? entry.handle,
+        kind: entry.details && typeof entry.details === "object" && "kind" in entry.details
+          ? String((entry.details as { kind?: unknown }).kind)
+          : undefined,
+      }));
   if (!slots || !temporalProfiles) {
     throw new Error("deterministic action compiler expected a slot batch");
   }
   return {
     slots: slots.map((slot) => {
-      const actionReference = slot.action.id ?? slot.action.actionRef;
+      const actionReference = slot.action.id ?? slot.action.actionRef ?? slot.action.actionCandidateKey ?? slot.actionReferences?.actionCandidateKey;
       const actorReference = slot.action.actorId ?? slot.action.actorRef;
+      const actorKey = slot.actionReferences?.actor?.agentCandidateKey;
+      const catalogCandidates = (input.referenceCatalog?.candidates ?? []);
+      const actorLabel = typeof actorKey === "string"
+        ? catalogCandidates.find((candidate) => candidate.candidateKey === actorKey)?.label
+        : undefined;
       const actionId = typeof actionReference === "string"
         ? actionReference.replace(/^ref:action:/u, "")
         : actionReference;
       const actorId = typeof actorReference === "string"
         ? actorReference.replace(/^ref:agent:/u, "")
-        : actorReference ?? "model-agent";
+        : actorLabel ?? actorReference ?? "model-agent";
       if (!actionId) throw new Error("deterministic action compiler requires an action reference");
       const fixtureSlot = {
         ...slot,
-        action: { ...slot.action, id: actionId, actorId },
+        action: {
+          ...slot.action,
+          id: actionId.startsWith("candidate_") ? "deterministic-action" : actionId,
+          actionCandidateKey: actionReference?.startsWith("candidate_") ? actionReference : undefined,
+          actorId,
+        },
         temporalEvidence: structuredClone("temporalEvidence" in slot ? slot.temporalEvidence ?? [] : []),
       } as DeterministicCompilationSlot;
-      const compilation = deterministicActionCompilation(fixtureSlot.action, temporalProfiles);
+      const eligibleProfileRefs = new Set((slot.temporalProfileEligibility ?? [])
+        .filter((entry) => entry.eligible === true && typeof entry.profileRef === "string")
+        .map((entry) => entry.profileRef as string));
+      const compilation = deterministicActionCompilation(fixtureSlot.action, temporalProfiles, eligibleProfileRefs.size > 0 ? eligibleProfileRefs : undefined);
       customize?.(compilation, fixtureSlot, context);
-      return { slot: fixtureSlot.slot, ...compilation };
+      const actionReferences = slot.actionReferences;
+      const actorCandidateKey = typeof actionReferences?.actor?.agentCandidateKey === "string"
+        ? actionReferences.actor.agentCandidateKey
+        : undefined;
+      const actorEntityCandidateKey = typeof actionReferences?.actor?.boundEntityCandidateKey === "string"
+        ? actionReferences.actor.boundEntityCandidateKey
+        : undefined;
+      const output = { slot: fixtureSlot.slot, ...toActionCompilationModelOutput(compilation, fixtureSlot.action.actionCandidateKey, actorCandidateKey, actorEntityCandidateKey) } as never;
+      return output;
     }),
   };
 }

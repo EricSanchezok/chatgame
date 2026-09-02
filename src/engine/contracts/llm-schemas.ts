@@ -39,6 +39,8 @@ import {
   runtimeIdSchema,
 } from "./state-schemas";
 import {
+  actionCompilationCandidateKeySchema,
+  type ActionCompilationCandidateKey,
   existingReferenceHandleSchema,
   modelReferenceSchema,
   modelReferenceSchemaFor,
@@ -1086,6 +1088,66 @@ const sharedActivityResourceClaimDraftSchema = z.strictObject({
   ]),
 });
 
+const actionCompilationCausalRefSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("action"), ref: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("check"), ref: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("random"), ref: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("event"), ref: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("fact"), ref: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("law"), ref: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("mechanic"), ref: actionCompilationCandidateKeySchema }),
+]);
+
+const actionCompilationFactValueSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("text"), value: z.string() }),
+  z.strictObject({ kind: z.literal("number"), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("boolean"), value: z.boolean() }),
+  z.strictObject({ kind: z.literal("entity"), entityRef: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("none") }),
+]);
+
+const actionCompilationCausalAssertionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("check_result"), checkRef: actionCompilationCandidateKeySchema, expected: z.enum(["succeeded", "failed"]) }),
+  z.strictObject({ kind: z.literal("random_result"), requestRef: actionCompilationCandidateKeySchema, stepRef: actionCompilationCandidateKeySchema, expected: z.json() }),
+  z.strictObject({ kind: z.literal("fact_matches"), factRef: actionCompilationCandidateKeySchema, expected: actionCompilationFactValueSchema }),
+  z.strictObject({ kind: z.literal("fact_absent"), factRef: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("entity_absent"), entityRef: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("entity_lifecycle"), entityRef: actionCompilationCandidateKeySchema, expected: z.enum(["active", "retired"]) }),
+  z.strictObject({ kind: z.literal("placement_equals"), entityRef: actionCompilationCandidateKeySchema, placementRef: actionCompilationCandidateKeySchema.nullable() }),
+  z.strictObject({ kind: z.literal("placement_not_equals"), entityRef: actionCompilationCandidateKeySchema, placementRef: actionCompilationCandidateKeySchema.nullable() }),
+  z.strictObject({ kind: z.literal("shared_placement"), leftEntityRef: actionCompilationCandidateKeySchema, rightEntityRef: actionCompilationCandidateKeySchema }),
+  z.strictObject({ kind: z.literal("meter_compare"), meterRef: actionCompilationCandidateKeySchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("quantity_compare"), quantityRef: actionCompilationCandidateKeySchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("rating_compare"), ratingRef: actionCompilationCandidateKeySchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("shared_resource_capacity_compare"), poolRef: actionCompilationCandidateKeySchema, operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+  z.strictObject({ kind: z.literal("elapsed_seconds_compare"), operator: z.enum(["eq", "ne", "lt", "lte", "gt", "gte"]), value: z.number().finite() }),
+]);
+
+export type ActionCompilationCausalAssertion = z.infer<typeof actionCompilationCausalAssertionSchema>;
+
+export interface ActionCompilationModelOutput {
+  temporalPlan: {
+    profileRef: ActionCompilationCandidateKey;
+    basis: import("../mechanics/temporal").ModelTemporalPlanBasis;
+    description: string;
+    continuationAssertions: ActionCompilationCausalAssertion[];
+    causes: Array<{ kind: "action" | "check" | "random" | "event" | "fact" | "law" | "mechanic"; ref: ActionCompilationCandidateKey }>;
+  };
+  interactionDependency: {
+    stateDependencies: {
+      requiredExistingCandidateKeys: ActionCompilationCandidateKey[];
+      potentiallyAffectedCandidateKeys: ActionCompilationCandidateKey[];
+    };
+    audienceAgentCandidateKeys: ActionCompilationCandidateKey[];
+    sharedResourceClaims: Array<{
+      resourcePoolCandidateKey: ActionCompilationCandidateKey;
+      basis:
+        | { kind: "default" }
+        | { kind: "explicit_quantity"; amount: number; unit: string; sourceText: string };
+    }>;
+  };
+}
+
 export const actionGroundingSchema = z.strictObject({
   stateDependencies: z.strictObject({
     requiredExistingRefs: z.array(existingReferenceHandleSchema),
@@ -1096,7 +1158,7 @@ export const actionGroundingSchema = z.strictObject({
 }) as z.ZodType<ActionCompilationDraft["interactionDependency"]>;
 
 export const temporalPlanDraftSchema = z.strictObject({
-  profileRef: modelReferenceSchema,
+  profileRef: actionCompilationCandidateKeySchema,
   basis: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("profile") }),
     z.strictObject({
@@ -1105,19 +1167,39 @@ export const temporalPlanDraftSchema = z.strictObject({
     }),
   ]),
   description: z.string().min(1),
-  continuationAssertions: z.array(modelCausalAssertionSchema),
-  causes: z.array(modelCausalRefSchema).min(1),
-}) as unknown as z.ZodType<ActionCompilationDraft["temporalPlan"]>;
+  continuationAssertions: z.array(actionCompilationCausalAssertionSchema),
+  causes: z.array(actionCompilationCausalRefSchema).min(1),
+}) as unknown as z.ZodType<ActionCompilationModelOutput["temporalPlan"]>;
 
 export interface ActionCompilationBatchDraft {
-  slots: Array<ActionCompilationDraft & { slot: number }>;
+  slots: Array<ActionCompilationModelOutput & { slot: number }>;
 }
+
+const actionCompilationDependencySchema = z.strictObject({
+  stateDependencies: z.strictObject({
+    requiredExistingCandidateKeys: z.array(actionCompilationCandidateKeySchema),
+    potentiallyAffectedCandidateKeys: z.array(actionCompilationCandidateKeySchema),
+  }),
+  audienceAgentCandidateKeys: z.array(actionCompilationCandidateKeySchema),
+  sharedResourceClaims: z.array(z.strictObject({
+    resourcePoolCandidateKey: actionCompilationCandidateKeySchema,
+    basis: z.discriminatedUnion("kind", [
+      z.strictObject({ kind: z.literal("default") }),
+      z.strictObject({
+        kind: z.literal("explicit_quantity"),
+        amount: z.number().positive().finite(),
+        unit: z.string().min(1),
+        sourceText: z.string().min(1),
+      }),
+    ]),
+  })),
+});
 
 export const actionCompilationSlotSchema = z.strictObject({
   slot: z.number().int().nonnegative(),
   temporalPlan: temporalPlanDraftSchema,
-  interactionDependency: actionGroundingSchema,
-});
+  interactionDependency: actionCompilationDependencySchema,
+}) as z.ZodType<ActionCompilationModelOutput & { slot: number }>;
 
 export const actionCompilationBatchSchema = z.strictObject({
   slots: z.array(actionCompilationSlotSchema),

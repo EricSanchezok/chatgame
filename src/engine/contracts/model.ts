@@ -1065,6 +1065,58 @@ export interface ModelNormalizationSummary {
   deduplicatedCount: number;
 }
 
+/** Trusted Inspector evidence for the Action Compilation reference boundary.
+ * This is emitted only in full runtime traces; the model-facing context keeps
+ * the same records opaque by exposing candidate keys instead of these handles.
+ */
+export interface ActionCompilationReferenceAudit {
+  protocolVersion: 1;
+  projection: "candidate-key-v1-deterministic-details";
+  context: {
+    utf8Bytes: number;
+    referenceCatalogUtf8Bytes: number;
+    slots: number;
+    candidates: number;
+    detailedCandidates: number;
+    duplicateSemanticDefinitionCount: number;
+    canonicalRefSerializedCount: number;
+    rawPrivateReferenceSerializedCount: number;
+  };
+  slots: Array<{
+    slot: number;
+    actionId: string;
+    actionLabel: string;
+    actionCandidateKey: string;
+    actor: {
+      agentId: string;
+      entityId: string | null;
+      status: "unique" | "stale";
+      agentCandidateKey: string | null;
+      boundEntityCandidateKey: string | null;
+      agentHandle: string | null;
+      entityHandle: string | null;
+    };
+    targets: Array<{
+      targetIndex: number;
+      localReference: string;
+      label: string | null;
+      status: "unique" | "ambiguous" | "unresolved" | "stale";
+      canonicalEntityIds: string[];
+      canonicalCandidateKeys: string[];
+      canonicalHandles: string[];
+    }>;
+    selections: Array<{
+      path: Array<string | number>;
+      use: string;
+      candidateKey: string;
+      engineHandle: string | null;
+      kind: string | null;
+      status: "resolved" | "invalid";
+      reason?: string;
+    }>;
+  }>;
+}
+
 export interface ModelInvocationAudit {
   id: string;
   ordinal: number;

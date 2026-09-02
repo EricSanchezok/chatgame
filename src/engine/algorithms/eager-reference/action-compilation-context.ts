@@ -1,9 +1,11 @@
 import { contentHash } from "../../models/model-audit";
+import { actionCompilationCandidateKeyForHandle } from "../../contracts/model-context";
 
 type JsonRecord = Record<string, unknown>;
 
 interface CandidateRecord extends JsonRecord {
   handle: string;
+  candidateKey: string;
   kind: string;
   label: string;
   meaning?: string;
@@ -18,7 +20,7 @@ export interface ActionCompilationProjectedContext extends JsonRecord {
   referenceCatalog: {
     version: number;
     hash: string;
-    candidates: CandidateRecord[];
+    candidates: Array<Omit<CandidateRecord, "handle" | "visibility" | "slot">>;
   };
   task: { slots: JsonRecord[] };
   temporalCalibrations: unknown[];
@@ -38,7 +40,12 @@ function candidate(value: unknown): CandidateRecord | null {
   const input = record(value);
   return input && typeof input.handle === "string" && typeof input.kind === "string" &&
     typeof input.label === "string"
-    ? input as CandidateRecord
+    ? {
+        ...input,
+        candidateKey: typeof input.candidateKey === "string"
+          ? input.candidateKey
+          : actionCompilationCandidateKeyForHandle(input.handle),
+      } as CandidateRecord
     : null;
 }
 
@@ -49,11 +56,14 @@ function withoutKeys(value: JsonRecord, keys: readonly string[]): JsonRecord {
 function normalizedCandidate(value: CandidateRecord, enclosingSlot?: number): CandidateRecord {
   const slot = typeof value.slot === "number"
     ? value.slot
-    : value.visibility === "slot"
-      ? enclosingSlot
-      : undefined;
+    : value.scope?.kind === "slot"
+      ? value.scope.slot
+      : value.visibility === "slot"
+        ? enclosingSlot
+        : undefined;
   return {
     handle: value.handle,
+    candidateKey: value.candidateKey,
     kind: value.kind,
     label: value.label,
     meaning: typeof value.meaning === "string" ? value.meaning : "",
@@ -65,29 +75,24 @@ function normalizedCandidate(value: CandidateRecord, enclosingSlot?: number): Ca
 
 function mergedCandidates(context: JsonRecord): CandidateRecord[] {
   const byHandle = new Map<string, CandidateRecord>();
-  const add = (value: unknown, enclosingSlot?: number): void => {
+  const catalog = record(context.referenceCatalog);
+  array(catalog?.candidates).forEach((value) => {
     const input = candidate(value);
     if (!input) return;
-    const normalized = normalizedCandidate(input, enclosingSlot);
+    const normalized = normalizedCandidate(input);
     const existing = byHandle.get(normalized.handle);
     if (!existing) {
       byHandle.set(normalized.handle, normalized);
       return;
     }
-    if (JSON.stringify(existing) !== JSON.stringify(normalized) &&
-      existing.scope?.kind === "slot" && normalized.scope?.kind === "slot" &&
+    if (existing.scope?.kind === "slot" && normalized.scope?.kind === "slot" &&
       existing.scope.slot !== normalized.scope.slot) {
       throw new Error(`candidate ${normalized.handle} is private to more than one slot`);
     }
     if (existing.details == null && normalized.details != null) existing.details = normalized.details;
-  };
-  array(record(context.referenceCatalog)?.candidates).forEach((value) => add(value));
-  array(context.referenceCatalogs).forEach((entry) => {
-    const item = record(entry);
-    const slot = typeof item?.slot === "number" ? item.slot : undefined;
-    array(record(item?.catalog)?.candidates).forEach((value) => add(value, slot));
+    existing.allowedUses = [...new Set([...(existing.allowedUses ?? []), ...(normalized.allowedUses ?? [])])].sort();
   });
-  return [...byHandle.values()].sort((left, right) => left.handle.localeCompare(right.handle));
+  return [...byHandle.values()].sort((left, right) => left.candidateKey.localeCompare(right.candidateKey));
 }
 
 function registerDetails(details: Map<string, unknown>, value: unknown): void {
@@ -251,29 +256,80 @@ function deterministicDetailHandles(
   return selected;
 }
 
+function mapExactReferences(value: unknown, byHandle: ReadonlyMap<string, string>): unknown {
+  if (typeof value === "string") return byHandle.get(value) ?? (value.startsWith("ref:") ? null : value);
+  if (Array.isArray(value)) return value.map((entry) => mapExactReferences(entry, byHandle));
+  const item = record(value);
+  if (!item) return value;
+  return Object.fromEntries(Object.entries(item).map(([key, child]) => [key, mapExactReferences(child, byHandle)]));
+}
+
+function countReferenceKinds(value: unknown): { canonical: number; private: number } {
+  let canonical = 0;
+  let privateCount = 0;
+  const visit = (entry: unknown): void => {
+    if (typeof entry === "string") {
+      if (entry.startsWith("ref:")) {
+        canonical += 1;
+        if (entry.startsWith("ref:local_entity:")) privateCount += 1;
+      }
+      return;
+    }
+    if (Array.isArray(entry)) { entry.forEach(visit); return; }
+    const object = record(entry);
+    if (object) Object.values(object).forEach(visit);
+  };
+  visit(value);
+  return { canonical, private: privateCount };
+}
+
+function duplicateSemanticDefinitionCount(candidates: readonly JsonRecord[]): number {
+  const signatures = new Map<string, number>();
+  for (const entry of candidates) {
+    const signature = JSON.stringify({
+      candidateKey: entry.candidateKey,
+      kind: entry.kind,
+      label: entry.label,
+      meaning: entry.meaning ?? "",
+      details: entry.details ?? null,
+    });
+    signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+  }
+  return [...signatures.values()].reduce((total, count) => total + Math.max(0, count - 1), 0);
+}
+
 export function projectActionCompilationContextForModel(input: unknown): ActionCompilationProjectedContext {
   const context = record(input);
   if (!context) throw new Error("Action Compilation context must be an object");
   const candidates = mergedCandidates(context);
   const details = completeDetails(context, candidates);
   const selected = deterministicDetailHandles(context, candidates, details);
+  const byHandle = new Map(candidates.map((entry) => [entry.handle, entry.candidateKey]));
   const projectedCandidates = candidates.map((entry) => ({
-    ...entry,
-    details: selected.has(entry.handle) ? structuredClone(details.get(entry.handle) ?? null) : null,
+    candidateKey: entry.candidateKey,
+    kind: entry.kind,
+    label: entry.label,
+    meaning: entry.meaning ?? "",
+    allowedUses: [...(entry.allowedUses ?? [])],
+    scope: entry.scope ?? { kind: "shared" as const },
+    details: selected.has(entry.handle)
+      ? mapExactReferences(structuredClone(details.get(entry.handle) ?? null), new Map(candidates.map((candidate) => [candidate.handle, candidate.candidateKey])))
+      : null,
   }));
-  const output = withoutKeys(structuredClone(context), ["referenceCatalogs"]);
+  const mappedContext = mapExactReferences(structuredClone(context), byHandle) as JsonRecord;
+  const output = withoutKeys(mappedContext, ["referenceCatalogs"]);
   output.referenceCatalog = {
-    version: 2,
+    version: 1,
     hash: contentHash(projectedCandidates),
     candidates: projectedCandidates,
   };
   const state = record(output.state) ?? {};
-  const detailedProfileHandles = new Set(projectedCandidates
+  const detailedProfileKeys = new Set(projectedCandidates
     .filter((entry) => entry.kind === "temporal_profile" && entry.details != null)
-    .map((entry) => entry.handle));
+    .map((entry) => entry.candidateKey));
   output.temporalCalibrations = array(state.temporalCalibrations).filter((value) => {
     const profileRef = record(value)?.profileRef;
-    return typeof profileRef !== "string" || detailedProfileHandles.has(profileRef);
+    return typeof profileRef !== "string" || detailedProfileKeys.has(profileRef);
   });
   const task = record(compactRepairDiagnostics(output.task, "task")) ?? {};
   const taskSlots = array(task.slots).map((value) => record(value) ?? {});
@@ -300,14 +356,22 @@ export function actionCompilationContextProjectionMetrics(context: unknown): {
   candidates: number;
   detailedCandidates: number;
   slots: number;
+  duplicateSemanticDefinitionCount: number;
+  canonicalRefSerializedCount: number;
+  rawPrivateReferenceSerializedCount: number;
 } {
   const root = record(context) ?? {};
-  const candidates = array(record(root.referenceCatalog)?.candidates)
-    .map(candidate).filter((entry): entry is CandidateRecord => entry !== null);
+  const candidates = array(record(root.referenceCatalog)?.candidates);
+  const refs = countReferenceKinds(context);
   return {
     bytes: Buffer.byteLength(JSON.stringify(context), "utf8"),
     candidates: candidates.length,
-    detailedCandidates: candidates.filter((entry) => entry.details != null).length,
+    detailedCandidates: candidates.filter((entry) => record(entry)?.details != null).length,
     slots: array(record(root.task)?.slots).length,
+    duplicateSemanticDefinitionCount: duplicateSemanticDefinitionCount(candidates
+      .map((entry) => record(entry))
+      .filter((entry): entry is JsonRecord => entry !== null)),
+    canonicalRefSerializedCount: refs.canonical,
+    rawPrivateReferenceSerializedCount: refs.private,
   };
 }

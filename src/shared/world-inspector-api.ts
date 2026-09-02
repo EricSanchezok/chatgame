@@ -1,5 +1,6 @@
 import type {
   AgentState,
+  ActionCompilationReferenceAudit,
   CanonicalWorldState,
   CommittedStep,
   ModelExecutionAudit,
@@ -190,6 +191,8 @@ export interface WorldInspectorModelInvocationSummary {
   referenceCatalogHash: string;
   rawOutputHash: string | null;
   normalizedOutputHash: string | null;
+  /** Trusted-only Action Compilation evidence; never included in model context. */
+  actionCompilationReferenceAudit?: ActionCompilationReferenceAudit;
   errorMessage?: string;
   hasPayload: boolean;
 }

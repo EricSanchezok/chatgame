@@ -12,6 +12,9 @@ export const MODEL_CONTEXT_CONTRACT_VERSION = 14 as const;
 export const MODEL_REFERENCE_CATALOG_VERSION = 2 as const;
 
 export type ExistingReferenceHandle = string & { readonly __existingReferenceHandle: unique symbol };
+/** A compact Action Compilation-only reference key. It is request-local and
+ * intentionally has no canonical identity semantics. */
+export type ActionCompilationCandidateKey = string & { readonly __actionCompilationCandidateKey: unique symbol };
 export type ProposalKey = string & { readonly __proposalKey: unique symbol };
 export interface ProposalReference {
   proposalKey: ProposalKey;
@@ -29,6 +32,11 @@ export const existingReferenceHandleSchema = z.string().regex(
   /^ref:[\p{L}\p{N}_:-]+$/u,
   "must be a handle from the request reference catalog",
 ) as unknown as z.ZodType<ExistingReferenceHandle>;
+
+export const actionCompilationCandidateKeySchema = z.string().regex(
+  /^candidate_[A-Za-z0-9_-]{8,96}$/u,
+  "must be a candidateKey from the current Action Compilation catalog",
+) as unknown as z.ZodType<ActionCompilationCandidateKey>;
 
 export const proposalKeySchema = z.string().min(1).max(128).refine(
   (value) => value === value.normalize("NFC") && value === value.trim() && !/\p{Cc}/u.test(value),
@@ -146,6 +154,22 @@ export interface ModelReferenceCatalog {
   candidates: readonly ModelReferenceCandidate[];
 }
 
+export interface ActionCompilationReferenceCandidate {
+  candidateKey: ActionCompilationCandidateKey;
+  kind: ModelReferenceKind;
+  label: string;
+  meaning: string;
+  allowedUses: readonly ModelReferenceUse[];
+  scope: { kind: "shared" } | { kind: "slot"; slot: number };
+  details: unknown;
+}
+
+export interface ActionCompilationReferenceCatalog {
+  version: 1;
+  hash: string;
+  candidates: readonly ActionCompilationReferenceCandidate[];
+}
+
 export interface ModelRoleContract {
   role: string;
   purpose: string;
@@ -190,9 +214,9 @@ export function modelRoleContract(role: string): ModelRoleContract {
       purpose: "choose an authored temporal profile and describe the existing state footprint for each assigned action",
       modelOwns: ["temporal profile selection", "semantic dependency and resource evidence"],
       engineOwns: ["slot identity", "action identity", "canonical IDs", "state changes", "final conflict validation"],
-      existingReferenceRule: "select shared handles and only this slot's private handles from the batch catalog",
-      proposalRule: "action compilation does not create canonical records; do not use proposalKey",
-      failureRule: "leave uncertain handles out and report the exact slot issue for targeted repair",
+      existingReferenceRule: "select opaque candidateKey values from the single shared catalog; use only shared candidates or this slot's candidates",
+      proposalRule: "action compilation does not create canonical records; do not use proposalKey or raw ref strings",
+      failureRule: "leave uncertain candidate keys out and report the exact slot issue for targeted repair",
     },
     "action-grounding": {
       role,
@@ -400,6 +424,18 @@ export interface ReferenceResolver {
   narrow(predicate: (candidate: ReferenceCandidateInput) => boolean): ReferenceResolver;
 }
 
+/** Bridges the compact Action Compilation vocabulary to the engine's existing
+ * request-local resolver. The model only receives candidate keys; the engine
+ * is the sole owner of canonical handle materialization. */
+export interface ActionCompilationReferenceResolver {
+  readonly catalog: ActionCompilationReferenceCatalog;
+  candidateKeyForHandle(handle: ExistingReferenceHandle): ActionCompilationCandidateKey;
+  handleForCandidateKey(candidateKey: string, use?: ModelReferenceUse): ExistingReferenceHandle;
+  resolve(candidateKey: string, use?: ModelReferenceUse): ReferenceResolution;
+  candidatesFor(use: ModelReferenceUse): readonly ActionCompilationReferenceCandidate[];
+  scopedToSlot(slot: number): ActionCompilationReferenceResolver;
+}
+
 export interface ReferenceCandidateInput {
   kind: ModelReferenceKind;
   engineId: string;
@@ -425,6 +461,28 @@ function handleDigest(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function candidateKeyDigest(value: string): string {
+  // Two independent 32-bit FNV streams keep the compact model key stable
+  // without exposing the request-local handle or relying on a collision-prone
+  // short index when a repair narrows the visible catalog.
+  let left = 2166136261;
+  let right = 2246822519;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    left ^= code;
+    left = Math.imul(left, 16777619);
+    right ^= code + index;
+    right = Math.imul(right, 3266489917);
+  }
+  return `${(left >>> 0).toString(16).padStart(8, "0")}${(right >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function actionCompilationCandidateKeyForHandle(
+  handle: ExistingReferenceHandle | string,
+): ActionCompilationCandidateKey {
+  return `candidate_${candidateKeyDigest(handle)}` as ActionCompilationCandidateKey;
 }
 
 export function referenceHandleFor(kind: ModelReferenceKind, engineId: string): ExistingReferenceHandle {
@@ -568,6 +626,138 @@ export function createReferenceResolver(
     };
   };
   return buildResolver();
+}
+
+export function createActionCompilationReferenceResolver(
+  resolver: ReferenceResolver,
+  keySource: ReferenceResolver = resolver,
+): ActionCompilationReferenceResolver {
+  const keyByHandle = new Map<string, ActionCompilationCandidateKey>();
+  const handleByKey = new Map<string, ExistingReferenceHandle>();
+  for (const candidate of keySource.catalog.candidates) {
+    const key = actionCompilationCandidateKeyForHandle(candidate.handle);
+    const previous = handleByKey.get(key);
+    if (previous && previous !== candidate.handle) {
+      throw new Error(`Action Compilation candidate key collision for ${candidate.handle} and ${previous}`);
+    }
+    keyByHandle.set(candidate.handle, key);
+    handleByKey.set(key, candidate.handle);
+  }
+  for (const candidate of resolver.catalog.candidates) {
+    if (!keyByHandle.has(candidate.handle)) {
+      const key = actionCompilationCandidateKeyForHandle(candidate.handle);
+      const previous = handleByKey.get(key);
+      if (previous && previous !== candidate.handle) {
+        throw new Error(`Action Compilation candidate key collision for ${candidate.handle} and ${previous}`);
+      }
+      keyByHandle.set(candidate.handle, key);
+      handleByKey.set(key, candidate.handle);
+    }
+  }
+  const candidateFor = (candidate: ModelReferenceCandidate): ActionCompilationReferenceCandidate => {
+    const candidateKey = keyByHandle.get(candidate.handle);
+    if (!candidateKey) throw new Error(`missing Action Compilation candidate key for ${candidate.handle}`);
+    return {
+      candidateKey,
+      kind: candidate.kind,
+      label: candidate.label,
+      meaning: candidate.meaning,
+      allowedUses: [...candidate.allowedUses],
+      scope: candidate.slot === undefined ? { kind: "shared" } : { kind: "slot", slot: candidate.slot },
+      details: candidate.details ?? null,
+    };
+  };
+  const candidates = resolver.catalog.candidates.map(candidateFor);
+  const catalog: ActionCompilationReferenceCatalog = {
+    version: 1,
+    hash: contentHash(candidates),
+    candidates,
+  };
+  const scopedHandles = (scopedResolver: ReferenceResolver): ExistingReferenceHandle[] => candidates
+    .map((candidate) => handleByKey.get(candidate.candidateKey))
+    .filter((handle): handle is ExistingReferenceHandle => handle !== undefined)
+    .filter((handle) => {
+      try { scopedResolver.resolve(handle); return true; } catch { return false; }
+    });
+  const allowedCandidateKeys = (
+    scopedResolver: ReferenceResolver,
+    use?: ModelReferenceUse,
+  ): ExistingReferenceHandle[] => scopedHandles(scopedResolver)
+    .filter((handle) => {
+      const candidate = resolver.catalog.candidates.find((entry) => entry.handle === handle);
+      return candidate !== undefined && (!use || candidate.allowedUses.includes(use));
+    })
+    .map((handle) => keyByHandle.get(handle))
+    .filter((key): key is ActionCompilationCandidateKey => key !== undefined)
+    .map((key) => key as unknown as ExistingReferenceHandle);
+  const build = (scopedResolver: ReferenceResolver): ActionCompilationReferenceResolver => ({
+    catalog,
+    candidateKeyForHandle(handle: ExistingReferenceHandle): ActionCompilationCandidateKey {
+      const candidateKey = keyByHandle.get(handle);
+      if (!candidateKey) {
+        throw new ModelReferenceError({
+          code: "reference.projection_missing",
+          originalValue: handle,
+          allowedHandles: allowedCandidateKeys(scopedResolver),
+          reason: "The engine could not project this reference into the Action Compilation catalog.",
+        });
+      }
+      try {
+        scopedResolver.resolve(handle);
+      } catch (error) {
+        if (error instanceof ModelReferenceError) {
+          throw new ModelReferenceError({
+            code: error.code,
+            originalValue: handle,
+            allowedHandles: allowedCandidateKeys(scopedResolver),
+            reason: error.message,
+          });
+        }
+        throw error;
+      }
+      return candidateKey;
+    },
+    handleForCandidateKey(candidateKey: string, use?: ModelReferenceUse): ExistingReferenceHandle {
+      const handle = handleByKey.get(candidateKey);
+      if (!handle) {
+        throw new ModelReferenceError({
+          code: "reference.unknown_candidate_key",
+          originalValue: candidateKey,
+          allowedHandles: allowedCandidateKeys(scopedResolver, use),
+          reason: "The value is not a candidateKey from this Action Compilation request.",
+        });
+      }
+      try {
+        scopedResolver.resolve(handle, use);
+      } catch (error) {
+        if (error instanceof ModelReferenceError) {
+          throw new ModelReferenceError({
+            code: error.code,
+            originalValue: candidateKey,
+            allowedHandles: allowedCandidateKeys(scopedResolver, use),
+            reason: error.message,
+          });
+        }
+        throw error;
+      }
+      return handle;
+    },
+    resolve(candidateKey: string, use?: ModelReferenceUse): ReferenceResolution {
+      const handle = this.handleForCandidateKey(candidateKey, use);
+      return scopedResolver.resolve(handle, use);
+    },
+    candidatesFor(use: ModelReferenceUse): readonly ActionCompilationReferenceCandidate[] {
+      const visibleHandles = new Set(scopedResolver.candidatesFor(use).map((candidate) => candidate.handle));
+      return candidates.filter((candidate) => {
+        const handle = handleByKey.get(candidate.candidateKey);
+        return handle !== undefined && visibleHandles.has(handle);
+      });
+    },
+    scopedToSlot(slot: number): ActionCompilationReferenceResolver {
+      return build(scopedResolver.scopedToSlot(slot));
+    },
+  });
+  return build(resolver);
 }
 
 export function withReferenceCandidateDetails(

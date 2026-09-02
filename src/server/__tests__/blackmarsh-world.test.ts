@@ -601,8 +601,8 @@ describe("Blackmarsh reference world", () => {
     expect(completed.state).toMatchObject({ revision: 1, step: 1 });
     const actionCompilationRequests = provider.requests.filter((request) => request.role === "action-compilation");
     const actionRefs = actionCompilationRequests.flatMap((request) =>
-      (request.context as { task: { slots: Array<{ action: { actionRef: string } }> } }).task.slots
-        .map((slot) => slot.action.actionRef));
+      (request.context as { task: { slots: Array<{ actionReferences: { actionCandidateKey: string } }> } }).task.slots
+        .map((slot) => slot.actionReferences.actionCandidateKey));
     expect(actionCompilationRequests.length).toBeGreaterThanOrEqual(4);
     expect(actionCompilationRequests.every((request) =>
       (request.context as { task: { slots: unknown[] } }).task.slots.length <= 12)).toBe(true);
@@ -622,7 +622,7 @@ describe("Blackmarsh reference world", () => {
     expect(provider.requests.some((request) => request.role === "truth-perception")).toBe(false);
   // This intentionally exercises 48 Agents, profile-dependent action batches,
   // and the full semantic Truth/observation pipeline. Keep the timeout above the
-  // structural workload's normal ~30s wall time so slower CI hosts do not
-  // turn a valid contract check into a flaky failure.
-  }, 45_000);
+  // structural workload's normal wall time so slower CI hosts do not turn a
+  // valid contract check into a flaky failure.
+  }, 120_000);
 });

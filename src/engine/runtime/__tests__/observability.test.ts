@@ -37,14 +37,17 @@ describe("model context measurements", () => {
       attributes: { phase: "action-compilation", projection: "c0-repeated-slot-catalog", repair: false },
       counts: {
         slots: 5,
-        candidateHandles: 1_000,
+        candidateKeys: 1_000,
         serializedCandidates: 5_000,
         detailedCandidates: 5_000,
+        duplicateSemanticDefinitionCount: 0,
         repairIssues: 0,
         contextUtf8Bytes: 3_000_000,
         referenceCatalogUtf8Bytes: 2_400_000,
         canonicalTruthUtf8Bytes: 380_000,
         taskUtf8Bytes: 330_000,
+        canonicalRefSerializedCount: 0,
+        rawPrivateReferenceSerializedCount: 0,
       },
     })).not.toThrow();
     const observer = new RecordingRuntimeObserver();

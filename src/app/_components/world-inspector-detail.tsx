@@ -704,6 +704,44 @@ function GraphNodeDetail({
   );
 }
 
+type ActionCompilationAudit = NonNullable<WorldInspectorModelInvocationDetail["actionCompilationReferenceAudit"]>;
+
+function ActionCompilationAuditSection({ audit }: { audit: ActionCompilationAudit }) {
+  const selections = audit.slots.flatMap((slot) => slot.selections.map((selection) => ({ slot: slot.slot, ...selection })));
+  return (
+    <DetailSection
+      count={`${audit.slots.length} 个 slot`}
+      description="受信任 Inspector 中记录 candidateKey 到引擎 handle 的唯一物化证据"
+      icon={Link2}
+      title="Action Compilation 引用解析"
+    >
+      <dl className="cg-inspector-change-summary">
+        <div><dt>上下文</dt><dd>{formatNumber(audit.context.utf8Bytes)} B</dd></div>
+        <div><dt>候选</dt><dd>{audit.context.candidates}（详情 {audit.context.detailedCandidates}）</dd></div>
+        <div><dt>重复定义</dt><dd>{audit.context.duplicateSemanticDefinitionCount}</dd></div>
+        <div><dt>原始 ref</dt><dd>{audit.context.canonicalRefSerializedCount + audit.context.rawPrivateReferenceSerializedCount}</dd></div>
+      </dl>
+      {selections.length > 0 && (
+        <div className="cg-inspector-slot-table-wrap">
+          <table className="cg-inspector-slot-table">
+            <thead><tr><th scope="col">slot</th><th scope="col">用途</th><th scope="col">candidateKey</th><th scope="col">引擎 handle</th><th scope="col">状态</th></tr></thead>
+            <tbody>{selections.map((selection, index) => (
+              <tr key={`${selection.slot}:${selection.path.join(".")}:${index}`}>
+                <td>{selection.slot}</td>
+                <td>{selection.use}<br /><small>{formatIssuePath(selection.path)}</small></td>
+                <td><code>{selection.candidateKey}</code></td>
+                <td><code>{selection.engineHandle ?? "—"}</code></td>
+                <td data-status={selection.status}>{selection.status === "resolved" ? "已解析" : selection.reason ?? "无效"}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      <JsonBlock label="查看完整引用解析原始 JSON" value={audit} />
+    </DetailSection>
+  );
+}
+
 function AttemptOverview({ actorId, actorName, detail }: {
   actorId: string;
   actorName: string;
@@ -850,6 +888,7 @@ function ModelInvocationDetailPanel({
         <div><dt>profile / prompt</dt><dd>{invocation.profileId ?? "—"} / {invocation.promptVersion ?? "—"}</dd></div>
         <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
       </dl>
+      {invocation.actionCompilationReferenceAudit && <ActionCompilationAuditSection audit={invocation.actionCompilationReferenceAudit} />}
       <DetailSection count={`${invocation.transportAttempts.length} 次`} description="同一逻辑调用的物理请求与重试" icon={RotateCcw} title="Transport attempts">
         <div className="cg-inspector-record-list">
           {invocation.transportAttempts.map((transport) => (

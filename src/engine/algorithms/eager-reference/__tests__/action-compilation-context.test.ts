@@ -3,6 +3,7 @@ import {
   actionCompilationContextProjectionMetrics,
   projectActionCompilationContextForModel,
 } from "../action-compilation-context";
+import { actionCompilationCandidateKeyForHandle } from "../../../contracts/model-context";
 
 function recordedContext(): Record<string, unknown> {
   const candidates = [
@@ -110,18 +111,19 @@ describe("production Action Compilation context projector", () => {
     const projected = projectActionCompilationContextForModel(recordedContext());
     expect(projected).not.toHaveProperty("referenceCatalogs");
     expect(JSON.stringify(projected)).not.toContain("availableHandles");
+    expect(JSON.stringify(projected)).not.toContain("ref:");
     expect(actionCompilationContextProjectionMetrics(projected)).toMatchObject({ candidates: 6, slots: 1 });
-    expect(projected.referenceCatalog.candidates.map((candidate) => candidate.handle)).toEqual([
-      "ref:action:a",
-      "ref:agent:actor",
-      "ref:entity:gate",
-      "ref:placement:yard",
-      "ref:temporal_profile:brief",
-      "ref:world:world",
-    ]);
-    expect(projected.referenceCatalog.candidates.find((candidate) => candidate.handle === "ref:action:a")?.details)
+    expect(projected.referenceCatalog.candidates.map((candidate) => candidate.candidateKey)).toEqual(expect.arrayContaining([
+      actionCompilationCandidateKeyForHandle("ref:action:a"),
+      actionCompilationCandidateKeyForHandle("ref:agent:actor"),
+      actionCompilationCandidateKeyForHandle("ref:entity:gate"),
+      actionCompilationCandidateKeyForHandle("ref:placement:yard"),
+      actionCompilationCandidateKeyForHandle("ref:temporal_profile:brief"),
+      actionCompilationCandidateKeyForHandle("ref:world:world"),
+    ]));
+    expect(projected.referenceCatalog.candidates.find((candidate) => candidate.candidateKey === actionCompilationCandidateKeyForHandle("ref:action:a"))?.details)
       .toMatchObject({ rawText: "Open the gate" });
-    expect(projected.referenceCatalog.candidates.find((candidate) => candidate.handle === "ref:temporal_profile:brief")?.details)
+    expect(projected.referenceCatalog.candidates.find((candidate) => candidate.candidateKey === actionCompilationCandidateKeyForHandle("ref:temporal_profile:brief"))?.details)
       .toMatchObject({ kind: "fixed" });
   });
 
@@ -136,7 +138,7 @@ describe("production Action Compilation context projector", () => {
     const projected = projectActionCompilationContextForModel(context);
     expect(projected.task.slots[0]).toMatchObject({
       issue: { code: "temporal.continuation_assertion_false" },
-      previousAttempt: { temporalPlan: { profileRef: "ref:temporal_profile:brief" } },
+      previousAttempt: { temporalPlan: { profileRef: actionCompilationCandidateKeyForHandle("ref:temporal_profile:brief") } },
     });
   });
 });
