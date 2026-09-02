@@ -130,6 +130,11 @@ test("the participant conversation, control orb and inspector stay bounded", asy
   await page.getByRole("button", { name: "世界演化" }).click();
   const inspector = page.getByRole("dialog", { name: "世界演化" });
   await expect(inspector).toBeVisible();
+  await expect(inspector.locator('.cg-inspector-graph[data-layout-ready="true"]')).toBeVisible();
+  await expect.poll(async () => inspector.locator(".react-flow__edge-path").evaluateAll((paths) => (
+    paths.some((path) => (path as SVGPathElement).getTotalLength() > 0)
+  ))).toBe(true);
+  await page.waitForTimeout(200);
   await expect(page).toHaveScreenshot("instance-inspector-dark-desktop.png", screenshotOptions);
   await page.keyboard.press("Escape");
 
