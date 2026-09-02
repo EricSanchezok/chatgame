@@ -64,6 +64,7 @@ import { worldInspectorApi } from "../lib/world-inspector-api-client";
 import { WorldInspectorDetail, type WorldInspectorSelection } from "./world-inspector-detail";
 import { WorldInspectorGraph } from "./world-inspector-graph";
 import { WorldInspectorInvocationList, type WorldInspectorInvocationListItem } from "./world-inspector-invocation-list";
+import { WorldInspectorSelect } from "./world-inspector-select";
 import { WorldInspectorTimeline } from "./world-inspector-timeline";
 
 type InspectorDetail =
@@ -959,11 +960,12 @@ export default function WorldInspectorDialog({
                 </button>
                 <button aria-label="下一阶段" disabled={replayFrameIndex >= replay.frames.length - 1} onClick={() => setReplayFrameIndex((index) => Math.min(replay.frames.length - 1, index + 1))} type="button"><ChevronRight aria-hidden="true" /></button>
                 <input aria-label="回放阶段" max={Math.max(0, replay.frames.length - 1)} min={0} onChange={(event) => setReplayFrameIndex(Number(event.target.value))} type="range" value={replayFrameIndex} />
-                <span className="cg-inspector-select">
-                  <select aria-label="回放速度" onChange={(event) => setReplayRate(Number(event.target.value) as 1 | 4 | 16)} value={replayRate}>
-                    <option value={1}>1x</option><option value={4}>4x</option><option value={16}>16x</option>
-                  </select>
-                </span>
+                <WorldInspectorSelect
+                  ariaLabel="回放速度"
+                  onChange={(value) => setReplayRate(value as 1 | 4 | 16)}
+                  options={[{ value: 1, label: "1x" }, { value: 4, label: "4x" }, { value: 16, label: "16x" }]}
+                  value={replayRate}
+                />
                 <button onClick={() => { setReplay(undefined); setReplayPlaying(false); returnToLatest(); }} type="button">退出回放</button>
               </div>
             )}
@@ -990,11 +992,12 @@ export default function WorldInspectorDialog({
                   <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据图（{data.nodes.length} 节点）</button>
                   {graphMode === "technical" && (
                     <label>节点上限
-                      <span className="cg-inspector-select">
-                        <select onChange={(event) => setTechnicalNodeLimit(Number(event.target.value) as typeof technicalNodeLimit)} value={technicalNodeLimit}>
-                          <option value={100}>100</option><option value={200}>200</option><option value={500}>500</option><option value={1000}>1000</option>
-                        </select>
-                      </span>
+                      <WorldInspectorSelect
+                        ariaLabel="节点上限"
+                        onChange={(value) => setTechnicalNodeLimit(value as typeof technicalNodeLimit)}
+                        options={[{ value: 100, label: "100" }, { value: 200, label: "200" }, { value: 500, label: "500" }, { value: 1000, label: "1000" }]}
+                        value={technicalNodeLimit}
+                      />
                     </label>
                   )}
                   {replayFrame && <span>当前阶段 {replayFrame.stageIndex + 1} · {replayFrame.stageLabel}</span>}

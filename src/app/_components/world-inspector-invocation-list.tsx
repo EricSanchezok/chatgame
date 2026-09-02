@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { WorldInspectorModelInvocationSummary } from "../../shared/world-inspector-api";
 import { worldInspectorInvocationExecutionHint } from "../_lib/world-inspector-invocation";
 import { WorldInspectorSlotSummary } from "./world-inspector-slot-summary";
+import { WorldInspectorSelect } from "./world-inspector-select";
 
 export type WorldInspectorInvocationListItem = WorldInspectorModelInvocationSummary & {
   /** Query results carry this routing hint; step/attempt projections may omit it because their execution is implicit. */
@@ -103,16 +104,19 @@ export function WorldInspectorInvocationList({
       </header>
       <div className="cg-inspector-invocation-list__controls" aria-label="调用排序与筛选">
         <label>排序
-          <span className="cg-inspector-select">
-            <select onChange={(event) => setSort(event.target.value as typeof sort)} value={sort}>
-              <option value="stage">引擎顺序 · 最新在上</option>
-              <option value="timestamp">时间 · 最新在上</option>
-              <option value="duration">调用耗时 · 从高到低</option>
-              <option value="inputTokens">输入 token · 从高到低</option>
-              <option value="outputTokens">输出 token · 从高到低</option>
-              <option value="retries">retry 次数 · 从高到低</option>
-            </select>
-          </span>
+          <WorldInspectorSelect
+            ariaLabel="排序"
+            onChange={(value) => setSort(value as typeof sort)}
+            options={[
+              { value: "stage", label: "引擎顺序 · 最新在上" },
+              { value: "timestamp", label: "时间 · 最新在上" },
+              { value: "duration", label: "调用耗时 · 从高到低" },
+              { value: "inputTokens", label: "输入 token · 从高到低" },
+              { value: "outputTokens", label: "输出 token · 从高到低" },
+              { value: "retries", label: "retry 次数 · 从高到低" },
+            ]}
+            value={sort}
+          />
         </label>
         <label>最少输入 token
           <input min="0" onChange={(event) => setMinInputTokens(event.target.value)} placeholder="不限" type="number" value={minInputTokens} />
