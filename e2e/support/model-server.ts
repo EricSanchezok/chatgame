@@ -52,7 +52,21 @@ function agentOutput(context: Record<string, unknown>) {
   return output;
 }
 
-function truthOutput(context: Record<string, unknown>) {
+function truthOutput(context: Record<string, unknown>): unknown {
+  const batch = context as {
+    sharedContext?: Record<string, unknown>;
+    slots?: Array<{ slot: number; context: Record<string, unknown> }>;
+  };
+  if (batch.sharedContext && Array.isArray(batch.slots) && batch.slots.every((slot) =>
+    slot && typeof slot === "object" && typeof slot.slot === "number" &&
+    slot.context && typeof slot.context === "object" && !Array.isArray(slot.context))) {
+    return {
+      slots: batch.slots.map((slot) => ({
+        slot: slot.slot,
+        result: truthOutput({ ...batch.sharedContext, ...slot.context }),
+      })),
+    };
+  }
   if (Array.isArray(context.slots) && context.slots.every((slot) =>
     slot && typeof slot === "object" && "action" in slot)) {
     return deterministicActionCompilationBatch("e2e-truth", context);
