@@ -17,7 +17,7 @@ import {
 import { FairModelScheduler, ModelOverloadedError } from "../model-scheduler";
 import { TEST_WORLD_HASH } from "../../testing/world";
 import { createTestModelRegistry } from "../../testing/model-provider";
-import { parseLastJsonValue } from "../model-adapter";
+import { parseLastJsonValue, parseLastJsonValueWithRecovery } from "../model-adapter";
 
 const outputSchema = z.strictObject({ answer: z.string() });
 
@@ -357,6 +357,47 @@ describe("model catalog and provider adapters", () => {
   it("keeps strict parsing behavior and rejects responses without a JSON value", () => {
     expect(parseLastJsonValue(JSON.stringify({ answer: "only" }))).toEqual({ answer: "only" });
     expect(() => parseLastJsonValue("not JSON at all")).toThrow(SyntaxError);
+  });
+
+  it("repairs an unescaped quote inside a model string without salvaging a nested object", () => {
+    const response = '{"slots":[{"slot":6,"nextActionIntent":{"rawText":"在粮道、退路或盟助没有两项前，"我不"以王命把整族投入"}}]}';
+
+    expect(parseLastJsonValueWithRecovery(response)).toMatchObject({
+      recovery: "syntax-repair",
+      value: {
+        slots: [{
+          slot: 6,
+          nextActionIntent: { rawText: '在粮道、退路或盟助没有两项前，"我不"以王命把整族投入' },
+        }],
+      },
+    });
+  });
+
+  it("records local JSON recovery instead of hiding it behind a normal acceptance", async () => {
+    const gateway = createGateway(credentials, {
+      fetch: async () => deepSeekResponse('{"answer":"前，"我不"以王命"}'),
+    });
+
+    const result = await gateway.generateStructured(request("deep"));
+
+    expect(result.value).toEqual({ answer: '前，"我不"以王命' });
+    expect(result.audit.invocations[0]).toMatchObject({
+      outputDisposition: "auto-normalized",
+      issues: [expect.objectContaining({ code: "json.syntax-repair", class: "structure" })],
+    });
+  });
+
+  it("does not return an inner slot when the outer batch is malformed", () => {
+    const response = '{"slots":[{"slot":0,"answer":"first"}]\u0001}';
+
+    expect(() => parseLastJsonValue(response)).toThrow(SyntaxError);
+  });
+
+  it("strips a BOM as a lossless syntax recovery", () => {
+    expect(parseLastJsonValueWithRecovery('\uFEFF{"answer":"bom"}')).toEqual({
+      value: { answer: "bom" },
+      recovery: "strict",
+    });
   });
 
   it("accepts a corrected JSON response through the model gateway", async () => {

@@ -55,6 +55,7 @@ function referenceCatalogAudit(context: unknown): { version: number; hash: strin
     ? context as {
         referenceCatalog?: { version?: number; hash?: string };
         referenceCatalogs?: readonly { slot: number; catalog: { version?: number; hash?: string } }[];
+        slots?: readonly { slot: number; referenceCatalog?: { version?: number; hash?: string } }[];
       }
     : undefined;
   const catalog = record?.referenceCatalog;
@@ -63,6 +64,18 @@ function referenceCatalogAudit(context: unknown): { version: number; hash: strin
     return {
       version: isolatedCatalogs[0]?.catalog.version ?? catalog?.version ?? 1,
       hash: contentHash(isolatedCatalogs.map(({ slot, catalog: entry }) => ({ slot, version: entry.version ?? 1, hash: entry.hash ?? null }))),
+    };
+  }
+  const agentMindCatalogs = record?.slots?.filter((slot) => slot.referenceCatalog !== undefined)
+    .map(({ slot, referenceCatalog }) => ({ slot, catalog: referenceCatalog! })) ?? [];
+  if (agentMindCatalogs.length) {
+    return {
+      version: agentMindCatalogs[0]?.catalog.version ?? catalog?.version ?? 1,
+      hash: contentHash(agentMindCatalogs.map(({ slot, catalog: entry }) => ({
+        slot,
+        version: entry.version ?? 1,
+        hash: entry.hash ?? null,
+      }))),
     };
   }
   return {
@@ -590,6 +603,7 @@ export class ModelGateway implements StructuredModelProvider {
           : undefined;
         const normalized = normalizeModelOutput(parsedOutput, { resolver: referenceResolver, dedupeArrays: true });
         const output = normalized.value;
+        const parserRecovered = scheduled.value.jsonRecovery !== "strict";
         const responseJson = JSON.stringify(canonicalize(output));
         const responseHash = contentHash(output);
         const rawOutputHash = contentHash(parsedOutput);
@@ -606,16 +620,26 @@ export class ModelGateway implements StructuredModelProvider {
           finishReason: scheduled.value.finishReason,
           providerRequestId: scheduled.value.responseId || null,
           resultKind: null,
-          outputDisposition: normalized.issues.length > 0 ? "rejected" : normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0 ? "auto-normalized" : "accepted",
-          issues: normalized.issues.map((issue) => ({
-            code: issue.code,
-            class: issue.class,
-            path: issue.path,
-            message: issue.reason,
-            originalValue: issue.originalValue,
-            allowedHandles: [...issue.allowedHandles],
-          })),
-          normalization: { applied: normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0, modifiedFieldCount: normalized.modifiedFieldCount, resolvedReferenceCount: normalized.resolvedReferenceCount, proposalCount: normalized.proposalCount, deduplicatedCount: normalized.deduplicatedCount },
+          outputDisposition: normalized.issues.length > 0 ? "rejected" : parserRecovered || normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0 ? "auto-normalized" : "accepted",
+          issues: [
+            ...(parserRecovered ? [{
+              code: `json.${scheduled.value.jsonRecovery}`,
+              class: "structure" as const,
+              path: [],
+              message: `provider JSON was recovered with ${scheduled.value.jsonRecovery}`,
+              originalValue: null,
+              allowedHandles: [],
+            }] : []),
+            ...normalized.issues.map((issue) => ({
+              code: issue.code,
+              class: issue.class,
+              path: issue.path,
+              message: issue.reason,
+              originalValue: issue.originalValue,
+              allowedHandles: [...issue.allowedHandles],
+            })),
+          ],
+          normalization: { applied: parserRecovered || normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0, modifiedFieldCount: normalized.modifiedFieldCount, resolvedReferenceCount: normalized.resolvedReferenceCount, proposalCount: normalized.proposalCount, deduplicatedCount: normalized.deduplicatedCount },
           referenceCatalogVersion: referenceCatalogAudit(request.context).version,
           referenceCatalogHash: referenceCatalogAudit(request.context).hash,
           rawOutputHash,
@@ -759,15 +783,22 @@ export class ModelGateway implements StructuredModelProvider {
               observer.flush?.();
               throw error;
             }
+            const rawProviderOutput = completedResult?.value ??
+              (error instanceof ModelOutputError ? error.rawValue : undefined);
+            const rawProviderOutputHash = rawProviderOutput === undefined ? null : contentHash(rawProviderOutput);
+            const rawProviderOutputBytes = rawProviderOutput === undefined ? null : Buffer.byteLength(
+              typeof rawProviderOutput === "string"
+                ? rawProviderOutput
+                : JSON.stringify(canonicalize(rawProviderOutput)),
+              "utf8",
+            );
             const invocation: ModelInvocationAudit = {
               id: modelInvocationId,
               ordinal: modelInvocation,
               requestHash,
-              responseHash: completedResult ? contentHash(completedResult.value) : null,
+              responseHash: rawProviderOutputHash,
               requestUtf8Bytes,
-              responseUtf8Bytes: completedResult
-                ? Buffer.byteLength(JSON.stringify(canonicalize(completedResult.value)), "utf8")
-                : null,
+              responseUtf8Bytes: rawProviderOutputBytes,
               context: contextAudit,
               transports,
               tokenUsage: completedResult?.tokenUsage ?? {
@@ -785,7 +816,7 @@ export class ModelGateway implements StructuredModelProvider {
               normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
               referenceCatalogVersion: referenceCatalogAudit(request.context).version,
               referenceCatalogHash: referenceCatalogAudit(request.context).hash,
-              rawOutputHash: completedResult ? contentHash(completedResult.value) : null,
+              rawOutputHash: rawProviderOutputHash,
               normalizedOutputHash: null,
             };
             const audit = executionAudit(
@@ -822,9 +853,9 @@ export class ModelGateway implements StructuredModelProvider {
                 request: requestHash,
                 ...(invocation.responseHash ? { response: invocation.responseHash } : {}),
               },
-              payload: completedResult
-                ? fullRuntimePayload(observer, completedResult.value)
-                : undefined,
+              payload: rawProviderOutput === undefined
+                ? undefined
+                : fullRuntimePayload(observer, rawProviderOutput),
               error: serializeRuntimeError(error),
             });
             observe?.({

@@ -596,14 +596,29 @@ describe("eager reference safeguards", () => {
     const requests = provider.requests.filter((request) => request.role === "agent-mind");
     expect(requests).toHaveLength(2);
     expect(requests.map((request) =>
-      (request.context as { state: { slots: Array<{ state: { perspective: { agentRef: string } } }> } }).state.slots
-        .map((slot) => slot.state.perspective.agentRef.replace(/^ref:agent:/u, "")))).toEqual([
+      (request.context as { slots: Array<{ agentState: { perspective: { agentRef: string } } }> }).slots
+        .map((slot) => slot.agentState.perspective.agentRef.replace(/^ref:agent:/u, "")))).toEqual([
       ["keeper", "player"],
       ["keeper"],
     ]);
+    expect(requests[0]!.context).toMatchObject({
+      slots: expect.arrayContaining([expect.objectContaining({
+        agentState: expect.any(Object),
+        task: expect.any(Object),
+        referenceCatalog: expect.any(Object),
+        allowedTargetHandles: expect.any(Array),
+        repair: null,
+      })]),
+    });
+    expect(requests[0]!.context).not.toHaveProperty("state");
+    expect(requests[0]!.context).not.toHaveProperty("referenceCatalogs");
     const audits = result.modelAudits.filter((audit) => audit.role === "agent-mind");
     expect(audits).toHaveLength(2);
     expect(new Set(audits.flatMap((audit) => audit.invocations.map((invocation) => invocation.id))).size).toBe(2);
+    expect(audits[0]!.invocations[0]).toMatchObject({
+      referenceCatalogVersion: 2,
+      referenceCatalogHash: expect.any(String),
+    });
   });
 
   it("isolates all three AgentMind purposes and model profiles", async () => {
@@ -639,12 +654,12 @@ describe("eager reference safeguards", () => {
     expect(requests.map((request) => {
       const context = request.context as {
         roleContract: { role: "agent-bootstrap" | "agent-mind" };
-        state: { slots: Array<{ state: { perspective: { agentRef: string } } }> };
+        slots: Array<{ agentState: { perspective: { agentRef: string } } }>;
       };
       return {
         role: context.roleContract.role,
         profileId: request.profileId,
-      agents: context.state.slots.map((slot) => slot.state.perspective.agentRef.replace(/^ref:agent:/u, "")),
+        agents: context.slots.map((slot) => slot.agentState.perspective.agentRef.replace(/^ref:agent:/u, "")),
       };
     })).toEqual([
       { role: "agent-bootstrap", profileId: "agent-deepseek", agents: ["player"] },
@@ -1212,9 +1227,9 @@ describe("eager reference safeguards", () => {
     expect(provider.requests.filter((request) => request.role === "action-compilation")).toHaveLength(1);
     const finalMind = provider.requests.filter((request) => request.role === "agent-mind").at(-1);
     const playerSlot = (finalMind?.context as {
-      state?: { slots?: Array<{ state: { perspective: { agentRef: string }; observations: unknown[] } }> };
-    }).state?.slots?.find((slot) => slot.state.perspective.agentRef === "ref:agent:player");
-    expect(playerSlot?.state.observations).toHaveLength(2);
+      slots?: Array<{ agentState: { perspective: { agentRef: string }; observations: unknown[] } }>;
+    }).slots?.find((slot) => slot.agentState.perspective.agentRef === "ref:agent:player");
+    expect(playerSlot?.agentState.observations).toHaveLength(2);
     expect(second.state.agents.player.observationCursorStep).toBe(2);
 
     const replayed = replaySimulationState(second.state);

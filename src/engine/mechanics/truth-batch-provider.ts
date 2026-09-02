@@ -207,7 +207,7 @@ function splitSharedContext(requests: readonly PendingRequest[]): SplitBatchEnve
     candidates: [] as readonly unknown[],
   };
   return {
-    contractVersion: Number(first.contractVersion ?? 14),
+    contractVersion: Number(first.contractVersion ?? 15),
     roleContract: structuredClone(first.roleContract),
     execution: structuredClone(first.execution),
     task: {

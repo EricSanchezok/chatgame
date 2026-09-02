@@ -8,7 +8,7 @@ import type { AgentState, ObservationPacket } from "./model";
  * request and slot that issued it; the resolver never trusts model supplied
  * ids as canonical identities.
  */
-export const MODEL_CONTEXT_CONTRACT_VERSION = 14 as const;
+export const MODEL_CONTEXT_CONTRACT_VERSION = 15 as const;
 export const MODEL_REFERENCE_CATALOG_VERSION = 2 as const;
 
 export type ExistingReferenceHandle = string & { readonly __existingReferenceHandle: unique symbol };
@@ -378,10 +378,10 @@ export interface ModelContextEnvelope<TState = unknown> {
 }
 
 /**
- * A batched model request still has one protocol envelope.  Slot-private
- * catalogs live in `referenceCatalogs` and are repeated only as indexes in
- * `task.slots`/`state.slots`; the top-level catalog is intentionally empty so
- * a handle from one slot cannot be mistaken for a handle in another slot.
+ * Generic verification/Truth batch envelope. Slot-private catalogs live in
+ * `referenceCatalogs` and are repeated only as indexes in `task.slots` and
+ * `state.slots`; AgentMind uses `AgentMindBatchContextEnvelope` below because
+ * its private state and catalog must remain one self-contained slot object.
  */
 export interface ModelBatchContextEnvelope<TSlotState = unknown> extends Omit<
   ModelContextEnvelope<{ slots: readonly { slot: number; state: TSlotState }[] }>,
@@ -954,6 +954,40 @@ export function normalizeModelOutput<T>(value: T, options: {
     proposalCount,
     deduplicatedCount,
   };
+}
+
+/**
+ * AgentMind batches keep every private input in one slot-local envelope. The
+ * explicit target handle list is separate from the catalog so the model has
+ * one obvious place to copy action targets from, while the catalog remains
+ * the authoritative metadata and resolver namespace.
+ */
+export interface AgentMindBatchSlotContext<TAgentState = unknown> {
+  slot: number;
+  agentState: TAgentState;
+  task: {
+    assignment: Omit<ModelTaskAssignment, "availableHandles">;
+    constraints: readonly string[];
+  };
+  referenceCatalog: ModelReferenceCatalog;
+  allowedTargetHandles: readonly ExistingReferenceHandle[];
+  repair: {
+    target: ModelReference | null;
+    issues: readonly ModelRepairIssue[];
+  } | null;
+}
+
+export interface AgentMindBatchContextEnvelope<TAgentState = unknown> {
+  contractVersion: typeof MODEL_CONTEXT_CONTRACT_VERSION;
+  roleContract: ModelRoleContract;
+  execution: {
+    worldId: string;
+    instanceId: string;
+    advanceId: string;
+    revision: number;
+    step: number;
+  };
+  slots: readonly AgentMindBatchSlotContext<TAgentState>[];
 }
 
 function countResolvedReferences(value: unknown, resolver: ReferenceResolver): number {

@@ -681,13 +681,18 @@ export class ScriptedModelProvider implements StructuredModelProvider {
       contractVersion?: number;
       roleContract?: unknown;
       execution?: unknown;
+      slots?: Array<{ slot: number; agentState?: Record<string, unknown>; task?: unknown; referenceCatalog?: unknown }>;
       task?: { slots?: Array<{ slot: number; assignment: unknown; constraints: readonly string[] }> };
       state?: { slots?: Array<{ slot: number; state: Record<string, unknown> }> };
       referenceCatalogs?: Array<{ slot: number; catalog: unknown }>;
     };
+    const isAgentMindBatch = Array.isArray(batchContext?.slots) &&
+      batchContext.slots.length > 0 && batchContext.slots.every((slot) =>
+        slot.agentState !== undefined && slot.task !== undefined && slot.referenceCatalog !== undefined);
+    const isGenericBatch = Boolean(batchContext?.state?.slots && batchContext.task?.slots);
     if ((request.schemaName.endsWith("_batch") || request.schemaName.endsWith("_batch_output")) &&
-      batchContext?.state?.slots && batchContext.task?.slots) {
-      if (this.adaptTruthScenario && request.role === "causal-verifier") {
+      (isAgentMindBatch || isGenericBatch)) {
+      if (this.adaptTruthScenario && request.role === "causal-verifier" && batchContext.state?.slots) {
         return {
           slots: batchContext.state.slots.map((slot) => ({
             slot: slot.slot,
@@ -869,9 +874,27 @@ export class ScriptedModelProvider implements StructuredModelProvider {
         outputDisposition: "accepted",
         issues: [],
         normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
-        referenceCatalogVersion: (context as { referenceCatalog?: { version?: number } }).referenceCatalog?.version ?? 1,
-        referenceCatalogHash: (context as { referenceCatalog?: { hash?: string } }).referenceCatalog?.hash
-          ?? contentHash((context as { referenceCatalog?: unknown }).referenceCatalog ?? null),
+        referenceCatalogVersion: (context as {
+          referenceCatalog?: { version?: number };
+          referenceCatalogs?: Array<{ slot: number; catalog?: { version?: number } }>;
+          slots?: Array<{ slot: number; referenceCatalog?: { version?: number } }>;
+        }).referenceCatalogs?.[0]?.catalog?.version
+          ?? (context as { slots?: Array<{ referenceCatalog?: { version?: number } }> }).slots?.[0]?.referenceCatalog?.version
+          ?? (context as { referenceCatalog?: { version?: number } }).referenceCatalog?.version ?? 1,
+        referenceCatalogHash: (() => {
+          const entry = context as {
+            referenceCatalog?: { hash?: string };
+            referenceCatalogs?: Array<{ slot: number; catalog?: { hash?: string } }>;
+            slots?: Array<{ slot: number; referenceCatalog?: { hash?: string } }>;
+          };
+          if (entry.referenceCatalogs?.length) {
+            return contentHash(entry.referenceCatalogs.map(({ slot, catalog }) => ({ slot, hash: catalog?.hash ?? null })));
+          }
+          if (entry.slots?.length) {
+            return contentHash(entry.slots.map(({ slot, referenceCatalog }) => ({ slot, hash: referenceCatalog?.hash ?? null })));
+          }
+          return entry.referenceCatalog?.hash ?? contentHash(entry.referenceCatalog ?? null);
+        })(),
         rawOutputHash: contentHash(raw),
         normalizedOutputHash: contentHash(raw),
       }],
@@ -1242,10 +1265,14 @@ export function deterministicAgentMindBatch(
   customize?: (output: AgentMindDraftOutput, slot: DeterministicMindSlot) => void,
 ): unknown {
   const input = context as {
+    slots?: Array<{ slot: number; agentState?: DeterministicMindSlot["state"]; state?: DeterministicMindSlot["state"] }>;
     state?: { slots?: Array<{ slot: number; state: DeterministicMindSlot["state"] }> };
-    slots?: DeterministicMindSlot[];
   };
-  const slots = input.state?.slots?.map((entry) => ({ slot: entry.slot, state: entry.state })) ?? input.slots;
+  const slots = input.slots?.map((entry) => ({
+    slot: entry.slot,
+    state: entry.agentState ?? entry.state,
+  })).filter((entry): entry is DeterministicMindSlot => entry.state !== undefined) ??
+    input.state?.slots?.map((entry) => ({ slot: entry.slot, state: entry.state }));
   if (!slots) throw new Error("deterministic AgentMind expected a slot batch");
   return {
     slots: slots.map((slot) => {
@@ -1265,7 +1292,12 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
           self: { name: string; location: { name: string } | null };
         };
         action?: { id: string; actorId: string; rawText: string };
-        slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot>;
+        slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot | {
+          slot: number;
+          agentState?: DeterministicMindSlot["state"];
+          task?: unknown;
+          referenceCatalog?: unknown;
+        }>;
         entity?: { name: string; location: string | null };
         state?: {
           world?: { laws: Array<{ id: string }> };
@@ -1295,6 +1327,17 @@ export function deterministicModelOutput(profileId: string, context: unknown): u
         referenceCatalogs?: Array<{ slot: number; catalog: { candidates: Array<{ kind: string; handle: string; statePath?: string }> } }>;
         task?: { kind?: string; action?: DeterministicCompilationAction; stage?: "perception" | "reaction-routing" | "resolution" | "transition"; assignedActions?: unknown[]; committedResolutionPlans?: unknown[]; observationSlots?: unknown[]; slots?: Array<DeterministicCompilationSlot | DeterministicMindSlot> };
       };
+      const directAgentMindSlots = input.slots?.filter((slot): slot is {
+        slot: number;
+        agentState: DeterministicMindSlot["state"];
+        task?: unknown;
+        referenceCatalog?: unknown;
+      } => "agentState" in slot && slot.agentState !== undefined);
+      if (directAgentMindSlots && directAgentMindSlots.length > 0 && directAgentMindSlots.length === input.slots?.length) {
+        return deterministicAgentMindBatch({
+          slots: directAgentMindSlots.map((slot) => ({ slot: slot.slot, agentState: slot.agentState })),
+        });
+      }
       const stateSection = input.state ?? {};
       const isPhysicalBatch = Array.isArray(input.state?.slots) &&
         input.state.slots.every((entry) => "state" in entry) && Boolean(input.task?.slots);

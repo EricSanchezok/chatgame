@@ -1,4 +1,5 @@
 import { generateText, Output, tool } from "ai";
+import { JSONRepairError, jsonrepair } from "jsonrepair";
 import { z } from "zod";
 import type { ModelExecutionAudit, ModelTokenUsage } from "../contracts/model";
 import { vendorDialect, type VendorDialectRequestPlan } from "./model-dialect";
@@ -27,6 +28,7 @@ export interface ModelAdapterResult {
   tokenUsage: ModelTokenUsage;
   resolvedInference: import("./model-catalog").ResolvedModelInference;
   structuredOutputMode: ModelExecutionAudit["structuredOutputMode"];
+  jsonRecovery: "strict" | "top-level-correction" | "syntax-repair";
 }
 
 export interface ModelProviderAdapter {
@@ -84,40 +86,121 @@ function schemaExample(schema: unknown, root = schema, seen = new Set<unknown>()
   return null;
 }
 
-/**
- * Parse a provider's JSON-object response while tolerating a model that
- * appends a second corrected JSON value (or a short explanation) after its
- * first attempt. Strict parsing remains the fast path. The fallback only
- * considers balanced object/array values, and the selected value still goes
- * through the caller's schema and semantic validation.
- */
-export function parseLastJsonValue(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch (strictError) {
-    let lastValue: unknown;
-    let foundValue = false;
+export type JsonRecoveryKind = ModelAdapterResult["jsonRecovery"];
 
-    for (let start = 0; start < text.length; start += 1) {
-      const opening = text[start];
-      if (opening !== "{" && opening !== "[") continue;
-      const end = balancedJsonEnd(text, start);
-      if (end === null) continue;
-      try {
-        lastValue = JSON.parse(text.slice(start, end));
-        foundValue = true;
-        // A successfully parsed candidate owns its nested values. Skipping
-        // them prevents an inner object from replacing the enclosing result.
-        start = end - 1;
-      } catch {
-        // Keep scanning: the candidate may be malformed while a later model
-        // correction is a valid JSON object.
-      }
+export class ModelJsonParseError extends SyntaxError {
+  readonly position: number | null;
+  readonly line: number | null;
+  readonly column: number | null;
+
+  constructor(message: string, position: number | null, text: string, cause?: unknown) {
+    super(message);
+    this.name = "ModelJsonParseError";
+    this.position = position;
+    if (position === null) {
+      this.line = null;
+      this.column = null;
+    } else {
+      const before = text.slice(0, position);
+      this.line = before.split("\n").length;
+      this.column = position - before.lastIndexOf("\n");
     }
-
-    if (foundValue) return lastValue;
-    throw strictError;
+    if (cause !== undefined) Object.defineProperty(this, "cause", { value: cause });
   }
+}
+
+interface JsonTopLevelCandidate {
+  value: unknown;
+}
+
+/**
+ * Find complete top-level JSON values without ever treating an object nested
+ * inside a malformed root as a replacement for that root. This preserves the
+ * historical "last complete correction wins" behavior for responses such as
+ * `{...}\nexplanation\n{...}`, while preventing the a435 failure mode where a
+ * single slot object was mistaken for an AgentMind batch.
+ */
+function strictTopLevelCandidates(text: string): JsonTopLevelCandidate[] {
+  const candidates: JsonTopLevelCandidate[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    let start = cursor;
+    while (start < text.length && text[start] !== "{" && text[start] !== "[") start += 1;
+    if (start >= text.length) break;
+    const end = balancedJsonEnd(text, start);
+    // A root that cannot be balanced owns all of its descendants. Stop here;
+    // scanning farther would be the unsafe nested-object salvage we removed.
+    if (end === null) break;
+    try {
+      candidates.push({ value: JSON.parse(text.slice(start, end)) });
+      cursor = end;
+    } catch {
+      // A balanced candidate can still contain invalid JSON syntax. Treat it
+      // as the malformed root instead of searching inside it.
+      break;
+    }
+  }
+  return candidates;
+}
+
+function parseErrorPosition(error: unknown): number | null {
+  if (error && typeof error === "object" && "position" in error &&
+    typeof (error as { position?: unknown }).position === "number") {
+    return (error as { position: number }).position;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const match = /position\s+(\d+)/u.exec(message);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Parse provider JSON with strict parsing first and a bounded syntax-repair
+ * fallback. `jsonrepair` is intentionally applied only when the response
+ * starts with a JSON object/array; it never turns arbitrary prose into a JSON
+ * string. Every recovered value still passes the caller's Zod and semantic
+ * gates. The return value keeps the legacy last-top-level-correction contract.
+ */
+export function parseLastJsonValueWithRecovery(text: string): { value: unknown; recovery: JsonRecoveryKind } {
+  const source = text.replace(/^\uFEFF/u, "").trim();
+  try {
+    return { value: JSON.parse(source), recovery: "strict" };
+  } catch (strictError) {
+    const candidates = strictTopLevelCandidates(source);
+    if (candidates.length > 0) {
+      return { value: candidates.at(-1)!.value, recovery: "top-level-correction" };
+    }
+    const firstNonWhitespace = source.search(/\S/u);
+    const opening = firstNonWhitespace >= 0 ? source[firstNonWhitespace] : undefined;
+    if (opening !== "{" && opening !== "[") throw strictError;
+    try {
+      const repairedText = jsonrepair(source);
+      let repairedValue: unknown = JSON.parse(repairedText);
+      // jsonrepair wraps concatenated top-level values in an array. If the
+      // source began with an object, the only contract-compatible choice is
+      // the last top-level value; an intended JSON array keeps its full array.
+      if (opening === "{" && Array.isArray(repairedValue)) {
+        const last = repairedValue.at(-1);
+        if (last === undefined) throw new JSONRepairError("repaired JSON has no top-level value", repairedText.length);
+        repairedValue = last;
+      }
+      return { value: repairedValue, recovery: "syntax-repair" };
+    } catch (repairError) {
+      const position = parseErrorPosition(repairError) ?? parseErrorPosition(strictError);
+      const line = position === null ? "unknown line" : String(source.slice(0, position).split("\n").length);
+      const column = position === null ? "unknown column" : String(position - source.slice(0, position).lastIndexOf("\n"));
+      throw new ModelJsonParseError(
+        `invalid JSON content at ${line}, ${column}; no safe top-level value could be recovered`,
+        position,
+        source,
+        repairError,
+      );
+    }
+  }
+}
+
+/** Backward-compatible parser entry point used by model adapter tests/tools. */
+export function parseLastJsonValue(text: string): unknown {
+  return parseLastJsonValueWithRecovery(text).value;
 }
 
 function balancedJsonEnd(text: string, start: number): number | null {
@@ -398,6 +481,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         tokenUsage: usageFrom(result),
         resolvedInference: plan.inference,
         structuredOutputMode: mode,
+        jsonRecovery: "strict",
       };
     }
 
@@ -419,11 +503,16 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         throw new ModelOutputError(`${binding.accountId} JSON output was truncated`);
       }
       let value: unknown;
+      let jsonRecovery: JsonRecoveryKind;
       try {
-        value = parseLastJsonValue(result.text);
+        const parsed = parseLastJsonValueWithRecovery(result.text);
+        value = parsed.value;
+        jsonRecovery = parsed.recovery;
       } catch (error) {
-        throw new ModelOutputError(`${binding.accountId} returned invalid JSON content`, undefined, {
+        const detail = error instanceof Error ? `: ${error.message}` : "";
+        throw new ModelOutputError(`${binding.accountId} returned invalid JSON content${detail}`, undefined, {
           cause: error,
+          rawValue: result.text,
         });
       }
       return {
@@ -434,6 +523,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         tokenUsage: usageFrom(result),
         resolvedInference: plan.inference,
         structuredOutputMode: mode,
+        jsonRecovery,
       };
     }
 
@@ -470,6 +560,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
       tokenUsage: usageFrom(result),
       resolvedInference: plan.inference,
       structuredOutputMode: mode,
+      jsonRecovery: "strict",
     };
   }
 }

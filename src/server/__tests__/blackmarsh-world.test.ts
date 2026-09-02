@@ -585,9 +585,9 @@ describe("Blackmarsh reference world", () => {
     expect(Object.values(state.agents).every((agent) => agent.nextAction !== null)).toBe(true);
     expect(provider.requests.filter((request) => request.role === "agent-bootstrap")).toHaveLength(6);
     expect(provider.requests.filter((request) => request.role === "agent-bootstrap").every((request) =>
-      (request.context as { roleContract: { role: string }; state: { slots: Array<{ state: { perspective: { agentRef: string } } }> } }).roleContract.role === "agent-bootstrap" &&
-      (request.context as { state: { slots: Array<{ state: { perspective: { agentRef: string } } }> } }).state.slots.every((slot) =>
-        state.agents[slot.state.perspective.agentRef.replace(/^ref:agent:/u, "")]?.modelProfiles.bootstrap === request.profileId))).toBe(true);
+      (request.context as { roleContract: { role: string }; slots: Array<{ agentState: { perspective: { agentRef: string } } }> }).roleContract.role === "agent-bootstrap" &&
+      (request.context as { slots: Array<{ agentState: { perspective: { agentRef: string } } }> }).slots.every((slot) =>
+        state.agents[slot.agentState.perspective.agentRef.replace(/^ref:agent:/u, "")]?.modelProfiles.bootstrap === request.profileId))).toBe(true);
     const roster = Object.fromEntries(Object.values(state.agents).map((agent) => [agent.id, {
       kind: "model" as const,
       agentId: agent.id,
@@ -610,9 +610,9 @@ describe("Blackmarsh reference world", () => {
     expect(new Set(actionRefs).size).toBe(actionRefs.length);
     expect(provider.requests.filter((request) => request.role === "agent-mind")).toHaveLength(6);
     expect(provider.requests.filter((request) => request.role === "agent-mind").every((request) =>
-      (request.context as { roleContract: { role: string }; state: { slots: Array<{ state: { perspective: { agentRef: string } } }> } }).roleContract.role === "agent-mind" &&
-      (request.context as { state: { slots: Array<{ state: { perspective: { agentRef: string } } }> } }).state.slots.every((slot) =>
-        state.agents[slot.state.perspective.agentRef.replace(/^ref:agent:/u, "")]?.modelProfiles.mind === request.profileId))).toBe(true);
+      (request.context as { roleContract: { role: string }; slots: Array<{ agentState: { perspective: { agentRef: string } } }> }).roleContract.role === "agent-mind" &&
+      (request.context as { slots: Array<{ agentState: { perspective: { agentRef: string } } }> }).slots.every((slot) =>
+        state.agents[slot.agentState.perspective.agentRef.replace(/^ref:agent:/u, "")]?.modelProfiles.mind === request.profileId))).toBe(true);
     const batchedAudits = [...engine.bootstrapModelAudits, ...completed.modelAudits]
       .filter((audit) => audit.role === "action-compilation" || audit.role === "agent-bootstrap" ||
         audit.role === "agent-mind");

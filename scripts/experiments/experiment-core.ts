@@ -102,6 +102,7 @@ const deterministicAdapter: ModelProviderAdapter = {
         temperature: null,
         topP: null,
       },
+      jsonRecovery: "strict",
     };
   },
   async generate(binding, request, contextJson) {
@@ -140,6 +141,7 @@ const deterministicAdapter: ModelProviderAdapter = {
       tokenUsage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
       resolvedInference: this.describe(binding, request).resolvedInference,
       structuredOutputMode: "deterministic-test",
+      jsonRecovery: "strict",
     };
   },
 };

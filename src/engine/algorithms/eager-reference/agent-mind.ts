@@ -39,7 +39,10 @@ import {
   type StructuredModelProvider,
 } from "../../models/model-provider";
 import { contentHash } from "../../models/model-audit";
-import { MODEL_REFERENCE_CATALOG_VERSION } from "../../contracts/model-context";
+import {
+  type AgentMindBatchContextEnvelope,
+  type AgentMindBatchSlotContext,
+} from "../../contracts/model-context";
 import { fullRuntimePayload, runtimeEventEmitter, serializeRuntimeError } from "../../runtime/observability";
 import {
   buildAgentSharedContext,
@@ -513,9 +516,8 @@ function agentMindBatchContext(
     advanceId: scope.batchId,
     promptId: purpose === "bootstrap" ? "agent-bootstrap" : "agent-mind",
   });
-  const slotContexts = slots.map((slot, index) => ({
-    slot: index,
-    ...buildAgentSlotContext({
+  const slotContexts: AgentMindBatchSlotContext<ReturnType<typeof buildAgentSlotContext>["state"]>[] = slots.map((slot, index) => {
+    const slotContext = buildAgentSlotContext({
       state,
       agent: slot.payload.agent,
       observations: slot.payload.observations,
@@ -523,34 +525,28 @@ function agentMindBatchContext(
       currentAction: slot.payload.currentResolution.action,
       currentOutcome: slot.payload.currentResolution.outcome,
       issues: slot.issues,
-    }),
-  }));
-  const slotCatalogs = slotContexts.map(({ slot, referenceCatalog }) => ({ slot, catalog: referenceCatalog }));
+    });
+    return {
+      slot: index,
+      agentState: slotContext.state,
+      task: {
+        assignment: {
+          targetHandles: slotContext.task.assignment.targetHandles,
+          allowedProposalKinds: slotContext.task.assignment.allowedProposalKinds as AgentMindBatchSlotContext["task"]["assignment"]["allowedProposalKinds"],
+        },
+        constraints: slotContext.task.constraints,
+      },
+      referenceCatalog: slotContext.referenceCatalog,
+      allowedTargetHandles: slotContext.referenceCatalog.candidates
+        .filter((candidate) => candidate.kind === "local_entity" && candidate.allowedUses.includes("target"))
+        .map((candidate) => candidate.handle),
+      repair: slotContext.repair,
+    };
+  });
   return {
     ...shared,
-    task: {
-      assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] },
-      constraints: [],
-      slots: slotContexts.map(({ slot, task }) => ({
-        slot,
-        assignment: task.assignment,
-        constraints: task.constraints,
-      })),
-    },
-    state: {
-      slots: slotContexts.map(({ slot, state: slotState }) => ({
-        slot,
-        state: slotState,
-      })),
-    },
-    // Keep private catalogs isolated. The request-level catalog is only an
-    // integrity index and intentionally contains no candidates.
-    referenceCatalog: { version: MODEL_REFERENCE_CATALOG_VERSION, hash: contentHash(slotCatalogs), candidates: [] },
-    referenceCatalogs: slotCatalogs,
-    repair: slotContexts.some(({ repair }) => repair !== null)
-      ? { target: null, issues: slotContexts.flatMap(({ repair }) => repair?.issues ?? []) }
-      : null,
-  };
+    slots: slotContexts,
+  } satisfies AgentMindBatchContextEnvelope<ReturnType<typeof buildAgentSlotContext>["state"]>;
 }
 
 function assertAgentMindSlotCoverage(
@@ -724,10 +720,12 @@ export class AgentMind {
           }
           const invocationAudit = generated.audit.invocations.at(-1);
           if (invocationAudit) {
+            const parserRecovered = invocationAudit.issues.some((issue) =>
+              issue.class === "structure" && issue.code.startsWith("json."));
             invocationAudit.rawOutputHash ??= contentHash(generated.value);
             invocationAudit.normalizedOutputHash = contentHash({ slots: normalizedSlots });
             invocationAudit.normalization = {
-              applied: modifiedFieldCount > 0 || deduplicatedCount > 0,
+              applied: parserRecovered || modifiedFieldCount > 0 || deduplicatedCount > 0,
               modifiedFieldCount,
               resolvedReferenceCount,
               proposalCount,

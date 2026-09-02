@@ -19,7 +19,7 @@ The developer-facing instance creation request may provide `executionTuning.acti
 
 Eager-reference groups Action Compilation by model profile and AgentMind by purpose plus model profile. A configured value is a maximum: serialized request size, profile differences, tail cardinality, validation recovery, and recursive splitting may produce smaller batches. A value of one uses the same batch protocol with one slot.
 
-Every physical request contains engine-numbered slots and returns complete, unique slot coverage. Shared Action Compilation catalog and temporal material appear once per request. AgentMind keeps each private perspective, observations, current resolution, and validation issues inside its own slot. Canonical and cognition identities remain engine-owned.
+Every physical request contains engine-numbered slots and returns complete, unique slot coverage. Shared Action Compilation catalog and temporal material appear once per request. AgentMind serializes each slot as one self-contained object containing `agentState`, `task`, `referenceCatalog`, `allowedTargetHandles`, and `repair`; canonical and cognition identities remain engine-owned.
 
 Parsed valid slots survive a partial semantic failure; only invalid slots receive repair context and retry. An unassignable structural failure retries the current batch. A batch node receives one initial attempt and two repairs, then splits deterministically. Action Compilation singleton exhaustion fails the step. AgentMind singleton semantic exhaustion uses the existing empty-patch and waiting-action fallback. Transport, configuration, overload, and cancellation failures propagate without semantic splitting.
 
