@@ -38,4 +38,4 @@ for (const [name, value] of Object.entries({ ...liveCorrectness, ...liveExperime
   assertEqual(value, true, `live gate ${name}`);
 }
 
-process.stdout.write("Action Compilation experiment reports verified: production projector C3 is the sole runtime selection.\n");
+process.stdout.write("Action Compilation experiment reports verified: historical C3 evidence is retained and the candidate-key projector is the sole runtime selection.\n");

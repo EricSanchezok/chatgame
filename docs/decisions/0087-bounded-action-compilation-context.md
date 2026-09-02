@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [0088](0088-action-compilation-candidate-key-protocol.md)
 Class: architecture
 
 ## Context and Problem Statement
