@@ -7,7 +7,7 @@ import { json, observedRoute } from "../../../../h";
 
 const statuses = new Set<WorldInspectorModelInvocationStatus>(["active", "accepted", "rejected", "failed"]);
 const sorts = new Set<NonNullable<WorldInspectorModelInvocationQuery["sort"]>>([
-  "duration", "inputTokens", "outputTokens", "retries", "timestamp",
+  "stage", "duration", "inputTokens", "outputTokens", "retries", "timestamp",
 ]);
 
 function integer(value: string | null): number | undefined {
