@@ -128,3 +128,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0087 — Bounded Action Compilation Context](0087-bounded-action-compilation-context.md)
 - [0088 — Action Compilation Candidate-Key Protocol](0088-action-compilation-candidate-key-protocol.md)
 - [0089 — World Inspector Staged Debugging and Replay](0089-world-inspector-staged-debug-and-replay.md)
+- [0090 — Model Reliability Optimization and Local Transparency](0090-model-reliability-optimization-and-local-transparency.md)

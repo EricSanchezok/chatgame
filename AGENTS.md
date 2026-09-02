@@ -75,6 +75,10 @@ When starting the local workbench for interactive testing, treat startup as an e
 - **Server-only engine:** filesystem access, YAML, and API keys keep the engine on the server. Browsers use `src/app/api/**/route.ts`; never move engine execution into client code.
 - **Forward-only development:** breaking state, save, and behavior changes land directly. Delete old saves, fixtures, and compatibility paths instead of adding migrations or dual tracks.
 - **One clean implementation:** replacement removes the old path; do not retain redundant implementations.
+- **Algorithm optimization:** reduce observed failure causes before reducing context, batch cardinality, or semantic freedom; prefer prompt/schema/layout fixes, lossless context reuse, caching, parallelism, provider capabilities, deterministic validation, and targeted repair.
+- **Batch-cost discipline:** lowering batch size or increasing LLM calls is an emergency fallback, never the first optimization; quantify token, latency, and call-count impact, pin any chosen tuning, and compare initial rejection, repair recovery, and terminal failure separately.
+- **Local transparency:** local-only operation keeps model context, request/response evidence, and Inspector data transparent to the local operator; do not add privacy redaction, anonymization, or hidden-data layers merely to protect data that never leaves the user's machine.
+- **Gameplay perspective:** canonical truth, Agent beliefs, and player knowledge remain distinct game states where the world contract requires it; this is a semantic rule, not a reason to redact or obscure local data from trusted inspection.
 - **Frontend color discipline:** components consume only `--cg-*` CSS variables declared by the root theme; component rules never hard-code colors.
 
 ## Documentation and research
