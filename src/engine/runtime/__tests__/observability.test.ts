@@ -86,6 +86,21 @@ describe("model context measurements", () => {
     });
   });
 
+  it("preserves structured diagnostic metadata on serialized errors", () => {
+    const error = Object.assign(new Error("invalid model output"), {
+      code: "json.syntax-repair",
+      domain: "model",
+      owner: "src/engine/models/model-adapter.ts",
+      retryability: "not_retryable" as const,
+    });
+    expect(serializeRuntimeError(error)).toMatchObject({
+      code: "json.syntax-repair",
+      domain: "model",
+      owner: "src/engine/models/model-adapter.ts",
+      retryability: "not_retryable",
+    });
+  });
+
   it("uses canonical pretty JSON UTF-8 bytes and reports top-level sections and state counts", () => {
     const context = {
       zeta: "你好",

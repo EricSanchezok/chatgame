@@ -692,6 +692,18 @@ export function serializeRuntimeError(error: unknown, depth = 0): RuntimeError {
     name: error.name || "Error",
     message: error.message,
   };
+  const metadata = error as Error & {
+    code?: unknown;
+    domain?: unknown;
+    owner?: unknown;
+    retryability?: unknown;
+  };
+  if (typeof metadata.code === "string" && metadata.code.length > 0) serialized.code = metadata.code;
+  if (typeof metadata.domain === "string" && metadata.domain.length > 0) serialized.domain = metadata.domain;
+  if (typeof metadata.owner === "string" && metadata.owner.length > 0) serialized.owner = metadata.owner;
+  if (metadata.retryability === "not_retryable" || metadata.retryability === "retryable" || metadata.retryability === "unknown") {
+    serialized.retryability = metadata.retryability;
+  }
   if (error.stack) serialized.stack = error.stack;
   const status = numericStatus(error);
   if (status !== undefined) serialized.status = status;
