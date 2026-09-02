@@ -84,6 +84,77 @@ function schemaExample(schema: unknown, root = schema, seen = new Set<unknown>()
   return null;
 }
 
+/**
+ * Parse a provider's JSON-object response while tolerating a model that
+ * appends a second corrected JSON value (or a short explanation) after its
+ * first attempt. Strict parsing remains the fast path. The fallback only
+ * considers balanced object/array values, and the selected value still goes
+ * through the caller's schema and semantic validation.
+ */
+export function parseLastJsonValue(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (strictError) {
+    let lastValue: unknown;
+    let foundValue = false;
+
+    for (let start = 0; start < text.length; start += 1) {
+      const opening = text[start];
+      if (opening !== "{" && opening !== "[") continue;
+      const end = balancedJsonEnd(text, start);
+      if (end === null) continue;
+      try {
+        lastValue = JSON.parse(text.slice(start, end));
+        foundValue = true;
+        // A successfully parsed candidate owns its nested values. Skipping
+        // them prevents an inner object from replacing the enclosing result.
+        start = end - 1;
+      } catch {
+        // Keep scanning: the candidate may be malformed while a later model
+        // correction is a valid JSON object.
+      }
+    }
+
+    if (foundValue) return lastValue;
+    throw strictError;
+  }
+}
+
+function balancedJsonEnd(text: string, start: number): number | null {
+  const opening = text[start];
+  if (opening !== "{" && opening !== "[") return null;
+  const expectedClosers: string[] = [];
+  let inString = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (character === "\\") {
+        index += 1;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{") {
+      expectedClosers.push("}");
+      continue;
+    }
+    if (character === "[") {
+      expectedClosers.push("]");
+      continue;
+    }
+    if (character !== "}" && character !== "]") continue;
+    if (expectedClosers.pop() !== character) return null;
+    if (expectedClosers.length === 0) return index + 1;
+  }
+  return null;
+}
+
 function parseStructuredValue<T>(
   schema: z.ZodType<T>,
   value: unknown,
@@ -349,7 +420,7 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
       }
       let value: unknown;
       try {
-        value = JSON.parse(result.text);
+        value = parseLastJsonValue(result.text);
       } catch (error) {
         throw new ModelOutputError(`${binding.accountId} returned invalid JSON content`, undefined, {
           cause: error,

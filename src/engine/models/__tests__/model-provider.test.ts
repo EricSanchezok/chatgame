@@ -17,6 +17,7 @@ import {
 import { FairModelScheduler, ModelOverloadedError } from "../model-scheduler";
 import { TEST_WORLD_HASH } from "../../testing/world";
 import { createTestModelRegistry } from "../../testing/model-provider";
+import { parseLastJsonValue } from "../model-adapter";
 
 const outputSchema = z.strictObject({ answer: z.string() });
 
@@ -338,6 +339,38 @@ describe("model catalog and provider adapters", () => {
     expect(body).not.toHaveProperty("reasoning_effort");
     expect(body).not.toHaveProperty("temperature");
     expect(body).not.toHaveProperty("top_p");
+  });
+
+  it("uses the last complete JSON value when a model appends a correction", () => {
+    const response = [
+      JSON.stringify({ answer: "first" }),
+      "The first object was incomplete; returning the corrected result:",
+      JSON.stringify({ answer: "last", details: { text: "braces {inside} strings" } }),
+    ].join("\n");
+
+    expect(parseLastJsonValue(response)).toEqual({
+      answer: "last",
+      details: { text: "braces {inside} strings" },
+    });
+  });
+
+  it("keeps strict parsing behavior and rejects responses without a JSON value", () => {
+    expect(parseLastJsonValue(JSON.stringify({ answer: "only" }))).toEqual({ answer: "only" });
+    expect(() => parseLastJsonValue("not JSON at all")).toThrow(SyntaxError);
+  });
+
+  it("accepts a corrected JSON response through the model gateway", async () => {
+    const gateway = createGateway(credentials, {
+      fetch: async () => deepSeekResponse([
+        JSON.stringify({ answer: "first" }),
+        "I need to return the complete object:",
+        JSON.stringify({ answer: "corrected" }),
+      ].join("\n")),
+    });
+
+    await expect(gateway.generateStructured(request("deep"))).resolves.toMatchObject({
+      value: { answer: "corrected" },
+    });
   });
 
   it("sends native structured-output and reasoning contracts to DeepSeek, OpenAI and xAI", async () => {
