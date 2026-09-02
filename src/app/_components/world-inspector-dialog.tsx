@@ -112,7 +112,7 @@ function InspectorCollectionHeader({
   view: Exclude<CenterView, "calls">;
 }) {
   const config = view === "timeline"
-    ? { title: "世界演化流程", description: "按 Run → Boundary → Stage 展开成功与失败的完整尝试", firstLabel: "尝试", first: `${data.attempts.length}`, secondLabel: "提交", second: `${data.steps.length}` }
+    ? { title: "世界演化流程", description: "按 Run → Boundary → Stage 展开，最新更新置顶", firstLabel: "尝试", first: `${data.attempts.length}`, secondLabel: "提交", second: `${data.steps.length}` }
     : { title: "世界演化图谱", description: "先看可解释的语义主链，再按需展开底层证据", firstLabel: "语义节点", first: `${data.semanticNodes?.length ?? 0}`, secondLabel: "关系", second: `${data.semanticEdges?.length ?? 0}` };
   return (
     <header className="cg-inspector-collection-header">
@@ -959,9 +959,11 @@ export default function WorldInspectorDialog({
                 </button>
                 <button aria-label="下一阶段" disabled={replayFrameIndex >= replay.frames.length - 1} onClick={() => setReplayFrameIndex((index) => Math.min(replay.frames.length - 1, index + 1))} type="button"><ChevronRight aria-hidden="true" /></button>
                 <input aria-label="回放阶段" max={Math.max(0, replay.frames.length - 1)} min={0} onChange={(event) => setReplayFrameIndex(Number(event.target.value))} type="range" value={replayFrameIndex} />
-                <select aria-label="回放速度" onChange={(event) => setReplayRate(Number(event.target.value) as 1 | 4 | 16)} value={replayRate}>
-                  <option value={1}>1x</option><option value={4}>4x</option><option value={16}>16x</option>
-                </select>
+                <span className="cg-inspector-select">
+                  <select aria-label="回放速度" onChange={(event) => setReplayRate(Number(event.target.value) as 1 | 4 | 16)} value={replayRate}>
+                    <option value={1}>1x</option><option value={4}>4x</option><option value={16}>16x</option>
+                  </select>
+                </span>
                 <button onClick={() => { setReplay(undefined); setReplayPlaying(false); returnToLatest(); }} type="button">退出回放</button>
               </div>
             )}
@@ -988,9 +990,11 @@ export default function WorldInspectorDialog({
                   <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据图（{data.nodes.length} 节点）</button>
                   {graphMode === "technical" && (
                     <label>节点上限
-                      <select onChange={(event) => setTechnicalNodeLimit(Number(event.target.value) as typeof technicalNodeLimit)} value={technicalNodeLimit}>
-                        <option value={100}>100</option><option value={200}>200</option><option value={500}>500</option><option value={1000}>1000</option>
-                      </select>
+                      <span className="cg-inspector-select">
+                        <select onChange={(event) => setTechnicalNodeLimit(Number(event.target.value) as typeof technicalNodeLimit)} value={technicalNodeLimit}>
+                          <option value={100}>100</option><option value={200}>200</option><option value={500}>500</option><option value={1000}>1000</option>
+                        </select>
+                      </span>
                     </label>
                   )}
                   {replayFrame && <span>当前阶段 {replayFrame.stageIndex + 1} · {replayFrame.stageLabel}</span>}

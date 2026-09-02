@@ -44,6 +44,7 @@ import { worldInspectorFallbackPositions } from "../_lib/world-inspector-layout"
 
 interface InspectorNodeData extends Record<string, unknown> {
   actorName: string;
+  direction: "RIGHT" | "DOWN";
   dimmed: boolean;
   onSelect: (summary: WorldInspectorNodeSummary) => void;
   selected: boolean;
@@ -75,6 +76,25 @@ const inspectorNodeHandles: NonNullable<InspectorFlowNode["handles"]> = [
   },
 ];
 
+const inspectorDownNodeHandles: NonNullable<InspectorFlowNode["handles"]> = [
+  {
+    type: "target",
+    position: Position.Top,
+    x: (inspectorNodeWidth - inspectorHandleSize) / 2,
+    y: -inspectorHandleSize / 2,
+    width: inspectorHandleSize,
+    height: inspectorHandleSize,
+  },
+  {
+    type: "source",
+    position: Position.Bottom,
+    x: (inspectorNodeWidth - inspectorHandleSize) / 2,
+    y: inspectorNodeHeight - inspectorHandleSize / 2,
+    width: inspectorHandleSize,
+    height: inspectorHandleSize,
+  },
+];
+
 const iconByKind: Record<WorldInspectorNodeKind, typeof Orbit> = {
   commit: GitCommitHorizontal,
   action: Activity,
@@ -96,6 +116,8 @@ const iconByKind: Record<WorldInspectorNodeKind, typeof Orbit> = {
 
 function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
   const Icon = iconByKind[data.summary.kind];
+  const targetPosition = data.direction === "DOWN" ? Position.Top : Position.Left;
+  const sourcePosition = data.direction === "DOWN" ? Position.Bottom : Position.Right;
   const moveFocus = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown", "Home", "End"].includes(event.key)) return;
     const graph = event.currentTarget.closest(".cg-inspector-graph");
@@ -112,7 +134,7 @@ function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
   };
   return (
     <>
-      <Handle aria-hidden="true" className="cg-inspector-node__handle" position={Position.Left} type="target" />
+      <Handle aria-hidden="true" className="cg-inspector-node__handle" position={targetPosition} type="target" />
       <button
         aria-label={`${data.actorName}，${data.summary.label}，${data.summary.description}`}
         aria-pressed={data.selected}
@@ -136,7 +158,7 @@ function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
         </span>
         {data.summary.count !== undefined && <span className="cg-inspector-node__count">{data.summary.count}</span>}
       </button>
-      <Handle aria-hidden="true" className="cg-inspector-node__handle" position={Position.Right} type="source" />
+      <Handle aria-hidden="true" className="cg-inspector-node__handle" position={sourcePosition} type="source" />
     </>
   );
 }
@@ -220,6 +242,7 @@ export function WorldInspectorGraph({
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const graphNodes = mode === "semantic" ? semanticNodes : sourceNodes;
   const graphEdges = mode === "semantic" ? semanticEdges : sourceEdges;
+  const layoutDirection = mode === "semantic" ? "DOWN" : "RIGHT";
   const scopedSourceNodes = useMemo(() => {
     let scoped: WorldInspectorNodeSummary[];
     if (selectedNodeId?.startsWith("attempt:")) {
@@ -246,8 +269,8 @@ export function WorldInspectorGraph({
     visibleSummaries.map((node) => node.id).join("|"),
     visibleEdges.map((edge) => edge.id).join("|"),
   ].join("::"), [visibleEdges, visibleSummaries]);
-  const provisionalPositions = useMemo(() => worldInspectorFallbackPositions(visibleSummaries, visibleEdges),
-    [visibleEdges, visibleSummaries]);
+  const provisionalPositions = useMemo(() => worldInspectorFallbackPositions(visibleSummaries, visibleEdges, layoutDirection),
+    [layoutDirection, visibleEdges, visibleSummaries]);
 
   useEffect(() => {
     const worker = new Worker(new URL("../_workers/world-inspector-layout.worker.ts", import.meta.url), {
@@ -274,13 +297,13 @@ export function WorldInspectorGraph({
       id: `world-inspector:${id}`,
       layoutOptions: {
         "elk.algorithm": "layered",
-        "elk.direction": "RIGHT",
+        "elk.direction": layoutDirection,
         "elk.edgeRouting": "SPLINES",
         "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
         "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
         "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
-        "elk.spacing.nodeNode": "42",
-        "elk.layered.spacing.nodeNodeBetweenLayers": "96",
+        "elk.spacing.nodeNode": layoutDirection === "DOWN" ? "24" : "42",
+        "elk.layered.spacing.nodeNodeBetweenLayers": layoutDirection === "DOWN" ? "28" : "96",
         "elk.padding": "[top=48,left=48,bottom=48,right=48]",
       },
       children: visibleSummaries.map((node) => ({
@@ -307,7 +330,7 @@ export function WorldInspectorGraph({
       setSettledLayoutSignature(layoutSignature);
     });
     return () => { cancelled = true; };
-  }, [layoutSignature, provisionalPositions, visibleEdges, visibleSummaries]);
+  }, [layoutDirection, layoutSignature, provisionalPositions, visibleEdges, visibleSummaries]);
 
   const nodes = useMemo<InspectorFlowNode[]>(() => visibleSummaries.map((summary) => {
     const matchesQuery = !normalizedQuery || `${summary.label} ${summary.description} ${actorNames.get(summary.laneId) ?? summary.laneId}`
@@ -322,19 +345,20 @@ export function WorldInspectorGraph({
       position: positions[summary.id] ?? provisionalPositions[summary.id] ?? { x: 0, y: 0 },
       initialHeight: inspectorNodeHeight,
       initialWidth: inspectorNodeWidth,
-      handles: inspectorNodeHandles,
+      handles: layoutDirection === "DOWN" ? inspectorDownNodeHandles : inspectorNodeHandles,
       draggable: false,
       selectable: false,
       ariaLabel: `${summary.label}：${summary.description}`,
       data: {
         actorName: actorNames.get(summary.laneId) ?? summary.laneId,
+        direction: layoutDirection,
         dimmed: !matchesQuery || !matchesActor,
         onSelect,
         selected: selectedNodeId === summary.id,
         summary,
       },
     };
-  }), [actorNames, normalizedQuery, onSelect, positions, provisionalPositions, selectedActorId, selectedNodeId, visibleSummaries]);
+  }), [actorNames, layoutDirection, normalizedQuery, onSelect, positions, provisionalPositions, selectedActorId, selectedNodeId, visibleSummaries]);
 
   const edges = useMemo<Edge[]>(() => visibleEdges.map((edge) => ({
     id: edge.id,

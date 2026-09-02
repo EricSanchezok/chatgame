@@ -8,7 +8,9 @@ import { WorldInspectorSlotSummary } from "./world-inspector-slot-summary";
 
 export type WorldInspectorInvocationListItem = WorldInspectorModelInvocationSummary & {
   /** Query results carry this routing hint; step/attempt projections may omit it because their execution is implicit. */
+  boundaryIndex?: number;
   executionId?: string;
+  ledgerSequence?: number;
 };
 
 function formatNumber(value: number | null | undefined): string {
@@ -27,6 +29,11 @@ function statusLabel(status: WorldInspectorModelInvocationSummary["status"]): st
 
 function statusIcon(status: WorldInspectorModelInvocationSummary["status"]) {
   return status === "accepted" ? Check : status === "active" ? LoaderCircle : AlertTriangle;
+}
+
+function stageIndex(invocation: WorldInspectorInvocationListItem): number {
+  const value = invocation.logicalStageIndex;
+  return value !== undefined && value < Number.MAX_SAFE_INTEGER ? value : -1;
 }
 
 export function WorldInspectorInvocationList({
@@ -64,15 +71,17 @@ export function WorldInspectorInvocationList({
       ...Object.values(invocation.artifactHashes), slots]
       .filter(Boolean).join(" ").toLocaleLowerCase().includes(normalized);
   }).sort((left, right) => {
-    const value = (invocation: WorldInspectorModelInvocationSummary): number => sort === "stage"
-      ? (invocation.logicalStageIndex ?? Number.MAX_SAFE_INTEGER) * 1_000_000 + (invocation.logicalInvocationOrdinal ?? invocation.ordinal)
+    const value = (invocation: WorldInspectorInvocationListItem): number => sort === "stage"
+      ? (invocation.boundaryIndex ?? -1) * 1_000_000_000_000 + (stageIndex(invocation) + 1) * 1_000_000 +
+        (invocation.logicalInvocationOrdinal ?? invocation.ordinal) * 1_000 + (invocation.ledgerSequence ?? invocation.ordinal)
       : sort === "duration"
       ? invocation.timings.invocationMs ?? -1
       : sort === "inputTokens" ? invocation.tokenUsage.input ?? -1
       : sort === "outputTokens" ? invocation.tokenUsage.output ?? -1
       : sort === "retries" ? invocation.retryCount
       : invocation.startedAt ? Date.parse(invocation.startedAt) : invocation.ordinal;
-    return value(left) - value(right) || left.ordinal - right.ordinal;
+    return value(right) - value(left) || (right.ledgerSequence ?? right.ordinal) - (left.ledgerSequence ?? left.ordinal) ||
+      right.ordinal - left.ordinal;
   });
   const input = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.input ?? 0), 0);
   const output = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.output ?? 0), 0);
@@ -84,6 +93,7 @@ export function WorldInspectorInvocationList({
           <strong>模型调用清单</strong>
           <small>{scopeLabel ? `${scopeLabel} · ` : ""}逻辑调用与物理传输尝试分开记录</small>
         </div>
+        <span className="cg-inspector-list-order">最新在上</span>
         <dl>
           <div><dt>调用</dt><dd>{visible.length}</dd></div>
           <div><dt>输入</dt><dd>{formatNumber(input)}</dd></div>
@@ -93,14 +103,16 @@ export function WorldInspectorInvocationList({
       </header>
       <div className="cg-inspector-invocation-list__controls" aria-label="调用排序与筛选">
         <label>排序
-          <select onChange={(event) => setSort(event.target.value as typeof sort)} value={sort}>
-            <option value="stage">引擎顺序</option>
-            <option value="timestamp">时间</option>
-            <option value="duration">调用耗时</option>
-            <option value="inputTokens">输入 token</option>
-            <option value="outputTokens">输出 token</option>
-            <option value="retries">retry 次数</option>
-          </select>
+          <span className="cg-inspector-select">
+            <select onChange={(event) => setSort(event.target.value as typeof sort)} value={sort}>
+              <option value="stage">引擎顺序 · 最新在上</option>
+              <option value="timestamp">时间 · 最新在上</option>
+              <option value="duration">调用耗时 · 从高到低</option>
+              <option value="inputTokens">输入 token · 从高到低</option>
+              <option value="outputTokens">输出 token · 从高到低</option>
+              <option value="retries">retry 次数 · 从高到低</option>
+            </select>
+          </span>
         </label>
         <label>最少输入 token
           <input min="0" onChange={(event) => setMinInputTokens(event.target.value)} placeholder="不限" type="number" value={minInputTokens} />
@@ -121,6 +133,8 @@ export function WorldInspectorInvocationList({
           const stageInvocationCount = invocations.filter((candidate) =>
             candidate.executionId === invocation.executionId &&
             candidate.logicalStageIndex === invocation.logicalStageIndex).length;
+          const knownStage = invocation.logicalStageIndex !== undefined && invocation.logicalStageIndex < Number.MAX_SAFE_INTEGER;
+          const stageLabel = knownStage ? `阶段 ${invocation.logicalStageIndex! + 1}` : "未分阶段";
           return (
             <article
               className="cg-inspector-invocation"
@@ -138,7 +152,7 @@ export function WorldInspectorInvocationList({
                 <span className="cg-inspector-invocation__icon"><Bot aria-hidden="true" /></span>
                 <span className="cg-inspector-invocation__identity">
                   <strong>Invocation {invocation.ordinal || "?"} · {invocation.role ?? "模型调用"}</strong>
-                  <small title={invocation.executionId}>阶段 {invocation.logicalStageIndex === undefined ? "?" : invocation.logicalStageIndex + 1} · 逻辑调用 {invocation.logicalInvocationOrdinal ?? invocation.ordinal}/{stageInvocationCount} · {invocation.logicalStageLabel ?? "未分类阶段"} · {stageInvocationCount > 1 ? `${stageInvocationCount} 个并行调用，不代表因果先后` : "单个逻辑调用"} · {invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}{executionHint ? ` · 执行 ${executionHint}` : ""}</small>
+                  <small title={invocation.executionId}>{stageLabel} · 逻辑调用 {invocation.logicalInvocationOrdinal ?? invocation.ordinal}/{stageInvocationCount} · {invocation.logicalStageLabel ?? "未分类阶段"} · {stageInvocationCount > 1 ? `${stageInvocationCount} 个并行调用，不代表因果先后` : "单个逻辑调用"} · {invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}{executionHint ? ` · 执行 ${executionHint}` : ""}</small>
                 </span>
                 <span className="cg-inspector-invocation__status"><Icon aria-hidden="true" />{statusLabel(invocation.status)}</span>
                 <span className="cg-inspector-invocation__slot-line">

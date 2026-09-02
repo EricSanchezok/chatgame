@@ -99,4 +99,34 @@ describe("WorldInspectorInvocationList", () => {
     expect(buttons[1]).toHaveTextContent("执行 second-");
     expect(buttons[0].textContent).not.toBe(buttons[1].textContent);
   });
+
+  it("keeps the newest evidence at the top and hides the internal stage sentinel", () => {
+    const older = {
+      ...invocation,
+      id: "run::older",
+      sourceInvocationId: "older",
+      ordinal: 1,
+      boundaryIndex: 2,
+      logicalStageIndex: Number.MAX_SAFE_INTEGER,
+      ledgerSequence: 10,
+      updatedAt: "2026-09-02T08:00:00.000Z",
+    };
+    const newer = {
+      ...invocation,
+      id: "run::newer",
+      sourceInvocationId: "newer",
+      ordinal: 2,
+      boundaryIndex: 2,
+      logicalStageIndex: Number.MAX_SAFE_INTEGER,
+      ledgerSequence: 20,
+      updatedAt: "2026-09-02T08:00:01.000Z",
+    };
+
+    render(<WorldInspectorInvocationList invocations={[older, newer]} onSelect={() => {}} query="" />);
+
+    const buttons = screen.getAllByRole("button", { name: /Invocation/ });
+    expect(buttons[0]).toHaveTextContent("Invocation 2");
+    expect(buttons[0]).toHaveTextContent("未分阶段");
+    expect(buttons[0]).not.toHaveTextContent("9007199254740992");
+  });
 });

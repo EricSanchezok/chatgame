@@ -16,6 +16,7 @@ export interface WorldInspectorNodePosition {
 export function worldInspectorFallbackPositions(
   nodes: readonly WorldInspectorNodeSummary[],
   edges: readonly WorldInspectorEdgeSummary[],
+  direction: "RIGHT" | "DOWN" = "RIGHT",
 ): Record<string, WorldInspectorNodePosition> {
   const ids = new Set(nodes.map((node) => node.id));
   const indegree = new Map(nodes.map((node) => [node.id, 0]));
@@ -49,7 +50,9 @@ export function worldInspectorFallbackPositions(
     entries.sort((left, right) => left.laneId.localeCompare(right.laneId) ||
       (nodeOrder.get(left.id) ?? 0) - (nodeOrder.get(right.id) ?? 0));
     entries.forEach((node, row) => {
-      positions[node.id] = { x: column * 334, y: row * 122 };
+      positions[node.id] = direction === "DOWN"
+        ? { x: row * 334, y: column * 122 }
+        : { x: column * 334, y: row * 122 };
     });
   }
   return positions;
