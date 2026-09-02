@@ -8,6 +8,7 @@ import type {
   WorldInspectorStepDetail,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
+import type { DebugInspection } from "../../shared/debug-api";
 import { requestJson } from "./api-client";
 
 function base(instanceId: string): string {
@@ -57,5 +58,11 @@ export const worldInspectorApi = {
   },
   eventsUrl(instanceId: string) {
     return `${base(instanceId)}/events`;
+  },
+  debugInspect(invocationId: string, includePayload = false) {
+    const query = includePayload ? "?payload=true" : "";
+    return requestJson<DebugInspection>(
+      `/api/debug/invocations/${encodeURIComponent(invocationId)}${query}`,
+    );
   },
 };

@@ -44,6 +44,7 @@ import type {
   WorldInspectorReplay,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
+import type { DebugInspection } from "../../shared/debug-api";
 import { mergeWorldInspectorWindows } from "../_lib/world-inspector-window";
 import { worldInspectorInvocationExecutionId } from "../_lib/world-inspector-invocation";
 import {
@@ -202,6 +203,10 @@ export default function WorldInspectorDialog({
   const [detail, setDetail] = useState<InspectorDetail>();
   const [detailError, setDetailError] = useState("");
   const [invocationDetail, setInvocationDetail] = useState<WorldInspectorModelInvocationDetail>();
+  const [debugInspection, setDebugInspection] = useState<DebugInspection>();
+  const [directInvocationId, setDirectInvocationId] = useState("");
+  const [debugLookupError, setDebugLookupError] = useState("");
+  const [loadingDebugLookup, setLoadingDebugLookup] = useState(false);
   const [invocationError, setInvocationError] = useState("");
   const [loadingInvocation, setLoadingInvocation] = useState(false);
   const [queriedInvocations, setQueriedInvocations] = useState<WorldInspectorModelInvocationSummary[]>([]);
@@ -464,6 +469,41 @@ export default function WorldInspectorDialog({
     }
     await loadInvocation(invocation, executionId);
   }, [detail, loadInvocation]);
+
+  const lookupDebugInvocation = useCallback(async () => {
+    const id = directInvocationId.trim();
+    if (!id) {
+      setDebugLookupError("请输入 public invocation id。");
+      return;
+    }
+    setLoadingDebugLookup(true);
+    setDebugLookupError("");
+    setDebugInspection(undefined);
+    try {
+      const evidence = await worldInspectorApi.debugInspect(id);
+      setDebugInspection(evidence);
+      const result = await worldInspectorApi.modelInvocations(instanceId, {
+        executionId: evidence.executionId,
+        limit: 100,
+        sort: "stage",
+      });
+      const invocation = result.items.find((candidate) => candidate.id === evidence.id);
+      if (invocation) {
+        setQueriedInvocations((current) => current.some((candidate) => candidate.id === invocation.id)
+          ? current : [invocation, ...current]);
+        setFollowLatest(false);
+        await loadInvocation(invocation, evidence.executionId);
+      } else {
+        setSelection({ kind: "invocation", id: evidence.id, executionId: evidence.executionId });
+        setInvocationDetail(undefined);
+        setInvocationError("已在 Ledger 找到证据，但当前 Inspector 实例没有可渲染的调用投影；请使用下方事件链或 CLI 继续定位。");
+      }
+    } catch (reason) {
+      setDebugLookupError(reason instanceof Error ? reason.message : "没有找到这条 public invocation id 的耐久证据。");
+    } finally {
+      setLoadingDebugLookup(false);
+    }
+  }, [directInvocationId, instanceId, loadInvocation]);
 
   const loadWindow = useCallback(async (preserveHistory: boolean) => {
     const request = ++requestRef.current;
@@ -990,6 +1030,57 @@ export default function WorldInspectorDialog({
             )}
             {activeView === "calls" ? (
               <>
+                <form
+                  className="cg-inspector-debug-lookup"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void lookupDebugInvocation();
+                  }}
+                >
+                  <label>
+                    <span>按 public invocation id 直查</span>
+                    <input
+                      aria-label="public invocation id"
+                      onChange={(event) => setDirectInvocationId(event.target.value)}
+                      placeholder="execution-id::source-invocation-id"
+                      spellCheck={false}
+                      value={directInvocationId}
+                    />
+                  </label>
+                  <button disabled={loadingDebugLookup} type="submit">
+                    {loadingDebugLookup ? "正在定位…" : "定位证据"}
+                  </button>
+                </form>
+                {debugLookupError && <p className="cg-inspector-stage__warning" role="alert">{debugLookupError}</p>}
+                {debugInspection && (
+                  <section className="cg-inspector-debug-hit" aria-label="直接定位结果">
+                    <header>
+                      <strong>已定位耐久证据</strong>
+                      <code title={debugInspection.id}>{debugInspection.id}</code>
+                      <span>{debugInspection.eventCount} 个事件 · {debugInspection.issueCodes.length} 个诊断/问题码</span>
+                    </header>
+                    {debugInspection.diagnostics.length > 0 && (
+                      <ul>
+                        {debugInspection.diagnostics.map((diagnostic) => (
+                          <li key={`${diagnostic.code}:${diagnostic.eventSequence ?? ""}`}>
+                            <code>{diagnostic.code}</code> · {diagnostic.owner} · {diagnostic.retryability}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <details>
+                      <summary>查看事件链（{debugInspection.events.length}）</summary>
+                      <ol>
+                        {debugInspection.events.map((event) => (
+                          <li key={`${event.executionId}:${event.sequence}`}>
+                            <code>{event.sequence}</code> <span>{event.eventName}</span>
+                            {event.diagnosticCodes.length > 0 && <small> · {event.diagnosticCodes.join(", ")}</small>}
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  </section>
+                )}
                 {loadingInvocation && <p className="cg-inspector-stage__status" role="status">正在读取这次模型调用的完整记录…</p>}
                 {invocationError && <p className="cg-inspector-stage__warning" role="alert">{invocationError}</p>}
                 <WorldInspectorInvocationList

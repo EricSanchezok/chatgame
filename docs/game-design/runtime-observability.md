@@ -24,7 +24,7 @@ WorldHost 为 bootstrap、每个 WorldRun 时间边界和 Arrival 建立 executi
 
 ## 事件与指标
 
-Runtime event schema v2 的稳定语义归引擎所有。算法只能通过窄型 instrumentation 上报已声明的 phase 与 degradation diagnostics，未知事件、畸形字段和算法伪报的引擎事件会失败。引擎在 Candidate 通过提交验证后，从输入和候选生成 activation、eligibility、产物、temporal boundary reason、Activity transition、outcome status 与 operation kind 事件。稳定的 trace/span/parent/link 仍表达执行 DAG；在没有区间 span 证据时，导出器只报告真实根执行墙钟时间、span 数和最大深度，不声称关键路径或把父子 duration 重复相加为总 work。
+Runtime event schema v3 的稳定语义归引擎所有。算法只能通过窄型 instrumentation 上报已声明的 phase 与 degradation diagnostics，未知事件、畸形字段和算法伪报的引擎事件会失败。引擎在 Candidate 通过提交验证后，从输入和候选生成 activation、eligibility、产物、temporal boundary reason、Activity transition、outcome status 与 operation kind 事件。稳定的 trace/span/parent/link 仍表达执行 DAG；在没有区间 span 证据时，导出器只报告真实根执行墙钟时间、span 数和最大深度，不声称关键路径或把父子 duration 重复相加为总 work。
 
 `MetricDefinitionRegistry` 是名称、单位、`sum | count | last | max` 聚合和允许维度的唯一登记处。Agent、Participant、Instance、Advance、Event、Component 和 invocation ID 只存在于 trace，不进入聚合指标维度；受控的 model role 可以进入指标。指标只从 Ledger 原始事件派生，不另存实验结果真相。
 
@@ -34,11 +34,13 @@ Runtime event schema v2 的稳定语义归引擎所有。算法只能通过窄�
 
 ## Inspector
 
-Inspector 服务端按 World Instance 查询 Ledger，并按需解压 artifact；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v8 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
+Inspector 服务端按 World Instance 查询 Ledger，并由可重建的 SQLite 查询投影支持精确检索；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v9 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
 
-v6 还提供 `GET /api/instances/:id/inspector/model-invocations` 与单条调用详情路由。调用投影区分 logical invocation、transport attempt、semantic rejection、repair 和 retry，并公开单次 token、request/context/response 字节数、queue/transport/parse 时间、slot/Agent 映射、validation code、runtime event ID 与 artifact hash。调用清单支持显式排序和阈值查询；完整 payload 继续通过 runtime-event artifact 按需读取，不进入窗口摘要。
+v9 还提供 `GET /api/instances/:id/inspector/model-invocations` 与单条调用详情路由，以及本地 `GET /api/debug`、`/api/debug/invocations/:id`、`/api/debug/artifacts/:hash` 和 `/api/debug/doctor`。调用投影区分 logical invocation、transport attempt、semantic rejection、repair 和 retry，并公开单次 token、request/context/response 字节数、queue/transport/parse 时间、slot/Agent 映射、validation code、runtime event ID 与 artifact hash。调用清单和 Debug CLI 支持服务端精确查询、稳定分页、诊断码、request/trace/span、artifact 与完整 lineage；完整 payload 仅在显式请求时读取，不进入摘要。
 
 Inspector 是本地受信任调试表面。公开产品 DTO 和 Participant 视角不读取 Inspector 投影，也不能获得 canonical binding 或其他主体私有认知。
+
+HTTP Route Handler 为每个请求生成 `requestId`，通过 `x-lwe-request-id` 返回，并在同一异步上下文中继承到 WorldHost、模型与 Ledger 事件。由独立后台任务或进程重启后恢复的执行不会伪造 HTTP 关联。
 
 ## 研究命令
 
@@ -48,6 +50,8 @@ npm run execution:replay -- <execution-id> --database <sqlite>
 npm run execution:compare -- <left-id> <right-id> --database <sqlite>
 npm run execution:export -- <execution-id> --database <sqlite> [--output <json>]
 ```
+
+本地故障优先使用 `npm run debug -- find --invocation <public-id>`、`inspect`、`lineage`、`events`、`artifact`、`explain` 和 `doctor`。完整命令、稳定退出码和索引重建流程见 [Local Debugging Reference](../debugging.md)。
 
 `experiment:run` 使用生产 Gateway 与确定性 transport boundary，不访问网络，并交叉运行两个独立槽位矩阵。每个 trial 固定带配置的 eager-reference manifest，记录配置上限、实际平均槽位、按角色物理调用与 scheduler 波次、input/output/reasoning/cache token、局部失败、repair、split、fallback、墙钟和成功率，并保存完整模型输入输出与候选材料。`execution:replay` 从原 execution 的 producer manifest 还原带相同配置的 `AlgorithmRef`，经 registry 创建算法并逐次消费已记录模型输出，不访问网络，同时验证 semantic hash 与 state hash。`execution:compare` 分别比较 resolution（计划、收据、随机、mechanic、因果验证）、temporal（计划、边界、snapshot、转换、决策点）、transition、observation 和 mind。`execution:export` 输出 producer manifest、事件、artifact 索引、按注册语义聚合的指标与 execution wall/span 摘要。
 

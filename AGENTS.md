@@ -37,9 +37,11 @@ npm test                                         # Vitest unit/integration proje
 npm run world:validate -- <world-directory>      # Validate a schema v9 world
 npm run world:import -- <zip> [--replace]        # Import through the shared web/CLI core
 node scripts/run-gates.mjs                       # Manifest-selected governance gates
+npm run debug:doctor                              # Check Ledger and debug-index integrity
+npm run debug -- find --invocation <public-id>    # Locate durable evidence by public invocation ID
 ```
 
-Run the checks relevant to the touched surface while working; run `npm run check:fast` before committing. CI owns the exhaustive browser matrix.
+Run the checks relevant to the touched surface while working; run `npm run check:fast` before committing. For any bug or unexpected behavior, start with `npm run debug:doctor` and follow [docs/debugging.md](docs/debugging.md) plus the [debugging skill](.agents/skills/debugging/SKILL.md). CI owns the exhaustive browser matrix.
 
 ### Local startup acceptance
 
@@ -92,3 +94,4 @@ Follow [docs/testing.md](docs/testing.md): exercise real entry paths, verify the
 - [`.agents/skills/repo-review`](.agents/skills/repo-review/SKILL.md) — project-specific semantic review policy.
 - [`.agents/skills/repo-decisions`](.agents/skills/repo-decisions/SKILL.md) — durable MADR procedure.
 - [`.agents/skills/repo-governance`](.agents/skills/repo-governance/SKILL.md) — progressive capability assessment and authorization.
+- [`.agents/skills/debugging`](.agents/skills/debugging/SKILL.md) — evidence-first local debugging with the shared Ledger/CLI query path.

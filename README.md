@@ -26,6 +26,8 @@ npm run world:validate -- <world-directory>
 npm run world:import -- <world.zip> [--replace]
 npm run models:status
 npm run models:refresh
+npm run debug:doctor
+npm run debug -- find --invocation '<execution-id>::<source-invocation-id>'
 npm run test:live:model -- --account <account-id>
 npm run test:live:glm
 npm run test:live:deepseek

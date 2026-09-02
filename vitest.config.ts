@@ -11,7 +11,7 @@ export default defineConfig({
           name: "unit",
           environment: "node",
           fileParallelism: false,
-          include: ["src/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
+          include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
           setupFiles: ["./test/setup.ts"],
         },
       },
