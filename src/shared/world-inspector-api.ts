@@ -243,6 +243,8 @@ export interface WorldInspectorAttemptStage {
   errorMessage?: string;
   logicalStageIndex?: number;
   logicalStageKey?: string;
+  /** True when the stage was reconstructed from Ledger events without stage metadata. */
+  derived?: boolean;
 }
 
 export interface WorldInspectorAttemptSummary {

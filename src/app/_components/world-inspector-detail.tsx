@@ -749,27 +749,48 @@ function AttemptOverview({ actorId, actorName, detail }: {
 }) {
   const action = detail.attemptedActions.find((candidate) => candidate.actorId === actorId);
   const directlyRelated = detail.summary.relatedActorIds.includes(actorId);
+  const committed = detail.summary.status === "committed";
+  const active = detail.summary.status === "active";
+  const outcomeTitle = committed
+    ? `已完成 · Revision ${detail.summary.revision ?? "—"}`
+    : active
+      ? "当前调试运行"
+      : detail.summary.failureStageLabel ? `失败于${detail.summary.failureStageLabel}` : "未完成的推演尝试";
+  const outcomeLabel = committed
+    ? detail.summary.rejectionCount > 0 ? "过程提示" : "结果"
+    : active ? "当前状态" : "失败原因";
+  const outcomeMessage = committed
+    ? detail.summary.rejectionCount > 0
+      ? `${detail.summary.rejectionCount} 次中间输出未通过语义校验，经过 ${detail.summary.repairCount} 次修复后完成提交。`
+      : "这次尝试已通过校验并写入 canonical world state。"
+    : active
+      ? "引擎在逻辑阶段之间暂停，尚未推进世界状态。"
+      : detail.summary.errorMessage ?? detail.summary.latestEvent;
   return (
     <div className="cg-inspector-detail-stack">
       <header className="cg-inspector-detail-heading">
         <span className="cg-inspector-detail__status" data-status={detail.summary.status}>
           {attemptStatusLabel[detail.summary.status]}
         </span>
-        <h3>{detail.summary.failureStageLabel ? `${detail.summary.failureStageLabel}未通过` : "推演尝试"}</h3>
-        <p><strong>失败原因</strong><span>{detail.summary.errorMessage ?? detail.summary.latestEvent}</span></p>
+        <h3>{outcomeTitle}</h3>
+        <p><strong>{outcomeLabel}</strong><span>{outcomeMessage}</span></p>
         <small>{detail.summary.id}</small>
       </header>
-      <section className="cg-inspector-failure-card">
-        <span><AlertTriangle aria-hidden="true" /></span>
+      <section className="cg-inspector-failure-card" data-status={committed ? "committed" : active ? "active" : "failed"}>
+        <span>{committed ? <Check aria-hidden="true" /> : active ? <LoaderCircle aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}</span>
         <div>
-          <strong>世界状态没有提交</strong>
+          <strong>{committed ? "世界状态已提交" : active ? "世界状态尚未提交" : "世界状态没有提交"}</strong>
           <small>
-            {detail.summary.rejectionCount > 0
-              ? `${detail.summary.rejectionCount} 次输出均未通过语义校验，包含 ${detail.summary.repairCount} 次修复。`
-              : "尝试在原子提交前终止。"}
+            {committed
+              ? `已写入 Revision ${detail.summary.revision ?? "—"}${detail.summary.rejectionCount > 0 ? "；中间拒绝已被修复并保留为审计证据。" : "。"}`
+              : active
+                ? "当前暂停不会改变 canonical history、世界时间或资源状态。"
+                : detail.summary.rejectionCount > 0
+                  ? `${detail.summary.rejectionCount} 次输出未通过语义校验，包含 ${detail.summary.repairCount} 次修复。`
+                  : "尝试在原子提交前终止。"}
           </small>
         </div>
-        <b>{detail.summary.rollbackVerified ? "回滚已验证" : "未产生 Revision"}</b>
+        <b>{committed ? `Revision ${detail.summary.revision ?? "—"}` : detail.summary.rollbackVerified ? "回滚已验证" : "未产生 Revision"}</b>
       </section>
       <dl className="cg-inspector-signal-list">
         <div><dt><Sparkles aria-hidden="true" /><span><strong>运行事件</strong><small>这一尝试保留的阶段记录</small></span></dt><dd>{detail.summary.eventCount} 条</dd></div>
@@ -779,13 +800,13 @@ function AttemptOverview({ actorId, actorName, detail }: {
       {actorId !== "world" && (
         <DetailSection
           description={directlyRelated
-            ? "失败链中的结构化模型输出直接引用了该主体"
-            : "该主体参与了联合尝试，但不是当前失败的直接关联主体"}
+            ? `${committed ? "结构化模型输出" : "失败链中的结构化模型输出"}直接引用了该主体`
+            : `${committed ? "该主体参与了联合尝试，但不是这次提交的直接关联主体" : "该主体参与了联合尝试，但不是当前失败的直接关联主体"}`}
           icon={Activity}
           title={`${actorName}的尝试视角`}
         >
           {action
-            ? <ActionCard action={action} attempted label="拟议行动" />
+            ? <ActionCard action={action} attempted={!committed} label={committed ? "本次尝试的行动" : "拟议行动"} />
             : <p className="cg-inspector-inline-empty">这次尝试没有保留该主体的拟议行动。</p>}
         </DetailSection>
       )}
@@ -795,29 +816,32 @@ function AttemptOverview({ actorId, actorName, detail }: {
 
 function AttemptChanges({ detail }: { detail: WorldInspectorAttemptDetail }) {
   const revision = detail.summary.revision ?? 0;
+  const committed = detail.summary.status === "committed";
   return (
     <div className="cg-inspector-detail-stack">
-      <section className="cg-inspector-assurance" data-status="accepted">
-        <span><RotateCcw aria-hidden="true" /></span>
+      <section className="cg-inspector-assurance" data-status={committed ? "committed" : "accepted"}>
+        <span>{committed ? <Check aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}</span>
         <div>
-          <strong>零项状态写入</strong>
-          <small>失败尝试没有进入 canonical history，也没有生成新的 Revision。</small>
+          <strong>{committed ? "状态写入已完成" : "零项状态写入"}</strong>
+          <small>{committed ? `这次尝试已进入 canonical history，并生成 Revision ${revision}。` : "失败尝试没有进入 canonical history，也没有生成新的 Revision。"}</small>
         </div>
-        <b>R{revision} → R{revision}</b>
+        <b>{committed ? `R${Math.max(0, revision - 1)} → R${revision}` : `R${revision} → R${revision}`}</b>
       </section>
       <dl className="cg-inspector-change-summary">
-        <div><dt>Canonical 操作</dt><dd>0</dd></div>
-        <div><dt>世界事件</dt><dd>0</dd></div>
-        <div><dt>认知写入</dt><dd>0</dd></div>
+        <div><dt>Canonical 操作</dt><dd>{committed ? "已提交" : "0"}</dd></div>
+        <div><dt>世界事件</dt><dd>{committed ? "已提交" : "0"}</dd></div>
+        <div><dt>认知写入</dt><dd>{committed ? "已提交" : "0"}</dd></div>
       </dl>
       <DetailSection
-        count={detail.summary.rollbackVerified ? "已验证" : "未记录"}
-        description="对比尝试开始与回滚终点记录的状态 hash"
+        count={committed ? "已提交" : detail.summary.rollbackVerified ? "已验证" : "未记录"}
+        description={committed ? "CanonicalCommitter 完成原子写入" : "对比尝试开始与回滚终点记录的状态 hash"}
         icon={BadgeCheck}
-        title="回滚完整性"
+        title={committed ? "提交完整性" : "回滚完整性"}
       >
         <p className="cg-inspector-section__summary">
-          {detail.summary.rollbackVerified
+          {committed
+            ? "提交前后 revision、世界时间与资源分配通过同一原子事务写入。"
+            : detail.summary.rollbackVerified
             ? "开始与终止状态 hash 一致，事务回滚保持了原世界状态。"
             : "当前 trace 没有同时保留可比较的起止状态 hash；Revision 仍未递增。"}
         </p>
@@ -827,21 +851,22 @@ function AttemptChanges({ detail }: { detail: WorldInspectorAttemptDetail }) {
 }
 
 function AttemptCausality({ detail }: { detail: WorldInspectorAttemptDetail }) {
+  const committed = detail.summary.status === "committed";
   return (
     <div className="cg-inspector-detail-stack">
       <header className="cg-inspector-model-summary">
         <span><Link2 aria-hidden="true" /></span>
         <div>
-          <strong>推演停在{detail.summary.failureStageLabel ?? "提交前阶段"}</strong>
-          <small>下列阶段来自同一 attempt 的结构化运行事件。</small>
+          <strong>{committed ? "执行阶段概览" : `推演停在${detail.summary.failureStageLabel ?? "提交前阶段"}`}</strong>
+          <small>{committed ? "下列阶段解释这次尝试如何通过校验并完成提交。" : "下列阶段来自同一 attempt 的结构化运行事件。"}</small>
         </div>
       </header>
       <ol className="cg-attempt-stages" aria-label="推演阶段">
         {detail.stages.map((stage, index) => (
           <li data-status={stage.status} key={stage.id}>
-            <span>{stage.status === "failed" ? <AlertTriangle aria-hidden="true" /> : <Check aria-hidden="true" />}</span>
+            <span>{stage.status === "failed" ? <AlertTriangle aria-hidden="true" /> : stage.status === "active" ? <LoaderCircle aria-hidden="true" /> : <Check aria-hidden="true" />}</span>
             <div>
-              <small>阶段 {index + 1}</small>
+              <small>阶段 {(stage.logicalStageIndex ?? index) + 1}{stage.derived ? " · 由已有事件推导" : ""}</small>
               <strong>{stage.label}</strong>
               <p>{stage.errorMessage ?? (stage.status === "failed"
                 ? "阶段未通过"
@@ -945,18 +970,19 @@ function DetailBody({ actorId, actorName, detail, instanceId, onSelectInvocation
   onSelectInvocation?: (invocation: WorldInspectorModelInvocationSummary) => void;
 }) {
   if (detail.kind === "attempt") {
+    const committed = detail.value.summary.status === "committed";
     return (
       <div className="cg-inspector-detail-stack">
         <AttemptOverview actorId={actorId} actorName={actorName} detail={detail.value} />
-        <DetailGroup description="失败尝试没有推进世界时间，以下是时间边界证据" icon={Clock3} title="时间证据" open={false}>
-          <section className="cg-inspector-assurance" data-status="accepted">
+        <DetailGroup description={committed ? "这次尝试形成的世界时间边界与相关运行事件" : "失败尝试没有推进世界时间，以下是时间边界证据"} icon={Clock3} title="时间证据" open={false}>
+          <section className="cg-inspector-assurance" data-status={committed ? "committed" : "accepted"}>
             <span><Clock3 aria-hidden="true" /></span>
-            <div><strong>世界时间没有推进</strong><small>attempt 未形成原子提交，canonical clock 与活动进度保持最近成功 Revision。</small></div>
-            <b>Δt 0</b>
+            <div><strong>{committed ? "世界时间边界已记录" : "世界时间没有推进"}</strong><small>{committed ? "该 attempt 的边界证据已随 Revision 一并保留。" : "attempt 未形成原子提交，canonical clock 与活动进度保持最近成功 Revision。"}</small></div>
+            <b>{committed ? `R${detail.value.summary.revision ?? "—"}` : "Δt 0"}</b>
           </section>
-          <RuntimeEventList events={detail.value.events} label="未提交尝试的时间证据" instanceId={instanceId} />
+          <RuntimeEventList events={detail.value.events} label={committed ? "已提交尝试的时间证据" : "未提交尝试的时间证据"} instanceId={instanceId} />
         </DetailGroup>
-        <DetailGroup description="失败尝试没有写入 canonical truth" icon={GitCompareArrows} title="状态变更" open={false}>
+        <DetailGroup description={committed ? "这次尝试写入 canonical truth 的状态操作" : "失败尝试没有写入 canonical truth"} icon={GitCompareArrows} title="状态变更" open={false}>
           <AttemptChanges detail={detail.value} />
         </DetailGroup>
         <DetailGroup description="阶段、拒绝和修复构成的失败链" icon={Link2} title="因果证据">

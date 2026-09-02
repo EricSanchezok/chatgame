@@ -113,7 +113,7 @@ function InspectorCollectionHeader({
   view: Exclude<CenterView, "calls">;
 }) {
   const config = view === "timeline"
-    ? { title: "世界演化流程", description: "按 Run → Boundary → Stage 展开，最新更新置顶", firstLabel: "尝试", first: `${data.attempts.length}`, secondLabel: "提交", second: `${data.steps.length}` }
+    ? { title: "世界演化流程", description: "先看当前运行，再按世界边界查看历史尝试；最新记录置顶", firstLabel: "执行尝试", first: `${data.attempts.length}`, secondLabel: "当前 Revision", second: `${data.instance.revision}` }
     : { title: "世界演化图谱", description: "先看可解释的语义主链，再按需展开底层证据", firstLabel: "语义节点", first: `${data.semanticNodes?.length ?? 0}`, secondLabel: "关系", second: `${data.semanticEdges?.length ?? 0}` };
   return (
     <header className="cg-inspector-collection-header">
@@ -475,10 +475,11 @@ export default function WorldInspectorDialog({
       const activeAttempt = [...incoming.attempts].reverse().find((attempt) => attempt.status === "active");
       const latestFailure = [...incoming.attempts].reverse().find((attempt) =>
         attempt.status !== "active" && attempt.status !== "committed");
+      const latestAttempt = [...incoming.attempts].reverse()[0];
       const latestStep = incoming.steps.at(-1);
       const failureIsCurrent = latestFailure &&
         (latestFailure.revision ?? incoming.instance.revision) >= (latestStep?.revision ?? 0);
-      const nextAttempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
+      const nextAttempt = activeAttempt ?? (failureIsCurrent ? latestFailure : latestAttempt);
       if (!preserveHistory) {
         if (activeViewRef.current === "calls") {
           setSelection(null);
@@ -513,6 +514,23 @@ export default function WorldInspectorDialog({
       if (request === requestRef.current) setLoading(false);
     }
   }, [instanceId, selectAttempt, selectStep]);
+
+  useEffect(() => {
+    if (!open || activeView !== "timeline" || !data || selection) return;
+    const selectLatest = window.setTimeout(() => {
+      const activeAttempt = [...data.attempts].reverse().find((attempt) => attempt.status === "active");
+      const latestFailure = [...data.attempts].reverse().find((attempt) =>
+        attempt.status !== "active" && attempt.status !== "committed");
+      const latestAttempt = [...data.attempts].reverse()[0];
+      const latestStep = data.steps.at(-1);
+      const failureIsCurrent = latestFailure &&
+        (latestFailure.revision ?? data.instance.revision) >= (latestStep?.revision ?? 0);
+      const nextAttempt = activeAttempt ?? (failureIsCurrent ? latestFailure : latestAttempt);
+      if (nextAttempt) void selectAttempt(nextAttempt);
+      else if (latestStep) void selectStep(latestStep);
+    }, 0);
+    return () => window.clearTimeout(selectLatest);
+  }, [activeView, data, open, selectAttempt, selectStep, selection]);
 
   useEffect(() => {
     if (!open) return;
@@ -709,7 +727,7 @@ export default function WorldInspectorDialog({
     closeActorDrawer();
   }, [closeActorDrawer]);
   const statusDescription = data
-    ? `${data.instance.worldName} · Revision ${data.instance.revision} · ${data.trace.mode} trace`
+    ? `${data.instance.worldName} · Revision ${data.instance.revision} · ${data.trace.degraded ? "降级审计" : "完整审计"}`
     : "读取世界提交历史、Agent 演化与运行审计。";
 
   const returnToLatest = () => {
@@ -718,10 +736,11 @@ export default function WorldInspectorDialog({
     const activeAttempt = [...data.attempts].reverse().find((attempt) => attempt.status === "active");
     const latestFailure = [...data.attempts].reverse().find((attempt) =>
       attempt.status !== "active" && attempt.status !== "committed");
+    const latestAttempt = [...data.attempts].reverse()[0];
     const latestStep = data.steps.at(-1);
     const failureIsCurrent = latestFailure &&
       (latestFailure.revision ?? data.instance.revision) >= (latestStep?.revision ?? 0);
-    const attempt = activeAttempt ?? (failureIsCurrent ? latestFailure : undefined);
+    const attempt = activeAttempt ?? (failureIsCurrent ? latestFailure : latestAttempt);
     if (attempt) {
       void selectAttempt(attempt);
     }
@@ -909,7 +928,7 @@ export default function WorldInspectorDialog({
               type="button"
             >
               <span><GitBranch aria-hidden="true" /></span>
-              <span><strong>整个世界</strong><small>{worldActivity.steps} 个提交 · {worldActivity.attempts} 次尝试 · {worldActivity.modelInvocations} 次调用 · {worldActivity.retries} 次 retry</small></span>
+                <span><strong>整个世界</strong><small>{worldActivity.steps} 个提交 · {worldActivity.attempts} 次尝试 · {worldActivity.modelInvocations} 次调用 · {worldActivity.retries} 次重试</small></span>
             </button>
             <div className="cg-inspector-actor-list">
               {visibleActors.map((actor) => {
@@ -925,7 +944,7 @@ export default function WorldInspectorDialog({
                     <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
                     <span>
                       <strong>{actor.name}</strong>
-                      <small>{activity.steps} 个提交 · {activity.attempts} 次尝试 · {activity.modelInvocations} 次调用 · {activity.retries} 次 retry</small>
+                      <small>{activity.steps} 个提交 · {activity.attempts} 次尝试 · {activity.modelInvocations} 次调用 · {activity.retries} 次重试</small>
                     </span>
                     <i data-lifecycle={actor.lifecycle} title={actor.lifecycle} />
                   </button>
@@ -988,8 +1007,13 @@ export default function WorldInspectorDialog({
               <>
                 <InspectorCollectionHeader actorName={selectedActor?.name ?? "整个世界"} data={data} view="graph" />
                 <div className="cg-inspector-graph-mode" aria-label="图谱层级">
-                  <button aria-pressed={graphMode === "semantic"} onClick={() => setGraphMode("semantic")} type="button">语义主链</button>
-                  <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据图（{data.nodes.length} 节点）</button>
+                  <div className="cg-inspector-graph-mode__switch">
+                    <button aria-pressed={graphMode === "semantic"} onClick={() => setGraphMode("semantic")} type="button">语义主链（推荐）</button>
+                    <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据图 · {data.nodes.length} 节点</button>
+                  </div>
+                  <span className="cg-inspector-graph-mode__description">{graphMode === "semantic"
+                    ? "只保留当前推演的语义阶段主链；点击节点查看证据。"
+                    : "显示底层事件、artifact 与 transport；仅用于定位技术问题。"}</span>
                   {graphMode === "technical" && (
                     <label>节点上限
                       <WorldInspectorSelect
@@ -1032,6 +1056,7 @@ export default function WorldInspectorDialog({
                   onSelectAttempt={(attempt) => { setFollowLatest(false); void selectAttempt(attempt); }}
                   onSelectStep={(step) => { setFollowLatest(false); void selectStep(step); }}
                   query={query}
+                  run={data.instance.run}
                   selectedActorId={selectedActorId}
                   selectedId={selectedNodeId}
                   steps={data.steps}

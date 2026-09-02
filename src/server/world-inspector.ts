@@ -780,8 +780,7 @@ const stageLabels: Readonly<Record<string, string>> = {
 function attemptStages(events: readonly RuntimeEvent[]): WorldInspectorAttemptStage[] {
   const groups = new Map<number, RuntimeEvent[]>();
   for (const event of events) {
-    const index = event.correlation?.logicalStageIndex;
-    if (typeof index !== "number") continue;
+    const index = derivedStageIndex(event);
     const group = groups.get(index) ?? [];
     group.push(event);
     groups.set(index, group);
@@ -810,6 +809,7 @@ function attemptStages(events: readonly RuntimeEvent[]): WorldInspectorAttemptSt
       repairCount: ordered.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
       ...(role ? { modelRole: role } : {}),
       ...(stage ? { logicalStageIndex: stage.index, logicalStageKey: stage.key } : {}),
+      ...(group.every((event) => event.correlation?.logicalStageIndex !== index) ? { derived: true } : {}),
       ...(error?.message ? { errorMessage: diagnosticErrorMessage(error) } : {}),
     };
   });
