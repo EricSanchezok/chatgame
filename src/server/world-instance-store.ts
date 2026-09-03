@@ -302,11 +302,13 @@ export function validateWorldInstanceDocument(document: WorldInstanceDocument): 
     if (run.stopReason !== null) requireText(run.stopReason, `run ${runId} stop reason`);
     if (run.lease) {
       requireText(run.lease.id, `run ${runId} lease id`);
+      const suspendedDurationMs = run.lease.suspendedDurationMs ?? 0;
       if (run.lease.generation !== run.generation || !Number.isFinite(Date.parse(run.lease.startedAt)) ||
         !Number.isSafeInteger(run.lease.maxCommits) || run.lease.maxCommits < 1 ||
         !Number.isSafeInteger(run.lease.maxWallTimeMs) || run.lease.maxWallTimeMs < 1 ||
         !Number.isSafeInteger(run.lease.commitCount) || run.lease.commitCount < 0 ||
-        run.lease.commitCount > run.lease.maxCommits) {
+        run.lease.commitCount > run.lease.maxCommits ||
+        !Number.isSafeInteger(suspendedDurationMs) || suspendedDurationMs < 0) {
         throw new Error(`run ${runId} lease is invalid`);
       }
     }
