@@ -139,7 +139,7 @@ function reportCall(call: Scenario["calls"][number]) {
       constraints: [],
     },
     state: call.context,
-    referenceCatalog: { version: 1, hash: "evaluation", candidates: [] },
+    referenceCatalog: { version: 2, hash: "evaluation", candidates: [] },
     repair: null,
   };
   const bytes = structuredPromptBytes({

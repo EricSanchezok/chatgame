@@ -123,7 +123,7 @@ function syntheticGoldContext(record: ActionCompilationCorpusRecord, gold: Actio
     details: { description: `unrelated detail ${index}` },
   }));
   return {
-    contractVersion: 13,
+    contractVersion: 16,
     task: { assignment: { availableHandles: [...anchorCandidates, ...distractors].map((entry) => entry.handle) }, slots: [] },
     state: {
       currentElapsedSeconds: 0,

@@ -1,6 +1,7 @@
 import { modelRoles, type ModelRole } from "../models/model-catalog";
 import type { ActionOutcome, WorldDeltaOperation } from "../contracts/model";
 import type { ActivityTransition, TemporalBoundaryReason } from "../mechanics/temporal";
+import { ACTION_COMPILATION_PROJECTION } from "../contracts/model-context";
 
 export const RUNTIME_EVENT_SCHEMA_VERSION = 3 as const;
 
@@ -78,7 +79,7 @@ export type AlgorithmTelemetryEventInput = AlgorithmTelemetryBase & ({
     phase: "action-compilation";
     projection: "c0-repeated-slot-catalog" | "c1-shared-full-catalog" |
       "c2-normalized-complete-catalog" | "c3-deterministic-details" |
-      "candidate-key-v1-deterministic-details" |
+      typeof ACTION_COMPILATION_PROJECTION |
       "c4-bounded-expansion" | "c5-retrieval-supplement";
     repair: boolean;
   }>;
@@ -447,7 +448,7 @@ const algorithmTelemetryFields: Record<AlgorithmTelemetryEventName, {
         "c1-shared-full-catalog",
         "c2-normalized-complete-catalog",
         "c3-deterministic-details",
-        "candidate-key-v1-deterministic-details",
+        ACTION_COMPILATION_PROJECTION,
         "c4-bounded-expansion",
         "c5-retrieval-supplement",
       ],

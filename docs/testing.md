@@ -25,7 +25,7 @@ Visual snapshots keep separate operating-system baselines with the same strict p
 - `npm run test:live:qwen:batching`, `npm run test:live:glm:batching`, and `npm run test:live:deepseek:batching` are the credentialed eager-reference batching smokes. They execute real Blackmarsh Agent bootstrap and step preparation for their respective Profile sets, assert the default `12/8` limits, zero singleton failures, and invocation-ID uniqueness, and deliberately stop before the unchanged Truth-resolution boundary. The matching non-batching command remains the broader end-to-end smoke.
 - A regression test fails for the escaped behavior before the fix and passes afterward, unless an existing deterministic reproduction already owns the contract.
 
-## `eager-reference@10`
+## `eager-reference@13`
 
 - Only decision-eligible model and external Agents produce new actions. Active Activities reuse their committed source action only when due; occupied, idle, and timed-out Agents produce no replacement action or noop.
 - Grounding covers intersecting read/write/audience/resource-pool footprints, independent components, invocation-local repair for unknown dependencies, cross-component merge, and the rule that private IDs never enter the canonical catalog. It produces shared-resource claims in the same invocation and does not wake an unrelated occupied Agent; only an explicit canonical global reference enters the global component.

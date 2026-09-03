@@ -132,3 +132,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0091 — AgentMind Slot Context and Bounded JSON Recovery](0091-agentmind-slot-context-and-bounded-json-recovery.md)
 - [0092 — Agent-Native Debug Query Projections](0092-agent-native-debug-query-projections.md)
 - [0093 — World Inspector Summary-first Information Hierarchy](0093-world-inspector-summary-first.md)
+- [0094 — Action Compilation Candidate-Key Length](0094-action-compilation-candidate-key-length.md)

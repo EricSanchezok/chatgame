@@ -66,7 +66,7 @@ async function main(): Promise<void> {
           constraints: ["Return ok=true and a brief provider-neutral message."],
         },
         state: { instruction: "Return ok=true and a brief provider-neutral message." },
-        referenceCatalog: { version: 1, hash: "live-smoke-empty", candidates: [] },
+        referenceCatalog: { version: 2, hash: "live-smoke-empty", candidates: [] },
         repair: null,
       },
       schema: z.strictObject({ ok: z.literal(true), message: z.string().min(1).max(200) }),

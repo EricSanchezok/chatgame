@@ -1,5 +1,8 @@
 import { contentHash } from "../../models/model-audit";
-import { actionCompilationCandidateKeyForHandle } from "../../contracts/model-context";
+import {
+  ACTION_COMPILATION_REFERENCE_CATALOG_VERSION,
+  actionCompilationCandidateKeyForHandle,
+} from "../../contracts/model-context";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -42,10 +45,11 @@ function candidate(value: unknown): CandidateRecord | null {
     typeof input.label === "string"
     ? {
         ...input,
-        candidateKey: typeof input.candidateKey === "string"
-          ? input.candidateKey
-          : actionCompilationCandidateKeyForHandle(input.handle),
-      } as CandidateRecord
+        // The engine-owned handle is the source of truth. Regenerate the
+        // model-facing selector so stale keys from an older protocol cannot
+        // survive a projection pass.
+        candidateKey: actionCompilationCandidateKeyForHandle(input.handle),
+      } as unknown as CandidateRecord
     : null;
 }
 
@@ -319,7 +323,7 @@ export function projectActionCompilationContextForModel(input: unknown): ActionC
   const mappedContext = mapExactReferences(structuredClone(context), byHandle) as JsonRecord;
   const output = withoutKeys(mappedContext, ["referenceCatalogs"]);
   output.referenceCatalog = {
-    version: 1,
+    version: ACTION_COMPILATION_REFERENCE_CATALOG_VERSION,
     hash: contentHash(projectedCandidates),
     candidates: projectedCandidates,
   };

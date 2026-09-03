@@ -31,7 +31,7 @@ function request(
     system: "system",
     userPrompt: "resolve",
     context: {
-      contractVersion: 15,
+      contractVersion: 16,
       roleContract: { role: "truth-resolution", purpose: "test", modelOwns: [], engineOwns: [], existingReferenceRule: "", proposalRule: "", failureRule: "" },
       execution: { worldId: "world", instanceId: "instance", advanceId: "advance", revision: 0, step: 0 },
       task,
@@ -66,14 +66,14 @@ describe("TruthBatchCoordinator", () => {
     const results = await Promise.all([
       batched.generateStructured(
         request("component-a", {
-          contractVersion: 15,
+      contractVersion: 16,
           state: { canonicalTruth: { entities: { a: 1 } }, actionSet: { assigned: [{ actionRef: "a" }] } },
           task: { assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] }, constraints: [] },
         }),
       ),
       batched.generateStructured(
         request("component-b", {
-          contractVersion: 15,
+      contractVersion: 16,
           state: { canonicalTruth: { entities: { a: 1 } }, actionSet: { assigned: [{ actionRef: "b" }] } },
           task: { assignment: { targetHandles: [], availableHandles: [], allowedProposalKinds: [] }, constraints: [] },
         }),

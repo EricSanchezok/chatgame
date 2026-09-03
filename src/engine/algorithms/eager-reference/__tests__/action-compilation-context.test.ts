@@ -9,6 +9,7 @@ function recordedContext(): Record<string, unknown> {
   const candidates = [
     {
       handle: "ref:action:a",
+      candidateKey: "candidate_ffffffffffffffff",
       kind: "action",
       label: "Open the gate",
       meaning: "assigned action",
@@ -63,7 +64,7 @@ function recordedContext(): Record<string, unknown> {
     },
   ];
   return {
-    contractVersion: 15,
+    contractVersion: 16,
     task: {
       slots: [{
         slot: 0,
@@ -97,10 +98,10 @@ function recordedContext(): Record<string, unknown> {
         placements: [{ ref: "ref:placement:yard", containerRef: "ref:entity:yard" }],
       },
     },
-    referenceCatalog: { version: 1, hash: "recorded", candidates },
+    referenceCatalog: { version: 2, hash: "recorded", candidates },
     referenceCatalogs: [{
       slot: 0,
-      catalog: { version: 1, hash: "duplicate", candidates },
+      catalog: { version: 2, hash: "duplicate", candidates },
     }],
     repair: null,
   };
@@ -113,6 +114,9 @@ describe("production Action Compilation context projector", () => {
     expect(JSON.stringify(projected)).not.toContain("availableHandles");
     expect(JSON.stringify(projected)).not.toContain("ref:");
     expect(actionCompilationContextProjectionMetrics(projected)).toMatchObject({ candidates: 6, slots: 1 });
+    expect(projected.referenceCatalog.version).toBe(2);
+    expect(projected.referenceCatalog.candidates.every((candidate) =>
+      typeof candidate.candidateKey === "string" && /^candidate_[0-9a-f]{12}$/u.test(candidate.candidateKey))).toBe(true);
     expect(projected.referenceCatalog.candidates.map((candidate) => candidate.candidateKey)).toEqual(expect.arrayContaining([
       actionCompilationCandidateKeyForHandle("ref:action:a"),
       actionCompilationCandidateKeyForHandle("ref:agent:actor"),
@@ -121,6 +125,10 @@ describe("production Action Compilation context projector", () => {
       actionCompilationCandidateKeyForHandle("ref:temporal_profile:brief"),
       actionCompilationCandidateKeyForHandle("ref:world:world"),
     ]));
+    expect(projected.referenceCatalog.candidates.map((candidate) => candidate.candidateKey))
+      .toContain(actionCompilationCandidateKeyForHandle("ref:action:a"));
+    expect(projected.referenceCatalog.candidates.map((candidate) => candidate.candidateKey))
+      .not.toContain("candidate_ffffffffffffffff");
     expect(projected.referenceCatalog.candidates.find((candidate) => candidate.candidateKey === actionCompilationCandidateKeyForHandle("ref:action:a"))?.details)
       .toMatchObject({ rawText: "Open the gate" });
     expect(projected.referenceCatalog.candidates.find((candidate) => candidate.candidateKey === actionCompilationCandidateKeyForHandle("ref:temporal_profile:brief"))?.details)

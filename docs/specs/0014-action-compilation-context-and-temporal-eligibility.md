@@ -1,7 +1,7 @@
 # Action Compilation Context and Temporal Eligibility
 
 Artifact-Version: 1
-Status: Implemented
+Status: Superseded by [0017](0017-action-compilation-candidate-key-v2.md)
 
 ## Intent
 

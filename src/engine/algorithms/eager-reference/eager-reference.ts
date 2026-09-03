@@ -90,9 +90,21 @@ import {
   promoteSharedResourceQueues,
   type SharedResourceAdmission,
 } from "../../mechanics/shared-resource-allocation";
+import {
+  ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH,
+  ACTION_COMPILATION_CANDIDATE_KEY_VERSION,
+} from "../../contracts/model-context";
 
 const groundingComponent = { id: "interaction-grounding", version: "3", config: { repairAttempts: 2 } } as const;
-const compilationComponent = { id: "action-compilation", version: "2", config: { repairAttempts: 2 } } as const;
+const compilationComponent = {
+  id: "action-compilation",
+  version: "3",
+  config: {
+    repairAttempts: 2,
+    candidateKeyVersion: ACTION_COMPILATION_CANDIDATE_KEY_VERSION,
+    candidateKeyPayloadLength: ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH,
+  },
+} as const;
 const truthComponent = {
   id: "truth-interaction-component",
   version: "3",
@@ -188,7 +200,7 @@ export function createEagerReferenceManifest(
   const config = parseEagerReferenceAlgorithmConfig(value);
   return defineAlgorithmManifest({
     id: "eager-reference",
-    version: "12",
+    version: "13",
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,

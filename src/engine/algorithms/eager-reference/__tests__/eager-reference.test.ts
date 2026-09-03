@@ -438,7 +438,7 @@ describe("eager reference safeguards", () => {
       referenceCatalogs?: unknown[];
       state?: { canonicalTruth?: unknown };
     };
-    expect(batchedContext.referenceCatalog?.version).toBe(1);
+    expect(batchedContext.referenceCatalog?.version).toBe(2);
     expect(batchedContext.referenceCatalog?.candidates?.length).toBeGreaterThan(0);
     expect(new Set(batchedContext.referenceCatalog?.candidates?.map((candidate) => candidate.candidateKey)).size)
       .toBe(batchedContext.referenceCatalog?.candidates?.length);

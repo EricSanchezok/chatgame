@@ -30,9 +30,9 @@ describe("deterministic symbol repair", () => {
   });
 
   it("repairs the recorded missing suffix character", () => {
-    const expected = "candidate_f3f5a5fd148df91d";
+    const expected = "candidate_f3f5a5fd148d";
     const result = repairSymbol({
-      value: "candidate_f3f5a5fd148df91",
+      value: "candidate_f3f5a5fd148",
       candidates: candidate(expected),
       context,
     });

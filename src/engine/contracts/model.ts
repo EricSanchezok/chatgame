@@ -30,6 +30,7 @@ import type {
   SharedActivityResourceDefinition,
   SharedActivityResourcePool,
 } from "../mechanics/shared-activity-resources";
+import { ACTION_COMPILATION_PROJECTION } from "./model-context";
 import type { ExistingReferenceHandle } from "./model-context";
 import type { SymbolRepairDomain, SymbolRepairResult } from "./symbol-repair";
 
@@ -1083,8 +1084,8 @@ export interface ModelSymbolRepairAudit extends SymbolRepairResult {
  * the same records opaque by exposing candidate keys instead of these handles.
  */
 export interface ActionCompilationReferenceAudit {
-  protocolVersion: 1;
-  projection: "candidate-key-v1-deterministic-details";
+  protocolVersion: 2;
+  projection: typeof ACTION_COMPILATION_PROJECTION;
   context: {
     utf8Bytes: number;
     referenceCatalogUtf8Bytes: number;

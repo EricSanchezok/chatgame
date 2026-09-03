@@ -7,6 +7,7 @@ import type {
   SimulationState,
   WorldDeltaOperation,
 } from "../engine/contracts/model";
+import { ACTION_COMPILATION_PROJECTION } from "../engine/contracts/model-context";
 import { contentHash } from "../engine/models/model-audit";
 import type { RuntimeError, RuntimeEvent } from "../engine/runtime/observability";
 import { EXECUTION_STAGES } from "../engine/runtime/stages";
@@ -412,7 +413,7 @@ function actionCompilationAuditFromEvents(events: readonly RuntimeEvent[]): Acti
   const payload = event?.payload;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
   const value = payload as Partial<ActionCompilationReferenceAudit>;
-  return value.protocolVersion === 1 && value.projection === "candidate-key-v1-deterministic-details" &&
+  return value.protocolVersion === 2 && value.projection === ACTION_COMPILATION_PROJECTION &&
     Array.isArray(value.slots) && value.context && typeof value.context === "object"
     ? structuredClone(payload) as ActionCompilationReferenceAudit
     : undefined;

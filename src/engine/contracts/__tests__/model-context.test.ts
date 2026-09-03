@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createReferenceResolver,
+  actionCompilationCandidateKeySchema,
   existingReferenceHandleSchema,
   isProposalReference,
   modelReferenceSchema,
@@ -11,6 +12,13 @@ import {
 } from "../model-context";
 
 describe("model semantic references", () => {
+  it("accepts only the v2 twelve-hex Action Compilation candidate-key shape", () => {
+    expect(actionCompilationCandidateKeySchema.safeParse("candidate_0123456789ab").success).toBe(true);
+    expect(actionCompilationCandidateKeySchema.safeParse("candidate_0123456789a").success).toBe(false);
+    expect(actionCompilationCandidateKeySchema.safeParse("candidate_0123456789AB").success).toBe(false);
+    expect(actionCompilationCandidateKeySchema.safeParse("candidate_0123456789abc").success).toBe(false);
+  });
+
   it("creates deterministic request-local handles without exposing a second id field", () => {
     const inputs = [{
       kind: "fact" as const,

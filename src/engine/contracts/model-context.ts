@@ -12,8 +12,12 @@ import {
  * request and slot that issued it; the resolver never trusts model supplied
  * ids as canonical identities.
  */
-export const MODEL_CONTEXT_CONTRACT_VERSION = 15 as const;
+export const MODEL_CONTEXT_CONTRACT_VERSION = 16 as const;
 export const MODEL_REFERENCE_CATALOG_VERSION = 2 as const;
+export const ACTION_COMPILATION_CANDIDATE_KEY_VERSION = 2 as const;
+export const ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH = 12 as const;
+export const ACTION_COMPILATION_REFERENCE_CATALOG_VERSION = 2 as const;
+export const ACTION_COMPILATION_PROJECTION = "candidate-key-v2-12hex-deterministic-details" as const;
 
 export type ExistingReferenceHandle = string & { readonly __existingReferenceHandle: unique symbol };
 /** A compact Action Compilation-only reference key. It is request-local and
@@ -38,7 +42,7 @@ export const existingReferenceHandleSchema = z.string().regex(
 ) as unknown as z.ZodType<ExistingReferenceHandle>;
 
 export const actionCompilationCandidateKeySchema = z.string().regex(
-  /^candidate_[A-Za-z0-9_-]{8,96}$/u,
+  /^candidate_[0-9a-f]{12}$/u,
   "must be a candidateKey from the current Action Compilation catalog",
 ) as unknown as z.ZodType<ActionCompilationCandidateKey>;
 
@@ -169,7 +173,7 @@ export interface ActionCompilationReferenceCandidate {
 }
 
 export interface ActionCompilationReferenceCatalog {
-  version: 1;
+  version: typeof ACTION_COMPILATION_REFERENCE_CATALOG_VERSION;
   hash: string;
   candidates: readonly ActionCompilationReferenceCandidate[];
 }
@@ -481,7 +485,8 @@ function candidateKeyDigest(value: string): string {
     right ^= code + index;
     right = Math.imul(right, 3266489917);
   }
-  return `${(left >>> 0).toString(16).padStart(8, "0")}${(right >>> 0).toString(16).padStart(8, "0")}`;
+  return `${(left >>> 0).toString(16).padStart(8, "0")}${(right >>> 0).toString(16).padStart(8, "0")}`
+    .slice(0, ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH);
 }
 
 export function actionCompilationCandidateKeyForHandle(
@@ -674,7 +679,7 @@ export function createActionCompilationReferenceResolver(
   };
   const candidates = resolver.catalog.candidates.map(candidateFor);
   const catalog: ActionCompilationReferenceCatalog = {
-    version: 1,
+    version: ACTION_COMPILATION_REFERENCE_CATALOG_VERSION,
     hash: contentHash(candidates),
     candidates,
   };

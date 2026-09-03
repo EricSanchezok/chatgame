@@ -46,6 +46,7 @@ import {
 import { evaluateCausalAssertion } from "../../mechanics/causality";
 import { promptBundle } from "../../prompts";
 import {
+  ACTION_COMPILATION_PROJECTION,
   createActionCompilationReferenceResolver,
   isProposalReference,
   MODEL_CONTEXT_CONTRACT_VERSION,
@@ -292,8 +293,8 @@ function actionCompilationReferenceAudit(input: {
 }): ActionCompilationReferenceAudit {
   const metrics = actionCompilationContextProjectionMetrics(input.context);
   return {
-    protocolVersion: 1,
-    projection: "candidate-key-v1-deterministic-details",
+    protocolVersion: 2,
+    projection: ACTION_COMPILATION_PROJECTION,
     context: {
       utf8Bytes: metrics.bytes,
       referenceCatalogUtf8Bytes: jsonUtf8Bytes(input.context.referenceCatalog),
@@ -492,7 +493,7 @@ function emitActionCompilationContextProjection(
     correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
     attributes: {
       phase: "action-compilation",
-      projection: "candidate-key-v1-deterministic-details",
+      projection: ACTION_COMPILATION_PROJECTION,
       repair,
     },
     counts: {

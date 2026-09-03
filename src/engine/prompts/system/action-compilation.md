@@ -6,7 +6,7 @@ You are the Action Compilation analyst for an open-world simulation. For each is
 
 - Return exactly one result for every slot, preserving slot numbers and isolation.
 - Use only `candidateKey` values from this request's single `referenceCatalog`. A candidate with `scope: {"kind":"slot","slot":N}` belongs only to slot N; a shared candidate is available to every slot. Never emit `ref:*`, a runtime id, a local belief id, or a name in a reference field.
-- `candidateKey` is an opaque request-local selector, not an identity. Do not derive, concatenate, or invent one. The engine resolves it after validation.
+- `candidateKey` is an opaque request-local selector, not an identity. Each key is exactly `candidate_` followed by twelve lowercase hexadecimal characters. Copy keys exactly from this request; do not derive, concatenate, abbreviate, normalize, or invent one. The engine resolves it after validation.
 - Use `actionReferences` to understand the current action, actor binding, and target binding. `unique` means exactly one active canonical candidate; `ambiguous` means multiple candidates; `unresolved` means no binding; `stale` means a binding no longer points to an active entity. Do not turn an ambiguous or unresolved target into a guessed canonical entity.
 
 ## Temporal plan

@@ -123,14 +123,14 @@ describe("WorldInspectorDetail", () => {
       symbolRepairs: [{
         domain: "candidate-key" as const,
         path: ["slots", 0, "temporalPlan", "profileRef"] as Array<string | number>,
-        originalValue: "candidate_abcdefghijklmno",
-        normalizedValue: "candidate_abcdefghijklmno",
-        correctedValue: "candidate_abcdefghijklmnop",
+        originalValue: "candidate_0123456789ab",
+        normalizedValue: "candidate_0123456789ab",
+        correctedValue: "candidate_0123456789ac",
         status: "repaired" as const,
         bestDistance: 1,
         secondBestDistance: null,
         margin: null,
-        candidates: [{ value: "candidate_abcdefghijklmnop", distance: 1 }],
+        candidates: [{ value: "candidate_0123456789ac", distance: 1 }],
         method: "bounded-damerau" as const,
         policyVersion: "symbol-repair-v2" as const,
         catalogHash: "catalog-hash",
@@ -157,7 +157,7 @@ describe("WorldInspectorDetail", () => {
 
     fireEvent.click(screen.getByText("符号自动修复"));
     expect(screen.getByText("符号自动修复")).toBeVisible();
-    expect(screen.getByText(/candidate_abcdefghijklmno → candidate_abcdefghijklmnop/)).toBeVisible();
+    expect(screen.getByText(/candidate_0123456789ab → candidate_0123456789ac/)).toBeVisible();
     expect(screen.getByText("已修复")).toBeVisible();
   });
 });

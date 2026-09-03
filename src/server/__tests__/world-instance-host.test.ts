@@ -487,7 +487,7 @@ describe("World Instance host", () => {
       expect(stored.schemaVersion).toBe(21);
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
-        version: "12",
+        version: "13",
         contractVersion: 5,
         config: { actionCompilationMaxSlots: 12, agentMindMaxSlots: 8, truthBatchMaxSlots: 12 },
       });
@@ -516,7 +516,7 @@ describe("World Instance host", () => {
       expect(arrivalRequest).toMatchObject({
         promptVersion: promptBundle("arrival-generator").version,
         context: {
-          contractVersion: 15,
+          contractVersion: 16,
           roleContract: expect.objectContaining({ role: "arrival-generator" }),
           task: expect.objectContaining({ assignment: expect.any(Object) }),
           state: { perspective: expect.objectContaining({ agentRef: "ref:agent:courtyard-wanderer-1" }) },
