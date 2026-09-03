@@ -100,5 +100,6 @@ describe("WorldInspectorDetail", () => {
     expect(container.querySelectorAll(".cg-model-invocation__error")).toHaveLength(0);
     expect(container.querySelectorAll(".cg-inspector-error-details > pre")).toHaveLength(1);
     expect(screen.getByText("structured output failed schema validation:")).toBeInTheDocument();
+    expect(container.querySelector(".cg-inspector-error-details > pre")?.textContent).toContain("invalid_format");
   });
 });

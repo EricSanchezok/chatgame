@@ -575,14 +575,6 @@ function formatIssuePath(path: readonly (string | number)[]): string {
   }, "$");
 }
 
-function formatIssueValue(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
-  }
-}
-
 function statusLabel(status: WorldInspectorModelInvocationDetail["status"]): string {
   return status === "accepted" ? "语义接受" : status === "rejected" ? "输出拒绝" : status === "failed" ? "调用失败" : "进行中";
 }
@@ -940,6 +932,10 @@ function ModelInvocationDetailPanel({
   const requestEvent = payloadEvent(invocation.payloadEventIds.request);
   const responseEvent = payloadEvent(invocation.payloadEventIds.response);
   const outputEvent = payloadEvent(invocation.payloadEventIds.output);
+  const validationEvidence = [
+    invocation.errorMessage,
+    invocation.issues.length > 0 ? JSON.stringify(invocation.issues, null, 2) : undefined,
+  ].filter((message): message is string => Boolean(message?.trim())).join("\n\n");
   return (
     <section className="cg-inspector-invocation-detail" aria-label="选中模型调用详情">
       <header className="cg-inspector-detail-heading">
@@ -994,13 +990,11 @@ function ModelInvocationDetailPanel({
           {invocation.issues.length > 0 && <ul className="cg-inspector-issue-list">{invocation.issues.map((issue, index) => <li key={`${issue.code}:${JSON.stringify(issue.path)}:${index}`}>
             <strong>{issue.code}</strong>
             <span>路径 {formatIssuePath(issue.path)} · {formatInspectorFailureSummary(issue.message, 220)}</span>
-            {issue.originalValue !== undefined && <code>原值：{formatIssueValue(issue.originalValue)}</code>}
-            {issue.allowedHandles && issue.allowedHandles.length > 0 && <code>允许句柄：{issue.allowedHandles.join(", ")}</code>}
           </li>)}</ul>}
-          {invocation.errorMessage && <div className="cg-inspector-error-surface__summary">
+          {validationEvidence && <div className="cg-inspector-error-surface__summary">
             <strong>{invocation.issues[0]?.code ?? "调用失败"}</strong>
-            <span>{formatInspectorFailureSummary(invocation.errorMessage)}</span>
-            <InspectorErrorDetails message={invocation.errorMessage} />
+            <span>{formatInspectorFailureSummary(invocation.errorMessage ?? invocation.issues[0]?.message)}</span>
+            <InspectorErrorDetails message={validationEvidence} />
           </div>}
         </div>
       </DetailSection>}
