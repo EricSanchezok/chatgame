@@ -1516,6 +1516,7 @@ export class WorldHost {
         nextRun.stopReason = "debug-checkpoint-invalid";
         nextRun.lease = null;
         nextRun.error = invalidCheckpoint;
+        next.actionWindow = null;
         nextRun.updatedAt = this.now().toISOString();
         next.updatedAt = nextRun.updatedAt;
         return this.persist(stored, next).document;
@@ -2109,8 +2110,14 @@ export class WorldHost {
       }
       if (input.expectedRevision !== document.state.revision) throw new WorldHostError("world revision changed", 409);
 
-      let requiredAgentIds = externalDecisionAgentIds(document);
       const pausedRun = currentRun(document);
+      // A debug checkpoint may be invalidated after its action window has
+      // already moved to `resolving`. That window belongs to the discarded
+      // preparation and must not block the next participant action.
+      if (pausedRun?.status === "preparation-invalidated" && document.actionWindow?.status === "resolving") {
+        document.actionWindow = null;
+      }
+      let requiredAgentIds = externalDecisionAgentIds(document);
       if (pausedRun && (pausedRun.status === "paused" || pausedRun.status === "budget-paused" || pausedRun.status === "debug-paused") &&
         document.policyBindings[participant.agentId]?.kind === "external") {
         pausedRun.status = "completed";
@@ -2641,6 +2648,7 @@ export class WorldHost {
         : "process-recovered";
       if (run.status === "preparation-invalidated") {
         run.error = checkpointError ?? "单步调试的 continuation 无法在进程重启后恢复；该次推演未提交。";
+        if (recovered.actionWindow?.status === "resolving") recovered.actionWindow = null;
       }
       run.lease = null;
       run.updatedAt = this.now().toISOString();

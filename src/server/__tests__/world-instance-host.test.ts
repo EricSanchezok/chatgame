@@ -352,6 +352,49 @@ describe("World Instance host", () => {
     }
   }, 30_000);
 
+  it("accepts a new participant action after a stale invalidated debug run", async () => {
+    const { database, host } = harness();
+    try {
+      const created = await host.createInstance(originStart);
+      const participant = created.participants[0]!;
+      await host.setDebugMode(created.summary.id, {
+        enabled: true,
+        expectedRevision: created.summary.revision,
+      });
+      await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "first-debug-action",
+        expectedRevision: created.summary.revision,
+        text: "观察石门。",
+      });
+      const paused = await waitForRunStatus(host, created.summary.id, "debug-paused");
+      const stored = database.readInstance(created.summary.id);
+      const invalidated = structuredClone(stored.document);
+      const run = invalidated.runs[paused.run!.id]!;
+      run.status = "preparation-invalidated";
+      run.stopReason = "debug-checkpoint-invalid";
+      run.lease = null;
+      run.error = "debug checkpoint continuation runtime does not match";
+      if (!invalidated.actionWindow || invalidated.actionWindow.kind !== "decision") {
+        throw new Error("expected the discarded debug run to own a decision window");
+      }
+      invalidated.actionWindow.status = "resolving";
+      database.compareAndSwapInstance(created.summary.id, stored.generation, invalidated);
+
+      const retried = await host.submitAction(created.summary.id, participant.id, {
+        submissionId: "second-debug-action",
+        expectedRevision: created.summary.revision,
+        text: "沿着仓库外墙走一圈。",
+      });
+      expect(retried.summary.runStatus).toBe("queued");
+      expect(retried.actionWindow).toMatchObject({ kind: "decision" });
+      expect(retried.actionWindow?.submittedAgentIds).toContain(participant.agentId);
+      const retriedPaused = await waitForRunStatus(host, created.summary.id, "debug-paused");
+      expect(retriedPaused.summary.revision).toBe(created.summary.revision);
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
   it("recovers a debug continuation from recorded stage outputs after process restart", async () => {
     const { database, host, provider, repository } = harness();
     let reopened: LocalDatabase | undefined;
