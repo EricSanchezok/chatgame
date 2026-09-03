@@ -1104,13 +1104,13 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-thread-root [data-cg-thread-viewport] > div { padding-block-start: clamp(5rem, 11vh, 8rem); padding-block-end: max(7.5rem, calc(6.5rem + env(safe-area-inset-bottom))); }
 .cg-thread-root:has(.cg-thread-console__status + .cg-thread-console__composer) [data-cg-thread-viewport] > div { padding-block-end: max(12rem, calc(11rem + env(safe-area-inset-bottom))); }
 .cg-thread-messages { min-width: 0; }
-.cg-thread-root [data-slot="aui-thread-viewport-footer"] { position: fixed; z-index: 10; inset-block-end: 0; inset-inline: 0; width: min(100%, var(--thread-max-width)); margin-inline: auto; flex: 0 0 auto; gap: 0.7rem; padding-inline: 1rem; padding-block-end: max(1rem, env(safe-area-inset-bottom)); }
+.cg-thread-root [data-slot="aui-thread-viewport-footer"] { position: fixed; z-index: 10; inset-block-end: 0; inset-inline: 0; width: min(100%, var(--thread-max-width)); margin-inline: auto; flex: 0 0 auto; gap: 0.7rem; border: 0; border-radius: 0; background: var(--cg-transparent); padding-inline: 1rem; padding-block-end: max(1rem, env(safe-area-inset-bottom)); box-shadow: none; }
 .cg-safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 .cg-safe-area-bottom-lg { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
 @media (min-width: 48rem) {
   .cg-thread-root [data-slot="aui-thread-viewport-footer"].cg-safe-area-bottom { padding-bottom: 1.5rem; }
 }
-.cg-thread-root [data-slot="aui-thread-viewport-footer"][data-docked="true"] { border-block-start: 1px solid color-mix(in oklab, var(--cg-border) 76%, var(--cg-transparent)); box-shadow: 0 -1rem 2rem color-mix(in oklab, var(--cg-background) 90%, var(--cg-transparent)); }
+.cg-thread-root [data-slot="aui-thread-viewport-footer"][data-docked="true"] { border: 0; box-shadow: none; }
 .cg-game-loading { min-height: 100dvh; display: grid; align-content: center; justify-items: center; gap: 1rem; padding: 2rem; color: var(--cg-muted-foreground); text-align: center; }
 .cg-game-loading h1 { margin: 0; color: var(--cg-foreground); font-size: 2.25rem; font-weight: 600; }
 .cg-game-manage { position: fixed; inset: 50% auto auto 50%; width: min(calc(100vw - 3rem), 70rem); height: min(calc(100dvh - 3rem), 48rem); display: grid; grid-template-columns: 15rem minmax(0, 1fr); transform: translate(-50%, -50%); }

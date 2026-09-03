@@ -247,6 +247,10 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   expect(await page.locator(".cg-thread-root").evaluate((element) => getComputedStyle(element).overflow)).toBe("hidden");
   expect(await viewport.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
   expect(await footer.evaluate((element) => getComputedStyle(element).position)).toBe("fixed");
+  expect(await footer.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderTop: style.borderTopWidth, borderRight: style.borderRightWidth, borderBottom: style.borderBottomWidth, borderLeft: style.borderLeftWidth, boxShadow: style.boxShadow };
+  })).toEqual({ borderTop: "0px", borderRight: "0px", borderBottom: "0px", borderLeft: "0px", boxShadow: "none" });
   const composerFrame = await page.locator(".aui-composer-shell").evaluate((element) => {
     const style = getComputedStyle(element);
     return { borderRadius: style.borderRadius, minHeight: style.minHeight };
