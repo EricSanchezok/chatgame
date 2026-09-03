@@ -1,0 +1,104 @@
+// @vitest-environment jsdom
+
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import type {
+  WorldInspectorModelInvocationDetail,
+  WorldInspectorRuntimeEventSummary,
+} from "../../shared/world-inspector-api";
+import { WorldInspectorDetail } from "./world-inspector-detail";
+
+const event: WorldInspectorRuntimeEventSummary = {
+  schemaVersion: 3,
+  sequence: 1,
+  timestamp: "2026-09-03T04:13:30.000Z",
+  level: "error",
+  event: "model.structured_output.rejected",
+  id: "runtime-1",
+  hasPayload: true,
+};
+
+const invocation: WorldInspectorModelInvocationDetail = {
+  id: "run-1::invocation-1",
+  sourceInvocationId: "invocation-1",
+  executionId: "run-1",
+  attemptId: "attempt-1",
+  boundaryIndex: 0,
+  ledgerSequence: 1,
+  ordinal: 1,
+  role: "action-compilation",
+  providerId: "deepseek",
+  modelId: "deepseek-v4-flash",
+  profileId: "agent-deepseek",
+  promptVersion: "agent-bootstrap@v1",
+  schemaName: "agent_mind_batch_output",
+  status: "rejected",
+  slotRefs: [],
+  transportAttempts: [],
+  retryCount: 0,
+  tokenUsage: { input: 10, output: 4, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+  requestUtf8Bytes: 100,
+  contextUtf8Bytes: 200,
+  responseUtf8Bytes: 80,
+  contextSections: [],
+  timings: { invocationMs: 500, queueWaitMs: 0, transportMs: 400, parseMs: 10, retryDelayMs: 0 },
+  eventIds: [event.id],
+  payloadEventIds: { request: event.id },
+  artifactHashes: {},
+  outputDisposition: "rejected",
+  issues: [{
+    code: "invalid_format",
+    class: "mechanic",
+    path: ["slots", 0],
+    message: "must be a handle from the request reference catalog",
+  }],
+  normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+  referenceCatalogVersion: 1,
+  referenceCatalogHash: "catalog-hash",
+  rawOutputHash: null,
+  normalizedOutputHash: null,
+  errorMessage: "structured output failed schema validation: [{\"path\":[\"slots\",0],\"message\":\"must be a handle from the request reference catalog\"}]",
+  hasPayload: true,
+  startedAt: "2026-09-03T04:13:30.000Z",
+  updatedAt: "2026-09-03T04:13:31.000Z",
+  eventSummaries: [event],
+};
+
+describe("WorldInspectorDetail", () => {
+  afterEach(cleanup);
+
+  it("keeps one title for related events and one title for payload", () => {
+    render(
+      <WorldInspectorDetail
+        actorId="world"
+        actorName="整个世界"
+        instanceId="instance-1"
+        invocation={invocation}
+        loading={false}
+        selection={{ kind: "invocation", id: invocation.id, executionId: invocation.executionId }}
+      />,
+    );
+
+    expect(screen.getAllByText("调用关联事件", { exact: true })).toHaveLength(1);
+    expect(screen.getAllByText("原始 payload", { exact: true })).toHaveLength(1);
+    expect(screen.getAllByText("原始请求", { exact: true })).toHaveLength(1);
+  });
+
+  it("projects validation errors into one surface with raw text behind a disclosure", () => {
+    const { container } = render(
+      <WorldInspectorDetail
+        actorId="world"
+        actorName="整个世界"
+        instanceId="instance-1"
+        invocation={invocation}
+        loading={false}
+        selection={{ kind: "invocation", id: invocation.id, executionId: invocation.executionId }}
+      />,
+    );
+
+    expect(container.querySelectorAll(".cg-inspector-error-surface")).toHaveLength(1);
+    expect(container.querySelectorAll(".cg-model-invocation__error")).toHaveLength(0);
+    expect(container.querySelectorAll(".cg-inspector-error-details > pre")).toHaveLength(1);
+    expect(screen.getByText("structured output failed schema validation:")).toBeInTheDocument();
+  });
+});

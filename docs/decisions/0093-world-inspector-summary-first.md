@@ -29,6 +29,8 @@ Use option 3. The left column selects the world or Agent scope. The center shows
 
 The center does not repeat transport attempts, full slot mappings, payloads, context sections, or defensive causal explanations. Status uses text with a semantic color or rail. Icons are reserved for icon-only controls and essential status feedback. Timestamps provide temporal context; sorting controls name the available order without embedding an additional “latest first” explanation.
 
+The same hierarchy applies to failures: center rows and timeline entries expose only status, stage, and a short failure summary; the selected detail owns the complete error message and evidence in one default-collapsed error disclosure. Each detail group has one visible title source, so related events and payloads do not add nested duplicate headers. Invocation and timeline views each have one scroll root, with a single separator per record and no status-specific extra borders.
+
 ## Pros and Cons of the Options
 
 ### Existing evidence cards

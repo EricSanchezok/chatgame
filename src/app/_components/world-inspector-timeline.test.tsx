@@ -107,4 +107,26 @@ describe("WorldInspectorTimeline", () => {
     expect(screen.queryByLabelText("技术定位")).not.toBeInTheDocument();
     expect(screen.queryByText("persistence.atomic_commit", { exact: true })).not.toBeInTheDocument();
   });
+
+  it("keeps long failure chains out of the timeline row", () => {
+    const tail = "x".repeat(500);
+    const errorMessage = `action compilation failed after repairs: [{\"path\":[\"slots\"],\"message\":\"${tail}\"}]`;
+    render(
+      <WorldInspectorTimeline
+        attempts={[attempt({ id: "failed-1", status: "failed", revision: undefined, rejectionCount: 0, repairCount: 0, latestEvent: "action.compilation.failed", errorMessage })]}
+        hasOlder={false}
+        loadingOlder={false}
+        onLoadOlder={vi.fn()}
+        onReplay={vi.fn()}
+        onSelectAttempt={vi.fn()}
+        onSelectStep={vi.fn()}
+        query=""
+        selectedActorId="world"
+        steps={[]}
+      />,
+    );
+
+    expect(screen.getByText("action compilation failed after repairs:")).toBeVisible();
+    expect(screen.queryByText(tail, { exact: false })).not.toBeInTheDocument();
+  });
 });

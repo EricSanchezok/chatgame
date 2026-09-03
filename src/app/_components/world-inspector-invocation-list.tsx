@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { WorldInspectorModelInvocationSummary } from "../../shared/world-inspector-api";
 import { WorldInspectorSelect } from "./world-inspector-select";
 
@@ -66,7 +66,27 @@ export function WorldInspectorInvocationList({
   const [minInputTokens, setMinInputTokens] = useState("");
   const [minRetries, setMinRetries] = useState("");
   const [scrollTop, setScrollTop] = useState(0);
+  const [viewportSize, setViewportSize] = useState({ width: 1024, height: 640 });
+  const listRef = useRef<HTMLElement>(null);
   const itemsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = listRef.current;
+    if (!element) return;
+    const updateSize = () => {
+      setViewportSize({
+        width: element.clientWidth || 1024,
+        height: element.clientHeight || 640,
+      });
+    };
+    updateSize();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updateSize);
+    observer?.observe(element);
+    window.addEventListener("resize", updateSize);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateSize);
+    };
+  }, []);
   const normalized = query.trim().toLocaleLowerCase();
   const visible = useMemo(() => invocations.filter((invocation) => {
     const inputThreshold = minInputTokens === "" ? undefined : Number(minInputTokens);
@@ -92,8 +112,8 @@ export function WorldInspectorInvocationList({
     return value(right) - value(left) || (right.ledgerSequence ?? right.ordinal) - (left.ledgerSequence ?? left.ordinal) ||
       right.ordinal - left.ordinal;
   }), [invocations, minInputTokens, minRetries, normalized, sort]);
-  const rowHeight = 92;
-  const viewportHeight = 640;
+  const rowHeight = viewportSize.width <= 384 ? 132 : viewportSize.width <= 576 ? 116 : 92;
+  const viewportHeight = viewportSize.height;
   const overscan = 8;
   const effectiveScrollTop = Math.min(scrollTop, Math.max(0, visible.length * rowHeight - viewportHeight));
   const windowStart = Math.max(0, Math.floor(effectiveScrollTop / rowHeight) - overscan);
@@ -106,6 +126,7 @@ export function WorldInspectorInvocationList({
     <section
       className="cg-inspector-invocation-list"
       aria-label="模型调用清单"
+      ref={listRef}
       onScroll={(event) => {
         const itemOffset = itemsRef.current?.offsetTop ?? 0;
         setScrollTop(Math.max(0, event.currentTarget.scrollTop - itemOffset));
@@ -168,6 +189,7 @@ export function WorldInspectorInvocationList({
               data-selected={selectedId === invocation.id || undefined}
               data-status={invocation.status}
               key={invocation.id}
+              style={{ height: `${rowHeight}px` }}
               >
               <button
                 aria-pressed={selectedId === invocation.id}

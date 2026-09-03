@@ -93,4 +93,17 @@ describe("console JSON inspector", () => {
     expect(await screen.findByText("accepted")).toBeVisible();
     expect(runtimeEvent).toHaveBeenCalledTimes(2);
   });
+
+  it("uses the caller label once and hides the nested JSON toolbar title", async () => {
+    runtimeEvent.mockResolvedValue({ apiVersion: 2, event: { ...event, payload: { accepted: true } } });
+    const { container } = render(<RuntimeEventPayload event={event} instanceId="instance-1" label="原始请求" />);
+    const details = container.querySelector("details")!;
+
+    expect(screen.getByText("原始请求")).toBeVisible();
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    await waitFor(() => expect(screen.getByText("accepted")).toBeVisible());
+    expect(container.querySelector(".cg-json-inspector__toolbar strong")).toBeNull();
+    expect(screen.getAllByText("原始请求", { exact: true })).toHaveLength(1);
+  });
 });

@@ -28,6 +28,7 @@ import type {
   WorldInspectorRuntimeEventSummary,
   WorldInspectorStepDetail,
 } from "../../shared/world-inspector-api";
+import { formatInspectorFailureSummary } from "../_lib/world-inspector-copy";
 import { worldInspectorInvocationExecutionHint } from "../_lib/world-inspector-invocation";
 import { JsonInspector, RuntimeEventPayload } from "./world-inspector-json";
 
@@ -92,6 +93,15 @@ const stageTitleByKey: Readonly<Record<string, string>> = {
 
 function attemptStageTitle(stage: WorldInspectorAttemptDetail["stages"][number]): string {
   return stageTitleByKey[stage.logicalStageKey ?? ""] ?? stage.label;
+}
+
+function attemptStageSummary(
+  stage: WorldInspectorAttemptDetail["stages"][number],
+  primaryFailureSummary: string,
+): string {
+  const summary = formatInspectorFailureSummary(stage.errorMessage);
+  if (summary && summary !== primaryFailureSummary) return summary;
+  return stage.status === "failed" ? "阶段未通过" : stage.status === "active" ? "阶段仍在运行" : "阶段完成";
 }
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
@@ -543,6 +553,19 @@ function formatNumber(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : value.toLocaleString();
 }
 
+function FactValue({ parts, separator = " / " }: { parts: readonly string[]; separator?: string }) {
+  return (
+    <span className="cg-inspector-fact-value">
+      {parts.map((part, index) => (
+        <span key={`${part}:${index}`}>
+          {index > 0 && <i aria-hidden="true">{separator}</i>}
+          {part}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function formatIssuePath(path: readonly (string | number)[]): string {
   return path.reduce<string>((current, segment) => {
     if (typeof segment === "number") return `${current}[${segment}]`;
@@ -598,14 +621,13 @@ function RuntimeEventList({ events, label, instanceId }: {
     : event.event.startsWith("model.")));
   return (
     <section className="cg-runtime-event-list" aria-label={label}>
-      <header>
-        <strong>{label}</strong>
-        <span>{filtered.length} / {events.length}</span>
-      </header>
-      <div className="cg-runtime-event-filters" aria-label="运行事件筛选">
-        <button aria-pressed={filter === "all"} onClick={() => setFilter("all")} type="button">全部</button>
-        <button aria-pressed={filter === "errors"} onClick={() => setFilter("errors")} type="button">警告与错误</button>
-        <button aria-pressed={filter === "model"} onClick={() => setFilter("model")} type="button">模型</button>
+      <div className="cg-runtime-event-list__toolbar">
+        <div className="cg-runtime-event-filters" aria-label="运行事件筛选">
+          <button aria-pressed={filter === "all"} onClick={() => setFilter("all")} type="button">全部</button>
+          <button aria-pressed={filter === "errors"} onClick={() => setFilter("errors")} type="button">警告与错误</button>
+          <button aria-pressed={filter === "model"} onClick={() => setFilter("model")} type="button">模型</button>
+        </div>
+        <span className="cg-runtime-event-list__count">{filtered.length} / {events.length}</span>
       </div>
       {filtered.length > 0
         ? <RuntimeEventRows events={filtered} instanceId={instanceId} />
@@ -777,7 +799,11 @@ function AttemptOverview({ actorId, actorName, detail }: {
       : "已通过校验并提交"
     : active
       ? "等待继续"
-      : detail.summary.errorMessage ?? detail.summary.latestEvent;
+      : formatInspectorFailureSummary(detail.summary.errorMessage ?? detail.summary.latestEvent);
+  const failureEvidence = [
+    detail.summary.errorMessage,
+    ...detail.stages.filter((stage) => stage.errorMessage).map((stage) => `${attemptStageTitle(stage)}: ${stage.errorMessage}`),
+  ].filter((message): message is string => Boolean(message?.trim()));
   return (
     <div className="cg-inspector-detail-stack">
       <header className="cg-inspector-detail-heading">
@@ -797,13 +823,14 @@ function AttemptOverview({ actorId, actorName, detail }: {
               ? `Revision ${detail.summary.revision ?? "—"}`
               : active
                 ? "等待继续"
-                : detail.summary.rejectionCount > 0
-                  ? `${detail.summary.rejectionCount} 次拒绝 · ${detail.summary.repairCount} 次修复`
-                  : detail.summary.errorMessage ?? "未提交"}
+              : detail.summary.rejectionCount > 0
+                ? `${detail.summary.rejectionCount} 次拒绝 · ${detail.summary.repairCount} 次修复`
+                : "未提交"}
           </small>
         </div>
         <b>{committed ? `Revision ${detail.summary.revision ?? "—"}` : detail.summary.rollbackVerified ? "回滚已验证" : "未产生 Revision"}</b>
       </section>
+      {!committed && failureEvidence.length > 0 && <InspectorErrorDetails message={failureEvidence.join("\n\n")} />}
       <dl className="cg-inspector-signal-list">
         <div><dt>运行事件</dt><dd>{detail.summary.eventCount} 条</dd></div>
         <div><dt>模型调用</dt><dd>{detail.summary.modelInvocationCount} 次</dd></div>
@@ -864,6 +891,7 @@ function AttemptChanges({ detail }: { detail: WorldInspectorAttemptDetail }) {
 
 function AttemptCausality({ detail }: { detail: WorldInspectorAttemptDetail }) {
   const committed = detail.summary.status === "committed";
+  const primaryFailureSummary = formatInspectorFailureSummary(detail.summary.errorMessage);
   return (
     <div className="cg-inspector-detail-stack">
       <header className="cg-inspector-model-summary">
@@ -880,15 +908,22 @@ function AttemptCausality({ detail }: { detail: WorldInspectorAttemptDetail }) {
             <div>
               <small>阶段 {(stage.logicalStageIndex ?? index) + 1}{stage.derived ? " · 记录推导" : ""}</small>
               <strong>{attemptStageTitle(stage)}</strong>
-              <p>{stage.errorMessage ?? (stage.status === "failed"
-                ? "阶段未通过"
-                : stage.status === "active" ? "阶段仍在运行" : "阶段完成")}</p>
+              <p>{attemptStageSummary(stage, primaryFailureSummary)}</p>
             </div>
             <b>{stage.rejectionCount > 0 ? `${stage.rejectionCount} 次拒绝` : `${stage.eventCount} 条事件`}</b>
           </li>
         ))}
       </ol>
     </div>
+  );
+}
+
+function InspectorErrorDetails({ message }: { message: string }) {
+  return (
+    <details className="cg-inspector-error-details">
+      <summary><strong>错误详情</strong><span>查看原文</span></summary>
+      <pre>{message}</pre>
+    </details>
   );
 }
 
@@ -918,11 +953,11 @@ function ModelInvocationDetailPanel({
         <div><dt>输入 token</dt><dd>{formatNumber(invocation.tokenUsage.input)}</dd></div>
         <div><dt>输出 token</dt><dd>{formatNumber(invocation.tokenUsage.output)}</dd></div>
         <div><dt>reasoning token</dt><dd>{formatNumber(invocation.tokenUsage.reasoning)}</dd></div>
-        <div><dt>cache token</dt><dd>{formatNumber(invocation.tokenUsage.cacheRead)} / {formatNumber(invocation.tokenUsage.cacheWrite)}</dd></div>
-        <div><dt>请求 / 上下文 / 响应</dt><dd>{formatNumber(invocation.requestUtf8Bytes)} / {formatNumber(invocation.contextUtf8Bytes)} / {formatNumber(invocation.responseUtf8Bytes)} B</dd></div>
-        <div><dt>调用 / queue / transport</dt><dd>{formatDuration(invocation.timings.invocationMs)} / {formatDuration(invocation.timings.queueWaitMs)} / {formatDuration(invocation.timings.transportMs)}</dd></div>
-        <div><dt>parse / retry wait</dt><dd>{formatDuration(invocation.timings.parseMs)} / {formatDuration(invocation.timings.retryDelayMs)}</dd></div>
-        <div><dt>profile / prompt</dt><dd>{invocation.profileId ?? "—"} / {invocation.promptVersion ?? "—"}</dd></div>
+        <div><dt>cache token</dt><dd><FactValue parts={[formatNumber(invocation.tokenUsage.cacheRead), formatNumber(invocation.tokenUsage.cacheWrite)]} /></dd></div>
+        <div><dt>请求 / 上下文 / 响应</dt><dd><FactValue parts={[`${formatNumber(invocation.requestUtf8Bytes)} B`, `${formatNumber(invocation.contextUtf8Bytes)} B`, `${formatNumber(invocation.responseUtf8Bytes)} B`]} /></dd></div>
+        <div><dt>调用 / queue / transport</dt><dd><FactValue parts={[formatDuration(invocation.timings.invocationMs), formatDuration(invocation.timings.queueWaitMs), formatDuration(invocation.timings.transportMs)]} /></dd></div>
+        <div><dt>parse / retry wait</dt><dd><FactValue parts={[formatDuration(invocation.timings.parseMs), formatDuration(invocation.timings.retryDelayMs)]} /></dd></div>
+        <div><dt>profile / prompt</dt><dd><FactValue parts={[invocation.profileId ?? "—", invocation.promptVersion ?? "—"]} /></dd></div>
         <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
       </dl>
       {invocation.actionCompilationReferenceAudit && <ActionCompilationAuditSection audit={invocation.actionCompilationReferenceAudit} />}
@@ -954,22 +989,28 @@ function ModelInvocationDetailPanel({
           : <p className="cg-inspector-inline-empty">没有可解析的上下文分段。</p>}
         <JsonBlock label="查看 slot 映射原始 JSON" value={invocation.slotRefs} />
       </DetailSection>
-      {invocation.issues.length > 0 && <DetailSection collapsible count={`${invocation.issues.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
-        <ul className="cg-inspector-issue-list">{invocation.issues.map((issue, index) => <li key={`${issue.code}:${JSON.stringify(issue.path)}:${index}`}>
-          <strong>{issue.code}</strong>
-          <span>路径 {formatIssuePath(issue.path)} · {issue.message}</span>
-          {issue.originalValue !== undefined && <code>原值：{formatIssueValue(issue.originalValue)}</code>}
-          {issue.allowedHandles && issue.allowedHandles.length > 0 && <code>允许句柄：{issue.allowedHandles.join(", ")}</code>}
-        </li>)}</ul>
-        {invocation.errorMessage && <p className="cg-model-invocation__error">{invocation.errorMessage}</p>}
+      {(invocation.issues.length > 0 || invocation.errorMessage) && <DetailSection collapsible count={`${invocation.issues.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
+        <div className="cg-inspector-error-surface" data-status="error">
+          {invocation.issues.length > 0 && <ul className="cg-inspector-issue-list">{invocation.issues.map((issue, index) => <li key={`${issue.code}:${JSON.stringify(issue.path)}:${index}`}>
+            <strong>{issue.code}</strong>
+            <span>路径 {formatIssuePath(issue.path)} · {formatInspectorFailureSummary(issue.message, 220)}</span>
+            {issue.originalValue !== undefined && <code>原值：{formatIssueValue(issue.originalValue)}</code>}
+            {issue.allowedHandles && issue.allowedHandles.length > 0 && <code>允许句柄：{issue.allowedHandles.join(", ")}</code>}
+          </li>)}</ul>}
+          {invocation.errorMessage && <div className="cg-inspector-error-surface__summary">
+            <strong>{invocation.issues[0]?.code ?? "调用失败"}</strong>
+            <span>{formatInspectorFailureSummary(invocation.errorMessage)}</span>
+            <InspectorErrorDetails message={invocation.errorMessage} />
+          </div>}
+        </div>
       </DetailSection>}
       {(contextEvent || requestEvent || responseEvent || outputEvent) && (
         <DetailGroup count="按需读取" title="原始 payload">
           <div className="cg-inspector-invocation-payloads">
-            {contextEvent && <section><strong>上下文原文</strong><RuntimeEventPayload event={contextEvent} instanceId={instanceId} /></section>}
-            {requestEvent && <section><strong>原始请求</strong><RuntimeEventPayload event={requestEvent} instanceId={instanceId} /></section>}
-            {responseEvent && <section><strong>原始响应</strong><RuntimeEventPayload event={responseEvent} instanceId={instanceId} /></section>}
-            {outputEvent && <section><strong>结构化输出</strong><RuntimeEventPayload event={outputEvent} instanceId={instanceId} /></section>}
+            {contextEvent && <RuntimeEventPayload label="上下文原文" event={contextEvent} instanceId={instanceId} />}
+            {requestEvent && <RuntimeEventPayload label="原始请求" event={requestEvent} instanceId={instanceId} />}
+            {responseEvent && <RuntimeEventPayload label="原始响应" event={responseEvent} instanceId={instanceId} />}
+            {outputEvent && <RuntimeEventPayload label="结构化输出" event={outputEvent} instanceId={instanceId} />}
           </div>
         </DetailGroup>
       )}

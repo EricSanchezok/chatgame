@@ -180,7 +180,7 @@ function JsonNode({
   );
 }
 
-export function JsonInspector({ label, value }: { label: string; value: unknown }) {
+export function JsonInspector({ label, showLabel = true, value }: { label: string; showLabel?: boolean; value: unknown }) {
   const [viewMode, setViewMode] = useState<JsonViewMode>("tree");
   const [expansionMode, setExpansionMode] = useState<ExpansionMode>("default");
   const [collapseVersion, setCollapseVersion] = useState(0);
@@ -201,8 +201,8 @@ export function JsonInspector({ label, value }: { label: string; value: unknown 
   const rawJson = JSON.stringify(value, null, 2) ?? String(value);
   return (
     <section className="cg-json-inspector" aria-label={label}>
-      <header className="cg-json-inspector__toolbar">
-        <strong>{label}</strong>
+      <header className="cg-json-inspector__toolbar" data-label-visible={showLabel || undefined}>
+        {showLabel && <strong>{label}</strong>}
         <span>
           <button aria-pressed={viewMode === "tree"} onClick={() => setViewMode("tree")} type="button"><Braces aria-hidden="true" />树视图</button>
           <button aria-pressed={viewMode === "raw"} onClick={() => setViewMode("raw")} type="button">原始文本</button>
@@ -237,9 +237,11 @@ export function JsonInspector({ label, value }: { label: string; value: unknown 
 export function RuntimeEventPayload({
   event,
   instanceId,
+  label = "payload",
 }: {
   event: WorldInspectorRuntimeEventSummary;
   instanceId: string;
+  label?: string;
 }) {
   const [payload, setPayload] = useState<unknown>();
   const [loading, setLoading] = useState(false);
@@ -267,12 +269,12 @@ export function RuntimeEventPayload({
       if (toggle.currentTarget.open) load();
       else if (payload === undefined) requestAttempted.current = false;
     }}>
-      <summary><ChevronRight aria-hidden="true" />payload <small>展开时读取</small></summary>
+      <summary><ChevronRight aria-hidden="true" />{label} <small>展开时读取</small></summary>
       {loading && <p role="status">正在读取 payload…</p>}
       {error && (
         <p role="alert">{error} <button onClick={() => load(true)} type="button">重新读取</button></p>
       )}
-      {!loading && !error && payload !== undefined && <JsonInspector label="payload" value={payload} />}
+      {!loading && !error && payload !== undefined && <JsonInspector label={label} showLabel={false} value={payload} />}
     </details>
   );
 }

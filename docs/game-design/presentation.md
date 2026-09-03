@@ -70,7 +70,7 @@ Observer 不能提交角色行动。接管成功后页面切换为 Participant �
 
 ## 控制球与 Inspector
 
-可拖动控制球提供主菜单、存档、设置和视角工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定、全部认知和完整时间因果证据。Inspector API v9 的桌面界面保持左侧范围选择、中间摘要、右侧详情的三列层级，并以“调用 / 图谱 / 流程”切换中心视图。中心只显示可扫描的趋势、状态、时间戳和核心计数；调用列表使用 cursor 分页与窗口化渲染，语义图按阶段聚合，技术图受节点上限约束。顶部综合搜索同时过滤当前窗口的 Agent、Revision、节点和调用；输入 `executionId::sourceInvocationId` 并提交时直接打开调用详情。右侧按需展开完整审计字段，包括动态 Δt、边界来源、TemporalPlan、Activity 转换、Timer、决策点、共享资源容量/持有/队列/分配证据、提交前后快照，以及 logical invocation、transport attempt、retry、token、字节、payload artifact 和 validation 路径。失败或进行中的 attempt 在没有 Revision 时仍可从面板进入；本地 Debug CLI 支持按 execution、request、trace、artifact 和 diagnostic code 直接查询。
+可拖动控制球提供主菜单、存档、设置和视角工具；移动端使用 Sheet。设置中的“高级角色控制”开启 Participant detach 与直接切换；“显示世界调试器”开启 Inspector 工具，并提示其包含剧透、隐藏检定、全部认知和完整时间因果证据。Inspector API v9 的桌面界面保持左侧范围选择、中间摘要、右侧详情的三列层级，并以“调用 / 图谱 / 流程”切换中心视图。中心只显示可扫描的趋势、状态、时间戳和核心计数；调用列表使用 cursor 分页与窗口化渲染，语义图按阶段聚合，技术图受节点上限约束。顶部综合搜索同时过滤当前窗口的 Agent、Revision、节点和调用；输入 `executionId::sourceInvocationId` 并提交时直接打开调用详情。右侧按需展开完整审计字段，包括动态 Δt、边界来源、TemporalPlan、Activity 转换、Timer、决策点、共享资源容量/持有/队列/分配证据、提交前后快照，以及 logical invocation、transport attempt、retry、token、字节、payload artifact 和 validation 路径。错误也遵循同一层级：中心和流程只投影状态与短摘要，完整错误原文只在右侧单一的默认折叠“错误详情”中出现；关联事件和 payload 各由外层分组提供唯一标题。中心调用与时间线各自只有一个滚动根。失败或进行中的 attempt 在没有 Revision 时仍可从面板进入；本地 Debug CLI 支持按 execution、request、trace、artifact 和 diagnostic code 直接查询。
 
 工具使用注册槽位扩展；没有数据的工具不显示。弹层关闭后焦点返回触发控件，控制球位置在浏览器偏好中恢复。
 

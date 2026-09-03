@@ -8,6 +8,7 @@ import type {
   WorldInspectorStepSummary,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
+import { formatInspectorFailureSummary } from "../_lib/world-inspector-copy";
 
 const attemptStatusLabel = {
   active: "进行中",
@@ -83,7 +84,7 @@ function attemptOutcome(attempt: WorldInspectorAttemptSummary): { label: string;
     return { label: `Revision ${attempt.revision ?? "—"}`, detail: "", status: "success" };
   }
   const stage = attempt.failureStageLabel ? `失败 · ${attempt.failureStageLabel}` : "失败";
-  return { label: stage, detail: attempt.errorMessage ?? "", status: "error" };
+  return { label: stage, detail: formatInspectorFailureSummary(attempt.errorMessage), status: "error" };
 }
 
 function TimelineEntryCard({
