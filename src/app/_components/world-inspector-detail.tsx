@@ -771,8 +771,14 @@ function ActionCompilationAuditSection({ audit }: { audit: ActionCompilationAudi
   );
 }
 
-function SymbolRepairSection({ repairs }: { repairs: WorldInspectorModelInvocationDetail["symbolRepairs"] }) {
-  if (repairs.length === 0) return null;
+function SymbolRepairSection({
+  repairs,
+  normalization,
+}: {
+  repairs: WorldInspectorModelInvocationDetail["symbolRepairs"];
+  normalization: WorldInspectorModelInvocationDetail["normalization"];
+}) {
+  if (repairs.length === 0 && normalization.symbolRepairCount === 0) return null;
   const statusLabel: Record<string, string> = {
     normalized: "规范化",
     repaired: "已修复",
@@ -784,12 +790,12 @@ function SymbolRepairSection({ repairs }: { repairs: WorldInspectorModelInvocati
   return (
     <DetailSection
       collapsible
-      count={`${repairs.length} 项`}
+      count={`${normalization.symbolRepairCount || repairs.length} 项`}
       description="请求内闭集符号的确定性候选修复；修复后仍经过完整 schema 与语义校验"
       icon={Wrench}
       title="符号自动修复"
     >
-      <div className="cg-inspector-slot-table-wrap">
+      {repairs.length > 0 ? <div className="cg-inspector-slot-table-wrap">
         <table className="cg-inspector-slot-table">
           <thead><tr><th scope="col">路径</th><th scope="col">原值 → 修正值</th><th scope="col">域</th><th scope="col">距离 / margin</th><th scope="col">状态</th></tr></thead>
           <tbody>{repairs.map((repair, index) => (
@@ -802,8 +808,8 @@ function SymbolRepairSection({ repairs }: { repairs: WorldInspectorModelInvocati
             </tr>
           ))}</tbody>
         </table>
-      </div>
-      <JsonBlock label="查看符号修复审计 JSON" value={repairs} />
+      </div> : <p className="cg-inspector-inline-empty">已记录符号修复计数，但当前 trace 未保留逐字段 payload。</p>}
+      {repairs.length > 0 && <JsonBlock label="查看符号修复审计 JSON" value={repairs} />}
     </DetailSection>
   );
 }
@@ -994,7 +1000,7 @@ function ModelInvocationDetailPanel({
         <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
       </dl>
       {invocation.actionCompilationReferenceAudit && <ActionCompilationAuditSection audit={invocation.actionCompilationReferenceAudit} />}
-      <SymbolRepairSection repairs={invocation.symbolRepairs} />
+      <SymbolRepairSection repairs={invocation.symbolRepairs} normalization={invocation.normalization} />
       <DetailSection collapsible count={`${invocation.transportAttempts.length} 次`} description="同一逻辑调用的物理请求与重试" icon={RotateCcw} title="Transport attempts">
         <div className="cg-inspector-record-list">
           {invocation.transportAttempts.map((transport) => (
