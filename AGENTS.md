@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # AGENTS.md
 
-Living World Engine is a script-driven open-world AI game framework. Read [decision 0004](docs/decisions/0004-game-first-principles.md) for its first principles and [the architecture map](docs/architecture.md) before changing structure.
+Computable Worlds is the research direction; this repository's current implementation is Living World Engine, a script-driven open-world AI game framework. Read [decision 0004](docs/decisions/0004-game-first-principles.md) for its first principles and [the architecture map](docs/architecture.md) before changing structure. Treat the implementation as an evolving experiment, not as the definition of the research object.
 
 ## Repository governance
 
@@ -87,7 +87,7 @@ When starting the local workbench for interactive testing, treat startup as an e
 
 Follow [docs/AGENTS.md](docs/AGENTS.md): one home per fact, tutorial versus reference separation, current-state prose, and relative links. English is the working language for new governance artifacts; existing product and historical records remain valid in their original language. Code identifiers and comments are English.
 
-Research is managed in Scholens project **Living World Engine / 活世界引擎** (`26668cf0-6489-4657-9b33-c1aba2b14a1b`, `scholens://projects/26668cf0-6489-4657-9b33-c1aba2b14a1b`). Search that project before adding evidence and store new literature there.
+Research is managed in Scholens project **Computable Worlds** ([web](https://scholens.sanchezcloud.net/projects/26668cf0-6489-4657-9b33-c1aba2b14a1b), `26668cf0-6489-4657-9b33-c1aba2b14a1b`, `scholens://projects/26668cf0-6489-4657-9b33-c1aba2b14a1b`). Search that project before adding evidence and store new literature there. The current paper direction studies whether executable world trajectories improve existing models on Interactive and Persistent World tasks; do not infer the research claim from any single shipped engine design.
 
 ## Testing
 

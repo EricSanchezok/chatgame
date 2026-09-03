@@ -1,6 +1,10 @@
-# Living World Engine
+# Computable Worlds
 
-Living World Engine（活世界引擎）是剧本驱动的开放世界 AI 游戏引擎。玩家提交的是任意自然语言目标，而不是动作菜单中的 `actionId`；所有自主 Agent 基于各自有限认知同时行动，唯一 Truth Engine 依据世界真相、法则与检定联合裁决，并在每个世界步骤原子持久化。
+本仓库是 **Computable Worlds** 研究方向的一个持续演化实现与实验工作台，当前运行时品牌为 Living World Engine（活世界引擎）。研究对象不是某一个固定引擎，而是能够被初始化、推进、观察、干预和回放的可执行世界；核心问题是这种世界轨迹能否训练模型获得状态条件化的交互拟真与持久世界线能力。
+
+当前实现是剧本驱动的开放世界 AI 游戏引擎：玩家提交的是任意自然语言目标，而不是动作菜单中的 `actionId`；所有自主 Agent 基于各自有限认知同时行动，唯一 Truth Engine 依据世界真相、法则与检定联合裁决，并在每个世界步骤原子持久化。实现会继续变化，不应被视为 Computable Worlds 的定义或最终架构。
+
+研究文献与论文方向统一维护在 Scholens 项目 [Computable Worlds](https://scholens.sanchezcloud.net/projects/26668cf0-6489-4657-9b33-c1aba2b14a1b) 中。
 
 ## 快速开始
 
