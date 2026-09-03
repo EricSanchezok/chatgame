@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { PublicWorldRun } from "../../shared/world-api";
-import { formatRunElapsed, runBoundaryLabel, runStatusPresentation } from "./run-status";
+import { formatRunElapsed, isRunClockPaused, runBoundaryLabel, runStatusPresentation } from "./run-status";
 
 function run(overrides: Partial<PublicWorldRun> = {}): PublicWorldRun {
   return {
     id: "run-1",
     generation: 1,
+    updatedAt: "2026-08-29T08:00:00.000Z",
     status: "running",
     committedRevisions: [],
     stopReason: null,
@@ -14,6 +15,7 @@ function run(overrides: Partial<PublicWorldRun> = {}): PublicWorldRun {
       maxCommits: 100,
       maxWallTimeMs: 900_000,
       startedAt: "2026-08-29T08:00:00.000Z",
+      suspendedDurationMs: 0,
     },
     activity: null,
     debug: {
@@ -105,7 +107,23 @@ describe("run status presentation", () => {
     })).detail).toBe("单步证据已失效，请开始新的推演");
   });
 
-  it("formats elapsed wall time for the waiting state", () => {
+  it("formats elapsed execution time", () => {
     expect(formatRunElapsed("2026-08-29T08:00:00.000Z", Date.parse("2026-08-29T08:01:12.000Z"))).toBe("1 分 12 秒");
+  });
+
+  it("freezes the presentation clock at the control-plane transition", () => {
+    expect(isRunClockPaused("debug-paused")).toBe(true);
+    expect(formatRunElapsed(
+      "2026-08-29T08:00:00.000Z",
+      Date.parse("2026-08-29T12:00:00.000Z"),
+      "2026-08-29T08:00:04.000Z",
+    )).toBe("4 秒");
+    expect(formatRunElapsed(
+      "2026-08-29T08:00:00.000Z",
+      Date.parse("2026-08-29T08:01:12.000Z"),
+      undefined,
+      12_000,
+    )).toBe("1 分 00 秒");
+    expect(isRunClockPaused("running")).toBe(false);
   });
 });

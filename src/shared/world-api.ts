@@ -50,6 +50,8 @@ export interface PublicInstanceSummary {
 export interface PublicWorldRun {
   id: string;
   generation: number;
+  /** Last control-plane transition; used to freeze presentation timers while waiting. */
+  updatedAt: string;
   status: WorldRunStatus;
   committedRevisions: number[];
   stopReason: string | null;
@@ -58,6 +60,7 @@ export interface PublicWorldRun {
     maxCommits: number;
     maxWallTimeMs: number;
     startedAt: string;
+    suspendedDurationMs: number;
   };
   activity: null | {
     id: string;

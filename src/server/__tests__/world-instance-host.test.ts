@@ -208,7 +208,8 @@ describe("World Instance host", () => {
   }, 30_000);
 
   it("pauses a debug run between logical stages without committing early", async () => {
-    const { database, host, provider } = harness();
+    let now = new Date("2026-08-29T08:00:00.000Z");
+    const { database, host, provider } = harness({ now: () => now });
     try {
       const created = await host.createInstance(observerStart);
       const bootstrapRequestCount = provider.requests.length;
@@ -240,6 +241,7 @@ describe("World Instance host", () => {
         runId: paused.run!.id,
         generation: paused.run!.generation,
       })).rejects.toThrow("single-step runs use next-step control");
+      now = new Date(now.getTime() + 60_000);
       const next = await host.advanceDebugStep(created.summary.id, {
         runId: paused.run!.id,
         generation: paused.run!.generation,
@@ -251,6 +253,10 @@ describe("World Instance host", () => {
         : await waitForRunStatus(host, created.summary.id, "debug-paused");
       expect(stageTwo.run?.debug.stageIndex).toBe(1);
       expect(stageTwo.summary.revision).toBe(0);
+      expect(stageTwo.run?.lease).toMatchObject({
+        startedAt: paused.run?.lease?.startedAt,
+        suspendedDurationMs: 60_000,
+      });
       expect(provider.requests).toHaveLength(bootstrapRequestCount);
       const afterFirstStepEvents = database.executionEvents(initialExecutionId);
       expect(afterFirstStepEvents).toContainEqual(expect.objectContaining({

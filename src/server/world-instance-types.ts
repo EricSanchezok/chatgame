@@ -100,6 +100,7 @@ export interface WorldRunLease {
   maxCommits: number;
   maxWallTimeMs: number;
   commitCount: number;
+  suspendedDurationMs?: number;
 }
 
 export interface WorldRunRecord {

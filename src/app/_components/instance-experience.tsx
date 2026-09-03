@@ -46,6 +46,7 @@ import { ControlOrb, type ControlOrbPhase } from "./control-orb";
 import { GameThread, type ComposerMode } from "./game-thread";
 import {
   formatRunElapsed,
+  isRunClockPaused,
   runBoundaryLabel,
   runStatusPresentation,
 } from "./run-status";
@@ -89,15 +90,27 @@ function PlayerRunConsole({
   const resumable = run.debug.mode !== "step" && (run.status === "paused" ||
     run.status === "budget-paused" || run.status === "preparation-invalidated");
   const [now, setNow] = useState(() => Date.now());
+  const clockPaused = isRunClockPaused(run.status);
+  const updatedAtTimestamp = Date.parse(run.updatedAt);
+  const elapsedNow = Number.isFinite(updatedAtTimestamp) ? Math.max(now, updatedAtTimestamp) : now;
   const presentation = runStatusPresentation(run, Boolean(run.status === "running" && hasParticipantAction));
-  const elapsed = formatRunElapsed(run.lease?.startedAt, now);
+  const elapsed = formatRunElapsed(
+    run.lease?.startedAt,
+    elapsedNow,
+    clockPaused ? run.updatedAt : undefined,
+    run.lease?.suspendedDurationMs ?? 0,
+  );
 
   useEffect(() => {
-    if (!run.lease?.startedAt || run.status === "paused" || run.status === "budget-paused" ||
-      run.status === "preparation-invalidated") return;
+    if (!run.lease?.startedAt) return;
+    const refresh = window.setTimeout(() => setNow(Date.now()), 0);
+    if (clockPaused) return () => window.clearTimeout(refresh);
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [run.lease?.startedAt, run.status]);
+    return () => {
+      window.clearTimeout(refresh);
+      window.clearInterval(timer);
+    };
+  }, [clockPaused, run.lease?.startedAt]);
 
   return (
     <div aria-label="世界运行控制台" className="cg-thread-status" data-run-status={run.status} role="status">

@@ -5,6 +5,17 @@ export type RunStatusPresentation = {
   detail: string;
 };
 
+/**
+ * A run can remain present in the UI while control is handed back to the
+ * player. Presentation clocks must stop at those boundaries instead of
+ * turning user think-time into execution time.
+ */
+export function isRunClockPaused(status: PublicWorldRun["status"]): boolean {
+  return status === "debug-paused" || status === "awaiting-decision" ||
+    status === "awaiting-reaction" || status === "paused" ||
+    status === "budget-paused" || status === "preparation-invalidated";
+}
+
 function activityDescription(run: PublicWorldRun): string | undefined {
   const activity = run.activity;
   if (!activity) return undefined;
@@ -75,11 +86,18 @@ export function runBoundaryLabel(run: PublicWorldRun): string {
   return `本轮推进 ${lease.commitCount} / ${lease.maxCommits} 个世界边界`;
 }
 
-export function formatRunElapsed(startedAt?: string, now = Date.now()): string | undefined {
+export function formatRunElapsed(
+  startedAt?: string,
+  now = Date.now(),
+  endedAt?: string,
+  pausedDurationMs = 0,
+): string | undefined {
   if (!startedAt) return undefined;
   const timestamp = Date.parse(startedAt);
   if (!Number.isFinite(timestamp)) return undefined;
-  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  const endTimestamp = endedAt ? Date.parse(endedAt) : now;
+  const effectiveNow = Number.isFinite(endTimestamp) ? endTimestamp : now;
+  const seconds = Math.max(0, Math.floor((effectiveNow - timestamp - Math.max(0, pausedDurationMs)) / 1000));
   if (seconds < 60) return `${seconds} 秒`;
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;

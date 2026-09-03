@@ -1386,6 +1386,7 @@ export class WorldHost {
         run: {
           id: run.id,
           generation: run.generation,
+          updatedAt: run.updatedAt,
           status: run.status,
           committedRevisions: [...run.committedRevisions],
           stopReason: run.stopReason,
@@ -1394,6 +1395,7 @@ export class WorldHost {
             maxCommits: run.lease.maxCommits,
             maxWallTimeMs: run.lease.maxWallTimeMs,
             startedAt: run.lease.startedAt,
+            suspendedDurationMs: run.lease.suspendedDurationMs ?? 0,
           } : null,
           activity: activity ? publicActivity(document, activity) : null,
           debug: {
@@ -1518,15 +1520,21 @@ export class WorldHost {
         next.updatedAt = nextRun.updatedAt;
         return this.persist(stored, next).document;
       }
+      const transitionAt = this.now();
       if (!liveGate) {
         nextRun.status = "queued";
         nextRun.lease = null;
       } else {
+        const pausedAt = Date.parse(run.debugCheckpoint.updatedAt);
+        if (nextRun.lease && Number.isFinite(pausedAt)) {
+          nextRun.lease.suspendedDurationMs = (nextRun.lease.suspendedDurationMs ?? 0) +
+            Math.max(0, transitionAt.getTime() - pausedAt);
+        }
         nextRun.status = "running";
       }
       nextRun.stopReason = null;
       nextRun.lastDebugRequestId = input.requestId;
-      nextRun.updatedAt = this.now().toISOString();
+      nextRun.updatedAt = transitionAt.toISOString();
       next.updatedAt = nextRun.updatedAt;
       return this.persist(stored, next).document;
     });
@@ -1625,6 +1633,7 @@ export class WorldHost {
             maxCommits: this.runLeaseMaxCommits,
             maxWallTimeMs: this.runLeaseMaxWallTimeMs,
             commitCount: 0,
+            suspendedDurationMs: 0,
           };
         }
         run.status = "running";
@@ -1914,7 +1923,8 @@ export class WorldHost {
       });
       const requiredAgentIds = externalDecisionAgentIds(document);
       const budgetReached = runRecord.lease.commitCount >= runRecord.lease.maxCommits ||
-        this.now().getTime() - Date.parse(runRecord.lease.startedAt) >= runRecord.lease.maxWallTimeMs;
+        this.now().getTime() - Date.parse(runRecord.lease.startedAt) -
+          (runRecord.lease.suspendedDurationMs ?? 0) >= runRecord.lease.maxWallTimeMs;
       if (requestedComplete) {
         runRecord.status = "completed";
         runRecord.stopReason = "requested-boundaries-completed";
