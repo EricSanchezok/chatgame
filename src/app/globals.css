@@ -1075,7 +1075,7 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
   .cg-inspector-invocation__status { grid-column: 1; grid-row: 2; justify-self: start; }
   .cg-inspector-invocation__time { grid-column: 2; grid-row: 1; }
   .cg-inspector-invocation__slots { grid-column: 2; grid-row: 2; }
-  .cg-inspector-invocation__metrics { grid-column: 1 / -1; grid-row: 3; grid-template-columns: repeat(2, max-content); }
+  .cg-inspector-invocation__metrics { grid-column: 1 / -1; grid-row: 3; grid-template-columns: repeat(4, max-content); }
   .cg-inspector-flow-status { grid-template-columns: 1fr; }
   .cg-inspector-flow-status__facts { min-width: 0; }
 }

@@ -73,8 +73,13 @@ export function WorldInspectorInvocationList({
     const element = listRef.current;
     if (!element) return;
     const updateSize = () => {
+      const styles = window.getComputedStyle(element);
+      const horizontalPadding = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
       setViewportSize({
-        width: element.clientWidth || 1024,
+        // Container queries measure the content box, while clientWidth also
+        // includes this list's horizontal padding. Keep virtualization's
+        // responsive row heights on the same width as the CSS layout.
+        width: Math.max(0, (element.clientWidth || 1024) - horizontalPadding),
         height: element.clientHeight || 640,
       });
     };
