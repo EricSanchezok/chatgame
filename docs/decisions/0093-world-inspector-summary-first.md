@@ -31,6 +31,8 @@ The center does not repeat transport attempts, full slot mappings, payloads, con
 
 The same hierarchy applies to failures: center rows and timeline entries expose only status, stage, and a short failure summary; the selected detail owns the complete error message and evidence in one default-collapsed error disclosure. Each detail group has one visible title source, so related events and payloads do not add nested duplicate headers. Invocation and timeline views each have one scroll root, with a single separator per record and no status-specific extra borders.
 
+Live updates follow the same hierarchy. Runtime events are classified into window, invocation, and selected-detail dirty marks; a bounded 250ms trailing / 750ms maximum scheduler coalesces bursts, serializes same-resource requests, and leaves the current projection visible while background work completes. Structural sharing and memoized column boundaries preserve selection, disclosures, scroll positions, and the user's graph viewport. Graph layout is keyed by topology signatures, so ordinary status or counter changes never rerun ELK or refit the viewport. Timeline and invocation projections remain cursor-backed and windowed, while the server reuses event indexes and projections for a stable Ledger snapshot. These rules are presentation-only and do not change API v9, Ledger semantics, or world commits.
+
 ## Pros and Cons of the Options
 
 ### Existing evidence cards
