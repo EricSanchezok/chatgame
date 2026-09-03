@@ -11,6 +11,13 @@ import {
   type TextMessagePartComponent,
 } from "@assistant-ui/react";
 import { ArrowDown, ArrowUp, Check, Copy, CornerDownRight } from "lucide-react";
+import {
+  AnimatePresence,
+  LazyMotion,
+  MotionConfig,
+  useIsPresent,
+} from "motion/react";
+import * as m from "motion/react-m";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { cn } from "@/lib/cn";
@@ -23,6 +30,7 @@ export interface GameThreadProps {
   busy: boolean;
   composerMode: ComposerMode;
   footer?: ReactNode;
+  footerKey?: string;
   readOnly?: boolean;
   reduceMotion?: boolean;
   streamWarning: string;
@@ -30,6 +38,13 @@ export interface GameThreadProps {
   timeline?: readonly TimelineEntry[];
   timelineStep?: number;
 }
+
+const loadMotionFeatures = () => import("./motion-features").then((module) => module.default);
+const consoleTransition = {
+  layout: { bounce: 0, duration: 0.3, type: "spring" },
+  opacity: { duration: 0.15, ease: [0.2, 0, 0, 1] },
+  y: { bounce: 0, duration: 0.3, type: "spring" },
+} as const;
 
 const MessageText: TextMessagePartComponent = ({ text }) => {
   const temporalMarker = /\n\n世界时间 ([^\n]+?)(?: · ([^\n]+))?$/u;
@@ -155,7 +170,7 @@ function SuggestionFollowups({ inputId, suggestions }: { inputId: string; sugges
   );
 }
 
-function Composer({ busy, inputId }: { busy: boolean; inputId: string }) {
+function Composer({ busy, disabled = false, inputId }: { busy: boolean; disabled?: boolean; inputId: string }) {
   const autoFocus = useDesktopAutoFocus();
   return (
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
@@ -164,6 +179,7 @@ function Composer({ busy, inputId }: { busy: boolean; inputId: string }) {
           aria-label="你的行动"
           autoFocus={autoFocus}
           className="max-h-48 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
+          disabled={disabled}
           enterKeyHint="send"
           id={inputId}
           maxLength={4000}
@@ -177,7 +193,7 @@ function Composer({ busy, inputId }: { busy: boolean; inputId: string }) {
             <TooltipIconButton
               aria-label={busy ? "世界正在推演" : "发送行动"}
               className="size-8 bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground"
-              disabled={busy}
+              disabled={busy || disabled}
               tooltip={busy ? "世界正在推演" : "发送行动"}
             >
               <ArrowUp aria-hidden="true" className="size-4" />
@@ -186,6 +202,42 @@ function Composer({ busy, inputId }: { busy: boolean; inputId: string }) {
         </div>
       </div>
     </ComposerPrimitive.Root>
+  );
+}
+
+function ConsoleStatusPresence({ children }: { children: ReactNode }) {
+  const isPresent = useIsPresent();
+  return (
+    <m.div
+      animate={{ opacity: 1, y: 0 }}
+      aria-hidden={!isPresent || undefined}
+      className="cg-thread-console__item cg-thread-console__status"
+      exit={{ opacity: 0, y: -4 }}
+      initial={{ opacity: 0, y: 8 }}
+      inert={isPresent ? undefined : true}
+      layout="position"
+      transition={consoleTransition}
+    >
+      {children}
+    </m.div>
+  );
+}
+
+function ComposerPresence({ busy, inputId }: { busy: boolean; inputId: string }) {
+  const isPresent = useIsPresent();
+  return (
+    <m.div
+      animate={{ opacity: 1 }}
+      aria-hidden={!isPresent || undefined}
+      className="cg-thread-console__item cg-thread-console__composer"
+      exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      inert={isPresent ? undefined : true}
+      layout="position"
+      transition={consoleTransition}
+    >
+      <Composer busy={busy} disabled={!isPresent} inputId={inputId} />
+    </m.div>
   );
 }
 
@@ -207,6 +259,7 @@ export function GameThread({
   busy,
   composerMode,
   footer,
+  footerKey = "footer",
   readOnly = false,
   reduceMotion = false,
   streamWarning,
@@ -264,8 +317,22 @@ export function GameThread({
                 {actionError}
               </div>
             ) : null}
-            {footer}
-            {!readOnly && composerMode === "available" ? <Composer busy={busy} inputId={inputId} /> : null}
+            <LazyMotion features={loadMotionFeatures} strict>
+              <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
+                <m.div className="cg-thread-console" layout transition={consoleTransition}>
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {footer ? (
+                      <ConsoleStatusPresence key={`status:${footerKey}`}>
+                        {footer}
+                      </ConsoleStatusPresence>
+                    ) : null}
+                    {!readOnly && composerMode === "available" ? (
+                      <ComposerPresence busy={busy} inputId={inputId} key="composer" />
+                    ) : null}
+                  </AnimatePresence>
+                </m.div>
+              </MotionConfig>
+            </LazyMotion>
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>

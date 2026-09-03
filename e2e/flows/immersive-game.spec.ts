@@ -242,6 +242,10 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await expect(composer).toHaveAttribute("placeholder", "自由描述你的行动…");
   const suggestionBox = await suggestionPanel.boundingBox();
   const composerBox = await page.locator(".aui-composer-shell").boundingBox();
+  const composerFrame = await page.locator(".aui-composer-shell").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderRadius: style.borderRadius, minHeight: style.minHeight };
+  });
   expect(suggestionBox).not.toBeNull();
   expect(composerBox).not.toBeNull();
   expect(suggestionBox!.y + suggestionBox!.height).toBeLessThan(composerBox!.y);
@@ -260,8 +264,16 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   });
   await page.getByRole("button", { name: "发送行动" }).click();
   await actionStarted;
+  const submitStatus = page.getByText("正在确认行动", { exact: true });
+  await expect(submitStatus).toBeVisible();
+  const statusFrame = await submitStatus.locator("..").evaluate((element) => {
+    const frame = element.closest(".cg-thread-status");
+    if (!frame) throw new Error("missing action submit frame");
+    const style = getComputedStyle(frame);
+    return { borderRadius: style.borderRadius, minHeight: style.minHeight };
+  });
+  expect(statusFrame).toEqual(composerFrame);
   await expect(page.getByLabel("你的行动")).toHaveCount(0);
-  await expect(page.getByText("正在确认行动", { exact: true })).toBeVisible();
   releaseAction();
   await expect(page.getByText("世界继续变化。").last()).toBeVisible();
   await page.unroute("**/api/instances/*/participants/*/actions");

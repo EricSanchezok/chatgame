@@ -1403,6 +1403,10 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
   .cg-thread-status__action { grid-column: 2; justify-self: end; min-height: 36px; }
 }
 
+.cg-thread-console { min-width: 0; display: grid; gap: 0.75rem; }
+.cg-thread-console__item { min-width: 0; }
+.cg-thread-console .aui-composer-shell, .cg-thread-console .cg-thread-status { width: 100%; min-height: 4rem; border-radius: calc(var(--cg-radius) + 0.625rem); }
+
 .cg-observer-console { display: grid; grid-template-columns: minmax(10rem, 1fr) repeat(5, auto); gap: 0.45rem; border-block: 1px solid var(--cg-border); background: var(--cg-transparent); padding: 0.35rem 0; }
 .cg-observer-console select, .cg-observer-console button, .cg-detach-button { min-width: 0; min-height: 44px; border: 0; border-radius: var(--cg-radius); background: var(--cg-transparent); color: var(--cg-foreground); padding-inline: 0.7rem; cursor: pointer; }
 .cg-observer-console select { width: 100%; border: 1px solid var(--cg-input); background: var(--cg-background); }

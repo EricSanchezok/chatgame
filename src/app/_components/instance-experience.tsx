@@ -569,6 +569,27 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
   const roleView = detail.controlledView ?? observer?.selected?.perspective;
   const possibleNextActions = detail.conversation?.turns.find((turn) => !turn.action)?.response?.possibleNextActions ?? [];
   const orbPhase: ControlOrbPhase = worldProcessing ? "running" : busy ? "confirming" : "saved";
+  const footerKey = !detail.controlledView
+    ? "observer"
+    : busy === "action"
+      ? "action-submit"
+      : reactionWindow
+        ? `reaction:${reactionWindow.id}`
+        : detail.run?.status === "awaiting-decision"
+          ? "decision"
+          : detail.run && [
+            "queued",
+            "running",
+            "pausing",
+            "paused",
+            "budget-paused",
+            "debug-paused",
+            "preparation-invalidated",
+          ].includes(detail.run.status)
+            ? `run:${detail.run.id}:${detail.run.status}:${detail.run.debug.stageIndex}:${detail.run.debug.stageKey ?? ""}`
+            : preferences.advancedRoleControl
+              ? "control"
+              : "none";
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -579,6 +600,7 @@ export function InstanceExperience({ instanceId }: { instanceId: string }) {
           actionError={error}
           busy={worldProcessing}
           composerMode={composerMode}
+          footerKey={footerKey}
           footer={!detail.controlledView ? (
             <ObserverConsole
               busy={Boolean(busy)}
