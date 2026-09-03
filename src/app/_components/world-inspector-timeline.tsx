@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Check,
   CircleDotDashed,
+  ChevronDown,
   GitCommitHorizontal,
   LoaderCircle,
   PauseCircle,
@@ -159,37 +160,46 @@ function TimelineEntryCard({
           <span>第 {attempt.advanceAttempt ?? 1} 次推进</span>
           {formatDuration(attempt.durationMs) && <span>耗时 {formatDuration(attempt.durationMs)}</span>}
         </div>
-        <div className="cg-inspector-log__meta">
-          <span>{attempt.eventCount} 条运行证据</span>
-          <span>{attempt.modelInvocationCount} 次逻辑模型调用</span>
-          <span>{attempt.transportAttemptCount} 次物理请求</span>
-          {attempt.retryCount > 0 && <span>{attempt.retryCount} 次重试</span>}
-          {attempt.rejectionCount > 0 && <span>{attempt.rejectionCount} 次输出拒绝</span>}
-          {attempt.tokenUsage.unknown ? <span>部分 token 未记录</span> : <span>输入 {attempt.tokenUsage.input} · 输出 {attempt.tokenUsage.output} tokens</span>}
-        </div>
-        <details className="cg-inspector-technical-details">
-          <summary>技术详情</summary>
-          <dl>
-            <div><dt>attempt ID</dt><dd title={attempt.id}>{shortId(attempt.id)}</dd></div>
-            <div><dt>最后事件</dt><dd>{attempt.latestEvent}</dd></div>
-            {attempt.failureStageLabel && <div><dt>阶段证据</dt><dd>{attempt.failureStageLabel}</dd></div>}
-          </dl>
-        </details>
+        <dl className="cg-inspector-log__metrics" aria-label="运行指标">
+          <div><dt>运行证据</dt><dd>{attempt.eventCount}<small>条</small></dd></div>
+          <div><dt>逻辑调用</dt><dd>{attempt.modelInvocationCount}<small>次</small></dd></div>
+          <div><dt>物理请求</dt><dd>{attempt.transportAttemptCount}<small>次</small></dd></div>
+          <div><dt>重试</dt><dd>{attempt.retryCount}<small>次</small></dd></div>
+          <div><dt>输出拒绝</dt><dd>{attempt.rejectionCount}<small>次</small></dd></div>
+          <div><dt>Token 入 / 出</dt><dd>{attempt.tokenUsage.unknown ? "未记录" : `${attempt.tokenUsage.input} / ${attempt.tokenUsage.output}`}</dd></div>
+        </dl>
+        <dl className="cg-inspector-log__trace" aria-label="技术定位">
+          <div><dt>attempt ID</dt><dd title={attempt.id}>{shortId(attempt.id)}</dd></div>
+          <div><dt>最后事件</dt><dd>{attempt.latestEvent}</dd></div>
+          {attempt.failureStageLabel && <div><dt>失败阶段</dt><dd>{attempt.failureStageLabel}</dd></div>}
+        </dl>
         {attempt.stages.length > 0 && (
           <details className="cg-inspector-timeline__stages">
-            <summary>阶段证据 · {attempt.stages.length} 个阶段{attempt.stages.some((stage) => stage.derived) ? "（部分由已有事件推导）" : ""}</summary>
-            <ol>
-              {attempt.stages.map((stage) => (
-                <li data-status={stage.status} key={stage.id}>
-                  <span>{stage.label}</span>
-                  <small>
-                    {stage.modelInvocationCount} 次调用 · {stage.eventCount} 条事件
-                    {stage.rejectionCount > 0 ? ` · ${stage.rejectionCount} 次拒绝` : ""}
-                    {stage.derived ? " · 由 Ledger 事件推导" : ""}
-                  </small>
-                </li>
-              ))}
-            </ol>
+            <summary>
+              <span>
+                <strong>阶段证据</strong>
+                <small>{attempt.stages.length} 个逻辑阶段 · 点击查看阶段状态{attempt.stages.some((stage) => stage.derived) ? " · 部分由已有事件推导" : ""}</small>
+              </span>
+              <ChevronDown aria-hidden="true" />
+            </summary>
+            <div className="cg-inspector-timeline__stages-body">
+              <p>阶段证据记录每个逻辑阶段的执行状态、模型调用和运行事件；阶段数量不等于世界推进次数。</p>
+              <ol>
+                {attempt.stages.map((stage, index) => (
+                  <li data-status={stage.status} key={stage.id}>
+                    <span aria-hidden="true">{stage.status === "failed" ? <AlertTriangle /> : stage.status === "active" ? <LoaderCircle /> : <Check />}</span>
+                    <div>
+                      <small>阶段 {index + 1}{stage.derived ? " · 由 Ledger 事件推导" : ""}</small>
+                      <strong>{stage.label}</strong>
+                    </div>
+                    <small>
+                      {stage.modelInvocationCount} 次调用 · {stage.eventCount} 条事件
+                      {stage.rejectionCount > 0 ? ` · ${stage.rejectionCount} 次拒绝` : ""}
+                    </small>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </details>
         )}
       </div>

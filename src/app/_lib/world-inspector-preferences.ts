@@ -3,7 +3,7 @@ export const WORLD_INSPECTOR_ACTOR_MIN = 176;
 export const WORLD_INSPECTOR_ACTOR_MAX = 360;
 export const WORLD_INSPECTOR_ACTOR_DEFAULT = 216;
 export const WORLD_INSPECTOR_DETAIL_MIN = 352;
-export const WORLD_INSPECTOR_DETAIL_MAX = 672;
+export const WORLD_INSPECTOR_DETAIL_MAX = 880;
 export const WORLD_INSPECTOR_DETAIL_DEFAULT = 480;
 
 export type WorldInspectorView = "graph" | "timeline";

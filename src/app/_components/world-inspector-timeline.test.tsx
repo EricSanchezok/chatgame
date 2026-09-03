@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorldInspectorAttemptSummary, WorldInspectorStepSummary } from "../../shared/world-inspector-api";
 import { WorldInspectorTimeline } from "./world-inspector-timeline";
@@ -101,5 +101,18 @@ describe("WorldInspectorTimeline", () => {
     expect(screen.queryByText("未完成，未提交世界状态")).not.toBeInTheDocument();
     expect(screen.getByText(/部分由已有事件推导/)).toBeVisible();
     expect(screen.getAllByRole("button", { name: /回放世界边界/ })).toHaveLength(1);
+
+    expect(screen.getByLabelText("运行指标")).toHaveTextContent("运行证据");
+    expect(screen.getByLabelText("运行指标")).toHaveTextContent("12条");
+    expect(screen.getByLabelText("技术定位")).toBeInTheDocument();
+    expect(screen.getByText("persistence.atomic_commit", { exact: true })).toBeVisible();
+
+    const stageSummary = screen.getByText("阶段证据", { exact: true });
+    const stageDetails = stageSummary.closest("details");
+    expect(stageDetails).not.toBeNull();
+    expect(stageDetails).not.toHaveAttribute("open");
+    fireEvent.click(stageSummary);
+    expect(stageDetails).toHaveAttribute("open");
+    expect(screen.getByText(/阶段证据记录每个逻辑阶段/)).toBeVisible();
   });
 });
