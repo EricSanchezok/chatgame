@@ -7,7 +7,6 @@ import {
   Handle,
   MarkerType,
   MiniMap,
-  Panel,
   Position,
   ReactFlow,
   getViewportForBounds,
@@ -17,21 +16,6 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import ELK, { type ELK as ElkLayoutEngine } from "elkjs/lib/elk-api.js";
-import {
-  Activity,
-  BadgeCheck,
-  Braces,
-  BrainCircuit,
-  CircleDotDashed,
-  Dices,
-  Eye,
-  GitCommitHorizontal,
-  GitPullRequestArrow,
-  Orbit,
-  Sparkles,
-  Waypoints,
-  Wrench,
-} from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
@@ -95,27 +79,7 @@ const inspectorDownNodeHandles: NonNullable<InspectorFlowNode["handles"]> = [
   },
 ];
 
-const iconByKind: Record<WorldInspectorNodeKind, typeof Orbit> = {
-  commit: GitCommitHorizontal,
-  action: Activity,
-  reaction: GitPullRequestArrow,
-  check: BadgeCheck,
-  random: Dices,
-  mechanic: Wrench,
-  operation: Waypoints,
-  event: Sparkles,
-  observation: Eye,
-  mind: BrainCircuit,
-  attempt: CircleDotDashed,
-  stage: Waypoints,
-  model_invocation: BrainCircuit,
-  transport_attempt: Activity,
-  validation: BadgeCheck,
-  artifact: Braces,
-};
-
 function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
-  const Icon = iconByKind[data.summary.kind];
   const targetPosition = data.direction === "DOWN" ? Position.Top : Position.Left;
   const sourcePosition = data.direction === "DOWN" ? Position.Bottom : Position.Right;
   const moveFocus = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -147,14 +111,13 @@ function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
         onKeyDown={moveFocus}
         type="button"
       >
-        <span className="cg-inspector-node__icon"><Icon aria-hidden="true" /></span>
         <span className="cg-inspector-node__copy">
           <span className="cg-inspector-node__meta">
             <span>{data.actorName}</span>
             <span>R{data.summary.revision}</span>
           </span>
           <strong>{data.summary.label}</strong>
-          <span>{data.summary.description}</span>
+          <span className="cg-inspector-node__status">{data.summary.status ?? "记录"}</span>
         </span>
         {data.summary.count !== undefined && <span className="cg-inspector-node__count">{data.summary.count}</span>}
       </button>
@@ -364,13 +327,13 @@ export function WorldInspectorGraph({
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    label: edge.label,
+    label: selectedNodeId && (edge.source === selectedNodeId || edge.target === selectedNodeId) ? edge.label : undefined,
     className: `cg-inspector-edge cg-inspector-edge--${edge.kind}`,
     markerEnd: { type: MarkerType.ArrowClosed },
     style: { stroke: "var(--cg-inspector-edge)" },
     labelStyle: { fill: "var(--cg-muted-foreground)", fontSize: 10 },
     labelBgStyle: { fill: "var(--cg-card)", fillOpacity: 0.86 },
-  })), [visibleEdges]);
+  })), [selectedNodeId, visibleEdges]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -454,12 +417,6 @@ export function WorldInspectorGraph({
           />
         )}
         <Controls className="cg-inspector-controls" position="bottom-left" showInteractive={false} />
-        <Panel className="cg-inspector-legend" position="top-left">
-          <span><i data-kind="commit" />提交</span>
-          <span><i data-kind="action" />行动</span>
-          <span><i data-kind="mind" />心智</span>
-          <span><i data-kind="attempt" />尝试</span>
-        </Panel>
       </ReactFlow>
     </div>
   );

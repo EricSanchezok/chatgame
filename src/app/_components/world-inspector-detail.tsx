@@ -4,7 +4,6 @@ import {
   Activity,
   AlertTriangle,
   BadgeCheck,
-  Bot,
   Braces,
   BrainCircuit,
   Check,
@@ -15,7 +14,6 @@ import {
   Link2,
   LoaderCircle,
   RotateCcw,
-  Sparkles,
   Users,
   Waypoints,
   Wrench,
@@ -103,24 +101,23 @@ function JsonBlock({ label, value }: { label: string; value: unknown }) {
 function DetailSection({
   children,
   count,
-  description,
-  icon: Icon,
+  collapsible,
   title,
 }: {
   children?: ReactNode;
   count?: string;
+  collapsible?: boolean;
   description?: string;
-  icon: typeof Activity;
+  icon?: typeof Activity;
   title: string;
 }) {
+  if (collapsible) {
+    return <DetailGroup count={count} title={title}><>{children}</></DetailGroup>;
+  }
   return (
     <section className="cg-inspector-section">
       <header className="cg-inspector-section__header">
-        <span className="cg-inspector-section__icon"><Icon aria-hidden="true" /></span>
-        <span>
-          <strong>{title}</strong>
-          {description && <small>{description}</small>}
-        </span>
+        <strong>{title}</strong>
         {count && <b>{count}</b>}
       </header>
       {children}
@@ -156,23 +153,23 @@ function WorldOverview({ detail }: { detail: WorldInspectorStepDetail }) {
     <div className="cg-inspector-detail-stack">
       <CommitHeading detail={detail} />
       <ol aria-label="本轮世界演化结果" className="cg-inspector-result-chain">
-        <li><Activity aria-hidden="true" /><strong>{counts.actions}</strong><span>个联合行动</span></li>
-        <li><Waypoints aria-hidden="true" /><strong>{counts.operations}</strong><span>项状态变更</span></li>
-        <li><Sparkles aria-hidden="true" /><strong>{counts.events}</strong><span>个世界事件</span></li>
+        <li><strong>{counts.actions}</strong><span>个联合行动</span></li>
+        <li><strong>{counts.operations}</strong><span>项状态变更</span></li>
+        <li><strong>{counts.events}</strong><span>个世界事件</span></li>
       </ol>
       <dl className="cg-inspector-signal-list">
         <div>
-          <dt><Eye aria-hidden="true" /><span><strong>认知传播</strong><small>角色在这一轮实际接收到的信息</small></span></dt>
+          <dt>认知传播</dt>
           <dd>{counts.observations} 份观察 · {counts.mindUpdates} 个心智更新</dd>
         </div>
         <div>
-          <dt><BadgeCheck aria-hidden="true" /><span><strong>裁决过程</strong><small>反应、检定、随机与规则机制</small></span></dt>
+          <dt>裁决过程</dt>
           <dd>{activeAdjudication.length > 0
             ? activeAdjudication.map(([label, count]) => `${label} ${count}`).join(" · ")
             : "本轮未触发额外裁决"}</dd>
         </div>
         <div>
-          <dt><Bot aria-hidden="true" /><span><strong>模型开销</strong><small>完成这一轮推演调用的模型次数</small></span></dt>
+          <dt>模型开销</dt>
           <dd>{counts.modelInvocations} 次调用</dd>
         </div>
       </dl>
@@ -619,22 +616,22 @@ function RuntimeEventList({ events, label, instanceId }: {
 
 function DetailGroup({
   children,
-  description,
-  icon: Icon,
-  open = true,
+  count,
+  open = false,
   title,
 }: {
   children: ReactNode;
-  description: string;
-  icon: typeof Activity;
+  count?: string;
+  description?: string;
+  icon?: typeof Activity;
   open?: boolean;
   title: string;
 }) {
   return (
     <details className="cg-inspector-detail-group" open={open}>
       <summary>
-        <span className="cg-inspector-detail-group__icon"><Icon aria-hidden="true" /></span>
-        <span><strong>{title}</strong><small>{description}</small></span>
+        <strong>{title}</strong>
+        {count && <b>{count}</b>}
       </summary>
       <div className="cg-inspector-detail-group__body">{children}</div>
     </details>
@@ -727,6 +724,7 @@ function ActionCompilationAuditSection({ audit }: { audit: ActionCompilationAudi
   const selections = audit.slots.flatMap((slot) => slot.selections.map((selection) => ({ slot: slot.slot, ...selection })));
   return (
     <DetailSection
+      collapsible
       count={`${audit.slots.length} 个 slot`}
       description="受信任 Inspector 中记录 candidateKey 到引擎 handle 的唯一物化证据"
       icon={Link2}
@@ -769,19 +767,16 @@ function AttemptOverview({ actorId, actorName, detail }: {
   const committed = detail.summary.status === "committed";
   const active = detail.summary.status === "active";
   const outcomeTitle = committed
-    ? `已完成 · Revision ${detail.summary.revision ?? "—"}`
+    ? `Revision ${detail.summary.revision ?? "—"}`
     : active
-      ? "当前调试运行"
-      : detail.summary.failureStageLabel ? `失败于${detail.summary.failureStageLabel}` : "未完成的推演尝试";
-  const outcomeLabel = committed
-    ? detail.summary.rejectionCount > 0 ? "过程提示" : "结果"
-    : active ? "当前状态" : "失败原因";
+      ? "当前运行"
+      : detail.summary.failureStageLabel ? `失败 · ${detail.summary.failureStageLabel}` : "失败";
   const outcomeMessage = committed
     ? detail.summary.rejectionCount > 0
-      ? `${detail.summary.rejectionCount} 次中间输出未通过语义校验，经过 ${detail.summary.repairCount} 次修复后完成提交。`
-      : "这次尝试已通过校验并写入 canonical world state。"
+      ? `${detail.summary.rejectionCount} 次拒绝 · ${detail.summary.repairCount} 次修复`
+      : "已通过校验并提交"
     : active
-      ? "引擎在逻辑阶段之间暂停，尚未推进世界状态。"
+      ? "等待继续"
       : detail.summary.errorMessage ?? detail.summary.latestEvent;
   return (
     <div className="cg-inspector-detail-stack">
@@ -790,7 +785,7 @@ function AttemptOverview({ actorId, actorName, detail }: {
           {attemptStatusLabel[detail.summary.status]}
         </span>
         <h3>{outcomeTitle}</h3>
-        <p><strong>{outcomeLabel}</strong><span>{outcomeMessage}</span></p>
+        <p><span>{outcomeMessage}</span></p>
         <small>{detail.summary.id}</small>
       </header>
       <section className="cg-inspector-failure-card" data-status={committed ? "committed" : active ? "active" : "failed"}>
@@ -799,20 +794,20 @@ function AttemptOverview({ actorId, actorName, detail }: {
           <strong>{committed ? "世界状态已提交" : active ? "世界状态尚未提交" : "世界状态没有提交"}</strong>
           <small>
             {committed
-              ? `已写入 Revision ${detail.summary.revision ?? "—"}${detail.summary.rejectionCount > 0 ? "；中间拒绝已被修复并保留为审计证据。" : "。"}`
+              ? `Revision ${detail.summary.revision ?? "—"}`
               : active
-                ? "当前暂停不会改变 canonical history、世界时间或资源状态。"
+                ? "等待继续"
                 : detail.summary.rejectionCount > 0
-                  ? `${detail.summary.rejectionCount} 次输出未通过语义校验，包含 ${detail.summary.repairCount} 次修复。`
-                  : "尝试在原子提交前终止。"}
+                  ? `${detail.summary.rejectionCount} 次拒绝 · ${detail.summary.repairCount} 次修复`
+                  : detail.summary.errorMessage ?? "未提交"}
           </small>
         </div>
         <b>{committed ? `Revision ${detail.summary.revision ?? "—"}` : detail.summary.rollbackVerified ? "回滚已验证" : "未产生 Revision"}</b>
       </section>
       <dl className="cg-inspector-signal-list">
-        <div><dt><Sparkles aria-hidden="true" /><span><strong>运行事件</strong><small>这一尝试保留的阶段记录</small></span></dt><dd>{detail.summary.eventCount} 条</dd></div>
-        <div><dt><Bot aria-hidden="true" /><span><strong>模型调用</strong><small>尝试期间发起的模型请求</small></span></dt><dd>{detail.summary.modelInvocationCount} 次</dd></div>
-        <div><dt><Clock3 aria-hidden="true" /><span><strong>尝试耗时</strong><small>从 step 开始到真实终止边界</small></span></dt><dd>{formatDuration(detail.summary.durationMs)}</dd></div>
+        <div><dt>运行事件</dt><dd>{detail.summary.eventCount} 条</dd></div>
+        <div><dt>模型调用</dt><dd>{detail.summary.modelInvocationCount} 次</dd></div>
+        <div><dt>尝试耗时</dt><dd>{formatDuration(detail.summary.durationMs)}</dd></div>
       </dl>
       {actorId !== "world" && (
         <DetailSection
@@ -931,7 +926,7 @@ function ModelInvocationDetailPanel({
         <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
       </dl>
       {invocation.actionCompilationReferenceAudit && <ActionCompilationAuditSection audit={invocation.actionCompilationReferenceAudit} />}
-      <DetailSection count={`${invocation.transportAttempts.length} 次`} description="同一逻辑调用的物理请求与重试" icon={RotateCcw} title="Transport attempts">
+      <DetailSection collapsible count={`${invocation.transportAttempts.length} 次`} description="同一逻辑调用的物理请求与重试" icon={RotateCcw} title="Transport attempts">
         <div className="cg-inspector-record-list">
           {invocation.transportAttempts.map((transport) => (
             <div className="cg-inspector-transport-detail" key={`${invocation.id}:${transport.attempt}`}>
@@ -942,14 +937,14 @@ function ModelInvocationDetailPanel({
           ))}
         </div>
       </DetailSection>
-      <DetailSection count={`${invocation.slotRefs.length} 个`} description="每个 slot 的 Agent、action 和原始标签" icon={Users} title="Agent / slot 映射">
+      <DetailSection collapsible count={`${invocation.slotRefs.length} 个`} description="每个 slot 的 Agent、action 和原始标签" icon={Users} title="Agent / slot 映射">
         {invocation.slotRefs.length > 0
           ? <div className="cg-inspector-slot-table-wrap"><table className="cg-inspector-slot-table"><thead><tr><th scope="col">slot</th><th scope="col">Agent</th><th scope="col">actionId</th><th scope="col">label</th></tr></thead><tbody>{invocation.slotRefs.map((slot) => (
             <tr key={`${slot.slot}:${slot.agentId ?? "unresolved"}`}><td>{slot.slot}</td><td><code>{slot.agentId ?? "未解析"}</code></td><td><code>{slot.actionId ?? "—"}</code></td><td>{slot.label ?? slot.unresolvedReason ?? "—"}</td></tr>
           ))}</tbody></table></div>
           : <p className="cg-inspector-inline-empty">没有可解析的 slot 映射。</p>}
       </DetailSection>
-      <DetailSection count={`${invocation.contextSections.length} 段`} description="每段来自实际发送的单次上下文" icon={Braces} title="上下文分段">
+      <DetailSection collapsible count={`${invocation.contextSections.length} 段`} description="每段来自实际发送的单次上下文" icon={Braces} title="上下文分段">
         {invocation.contextSections.length > 0
           ? <div className="cg-inspector-record-list">{invocation.contextSections.map((section) => (
               <div className="cg-inspector-context-section" key={section.key}>
@@ -959,7 +954,7 @@ function ModelInvocationDetailPanel({
           : <p className="cg-inspector-inline-empty">没有可解析的上下文分段。</p>}
         <JsonBlock label="查看 slot 映射原始 JSON" value={invocation.slotRefs} />
       </DetailSection>
-      {invocation.issues.length > 0 && <DetailSection count={`${invocation.issues.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
+      {invocation.issues.length > 0 && <DetailSection collapsible count={`${invocation.issues.length} 项`} description="引擎实际记录的校验问题" icon={AlertTriangle} title="校验结果">
         <ul className="cg-inspector-issue-list">{invocation.issues.map((issue, index) => <li key={`${issue.code}:${JSON.stringify(issue.path)}:${index}`}>
           <strong>{issue.code}</strong>
           <span>路径 {formatIssuePath(issue.path)} · {issue.message}</span>
@@ -968,13 +963,19 @@ function ModelInvocationDetailPanel({
         </li>)}</ul>
         {invocation.errorMessage && <p className="cg-model-invocation__error">{invocation.errorMessage}</p>}
       </DetailSection>}
-      <div className="cg-inspector-invocation-payloads">
-        {contextEvent && <section><strong>上下文原文</strong><RuntimeEventPayload event={contextEvent} instanceId={instanceId} /></section>}
-        {requestEvent && <section><strong>原始请求</strong><RuntimeEventPayload event={requestEvent} instanceId={instanceId} /></section>}
-        {responseEvent && <section><strong>原始响应</strong><RuntimeEventPayload event={responseEvent} instanceId={instanceId} /></section>}
-        {outputEvent && <section><strong>结构化输出</strong><RuntimeEventPayload event={outputEvent} instanceId={instanceId} /></section>}
-      </div>
-      <RuntimeEventList events={invocation.eventSummaries} label="调用关联事件" instanceId={instanceId} />
+      {(contextEvent || requestEvent || responseEvent || outputEvent) && (
+        <DetailGroup count="按需读取" title="原始 payload">
+          <div className="cg-inspector-invocation-payloads">
+            {contextEvent && <section><strong>上下文原文</strong><RuntimeEventPayload event={contextEvent} instanceId={instanceId} /></section>}
+            {requestEvent && <section><strong>原始请求</strong><RuntimeEventPayload event={requestEvent} instanceId={instanceId} /></section>}
+            {responseEvent && <section><strong>原始响应</strong><RuntimeEventPayload event={responseEvent} instanceId={instanceId} /></section>}
+            {outputEvent && <section><strong>结构化输出</strong><RuntimeEventPayload event={outputEvent} instanceId={instanceId} /></section>}
+          </div>
+        </DetailGroup>
+      )}
+      <DetailGroup count={`${invocation.eventSummaries.length} 条`} title="调用关联事件">
+        <RuntimeEventList events={invocation.eventSummaries} label="调用关联事件" instanceId={instanceId} />
+      </DetailGroup>
     </section>
   );
 }

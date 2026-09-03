@@ -151,8 +151,10 @@ test("the participant conversation, control orb and inspector stay bounded", asy
   await page.getByRole("button", { name: "世界演化" }).click();
   const reopenedInspector = page.getByRole("dialog", { name: "世界演化" });
   await reopenedInspector.getByRole("button", { name: "调用", exact: true }).click();
-  await reopenedInspector.getByLabel("public invocation id").fill(publicInvocationId!);
-  await reopenedInspector.getByRole("button", { name: "定位证据" }).click();
-  await expect(reopenedInspector.getByText("已定位耐久证据")).toBeVisible();
-  await expect(reopenedInspector.getByText(publicInvocationId!, { exact: true })).toBeVisible();
+  const inspectorSearch = reopenedInspector.getByRole("searchbox", { name: /public invocation id/ });
+  await inspectorSearch.fill(publicInvocationId!);
+  await inspectorSearch.press("Enter");
+  await expect(reopenedInspector.getByRole("heading", { name: /Invocation/ })).toBeVisible();
+  await expect(reopenedInspector.getByText(/public id/)).toBeVisible();
+  await expect(reopenedInspector.getByText("定位证据")).not.toBeVisible();
 });

@@ -37,19 +37,22 @@ const invocation: WorldInspectorModelInvocationSummary = {
   normalizedOutputHash: null,
   errorMessage: "continuation assertion failed",
   hasPayload: true,
+  startedAt: "2026-09-02T08:00:00.000Z",
 };
 
 describe("WorldInspectorInvocationList", () => {
   afterEach(cleanup);
 
-  it("shows per-invocation metrics separately from physical transport attempts", () => {
+  it("shows a compact row with timestamp, status, and core metrics", () => {
     render(<WorldInspectorInvocationList invocations={[invocation]} onSelect={() => {}} query="" />);
 
     expect(screen.getByText("Invocation 1 · action-compilation")).toBeVisible();
     expect(screen.getAllByText("148,537")).toHaveLength(2);
-    expect(screen.getByText("1 次 retry · 2 次物理尝试")).toBeVisible();
-    expect(screen.getByText("Transport 1")).toBeVisible();
-    expect(screen.getByText("Transport 2")).toBeVisible();
+    expect(screen.getByText("输出拒绝")).toBeVisible();
+    expect(screen.getByText("09/02 16:00:00")).toBeVisible();
+    expect(screen.getByText("1 slots")).toBeVisible();
+    expect(screen.queryByText("Transport 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 次 retry · 2 次物理尝试")).not.toBeInTheDocument();
   });
 
   it("searches persisted Agent and action fields and selects the logical invocation", () => {
@@ -70,9 +73,9 @@ describe("WorldInspectorInvocationList", () => {
     };
     render(<WorldInspectorInvocationList invocations={[batched]} onSelect={() => {}} query="" />);
 
-    expect(screen.getByText("5 个 slot")).toBeVisible();
+    expect(screen.getByText("5 slots")).toBeVisible();
     expect(screen.queryByText("查看全部")).not.toBeInTheDocument();
-    expect(screen.getByText(/agent-0、agent-1、agent-2 等 2 个/)).toBeVisible();
+    expect(screen.queryByText("agent-0")).not.toBeInTheDocument();
     expect(screen.queryByText("agent-4")).not.toBeInTheDocument();
   });
 
@@ -83,20 +86,20 @@ describe("WorldInspectorInvocationList", () => {
     const card = screen.getByRole("button", { name: /Invocation 1/ });
     expect(card).toHaveAttribute("aria-pressed", "false");
     expect(card.querySelectorAll("button")).toHaveLength(0);
-    fireEvent.click(screen.getByText("Transport 1"));
+    fireEvent.click(card);
     expect(onSelect).toHaveBeenCalledWith(invocation);
   });
 
   it("keeps repeated invocation ordinals distinguishable across executions", () => {
-    const first = { ...invocation, id: "first-run::invocation-1", sourceInvocationId: "invocation-1", executionId: "first-run" };
-    const second = { ...invocation, id: "second-run::invocation-1", sourceInvocationId: "invocation-1", executionId: "second-run" };
+    const first = { ...invocation, id: "first-run::invocation-1", sourceInvocationId: "invocation-1", executionId: "first-run", startedAt: "2026-09-02T08:00:00.000Z" };
+    const second = { ...invocation, id: "second-run::invocation-1", sourceInvocationId: "invocation-1", executionId: "second-run", startedAt: "2026-09-02T08:01:00.000Z" };
 
     render(<WorldInspectorInvocationList invocations={[first, second]} onSelect={() => {}} query="" />);
 
     const buttons = screen.getAllByRole("button", { name: /Invocation 1/ });
     expect(buttons).toHaveLength(2);
-    expect(buttons[0]).toHaveTextContent("执行 first-ru");
-    expect(buttons[1]).toHaveTextContent("执行 second-");
+    expect(buttons[0]).toHaveTextContent("09/02 16:00:00");
+    expect(buttons[1]).toHaveTextContent("09/02 16:01:00");
     expect(buttons[0].textContent).not.toBe(buttons[1].textContent);
   });
 
@@ -126,7 +129,24 @@ describe("WorldInspectorInvocationList", () => {
 
     const buttons = screen.getAllByRole("button", { name: /Invocation/ });
     expect(buttons[0]).toHaveTextContent("Invocation 2");
-    expect(buttons[0]).toHaveTextContent("未分阶段");
+    expect(buttons[0]).not.toHaveTextContent("未分阶段");
     expect(buttons[0]).not.toHaveTextContent("9007199254740992");
+  });
+
+  it("windows large collections instead of mounting every invocation", () => {
+    const invocations = Array.from({ length: 10_000 }, (_, index) => ({
+      ...invocation,
+      id: `run::invocation-${index}`,
+      ordinal: index + 1,
+      sourceInvocationId: `invocation-${index}`,
+    }));
+
+    render(<WorldInspectorInvocationList invocations={invocations} onSelect={() => {}} query="" />);
+
+    expect(document.querySelectorAll(".cg-inspector-invocation").length).toBeLessThan(40);
+    const viewport = document.querySelector<HTMLElement>(".cg-inspector-invocation-list__items");
+    expect(viewport).not.toBeNull();
+    fireEvent.scroll(viewport!, { target: { scrollTop: 500_000 } });
+    expect(document.querySelectorAll(".cg-inspector-invocation").length).toBeLessThan(40);
   });
 });

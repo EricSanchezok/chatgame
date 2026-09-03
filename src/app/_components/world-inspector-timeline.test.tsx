@@ -74,10 +74,10 @@ describe("WorldInspectorTimeline", () => {
       />,
     );
 
-    expect(screen.getByRole("region", { name: "当前推演状态" })).toHaveTextContent("已暂停，等待下一步");
+    expect(screen.getByRole("region", { name: "当前推演状态" })).toHaveTextContent("已暂停");
     expect(screen.getByText("阶段 1 / 10")).toBeVisible();
-    expect(screen.getByText(/尚未执行模型调用/)).toBeVisible();
-    expect(screen.getByText("当前调试运行")).toBeVisible();
+    expect(screen.queryByText(/尚未执行模型调用/)).not.toBeInTheDocument();
+    expect(screen.getByText("当前运行")).toBeVisible();
   });
 
   it("separates a committed result from intermediate rejected output", () => {
@@ -96,8 +96,8 @@ describe("WorldInspectorTimeline", () => {
       />,
     );
 
-    expect(screen.getByText("已完成并提交")).toBeVisible();
-    expect(screen.getByText(/中间输出未通过语义校验/)).toBeVisible();
+    expect(screen.getAllByText("Revision 2")).toHaveLength(2);
+    expect(screen.getByText("1 次拒绝 · 0 次重试")).toBeVisible();
     expect(screen.queryByText("未完成，未提交世界状态")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /回放世界边界/ })).toHaveLength(1);
 

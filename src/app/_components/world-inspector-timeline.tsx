@@ -1,12 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
-  Check,
-  CircleDotDashed,
-  GitCommitHorizontal,
-  LoaderCircle,
-  PauseCircle,
   Play,
 } from "lucide-react";
 import type {
@@ -40,6 +34,19 @@ function shortId(value: string): string {
   return value.length > 14 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
 }
 
+function formatTimestamp(value: string | undefined): string {
+  if (!value) return "—";
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(timestamp);
+}
+
 function eventPurpose(attempt: WorldInspectorAttemptSummary): string {
   if (attempt.status !== "committed" && attempt.failureStageLabel) return attempt.failureStageLabel;
   if (attempt.latestEvent === "arrival.generated") return "入场事件生成";
@@ -63,20 +70,20 @@ function boundaryLabel(boundary: number | undefined): string {
 
 function attemptOutcome(attempt: WorldInspectorAttemptSummary): { label: string; detail: string; status: "success" | "warning" | "error" | "active" } {
   if (attempt.status === "active") {
-    return { label: "当前调试运行", detail: "运行在逻辑阶段之间暂停，等待继续。", status: "active" };
+    return { label: "当前运行", detail: "", status: "active" };
   }
   if (attempt.status === "committed") {
     if (attempt.rejectionCount > 0) {
       return {
-        label: "已完成并提交",
-        detail: `${attempt.rejectionCount} 次中间输出未通过语义校验，经过修复后写入 Revision ${attempt.revision ?? "—"}。`,
+        label: `Revision ${attempt.revision ?? "—"}`,
+        detail: `${attempt.rejectionCount} 次拒绝 · ${attempt.retryCount} 次重试`,
         status: "warning",
       };
     }
-    return { label: "已完成并提交", detail: `世界状态已写入 Revision ${attempt.revision ?? "—"}。`, status: "success" };
+    return { label: `Revision ${attempt.revision ?? "—"}`, detail: "", status: "success" };
   }
-  const stage = attempt.failureStageLabel ? `失败于${attempt.failureStageLabel}` : "未完成，未提交世界状态";
-  return { label: stage, detail: attempt.errorMessage ?? "尝试在原子提交前终止。", status: "error" };
+  const stage = attempt.failureStageLabel ? `失败 · ${attempt.failureStageLabel}` : "失败";
+  return { label: stage, detail: attempt.errorMessage ?? "", status: "error" };
 }
 
 function TimelineEntryCard({
@@ -96,7 +103,6 @@ function TimelineEntryCard({
     const step = entry.value;
     return (
       <article className="cg-inspector-log cg-inspector-log--step">
-        <span className="cg-inspector-log__rail" aria-hidden="true"><GitCommitHorizontal /></span>
         <div className="cg-inspector-log__surface">
           <button
             aria-pressed={selectedId === `commit:${step.revision}`}
@@ -105,16 +111,16 @@ function TimelineEntryCard({
             type="button"
           >
             <span className="cg-inspector-log__heading">
-              <strong>Revision {step.revision} · 世界状态已提交</strong>
-              <span data-status="committed"><Check aria-hidden="true" /> 已完成</span>
+              <strong>Revision {step.revision}</strong>
+              <span data-status="committed">已完成</span>
             </span>
             <span className="cg-inspector-log__copy">{step.primaryAction}</span>
             <span className="cg-inspector-log__meta">
-              <span>世界边界 {step.step + 1} · Step {step.step}</span>
+              <span>世界边界 {step.step + 1}</span>
               <span>{step.actorIds.join(" + ") || "整个世界"}</span>
               <span>{step.counts.actions} 个行动</span>
               <span>{step.counts.operations} 项状态变更</span>
-              <span>世界时间 +{step.elapsedSeconds} 秒</span>
+              <span>+{step.elapsedSeconds} 秒</span>
               <span>{step.tokenUsage.unknown ? "部分 token 未记录" : `${step.tokenUsage.total} tokens`}</span>
             </span>
           </button>
@@ -124,12 +130,9 @@ function TimelineEntryCard({
   }
 
   const attempt = entry.value;
-  const active = attempt.status === "active";
   const outcome = attemptOutcome(attempt);
-  const Icon = active ? LoaderCircle : attempt.status === "committed" ? Check : AlertTriangle;
   return (
     <article className="cg-inspector-log cg-inspector-log--attempt" data-status={outcome.status}>
-      <span className="cg-inspector-log__rail" aria-hidden="true"><CircleDotDashed /></span>
       <div className="cg-inspector-log__surface">
         <div className="cg-inspector-log__header">
           <button
@@ -140,9 +143,9 @@ function TimelineEntryCard({
           >
             <span className="cg-inspector-log__heading">
               <strong>{outcome.label}</strong>
-              <span data-status={attempt.status}><Icon aria-hidden="true" /> {attemptStatusLabel[attempt.status]}</span>
+              <span data-status={attempt.status}>{attemptStatusLabel[attempt.status]}</span>
             </span>
-            <span className="cg-inspector-log__copy">{outcome.detail}</span>
+            {outcome.detail && <span className="cg-inspector-log__copy">{outcome.detail}</span>}
           </button>
           <button
             aria-label={`回放${boundaryLabel(attempt.step)}`}
@@ -157,15 +160,13 @@ function TimelineEntryCard({
           <span className="cg-inspector-log__purpose">{eventPurpose(attempt)}</span>
           <span>{boundaryLabel(attempt.step)}</span>
           <span>第 {attempt.advanceAttempt ?? 1} 次推进</span>
+          <time dateTime={attempt.startedAt}>{formatTimestamp(attempt.startedAt ?? attempt.updatedAt)}</time>
           {formatDuration(attempt.durationMs) && <span>耗时 {formatDuration(attempt.durationMs)}</span>}
         </div>
         <dl className="cg-inspector-log__metrics" aria-label="运行指标">
           <div><dt>事件</dt><dd>{attempt.eventCount}<small>条</small></dd></div>
           <div><dt>逻辑调用</dt><dd>{attempt.modelInvocationCount}<small>次</small></dd></div>
-          <div><dt>物理请求</dt><dd>{attempt.transportAttemptCount}<small>次</small></dd></div>
           <div><dt>重试</dt><dd>{attempt.retryCount}<small>次</small></dd></div>
-          <div><dt>输出拒绝</dt><dd>{attempt.rejectionCount}<small>次</small></dd></div>
-          <div><dt>Token 入 / 出</dt><dd>{attempt.tokenUsage.unknown ? "未记录" : `${attempt.tokenUsage.input} / ${attempt.tokenUsage.output}`}</dd></div>
         </dl>
       </div>
     </article>
@@ -183,22 +184,13 @@ function CurrentRunStatus({ run }: { run: InspectorRun }) {
   const stageLabel = run.stageLabel ?? run.stageKey ?? "准备阶段";
   return (
     <section className="cg-inspector-flow-status" data-status={status} aria-label="当前推演状态">
-      <span className="cg-inspector-flow-status__icon">
-        {paused ? <PauseCircle aria-hidden="true" /> : failed ? <AlertTriangle aria-hidden="true" /> : run.status === "completed" ? <Check aria-hidden="true" /> : <LoaderCircle aria-hidden="true" />}
-      </span>
       <div className="cg-inspector-flow-status__body">
-        <span className="cg-inspector-flow-status__eyebrow">当前推演 · 世界边界 {run.boundaryIndex + 1} · Run {shortId(run.id)}</span>
-        <h3>{paused ? "已暂停，等待下一步" : awaitingDecision ? "等待行动输入" : awaitingReaction ? "等待反应输入" : failed ? "推演未完成" : run.status === "completed" ? "推演已完成" : "推演进行中"}</h3>
+        <span className="cg-inspector-flow-status__eyebrow">世界边界 {run.boundaryIndex + 1} · Run {shortId(run.id)}</span>
+        <h3>{paused ? "已暂停" : awaitingDecision ? "等待行动输入" : awaitingReaction ? "等待反应输入" : failed ? "推演未完成" : run.status === "completed" ? "推演已完成" : "推演进行中"}</h3>
         <p><strong>阶段 {stageNumber} / {run.stageCount}</strong><span>{stageLabel}</span></p>
-        <small>{paused
-          ? run.canAdvance ? "当前阶段尚未执行模型调用。点击运行控制台的“下一步”后，才会推进这一阶段。" : "当前运行正在等待外部输入，不能自动推进。"
-          : awaitingDecision || awaitingReaction ? "引擎已到达用户输入边界；提交输入后会从这里继续。"
-          : failed ? "世界状态保持不变；先查看失败阶段和相关调用。"
-            : "运行状态由服务端维护，流程记录会随事件实时更新。"}</small>
       </div>
       <dl className="cg-inspector-flow-status__facts">
-        <div><dt>阶段进度</dt><dd>{stageNumber} / {run.stageCount}</dd></div>
-        <div><dt>下一步</dt><dd>{paused && run.canAdvance ? "可执行" : awaitingDecision || awaitingReaction ? "等待输入" : "等待中"}</dd></div>
+        <div><dt>状态</dt><dd>{paused && run.canAdvance ? "可执行" : awaitingDecision || awaitingReaction ? "等待输入" : status === "error" ? "失败" : "—"}</dd></div>
         <div><dt>Checkpoint</dt><dd title={run.checkpointId ?? undefined}>{run.checkpointId ? shortId(run.checkpointId) : "—"}</dd></div>
       </dl>
     </section>
@@ -216,7 +208,7 @@ function BoundaryGroup({ entries, ...props }: {
   return (
     <section className="cg-inspector-boundary" aria-label={boundaryLabel(boundary)}>
       <header className="cg-inspector-boundary__header">
-        <span><strong>{boundary === undefined ? "未标记世界边界" : `世界边界 ${boundary + 1}`}</strong><small>{boundary === undefined ? "旧记录缺少边界标识" : `Step ${boundary}`}</small></span>
+        <span><strong>{boundary === undefined ? "未标记世界边界" : `世界边界 ${boundary + 1}`}</strong><small>{boundary === undefined ? "" : `Step ${boundary}`}</small></span>
         <b>{entries.length} 条记录</b>
       </header>
       <div className="cg-inspector-boundary__entries">
@@ -296,10 +288,6 @@ export function WorldInspectorTimeline({
   return (
     <div className="cg-inspector-timeline" role="feed" aria-label="世界演化流程">
       <CurrentRunStatus run={run} />
-      <div className="cg-inspector-flow-guide" aria-label="流程阅读说明">
-        <strong>执行记录</strong>
-        <span>最新记录置顶；一个世界边界内可能包含多次尝试。卡片中的模型请求是证据，不代表因果先后。</span>
-      </div>
       {groups.map((entries, index) => <BoundaryGroup entries={entries} key={`${boundaryOf(entries[0]) ?? "unknown"}:${index}`} onReplay={onReplay} onSelectAttempt={onSelectAttempt} onSelectStep={onSelectStep} selectedId={selectedId} />)}
       {visibleEntries.length === 0 && (
         <div className="cg-inspector-empty">

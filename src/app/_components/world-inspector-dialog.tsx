@@ -3,15 +3,11 @@
 import {
   ArrowDownToLine,
   Binoculars,
-  Bot,
   ChevronLeft,
   ChevronRight,
   CircleDot,
-  Focus,
   GitBranch,
-  ListTree,
   LocateFixed,
-  Network,
   Pause,
   Play,
   RefreshCw,
@@ -26,6 +22,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type FormEvent,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
@@ -44,7 +41,6 @@ import type {
   WorldInspectorReplay,
   WorldInspectorWindow,
 } from "../../shared/world-inspector-api";
-import type { DebugInspection } from "../../shared/debug-api";
 import { mergeWorldInspectorWindows } from "../_lib/world-inspector-window";
 import { worldInspectorInvocationExecutionId } from "../_lib/world-inspector-invocation";
 import {
@@ -114,14 +110,13 @@ function InspectorCollectionHeader({
   view: Exclude<CenterView, "calls">;
 }) {
   const config = view === "timeline"
-    ? { title: "世界演化流程", description: "先看当前运行，再按世界边界查看历史尝试；最新记录置顶", firstLabel: "执行尝试", first: `${data.attempts.length}`, secondLabel: "当前 Revision", second: `${data.instance.revision}` }
-    : { title: "世界演化图谱", description: "先看可解释的语义主链，再按需展开底层证据", firstLabel: "语义节点", first: `${data.semanticNodes?.length ?? 0}`, secondLabel: "关系", second: `${data.semanticEdges?.length ?? 0}` };
+    ? { title: "世界演化流程", firstLabel: "执行尝试", first: `${data.attempts.length}`, secondLabel: "当前 Revision", second: `${data.instance.revision}` }
+    : { title: "世界演化图谱", firstLabel: "语义节点", first: `${data.semanticNodes?.length ?? 0}`, secondLabel: "关系", second: `${data.semanticEdges?.length ?? 0}` };
   return (
     <header className="cg-inspector-collection-header">
       <div>
         <span>当前范围 · {actorName}</span>
         <h2>{config.title}</h2>
-        <p>{config.description}</p>
       </div>
       <dl>
         <div><dt>{config.firstLabel}</dt><dd>{config.first}</dd></div>
@@ -203,10 +198,7 @@ export default function WorldInspectorDialog({
   const [detail, setDetail] = useState<InspectorDetail>();
   const [detailError, setDetailError] = useState("");
   const [invocationDetail, setInvocationDetail] = useState<WorldInspectorModelInvocationDetail>();
-  const [debugInspection, setDebugInspection] = useState<DebugInspection>();
-  const [directInvocationId, setDirectInvocationId] = useState("");
-  const [debugLookupError, setDebugLookupError] = useState("");
-  const [loadingDebugLookup, setLoadingDebugLookup] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const [invocationError, setInvocationError] = useState("");
   const [loadingInvocation, setLoadingInvocation] = useState(false);
   const [queriedInvocations, setQueriedInvocations] = useState<WorldInspectorModelInvocationSummary[]>([]);
@@ -218,7 +210,6 @@ export default function WorldInspectorDialog({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [connection, setConnection] = useState<"connecting" | "live" | "offline">("connecting");
   const [followLatest, setFollowLatest] = useState(true);
-  const [isolateActor, setIsolateActor] = useState(false);
   const [actorsOpen, setActorsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedActorId, setSelectedActorId] = useState("world");
@@ -470,40 +461,33 @@ export default function WorldInspectorDialog({
     await loadInvocation(invocation, executionId);
   }, [detail, loadInvocation]);
 
-  const lookupDebugInvocation = useCallback(async () => {
-    const id = directInvocationId.trim();
-    if (!id) {
-      setDebugLookupError("请输入 public invocation id。");
-      return;
-    }
-    setLoadingDebugLookup(true);
-    setDebugLookupError("");
-    setDebugInspection(undefined);
+  const submitSearch = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = query.trim();
+    setSearchError("");
+    if (!value || !value.includes("::")) return;
+    const request = ++invocationDetailRequestRef.current;
+    setLoadingInvocation(true);
     try {
-      const evidence = await worldInspectorApi.debugInspect(id);
-      setDebugInspection(evidence);
-      const result = await worldInspectorApi.modelInvocations(instanceId, {
-        executionId: evidence.executionId,
-        limit: 100,
-        sort: "stage",
-      });
-      const invocation = result.items.find((candidate) => candidate.id === evidence.id);
-      if (invocation) {
-        setQueriedInvocations((current) => current.some((candidate) => candidate.id === invocation.id)
-          ? current : [invocation, ...current]);
-        setFollowLatest(false);
-        await loadInvocation(invocation, evidence.executionId);
-      } else {
-        setSelection({ kind: "invocation", id: evidence.id, executionId: evidence.executionId });
-        setInvocationDetail(undefined);
-        setInvocationError("已在 Ledger 找到证据，但当前 Inspector 实例没有可渲染的调用投影；请使用下方事件链或 CLI 继续定位。");
-      }
+      const evidence = await worldInspectorApi.debugInspect(value);
+      const invocation = await worldInspectorApi.modelInvocation(instanceId, evidence.executionId, evidence.id);
+      if (request !== invocationDetailRequestRef.current) return;
+      setQueriedInvocations((current) => current.some((candidate) => candidate.id === invocation.id)
+        ? current : [invocation, ...current]);
+      setFollowLatest(false);
+      setView("calls");
+      setSelection({ kind: "invocation", id: invocation.id, executionId: invocation.executionId });
+      setInvocationDetail(invocation);
+      setInvocationError("");
     } catch (reason) {
-      setDebugLookupError(reason instanceof Error ? reason.message : "没有找到这条 public invocation id 的耐久证据。");
+      if (request === invocationDetailRequestRef.current) {
+        setSearchError(reason instanceof Error ? reason.message : "没有找到这条调用。");
+        setInvocationDetail(undefined);
+      }
     } finally {
-      setLoadingDebugLookup(false);
+      if (request === invocationDetailRequestRef.current) setLoadingInvocation(false);
     }
-  }, [directInvocationId, instanceId, loadInvocation]);
+  }, [instanceId, query]);
 
   const loadWindow = useCallback(async (preserveHistory: boolean) => {
     const request = ++requestRef.current;
@@ -862,15 +846,9 @@ export default function WorldInspectorDialog({
     >
       <div className="cg-inspector-toolbar">
         <div className="cg-inspector-view-switch" aria-label="推演视图">
-          <button aria-pressed={activeView === "calls"} onClick={() => chooseCenterView("calls")} type="button">
-            <Bot aria-hidden="true" /> 调用
-          </button>
-          <button aria-pressed={activeView === "graph"} onClick={() => chooseView("graph")} type="button">
-            <Network aria-hidden="true" /> 图谱
-          </button>
-          <button aria-pressed={activeView === "timeline"} onClick={() => chooseView("timeline")} type="button">
-            <ListTree aria-hidden="true" /> 流程
-          </button>
+          <button aria-pressed={activeView === "calls"} onClick={() => chooseCenterView("calls")} type="button">调用</button>
+          <button aria-pressed={activeView === "graph"} onClick={() => chooseView("graph")} type="button">图谱</button>
+          <button aria-pressed={activeView === "timeline"} onClick={() => chooseView("timeline")} type="button">流程</button>
         </div>
         <button
           aria-controls="world-inspector-actors"
@@ -888,21 +866,11 @@ export default function WorldInspectorDialog({
         >
           <Users aria-hidden="true" /> {selectedActor?.name ?? "主体"}
         </button>
-        <label className="cg-inspector-search">
+        <form className="cg-inspector-search" onSubmit={(event) => void submitSearch(event)}>
           <Search aria-hidden="true" />
-          <span className="cg-sr-only">搜索 Agent、节点或提交</span>
-          <input onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Agent、节点或 revision" type="search" value={query} />
-        </label>
-        <button
-          aria-pressed={isolateActor}
-          className="cg-inspector-toolbar__button"
-          disabled={selectedActorId === "world"}
-          onClick={() => setIsolateActor((value) => !value)}
-          type="button"
-        >
-          {isolateActor ? <Users aria-hidden="true" /> : <Focus aria-hidden="true" />}
-          {isolateActor ? "显示全部主体" : "聚焦此 Agent"}
-        </button>
+          <label className="cg-sr-only" htmlFor="world-inspector-search">搜索 Agent、节点、revision 或 public invocation id</label>
+          <input id="world-inspector-search" onChange={(event) => { setQuery(event.target.value); setSearchError(""); }} placeholder="搜索 Agent、节点、revision 或 invocation ID" type="search" value={query} />
+        </form>
         <button
           aria-pressed={followLatest}
           className="cg-inspector-toolbar__button"
@@ -915,6 +883,12 @@ export default function WorldInspectorDialog({
           <CircleDot aria-hidden="true" />
           {{ connecting: "正在连接", live: "实时", offline: "正在重连" }[connection]}
         </span>
+        {searchError && (
+          <span className="cg-inspector-toolbar__message" role="alert">
+            <span>{searchError}</span>
+            <button onClick={() => { setSearchError(""); setQuery(""); }} type="button">清除</button>
+          </span>
+        )}
       </div>
 
       {loading && !data && (
@@ -964,7 +938,7 @@ export default function WorldInspectorDialog({
             <button
               aria-pressed={selectedActorId === "world"}
               className="cg-inspector-actor cg-inspector-actor--world"
-              onClick={() => { selectActor("world"); setIsolateActor(false); }}
+              onClick={() => selectActor("world")}
               type="button"
             >
               <span><GitBranch aria-hidden="true" /></span>
@@ -1030,57 +1004,6 @@ export default function WorldInspectorDialog({
             )}
             {activeView === "calls" ? (
               <>
-                <form
-                  className="cg-inspector-debug-lookup"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void lookupDebugInvocation();
-                  }}
-                >
-                  <label>
-                    <span>按 public invocation id 直查</span>
-                    <input
-                      aria-label="public invocation id"
-                      onChange={(event) => setDirectInvocationId(event.target.value)}
-                      placeholder="execution-id::source-invocation-id"
-                      spellCheck={false}
-                      value={directInvocationId}
-                    />
-                  </label>
-                  <button disabled={loadingDebugLookup} type="submit">
-                    {loadingDebugLookup ? "正在定位…" : "定位证据"}
-                  </button>
-                </form>
-                {debugLookupError && <p className="cg-inspector-stage__warning" role="alert">{debugLookupError}</p>}
-                {debugInspection && (
-                  <section className="cg-inspector-debug-hit" aria-label="直接定位结果">
-                    <header>
-                      <strong>已定位耐久证据</strong>
-                      <code title={debugInspection.id}>{debugInspection.id}</code>
-                      <span>{debugInspection.eventCount} 个事件 · {debugInspection.issueCodes.length} 个诊断/问题码</span>
-                    </header>
-                    {debugInspection.diagnostics.length > 0 && (
-                      <ul>
-                        {debugInspection.diagnostics.map((diagnostic) => (
-                          <li key={`${diagnostic.code}:${diagnostic.eventSequence ?? ""}`}>
-                            <code>{diagnostic.code}</code> · {diagnostic.owner} · {diagnostic.retryability}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <details>
-                      <summary>查看事件链（{debugInspection.events.length}）</summary>
-                      <ol>
-                        {debugInspection.events.map((event) => (
-                          <li key={`${event.executionId}:${event.sequence}`}>
-                            <code>{event.sequence}</code> <span>{event.eventName}</span>
-                            {event.diagnosticCodes.length > 0 && <small> · {event.diagnosticCodes.join(", ")}</small>}
-                          </li>
-                        ))}
-                      </ol>
-                    </details>
-                  </section>
-                )}
                 {loadingInvocation && <p className="cg-inspector-stage__status" role="status">正在读取这次模型调用的完整记录…</p>}
                 {invocationError && <p className="cg-inspector-stage__warning" role="alert">{invocationError}</p>}
                 <WorldInspectorInvocationList
@@ -1099,12 +1022,9 @@ export default function WorldInspectorDialog({
                 <InspectorCollectionHeader actorName={selectedActor?.name ?? "整个世界"} data={data} view="graph" />
                 <div className="cg-inspector-graph-mode" aria-label="图谱层级">
                   <div className="cg-inspector-graph-mode__switch">
-                    <button aria-pressed={graphMode === "semantic"} onClick={() => setGraphMode("semantic")} type="button">语义主链（推荐）</button>
-                    <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据图 · {data.nodes.length} 节点</button>
+                    <button aria-pressed={graphMode === "semantic"} onClick={() => setGraphMode("semantic")} type="button">语义主链</button>
+                    <button aria-pressed={graphMode === "technical"} onClick={() => setGraphMode("technical")} type="button">技术证据 · {data.nodes.length} 节点</button>
                   </div>
-                  <span className="cg-inspector-graph-mode__description">{graphMode === "semantic"
-                    ? "只保留当前推演的语义阶段主链；点击节点查看证据。"
-                    : "显示底层事件、artifact 与 transport；仅用于定位技术问题。"}</span>
                   {graphMode === "technical" && (
                     <label>节点上限
                       <WorldInspectorSelect
@@ -1125,7 +1045,7 @@ export default function WorldInspectorDialog({
                   semanticEdges={semanticEdges}
                   semanticNodes={semanticNodes}
                   followLatest={followLatest}
-                  isolateActor={isolateActor}
+                  isolateActor={selectedActorId !== "world"}
                   nodes={technicalNodes}
                   onInteract={() => setFollowLatest(false)}
                   onSelect={(node) => { setFollowLatest(false); selectNode(node); }}
