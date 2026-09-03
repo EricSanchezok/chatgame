@@ -292,8 +292,8 @@ export function WorldInspectorTimeline({
       {groups.map((entries, index) => <BoundaryGroup entries={entries} key={`${boundaryOf(entries[0]) ?? "unknown"}:${index}`} onReplay={onReplay} onSelectAttempt={onSelectAttempt} onSelectStep={onSelectStep} selectedId={selectedId} />)}
       {visibleEntries.length === 0 && (
         <div className="cg-inspector-empty">
-          <strong>{steps.length === 0 && attempts.length > 0 && !normalized ? "当前筛选下没有可显示记录" : "没有匹配的推演记录"}</strong>
-          <span>{steps.length === 0 && attempts.length > 0 && !normalized ? "世界状态尚未形成 Revision；请打开执行尝试查看失败阶段或当前暂停位置。" : "清除搜索或切换到“整个世界”。"}</span>
+          <strong>{steps.length === 0 && attempts.length > 0 && !normalized ? "暂无 Revision" : "没有匹配记录"}</strong>
+          <span>{steps.length === 0 && attempts.length > 0 && !normalized ? "查看执行尝试" : "清除搜索或切换主体"}</span>
         </div>
       )}
       {hasOlder && (
