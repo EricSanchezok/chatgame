@@ -487,7 +487,7 @@ describe("World Instance host", () => {
       expect(stored.schemaVersion).toBe(21);
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
-        version: "10",
+        version: "11",
         contractVersion: 5,
         config: { actionCompilationMaxSlots: 12, agentMindMaxSlots: 8, truthBatchMaxSlots: 12 },
       });

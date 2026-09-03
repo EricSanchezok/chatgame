@@ -66,6 +66,7 @@ import {
   materializeActionCompilationCandidateKeys,
   normalizeActionCompilationContextCauses,
   normalizeActionCompilationDraftReferences,
+  preprocessActionCompilationSymbols,
   validateActionCompilationDraft,
 } from "./action-compilation-validation";
 import {
@@ -987,6 +988,10 @@ export async function compileActions(
           userPrompt: ACTION_COMPILER_PROMPT.userPrompt,
           context,
           schema: actionCompilationBatchSchema,
+          preprocessOutput: (raw) => preprocessActionCompilationSymbols({
+            value: raw,
+            resolver: batchActionResolver,
+          }),
         });
         assertSlotCoverage(batch, generated.value.slots);
       } catch (error) {
@@ -1107,14 +1112,26 @@ export async function compileActions(
       );
       const invocationAudit = generated.audit.invocations.at(-1);
       if (invocationAudit) {
+        const symbolRepairs = invocationAudit.symbolRepairs ?? [];
+        const symbolRepairAcceptedCount = symbolRepairs.filter((repair) =>
+          repair.status === "repaired" || repair.status === "normalized").length;
+        const symbolRepairAmbiguousCount = symbolRepairs.filter((repair) => repair.status === "ambiguous").length;
+        const symbolRepairUnmatchedCount = symbolRepairs.filter((repair) => repair.status === "unmatched").length;
+        const symbolRepairPostValidationRejectedCount = symbolRepairs.filter((repair) =>
+          repair.status === "postvalidation-rejected").length;
         invocationAudit.rawOutputHash ??= contentHash(generated.value);
         invocationAudit.normalizedOutputHash = contentHash({ slots: normalizedSlots });
         invocationAudit.normalization = {
-          applied: modifiedFieldCount > 0 || deduplicatedCount > 0,
-          modifiedFieldCount,
+          applied: modifiedFieldCount > 0 || deduplicatedCount > 0 || symbolRepairAcceptedCount > 0,
+          modifiedFieldCount: modifiedFieldCount + symbolRepairAcceptedCount,
           resolvedReferenceCount,
           proposalCount,
           deduplicatedCount,
+          symbolRepairCount: symbolRepairs.length,
+          symbolRepairAcceptedCount,
+          symbolRepairAmbiguousCount,
+          symbolRepairUnmatchedCount,
+          symbolRepairPostValidationRejectedCount,
         };
         if (rejected.length === 0) {
           invocationAudit.outputDisposition = invocationAudit.normalization.applied ? "auto-normalized" : "accepted";
@@ -1128,11 +1145,19 @@ export async function compileActions(
             resolvedReferences: resolvedReferenceCount,
             proposals: proposalCount,
             deduplicated: deduplicatedCount,
+            symbolRepairAttempts: symbolRepairs.length,
+            symbolRepairAccepted: symbolRepairAcceptedCount,
+            symbolRepairAmbiguous: symbolRepairAmbiguousCount,
+            symbolRepairUnmatched: symbolRepairUnmatchedCount,
+            symbolRepairPostValidationRejected: symbolRepairPostValidationRejectedCount,
           },
           hashes: {
             rawOutput: invocationAudit.rawOutputHash,
             normalizedOutput: invocationAudit.normalizedOutputHash,
           },
+          payload: symbolRepairs.length > 0 && scope.observer
+            ? fullRuntimePayload(scope.observer, { symbolRepairs })
+            : undefined,
         });
       }
       setModelInvocationResultKind(generated.audit, "action_compilation_batch");

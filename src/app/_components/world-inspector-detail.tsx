@@ -771,6 +771,43 @@ function ActionCompilationAuditSection({ audit }: { audit: ActionCompilationAudi
   );
 }
 
+function SymbolRepairSection({ repairs }: { repairs: WorldInspectorModelInvocationDetail["symbolRepairs"] }) {
+  if (repairs.length === 0) return null;
+  const statusLabel: Record<string, string> = {
+    normalized: "规范化",
+    repaired: "已修复",
+    ambiguous: "候选并列",
+    unmatched: "未匹配",
+    "postvalidation-rejected": "复验拒绝",
+    exact: "精确",
+  };
+  return (
+    <DetailSection
+      collapsible
+      count={`${repairs.length} 项`}
+      description="请求内闭集符号的确定性候选修复；修复后仍经过完整 schema 与语义校验"
+      icon={Wrench}
+      title="符号自动修复"
+    >
+      <div className="cg-inspector-slot-table-wrap">
+        <table className="cg-inspector-slot-table">
+          <thead><tr><th scope="col">路径</th><th scope="col">原值 → 修正值</th><th scope="col">域</th><th scope="col">距离 / margin</th><th scope="col">状态</th></tr></thead>
+          <tbody>{repairs.map((repair, index) => (
+            <tr key={`${repair.path.join(".")}:${repair.originalValue}:${index}`}>
+              <td><code>{formatIssuePath(repair.path)}</code></td>
+              <td><code>{repair.originalValue} → {repair.correctedValue ?? "—"}</code></td>
+              <td>{repair.domain}</td>
+              <td>{repair.bestDistance ?? "—"} / {repair.margin ?? "—"}<br /><small>候选 {repair.candidateCount}</small></td>
+              <td data-status={repair.status}>{statusLabel[repair.status] ?? repair.status}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <JsonBlock label="查看符号修复审计 JSON" value={repairs} />
+    </DetailSection>
+  );
+}
+
 function AttemptOverview({ actorId, actorName, detail }: {
   actorId: string;
   actorName: string;
@@ -957,6 +994,7 @@ function ModelInvocationDetailPanel({
         <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
       </dl>
       {invocation.actionCompilationReferenceAudit && <ActionCompilationAuditSection audit={invocation.actionCompilationReferenceAudit} />}
+      <SymbolRepairSection repairs={invocation.symbolRepairs} />
       <DetailSection collapsible count={`${invocation.transportAttempts.length} 次`} description="同一逻辑调用的物理请求与重试" icon={RotateCcw} title="Transport attempts">
         <div className="cg-inspector-record-list">
           {invocation.transportAttempts.map((transport) => (

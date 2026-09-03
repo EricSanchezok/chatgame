@@ -1,6 +1,7 @@
 import type { ActionCompilationDraft } from "../../runtime/execution";
 import type { ActionCompilationModelOutput, ActionCompilationCausalAssertion } from "../../contracts/llm-schemas";
-import type { SimulationState } from "../../contracts/model";
+import type { ModelSymbolRepairAudit, SimulationState } from "../../contracts/model";
+import { repairSymbol } from "../../contracts/symbol-repair";
 import {
   isProposalReference,
   type ExistingReferenceHandle,
@@ -13,6 +14,173 @@ import {
 } from "../../contracts/model-context";
 
 const MAX_FIELD_ALTERNATIVES = 64;
+
+function setPath(root: unknown, path: readonly (string | number)[], value: string): void {
+  let current: unknown = root;
+  for (const part of path.slice(0, -1)) {
+    if (!current || typeof current !== "object") return;
+    current = (current as Record<string | number, unknown>)[part];
+  }
+  const last = path.at(-1);
+  if (last === undefined || !current || typeof current !== "object") return;
+  (current as Record<string | number, unknown>)[last] = value;
+}
+
+/**
+ * Apply the shared deterministic symbol policy to the model-only candidateKey
+ * vocabulary before the Action Compilation Zod schema and materializer run.
+ * Field contracts are enumerated explicitly so a natural-language string can
+ * never be mistaken for a reference merely because its property is named
+ * `ref`.
+ */
+export function preprocessActionCompilationSymbols(input: {
+  value: unknown;
+  resolver: ActionCompilationReferenceResolver;
+}): { value: unknown; symbolRepairs: ModelSymbolRepairAudit[] } {
+  const value = structuredClone(input.value);
+  const symbolRepairs: ModelSymbolRepairAudit[] = [];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { value, symbolRepairs };
+  const slots = (value as { slots?: unknown }).slots;
+  if (!Array.isArray(slots)) return { value, symbolRepairs };
+
+  const repairField = (
+    path: Array<string | number>,
+    slot: number,
+    raw: unknown,
+    contract: ActionCompilationFieldContract,
+  ): void => {
+    if (typeof raw !== "string") return;
+    const candidates = input.resolver.candidatesFor(contract.use)
+      .filter((candidate) => candidate.scope.kind === "shared" || candidate.scope.slot === slot)
+      .filter((candidate) => contract.kinds.includes(candidate.kind))
+      .map((candidate) => ({
+        value: candidate.candidateKey,
+        kind: candidate.kind,
+        allowedUses: candidate.allowedUses,
+        slot: candidate.scope.kind === "slot" ? candidate.scope.slot : undefined,
+      }));
+    const result = repairSymbol({
+      value: raw,
+      candidates,
+      context: {
+        domain: "candidate-key",
+        path: [...path],
+        use: contract.use,
+        slot,
+        catalogHash: input.resolver.catalog.hash,
+      },
+    });
+    if (result.status !== "exact") {
+      symbolRepairs.push({
+        ...result,
+        domain: "candidate-key",
+        path: [...path],
+        catalogHash: input.resolver.catalog.hash,
+        candidateCount: candidates.length,
+      });
+    }
+    if ((result.status === "repaired" || result.status === "normalized") && result.correctedValue) {
+      setPath(value, path, result.correctedValue);
+    }
+  };
+
+  slots.forEach((slotValue, slotIndex) => {
+    if (!slotValue || typeof slotValue !== "object" || Array.isArray(slotValue)) return;
+    const slot = slotValue as Record<string, unknown>;
+    const temporalPlan = slot.temporalPlan;
+    if (temporalPlan && typeof temporalPlan === "object" && !Array.isArray(temporalPlan)) {
+      const plan = temporalPlan as Record<string, unknown>;
+      repairField(
+        ["slots", slotIndex, "temporalPlan", "profileRef"],
+        slotIndex,
+        plan.profileRef,
+        ACTION_COMPILATION_FIELD_USES.temporalProfile,
+      );
+      if (Array.isArray(plan.causes)) plan.causes.forEach((cause, causeIndex) => {
+        if (!cause || typeof cause !== "object" || Array.isArray(cause)) return;
+        repairField(
+          ["slots", slotIndex, "temporalPlan", "causes", causeIndex, "ref"],
+          slotIndex,
+          (cause as Record<string, unknown>).ref,
+          ACTION_COMPILATION_FIELD_USES.cause,
+        );
+      });
+      if (Array.isArray(plan.continuationAssertions)) plan.continuationAssertions.forEach((assertion, assertionIndex) => {
+        if (!assertion || typeof assertion !== "object" || Array.isArray(assertion)) return;
+        const item = assertion as Record<string, unknown>;
+        const base = ["slots", slotIndex, "temporalPlan", "continuationAssertions", assertionIndex] as Array<string | number>;
+        const field = (name: string, contract: ActionCompilationFieldContract) =>
+          repairField([...base, name], slotIndex, item[name], contract);
+        switch (item.kind) {
+          case "check_result": field("checkRef", ACTION_COMPILATION_FIELD_USES.assertionCheck); break;
+          case "random_result":
+            field("requestRef", ACTION_COMPILATION_FIELD_USES.assertionRandom);
+            field("stepRef", ACTION_COMPILATION_FIELD_USES.assertionRandom);
+            break;
+          case "fact_matches":
+            field("factRef", ACTION_COMPILATION_FIELD_USES.assertionFact);
+            if (item.expected && typeof item.expected === "object" && !Array.isArray(item.expected) &&
+              (item.expected as Record<string, unknown>).kind === "entity") {
+              repairField([...base, "expected", "entityRef"], slotIndex,
+                (item.expected as Record<string, unknown>).entityRef,
+                ACTION_COMPILATION_FIELD_USES.assertionEntity);
+            }
+            break;
+          case "fact_absent": field("factRef", ACTION_COMPILATION_FIELD_USES.assertionFact); break;
+          case "entity_absent":
+          case "entity_lifecycle": field("entityRef", ACTION_COMPILATION_FIELD_USES.assertionEntity); break;
+          case "placement_equals":
+          case "placement_not_equals":
+            field("entityRef", ACTION_COMPILATION_FIELD_USES.assertionEntity);
+            if (item.placementRef !== null) field("placementRef", ACTION_COMPILATION_FIELD_USES.assertionPlacement);
+            break;
+          case "shared_placement":
+            field("leftEntityRef", ACTION_COMPILATION_FIELD_USES.assertionEntity);
+            field("rightEntityRef", ACTION_COMPILATION_FIELD_USES.assertionEntity);
+            break;
+          case "meter_compare": field("meterRef", ACTION_COMPILATION_FIELD_USES.assertionMeter); break;
+          case "quantity_compare": field("quantityRef", ACTION_COMPILATION_FIELD_USES.assertionQuantity); break;
+          case "rating_compare": field("ratingRef", ACTION_COMPILATION_FIELD_USES.assertionRating); break;
+          case "shared_resource_capacity_compare": field("poolRef", ACTION_COMPILATION_FIELD_USES.assertionPool); break;
+          default: break;
+        }
+      });
+    }
+    const dependency = slot.interactionDependency;
+    if (!dependency || typeof dependency !== "object" || Array.isArray(dependency)) return;
+    const interaction = dependency as Record<string, unknown>;
+    const stateDependencies = interaction.stateDependencies;
+    if (stateDependencies && typeof stateDependencies === "object" && !Array.isArray(stateDependencies)) {
+      const state = stateDependencies as Record<string, unknown>;
+      for (const fieldName of ["requiredExistingCandidateKeys", "potentiallyAffectedCandidateKeys"] as const) {
+        if (!Array.isArray(state[fieldName])) continue;
+        state[fieldName].forEach((raw, index) => repairField(
+          ["slots", slotIndex, "interactionDependency", "stateDependencies", fieldName, index],
+          slotIndex,
+          raw,
+          ACTION_COMPILATION_FIELD_USES.stateDependency,
+        ));
+      }
+    }
+    if (Array.isArray(interaction.audienceAgentCandidateKeys)) interaction.audienceAgentCandidateKeys.forEach((raw, index) =>
+      repairField(
+        ["slots", slotIndex, "interactionDependency", "audienceAgentCandidateKeys", index],
+        slotIndex,
+        raw,
+        ACTION_COMPILATION_FIELD_USES.audience,
+      ));
+    if (Array.isArray(interaction.sharedResourceClaims)) interaction.sharedResourceClaims.forEach((claim, index) => {
+      if (!claim || typeof claim !== "object" || Array.isArray(claim)) return;
+      repairField(
+        ["slots", slotIndex, "interactionDependency", "sharedResourceClaims", index, "resourcePoolCandidateKey"],
+        slotIndex,
+        (claim as Record<string, unknown>).resourcePoolCandidateKey,
+        ACTION_COMPILATION_FIELD_USES.resourcePool,
+      );
+    });
+  });
+  return { value, symbolRepairs };
+}
 
 const CONTEXT_ONLY_REFERENCE_KINDS = new Set([
   "agent",

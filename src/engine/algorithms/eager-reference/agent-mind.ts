@@ -720,16 +720,28 @@ export class AgentMind {
           }
           const invocationAudit = generated.audit.invocations.at(-1);
           if (invocationAudit) {
+            const symbolRepairs = invocationAudit.symbolRepairs ?? [];
+            const symbolRepairAcceptedCount = symbolRepairs.filter((repair) =>
+              repair.status === "repaired" || repair.status === "normalized").length;
+            const symbolRepairAmbiguousCount = symbolRepairs.filter((repair) => repair.status === "ambiguous").length;
+            const symbolRepairUnmatchedCount = symbolRepairs.filter((repair) => repair.status === "unmatched").length;
+            const symbolRepairPostValidationRejectedCount = symbolRepairs.filter((repair) =>
+              repair.status === "postvalidation-rejected").length;
             const parserRecovered = invocationAudit.issues.some((issue) =>
               issue.class === "structure" && issue.code.startsWith("json."));
             invocationAudit.rawOutputHash ??= contentHash(generated.value);
             invocationAudit.normalizedOutputHash = contentHash({ slots: normalizedSlots });
             invocationAudit.normalization = {
-              applied: parserRecovered || modifiedFieldCount > 0 || deduplicatedCount > 0,
-              modifiedFieldCount,
+              applied: parserRecovered || modifiedFieldCount > 0 || deduplicatedCount > 0 || symbolRepairAcceptedCount > 0,
+              modifiedFieldCount: modifiedFieldCount + symbolRepairAcceptedCount,
               resolvedReferenceCount,
               proposalCount,
               deduplicatedCount,
+              symbolRepairCount: symbolRepairs.length,
+              symbolRepairAcceptedCount,
+              symbolRepairAmbiguousCount,
+              symbolRepairUnmatchedCount,
+              symbolRepairPostValidationRejectedCount,
             };
             observe?.({
               event: "model.output.normalized",
@@ -740,11 +752,19 @@ export class AgentMind {
                 resolvedReferences: resolvedReferenceCount,
                 proposals: proposalCount,
                 deduplicated: deduplicatedCount,
+                symbolRepairAttempts: symbolRepairs.length,
+                symbolRepairAccepted: symbolRepairAcceptedCount,
+                symbolRepairAmbiguous: symbolRepairAmbiguousCount,
+                symbolRepairUnmatched: symbolRepairUnmatchedCount,
+                symbolRepairPostValidationRejected: symbolRepairPostValidationRejectedCount,
               },
               hashes: {
                 rawOutput: invocationAudit.rawOutputHash,
                 normalizedOutput: invocationAudit.normalizedOutputHash,
               },
+              payload: symbolRepairs.length > 0 && scope.observer
+                ? fullRuntimePayload(scope.observer, { symbolRepairs })
+                : undefined,
             });
           }
           setModelInvocationResultKind(generated.audit, `agent_mind_${purpose}_batch`);

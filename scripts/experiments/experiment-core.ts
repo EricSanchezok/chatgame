@@ -135,6 +135,8 @@ const deterministicAdapter: ModelProviderAdapter = {
       : generateOne(context);
     return {
       value,
+      rawValueHash: contentHash(value),
+      symbolRepairs: [],
       responseId: request.modelInvocationId ?? "experiment-model-invocation",
       responseModelId: binding.modelId,
       finishReason: "stop",

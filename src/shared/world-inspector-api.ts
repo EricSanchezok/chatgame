@@ -4,13 +4,14 @@ import type {
   CanonicalWorldState,
   CommittedStep,
   ModelExecutionAudit,
+  ModelSymbolRepairAudit,
 } from "../engine/contracts/model";
 import type {
   RuntimeEvent,
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 9 as const;
+export const WORLD_INSPECTOR_API_VERSION = 10 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -191,7 +192,13 @@ export interface WorldInspectorModelInvocationSummary {
     resolvedReferenceCount: number;
     proposalCount: number;
     deduplicatedCount: number;
+    symbolRepairCount: number;
+    symbolRepairAcceptedCount: number;
+    symbolRepairAmbiguousCount: number;
+    symbolRepairUnmatchedCount: number;
+    symbolRepairPostValidationRejectedCount: number;
   };
+  symbolRepairs: ModelSymbolRepairAudit[];
   referenceCatalogVersion: number;
   referenceCatalogHash: string;
   rawOutputHash: string | null;

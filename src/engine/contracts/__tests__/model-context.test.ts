@@ -214,7 +214,7 @@ describe("model semantic references", () => {
   it("validates handle-named fields as references, including batch target handles", () => {
     const resolver = createReferenceResolver([{
       kind: "local_entity",
-      engineId: "guard",
+      engineId: "guard-alpha",
       label: "守卫",
       meaning: "an existing local entity",
       allowedUses: ["target"],
@@ -228,5 +228,47 @@ describe("model semantic references", () => {
       expect.objectContaining({ code: "reference.unknown_handle", path: ["targetHandles", 1] }),
     ]));
     expect(result.resolvedReferenceCount).toBe(1);
+  });
+
+  it("repairs a request-local reference handle and preserves strict resolver validation", () => {
+    const resolver = createReferenceResolver([{
+      kind: "local_entity",
+      engineId: "guard-alpha",
+      label: "守卫",
+      meaning: "an existing local entity",
+      allowedUses: ["target"],
+      visibility: "slot",
+    }]);
+    const handle = resolver.catalog.candidates[0]!.handle;
+    const malformed = handle.slice(0, -1);
+    const result = normalizeModelOutput({ targetRef: malformed }, { resolver });
+
+    expect(result.value).toEqual({ targetRef: handle });
+    expect(result.issues).toEqual([]);
+    expect(result.symbolRepairs).toHaveLength(1);
+    expect(result.symbolRepairs[0]).toMatchObject({
+      domain: "reference-handle",
+      status: "repaired",
+      originalValue: malformed,
+      correctedValue: handle,
+      bestDistance: 1,
+    });
+  });
+
+  it("keeps an ambiguous reference transcription rejected", () => {
+    const resolver = createReferenceResolver([
+      { kind: "local_entity", engineId: "guard-alpha", label: "A", meaning: "a", allowedUses: ["target"], visibility: "role" },
+      { kind: "local_entity", engineId: "guard-alphb", label: "B", meaning: "b", allowedUses: ["target"], visibility: "role" },
+    ]);
+    const handles = resolver.catalog.candidates.map((candidate) => candidate.handle);
+    const result = normalizeModelOutput({ targetRef: "ref:local_entity:guard-alph" }, { resolver });
+
+    expect(result.value).toEqual({ targetRef: "ref:local_entity:guard-alph" });
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "reference.unknown_handle", path: ["targetRef"] }),
+    ]));
+    expect(result.symbolRepairs).toHaveLength(1);
+    expect(result.symbolRepairs[0]).toMatchObject({ status: "ambiguous", correctedValue: null });
+    expect(handles).toHaveLength(2);
   });
 });

@@ -232,7 +232,19 @@ export function createTestModelAudit(
       resultKind: "test-fixture",
       outputDisposition: "accepted",
       issues: [],
-      normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+      normalization: {
+        applied: false,
+        modifiedFieldCount: 0,
+        resolvedReferenceCount: 0,
+        proposalCount: 0,
+        deduplicatedCount: 0,
+        symbolRepairCount: 0,
+        symbolRepairAcceptedCount: 0,
+        symbolRepairAmbiguousCount: 0,
+        symbolRepairUnmatchedCount: 0,
+        symbolRepairPostValidationRejectedCount: 0,
+      },
+      symbolRepairs: [],
       referenceCatalogVersion: 2,
       referenceCatalogHash: contentHash({}),
       rawOutputHash: contentHash({ role, subjectId, revision, response: true }),
@@ -873,7 +885,19 @@ export class ScriptedModelProvider implements StructuredModelProvider {
         resultKind: null,
         outputDisposition: "accepted",
         issues: [],
-        normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+        normalization: {
+          applied: false,
+          modifiedFieldCount: 0,
+          resolvedReferenceCount: 0,
+          proposalCount: 0,
+          deduplicatedCount: 0,
+          symbolRepairCount: 0,
+          symbolRepairAcceptedCount: 0,
+          symbolRepairAmbiguousCount: 0,
+          symbolRepairUnmatchedCount: 0,
+          symbolRepairPostValidationRejectedCount: 0,
+        },
+        symbolRepairs: [],
         referenceCatalogVersion: (context as {
           referenceCatalog?: { version?: number };
           referenceCatalogs?: Array<{ slot: number; catalog?: { version?: number } }>;
@@ -933,14 +957,34 @@ export class ScriptedModelProvider implements StructuredModelProvider {
           : request.schemaName.startsWith("resolution_plan_verification") || request.schemaName.startsWith("causal_verification")
             ? adaptScriptedVerifierOutput(raw, request.schemaName.startsWith("causal_verification"))
           : raw;
-      const value = request.schema.parse(normalizedRaw);
+      const prepared = request.preprocessOutput?.(normalizedRaw) ?? { value: normalizedRaw, symbolRepairs: [] };
+      const value = request.schema.parse(prepared.value);
       const normalizedResponseHash = contentHash(value);
+      const symbolRepairs = [...prepared.symbolRepairs];
+      const symbolRepairAcceptedCount = symbolRepairs.filter((repair) =>
+        repair.status === "repaired" || repair.status === "normalized").length;
+      const symbolRepairAmbiguousCount = symbolRepairs.filter((repair) => repair.status === "ambiguous").length;
+      const symbolRepairUnmatchedCount = symbolRepairs.filter((repair) => repair.status === "unmatched").length;
+      const symbolRepairPostValidationRejectedCount = symbolRepairs.filter((repair) =>
+        repair.status === "postvalidation-rejected").length;
       audit.invocations[0]!.responseHash = normalizedResponseHash;
       audit.invocations[0]!.responseUtf8Bytes = Buffer.byteLength(
         JSON.stringify(canonicalize(value)),
         "utf8",
       );
       audit.invocations[0]!.normalizedOutputHash = normalizedResponseHash;
+      audit.invocations[0]!.symbolRepairs = structuredClone(symbolRepairs);
+      audit.invocations[0]!.normalization = {
+        ...audit.invocations[0]!.normalization,
+        applied: audit.invocations[0]!.normalization.applied || symbolRepairAcceptedCount > 0,
+        modifiedFieldCount: audit.invocations[0]!.normalization.modifiedFieldCount + symbolRepairAcceptedCount,
+        symbolRepairCount: symbolRepairs.length,
+        symbolRepairAcceptedCount,
+        symbolRepairAmbiguousCount,
+        symbolRepairUnmatchedCount,
+        symbolRepairPostValidationRejectedCount,
+      };
+      if (symbolRepairAcceptedCount > 0) audit.invocations[0]!.outputDisposition = "auto-normalized";
       request.observer?.emit({
         event: "model.structured_output.parsed",
         correlation,

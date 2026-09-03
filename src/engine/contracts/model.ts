@@ -31,6 +31,7 @@ import type {
   SharedActivityResourcePool,
 } from "../mechanics/shared-activity-resources";
 import type { ExistingReferenceHandle } from "./model-context";
+import type { SymbolRepairDomain, SymbolRepairResult } from "./symbol-repair";
 
 export type EntityId = string;
 export type AgentId = string;
@@ -1063,6 +1064,18 @@ export interface ModelNormalizationSummary {
   resolvedReferenceCount: number;
   proposalCount: number;
   deduplicatedCount: number;
+  symbolRepairCount: number;
+  symbolRepairAcceptedCount: number;
+  symbolRepairAmbiguousCount: number;
+  symbolRepairUnmatchedCount: number;
+  symbolRepairPostValidationRejectedCount: number;
+}
+
+export interface ModelSymbolRepairAudit extends SymbolRepairResult {
+  domain: SymbolRepairDomain;
+  path: Array<string | number>;
+  catalogHash: string;
+  candidateCount: number;
 }
 
 /** Trusted Inspector evidence for the Action Compilation reference boundary.
@@ -1133,6 +1146,7 @@ export interface ModelInvocationAudit {
   outputDisposition: ModelOutputDisposition;
   issues: ModelOutputIssue[];
   normalization: ModelNormalizationSummary;
+  symbolRepairs: ModelSymbolRepairAudit[];
   referenceCatalogVersion: number;
   referenceCatalogHash: string;
   rawOutputHash: string | null;

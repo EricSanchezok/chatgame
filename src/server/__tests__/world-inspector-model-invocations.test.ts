@@ -289,4 +289,59 @@ describe("world inspector model invocation projection", () => {
       status: "resolved",
     });
   });
+
+  it("projects deterministic symbol repair evidence and aggregate counts", () => {
+    const events = runtimeEvents().filter((event) => event.event !== "model.structured_output.rejected");
+    events.push({
+      schemaVersion: 3,
+      sequence: 100,
+      timestamp: "2026-08-30T09:00:03.500Z",
+      level: "info",
+      event: "model.output.normalized",
+      correlation: {
+        executionId: record.id,
+        modelInvocationId: "invocation-action-1",
+        modelRole: "action-compilation",
+        modelSubject: "batch:0",
+        modelInvocation: 1,
+      },
+      attributes: { applied: true },
+      counts: {
+        modifiedFields: 1,
+        resolvedReferences: 1,
+        proposals: 0,
+        deduplicated: 0,
+        symbolRepairAttempts: 1,
+        symbolRepairAccepted: 1,
+        symbolRepairAmbiguous: 0,
+        symbolRepairUnmatched: 0,
+        symbolRepairPostValidationRejected: 0,
+      },
+      payload: {
+        symbolRepairs: [{
+          domain: "candidate-key",
+          path: ["slots", 0, "temporalPlan", "profileRef"],
+          originalValue: "candidate_abcdefghijklmno",
+          normalizedValue: "candidate_abcdefghijklmno",
+          correctedValue: "candidate_abcdefghijklmnop",
+          status: "repaired",
+          bestDistance: 1,
+          secondBestDistance: null,
+          margin: null,
+          candidates: [{ value: "candidate_abcdefghijklmnop", distance: 1 }],
+          method: "bounded-damerau",
+          policyVersion: "symbol-repair-v1",
+          catalogHash: "catalog-hash",
+          candidateCount: 1,
+        }],
+      },
+    });
+    const result = queryWorldInspectorModelInvocations([record], events);
+
+    expect(result.items[0]).toMatchObject({
+      outputDisposition: "auto-normalized",
+      symbolRepairs: [expect.objectContaining({ status: "repaired", bestDistance: 1 })],
+      normalization: expect.objectContaining({ symbolRepairCount: 1, symbolRepairAcceptedCount: 1 }),
+    });
+  });
 });

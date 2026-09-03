@@ -1,7 +1,7 @@
 import { generateText, Output, tool } from "ai";
 import { JSONRepairError, jsonrepair } from "jsonrepair";
 import { z } from "zod";
-import type { ModelExecutionAudit, ModelTokenUsage } from "../contracts/model";
+import type { ModelExecutionAudit, ModelSymbolRepairAudit, ModelTokenUsage } from "../contracts/model";
 import { vendorDialect, type VendorDialectRequestPlan } from "./model-dialect";
 import { protocolDriver } from "./model-protocol";
 import type { ResolvedModelBinding } from "./model-registry";
@@ -19,9 +19,13 @@ import {
   type RuntimeCorrelation,
   type RuntimeObserver,
 } from "../runtime/observability";
+import { contentHash } from "./model-audit";
 
 export interface ModelAdapterResult {
   value: unknown;
+  /** Hash of the provider value before deterministic preprocessing. */
+  rawValueHash: string;
+  symbolRepairs: ModelSymbolRepairAudit[];
   responseId: string;
   responseModelId: string;
   finishReason: string;
@@ -260,6 +264,19 @@ function parseStructuredValue<T>(
   }
 }
 
+function preprocessStructuredValue<T>(request: StructuredModelRequest<T>, value: unknown): {
+  value: unknown;
+  symbolRepairs: ModelSymbolRepairAudit[];
+  rawValueHash: string;
+} {
+  const prepared = request.preprocessOutput?.(value) ?? { value, symbolRepairs: [] };
+  return {
+    value: prepared.value,
+    symbolRepairs: [...prepared.symbolRepairs],
+    rawValueHash: contentHash(value),
+  };
+}
+
 function usageFrom(result: {
   usage: {
     inputTokens?: number;
@@ -473,8 +490,11 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         prompt: composeContextEnvelope(request.userPrompt, contextJson),
         output: Output.object({ schema: request.schema, name: request.schemaName }),
       });
+      const prepared = preprocessStructuredValue(request, result.output);
       return {
-        value: parseStructuredValue(request.schema, result.output, binding.accountId),
+        value: parseStructuredValue(request.schema, prepared.value, binding.accountId),
+        rawValueHash: prepared.rawValueHash,
+        symbolRepairs: prepared.symbolRepairs,
         responseId: result.response.id,
         responseModelId: result.response.modelId,
         finishReason: result.finishReason,
@@ -515,8 +535,11 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
           rawValue: result.text,
         });
       }
+      const prepared = preprocessStructuredValue(request, value);
       return {
-        value: parseStructuredValue(request.schema, value, binding.accountId),
+        value: parseStructuredValue(request.schema, prepared.value, binding.accountId),
+        rawValueHash: prepared.rawValueHash,
+        symbolRepairs: prepared.symbolRepairs,
         responseId: result.response.id,
         responseModelId: result.response.modelId,
         finishReason: result.finishReason,
@@ -552,8 +575,11 @@ class ProtocolModelAdapter implements ModelProviderAdapter {
         `${binding.accountId} returned ${calls.length} submit_result tool calls; expected exactly one`,
       );
     }
+    const prepared = preprocessStructuredValue(request, calls[0]!.input);
     return {
-      value: parseStructuredValue(request.schema, calls[0]!.input, binding.accountId),
+      value: parseStructuredValue(request.schema, prepared.value, binding.accountId),
+      rawValueHash: prepared.rawValueHash,
+      symbolRepairs: prepared.symbolRepairs,
       responseId: result.response.id,
       responseModelId: result.response.modelId,
       finishReason: result.finishReason,

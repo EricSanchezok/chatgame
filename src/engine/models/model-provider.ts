@@ -5,6 +5,7 @@ import type {
   ModelInvocationAudit,
   ModelTokenUsage,
   ModelOutputIssue,
+  ModelSymbolRepairAudit,
 } from "../contracts/model";
 import type { RuntimeCorrelation, RuntimeObserver } from "../runtime/observability";
 import type { ModelRegistryStatus } from "./model-registry";
@@ -37,6 +38,11 @@ export interface StructuredModelRequest<T> extends ModelExecutionScope {
   userPrompt: string;
   context: unknown;
   schema: z.ZodType<T>;
+  /** Deterministic, field-scoped normalization before schema validation. */
+  preprocessOutput?: (raw: unknown) => {
+    value: unknown;
+    symbolRepairs: readonly ModelSymbolRepairAudit[];
+  };
   modelInvocationId?: string;
   modelInvocation?: number;
 }

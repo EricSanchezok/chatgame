@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeActionCompilationContextCauses, materializeActionCompilationCandidateKeys } from "../action-compilation-validation";
+import {
+  normalizeActionCompilationContextCauses,
+  materializeActionCompilationCandidateKeys,
+  preprocessActionCompilationSymbols,
+} from "../action-compilation-validation";
 import { createActionCompilationReferenceResolver, createReferenceResolver, referenceHandleFor } from "../../../contracts/model-context";
 
 describe("Action Compilation structural normalization", () => {
@@ -93,5 +97,44 @@ describe("Action Compilation structural normalization", () => {
     const otherKey = createActionCompilationReferenceResolver(shared).catalog.candidates.find((candidate) =>
       candidate.kind === "action" && candidate.scope.kind === "slot" && candidate.scope.slot === 1)!.candidateKey;
     expect(() => resolver.handleForCandidateKey(otherKey, "cause")).toThrow(/slot/i);
+  });
+
+  it("repairs a one-character candidateKey transcription error before materialization", () => {
+    const shared = createReferenceResolver([
+      { kind: "temporal_profile", engineId: "brief", label: "Brief", meaning: "fixed", allowedUses: ["profile"] },
+    ]);
+    const resolver = createActionCompilationReferenceResolver(shared);
+    const profileKey = resolver.catalog.candidates[0]!.candidateKey;
+    const malformed = profileKey.slice(0, -1);
+    const result = preprocessActionCompilationSymbols({
+      resolver,
+      value: { slots: [{ temporalPlan: { profileRef: malformed } }] },
+    });
+
+    expect(result.value).toMatchObject({ slots: [{ temporalPlan: { profileRef: profileKey } }] });
+    expect(result.symbolRepairs).toHaveLength(1);
+    expect(result.symbolRepairs[0]).toMatchObject({
+      status: "repaired",
+      originalValue: malformed,
+      correctedValue: profileKey,
+      bestDistance: 1,
+      domain: "candidate-key",
+      path: ["slots", 0, "temporalPlan", "profileRef"],
+    });
+  });
+
+  it("does not repair a malformed protected candidate prefix", () => {
+    const shared = createReferenceResolver([
+      { kind: "temporal_profile", engineId: "brief", label: "Brief", meaning: "fixed", allowedUses: ["profile"] },
+    ]);
+    const resolver = createActionCompilationReferenceResolver(shared);
+    const profileKey = resolver.catalog.candidates[0]!.candidateKey;
+    const result = preprocessActionCompilationSymbols({
+      resolver,
+      value: { slots: [{ temporalPlan: { profileRef: `candidste_${profileKey.slice("candidate_".length)}` } }] },
+    });
+
+    expect(result.value).toMatchObject({ slots: [{ temporalPlan: { profileRef: expect.stringContaining("candidste_") } }] });
+    expect(result.symbolRepairs[0]).toMatchObject({ status: "unmatched", reason: "protected symbol prefix is invalid" });
   });
 });

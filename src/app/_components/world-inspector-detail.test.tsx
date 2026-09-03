@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
   WorldInspectorModelInvocationDetail,
@@ -52,7 +52,19 @@ const invocation: WorldInspectorModelInvocationDetail = {
     path: ["slots", 0],
     message: "must be a handle from the request reference catalog",
   }],
-  normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+  normalization: {
+    applied: false,
+    modifiedFieldCount: 0,
+    resolvedReferenceCount: 0,
+    proposalCount: 0,
+    deduplicatedCount: 0,
+    symbolRepairCount: 0,
+    symbolRepairAcceptedCount: 0,
+    symbolRepairAmbiguousCount: 0,
+    symbolRepairUnmatchedCount: 0,
+    symbolRepairPostValidationRejectedCount: 0,
+  },
+  symbolRepairs: [],
   referenceCatalogVersion: 1,
   referenceCatalogHash: "catalog-hash",
   rawOutputHash: null,
@@ -101,5 +113,51 @@ describe("WorldInspectorDetail", () => {
     expect(container.querySelectorAll(".cg-inspector-error-details > pre")).toHaveLength(1);
     expect(screen.getByText("structured output failed schema validation:")).toBeInTheDocument();
     expect(container.querySelector(".cg-inspector-error-details > pre")?.textContent).toContain("invalid_format");
+  });
+
+  it("shows field-level symbol repair evidence", () => {
+    const repaired = {
+      ...invocation,
+      status: "accepted" as const,
+      outputDisposition: "auto-normalized" as const,
+      symbolRepairs: [{
+        domain: "candidate-key" as const,
+        path: ["slots", 0, "temporalPlan", "profileRef"] as Array<string | number>,
+        originalValue: "candidate_abcdefghijklmno",
+        normalizedValue: "candidate_abcdefghijklmno",
+        correctedValue: "candidate_abcdefghijklmnop",
+        status: "repaired" as const,
+        bestDistance: 1,
+        secondBestDistance: null,
+        margin: null,
+        candidates: [{ value: "candidate_abcdefghijklmnop", distance: 1 }],
+        method: "bounded-damerau" as const,
+        policyVersion: "symbol-repair-v1" as const,
+        catalogHash: "catalog-hash",
+        candidateCount: 1,
+      }],
+      normalization: {
+        ...invocation.normalization,
+        applied: true,
+        modifiedFieldCount: 1,
+        symbolRepairCount: 1,
+        symbolRepairAcceptedCount: 1,
+      },
+    };
+    render(
+      <WorldInspectorDetail
+        actorId="world"
+        actorName="整个世界"
+        instanceId="instance-1"
+        invocation={repaired}
+        loading={false}
+        selection={{ kind: "invocation", id: repaired.id, executionId: repaired.executionId }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("符号自动修复"));
+    expect(screen.getByText("符号自动修复")).toBeVisible();
+    expect(screen.getByText(/candidate_abcdefghijklmno → candidate_abcdefghijklmnop/)).toBeVisible();
+    expect(screen.getByText("已修复")).toBeVisible();
   });
 });

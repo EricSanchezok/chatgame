@@ -103,6 +103,19 @@ const mindComponent = {
   version: "6",
   config: { externalUpdates: false, repairExhaustion: "fail-step" },
 } as const;
+const symbolRepairComponent = {
+  id: "symbol-repair",
+  version: "1",
+  config: {
+    mode: "auto",
+    policyVersion: "symbol-repair-v1",
+    maxDistance: 2,
+    minDistanceMargin: 1,
+    minPayloadLength: 8,
+    allowAdjacentTransposition: true,
+    maxAuditCandidates: 8,
+  },
+} as const;
 
 export interface EagerReferenceAlgorithmConfig {
   actionCompilationMaxSlots: number;
@@ -175,7 +188,7 @@ export function createEagerReferenceManifest(
   const config = parseEagerReferenceAlgorithmConfig(value);
   return defineAlgorithmManifest({
     id: "eager-reference",
-    version: "10",
+    version: "11",
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,
@@ -183,7 +196,7 @@ export function createEagerReferenceManifest(
       groundingMaxSlots: config.groundingMaxSlots,
       truthBatchMaxSlots: config.truthBatchMaxSlots,
     },
-    components: [compilationComponent, groundingComponent, truthComponent, mindComponent],
+    components: [compilationComponent, groundingComponent, truthComponent, mindComponent, symbolRepairComponent],
   });
 }
 
@@ -220,7 +233,13 @@ function dedupeModelAudits(audits: readonly ModelExecutionAudit[]): ModelExecuti
           resolvedReferenceCount: existing.normalization.resolvedReferenceCount + invocation.normalization.resolvedReferenceCount,
           proposalCount: Math.max(existing.normalization.proposalCount, invocation.normalization.proposalCount),
           deduplicatedCount: existing.normalization.deduplicatedCount + invocation.normalization.deduplicatedCount,
+          symbolRepairCount: existing.normalization.symbolRepairCount + invocation.normalization.symbolRepairCount,
+          symbolRepairAcceptedCount: existing.normalization.symbolRepairAcceptedCount + invocation.normalization.symbolRepairAcceptedCount,
+          symbolRepairAmbiguousCount: existing.normalization.symbolRepairAmbiguousCount + invocation.normalization.symbolRepairAmbiguousCount,
+          symbolRepairUnmatchedCount: existing.normalization.symbolRepairUnmatchedCount + invocation.normalization.symbolRepairUnmatchedCount,
+          symbolRepairPostValidationRejectedCount: existing.normalization.symbolRepairPostValidationRejectedCount + invocation.normalization.symbolRepairPostValidationRejectedCount,
         };
+        existing.symbolRepairs = [...existing.symbolRepairs, ...invocation.symbolRepairs];
         existing.resultKind ??= invocation.resultKind;
         continue;
       }

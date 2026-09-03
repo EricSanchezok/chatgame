@@ -733,6 +733,57 @@ describe("eager reference safeguards", () => {
       .toBeLessThan(initialContext.referenceCatalog.candidates.length);
   });
 
+  it("auto-repairs a one-character candidateKey typo without singleton retry", async () => {
+    let malformed = false;
+    const provider = new ScriptedModelProvider(({ role, profileId, context }) => {
+      if (role === "action-compilation") {
+        const output = deterministicActionCompilationBatch(profileId, context);
+        const first = output.slots[0];
+        if (!malformed && first && typeof first.temporalPlan.profileRef === "string") {
+          malformed = true;
+          const temporalPlan = first.temporalPlan as { profileRef: string };
+          temporalPlan.profileRef = temporalPlan.profileRef.slice(0, -1);
+        }
+        return output;
+      }
+      return deterministicModelOutput(profileId, context);
+    });
+    const definition = loadWorldScript(path.resolve("test/fixtures/open-world-script"), {
+      seed: 47,
+      modelCatalog: provider.catalog,
+    });
+    const engine = new SimulationEngine(definition, new EagerReferenceAlgorithm(provider));
+    await engine.bootstrapAgents();
+    const source = engine.snapshot;
+    const roster = Object.fromEntries(Object.values(source.agents).map((agent) => [agent.id, {
+      kind: "model" as const,
+      agentId: agent.id,
+      profiles: structuredClone(agent.modelProfiles),
+    }]));
+
+    const result = await engine.step(roster, {
+      expectedRevision: source.revision,
+      trigger: "manual",
+      externalActions: [],
+    });
+
+    const requests = provider.requests.filter((request) => request.role === "action-compilation");
+    expect(requests).toHaveLength(1);
+    const audit = result.modelAudits.find((entry) => entry.role === "action-compilation");
+    expect(audit?.invocations[0]).toMatchObject({
+      outputDisposition: "auto-normalized",
+      normalization: expect.objectContaining({
+        symbolRepairCount: 1,
+        symbolRepairAcceptedCount: 1,
+      }),
+      symbolRepairs: [expect.objectContaining({
+        status: "repaired",
+        bestDistance: 1,
+        domain: "candidate-key",
+      })],
+    });
+  });
+
   it("projects rate profiles as ineligible without quantity evidence and repairs only that slot", async () => {
     let selectedIneligibleRate = false;
     let repairedConstraint = "";

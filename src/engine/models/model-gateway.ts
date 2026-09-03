@@ -16,6 +16,7 @@ import {
 import type {
   ModelExecutionAudit,
   ModelInvocationAudit,
+  ModelSymbolRepairAudit,
   ModelTransportAttemptAudit,
 } from "../contracts/model";
 import { createReferenceResolver, normalizeModelOutput } from "../contracts/model-context";
@@ -604,9 +605,19 @@ export class ModelGateway implements StructuredModelProvider {
         const normalized = normalizeModelOutput(parsedOutput, { resolver: referenceResolver, dedupeArrays: true });
         const output = normalized.value;
         const parserRecovered = scheduled.value.jsonRecovery !== "strict";
+        const symbolRepairs: ModelSymbolRepairAudit[] = [
+          ...(scheduled.value.symbolRepairs ?? []),
+          ...normalized.symbolRepairs,
+        ];
+        const symbolRepairAcceptedCount = symbolRepairs.filter((repair) =>
+          repair.status === "repaired" || repair.status === "normalized").length;
+        const symbolRepairAmbiguousCount = symbolRepairs.filter((repair) => repair.status === "ambiguous").length;
+        const symbolRepairUnmatchedCount = symbolRepairs.filter((repair) => repair.status === "unmatched").length;
+        const symbolRepairPostValidationRejectedCount = symbolRepairs.filter((repair) =>
+          repair.status === "postvalidation-rejected").length;
         const responseJson = JSON.stringify(canonicalize(output));
         const responseHash = contentHash(output);
-        const rawOutputHash = contentHash(parsedOutput);
+        const rawOutputHash = scheduled.value.rawValueHash;
         const invocation: ModelInvocationAudit = {
           id: modelInvocationId,
           ordinal: modelInvocation,
@@ -620,7 +631,7 @@ export class ModelGateway implements StructuredModelProvider {
           finishReason: scheduled.value.finishReason,
           providerRequestId: scheduled.value.responseId || null,
           resultKind: null,
-          outputDisposition: normalized.issues.length > 0 ? "rejected" : parserRecovered || normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0 ? "auto-normalized" : "accepted",
+          outputDisposition: normalized.issues.length > 0 ? "rejected" : parserRecovered || normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0 || symbolRepairAcceptedCount > 0 ? "auto-normalized" : "accepted",
           issues: [
             ...(parserRecovered ? [{
               code: `json.${scheduled.value.jsonRecovery}`,
@@ -639,7 +650,19 @@ export class ModelGateway implements StructuredModelProvider {
               allowedHandles: [...issue.allowedHandles],
             })),
           ],
-          normalization: { applied: parserRecovered || normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0, modifiedFieldCount: normalized.modifiedFieldCount, resolvedReferenceCount: normalized.resolvedReferenceCount, proposalCount: normalized.proposalCount, deduplicatedCount: normalized.deduplicatedCount },
+          normalization: {
+            applied: parserRecovered || normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0 || symbolRepairAcceptedCount > 0,
+            modifiedFieldCount: normalized.modifiedFieldCount + symbolRepairAcceptedCount,
+            resolvedReferenceCount: normalized.resolvedReferenceCount,
+            proposalCount: normalized.proposalCount,
+            deduplicatedCount: normalized.deduplicatedCount,
+            symbolRepairCount: symbolRepairs.length,
+            symbolRepairAcceptedCount,
+            symbolRepairAmbiguousCount,
+            symbolRepairUnmatchedCount,
+            symbolRepairPostValidationRejectedCount,
+          },
+          symbolRepairs: structuredClone(symbolRepairs),
           referenceCatalogVersion: referenceCatalogAudit(request.context).version,
           referenceCatalogHash: referenceCatalogAudit(request.context).hash,
           rawOutputHash,
@@ -681,11 +704,16 @@ export class ModelGateway implements StructuredModelProvider {
             resolvedReferences: normalized.resolvedReferenceCount,
             proposals: normalized.proposalCount,
             deduplicated: normalized.deduplicatedCount,
+            symbolRepairAttempts: symbolRepairs.length,
+            symbolRepairAccepted: symbolRepairAcceptedCount,
+            symbolRepairAmbiguous: symbolRepairAmbiguousCount,
+            symbolRepairUnmatched: symbolRepairUnmatchedCount,
+            symbolRepairPostValidationRejected: symbolRepairPostValidationRejectedCount,
           },
           hashes: { rawOutput: rawOutputHash, normalizedOutput: responseHash },
           payload: normalized.issues.length > 0
-            ? fullRuntimePayload(observer, { issues: normalized.issues })
-            : undefined,
+            ? fullRuntimePayload(observer, { issues: normalized.issues, symbolRepairs })
+            : symbolRepairs.length > 0 ? fullRuntimePayload(observer, { symbolRepairs }) : undefined,
         });
         if (normalized.issues.length > 0) {
           throw new ModelOutputError("model output contains unresolved semantic references", audit, {
@@ -813,7 +841,19 @@ export class ModelGateway implements StructuredModelProvider {
               resultKind: null,
               outputDisposition: "rejected",
               issues: [{ code: error instanceof Error ? error.name : "model_output_error", class: "structure", path: [], message: error instanceof Error ? error.message : String(error) }],
-              normalization: { applied: false, modifiedFieldCount: 0, resolvedReferenceCount: 0, proposalCount: 0, deduplicatedCount: 0 },
+              normalization: {
+                applied: false,
+                modifiedFieldCount: 0,
+                resolvedReferenceCount: 0,
+                proposalCount: 0,
+                deduplicatedCount: 0,
+                symbolRepairCount: 0,
+                symbolRepairAcceptedCount: 0,
+                symbolRepairAmbiguousCount: 0,
+                symbolRepairUnmatchedCount: 0,
+                symbolRepairPostValidationRejectedCount: 0,
+              },
+              symbolRepairs: [],
               referenceCatalogVersion: referenceCatalogAudit(request.context).version,
               referenceCatalogHash: referenceCatalogAudit(request.context).hash,
               rawOutputHash: rawProviderOutputHash,

@@ -3,6 +3,7 @@ import type {
   CausalRef,
   CommittedStep,
   ModelExecutionAudit,
+  ModelSymbolRepairAudit,
   SimulationState,
   WorldDeltaOperation,
 } from "../engine/contracts/model";
@@ -417,6 +418,56 @@ function actionCompilationAuditFromEvents(events: readonly RuntimeEvent[]): Acti
     : undefined;
 }
 
+function symbolRepairsFromEvents(events: readonly RuntimeEvent[]): ModelSymbolRepairAudit[] {
+  const repairs: ModelSymbolRepairAudit[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown): void => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const candidate = value as Partial<ModelSymbolRepairAudit>;
+    if (typeof candidate.domain !== "string" || !Array.isArray(candidate.path) ||
+      typeof candidate.originalValue !== "string" || typeof candidate.normalizedValue !== "string" ||
+      typeof candidate.status !== "string" || !Array.isArray(candidate.candidates) ||
+      typeof candidate.policyVersion !== "string" || typeof candidate.catalogHash !== "string" ||
+      typeof candidate.candidateCount !== "number") return;
+    const key = JSON.stringify([
+      candidate.path,
+      candidate.domain,
+      candidate.originalValue,
+      candidate.correctedValue,
+      candidate.status,
+      candidate.catalogHash,
+    ]);
+    if (seen.has(key)) return;
+    seen.add(key);
+    repairs.push(structuredClone(candidate) as ModelSymbolRepairAudit);
+  };
+  for (const event of events) {
+    if (event.event !== "model.output.normalized" && event.event !== "model.audit.persisted") continue;
+    const payload = event.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.symbolRepairs)) record.symbolRepairs.forEach(add);
+    if (Array.isArray(record.invocations)) {
+      record.invocations.forEach((invocation) => {
+        if (!invocation || typeof invocation !== "object" || Array.isArray(invocation)) return;
+        const nested = (invocation as Record<string, unknown>).symbolRepairs;
+        if (Array.isArray(nested)) nested.forEach(add);
+      });
+    }
+  }
+  return repairs;
+}
+
+function persistedInvocationFromEvents(events: readonly RuntimeEvent[]): Record<string, unknown> | undefined {
+  const event = [...events].reverse().find((candidate) => candidate.event === "model.audit.persisted");
+  const payload = event?.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const invocations = (payload as Record<string, unknown>).invocations;
+  if (!Array.isArray(invocations)) return undefined;
+  const invocation = [...invocations].reverse().find((candidate) => candidate && typeof candidate === "object" && !Array.isArray(candidate));
+  return invocation as Record<string, unknown> | undefined;
+}
+
 function invocationStatus(events: readonly RuntimeEvent[]): WorldInspectorModelInvocationSummary["status"] {
   if (events.some((event) => event.event === "model.semantic.rejected" || event.event === "model.structured_output.rejected")) {
     return "rejected";
@@ -481,6 +532,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     const contextDocument = contextEvent?.payload && typeof contextEvent.payload === "object"
       ? contextEvent.payload as { context?: unknown } : undefined;
     const actionCompilationReferenceAudit = actionCompilationAuditFromEvents(ordered);
+    const symbolRepairs = symbolRepairsFromEvents(ordered);
     const transportGroups = new Map<number, RuntimeEvent[]>();
     for (const event of ordered) {
       const attempt = event.correlation?.transportAttempt;
@@ -559,10 +611,25 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
         });
       }
     }
-    const normalizationCounts = normalizationEvent?.counts ?? {};
-    const normalizationApplied = normalizationEvent?.attributes?.applied === true;
-    const normalizedOutputHash = normalizationEvent?.hashes?.normalizedOutput ?? outputEvent?.hashes?.response ?? null;
-    const rawOutputHash = normalizationEvent?.hashes?.rawOutput ?? outputEvent?.hashes?.response ?? null;
+    const persistedInvocation = persistedInvocationFromEvents(ordered);
+    const persistedNormalization = persistedInvocation?.normalization && typeof persistedInvocation.normalization === "object" && !Array.isArray(persistedInvocation.normalization)
+      ? persistedInvocation.normalization as Record<string, unknown> : undefined;
+    const normalizationCounts = normalizationEvent?.counts ?? {
+      modifiedFields: typeof persistedNormalization?.modifiedFieldCount === "number" ? persistedNormalization.modifiedFieldCount : undefined,
+      resolvedReferences: typeof persistedNormalization?.resolvedReferenceCount === "number" ? persistedNormalization.resolvedReferenceCount : undefined,
+      proposals: typeof persistedNormalization?.proposalCount === "number" ? persistedNormalization.proposalCount : undefined,
+      deduplicated: typeof persistedNormalization?.deduplicatedCount === "number" ? persistedNormalization.deduplicatedCount : undefined,
+      symbolRepairAttempts: typeof persistedNormalization?.symbolRepairCount === "number" ? persistedNormalization.symbolRepairCount : undefined,
+      symbolRepairAccepted: typeof persistedNormalization?.symbolRepairAcceptedCount === "number" ? persistedNormalization.symbolRepairAcceptedCount : undefined,
+      symbolRepairAmbiguous: typeof persistedNormalization?.symbolRepairAmbiguousCount === "number" ? persistedNormalization.symbolRepairAmbiguousCount : undefined,
+      symbolRepairUnmatched: typeof persistedNormalization?.symbolRepairUnmatchedCount === "number" ? persistedNormalization.symbolRepairUnmatchedCount : undefined,
+      symbolRepairPostValidationRejected: typeof persistedNormalization?.symbolRepairPostValidationRejectedCount === "number" ? persistedNormalization.symbolRepairPostValidationRejectedCount : undefined,
+    };
+    const normalizationApplied = normalizationEvent?.attributes?.applied === true || persistedNormalization?.applied === true;
+    const normalizedOutputHash = normalizationEvent?.hashes?.normalizedOutput ??
+      (typeof persistedInvocation?.normalizedOutputHash === "string" ? persistedInvocation.normalizedOutputHash : undefined) ?? outputEvent?.hashes?.response ?? null;
+    const rawOutputHash = normalizationEvent?.hashes?.rawOutput ??
+      (typeof persistedInvocation?.rawOutputHash === "string" ? persistedInvocation.rawOutputHash : undefined) ?? outputEvent?.hashes?.response ?? null;
     const tokenUsage = modelTokenUsage(ordered);
     const context = contextDocument?.context;
     const requestMeasurements = contextEvent?.measurements;
@@ -648,7 +715,18 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
         resolvedReferenceCount: typeof normalizationCounts.resolvedReferences === "number" ? normalizationCounts.resolvedReferences : 0,
         proposalCount: typeof normalizationCounts.proposals === "number" ? normalizationCounts.proposals : 0,
         deduplicatedCount: typeof normalizationCounts.deduplicated === "number" ? normalizationCounts.deduplicated : 0,
+        symbolRepairCount: typeof normalizationCounts.symbolRepairAttempts === "number"
+          ? normalizationCounts.symbolRepairAttempts : symbolRepairs.length,
+        symbolRepairAcceptedCount: typeof normalizationCounts.symbolRepairAccepted === "number"
+          ? normalizationCounts.symbolRepairAccepted : symbolRepairs.filter((repair) => repair.status === "repaired" || repair.status === "normalized").length,
+        symbolRepairAmbiguousCount: typeof normalizationCounts.symbolRepairAmbiguous === "number"
+          ? normalizationCounts.symbolRepairAmbiguous : symbolRepairs.filter((repair) => repair.status === "ambiguous").length,
+        symbolRepairUnmatchedCount: typeof normalizationCounts.symbolRepairUnmatched === "number"
+          ? normalizationCounts.symbolRepairUnmatched : symbolRepairs.filter((repair) => repair.status === "unmatched").length,
+        symbolRepairPostValidationRejectedCount: typeof normalizationCounts.symbolRepairPostValidationRejected === "number"
+          ? normalizationCounts.symbolRepairPostValidationRejected : symbolRepairs.filter((repair) => repair.status === "postvalidation-rejected").length,
       },
+      symbolRepairs,
       referenceCatalogVersion: 1,
       referenceCatalogHash: (() => {
         if (typeof context !== "object" || context === null || Array.isArray(context)) return contentHash(null);

@@ -371,15 +371,32 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
             providerNormalization.modifiedFieldCount === normalized.modifiedFieldCount &&
             providerNormalization.resolvedReferenceCount === normalized.resolvedReferenceCount &&
             providerNormalization.proposalCount === normalized.proposalCount &&
-            providerNormalization.deduplicatedCount === normalized.deduplicatedCount;
-          invocationAudit.rawOutputHash = contentHash(generated.value);
+            providerNormalization.deduplicatedCount === normalized.deduplicatedCount &&
+            providerNormalization.symbolRepairCount === normalized.symbolRepairs.length;
+          const symbolRepairs = [
+            ...(invocationAudit.symbolRepairs ?? []),
+            ...normalized.symbolRepairs,
+          ];
+          const symbolRepairAcceptedCount = symbolRepairs.filter((repair) =>
+            repair.status === "repaired" || repair.status === "normalized").length;
+          const symbolRepairAmbiguousCount = symbolRepairs.filter((repair) => repair.status === "ambiguous").length;
+          const symbolRepairUnmatchedCount = symbolRepairs.filter((repair) => repair.status === "unmatched").length;
+          const symbolRepairPostValidationRejectedCount = symbolRepairs.filter((repair) =>
+            repair.status === "postvalidation-rejected").length;
+          invocationAudit.symbolRepairs = structuredClone(symbolRepairs);
+          invocationAudit.rawOutputHash ??= contentHash(generated.value);
           invocationAudit.normalizedOutputHash = contentHash(normalized.value);
           invocationAudit.normalization = {
-            applied: normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0,
-            modifiedFieldCount: normalized.modifiedFieldCount,
+            applied: normalized.modifiedFieldCount > 0 || normalized.deduplicatedCount > 0 || symbolRepairAcceptedCount > 0,
+            modifiedFieldCount: normalized.modifiedFieldCount + symbolRepairAcceptedCount,
             resolvedReferenceCount: normalized.resolvedReferenceCount,
             proposalCount: normalized.proposalCount,
             deduplicatedCount: normalized.deduplicatedCount,
+            symbolRepairCount: symbolRepairs.length,
+            symbolRepairAcceptedCount,
+            symbolRepairAmbiguousCount,
+            symbolRepairUnmatchedCount,
+            symbolRepairPostValidationRejectedCount,
           };
           if (!providerAlreadyAuditedNormalization) {
             observe?.({
@@ -391,13 +408,18 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
                 resolvedReferences: normalized.resolvedReferenceCount,
                 proposals: normalized.proposalCount,
                 deduplicated: normalized.deduplicatedCount,
+                symbolRepairAttempts: symbolRepairs.length,
+                symbolRepairAccepted: symbolRepairAcceptedCount,
+                symbolRepairAmbiguous: symbolRepairAmbiguousCount,
+                symbolRepairUnmatched: symbolRepairUnmatchedCount,
+                symbolRepairPostValidationRejected: symbolRepairPostValidationRejectedCount,
               },
               hashes: {
                 rawOutput: invocationAudit.rawOutputHash,
                 normalizedOutput: invocationAudit.normalizedOutputHash,
               },
-              payload: normalized.issues.length > 0 && input.scope.observer
-                ? fullRuntimePayload(input.scope.observer, { issues: normalized.issues })
+              payload: (normalized.issues.length > 0 || symbolRepairs.length > 0) && input.scope.observer
+                ? fullRuntimePayload(input.scope.observer, { issues: normalized.issues, symbolRepairs })
                 : undefined,
             });
           }

@@ -346,6 +346,21 @@ describe("Execution Ledger", () => {
         counts: { droppedOutcomeAlternativeEvidenceReferences: 3, droppedOutcomeAlternatives: 1 },
       });
       trace.emit({
+        event: "model.output.normalized",
+        attributes: { applied: true },
+        counts: {
+          modifiedFields: 1,
+          resolvedReferences: 1,
+          proposals: 0,
+          deduplicated: 0,
+          symbolRepairAttempts: 1,
+          symbolRepairAccepted: 1,
+          symbolRepairAmbiguous: 0,
+          symbolRepairUnmatched: 0,
+          symbolRepairPostValidationRejected: 0,
+        },
+      });
+      trace.emit({
         event: "instance.bootstrap.committed",
         durationMs: 123,
         counts: { activatedAgents: 1000, updatedAgents: 1000 },
@@ -364,6 +379,10 @@ describe("Execution Ledger", () => {
       expect(points.filter((point) => point.name === "lwe.temporal.delta"))
         .toContainEqual(expect.objectContaining({ value: 300, unit: "s" }));
       expect(points.filter((point) => point.name === "lwe.normalization.outcome_alternatives"))
+        .toEqual([expect.objectContaining({ value: 1 })]);
+      expect(points.filter((point) => point.name === "lwe.model.symbol_repair.attempts"))
+        .toEqual([expect.objectContaining({ value: 1 })]);
+      expect(points.filter((point) => point.name === "lwe.model.symbol_repair.accepted"))
         .toEqual([expect.objectContaining({ value: 1 })]);
       expect(points.filter((point) => point.name === "lwe.temporal.boundary_reasons"))
         .toEqual([expect.objectContaining({ value: 1, dimensions: { reasonKind: "timer" } })]);

@@ -1,6 +1,10 @@
 import { contentHash } from "../models/model-audit";
 import { z } from "zod";
-import type { AgentState, ObservationPacket } from "./model";
+import type { AgentState, ModelSymbolRepairAudit, ObservationPacket } from "./model";
+import {
+  DEFAULT_SYMBOL_REPAIR_POLICY,
+  repairSymbol,
+} from "./symbol-repair";
 
 /**
  * The model-facing contract is deliberately separate from the engine's
@@ -354,6 +358,7 @@ export interface ModelNormalizationResult<T> {
   resolvedReferenceCount: number;
   proposalCount: number;
   deduplicatedCount: number;
+  symbolRepairs: ModelSymbolRepairAudit[];
 }
 
 export interface ModelContextEnvelope<TState = unknown> {
@@ -809,9 +814,9 @@ function isReferenceField(key: string): boolean {
 }
 
 /** Validate every model-facing reference in a parsed value against the
- * request-local catalog.  This is deliberately exact: there is no fuzzy
- * matching, global fallback, dropping, or conversion of an unknown handle to
- * a new object. */
+ * request-local catalog. This resolver remains deliberately exact; the only
+ * closest-candidate step lives in normalizeModelOutput and is constrained to
+ * a typed request-local catalog before this gate runs. */
 export function resolveModelReferences<T>(value: T, resolver: ReferenceResolver): ModelRepairIssue[] {
   const issues: ModelRepairIssue[] = [];
   const visit = (current: unknown, path: Array<string | number>): void => {
@@ -866,9 +871,73 @@ export function normalizeModelOutput<T>(value: T, options: {
   let modifiedFieldCount = 0;
   let deduplicatedCount = 0;
   let proposalCount = 0;
+  const symbolRepairs: ModelSymbolRepairAudit[] = [];
   const proposalPaths = new Map<string, Array<string | number>>();
   const proposalIssues: ModelRepairIssue[] = [];
+  const referenceFieldAt = (path: Array<string | number>): string | undefined => {
+    const last = path.at(-1);
+    if (typeof last === "string") return last;
+    const parent = path.at(-2);
+    return typeof parent === "string" ? parent : undefined;
+  };
+  const normalizeReferenceSymbol = (current: string, path: Array<string | number>): string => {
+    const resolver = options.resolver;
+    const field = referenceFieldAt(path);
+    if (!resolver || !field || !isReferenceField(field)) return current;
+    try {
+      resolver.resolve(current);
+      return current;
+    } catch {
+      const visibleCandidates = resolver.catalog.candidates.filter((candidate) => {
+        try {
+          resolver.resolve(candidate.handle);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      const candidates = visibleCandidates.map((candidate) => ({
+        value: candidate.handle,
+        kind: candidate.kind,
+        allowedUses: candidate.allowedUses,
+        slot: candidate.slot,
+      }));
+      const result = repairSymbol({
+        value: current,
+        candidates,
+        context: {
+          domain: "reference-handle",
+          path: [...path],
+          catalogHash: resolver.catalog.hash,
+        },
+        policy: DEFAULT_SYMBOL_REPAIR_POLICY,
+      });
+      symbolRepairs.push({
+        ...result,
+        domain: "reference-handle",
+        path: [...path],
+        catalogHash: resolver.catalog.hash,
+        candidateCount: candidates.length,
+      });
+      if (result.correctedValue === null || (result.status !== "repaired" && result.status !== "normalized")) return current;
+      try {
+        resolver.resolve(result.correctedValue);
+      } catch {
+        const index = symbolRepairs.length - 1;
+        symbolRepairs[index] = {
+          ...symbolRepairs[index]!,
+          status: "postvalidation-rejected",
+          correctedValue: null,
+          reason: "corrected symbol did not resolve in the request catalog",
+        };
+        return current;
+      }
+      modifiedFieldCount += 1;
+      return result.correctedValue;
+    }
+  };
   const normalize = (current: unknown, path: Array<string | number>): unknown => {
+    if (typeof current === "string") return normalizeReferenceSymbol(current, path);
     if (Array.isArray(current)) {
       const normalized = current.map((item, index) => normalize(item, [...path, index]));
       const arrayKey = path.at(-1);
@@ -953,6 +1022,7 @@ export function normalizeModelOutput<T>(value: T, options: {
     resolvedReferenceCount: options.resolver ? countResolvedReferences(normalized, options.resolver) : 0,
     proposalCount,
     deduplicatedCount,
+    symbolRepairs,
   };
 }
 

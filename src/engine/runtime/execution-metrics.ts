@@ -257,6 +257,14 @@ registerNumericFields("counts", ["model.invocation.provider_completed", "model.i
   ["lwe.model.transport_attempts", "transportAttempts", "1", "sum"],
 ]);
 
+registerNumericFields("counts", ["model.output.normalized"], [
+  ["lwe.model.symbol_repair.attempts", "symbolRepairAttempts", "1", "sum"],
+  ["lwe.model.symbol_repair.accepted", "symbolRepairAccepted", "1", "sum"],
+  ["lwe.model.symbol_repair.ambiguous", "symbolRepairAmbiguous", "1", "sum"],
+  ["lwe.model.symbol_repair.unmatched", "symbolRepairUnmatched", "1", "sum"],
+  ["lwe.model.symbol_repair.post_validation_rejected", "symbolRepairPostValidationRejected", "1", "sum"],
+]);
+
 registerNumericFields("counts", ["step.rolled_back", "instance.bootstrap.rolled_back"], [
   ["lwe.waste.discarded_calls", "discardedModelCalls", "1", "sum"],
   ["lwe.waste.rollbacks", "rollbacks", "1", "sum"],
