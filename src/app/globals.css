@@ -713,7 +713,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-invocation-detail__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); align-items: stretch; grid-auto-rows: minmax(3.6rem, auto); gap: 0.4rem; margin: 0; }
 .cg-inspector-invocation-detail__facts > div { min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0.16rem; border-radius: var(--cg-radius); background: var(--cg-muted); padding: 0.55rem; }
 .cg-inspector-invocation-detail__facts dt { color: var(--cg-muted-foreground); font-size: 0.58rem; }
-.cg-inspector-invocation-detail__facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; }
+.cg-inspector-invocation-detail__facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; font-variant-numeric: tabular-nums; }
 .cg-inspector-slot-table-wrap { min-width: 0; overflow-x: auto; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); }
 .cg-inspector-slot-table { width: 100%; min-width: 32rem; border-collapse: collapse; font-size: 0.62rem; }
 .cg-inspector-slot-table th, .cg-inspector-slot-table td { min-width: 0; border-bottom: 1px solid var(--cg-border); padding: 0.45rem 0.55rem; text-align: start; vertical-align: top; }
