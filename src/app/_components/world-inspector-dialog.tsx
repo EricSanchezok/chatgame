@@ -128,6 +128,10 @@ function sameInvocationSummary(
     left.logicalStageIndex === right.logicalStageIndex && left.logicalInvocationOrdinal === right.logicalInvocationOrdinal;
 }
 
+function sameAttemptSummary(left: WorldInspectorAttemptSummary, right: WorldInspectorAttemptSummary): boolean {
+  return left.id === right.id && JSON.stringify(left) === JSON.stringify(right);
+}
+
 function mergeInvocationSummaries(
   current: readonly WorldInspectorModelInvocationSummary[],
   incoming: readonly WorldInspectorModelInvocationSummary[],
@@ -650,6 +654,8 @@ export default function WorldInspectorDialog({
             ? `commit:${currentSelection.revision}`
             : currentSelection?.kind === "node" ? currentSelection.id : undefined;
         if (nextAttempt && nextId !== currentNodeId) void selectAttempt(nextAttempt);
+        else if (nextAttempt && nextId === currentNodeId && detailRef.current?.kind === "attempt" &&
+          sameAttemptSummary(detailRef.current.value.summary, nextAttempt)) return;
         else if (nextAttempt && nextId === currentNodeId && detailRef.current?.kind === "attempt" &&
           detailRef.current.value.summary.id === nextAttempt.id) void selectAttempt(nextAttempt, true, true);
         else if (!nextAttempt && latestStep && nextId !== currentNodeId) void selectStep(latestStep);
