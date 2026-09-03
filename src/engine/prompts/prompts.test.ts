@@ -58,6 +58,12 @@ describe("external prompt resources", () => {
     expect(envelope).toContain(context);
   });
 
+  it("makes batched slot cardinality override the generic JSON example", () => {
+    const bundle = promptBundle("agent-bootstrap");
+    expect(bundle.system).toContain("The output `slots` array must have the same number of items as the input `slots` array");
+    expect(bundle.system).toContain('When the input is non-empty, `{"slots":[]}` is invalid.');
+  });
+
   it("keeps prompt versions content-addressed and cached", () => {
     expect(promptBundle("truth-perception")).toBe(promptBundle("truth-perception"));
     expect(promptAssetManifest()["truth-perception"]).toBe(promptBundle("truth-perception").version);
