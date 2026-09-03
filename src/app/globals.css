@@ -710,8 +710,8 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-invocation__metrics > span > span { color: var(--cg-muted-foreground); font-size: 0.54rem; }
 .cg-inspector-invocation__metrics strong { min-width: 0; overflow: hidden; font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.6rem; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .cg-inspector-invocation-detail { min-width: 0; display: grid; gap: 0.85rem; padding: 1rem; }
-.cg-inspector-invocation-detail__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; margin: 0; }
-.cg-inspector-invocation-detail__facts > div { min-width: 0; align-self: start; display: grid; gap: 0.16rem; border-radius: var(--cg-radius); background: var(--cg-muted); padding: 0.55rem; }
+.cg-inspector-invocation-detail__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); align-items: stretch; grid-auto-rows: minmax(3.6rem, auto); gap: 0.4rem; margin: 0; }
+.cg-inspector-invocation-detail__facts > div { min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0.16rem; border-radius: var(--cg-radius); background: var(--cg-muted); padding: 0.55rem; }
 .cg-inspector-invocation-detail__facts dt { color: var(--cg-muted-foreground); font-size: 0.58rem; }
 .cg-inspector-invocation-detail__facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; }
 .cg-inspector-slot-table-wrap { min-width: 0; overflow-x: auto; border: 1px solid var(--cg-border); border-radius: var(--cg-radius); }
@@ -1062,8 +1062,6 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-inspector-action-card > header small { font-size: 0.75rem; }
 .cg-inspector-action-card > p { font-size: 0.875rem; }
 .cg-inspector-action-card dt, .cg-inspector-action-card dd { font-size: 0.8rem; }
-.cg-inspector-invocation-detail__facts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); align-items: stretch; grid-auto-rows: minmax(3.6rem, auto); }
-.cg-inspector-invocation-detail__facts > div { align-self: stretch; grid-template-rows: auto minmax(0, 1fr); }
 .cg-inspector-invocation-detail__facts dt { font-size: 0.75rem; }
 .cg-inspector-invocation-detail__facts dd { font-size: 0.8rem; line-height: 1.4; }
 .cg-inspector-fact-value { min-width: 0; max-width: 100%; display: inline; overflow-wrap: anywhere; }
