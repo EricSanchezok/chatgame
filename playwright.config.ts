@@ -24,6 +24,9 @@ export default defineConfig({
     : [["line"], ["html", { outputFolder: "e2e/artifacts/report", open: "never" }]],
   use: {
     baseURL,
+    // Keep visual baselines independent of the host/runner locale. The
+    // product's fixtures and existing snapshots use the project timezone.
+    timezoneId: "Asia/Shanghai",
     colorScheme: "dark",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

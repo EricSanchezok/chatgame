@@ -61,7 +61,7 @@ describe("WorldInspectorInvocationList", () => {
     expect(screen.getByText("Invocation 1 · action-compilation")).toBeVisible();
     expect(screen.getAllByText("148,537")).toHaveLength(2);
     expect(screen.getByText("输出拒绝")).toBeVisible();
-    expect(screen.getByText("09/02 16:00:00")).toBeVisible();
+    expect(screen.getByText("09/02 08:00:00")).toBeVisible();
     expect(screen.getByText("1 slots")).toBeVisible();
     expect(screen.queryByText("Transport 1")).not.toBeInTheDocument();
     expect(screen.queryByText("1 次 retry · 2 次物理尝试")).not.toBeInTheDocument();
@@ -110,8 +110,8 @@ describe("WorldInspectorInvocationList", () => {
 
     const buttons = screen.getAllByRole("button", { name: /Invocation 1/ });
     expect(buttons).toHaveLength(2);
-    expect(buttons[0]).toHaveTextContent("09/02 16:00:00");
-    expect(buttons[1]).toHaveTextContent("09/02 16:01:00");
+    expect(buttons[0]).toHaveTextContent("09/02 08:00:00");
+    expect(buttons[1]).toHaveTextContent("09/02 08:01:00");
     expect(buttons[0].textContent).not.toBe(buttons[1].textContent);
   });
 

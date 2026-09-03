@@ -185,7 +185,8 @@ export async function runDebugCommand(argv: readonly string[]): Promise<number> 
 
   let database: LocalDatabase | undefined;
   try {
-    const store = new LocalDatabase(parsed.database, { heartbeat: false });
+    const needsWriter = parsed.command === "replay" || (parsed.command === "doctor" && parsed.rebuildIndex);
+    const store = new LocalDatabase(parsed.database, { heartbeat: false, readOnly: !needsWriter });
     database = store;
     if (parsed.command === "doctor") {
       if (parsed.rebuildIndex) store.debugRebuildIndex();

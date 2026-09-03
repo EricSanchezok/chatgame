@@ -86,6 +86,8 @@ interface LocalDatabaseOptions {
   ownerId?: string;
   now?: () => number;
   heartbeat?: boolean;
+  /** Open the Ledger without migrations, recovery, or the singleton writer lease. */
+  readOnly?: boolean;
   isProcessAlive?: (pid: number) => boolean;
   rulePackages?: RulePackageRegistry;
   observer?: RuntimeObserver;
@@ -349,6 +351,13 @@ export class LocalDatabaseInUseError extends Error {
   }
 }
 
+export class LocalDatabaseReadOnlyError extends Error {
+  constructor(file: string) {
+    super(`local database is read-only: ${file}`);
+    this.name = "LocalDatabaseReadOnlyError";
+  }
+}
+
 function isLocalProcessAlive(pid: number): boolean {
   if (!Number.isSafeInteger(pid) || pid < 1) return true;
   try {
@@ -364,6 +373,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   readonly rulePackages: RulePackageRegistry;
   private readonly connection: Database.Database;
   private readonly ownerId: string;
+  private readonly readOnly: boolean;
   private readonly now: () => number;
   private readonly isProcessAlive: (pid: number) => boolean;
   private readonly heartbeatTimer?: NodeJS.Timeout;
@@ -375,8 +385,12 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   private closed = false;
 
   constructor(readonly file: string, options: LocalDatabaseOptions = {}) {
-    mkdirSync(path.dirname(file), { recursive: true });
-    this.connection = new Database(file, { timeout: 5_000 });
+    this.readOnly = options.readOnly === true;
+    if (!this.readOnly) mkdirSync(path.dirname(file), { recursive: true });
+    this.connection = new Database(file, {
+      timeout: 5_000,
+      ...(this.readOnly ? { readonly: true, fileMustExist: true } : {}),
+    });
     this.ownerId = options.ownerId ?? `${process.pid}:${randomUUID()}`;
     this.now = options.now ?? Date.now;
     this.isProcessAlive = options.isProcessAlive ?? isLocalProcessAlive;
@@ -384,22 +398,34 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     this.observer = options.observer ?? NOOP_RUNTIME_OBSERVER;
     this.observe = runtimeEventEmitter(this.observer);
     try {
-      this.connection.pragma("journal_mode = WAL");
-      this.connection.pragma("synchronous = FULL");
-      this.connection.pragma("foreign_keys = ON");
+      if (!this.readOnly) {
+        this.connection.pragma("journal_mode = WAL");
+        this.connection.pragma("synchronous = FULL");
+        this.connection.pragma("foreign_keys = ON");
+      } else {
+        this.connection.pragma("query_only = ON");
+      }
       this.connection.pragma("busy_timeout = 5000");
-      this.connection.pragma("trusted_schema = OFF");
-      this.created = this.migrate();
-      this.acquireInstanceLease();
-      this.recoverInterruptedExecutions();
+      if (!this.readOnly) {
+        this.connection.pragma("trusted_schema = OFF");
+        this.created = this.migrate();
+        this.acquireInstanceLease();
+        this.recoverInterruptedExecutions();
+      } else {
+        this.created = false;
+      }
     } catch (error) {
       this.connection.close();
       throw error;
     }
-    if (options.heartbeat !== false) {
+    if (!this.readOnly && options.heartbeat !== false) {
       this.heartbeatTimer = setInterval(() => this.renewInstanceLease(), INSTANCE_HEARTBEAT_MS);
       this.heartbeatTimer.unref();
     }
+  }
+
+  private assertWritable(): void {
+    if (this.readOnly) throw new LocalDatabaseReadOnlyError(this.file);
   }
 
   private cacheValidatedInstance(
@@ -675,6 +701,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   beginExecution(input: BeginExecutionInput): ExecutionTraceWriter {
+    this.assertWritable();
     this.assertInstanceLease();
     validateExecutionProducerManifest(input.manifest);
     const traceId = randomUUID().replaceAll("-", "");
@@ -753,6 +780,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   putExecutionArtifact(executionId: string, kind: string, value: unknown): string {
+    this.assertWritable();
     return this.connection.transaction(() => {
       this.assertInstanceLease();
       this.requireRunningExecution(executionId);
@@ -1010,6 +1038,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   appendExecutionEvents(executionId: string, inputs: readonly RuntimeEventInput[]): RuntimeEvent[] {
+    this.assertWritable();
     if (inputs.length === 0) return [];
     const events = this.connection.transaction(() => this.persistExecutionEvents(executionId, inputs))();
     this.publishExecutionEvents(events);
@@ -1022,6 +1051,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   finishExecution(executionId: string, input: FinishExecutionInput): import("../engine/runtime/execution").ExecutionRef {
+    this.assertWritable();
     this.executionWriters.get(executionId)?.flush();
     const terminalError = input.error === undefined ? undefined : executionError(input.error);
     let terminalEvents: RuntimeEvent[] = [];
@@ -1543,6 +1573,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   debugRebuildIndex(): void {
+    this.assertWritable();
     this.flushExecutionWriters();
     this.connection.transaction(() => {
       this.connection.exec("DELETE FROM execution_issue_index; DELETE FROM execution_invocation_index; DELETE FROM execution_event_index;");
@@ -1765,6 +1796,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     replace = false,
     expectedWorldId?: string,
   ): WorldImportResult {
+    this.assertWritable();
     const archive = parseWorldArchive(buffer, modelCatalog, this.rulePackages);
     return this.connection.transaction(() => {
       this.assertInstanceLease();
@@ -1807,6 +1839,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   deleteWorld(worldId: string): void {
+    this.assertWritable();
     this.connection.transaction(() => {
       this.assertInstanceLease();
       const installed = this.connection.prepare("SELECT 1 FROM world_catalog WHERE world_id = ?")
@@ -1821,6 +1854,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   createInstance(document: WorldInstanceDocument, correlation?: RuntimeCorrelation): StoredWorldInstance {
+    this.assertWritable();
     const startedAt = Date.now();
     const serialized = serializeWorldInstanceDocument(document);
     try {
@@ -1896,6 +1930,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     document: WorldInstanceDocument,
     correlation?: RuntimeCorrelation,
   ): StoredWorldInstance {
+    this.assertWritable();
     if (document.id !== instanceId) throw new Error("instance document id mismatch");
     const startedAt = Date.now();
     const serialized = serializeWorldInstanceDocument(document);
@@ -1977,6 +2012,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     finish: FinishExecutionInput,
     correlation?: RuntimeCorrelation,
   ): { instance: StoredWorldInstance; executionRef: import("../engine/runtime/execution").ExecutionRef } {
+    this.assertWritable();
     this.executionWriters.get(executionId)?.flush();
     return this.connection.transaction(() => {
       const commitEvent = this.appendExecutionEvent(executionId, {
@@ -2009,6 +2045,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     phase: "step" | "admission" | "instance" = "step",
     correlation?: RuntimeCorrelation,
   ): { instance: StoredWorldInstance; executionRef: import("../engine/runtime/execution").ExecutionRef } {
+    this.assertWritable();
     this.executionWriters.get(executionId)?.flush();
     return this.connection.transaction(() => {
       const commitEvent = this.appendExecutionEvent(executionId, {
@@ -2070,6 +2107,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
   }
 
   deleteInstance(instanceId: string, expectedGeneration: number, correlation?: RuntimeCorrelation): void {
+    this.assertWritable();
     const startedAt = Date.now();
     try {
       this.connection.transaction(() => {
@@ -2111,7 +2149,9 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
     this.executionListeners.clear();
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     try {
-      this.connection.prepare("DELETE FROM instance_lock WHERE singleton = 1 AND owner_id = ?").run(this.ownerId);
+      if (!this.readOnly) {
+        this.connection.prepare("DELETE FROM instance_lock WHERE singleton = 1 AND owner_id = ?").run(this.ownerId);
+      }
     } finally {
       this.connection.close();
     }
