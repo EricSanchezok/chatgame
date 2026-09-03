@@ -103,4 +103,19 @@ describe("mergeWorldInspectorWindows", () => {
 
     expect(mergeWorldInspectorWindows(current, incoming)).toBe(incoming);
   });
+
+  it("returns the current window when a refresh contains no changes and shares changed collections", () => {
+    const current = inspectorWindow([1, 2], { hasOlder: false });
+    const unchanged = mergeWorldInspectorWindows(current, inspectorWindow([1, 2], { hasOlder: false }));
+    expect(unchanged).toBe(current);
+
+    const incoming = inspectorWindow([1, 2], { hasOlder: false });
+    incoming.steps[1] = { ...incoming.steps[1]!, elapsedSeconds: 99 };
+    const merged = mergeWorldInspectorWindows(current, incoming);
+    expect(merged).not.toBe(current);
+    expect(merged.steps[0]).toBe(current.steps[0]);
+    expect(merged.steps[1]).toBe(incoming.steps[1]);
+    expect(merged.nodes[0]).toBe(current.nodes[0]);
+    expect(merged.edges[0]).toBe(current.edges[0]);
+  });
 });

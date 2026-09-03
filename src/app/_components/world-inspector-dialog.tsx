@@ -17,10 +17,12 @@ import {
 import {
   useCallback,
   useEffect,
+  memo,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  startTransition,
   type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
@@ -44,6 +46,11 @@ import type {
 import { mergeWorldInspectorWindows } from "../_lib/world-inspector-window";
 import { worldInspectorInvocationExecutionId } from "../_lib/world-inspector-invocation";
 import {
+  classifyWorldInspectorRuntimeEvent,
+  WorldInspectorRefreshScheduler,
+  type WorldInspectorRefreshDirty,
+} from "../_lib/world-inspector-refresh";
+import {
   WORLD_INSPECTOR_ACTOR_DEFAULT,
   WORLD_INSPECTOR_ACTOR_MAX,
   WORLD_INSPECTOR_ACTOR_MIN,
@@ -63,6 +70,11 @@ import { WorldInspectorGraph } from "./world-inspector-graph";
 import { WorldInspectorInvocationList, type WorldInspectorInvocationListItem } from "./world-inspector-invocation-list";
 import { WorldInspectorSelect } from "./world-inspector-select";
 import { WorldInspectorTimeline } from "./world-inspector-timeline";
+
+const MemoizedWorldInspectorDetail = memo(WorldInspectorDetail);
+const MemoizedWorldInspectorGraph = memo(WorldInspectorGraph);
+const MemoizedWorldInspectorInvocationList = memo(WorldInspectorInvocationList);
+const MemoizedWorldInspectorTimeline = memo(WorldInspectorTimeline);
 
 type InspectorDetail =
   | { kind: "step"; value: WorldInspectorStepDetail }
@@ -99,6 +111,100 @@ function actorActivity(
     retries: 0,
   };
 }
+
+function sameInvocationSummary(
+  left: WorldInspectorModelInvocationSummary,
+  right: WorldInspectorModelInvocationSummary,
+): boolean {
+  return left.id === right.id && left.status === right.status && left.startedAt === right.startedAt &&
+    left.updatedAt === right.updatedAt && left.retryCount === right.retryCount &&
+    JSON.stringify(left.slotRefs) === JSON.stringify(right.slotRefs) && JSON.stringify(left.issues) === JSON.stringify(right.issues) &&
+    left.eventIds.length === right.eventIds.length &&
+    left.errorMessage === right.errorMessage && left.outputDisposition === right.outputDisposition &&
+    left.tokenUsage.input === right.tokenUsage.input && left.tokenUsage.output === right.tokenUsage.output &&
+    left.tokenUsage.reasoning === right.tokenUsage.reasoning && left.timings.invocationMs === right.timings.invocationMs &&
+    left.timings.queueWaitMs === right.timings.queueWaitMs && left.timings.transportMs === right.timings.transportMs &&
+    left.timings.parseMs === right.timings.parseMs && left.timings.retryDelayMs === right.timings.retryDelayMs &&
+    left.logicalStageIndex === right.logicalStageIndex && left.logicalInvocationOrdinal === right.logicalInvocationOrdinal;
+}
+
+function mergeInvocationSummaries(
+  current: readonly WorldInspectorModelInvocationSummary[],
+  incoming: readonly WorldInspectorModelInvocationSummary[],
+): WorldInspectorModelInvocationSummary[] {
+  if (current.length === incoming.length && incoming.every((item, index) => sameInvocationSummary(current[index]!, item))) {
+    return current as WorldInspectorModelInvocationSummary[];
+  }
+  const previous = new Map(current.map((item) => [item.id, item]));
+  return incoming.map((item) => {
+    const old = previous.get(item.id);
+    return old && sameInvocationSummary(old, item) ? old : item;
+  });
+}
+
+const MemoizedWorldInspectorActors = memo(function WorldInspectorActors({
+  actorsOpen,
+  data,
+  narrow,
+  onSelect,
+  selectedActorId,
+  visibleActors,
+  worldActivity,
+}: {
+  actorsOpen: boolean;
+  data: WorldInspectorWindow;
+  narrow: boolean;
+  onSelect: (actorId: string) => void;
+  selectedActorId: string;
+  visibleActors: WorldInspectorActor[];
+  worldActivity: { steps: number; attempts: number; modelInvocations: number; retries: number };
+}) {
+  return (
+    <aside
+      aria-hidden={narrow && !actorsOpen || undefined}
+      aria-label="主体选择"
+      className="cg-inspector-actors"
+      data-open={actorsOpen || undefined}
+      id="world-inspector-actors"
+      inert={narrow && !actorsOpen || undefined}
+    >
+      <button
+        aria-pressed={selectedActorId === "world"}
+        className="cg-inspector-actor cg-inspector-actor--world"
+        onClick={() => onSelect("world")}
+        type="button"
+      >
+        <span><GitBranch aria-hidden="true" /></span>
+        <span><strong>整个世界</strong><small>{worldActivity.steps} 个提交 · {worldActivity.attempts} 次尝试 · {worldActivity.modelInvocations} 次调用 · {worldActivity.retries} 次重试</small></span>
+      </button>
+      <div className="cg-inspector-actor-list">
+        {visibleActors.map((actor) => {
+          const activity = actorActivity(actor.id, actor, data.steps, data.attempts);
+          return (
+            <button
+              aria-pressed={selectedActorId === actor.id}
+              className="cg-inspector-actor"
+              key={actor.id}
+              onClick={() => onSelect(actor.id)}
+              type="button"
+            >
+              <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
+              <span>
+                <strong>{actor.name}</strong>
+                <small>{activity.steps} 个提交 · {activity.attempts} 次尝试 · {activity.modelInvocations} 次调用 · {activity.retries} 次重试</small>
+              </span>
+              <i data-lifecycle={actor.lifecycle} title={actor.lifecycle} />
+            </button>
+          );
+        })}
+      </div>
+      <footer>
+        <span><ArrowDownToLine aria-hidden="true" /> {data.trace.retainedEventCount} 条追踪事件</span>
+        <span>{data.trace.mode} · {data.trace.degraded ? "降级" : "完整"}</span>
+      </footer>
+    </aside>
+  );
+});
 
 function InspectorCollectionHeader({
   actorName,
@@ -179,7 +285,6 @@ export default function WorldInspectorDialog({
 }) {
   const narrow = useNarrowViewport();
   const actorToggleRef = useRef<HTMLButtonElement>(null);
-  const refreshTimerRef = useRef<number | undefined>(undefined);
   const requestRef = useRef(0);
   const detailRequestRef = useRef(0);
   const selectionRef = useRef<WorldInspectorSelection>(null);
@@ -188,6 +293,11 @@ export default function WorldInspectorDialog({
   const invocationRequestRef = useRef(0);
   const invocationDetailRequestRef = useRef(0);
   const followLatestRef = useRef(true);
+  const queriedInvocationsRef = useRef<WorldInspectorModelInvocationSummary[]>([]);
+  const invocationDetailRef = useRef<WorldInspectorModelInvocationDetail | undefined>(undefined);
+  const refreshPendingRef = useRef<WorldInspectorRefreshDirty>({ window: false, invocations: false, detail: false });
+  const refreshRunningRef = useRef(false);
+  const refreshSchedulerRef = useRef<WorldInspectorRefreshScheduler | undefined>(undefined);
   const resizeRef = useRef<{
     currentWidth: number;
     panel: ResizablePanel;
@@ -302,6 +412,14 @@ export default function WorldInspectorDialog({
   }, [detail]);
 
   useEffect(() => {
+    queriedInvocationsRef.current = queriedInvocations;
+  }, [queriedInvocations]);
+
+  useEffect(() => {
+    invocationDetailRef.current = invocationDetail;
+  }, [invocationDetail]);
+
+  useEffect(() => {
     followLatestRef.current = followLatest;
   }, [followLatest]);
 
@@ -380,24 +498,28 @@ export default function WorldInspectorDialog({
     }
   }, [instanceId]);
 
-  const loadInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary, executionId: string) => {
+  const loadInvocation = useCallback(async (invocation: WorldInspectorModelInvocationSummary, executionId: string, background = false) => {
     const request = ++invocationDetailRequestRef.current;
     setSelection({ kind: "invocation", id: invocation.id, executionId });
-    setInvocationError("");
-    setLoadingInvocation(true);
+    if (!background) {
+      setInvocationError("");
+      setLoadingInvocation(true);
+    }
     try {
       const value = await worldInspectorApi.modelInvocation(instanceId, executionId, invocation.id);
-      if (request === invocationDetailRequestRef.current) setInvocationDetail(value);
+      if (request === invocationDetailRequestRef.current) {
+        startTransition(() => setInvocationDetail(value));
+      }
     } catch (reason) {
       if (request === invocationDetailRequestRef.current) {
         setInvocationError(reason instanceof Error ? reason.message : "无法读取这次模型调用的完整记录。");
       }
     } finally {
-      if (request === invocationDetailRequestRef.current) setLoadingInvocation(false);
+      if (!background && request === invocationDetailRequestRef.current) setLoadingInvocation(false);
     }
   }, [instanceId]);
 
-  const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary, preserveInvocation = false) => {
+  const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary, preserveInvocation = false, background = false) => {
     const request = ++detailRequestRef.current;
     const preservedInvocationId = preserveInvocation && selectionRef.current?.kind === "invocation"
       ? selectionRef.current.id : undefined;
@@ -408,15 +530,17 @@ export default function WorldInspectorDialog({
       setInvocationDetail(undefined);
       setInvocationError("");
     }
-    setLoadingDetail(true);
-    setDetailError("");
+    if (!background) {
+      setLoadingDetail(true);
+      setDetailError("");
+    }
     try {
       const value = await worldInspectorApi.attempt(instanceId, attempt.id);
       if (request === detailRequestRef.current) {
-        setDetail({ kind: "attempt", value });
+        startTransition(() => setDetail({ kind: "attempt", value }));
         if (preservedInvocationId) {
           const refreshedInvocation = value.modelInvocations.find((invocation) => invocation.id === preservedInvocationId);
-          if (refreshedInvocation) void loadInvocation(refreshedInvocation, attempt.id);
+          if (refreshedInvocation) void loadInvocation(refreshedInvocation, attempt.id, background);
           else {
             setSelection({ kind: "attempt", id: attempt.id });
             setInvocationDetail(undefined);
@@ -430,7 +554,7 @@ export default function WorldInspectorDialog({
       }
       return undefined;
     } finally {
-      if (request === detailRequestRef.current) setLoadingDetail(false);
+      if (!background && request === detailRequestRef.current) setLoadingDetail(false);
     }
   }, [instanceId, loadInvocation]);
 
@@ -494,7 +618,7 @@ export default function WorldInspectorDialog({
     try {
       const incoming = await worldInspectorApi.window(instanceId);
       if (request !== requestRef.current) return;
-      setData((current) => preserveHistory ? mergeWorldInspectorWindows(current, incoming) : incoming);
+      startTransition(() => setData((current) => preserveHistory ? mergeWorldInspectorWindows(current, incoming) : incoming));
       setError("");
       const activeAttempt = [...incoming.attempts].reverse().find((attempt) => attempt.status === "active");
       const latestFailure = [...incoming.attempts].reverse().find((attempt) =>
@@ -527,7 +651,7 @@ export default function WorldInspectorDialog({
             : currentSelection?.kind === "node" ? currentSelection.id : undefined;
         if (nextAttempt && nextId !== currentNodeId) void selectAttempt(nextAttempt);
         else if (nextAttempt && nextId === currentNodeId && detailRef.current?.kind === "attempt" &&
-          detailRef.current.value.summary.id === nextAttempt.id) void selectAttempt(nextAttempt, true);
+          detailRef.current.value.summary.id === nextAttempt.id) void selectAttempt(nextAttempt, true, true);
         else if (!nextAttempt && latestStep && nextId !== currentNodeId) void selectStep(latestStep);
       }
     } catch (reason) {
@@ -565,7 +689,10 @@ export default function WorldInspectorDialog({
       detailRequestRef.current += 1;
       invocationRequestRef.current += 1;
       invocationDetailRequestRef.current += 1;
-      if (refreshTimerRef.current !== undefined) window.clearTimeout(refreshTimerRef.current);
+      refreshSchedulerRef.current?.dispose();
+      refreshSchedulerRef.current = undefined;
+      refreshPendingRef.current = { window: false, invocations: false, detail: false };
+      refreshRunningRef.current = false;
     };
   }, [loadWindow, open]);
 
@@ -574,26 +701,55 @@ export default function WorldInspectorDialog({
     try {
       const result = await worldInspectorApi.modelInvocations(instanceId, { limit: 100, sort: "stage" });
       if (request !== invocationRequestRef.current) return;
-      setQueriedInvocations(result.items);
-      setInvocationCursor(result.nextCursor);
+      startTransition(() => {
+        setQueriedInvocations((current) => mergeInvocationSummaries(current, result.items));
+        setInvocationCursor(result.nextCursor);
+      });
     } catch {
       if (request !== invocationRequestRef.current) return;
-      setQueriedInvocations([]);
-      setInvocationCursor(undefined);
+      // Keep the last successful projection during a transient refresh error;
+      // clearing it causes a visible list flash and disconnects the selected detail.
     }
   }, [instanceId]);
+
+  const refreshSelectedInvocation = useCallback(async () => {
+    const currentSelection = selectionRef.current;
+    const currentDetail = invocationDetailRef.current;
+    if (currentSelection?.kind !== "invocation" || currentDetail?.status !== "active") return;
+    const summary = queriedInvocationsRef.current.find((item) => item.id === currentSelection.id) ?? currentDetail;
+    await loadInvocation(summary, currentSelection.executionId, true);
+  }, [loadInvocation]);
+
+  const flushInspectorRefresh = useCallback((dirty: WorldInspectorRefreshDirty) => {
+    refreshPendingRef.current = {
+      window: refreshPendingRef.current.window || dirty.window,
+      invocations: refreshPendingRef.current.invocations || dirty.invocations,
+      detail: refreshPendingRef.current.detail || dirty.detail,
+    };
+    if (refreshRunningRef.current) return;
+    refreshRunningRef.current = true;
+    void (async () => {
+      try {
+        while (refreshPendingRef.current.window || refreshPendingRef.current.invocations || refreshPendingRef.current.detail) {
+          const batch = refreshPendingRef.current;
+          refreshPendingRef.current = { window: false, invocations: false, detail: false };
+          const jobs: Promise<unknown>[] = [];
+          if (batch.window) jobs.push(loadWindow(true));
+          if (batch.invocations && activeViewRef.current === "calls") jobs.push(loadInvocations());
+          if (batch.detail) jobs.push(refreshSelectedInvocation());
+          if (jobs.length > 0) await Promise.all(jobs);
+        }
+      } finally {
+        refreshRunningRef.current = false;
+      }
+    })();
+  }, [loadInvocations, loadWindow, refreshSelectedInvocation]);
 
   useEffect(() => {
     if (!open) return;
     const source = new EventSource(worldInspectorApi.eventsUrl(instanceId));
-    const scheduleRefresh = () => {
-      if (refreshTimerRef.current !== undefined) window.clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = window.setTimeout(() => {
-        refreshTimerRef.current = undefined;
-        void loadWindow(true);
-        void loadInvocations();
-      }, 280);
-    };
+    const scheduler = new WorldInspectorRefreshScheduler(flushInspectorRefresh);
+    refreshSchedulerRef.current = scheduler;
     const onRuntime = (event: MessageEvent<string>) => {
       let payload: WorldInspectorStreamEvent;
       try {
@@ -601,25 +757,25 @@ export default function WorldInspectorDialog({
       } catch {
         return;
       }
-      if (payload.type !== "runtime") return;
-      const type = payload.event.event;
-      if (type.startsWith("model.") || type.startsWith("step.") || type.startsWith("run.") ||
-        type.startsWith("execution.") || type.startsWith("stage.") || type.startsWith("instance.bootstrap.") || type === "arrival.generated") scheduleRefresh();
+      const dirty = classifyWorldInspectorRuntimeEvent(payload);
+      if (dirty) scheduler.mark(dirty);
     };
     const onResync = () => {
-      void loadWindow(true);
-      void loadInvocations();
+      scheduler.dispose();
+      flushInspectorRefresh({ window: true, invocations: true, detail: true });
     };
     source.addEventListener("runtime", onRuntime as EventListener);
     source.addEventListener("resync", onResync);
     source.onopen = () => setConnection("live");
     source.onerror = () => setConnection("offline");
     return () => {
+      scheduler.dispose();
+      if (refreshSchedulerRef.current === scheduler) refreshSchedulerRef.current = undefined;
       source.close();
       source.removeEventListener("runtime", onRuntime as EventListener);
       source.removeEventListener("resync", onResync);
     };
-  }, [instanceId, loadInvocations, loadWindow, open]);
+  }, [flushInspectorRefresh, instanceId, open]);
 
   useEffect(() => {
     if (!open || activeView !== "calls") return;
@@ -638,7 +794,8 @@ export default function WorldInspectorDialog({
       });
       setQueriedInvocations((current) => {
         const seen = new Set(current.map((invocation) => invocation.id));
-        return [...current, ...result.items.filter((invocation) => !seen.has(invocation.id))];
+        const appended = result.items.filter((invocation) => !seen.has(invocation.id));
+        return appended.length === 0 ? current : [...current, ...appended];
       });
       setInvocationCursor(result.nextCursor);
     } catch (reason) {
@@ -830,6 +987,28 @@ export default function WorldInspectorDialog({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
+  const handleSelectInvocation = useCallback((invocation: WorldInspectorInvocationListItem) => {
+    setFollowLatest(false);
+    void selectInvocation(invocation);
+  }, [selectInvocation]);
+  const handleSelectGraphNode = useCallback((node: WorldInspectorNodeSummary) => {
+    setFollowLatest(false);
+    void selectNode(node);
+  }, [selectNode]);
+  const handleSelectTimelineAttempt = useCallback((attempt: WorldInspectorAttemptSummary) => {
+    setFollowLatest(false);
+    void selectAttempt(attempt);
+  }, [selectAttempt]);
+  const handleSelectTimelineStep = useCallback((step: WorldInspectorStepSummary) => {
+    setFollowLatest(false);
+    void selectStep(step);
+  }, [selectStep]);
+  const handleSelectDetailInvocation = useCallback((invocation: WorldInspectorModelInvocationSummary) => {
+    setView("calls");
+    void selectInvocation(invocation);
+  }, [selectInvocation]);
+  const handleGraphInteract = useCallback(() => setFollowLatest(false), []);
+
   return (
     <WorkspaceDialog
       closeLabel="关闭世界演化调试器"
@@ -927,49 +1106,15 @@ export default function WorldInspectorDialog({
             tabIndex={actorsOpen ? 0 : -1}
             type="button"
           />
-          <aside
-            aria-hidden={narrow && !actorsOpen || undefined}
-            aria-label="主体选择"
-            className="cg-inspector-actors"
-            data-open={actorsOpen || undefined}
-            id="world-inspector-actors"
-            inert={narrow && !actorsOpen || undefined}
-          >
-            <button
-              aria-pressed={selectedActorId === "world"}
-              className="cg-inspector-actor cg-inspector-actor--world"
-              onClick={() => selectActor("world")}
-              type="button"
-            >
-              <span><GitBranch aria-hidden="true" /></span>
-                <span><strong>整个世界</strong><small>{worldActivity.steps} 个提交 · {worldActivity.attempts} 次尝试 · {worldActivity.modelInvocations} 次调用 · {worldActivity.retries} 次重试</small></span>
-            </button>
-            <div className="cg-inspector-actor-list">
-              {visibleActors.map((actor) => {
-                const activity = actorActivity(actor.id, actor, data.steps, data.attempts);
-                return (
-                  <button
-                    aria-pressed={selectedActorId === actor.id}
-                    className="cg-inspector-actor"
-                    key={actor.id}
-                    onClick={() => selectActor(actor.id)}
-                    type="button"
-                  >
-                    <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
-                    <span>
-                      <strong>{actor.name}</strong>
-                      <small>{activity.steps} 个提交 · {activity.attempts} 次尝试 · {activity.modelInvocations} 次调用 · {activity.retries} 次重试</small>
-                    </span>
-                    <i data-lifecycle={actor.lifecycle} title={actor.lifecycle} />
-                  </button>
-                );
-              })}
-            </div>
-            <footer>
-              <span><ArrowDownToLine aria-hidden="true" /> {data.trace.retainedEventCount} 条追踪事件</span>
-              <span>{data.trace.mode} · {data.trace.degraded ? "降级" : "完整"}</span>
-            </footer>
-          </aside>
+          <MemoizedWorldInspectorActors
+            actorsOpen={actorsOpen}
+            data={data}
+            narrow={narrow}
+            onSelect={selectActor}
+            selectedActorId={selectedActorId}
+            visibleActors={visibleActors}
+            worldActivity={worldActivity}
+          />
 
           <InspectorResizer
             label="调整主体列表宽度"
@@ -1010,11 +1155,11 @@ export default function WorldInspectorDialog({
               <>
                 {loadingInvocation && <p className="cg-inspector-stage__status" role="status">正在读取这次模型调用的完整记录…</p>}
                 {invocationError && <p className="cg-inspector-stage__warning" role="alert">{invocationError}</p>}
-                <WorldInspectorInvocationList
+                <MemoizedWorldInspectorInvocationList
                   hasMore={!detail && invocationCursor !== undefined}
                   invocations={selectedInvocations}
                   loadingMore={loadingMoreInvocations}
-                  onSelect={(invocation) => { setFollowLatest(false); void selectInvocation(invocation); }}
+                  onSelect={handleSelectInvocation}
                   onLoadMore={() => void loadMoreInvocations()}
                   query={query}
                   selectedId={selectedInvocationId}
@@ -1041,7 +1186,7 @@ export default function WorldInspectorDialog({
                   )}
                   {replayFrame && <span>当前阶段 {replayFrame.stageIndex + 1} · {replayFrame.stageLabel}</span>}
                 </div>
-                <WorldInspectorGraph
+                <MemoizedWorldInspectorGraph
                   actors={data.actors}
                   edges={data.edges}
                   mode={graphMode}
@@ -1051,8 +1196,8 @@ export default function WorldInspectorDialog({
                   followLatest={followLatest}
                   isolateActor={selectedActorId !== "world"}
                   nodes={technicalNodes}
-                  onInteract={() => setFollowLatest(false)}
-                  onSelect={(node) => { setFollowLatest(false); selectNode(node); }}
+                  onInteract={handleGraphInteract}
+                  onSelect={handleSelectGraphNode}
                   query={query}
                   reduceMotion={reduceMotion}
                   selectedActorId={selectedActorId}
@@ -1062,14 +1207,14 @@ export default function WorldInspectorDialog({
             ) : (
               <>
                 <InspectorCollectionHeader actorName={selectedActor?.name ?? "整个世界"} data={data} view="timeline" />
-                <WorldInspectorTimeline
+                <MemoizedWorldInspectorTimeline
                   attempts={data.attempts}
                   hasOlder={data.pagination.hasOlder}
                   loadingOlder={loadingOlder}
                   onLoadOlder={() => void loadOlder()}
                   onReplay={(attempt) => void openReplay(attempt)}
-                  onSelectAttempt={(attempt) => { setFollowLatest(false); void selectAttempt(attempt); }}
-                  onSelectStep={(step) => { setFollowLatest(false); void selectStep(step); }}
+                  onSelectAttempt={handleSelectTimelineAttempt}
+                  onSelectStep={handleSelectTimelineStep}
                   query={query}
                   run={data.instance.run}
                   selectedActorId={selectedActorId}
@@ -1093,7 +1238,7 @@ export default function WorldInspectorDialog({
             value={detailWidth}
           />
 
-          <WorldInspectorDetail
+          <MemoizedWorldInspectorDetail
             actorId={selectedActorId}
             actorName={selectedActor?.name ?? (selectedActorId === "world" ? "整个世界" : selectedActorId)}
             detail={detail}
@@ -1103,7 +1248,7 @@ export default function WorldInspectorDialog({
             nodeRelations={graphNodeRelations}
             key={effectiveSelection ? `${effectiveSelection.kind}:${"id" in effectiveSelection ? effectiveSelection.id : "revision" in effectiveSelection ? effectiveSelection.revision : "empty"}` : "empty"}
             loading={effectiveSelection?.kind === "invocation" ? loadingInvocation : loadingDetail}
-            onSelectInvocation={(invocation) => { setView("calls"); void selectInvocation(invocation); }}
+            onSelectInvocation={handleSelectDetailInvocation}
             instanceId={instanceId}
             selection={effectiveSelection}
           />

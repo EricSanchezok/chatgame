@@ -96,7 +96,7 @@ import {
   debugCheckpointReplayValidationError,
   type ExecutionCheckpoint,
 } from "./debug-checkpoint-provider";
-import type { ExecutionLedger, FinishExecutionInput } from "./execution-ledger";
+import type { ExecutionLedger, ExecutionRecord, FinishExecutionInput } from "./execution-ledger";
 import { LocalDatabase } from "./local-database";
 import type { WorldImportResult } from "./world-import";
 import {
@@ -149,6 +149,12 @@ interface AtomicExecutionInstanceStore extends WorldInstanceStore {
     phase?: "step" | "admission" | "instance",
     correlation?: RuntimeCorrelation,
   ): { instance: StoredWorldInstance };
+}
+
+interface InspectorLedgerSnapshot {
+  key: string;
+  records: ExecutionRecord[];
+  events: import("../engine/runtime/observability").RuntimeEvent[];
 }
 
 function isAtomicStore(store: WorldInstanceStore): store is AtomicExecutionInstanceStore {
@@ -553,6 +559,10 @@ export class WorldHost {
   private readonly runControllers = new Map<string, AbortController>();
   private readonly debugStageGates = new Map<string, DebugStageGate>();
   private readonly debugRecoveries = new Map<string, { executionId: string; completedStageIndex: number }>();
+  private readonly inspectorLedgerSnapshots = new Map<string, InspectorLedgerSnapshot>();
+  private readonly inspectorWindowProjections = new Map<string, { inputKey: string; sourceKey: string; value: ReturnType<typeof buildWorldInspectorWindow> }>();
+  private readonly inspectorInvocationProjections = new Map<string, { inputKey: string; sourceKey: string; value: ReturnType<typeof queryWorldInspectorModelInvocations> }>();
+  private readonly inspectorLedgerUnsubscribe?: () => void;
   private readonly setTimer: WorldHostOptions["setTimer"];
   private readonly clearTimer: NonNullable<WorldHostOptions["clearTimer"]>;
   readonly runtimeObserver: RuntimeObserver;
@@ -571,6 +581,14 @@ export class WorldHost {
       throw new Error("world run lease budgets must be positive integers");
     }
     this.runtimeObserver = options.observer ?? NOOP_RUNTIME_OBSERVER;
+    this.inspectorLedgerUnsubscribe = options.ledger?.subscribe((event) => {
+      const instanceId = event.correlation?.instanceId;
+      if (instanceId) {
+        this.inspectorLedgerSnapshots.delete(instanceId);
+        this.inspectorWindowProjections.delete(instanceId);
+        this.inspectorInvocationProjections.delete(instanceId);
+      }
+    });
     this.registry = registerBuiltinAlgorithms(options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry());
     this.defaultAlgorithmRef = structuredClone(options.defaultAlgorithmRef ?? DEFAULT_ALGORITHM_REF);
     if (!this.registry.has(this.defaultAlgorithmRef)) {
@@ -707,6 +725,22 @@ export class WorldHost {
       if (error instanceof WorldInstanceNotFoundError) throw new WorldHostError(`world instance not found: ${id}`, 404);
       throw error;
     }
+  }
+
+  private inspectorSources(id: string, stored: StoredWorldInstance): InspectorLedgerSnapshot {
+    const instanceKey = [stored.generation, stored.document.updatedAt, stored.document.state.revision].join(":");
+    const cached = this.inspectorLedgerSnapshots.get(id);
+    if (cached?.key.startsWith(`${instanceKey}|`)) return cached;
+    const events = this.options.ledger?.instanceEvents(id) ?? [];
+    const records = this.options.ledger?.executions({ instanceId: id }) ?? [];
+    const key = `${instanceKey}|${[
+      events.at(-1)?.sequence ?? 0,
+      records.length,
+      records.at(-1)?.status ?? "",
+    ].join(":")}`;
+    const snapshot = { key, records, events };
+    this.inspectorLedgerSnapshots.set(id, snapshot);
+    return snapshot;
   }
 
   private persist(stored: StoredWorldInstance, document: WorldInstanceDocument): StoredWorldInstance {
@@ -1116,18 +1150,23 @@ export class WorldHost {
   }
 
   inspectorWindow(id: string, input: { beforeRevision?: number; limit: number }) {
-    const document = this.read(id).document;
-    const records = this.options.ledger?.executions({ instanceId: id }) ?? [];
-    const events = this.options.ledger?.instanceEvents(id) ?? [];
-    return buildWorldInspectorWindow(document, records, events, input);
+    const stored = this.read(id);
+    const snapshot = this.inspectorSources(id, stored);
+    const inputKey = JSON.stringify(input);
+    const cached = this.inspectorWindowProjections.get(id);
+    if (cached?.sourceKey === snapshot.key && cached.inputKey === inputKey) return cached.value;
+    const value = buildWorldInspectorWindow(stored.document, snapshot.records, snapshot.events, input);
+    this.inspectorWindowProjections.set(id, { inputKey, sourceKey: snapshot.key, value });
+    return value;
   }
 
   inspectorStep(id: string, revision: number) {
-    const document = this.read(id).document;
+    const stored = this.read(id);
+    const snapshot = this.inspectorSources(id, stored);
     const detail = buildWorldInspectorStepDetail(
-      document,
+      stored.document,
       revision,
-      this.options.ledger?.instanceEvents(id) ?? [],
+      snapshot.events,
     );
     if (!detail) throw new WorldHostError(`committed revision not found: ${revision}`, 404);
     return detail;
@@ -1154,14 +1193,15 @@ export class WorldHost {
   }
 
   inspectorAttempt(id: string, executionId: string) {
-    const document = this.read(id).document;
+    const stored = this.read(id);
+    const snapshot = this.inspectorSources(id, stored);
     const record = this.options.ledger?.execution(executionId);
     if (!record || record.instanceId !== id) throw new WorldHostError("execution not found", 404);
     const detail = buildWorldInspectorAttemptDetail(
       executionId,
       record,
-      this.options.ledger?.executionEvents(executionId) ?? [],
-      Object.keys(document.state.agents),
+      snapshot.events.filter((event) => event.correlation?.executionId === executionId),
+      Object.keys(stored.document.state.agents),
     );
     if (!detail) throw new WorldHostError("execution not found", 404);
     return detail;
@@ -1171,33 +1211,41 @@ export class WorldHost {
     id: string,
     input: import("../shared/world-inspector-api").WorldInspectorModelInvocationQuery = {},
   ) {
-    this.read(id);
-    return queryWorldInspectorModelInvocations(
-      this.options.ledger?.executions({ instanceId: id }) ?? [],
-      this.options.ledger?.instanceEvents(id) ?? [],
+    const stored = this.read(id);
+    const snapshot = this.inspectorSources(id, stored);
+    const inputKey = JSON.stringify(input);
+    const cached = this.inspectorInvocationProjections.get(id);
+    if (cached?.sourceKey === snapshot.key && cached.inputKey === inputKey) return cached.value;
+    const value = queryWorldInspectorModelInvocations(
+      snapshot.records,
+      snapshot.events,
       input,
     );
+    this.inspectorInvocationProjections.set(id, { inputKey, sourceKey: snapshot.key, value });
+    return value;
   }
 
   inspectorModelInvocation(id: string, executionId: string, invocationId: string) {
-    this.read(id);
+    const stored = this.read(id);
+    const snapshot = this.inspectorSources(id, stored);
     const record = this.options.ledger?.execution(executionId);
     if (!record || record.instanceId !== id) throw new WorldHostError("execution not found", 404);
     const detail = buildWorldInspectorModelInvocationDetail(
       executionId,
       invocationId,
       record,
-      this.options.ledger?.executionEvents(executionId) ?? [],
+      snapshot.events.filter((event) => event.correlation?.executionId === executionId),
     );
     if (!detail) throw new WorldHostError("model invocation not found", 404);
     return detail;
   }
 
   inspectorRuntimeEvent(id: string, eventId: string) {
-    this.read(id);
+    const stored = this.read(id);
+    const snapshot = this.inspectorSources(id, stored);
     const detail = buildWorldInspectorRuntimeEventDetail(
       eventId,
-      this.options.ledger?.instanceEvents(id) ?? [],
+      snapshot.events,
     );
     if (!detail) throw new WorldHostError("runtime event not found", 404);
     return detail;
@@ -1314,6 +1362,9 @@ export class WorldHost {
     const stored = this.read(id);
     this.cancelTimer(id);
     this.options.store.deleteInstance(id, stored.generation, { instanceId: id });
+    this.inspectorLedgerSnapshots.delete(id);
+    this.inspectorWindowProjections.delete(id);
+    this.inspectorInvocationProjections.delete(id);
   }
 
   private project(document: WorldInstanceDocument, principalId = "local"): PublicInstanceDetail {

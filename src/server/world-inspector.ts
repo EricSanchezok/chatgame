@@ -828,11 +828,11 @@ function attemptSummary(
   record: ExecutionRecord,
   events: readonly RuntimeEvent[],
   knownAgents: ReadonlySet<string>,
+  invocations = modelInvocationProjection(events),
+  stages = attemptStages(events),
 ): WorldInspectorAttemptSummary {
   const last = events.at(-1);
   const error = [...events].reverse().find((event) => event.error)?.error;
-  const invocations = modelInvocationProjection(events);
-  const stages = attemptStages(events);
   const actorIds = new Set(attemptedActions(events).map((action) => action.actorId));
   for (const invocation of invocations) {
     for (const slot of invocation.slotRefs) if (slot.agentId && knownAgents.has(slot.agentId)) actorIds.add(slot.agentId);
@@ -880,6 +880,18 @@ function traceAvailability(events: readonly RuntimeEvent[]): WorldInspectorTrace
     ...(events.at(-1) ? { latestTimestamp: events.at(-1)!.timestamp } : {}),
     hasFullPayload: true,
   };
+}
+
+function eventsByExecution(events: readonly RuntimeEvent[]): Map<string, RuntimeEvent[]> {
+  const grouped = new Map<string, RuntimeEvent[]>();
+  for (const event of events) {
+    const executionId = event.correlation?.executionId;
+    if (!executionId) continue;
+    const list = grouped.get(executionId) ?? [];
+    list.push(event);
+    grouped.set(executionId, list);
+  }
+  return grouped;
 }
 
 function semanticGraph(
@@ -957,22 +969,34 @@ export function buildWorldInspectorWindow(
   const eligible = document.state.history.filter((step) =>
     input.beforeRevision === undefined || step.revision < input.beforeRevision);
   const selected = eligible.slice(-input.limit);
+  const eventsForExecution = eventsByExecution(runtimeEvents);
   const actors = actorsFor(document);
   const actorIds = new Set(actors.map((actor) => actor.id));
   const entityActors = new Map(actors.map((actor) => [actor.entityId, actor.id]));
   const projected = selected.map((step) => {
     const after = replaySimulationState(document.state, step.revision);
-    return projectStep(step, after.truth.elapsedSeconds, entityActors, modelAuditsForStep(runtimeEvents, step));
+    const stepEvents = step.executionRef?.executionId
+      ? eventsForExecution.get(step.executionRef.executionId) ?? []
+      : runtimeEvents;
+    return projectStep(step, after.truth.elapsedSeconds, entityActors, modelAuditsForStep(stepEvents, step));
   });
   const nodes = projected.flatMap((item) => item.nodes);
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = projected.flatMap((item) => item.edges)
     .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
-  const attempts = records.map((record) => attemptSummary(
-    record,
-    runtimeEvents.filter((event) => event.correlation?.executionId === record.id),
-    actorIds,
-  )).slice(-50);
+  const attemptProjections = records.map((record) => {
+    const executionEvents = eventsForExecution.get(record.id) ?? [];
+    const invocations = modelInvocationProjection(executionEvents);
+    const stages = attemptStages(executionEvents);
+    return {
+      events: executionEvents,
+      invocations,
+      stages,
+      summary: attemptSummary(record, executionEvents, actorIds, invocations, stages),
+    };
+  });
+  const attempts = attemptProjections.map((projection) => projection.summary).slice(-50);
+  const attemptProjectionById = new Map(attemptProjections.map((projection) => [projection.summary.id, projection]));
   const semantic = semanticGraph(document, attempts, projected.map((item) => item.summary));
   const activeRun = Object.values(document.runs).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
   const actorStats = actorActivityMap(actors);
@@ -982,23 +1006,25 @@ export function buildWorldInspectorWindow(
       const activity = actorStats.get(actorId);
       if (activity) activity.steps += 1;
     }
-    const executionEvents = runtimeEvents.filter((event) => event.correlation?.executionId === step.executionRef?.executionId);
+    const executionEvents = step.executionRef?.executionId
+      ? eventsForExecution.get(step.executionRef.executionId) ?? []
+      : [];
     if (step.executionRef?.executionId && !attemptIds.has(step.executionRef.executionId)) {
       addActorInvocations(actorStats, modelInvocationProjection(executionEvents));
     }
   }
   for (const attempt of attempts) {
-    const activityEvents = runtimeEvents.filter((event) => event.correlation?.executionId === attempt.id);
+    const projection = attemptProjectionById.get(attempt.id);
     for (const actorId of attempt.actorIds) {
       const activity = actorStats.get(actorId);
       if (activity) activity.attempts += 1;
     }
-    addActorInvocations(actorStats, modelInvocationProjection(activityEvents));
+    addActorInvocations(actorStats, projection?.invocations ?? []);
   }
   for (const attempt of attempts) {
-    const activityEvents = runtimeEvents.filter((event) => event.correlation?.executionId === attempt.id);
-    const stages = attemptStages(activityEvents);
-    const invocations = modelInvocationProjection(activityEvents);
+    const projection = attemptProjectionById.get(attempt.id);
+    const stages = projection?.stages ?? [];
+    const invocations = projection?.invocations ?? [];
     nodes.push({
       id: `attempt:${attempt.id}`,
       revision: attempt.revision ?? document.state.revision,
@@ -1271,8 +1297,9 @@ export function queryWorldInspectorModelInvocations(
   runtimeEvents: readonly RuntimeEvent[],
   input: WorldInspectorModelInvocationQuery = {},
 ): WorldInspectorModelInvocationQueryResult {
+  const eventsForExecution = eventsByExecution(runtimeEvents);
   const all = records.flatMap((record) => {
-    const events = runtimeEvents.filter((event) => event.correlation?.executionId === record.id);
+    const events = eventsForExecution.get(record.id) ?? [];
     return modelInvocationProjection(events).map((invocation) => invocationResult(record, invocation,
       events.find((event) => event.correlation?.modelInvocationId === invocation.sourceInvocationId)?.sequence ?? Number.MAX_SAFE_INTEGER));
   }).filter((item) => {
