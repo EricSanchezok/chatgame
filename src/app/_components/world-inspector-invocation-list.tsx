@@ -43,6 +43,25 @@ function stageIndex(invocation: WorldInspectorInvocationListItem): number {
   return value !== undefined && value < Number.MAX_SAFE_INTEGER ? value : -1;
 }
 
+const invocationSearchIndex = new WeakMap<object, string>();
+
+function searchText(invocation: WorldInspectorInvocationListItem): string {
+  const cached = invocationSearchIndex.get(invocation);
+  if (cached) return cached;
+  const slots = invocation.slotRefs.flatMap((slot) => [slot.agentId, slot.actionId, slot.label]).filter(Boolean).join(" ");
+  const value = [invocation.id, invocation.role, invocation.subjectId, invocation.providerId, invocation.modelId,
+    invocation.profileId, invocation.errorMessage, ...invocation.issues.map((issue) => issue.code), ...invocation.eventIds,
+    ...Object.values(invocation.artifactHashes), slots].filter(Boolean).join(" ").toLocaleLowerCase();
+  invocationSearchIndex.set(invocation, value);
+  return value;
+}
+
+function invocationRowEstimate(width: number): number {
+  if (width <= 384) return 148;
+  if (width <= 576) return 128;
+  return 104;
+}
+
 export function WorldInspectorInvocationList({
   invocations,
   onLoadMore,
@@ -67,6 +86,8 @@ export function WorldInspectorInvocationList({
   const [minRetries, setMinRetries] = useState("");
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportSize, setViewportSize] = useState({ width: 1024, height: 640 });
+  const [itemsOffset, setItemsOffset] = useState(0);
+  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
   const listRef = useRef<HTMLElement>(null);
   const itemsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -82,6 +103,7 @@ export function WorldInspectorInvocationList({
         width: Math.max(0, (element.clientWidth || 1024) - horizontalPadding),
         height: element.clientHeight || 640,
       });
+      setItemsOffset(itemsRef.current?.offsetTop ?? 0);
     };
     updateSize();
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updateSize);
@@ -99,11 +121,7 @@ export function WorldInspectorInvocationList({
     if (inputThreshold !== undefined && (invocation.tokenUsage.input ?? -1) < inputThreshold) return false;
     if (retryThreshold !== undefined && invocation.retryCount < retryThreshold) return false;
     if (!normalized) return true;
-    const slots = invocation.slotRefs.flatMap((slot) => [slot.agentId, slot.actionId, slot.label]).filter(Boolean).join(" ");
-    return [invocation.id, invocation.role, invocation.subjectId, invocation.providerId, invocation.modelId,
-      invocation.profileId, invocation.errorMessage, ...invocation.issues.map((issue) => issue.code), ...invocation.eventIds,
-      ...Object.values(invocation.artifactHashes), slots]
-      .filter(Boolean).join(" ").toLocaleLowerCase().includes(normalized);
+    return searchText(invocation).includes(normalized);
   }).sort((left, right) => {
     const value = (invocation: WorldInspectorInvocationListItem): number => sort === "stage"
       ? (invocation.boundaryIndex ?? -1) * 1_000_000_000_000 + (stageIndex(invocation) + 1) * 1_000_000 +
@@ -117,16 +135,52 @@ export function WorldInspectorInvocationList({
     return value(right) - value(left) || (right.ledgerSequence ?? right.ordinal) - (left.ledgerSequence ?? left.ordinal) ||
       right.ordinal - left.ordinal;
   }), [invocations, minInputTokens, minRetries, normalized, sort]);
-  const rowHeight = viewportSize.width <= 384 ? 132 : viewportSize.width <= 576 ? 116 : 92;
   const viewportHeight = viewportSize.height;
   const overscan = 8;
-  const effectiveScrollTop = Math.min(scrollTop, Math.max(0, visible.length * rowHeight - viewportHeight));
-  const windowStart = Math.max(0, Math.floor(effectiveScrollTop / rowHeight) - overscan);
-  const windowEnd = Math.min(visible.length, Math.ceil((effectiveScrollTop + viewportHeight) / rowHeight) + overscan);
+  const rowOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let total = 0;
+    const estimate = invocationRowEstimate(viewportSize.width);
+    for (const invocation of visible) {
+      offsets.push(total);
+      total += rowHeights[invocation.id] ?? estimate;
+    }
+    return { offsets, total };
+  }, [rowHeights, viewportSize.width, visible]);
+  const findRowAt = (offset: number): number => {
+    let low = 0;
+    let high = rowOffsets.offsets.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if ((rowOffsets.offsets[middle] ?? 0) < offset) low = middle + 1;
+      else high = middle;
+    }
+    return Math.max(0, Math.min(visible.length, low));
+  };
+  const effectiveScrollTop = Math.min(Math.max(0, scrollTop - itemsOffset), Math.max(0, rowOffsets.total - viewportHeight));
+  const windowStart = Math.max(0, findRowAt(effectiveScrollTop) - overscan);
+  const windowEnd = Math.min(visible.length, findRowAt(effectiveScrollTop + viewportHeight) + overscan + 1);
   const windowed = visible.slice(windowStart, windowEnd);
+  const windowKey = windowed.map((invocation) => invocation.id).join("|");
   const input = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.input ?? 0), 0);
   const output = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.output ?? 0), 0);
   const retries = visible.reduce((sum, invocation) => sum + invocation.retryCount, 0);
+  useEffect(() => {
+    const viewport = itemsRef.current;
+    if (!viewport || windowed.length === 0 || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const key = (entry.target as HTMLElement).dataset.rowKey;
+        if (!key) continue;
+        const height = Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
+        if (height > 0) {
+          setRowHeights((current) => current[key] === height ? current : { ...current, [key]: height });
+        }
+      }
+    });
+    viewport.querySelectorAll<HTMLElement>("[data-row-key]").forEach((row) => observer.observe(row));
+    return () => observer.disconnect();
+  }, [windowKey, windowed.length]);
   return (
     <section
       className="cg-inspector-invocation-list"
@@ -134,7 +188,8 @@ export function WorldInspectorInvocationList({
       ref={listRef}
       onScroll={(event) => {
         const itemOffset = itemsRef.current?.offsetTop ?? 0;
-        setScrollTop(Math.max(0, event.currentTarget.scrollTop - itemOffset));
+        setItemsOffset(itemOffset);
+        setScrollTop(event.currentTarget.scrollTop);
       }}
     >
       <header className="cg-inspector-invocation-list__header">
@@ -185,16 +240,16 @@ export function WorldInspectorInvocationList({
         className="cg-inspector-invocation-list__items"
         ref={itemsRef}
       >
-        <div className="cg-inspector-invocation-list__spacer" style={{ height: `${visible.length * rowHeight}px` }}>
-          <div className="cg-inspector-invocation-list__window" style={{ transform: `translateY(${windowStart * rowHeight}px)` }}>
+        <div className="cg-inspector-invocation-list__spacer" style={{ height: `${rowOffsets.total}px` }}>
+          <div className="cg-inspector-invocation-list__window" style={{ transform: `translateY(${rowOffsets.offsets[windowStart] ?? 0}px)` }}>
         {windowed.map((invocation) => {
           return (
             <article
               className="cg-inspector-invocation"
               data-selected={selectedId === invocation.id || undefined}
               data-status={invocation.status}
+              data-row-key={invocation.id}
               key={invocation.id}
-              style={{ height: `${rowHeight}px` }}
               >
               <button
                 aria-pressed={selectedId === invocation.id}

@@ -17,7 +17,7 @@ import {
 } from "@xyflow/react";
 import ELK, { type ELK as ElkLayoutEngine } from "elkjs/lib/elk-api.js";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
   WorldInspectorActor,
   WorldInspectorEdgeSummary,
@@ -79,7 +79,7 @@ const inspectorDownNodeHandles: NonNullable<InspectorFlowNode["handles"]> = [
   },
 ];
 
-function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
+const InspectorNode = memo(function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
   const targetPosition = data.direction === "DOWN" ? Position.Top : Position.Left;
   const sourcePosition = data.direction === "DOWN" ? Position.Bottom : Position.Right;
   const moveFocus = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -124,7 +124,7 @@ function InspectorNode({ data }: NodeProps<InspectorFlowNode>) {
       <Handle aria-hidden="true" className="cg-inspector-node__handle" position={sourcePosition} type="source" />
     </>
   );
-}
+});
 
 const nodeTypes = { inspector: InspectorNode };
 
@@ -232,8 +232,18 @@ export function WorldInspectorGraph({
     visibleSummaries.map((node) => node.id).join("|"),
     visibleEdges.map((edge) => edge.id).join("|"),
   ].join("::"), [visibleEdges, visibleSummaries]);
-  const provisionalPositions = useMemo(() => worldInspectorFallbackPositions(visibleSummaries, visibleEdges, layoutDirection),
-    [layoutDirection, visibleEdges, visibleSummaries]);
+  const provisionalPositions = useMemo(() => {
+    return worldInspectorFallbackPositions(visibleSummaries, visibleEdges, layoutDirection);
+  }, [layoutDirection, visibleEdges, visibleSummaries]);
+
+  const layoutTopologyRef = useRef({ edges: visibleEdges, nodes: visibleSummaries });
+  const provisionalPositionsRef = useRef(provisionalPositions);
+  useEffect(() => {
+    layoutTopologyRef.current = { edges: visibleEdges, nodes: visibleSummaries };
+  }, [visibleEdges, visibleSummaries]);
+  useEffect(() => {
+    provisionalPositionsRef.current = provisionalPositions;
+  }, [provisionalPositions]);
 
   useEffect(() => {
     const worker = new Worker(new URL("../_workers/world-inspector-layout.worker.ts", import.meta.url), {
@@ -249,8 +259,8 @@ export function WorldInspectorGraph({
 
   useEffect(() => {
     const elk = elkRef.current;
-    if (!elk || visibleSummaries.length === 0) {
-      setPositions({});
+    const topology = layoutTopologyRef.current;
+    if (!elk || topology.nodes.length === 0) {
       setSettledLayoutSignature(undefined);
       return;
     }
@@ -269,12 +279,12 @@ export function WorldInspectorGraph({
         "elk.layered.spacing.nodeNodeBetweenLayers": layoutDirection === "DOWN" ? "28" : "96",
         "elk.padding": "[top=48,left=48,bottom=48,right=48]",
       },
-      children: visibleSummaries.map((node) => ({
+      children: topology.nodes.map((node) => ({
         id: node.id,
         height: inspectorNodeHeight,
         width: inspectorNodeWidth,
       })),
-      edges: visibleEdges.map((edge) => ({
+      edges: topology.edges.map((edge) => ({
         id: edge.id,
         sources: [edge.source],
         targets: [edge.target],
@@ -289,11 +299,11 @@ export function WorldInspectorGraph({
     }).catch((error: unknown) => {
       if (cancelled || id !== requestIdRef.current) return;
       console.warn("World inspector ELK layout failed; using deterministic fallback.", error);
-      setPositions(provisionalPositions);
+      setPositions(provisionalPositionsRef.current);
       setSettledLayoutSignature(layoutSignature);
     });
     return () => { cancelled = true; };
-  }, [layoutDirection, layoutSignature, provisionalPositions, visibleEdges, visibleSummaries]);
+  }, [layoutDirection, layoutSignature]);
 
   const nodes = useMemo<InspectorFlowNode[]>(() => visibleSummaries.map((summary) => {
     const matchesQuery = !normalizedQuery || `${summary.label} ${summary.description} ${actorNames.get(summary.laneId) ?? summary.laneId}`
@@ -335,18 +345,24 @@ export function WorldInspectorGraph({
     labelBgStyle: { fill: "var(--cg-card)", fillOpacity: 0.86 },
   })), [selectedNodeId, visibleEdges]);
 
+  const layoutBounds = useMemo(() => {
+    const positioned = Object.values(positions);
+    if (positioned.length === 0) return undefined;
+    const minX = Math.min(...positioned.map((position) => position.x));
+    const minY = Math.min(...positioned.map((position) => position.y));
+    const maxX = Math.max(...positioned.map((position) => position.x + inspectorNodeWidth));
+    const maxY = Math.max(...positioned.map((position) => position.y + inspectorNodeHeight));
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }, [positions]);
+
   useEffect(() => {
     const graph = graphRef.current;
     const instance = instanceRef.current;
-    if (!flowReady || !graph || !instance || nodes.length === 0) return;
+    if (!flowReady || !graph || !instance || !layoutBounds) return;
     if (settledLayoutSignature !== layoutSignature) return;
     if (!followLatest && hasFittedInitialLayoutRef.current) return;
-    const minX = Math.min(...nodes.map((node) => node.position.x));
-    const minY = Math.min(...nodes.map((node) => node.position.y));
-    const maxX = Math.max(...nodes.map((node) => node.position.x + inspectorNodeWidth));
-    const maxY = Math.max(...nodes.map((node) => node.position.y + inspectorNodeHeight));
     const viewport = getViewportForBounds(
-      { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+      layoutBounds,
       graph.clientWidth,
       graph.clientHeight,
       inspectorMinZoom,
@@ -358,7 +374,7 @@ export function WorldInspectorGraph({
       hasFittedInitialLayoutRef.current = true;
     });
     return () => cancelAnimationFrame(frame);
-  }, [flowReady, followLatest, layoutSignature, nodes, reduceMotion, settledLayoutSignature]);
+  }, [flowReady, followLatest, layoutBounds, layoutSignature, reduceMotion, settledLayoutSignature]);
 
   const layoutReady = visibleSummaries.length > 0 && settledLayoutSignature === layoutSignature &&
     visibleSummaries.every((summary) => positions[summary.id] !== undefined);

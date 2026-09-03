@@ -3,6 +3,7 @@
 import {
   Play,
 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   WorldInspectorAttemptSummary,
   WorldInspectorStepSummary,
@@ -21,6 +22,10 @@ const attemptStatusLabel = {
 type TimelineEntry =
   | { kind: "attempt"; value: WorldInspectorAttemptSummary }
   | { kind: "step"; value: WorldInspectorStepSummary };
+
+type TimelineRow =
+  | { kind: "boundary"; key: string; boundary: number | undefined; count: number }
+  | { kind: "entry"; key: string; entry: TimelineEntry };
 
 type InspectorRun = WorldInspectorWindow["instance"]["run"];
 
@@ -67,6 +72,10 @@ function boundaryOf(entry: TimelineEntry): number | undefined {
 
 function boundaryLabel(boundary: number | undefined): string {
   return boundary === undefined ? "未标记世界边界" : `世界边界 ${boundary + 1} · Step ${boundary}`;
+}
+
+function timelineRowEstimate(row: TimelineRow): number {
+  return row.kind === "boundary" ? 54 : row.entry.kind === "attempt" ? 178 : 132;
 }
 
 function attemptOutcome(attempt: WorldInspectorAttemptSummary): { label: string; detail: string; status: "success" | "warning" | "error" | "active" } {
@@ -198,25 +207,24 @@ function CurrentRunStatus({ run }: { run: InspectorRun }) {
   );
 }
 
-function BoundaryGroup({ entries, ...props }: {
-  entries: TimelineEntry[];
+function TimelineRowView({ row, ...props }: {
+  row: TimelineRow;
   onReplay: (attempt: WorldInspectorAttemptSummary) => void;
   onSelectAttempt: (attempt: WorldInspectorAttemptSummary) => void;
   onSelectStep: (step: WorldInspectorStepSummary) => void;
   selectedId?: string;
 }) {
-  const boundary = boundaryOf(entries[0]);
-  return (
-    <section className="cg-inspector-boundary" aria-label={boundaryLabel(boundary)}>
-      <header className="cg-inspector-boundary__header">
-        <span><strong>{boundary === undefined ? "未标记世界边界" : `世界边界 ${boundary + 1}`}</strong><small>{boundary === undefined ? "" : `Step ${boundary}`}</small></span>
-        <b>{entries.length} 条记录</b>
-      </header>
-      <div className="cg-inspector-boundary__entries">
-        {entries.map((entry) => <TimelineEntryCard entry={entry} key={entry.kind === "attempt" ? entry.value.id : `step:${entry.value.revision}`} {...props} />)}
-      </div>
-    </section>
-  );
+  if (row.kind === "boundary") {
+    return (
+      <section className="cg-inspector-boundary" aria-label={boundaryLabel(row.boundary)}>
+        <header className="cg-inspector-boundary__header">
+          <span><strong>{row.boundary === undefined ? "未标记世界边界" : `世界边界 ${row.boundary + 1}`}</strong><small>{row.boundary === undefined ? "" : `Step ${row.boundary}`}</small></span>
+          <b>{row.count} 条记录</b>
+        </header>
+      </section>
+    );
+  }
+  return <TimelineEntryCard entry={row.entry} {...props} />;
 }
 
 export function WorldInspectorTimeline({
@@ -247,7 +255,7 @@ export function WorldInspectorTimeline({
   steps: WorldInspectorStepSummary[];
 }) {
   const normalized = query.trim().toLocaleLowerCase();
-  const visibleEntries = [
+  const visibleEntries = useMemo(() => [
     ...steps
       .filter((step) => {
         const actorMatch = selectedActorId === "world" || step.actorIds.includes(selectedActorId);
@@ -277,30 +285,119 @@ export function WorldInspectorTimeline({
     }
     if (left.kind === "step" && right.kind === "step") return right.value.revision - left.value.revision;
     return 0;
-  });
+  }), [attempts, normalized, selectedActorId, steps]);
+  const rows = useMemo<TimelineRow[]>(() => {
+    const next: TimelineRow[] = [];
+    let index = 0;
+    while (index < visibleEntries.length) {
+      const boundary = boundaryOf(visibleEntries[index]!);
+      let end = index + 1;
+      while (end < visibleEntries.length && boundaryOf(visibleEntries[end]!) === boundary) end += 1;
+      next.push({ kind: "boundary", key: `boundary:${boundary ?? "unknown"}:${index}`, boundary, count: end - index });
+      for (let entryIndex = index; entryIndex < end; entryIndex += 1) {
+        const entry = visibleEntries[entryIndex]!;
+        next.push({
+          kind: "entry",
+          key: entry.kind === "attempt" ? `attempt:${entry.value.id}` : `step:${entry.value.revision}`,
+          entry,
+        });
+      }
+      index = end;
+    }
+    return next;
+  }, [visibleEntries]);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(640);
+  const offsets = useMemo(() => {
+    const values: number[] = [];
+    let total = 0;
+    for (const row of rows) {
+      values.push(total);
+      total += rowHeights[row.key] ?? timelineRowEstimate(row);
+    }
+    return { total, values };
+  }, [rowHeights, rows]);
+  const findRowAt = (offset: number): number => {
+    let low = 0;
+    let high = offsets.values.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if ((offsets.values[middle] ?? 0) < offset) low = middle + 1;
+      else high = middle;
+    }
+    return Math.max(0, Math.min(rows.length, low));
+  };
+  const overscan = 6;
+  const firstRow = Math.max(0, findRowAt(scrollTop) - overscan);
+  const lastRow = Math.min(rows.length, findRowAt(scrollTop + viewportHeight) + overscan + 1);
+  const windowedRows = rows.slice(firstRow, lastRow);
 
-  const groups: TimelineEntry[][] = [];
-  for (const entry of visibleEntries) {
-    const previous = groups.at(-1);
-    if (previous && boundaryOf(previous[0]) === boundaryOf(entry)) previous.push(entry);
-    else groups.push([entry]);
-  }
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const update = () => setViewportHeight(viewport.clientHeight || 640);
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    observer?.observe(viewport);
+    window.addEventListener("resize", update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || windowedRows.length === 0) return;
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const key = (entry.target as HTMLElement).dataset.rowKey;
+        if (!key) continue;
+        const height = Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
+        if (height > 0) {
+          setRowHeights((current) => {
+            if (current[key] === height) return current;
+            return { ...current, [key]: height };
+          });
+        }
+      }
+    });
+    if (observer) viewport.querySelectorAll<HTMLElement>("[data-row-key]").forEach((row) => observer.observe(row));
+    return () => observer?.disconnect();
+  }, [firstRow, lastRow, windowedRows]);
 
   return (
     <div className="cg-inspector-timeline" role="feed" aria-label="世界演化流程">
       <CurrentRunStatus run={run} />
-      {groups.map((entries, index) => <BoundaryGroup entries={entries} key={`${boundaryOf(entries[0]) ?? "unknown"}:${index}`} onReplay={onReplay} onSelectAttempt={onSelectAttempt} onSelectStep={onSelectStep} selectedId={selectedId} />)}
-      {visibleEntries.length === 0 && (
-        <div className="cg-inspector-empty">
-          <strong>{steps.length === 0 && attempts.length > 0 && !normalized ? "暂无 Revision" : "没有匹配记录"}</strong>
-          <span>{steps.length === 0 && attempts.length > 0 && !normalized ? "查看执行尝试" : "清除搜索或切换主体"}</span>
-        </div>
-      )}
-      {hasOlder && (
-        <button className="cg-inspector-load-older" disabled={loadingOlder} onClick={onLoadOlder} type="button">
-          {loadingOlder ? "正在读取更早记录…" : "加载更早记录"}
-        </button>
-      )}
+      <div
+        className="cg-inspector-timeline__viewport"
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        ref={viewportRef}
+      >
+        {visibleEntries.length === 0 ? (
+          <div className="cg-inspector-empty">
+            <strong>{steps.length === 0 && attempts.length > 0 && !normalized ? "暂无 Revision" : "没有匹配记录"}</strong>
+            <span>{steps.length === 0 && attempts.length > 0 && !normalized ? "查看执行尝试" : "清除搜索或切换主体"}</span>
+          </div>
+        ) : (
+          <div className="cg-inspector-timeline__spacer" style={{ height: `${offsets.total}px` }}>
+            <div className="cg-inspector-timeline__window" style={{ transform: `translateY(${offsets.values[firstRow] ?? 0}px)` }}>
+              {windowedRows.map((row) => (
+                <div className="cg-inspector-timeline__row" data-row-key={row.key} key={row.key}>
+                  <TimelineRowView row={row} onReplay={onReplay} onSelectAttempt={onSelectAttempt} onSelectStep={onSelectStep} selectedId={selectedId} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {hasOlder && (
+          <button className="cg-inspector-load-older" disabled={loadingOlder} onClick={onLoadOlder} type="button">
+            {loadingOlder ? "正在读取更早记录…" : "加载更早记录"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
