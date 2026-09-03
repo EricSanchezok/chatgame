@@ -22,6 +22,13 @@ describe("deterministic symbol repair", () => {
     expect(boundedDamerauLevenshtein("abcd", "abdc", 2)).toBe(1);
   });
 
+  it("keeps repeated-character insertion and deletion symmetric", () => {
+    expect(boundedDamerauLevenshtein("a", "aa", 2)).toBe(1);
+    expect(boundedDamerauLevenshtein("aa", "a", 2)).toBe(1);
+    expect(boundedDamerauLevenshtein("abc", "abbc", 2)).toBe(1);
+    expect(boundedDamerauLevenshtein("abbc", "abc", 2)).toBe(1);
+  });
+
   it("repairs the recorded missing suffix character", () => {
     const expected = "candidate_f3f5a5fd148df91d";
     const result = repairSymbol({

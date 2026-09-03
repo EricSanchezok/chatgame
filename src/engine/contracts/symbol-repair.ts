@@ -121,17 +121,22 @@ export function boundedDamerauLevenshtein(
 
   const lastSeen = new Map<string, number>();
   for (let i = 1; i <= a.length; i += 1) {
+    // `lastMatchingColumn` is the last matching column *before* the current
+    // cell. It is the `db` value from the unrestricted Damerau recurrence;
+    // updating it before reading the transposition term makes insertion and
+    // deletion distances asymmetric when a character repeats.
     let lastMatchingColumn = 0;
     for (let j = 1; j <= b.length; j += 1) {
       const lastMatchingRow = lastSeen.get(b[j - 1]!) ?? 0;
+      const transpositionColumn = lastMatchingColumn;
       const substitutionCost = a[i - 1] === b[j - 1] ? 0 : 1;
       if (substitutionCost === 0) lastMatchingColumn = j;
       matrix[i + 1]![j + 1] = Math.min(
         matrix[i]![j]! + substitutionCost,
         matrix[i + 1]![j]! + 1,
         matrix[i]![j + 1]! + 1,
-        matrix[lastMatchingRow]![lastMatchingColumn]! +
-          (i - lastMatchingRow - 1) + 1 + (j - lastMatchingColumn - 1),
+        matrix[lastMatchingRow]![transpositionColumn]! +
+          (i - lastMatchingRow - 1) + 1 + (j - transpositionColumn - 1),
       );
     }
     lastSeen.set(a[i - 1]!, i);
