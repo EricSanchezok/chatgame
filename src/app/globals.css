@@ -942,7 +942,9 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
   .cg-inspector-toolbar__button { font-size: 0.68rem; }
   .cg-inspector-invocation-list { padding-inline: 0.55rem; }
   .cg-inspector-invocation__button { grid-template-columns: 1.8rem minmax(0, 1fr); }
-  .cg-inspector-invocation__status { grid-column: 2; justify-self: start; }
+  .cg-inspector-invocation__status { grid-column: 1; grid-row: 2; justify-self: start; }
+  .cg-inspector-invocation__time { grid-column: 2; grid-row: 1; }
+  .cg-inspector-invocation__slots { grid-column: 2; grid-row: 2; }
   .cg-inspector-invocation-detail { padding-inline: 0.65rem; }
 }
 
@@ -997,7 +999,10 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-inspector-invocation__status { font-size: 0.75rem; font-weight: 600; }
 .cg-inspector-invocation__status[data-status="rejected"], .cg-inspector-invocation__status[data-status="failed"] { color: var(--cg-destructive); }
 .cg-inspector-invocation__time, .cg-inspector-invocation__slots { color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cg-inspector-invocation__metrics { grid-template-columns: repeat(4, minmax(0, max-content)); justify-content: start; gap: 0.75rem; }
+.cg-inspector-invocation__status { grid-column: 2; grid-row: 1; }
+.cg-inspector-invocation__time { grid-column: 3; grid-row: 1; }
+.cg-inspector-invocation__slots { grid-column: 1; grid-row: 2; }
+.cg-inspector-invocation__metrics { grid-column: 2 / -1; grid-row: 2; grid-template-columns: repeat(4, minmax(0, max-content)); justify-content: start; gap: 0.75rem; }
 .cg-inspector-invocation__metrics > span { display: inline-flex; align-items: baseline; gap: 0.25rem; background: var(--cg-transparent); padding: 0; }
 .cg-inspector-invocation__metrics > span > span { color: var(--cg-muted-foreground); font-size: 0.75rem; }
 .cg-inspector-invocation__metrics strong { font-size: 0.8rem; }
@@ -1067,9 +1072,10 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 
 @container (max-width: 36rem) {
   .cg-inspector-invocation__button { grid-template-columns: minmax(0, 1fr) auto; }
+  .cg-inspector-invocation__status { grid-column: 1; grid-row: 2; justify-self: start; }
   .cg-inspector-invocation__time { grid-column: 2; grid-row: 1; }
   .cg-inspector-invocation__slots { grid-column: 2; grid-row: 2; }
-  .cg-inspector-invocation__metrics { grid-template-columns: repeat(2, max-content); grid-column: 1 / -1; }
+  .cg-inspector-invocation__metrics { grid-column: 1 / -1; grid-row: 3; grid-template-columns: repeat(2, max-content); }
   .cg-inspector-flow-status { grid-template-columns: 1fr; }
   .cg-inspector-flow-status__facts { min-width: 0; }
 }
