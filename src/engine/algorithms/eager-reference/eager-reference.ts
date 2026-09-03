@@ -105,11 +105,11 @@ const mindComponent = {
 } as const;
 const symbolRepairComponent = {
   id: "symbol-repair",
-  version: "1",
+  version: "2",
   config: {
     mode: "auto",
-    policyVersion: "symbol-repair-v1",
-    maxDistance: 2,
+    policyVersion: "symbol-repair-v2",
+    maxDistance: 3,
     minDistanceMargin: 1,
     minPayloadLength: 8,
     allowAdjacentTransposition: true,
@@ -188,7 +188,7 @@ export function createEagerReferenceManifest(
   const config = parseEagerReferenceAlgorithmConfig(value);
   return defineAlgorithmManifest({
     id: "eager-reference",
-    version: "11",
+    version: "12",
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,

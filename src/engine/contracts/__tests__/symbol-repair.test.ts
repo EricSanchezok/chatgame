@@ -74,13 +74,13 @@ describe("deterministic symbol repair", () => {
     expect(unmatched.status).toBe("unmatched");
     expect(unmatched.correctedValue).toBeNull();
 
-    const distanceThree = repairSymbol({
+    const distanceFour = repairSymbol({
       value: "candidate_abcdefgh",
-      candidates: candidate("candidate_abcxyzgh"),
+      candidates: candidate("candidate_abcxyzhh"),
       context,
     });
-    expect(distanceThree.status).toBe("unmatched");
-    expect(distanceThree.bestDistance).toBe(3);
+    expect(distanceFour.status).toBe("unmatched");
+    expect(distanceFour.bestDistance).toBe(4);
   });
 
   it("protects protocol prefixes and disables fuzzy repair for opaque domains", () => {

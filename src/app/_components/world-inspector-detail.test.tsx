@@ -132,7 +132,7 @@ describe("WorldInspectorDetail", () => {
         margin: null,
         candidates: [{ value: "candidate_abcdefghijklmnop", distance: 1 }],
         method: "bounded-damerau" as const,
-        policyVersion: "symbol-repair-v1" as const,
+        policyVersion: "symbol-repair-v2" as const,
         catalogHash: "catalog-hash",
         candidateCount: 1,
       }],

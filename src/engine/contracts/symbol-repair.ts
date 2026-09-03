@@ -4,7 +4,7 @@ import type {
 } from "./model-context";
 
 /** The deterministic policy is versioned because its result affects replay. */
-export const SYMBOL_REPAIR_POLICY_VERSION = "symbol-repair-v1" as const;
+export const SYMBOL_REPAIR_POLICY_VERSION = "symbol-repair-v2" as const;
 
 export type SymbolRepairDomain =
   | "candidate-key"
@@ -39,7 +39,7 @@ export type SymbolRepairStatus =
 
 export interface SymbolRepairPolicy {
   version: typeof SYMBOL_REPAIR_POLICY_VERSION;
-  maxDistance: 2;
+  maxDistance: 3;
   minDistanceMargin: 1;
   minPayloadLength: 8;
   allowAdjacentTransposition: true;
@@ -48,7 +48,7 @@ export interface SymbolRepairPolicy {
 
 export const DEFAULT_SYMBOL_REPAIR_POLICY: Readonly<SymbolRepairPolicy> = Object.freeze({
   version: SYMBOL_REPAIR_POLICY_VERSION,
-  maxDistance: 2,
+  maxDistance: 3,
   minDistanceMargin: 1,
   minPayloadLength: 8,
   allowAdjacentTransposition: true,

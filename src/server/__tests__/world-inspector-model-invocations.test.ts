@@ -330,7 +330,7 @@ describe("world inspector model invocation projection", () => {
           margin: null,
           candidates: [{ value: "candidate_abcdefghijklmnop", distance: 1 }],
           method: "bounded-damerau",
-          policyVersion: "symbol-repair-v1",
+          policyVersion: "symbol-repair-v2",
           catalogHash: "catalog-hash",
           candidateCount: 1,
         }],
