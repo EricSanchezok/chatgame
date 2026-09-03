@@ -79,6 +79,23 @@ const operationLabel: Record<string, string> = {
   remove_agent: "移除 Agent",
 };
 
+const stageTitleByKey: Readonly<Record<string, string>> = {
+  "input-roster": "准备参与者",
+  "action-compilation": "理解行动",
+  "grounding-resource-admission": "检查可行性",
+  "reaction-perception": "读取反应",
+  "temporal-dependency": "安排顺序",
+  "truth-resolution": "裁决结果",
+  "transition-causal-verification": "验证改变",
+  "observation-agent-mind": "生成观察",
+  "canonical-validation": "最终校验",
+  "atomic-commit": "写入世界",
+};
+
+function attemptStageTitle(stage: WorldInspectorAttemptDetail["stages"][number]): string {
+  return stageTitleByKey[stage.logicalStageKey ?? ""] ?? stage.label;
+}
+
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
   return <JsonInspector label={label} value={value} />;
 }
@@ -866,8 +883,8 @@ function AttemptCausality({ detail }: { detail: WorldInspectorAttemptDetail }) {
           <li data-status={stage.status} key={stage.id}>
             <span>{stage.status === "failed" ? <AlertTriangle aria-hidden="true" /> : stage.status === "active" ? <LoaderCircle aria-hidden="true" /> : <Check aria-hidden="true" />}</span>
             <div>
-              <small>阶段 {(stage.logicalStageIndex ?? index) + 1}{stage.derived ? " · 由已有事件推导" : ""}</small>
-              <strong>{stage.label}</strong>
+              <small>阶段 {(stage.logicalStageIndex ?? index) + 1}{stage.derived ? " · 记录推导" : ""}</small>
+              <strong>{attemptStageTitle(stage)}</strong>
               <p>{stage.errorMessage ?? (stage.status === "failed"
                 ? "阶段未通过"
                 : stage.status === "active" ? "阶段仍在运行" : "阶段完成")}</p>
