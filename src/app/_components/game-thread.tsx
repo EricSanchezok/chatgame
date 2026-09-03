@@ -291,7 +291,7 @@ export function GameThread({
               </h2>
             </section>
           ) : null}
-          <div className="mb-14 flex flex-col gap-y-6 empty:hidden">
+          <div className="cg-thread-messages flex flex-col gap-y-6 empty:hidden">
             <ThreadPrimitive.Messages>{() => (
               <ThreadMessage busy={busy} inputId={inputId} suggestions={activeSuggestions} />
             )}</ThreadPrimitive.Messages>
@@ -300,8 +300,8 @@ export function GameThread({
             data-docked={!isEmpty}
             data-slot="aui-thread-viewport-footer"
             className={cn(
-              "cg-safe-area-bottom relative flex flex-col gap-3 overflow-visible bg-background md:pb-6",
-              !isEmpty && "sticky bottom-0 mt-auto rounded-t-3xl",
+              "cg-safe-area-bottom cg-thread-footer relative flex flex-col gap-3 overflow-visible bg-background md:pb-6",
+              !isEmpty && "rounded-t-3xl",
             )}
           >
             <ScrollToBottom />

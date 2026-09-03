@@ -103,7 +103,14 @@ export function WorldInspectorInvocationList({
   const output = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.output ?? 0), 0);
   const retries = visible.reduce((sum, invocation) => sum + invocation.retryCount, 0);
   return (
-    <section className="cg-inspector-invocation-list" aria-label="模型调用清单">
+    <section
+      className="cg-inspector-invocation-list"
+      aria-label="模型调用清单"
+      onScroll={(event) => {
+        const itemOffset = itemsRef.current?.offsetTop ?? 0;
+        setScrollTop(Math.max(0, event.currentTarget.scrollTop - itemOffset));
+      }}
+    >
       <header className="cg-inspector-invocation-list__header">
         <div>
           <strong>模型调用{scopeLabel ? ` · ${scopeLabel}` : ""}</strong>
@@ -150,7 +157,6 @@ export function WorldInspectorInvocationList({
       )}
       <div
         className="cg-inspector-invocation-list__items"
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
         ref={itemsRef}
       >
         <div className="cg-inspector-invocation-list__spacer" style={{ height: `${visible.length * rowHeight}px` }}>

@@ -983,7 +983,11 @@ export default function WorldInspectorDialog({
             value={actorWidth}
           />
 
-          <section className="cg-inspector-stage" aria-label={`${selectedActor?.name ?? "整个世界"}推演记录`}>
+          <section
+            className="cg-inspector-stage"
+            data-view={activeView}
+            aria-label={`${selectedActor?.name ?? "整个世界"}推演记录`}
+          >
             {replay && (
               <div className="cg-inspector-replay" aria-label="执行回放控制">
                 <strong>回放 · {replayFrame ? `${replayFrame.stageIndex + 1} / ${replay.frames.length} · ${replayFrame.stageLabel}` : "准备中"}</strong>

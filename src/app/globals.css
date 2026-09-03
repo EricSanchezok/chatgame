@@ -408,8 +408,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-actors footer { display: grid; gap: 0.2rem; border-top: 1px solid var(--cg-border); padding: 0.7rem 0.4rem 0.1rem; color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.62rem; }
 .cg-inspector-actors footer span { display: flex; align-items: center; gap: 0.35rem; }
 .cg-inspector-actors footer svg { width: 0.75rem; }
-.cg-inspector-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
-.cg-inspector-stage:has(.cg-inspector-collection-header) { display: flex; flex-direction: column; }
+.cg-inspector-stage { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .cg-inspector-stage:has(.cg-inspector-collection-header) > .cg-inspector-collection-header,
 .cg-inspector-stage:has(.cg-inspector-collection-header) > .cg-inspector-graph-mode,
 .cg-inspector-stage:has(.cg-inspector-collection-header) > .cg-inspector-replay { flex: 0 0 auto; }
@@ -670,7 +669,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-attempt-stages b { color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.56rem; font-weight: 500; white-space: nowrap; }
 .cg-model-invocation__error { margin: 0; color: var(--cg-destructive); font-size: 0.65rem; line-height: 1.5; overflow-wrap: anywhere; }
 .cg-model-invocation__events > summary { min-height: 36px; display: flex; align-items: center; color: var(--cg-muted-foreground); font-size: 0.62rem; cursor: pointer; }
-.cg-inspector-invocation-list { height: 100%; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 1rem clamp(0.8rem, 3vw, 2.25rem) 3rem; scrollbar-width: none; }
+.cg-inspector-invocation-list { position: relative; height: auto; min-width: 0; min-height: 0; flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; padding: 1rem clamp(0.8rem, 3vw, 2.25rem) 3rem; scrollbar-width: none; }
 .cg-inspector-invocation-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .cg-inspector-invocation-list__header { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.8rem; }
 .cg-inspector-invocation-list__header > div { min-width: 0; display: grid; gap: 0.2rem; }
@@ -993,7 +992,10 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-inspector-invocation-filters[open] > summary::after { rotate: 225deg; translate: 0 0.1rem; }
 .cg-inspector-invocation-filters > div { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.45rem; }
 .cg-inspector-invocation-filters label { min-width: 10rem; }
-.cg-inspector-invocation-list__items { height: clamp(18rem, 58vh, 50rem); display: block; overflow: auto; overscroll-behavior: contain; border-block: 1px solid var(--cg-border); scrollbar-width: none; }
+.cg-inspector-invocation-list__items { height: auto; display: block; overflow: visible; border-block: 1px solid var(--cg-border); }
+.cg-inspector-invocation-list::-webkit-scrollbar,
+.cg-inspector-invocation-list__items::-webkit-scrollbar,
+.cg-inspector-timeline::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .cg-inspector-invocation-list__spacer { position: relative; min-width: 0; }
 .cg-inspector-invocation-list__window { position: absolute; inset-inline: 0; inset-block-start: 0; }
 .cg-inspector-invocation { border: 0; border-block-end: 1px solid var(--cg-border); border-radius: 0; background: var(--cg-transparent); }
@@ -1095,11 +1097,14 @@ html[data-cg-motion="reduced"] *, html[data-cg-motion="reduced"] *::before, html
 .cg-game__context-secondary { justify-items: end; text-align: end; }
 .cg-game__context span { overflow: hidden; color: var(--cg-foreground); font-size: 0.78rem; font-weight: 600; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
 .cg-game__context small { overflow: hidden; color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.64rem; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-.cg-thread-root { position: relative; min-width: 0; background: var(--cg-background); }
+.cg-thread-root { position: relative; min-width: 0; height: 100%; overflow: hidden; background: var(--cg-background); }
 .cg-thread-root [data-cg-thread-viewport], .cg-thread-root [data-slot="aui-thread-viewport-footer"] { background: var(--cg-background); }
-.cg-thread-root [data-cg-thread-viewport] { scrollbar-gutter: stable; scrollbar-color: color-mix(in oklab, var(--cg-muted-foreground) 42%, var(--cg-transparent)) var(--cg-transparent); scrollbar-width: thin; }
-.cg-thread-root [data-cg-thread-viewport] > div { padding-block-start: clamp(5rem, 11vh, 8rem); padding-block-end: max(1.25rem, env(safe-area-inset-bottom)); }
-.cg-thread-root [data-slot="aui-thread-viewport-footer"] { gap: 0.7rem; padding-block-end: max(1rem, env(safe-area-inset-bottom)); }
+.cg-thread-root [data-cg-thread-viewport] { width: min(100%, var(--thread-max-width)); min-height: 0; margin-inline: auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; }
+.cg-thread-root [data-cg-thread-viewport]::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.cg-thread-root [data-cg-thread-viewport] > div { padding-block-start: clamp(5rem, 11vh, 8rem); padding-block-end: max(7.5rem, calc(6.5rem + env(safe-area-inset-bottom))); }
+.cg-thread-root:has(.cg-thread-console__status + .cg-thread-console__composer) [data-cg-thread-viewport] > div { padding-block-end: max(12rem, calc(11rem + env(safe-area-inset-bottom))); }
+.cg-thread-messages { min-width: 0; }
+.cg-thread-root [data-slot="aui-thread-viewport-footer"] { position: fixed; z-index: 10; inset-block-end: 0; inset-inline: 0; width: min(100%, var(--thread-max-width)); margin-inline: auto; flex: 0 0 auto; gap: 0.7rem; padding-inline: 1rem; padding-block-end: max(1rem, env(safe-area-inset-bottom)); }
 .cg-safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 .cg-safe-area-bottom-lg { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
 @media (min-width: 48rem) {

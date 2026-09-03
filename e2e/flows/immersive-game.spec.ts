@@ -242,6 +242,11 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   await expect(composer).toHaveAttribute("placeholder", "自由描述你的行动…");
   const suggestionBox = await suggestionPanel.boundingBox();
   const composerBox = await page.locator(".aui-composer-shell").boundingBox();
+  const viewport = page.locator("[data-cg-thread-viewport]");
+  const footer = page.locator('[data-slot="aui-thread-viewport-footer"]');
+  expect(await page.locator(".cg-thread-root").evaluate((element) => getComputedStyle(element).overflow)).toBe("hidden");
+  expect(await viewport.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
+  expect(await footer.evaluate((element) => getComputedStyle(element).position)).toBe("fixed");
   const composerFrame = await page.locator(".aui-composer-shell").evaluate((element) => {
     const style = getComputedStyle(element);
     return { borderRadius: style.borderRadius, minHeight: style.minHeight };
@@ -249,6 +254,13 @@ test("a Participant starts from an Origin, receives Arrival, acts, detaches and 
   expect(suggestionBox).not.toBeNull();
   expect(composerBox).not.toBeNull();
   expect(suggestionBox!.y + suggestionBox!.height).toBeLessThan(composerBox!.y);
+  await page.locator(".cg-thread-messages").evaluate((element) => { element.setAttribute("style", "min-height: 200vh"); });
+  await viewport.evaluate((element) => { element.scrollTop = Math.min(500, element.scrollHeight - element.clientHeight); });
+  await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const scrolledComposerBox = await page.locator(".aui-composer-shell").boundingBox();
+  expect(scrolledComposerBox).not.toBeNull();
+  expect(Math.abs(scrolledComposerBox!.y - composerBox!.y)).toBeLessThanOrEqual(1);
+  await page.locator(".cg-thread-messages").evaluate((element) => { element.removeAttribute("style"); });
   await page.getByRole("button", { name: "确认当前位置" }).click();
   await expect(composer).toHaveValue("确认当前位置");
   await expect(composer).toBeFocused();

@@ -144,7 +144,7 @@ describe("WorldInspectorInvocationList", () => {
     render(<WorldInspectorInvocationList invocations={invocations} onSelect={() => {}} query="" />);
 
     expect(document.querySelectorAll(".cg-inspector-invocation").length).toBeLessThan(40);
-    const viewport = document.querySelector<HTMLElement>(".cg-inspector-invocation-list__items");
+    const viewport = document.querySelector<HTMLElement>(".cg-inspector-invocation-list");
     expect(viewport).not.toBeNull();
     fireEvent.scroll(viewport!, { target: { scrollTop: 500_000 } });
     expect(document.querySelectorAll(".cg-inspector-invocation").length).toBeLessThan(40);
