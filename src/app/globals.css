@@ -737,8 +737,6 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-transport-detail span, .cg-inspector-transport-detail small, .cg-inspector-context-section span, .cg-inspector-context-section code { min-width: 0; overflow-wrap: anywhere; color: var(--cg-muted-foreground); font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.56rem; line-height: 1.45; }
 .cg-inspector-context-section code { color: var(--cg-json-key); }
 .cg-inspector-invocation-payloads { display: grid; gap: 0.65rem; }
-.cg-inspector-invocation-payloads > section { min-width: 0; display: grid; gap: 0.3rem; }
-.cg-inspector-invocation-payloads > section > strong { font-size: 0.65rem; }
 .cg-runtime-event-list { display: grid; gap: 0.55rem; }
 .cg-runtime-event-filters { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .cg-runtime-event-filters button, .cg-json-inspector__toolbar button, .cg-json-copy-menu__panel button, .cg-json-show-more, .cg-runtime-payload button { min-height: 32px; border: 0; border-radius: calc(var(--cg-radius) - 0.2rem); background: var(--cg-muted); color: var(--cg-muted-foreground); padding-inline: 0.55rem; font-size: 0.58rem; cursor: pointer; }

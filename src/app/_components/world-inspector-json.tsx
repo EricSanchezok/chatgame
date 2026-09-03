@@ -201,7 +201,7 @@ export function JsonInspector({ label, showLabel = true, value }: { label: strin
   const rawJson = JSON.stringify(value, null, 2) ?? String(value);
   return (
     <section className="cg-json-inspector" aria-label={label}>
-      <header className="cg-json-inspector__toolbar" data-label-visible={showLabel || undefined}>
+      <header className="cg-json-inspector__toolbar" data-label-visible={showLabel ? "true" : "false"}>
         {showLabel && <strong>{label}</strong>}
         <span>
           <button aria-pressed={viewMode === "tree"} onClick={() => setViewMode("tree")} type="button"><Braces aria-hidden="true" />树视图</button>
