@@ -496,7 +496,7 @@ html[data-cg-scale="large"] { --cg-scale: 1.12; }
 .cg-inspector-timeline__viewport::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .cg-inspector-timeline__spacer { position: relative; min-width: 0; }
 .cg-inspector-timeline__window { position: absolute; inset-block-start: 0; inset-inline: 0; min-width: 0; }
-.cg-inspector-timeline__row { min-width: 0; }
+.cg-inspector-timeline__row { min-width: 0; display: flow-root; }
 .cg-inspector-flow-status { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 0.8rem; margin-block-end: 1rem; border: 1px solid color-mix(in oklab, var(--cg-ring) 42%, var(--cg-border)); border-radius: calc(var(--cg-radius) + 0.2rem); background: color-mix(in oklab, var(--cg-primary) 5%, var(--cg-card)); padding: 0.85rem 1rem; }
 .cg-inspector-flow-status__icon { width: 2.15rem; height: 2.15rem; display: grid; place-items: center; border-radius: 50%; background: color-mix(in oklab, var(--cg-ring) 12%, var(--cg-card)); color: var(--cg-ring); }
 .cg-inspector-flow-status__icon svg { width: 1.1rem; }

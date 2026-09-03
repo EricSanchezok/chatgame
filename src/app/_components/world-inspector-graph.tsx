@@ -230,7 +230,7 @@ export function WorldInspectorGraph({
     visibleIds.has(edge.source) && visibleIds.has(edge.target)), [graphEdges, visibleIds]);
   const layoutSignature = useMemo(() => [
     visibleSummaries.map((node) => node.id).join("|"),
-    visibleEdges.map((edge) => edge.id).join("|"),
+    visibleEdges.map((edge) => `${edge.id}:${edge.source}:${edge.target}:${edge.kind}`).join("|"),
   ].join("::"), [visibleEdges, visibleSummaries]);
   const provisionalPositions = useMemo(() => {
     return worldInspectorFallbackPositions(visibleSummaries, visibleEdges, layoutDirection);
