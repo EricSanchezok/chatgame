@@ -57,15 +57,17 @@ export function mergeWorldInspectorWindows(
     const previous = byRevision.get(step.revision);
     byRevision.set(step.revision, previous && sameStep(previous, step) ? previous : step);
   }
+  const incomingNodeIds = new Set(incoming.nodes.map((node) => node.id));
   const byNode = new Map(current.nodes
-    .filter((node) => node.kind !== "attempt")
+    .filter((node) => node.kind !== "attempt" || incomingNodeIds.has(node.id))
     .map((node) => [node.id, node]));
   for (const node of incoming.nodes) {
     const previous = byNode.get(node.id);
     byNode.set(node.id, previous && sameNode(previous, node) ? previous : node);
   }
+  const incomingEdgeIds = new Set(incoming.edges.map((edge) => edge.id));
   const byEdge = new Map(current.edges
-    .filter((edge) => !edge.source.startsWith("attempt:") && !edge.target.startsWith("attempt:"))
+    .filter((edge) => (!edge.source.startsWith("attempt:") && !edge.target.startsWith("attempt:")) || incomingEdgeIds.has(edge.id))
     .map((edge) => [edge.id, edge]));
   for (const edge of incoming.edges) {
     const previous = byEdge.get(edge.id);
