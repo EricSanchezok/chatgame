@@ -288,9 +288,16 @@ function validateSourceContext(context: Record<string, unknown>, contextHash: st
     if (keys.has(key)) throw new Error(`context ${contextHash} contains duplicate candidateKey ${key}`);
     keys.add(key);
   }
-  if (JSON.stringify(context).match(/authorization|api[_-]?key|cookie|bearer\s/iu)) {
-    throw new Error(`context ${contextHash} contains a credential-like field`);
-  }
+  const sensitiveKey = /^(?:authorization|proxy-authorization|api[_-]?key|x-api-key|cookie|set-cookie|access-token|refresh-token|client-secret)$/iu;
+  const bearerValue = /^bearer\s+[A-Za-z0-9._~+/=-]+$/u;
+  const containsSecret = (value: unknown, parentKey?: string): boolean => {
+    if (Array.isArray(value)) return value.some((item) => containsSecret(item, parentKey));
+    if (!value || typeof value !== "object") {
+      return typeof value === "string" && (bearerValue.test(value) || Boolean(parentKey && sensitiveKey.test(parentKey)));
+    }
+    return Object.entries(value).some(([key, child]) => sensitiveKey.test(key) || containsSecret(child, key));
+  };
+  if (containsSecret(context)) throw new Error(`context ${contextHash} contains a credential-like field`);
 }
 
 function candidateVisible(candidate: Record<string, unknown>, slotIndex: number): boolean {

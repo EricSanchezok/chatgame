@@ -32,7 +32,7 @@ function payloadContext(event: RuntimeEvent): Record<string, unknown> | undefine
   const context = payload?.context ?? payload?.fullContext;
   return context && typeof context === "object" && !Array.isArray(context) ? context as Record<string, unknown> : undefined;
 }
-function sourceFromEvent(executionId: string, event: RuntimeEvent, executionMetadata: { worldHash: string; algorithmManifestHash?: string }): RawBenchmarkSource | undefined {
+function sourceFromEvent(executionId: string, event: RuntimeEvent, executionMetadata: { worldHash: string; algorithmManifestHash?: string; stateSnapshot?: unknown }): RawBenchmarkSource | undefined {
   const context = payloadContext(event);
   if (!context || (event.event !== "model.context.serialized" && event.event !== "model.action_compilation.context.captured") || (event.correlation?.modelRole && event.correlation.modelRole !== "action-compilation")) return undefined;
   const captured = event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload as Partial<RawBenchmarkSource> : {};
@@ -50,6 +50,8 @@ function sourceFromEvent(executionId: string, event: RuntimeEvent, executionMeta
     modelCatalogHash: typeof captured.modelCatalogHash === "string" ? captured.modelCatalogHash : typeof (event.payload as { modelCatalogHash?: unknown } | undefined)?.modelCatalogHash === "string" ? String((event.payload as { modelCatalogHash: string }).modelCatalogHash) : undefined,
     repairCount: captured.repairCount ?? event.correlation?.semanticRepairAttempt ?? 0,
     worldHash: captured.worldHash ?? executionMetadata.worldHash,
+    ...(captured.stateSnapshot !== undefined ? { stateSnapshot: captured.stateSnapshot } : executionMetadata.stateSnapshot !== undefined ? { stateSnapshot: structuredClone(executionMetadata.stateSnapshot) } : {}),
+    ...(captured.stateHash ? { stateHash: captured.stateHash } : executionMetadata.stateSnapshot !== undefined ? { stateHash: contentHash(executionMetadata.stateSnapshot) } : {}),
     ...(executionMetadata.algorithmManifestHash ? { algorithmManifestHash: executionMetadata.algorithmManifestHash } : {}),
     ...(typeof (event.payload as { registrySnapshotHash?: unknown } | undefined)?.registrySnapshotHash === "string" ? { registrySnapshotHash: String((event.payload as { registrySnapshotHash: string }).registrySnapshotHash) } : {}),
     ...(typeof (event.payload as { modelId?: unknown } | undefined)?.modelId === "string" ? { modelId: String((event.payload as { modelId: string }).modelId) } : {}),
@@ -57,8 +59,6 @@ function sourceFromEvent(executionId: string, event: RuntimeEvent, executionMeta
     ...(typeof (event.payload as { profileId?: unknown } | undefined)?.profileId === "string" ? { profileId: String((event.payload as { profileId: string }).profileId) } : {}),
     ...(captured.modelContextHash ? { modelContextHash: captured.modelContextHash } : {}),
     ...(captured.shortlistHash ? { shortlistHash: captured.shortlistHash } : {}),
-    ...(captured.stateSnapshot !== undefined ? { stateSnapshot: captured.stateSnapshot } : {}),
-    ...(captured.stateHash ? { stateHash: captured.stateHash } : {}),
     ...(captured.promptVersion ? { promptVersion: captured.promptVersion } : {}),
     ...(captured.profileId ? { profileId: captured.profileId } : {}),
   };
@@ -76,8 +76,10 @@ export function main(argv: readonly string[]): number {
       if (!execution) throw new Error(`execution not found: ${executionId}`);
       const manifest = execution.manifest && typeof execution.manifest === "object" && !Array.isArray(execution.manifest) ? execution.manifest as { hash?: unknown } : undefined;
       const events = database.executionEvents(executionId);
+      const preparation = events.find((event) => event.event === "step.preparation.started");
+      const preparationPayload = preparation?.payload && typeof preparation.payload === "object" && !Array.isArray(preparation.payload) ? preparation.payload as { state?: unknown } : undefined;
       for (const event of events) {
-        const source = sourceFromEvent(executionId, event, { worldHash: execution.worldHash, ...(typeof manifest?.hash === "string" ? { algorithmManifestHash: manifest.hash } : {}) });
+        const source = sourceFromEvent(executionId, event, { worldHash: execution.worldHash, ...(typeof manifest?.hash === "string" ? { algorithmManifestHash: manifest.hash } : {}), ...(preparationPayload?.state !== undefined ? { stateSnapshot: preparationPayload.state } : {}) });
         if (source) sources.push(source);
       }
     }

@@ -52,7 +52,16 @@ export interface BenchmarkSourceAdapter<TCapture extends RawBenchmarkSource = Ra
 }
 
 function hasSecret(value: unknown): boolean {
-  return /authorization|api[_-]?key|cookie|bearer\s|x-api-key/iu.test(JSON.stringify(value));
+  const sensitiveKey = /^(?:authorization|proxy-authorization|api[_-]?key|x-api-key|cookie|set-cookie|access-token|refresh-token|client-secret)$/iu;
+  const bearerValue = /^bearer\s+[A-Za-z0-9._~+/=-]+$/u;
+  const visit = (current: unknown, parentKey?: string): boolean => {
+    if (Array.isArray(current)) return current.some((item) => visit(item, parentKey));
+    if (!current || typeof current !== "object") {
+      return typeof current === "string" && (bearerValue.test(current) || Boolean(parentKey && sensitiveKey.test(parentKey)));
+    }
+    return Object.entries(current).some(([key, child]) => sensitiveKey.test(key) || visit(child, key));
+  };
+  return visit(value);
 }
 
 export function assertSafeBenchmarkSource(value: unknown): void {

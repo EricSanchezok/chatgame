@@ -436,7 +436,7 @@ function aliases(input: CandidateRetrieverInput, index: GraphIndex, anchors: Rea
 }
 
 function relationAllowed(relation: CandidateGraphRelation, role: string | undefined, candidate: Candidate): boolean {
-  if (role === "profile") return relation === "action-profile" || candidate.kind === "temporal_profile";
+  if (role === "profile") return relation === "action-profile" && candidate.kind === "temporal_profile";
   if (role === "target") return relation !== "action-profile" && candidate.allowedUses.includes("target");
   if (role === "actor") return relation !== "action-profile" && (candidate.kind === "agent" || candidate.kind === "entity" || candidate.allowedUses.includes("subject"));
   if (role === "action") return relation !== "action-profile" || candidate.kind === "temporal_profile";

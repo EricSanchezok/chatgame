@@ -34,4 +34,13 @@ describe("benchmark source capture", () => {
     })).toThrow(/credential/u);
     expect(readActionCompilationCapturedSources(observer.snapshot())).toEqual([]);
   });
+
+  it("does not reject ordinary world prose containing security terminology", () => {
+    expect(() => assertSafeBenchmarkSource({
+      belief: "claim-credit-if-success-and-deny-authorization-if-exposed",
+    })).not.toThrow();
+    expect(() => assertSafeBenchmarkSource({
+      headers: { authorization: "Bearer abc.def" },
+    })).toThrow(/credential/u);
+  });
 });
