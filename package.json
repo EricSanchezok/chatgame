@@ -21,6 +21,7 @@
     "benchmark:action-compilation": "tsx scripts/experiments/verify-action-compilation-report.ts",
     "benchmark:export:action-compilation-reference": "tsx scripts/experiments/export-action-compilation-reference.ts",
     "benchmark:evaluate:action-compilation-reference": "tsx scripts/experiments/action-compilation-reference-evaluation.ts",
+    "benchmark:compare:action-compilation-reference": "tsx scripts/experiments/compare-action-compilation-retrievers.ts",
     "benchmark:verify:action-compilation-reference": "tsx scripts/experiments/verify-action-compilation-reference.ts",
     "experiment:model-invocation": "tsx scripts/experiments/model-invocation-probe.ts",
     "execution:replay": "tsx scripts/operations/execution-command.ts replay",
