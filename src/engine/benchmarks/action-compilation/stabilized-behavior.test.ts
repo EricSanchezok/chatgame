@@ -10,6 +10,12 @@ import {
   loadActionCompilationReferenceDataset,
   type ActionCompilationReferenceDatasetManifest,
 } from "./stabilized-behavior";
+import {
+  loadActionCompilationGenerationCheckpoints,
+  writeActionCompilationGenerationCheckpoint,
+  type ActionCompilationGenerationCheckpointCounters,
+  type ActionCompilationGenerationCheckpointSource,
+} from "./generation-checkpoint";
 import { contentHash } from "../../models/model-audit";
 
 const temporaryRoots: string[] = [];
@@ -218,5 +224,95 @@ describe("FullCatalog stabilized behavior benchmark", () => {
     };
     writeFileSync(path.join(fixture.root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     expect(() => loadActionCompilationReferenceDataset(fixture.root)).toThrow(/private to another slot/u);
+  });
+
+  it("persists per-batch deltas and resumes from the latest cumulative counters", () => {
+    const staging = mkdtempSync(path.join(os.tmpdir(), "lwe-ac-checkpoint-"));
+    temporaryRoots.push(staging);
+    const hash = (character: string): string => character.repeat(64);
+    const source: ActionCompilationGenerationCheckpointSource = {
+      worldHash: hash("a"),
+      initialStateHash: hash("b"),
+      modelCatalogHash: hash("c"),
+      registrySnapshotHash: hash("d"),
+      algorithmManifestHash: hash("e"),
+      promptVersion: "action-compilation@test",
+      profileId: "truth-deepseek",
+      modelId: "deepseek-v4-flash",
+      seed: 20260904,
+      seedCorpusHash: hash("f"),
+    };
+    const counters = (batchIndex: number, providerRequests: number): ActionCompilationGenerationCheckpointCounters => ({
+      providerRequests,
+      logicalInvocations: providerRequests,
+      transportAttempts: providerRequests,
+      repairCalls: 0,
+      rejectedSlots: 0,
+      seedIndex: batchIndex,
+      batchIndex,
+      batchAttempts: batchIndex,
+    });
+    writeActionCompilationGenerationCheckpoint(staging, {
+      schemaVersion: 1,
+      batchIndex: 1,
+      source,
+      counters: counters(1, 2),
+      captured: [{ caseId: "first" }],
+    });
+    writeActionCompilationGenerationCheckpoint(staging, {
+      schemaVersion: 1,
+      batchIndex: 2,
+      source,
+      counters: counters(2, 3),
+      captured: [{ caseId: "second" }],
+    });
+    const loaded = loadActionCompilationGenerationCheckpoints<{ caseId: string }>(staging, source);
+    expect(loaded.checkpointCount).toBe(2);
+    expect(loaded.lastBatchIndex).toBe(2);
+    expect(loaded.counters.providerRequests).toBe(3);
+    expect(loaded.captured.map((item) => item.caseId)).toEqual(["first", "second"]);
+  });
+
+  it("rejects checkpoint source drift and duplicate batch files", () => {
+    const staging = mkdtempSync(path.join(os.tmpdir(), "lwe-ac-checkpoint-"));
+    temporaryRoots.push(staging);
+    const hash = "a".repeat(64);
+    const source: ActionCompilationGenerationCheckpointSource = {
+      worldHash: hash,
+      initialStateHash: hash,
+      modelCatalogHash: hash,
+      registrySnapshotHash: hash,
+      algorithmManifestHash: hash,
+      promptVersion: "action-compilation@test",
+      profileId: "truth-deepseek",
+      modelId: "deepseek-v4-flash",
+      seed: 1,
+      seedCorpusHash: hash,
+    };
+    const counters: ActionCompilationGenerationCheckpointCounters = {
+      providerRequests: 0,
+      logicalInvocations: 0,
+      transportAttempts: 0,
+      repairCalls: 0,
+      rejectedSlots: 0,
+      seedIndex: 0,
+      batchIndex: 1,
+      batchAttempts: 1,
+    };
+    writeActionCompilationGenerationCheckpoint(staging, {
+      schemaVersion: 1,
+      batchIndex: 1,
+      source,
+      counters,
+      captured: [],
+    });
+    expect(() => writeActionCompilationGenerationCheckpoint(staging, {
+      schemaVersion: 1,
+      batchIndex: 1,
+      source,
+      counters,
+      captured: [],
+    })).toThrow(/already exists/u);
+    expect(() => loadActionCompilationGenerationCheckpoints(staging, { ...source, seed: 2 })).toThrow(/source does not match/u);
   });
 });

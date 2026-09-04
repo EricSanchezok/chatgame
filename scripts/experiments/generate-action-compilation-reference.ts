@@ -40,6 +40,13 @@ import {
   type ActionCompilationReferenceContextRecord,
   type ActionCompilationReferenceDatasetManifest,
 } from "../../src/engine/benchmarks/action-compilation/stabilized-behavior";
+import {
+  countActionCompilationGenerationCheckpoints,
+  loadActionCompilationGenerationCheckpoints,
+  writeActionCompilationGenerationCheckpoint,
+  type ActionCompilationGenerationCheckpointCounters,
+  type ActionCompilationGenerationCheckpointSource,
+} from "../../src/engine/benchmarks/action-compilation/generation-checkpoint";
 
 interface SeedRecord {
   id: string;
@@ -57,6 +64,7 @@ interface GeneratorOptions {
   output: string;
   dataRoot: string;
   scratchRoot: string;
+  resume?: string;
 }
 
 interface CapturedCase {
@@ -79,6 +87,7 @@ function parseOptions(argv: readonly string[]): GeneratorOptions {
   let output = path.resolve("benchmarks/action-compilation/fullcatalog-stabilized/v1");
   let dataRoot = path.resolve(".livingworld-benchmarks");
   let scratchRoot = path.resolve(".livingworld-benchmarks/action-compilation-reference-v1");
+  let resume: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--live") live = true;
@@ -88,12 +97,13 @@ function parseOptions(argv: readonly string[]): GeneratorOptions {
     else if (argument === "--output") output = path.resolve(argv[++index] ?? "");
     else if (argument === "--data-root") dataRoot = path.resolve(argv[++index] ?? "");
     else if (argument === "--scratch-root") scratchRoot = path.resolve(argv[++index] ?? "");
+    else if (argument === "--resume") resume = path.resolve(argv[++index] ?? "");
     else if (argument === "--help" || argument === "-h") {
-      process.stdout.write("usage: npm run benchmark:generate:action-compilation-reference -- --live [--target 480] [--max-provider-requests 1000]\n");
+      process.stdout.write("usage: npm run benchmark:generate:action-compilation-reference -- --live [--target 480] [--max-provider-requests 1000] [--resume <staging-dir>]\n");
       process.exit(0);
     } else throw new Error(`unknown argument: ${argument}`);
   }
-  return { live, target, maxProviderRequests, seed, output, dataRoot, scratchRoot };
+  return { live, target, maxProviderRequests, seed, output, dataRoot, scratchRoot, resume };
 }
 
 function readSeeds(definitionAgents: Readonly<Record<string, unknown>>): SeedRecord[] {
@@ -291,9 +301,36 @@ async function main(): Promise<void> {
   const code = runtimeCodeIdentity();
   const prompt = promptBundle("action-compilation");
   const seeds = readSeeds(definition.initialState.agents);
-  const staging = path.join(options.scratchRoot, `run-${Date.now()}-${randomUUID()}`);
+  const checkpointSource: ActionCompilationGenerationCheckpointSource = {
+    worldHash: definition.contentHash,
+    initialStateHash: contentHash(definition.initialState),
+    modelCatalogHash: catalog.hash,
+    registrySnapshotHash: registrySnapshot.hash,
+    algorithmManifestHash: algorithmManifest.hash,
+    promptVersion: prompt.version,
+    profileId: "truth-deepseek",
+    modelId: "deepseek-v4-flash",
+    seed: options.seed,
+    seedCorpusHash: contentHash(seeds),
+  };
+  const staging = options.resume
+    ? path.resolve(options.resume)
+    : path.join(options.scratchRoot, `run-${Date.now()}-${randomUUID()}`);
+  if (options.resume) {
+    if (!existsSync(staging)) throw new Error(`resume staging directory is missing: ${staging}`);
+    if (existsSync(path.join(staging, "dataset"))) {
+      throw new Error(`resume staging already contains a publish directory: ${path.join(staging, "dataset")}`);
+    }
+    // A previous failed attempt's report is superseded by this run. The
+    // immutable per-batch checkpoints remain the source of truth.
+    rmSync(path.join(staging, "failure.json"), { force: true });
+  }
   mkdirSync(staging, { recursive: true });
-  const databaseFile = path.join(staging, "generation.sqlite");
+  mkdirSync(path.join(staging, "checkpoints"), { recursive: true });
+  const checkpointState = options.resume
+    ? loadActionCompilationGenerationCheckpoints<CapturedCase>(staging, checkpointSource)
+    : undefined;
+  const databaseFile = path.join(staging, options.resume ? `generation-${Date.now()}-${randomUUID()}.sqlite` : "generation.sqlite");
   const ledger = new LocalDatabase(databaseFile, { heartbeat: false });
   const executionId = randomUUID();
   const trace = ledger.beginExecution({
@@ -319,15 +356,15 @@ async function main(): Promise<void> {
     // policy, while measuring every transport attempt from the audit.
     maxTransportAttempts: 3,
   });
-  const captured: CapturedCase[] = [];
-  let providerRequests = 0;
-  let logicalInvocations = 0;
-  let transportAttempts = 0;
-  let repairCalls = 0;
-  let rejectedSlots = 0;
-  let seedIndex = 0;
-  let batchIndex = 0;
-  let batchAttempts = 0;
+  const captured: CapturedCase[] = [...(checkpointState?.captured ?? [])];
+  let providerRequests = checkpointState?.counters.providerRequests ?? 0;
+  let logicalInvocations = checkpointState?.counters.logicalInvocations ?? 0;
+  let transportAttempts = checkpointState?.counters.transportAttempts ?? 0;
+  let repairCalls = checkpointState?.counters.repairCalls ?? 0;
+  let rejectedSlots = checkpointState?.counters.rejectedSlots ?? 0;
+  let seedIndex = checkpointState?.counters.seedIndex ?? 0;
+  let batchIndex = checkpointState?.counters.batchIndex ?? 0;
+  let batchAttempts = checkpointState?.counters.batchAttempts ?? 0;
   // Keep explicit coverage for the production 1/5/12 shapes, then use the
   // smallest shape for the remainder. A one-slot request lets the production
   // compiler retain a successful case even when a neighboring multi-slot
@@ -336,8 +373,36 @@ async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   let completed = false;
   let failureMessage: string | undefined;
+  let interrupted = false;
+  const abortController = new AbortController();
+  const onSignal = (): void => {
+    interrupted = true;
+    abortController.abort();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  const saveCheckpoint = (newCases: readonly CapturedCase[]): void => {
+    const counters: ActionCompilationGenerationCheckpointCounters = {
+      providerRequests,
+      logicalInvocations,
+      transportAttempts,
+      repairCalls,
+      rejectedSlots,
+      seedIndex,
+      batchIndex,
+      batchAttempts,
+    };
+    writeActionCompilationGenerationCheckpoint(staging, {
+      schemaVersion: 1,
+      batchIndex,
+      source: checkpointSource,
+      counters,
+      captured: [...newCases],
+    });
+  };
   try {
     while (
+      !interrupted &&
       captured.length < options.target &&
       providerRequests < options.maxProviderRequests &&
       batchAttempts < options.maxProviderRequests * 4
@@ -366,6 +431,7 @@ async function main(): Promise<void> {
           batchId: `batch:${batchIndex}`,
           correlation: { executionId, revision: definition.initialState.revision, step: definition.initialState.step },
           observer: trace,
+          abortSignal: abortController.signal,
           runtimeIdentity: { worldHash: definition.initialState.worldHash, revision: definition.initialState.revision },
           modelRegistrySnapshotHash: registrySnapshot.hash,
         }, "truth-deepseek", DEFAULT_EAGER_REFERENCE_CONFIG.actionCompilationMaxSlots, 2);
@@ -379,9 +445,8 @@ async function main(): Promise<void> {
         transportAttempts += observedTransportAttempts || calls.transportAttempts;
         providerRequests += observedTransportAttempts || calls.transportAttempts;
         repairCalls += calls.repairCalls;
-        if (providerRequests > options.maxProviderRequests) break;
         const acceptedActionIds = new Set(result.compilations.map((_, index) => actions[index]?.id).filter((id): id is string => typeof id === "string"));
-        captured.push(...extractCapturedCases(
+        const newCases = extractCapturedCases(
           newEvents,
           result.modelAudits,
           acceptedActionIds,
@@ -389,7 +454,13 @@ async function main(): Promise<void> {
           definition.initialState.worldHash,
           algorithmManifest.hash,
           sourceSeeds,
-        ));
+        );
+        captured.push(...newCases);
+        // Persist the completed batch before checking the global budget. This
+        // keeps accepted slots and the exact cumulative counters recoverable
+        // even when a final batch crosses the request budget.
+        saveCheckpoint(newCases);
+        if (providerRequests > options.maxProviderRequests) break;
       } catch (error) {
         const events = ledger.executionEvents(executionId).slice(beforeEvents);
         const actionAudits = events.filter((event) => event.event === "model.audit.persisted" && event.correlation?.modelRole === "action-compilation");
@@ -409,8 +480,13 @@ async function main(): Promise<void> {
           counts: { slots: batchSeeds.length },
           error: { name: error instanceof Error ? error.name : "Error", message: error instanceof Error ? error.message : String(error) },
         });
+        // A rejected or interrupted batch is still a completed attempt from
+        // the generator's perspective. Persist its counters so resume never
+        // repeats an already-accounted provider request.
+        saveCheckpoint([]);
       }
     }
+    if (interrupted) throw new Error("generation interrupted; checkpoint retained");
     if (captured.length < options.target) {
       throw new Error(`provider request budget exhausted with ${captured.length}/${options.target} accepted slots`);
     }
@@ -427,7 +503,7 @@ async function main(): Promise<void> {
         contextHash: item.case.contextHash,
         context: item.context,
         source: {
-          executionId,
+          executionId: item.case.provenance?.sourceExecutionId ?? executionId,
           invocationId: item.case.provenance?.sourceInvocationId,
           catalogHash: item.case.source.catalogHash,
         },
@@ -514,6 +590,8 @@ async function main(): Promise<void> {
     failureMessage = error instanceof Error ? error.message : String(error);
     throw error;
   } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     if (ledger.execution(executionId)?.status === "running") {
       ledger.finishExecution(executionId, {
         status: completed ? "succeeded" : "failed",
@@ -533,6 +611,9 @@ async function main(): Promise<void> {
         failure: failureMessage ?? "generation interrupted before completion",
         capturedCases: captured.length,
         providerRequests,
+        checkpointCount: countActionCompilationGenerationCheckpoints(staging),
+        staging,
+        resumeCommand: `npm run benchmark:generate:action-compilation-reference -- --live --resume ${staging}`,
         generatedAt: new Date().toISOString(),
       }, null, 2)}\n`);
     }

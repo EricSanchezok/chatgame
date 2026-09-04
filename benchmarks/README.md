@@ -23,3 +23,17 @@ Verify a frozen dataset and its FullCatalog control:
 ```sh
 npm run benchmark:verify:action-compilation-reference
 ```
+
+Generation is checkpointed after every completed batch under
+`.livingworld-benchmarks/action-compilation-reference-v1/run-*/checkpoints/`.
+If a live run is interrupted or otherwise fails, its `failure.json` contains the
+staging path and an exact resume command. Resume from that directory without
+replaying completed batches:
+
+```sh
+npm run benchmark:generate:action-compilation-reference -- --live --resume .livingworld-benchmarks/action-compilation-reference-v1/run-<timestamp>-<id>
+```
+
+Checkpoint source hashes (world, catalog, registry, algorithm, prompt, and
+seed corpus) must match the current process. A mismatch fails closed instead
+of combining outputs from different benchmark producers.
