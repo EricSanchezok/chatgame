@@ -48,6 +48,8 @@ interface CandidateText {
 const catalogCandidatesCache = new Map<string, Candidate[]>();
 const candidateTextCache = new WeakMap<Candidate, CandidateText>();
 const slotQueryCache = new Map<string, string>();
+const scoredCandidatesCache = new Map<string, ScoredCandidate[]>();
+const rrfCandidatesCache = new Map<string, ScoredCandidate[]>();
 
 const ACTION_COMPILATION_KINDS = new Set([
   "action",
@@ -229,6 +231,20 @@ function scoreCandidates(candidates: readonly Candidate[], query: string): Score
     left.candidate.candidateKey.localeCompare(right.candidate.candidateKey));
 }
 
+function scoreCandidatesCached(
+  candidates: readonly Candidate[],
+  query: string,
+  cacheKey: string | undefined,
+): ScoredCandidate[] {
+  if (cacheKey) {
+    const cached = scoredCandidatesCache.get(cacheKey);
+    if (cached) return cached;
+  }
+  const scored = scoreCandidates(candidates, query);
+  if (cacheKey) scoredCandidatesCache.set(cacheKey, scored);
+  return scored;
+}
+
 function typedCandidates(input: CandidateRetrieverInput): Candidate[] {
   return candidatesFor(input.context)
     .filter((candidate) => visible(candidate, input.slotIndex))
@@ -283,8 +299,11 @@ function takeWithAnchors(
   return [...new Set(result)].sort((left, right) => left.localeCompare(right));
 }
 
-function rrfRank(candidates: readonly Candidate[], query: string): ScoredCandidate[] {
-  const scored = scoreCandidates(candidates, query);
+function rrfRank(scored: readonly ScoredCandidate[], cacheKey?: string): ScoredCandidate[] {
+  if (cacheKey) {
+    const cached = rrfCandidatesCache.get(cacheKey);
+    if (cached) return cached;
+  }
   const channels: Array<readonly ScoredCandidate[]> = [
     [...scored].sort((left, right) => right.lexical - left.lexical || right.token - left.token || left.candidate.candidateKey.localeCompare(right.candidate.candidateKey)),
     [...scored].sort((left, right) => right.token - left.token || right.character - left.character || left.candidate.candidateKey.localeCompare(right.candidate.candidateKey)),
@@ -296,8 +315,10 @@ function rrfRank(candidates: readonly Candidate[], query: string): ScoredCandida
     previous.hybrid += 1 / (60 + index + 1);
     byKey.set(entry.candidate.candidateKey, previous);
   }));
-  return [...byKey.values()].sort((left, right) => right.hybrid - left.hybrid ||
+  const result = [...byKey.values()].sort((left, right) => right.hybrid - left.hybrid ||
     left.candidate.candidateKey.localeCompare(right.candidate.candidateKey));
+  if (cacheKey) rrfCandidatesCache.set(cacheKey, result);
+  return result;
 }
 
 function maxCandidates(options: ActionCompilationRetrieverOptions): number {
@@ -318,10 +339,13 @@ export function createActionCompilationRetriever(
     if (strategy === "typed-full") return typed.map((candidate) => candidate.candidateKey);
     const query = queryText(input);
     const anchors = anchorKeys(input, allVisible);
-    const scored = scoreCandidates(typed, query);
+    const catalog = record(input.context.referenceCatalog);
+    const catalogHash = typeof catalog?.hash === "string" ? catalog.hash : undefined;
+    const scoreCacheKey = catalogHash ? `${catalogHash}:${input.slotIndex}:${query}` : undefined;
+    const scored = scoreCandidatesCached(typed, query, scoreCacheKey);
     if (strategy === "lexical-topk") return scored.slice(0, limit).map((entry) => entry.candidate.candidateKey).sort();
     if (strategy === "anchor-plus-lexical") return takeWithAnchors(scored, anchors, limit);
-    const hybrid = rrfRank(typed, query);
+    const hybrid = rrfRank(scored, scoreCacheKey ? `${scoreCacheKey}:rrf` : undefined);
     if (strategy === "hybrid-rrf") return takeWithAnchors(hybrid, anchors, limit);
     const shortlist = takeWithAnchors(hybrid, anchors, limit);
     const boundaryIndex = Math.min(Math.max(limit - anchors.size, 0), hybrid.length - 1);
