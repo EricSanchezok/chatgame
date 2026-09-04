@@ -73,6 +73,12 @@ function nonNegativeInteger(value: unknown, label: string): number {
   return Number(value);
 }
 
+function isCheckpointHash(value: string): boolean {
+  // World snapshots use the runtime's `sha256:`-prefixed identity, while
+  // model/catalog/algorithm content hashes are stored as bare hex digests.
+  return isSha256(value) || /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
 function validateSource(source: unknown, label: string): ActionCompilationGenerationCheckpointSource {
   if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error(`${label} must be an object`);
   const value = source as Record<string, unknown>;
@@ -93,7 +99,7 @@ function validateSource(source: unknown, label: string): ActionCompilationGenera
     }
   }
   for (const field of ["worldHash", "initialStateHash", "modelCatalogHash", "registrySnapshotHash", "algorithmManifestHash", "seedCorpusHash"] as const) {
-    if (!isSha256(value[field] as string)) throw new Error(`${label}.${field} must be a SHA-256 hash`);
+    if (!isCheckpointHash(value[field] as string)) throw new Error(`${label}.${field} must be a SHA-256 hash`);
   }
   return {
     worldHash: value.worldHash as string,
