@@ -260,6 +260,20 @@ function ensureNoSecrets(value: unknown): void {
   }
 }
 
+function markCanonicalRegistryFrozen(output: string): void {
+  const canonicalOutput = path.resolve("benchmarks/action-compilation/fullcatalog-stabilized/v1");
+  if (path.resolve(output) !== canonicalOutput) return;
+  const registryFile = path.resolve("benchmarks/registry.json");
+  const registry = JSON.parse(readFileSync(registryFile, "utf8")) as {
+    benchmarks?: Array<{ datasetId?: string; version?: number; status?: string }>;
+  };
+  const entry = registry.benchmarks?.find((item) =>
+    item.datasetId === "action-compilation/fullcatalog-stabilized" && item.version === 1);
+  if (!entry) throw new Error("benchmark registry has no Action Compilation v1 entry");
+  entry.status = "frozen";
+  writeFileSync(registryFile, `${JSON.stringify(registry, null, 2)}\n`);
+}
+
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   if (!options.live) throw new Error("live provider generation is opt-in; pass --live");
@@ -494,6 +508,7 @@ async function main(): Promise<void> {
     if (existsSync(options.output)) throw new Error(`benchmark output appeared while generating: ${options.output}`);
     renameSync(publishStaging, options.output);
     completed = true;
+    markCanonicalRegistryFrozen(options.output);
     process.stdout.write(`${JSON.stringify({ dataset: options.output, cases: selected.length, contexts: contextRecords.length, providerRequests }, null, 2)}\n`);
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error);
