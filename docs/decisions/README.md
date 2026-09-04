@@ -134,3 +134,4 @@ An optional adjacent `Class:` line uses `architecture`, `process`, `testing`, `f
 - [0093 — World Inspector Summary-first Information Hierarchy](0093-world-inspector-summary-first.md)
 - [0094 — Action Compilation Candidate-Key Length](0094-action-compilation-candidate-key-length.md)
 - [0095 — Probe-overlay Counterfactual Replay](0095-probe-overlay-counterfactual-replay.md)
+- [0096 — Versioned Behavioral Benchmark Datasets](0096-versioned-behavioral-benchmark-datasets.md)

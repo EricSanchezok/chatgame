@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "organization": "上海创智学院",
+  "project": "Living World Engine",
+  "benchmarks": [
+    {
+      "datasetId": "action-compilation/fullcatalog-stabilized",
+      "version": 1,
+      "domain": "candidate-retrieval-recall",
+      "purpose": "Compare shortlist retrievers with the production Action Compilation C3 FullCatalog behavior.",
+      "status": "draft",
+      "path": "benchmarks/action-compilation/fullcatalog-stabilized/v1",
+      "source": "Action Compilation C3",
+      "generator": "npm run benchmark:generate:action-compilation-reference -- --live --target 480 --max-provider-requests 1000",
+      "evaluator": "npm run benchmark:evaluate:action-compilation-reference -- --dataset benchmarks/action-compilation/fullcatalog-stabilized/v1 --retriever <module>",
+      "maintainer": "Living World Engine team",
+      "notes": "The v1 directory is published only after a complete live generation; this registry entry remains planned until then."
+    }
+  ]
+}
