@@ -321,6 +321,7 @@ async function main(): Promise<void> {
   const batchShapes = [1, 5, 12] as const;
   const startedAt = new Date().toISOString();
   let completed = false;
+  let failureMessage: string | undefined;
   try {
     while (
       captured.length < options.target &&
@@ -494,6 +495,9 @@ async function main(): Promise<void> {
     renameSync(publishStaging, options.output);
     completed = true;
     process.stdout.write(`${JSON.stringify({ dataset: options.output, cases: selected.length, contexts: contextRecords.length, providerRequests }, null, 2)}\n`);
+  } catch (error) {
+    failureMessage = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
     if (ledger.execution(executionId)?.status === "running") {
       ledger.finishExecution(executionId, {
@@ -503,7 +507,20 @@ async function main(): Promise<void> {
     }
     trace.flush();
     ledger.close();
-    rmSync(staging, { recursive: true, force: true });
+    if (completed) {
+      rmSync(staging, { recursive: true, force: true });
+    } else {
+      writeFileSync(path.join(staging, "failure.json"), `${JSON.stringify({
+        schemaVersion: 1,
+        datasetId: "action-compilation/fullcatalog-stabilized",
+        targetCases: options.target,
+        maxProviderRequests: options.maxProviderRequests,
+        failure: failureMessage ?? "generation interrupted before completion",
+        capturedCases: captured.length,
+        providerRequests,
+        generatedAt: new Date().toISOString(),
+      }, null, 2)}\n`);
+    }
   }
 }
 
