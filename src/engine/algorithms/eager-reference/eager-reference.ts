@@ -128,6 +128,17 @@ const symbolRepairComponent = {
     maxAuditCandidates: 8,
   },
 } as const;
+const candidateRetrievalComponent = {
+  id: "action-compilation-candidate-retrieval",
+  version: "1",
+  config: {
+    mode: "off",
+    budgetRatio: 0.2,
+    canaryPercentage: 30,
+    graphFeatureSchemaVersion: 1,
+    encoderModel: "intfloat/multilingual-e5-small",
+  },
+} as const;
 
 export interface EagerReferenceAlgorithmConfig {
   actionCompilationMaxSlots: number;
@@ -200,7 +211,7 @@ export function createEagerReferenceManifest(
   const config = parseEagerReferenceAlgorithmConfig(value);
   return defineAlgorithmManifest({
     id: "eager-reference",
-    version: "13",
+    version: "14",
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,
@@ -208,7 +219,7 @@ export function createEagerReferenceManifest(
       groundingMaxSlots: config.groundingMaxSlots,
       truthBatchMaxSlots: config.truthBatchMaxSlots,
     },
-    components: [compilationComponent, groundingComponent, truthComponent, mindComponent, symbolRepairComponent],
+    components: [compilationComponent, groundingComponent, truthComponent, mindComponent, symbolRepairComponent, candidateRetrievalComponent],
   });
 }
 

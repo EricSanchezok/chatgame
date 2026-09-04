@@ -11,3 +11,14 @@ npm run benchmark:export:action-compilation-reference -- --database .livingworld
 ```
 
 The export is read-only with respect to the Ledger and performs no LLM call. Do not overwrite a published version. Change the source snapshot, model, prompt, projector, candidate-key format, repair policy, or schema by creating the next version and updating `benchmarks/registry.json`.
+
+Run the offline v3 graph/encoder comparison against this frozen version with:
+
+```sh
+npm run benchmark:compare:action-compilation-retrieval-v3 -- --dataset benchmarks/action-compilation/fullcatalog-stabilized/v1 --output benchmarks/action-compilation/fullcatalog-stabilized/evaluations/retrieval-graph-ab-v3 --model multilingual-e5-small
+```
+
+The comparison never calls an LLM or changes the world. Missing local encoder
+assets are reported as `blocked`; no online download is attempted. A learned
+ranker trained from the current 46 cases is exploratory only and cannot be
+promoted without the independent-snapshot training gate.

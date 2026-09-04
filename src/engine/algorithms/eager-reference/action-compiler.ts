@@ -78,6 +78,19 @@ import {
 
 const ACTION_COMPILER_PROMPT = promptBundle("action-compilation");
 
+function candidateKeysInValue(value: unknown, output = new Set<string>()): Set<string> {
+  if (typeof value === "string") {
+    if (/^candidate_[0-9a-f]+$/u.test(value)) output.add(value);
+    return output;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry) => candidateKeysInValue(entry, output));
+    return output;
+  }
+  if (value && typeof value === "object") Object.values(value as Record<string, unknown>).forEach((entry) => candidateKeysInValue(entry, output));
+  return output;
+}
+
 export interface CompiledAction {
   plan: TemporalPlan;
   activity: ScheduledActivityState;
@@ -964,6 +977,45 @@ export async function compileActions(
       const fullBatchActionResolver = createActionCompilationReferenceResolver(fullBatchResolver, fullBatchResolver);
       const context = actionCompilationContext(state, batch, scope, fullBatchResolver);
       emitActionCompilationContextProjection(scope, owner, identity, context, lineage);
+      const retrieval = scope.candidateRetrievalMiddleware?.apply({
+        fullContext: context,
+        slotIndices: batch.map((_, slot) => slot),
+      });
+      if (retrieval && scope.observer) {
+        scope.observer.emit({
+          event: "model.action_compilation.context.captured",
+          correlation,
+          attributes: { middlewareVersion: scope.candidateRetrievalMiddleware!.version, role: "action-compilation" },
+          counts: {
+            selectedCandidates: retrieval.diagnostics.selectedCount,
+            visibleCandidates: retrieval.diagnostics.visibleCount,
+            prunedReferences: retrieval.diagnostics.prunedReferenceCount,
+            anchors: retrieval.diagnostics.anchorCount,
+          },
+          hashes: {
+            fullContext: retrieval.fullContextHash,
+            modelContext: retrieval.modelContextHash,
+            shortlist: retrieval.shortlistHash,
+          },
+          payload: fullRuntimePayload(scope.observer, {
+            sourceExecutionId: scope.correlation?.executionId,
+            sourceInvocationId: identity.modelInvocationId,
+            logicalInvocationId: correlation.logicalInvocationId,
+            role: "action-compilation",
+            slotIndices: batch.map((_, slot) => slot),
+            fullContext: context,
+            stateSnapshot: state,
+            actionIds: batch.map((entry) => entry.payload.action.id),
+            selectedKeysBySlot: [...retrieval.selectedKeysBySlot.entries()],
+            fullContextHash: retrieval.fullContextHash,
+            modelContextHash: retrieval.modelContextHash,
+            shortlistHash: retrieval.shortlistHash,
+            worldHash: scope.runtimeIdentity?.worldHash,
+            stateHash: contentHash(state),
+            modelCatalogHash: typeof context.referenceCatalog?.hash === "string" ? context.referenceCatalog.hash : undefined,
+          }),
+        });
+      }
       emitActionCompilationReferenceAudit(
         scope,
         owner,
@@ -993,13 +1045,26 @@ export async function compileActions(
           schemaName: "action_compilation_batch",
           system: ACTION_COMPILER_PROMPT.system,
           userPrompt: ACTION_COMPILER_PROMPT.userPrompt,
-          context,
+          context: retrieval?.modelContext ?? context,
           schema: actionCompilationBatchSchema,
           preprocessOutput: (raw) => preprocessActionCompilationSymbols({
             value: raw,
             resolver: batchActionResolver,
           }),
         });
+        if (retrieval && scope.observer) {
+          const selected = new Set([...retrieval.selectedKeysBySlot.values()].flat());
+          const outOfShortlist = [...candidateKeysInValue(generated.value)].filter((key) => !selected.has(key)).sort();
+          if (outOfShortlist.length > 0) {
+            scope.observer.emit({
+              event: "model.action_compilation.out_of_shortlist",
+              correlation,
+              level: "warn",
+              counts: { references: outOfShortlist.length },
+              payload: fullRuntimePayload(scope.observer, { outOfShortlist }),
+            });
+          }
+        }
         assertSlotCoverage(batch, generated.value.slots);
       } catch (error) {
         if (isTerminalEagerModelError(error)) throw error;

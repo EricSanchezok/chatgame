@@ -27,17 +27,17 @@ Verify a frozen dataset and its FullCatalog control:
 npm run benchmark:verify:action-compilation-reference
 ```
 
-Compare the structure-first and local-encoder retrieval tracks without a
-provider request:
+Compare the relation-aware graph, lexical, local-encoder, and learned-ranker
+tracks without a provider request:
 
 ```sh
-npm run benchmark:compare:action-compilation-retrieval-v2 -- \
+npm run benchmark:compare:action-compilation-retrieval-v3 -- \
   --dataset benchmarks/action-compilation/fullcatalog-stabilized/v1 \
-  --output benchmarks/action-compilation/fullcatalog-stabilized/evaluations/retrieval-structure-ab-v2 \
+  --output benchmarks/action-compilation/fullcatalog-stabilized/evaluations/retrieval-graph-ab-v3 \
   --model multilingual-e5-small
 ```
 
-The v2 comparison uses a per-slot 20% budget and requires micro/macro recall
+The v3 comparison uses a per-slot 20% budget and requires micro/macro recall
 at least 90%, average and p95 compression above 80%, zero invalid/private
 outputs, and deterministic results. The local `multilingual-e5-small` model
 must already exist under `.livingworld-benchmarks/models/`; evaluation disables
@@ -54,10 +54,37 @@ Reports include per-case recall, missing-key kind/use strata, and the union
 recall of slot shortlists for each physical batch. Invalid or slot-private
 keys are reported separately and never count as recalled keys.
 
-The v2 evaluator does not modify the frozen v1 benchmark schema or enable a
+The v3 evaluator does not modify the frozen v1 benchmark schema or enable a
 retriever in production. Its result directory is an experiment artifact; a
 future production promotion requires a separately versioned algorithm
-manifest and replay/semantic-validation decision.
+manifest and replay/semantic-validation decision. The current 46-case
+dataset may produce an exploratory ranker only; promotion requires at least
+200 accepted cases from three independent world/catalog snapshots.
+
+To capture the complete pre-shortlist context and immutable state evidence from
+a running Ledger (read-only, zero provider requests), use:
+
+```sh
+npm run benchmark:capture:action-compilation -- \
+  --database .livingworld-v20/livingworld.sqlite \
+  --execution <execution-id> \
+  --output .livingworld-benchmarks/source/action-compilation
+```
+
+Captured sources can be regenerated into a new benchmark version only by an
+explicit provider adapter. This is the sole path that may call a live
+FullCatalog model; offline retrieval evaluation never does:
+
+```sh
+npm run benchmark:regenerate:action-compilation-reference -- \
+  --source .livingworld-benchmarks/source/action-compilation \
+  --output benchmarks/action-compilation/fullcatalog-stabilized \
+  --version 2 \
+  --provider-module ./scripts/your-fullcatalog-adapter.ts
+```
+
+For a single command, `benchmark:refresh:action-compilation-reference` runs
+the read-only capture followed by this explicit versioned regeneration.
 
 The exporter opens the Ledger read-only and makes no provider or network request. Use `--instance <instance-id>` to collect every Action Compilation execution in an instance. Frozen versions are never overwritten; export additional source executions into the next version.
 
