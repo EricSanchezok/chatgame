@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "kind": "action-compilation-fullcatalog-stabilized",
+  "datasetId": "action-compilation/fullcatalog-stabilized",
+  "version": 1,
+  "status": "frozen",
+  "organization": "上海创智学院",
+  "project": "Living World Engine",
+  "purpose": "candidate-retrieval-recall",
+  "referenceSemantics": "behavioral-reference",
+  "semanticGroundTruth": false,
+  "source": {
+    "baseline": "C3",
+    "worldId": "blackmarsh",
+    "worldHash": "sha256:996be2ba44b7d60b0af3170f362319c4b1919b3eeb18b7ff2361abc564a9a591",
+    "initialStateHash": "727f6ab572fb4d5b1430243cb6f06b5cc773796020eed0774dc359d94c825547",
+    "modelCatalogHash": "67846b9fb010cb2e34899f103a96c6e0c19c7425a49cf454efde91d0995a030d",
+    "registrySnapshotHash": "7100f3efed738ab30188d281525d976752fdfb88816326f5d47a6ebcc1e5ae1a",
+    "profileId": "truth-deepseek",
+    "modelId": "deepseek-v4-flash",
+    "algorithmManifestHash": "02ba7f28d8469cd333b1f24e2492044ffce0c32ac2e50951fabf013c645c62ff",
+    "promptVersion": "action-compilation@ac0099192e2bab2d",
+    "candidateKeyVersion": "candidate-key-v2-12hex-deterministic-details@2",
+    "symbolRepairPolicyVersion": "symbol-repair-v2",
+    "semanticRepairAttempts": 2
+  },
+  "generation": {
+    "seed": 20260904,
+    "targetCases": 46,
+    "maxProviderRequests": 0,
+    "providerRequests": 0,
+    "logicalInvocations": 0,
+    "transportAttempts": 0,
+    "repairCalls": 0,
+    "acceptedSlots": 46,
+    "rejectedSlots": 2,
+    "startedAt": "2026-09-04T08:32:43.422Z",
+    "completedAt": "2026-09-04T09:12:44.705Z"
+  },
+  "export": {
+    "mode": "ledger",
+    "sourceExecutionIds": [
+      "b358c32c-97d2-4828-9935-ef0b9264d4b6"
+    ],
+    "exportedAt": "2026-09-04T09:12:44.705Z",
+    "observedProviderRequests": 34,
+    "observedTransportAttempts": 34,
+    "observedLogicalInvocations": 34,
+    "observedRepairCalls": 10,
+    "observedAcceptedSlots": 46,
+    "observedRejectedSlots": 2
+  },
+  "counts": {
+    "cases": 46,
+    "contexts": 24,
+    "nonEmptyRequiredCases": 46,
+    "emptyRequiredCases": 0
+  },
+  "artifacts": {
+    "seeds": [
+      {
+        "file": "seeds-000.jsonl.gz",
+        "sha256": "40946c4946a0b05098f48462d1a0632df73a6bf3fafd298cea69bee27221e542",
+        "records": 46,
+        "rawBytes": 15410,
+        "compressedBytes": 3429
+      }
+    ],
+    "contexts": [
+      {
+        "file": "contexts-000.jsonl.gz",
+        "sha256": "5896b5382ca60c1d3dd14081a5dff2acd055475865ae20a7468561f745357e4b",
+        "records": 24,
+        "rawBytes": 14676070,
+        "compressedBytes": 2776061
+      }
+    ],
+    "cases": [
+      {
+        "file": "cases-000.jsonl.gz",
+        "sha256": "e3ffeaa5a7e232c9b145941226a7d67377075470d9636521cacc68a0d5689043",
+        "records": 46,
+        "rawBytes": 53267,
+        "compressedBytes": 9763
+      }
+    ]
+  },
+  "distributions": {
+    "batchSizes": {
+      "2": 46
+    },
+    "categories": {
+      "runtime-action": 46
+    },
+    "requiredKeyCardinality": {
+      "3": 2,
+      "4": 1,
+      "5": 3,
+      "6": 3,
+      "7": 1,
+      "8": 5,
+      "9": 3,
+      "10": 2,
+      "11": 2,
+      "13": 1,
+      "14": 1,
+      "15": 3,
+      "16": 5,
+      "17": 1,
+      "18": 1,
+      "19": 1,
+      "20": 4,
+      "21": 3,
+      "22": 2,
+      "28": 1,
+      "29": 1
+    },
+    "repairCounts": {
+      "0": 37,
+      "1": 8,
+      "2": 1
+    }
+  }
+}

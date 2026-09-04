@@ -25,7 +25,7 @@ export interface ActionCompilationReferenceDatasetManifest {
   schemaVersion: typeof ACTION_COMPILATION_REFERENCE_DATASET_SCHEMA_VERSION;
   kind: typeof ACTION_COMPILATION_REFERENCE_DATASET_KIND;
   datasetId: string;
-  version: 1;
+  version: number;
   status: ActionCompilationReferenceDatasetStatus;
   organization: string;
   project: string;
@@ -59,6 +59,18 @@ export interface ActionCompilationReferenceDatasetManifest {
     rejectedSlots: number;
     startedAt: string;
     completedAt: string;
+  };
+  /** Optional provenance for datasets exported from an existing Ledger. */
+  export?: {
+    mode: "ledger";
+    sourceExecutionIds: string[];
+    exportedAt: string;
+    observedProviderRequests: number;
+    observedTransportAttempts: number;
+    observedLogicalInvocations: number;
+    observedRepairCalls: number;
+    observedAcceptedSlots: number;
+    observedRejectedSlots: number;
   };
   counts: {
     cases: number;
@@ -242,13 +254,46 @@ function validateArtifact(artifact: unknown, root: string, label: string): Bench
   return { file, sha256: hash, records, rawBytes, compressedBytes };
 }
 
+function validateExport(value: unknown): ActionCompilationReferenceDatasetManifest["export"] {
+  const input = record(value, "manifest.export");
+  if (input.mode !== "ledger" || !Array.isArray(input.sourceExecutionIds) ||
+    input.sourceExecutionIds.some((id) => typeof id !== "string" || id.length === 0) ||
+    typeof input.exportedAt !== "string" || input.exportedAt.length === 0) {
+    throw new Error("manifest.export is invalid");
+  }
+  for (const key of [
+    "observedProviderRequests",
+    "observedTransportAttempts",
+    "observedLogicalInvocations",
+    "observedRepairCalls",
+    "observedAcceptedSlots",
+    "observedRejectedSlots",
+  ]) {
+    if (!Number.isSafeInteger(input[key]) || Number(input[key]) < 0) {
+      throw new Error(`manifest.export.${key} is invalid`);
+    }
+  }
+  return {
+    mode: "ledger",
+    sourceExecutionIds: [...input.sourceExecutionIds] as string[],
+    exportedAt: input.exportedAt as string,
+    observedProviderRequests: Number(input.observedProviderRequests),
+    observedTransportAttempts: Number(input.observedTransportAttempts),
+    observedLogicalInvocations: Number(input.observedLogicalInvocations),
+    observedRepairCalls: Number(input.observedRepairCalls),
+    observedAcceptedSlots: Number(input.observedAcceptedSlots),
+    observedRejectedSlots: Number(input.observedRejectedSlots),
+  };
+}
+
 function validateManifest(input: unknown, root: string): ActionCompilationReferenceDatasetManifest {
   const value = record(input, "manifest");
   if (value.schemaVersion !== ACTION_COMPILATION_REFERENCE_DATASET_SCHEMA_VERSION ||
     value.kind !== ACTION_COMPILATION_REFERENCE_DATASET_KIND) {
     throw new Error("manifest schemaVersion/kind is invalid");
   }
-  if (value.datasetId !== "action-compilation/fullcatalog-stabilized" || value.version !== 1) {
+  if (value.datasetId !== "action-compilation/fullcatalog-stabilized" ||
+    !Number.isSafeInteger(value.version) || Number(value.version) < 1) {
     throw new Error("manifest datasetId/version is invalid");
   }
   if (value.organization !== "上海创智学院" || value.project !== "Living World Engine") {
@@ -286,7 +331,7 @@ function validateManifest(input: unknown, root: string): ActionCompilationRefere
     schemaVersion: 1,
     kind: ACTION_COMPILATION_REFERENCE_DATASET_KIND,
     datasetId: value.datasetId as string,
-    version: 1,
+    version: Number(value.version),
     status: value.status as ActionCompilationReferenceDatasetStatus,
     organization: value.organization as string,
     project: value.project as string,
@@ -295,6 +340,7 @@ function validateManifest(input: unknown, root: string): ActionCompilationRefere
     semanticGroundTruth: false,
     source: source as ActionCompilationReferenceDatasetManifest["source"],
     generation: generation as ActionCompilationReferenceDatasetManifest["generation"],
+    ...(value.export === undefined ? {} : { export: validateExport(value.export) }),
     counts: counts as ActionCompilationReferenceDatasetManifest["counts"],
     artifacts: groups,
     distributions: record(value.distributions, "manifest.distributions") as ActionCompilationReferenceDatasetManifest["distributions"],
@@ -434,7 +480,7 @@ export function loadActionCompilationReferenceDataset(rootInput: string): Action
     manifest.generation.providerRequests > manifest.generation.maxProviderRequests) {
     throw new Error("manifest generation counters are inconsistent");
   }
-  if (cases.some((value, index) => value.caseId !== `ac-c3-v1-${String(index + 1).padStart(6, "0")}`)) {
+  if (cases.some((value, index) => value.caseId !== `ac-c3-v${manifest.version}-${String(index + 1).padStart(6, "0")}`)) {
     throw new Error("case IDs must be contiguous and stable");
   }
   return { root, manifest, contexts, cases };

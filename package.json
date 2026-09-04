@@ -19,7 +19,7 @@
     "prompt:evaluate": "tsx scripts/experiments/prompt-evaluation.ts",
     "benchmark:causal": "tsx scripts/experiments/causal-activity-benchmark.ts",
     "benchmark:action-compilation": "tsx scripts/experiments/verify-action-compilation-report.ts",
-    "benchmark:generate:action-compilation-reference": "tsx scripts/experiments/generate-action-compilation-reference.ts",
+    "benchmark:export:action-compilation-reference": "tsx scripts/experiments/export-action-compilation-reference.ts",
     "benchmark:evaluate:action-compilation-reference": "tsx scripts/experiments/action-compilation-reference-evaluation.ts",
     "benchmark:verify:action-compilation-reference": "tsx scripts/experiments/verify-action-compilation-reference.ts",
     "experiment:model-invocation": "tsx scripts/experiments/model-invocation-probe.ts",

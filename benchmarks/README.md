@@ -2,14 +2,17 @@
 
 This directory contains versioned, source-controlled benchmark artifacts for Living World Engine. The benchmark owner is 上海创智学院 and the project is Living World Engine.
 
-`registry.json` is the index. A benchmark version is immutable once marked `frozen`; changes to the world snapshot, model/profile, prompt, Action Compilation projector, candidate-key format, repair policy, or dataset schema require a new version. Generated data is written to a staging directory and published only after shard hashes and semantic contracts pass verification.
+`registry.json` is the index. A benchmark version is immutable once marked `frozen`; changes to the world snapshot, model/profile, prompt, Action Compilation projector, candidate-key format, repair policy, or dataset schema require a new version. Exported data is written to a staging directory and published only after shard hashes and semantic contracts pass verification.
 
 The first benchmark family, `action-compilation/fullcatalog-stabilized`, measures whether a candidate retriever recalls the final candidate keys selected by the production C3 FullCatalog path. These targets are a stabilized behavioral reference, not absolute semantic ground truth. The FullCatalog baseline is expected to have recall 1.0 by construction.
 
-Generate the first version with:
+Export a version from recorded Action Compilation evidence with:
 
 ```sh
-npm run benchmark:generate:action-compilation-reference -- --live --target 480 --max-provider-requests 1000
+npm run benchmark:export:action-compilation-reference -- \
+  --database .livingworld-v20/livingworld.sqlite \
+  --execution <execution-id> \
+  --version 1
 ```
 
 Evaluate a retriever offline (the module must export a `CandidateRetriever` function or a default function):
@@ -24,16 +27,10 @@ Verify a frozen dataset and its FullCatalog control:
 npm run benchmark:verify:action-compilation-reference
 ```
 
-Generation is checkpointed after every completed batch under
-`.livingworld-benchmarks/action-compilation-reference-v1/run-*/checkpoints/`.
-If a live run is interrupted or otherwise fails, its `failure.json` contains the
-staging path and an exact resume command. Resume from that directory without
-replaying completed batches:
+The exporter opens the Ledger read-only and makes no provider or network request. Use `--instance <instance-id>` to collect every Action Compilation execution in an instance. Frozen versions are never overwritten; export additional source executions into the next version.
 
-```sh
-npm run benchmark:generate:action-compilation-reference -- --live --resume .livingworld-benchmarks/action-compilation-reference-v1/run-<timestamp>-<id>
-```
-
-Checkpoint source hashes (world, catalog, registry, algorithm, prompt, and
-seed corpus) must match the current process. A mismatch fails closed instead
-of combining outputs from different benchmark producers.
+The exported manifest records source execution IDs and the observed provider,
+transport, logical invocation, and repair counts separately from the zero
+provider requests performed by the exporter. Source world, catalog, registry,
+algorithm, prompt, candidate-key, and repair fingerprints must match when
+multiple executions are combined.
