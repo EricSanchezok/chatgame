@@ -136,6 +136,7 @@ const SUPPORTED_KINDS = new Set([
   "action",
   "agent",
   "entity",
+  "condition",
   "fact",
   "meter",
   "placement",
