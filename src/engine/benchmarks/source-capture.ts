@@ -20,12 +20,27 @@ export interface RawBenchmarkSource {
   worldHash?: string;
   stateHash?: string;
   modelCatalogHash?: string;
+  registrySnapshotHash?: string;
+  modelId?: string;
   promptVersion?: string;
   profileId?: string;
   outputDisposition?: string;
   rawOutputHash?: string;
   normalizedOutputHash?: string;
   repairCount?: number;
+}
+
+export interface RegeneratedActionCompilationReference {
+  fullContextHash: string;
+  providerRequests: number;
+  fullyValidated: true;
+  slots: Array<{
+    slotIndex: number;
+    requiredCandidateKeys: string[];
+    repairCount: number;
+    rawOutputHash: string;
+    normalizedOutputHash: string;
+  }>;
 }
 
 export interface BenchmarkSourceAdapter<TCapture extends RawBenchmarkSource = RawBenchmarkSource, TReference = unknown> {
