@@ -981,21 +981,21 @@ export async function compileActions(
         fullContext: context,
         slotIndices: batch.map((_, slot) => slot),
       });
-      if (retrieval && scope.observer) {
+      if (scope.observer) {
+        const fullContextHash = retrieval?.fullContextHash ?? contentHash(context);
         scope.observer.emit({
           event: "model.action_compilation.context.captured",
           correlation,
-          attributes: { middlewareVersion: scope.candidateRetrievalMiddleware!.version, role: "action-compilation" },
+          attributes: { middlewareVersion: scope.candidateRetrievalMiddleware?.version ?? "fullcatalog-control", role: "action-compilation" },
           counts: {
-            selectedCandidates: retrieval.diagnostics.selectedCount,
-            visibleCandidates: retrieval.diagnostics.visibleCount,
-            prunedReferences: retrieval.diagnostics.prunedReferenceCount,
-            anchors: retrieval.diagnostics.anchorCount,
+            selectedCandidates: retrieval?.diagnostics.selectedCount ?? context.referenceCatalog.candidates.length,
+            visibleCandidates: retrieval?.diagnostics.visibleCount ?? context.referenceCatalog.candidates.length,
+            prunedReferences: retrieval?.diagnostics.prunedReferenceCount ?? 0,
+            anchors: retrieval?.diagnostics.anchorCount ?? 0,
           },
           hashes: {
-            fullContext: retrieval.fullContextHash,
-            modelContext: retrieval.modelContextHash,
-            shortlist: retrieval.shortlistHash,
+            fullContext: fullContextHash,
+            ...(retrieval ? { modelContext: retrieval.modelContextHash, shortlist: retrieval.shortlistHash } : {}),
           },
           payload: fullRuntimePayload(scope.observer, {
             sourceExecutionId: scope.correlation?.executionId,
@@ -1006,10 +1006,9 @@ export async function compileActions(
             fullContext: context,
             stateSnapshot: state,
             actionIds: batch.map((entry) => entry.payload.action.id),
-            selectedKeysBySlot: [...retrieval.selectedKeysBySlot.entries()],
-            fullContextHash: retrieval.fullContextHash,
-            modelContextHash: retrieval.modelContextHash,
-            shortlistHash: retrieval.shortlistHash,
+            ...(retrieval ? { selectedKeysBySlot: [...retrieval.selectedKeysBySlot.entries()] } : {}),
+            fullContextHash,
+            ...(retrieval ? { modelContextHash: retrieval.modelContextHash, shortlistHash: retrieval.shortlistHash } : {}),
             worldHash: scope.runtimeIdentity?.worldHash,
             stateHash: contentHash(state),
             modelCatalogHash: typeof context.referenceCatalog?.hash === "string" ? context.referenceCatalog.hash : undefined,
