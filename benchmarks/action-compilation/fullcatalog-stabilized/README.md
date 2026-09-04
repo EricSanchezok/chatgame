@@ -2,6 +2,12 @@
 
 Versioned artifacts are exported under `v1/` from recorded game executions. The exporter reads the production Action Compilation C3 evidence and stores only slots that the production compiler accepted after its existing semantic repair path.
 
+The frozen dataset lives under
+`benchmarks/action-compilation/fullcatalog-stabilized/v1/`. Its source capture,
+state checkpoints, local encoder weights, and exploratory ranker artifacts live
+under the ignored `.livingworld-benchmarks/` tree. `benchmarks/registry.json`
+is the authoritative index; do not append new cases to a frozen version.
+
 Each accepted slot case references one deduplicated full C3 context using `contextHash` and `slotIndex`. `requiredCandidateKeys` contains the final resolved candidate keys, sorted and deduplicated. It is a behavioral reference to the stable production path, not a claim that the model's selection is semantically perfect.
 
 Export a version with:
@@ -22,3 +28,8 @@ The comparison never calls an LLM or changes the world. Missing local encoder
 assets are reported as `blocked`; no online download is attempted. A learned
 ranker trained from the current 46 cases is exploratory only and cannot be
 promoted without the independent-snapshot training gate.
+
+For the encoder track, install the pinned Transformers.js-compatible ONNX
+asset as described in the [benchmark maintenance guide](../../README.md). The
+comparison records the local asset and library hashes, uses fixed `query:` /
+`passage:` prefixes, and fails closed when the files are missing or corrupt.

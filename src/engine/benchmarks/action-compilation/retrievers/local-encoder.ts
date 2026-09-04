@@ -6,6 +6,8 @@ import type { LocalEncoderRuntime } from "./advanced";
 
 export const MULTILINGUAL_E5_SMALL_MODEL_ID = "intfloat/multilingual-e5-small" as const;
 export const TRANSFORMERS_LIBRARY_PACKAGE = "@huggingface/transformers" as const;
+export const LOCAL_ENCODER_MAX_BATCH_SIZE = 128 as const;
+export const LOCAL_ENCODER_MAX_TOKENS = 128 as const;
 
 export interface LocalEncoderAssetOptions {
   modelDirectory: string;
@@ -19,7 +21,7 @@ interface TensorLike {
 }
 
 interface FeatureExtractor {
-  (texts: string | string[], options?: { pooling?: "mean"; normalize?: boolean }): Promise<TensorLike>;
+  (texts: string | string[], options?: { pooling?: "mean"; normalize?: boolean; truncation?: boolean; max_length?: number }): Promise<TensorLike>;
 }
 
 function files(root: string): string[] {
@@ -27,7 +29,13 @@ function files(root: string): string[] {
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(absolute);
+      // Hugging Face's local-dir downloader leaves mutable transfer metadata
+      // under .cache. It is not part of the model asset identity and must not
+      // change the pinned hash between installs or resumed downloads.
+      if (entry.isDirectory()) {
+        if (entry.name === ".cache") continue;
+        visit(absolute);
+      }
       else if (entry.isFile()) output.push(path.relative(root, absolute));
     }
   };
@@ -107,7 +115,19 @@ export async function loadLocalMultilingualE5Small(options: LocalEncoderAssetOpt
     libraryHash: library.hash,
     async encodeBatch(texts: readonly string[]): Promise<readonly (readonly number[])[]> {
       if (texts.length === 0) return [];
-      const result = vectors(await extractor([...texts], { pooling: "mean", normalize: true }), texts.length);
+      // Keep inference memory bounded for a full C3 catalog. A single catalog
+      // can contain thousands of passages; Transformers.js otherwise creates
+      // a very large padded tensor before ONNX execution.
+      const result: Array<readonly number[]> = [];
+      for (let offset = 0; offset < texts.length; offset += LOCAL_ENCODER_MAX_BATCH_SIZE) {
+        const batch = texts.slice(offset, offset + LOCAL_ENCODER_MAX_BATCH_SIZE);
+        result.push(...vectors(await extractor([...batch], {
+          pooling: "mean",
+          normalize: true,
+          truncation: true,
+          max_length: LOCAL_ENCODER_MAX_TOKENS,
+        }), batch.length));
+      }
       dimensions = result[0]?.length ?? dimensions;
       return result;
     },

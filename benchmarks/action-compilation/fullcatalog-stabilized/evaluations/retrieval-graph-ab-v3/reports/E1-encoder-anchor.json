@@ -1,0 +1,2667 @@
+{
+  "schemaVersion": 3,
+  "kind": "action-compilation-retrieval-experiment-v3",
+  "datasetId": "action-compilation/fullcatalog-stabilized",
+  "datasetVersion": 1,
+  "retriever": "E1-encoder-anchor",
+  "policy": {
+    "budgetRatio": 0.2,
+    "minMicroRecall": 0.9,
+    "minMacroRecall": 0.9,
+    "minAverageCompression": 0.8,
+    "maxP95ShortlistRatio": 0.2,
+    "requireDeterministic": true,
+    "allowFallback": false
+  },
+  "cases": 46,
+  "nonEmptyRequiredCases": 46,
+  "emptyRequiredCases": 0,
+  "requiredKeys": 609,
+  "recalledKeys": 486,
+  "microRecall": 0.7980295566502463,
+  "macroRecall": 0.8204636568828214,
+  "averageCompression": 0.800365666811057,
+  "averageShortlistRatio": 0.19963433318894291,
+  "p95ShortlistRatio": 0.19977553310886645,
+  "minCaseRecall": 0.25,
+  "p05CaseRecall": 0.45454545454545453,
+  "p10CaseRecall": 0.5555555555555556,
+  "byKind": {
+    "entity": {
+      "cases": 33,
+      "requiredKeys": 145,
+      "recalledKeys": 133,
+      "recall": 0.9172413793103448
+    },
+    "action": {
+      "cases": 46,
+      "requiredKeys": 46,
+      "recalledKeys": 46,
+      "recall": 1
+    },
+    "agent": {
+      "cases": 38,
+      "requiredKeys": 78,
+      "recalledKeys": 63,
+      "recall": 0.8076923076923077
+    },
+    "fact": {
+      "cases": 39,
+      "requiredKeys": 213,
+      "recalledKeys": 149,
+      "recall": 0.6995305164319249
+    },
+    "temporal_profile": {
+      "cases": 46,
+      "requiredKeys": 46,
+      "recalledKeys": 46,
+      "recall": 1
+    },
+    "meter": {
+      "cases": 6,
+      "requiredKeys": 9,
+      "recalledKeys": 6,
+      "recall": 0.6666666666666666
+    },
+    "rating": {
+      "cases": 10,
+      "requiredKeys": 41,
+      "recalledKeys": 21,
+      "recall": 0.5121951219512195
+    },
+    "quantity": {
+      "cases": 7,
+      "requiredKeys": 15,
+      "recalledKeys": 8,
+      "recall": 0.5333333333333333
+    },
+    "placement": {
+      "cases": 10,
+      "requiredKeys": 16,
+      "recalledKeys": 14,
+      "recall": 0.875
+    }
+  },
+  "byUse": {
+    "assertion": {
+      "cases": 44,
+      "requiredKeys": 439,
+      "recalledKeys": 331,
+      "recall": 0.7539863325740319
+    },
+    "cause": {
+      "cases": 46,
+      "requiredKeys": 404,
+      "recalledKeys": 328,
+      "recall": 0.8118811881188119
+    },
+    "conflict": {
+      "cases": 44,
+      "requiredKeys": 439,
+      "recalledKeys": 331,
+      "recall": 0.7539863325740319
+    },
+    "subject": {
+      "cases": 44,
+      "requiredKeys": 358,
+      "recalledKeys": 282,
+      "recall": 0.7877094972067039
+    },
+    "target": {
+      "cases": 46,
+      "requiredKeys": 436,
+      "recalledKeys": 345,
+      "recall": 0.7912844036697247
+    },
+    "source": {
+      "cases": 46,
+      "requiredKeys": 46,
+      "recalledKeys": 46,
+      "recall": 1
+    },
+    "audience": {
+      "cases": 38,
+      "requiredKeys": 78,
+      "recalledKeys": 63,
+      "recall": 0.8076923076923077
+    },
+    "profile": {
+      "cases": 46,
+      "requiredKeys": 46,
+      "recalledKeys": 46,
+      "recall": 1
+    },
+    "modifier": {
+      "cases": 10,
+      "requiredKeys": 41,
+      "recalledKeys": 21,
+      "recall": 0.5121951219512195
+    }
+  },
+  "byBatchSize": {
+    "2": {
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 486,
+      "recall": 0.7980295566502463
+    }
+  },
+  "byBatchUnion": [
+    {
+      "contextHash": "0e20787db8b0e71908002b0ee8a5a0f66c7467c1a9b07357b5ae0bd04f4b468a",
+      "batchSize": 2,
+      "slots": 1,
+      "cases": 1,
+      "requiredKeys": 16,
+      "recalledKeys": 15,
+      "recall": 0.9375,
+      "returnedCount": 356
+    },
+    {
+      "contextHash": "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 15,
+      "recalledKeys": 13,
+      "recall": 0.8666666666666667,
+      "returnedCount": 432
+    },
+    {
+      "contextHash": "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 34,
+      "recalledKeys": 34,
+      "recall": 1,
+      "returnedCount": 431
+    },
+    {
+      "contextHash": "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 6,
+      "recalledKeys": 6,
+      "recall": 1,
+      "returnedCount": 411
+    },
+    {
+      "contextHash": "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 24,
+      "recalledKeys": 13,
+      "recall": 0.5416666666666666,
+      "returnedCount": 424
+    },
+    {
+      "contextHash": "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 31,
+      "recalledKeys": 22,
+      "recall": 0.7096774193548387,
+      "returnedCount": 433
+    },
+    {
+      "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 34,
+      "recalledKeys": 26,
+      "recall": 0.7647058823529411,
+      "returnedCount": 412
+    },
+    {
+      "contextHash": "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 36,
+      "recalledKeys": 19,
+      "recall": 0.5277777777777778,
+      "returnedCount": 400
+    },
+    {
+      "contextHash": "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 13,
+      "recalledKeys": 9,
+      "recall": 0.6923076923076923,
+      "returnedCount": 407
+    },
+    {
+      "contextHash": "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 16,
+      "recalledKeys": 15,
+      "recall": 0.9375,
+      "returnedCount": 432
+    },
+    {
+      "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 41,
+      "recalledKeys": 25,
+      "recall": 0.6097560975609756,
+      "returnedCount": 411
+    },
+    {
+      "contextHash": "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 35,
+      "recalledKeys": 28,
+      "recall": 0.8,
+      "returnedCount": 421
+    },
+    {
+      "contextHash": "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 12,
+      "recalledKeys": 11,
+      "recall": 0.9166666666666666,
+      "returnedCount": 413
+    },
+    {
+      "contextHash": "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 10,
+      "recalledKeys": 10,
+      "recall": 1,
+      "returnedCount": 461
+    },
+    {
+      "contextHash": "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 7,
+      "recalledKeys": 7,
+      "recall": 1,
+      "returnedCount": 423
+    },
+    {
+      "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 14,
+      "recalledKeys": 14,
+      "recall": 1,
+      "returnedCount": 451
+    },
+    {
+      "contextHash": "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 47,
+      "recalledKeys": 45,
+      "recall": 0.9574468085106383,
+      "returnedCount": 445
+    },
+    {
+      "contextHash": "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 40,
+      "recalledKeys": 34,
+      "recall": 0.85,
+      "returnedCount": 446
+    },
+    {
+      "contextHash": "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 31,
+      "recalledKeys": 30,
+      "recall": 0.967741935483871,
+      "returnedCount": 453
+    },
+    {
+      "contextHash": "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 41,
+      "recalledKeys": 25,
+      "recall": 0.6097560975609756,
+      "returnedCount": 407
+    },
+    {
+      "contextHash": "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 16,
+      "recalledKeys": 9,
+      "recall": 0.5625,
+      "returnedCount": 418
+    },
+    {
+      "contextHash": "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 22,
+      "recalledKeys": 21,
+      "recall": 0.9545454545454546,
+      "returnedCount": 412
+    },
+    {
+      "contextHash": "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30",
+      "batchSize": 2,
+      "slots": 2,
+      "cases": 2,
+      "requiredKeys": 13,
+      "recalledKeys": 13,
+      "recall": 1,
+      "returnedCount": 383
+    },
+    {
+      "contextHash": "ef7a0a84b5b6be44e097fb8a25b3ff742dba73fcb50aaa36ba1f06efa96e4bdb",
+      "batchSize": 2,
+      "slots": 1,
+      "cases": 1,
+      "requiredKeys": 22,
+      "recalledKeys": 15,
+      "recall": 0.6818181818181818,
+      "returnedCount": 356
+    }
+  ],
+  "invalidOutputCases": 0,
+  "invalidOutputKeys": 0,
+  "budgetExceededCases": 0,
+  "deterministic": true,
+  "hardGate": false,
+  "caseResults": [
+    {
+      "caseId": "ac-c3-v1-000001",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 16,
+      "recalledCount": 15,
+      "recall": 0.9375,
+      "missingKeys": [
+        "candidate_7ea3f2b04ff1"
+      ],
+      "missingByKind": {
+        "fact": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_7ea3f2b04ff1",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000002",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 6,
+      "recalledCount": 4,
+      "recall": 0.6666666666666666,
+      "missingKeys": [
+        "candidate_62b4f383f331",
+        "candidate_ea4dac7c11a4"
+      ],
+      "missingByKind": {
+        "entity": 2
+      },
+      "missingByUse": {
+        "assertion": 2,
+        "cause": 2,
+        "conflict": 2,
+        "subject": 2,
+        "target": 2
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_62b4f383f331",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_ea4dac7c11a4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000003",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 10,
+      "recalledCount": 10,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000004",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 20,
+      "recalledCount": 20,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000005",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1785,
+      "budget": 357,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19943977591036416,
+      "compression": 0.8005602240896359,
+      "requiredCount": 21,
+      "recalledCount": 21,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000006",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 4,
+      "recalledCount": 4,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000007",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 3,
+      "recalledCount": 3,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000008",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 11,
+      "recalledCount": 5,
+      "recall": 0.45454545454545453,
+      "missingKeys": [
+        "candidate_0001980c5ba6",
+        "candidate_07bf39d09de7",
+        "candidate_0924fa6b769c",
+        "candidate_0bda465d35b4",
+        "candidate_44c19fe26524",
+        "candidate_a5de3d0e7431"
+      ],
+      "missingByKind": {
+        "rating": 2,
+        "fact": 4
+      },
+      "missingByUse": {
+        "assertion": 6,
+        "conflict": 6,
+        "modifier": 2,
+        "cause": 4,
+        "subject": 4,
+        "target": 4
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_0001980c5ba6",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_07bf39d09de7",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_0924fa6b769c",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_0bda465d35b4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_44c19fe26524",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_a5de3d0e7431",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000009",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 14,
+      "recalledCount": 9,
+      "recall": 0.6428571428571429,
+      "missingKeys": [
+        "candidate_1d3002df5ea2",
+        "candidate_2a9f04d18587",
+        "candidate_4242ee829a42",
+        "candidate_4793a6643549",
+        "candidate_d1bd13b090c7"
+      ],
+      "missingByKind": {
+        "fact": 5
+      },
+      "missingByUse": {
+        "assertion": 5,
+        "cause": 5,
+        "conflict": 5,
+        "subject": 5,
+        "target": 5
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_1d3002df5ea2",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_2a9f04d18587",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_4242ee829a42",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_4793a6643549",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_d1bd13b090c7",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000010",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 16,
+      "recalledCount": 9,
+      "recall": 0.5625,
+      "missingKeys": [
+        "candidate_1ca1b73756eb",
+        "candidate_5eceed0f5bf9",
+        "candidate_9f989ea2ad1c",
+        "candidate_b61e31932cbe",
+        "candidate_c0d904966f38",
+        "candidate_d70c1d7290ff",
+        "candidate_f68305475a2d"
+      ],
+      "missingByKind": {
+        "entity": 1,
+        "fact": 5,
+        "quantity": 1
+      },
+      "missingByUse": {
+        "assertion": 7,
+        "cause": 6,
+        "conflict": 7,
+        "subject": 6,
+        "target": 6
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_1ca1b73756eb",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_5eceed0f5bf9",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_9f989ea2ad1c",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_b61e31932cbe",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_c0d904966f38",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_d70c1d7290ff",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_f68305475a2d",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000011",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1785,
+      "budget": 357,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19943977591036416,
+      "compression": 0.8005602240896359,
+      "requiredCount": 16,
+      "recalledCount": 13,
+      "recall": 0.8125,
+      "missingKeys": [
+        "candidate_4a97f238fca8",
+        "candidate_5b43b2e05175",
+        "candidate_973f0e123a75"
+      ],
+      "missingByKind": {
+        "agent": 2,
+        "fact": 1
+      },
+      "missingByUse": {
+        "audience": 2,
+        "target": 3,
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_4a97f238fca8",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_5b43b2e05175",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_973f0e123a75",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000012",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 18,
+      "recalledCount": 13,
+      "recall": 0.7222222222222222,
+      "missingKeys": [
+        "candidate_23fb993af3fd",
+        "candidate_81459f4a8c2d",
+        "candidate_c1361d4ee2c8",
+        "candidate_c7963bc13fc7",
+        "candidate_cac1ac5cd28c"
+      ],
+      "missingByKind": {
+        "agent": 1,
+        "meter": 1,
+        "quantity": 2,
+        "rating": 1
+      },
+      "missingByUse": {
+        "audience": 1,
+        "target": 1,
+        "assertion": 4,
+        "conflict": 4,
+        "modifier": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_23fb993af3fd",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_81459f4a8c2d",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_c1361d4ee2c8",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_c7963bc13fc7",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_cac1ac5cd28c",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000013",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 17,
+      "recalledCount": 14,
+      "recall": 0.8235294117647058,
+      "missingKeys": [
+        "candidate_00c2388a6d61",
+        "candidate_c6f804b30626",
+        "candidate_f9b65040e0a5"
+      ],
+      "missingByKind": {
+        "fact": 2,
+        "entity": 1
+      },
+      "missingByUse": {
+        "assertion": 3,
+        "cause": 3,
+        "conflict": 3,
+        "subject": 3,
+        "target": 3
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_00c2388a6d61",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_c6f804b30626",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_f9b65040e0a5",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000014",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 16,
+      "recalledCount": 4,
+      "recall": 0.25,
+      "missingKeys": [
+        "candidate_0a9d50c6035f",
+        "candidate_2063417e1f0b",
+        "candidate_2595e90392d9",
+        "candidate_3cf754c26ccf",
+        "candidate_60e83ffb18ca",
+        "candidate_6795514331ce",
+        "candidate_a2776db91b41",
+        "candidate_bfb13fa30f60",
+        "candidate_cac1ac5cd28c",
+        "candidate_cf54b01b1c9a",
+        "candidate_d707ceaab008",
+        "candidate_f1544541e196"
+      ],
+      "missingByKind": {
+        "rating": 8,
+        "fact": 4
+      },
+      "missingByUse": {
+        "assertion": 12,
+        "conflict": 12,
+        "modifier": 8,
+        "cause": 4,
+        "subject": 4,
+        "target": 4
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_0a9d50c6035f",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_2063417e1f0b",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_2595e90392d9",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_3cf754c26ccf",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_60e83ffb18ca",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_6795514331ce",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_a2776db91b41",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_bfb13fa30f60",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_cac1ac5cd28c",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_cf54b01b1c9a",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_d707ceaab008",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_f1544541e196",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000015",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 21,
+      "recalledCount": 16,
+      "recall": 0.7619047619047619,
+      "missingKeys": [
+        "candidate_294262b687e1",
+        "candidate_4e45f8e10f9e",
+        "candidate_5e78cc64a70c",
+        "candidate_ab86067106a0",
+        "candidate_e8e6d6ed6db2"
+      ],
+      "missingByKind": {
+        "rating": 3,
+        "meter": 2
+      },
+      "missingByUse": {
+        "assertion": 5,
+        "conflict": 5,
+        "modifier": 3
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_294262b687e1",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_4e45f8e10f9e",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_5e78cc64a70c",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_ab86067106a0",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_e8e6d6ed6db2",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000016",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 6,
+      "recalledCount": 5,
+      "recall": 0.8333333333333334,
+      "missingKeys": [
+        "candidate_a0fad1b458de"
+      ],
+      "missingByKind": {
+        "agent": 1
+      },
+      "missingByUse": {
+        "audience": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_a0fad1b458de",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000017",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 9,
+      "recalledCount": 5,
+      "recall": 0.5555555555555556,
+      "missingKeys": [
+        "candidate_6c1468107b8f",
+        "candidate_7babebc0c0ed",
+        "candidate_a0fad1b458de",
+        "candidate_ac16f2c42231"
+      ],
+      "missingByKind": {
+        "fact": 3,
+        "agent": 1
+      },
+      "missingByUse": {
+        "assertion": 3,
+        "cause": 3,
+        "conflict": 3,
+        "subject": 3,
+        "target": 4,
+        "audience": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_6c1468107b8f",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_7babebc0c0ed",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_a0fad1b458de",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_ac16f2c42231",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000018",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1785,
+      "budget": 357,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19943977591036416,
+      "compression": 0.8005602240896359,
+      "requiredCount": 8,
+      "recalledCount": 7,
+      "recall": 0.875,
+      "missingKeys": [
+        "candidate_04f501922cf4"
+      ],
+      "missingByKind": {
+        "fact": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_04f501922cf4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000019",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 9,
+      "recalledCount": 9,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000020",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 22,
+      "recalledCount": 15,
+      "recall": 0.6818181818181818,
+      "missingKeys": [
+        "candidate_045c91ce5656",
+        "candidate_19956207983a",
+        "candidate_3fec09fc263d",
+        "candidate_4a97f238fca8",
+        "candidate_5b59d1ce2cc9",
+        "candidate_6b5d8283e6c0",
+        "candidate_cf72d1ea85f7"
+      ],
+      "missingByKind": {
+        "entity": 2,
+        "fact": 3,
+        "agent": 1,
+        "quantity": 1
+      },
+      "missingByUse": {
+        "assertion": 6,
+        "cause": 5,
+        "conflict": 6,
+        "subject": 5,
+        "target": 6,
+        "audience": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_045c91ce5656",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_19956207983a",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_3fec09fc263d",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_4a97f238fca8",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_5b59d1ce2cc9",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_6b5d8283e6c0",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_cf72d1ea85f7",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000021",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 20,
+      "recalledCount": 11,
+      "recall": 0.55,
+      "missingKeys": [
+        "candidate_0be64a9d045e",
+        "candidate_0e1edb0ef68f",
+        "candidate_1f3cf4c24765",
+        "candidate_57e1365a8b73",
+        "candidate_57ec1b863486",
+        "candidate_8197a875a456",
+        "candidate_b4c20c74bea2",
+        "candidate_c6228c607f45",
+        "candidate_d31dbb01365e"
+      ],
+      "missingByKind": {
+        "rating": 5,
+        "quantity": 3,
+        "placement": 1
+      },
+      "missingByUse": {
+        "assertion": 9,
+        "conflict": 9,
+        "modifier": 5
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_0be64a9d045e",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_0e1edb0ef68f",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_1f3cf4c24765",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_57e1365a8b73",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_57ec1b863486",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_8197a875a456",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_b4c20c74bea2",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_c6228c607f45",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_d31dbb01365e",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000022",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 20,
+      "recalledCount": 16,
+      "recall": 0.8,
+      "missingKeys": [
+        "candidate_1204f5686242",
+        "candidate_24c4b4568c07",
+        "candidate_4242ee829a42",
+        "candidate_4793a6643549"
+      ],
+      "missingByKind": {
+        "fact": 4
+      },
+      "missingByUse": {
+        "assertion": 4,
+        "cause": 4,
+        "conflict": 4,
+        "subject": 4,
+        "target": 4
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_1204f5686242",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_24c4b4568c07",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_4242ee829a42",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_4793a6643549",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000023",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 15,
+      "recalledCount": 12,
+      "recall": 0.8,
+      "missingKeys": [
+        "candidate_0efd9710d26e",
+        "candidate_ac5a9888dfe7",
+        "candidate_c6f804b30626"
+      ],
+      "missingByKind": {
+        "fact": 3
+      },
+      "missingByUse": {
+        "assertion": 3,
+        "cause": 3,
+        "conflict": 3,
+        "subject": 3,
+        "target": 3
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_0efd9710d26e",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_ac5a9888dfe7",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_c6f804b30626",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000024",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000025",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 8,
+      "recalledCount": 7,
+      "recall": 0.875,
+      "missingKeys": [
+        "candidate_60e83ffb18ca"
+      ],
+      "missingByKind": {
+        "fact": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_60e83ffb18ca",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000026",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000027",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 6,
+      "recalledCount": 6,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000028",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 3,
+      "recalledCount": 3,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000029",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000030",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 8,
+      "recalledCount": 7,
+      "recall": 0.875,
+      "missingKeys": [
+        "candidate_7c85501dcc9d"
+      ],
+      "missingByKind": {
+        "fact": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_7c85501dcc9d",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000031",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 7,
+      "recalledCount": 7,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000032",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 19,
+      "recalledCount": 18,
+      "recall": 0.9473684210526315,
+      "missingKeys": [
+        "candidate_d6bb10c24752"
+      ],
+      "missingByKind": {
+        "fact": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_d6bb10c24752",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000033",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 29,
+      "recalledCount": 28,
+      "recall": 0.9655172413793104,
+      "missingKeys": [
+        "candidate_eca2f6915647"
+      ],
+      "missingByKind": {
+        "entity": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_eca2f6915647",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000034",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 13,
+      "recalledCount": 12,
+      "recall": 0.9230769230769231,
+      "missingKeys": [
+        "candidate_daf075d816c6"
+      ],
+      "missingByKind": {
+        "entity": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_daf075d816c6",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000035",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 28,
+      "recalledCount": 23,
+      "recall": 0.8214285714285714,
+      "missingKeys": [
+        "candidate_44576ad92c8d",
+        "candidate_a250f73e26d5",
+        "candidate_b43bfbd8b8b4",
+        "candidate_d74b8ac4f8ff",
+        "candidate_e1ff373363e6"
+      ],
+      "missingByKind": {
+        "agent": 2,
+        "entity": 2,
+        "fact": 1
+      },
+      "missingByUse": {
+        "audience": 2,
+        "target": 5,
+        "assertion": 3,
+        "cause": 3,
+        "conflict": 3,
+        "subject": 3
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_44576ad92c8d",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_a250f73e26d5",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_b43bfbd8b8b4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_d74b8ac4f8ff",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_e1ff373363e6",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000036",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 16,
+      "recalledCount": 16,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000037",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1782,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19977553310886645,
+      "compression": 0.8002244668911336,
+      "requiredCount": 15,
+      "recalledCount": 14,
+      "recall": 0.9333333333333333,
+      "missingKeys": [
+        "candidate_2e383db023d1"
+      ],
+      "missingByKind": {
+        "agent": 1
+      },
+      "missingByUse": {
+        "audience": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_2e383db023d1",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000038",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 21,
+      "recalledCount": 12,
+      "recall": 0.5714285714285714,
+      "missingKeys": [
+        "candidate_10264ffe4ab7",
+        "candidate_14da584670ff",
+        "candidate_60e83ffb18ca",
+        "candidate_628d2b91cc4a",
+        "candidate_7ea3f2b04ff1",
+        "candidate_8813ba401c53",
+        "candidate_a0fad1b458de",
+        "candidate_ab9e497c8ebc",
+        "candidate_f1544541e196"
+      ],
+      "missingByKind": {
+        "entity": 1,
+        "fact": 7,
+        "agent": 1
+      },
+      "missingByUse": {
+        "assertion": 8,
+        "cause": 8,
+        "conflict": 8,
+        "subject": 8,
+        "target": 9,
+        "audience": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_10264ffe4ab7",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_14da584670ff",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_60e83ffb18ca",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_628d2b91cc4a",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_7ea3f2b04ff1",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_8813ba401c53",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_a0fad1b458de",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_ab9e497c8ebc",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_f1544541e196",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000039",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 20,
+      "recalledCount": 13,
+      "recall": 0.65,
+      "missingKeys": [
+        "candidate_04ee181a67fe",
+        "candidate_0f75650ccec4",
+        "candidate_6a1923ab68b3",
+        "candidate_90dd1e6c7a83",
+        "candidate_cb763b19f9f4",
+        "candidate_d34c0a5caa73",
+        "candidate_f9e10d182855"
+      ],
+      "missingByKind": {
+        "rating": 1,
+        "fact": 5,
+        "agent": 1
+      },
+      "missingByUse": {
+        "assertion": 6,
+        "conflict": 6,
+        "modifier": 1,
+        "cause": 5,
+        "subject": 5,
+        "target": 6,
+        "audience": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_04ee181a67fe",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_0f75650ccec4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_6a1923ab68b3",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_90dd1e6c7a83",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_cb763b19f9f4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_d34c0a5caa73",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_f9e10d182855",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000040",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 9,
+      "recalledCount": 3,
+      "recall": 0.3333333333333333,
+      "missingKeys": [
+        "candidate_2e2c0599e5e4",
+        "candidate_2e3e5d3a1933",
+        "candidate_2e560fa7a5e8",
+        "candidate_6afce0dd987e",
+        "candidate_86d2635ab0a5",
+        "candidate_b43bfbd8b8b4"
+      ],
+      "missingByKind": {
+        "fact": 3,
+        "entity": 1,
+        "placement": 1,
+        "agent": 1
+      },
+      "missingByUse": {
+        "assertion": 5,
+        "cause": 4,
+        "conflict": 5,
+        "subject": 4,
+        "target": 5,
+        "audience": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_2e2c0599e5e4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_2e3e5d3a1933",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_2e560fa7a5e8",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_6afce0dd987e",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_86d2635ab0a5",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_b43bfbd8b8b4",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000041",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 8,
+      "recalledCount": 6,
+      "recall": 0.75,
+      "missingKeys": [
+        "candidate_0c79b7fc591d",
+        "candidate_7ae30ce51030"
+      ],
+      "missingByKind": {
+        "fact": 2
+      },
+      "missingByUse": {
+        "assertion": 2,
+        "cause": 2,
+        "conflict": 2,
+        "subject": 2,
+        "target": 2
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_0c79b7fc591d",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_7ae30ce51030",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000042",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 8,
+      "recalledCount": 7,
+      "recall": 0.875,
+      "missingKeys": [
+        "candidate_8ab93cd1c338"
+      ],
+      "missingByKind": {
+        "fact": 1
+      },
+      "missingByUse": {
+        "assertion": 1,
+        "cause": 1,
+        "conflict": 1,
+        "subject": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_8ab93cd1c338",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000043",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 15,
+      "recalledCount": 15,
+      "recall": 1,
+      "missingKeys": [],
+      "missingByKind": {},
+      "missingByUse": {},
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": []
+    },
+    {
+      "caseId": "ac-c3-v1-000044",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 11,
+      "recalledCount": 10,
+      "recall": 0.9090909090909091,
+      "missingKeys": [
+        "candidate_973f0e123a75"
+      ],
+      "missingByKind": {
+        "agent": 1
+      },
+      "missingByUse": {
+        "audience": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_973f0e123a75",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000045",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1784,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19955156950672645,
+      "compression": 0.8004484304932735,
+      "requiredCount": 10,
+      "recalledCount": 9,
+      "recall": 0.9,
+      "missingKeys": [
+        "candidate_96e8bf902f7a"
+      ],
+      "missingByKind": {
+        "agent": 1
+      },
+      "missingByUse": {
+        "audience": 1,
+        "target": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_96e8bf902f7a",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    },
+    {
+      "caseId": "ac-c3-v1-000046",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "fullVisibleCount": 1783,
+      "budget": 356,
+      "returnedCount": 356,
+      "normalizedShortlistRatio": 0.19966348850252383,
+      "compression": 0.8003365114974762,
+      "requiredCount": 22,
+      "recalledCount": 15,
+      "recall": 0.6818181818181818,
+      "missingKeys": [
+        "candidate_107e7ee18972",
+        "candidate_40b073cd0e25",
+        "candidate_6a1923ab68b3",
+        "candidate_a0fad1b458de",
+        "candidate_af3cf5171aec",
+        "candidate_c38a38cc5a30",
+        "candidate_cd1939edb9ce"
+      ],
+      "missingByKind": {
+        "fact": 6,
+        "agent": 1
+      },
+      "missingByUse": {
+        "assertion": 6,
+        "cause": 6,
+        "conflict": 6,
+        "subject": 6,
+        "target": 7,
+        "audience": 1
+      },
+      "invalidKeys": [],
+      "privateKeys": [],
+      "budgetExceeded": false,
+      "missingPathDiagnostics": [
+        {
+          "candidateKey": "candidate_107e7ee18972",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_40b073cd0e25",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_6a1923ab68b3",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_a0fad1b458de",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_af3cf5171aec",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_c38a38cc5a30",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        },
+        {
+          "candidateKey": "candidate_cd1939edb9ce",
+          "shortestPathDepth": null,
+          "relationPath": [],
+          "stage": "lexical",
+          "exclusionReason": "not-seeded"
+        }
+      ]
+    }
+  ],
+  "budgetRatio": 0.2,
+  "confidenceIntervals": {
+    "microRecall": {
+      "lower": 0.734594967745007,
+      "upper": 0.8529592301360748,
+      "samples": 200,
+      "seed": 3129783854
+    },
+    "macroRecall": {
+      "lower": 0.7621582289746275,
+      "upper": 0.8780867035233477,
+      "samples": 200,
+      "seed": 4101095435
+    }
+  },
+  "graphDiagnostics": {
+    "missingKeys": 123,
+    "byStage": {
+      "lexical": 123
+    },
+    "byExclusionReason": {
+      "not-seeded": 123
+    }
+  }
+}

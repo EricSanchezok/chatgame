@@ -20,7 +20,7 @@ import {
   type GraphAwareStrategy,
   type GraphRankerModel,
 } from "../../src/engine/benchmarks/action-compilation/retrievers/graph-aware";
-import { loadLocalMultilingualE5Small, hashLocalModelDirectory } from "../../src/engine/benchmarks/action-compilation/retrievers/local-encoder";
+import { loadLocalMultilingualE5Small, hashLocalModelDirectory, LOCAL_ENCODER_MAX_BATCH_SIZE, LOCAL_ENCODER_MAX_TOKENS } from "../../src/engine/benchmarks/action-compilation/retrievers/local-encoder";
 import type { LocalEncoderRuntime } from "../../src/engine/benchmarks/action-compilation/retrievers/advanced";
 
 const DEFAULT_DATASET = path.resolve("benchmarks/action-compilation/fullcatalog-stabilized/v1");
@@ -205,7 +205,7 @@ async function main(argv: readonly string[]): Promise<number> {
       datasetPath: path.relative(process.cwd(), dataset.root) || ".",
       offline: { llmRequests: 0, networkRequests: 0, worldMutations: 0 },
       policy,
-      encoder: encoder ? { modelId: encoder.modelId, modelHash: encoder.modelHash, dimensions: encoder.dimensions, modelDirectoryHash: hashLocalModelDirectory(args.modelDirectory), libraryVersion: encoder.libraryVersion ?? null, libraryHash: encoder.libraryHash ?? null, queryPrefix: "query: ", passagePrefix: "passage: ", pooling: "mean", normalize: true, search: "exact" } : null,
+      encoder: encoder ? { modelId: encoder.modelId, modelHash: encoder.modelHash, dimensions: encoder.dimensions, modelDirectoryHash: hashLocalModelDirectory(args.modelDirectory), libraryVersion: encoder.libraryVersion ?? null, libraryHash: encoder.libraryHash ?? null, queryPrefix: "query: ", passagePrefix: "passage: ", pooling: "mean", normalize: true, truncation: true, maxTokens: LOCAL_ENCODER_MAX_TOKENS, maxBatchSize: LOCAL_ENCODER_MAX_BATCH_SIZE, search: "exact" } : null,
       evaluatedAt: new Date().toISOString(),
       runs: runs.map(serialise),
       diagnostics: diagnostics.map(serialise),

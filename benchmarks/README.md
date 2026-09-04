@@ -2,6 +2,24 @@
 
 This directory contains versioned, source-controlled benchmark artifacts for Living World Engine. The benchmark owner is 上海创智学院 and the project is Living World Engine.
 
+The storage boundary is intentional:
+
+```text
+benchmarks/                                      # Git-tracked, reviewable artifacts
+  registry.json                                  # dataset family/version index
+  action-compilation/fullcatalog-stabilized/
+    v1/                                          # frozen behavioral reference
+    evaluations/<experiment-id>/                 # offline reports; never rewrite v1
+.livingworld-benchmarks/                         # local-only, Git-ignored material
+  models/                                        # pinned encoder/ranker assets
+  source/                                        # raw Ledger captures for regeneration
+```
+
+Only frozen benchmark shards, manifests, READMEs, and evaluation reports belong
+under `benchmarks/`. Provider requests, state snapshots used for regeneration,
+model weights, tokenizer caches, and training checkpoints stay under the
+ignored `.livingworld-benchmarks/` directory and must not contain credentials.
+
 `registry.json` is the index. A benchmark version is immutable once marked `frozen`; changes to the world snapshot, model/profile, prompt, Action Compilation projector, candidate-key format, repair policy, or dataset schema require a new version. Exported data is written to a staging directory and published only after shard hashes and semantic contracts pass verification.
 
 The first benchmark family, `action-compilation/fullcatalog-stabilized`, measures whether a candidate retriever recalls the final candidate keys selected by the production C3 FullCatalog path. These targets are a stabilized behavioral reference, not absolute semantic ground truth. The FullCatalog baseline is expected to have recall 1.0 by construction.
@@ -61,6 +79,37 @@ manifest and replay/semantic-validation decision. The current 46-case
 dataset may produce an exploratory ranker only; promotion requires at least
 200 accepted cases from three independent world/catalog snapshots.
 
+## Installing and checking the local encoder
+
+The encoder track uses the Transformers.js-compatible ONNX export of
+`intfloat/multilingual-e5-small`. Install it once into the ignored local asset
+directory (the download can be resumed if the ONNX file is large):
+
+```sh
+mkdir -p .livingworld-benchmarks/models/multilingual-e5-small
+hf download Xenova/multilingual-e5-small \
+  --revision 761b726dd34fb83930e26aab4e9ac3899aa1fa78 \
+  --include config.json tokenizer.json tokenizer_config.json special_tokens_map.json onnx/model.onnx \
+  --local-dir .livingworld-benchmarks/models/multilingual-e5-small
+```
+
+`Xenova/multilingual-e5-small` is the local ONNX packaging; experiment
+manifests still record the semantic model ID as
+`intfloat/multilingual-e5-small`. Do not place model files in Git. The loader
+records the asset-directory SHA-256, runtime/library hash, embedding dimension,
+prefixes, pooling, normalization, fixed 128-token truncation, and 128-item
+inference batches in `results.json`. Mutable downloader
+metadata under `.cache/` is excluded from the model hash. A valid install must
+load locally and produce 384-dimensional vectors:
+
+```sh
+npx tsx -e 'import {loadLocalMultilingualE5Small} from "./src/engine/benchmarks/action-compilation/retrievers/local-encoder"; (async()=>{const e=await loadLocalMultilingualE5Small({modelDirectory:".livingworld-benchmarks/models/multilingual-e5-small"}); const v=await e.encodeBatch(["query: smoke-test"]); console.log({modelId:e.modelId,dimensions:e.dimensions,rows:v.length,vectorLength:v[0]?.length,modelHash:e.modelHash})})()'
+```
+
+If the directory is absent or corrupt, E1/H1/H2 and learned tracks are
+reported as `blocked`; evaluation never downloads a model, uses an online
+embedding service, or silently substitutes another model.
+
 To capture the complete pre-shortlist context and immutable state evidence from
 a running Ledger (read-only, zero provider requests), use:
 
@@ -93,3 +142,20 @@ transport, logical invocation, and repair counts separately from the zero
 provider requests performed by the exporter. Source world, catalog, registry,
 algorithm, prompt, candidate-key, and repair fingerprints must match when
 multiple executions are combined.
+
+## Maintenance rules
+
+- Treat every `vN` directory as immutable after `status: frozen`; a new world,
+  catalog, prompt, projector, candidate-key version, repair policy, or model
+  creates `vN+1` rather than changing historical files.
+- Keep evaluation output in a named directory such as
+  `evaluations/retrieval-graph-ab-v3/`; it references a dataset version and is
+  safe to replace only for local scratch output with an explicit force flag.
+- Capture current executions with the read-only Ledger command before asking for
+  regeneration. Regeneration is the only command that may call a provider, and
+  it requires an explicit adapter plus an exact pre-step state snapshot.
+- Run `benchmark:verify:action-compilation-reference` after copying or
+  archiving shards. Run `check:fast` after code or schema changes.
+- Keep model and reranker assets local and record their hashes in experiment
+  manifests. Never commit `.livingworld-benchmarks/`, provider headers, cookies,
+  API keys, or partial benchmark output.

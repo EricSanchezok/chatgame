@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,6 +21,20 @@ describe("local multilingual-e5-small asset handling", () => {
     expect(hashLocalModelDirectory(directory)).toBe(first);
     writeFileSync(path.join(directory, "model.onnx"), "weights-v2\n", "utf8");
     expect(hashLocalModelDirectory(directory)).not.toBe(first);
+  });
+
+  it("excludes mutable downloader metadata from the model identity", () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "lwe-e5-cache-fixture-"));
+    temporaryDirectories.push(directory);
+    writeFileSync(path.join(directory, "model.onnx"), "weights\n", "utf8");
+    const first = hashLocalModelDirectory(directory);
+    writeFileSync(path.join(directory, ".cache-marker"), "not a cache directory\n", "utf8");
+    const second = hashLocalModelDirectory(directory);
+    expect(second).not.toBe(first);
+    const cache = path.join(directory, ".cache");
+    mkdirSync(cache);
+    writeFileSync(path.join(cache, "download.metadata"), "mutable\n", "utf8");
+    expect(hashLocalModelDirectory(directory)).toBe(second);
   });
 
   it("fails closed when the local model directory is missing", async () => {

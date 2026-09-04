@@ -638,7 +638,9 @@ interface PreparedEncoderData {
   queryVectors: ReadonlyMap<string, readonly number[]>;
 }
 
-async function prepareEncoderData(
+let encoderDataCache = new WeakMap<object, Map<string, Promise<PreparedEncoderData>>>();
+
+async function prepareEncoderDataUncached(
   dataset: ActionCompilationReferenceDataset,
   encoder: LocalEncoderRuntime,
 ): Promise<PreparedEncoderData> {
@@ -647,21 +649,59 @@ async function prepareEncoderData(
     const index = buildCatalogIndex(context.context);
     indexes.set(index.hash, index);
   }
+  // Candidate descriptions repeat heavily between neighboring snapshots. We
+  // encode each distinct passage once, then materialize the per-catalog map.
+  // The catalog-hash map remains the authoritative cache boundary for lookup,
+  // while text-level de-duplication keeps local CPU evaluation tractable.
+  const passageByText = new Map<string, string>();
+  const candidateTexts = new Map<string, Map<string, string>>();
+  for (const [hash, index] of [...indexes.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const texts = new Map<string, string>();
+    for (const candidate of index.candidates.filter(typed).sort((left, right) => left.candidateKey.localeCompare(right.candidateKey))) {
+      const text = `passage: ${candidateText(index, candidate)}`;
+      texts.set(candidate.candidateKey, text);
+      passageByText.set(text, text);
+    }
+    candidateTexts.set(hash, texts);
+  }
+  const uniquePassages = [...passageByText.keys()].sort((left, right) => left.localeCompare(right));
+  const passageVectors = await encoder.encodeBatch(uniquePassages);
+  const vectorsByText = new Map(uniquePassages.map((text, index) => [text, passageVectors[index] ?? []]));
   const candidateVectors = new Map<string, ReadonlyMap<string, readonly number[]>>();
-  for (const [hash, index] of indexes) {
-    const typedCandidates = index.candidates.filter(typed);
-    const vectors = await encoder.encodeBatch(typedCandidates.map((candidate) => `passage: ${candidateText(index, candidate)}`));
-    candidateVectors.set(hash, new Map(typedCandidates.map((candidate, position) => [candidate.candidateKey, vectors[position] ?? []])));
+  for (const [hash, texts] of candidateTexts) {
+    candidateVectors.set(hash, new Map([...texts.entries()].map(([candidateKey, text]) => [candidateKey, vectorsByText.get(text) ?? []])));
   }
   const queryVectors = new Map<string, readonly number[]>();
+  const queries = new Set<string>();
   for (const item of dataset.cases) {
     const context = dataset.contexts.get(item.contextHash);
     if (!context) throw new Error(`case ${item.caseId} context disappeared during encoder preparation`);
-    const query = queryText({ context: context.context, slotIndex: item.slotIndex });
-    const vectors = await encoder.encodeBatch([`query: ${query}`]);
-    queryVectors.set(query, vectors[0] ?? []);
+    queries.add(queryText({ context: context.context, slotIndex: item.slotIndex }));
   }
+  const uniqueQueries = [...queries].sort((left, right) => left.localeCompare(right));
+  const queryOutputs = await encoder.encodeBatch(uniqueQueries.map((query) => `query: ${query}`));
+  uniqueQueries.forEach((query, index) => {
+    queryVectors.set(query, queryOutputs[index] ?? []);
+  });
   return { candidateVectors, queryVectors };
+}
+
+async function prepareEncoderData(
+  dataset: ActionCompilationReferenceDataset,
+  encoder: LocalEncoderRuntime,
+): Promise<PreparedEncoderData> {
+  const byModel = encoderDataCache.get(dataset) ?? new Map<string, Promise<PreparedEncoderData>>();
+  encoderDataCache.set(dataset, byModel);
+  const existing = byModel.get(encoder.modelHash);
+  if (existing) return existing;
+  const pending = prepareEncoderDataUncached(dataset, encoder);
+  byModel.set(encoder.modelHash, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    byModel.delete(encoder.modelHash);
+    throw error;
+  }
 }
 
 function retrieve(
@@ -822,6 +862,7 @@ export async function createGraphAwareActionCompilationRetriever(
 
 export function clearGraphAwareRetrieverCaches(): void {
   catalogCache.clear();
+  encoderDataCache = new WeakMap<object, Map<string, Promise<PreparedEncoderData>>>();
 }
 
 export function graphFeatureVector(features: CandidateFeatures): readonly number[] {

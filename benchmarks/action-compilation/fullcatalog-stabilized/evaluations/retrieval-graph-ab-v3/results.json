@@ -1,0 +1,539 @@
+{
+  "schemaVersion": 3,
+  "kind": "action-compilation-retrieval-experiment-v3",
+  "datasetId": "action-compilation/fullcatalog-stabilized",
+  "datasetVersion": 1,
+  "datasetPath": "benchmarks/action-compilation/fullcatalog-stabilized/v1",
+  "offline": {
+    "llmRequests": 0,
+    "networkRequests": 0,
+    "worldMutations": 0
+  },
+  "policy": {
+    "budgetRatio": 0.2,
+    "minMicroRecall": 0.9,
+    "minMacroRecall": 0.9,
+    "minAverageCompression": 0.8,
+    "maxP95ShortlistRatio": 0.2,
+    "requireDeterministic": true,
+    "allowFallback": false
+  },
+  "encoder": {
+    "modelId": "intfloat/multilingual-e5-small",
+    "modelHash": "sha256:d36818af59d24cf4293a78d41f2194a215157aefcfccb4c650902c851a0a0b2c",
+    "dimensions": 384,
+    "modelDirectoryHash": "sha256:d36818af59d24cf4293a78d41f2194a215157aefcfccb4c650902c851a0a0b2c",
+    "libraryVersion": "4.2.0",
+    "libraryHash": "sha256:a81fccdba3baa7cf2e751322409d7e35100cb055d4299a654a1891ff579738ae",
+    "queryPrefix": "query: ",
+    "passagePrefix": "passage: ",
+    "pooling": "mean",
+    "normalize": true,
+    "truncation": true,
+    "maxTokens": 128,
+    "maxBatchSize": 128,
+    "search": "exact"
+  },
+  "evaluatedAt": "2026-09-04T14:45:43.817Z",
+  "runs": [
+    {
+      "id": "A0-full-catalog",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 609,
+      "microRecall": 1,
+      "macroRecall": 1,
+      "averageCompression": 0,
+      "averageShortlistRatio": 1,
+      "p95ShortlistRatio": 1,
+      "minCaseRecall": 1,
+      "p05CaseRecall": 1,
+      "p10CaseRecall": 1,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 46,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 1,
+          "upper": 1,
+          "samples": 200,
+          "seed": 581151609
+        },
+        "macroRecall": {
+          "lower": 1,
+          "upper": 1,
+          "samples": 200,
+          "seed": 1799750544
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 0,
+        "byStage": {},
+        "byExclusionReason": {}
+      }
+    },
+    {
+      "id": "A1-typed-full",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 609,
+      "microRecall": 1,
+      "macroRecall": 1,
+      "averageCompression": 0.004071416450667109,
+      "averageShortlistRatio": 0.9959285835493329,
+      "p95ShortlistRatio": 0.9966329966329966,
+      "minCaseRecall": 1,
+      "p05CaseRecall": 1,
+      "p10CaseRecall": 1,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 46,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 1,
+          "upper": 1,
+          "samples": 200,
+          "seed": 4269318527
+        },
+        "macroRecall": {
+          "lower": 1,
+          "upper": 1,
+          "samples": 200,
+          "seed": 3357088835
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 0,
+        "byStage": {},
+        "byExclusionReason": {}
+      }
+    },
+    {
+      "id": "D1-anchor-lexical",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 489,
+      "microRecall": 0.8029556650246306,
+      "macroRecall": 0.8448147898763149,
+      "averageCompression": 0.8003291304573852,
+      "averageShortlistRatio": 0.19967086954261482,
+      "p95ShortlistRatio": 0.2,
+      "minCaseRecall": 0.3333333333333333,
+      "p05CaseRecall": 0.5,
+      "p10CaseRecall": 0.6666666666666666,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.7553985432540387,
+          "upper": 0.8561014686248332,
+          "samples": 200,
+          "seed": 752359558
+        },
+        "macroRecall": {
+          "lower": 0.7974685900527748,
+          "upper": 0.892159763947185,
+          "samples": 200,
+          "seed": 3365686910
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 120,
+        "byStage": {
+          "graph": 18,
+          "lexical": 102
+        },
+        "byExclusionReason": {
+          "not-reachable": 18,
+          "not-seeded": 102
+        }
+      }
+    },
+    {
+      "id": "L1-learned-reranker",
+      "status": "blocked",
+      "reason": "ranker artifact not supplied; current 46-case dataset is exploratory only"
+    },
+    {
+      "id": "L2-calibrated-reranker",
+      "status": "blocked",
+      "reason": "ranker artifact not supplied; current 46-case dataset is exploratory only"
+    },
+    {
+      "id": "G1-typed-one-hop",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 495,
+      "microRecall": 0.812807881773399,
+      "macroRecall": 0.8287577782204211,
+      "averageCompression": 0.800365666811057,
+      "averageShortlistRatio": 0.19963433318894291,
+      "p95ShortlistRatio": 0.19977553310886645,
+      "minCaseRecall": 0.25,
+      "p05CaseRecall": 0.4444444444444444,
+      "p10CaseRecall": 0.5625,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.7544681627048828,
+          "upper": 0.8679423428447501,
+          "samples": 200,
+          "seed": 321535198
+        },
+        "macroRecall": {
+          "lower": 0.7795082503212123,
+          "upper": 0.8803336349179248,
+          "samples": 200,
+          "seed": 1729994102
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 114,
+        "byStage": {
+          "lexical": 114
+        },
+        "byExclusionReason": {
+          "not-seeded": 114
+        }
+      }
+    },
+    {
+      "id": "G2-role-constrained",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 495,
+      "microRecall": 0.812807881773399,
+      "macroRecall": 0.8287577782204211,
+      "averageCompression": 0.800365666811057,
+      "averageShortlistRatio": 0.19963433318894291,
+      "p95ShortlistRatio": 0.19977553310886645,
+      "minCaseRecall": 0.25,
+      "p05CaseRecall": 0.4444444444444444,
+      "p10CaseRecall": 0.5625,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.7603393856566445,
+          "upper": 0.8646852861923595,
+          "samples": 200,
+          "seed": 1005748287
+        },
+        "macroRecall": {
+          "lower": 0.7814356459230222,
+          "upper": 0.8770056740469476,
+          "samples": 200,
+          "seed": 1794000088
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 114,
+        "byStage": {
+          "lexical": 114
+        },
+        "byExclusionReason": {
+          "not-seeded": 114
+        }
+      }
+    },
+    {
+      "id": "G3-role-bm25f-alias",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 495,
+      "microRecall": 0.812807881773399,
+      "macroRecall": 0.8287577782204211,
+      "averageCompression": 0.800365666811057,
+      "averageShortlistRatio": 0.19963433318894291,
+      "p95ShortlistRatio": 0.19977553310886645,
+      "minCaseRecall": 0.25,
+      "p05CaseRecall": 0.4444444444444444,
+      "p10CaseRecall": 0.5625,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.7587001093017913,
+          "upper": 0.8700683951232407,
+          "samples": 200,
+          "seed": 2906972216
+        },
+        "macroRecall": {
+          "lower": 0.7683282016920622,
+          "upper": 0.8765917629938541,
+          "samples": 200,
+          "seed": 3956008677
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 114,
+        "byStage": {
+          "lexical": 114
+        },
+        "byExclusionReason": {
+          "not-seeded": 114
+        }
+      }
+    },
+    {
+      "id": "E1-encoder-anchor",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 486,
+      "microRecall": 0.7980295566502463,
+      "macroRecall": 0.8204636568828214,
+      "averageCompression": 0.800365666811057,
+      "averageShortlistRatio": 0.19963433318894291,
+      "p95ShortlistRatio": 0.19977553310886645,
+      "minCaseRecall": 0.25,
+      "p05CaseRecall": 0.45454545454545453,
+      "p10CaseRecall": 0.5555555555555556,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.734594967745007,
+          "upper": 0.8529592301360748,
+          "samples": 200,
+          "seed": 3129783854
+        },
+        "macroRecall": {
+          "lower": 0.7621582289746275,
+          "upper": 0.8780867035233477,
+          "samples": 200,
+          "seed": 4101095435
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 123,
+        "byStage": {
+          "lexical": 123
+        },
+        "byExclusionReason": {
+          "not-seeded": 123
+        }
+      }
+    },
+    {
+      "id": "H1-graph-encoder-hybrid",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 486,
+      "microRecall": 0.7980295566502463,
+      "macroRecall": 0.8204636568828214,
+      "averageCompression": 0.800365666811057,
+      "averageShortlistRatio": 0.19963433318894291,
+      "p95ShortlistRatio": 0.19977553310886645,
+      "minCaseRecall": 0.25,
+      "p05CaseRecall": 0.45454545454545453,
+      "p10CaseRecall": 0.5555555555555556,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.7432112025015295,
+          "upper": 0.8440861731364646,
+          "samples": 200,
+          "seed": 4251733362
+        },
+        "macroRecall": {
+          "lower": 0.7632625404897708,
+          "upper": 0.8739239479863863,
+          "samples": 200,
+          "seed": 3850349821
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 123,
+        "byStage": {
+          "lexical": 123
+        },
+        "byExclusionReason": {
+          "not-seeded": 123
+        }
+      }
+    },
+    {
+      "id": "H2-coverage-aware-hybrid",
+      "status": "completed",
+      "phase": "formal",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 485,
+      "microRecall": 0.7963875205254516,
+      "macroRecall": 0.8193767003610823,
+      "averageCompression": 0.800365666811057,
+      "averageShortlistRatio": 0.19963433318894291,
+      "p95ShortlistRatio": 0.19977553310886645,
+      "minCaseRecall": 0.25,
+      "p05CaseRecall": 0.45454545454545453,
+      "p10CaseRecall": 0.5555555555555556,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.7294671781756181,
+          "upper": 0.8602192760231944,
+          "samples": 200,
+          "seed": 81311351
+        },
+        "macroRecall": {
+          "lower": 0.7629446949277595,
+          "upper": 0.8679455102469589,
+          "samples": 200,
+          "seed": 3874670139
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 124,
+        "byStage": {
+          "lexical": 124
+        },
+        "byExclusionReason": {
+          "not-seeded": 124
+        }
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "id": "D1-anchor-lexical-budget25",
+      "status": "completed",
+      "phase": "diagnostic",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 510,
+      "microRecall": 0.8374384236453202,
+      "macroRecall": 0.8717794102844707,
+      "averageCompression": 0.7502012061580047,
+      "averageShortlistRatio": 0.24979879384199535,
+      "p95ShortlistRatio": 0.25,
+      "minCaseRecall": 0.42857142857142855,
+      "p05CaseRecall": 0.5,
+      "p10CaseRecall": 0.7142857142857143,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.7892714940098662,
+          "upper": 0.8916197327764036,
+          "samples": 200,
+          "seed": 198602009
+        },
+        "macroRecall": {
+          "lower": 0.8263368810115417,
+          "upper": 0.9106398674655388,
+          "samples": 200,
+          "seed": 597960880
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 99,
+        "byStage": {
+          "graph": 6,
+          "lexical": 93
+        },
+        "byExclusionReason": {
+          "not-reachable": 6,
+          "not-seeded": 93
+        }
+      }
+    },
+    {
+      "id": "D1-anchor-lexical-budget30",
+      "status": "completed",
+      "phase": "diagnostic",
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 521,
+      "microRecall": 0.8555008210180624,
+      "macroRecall": 0.8863439894667412,
+      "averageCompression": 0.7002926228607691,
+      "averageShortlistRatio": 0.29970737713923085,
+      "p95ShortlistRatio": 0.2998878923766816,
+      "minCaseRecall": 0.42857142857142855,
+      "p05CaseRecall": 0.5,
+      "p10CaseRecall": 0.7142857142857143,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "confidenceIntervals": {
+        "microRecall": {
+          "lower": 0.8060568820224718,
+          "upper": 0.903389694041868,
+          "samples": 200,
+          "seed": 2432282561
+        },
+        "macroRecall": {
+          "lower": 0.839779224306291,
+          "upper": 0.9251996345715356,
+          "samples": 200,
+          "seed": 2244669461
+        }
+      },
+      "graphDiagnostics": {
+        "missingKeys": 88,
+        "byStage": {
+          "lexical": 86,
+          "graph": 2
+        },
+        "byExclusionReason": {
+          "not-seeded": 86,
+          "not-reachable": 2
+        }
+      }
+    }
+  ],
+  "recommendation": {
+    "status": "retain-fullcatalog",
+    "runId": null,
+    "reason": "No non-control run passed the v3 hard gates; retain FullCatalog."
+  }
+}
