@@ -1,0 +1,1025 @@
+{
+  "schemaVersion": 1,
+  "kind": "action-compilation-recall-report",
+  "datasetId": "action-compilation/fullcatalog-stabilized",
+  "datasetVersion": 1,
+  "retriever": "anchor-plus-lexical-k32",
+  "cases": 46,
+  "nonEmptyRequiredCases": 46,
+  "emptyRequiredCases": 0,
+  "requiredKeys": 609,
+  "recalledKeys": 357,
+  "microRecall": 0.5862068965517241,
+  "macroRecall": 0.648309496980972,
+  "invalidOutputCases": 0,
+  "invalidOutputKeys": 0,
+  "byBatchSize": {
+    "2": {
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 357,
+      "recall": 0.5862068965517241
+    }
+  },
+  "byCategory": {
+    "runtime-action": {
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 357,
+      "recall": 0.5862068965517241
+    }
+  },
+  "byBatchUnion": {
+    "0e20787db8b0e71908002b0ee8a5a0f66c7467c1a9b07357b5ae0bd04f4b468a:2": {
+      "batches": 1,
+      "requiredKeys": 16,
+      "recalledKeys": 11,
+      "recall": 0.6875
+    },
+    "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a:2": {
+      "batches": 1,
+      "requiredKeys": 15,
+      "recalledKeys": 11,
+      "recall": 0.7333333333333333
+    },
+    "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6:2": {
+      "batches": 1,
+      "requiredKeys": 34,
+      "recalledKeys": 20,
+      "recall": 0.5882352941176471
+    },
+    "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd:2": {
+      "batches": 1,
+      "requiredKeys": 6,
+      "recalledKeys": 5,
+      "recall": 0.8333333333333334
+    },
+    "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2:2": {
+      "batches": 1,
+      "requiredKeys": 24,
+      "recalledKeys": 13,
+      "recall": 0.5416666666666666
+    },
+    "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330:2": {
+      "batches": 1,
+      "requiredKeys": 31,
+      "recalledKeys": 17,
+      "recall": 0.5483870967741935
+    },
+    "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320:2": {
+      "batches": 1,
+      "requiredKeys": 34,
+      "recalledKeys": 15,
+      "recall": 0.4411764705882353
+    },
+    "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d:2": {
+      "batches": 1,
+      "requiredKeys": 36,
+      "recalledKeys": 7,
+      "recall": 0.19444444444444445
+    },
+    "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0:2": {
+      "batches": 1,
+      "requiredKeys": 13,
+      "recalledKeys": 8,
+      "recall": 0.6153846153846154
+    },
+    "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4:2": {
+      "batches": 1,
+      "requiredKeys": 16,
+      "recalledKeys": 11,
+      "recall": 0.6875
+    },
+    "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502:2": {
+      "batches": 1,
+      "requiredKeys": 41,
+      "recalledKeys": 15,
+      "recall": 0.36585365853658536
+    },
+    "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8:2": {
+      "batches": 1,
+      "requiredKeys": 35,
+      "recalledKeys": 26,
+      "recall": 0.7428571428571429
+    },
+    "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a:2": {
+      "batches": 1,
+      "requiredKeys": 12,
+      "recalledKeys": 11,
+      "recall": 0.9166666666666666
+    },
+    "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5:2": {
+      "batches": 1,
+      "requiredKeys": 10,
+      "recalledKeys": 9,
+      "recall": 0.9
+    },
+    "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5:2": {
+      "batches": 1,
+      "requiredKeys": 7,
+      "recalledKeys": 7,
+      "recall": 1
+    },
+    "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7:2": {
+      "batches": 1,
+      "requiredKeys": 14,
+      "recalledKeys": 8,
+      "recall": 0.5714285714285714
+    },
+    "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a:2": {
+      "batches": 1,
+      "requiredKeys": 47,
+      "recalledKeys": 28,
+      "recall": 0.5957446808510638
+    },
+    "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27:2": {
+      "batches": 1,
+      "requiredKeys": 40,
+      "recalledKeys": 24,
+      "recall": 0.6
+    },
+    "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32:2": {
+      "batches": 1,
+      "requiredKeys": 31,
+      "recalledKeys": 22,
+      "recall": 0.7096774193548387
+    },
+    "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957:2": {
+      "batches": 1,
+      "requiredKeys": 41,
+      "recalledKeys": 19,
+      "recall": 0.4634146341463415
+    },
+    "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709:2": {
+      "batches": 1,
+      "requiredKeys": 16,
+      "recalledKeys": 8,
+      "recall": 0.5
+    },
+    "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca:2": {
+      "batches": 1,
+      "requiredKeys": 22,
+      "recalledKeys": 17,
+      "recall": 0.7727272727272727
+    },
+    "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30:2": {
+      "batches": 1,
+      "requiredKeys": 13,
+      "recalledKeys": 11,
+      "recall": 0.8461538461538461
+    },
+    "ef7a0a84b5b6be44e097fb8a25b3ff742dba73fcb50aaa36ba1f06efa96e4bdb:2": {
+      "batches": 1,
+      "requiredKeys": 22,
+      "recalledKeys": 15,
+      "recall": 0.6818181818181818
+    }
+  },
+  "caseResults": [
+    {
+      "caseId": "ac-c3-v1-000001",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 11,
+      "recall": 0.6875,
+      "missingKeys": [
+        "candidate_00bd0b305784",
+        "candidate_10264ffe4ab7",
+        "candidate_23fb993af3fd",
+        "candidate_2e383db023d1",
+        "candidate_f1544541e196"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000002",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 6,
+      "recalledCount": 4,
+      "recall": 0.6666666666666666,
+      "missingKeys": [
+        "candidate_62b4f383f331",
+        "candidate_ea4dac7c11a4"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000003",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 10,
+      "recalledCount": 8,
+      "recall": 0.8,
+      "missingKeys": [
+        "candidate_4617d8f1f92a",
+        "candidate_80722ac3c1c7"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000004",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 9,
+      "recall": 0.45,
+      "missingKeys": [
+        "candidate_0c39e8f6010e",
+        "candidate_0d2e58c553c0",
+        "candidate_42799d072dc6",
+        "candidate_4a97f238fca8",
+        "candidate_8b26b2f9bb1c",
+        "candidate_90ff40e6c23f",
+        "candidate_9a1c90dab0bb",
+        "candidate_a79a506ecb92",
+        "candidate_dd5280d968b3",
+        "candidate_fb3b0801a965",
+        "candidate_ff5633bfc291"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000005",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 21,
+      "recalledCount": 12,
+      "recall": 0.5714285714285714,
+      "missingKeys": [
+        "candidate_23fb993af3fd",
+        "candidate_3d54f8f9b1ab",
+        "candidate_4a97f238fca8",
+        "candidate_51bc01e0d4e1",
+        "candidate_8567c105a5d7",
+        "candidate_93084fcb7cb5",
+        "candidate_b233009974fb",
+        "candidate_c00db0010e80",
+        "candidate_d52895347184"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000006",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 4,
+      "recalledCount": 3,
+      "recall": 0.75,
+      "missingKeys": [
+        "candidate_a7c1c539ec4e"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000007",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 3,
+      "recalledCount": 3,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000008",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 11,
+      "recalledCount": 5,
+      "recall": 0.45454545454545453,
+      "missingKeys": [
+        "candidate_0001980c5ba6",
+        "candidate_07bf39d09de7",
+        "candidate_0924fa6b769c",
+        "candidate_44c19fe26524",
+        "candidate_9046b9bf3d63",
+        "candidate_a5de3d0e7431"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000009",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 14,
+      "recalledCount": 9,
+      "recall": 0.6428571428571429,
+      "missingKeys": [
+        "candidate_1d3002df5ea2",
+        "candidate_2a9f04d18587",
+        "candidate_4c464a1428f0",
+        "candidate_9a0ba25b3988",
+        "candidate_d1bd13b090c7"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000010",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 10,
+      "recall": 0.625,
+      "missingKeys": [
+        "candidate_0de2c17ccff9",
+        "candidate_1ca1b73756eb",
+        "candidate_58196d88f5e4",
+        "candidate_5eceed0f5bf9",
+        "candidate_9f989ea2ad1c",
+        "candidate_b61e31932cbe"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000011",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 8,
+      "recall": 0.5,
+      "missingKeys": [
+        "candidate_01f418bdd0c3",
+        "candidate_1854370f6964",
+        "candidate_4a97f238fca8",
+        "candidate_5b43b2e05175",
+        "candidate_5db1b9780959",
+        "candidate_7cb4a90579de",
+        "candidate_973f0e123a75",
+        "candidate_a250f73e26d5"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000012",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 18,
+      "recalledCount": 10,
+      "recall": 0.5555555555555556,
+      "missingKeys": [
+        "candidate_23fb993af3fd",
+        "candidate_4a97f238fca8",
+        "candidate_81459f4a8c2d",
+        "candidate_97e702f64772",
+        "candidate_c1361d4ee2c8",
+        "candidate_c7963bc13fc7",
+        "candidate_cac1ac5cd28c",
+        "candidate_cef16fee4c9b"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000013",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 17,
+      "recalledCount": 6,
+      "recall": 0.35294117647058826,
+      "missingKeys": [
+        "candidate_00c2388a6d61",
+        "candidate_102f74cf46cd",
+        "candidate_216733d73524",
+        "candidate_6e5424864795",
+        "candidate_760212a07188",
+        "candidate_766ce17d2f74",
+        "candidate_b3e077459194",
+        "candidate_b5166d978604",
+        "candidate_c6f804b30626",
+        "candidate_f9b65040e0a5",
+        "candidate_ffd544bca089"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000014",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 3,
+      "recall": 0.1875,
+      "missingKeys": [
+        "candidate_0a9d50c6035f",
+        "candidate_2063417e1f0b",
+        "candidate_2595e90392d9",
+        "candidate_2e383db023d1",
+        "candidate_3cf754c26ccf",
+        "candidate_4a97f238fca8",
+        "candidate_6795514331ce",
+        "candidate_a2776db91b41",
+        "candidate_bfb13fa30f60",
+        "candidate_cac1ac5cd28c",
+        "candidate_cf54b01b1c9a",
+        "candidate_d707ceaab008",
+        "candidate_f1544541e196"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000015",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 21,
+      "recalledCount": 5,
+      "recall": 0.23809523809523808,
+      "missingKeys": [
+        "candidate_2630bc377db5",
+        "candidate_2733bfcb2e27",
+        "candidate_294262b687e1",
+        "candidate_415d3a8476b6",
+        "candidate_4d11568e0f72",
+        "candidate_4e45f8e10f9e",
+        "candidate_4f4f9ee1b22e",
+        "candidate_5aec432e00f3",
+        "candidate_5e78cc64a70c",
+        "candidate_70269d380b94",
+        "candidate_897a66886189",
+        "candidate_a0d5dd8e42ff",
+        "candidate_ab86067106a0",
+        "candidate_c8a4b8a948b8",
+        "candidate_d7a1aa8ccbbe",
+        "candidate_e8e6d6ed6db2"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000016",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 6,
+      "recalledCount": 5,
+      "recall": 0.8333333333333334,
+      "missingKeys": [
+        "candidate_a0fad1b458de"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000017",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 9,
+      "recalledCount": 4,
+      "recall": 0.4444444444444444,
+      "missingKeys": [
+        "candidate_6c1468107b8f",
+        "candidate_7babebc0c0ed",
+        "candidate_8c4754c280c4",
+        "candidate_a0fad1b458de",
+        "candidate_ac16f2c42231"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000018",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 5,
+      "recall": 0.625,
+      "missingKeys": [
+        "candidate_56d8f5bf93ac",
+        "candidate_658e143d1f63",
+        "candidate_ee0c8e232560"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000019",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 9,
+      "recalledCount": 7,
+      "recall": 0.7777777777777778,
+      "missingKeys": [
+        "candidate_91f873fd2be6",
+        "candidate_b61e31932cbe"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000020",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 22,
+      "recalledCount": 8,
+      "recall": 0.36363636363636365,
+      "missingKeys": [
+        "candidate_018491c0a38e",
+        "candidate_045c91ce5656",
+        "candidate_143e62bb8a61",
+        "candidate_3fec09fc263d",
+        "candidate_4a7a8eaf6ea7",
+        "candidate_4a97f238fca8",
+        "candidate_5b59d1ce2cc9",
+        "candidate_6b5d8283e6c0",
+        "candidate_86d2635ab0a5",
+        "candidate_906ce9b07167",
+        "candidate_90abdf03f809",
+        "candidate_98ff4ea3debc",
+        "candidate_bcbddc412d5c",
+        "candidate_cf72d1ea85f7"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000021",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 8,
+      "recall": 0.4,
+      "missingKeys": [
+        "candidate_05a732956112",
+        "candidate_0be64a9d045e",
+        "candidate_0e1edb0ef68f",
+        "candidate_1f3cf4c24765",
+        "candidate_57e1365a8b73",
+        "candidate_57ec1b863486",
+        "candidate_8197a875a456",
+        "candidate_90f0b2800623",
+        "candidate_b4c20c74bea2",
+        "candidate_c6228c607f45",
+        "candidate_d31dbb01365e",
+        "candidate_fc0b70dbd65c"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000022",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 16,
+      "recall": 0.8,
+      "missingKeys": [
+        "candidate_02bdb8b37737",
+        "candidate_24c4b4568c07",
+        "candidate_25ca496a623a",
+        "candidate_3d861e4aade0"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000023",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 15,
+      "recalledCount": 10,
+      "recall": 0.6666666666666666,
+      "missingKeys": [
+        "candidate_69902fe36aad",
+        "candidate_ac5a9888dfe7",
+        "candidate_b5166d978604",
+        "candidate_c6f804b30626",
+        "candidate_fdb170a8ee09"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000024",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000025",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 7,
+      "recall": 0.875,
+      "missingKeys": [
+        "candidate_e1c73d213f20"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000026",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 5,
+      "recalledCount": 4,
+      "recall": 0.8,
+      "missingKeys": [
+        "candidate_211e075438d0"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000027",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 6,
+      "recalledCount": 6,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000028",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 3,
+      "recalledCount": 3,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000029",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000030",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 5,
+      "recall": 0.625,
+      "missingKeys": [
+        "candidate_33ec6e862532",
+        "candidate_5a5b060a49da",
+        "candidate_7c85501dcc9d"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000031",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 7,
+      "recalledCount": 4,
+      "recall": 0.5714285714285714,
+      "missingKeys": [
+        "candidate_82141edb1776",
+        "candidate_989d08d1eb10",
+        "candidate_b5365a72f7c0"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000032",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 19,
+      "recalledCount": 12,
+      "recall": 0.631578947368421,
+      "missingKeys": [
+        "candidate_2bb2c17c3550",
+        "candidate_47b9dbc59d2f",
+        "candidate_64676a4dcbae",
+        "candidate_93084fcb7cb5",
+        "candidate_9571718f2fca",
+        "candidate_d6bb10c24752",
+        "candidate_ffcd17835f6a"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000033",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 29,
+      "recalledCount": 15,
+      "recall": 0.5172413793103449,
+      "missingKeys": [
+        "candidate_23fb993af3fd",
+        "candidate_2a07fa578125",
+        "candidate_2fb8cf411594",
+        "candidate_3ff908111c46",
+        "candidate_628d2b91cc4a",
+        "candidate_685e1643e234",
+        "candidate_aa3dd169c999",
+        "candidate_aa4f2abdcca8",
+        "candidate_ad852c388512",
+        "candidate_b2884cd9d443",
+        "candidate_d8554d478089",
+        "candidate_d901715638b6",
+        "candidate_e77e2885e056",
+        "candidate_eca2f6915647"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000034",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 13,
+      "recalledCount": 10,
+      "recall": 0.7692307692307693,
+      "missingKeys": [
+        "candidate_5934ec75300e",
+        "candidate_bf383cfd94f7",
+        "candidate_daf075d816c6"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000035",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 28,
+      "recalledCount": 15,
+      "recall": 0.5357142857142857,
+      "missingKeys": [
+        "candidate_44576ad92c8d",
+        "candidate_8659ec3ddeea",
+        "candidate_8a3073341fcd",
+        "candidate_8cc93aa9f444",
+        "candidate_927534ac4863",
+        "candidate_a250f73e26d5",
+        "candidate_aa4a4d0ad6c1",
+        "candidate_ab3ac0eeb3e1",
+        "candidate_b069420acf6e",
+        "candidate_b43bfbd8b8b4",
+        "candidate_cffbbbdab5c0",
+        "candidate_d74b8ac4f8ff",
+        "candidate_e1ff373363e6"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000036",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 15,
+      "recall": 0.9375,
+      "missingKeys": [
+        "candidate_d6bb10c24752"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000037",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 15,
+      "recalledCount": 7,
+      "recall": 0.4666666666666667,
+      "missingKeys": [
+        "candidate_23a10ec3160e",
+        "candidate_2e383db023d1",
+        "candidate_334918fca348",
+        "candidate_a089bc3338b1",
+        "candidate_b5166d978604",
+        "candidate_c6f804b30626",
+        "candidate_c828b5aaae81",
+        "candidate_faa9bd1b4fdd"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000038",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 21,
+      "recalledCount": 10,
+      "recall": 0.47619047619047616,
+      "missingKeys": [
+        "candidate_10264ffe4ab7",
+        "candidate_102f74cf46cd",
+        "candidate_2e383db023d1",
+        "candidate_60e83ffb18ca",
+        "candidate_628d2b91cc4a",
+        "candidate_8813ba401c53",
+        "candidate_933a9ff359b0",
+        "candidate_a0fad1b458de",
+        "candidate_d8554d478089",
+        "candidate_e1ff373363e6",
+        "candidate_f1544541e196"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000039",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 8,
+      "recall": 0.4,
+      "missingKeys": [
+        "candidate_04ee181a67fe",
+        "candidate_0f75650ccec4",
+        "candidate_6a1923ab68b3",
+        "candidate_85e8b728edb5",
+        "candidate_90dd1e6c7a83",
+        "candidate_b9a9ba368930",
+        "candidate_c2f74d50b455",
+        "candidate_cb763b19f9f4",
+        "candidate_d34c0a5caa73",
+        "candidate_eabf7854d138",
+        "candidate_f94f7d401b38",
+        "candidate_f9e10d182855"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000040",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 9,
+      "recalledCount": 2,
+      "recall": 0.2222222222222222,
+      "missingKeys": [
+        "candidate_2e2c0599e5e4",
+        "candidate_2e3e5d3a1933",
+        "candidate_2e560fa7a5e8",
+        "candidate_6afce0dd987e",
+        "candidate_86d2635ab0a5",
+        "candidate_927534ac4863",
+        "candidate_b43bfbd8b8b4"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000041",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 7,
+      "recall": 0.875,
+      "missingKeys": [
+        "candidate_bec289076f4c"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000042",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 7,
+      "recall": 0.875,
+      "missingKeys": [
+        "candidate_4d11568e0f72"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000043",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 15,
+      "recalledCount": 11,
+      "recall": 0.7333333333333333,
+      "missingKeys": [
+        "candidate_06ccd03f0e54",
+        "candidate_4d4a84f0c850",
+        "candidate_8c91f4f77a5f",
+        "candidate_e1c73d213f20"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000044",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 11,
+      "recalledCount": 7,
+      "recall": 0.6363636363636364,
+      "missingKeys": [
+        "candidate_1b75fe966ee4",
+        "candidate_1eda067c4d21",
+        "candidate_96e8bf902f7a",
+        "candidate_973f0e123a75"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000045",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 10,
+      "recalledCount": 8,
+      "recall": 0.8,
+      "missingKeys": [
+        "candidate_96e8bf902f7a",
+        "candidate_973f0e123a75"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000046",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 22,
+      "recalledCount": 15,
+      "recall": 0.6818181818181818,
+      "missingKeys": [
+        "candidate_395f3d20097a",
+        "candidate_40b073cd0e25",
+        "candidate_604c53941a44",
+        "candidate_a0fad1b458de",
+        "candidate_af3cf5171aec",
+        "candidate_e3d8a25a96ea",
+        "candidate_fb5397ee9cae"
+      ],
+      "returnedCount": 32,
+      "invalidKeys": [],
+      "privateKeys": []
+    }
+  ]
+}

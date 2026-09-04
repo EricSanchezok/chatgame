@@ -1,0 +1,732 @@
+{
+  "schemaVersion": 1,
+  "kind": "action-compilation-recall-report",
+  "datasetId": "action-compilation/fullcatalog-stabilized",
+  "datasetVersion": 1,
+  "retriever": "typed-full",
+  "cases": 46,
+  "nonEmptyRequiredCases": 46,
+  "emptyRequiredCases": 0,
+  "requiredKeys": 609,
+  "recalledKeys": 609,
+  "microRecall": 1,
+  "macroRecall": 1,
+  "invalidOutputCases": 0,
+  "invalidOutputKeys": 0,
+  "byBatchSize": {
+    "2": {
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 609,
+      "recall": 1
+    }
+  },
+  "byCategory": {
+    "runtime-action": {
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 609,
+      "recall": 1
+    }
+  },
+  "byBatchUnion": {
+    "0e20787db8b0e71908002b0ee8a5a0f66c7467c1a9b07357b5ae0bd04f4b468a:2": {
+      "batches": 1,
+      "requiredKeys": 16,
+      "recalledKeys": 16,
+      "recall": 1
+    },
+    "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a:2": {
+      "batches": 1,
+      "requiredKeys": 15,
+      "recalledKeys": 15,
+      "recall": 1
+    },
+    "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6:2": {
+      "batches": 1,
+      "requiredKeys": 34,
+      "recalledKeys": 34,
+      "recall": 1
+    },
+    "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd:2": {
+      "batches": 1,
+      "requiredKeys": 6,
+      "recalledKeys": 6,
+      "recall": 1
+    },
+    "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2:2": {
+      "batches": 1,
+      "requiredKeys": 24,
+      "recalledKeys": 24,
+      "recall": 1
+    },
+    "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330:2": {
+      "batches": 1,
+      "requiredKeys": 31,
+      "recalledKeys": 31,
+      "recall": 1
+    },
+    "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320:2": {
+      "batches": 1,
+      "requiredKeys": 34,
+      "recalledKeys": 34,
+      "recall": 1
+    },
+    "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d:2": {
+      "batches": 1,
+      "requiredKeys": 36,
+      "recalledKeys": 36,
+      "recall": 1
+    },
+    "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0:2": {
+      "batches": 1,
+      "requiredKeys": 13,
+      "recalledKeys": 13,
+      "recall": 1
+    },
+    "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4:2": {
+      "batches": 1,
+      "requiredKeys": 16,
+      "recalledKeys": 16,
+      "recall": 1
+    },
+    "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502:2": {
+      "batches": 1,
+      "requiredKeys": 41,
+      "recalledKeys": 41,
+      "recall": 1
+    },
+    "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8:2": {
+      "batches": 1,
+      "requiredKeys": 35,
+      "recalledKeys": 35,
+      "recall": 1
+    },
+    "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a:2": {
+      "batches": 1,
+      "requiredKeys": 12,
+      "recalledKeys": 12,
+      "recall": 1
+    },
+    "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5:2": {
+      "batches": 1,
+      "requiredKeys": 10,
+      "recalledKeys": 10,
+      "recall": 1
+    },
+    "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5:2": {
+      "batches": 1,
+      "requiredKeys": 7,
+      "recalledKeys": 7,
+      "recall": 1
+    },
+    "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7:2": {
+      "batches": 1,
+      "requiredKeys": 14,
+      "recalledKeys": 14,
+      "recall": 1
+    },
+    "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a:2": {
+      "batches": 1,
+      "requiredKeys": 47,
+      "recalledKeys": 47,
+      "recall": 1
+    },
+    "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27:2": {
+      "batches": 1,
+      "requiredKeys": 40,
+      "recalledKeys": 40,
+      "recall": 1
+    },
+    "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32:2": {
+      "batches": 1,
+      "requiredKeys": 31,
+      "recalledKeys": 31,
+      "recall": 1
+    },
+    "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957:2": {
+      "batches": 1,
+      "requiredKeys": 41,
+      "recalledKeys": 41,
+      "recall": 1
+    },
+    "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709:2": {
+      "batches": 1,
+      "requiredKeys": 16,
+      "recalledKeys": 16,
+      "recall": 1
+    },
+    "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca:2": {
+      "batches": 1,
+      "requiredKeys": 22,
+      "recalledKeys": 22,
+      "recall": 1
+    },
+    "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30:2": {
+      "batches": 1,
+      "requiredKeys": 13,
+      "recalledKeys": 13,
+      "recall": 1
+    },
+    "ef7a0a84b5b6be44e097fb8a25b3ff742dba73fcb50aaa36ba1f06efa96e4bdb:2": {
+      "batches": 1,
+      "requiredKeys": 22,
+      "recalledKeys": 22,
+      "recall": 1
+    }
+  },
+  "caseResults": [
+    {
+      "caseId": "ac-c3-v1-000001",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 16,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000002",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 6,
+      "recalledCount": 6,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000003",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 10,
+      "recalledCount": 10,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000004",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 20,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000005",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 21,
+      "recalledCount": 21,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000006",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 4,
+      "recalledCount": 4,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000007",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 3,
+      "recalledCount": 3,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000008",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 11,
+      "recalledCount": 11,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000009",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 14,
+      "recalledCount": 14,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000010",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 16,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000011",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 16,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000012",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 18,
+      "recalledCount": 18,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000013",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 17,
+      "recalledCount": 17,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000014",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 16,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000015",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 21,
+      "recalledCount": 21,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000016",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 6,
+      "recalledCount": 6,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000017",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 9,
+      "recalledCount": 9,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000018",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 8,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000019",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 9,
+      "recalledCount": 9,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000020",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 22,
+      "recalledCount": 22,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000021",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 20,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000022",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 20,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000023",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 15,
+      "recalledCount": 15,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000024",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000025",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 8,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000026",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000027",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 6,
+      "recalledCount": 6,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000028",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 3,
+      "recalledCount": 3,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000029",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 5,
+      "recalledCount": 5,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000030",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 8,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000031",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 7,
+      "recalledCount": 7,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000032",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 19,
+      "recalledCount": 19,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000033",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 29,
+      "recalledCount": 29,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000034",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 13,
+      "recalledCount": 13,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000035",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 28,
+      "recalledCount": 28,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000036",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 16,
+      "recalledCount": 16,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000037",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 15,
+      "recalledCount": 15,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000038",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 21,
+      "recalledCount": 21,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000039",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 20,
+      "recalledCount": 20,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000040",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 9,
+      "recalledCount": 9,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000041",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 8,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000042",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 8,
+      "recalledCount": 8,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000043",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 15,
+      "recalledCount": 15,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000044",
+      "slotIndex": 0,
+      "batchSize": 2,
+      "requiredCount": 11,
+      "recalledCount": 11,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000045",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 10,
+      "recalledCount": 10,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    },
+    {
+      "caseId": "ac-c3-v1-000046",
+      "slotIndex": 1,
+      "batchSize": 2,
+      "requiredCount": 22,
+      "recalledCount": 22,
+      "recall": 1,
+      "missingKeys": [],
+      "returnedCount": 1776,
+      "invalidKeys": [],
+      "privateKeys": []
+    }
+  ]
+}

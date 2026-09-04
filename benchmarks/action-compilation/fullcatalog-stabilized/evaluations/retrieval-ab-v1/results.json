@@ -1,0 +1,401 @@
+{
+  "schemaVersion": 1,
+  "kind": "action-compilation-retriever-comparison",
+  "datasetId": "action-compilation/fullcatalog-stabilized",
+  "datasetVersion": 1,
+  "datasetPath": "benchmarks/action-compilation/fullcatalog-stabilized/v1",
+  "offline": {
+    "llmRequests": 0,
+    "networkRequests": 0,
+    "worldMutations": 0
+  },
+  "evaluatedAt": "2026-09-04T09:55:09.761Z",
+  "runs": [
+    {
+      "id": "full-catalog",
+      "strategy": "full-catalog",
+      "maxCandidates": null,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 609,
+      "microRecall": 1,
+      "macroRecall": 1,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 1782,
+        "average": 1783.2608695652175,
+        "p95": 1785,
+        "max": 1785,
+        "reductionVsFullCatalog": 0
+      },
+      "deterministic": true,
+      "hardGate": true
+    },
+    {
+      "id": "typed-full",
+      "strategy": "typed-full",
+      "maxCandidates": null,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 609,
+      "microRecall": 1,
+      "macroRecall": 1,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 1776,
+        "average": 1776,
+        "p95": 1776,
+        "max": 1776,
+        "reductionVsFullCatalog": 0.004071681092283397
+      },
+      "deterministic": true,
+      "hardGate": true
+    },
+    {
+      "id": "lexical-topk-k16",
+      "strategy": "lexical-topk",
+      "maxCandidates": 16,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 186,
+      "microRecall": 0.3054187192118227,
+      "macroRecall": 0.3330093312373844,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 16,
+        "average": 16,
+        "p95": 16,
+        "max": 16,
+        "reductionVsFullCatalog": 0.9910276728026332
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "lexical-topk-k32",
+      "strategy": "lexical-topk",
+      "maxCandidates": 32,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 239,
+      "microRecall": 0.3924466338259442,
+      "macroRecall": 0.4064829264323557,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 32,
+        "average": 32,
+        "p95": 32,
+        "max": 32,
+        "reductionVsFullCatalog": 0.9820553456052664
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "lexical-topk-k64",
+      "strategy": "lexical-topk",
+      "maxCandidates": 64,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 275,
+      "microRecall": 0.451559934318555,
+      "macroRecall": 0.4604041135856402,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 64,
+        "average": 64,
+        "p95": 64,
+        "max": 64,
+        "reductionVsFullCatalog": 0.9641106912105327
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "lexical-topk-k128",
+      "strategy": "lexical-topk",
+      "maxCandidates": 128,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 341,
+      "microRecall": 0.5599343185550082,
+      "macroRecall": 0.5614519824960851,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 128,
+        "average": 128,
+        "p95": 128,
+        "max": 128,
+        "reductionVsFullCatalog": 0.9282213824210654
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "anchor-plus-lexical-k16",
+      "strategy": "anchor-plus-lexical",
+      "maxCandidates": 16,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 281,
+      "microRecall": 0.4614121510673235,
+      "macroRecall": 0.5345725229070613,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 16,
+        "average": 16,
+        "p95": 16,
+        "max": 16,
+        "reductionVsFullCatalog": 0.9910276728026332
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "anchor-plus-lexical-k32",
+      "strategy": "anchor-plus-lexical",
+      "maxCandidates": 32,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 357,
+      "microRecall": 0.5862068965517241,
+      "macroRecall": 0.648309496980972,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 32,
+        "average": 32,
+        "p95": 32,
+        "max": 32,
+        "reductionVsFullCatalog": 0.9820553456052664
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "anchor-plus-lexical-k64",
+      "strategy": "anchor-plus-lexical",
+      "maxCandidates": 64,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 390,
+      "microRecall": 0.6403940886699507,
+      "macroRecall": 0.69209002705102,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 64,
+        "average": 64,
+        "p95": 64,
+        "max": 64,
+        "reductionVsFullCatalog": 0.9641106912105327
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "anchor-plus-lexical-k128",
+      "strategy": "anchor-plus-lexical",
+      "maxCandidates": 128,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 435,
+      "microRecall": 0.7142857142857143,
+      "macroRecall": 0.7560123013230825,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 128,
+        "average": 128,
+        "p95": 128,
+        "max": 128,
+        "reductionVsFullCatalog": 0.9282213824210654
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "hybrid-rrf-k16",
+      "strategy": "hybrid-rrf",
+      "maxCandidates": 16,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 277,
+      "microRecall": 0.4548440065681445,
+      "macroRecall": 0.5324797786947517,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 16,
+        "average": 16,
+        "p95": 16,
+        "max": 16,
+        "reductionVsFullCatalog": 0.9910276728026332
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "hybrid-rrf-k32",
+      "strategy": "hybrid-rrf",
+      "maxCandidates": 32,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 349,
+      "microRecall": 0.5730706075533661,
+      "macroRecall": 0.6356303394362538,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 32,
+        "average": 32,
+        "p95": 32,
+        "max": 32,
+        "reductionVsFullCatalog": 0.9820553456052664
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "hybrid-rrf-k64",
+      "strategy": "hybrid-rrf",
+      "maxCandidates": 64,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 395,
+      "microRecall": 0.6486042692939245,
+      "macroRecall": 0.6981532271359592,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 64,
+        "average": 64,
+        "p95": 64,
+        "max": 64,
+        "reductionVsFullCatalog": 0.9641106912105327
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "hybrid-rrf-k128",
+      "strategy": "hybrid-rrf",
+      "maxCandidates": 128,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 444,
+      "microRecall": 0.729064039408867,
+      "macroRecall": 0.7750810911774353,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 128,
+        "average": 128,
+        "p95": 128,
+        "max": 128,
+        "reductionVsFullCatalog": 0.9282213824210654
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "adaptive-hybrid-k16",
+      "strategy": "adaptive-hybrid",
+      "maxCandidates": 16,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 277,
+      "microRecall": 0.4548440065681445,
+      "macroRecall": 0.5324797786947517,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 16,
+        "average": 16,
+        "p95": 16,
+        "max": 16,
+        "reductionVsFullCatalog": 0.9910276728026332
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "adaptive-hybrid-k32",
+      "strategy": "adaptive-hybrid",
+      "maxCandidates": 32,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 349,
+      "microRecall": 0.5730706075533661,
+      "macroRecall": 0.6356303394362538,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 32,
+        "average": 32,
+        "p95": 32,
+        "max": 32,
+        "reductionVsFullCatalog": 0.9820553456052664
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "adaptive-hybrid-k64",
+      "strategy": "adaptive-hybrid",
+      "maxCandidates": 64,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 395,
+      "microRecall": 0.6486042692939245,
+      "macroRecall": 0.6981532271359592,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 64,
+        "average": 64,
+        "p95": 64,
+        "max": 64,
+        "reductionVsFullCatalog": 0.9641106912105327
+      },
+      "deterministic": true,
+      "hardGate": false
+    },
+    {
+      "id": "adaptive-hybrid-k128",
+      "strategy": "adaptive-hybrid",
+      "maxCandidates": 128,
+      "cases": 46,
+      "requiredKeys": 609,
+      "recalledKeys": 444,
+      "microRecall": 0.729064039408867,
+      "macroRecall": 0.7750810911774353,
+      "invalidOutputCases": 0,
+      "invalidOutputKeys": 0,
+      "shortlist": {
+        "min": 128,
+        "average": 128,
+        "p95": 128,
+        "max": 128,
+        "reductionVsFullCatalog": 0.9282213824210654
+      },
+      "deterministic": true,
+      "hardGate": false
+    }
+  ],
+  "paretoFront": [
+    "typed-full"
+  ],
+  "recommendation": {
+    "status": "candidate-selected",
+    "runId": "typed-full",
+    "reason": "Selected the smallest deterministic shortlist among runs that passed the 100% recall and zero-invalid hard gates."
+  }
+}
