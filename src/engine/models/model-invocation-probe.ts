@@ -298,8 +298,8 @@ export function loadInvocationProbeReport(
     throw new Error(`probe trial ${selectedTrial} does not have an exact request match`);
   }
   if (!record(trial.request)) throw new Error(`probe trial ${selectedTrial} request is invalid`);
-  if (!trial.audit || !record(trial.audit) || !Array.isArray(trial.audit.invocations) || trial.audit.invocations.length === 0) {
-    throw new Error(`probe trial ${selectedTrial} is missing a model audit`);
+  if (!trial.audit || !record(trial.audit) || !Array.isArray(trial.audit.invocations) || trial.audit.invocations.length !== 1) {
+    throw new Error(`probe trial ${selectedTrial} must contain exactly one model audit invocation`);
   }
   if (trial.status === "accepted" && !hasOwn(trial as object, "output")) {
     throw new Error(`probe trial ${selectedTrial} is accepted but has no normalized output`);

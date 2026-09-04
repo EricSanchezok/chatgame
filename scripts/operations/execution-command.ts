@@ -344,7 +344,18 @@ function validateProbeBinding(
   const probeInvocation = trial.audit?.invocations.at(-1);
   if (!probeInvocation || probeInvocation.requestHash !== targetInvocation.requestHash ||
     trial.audit?.role !== targetAudit.role || trial.audit.subjectId !== targetAudit.subjectId ||
-    trial.audit.profileId !== targetAudit.profileId) {
+    trial.audit.profileId !== targetAudit.profileId || trial.audit.accountId !== targetAudit.accountId ||
+    trial.audit.accountChannel !== targetAudit.accountChannel || trial.audit.protocol !== targetAudit.protocol ||
+    trial.audit.dialect !== targetAudit.dialect || trial.audit.providerId !== targetAudit.providerId ||
+    trial.audit.modelId !== targetAudit.modelId ||
+    trial.audit.promptVersion !== targetAudit.promptVersion ||
+    trial.audit.modelCatalogHash !== targetAudit.modelCatalogHash ||
+    trial.audit.registrySnapshotHash !== targetAudit.registrySnapshotHash ||
+    trial.audit.modelMetadataHash !== targetAudit.modelMetadataHash ||
+    trial.audit.structuredOutputMode !== targetAudit.structuredOutputMode ||
+    contentHash(trial.audit.selector) !== contentHash(targetAudit.selector) ||
+    contentHash(trial.audit.requestedInference) !== contentHash(targetAudit.requestedInference) ||
+    contentHash(trial.audit.resolvedInference) !== contentHash(targetAudit.resolvedInference)) {
     throw new Error("probe trial audit identity does not match the recorded invocation");
   }
   const sourceContextEvent = events.find((candidate) => candidate.event === "model.context.serialized" &&
