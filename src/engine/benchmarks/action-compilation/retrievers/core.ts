@@ -13,6 +13,8 @@ export type ActionCompilationRetrieverStrategy =
 
 export interface ActionCompilationRetrieverOptions {
   maxCandidates?: number;
+  /** Derive a per-slot budget from the visible catalog instead of a global k. */
+  budgetRatio?: number;
 }
 
 interface Candidate {
@@ -291,6 +293,7 @@ function takeWithAnchors(
   anchors: ReadonlySet<string>,
   maxCandidates: number,
 ): string[] {
+  if (maxCandidates <= 0) return [];
   const result = [...anchors];
   for (const entry of ranked) {
     if (result.length >= maxCandidates && maxCandidates > 0) break;
@@ -327,13 +330,23 @@ function maxCandidates(options: ActionCompilationRetrieverOptions): number {
   return value;
 }
 
+function budgetRatio(options: ActionCompilationRetrieverOptions): number | undefined {
+  if (options.budgetRatio === undefined) return undefined;
+  if (!Number.isFinite(options.budgetRatio) || options.budgetRatio <= 0 || options.budgetRatio > 1) {
+    throw new Error("budgetRatio must be in (0, 1]");
+  }
+  return options.budgetRatio;
+}
+
 export function createActionCompilationRetriever(
   strategy: ActionCompilationRetrieverStrategy,
   options: ActionCompilationRetrieverOptions = {},
 ): CandidateRetriever {
   const limit = maxCandidates(options);
+  const ratio = budgetRatio(options);
   return (input) => {
     const allVisible = visibleCandidates(input);
+    const perSlotLimit = ratio === undefined ? limit : Math.floor(allVisible.length * ratio);
     if (strategy === "full-catalog") return allVisible.map((candidate) => candidate.candidateKey);
     const typed = typedCandidates(input);
     if (strategy === "typed-full") return typed.map((candidate) => candidate.candidateKey);
@@ -343,12 +356,12 @@ export function createActionCompilationRetriever(
     const catalogHash = typeof catalog?.hash === "string" ? catalog.hash : undefined;
     const scoreCacheKey = catalogHash ? `${catalogHash}:${input.slotIndex}:${query}` : undefined;
     const scored = scoreCandidatesCached(typed, query, scoreCacheKey);
-    if (strategy === "lexical-topk") return scored.slice(0, limit).map((entry) => entry.candidate.candidateKey).sort();
-    if (strategy === "anchor-plus-lexical") return takeWithAnchors(scored, anchors, limit);
+    if (strategy === "lexical-topk") return scored.slice(0, perSlotLimit).map((entry) => entry.candidate.candidateKey).sort();
+    if (strategy === "anchor-plus-lexical") return takeWithAnchors(scored, anchors, perSlotLimit);
     const hybrid = rrfRank(scored, scoreCacheKey ? `${scoreCacheKey}:rrf` : undefined);
-    if (strategy === "hybrid-rrf") return takeWithAnchors(hybrid, anchors, limit);
-    const shortlist = takeWithAnchors(hybrid, anchors, limit);
-    const boundaryIndex = Math.min(Math.max(limit - anchors.size, 0), hybrid.length - 1);
+    if (strategy === "hybrid-rrf") return takeWithAnchors(hybrid, anchors, perSlotLimit);
+    const shortlist = takeWithAnchors(hybrid, anchors, perSlotLimit);
+    const boundaryIndex = Math.min(Math.max(perSlotLimit - anchors.size, 0), hybrid.length - 1);
     const boundary = hybrid[boundaryIndex];
     const next = hybrid[boundaryIndex + 1];
     // If the cutoff is tied, do not make an arbitrary irreversible cut. A

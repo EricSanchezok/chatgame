@@ -22,6 +22,7 @@
     "benchmark:export:action-compilation-reference": "tsx scripts/experiments/export-action-compilation-reference.ts",
     "benchmark:evaluate:action-compilation-reference": "tsx scripts/experiments/action-compilation-reference-evaluation.ts",
     "benchmark:compare:action-compilation-reference": "tsx scripts/experiments/compare-action-compilation-retrievers.ts",
+    "benchmark:compare:action-compilation-retrieval-v2": "tsx scripts/experiments/compare-action-compilation-retrieval-v2.ts",
     "benchmark:verify:action-compilation-reference": "tsx scripts/experiments/verify-action-compilation-reference.ts",
     "experiment:model-invocation": "tsx scripts/experiments/model-invocation-probe.ts",
     "execution:replay": "tsx scripts/operations/execution-command.ts replay",
@@ -76,6 +77,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@huggingface/transformers": "4.2.0",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "4.3.3",
     "@testing-library/jest-dom": "^7.0.1",

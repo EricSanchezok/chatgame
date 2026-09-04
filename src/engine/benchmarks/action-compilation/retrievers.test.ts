@@ -155,4 +155,11 @@ describe("Action Compilation candidate retrievers", () => {
     expect(() => createActionCompilationRetriever("lexical-topk", { maxCandidates: 0 })).toThrow(/positive integer/u);
     expect(() => createActionCompilationRetriever("lexical-topk", { maxCandidates: 1.5 })).toThrow(/positive integer/u);
   });
+
+  it("derives a shortlist limit from each slot's visible catalog", () => {
+    const retriever = createActionCompilationRetriever("lexical-topk", { budgetRatio: 0.5 });
+    const result = retriever(fixtureInput());
+    expect(result).toHaveLength(3);
+    expect(() => createActionCompilationRetriever("lexical-topk", { budgetRatio: 0 })).toThrow(/budgetRatio/u);
+  });
 });

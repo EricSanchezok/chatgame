@@ -27,6 +27,38 @@ Verify a frozen dataset and its FullCatalog control:
 npm run benchmark:verify:action-compilation-reference
 ```
 
+Compare the structure-first and local-encoder retrieval tracks without a
+provider request:
+
+```sh
+npm run benchmark:compare:action-compilation-retrieval-v2 -- \
+  --dataset benchmarks/action-compilation/fullcatalog-stabilized/v1 \
+  --output benchmarks/action-compilation/fullcatalog-stabilized/evaluations/retrieval-structure-ab-v2 \
+  --model multilingual-e5-small
+```
+
+The v2 comparison uses a per-slot 20% budget and requires micro/macro recall
+at least 90%, average and p95 compression above 80%, zero invalid/private
+outputs, and deterministic results. The local `multilingual-e5-small` model
+must already exist under `.livingworld-benchmarks/models/`; evaluation disables
+remote model loading and fails closed when the asset is missing. Use
+`--deterministic-only` to run the non-encoder tracks without a model asset.
+
+If no formal algorithm passes all gates, the comparison also records a
+diagnostic run for the best observed non-control algorithm at 25% and 30%
+budgets. These runs are explicitly non-recommendable and never relax the 20%
+production-oriented gate; they only indicate whether the shortlist budget is
+the limiting factor.
+
+Reports include per-case recall, missing-key kind/use strata, and the union
+recall of slot shortlists for each physical batch. Invalid or slot-private
+keys are reported separately and never count as recalled keys.
+
+The v2 evaluator does not modify the frozen v1 benchmark schema or enable a
+retriever in production. Its result directory is an experiment artifact; a
+future production promotion requires a separately versioned algorithm
+manifest and replay/semantic-validation decision.
+
 The exporter opens the Ledger read-only and makes no provider or network request. Use `--instance <instance-id>` to collect every Action Compilation execution in an instance. Frozen versions are never overwritten; export additional source executions into the next version.
 
 The exported manifest records source execution IDs and the observed provider,
