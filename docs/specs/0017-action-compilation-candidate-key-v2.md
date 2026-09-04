@@ -13,7 +13,7 @@ Action Compilation candidate keys use the exact format `candidate_` followed by 
 
 The projector derives every emitted key from its engine-owned handle and never trusts a stale model or fixture key. The candidate namespace remains complete, shared and slot-private scope is preserved, and duplicate generated keys fail closed. Materialization validates the exact schema before resolving keys. The existing symbol-repair policy may repair only registered closed-set symbols with a protected prefix, a payload of at least eight characters, bounded Damerau distance at most three, and a unique best candidate with the configured margin; all repaired values pass the complete schema, scope, kind, use, mechanic, temporal, and transaction checks again.
 
-The eager-reference algorithm manifest is version 13 and records candidate-key version 2 and payload length 12. Persisted instances pinned to earlier manifests are obsolete saves under the repository's forward-only policy; no migration or compatibility reader is provided.
+The eager-reference algorithm manifest is version 14 and records candidate-key version 2, payload length 12, and the opt-in candidate-retrieval component. Persisted instances pinned to earlier manifests are obsolete saves under the repository's forward-only policy; no migration or compatibility reader is provided.
 
 ## Plan
 
