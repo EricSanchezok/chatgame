@@ -33,6 +33,21 @@ interface ScoredCandidate {
   hybrid: number;
 }
 
+interface CandidateText {
+  label: string;
+  all: string;
+  labelTerms: Set<string>;
+  allTerms: Set<string>;
+  labelNgrams: Set<string>;
+}
+
+// Catalogs are immutable snapshots identified by their content hash. The
+// evaluator deliberately clones contexts for every call, so caching by the
+// snapshot hash avoids rebuilding token indexes for each strategy/configuration
+// while keeping the retriever pure from the caller's perspective.
+const catalogCandidatesCache = new Map<string, Candidate[]>();
+const candidateTextCache = new WeakMap<Candidate, CandidateText>();
+
 const ACTION_COMPILATION_KINDS = new Set([
   "action",
   "agent",
@@ -71,7 +86,12 @@ function visible(candidate: Candidate, slotIndex: number): boolean {
 function candidatesFor(context: Readonly<Record<string, unknown>>): Candidate[] {
   const catalog = record(context.referenceCatalog);
   const values = Array.isArray(catalog?.candidates) ? catalog.candidates : [];
-  return values.flatMap((value) => {
+  const catalogHash = typeof catalog?.hash === "string" ? catalog.hash : undefined;
+  if (catalogHash) {
+    const cached = catalogCandidatesCache.get(catalogHash);
+    if (cached) return cached;
+  }
+  const result = values.flatMap((value) => {
     const item = record(value);
     if (!item || typeof item.candidateKey !== "string" || typeof item.kind !== "string") return [];
     return [{
@@ -86,6 +106,8 @@ function candidatesFor(context: Readonly<Record<string, unknown>>): Candidate[] 
       details: item.details,
     }];
   });
+  if (catalogHash) catalogCandidatesCache.set(catalogHash, result);
+  return result;
 }
 
 function slotContext(input: CandidateRetrieverInput): Record<string, unknown> {
@@ -143,11 +165,21 @@ function terms(text: string): Set<string> {
   return result;
 }
 
-function candidateText(candidate: Candidate): { label: string; all: string } {
+function candidateText(candidate: Candidate): CandidateText {
+  const cached = candidateTextCache.get(candidate);
+  if (cached) return cached;
   const detailText: string[] = [];
   collectText(candidate.details, "details", detailText);
   const label = `${candidate.label} ${candidate.meaning}`.normalize("NFC").toLocaleLowerCase("zh-CN");
-  return { label, all: `${label} ${detailText.join(" ")}`.normalize("NFC").toLocaleLowerCase("zh-CN") };
+  const text: CandidateText = {
+    label,
+    all: `${label} ${detailText.join(" ")}`.normalize("NFC").toLocaleLowerCase("zh-CN"),
+    labelTerms: terms(label),
+    allTerms: terms(`${label} ${detailText.join(" ")}`),
+    labelNgrams: characterNgrams(label),
+  };
+  candidateTextCache.set(candidate, text);
+  return text;
 }
 
 function overlap(left: Set<string>, right: Set<string>): number {
@@ -172,12 +204,9 @@ function scoreCandidates(candidates: readonly Candidate[], query: string): Score
   const queryNgrams = characterNgrams(query);
   return candidates.map((candidate) => {
     const text = candidateText(candidate);
-    const labelTerms = terms(text.label);
-    const allTerms = terms(text.all);
-    const labelNgrams = characterNgrams(text.label);
     const lexical = text.label.length > 0 && (query.includes(text.label) || text.label.includes(query)) ? 100 : 0;
-    const token = overlap(queryTerms, labelTerms) * 4 + overlap(queryTerms, allTerms);
-    const character = overlap(queryNgrams, labelNgrams);
+    const token = overlap(queryTerms, text.labelTerms) * 4 + overlap(queryTerms, text.allTerms);
+    const character = overlap(queryNgrams, text.labelNgrams);
     return {
       candidate,
       lexical,
