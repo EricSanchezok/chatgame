@@ -47,6 +47,7 @@ interface CandidateText {
 // while keeping the retriever pure from the caller's perspective.
 const catalogCandidatesCache = new Map<string, Candidate[]>();
 const candidateTextCache = new WeakMap<Candidate, CandidateText>();
+const slotQueryCache = new Map<string, string>();
 
 const ACTION_COMPILATION_KINDS = new Set([
   "action",
@@ -141,9 +142,18 @@ function collectText(value: unknown, key: string | undefined, output: string[], 
 }
 
 function queryText(input: CandidateRetrieverInput): string {
+  const catalog = record(input.context.referenceCatalog);
+  const catalogHash = typeof catalog?.hash === "string" ? catalog.hash : undefined;
+  const cacheKey = catalogHash ? `${catalogHash}:${input.slotIndex}` : undefined;
+  if (cacheKey) {
+    const cached = slotQueryCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+  }
   const values: string[] = [];
   collectText(slotContext(input), undefined, values);
-  return values.join(" ").normalize("NFC").toLocaleLowerCase("zh-CN");
+  const result = values.join(" ").normalize("NFC").toLocaleLowerCase("zh-CN");
+  if (cacheKey) slotQueryCache.set(cacheKey, result);
+  return result;
 }
 
 function terms(text: string): Set<string> {
