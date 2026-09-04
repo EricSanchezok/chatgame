@@ -201,6 +201,19 @@ export interface InvocationProbeReport {
   };
 }
 
+/** The one-trial, one-invocation evidence accepted by counterfactual replay. */
+export interface InvocationProbeReplayOverride {
+  report: InvocationProbeReport;
+  reportHash: string;
+  trial: InvocationProbeTrial;
+}
+
+export function sanitizeInvocationProbeReport(report: InvocationProbeReport): InvocationProbeReport {
+  const sanitized = structuredClone(report);
+  if (sanitized.variant) sanitized.variant.path = path.basename(sanitized.variant.path);
+  return sanitized;
+}
+
 export interface LoadInvocationSourceOptions {
   database: string;
   source?: "api" | "sqlite" | "auto";
@@ -219,6 +232,88 @@ export interface RunInvocationProbeOptions {
   repeat?: number;
   allowDrift?: boolean;
   probeId?: string;
+}
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/**
+ * Read a probe report explicitly supplied by the operator. This deliberately
+ * does not discover files or execute the report's variant metadata.
+ */
+export function loadInvocationProbeReport(
+  file: string,
+  selectedTrial = 1,
+): InvocationProbeReplayOverride {
+  if (!Number.isSafeInteger(selectedTrial) || selectedTrial < 1) {
+    throw new Error("--trial must be a positive integer");
+  }
+  const resolved = path.resolve(file);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(resolved, "utf8")) as unknown;
+  } catch (error) {
+    throw new Error(`probe report could not be read: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const report = record(parsed) as Partial<InvocationProbeReport> | null;
+  if (!report || report.schemaVersion !== 1 || report.kind !== "model-invocation-probe") {
+    throw new Error("probe report schemaVersion/kind is invalid; expected model-invocation-probe v1");
+  }
+  if (report.networkAccessed !== true || typeof report.probeId !== "string" || !report.probeId.trim()) {
+    throw new Error("probe report must record networkAccessed=true and a probeId");
+  }
+  const source = record(report.source);
+  if (!source || typeof source.executionId !== "string" || typeof source.sourceInvocationId !== "string" ||
+    typeof source.publicInvocationId !== "string") {
+    throw new Error("probe report source identity is invalid");
+  }
+  const separator = source.publicInvocationId.indexOf("::");
+  if (separator <= 0 || source.publicInvocationId.slice(0, separator) !== source.executionId ||
+    source.publicInvocationId.slice(separator + 2) !== source.sourceInvocationId) {
+    throw new Error("probe report source publicInvocationId does not match executionId/sourceInvocationId");
+  }
+  const profile = record(report.profile);
+  if (!profile || typeof profile.sourceProfileId !== "string" || typeof profile.effectiveProfileId !== "string" ||
+    typeof profile.overridden !== "boolean" || !Array.isArray(profile.drift)) {
+    throw new Error("probe report profile metadata is invalid");
+  }
+  if (report.variant !== null) {
+    const variant = record(report.variant);
+    if (!variant || typeof variant.id !== "string" || !variant.id.trim() || typeof variant.path !== "string" ||
+      !variant.path.trim() || typeof variant.hash !== "string" || !variant.hash.trim()) {
+      throw new Error("probe report variant metadata is invalid");
+    }
+  }
+  if (!record(report.request)) throw new Error("probe report request is invalid");
+  if (!Array.isArray(report.trials)) throw new Error("probe report trials must be an array");
+  const matchingTrials = report.trials.filter((candidate) => record(candidate)?.trial === selectedTrial);
+  if (matchingTrials.length > 1) throw new Error(`probe report contains duplicate trial: ${selectedTrial}`);
+  const trial = matchingTrials[0] as InvocationProbeTrial | undefined;
+  if (!trial) throw new Error(`probe report trial not found: ${selectedTrial}`);
+  if (trial.status !== "accepted" && trial.status !== "rejected") {
+    throw new Error(`probe trial ${selectedTrial} status is not overlayable: ${String(trial.status)}`);
+  }
+  if (trial.requestExactMatch !== true || typeof trial.requestHash !== "string" || !trial.requestHash) {
+    throw new Error(`probe trial ${selectedTrial} does not have an exact request match`);
+  }
+  if (!record(trial.request)) throw new Error(`probe trial ${selectedTrial} request is invalid`);
+  if (!trial.audit || !record(trial.audit) || !Array.isArray(trial.audit.invocations) || trial.audit.invocations.length === 0) {
+    throw new Error(`probe trial ${selectedTrial} is missing a model audit`);
+  }
+  if (trial.status === "accepted" && !hasOwn(trial as object, "output")) {
+    throw new Error(`probe trial ${selectedTrial} is accepted but has no normalized output`);
+  }
+  if (trial.status === "rejected" && !hasOwn(trial as object, "rawOutput")) {
+    throw new Error(`probe trial ${selectedTrial} is rejected but has no rawOutput`);
+  }
+  const sanitizedReport = sanitizeInvocationProbeReport(report as InvocationProbeReport);
+  const reportHash = contentHash(redactRuntimePayload(sanitizedReport));
+  return {
+    report: sanitizedReport,
+    reportHash,
+    trial: structuredClone(trial),
+  };
 }
 
 function record(value: unknown): Record<string, unknown> | null {

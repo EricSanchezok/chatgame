@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { z } from "zod";
 import {
   arrivalDraftSchema,
@@ -16,6 +19,7 @@ import { resolveModelProfile } from "../model-registry";
 import type { DebugInspection } from "../../../shared/debug-api";
 import {
   runInvocationProbe,
+  loadInvocationProbeReport,
   sourceFromInspection,
   type InvocationProbeSource,
   type SerializedModelRequest,
@@ -77,6 +81,86 @@ async function source(): Promise<{ source: InvocationProbeSource; catalog: Retur
 }
 
 describe("model invocation probe", () => {
+  it("loads only an explicit v1 report and selects the requested trial", async () => {
+    const fixture = await source();
+    const root = mkdtempSync(path.join(tmpdir(), "lwe-probe-report-"));
+    try {
+      const report = {
+        schemaVersion: 1,
+        kind: "model-invocation-probe",
+        probeId: "probe-report-test",
+        networkAccessed: true,
+        source: {
+          publicInvocationId: fixture.source.publicInvocationId,
+          executionId: fixture.source.executionId,
+          sourceInvocationId: fixture.source.sourceInvocationId,
+          status: fixture.source.status,
+          issueCodes: fixture.source.issueCodes,
+          requestHash: fixture.source.requestHash,
+          modelCatalogHash: fixture.source.request.modelCatalogHash,
+          registrySnapshotHash: fixture.source.request.registrySnapshotHash,
+        },
+        variant: null,
+        profile: {
+          sourceProfileId: fixture.source.request.profileId,
+          effectiveProfileId: fixture.source.request.profileId,
+          overridden: false,
+          catalogHash: fixture.source.request.modelCatalogHash,
+          registrySnapshotHash: fixture.source.request.registrySnapshotHash,
+          drift: [],
+        },
+        request: {
+          role: fixture.source.request.role,
+          subjectId: fixture.source.request.subjectId,
+          promptVersion: fixture.source.request.promptVersion,
+          schemaName: fixture.source.request.schemaName,
+          workloadId: fixture.source.request.workloadId,
+          batchId: fixture.source.request.batchId,
+          system: fixture.source.request.system,
+          userPrompt: fixture.source.request.userPrompt,
+          context: fixture.source.request.context,
+          schema: fixture.source.request.schema,
+        },
+        trials: [1, 2].map((trial) => ({
+          trial,
+          status: "accepted" as const,
+          requestHash: fixture.source.requestHash,
+          requestExactMatch: true,
+          request: {
+            profileId: fixture.source.request.profileId,
+            role: fixture.source.request.role,
+            subjectId: fixture.source.request.subjectId,
+            promptVersion: fixture.source.request.promptVersion,
+            schemaName: fixture.source.request.schemaName,
+            workloadId: fixture.source.request.workloadId,
+            batchId: fixture.source.request.batchId,
+            system: fixture.source.request.system,
+            userPrompt: fixture.source.request.userPrompt,
+            context: fixture.source.request.context,
+          },
+          requestDiff: { changed: false, changedFields: [], changes: [], truncated: false },
+          output: { title: `trial-${trial}` },
+          audit: { invocations: [{ id: `probe:${trial}`, requestHash: fixture.source.requestHash }] },
+          events: [],
+          engineSemantic: "not-run" as const,
+        })),
+        summary: { total: 2, accepted: 2, rejected: 0, transportFailed: 0, configurationFailed: 0, acceptRate: 1, normalizationRate: 0 },
+      };
+      const file = path.join(root, "report.json");
+      writeFileSync(file, JSON.stringify(report), "utf8");
+      const loaded = loadInvocationProbeReport(file, 2);
+      expect(loaded.report.probeId).toBe("probe-report-test");
+      expect(loaded.trial.trial).toBe(2);
+      expect(loaded.reportHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect(() => loadInvocationProbeReport(file, 3)).toThrow("trial not found");
+      report.kind = "other";
+      writeFileSync(file, JSON.stringify(report), "utf8");
+      expect(() => loadInvocationProbeReport(file)).toThrow("schemaVersion/kind");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("replays a request through a variant without writing canonical state", async () => {
     const fixture = await source();
     const provider = new ScriptedModelProvider(() => ({

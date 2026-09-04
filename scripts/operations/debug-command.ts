@@ -16,6 +16,8 @@ type ParsedArguments = {
   includePayload: boolean;
   rebuildIndex: boolean;
   positional: string[];
+  probeReport?: string;
+  trial: number;
 };
 
 function usage(): string {
@@ -29,7 +31,7 @@ Commands:
   artifact   Read one complete recorded artifact
   explain    Explain a diagnostic code and its owning source
   doctor     Check Ledger and debug-index integrity
-  replay     Replay one execution using recorded model outputs
+  replay     Replay one execution using recorded model outputs (optionally one probe overlay)
   compare    Compare two executions by semantic partitions
   export     Export one execution, events, artifacts, and metrics
 
@@ -42,6 +44,7 @@ Common options:
   --database <sqlite> --format json|ndjson|table --output <file>
   --limit <1..100> --cursor <cursor> --from <ISO> --to <ISO>
   --component <name> --operation <name> --event-name <name> --payload
+  replay options: --probe-report <report.json> --trial <n>
 `;
 }
 
@@ -66,6 +69,8 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let output: string | undefined;
   let includePayload = false;
   let rebuildIndex = false;
+  let probeReport: string | undefined;
+  let trial = 1;
   for (let index = 1; index < argv.length; index += 1) {
     const value = argv[index]!;
     if (!value.startsWith("--")) {
@@ -77,6 +82,12 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (value === "--rebuild-index") { rebuildIndex = true; continue; }
     if (value === "--database") { database = path.resolve(requiredValue(argv, ++index, value)); continue; }
     if (value === "--output") { output = path.resolve(requiredValue(argv, ++index, value)); continue; }
+    if (value === "--probe-report") { probeReport = path.resolve(requiredValue(argv, ++index, value)); continue; }
+    if (value === "--trial") {
+      trial = integer(requiredValue(argv, ++index, value), value);
+      if (trial < 1) throw new Error("--trial must be a positive integer");
+      continue;
+    }
     if (value === "--format") {
       const candidate = requiredValue(argv, ++index, value) as DebugOutputFormat;
       if (!new Set<DebugOutputFormat>(["json", "ndjson", "table"]).has(candidate)) throw new Error("--format must be json, ndjson, or table");
@@ -122,7 +133,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     throw new Error(`unknown option: ${value}`);
   }
   query.includePayload = includePayload;
-  return { command, query, format, database, output, includePayload, rebuildIndex, positional };
+  return { command, query, format, database, output, includePayload, rebuildIndex, positional, probeReport, trial };
 }
 
 function idFromQuery(result: DebugSearchResult, query: DebugQuery): string | undefined {
@@ -153,9 +164,12 @@ function commandError(error: unknown): { apiVersion: typeof DEBUG_API_VERSION; e
   const message = error instanceof Error ? error.message : String(error);
   const code = message.includes("not found")
     ? "debug.not_found"
-    : message.includes("schema") || message.includes("index") || message.includes("integrity")
+    : message.includes("schema") || message.includes("index") || message.includes("integrity") ||
+        message.includes("probe report") || message.includes("probe trial") || message.includes("probe request") ||
+        message.includes("probe overlay") || message.includes("probe target")
       ? "debug.integrity"
-      : message.includes("requires") || message.includes("unknown option") || message.includes("must be") || message.includes("invalid")
+      : message.includes("requires") || message.includes("unknown option") || message.includes("must be") || message.includes("invalid") ||
+          message.includes("supported only")
         ? "debug.invalid_arguments"
         : "debug.command_failed";
   return {
@@ -178,8 +192,11 @@ export async function runDebugCommand(argv: readonly string[]): Promise<number> 
   try {
     parsed = parseArguments(argv);
     if (!parsed.command) throw new Error(usage());
+    if (parsed.command !== "replay" && (parsed.probeReport || parsed.trial !== 1)) {
+      throw new Error("--probe-report/--trial are supported only by replay");
+    }
   } catch (error) {
-    writeOutput(commandError(error), { command: "", query: {}, format: "json", database: "", includePayload: false, rebuildIndex: false, positional: [] });
+    writeOutput(commandError(error), { command: "", query: {}, format: "json", database: "", includePayload: false, rebuildIndex: false, positional: [], trial: 1 });
     return 3;
   }
 
@@ -268,10 +285,35 @@ export async function runDebugCommand(argv: readonly string[]): Promise<number> 
         return 0;
       }
       const { replayThroughAlgorithm } = await import("./execution-command");
+      const { loadInvocationProbeReport } = await import("../../src/engine/models/model-invocation-probe");
       const original = executions[0]!;
-      const result = await replayThroughAlgorithm(store, original, store.executionEvents(original.id));
-      writeOutput({ executionId: original.id, recordedSemanticHash: original.semanticHash, recordedStateHash: original.stateHash, ...result, semanticMatch: original.semanticHash === result.semanticHash, stateMatch: original.stateHash === result.stateHash, networkAccessed: false }, parsed);
-      return original.semanticHash === result.semanticHash && original.stateHash === result.stateHash ? 0 : 4;
+      if (!parsed.probeReport && parsed.trial !== 1) throw new Error("--trial requires --probe-report");
+      const probe = parsed.probeReport ? loadInvocationProbeReport(parsed.probeReport, parsed.trial) : undefined;
+      const result = await replayThroughAlgorithm(store, original, store.executionEvents(original.id), undefined, { probe });
+      const output = {
+        executionId: original.id,
+        recordedSemanticHash: original.semanticHash,
+        recordedStateHash: original.stateHash,
+        ...result,
+        semanticMatch: result.semanticHash !== undefined && original.semanticHash === result.semanticHash,
+        stateMatch: result.stateHash !== undefined && original.stateHash === result.stateHash,
+        semanticHashComparison: {
+          original: original.semanticHash ?? null,
+          replay: result.semanticHash ?? null,
+          equal: result.semanticHash !== undefined && original.semanticHash === result.semanticHash,
+        },
+        stateHashComparison: {
+          original: original.stateHash ?? null,
+          replay: result.stateHash ?? null,
+          equal: result.stateHash !== undefined && original.stateHash === result.stateHash,
+        },
+        networkAccessed: false,
+        replayNetworkAccessed: false,
+        probeNetworkAccessed: Boolean(probe),
+      };
+      writeOutput(output, parsed);
+      if (probe) return 0;
+      return output.semanticMatch && output.stateMatch ? 0 : 4;
     }
     throw new Error(`unknown debug command: ${parsed.command}`);
   } catch (error) {

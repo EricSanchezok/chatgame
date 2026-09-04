@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { defineAlgorithmManifest } from "../../engine/runtime/execution";
+import { defineAlgorithmManifest, type WorldStepCandidate } from "../../engine/runtime/execution";
 import {
   aggregateMetricPoints,
   deriveExecutionWork,
@@ -11,10 +11,12 @@ import {
   EXECUTION_METRICS,
 } from "../../engine/runtime/execution-metrics";
 import { contentHash } from "../../engine/models/model-audit";
-import { materializeRuntimeEvent } from "../../engine/runtime/observability";
+import type { ModelExecutionAudit } from "../../engine/contracts/model";
+import { materializeRuntimeEvent, redactRuntimePayload } from "../../engine/runtime/observability";
 import { LocalDatabase } from "../local-database";
 import { candidatePartitions, replayThroughAlgorithm } from "../../../scripts/operations/execution-command";
 import { runDeterministicExperiment } from "../../../scripts/experiments/experiment-core";
+import type { InvocationProbeReport } from "../../engine/models/model-invocation-probe";
 
 function database(): LocalDatabase {
   const root = mkdtempSync(path.join(tmpdir(), "lwe-execution-ledger-"));
@@ -504,6 +506,138 @@ describe("Execution Ledger", () => {
         parentExecutionId: original!.id,
         status: "succeeded",
       });
+    } finally {
+      ledger.close();
+    }
+  });
+
+  it("overlays one exact probe output and records the counterfactual evidence", async () => {
+    const ledger = database();
+    try {
+      await runDeterministicExperiment({
+        agents: [1],
+        steps: [1],
+        actionCompilationSlots: [3],
+        agentMindSlots: [2],
+        ledger,
+      });
+      const original = ledger.executions({ kind: "benchmark" })
+        .find((execution) => execution.manifest.id === "eager-reference")!;
+      const events = ledger.executionEvents(original.id);
+      const candidateEvent = events.find((candidate) => candidate.event === "execution.candidate.persisted" &&
+        candidate.attributes?.phase === "step")!;
+      const candidate = candidateEvent.payload as WorldStepCandidate;
+      const outputEvent = events.find((candidateEventValue) => candidateEventValue.event === "model.structured_output.parsed" &&
+        candidate.modelAudits.some((audit) => audit.invocations.some((invocation) =>
+          invocation.id === candidateEventValue.correlation?.modelInvocationId)))!;
+      const targetId = outputEvent.correlation!.modelInvocationId!;
+      const targetAudit = candidate.modelAudits.find((audit) => audit.invocations.some((invocation) => invocation.id === targetId));
+      if (!targetAudit) throw new Error("test target audit is missing");
+      const targetInvocation = targetAudit.invocations.find((invocation) => invocation.id === targetId);
+      if (!targetInvocation) throw new Error("test target invocation is missing");
+      const context = events.find((candidateEventValue) => candidateEventValue.event === "model.context.serialized" &&
+        candidateEventValue.correlation?.modelInvocationId === targetId)!.payload as {
+          role: ModelExecutionAudit["role"];
+          subjectId: string;
+          profileId: string;
+          promptVersion: string;
+          schemaName: string;
+          workloadId: string;
+          batchId: string;
+          system: string;
+          userPrompt: string;
+          context: unknown;
+          schema: unknown;
+          modelCatalogHash: string;
+          registrySnapshotHash: string;
+        };
+      const report = {
+        schemaVersion: 1,
+        kind: "model-invocation-probe",
+        probeId: "probe-ledger-test",
+        networkAccessed: true,
+        source: {
+          publicInvocationId: `${original.id}::${targetId}`,
+          executionId: original.id,
+          sourceInvocationId: targetId,
+          status: "accepted",
+          issueCodes: [],
+          requestHash: targetInvocation.requestHash,
+          modelCatalogHash: context.modelCatalogHash,
+          registrySnapshotHash: context.registrySnapshotHash,
+        },
+        variant: null,
+        profile: {
+          sourceProfileId: context.profileId,
+          effectiveProfileId: context.profileId,
+          overridden: false,
+          catalogHash: context.modelCatalogHash,
+          registrySnapshotHash: context.registrySnapshotHash,
+          drift: [],
+        },
+        request: {
+          role: context.role,
+          subjectId: context.subjectId,
+          promptVersion: context.promptVersion,
+          schemaName: context.schemaName,
+          workloadId: context.workloadId,
+          batchId: context.batchId,
+          system: context.system,
+          userPrompt: context.userPrompt,
+          context: context.context,
+          schema: context.schema,
+        },
+        trials: [{
+          trial: 1,
+          status: "accepted",
+          requestHash: targetInvocation.requestHash,
+          requestExactMatch: true,
+          request: {
+            profileId: context.profileId,
+            role: context.role,
+            subjectId: context.subjectId,
+            promptVersion: context.promptVersion,
+            schemaName: context.schemaName,
+            workloadId: context.workloadId,
+            batchId: context.batchId,
+            system: context.system,
+            userPrompt: context.userPrompt,
+            context: context.context,
+          },
+          requestDiff: { changed: false, changedFields: [], changes: [], truncated: false },
+          output: outputEvent.payload,
+          audit: { ...structuredClone(targetAudit), invocations: [structuredClone(targetInvocation)] },
+          events: [],
+          engineSemantic: "not-run",
+        }],
+        summary: { total: 1, accepted: 1, rejected: 0, transportFailed: 0, configurationFailed: 0, acceptRate: 1, normalizationRate: 0 },
+      } satisfies InvocationProbeReport;
+      const reportHash = contentHash(redactRuntimePayload(report));
+      const result = await replayThroughAlgorithm(ledger, original, events, undefined, {
+        probe: { report, reportHash, trial: report.trials[0] },
+      });
+      expect(result).toMatchObject({ mode: "probe-overlay", replayStatus: "succeeded", engineSemantic: "accepted", probeId: "probe-ledger-test", trial: 1, targetInvocation: targetId });
+      const child = ledger.execution(result.replayExecutionId)!;
+      expect(child).toMatchObject({ kind: "replay", parentExecutionId: original.id, status: "succeeded" });
+      expect(child.runtimeConfig).toMatchObject({ replayMode: "probe-overlay", probeNetworkAccessed: true, replayNetworkAccessed: false, probeReportHash: reportHash });
+      expect(ledger.artifact(reportHash)).toMatchObject({ executionId: result.replayExecutionId, kind: "debug.model-invocation-probe.report" });
+      expect(ledger.executionEvents(result.replayExecutionId).some((event) => event.event === "debug.probe.overlay.applied")).toBe(true);
+      expect(ledger.execution(original.id)?.stateHash).toBe(original.stateHash);
+
+      const rejectedReport = structuredClone(report) as InvocationProbeReport;
+      const rejectedTrial = rejectedReport.trials[0]!;
+      rejectedTrial.status = "rejected";
+      rejectedTrial.rawOutput = outputEvent.payload;
+      delete rejectedTrial.output;
+      rejectedReport.summary = { ...rejectedReport.summary, accepted: 0, rejected: 1, acceptRate: 0 };
+      const rejectedResult = await replayThroughAlgorithm(ledger, original, events, undefined, {
+        probe: {
+          report: rejectedReport,
+          reportHash: contentHash(redactRuntimePayload(rejectedReport)),
+          trial: rejectedTrial,
+        },
+      });
+      expect(rejectedResult).toMatchObject({ mode: "probe-overlay", replayStatus: "succeeded", engineSemantic: "rejected" });
     } finally {
       ledger.close();
     }

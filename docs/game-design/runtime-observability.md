@@ -47,13 +47,14 @@ HTTP Route Handler 为每个请求生成 `requestId`，通过 `x-lwe-request-id`
 ```sh
 npm run experiment:run -- --agents=48 --steps=1 --action-compilation-slots=1,4,8,12 --agent-mind-slots=1,2,4,8 --database <sqlite>
 npm run execution:replay -- <execution-id> --database <sqlite>
+npm run execution:replay -- <execution-id> --database <sqlite> --probe-report <report.json> --trial 1
 npm run execution:compare -- <left-id> <right-id> --database <sqlite>
 npm run execution:export -- <execution-id> --database <sqlite> [--output <json>]
 ```
 
 本地故障优先使用 `npm run debug -- find --invocation <public-id>`、`inspect`、`lineage`、`events`、`artifact`、`explain` 和 `doctor`。完整命令、稳定退出码和索引重建流程见 [Local Debugging Reference](../debugging.md)。
 
-`experiment:run` 使用生产 Gateway 与确定性 transport boundary，不访问网络，并交叉运行两个独立槽位矩阵。每个 trial 固定带配置的 eager-reference manifest，记录配置上限、实际平均槽位、按角色物理调用与 scheduler 波次、input/output/reasoning/cache token、局部失败、repair、split、fallback、墙钟和成功率，并保存完整模型输入输出与候选材料。`execution:replay` 从原 execution 的 producer manifest 还原带相同配置的 `AlgorithmRef`，经 registry 创建算法并逐次消费已记录模型输出，不访问网络，同时验证 semantic hash 与 state hash。`execution:compare` 分别比较 resolution（计划、收据、随机、mechanic、因果验证）、temporal（计划、边界、snapshot、转换、决策点）、transition、observation 和 mind。`execution:export` 输出 producer manifest、事件、artifact 索引、按注册语义聚合的指标与 execution wall/span 摘要。
+`experiment:run` 使用生产 Gateway 与确定性 transport boundary，不访问网络，并交叉运行两个独立槽位矩阵。每个 trial 固定带配置的 eager-reference manifest，记录配置上限、实际平均槽位、按角色物理调用与 scheduler 波次、input/output/reasoning/cache token、局部失败、repair、split、fallback、墙钟和成功率，并保存完整模型输入输出与候选材料。`execution:replay` 从原 execution 的 producer manifest 还原带相同配置的 `AlgorithmRef`，经 registry 创建算法并逐次消费已记录模型输出，不访问网络，同时验证 semantic hash 与 state hash。它也接受显式 `--probe-report <report.json> --trial <n>`，进入 `probe-overlay` counterfactual mode：只替换一个 request-exact invocation，仍执行完整 schema、semantic、repair 与 commit 路径；报告 artifact 和 `debug.probe.overlay.applied` 事件记录证据及 probe/replay 网络边界。默认无参数语义保持 immutable Ledger replay。`execution:compare` 分别比较 resolution（计划、收据、随机、mechanic、因果验证）、temporal（计划、边界、snapshot、转换、决策点）、transition、observation 和 mind。`execution:export` 输出 producer manifest、事件、artifact 索引、按注册语义聚合的指标与 execution wall/span 摘要。
 
 随机实验以独立 world/seed 为重复单位；算法比较使用稳定随机键与配对运行，不能把同一世界中的多个 Agent 当成独立样本。
 

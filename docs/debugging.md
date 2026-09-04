@@ -10,6 +10,10 @@ npm run debug -- find --invocation '<execution-id>::<source-invocation-id>' --fo
 npm run debug -- inspect --invocation '<execution-id>::<source-invocation-id>'
 npm run debug -- lineage --invocation '<execution-id>::<source-invocation-id>'
 npm run debug -- explain '<diagnostic-code>'
+# Immutable Ledger replay (the default)
+npm run debug -- replay '<execution-id>'
+# Explicit counterfactual replay using one probe trial
+npm run debug -- replay '<execution-id>' --probe-report '<report.json>' --trial 1
 ```
 
 Use `--database <sqlite>` when the active data root is not `.livingworld-v20/`. All commands accept `--format json` (default), `--format ndjson`, and `--format table`. Add `--payload` to `inspect` or `events`, or use `artifact --artifact <hash>`, when complete JSON evidence is required. `--output <file>` prevents large results from consuming the Agent context.
@@ -45,6 +49,19 @@ debug export     Export execution evidence and derived metrics
 ```
 
 Stable exit codes are `0` for success, `2` for no match, `3` for invalid arguments, `4` for Ledger or index integrity failures, and `5` for an operational command failure. Errors are JSON objects with a stable code, retryability, and suggested commands.
+
+Replay is immutable by default: it reads only the source execution's recorded
+model outputs and creates a `replay` child. Passing `--probe-report` opts into
+`mode: "probe-overlay"`; `--trial` selects one exact-request trial (default
+`1`) from that explicitly supplied v1 `model-invocation-probe` report. The
+selected accepted output is normalized output, while a rejected trial enters
+the normal `ModelOutputError` repair path. Profile, prompt, schema, context, or
+request-hash drift is rejected, transport/configuration failures are not
+overlayable, and no report file is discovered automatically. Overlay engine
+failure is returned as `replayStatus: "failed"` with a failed child execution
+and a zero command status; malformed or mismatched evidence remains non-zero.
+Every overlay child stores the redacted report artifact and records
+`probeNetworkAccessed: true` versus `replayNetworkAccessed: false`.
 
 ## Evidence layers
 
