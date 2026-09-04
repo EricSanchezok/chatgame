@@ -97,7 +97,7 @@ describe("WorldInspectorTimeline", () => {
     );
 
     expect(screen.getAllByText("Revision 2")).toHaveLength(2);
-    expect(screen.getByText("1 次拒绝 · 0 次重试")).toBeVisible();
+    expect(screen.getByText("1 次语义修复（LLM 重新调用）")).toBeVisible();
     expect(screen.queryByText("未完成，未提交世界状态")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /回放世界边界/ })).toHaveLength(1);
 

@@ -11,6 +11,7 @@ import type {
 import {
   ContextLimitExceededError,
   modelInvocationCorrelation,
+  modelInvocationLogicalId,
   modelInvocationIdentity,
   setModelInvocationOutcome,
   setModelInvocationResultKind,
@@ -562,6 +563,7 @@ async function renderObserver(
       repairScope: "observer",
       targetIds: [observerId],
       maxRepairs: 2,
+      logicalInvocationId: modelInvocationLogicalId(scope, "observation-renderer", owner),
       invoke: async (repair) => {
         const issues = repair.issues.map((issue) => ({
           code: issue.code,
@@ -580,12 +582,20 @@ async function renderObserver(
           );
         }
         const identity = modelInvocationIdentity(scope, "observation-renderer", owner, repair.attempt + 1);
+        const correlation = modelInvocationCorrelation(scope, "observation-renderer", owner, identity, {
+          logicalInvocationId: repair.logicalInvocationId ?? modelInvocationLogicalId(scope, "observation-renderer", owner),
+          semanticRepairAttempt: repair.attempt,
+          ...(repair.parentInvocationId ? {
+            parentInvocationId: repair.parentInvocationId,
+            repairOf: repair.repairOf,
+          } : {}),
+        });
         const generated = await provider.generateStructured({
           profileId: input.definition.modelProfiles.observation,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
-          correlation: scope.correlation,
+          correlation,
           observer: scope.observer,
           ...identity,
           role: "observation-renderer",
@@ -613,7 +623,14 @@ async function renderObserver(
         scope.observer?.emit({
           event: "model.semantic.rejected",
           level: "warn",
-          correlation: modelInvocationCorrelation(scope, "observation-renderer", owner, identity),
+          correlation: modelInvocationCorrelation(scope, "observation-renderer", owner, identity, {
+            logicalInvocationId: repair.logicalInvocationId ?? modelInvocationLogicalId(scope, "observation-renderer", owner),
+            semanticRepairAttempt: repair.attempt,
+            ...(repair.parentInvocationId ? {
+              parentInvocationId: repair.parentInvocationId,
+              repairOf: repair.repairOf,
+            } : {}),
+          }),
           attributes: { resultKind: "observation-renderer_observer", observerId },
           counts: { validationIssues: issues.length },
           hashes: audit?.invocations.at(-1)?.responseHash

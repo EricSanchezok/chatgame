@@ -27,10 +27,12 @@ import {
   isTerminalEagerModelError,
   runEagerSlotBatches,
   type EagerSlot,
+  type EagerSlotAttemptLineage,
   type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
 import {
   modelInvocationCorrelation,
+  modelInvocationLogicalId,
   modelInvocationIdentity,
   ModelSemanticRepairError,
   setModelInvocationOutcome,
@@ -610,10 +612,10 @@ export class AgentMind {
         label: `AgentMind ${purpose}`,
         issuesForError: (error) => validationIssues(error),
         maxRepairs: this.repairAttempts,
-        invoke: async (batch, attempt) => {
+        invoke: async (batch, attempt, lineage: EagerSlotAttemptLineage) => {
           const owner = eagerSlotBatchOwner(`agent-mind-${purpose}`, batch);
           const identity = modelInvocationIdentity(scope, role, owner, attempt + 1);
-          const correlation = modelInvocationCorrelation(scope, role, owner, identity);
+          const correlation = modelInvocationCorrelation(scope, role, owner, identity, lineage);
           let generated;
           try {
             const contextStartedAt = Date.now();
@@ -629,7 +631,7 @@ export class AgentMind {
               workloadId: scope.workloadId,
               batchId: scope.batchId,
               abortSignal: scope.abortSignal,
-              correlation: scope.correlation,
+              correlation,
               observer: scope.observer,
               ...identity,
               role,
@@ -831,12 +833,14 @@ export class AgentMind {
   ): Promise<ReactionDecision & { modelAudit: ModelExecutionAudit }> {
     const stimulus = request.stimulus;
     const observe = runtimeEventEmitter(scope.observer);
+    const logicalInvocationId = modelInvocationLogicalId(scope, "agent-reaction", agent.id);
     try {
       const result = await runSemanticRepairLoop({
         role: "agent-reaction",
         repairScope: "slot",
         targetIds: [agent.id],
         maxRepairs: this.repairAttempts,
+        logicalInvocationId,
         invoke: async (repairContext) => {
         const contextStartedAt = Date.now();
           const issues = repairContext.issues.map((issue) => ({
@@ -858,7 +862,14 @@ export class AgentMind {
           });
         const prompt = promptBundle("agent-reaction");
           const identity = modelInvocationIdentity(scope, "agent-reaction", agent.id, repairContext.attempt + 1);
-        const correlation = modelInvocationCorrelation(scope, "agent-reaction", agent.id, identity);
+          const correlation = modelInvocationCorrelation(scope, "agent-reaction", agent.id, identity, {
+            logicalInvocationId: repairContext.logicalInvocationId ?? logicalInvocationId,
+            semanticRepairAttempt: repairContext.attempt,
+            ...(repairContext.parentInvocationId ? {
+              parentInvocationId: repairContext.parentInvocationId,
+              repairOf: repairContext.repairOf,
+            } : {}),
+          });
         observe?.({
           event: "model.context.built",
           correlation,
@@ -870,7 +881,7 @@ export class AgentMind {
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
-          correlation: scope.correlation,
+          correlation,
           observer: scope.observer,
           ...identity,
           role: "agent-reaction",
@@ -906,7 +917,7 @@ export class AgentMind {
             targetIds: [agent.id],
           },
         )),
-        onRejected: ({ audit, issues, error }) => {
+        onRejected: ({ context, audit, issues, error }) => {
           if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
           const invocation = audit?.invocations.at(-1);
           observe?.({
@@ -915,6 +926,13 @@ export class AgentMind {
             correlation: modelInvocationCorrelation(scope, "agent-reaction", agent.id, {
               modelInvocationId: invocation?.id,
               modelInvocation: invocation?.ordinal,
+            }, {
+              logicalInvocationId: context.logicalInvocationId ?? logicalInvocationId,
+              semanticRepairAttempt: context.attempt,
+              ...(context.parentInvocationId ? {
+                parentInvocationId: context.parentInvocationId,
+                repairOf: context.repairOf,
+              } : {}),
             }),
             attributes: { resultKind: invocation?.resultKind ?? "agent-reaction_decision" },
             counts: { validationIssues: issues.length },
@@ -938,6 +956,9 @@ export class AgentMind {
           correlation: modelInvocationCorrelation(scope, "agent-reaction", agent.id, {
             modelInvocationId: invocation?.id,
             modelInvocation: invocation?.ordinal,
+          }, {
+            logicalInvocationId,
+            semanticRepairAttempt: result.repairs,
           }),
           attributes: { resultKind: `reaction_${validated.kind}` },
         });

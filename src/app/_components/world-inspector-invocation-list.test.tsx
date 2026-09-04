@@ -13,6 +13,9 @@ const invocation: WorldInspectorModelInvocationSummary = {
   providerId: "qwen",
   modelId: "qwen-plus",
   status: "rejected",
+  lineage: { kind: "root", logicalInvocationId: "chain-1", semanticRepairAttempt: 0, rootInvocationIds: ["invocation-1"] },
+  chainFinalDisposition: "rejected",
+  semanticRepairCount: 2,
   slotRefs: [{ slot: 0, agentId: "sigrun", actionId: "action-1", label: "看看周围有什么吧" }],
   transportAttempts: [
     { attempt: 1, status: "retryable_error", statusCode: 504, errorName: "ModelTransportError", queueWaitMs: 20, executionMs: 1_000, retryDelayMs: 300, eventIds: [] },
@@ -58,24 +61,52 @@ describe("WorldInspectorInvocationList", () => {
   it("shows a compact row with timestamp, status, and core metrics", () => {
     render(<WorldInspectorInvocationList invocations={[invocation]} onSelect={() => {}} query="" />);
 
-    expect(screen.getByText("Invocation 1 · action-compilation")).toBeVisible();
-    expect(screen.getAllByText("148,537")).toHaveLength(2);
-    expect(screen.getByText("输出拒绝")).toBeVisible();
+    expect(screen.getByText("根调用 1 · action-compilation")).toBeVisible();
+    expect(screen.getAllByText("148,537")).toHaveLength(1);
+    expect(screen.getByText("修复耗尽 · 2 次")).toBeVisible();
+    expect(screen.queryByText("初始输出拒绝")).not.toBeInTheDocument();
     expect(screen.getByText("09/02 08:00:00")).toBeVisible();
     expect(screen.getByText("1 slots")).toBeVisible();
     expect(screen.queryByText("Transport 1")).not.toBeInTheDocument();
     expect(screen.queryByText("1 次 retry · 2 次物理尝试")).not.toBeInTheDocument();
   });
 
+  it("renders only root calls while keeping repair attempts for the detail view", () => {
+    const repair = {
+      ...invocation,
+      id: "run-1::invocation-2",
+      sourceInvocationId: "invocation-2",
+      ordinal: 2,
+      lineage: {
+        kind: "repair" as const,
+        logicalInvocationId: "chain-1",
+        semanticRepairAttempt: 1,
+        rootInvocationIds: [invocation.id],
+        parentInvocationId: invocation.id,
+        repairOf: invocation.id,
+      },
+    };
+    render(<WorldInspectorInvocationList invocations={[invocation, repair]} onSelect={() => {}} query="" />);
+
+    expect(screen.getAllByRole("button", { name: /根调用 1/ })).toHaveLength(1);
+    expect(screen.queryByText(/语义修复 1 · action-compilation/)).not.toBeInTheDocument();
+  });
+
   it("searches persisted Agent and action fields and selects the logical invocation", () => {
     const onSelect = vi.fn();
     const { rerender } = render(<WorldInspectorInvocationList invocations={[invocation]} onSelect={onSelect} query="Sigrun" />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Invocation 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /根调用 1/ }));
     expect(onSelect).toHaveBeenCalledWith(invocation);
 
     rerender(<WorldInspectorInvocationList invocations={[invocation]} onSelect={onSelect} query="missing" />);
     expect(screen.getByText("没有匹配“missing”的模型调用。")).toBeVisible();
+  });
+
+  it("keeps the root anchor visible when a repair search selected it", () => {
+    render(<WorldInspectorInvocationList invocations={[invocation]} onSelect={() => {}} query="repair-2" selectedId={invocation.id} />);
+
+    expect(screen.getByRole("button", { name: /根调用 1/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("keeps large slot batches compact and moves the full mapping to the detail panel", () => {
@@ -95,7 +126,7 @@ describe("WorldInspectorInvocationList", () => {
     const onSelect = vi.fn();
     render(<WorldInspectorInvocationList invocations={[invocation]} onSelect={onSelect} query="" />);
 
-    const card = screen.getByRole("button", { name: /Invocation 1/ });
+    const card = screen.getByRole("button", { name: /根调用 1/ });
     expect(card).toHaveAttribute("aria-pressed", "false");
     expect(card.querySelectorAll("button")).toHaveLength(0);
     fireEvent.click(card);
@@ -108,7 +139,7 @@ describe("WorldInspectorInvocationList", () => {
 
     render(<WorldInspectorInvocationList invocations={[first, second]} onSelect={() => {}} query="" />);
 
-    const buttons = screen.getAllByRole("button", { name: /Invocation 1/ });
+    const buttons = screen.getAllByRole("button", { name: /根调用 1/ });
     expect(buttons).toHaveLength(2);
     expect(buttons[0]).toHaveTextContent("09/02 08:00:00");
     expect(buttons[1]).toHaveTextContent("09/02 08:01:00");
@@ -139,8 +170,8 @@ describe("WorldInspectorInvocationList", () => {
 
     render(<WorldInspectorInvocationList invocations={[older, newer]} onSelect={() => {}} query="" />);
 
-    const buttons = screen.getAllByRole("button", { name: /Invocation/ });
-    expect(buttons[0]).toHaveTextContent("Invocation 2");
+    const buttons = screen.getAllByRole("button", { name: /根调用/ });
+    expect(buttons[0]).toHaveTextContent("根调用 2");
     expect(buttons[0]).not.toHaveTextContent("未分阶段");
     expect(buttons[0]).not.toHaveTextContent("9007199254740992");
   });

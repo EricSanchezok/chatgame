@@ -11,7 +11,7 @@ import type {
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 10 as const;
+export const WORLD_INSPECTOR_API_VERSION = 11 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -40,6 +40,8 @@ export type WorldInspectorEdgeKind =
   | "rollback"
   | "contains"
   | "retry_of"
+  | "semantic_repair"
+  | "parent_child"
   | "belongs_to_slot"
   | "produces"
   | "rejected_by";
@@ -102,6 +104,43 @@ export interface WorldInspectorModelTokenUsage {
 
 export type WorldInspectorModelInvocationStatus = "active" | "accepted" | "rejected" | "failed";
 
+export type WorldInspectorChainFinalDisposition =
+  | "accepted"
+  | "auto-normalized"
+  | "llm-repaired"
+  | "rejected"
+  | "failed"
+  | "in-progress"
+  | "untracked";
+
+export interface WorldInspectorInvocationLineage {
+  kind: "root" | "repair" | "untracked";
+  logicalInvocationId?: string;
+  semanticRepairAttempt: number;
+  rootInvocationIds: string[];
+  parentInvocationId?: string;
+  repairOf?: string;
+}
+
+export interface WorldInspectorRepairChainAttempt {
+  invocationId: string;
+  attempt: number;
+  status: WorldInspectorModelInvocationStatus;
+  outputDisposition: WorldInspectorModelInvocationSummary["outputDisposition"];
+  issueSummary?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface WorldInspectorRepairChain {
+  rootInvocationIds: string[];
+  attempts: WorldInspectorRepairChainAttempt[];
+  initialAttemptId: string;
+  finalAttemptId: string;
+  finalDisposition: WorldInspectorChainFinalDisposition;
+  semanticRepairCount: number;
+}
+
 export interface WorldInspectorSlotRef {
   slot: number;
   agentId?: string;
@@ -147,6 +186,9 @@ export interface WorldInspectorModelInvocationSummary {
   promptVersion?: string;
   schemaName?: string;
   status: WorldInspectorModelInvocationStatus;
+  lineage: WorldInspectorInvocationLineage;
+  chainFinalDisposition: WorldInspectorChainFinalDisposition;
+  semanticRepairCount: number;
   startedAt?: string;
   updatedAt?: string;
   slotRefs: WorldInspectorSlotRef[];
@@ -387,6 +429,8 @@ export interface WorldInspectorModelInvocationQuery {
   minInputTokens?: number;
   maxInputTokens?: number;
   minRetries?: number;
+  /** False by default for the calls view; true for exhaustive technical queries. */
+  includeRepairs?: boolean;
   sort?: "stage" | "duration" | "inputTokens" | "outputTokens" | "retries" | "timestamp";
   cursor?: string;
   limit?: number;
@@ -412,6 +456,7 @@ export interface WorldInspectorModelInvocationQueryResult {
 
 export interface WorldInspectorModelInvocationDetail extends WorldInspectorModelInvocationResult {
   eventSummaries: WorldInspectorRuntimeEventSummary[];
+  repairChain: WorldInspectorRepairChain;
 }
 
 export interface WorldInspectorReplayFrame {

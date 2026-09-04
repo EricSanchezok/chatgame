@@ -63,6 +63,9 @@ export interface SemanticRepairContext {
   targetIds: readonly string[];
   attempt: number;
   issues: readonly SemanticRepairIssue[];
+  logicalInvocationId?: string;
+  parentInvocationId?: string;
+  repairOf?: string;
 }
 
 export interface SemanticRepairLoopInput<T> {
@@ -70,6 +73,7 @@ export interface SemanticRepairLoopInput<T> {
   repairScope: SemanticRepairScope;
   targetIds: readonly string[];
   maxRepairs: number;
+  logicalInvocationId?: string;
   invoke: (context: SemanticRepairContext) => Promise<{ value: T; audit: ModelExecutionAudit }>;
   validate?: (value: T, context: SemanticRepairContext) => void;
   classify?: (error: unknown) => SemanticRepairIssue[];
@@ -157,18 +161,22 @@ export async function runSemanticRepairLoop<T>(
   }
   const audits: ModelExecutionAudit[] = [];
   let issues: SemanticRepairIssue[] = [];
+  let previousInvocationId: string | undefined;
   for (let attempt = 0; attempt <= input.maxRepairs; attempt += 1) {
     const context: SemanticRepairContext = {
       scope: input.repairScope,
       targetIds: [...input.targetIds],
       attempt,
       issues: structuredClone(issues),
+      ...(input.logicalInvocationId ? { logicalInvocationId: input.logicalInvocationId } : {}),
+      ...(previousInvocationId ? { parentInvocationId: previousInvocationId, repairOf: previousInvocationId } : {}),
     };
     let generatedAudit: ModelExecutionAudit | undefined;
     try {
       const generated = await input.invoke(context);
       generatedAudit = generated.audit;
       audits.push(generated.audit);
+      previousInvocationId = generated.audit.invocations.at(-1)?.id ?? previousInvocationId;
       input.validate?.(generated.value, context);
       if (attempt > 0) {
         const invocation = generated.audit.invocations.at(-1);
@@ -186,6 +194,7 @@ export async function runSemanticRepairLoop<T>(
         ? error.audit
         : undefined;
       if (audit) audits.push(audit);
+      previousInvocationId = audit?.invocations.at(-1)?.id ?? previousInvocationId;
       issues = input.classify?.(error) ?? defaultIssues(error);
       // Providers already attach field-level semantic diagnostics to the
       // invocation audit. Preserve those paths instead of replacing them

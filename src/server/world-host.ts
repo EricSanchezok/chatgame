@@ -32,7 +32,9 @@ import { createModelFetchResolver } from "../engine/models/model-network";
 import { contentHash } from "../engine/models/model-audit";
 import { ModelRegistry } from "../engine/models/model-registry";
 import {
+  modelInvocationCorrelation,
   modelInvocationIdentity,
+  modelInvocationLogicalId,
   type ModelRegistryDiagnostics,
   type ModelRegistryRefreshDiagnostics,
   type StructuredModelProvider,
@@ -2530,10 +2532,15 @@ export class WorldHost {
         runtimeIdentity: { worldHash: document.state.worldHash, revision: document.state.revision },
       };
       const identity = modelInvocationIdentity(scope, "arrival-generator", participant.agentId, 1);
+      const correlation = modelInvocationCorrelation(scope, "arrival-generator", participant.agentId, identity, {
+        logicalInvocationId: modelInvocationLogicalId(scope, "arrival-generator", participant.agentId),
+        semanticRepairAttempt: 0,
+      });
       const referenceResolver = createAgentReferenceResolver(document.state.agents[participant.agentId], []);
       const result = await this.options.provider.generateStructured({
         ...scope,
         ...identity,
+        correlation,
         profileId: definition.modelProfiles.arrival,
         role: "arrival-generator",
         subjectId: participant.agentId,

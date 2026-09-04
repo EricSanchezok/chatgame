@@ -26,6 +26,8 @@ export interface RuntimeCorrelation {
   component?: string;
   operation?: string;
   logicalInvocationId?: string;
+  /** Zero for the root semantic attempt; positive values are LLM repairs. */
+  semanticRepairAttempt?: number;
   parentInvocationId?: string;
   repairOf?: string;
   attemptGroupId?: string;

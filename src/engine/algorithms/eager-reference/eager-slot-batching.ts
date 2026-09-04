@@ -44,6 +44,13 @@ export interface EagerSlotBatchResult<TResult, TPayload, TIssue> {
   metrics: EagerSlotBatchMetrics;
 }
 
+export interface EagerSlotAttemptLineage {
+  logicalInvocationId: string;
+  semanticRepairAttempt: number;
+  parentInvocationId?: string;
+  repairOf?: string;
+}
+
 export class EagerSlotAttemptError extends Error {
   constructor(
     message: string,
@@ -149,6 +156,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
   invoke(
     slots: readonly EagerSlot<TPayload, TIssue>[],
     attempt: number,
+    lineage: EagerSlotAttemptLineage,
   ): Promise<EagerSlotAttemptResult<TResult, TPayload, TIssue>>;
   issuesForError(error: unknown, slot: EagerSlot<TPayload, TIssue>): TIssue[];
   issueFingerprint?: (issue: TIssue) => string;
@@ -161,6 +169,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
   }
   const recover = async (
     sourceSlots: readonly EagerSlot<TPayload, TIssue>[],
+    lineageState: { logicalInvocationId: string; baseAttempt: number; parentInvocationId?: string },
   ): Promise<EagerSlotBatchResult<TResult, TPayload, TIssue>> => {
     const fitted = partitionEagerSlots({
       slots: sourceSlots,
@@ -169,7 +178,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
       requestBytes: input.requestBytes,
       label: input.label,
     });
-    if (fitted.length > 1) return mergeBatchResults(await Promise.all(fitted.map(recover)));
+    if (fitted.length > 1) return mergeBatchResults(await Promise.all(fitted.map((batch) => recover(batch, lineageState))));
 
     let pending = fitted[0] ?? [];
     const results = new Map<string, TResult>();
@@ -184,10 +193,13 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
       singletonFailures: 0,
     };
     let lastAudit: ModelExecutionAudit | undefined;
+    let previousInvocationId = lineageState.parentInvocationId;
+    let previousSemanticAttempt = lineageState.baseAttempt;
     let lastError: unknown = new Error(`${input.label} failed without a model attempt`);
     const seenFailureFingerprints = new Set<string>();
     for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
       if (pending.length === 0) break;
+      const semanticRepairAttempt = lineageState.baseAttempt + attempt;
       const repairedFit = partitionEagerSlots({
         slots: pending,
         maxSlots: input.maxSlots,
@@ -196,7 +208,14 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
         label: input.label,
       });
       if (repairedFit.length > 1) {
-        const recovered = mergeBatchResults(await Promise.all(repairedFit.map(recover)));
+        const recovered = mergeBatchResults(await Promise.all(repairedFit.map((batch) => recover(batch, {
+          logicalInvocationId: lineageState.logicalInvocationId,
+          // The current attempt already produced the last audit. A split
+          // therefore starts with the next semantic repair number; otherwise
+          // the child calls would be incorrectly projected as root attempts.
+          baseAttempt: previousSemanticAttempt + 1,
+          ...(previousInvocationId ? { parentInvocationId: previousInvocationId } : {}),
+        }))));
         recovered.results.forEach((value, key) => results.set(key, value));
         return {
           results,
@@ -218,9 +237,15 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
         batchCount += 1;
         metrics.submittedSlots += pending.length;
         if (attempt > 0) metrics.repairCalls += 1;
-        const attempted = await input.invoke(pending, attempt);
+        const attempted = await input.invoke(pending, attempt, {
+          logicalInvocationId: lineageState.logicalInvocationId,
+          semanticRepairAttempt,
+          ...(previousInvocationId ? { parentInvocationId: previousInvocationId, repairOf: previousInvocationId } : {}),
+        });
         audits.push(attempted.audit);
         lastAudit = attempted.audit;
+        previousInvocationId = attempted.audit.invocations.at(-1)?.id ?? previousInvocationId;
+        previousSemanticAttempt = semanticRepairAttempt;
         attempted.accepted.forEach((entry) => results.set(entry.key, entry.result));
         if (attempted.accepted.length > 0 && attempted.rejected.length > 0) {
           metrics.partialFailureSlots += attempted.rejected.length;
@@ -241,7 +266,9 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
         if (audit) {
           audits.push(audit);
           lastAudit = audit;
+          previousInvocationId = audit.invocations.at(-1)?.id ?? previousInvocationId;
         }
+        previousSemanticAttempt = semanticRepairAttempt;
         pending = pending.map((slot) => ({
           ...slot,
           issues: input.issuesForError(error, slot),
@@ -272,7 +299,11 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
         metrics,
       };
     }
-    const recovered = mergeBatchResults(await Promise.all(splitEagerSlots(pending).map(recover)));
+    const recovered = mergeBatchResults(await Promise.all(splitEagerSlots(pending).map((batch) => recover(batch, {
+      logicalInvocationId: lineageState.logicalInvocationId,
+      baseAttempt: previousSemanticAttempt + 1,
+      ...(previousInvocationId ? { parentInvocationId: previousInvocationId } : {}),
+    }))));
     recovered.results.forEach((value, key) => results.set(key, value));
     return {
       results,
@@ -297,5 +328,8 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
     requestBytes: input.requestBytes,
     label: input.label,
   });
-  return mergeBatchResults(await Promise.all(initial.map(recover)));
+  return mergeBatchResults(await Promise.all(initial.map((batch) => recover(batch, {
+    logicalInvocationId: `${input.label}:${contentHash(batch.map((slot) => slot.key))}`,
+    baseAttempt: 0,
+  }))));
 }

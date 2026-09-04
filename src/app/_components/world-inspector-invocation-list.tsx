@@ -34,8 +34,16 @@ function formatTimestamp(value: string | undefined): string {
   }).format(timestamp);
 }
 
-function statusLabel(status: WorldInspectorModelInvocationSummary["status"]): string {
-  return status === "accepted" ? "语义接受" : status === "rejected" ? "输出拒绝" : status === "failed" ? "调用失败" : "进行中";
+function chainStatusLabel(invocation: WorldInspectorModelInvocationSummary): string {
+  switch (invocation.chainFinalDisposition) {
+    case "accepted": return "成功";
+    case "auto-normalized": return "规范化后接受";
+    case "llm-repaired": return `修复成功 · ${invocation.semanticRepairCount} 次`;
+    case "rejected": return `修复耗尽 · ${invocation.semanticRepairCount} 次`;
+    case "failed": return "调用失败";
+    case "in-progress": return "进行中";
+    case "untracked": return "未关联旧调用";
+  }
 }
 
 function stageIndex(invocation: WorldInspectorInvocationListItem): number {
@@ -50,6 +58,8 @@ function searchText(invocation: WorldInspectorInvocationListItem): string {
   if (cached) return cached;
   const slots = invocation.slotRefs.flatMap((slot) => [slot.agentId, slot.actionId, slot.label]).filter(Boolean).join(" ");
   const value = [invocation.id, invocation.role, invocation.subjectId, invocation.providerId, invocation.modelId,
+    invocation.lineage.logicalInvocationId, invocation.lineage.parentInvocationId, invocation.lineage.repairOf,
+    ...invocation.lineage.rootInvocationIds,
     invocation.profileId, invocation.errorMessage, ...invocation.issues.map((issue) => issue.code), ...invocation.eventIds,
     ...Object.values(invocation.artifactHashes), slots].filter(Boolean).join(" ").toLocaleLowerCase();
   invocationSearchIndex.set(invocation, value);
@@ -115,7 +125,11 @@ export function WorldInspectorInvocationList({
     };
   }, []);
   const normalized = query.trim().toLocaleLowerCase();
-  const visible = useMemo(() => invocations.filter((invocation) => {
+  const visible = useMemo(() => invocations.filter((invocation) => invocation.lineage.kind !== "repair").filter((invocation) => {
+    // Keep the selected root visible when a repair ID was used to enter the
+    // calls view. The root is the navigational anchor even though its summary
+    // does not duplicate every repair member ID.
+    if (selectedId === invocation.id) return true;
     const inputThreshold = minInputTokens === "" ? undefined : Number(minInputTokens);
     const retryThreshold = minRetries === "" ? undefined : Number(minRetries);
     if (inputThreshold !== undefined && (invocation.tokenUsage.input ?? -1) < inputThreshold) return false;
@@ -134,7 +148,7 @@ export function WorldInspectorInvocationList({
       : invocation.startedAt ? Date.parse(invocation.startedAt) : invocation.ordinal;
     return value(right) - value(left) || (right.ledgerSequence ?? right.ordinal) - (left.ledgerSequence ?? left.ordinal) ||
       right.ordinal - left.ordinal;
-  }), [invocations, minInputTokens, minRetries, normalized, sort]);
+  }), [invocations, minInputTokens, minRetries, normalized, selectedId, sort]);
   const viewportHeight = viewportSize.height;
   const overscan = 8;
   const rowOffsets = useMemo(() => {
@@ -162,9 +176,14 @@ export function WorldInspectorInvocationList({
   const windowEnd = Math.min(visible.length, findRowAt(effectiveScrollTop + viewportHeight) + overscan + 1);
   const windowed = visible.slice(windowStart, windowEnd);
   const windowKey = windowed.map((invocation) => invocation.id).join("|");
-  const input = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.input ?? 0), 0);
-  const output = visible.reduce((sum, invocation) => sum + (invocation.tokenUsage.output ?? 0), 0);
   const retries = visible.reduce((sum, invocation) => sum + invocation.retryCount, 0);
+  const semanticRepairChains = new Map<string, number>();
+  for (const invocation of visible) {
+    const key = invocation.lineage.logicalInvocationId ?? invocation.id;
+    semanticRepairChains.set(key, Math.max(semanticRepairChains.get(key) ?? 0, invocation.semanticRepairCount));
+  }
+  const semanticRepairs = [...semanticRepairChains.values()].reduce((sum, count) => sum + count, 0);
+  const terminalFailures = visible.filter((invocation) => invocation.chainFinalDisposition === "rejected" || invocation.chainFinalDisposition === "failed").length;
   useEffect(() => {
     const viewport = itemsRef.current;
     if (!viewport || windowed.length === 0 || typeof ResizeObserver === "undefined") return;
@@ -194,13 +213,14 @@ export function WorldInspectorInvocationList({
     >
       <header className="cg-inspector-invocation-list__header">
         <div>
-          <strong>模型调用{scopeLabel ? ` · ${scopeLabel}` : ""}</strong>
+          <strong>根调用{scopeLabel ? ` · ${scopeLabel}` : ""}</strong>
+          <small>语义修复和传输重试收在右侧详情</small>
         </div>
         <dl>
-          <div><dt>调用</dt><dd>{visible.length}</dd></div>
-          <div><dt>输入</dt><dd>{formatNumber(input)}</dd></div>
-          <div><dt>输出</dt><dd>{formatNumber(output)}</dd></div>
-          <div><dt>retry</dt><dd>{retries}</dd></div>
+          <div><dt>根调用</dt><dd>{visible.length}</dd></div>
+          <div><dt>语义修复</dt><dd>{semanticRepairs}</dd></div>
+          <div><dt>传输重试</dt><dd>{retries}</dd></div>
+          <div><dt>最终失败</dt><dd>{terminalFailures}</dd></div>
         </dl>
       </header>
       <div className="cg-inspector-invocation-list__controls" aria-label="调用排序与筛选">
@@ -214,7 +234,7 @@ export function WorldInspectorInvocationList({
               { value: "duration", label: "耗时" },
               { value: "inputTokens", label: "输入 token" },
               { value: "outputTokens", label: "输出 token" },
-              { value: "retries", label: "retry" },
+              { value: "retries", label: "传输重试" },
             ]}
             value={sort}
           />
@@ -225,7 +245,7 @@ export function WorldInspectorInvocationList({
             <label>最少输入 token
               <input min="0" onChange={(event) => setMinInputTokens(event.target.value)} placeholder="不限" type="number" value={minInputTokens} />
             </label>
-            <label>最少 retry
+            <label>最少传输重试
               <input min="0" onChange={(event) => setMinRetries(event.target.value)} placeholder="不限" type="number" value={minRetries} />
             </label>
           </div>
@@ -247,7 +267,7 @@ export function WorldInspectorInvocationList({
             <article
               className="cg-inspector-invocation"
               data-selected={selectedId === invocation.id || undefined}
-              data-status={invocation.status}
+              data-status={invocation.chainFinalDisposition}
               data-row-key={invocation.id}
               key={invocation.id}
               >
@@ -259,17 +279,16 @@ export function WorldInspectorInvocationList({
                 type="button"
               >
                 <span className="cg-inspector-invocation__identity">
-                  <strong>Invocation {invocation.ordinal || "?"} · {invocation.role ?? "模型调用"}</strong>
+                  <strong>{invocation.lineage.kind === "root" ? `根调用 ${invocation.logicalInvocationOrdinal || invocation.ordinal || "?"}` : `调用 ${invocation.ordinal || "?"}`} · {invocation.role ?? "模型调用"}</strong>
                   <small title={invocation.executionId}>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</small>
                 </span>
-                <span className="cg-inspector-invocation__status" data-status={invocation.status}>{statusLabel(invocation.status)}</span>
+                <span className="cg-inspector-invocation__status" data-status={invocation.chainFinalDisposition}>{chainStatusLabel(invocation)}</span>
                 <time className="cg-inspector-invocation__time" dateTime={invocation.startedAt ?? invocation.updatedAt}>{formatTimestamp(invocation.startedAt ?? invocation.updatedAt)}</time>
                 <span className="cg-inspector-invocation__slots">{invocation.slotRefs.length} slots</span>
                 <span className="cg-inspector-invocation__metrics" role="list">
                   <span role="listitem"><span>in</span><strong>{formatNumber(invocation.tokenUsage.input)}</strong></span>
                   <span role="listitem"><span>out</span><strong>{formatNumber(invocation.tokenUsage.output)}</strong></span>
                   <span role="listitem"><span>耗时</span><strong>{formatDuration(invocation.timings.invocationMs)}</strong></span>
-                  {invocation.retryCount > 0 && <span role="listitem"><span>retry</span><strong>{invocation.retryCount}</strong></span>}
                 </span>
               </button>
             </article>

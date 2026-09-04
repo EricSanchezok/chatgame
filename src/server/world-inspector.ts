@@ -18,13 +18,16 @@ import {
   type WorldInspectorAttemptDetail,
   type WorldInspectorAttemptStage,
   type WorldInspectorAttemptSummary,
+  type WorldInspectorChainFinalDisposition,
   type WorldInspectorEdgeKind,
   type WorldInspectorEdgeSummary,
+  type WorldInspectorInvocationLineage,
   type WorldInspectorModelInvocationDetail,
   type WorldInspectorModelInvocationQuery,
   type WorldInspectorModelInvocationQueryResult,
   type WorldInspectorModelInvocationResult,
   type WorldInspectorModelInvocationSummary,
+  type WorldInspectorRepairChain,
   type WorldInspectorModelTokenUsage,
   type WorldInspectorNodeSummary,
   type WorldInspectorRuntimeEventDetail,
@@ -485,6 +488,19 @@ function eventDuration(events: readonly RuntimeEvent[], eventName: string): numb
     .reduce((sum, event) => sum + (event.durationMs ?? 0), 0);
 }
 
+function semanticRepairInvocationCount(events: readonly RuntimeEvent[]): number {
+  const repairIds = new Set<string>();
+  for (const event of events) {
+    const attempt = event.correlation?.semanticRepairAttempt;
+    // Invocation ordinals are not lineage: old traces used them for every
+    // independent model call. Only an explicit semantic repair attempt is
+    // safe to count.
+    if (attempt === undefined || attempt <= 0) continue;
+    repairIds.add(event.correlation?.modelInvocationId ?? `event:${event.sequence}`);
+  }
+  return repairIds.size;
+}
+
 export function worldInspectorModelInvocationId(executionId: string, sourceInvocationId: string): string {
   return `${executionId}::${sourceInvocationId}`;
 }
@@ -493,28 +509,37 @@ function scopeModelInvocation(
   executionId: string,
   invocation: WorldInspectorModelInvocationSummary,
 ): WorldInspectorModelInvocationSummary {
+  const publicId = invocation.id.includes("::") ? invocation.id : worldInspectorModelInvocationId(executionId, invocation.sourceInvocationId);
+  const scopeInvocationId = (value: string | undefined) => value && value.includes("::")
+    ? value
+    : value ? worldInspectorModelInvocationId(executionId, value) : undefined;
   return {
     ...invocation,
-    id: invocation.id.includes("::") ? invocation.id : worldInspectorModelInvocationId(executionId, invocation.sourceInvocationId),
+    id: publicId,
+    lineage: {
+      ...invocation.lineage,
+      ...(scopeInvocationId(invocation.lineage.parentInvocationId) ? { parentInvocationId: scopeInvocationId(invocation.lineage.parentInvocationId) } : {}),
+      ...(scopeInvocationId(invocation.lineage.repairOf) ? { repairOf: scopeInvocationId(invocation.lineage.repairOf) } : {}),
+    },
   };
 }
 
 function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspectorModelInvocationSummary[] {
-  const groups = new Map<string, RuntimeEvent[]>();
+  const invocationGroups = new Map<string, RuntimeEvent[]>();
   for (const event of events) {
     if (!event.event.startsWith("model.")) continue;
     const sourceInvocationId = event.correlation?.modelInvocationId ??
       `unresolved:${event.correlation?.modelRole ?? "model"}:${event.correlation?.modelSubject ?? "unknown"}:${event.correlation?.modelInvocation ?? event.sequence}`;
     const executionId = event.correlation?.executionId ?? "unscoped";
     const id = worldInspectorModelInvocationId(executionId, sourceInvocationId);
-    const group = groups.get(id) ?? [];
+    const group = invocationGroups.get(id) ?? [];
     group.push(event);
-    groups.set(id, group);
+    invocationGroups.set(id, group);
   }
   const firstSequenceById = new Map(
-    [...groups.entries()].map(([id, group]) => [id, Math.min(...group.map((event) => event.sequence))]),
+    [...invocationGroups.entries()].map(([id, group]) => [id, Math.min(...group.map((event) => event.sequence))]),
   );
-  const projected = [...groups.entries()].map(([id, group]) => {
+  const projected = [...invocationGroups.entries()].map(([id, group]) => {
     const ordered = [...group].sort((left, right) => left.sequence - right.sequence);
     const stageEvent = ordered.find((event) => event.correlation?.logicalStageIndex !== undefined || event.correlation?.logicalStageKey);
     const logicalStageIndex = stageEvent?.correlation?.logicalStageIndex ?? Number.MAX_SAFE_INTEGER;
@@ -566,6 +591,18 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     const responseEvent = [...ordered].reverse().find((event) => event.event === "model.transport.response.raw");
     const outputEvent = [...ordered].reverse().find((event) =>
       event.event === "model.structured_output.parsed" || event.event === "model.structured_output.rejected");
+    const lineageEvent = ordered.find((event) => event.correlation?.logicalInvocationId ||
+      event.correlation?.semanticRepairAttempt !== undefined);
+    const logicalInvocationId = lineageEvent?.correlation?.logicalInvocationId;
+    const semanticRepairAttempt = lineageEvent?.correlation?.semanticRepairAttempt ?? 0;
+    const lineage: WorldInspectorInvocationLineage = {
+      kind: logicalInvocationId ? (semanticRepairAttempt > 0 ? "repair" : "root") : "untracked",
+      ...(logicalInvocationId ? { logicalInvocationId } : {}),
+      semanticRepairAttempt,
+      rootInvocationIds: [],
+      ...(lineageEvent?.correlation?.parentInvocationId ? { parentInvocationId: lineageEvent.correlation.parentInvocationId } : {}),
+      ...(lineageEvent?.correlation?.repairOf ? { repairOf: lineageEvent.correlation.repairOf } : {}),
+    };
     const normalizationEvent = [...ordered].reverse().find((event) => event.event === "model.output.normalized");
     const invocationMs = started && terminal
       ? Math.max(0, Date.parse(terminal.timestamp) - Date.parse(started.timestamp)) : undefined;
@@ -693,7 +730,7 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       artifactHashes,
       outputDisposition: ordered.some((event) => event.event === "model.semantic.rejected" || event.event === "model.structured_output.rejected")
         ? "rejected"
-        : ordered.some((event) => event.event === "model.semantic.repaired")
+        : semanticRepairAttempt > 0 || ordered.some((event) => event.event === "model.semantic.repaired")
           ? "llm-repaired"
           : normalizationApplied ? "auto-normalized" : "accepted",
       issues: (() => {
@@ -742,6 +779,9 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       ...(actionCompilationReferenceAudit ? { actionCompilationReferenceAudit } : {}),
       ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
       hasPayload: ordered.some((event) => event.payload !== undefined),
+      lineage,
+      chainFinalDisposition: lineage.kind === "untracked" ? "untracked" : "in-progress",
+      semanticRepairCount: 0,
     } satisfies WorldInspectorModelInvocationSummary;
   });
   const ordered = projected.sort((left, right) => {
@@ -750,12 +790,75 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       left.id.localeCompare(right.id);
   });
   const stageOrdinals = new Map<number, number>();
-  return ordered.map((invocation, index) => {
+  const withOrdinals = ordered.map((invocation, index) => {
     const stageIndex = invocation.logicalStageIndex ?? Number.MAX_SAFE_INTEGER;
     const logicalInvocationOrdinal = (stageOrdinals.get(stageIndex) ?? 0) + 1;
     stageOrdinals.set(stageIndex, logicalInvocationOrdinal);
     return { ...invocation, ordinal: index + 1, logicalInvocationOrdinal };
   });
+  const groups = new Map<string, WorldInspectorModelInvocationSummary[]>();
+  for (const invocation of withOrdinals) {
+    const key = invocation.lineage.logicalInvocationId
+      ? `logical:${invocation.lineage.logicalInvocationId}`
+      : `untracked:${invocation.id}`;
+    const group = groups.get(key) ?? [];
+    group.push(invocation);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    const roots = group.filter((invocation) => invocation.lineage.kind === "root").map((invocation) => invocation.id);
+    const semanticRepairCount = group.filter((invocation) => invocation.lineage.kind === "repair").length;
+    const final = [...group].sort((left, right) => left.lineage.semanticRepairAttempt - right.lineage.semanticRepairAttempt ||
+      Date.parse(left.updatedAt ?? left.startedAt ?? "") - Date.parse(right.updatedAt ?? right.startedAt ?? "") ||
+      left.ordinal - right.ordinal).at(-1);
+    const finalDisposition: WorldInspectorChainFinalDisposition = final?.status === "active"
+      ? "in-progress"
+      : final?.status === "failed"
+        ? "failed"
+        : final?.status === "rejected"
+          ? "rejected"
+          : group.some((invocation) => invocation.lineage.kind === "repair" && invocation.status === "accepted")
+            ? "llm-repaired"
+            : group.some((invocation) => invocation.outputDisposition === "auto-normalized")
+              ? "auto-normalized"
+              : "accepted";
+    for (const invocation of group) {
+      invocation.lineage = { ...invocation.lineage, rootInvocationIds: roots };
+      invocation.chainFinalDisposition = invocation.lineage.kind === "untracked" ? "untracked" : finalDisposition;
+      invocation.semanticRepairCount = semanticRepairCount;
+    }
+  }
+  return withOrdinals;
+}
+
+function repairChainForInvocation(
+  invocation: WorldInspectorModelInvocationSummary,
+  invocations: readonly WorldInspectorModelInvocationSummary[],
+): WorldInspectorRepairChain {
+  const logicalId = invocation.lineage.logicalInvocationId;
+  const members = logicalId
+    ? invocations.filter((candidate) => candidate.lineage.logicalInvocationId === logicalId)
+    : [invocation];
+  const attempts = [...members].sort((left, right) => Date.parse(left.startedAt ?? left.updatedAt ?? "") -
+    Date.parse(right.startedAt ?? right.updatedAt ?? "") ||
+    left.lineage.semanticRepairAttempt - right.lineage.semanticRepairAttempt || left.id.localeCompare(right.id)).map((candidate) => ({
+    invocationId: candidate.id,
+    attempt: candidate.lineage.semanticRepairAttempt,
+    status: candidate.status,
+    outputDisposition: candidate.outputDisposition,
+    ...(candidate.issues[0]?.message || candidate.errorMessage
+      ? { issueSummary: candidate.issues[0]?.message ?? candidate.errorMessage } : {}),
+    ...(candidate.startedAt ? { startedAt: candidate.startedAt } : {}),
+    ...(candidate.updatedAt ? { finishedAt: candidate.updatedAt } : {}),
+  }));
+  return {
+    rootInvocationIds: invocation.lineage.rootInvocationIds,
+    attempts,
+    initialAttemptId: attempts[0]?.invocationId ?? invocation.id,
+    finalAttemptId: attempts.at(-1)?.invocationId ?? invocation.id,
+    finalDisposition: invocation.chainFinalDisposition,
+    semanticRepairCount: invocation.semanticRepairCount,
+  };
 }
 
 function sumModelTokens(invocations: readonly WorldInspectorModelInvocationSummary[]): WorldInspectorTokenUsage {
@@ -885,7 +988,7 @@ function attemptStages(events: readonly RuntimeEvent[]): WorldInspectorAttemptSt
       modelInvocationCount: new Set(ordered.flatMap((event) => event.correlation?.modelInvocationId
         ? [event.correlation.modelInvocationId] : [])).size,
       rejectionCount: ordered.filter((event) => event.event === "model.semantic.rejected").length,
-      repairCount: ordered.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
+      repairCount: semanticRepairInvocationCount(ordered),
       ...(role ? { modelRole: role } : {}),
       ...(stage ? { logicalStageIndex: stage.index, logicalStageKey: stage.key } : {}),
       ...(group.every((event) => event.correlation?.logicalStageIndex !== index) ? { derived: true } : {}),
@@ -944,7 +1047,7 @@ function attemptSummary(
     relatedActorIds: eventActors(events, knownAgents),
     stages,
     rejectionCount: events.filter((event) => event.event === "model.semantic.rejected").length,
-    repairCount: events.filter((event) => (event.correlation?.modelInvocation ?? 1) > 1).length,
+    repairCount: semanticRepairInvocationCount(events),
     ...(failureStage ? { failureStage, failureStageLabel: EXECUTION_STAGES.find((stage) => stage.key === failureStage)?.label ?? stageLabels[failureStage] ?? failureStage } : {}),
     ...(error?.message ? { errorMessage: diagnosticErrorMessage(error) } : {}),
   };
@@ -1045,6 +1148,9 @@ export function buildWorldInspectorWindow(
   runtimeEvents: readonly RuntimeEvent[],
   input: { beforeRevision?: number; limit: number },
 ): WorldInspectorWindow {
+  const invocationNodeByPublicId = new Map<string, string>();
+  const invocationLineageEdges = new Map<string, { source: string; targetPublicId: string; label: string }>();
+  const invocationParentEdges = new Map<string, { source: string; targetPublicId: string; label: string }>();
   const eligible = document.state.history.filter((step) =>
     input.beforeRevision === undefined || step.revision < input.beforeRevision);
   const selected = eligible.slice(-input.limit);
@@ -1140,13 +1246,38 @@ export function buildWorldInspectorWindow(
         revision: attempt.revision ?? document.state.revision,
         laneId: invocationLane,
         kind: "model_invocation",
-        label: `Invocation ${invocation.ordinal || "?"}`,
+        label: invocation.lineage.kind === "repair"
+          ? `语义修复 ${invocation.lineage.semanticRepairAttempt}`
+          : invocation.lineage.kind === "root"
+            ? `根调用 ${invocation.logicalInvocationOrdinal || invocation.ordinal || "?"}`
+            : `调用 ${invocation.ordinal || "?"}`,
         description: `${invocation.role ?? "模型调用"} · ${invocation.providerId ?? "未知 provider"} / ${invocation.modelId ?? "未知 model"}`,
         status: invocation.status,
         relatedActorIds: invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []),
         relatedAttemptId: attempt.id,
         relatedInvocationId: publicInvocation.id,
       });
+      invocationNodeByPublicId.set(publicInvocation.id, invocationNodeId);
+      if (invocation.lineage.kind === "repair") {
+        const parentIds = new Set<string>();
+        if (invocation.lineage.repairOf) {
+          parentIds.add(invocation.lineage.repairOf.includes("::")
+            ? invocation.lineage.repairOf
+            : worldInspectorModelInvocationId(attempt.id, invocation.lineage.repairOf));
+        }
+        for (const rootId of invocation.lineage.rootInvocationIds) parentIds.add(rootId);
+        for (const targetPublicId of parentIds) {
+          const edgeId = "semantic_repair:" + publicInvocation.id + ":" + targetPublicId;
+          invocationLineageEdges.set(edgeId, { source: invocationNodeId, targetPublicId, label: "语义修复" });
+        }
+        if (invocation.lineage.parentInvocationId) {
+          const parentPublicId = invocation.lineage.parentInvocationId.includes("::")
+            ? invocation.lineage.parentInvocationId
+            : worldInspectorModelInvocationId(attempt.id, invocation.lineage.parentInvocationId);
+          const edgeId = "parent_child:" + parentPublicId + ":" + publicInvocation.id;
+          invocationParentEdges.set(edgeId, { source: invocationNodeId, targetPublicId: parentPublicId, label: "父子调用" });
+        }
+      }
       const stage = stages.find((candidate) => candidate.modelRole === invocation.role);
       const parentNodeId = stage ? `stage:${attempt.id}:${stage.id}` : `attempt:${attempt.id}`;
       edges.push({ id: `contains:${parentNodeId}:${invocationNodeId}`, source: parentNodeId, target: invocationNodeId, kind: "contains" });
@@ -1157,7 +1288,7 @@ export function buildWorldInspectorWindow(
           revision: attempt.revision ?? document.state.revision,
           laneId: invocationLane,
           kind: "transport_attempt",
-          label: `Transport ${transport.attempt}`,
+          label: `传输尝试 ${transport.attempt}`,
           description: `${transport.status}${transport.statusCode ? ` · HTTP ${transport.statusCode}` : ""} · ${transport.executionMs} ms`,
           status: transport.status === "succeeded" ? "succeeded" : "failed",
           relatedActorIds: invocation.slotRefs.flatMap((slot) => slot.agentId ? [slot.agentId] : []),
@@ -1167,7 +1298,7 @@ export function buildWorldInspectorWindow(
         edges.push({ id: `contains:${invocationNodeId}:${transportNodeId}`, source: invocationNodeId, target: transportNodeId, kind: "contains" });
         if (transport.attempt > 1) {
           const previous = `transport:${attempt.id}:${invocation.sourceInvocationId}:${transport.attempt - 1}`;
-          edges.push({ id: `retry_of:${transportNodeId}:${previous}`, source: transportNodeId, target: previous, kind: "retry_of" });
+          edges.push({ id: `retry_of:${transportNodeId}:${previous}`, source: transportNodeId, target: previous, kind: "retry_of", label: "传输重试" });
         }
       });
       for (const issue of invocation.issues) {
@@ -1217,6 +1348,16 @@ export function buildWorldInspectorWindow(
         edges.push({ id: `produces:${eventNodeId}:${artifactNodeId}`, source: eventNodeId, target: artifactNodeId, kind: "produces" });
       }
     }
+  }
+  for (const [id, edge] of invocationLineageEdges) {
+    const target = invocationNodeByPublicId.get(edge.targetPublicId);
+    if (!target || target === edge.source) continue;
+    edges.push({ id, source: edge.source, target, kind: "semantic_repair", label: edge.label });
+  }
+  for (const [id, edge] of invocationParentEdges) {
+    const parent = invocationNodeByPublicId.get(edge.targetPublicId);
+    if (!parent || parent === edge.source) continue;
+    edges.push({ id, source: edge.source, target: parent, kind: "parent_child", label: edge.label });
   }
   return {
     apiVersion: WORLD_INSPECTOR_API_VERSION,
@@ -1335,8 +1476,9 @@ function invocationResult(
   invocation: WorldInspectorModelInvocationSummary,
   ledgerSequence: number,
 ): WorldInspectorModelInvocationResult {
+  const scoped = scopeModelInvocation(record.id, invocation);
   return {
-    ...invocation,
+    ...scoped,
     id: worldInspectorModelInvocationId(record.id, invocation.sourceInvocationId),
     executionId: record.id,
     attemptId: record.id,
@@ -1379,8 +1521,10 @@ export function queryWorldInspectorModelInvocations(
   const eventsForExecution = eventsByExecution(runtimeEvents);
   const all = records.flatMap((record) => {
     const events = eventsForExecution.get(record.id) ?? [];
-    return modelInvocationProjection(events).map((invocation) => invocationResult(record, invocation,
-      events.find((event) => event.correlation?.modelInvocationId === invocation.sourceInvocationId)?.sequence ?? Number.MAX_SAFE_INTEGER));
+    return modelInvocationProjection(events)
+      .filter((invocation) => input.includeRepairs === true || invocation.lineage.kind !== "repair")
+      .map((invocation) => invocationResult(record, invocation,
+        events.find((event) => event.correlation?.modelInvocationId === invocation.sourceInvocationId)?.sequence ?? Number.MAX_SAFE_INTEGER));
   }).filter((item) => {
     const actorMatch = !input.actorId || item.slotRefs.some((slot) => slot.agentId === input.actorId) || item.subjectId === input.actorId;
     const duration = item.timings.invocationMs;
@@ -1432,8 +1576,11 @@ export function buildWorldInspectorModelInvocationDetail(
   const result = invocationResult(record, invocation,
     events.find((event) => event.correlation?.modelInvocationId === invocation.sourceInvocationId)?.sequence ?? Number.MAX_SAFE_INTEGER);
   const eventIds = new Set(invocation.eventIds);
+  const allInvocations = modelInvocationProjection(events).map((candidate) => invocationResult(record, candidate,
+    events.find((event) => event.correlation?.modelInvocationId === candidate.sourceInvocationId)?.sequence ?? Number.MAX_SAFE_INTEGER));
   return {
     ...result,
+    repairChain: repairChainForInvocation(result, allInvocations),
     eventSummaries: events.filter((event) => eventIds.has(worldInspectorRuntimeEventId(event))).map(summarizeRuntimeEvent),
   };
 }

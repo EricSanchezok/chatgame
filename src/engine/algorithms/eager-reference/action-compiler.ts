@@ -18,6 +18,7 @@ import {
   isTerminalEagerModelError,
   runEagerSlotBatches,
   type EagerSlot,
+  type EagerSlotAttemptLineage,
   type EagerSlotAttemptResult,
   type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
@@ -354,12 +355,13 @@ function emitActionCompilationReferenceAudit(
   owner: string,
   identity: ReturnType<typeof modelInvocationIdentity>,
   audit: ActionCompilationReferenceAudit,
+  lineage?: EagerSlotAttemptLineage,
 ): void {
   const observer = scope.observer;
   if (!observer) return;
   observer.emit({
     event: "model.action_compilation.references",
-    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity, lineage),
     payload: fullRuntimePayload(observer, audit),
   });
 }
@@ -484,13 +486,14 @@ function emitActionCompilationContextProjection(
   owner: string,
   identity: ReturnType<typeof modelInvocationIdentity>,
   context: ReturnType<typeof actionCompilationContext>,
+  lineage?: EagerSlotAttemptLineage,
 ): void {
   const candidates = context.referenceCatalog.candidates;
   const metrics = actionCompilationContextProjectionMetrics(context);
   const repair = context.task.slots.some((slot) => slot.issue !== null);
   scope.observer?.emit({
     event: "algorithm.eager_reference.action_compilation_context_projected",
-    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity, lineage),
     attributes: {
       phase: "action-compilation",
       projection: ACTION_COMPILATION_PROJECTION,
@@ -893,11 +896,12 @@ function emitSemanticRejection(
   identity: ReturnType<typeof modelInvocationIdentity>,
   message: string,
   slots: number,
+  lineage?: EagerSlotAttemptLineage,
 ): void {
   scope.observer?.emit({
     event: "model.semantic.rejected",
     level: "warn",
-    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+    correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity, lineage),
     attributes: { resultKind: "action_compilation_batch" },
     counts: { validationIssues: slots },
     error: { name: "ActionCompilationError", message },
@@ -939,9 +943,10 @@ export async function compileActions(
     issuesForError: actionCompilationRepairIssues,
     issueFingerprint: (issue) => semanticRepairFingerprint([issue], MODEL_CONTEXT_CONTRACT_VERSION),
     maxRepairs: repairAttempts,
-    invoke: async (batch, attempt) => {
+    invoke: async (batch, attempt, lineage: EagerSlotAttemptLineage) => {
       const owner = eagerSlotBatchOwner("action-compilation", batch);
       const identity = modelInvocationIdentity(scope, "action-compilation", owner, attempt + 1);
+      const correlation = modelInvocationCorrelation(scope, "action-compilation", owner, identity, lineage);
       const slotByActionId = new Map(batch.map((entry, slot) => [entry.payload.action.id, slot]));
       const baseResolver = actionGroundingReferenceResolver(
         state,
@@ -958,7 +963,7 @@ export async function compileActions(
       const batchActionResolver = createActionCompilationReferenceResolver(batchResolver, fullBatchResolver);
       const fullBatchActionResolver = createActionCompilationReferenceResolver(fullBatchResolver, fullBatchResolver);
       const context = actionCompilationContext(state, batch, scope, fullBatchResolver);
-      emitActionCompilationContextProjection(scope, owner, identity, context);
+      emitActionCompilationContextProjection(scope, owner, identity, context, lineage);
       emitActionCompilationReferenceAudit(
         scope,
         owner,
@@ -970,6 +975,7 @@ export async function compileActions(
           actionResolver: fullBatchActionResolver,
           handleResolver: fullBatchResolver,
         }),
+        lineage,
       );
       let generated;
       try {
@@ -978,7 +984,7 @@ export async function compileActions(
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
-          correlation: scope.correlation,
+          correlation,
           observer: scope.observer,
           ...identity,
           role: "action-compilation",
@@ -1011,7 +1017,7 @@ export async function compileActions(
             invocationAudit.outputDisposition = "auto-normalized";
             scope.observer?.emit({
               event: "model.output.normalized",
-              correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+              correlation,
               attributes: { applied: true, rule: "drop_context_only_causes" },
               counts: {
                 modifiedFields: localized.contextualCauseRemovals,
@@ -1027,7 +1033,9 @@ export async function compileActions(
             });
           }
           setModelInvocationResultKind(localized.audit, "action_compilation_batch");
-          if (localized.rejected.length === 0) setModelInvocationOutcome(localized.audit, "accepted");
+          if (localized.rejected.length === 0) {
+            setModelInvocationOutcome(localized.audit, attempt > 0 ? "llm-repaired" : "accepted");
+          }
           else setModelInvocationOutcome(
             localized.audit,
             "rejected",
@@ -1039,6 +1047,7 @@ export async function compileActions(
             identity,
             `action compilation localized ${localized.rejected.length} slot failure(s)`,
             localized.rejected.length,
+            lineage,
           );
           return localized;
         }
@@ -1054,6 +1063,7 @@ export async function compileActions(
           identity,
           error instanceof Error ? error.message : String(error),
           batch.length,
+          lineage,
         );
         throw new EagerSlotAttemptError(
           error instanceof Error ? error.message : String(error),
@@ -1110,6 +1120,7 @@ export async function compileActions(
           handleResolver: fullBatchResolver,
           selectionsBySlot,
         }),
+        lineage,
       );
       const invocationAudit = generated.audit.invocations.at(-1);
       if (invocationAudit) {
@@ -1135,11 +1146,13 @@ export async function compileActions(
           symbolRepairPostValidationRejectedCount,
         };
         if (rejected.length === 0) {
-          invocationAudit.outputDisposition = invocationAudit.normalization.applied ? "auto-normalized" : "accepted";
+          invocationAudit.outputDisposition = attempt > 0
+            ? "llm-repaired"
+            : invocationAudit.normalization.applied ? "auto-normalized" : "accepted";
         }
         scope.observer?.emit({
           event: "model.output.normalized",
-          correlation: modelInvocationCorrelation(scope, "action-compilation", owner, identity),
+            correlation,
           attributes: { applied: invocationAudit.normalization.applied },
           counts: {
             modifiedFields: modifiedFieldCount,
@@ -1163,7 +1176,7 @@ export async function compileActions(
       }
       setModelInvocationResultKind(generated.audit, "action_compilation_batch");
       if (rejected.length === 0) {
-        setModelInvocationOutcome(generated.audit, "accepted");
+        setModelInvocationOutcome(generated.audit, attempt > 0 ? "llm-repaired" : "accepted");
       } else {
         setModelInvocationOutcome(
           generated.audit,
@@ -1176,6 +1189,7 @@ export async function compileActions(
           identity,
           `action compilation rejected ${rejected.length} slot(s)`,
           rejected.length,
+          lineage,
         );
       }
       return { audit: generated.audit, accepted, rejected };

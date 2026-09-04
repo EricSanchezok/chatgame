@@ -125,7 +125,9 @@ function sameInvocationSummary(
     left.tokenUsage.reasoning === right.tokenUsage.reasoning && left.timings.invocationMs === right.timings.invocationMs &&
     left.timings.queueWaitMs === right.timings.queueWaitMs && left.timings.transportMs === right.timings.transportMs &&
     left.timings.parseMs === right.timings.parseMs && left.timings.retryDelayMs === right.timings.retryDelayMs &&
-    left.logicalStageIndex === right.logicalStageIndex && left.logicalInvocationOrdinal === right.logicalInvocationOrdinal;
+    left.logicalStageIndex === right.logicalStageIndex && left.logicalInvocationOrdinal === right.logicalInvocationOrdinal &&
+    left.chainFinalDisposition === right.chainFinalDisposition && left.semanticRepairCount === right.semanticRepairCount &&
+    JSON.stringify(left.lineage) === JSON.stringify(right.lineage);
 }
 
 function sameAttemptSummary(left: WorldInspectorAttemptSummary, right: WorldInspectorAttemptSummary): boolean {
@@ -179,7 +181,7 @@ const MemoizedWorldInspectorActors = memo(function WorldInspectorActors({
         type="button"
       >
         <span><GitBranch aria-hidden="true" /></span>
-        <span><strong>整个世界</strong><small>{worldActivity.steps} 个提交 · {worldActivity.attempts} 次尝试 · {worldActivity.modelInvocations} 次调用 · {worldActivity.retries} 次重试</small></span>
+        <span><strong>整个世界</strong><small>{worldActivity.steps} 个提交 · {worldActivity.attempts} 次尝试 · {worldActivity.modelInvocations} 次调用 · {worldActivity.retries} 次传输重试</small></span>
       </button>
       <div className="cg-inspector-actor-list">
         {visibleActors.map((actor) => {
@@ -195,7 +197,7 @@ const MemoizedWorldInspectorActors = memo(function WorldInspectorActors({
               <span className="cg-inspector-actor__sigil">{actor.name.slice(0, 1).toLocaleUpperCase()}</span>
               <span>
                 <strong>{actor.name}</strong>
-                <small>{activity.steps} 个提交 · {activity.attempts} 次尝试 · {activity.modelInvocations} 次调用 · {activity.retries} 次重试</small>
+                <small>{activity.steps} 个提交 · {activity.attempts} 次尝试 · {activity.modelInvocations} 次调用 · {activity.retries} 次传输重试</small>
               </span>
               <i data-lifecycle={actor.lifecycle} title={actor.lifecycle} />
             </button>
@@ -382,7 +384,11 @@ export default function WorldInspectorDialog({
   const effectiveSelection: WorldInspectorSelection = selection?.kind === "invocation"
     ? selection
     : replayFrame && selectedNodeId ? { kind: "node", id: selectedNodeId } : selection;
-  const selectedInvocationId = selection?.kind === "invocation" ? selection.id : undefined;
+  const selectedInvocationId = selection?.kind === "invocation"
+    ? invocationDetail?.lineage.kind === "repair"
+      ? invocationDetail.repairChain.initialAttemptId
+      : selection.id
+    : undefined;
   const selectedGraphNode = effectiveSelection?.kind === "node"
     ? [...semanticNodes, ...technicalNodes].find((node) => node.id === effectiveSelection.id)
     : undefined;
@@ -523,6 +529,24 @@ export default function WorldInspectorDialog({
     }
   }, [instanceId]);
 
+  const loadInvocationById = useCallback(async (invocationId: string, executionId: string) => {
+    const request = ++invocationDetailRequestRef.current;
+    setSelection({ kind: "invocation", id: invocationId, executionId });
+    setInvocationError("");
+    setLoadingInvocation(true);
+    try {
+      const value = await worldInspectorApi.modelInvocation(instanceId, executionId, invocationId);
+      if (request !== invocationDetailRequestRef.current) return;
+      startTransition(() => setInvocationDetail(value));
+    } catch (reason) {
+      if (request === invocationDetailRequestRef.current) {
+        setInvocationError(reason instanceof Error ? reason.message : "无法读取这次模型调用的完整记录。");
+      }
+    } finally {
+      if (request === invocationDetailRequestRef.current) setLoadingInvocation(false);
+    }
+  }, [instanceId]);
+
   const selectAttempt = useCallback(async (attempt: WorldInspectorAttemptSummary, preserveInvocation = false, background = false) => {
     const request = ++detailRequestRef.current;
     const preservedInvocationId = preserveInvocation && selectionRef.current?.kind === "invocation"
@@ -600,8 +624,17 @@ export default function WorldInspectorDialog({
       const evidence = await worldInspectorApi.debugInspect(value);
       const invocation = await worldInspectorApi.modelInvocation(instanceId, evidence.executionId, evidence.id);
       if (request !== invocationDetailRequestRef.current) return;
-      setQueriedInvocations((current) => current.some((candidate) => candidate.id === invocation.id)
-        ? current : [invocation, ...current]);
+      const rootId = invocation.lineage.kind === "repair"
+        ? invocation.repairChain.initialAttemptId
+        : invocation.id;
+      const rootSummary = invocation.lineage.kind === "repair"
+        ? await worldInspectorApi.modelInvocation(instanceId, evidence.executionId, rootId)
+        : invocation;
+      if (request !== invocationDetailRequestRef.current) return;
+      if (rootSummary) {
+        setQueriedInvocations((current) => current.some((candidate) => candidate.id === rootSummary.id)
+          ? current : [rootSummary, ...current]);
+      }
       setFollowLatest(false);
       setView("calls");
       setSelection({ kind: "invocation", id: invocation.id, executionId: invocation.executionId });
@@ -858,16 +891,21 @@ export default function WorldInspectorDialog({
     };
   }, [data]);
   const selectedInvocations = useMemo(() => {
-    const invocations = detail?.kind === "attempt" || detail?.kind === "step"
+    const contextualInvocations = detail?.kind === "attempt" || detail?.kind === "step"
       ? detail.value.modelInvocations
-      : queriedInvocations;
+      : [];
+    const invocations = selection?.kind === "invocation"
+      ? [...queriedInvocations, ...contextualInvocations.filter((invocation) =>
+        !queriedInvocations.some((candidate) => candidate.id === invocation.id))]
+      : contextualInvocations.length > 0 ? contextualInvocations : queriedInvocations;
     const scoped = replayFrame
       ? invocations.filter((invocation) => replayFrame.invocationIds.includes(invocation.id) || invocation.logicalStageIndex === replayFrame.stageIndex)
       : invocations;
-    if (selectedActorId === "world") return scoped;
-    return scoped.filter((invocation) => invocation.subjectId === selectedActorId ||
+    const roots = scoped.filter((invocation) => invocation.lineage.kind !== "repair");
+    if (selectedActorId === "world") return roots;
+    return roots.filter((invocation) => invocation.subjectId === selectedActorId ||
       invocation.slotRefs.some((slot) => slot.agentId === selectedActorId));
-  }, [detail, queriedInvocations, replayFrame, selectedActorId]);
+  }, [detail, queriedInvocations, replayFrame, selectedActorId, selection]);
 
   useEffect(() => {
     if (!replay || !open) return;
@@ -1013,6 +1051,10 @@ export default function WorldInspectorDialog({
     setView("calls");
     void selectInvocation(invocation);
   }, [selectInvocation]);
+  const handleSelectDetailInvocationId = useCallback((invocationId: string, executionId: string) => {
+    setView("calls");
+    void loadInvocationById(invocationId, executionId);
+  }, [loadInvocationById]);
   const handleGraphInteract = useCallback(() => setFollowLatest(false), []);
 
   return (
@@ -1255,6 +1297,7 @@ export default function WorldInspectorDialog({
             key={effectiveSelection ? `${effectiveSelection.kind}:${"id" in effectiveSelection ? effectiveSelection.id : "revision" in effectiveSelection ? effectiveSelection.revision : "empty"}` : "empty"}
             loading={effectiveSelection?.kind === "invocation" ? loadingInvocation : loadingDetail}
             onSelectInvocation={handleSelectDetailInvocation}
+            onSelectInvocationId={handleSelectDetailInvocationId}
             instanceId={instanceId}
             selection={effectiveSelection}
           />

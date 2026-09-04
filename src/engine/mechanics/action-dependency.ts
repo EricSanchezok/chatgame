@@ -17,6 +17,7 @@ import type { ActivityState, WorldTimer } from "./temporal";
 import {
   ModelSemanticRepairError,
   modelInvocationCorrelation,
+  modelInvocationLogicalId,
   modelInvocationIdentity,
   setModelInvocationOutcome,
   setModelInvocationResultKind,
@@ -720,6 +721,7 @@ export async function generateInteractionDependency(
       repairScope: "slot",
       targetIds: [action.id],
       maxRepairs: repairAttempts,
+      logicalInvocationId: modelInvocationLogicalId(scope, "action-grounding", action.actorId, invocationOffset + 1),
       invoke: async (repairContext) => {
         const identity = modelInvocationIdentity(
           scope,
@@ -727,12 +729,20 @@ export async function generateInteractionDependency(
           action.actorId,
           invocationOffset + repairContext.attempt + 1,
         );
+        const correlation = modelInvocationCorrelation(scope, "action-grounding", action.actorId, identity, {
+          logicalInvocationId: repairContext.logicalInvocationId ?? modelInvocationLogicalId(scope, "action-grounding", action.actorId, invocationOffset + 1),
+          semanticRepairAttempt: repairContext.attempt,
+          ...(repairContext.parentInvocationId ? {
+            parentInvocationId: repairContext.parentInvocationId,
+            repairOf: repairContext.repairOf,
+          } : {}),
+        });
         const generated = await provider.generateStructured({
           profileId,
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
-          correlation: scope.correlation,
+          correlation,
           observer: scope.observer,
           ...identity,
           role: "action-grounding",
@@ -765,7 +775,7 @@ export async function generateInteractionDependency(
           { class: "reference", path: ["interactionDependency"], targetIds: [action.id] },
         ));
       },
-      onRejected: ({ audit, issues, error }) => {
+      onRejected: ({ context, audit, issues, error }) => {
         const invocation = audit?.invocations.at(-1);
         if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
         scope.observer?.emit({
@@ -774,6 +784,13 @@ export async function generateInteractionDependency(
           correlation: modelInvocationCorrelation(scope, "action-grounding", action.actorId, {
             modelInvocationId: invocation?.id,
             modelInvocation: invocation?.ordinal,
+          }, {
+            logicalInvocationId: context.logicalInvocationId ?? modelInvocationLogicalId(scope, "action-grounding", action.actorId, invocationOffset + 1),
+            semanticRepairAttempt: context.attempt,
+            ...(context.parentInvocationId ? {
+              parentInvocationId: context.parentInvocationId,
+              repairOf: context.repairOf,
+            } : {}),
           }),
           attributes: { resultKind: invocation?.resultKind ?? "action-grounding_footprint" },
           counts: { validationIssues: issues.length },

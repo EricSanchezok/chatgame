@@ -47,6 +47,13 @@ export interface StructuredModelRequest<T> extends ModelExecutionScope {
   modelInvocation?: number;
 }
 
+export interface ModelInvocationLineage {
+  logicalInvocationId: string;
+  semanticRepairAttempt: number;
+  parentInvocationId?: string;
+  repairOf?: string;
+}
+
 export interface StructuredModelResult<T> {
   value: T;
   audit: ModelExecutionAudit;
@@ -292,6 +299,7 @@ export function modelInvocationCorrelation(
   role: ModelExecutionAudit["role"],
   subjectId: string,
   identity?: { modelInvocationId?: string; modelInvocation?: number },
+  lineage?: ModelInvocationLineage,
 ): RuntimeCorrelation {
   return {
     ...scope.correlation,
@@ -299,5 +307,21 @@ export function modelInvocationCorrelation(
     modelRole: role,
     modelSubject: subjectId,
     modelInvocation: identity?.modelInvocation,
+    ...(lineage ? {
+      logicalInvocationId: lineage.logicalInvocationId,
+      semanticRepairAttempt: lineage.semanticRepairAttempt,
+      ...(lineage.parentInvocationId ? { parentInvocationId: lineage.parentInvocationId } : {}),
+      ...(lineage.repairOf ? { repairOf: lineage.repairOf } : {}),
+    } : {}),
   };
+}
+
+/** Stable semantic-chain identity for a single model work item. */
+export function modelInvocationLogicalId(
+  scope: ModelExecutionScope,
+  role: ModelExecutionAudit["role"],
+  subjectId: string,
+  ordinal = 1,
+): string {
+  return modelInvocationIdentity(scope, role, subjectId, ordinal).modelInvocationId;
 }

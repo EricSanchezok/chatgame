@@ -135,6 +135,41 @@ function runtimeEvents(): RuntimeEvent[] {
   ];
 }
 
+function lineageRuntimeEvents(): RuntimeEvent[] {
+  let sequence = 0;
+  const event = (milliseconds: number, input: RuntimeEventInput): RuntimeEvent => ({
+    schemaVersion: 3,
+    sequence: ++sequence,
+    timestamp: new Date(Date.parse("2026-08-30T09:00:00.000Z") + milliseconds).toISOString(),
+    level: input.level ?? "info",
+    ...input,
+  });
+  const correlation = (modelInvocationId: string, semanticRepairAttempt: number, extra: Record<string, string> = {}) => ({
+    executionId: record.id,
+    modelInvocationId,
+    modelRole: "truth-resolution" as const,
+    modelSubject: modelInvocationId,
+    modelInvocation: semanticRepairAttempt + 1,
+    logicalInvocationId: "shared-chain",
+    semanticRepairAttempt,
+    ...extra,
+  });
+  const rootOne = correlation("root-1", 0);
+  const rootTwo = correlation("root-2", 0);
+  const repair = correlation("repair-1", 1, { parentInvocationId: "root-1", repairOf: "root-1" });
+  return [
+    event(0, { event: "model.invocation.started", correlation: rootOne }),
+    event(10, { event: "model.structured_output.rejected", correlation: rootOne, level: "warn", payload: { issues: [{ code: "root_issue" }] } }),
+    event(20, { event: "model.semantic.rejected", correlation: rootOne, level: "warn", payload: { issues: [{ code: "root_issue" }] } }),
+    event(30, { event: "model.invocation.started", correlation: rootTwo }),
+    event(40, { event: "model.structured_output.rejected", correlation: rootTwo, level: "warn", payload: { issues: [{ code: "root_issue" }] } }),
+    event(50, { event: "model.semantic.rejected", correlation: rootTwo, level: "warn", payload: { issues: [{ code: "root_issue" }] } }),
+    event(60, { event: "model.invocation.started", correlation: repair }),
+    event(70, { event: "model.structured_output.parsed", correlation: repair, payload: { plans: [] } }),
+    event(80, { event: "model.semantic.accepted", correlation: repair }),
+  ];
+}
+
 describe("world inspector model invocation projection", () => {
   it("separates logical invocations, transports, retries, tokens, and slot identity", () => {
     const result = queryWorldInspectorModelInvocations([record], runtimeEvents(), { sort: "retries" });
@@ -153,6 +188,8 @@ describe("world inspector model invocation projection", () => {
       responseUtf8Bytes: 4_100,
       slotRefs: [{ slot: 0, agentId: "sigrun", actionId: "action-1", label: "看看周围有什么吧" }],
       outputDisposition: "rejected",
+      chainFinalDisposition: "untracked",
+      semanticRepairCount: 0,
       issues: expect.arrayContaining([
         expect.objectContaining({ code: "ModelTransportError" }),
         expect.objectContaining({ code: "SchemaValidationError" }),
@@ -171,6 +208,31 @@ describe("world inspector model invocation projection", () => {
       "existingActivities",
       "validationIssues",
     ]);
+  });
+
+  it("reports repair exhaustion on the root without counting transport retries as repairs", () => {
+    const first = lineageRuntimeEvents().map((event) => event.correlation?.modelInvocationId === "repair-1" && event.event === "model.semantic.accepted"
+      ? { ...event, event: "model.semantic.rejected", level: "warn" as const }
+      : event);
+    const second = first.filter((event) => event.correlation?.modelInvocationId === "repair-1").map((event, index) => ({
+      ...event,
+      sequence: 100 + index,
+      timestamp: new Date(Date.parse(event.timestamp) + 1_000).toISOString(),
+      correlation: event.correlation ? {
+        ...event.correlation,
+        modelInvocationId: "repair-2",
+        modelInvocation: 3,
+        semanticRepairAttempt: 2,
+        parentInvocationId: "repair-1",
+        repairOf: "repair-1",
+      } : undefined,
+    }));
+    const result = queryWorldInspectorModelInvocations([record], [...first, ...second]);
+    expect(result.items).toHaveLength(2);
+    expect(result.items.every((item) => item.chainFinalDisposition === "rejected")).toBe(true);
+    expect(result.items.every((item) => item.semanticRepairCount === 2)).toBe(true);
+    const detail = buildWorldInspectorModelInvocationDetail(record.id, "execution-1::root-1", record, [...first, ...second]);
+    expect(detail?.repairChain.attempts.map((attempt) => attempt.attempt)).toEqual([0, 0, 1, 2]);
   });
 
   it("filters by persisted Agent/slot facts and paginates without returning payload bodies", () => {
@@ -219,6 +281,27 @@ describe("world inspector model invocation projection", () => {
     );
     expect(secondDetail?.id).toBe("execution-2::invocation-action-1");
     expect(secondDetail?.sourceInvocationId).toBe("invocation-action-1");
+  });
+
+  it("projects one final disposition for a shared semantic repair chain and hides repair rows by default", () => {
+    const result = queryWorldInspectorModelInvocations([record], lineageRuntimeEvents());
+    expect(result.total).toBe(2);
+    expect(result.items.every((item) => item.lineage.kind === "root")).toBe(true);
+    expect(result.items.map((item) => item.chainFinalDisposition)).toEqual(["llm-repaired", "llm-repaired"]);
+    expect(result.items.map((item) => item.semanticRepairCount)).toEqual([1, 1]);
+    expect(result.items.every((item) => item.lineage.rootInvocationIds.length === 2)).toBe(true);
+
+    const exhaustive = queryWorldInspectorModelInvocations([record], lineageRuntimeEvents(), { includeRepairs: true });
+    expect(exhaustive.total).toBe(3);
+    expect(exhaustive.items.find((item) => item.lineage.kind === "repair")?.lineage.rootInvocationIds).toHaveLength(2);
+    expect(exhaustive.items.find((item) => item.lineage.kind === "repair")?.lineage.repairOf).toBe("execution-1::root-1");
+    const detail = buildWorldInspectorModelInvocationDetail(record.id, "execution-1::root-2", record, lineageRuntimeEvents());
+    expect(detail?.repairChain.attempts.map((attempt) => attempt.invocationId)).toEqual([
+      "execution-1::root-1",
+      "execution-1::root-2",
+      "execution-1::repair-1",
+    ]);
+    expect(detail?.repairChain.finalDisposition).toBe("llm-repaired");
   });
 
   it("projects trusted Action Compilation candidate resolution evidence", () => {

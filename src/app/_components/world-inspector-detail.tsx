@@ -576,7 +576,64 @@ function formatIssuePath(path: readonly (string | number)[]): string {
 }
 
 function statusLabel(status: WorldInspectorModelInvocationDetail["status"]): string {
-  return status === "accepted" ? "语义接受" : status === "rejected" ? "输出拒绝" : status === "failed" ? "调用失败" : "进行中";
+  return status === "accepted" ? "成功" : status === "rejected" ? "未通过" : status === "failed" ? "调用失败" : "进行中";
+}
+
+function chainStatusLabel(invocation: WorldInspectorModelInvocationDetail): string {
+  switch (invocation.chainFinalDisposition) {
+    case "accepted": return "成功";
+    case "auto-normalized": return "规范化后接受";
+    case "llm-repaired": return `修复成功 · ${invocation.semanticRepairCount} 次`;
+    case "rejected": return `修复耗尽 · ${invocation.semanticRepairCount} 次`;
+    case "failed": return "调用失败";
+    case "in-progress": return "进行中";
+    case "untracked": return "未关联旧调用";
+  }
+}
+
+function repairAttemptStatus(status: WorldInspectorModelInvocationDetail["status"]): string {
+  return status === "accepted" ? "成功" : status === "rejected" ? "未通过" : status === "failed" ? "调用失败" : "进行中";
+}
+
+function repairAttemptDuration(attempt: WorldInspectorModelInvocationDetail["repairChain"]["attempts"][number]): string {
+  if (!attempt.startedAt || !attempt.finishedAt) return "耗时未记录";
+  const durationMs = Math.max(0, Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt));
+  return formatDuration(Number.isNaN(durationMs) ? undefined : durationMs);
+}
+
+function SemanticRepairChain({
+  invocation,
+  onSelectInvocationId,
+}: {
+  invocation: WorldInspectorModelInvocationDetail;
+  onSelectInvocationId?: (invocationId: string, executionId: string) => void;
+}) {
+  const chain = invocation.repairChain;
+  return (
+    <section className="cg-inspector-repair-chain" aria-label="语义修复链">
+      <header className="cg-inspector-repair-chain__header">
+        <strong>{invocation.lineage.kind === "untracked" ? "调用链（未关联旧记录）" : "语义修复（LLM 重新调用）"}</strong>
+      </header>
+      <ol>
+        {chain.attempts.map((attempt) => (
+          <li data-current={attempt.invocationId === invocation.id || undefined} data-status={attempt.status} key={attempt.invocationId}>
+            <button
+              aria-current={attempt.invocationId === invocation.id ? "step" : undefined}
+              disabled={!onSelectInvocationId}
+              onClick={() => onSelectInvocationId?.(attempt.invocationId, invocation.executionId)}
+              type="button"
+            >
+              <span>
+                <strong>{attempt.attempt === 0 ? "根调用" : `语义修复 ${attempt.attempt}`}</strong>
+                <small>{repairAttemptStatus(attempt.status)} · {repairAttemptDuration(attempt)}{attempt.issueSummary ? ` · ${formatInspectorFailureSummary(attempt.issueSummary, 160)}` : ""}</small>
+              </span>
+              <code title={attempt.invocationId}>{attempt.invocationId}</code>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
 }
 
 function RuntimeEventRows({ events, instanceId }: {
@@ -672,7 +729,9 @@ function RelatedInvocationList({
           onClick={() => onSelectInvocation?.(invocation)}
           type="button"
         >
-          <span><strong>Invocation {invocation.ordinal || "?"}</strong><small>{invocation.role ?? "模型调用"}{worldInspectorInvocationExecutionHint(invocation) ? ` · 执行 ${worldInspectorInvocationExecutionHint(invocation)}` : ""}</small></span>
+          <span><strong>{invocation.lineage.kind === "repair"
+            ? `语义修复 ${invocation.lineage.semanticRepairAttempt}`
+            : invocation.lineage.kind === "root" ? `根调用 ${invocation.logicalInvocationOrdinal || invocation.ordinal || "?"}` : `调用 ${invocation.ordinal || "?"}`}</strong><small>{invocation.role ?? "模型调用"}{worldInspectorInvocationExecutionHint(invocation) ? ` · 执行 ${worldInspectorInvocationExecutionHint(invocation)}` : ""}</small></span>
           <span><small>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</small><b data-status={invocation.status}>{statusLabel(invocation.status)}</b></span>
           <span aria-hidden="true">{onSelectInvocation ? "在调用视图打开 →" : ""}</span>
         </button>
@@ -793,7 +852,7 @@ function SymbolRepairSection({
       count={`${normalization.symbolRepairCount || repairs.length} 项`}
       description="请求内闭集符号的确定性候选修复；修复后仍经过完整 schema 与语义校验"
       icon={Wrench}
-      title="符号自动修复"
+      title="确定性符号修复（非 LLM 调用）"
     >
       {repairs.length > 0 ? <div className="cg-inspector-slot-table-wrap">
         <table className="cg-inspector-slot-table">
@@ -829,9 +888,7 @@ function AttemptOverview({ actorId, actorName, detail }: {
       ? "当前运行"
       : detail.summary.failureStageLabel ? `失败 · ${detail.summary.failureStageLabel}` : "失败";
   const outcomeMessage = committed
-    ? detail.summary.rejectionCount > 0
-      ? `${detail.summary.rejectionCount} 次拒绝 · ${detail.summary.repairCount} 次修复`
-      : "已通过校验并提交"
+    ? "已通过校验并提交"
     : active
       ? "等待继续"
       : formatInspectorFailureSummary(detail.summary.errorMessage ?? detail.summary.latestEvent);
@@ -858,8 +915,6 @@ function AttemptOverview({ actorId, actorName, detail }: {
               ? `Revision ${detail.summary.revision ?? "—"}`
               : active
                 ? "等待继续"
-              : detail.summary.rejectionCount > 0
-                ? `${detail.summary.rejectionCount} 次拒绝 · ${detail.summary.repairCount} 次修复`
                 : "未提交"}
           </small>
         </div>
@@ -965,9 +1020,11 @@ function InspectorErrorDetails({ message }: { message: string }) {
 function ModelInvocationDetailPanel({
   instanceId,
   invocation,
+  onSelectInvocationId,
 }: {
   instanceId: string;
   invocation: WorldInspectorModelInvocationDetail;
+  onSelectInvocationId?: (invocationId: string, executionId: string) => void;
 }) {
   const eventById = new Map(invocation.eventSummaries.map((event) => [event.id, event]));
   const payloadEvent = (id: string | undefined) => id ? eventById.get(id) : undefined;
@@ -982,11 +1039,11 @@ function ModelInvocationDetailPanel({
   return (
     <section className="cg-inspector-invocation-detail" aria-label="选中模型调用详情">
       <header className="cg-inspector-detail-heading">
-        <span className="cg-inspector-detail__status" data-status={invocation.status}>{statusLabel(invocation.status)}</span>
-        <h3>Invocation {invocation.ordinal || "?"}</h3>
+        <span className="cg-inspector-detail__status" data-status={invocation.chainFinalDisposition}>{chainStatusLabel(invocation)}</span>
+        <h3>{invocation.lineage.kind === "repair" ? `语义修复 ${invocation.lineage.semanticRepairAttempt}` : `根调用 ${invocation.logicalInvocationOrdinal || invocation.ordinal || "?"}`}</h3>
         <p><strong>{invocation.role ?? "模型调用"}</strong><span>{invocation.providerId ?? "未知 provider"} / {invocation.modelId ?? "未知 model"}</span></p>
-        <small title={invocation.id}>public id · {invocation.id}</small>
       </header>
+      <SemanticRepairChain invocation={invocation} onSelectInvocationId={onSelectInvocationId} />
       <dl className="cg-inspector-invocation-detail__facts">
         <div><dt>Agent / slot</dt><dd>{invocation.slotRefs.length} 个</dd></div>
         <div><dt>输入 token</dt><dd>{formatNumber(invocation.tokenUsage.input)}</dd></div>
@@ -995,18 +1052,19 @@ function ModelInvocationDetailPanel({
         <div><dt>cache token</dt><dd><FactValue parts={[formatNumber(invocation.tokenUsage.cacheRead), formatNumber(invocation.tokenUsage.cacheWrite)]} /></dd></div>
         <div><dt>请求 / 上下文 / 响应</dt><dd><FactValue parts={[`${formatNumber(invocation.requestUtf8Bytes)} B`, `${formatNumber(invocation.contextUtf8Bytes)} B`, `${formatNumber(invocation.responseUtf8Bytes)} B`]} /></dd></div>
         <div><dt>调用 / queue / transport</dt><dd><FactValue parts={[formatDuration(invocation.timings.invocationMs), formatDuration(invocation.timings.queueWaitMs), formatDuration(invocation.timings.transportMs)]} /></dd></div>
-        <div><dt>parse / retry wait</dt><dd><FactValue parts={[formatDuration(invocation.timings.parseMs), formatDuration(invocation.timings.retryDelayMs)]} /></dd></div>
+        <div><dt>解析 / 传输等待</dt><dd><FactValue parts={[formatDuration(invocation.timings.parseMs), formatDuration(invocation.timings.retryDelayMs)]} /></dd></div>
         <div><dt>profile / prompt</dt><dd><FactValue parts={[invocation.profileId ?? "—", invocation.promptVersion ?? "—"]} /></dd></div>
         <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
       </dl>
       {invocation.actionCompilationReferenceAudit && <ActionCompilationAuditSection audit={invocation.actionCompilationReferenceAudit} />}
       <SymbolRepairSection repairs={invocation.symbolRepairs} normalization={invocation.normalization} />
-      <DetailSection collapsible count={`${invocation.transportAttempts.length} 次`} description="同一逻辑调用的物理请求与重试" icon={RotateCcw} title="Transport attempts">
+      <DetailSection collapsible count={`${invocation.transportAttempts.length} 次`} description="同一次调用的传输请求与等待" icon={RotateCcw} title="传输重试（同一次调用）">
+        <p className="cg-inspector-technical-note">仅表示网络或网关重试，不代表语义修复。</p>
         <div className="cg-inspector-record-list">
           {invocation.transportAttempts.map((transport) => (
             <div className="cg-inspector-transport-detail" key={`${invocation.id}:${transport.attempt}`}>
-              <strong>Transport {transport.attempt} · {transport.status}</strong>
-              <span>queue {formatDuration(transport.queueWaitMs)} · execution {formatDuration(transport.executionMs)} · retry wait {formatDuration(transport.retryDelayMs)}</span>
+              <strong>传输尝试 {transport.attempt} · {transport.status}</strong>
+              <span>queue {formatDuration(transport.queueWaitMs)} · execution {formatDuration(transport.executionMs)} · 传输等待 {formatDuration(transport.retryDelayMs)}</span>
               {transport.errorName && <small>{transport.errorName}</small>}
             </div>
           ))}
@@ -1132,6 +1190,7 @@ export function WorldInspectorDetail({
   nodeRelations,
   loading,
   onSelectInvocation,
+  onSelectInvocationId,
   instanceId,
   selection,
 }: {
@@ -1144,6 +1203,7 @@ export function WorldInspectorDetail({
   nodeRelations?: { upstream: readonly WorldInspectorNodeSummary[]; downstream: readonly WorldInspectorNodeSummary[] };
   loading: boolean;
   onSelectInvocation?: (invocation: WorldInspectorModelInvocationSummary) => void;
+  onSelectInvocationId?: (invocationId: string, executionId: string) => void;
   instanceId: string;
   selection: WorldInspectorSelection;
 }) {
@@ -1152,7 +1212,7 @@ export function WorldInspectorDetail({
       <div className="cg-inspector-detail__body" id="world-inspector-detail-panel" tabIndex={0}>
         {loading && <p className="cg-inspector-detail__loading"><LoaderCircle aria-hidden="true" /> 正在读取审计记录…</p>}
         {!loading && error && <p className="cg-inspector-detail__error" role="alert">{error} 请重新选择记录或刷新调试器。</p>}
-        {!loading && !error && selection?.kind === "invocation" && invocation && <ModelInvocationDetailPanel instanceId={instanceId} invocation={invocation} />}
+        {!loading && !error && selection?.kind === "invocation" && invocation && <ModelInvocationDetailPanel instanceId={instanceId} invocation={invocation} onSelectInvocationId={onSelectInvocationId} />}
         {!loading && !error && selection?.kind === "node" && node && (
           <GraphNodeDetail
             downstream={nodeRelations?.downstream ?? []}

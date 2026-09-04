@@ -83,10 +83,14 @@ function attemptOutcome(attempt: WorldInspectorAttemptSummary): { label: string;
     return { label: "当前运行", detail: "", status: "active" };
   }
   if (attempt.status === "committed") {
-    if (attempt.rejectionCount > 0) {
+    const mechanismCounts = [
+      attempt.repairCount > 0 ? `${attempt.repairCount} 次语义修复（LLM 重新调用）` : undefined,
+      attempt.retryCount > 0 ? `${attempt.retryCount} 次传输重试（同一次调用）` : undefined,
+    ].filter((value): value is string => Boolean(value));
+    if (mechanismCounts.length > 0) {
       return {
         label: `Revision ${attempt.revision ?? "—"}`,
-        detail: `${attempt.rejectionCount} 次拒绝 · ${attempt.retryCount} 次重试`,
+        detail: mechanismCounts.join(" · "),
         status: "warning",
       };
     }
@@ -176,7 +180,8 @@ function TimelineEntryCard({
         <dl className="cg-inspector-log__metrics" aria-label="运行指标">
           <div><dt>事件</dt><dd>{attempt.eventCount}<small>条</small></dd></div>
           <div><dt>逻辑调用</dt><dd>{attempt.modelInvocationCount}<small>次</small></dd></div>
-          <div><dt>重试</dt><dd>{attempt.retryCount}<small>次</small></dd></div>
+          <div><dt>语义修复</dt><dd>{attempt.repairCount}<small>次</small></dd></div>
+          <div><dt>传输重试</dt><dd>{attempt.retryCount}<small>次</small></dd></div>
         </dl>
       </div>
     </article>

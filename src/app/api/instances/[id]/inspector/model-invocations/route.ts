@@ -35,6 +35,10 @@ export async function GET(
     const maxInputTokens = integer(url.searchParams.get("maxInputTokens"));
     const minRetries = integer(url.searchParams.get("minRetries"));
     const limit = integer(url.searchParams.get("limit"));
+    const includeRepairs = url.searchParams.get("includeRepairs");
+    if (includeRepairs !== null && includeRepairs !== "true" && includeRepairs !== "false") {
+      return json({ error: "invalid model invocation lineage filter" }, 400);
+    }
     if ([minDurationMs, maxDurationMs, minInputTokens, maxInputTokens, minRetries, limit].some(Number.isNaN) ||
       (limit !== undefined && (limit < 1 || limit > 100))) {
       return json({ error: "invalid model invocation range" }, 400);
@@ -51,6 +55,7 @@ export async function GET(
       ...(minInputTokens !== undefined ? { minInputTokens } : {}),
       ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       ...(minRetries !== undefined ? { minRetries } : {}),
+      ...(includeRepairs !== null ? { includeRepairs: includeRepairs === "true" } : {}),
       ...(sort ? { sort: sort as NonNullable<WorldInspectorModelInvocationQuery["sort"]> } : {}),
       ...(url.searchParams.get("cursor") ? { cursor: url.searchParams.get("cursor")! } : {}),
       ...(limit !== undefined ? { limit } : {}),

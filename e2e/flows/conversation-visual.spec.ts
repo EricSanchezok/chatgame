@@ -154,7 +154,7 @@ test("the participant conversation, control orb and inspector stay bounded", asy
   const inspectorSearch = reopenedInspector.getByRole("searchbox", { name: /public invocation id/ });
   await inspectorSearch.fill(publicInvocationId!);
   await inspectorSearch.press("Enter");
-  await expect(reopenedInspector.getByRole("heading", { name: /Invocation/ })).toBeVisible();
-  await expect(reopenedInspector.getByText(/public id/)).toBeVisible();
+  await expect(reopenedInspector.getByRole("heading", { name: /根调用|语义修复/ })).toBeVisible();
+  await expect(reopenedInspector.getByRole("region", { name: "语义修复链" })).toBeVisible();
   await expect(reopenedInspector.getByText("定位证据")).not.toBeVisible();
 });

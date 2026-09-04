@@ -61,6 +61,7 @@ import {
   combineModelExecutionAudits,
   ModelConfigurationError,
   modelInvocationCorrelation,
+  modelInvocationLogicalId,
   modelInvocationIdentity,
   ModelOutputError,
   ModelSemanticRepairError,
@@ -312,12 +313,19 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
   audit: ModelExecutionAudit;
 }> {
   const observe = runtimeEventEmitter(input.scope.observer);
+  const logicalInvocationId = modelInvocationLogicalId(
+    input.scope,
+    input.role,
+    input.subjectId,
+    (input.invocationOffset ?? 0) + 1,
+  );
   try {
     const result = await runSemanticRepairLoop({
       role: input.role,
       repairScope: input.repairScope ?? "step",
       targetIds: input.targetIds ?? [input.subjectId],
       maxRepairs: input.repairAttempts,
+      logicalInvocationId,
       invoke: async (repairContext) => {
         const contextStartedAt = Date.now();
         const issues = repairContext.issues.map((issue) => ({
@@ -332,7 +340,14 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
         const prompt = promptBundle(input.promptId);
         const invocation = (input.invocationOffset ?? 0) + repairContext.attempt + 1;
         const identity = modelInvocationIdentity(input.scope, input.role, input.subjectId, invocation);
-        const correlation = modelInvocationCorrelation(input.scope, input.role, input.subjectId, identity);
+        const correlation = modelInvocationCorrelation(input.scope, input.role, input.subjectId, identity, {
+          logicalInvocationId: repairContext.logicalInvocationId ?? logicalInvocationId,
+          semanticRepairAttempt: repairContext.attempt,
+          ...(repairContext.parentInvocationId ? {
+            parentInvocationId: repairContext.parentInvocationId,
+            repairOf: repairContext.repairOf,
+          } : {}),
+        });
         observe?.({
           event: "model.context.built",
           correlation,
@@ -344,7 +359,7 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
           workloadId: input.scope.workloadId,
           batchId: input.scope.batchId,
           abortSignal: input.scope.abortSignal,
-          correlation: input.scope.correlation,
+          correlation,
           observer: input.scope.observer,
           ...identity,
           role: input.role,
@@ -463,7 +478,7 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
           targetIds: input.targetIds ? [...input.targetIds] : undefined,
         },
       )),
-      onRejected: ({ audit, issues, error }) => {
+      onRejected: ({ context, audit, issues, error }) => {
         const invocation = audit?.invocations.at(-1);
         if (audit) setModelInvocationOutcome(audit, "rejected", issues.map((issue) => issue.code));
         observe?.({
@@ -472,6 +487,13 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
           correlation: modelInvocationCorrelation(input.scope, input.role, input.subjectId, {
             modelInvocationId: invocation?.id,
             modelInvocation: invocation?.ordinal,
+          }, {
+            logicalInvocationId: context.logicalInvocationId ?? logicalInvocationId,
+            semanticRepairAttempt: context.attempt,
+            ...(context.parentInvocationId ? {
+              parentInvocationId: context.parentInvocationId,
+              repairOf: context.repairOf,
+            } : {}),
           }),
           attributes: { resultKind: invocation?.resultKind ?? null },
           counts: { validationIssues: issues.length },
@@ -487,6 +509,9 @@ async function generateValidated<T>(input: ValidatedCallInput<T>): Promise<{
       correlation: modelInvocationCorrelation(input.scope, input.role, input.subjectId, {
         modelInvocationId: acceptedInvocation?.id,
         modelInvocation: acceptedInvocation?.ordinal,
+      }, {
+        logicalInvocationId,
+        semanticRepairAttempt: result.repairs,
       }),
       attributes: { resultKind: acceptedInvocation?.resultKind ?? input.role },
     });
@@ -2219,11 +2244,17 @@ export class TruthEngine {
       const repairActions = selectedActionIds.length > 0
         ? selectedActionIds
         : actions.map((action) => action.id).sort();
+      const mechanicLogicalInvocationId = modelInvocationLogicalId(
+        scope,
+        "truth-transition",
+        `${truthSubject}:mechanic:${target.proposalKey}`,
+      );
       const result = await runSemanticRepairLoop({
         role: "truth-transition",
         repairScope: "invocation",
         targetIds: [target.proposalKey],
         maxRepairs: this.repairAttempts,
+        logicalInvocationId: mechanicLogicalInvocationId,
         invoke: async (repairContext) => {
           const repairIssues = repairContext.issues.length > 0
             ? repairContext.issues
@@ -2259,13 +2290,21 @@ export class TruthEngine {
           // Keep the execution identity stable so the transition stage can
           // combine its normal and invocation-repair audits deterministically.
           const identity = modelInvocationIdentity(scope, "truth-transition", truthSubject, invocation);
+          const correlation = modelInvocationCorrelation(scope, "truth-transition", truthSubject, identity, {
+            logicalInvocationId: repairContext.logicalInvocationId ?? mechanicLogicalInvocationId,
+            semanticRepairAttempt: repairContext.attempt,
+            ...(repairContext.parentInvocationId ? {
+              parentInvocationId: repairContext.parentInvocationId,
+              repairOf: repairContext.repairOf,
+            } : {}),
+          });
           const prompt = promptBundle("truth-transition");
           const generated = await this.provider.generateStructured({
             profileId: input.definition.modelProfiles.transition,
             workloadId: scope.workloadId,
             batchId: scope.batchId,
             abortSignal: scope.abortSignal,
-            correlation: scope.correlation,
+            correlation,
             observer: scope.observer,
             ...identity,
             role: "truth-transition",
@@ -2928,6 +2967,7 @@ export class TruthEngine {
     const observationAudits: ModelExecutionAudit[] = [];
     const observe = runtimeEventEmitter(scope.observer);
     let observationRepairRounds = 0;
+    const transitionLogicalInvocationId = modelInvocationLogicalId(scope, "truth-transition", truthSubject);
 
     while (true) {
       const auditCountBeforeAttempt = transitionAudits.length;
@@ -2941,11 +2981,17 @@ export class TruthEngine {
           truthSubject,
           invocation,
         );
+        const repairOf = transitionAudits.at(-1)?.invocations.at(-1)?.id;
         const correlation = modelInvocationCorrelation(
           scope,
           "truth-transition",
           truthSubject,
           identity,
+          {
+            logicalInvocationId: transitionLogicalInvocationId,
+            semanticRepairAttempt: transitionRepairs,
+            ...(repairOf ? { parentInvocationId: repairOf, repairOf } : {}),
+          },
         );
         observe?.({
           event: "model.context.built",
@@ -2959,7 +3005,7 @@ export class TruthEngine {
           workloadId: scope.workloadId,
           batchId: scope.batchId,
           abortSignal: scope.abortSignal,
-          correlation: scope.correlation,
+          correlation,
           observer: scope.observer,
           ...identity,
           role: "truth-transition",
@@ -3316,6 +3362,13 @@ export class TruthEngine {
           correlation: modelInvocationCorrelation(scope, "truth-transition", truthSubject, {
             modelInvocationId: invocation?.id,
             modelInvocation: invocation?.ordinal,
+          }, {
+            logicalInvocationId: transitionLogicalInvocationId,
+            semanticRepairAttempt: transitionRepairs,
+            ...(invocation && transitionRepairs > 0 ? {
+              parentInvocationId: transitionAudits.at(-2)?.invocations.at(-1)?.id,
+              repairOf: transitionAudits.at(-2)?.invocations.at(-1)?.id,
+            } : {}),
           }),
           attributes: { resultKind: invocation?.resultKind ?? null },
           counts: { validationIssues: transitionIssues.length },
