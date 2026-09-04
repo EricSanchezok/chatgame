@@ -127,7 +127,8 @@ export function trainPairwiseLinearRanker(
     config: resolved,
     featureSchemaHash: featureSchemaHash(),
     trainingExamples: ordered.length,
-    validationMacroRecall: null,
+    validationMacroRecall: validation.length === 0 ? null : validation.reduce((count, example) =>
+      count + (scoreLinearRanker(ranker, example.positive) > scoreLinearRanker(ranker, example.negative) ? 1 : 0), 0) / validation.length,
     promotable,
   };
   ranker.modelHash = `sha256:${createHash("sha256").update(JSON.stringify(ranker)).digest("hex")}`;
