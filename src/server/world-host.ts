@@ -31,7 +31,7 @@ import { createModelGateway } from "../engine/models/model-gateway";
 import { createModelFetchResolver } from "../engine/models/model-network";
 import { contentHash } from "../engine/models/model-audit";
 import { AlgorithmExperimentRegistry } from "../engine/runtime/experiments";
-import type { ActionCompilationRetrievalRuntime } from "../engine/algorithms/eager-reference/candidate-retrieval/runtime";
+import type { CandidateSelectionCapability } from "../engine/algorithms/roles";
 import { ModelRegistry } from "../engine/models/model-registry";
 import {
   modelInvocationCorrelation,
@@ -256,7 +256,7 @@ export interface WorldHostOptions {
   ledger?: ExecutionLedger;
   algorithmRegistry?: WorldExecutionAlgorithmRegistry;
   experimentRegistry?: AlgorithmExperimentRegistry;
-  actionCompilationRetrievalRuntimes?: ReadonlyMap<string, ActionCompilationRetrievalRuntime>;
+  actionCompilationRetrievalRuntimes?: ReadonlyMap<string, CandidateSelectionCapability>;
   experimentVariantPreflights?: ReadonlyMap<string, (input: {
     worldContentHash: string;
     state: Readonly<SimulationState>;

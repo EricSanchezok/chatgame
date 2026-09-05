@@ -34,6 +34,17 @@ for (const area of ["runtime", "mechanics", "cognition"]) {
   }
 }
 
+const roleContractsPath = path.join(root, "src/engine/algorithms/roles.ts");
+const roleContractsSource = await readFile(roleContractsPath, "utf8");
+const roleContractsAst = ts.createSourceFile(roleContractsPath, roleContractsSource, ts.ScriptTarget.Latest, true);
+for (const statement of roleContractsAst.statements) {
+  if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+  const specifier = statement.moduleSpecifier.text;
+  if (specifier.includes("eager-reference")) {
+    failures.push(`src/engine/algorithms/roles.ts imports concrete algorithm code: ${specifier}`);
+  }
+}
+
 const registry = await readFile(path.join(root, "src/engine/algorithms/registry.ts"), "utf8");
 for (const identity of [
   "eager-reference", "model-agent-cognition", "model-action-compilation", "full-catalog",

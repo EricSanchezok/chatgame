@@ -1,6 +1,20 @@
-import { AgentMind, type AgentMindBatchInput } from "./agent-mind";
-import { compileActions, type PlannedTemporalActivity } from "./action-compiler";
-import type { EagerSlotBatchMetrics } from "./eager-slot-batching";
+import { AgentMind } from "./agent-mind";
+import { compileActions } from "./action-compiler";
+import type {
+  ActionCompilationCapability,
+  AgentCognitionBatchInput,
+  AgentCognitionCapability,
+  AlgorithmBatchMetrics,
+  CandidateSelectionCapability,
+  InteractionGroundingCapability,
+  ObservationRenderingCapability,
+  OnsetPerceptionResult,
+  OnsetPerceptionCapability,
+  PlannedTemporalActivity,
+  ReactionDecisionCapability,
+  TruthResolution,
+  TruthResolutionCapability,
+} from "../roles";
 import {
   ActivityFootprintIndex,
   buildInteractionDependencyGraph,
@@ -65,7 +79,7 @@ import { createCoreRulePackageRegistry, type RulePackageRegistry } from "../../m
 import { runtimeId } from "../../runtime/runtime-id";
 import { executionStage } from "../../runtime/stages";
 import { applyTransitionProposal } from "../../runtime/transaction";
-import { TruthEngine, type OnsetPerceptionResult, type TruthResolution } from "../../mechanics/truth-engine";
+import { TruthEngine } from "../../mechanics/truth-engine";
 import { TruthBatchCoordinator } from "../../mechanics/truth-batch-provider";
 import type { ResolutionScope } from "../../contracts/prompts";
 import {
@@ -98,7 +112,6 @@ import {
 } from "../../contracts/model-context";
 import {
   ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
-  type ActionCompilationRetrievalRuntime,
 } from "./candidate-retrieval/runtime";
 import { DEFAULT_SYMBOL_REPAIR_POLICY, type SymbolRepairPolicy } from "../../contracts/symbol-repair";
 
@@ -402,7 +415,7 @@ interface EagerMindBatchOutput {
   outputs: EagerMindOutput[];
   modelAudits: ModelExecutionAudit[];
   batchCount: number;
-  metrics: EagerSlotBatchMetrics;
+  metrics: AlgorithmBatchMetrics;
 }
 
 interface ComponentResolution {
@@ -696,13 +709,13 @@ interface ReactionResolutionBatch {
 
 export interface EagerReferenceComponents {
   provider: StructuredModelProvider;
-  agentCognition: Pick<AgentMind, "thinkBatch">;
-  actionCompilation: typeof compileActions;
-  interactionGrounding: typeof generateInteractionDependency;
-  onsetPerception: Pick<TruthEngine, "perceiveOnset">;
-  reactionDecision: Pick<AgentMind, "react">;
-  truthResolution: Pick<TruthEngine, "resolve">;
-  observationRendering: Pick<ObservationRenderer, "render">;
+  agentCognition: AgentCognitionCapability;
+  actionCompilation: ActionCompilationCapability;
+  interactionGrounding: InteractionGroundingCapability;
+  onsetPerception: OnsetPerceptionCapability;
+  reactionDecision: ReactionDecisionCapability;
+  truthResolution: TruthResolutionCapability;
+  observationRendering: ObservationRenderingCapability;
   symbolRepair: Readonly<SymbolRepairPolicy>;
 }
 
@@ -940,13 +953,13 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   private readonly symbolRepairPolicy: Readonly<SymbolRepairPolicy>;
   private readonly provider: StructuredModelProvider;
   private readonly rulePackages: RulePackageRegistry;
-  private readonly actionCompilationRetrieval?: ActionCompilationRetrievalRuntime;
+  private readonly actionCompilationRetrieval?: CandidateSelectionCapability;
 
   constructor(
     provider: StructuredModelProvider,
     rulePackages?: RulePackageRegistry,
     config: Readonly<EagerReferenceAlgorithmConfig> = DEFAULT_EAGER_REFERENCE_CONFIG,
-    actionCompilationRetrieval?: ActionCompilationRetrievalRuntime,
+    actionCompilationRetrieval?: CandidateSelectionCapability,
     components?: Readonly<EagerReferenceComponents>,
     manifest?: AlgorithmManifest,
   ) {
@@ -998,7 +1011,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     logicalSlots: number,
     configuredMaxSlots: number,
     batchCount: number,
-    metrics: EagerSlotBatchMetrics,
+    metrics: AlgorithmBatchMetrics,
   ): void {
     context.instrumentation.emit({
       event: "algorithm.eager_reference.slot_batch_completed",
@@ -1025,7 +1038,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
 
   private async thinkBatchWithFallback(
     state: SimulationState,
-    inputs: readonly AgentMindBatchInput[],
+    inputs: readonly AgentCognitionBatchInput[],
     purpose: "bootstrap" | "resume" | "mind",
     context: ExecutionContext,
   ): Promise<EagerMindBatchOutput> {
@@ -2348,7 +2361,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           observations: pendingObservations,
           currentResolution: { action, outcome: outcome ? { status: outcome.status } : null },
           events: resolution.proposal.events,
-        } satisfies AgentMindBatchInput,
+        } satisfies AgentCognitionBatchInput,
       };
     });
     const mindStage = executionStage("observation-agent-mind");

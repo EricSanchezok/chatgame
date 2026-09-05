@@ -23,7 +23,6 @@ import {
 } from "../contracts/llm-schemas";
 import type {
   InteractionDependency,
-  WorldResolutionCandidate,
 } from "../runtime/execution";
 import type {
   AgentActionProposal,
@@ -101,7 +100,6 @@ import {
 import type { WorldDefinition } from "../runtime/world-definition";
 import type { ModelRole } from "../models/model-catalog";
 import { runtimeId } from "../runtime/runtime-id";
-import type { TemporalBoundary } from "./temporal";
 import {
   runSemanticRepairLoop,
   SemanticRepairExhaustedError,
@@ -115,77 +113,12 @@ import {
   createAgentReferenceResolver,
   isProposalReference,
 } from "../contracts/model-context";
-
-export interface ReactionResolution {
-  decisions: ReactionDecision[];
-  groundings: InteractionDependency[];
-  modelAudits: ModelExecutionAudit[];
-}
-
-export interface ObservationResolution {
-  packets: ObservationPacket[];
-  modelAudits: ModelExecutionAudit[];
-}
-
-export interface TruthResolution extends WorldResolutionCandidate {
-  modelAudits: ModelExecutionAudit[];
-  reactionModelAudits: ModelExecutionAudit[];
-}
-
-export interface TruthResolutionInput {
-  definition: WorldDefinition;
-  state: SimulationState;
-  initialActions: AgentActionProposal[];
-  temporalBoundary: TemporalBoundary;
-  identityOwner: string;
-  groundings: readonly InteractionDependency[];
-  /**
-   * The execution state/actions may be component-scoped, while the model
-   * context remains complete.  These fields are deliberately separate so a
-   * component cannot mutate another component's state while still seeing the
-   * full semantic picture required for an exact adjudication.
-   */
-  modelWorkset?: {
-    state: SimulationState;
-    initialActions: readonly AgentActionProposal[];
-    availableActions: readonly AgentActionProposal[];
-    availableDependencies: readonly InteractionDependency[];
-  };
-  resolutionScope?: ResolutionScope;
-  enableReactionRouting?: boolean;
-  resolveReactions: (requests: readonly ReactionRequest[]) => Promise<ReactionResolution>;
-  renderObservations: (
-    proposal: Readonly<TransitionProposal>,
-    actions: readonly AgentActionProposal[],
-    transitionAttempt: number,
-    observerIds?: readonly string[],
-  ) => Promise<ObservationResolution>;
-  validateProposal: (
-    proposal: TransitionProposal,
-    checks: readonly D20CheckResult[],
-    randomResults: readonly DiscreteRandomResult[],
-    actions: readonly AgentActionProposal[],
-    stimulusObservations: readonly ObservationPacket[],
-  ) => void;
-}
-
-export interface OnsetPerceptionInput {
-  definition: WorldDefinition;
-  state: SimulationState;
-  actions: AgentActionProposal[];
-  temporalBoundary: TemporalBoundary;
-  identityOwner: string;
-  groundings: readonly InteractionDependency[];
-}
-
-export interface OnsetPerceptionResult {
-  requests: D20CheckRequest[];
-  checks: D20CheckResult[];
-  commitmentRounds: CommitmentRound[];
-  rng: SimulationState["truth"]["rng"];
-  modelAudit: ModelExecutionAudit;
-  aliases: Array<[string, string | null]>;
-}
+import type {
+  OnsetPerceptionInput,
+  OnsetPerceptionResult,
+  TruthResolution,
+  TruthResolutionInput,
+} from "../algorithms/roles";
 
 export interface TruthEngineOptions {
   repairAttempts?: number;

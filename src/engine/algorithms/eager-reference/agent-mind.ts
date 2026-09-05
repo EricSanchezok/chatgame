@@ -28,8 +28,11 @@ import {
   runEagerSlotBatches,
   type EagerSlot,
   type EagerSlotAttemptLineage,
-  type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
+import type {
+  AgentCognitionBatchInput,
+  AgentCognitionBatchResult,
+} from "../roles";
 import {
   modelInvocationCorrelation,
   modelInvocationLogicalId,
@@ -484,27 +487,7 @@ function validateReactionDecision(
   };
 }
 
-export interface AgentMindBatchInput {
-  agent: AgentState;
-  observations: readonly ObservationPacket[];
-  currentResolution: {
-    action: AgentActionProposal | null;
-    outcome: {
-      status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
-    } | null;
-  };
-  events: readonly WorldEvent[];
-}
-
-export interface AgentMindBatchResult {
-  outputs: Map<string, AgentMindOutput>;
-  failures: Array<{ agentId: string; error: unknown }>;
-  modelAudits: ModelExecutionAudit[];
-  batchCount: number;
-  metrics: EagerSlotBatchMetrics;
-}
-
-type AgentMindSlot = EagerSlot<AgentMindBatchInput, PromptValidationIssue>;
+type AgentMindSlot = EagerSlot<AgentCognitionBatchInput, PromptValidationIssue>;
 
 function agentMindBatchContext(
   state: SimulationState,
@@ -572,11 +555,11 @@ export class AgentMind {
 
   async thinkBatch(
     state: SimulationState,
-    inputs: readonly AgentMindBatchInput[],
+    inputs: readonly AgentCognitionBatchInput[],
     scope: ModelExecutionScope,
     purpose: "bootstrap" | "mind" | "resume" = "mind",
     maxSlots = 1,
-  ): Promise<AgentMindBatchResult> {
+  ): Promise<AgentCognitionBatchResult> {
     if (inputs.length === 0) {
       return {
         outputs: new Map(),

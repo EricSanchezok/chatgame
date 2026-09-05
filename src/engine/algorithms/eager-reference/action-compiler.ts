@@ -20,9 +20,12 @@ import {
   type EagerSlot,
   type EagerSlotAttemptLineage,
   type EagerSlotAttemptResult,
-  type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
-import type { ActionCompilationDraft, InteractionDependency } from "../../runtime/execution";
+import type {
+  ActionCompilationResult,
+  CompiledAction,
+} from "../roles";
+import type { ActionCompilationDraft } from "../../runtime/execution";
 import type { ActionCompilationReferenceAudit, AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, ModelOutputIssue, SimulationState } from "../../contracts/model";
 import {
   ModelOutputError,
@@ -42,7 +45,6 @@ import {
   materializeModelTemporalBasis,
   materializeTemporalPlan,
   type ScheduledActivityState,
-  type TemporalPlan,
 } from "../../mechanics/temporal";
 import { evaluateCausalAssertion } from "../../mechanics/causality";
 import { promptBundle } from "../../prompts";
@@ -91,21 +93,6 @@ function candidateKeysInValue(value: unknown, output = new Set<string>()): Set<s
   if (value && typeof value === "object") Object.values(value as Record<string, unknown>).forEach((entry) => candidateKeysInValue(entry, output));
   return output;
 }
-
-export interface CompiledAction {
-  plan: TemporalPlan;
-  activity: ScheduledActivityState;
-  dependency: InteractionDependency;
-}
-
-export interface ActionCompilationResult {
-  compilations: CompiledAction[];
-  modelAudits: ModelExecutionAudit[];
-  batchCount: number;
-  metrics: EagerSlotBatchMetrics;
-}
-
-export type PlannedTemporalActivity = Pick<CompiledAction, "plan" | "activity">;
 
 interface CompilationPayload {
   action: AgentActionProposal;

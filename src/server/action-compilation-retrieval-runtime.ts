@@ -12,8 +12,8 @@ import {
 import {
   ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
   createActionCompilationRetrievalRuntime,
-  type ActionCompilationRetrievalRuntime,
 } from "../engine/algorithms/eager-reference/candidate-retrieval/runtime";
+import type { CandidateSelectionCapability } from "../engine/algorithms/roles";
 import { ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION } from "../engine/algorithms/eager-reference/candidate-retrieval/graph-aware";
 import { actionCompilationPassagesForState } from "../engine/algorithms/eager-reference/candidate-retrieval/warmup";
 import type { SimulationState } from "../engine/contracts/model";
@@ -53,12 +53,12 @@ function retrievalConfig(ref: AlgorithmRef): {
 }
 
 interface VariantRuntime {
-  runtime: ActionCompilationRetrievalRuntime;
+  runtime: CandidateSelectionCapability;
   preflight(input: { worldContentHash: string; state: Readonly<SimulationState> }): Promise<void>;
 }
 
 export interface ActionCompilationRetrievalExperimentSupport {
-  runtimes: ReadonlyMap<string, ActionCompilationRetrievalRuntime>;
+  runtimes: ReadonlyMap<string, CandidateSelectionCapability>;
   preflights: ReadonlyMap<string, VariantRuntime["preflight"]>;
 }
 
@@ -69,7 +69,7 @@ function lazyVariantRuntime(input: {
   onSafetyViolation: (reason: string) => void;
 }): VariantRuntime {
   let delegate: Promise<{
-    runtime: ActionCompilationRetrievalRuntime;
+    runtime: CandidateSelectionCapability;
     passageEncoder: CachedPassageEncoder;
   }> | undefined;
   const load = () => {

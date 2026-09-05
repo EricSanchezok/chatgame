@@ -36,6 +36,7 @@ import type {
 import type {
   ActionCompilationRoleAlgorithm,
   AgentCognitionRoleAlgorithm,
+  CandidateSelectionCapability,
   CandidateSelectionRoleAlgorithm,
   ConfiguredRoleAlgorithm,
   InteractionGroundingRoleAlgorithm,
@@ -47,7 +48,6 @@ import type {
 } from "./roles";
 import {
   ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
-  type ActionCompilationRetrievalRuntime,
 } from "./eager-reference/candidate-retrieval/runtime";
 
 export { ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION } from "./eager-reference/candidate-retrieval/runtime";
@@ -75,7 +75,7 @@ class CandidateSelectionAlgorithm extends ConfiguredAlgorithm<"candidate-selecti
     algorithmIdentity: AlgorithmIdentity<"candidate-selection">,
     config: JsonObject,
     children: Readonly<Record<string, ResolvedAlgorithm>>,
-    readonly runtime: ActionCompilationRetrievalRuntime | undefined,
+    readonly runtime: CandidateSelectionCapability | undefined,
   ) {
     super(algorithmIdentity, config, children);
   }
@@ -188,7 +188,7 @@ const definitions = [
     }),
     children: noChildren,
   }, (algorithmIdentity, config, children, services, ref) => {
-    const runtime = services.resources?.resolve<ActionCompilationRetrievalRuntime>("candidate-selection-runtime", ref);
+    const runtime = services.resources?.resolve<CandidateSelectionCapability>("candidate-selection-runtime", ref);
     if (!runtime) {
       throw new Error("graph-hybrid-e5 candidate selection requires its pinned runtime");
     }

@@ -1,4 +1,7 @@
-import type { ActionCompilationRetrievalRuntime, ActionCompilationRetrievalResult } from "../../algorithms/eager-reference/candidate-retrieval/runtime";
+import type {
+  CandidateSelectionCapability,
+  CandidateSelectionResult,
+} from "../../algorithms/roles";
 import type { ActionCompilationReferenceCase, ActionCompilationReferenceDataset } from "./stabilized-behavior";
 
 export interface RetrievalV4CaseResult {
@@ -21,7 +24,7 @@ export interface RetrievalV4BatchResult {
   shortlistRatio: number;
   compression: number;
   shortlistHash: string;
-  cache: ActionCompilationRetrievalResult["diagnostics"]["cache"];
+  cache: CandidateSelectionResult["diagnostics"]["cache"];
 }
 
 export interface RetrievalV4Report {
@@ -74,7 +77,7 @@ function groupCases(dataset: ActionCompilationReferenceDataset): readonly {
 export async function evaluateActionCompilationRetrievalV4(input: {
   dataset: ActionCompilationReferenceDataset;
   algorithm: string;
-  runtime: ActionCompilationRetrievalRuntime;
+  runtime: CandidateSelectionCapability;
 }): Promise<RetrievalV4Report> {
   const caseResults: RetrievalV4CaseResult[] = [];
   const batchResults: RetrievalV4BatchResult[] = [];

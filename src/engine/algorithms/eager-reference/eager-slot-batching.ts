@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ModelExecutionAudit } from "../../contracts/model";
+import type { AlgorithmBatchMetrics } from "../roles";
 import { contentHash } from "../../models/model-audit";
 import {
   ModelConfigurationError,
@@ -27,21 +28,12 @@ export interface EagerSlotBatchFailure<TPayload, TIssue> {
   audit?: ModelExecutionAudit;
 }
 
-export interface EagerSlotBatchMetrics {
-  submittedSlots: number;
-  repairCalls: number;
-  repeatedFingerprints: number;
-  splitCount: number;
-  partialFailureSlots: number;
-  singletonFailures: number;
-}
-
 export interface EagerSlotBatchResult<TResult, TPayload, TIssue> {
   results: Map<string, TResult>;
   audits: ModelExecutionAudit[];
   failures: Array<EagerSlotBatchFailure<TPayload, TIssue>>;
   batchCount: number;
-  metrics: EagerSlotBatchMetrics;
+  metrics: AlgorithmBatchMetrics;
 }
 
 export interface EagerSlotAttemptLineage {
@@ -184,7 +176,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
     const results = new Map<string, TResult>();
     const audits: ModelExecutionAudit[] = [];
     let batchCount = 0;
-    const metrics: EagerSlotBatchMetrics = {
+    const metrics: AlgorithmBatchMetrics = {
       submittedSlots: 0,
       repairCalls: 0,
       repeatedFingerprints: 0,

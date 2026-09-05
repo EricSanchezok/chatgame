@@ -36,7 +36,7 @@ import {
 import { promptBundle } from "../prompts";
 import { quantityId } from "../runtime/runtime-id";
 import { contentHash } from "../models/model-audit";
-import type { TruthResolution } from "./truth-engine";
+import type { TruthResolution } from "../algorithms/roles";
 import { materializeSharedActivityResourceClaims } from "./shared-activity-resources";
 import {
   SemanticRepairExhaustedError,

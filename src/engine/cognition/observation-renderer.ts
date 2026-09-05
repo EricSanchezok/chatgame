@@ -6,7 +6,6 @@ import type {
   ObservationPacketDraft,
   ObservationRenderDraft,
   SimulationState,
-  TransitionProposal,
 } from "../contracts/model";
 import {
   ContextLimitExceededError,
@@ -33,8 +32,7 @@ import { contentHash } from "../models/model-audit";
 import { promptBundle, structuredPromptBytes } from "../prompts";
 import { materializeObservationPackets } from "../mechanics/truth-engine";
 import { applyTransitionProposal } from "../runtime/transaction";
-import type { WorldDefinition } from "../runtime/world-definition";
-import type { TemporalStateSnapshot } from "../mechanics/temporal";
+import type { ObservationRenderingInput } from "../algorithms/roles";
 import {
   runSemanticRepairLoop,
   semanticIssue,
@@ -43,16 +41,6 @@ import {
 } from "../models/semantic-repair";
 
 const OBSERVATION_PROMPT = promptBundle("observation-renderer");
-
-interface RenderInput {
-  definition: WorldDefinition;
-  state: SimulationState;
-  proposal: TransitionProposal;
-  actions: readonly AgentActionProposal[];
-  observerIds: readonly string[];
-  identityOwner: string;
-  temporalState?: Readonly<TemporalStateSnapshot>;
-}
 
 /** Keep the observation prompt focused on the observer's authorized view and
  * the evidence needed to explain this transition. The full canonical state
@@ -132,7 +120,7 @@ function scopedObservationTruth(
 }
 
 function observationContext(
-  input: RenderInput,
+  input: ObservationRenderingInput,
   observerIds: readonly string[],
   issues: readonly PromptValidationIssue[],
   scope: Pick<ModelExecutionScope, "workloadId" | "batchId">,
@@ -302,7 +290,7 @@ function observationContext(
 }
 
 function materializeModelObservationDraft(
-  input: RenderInput,
+  input: ObservationRenderingInput,
   observerId: string,
   draft: ModelObservationRenderDraft,
 ): ObservationRenderDraft {
@@ -488,7 +476,7 @@ export function normalizeObservationLocalReferences(
 }
 
 function materializeObserver(
-  input: RenderInput,
+  input: ObservationRenderingInput,
   observerId: string,
   draft: ModelObservationRenderDraft,
   slotKey: string,
@@ -550,7 +538,7 @@ function observationIssueClass(error: unknown): SemanticRepairIssueClass {
 
 async function renderObserver(
   provider: StructuredModelProvider,
-  input: RenderInput,
+  input: ObservationRenderingInput,
   observerId: string,
   slot: number,
   scope: ModelExecutionScope,
@@ -680,7 +668,7 @@ async function renderObserver(
 export class ObservationRenderer {
   constructor(private readonly provider: StructuredModelProvider) {}
 
-  async render(input: RenderInput, scope: ModelExecutionScope): Promise<{
+  async render(input: ObservationRenderingInput, scope: ModelExecutionScope): Promise<{
     packets: ObservationPacket[];
     modelAudits: ModelExecutionAudit[];
     batchCount: number;

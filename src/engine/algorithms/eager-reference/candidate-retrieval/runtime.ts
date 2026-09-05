@@ -1,4 +1,8 @@
 import { contentHash } from "../../../models/model-audit";
+import type {
+  CandidateSelectionCapability,
+  CandidateSelectionResult,
+} from "../../roles";
 
 export const ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION = "action-compilation-retrieval-runtime-v4";
 
@@ -16,45 +20,6 @@ export interface SlotRetrievalResult {
     readMs: number;
     queryEncodeMs: number;
   };
-}
-
-export interface RetrievalDiagnostics {
-  selectedCount: number;
-  visibleCount: number;
-  batchBudget: number;
-  batchShortlistRatio: number;
-  prunedReferenceCount: number;
-  anchorCount: number;
-  budgetExceeded: false;
-  perSlotSelectedCount: Readonly<Record<string, number>>;
-  cache: {
-    passageHits: number;
-    passageMisses: number;
-    queryHits: number;
-    queryMisses: number;
-    readMs: number;
-    queryEncodeMs: number;
-  };
-}
-
-export interface ActionCompilationRetrievalResult {
-  modelContext: Record<string, unknown>;
-  selectedKeysBySlot: ReadonlyMap<number, readonly string[]>;
-  fullContextHash: string;
-  modelContextHash: string;
-  shortlistHash: string;
-  diagnostics: RetrievalDiagnostics;
-}
-
-export interface ActionCompilationRetrievalRuntime {
-  readonly version: string;
-  readonly role: "candidate-selection";
-  retrieveBatch(input: {
-    worldContentHash: string;
-    fullContext: Readonly<Record<string, unknown>>;
-    slotIndices: readonly number[];
-    signal?: AbortSignal;
-  }): Promise<ActionCompilationRetrievalResult>;
 }
 
 export interface ActionCompilationRetrievalRuntimeOptions {
@@ -125,7 +90,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 
 export function createActionCompilationRetrievalRuntime(
   options: ActionCompilationRetrievalRuntimeOptions,
-): ActionCompilationRetrievalRuntime {
+): CandidateSelectionCapability {
   const budgetRatio = options.budgetRatio ?? 0.2;
   if (!Number.isFinite(budgetRatio) || budgetRatio <= 0 || budgetRatio > 0.2) {
     throw new Error("runtime budgetRatio must be in (0, 0.2]");
@@ -232,7 +197,7 @@ export function createActionCompilationRetrievalRuntime(
           perSlotSelectedCount: Object.fromEntries([...selectedKeysBySlot].map(([slot, keys]) => [String(slot), keys.length])),
           cache,
         },
-      };
+      } satisfies CandidateSelectionResult;
     },
   };
 }
