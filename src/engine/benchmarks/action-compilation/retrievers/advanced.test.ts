@@ -3,8 +3,8 @@ import type { ActionCompilationReferenceDataset } from "../stabilized-behavior";
 import {
   createActionCompilationAdvancedRetriever,
   clearAdvancedRetrieverCaches,
-  type LocalEncoderRuntime,
 } from "./advanced";
+import type { LocalEncoderRuntime } from "../../../algorithms/eager-reference/candidate-retrieval/local-encoder";
 
 function fixtureDataset(): ActionCompilationReferenceDataset {
   const candidates = [

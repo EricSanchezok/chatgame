@@ -3,7 +3,10 @@ import type {
   CandidateRetriever,
   CandidateRetrieverInput,
 } from "../stabilized-behavior";
-import type { LocalEncoderRuntime } from "./advanced";
+import type { LocalEncoderRuntime } from "../../../algorithms/eager-reference/candidate-retrieval/local-encoder";
+import type { PassageEmbeddingEncoder } from "../../../algorithms/eager-reference/candidate-retrieval/embedding-cache";
+
+export const ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION = 1 as const;
 
 /** Relation types exposed by the C3 candidate graph. */
 export type CandidateGraphRelation =
@@ -35,6 +38,8 @@ export interface GraphAwareRetrieverOptions {
   budgetRatio?: number;
   maxPathDepth?: number;
   encoder?: LocalEncoderRuntime;
+  passageEncoder?: PassageEmbeddingEncoder;
+  allowPassageCacheWrite?: boolean;
   ranker?: GraphRankerModel;
   allowDiagnosticBudget?: boolean;
 }
@@ -567,6 +572,19 @@ function candidateText(index: GraphIndex, candidate: Candidate): string {
   return [fields?.label, fields?.meaning, fields?.details, fields?.metadata].filter(Boolean).join(" ");
 }
 
+export function actionCompilationPassageEntriesForContext(
+  context: Readonly<Record<string, unknown>>,
+): readonly { candidateKey: string; passage: string }[] {
+  const index = buildCatalogIndex(context);
+  return index.candidates
+    .filter((candidate) => typed(candidate) && candidate.kind !== "action")
+    .sort((left, right) => left.candidateKey.localeCompare(right.candidateKey))
+    .map((candidate) => ({
+      candidateKey: candidate.candidateKey,
+      passage: `passage: ${candidateText(index, candidate)}`,
+    }));
+}
+
 function featureVector(features: CandidateFeatures): number[] {
   return [
     features.anchor,
@@ -643,11 +661,15 @@ let encoderDataCache = new WeakMap<object, Map<string, Promise<PreparedEncoderDa
 async function prepareEncoderDataUncached(
   dataset: ActionCompilationReferenceDataset,
   encoder: LocalEncoderRuntime,
+  passageEncoder?: PassageEmbeddingEncoder,
+  allowPassageCacheWrite = true,
 ): Promise<PreparedEncoderData> {
   const indexes = new Map<string, GraphIndex>();
+  const contextsByCatalogHash = new Map<string, Readonly<Record<string, unknown>>>();
   for (const context of dataset.contexts.values()) {
     const index = buildCatalogIndex(context.context);
     indexes.set(index.hash, index);
+    contextsByCatalogHash.set(index.hash, context.context);
   }
   // Candidate descriptions repeat heavily between neighboring snapshots. We
   // encode each distinct passage once, then materialize the per-catalog map.
@@ -655,17 +677,30 @@ async function prepareEncoderDataUncached(
   // while text-level de-duplication keeps local CPU evaluation tractable.
   const passageByText = new Map<string, string>();
   const candidateTexts = new Map<string, Map<string, string>>();
-  for (const [hash, index] of [...indexes.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [hash] of [...indexes.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const texts = new Map<string, string>();
-    for (const candidate of index.candidates.filter(typed).sort((left, right) => left.candidateKey.localeCompare(right.candidateKey))) {
-      const text = `passage: ${candidateText(index, candidate)}`;
-      texts.set(candidate.candidateKey, text);
-      passageByText.set(text, text);
+    const context = contextsByCatalogHash.get(hash);
+    if (!context) throw new Error(`catalog ${hash} context disappeared during encoder preparation`);
+    for (const entry of actionCompilationPassageEntriesForContext(context)) {
+      texts.set(entry.candidateKey, entry.passage);
+      passageByText.set(entry.passage, entry.passage);
     }
     candidateTexts.set(hash, texts);
   }
   const uniquePassages = [...passageByText.keys()].sort((left, right) => left.localeCompare(right));
-  const passageVectors = await encoder.encodeBatch(uniquePassages);
+  let passageVectors: readonly (readonly number[])[];
+  if (passageEncoder) {
+    if (passageEncoder.encoder.modelHash !== encoder.modelHash) throw new Error("passage cache encoder does not match the graph encoder");
+    const worldHashes = [...new Set(dataset.cases.map((item) => item.source.worldHash))].sort();
+    if (worldHashes.length !== 1) throw new Error("one graph encoder preparation may contain only one world content hash");
+    passageVectors = (await passageEncoder.encodePassages({
+      worldContentHash: worldHashes[0]!,
+      passages: uniquePassages,
+      allowWrite: allowPassageCacheWrite,
+    })).vectors;
+  } else {
+    passageVectors = await encoder.encodeBatch(uniquePassages);
+  }
   const vectorsByText = new Map(uniquePassages.map((text, index) => [text, passageVectors[index] ?? []]));
   const candidateVectors = new Map<string, ReadonlyMap<string, readonly number[]>>();
   for (const [hash, texts] of candidateTexts) {
@@ -689,17 +724,22 @@ async function prepareEncoderDataUncached(
 async function prepareEncoderData(
   dataset: ActionCompilationReferenceDataset,
   encoder: LocalEncoderRuntime,
+  passageEncoder?: PassageEmbeddingEncoder,
+  allowPassageCacheWrite = true,
 ): Promise<PreparedEncoderData> {
   const byModel = encoderDataCache.get(dataset) ?? new Map<string, Promise<PreparedEncoderData>>();
   encoderDataCache.set(dataset, byModel);
-  const existing = byModel.get(encoder.modelHash);
+  const cacheIdentity = passageEncoder
+    ? `${encoder.modelHash}:${passageEncoder.encoderFingerprint}:${allowPassageCacheWrite ? "warm" : "readonly"}`
+    : encoder.modelHash;
+  const existing = byModel.get(cacheIdentity);
   if (existing) return existing;
-  const pending = prepareEncoderDataUncached(dataset, encoder);
-  byModel.set(encoder.modelHash, pending);
+  const pending = prepareEncoderDataUncached(dataset, encoder, passageEncoder, allowPassageCacheWrite);
+  byModel.set(cacheIdentity, pending);
   try {
     return await pending;
   } catch (error) {
-    byModel.delete(encoder.modelHash);
+    byModel.delete(cacheIdentity);
     throw error;
   }
 }
@@ -852,7 +892,12 @@ export async function createGraphAwareActionCompilationRetriever(
       throw new Error("graph ranker feature schema is incompatible");
     }
   }
-  const encoderData = options.encoder ? await prepareEncoderData(dataset, options.encoder) : undefined;
+  const encoderData = options.encoder ? await prepareEncoderData(
+    dataset,
+    options.encoder,
+    options.passageEncoder,
+    options.allowPassageCacheWrite ?? true,
+  ) : undefined;
   return (input) => retrieve(strategy, input, buildCatalogIndex(input.context), encoderData, {
     budgetRatio,
     maxPathDepth,

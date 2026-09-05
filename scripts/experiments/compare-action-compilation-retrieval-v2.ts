@@ -19,11 +19,12 @@ import {
 import {
   createActionCompilationAdvancedRetriever,
   type AdvancedActionCompilationStrategy,
-  type LocalEncoderRuntime,
 } from "../../src/engine/benchmarks/action-compilation/retrievers/advanced";
 import {
+  discoverLocalEncoderModelDirectory,
   loadLocalMultilingualE5Small,
-} from "../../src/engine/benchmarks/action-compilation/retrievers/local-encoder";
+  type LocalEncoderRuntime,
+} from "../../src/engine/algorithms/eager-reference/candidate-retrieval/local-encoder";
 
 const ADVANCED_STRATEGIES: readonly AdvancedActionCompilationStrategy[] = [
   "structure-closure",
@@ -35,7 +36,6 @@ const ADVANCED_STRATEGIES: readonly AdvancedActionCompilationStrategy[] = [
 ];
 
 const DEFAULT_OUTPUT = path.resolve("benchmarks/action-compilation/fullcatalog-stabilized/evaluations/retrieval-structure-ab-v2");
-const DEFAULT_MODEL_DIRECTORY = path.resolve(".livingworld-benchmarks/models/multilingual-e5-small");
 
 interface Arguments {
   dataset: string;
@@ -114,7 +114,7 @@ function requiredValue(argv: readonly string[], index: number, option: string): 
 function parseArguments(argv: readonly string[]): Arguments {
   let dataset = path.resolve("benchmarks/action-compilation/fullcatalog-stabilized/v1");
   let output = DEFAULT_OUTPUT;
-  let modelDirectory = DEFAULT_MODEL_DIRECTORY;
+  let modelDirectory = "";
   let deterministicOnly = false;
   let force = false;
   for (let index = 0; index < argv.length; index += 1) {
@@ -124,7 +124,7 @@ function parseArguments(argv: readonly string[]): Arguments {
     else if (argument === "--model-dir") modelDirectory = path.resolve(requiredValue(argv, ++index, argument));
     else if (argument === "--model") {
       const model = requiredValue(argv, ++index, argument);
-      modelDirectory = model === "multilingual-e5-small" ? DEFAULT_MODEL_DIRECTORY : path.resolve(model);
+      modelDirectory = model === "multilingual-e5-small" ? "" : path.resolve(model);
     }
     else if (argument === "--deterministic-only") deterministicOnly = true;
     else if (argument === "--force") force = true;
@@ -266,7 +266,10 @@ async function main(argv: readonly string[]): Promise<number> {
       ),
     });
     let encoder: LocalEncoderRuntime | undefined;
-    if (!args.deterministicOnly) encoder = await loadLocalMultilingualE5Small({ modelDirectory: args.modelDirectory });
+    if (!args.deterministicOnly) {
+      const modelDirectory = args.modelDirectory || discoverLocalEncoderModelDirectory();
+      encoder = await loadLocalMultilingualE5Small({ modelDirectory });
+    }
     for (const strategy of ADVANCED_STRATEGIES) {
       if (args.deterministicOnly && strategy.startsWith("encoder")) continue;
       if (args.deterministicOnly && (strategy === "hybrid" || strategy === "retrieve-expand-refine")) continue;

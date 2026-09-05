@@ -20,17 +20,19 @@ import {
   type GraphAwareStrategy,
   type GraphRankerModel,
 } from "../../src/engine/benchmarks/action-compilation/retrievers/graph-aware";
-import { loadLocalMultilingualE5Small, hashLocalModelDirectory, LOCAL_ENCODER_MAX_BATCH_SIZE, LOCAL_ENCODER_MAX_TOKENS } from "../../src/engine/benchmarks/action-compilation/retrievers/local-encoder";
-import type { LocalEncoderRuntime } from "../../src/engine/benchmarks/action-compilation/retrievers/advanced";
+import { loadLocalMultilingualE5Small, hashLocalModelDirectory, LOCAL_ENCODER_MAX_BATCH_SIZE, LOCAL_ENCODER_MAX_TOKENS, type LocalEncoderRuntime } from "../../src/engine/algorithms/eager-reference/candidate-retrieval/local-encoder";
+import { CachedPassageEncoder } from "../../src/engine/algorithms/eager-reference/candidate-retrieval/embedding-cache";
+import { discoverLocalEncoderModelDirectory, livingWorldCacheRoot, localEncoderFingerprint } from "../../src/engine/algorithms/eager-reference/candidate-retrieval/local-encoder";
 
 const DEFAULT_DATASET = path.resolve("benchmarks/action-compilation/fullcatalog-stabilized/v1");
 const DEFAULT_OUTPUT = path.resolve("benchmarks/action-compilation/fullcatalog-stabilized/evaluations/retrieval-graph-ab-v3");
-const DEFAULT_MODEL = path.resolve(".livingworld-benchmarks/models/multilingual-e5-small");
+const DEFAULT_CACHE_ROOT = livingWorldCacheRoot();
 
 interface Args {
   dataset: string;
   output: string;
   modelDirectory: string;
+  cacheRoot: string;
   ranker?: string;
   deterministicOnly: boolean;
   force: boolean;
@@ -52,20 +54,21 @@ function value(argv: readonly string[], index: number, option: string): string {
 }
 
 function parseArgs(argv: readonly string[]): Args {
-  const args: Args = { dataset: DEFAULT_DATASET, output: DEFAULT_OUTPUT, modelDirectory: DEFAULT_MODEL, deterministicOnly: false, force: false, bootstrapSamples: 1000 };
+  const args: Args = { dataset: DEFAULT_DATASET, output: DEFAULT_OUTPUT, modelDirectory: "", cacheRoot: DEFAULT_CACHE_ROOT, deterministicOnly: false, force: false, bootstrapSamples: 1000 };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--dataset") args.dataset = path.resolve(value(argv, ++index, argument));
     else if (argument === "--output") args.output = path.resolve(value(argv, ++index, argument));
     else if (argument === "--model-dir") args.modelDirectory = path.resolve(value(argv, ++index, argument));
+    else if (argument === "--cache-root") args.cacheRoot = path.resolve(value(argv, ++index, argument));
     else if (argument === "--model") {
       const model = value(argv, ++index, argument);
-      args.modelDirectory = model === "multilingual-e5-small" ? DEFAULT_MODEL : path.resolve(model);
+      args.modelDirectory = model === "multilingual-e5-small" ? "" : path.resolve(model);
     } else if (argument === "--ranker") args.ranker = path.resolve(value(argv, ++index, argument));
     else if (argument === "--deterministic-only") args.deterministicOnly = true;
     else if (argument === "--bootstrap-samples") args.bootstrapSamples = Number(value(argv, ++index, argument));
     else if (argument === "--force") args.force = true;
-    else if (argument === "--help") throw new Error("usage: --dataset <dir> --output <dir> [--model-dir <dir>] [--ranker <json>] [--deterministic-only] [--bootstrap-samples <n>] [--force]");
+    else if (argument === "--help") throw new Error("usage: --dataset <dir> --output <dir> [--model-dir <dir>] [--cache-root <dir>] [--ranker <json>] [--deterministic-only] [--bootstrap-samples <n>] [--force]");
     else throw new Error(`unknown argument: ${argument}`);
   }
   if (!Number.isSafeInteger(args.bootstrapSamples) || args.bootstrapSamples < 1) throw new Error("--bootstrap-samples must be a positive integer");
@@ -129,6 +132,7 @@ async function main(argv: readonly string[]): Promise<number> {
     process.stderr.write(`${message}\n`); return 2;
   }
   try {
+    if (!args.modelDirectory && !args.deterministicOnly) args.modelDirectory = discoverLocalEncoderModelDirectory(args.cacheRoot);
     const resultFile = path.join(args.output, "results.json");
     if (!args.force && existsSync(resultFile)) throw new Error(`evaluation output already exists: ${resultFile} (use --force to replace it)`);
     const dataset = loadActionCompilationReferenceDataset(args.dataset);
@@ -157,11 +161,13 @@ async function main(argv: readonly string[]): Promise<number> {
       }
     }
     let encoder: LocalEncoderRuntime | undefined;
+    let passageEncoder: CachedPassageEncoder | undefined;
     if (graphRuns.some((run) => run.needsEncoder)) {
       if (!existsSync(args.modelDirectory)) {
         for (const run of graphRuns.filter((candidate) => candidate.needsEncoder)) runs.push({ id: run.id, status: "blocked", reason: `local encoder asset missing: ${args.modelDirectory}` });
       } else {
         encoder = await loadLocalMultilingualE5Small({ modelDirectory: args.modelDirectory });
+        passageEncoder = new CachedPassageEncoder(encoder, localEncoderFingerprint(encoder, 1), args.cacheRoot);
       }
     }
     for (const config of graphRuns) {
@@ -171,6 +177,7 @@ async function main(argv: readonly string[]): Promise<number> {
         budgetRatio: policy.budgetRatio,
         maxPathDepth: config.depth,
         ...(encoder ? { encoder } : {}),
+        ...(passageEncoder ? { passageEncoder } : {}),
         ...(config.ranker ? { ranker: config.ranker } : {}),
       });
       runs.push(await evaluate(dataset, config.id, retriever, policy, args.bootstrapSamples));
@@ -186,7 +193,7 @@ async function main(argv: readonly string[]): Promise<number> {
         } else {
           const config = graphRuns.find((candidate) => candidate.id === observed.id);
           if (!config || (config.needsEncoder && !encoder)) continue;
-          const retriever = await createGraphAwareActionCompilationRetriever(config.strategy, dataset, { budgetRatio: ratio, maxPathDepth: config.depth, allowDiagnosticBudget: true, ...(encoder ? { encoder } : {}), ...(config.ranker ? { ranker: config.ranker } : {}) });
+          const retriever = await createGraphAwareActionCompilationRetriever(config.strategy, dataset, { budgetRatio: ratio, maxPathDepth: config.depth, allowDiagnosticBudget: true, ...(encoder ? { encoder } : {}), ...(passageEncoder ? { passageEncoder } : {}), ...(config.ranker ? { ranker: config.ranker } : {}) });
           diagnostics.push({ id: `${observed.id}-budget${Math.round(ratio * 100)}`, phase: "diagnostic", status: "completed", report: evaluateActionCompilationRetrievalV3(dataset, retriever, `${observed.id}-budget${Math.round(ratio * 100)}`, diagnosticPolicy, { bootstrapSamples: args.bootstrapSamples }) });
         }
       }
@@ -214,6 +221,7 @@ async function main(argv: readonly string[]): Promise<number> {
     mkdirSync(path.join(args.output, "reports"), { recursive: true });
     writeFileSync(resultFile, `${JSON.stringify(output, null, 2)}\n`, "utf8");
     for (const run of runs) if (run.report) writeFileSync(path.join(args.output, "reports", `${run.id}.json`), `${JSON.stringify(run.report, null, 2)}\n`, "utf8");
+    passageEncoder?.close();
     process.stdout.write(`${JSON.stringify({ output: resultFile, recommendation: output.recommendation, runs: output.runs }, null, 2)}\n`);
     return 0;
   } catch (error) {

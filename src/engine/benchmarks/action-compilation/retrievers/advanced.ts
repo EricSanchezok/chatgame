@@ -3,6 +3,7 @@ import type {
   CandidateRetriever,
   CandidateRetrieverInput,
 } from "../stabilized-behavior";
+import type { LocalEncoderRuntime } from "../../../algorithms/eager-reference/candidate-retrieval/local-encoder";
 
 export type AdvancedActionCompilationStrategy =
   | "structure-closure"
@@ -11,15 +12,6 @@ export type AdvancedActionCompilationStrategy =
   | "encoder-coverage"
   | "hybrid"
   | "retrieve-expand-refine";
-
-export interface LocalEncoderRuntime {
-  readonly modelId: string;
-  readonly modelHash: string;
-  readonly dimensions: number;
-  readonly libraryVersion?: string;
-  readonly libraryHash?: string;
-  encodeBatch(texts: readonly string[]): Promise<readonly (readonly number[])[]>;
-}
 
 export interface AdvancedRetrieverOptions {
   budgetRatio?: number;
