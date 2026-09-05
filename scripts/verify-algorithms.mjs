@@ -44,6 +44,15 @@ for (const identity of [
   if (!registry.includes(`\"${identity}\"`)) failures.push(`built-in algorithm is not registered: ${identity}`);
 }
 
+const benchmarkCatalog = await readFile(path.join(root, "src/engine/benchmarks/action-compilation/retrievers/catalog.ts"), "utf8");
+for (const family of [
+  "ACTION_COMPILATION_RETRIEVER_STRATEGIES",
+  "ADVANCED_ACTION_COMPILATION_RETRIEVER_STRATEGIES",
+  "GRAPH_AWARE_CANDIDATE_SELECTION_STRATEGIES",
+]) {
+  if (!benchmarkCatalog.includes(family)) failures.push(`benchmark algorithm catalog is not derived from ${family}`);
+}
+
 const catalog = spawnSync(process.execPath, ["--import", "tsx", "scripts/operations/algorithm-command.ts", "catalog", "--check"], {
   cwd: root,
   encoding: "utf8",

@@ -1,4 +1,5 @@
 import { contentHash } from "../models/model-audit";
+import type { BenchmarkCandidateSelectionCatalogEntry } from "../benchmarks/action-compilation/retrievers/catalog";
 import type { AlgorithmRef } from "./composition";
 import type { WorldExecutionAlgorithmRegistry } from "../runtime/execution";
 
@@ -49,6 +50,7 @@ export function diffAlgorithmRefs(left: AlgorithmRef, right: AlgorithmRef, path 
 export function algorithmCatalogMarkdown(
   registry: WorldExecutionAlgorithmRegistry,
   defaultComposition: AlgorithmRef,
+  benchmarkAlgorithms: readonly BenchmarkCandidateSelectionCatalogEntry[] = [],
 ): string {
   const definitions = registry.catalog();
   const lines = [
@@ -65,6 +67,21 @@ export function algorithmCatalogMarkdown(
     ...definitions.map((entry) => {
       const children = Object.entries(entry.childRoles).map(([slot, role]) => `\`${slot}\` → \`${role}\``).join("<br>") || "—";
       return `| \`${entry.role}\` | \`${entry.id}@${entry.version}\` | ${entry.contractVersion} | ${entry.maturity} | ${children} |`;
+    }),
+    "",
+    "## Benchmark-only algorithms",
+    "",
+    "These implementations are replaceable inside the offline evaluation harness, but are not resolvable by an instance Composition. Promotion requires a registered production-batch implementation, pinned resources, and evidence accepted by the current activation gate.",
+    "",
+    "| Role | Algorithm | Family | Evaluation strategy | Contract | Maturity | Source | Evidence |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...benchmarkAlgorithms.map((entry) => {
+      const source = `../../${entry.source}`;
+      const evidence = `../../${entry.evidence}`;
+      const identity = entry.runtimeCounterpartIdentity
+        ? `\`${entry.id}@${entry.version}\` (runtime counterpart: \`${entry.runtimeCounterpartIdentity}\`)`
+        : `\`${entry.id}@${entry.version}\``;
+      return `| \`${entry.role}\` | ${identity} | ${entry.family} | \`${entry.strategy}\` | \`${entry.contract}\` | ${entry.maturity} | [implementation](${source}) | [evidence](${evidence}) |`;
     }),
     "",
     "## Default composition",

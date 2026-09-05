@@ -3,13 +3,16 @@ import type {
   CandidateRetrieverInput,
 } from "../stabilized-behavior";
 
-export type ActionCompilationRetrieverStrategy =
-  | "full-catalog"
-  | "typed-full"
-  | "lexical-topk"
-  | "anchor-plus-lexical"
-  | "hybrid-rrf"
-  | "adaptive-hybrid";
+export const ACTION_COMPILATION_RETRIEVER_STRATEGIES = [
+  "full-catalog",
+  "typed-full",
+  "lexical-topk",
+  "anchor-plus-lexical",
+  "hybrid-rrf",
+  "adaptive-hybrid",
+] as const;
+
+export type ActionCompilationRetrieverStrategy = typeof ACTION_COMPILATION_RETRIEVER_STRATEGIES[number];
 
 export interface ActionCompilationRetrieverOptions {
   maxCandidates?: number;

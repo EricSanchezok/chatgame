@@ -5,13 +5,16 @@ import type {
 } from "../stabilized-behavior";
 import type { LocalEncoderRuntime } from "../../../algorithms/eager-reference/candidate-retrieval/local-encoder";
 
-export type AdvancedActionCompilationStrategy =
-  | "structure-closure"
-  | "structure-bm25f"
-  | "encoder-anchor"
-  | "encoder-coverage"
-  | "hybrid"
-  | "retrieve-expand-refine";
+export const ADVANCED_ACTION_COMPILATION_RETRIEVER_STRATEGIES = [
+  "structure-closure",
+  "structure-bm25f",
+  "encoder-anchor",
+  "encoder-coverage",
+  "hybrid",
+  "retrieve-expand-refine",
+] as const;
+
+export type AdvancedActionCompilationStrategy = typeof ADVANCED_ACTION_COMPILATION_RETRIEVER_STRATEGIES[number];
 
 export interface AdvancedRetrieverOptions {
   budgetRatio?: number;

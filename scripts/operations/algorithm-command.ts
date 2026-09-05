@@ -7,6 +7,7 @@ import {
   flattenAlgorithmRef,
 } from "../../src/engine/algorithms/catalog";
 import { DEFAULT_ALGORITHM_REF, registerBuiltinAlgorithms } from "../../src/engine/algorithms/registry";
+import { BENCHMARK_CANDIDATE_SELECTION_ALGORITHMS } from "../../src/engine/benchmarks/action-compilation/retrievers/catalog";
 import { validateAlgorithmRef, WorldExecutionAlgorithmRegistry, type AlgorithmRef } from "../../src/engine/runtime/execution";
 import { loadAlgorithmExperimentRegistry } from "../../src/server/experiment-catalog";
 
@@ -26,14 +27,22 @@ function registry(): WorldExecutionAlgorithmRegistry {
   return registerBuiltinAlgorithms(new WorldExecutionAlgorithmRegistry());
 }
 
+function inventory(algorithms: WorldExecutionAlgorithmRegistry) {
+  return [
+    ...algorithms.catalog().map((entry) => ({ ...entry, availability: "runtime" as const })),
+    ...BENCHMARK_CANDIDATE_SELECTION_ALGORITHMS,
+  ].sort((left, right) =>
+    `${left.role}/${left.id}@${left.version}`.localeCompare(`${right.role}/${right.id}@${right.version}`));
+}
+
 export function runAlgorithmCommand(argv: readonly string[]): string {
   const command = argv[0];
   const algorithms = registry();
-  if (command === "list") return `${JSON.stringify(algorithms.catalog(), null, 2)}\n`;
+  if (command === "list") return `${JSON.stringify(inventory(algorithms), null, 2)}\n`;
   if (command === "describe") {
     const selector = argv[1];
     if (!selector) throw new Error("describe requires <role/id@version>");
-    const definition = algorithms.catalog().find((entry) => `${entry.role}/${entry.id}@${entry.version}` === selector);
+    const definition = inventory(algorithms).find((entry) => `${entry.role}/${entry.id}@${entry.version}` === selector);
     if (!definition) throw new Error(`algorithm is not registered: ${selector}`);
     const nodes = flattenAlgorithmRef(DEFAULT_ALGORITHM_REF)
       .filter(({ ref }) => ref.role === definition.role && ref.id === definition.id && ref.version === definition.version)
@@ -60,7 +69,7 @@ export function runAlgorithmCommand(argv: readonly string[]): string {
     return `${JSON.stringify(diffAlgorithmRefs(readRef(argv[1]), readRef(argv[2])), null, 2)}\n`;
   }
   if (command === "catalog") {
-    const generated = algorithmCatalogMarkdown(algorithms, DEFAULT_ALGORITHM_REF);
+    const generated = algorithmCatalogMarkdown(algorithms, DEFAULT_ALGORITHM_REF, BENCHMARK_CANDIDATE_SELECTION_ALGORITHMS);
     if (argv[1] === "--check") {
       const current = readFileSync(catalogFile, "utf8");
       if (current !== generated) throw new Error("algorithm catalog is stale; run npm run algorithms -- catalog");
