@@ -15,7 +15,8 @@ import {
   resolvedComponentsConflict,
 } from "../../mechanics/action-dependency";
 import { evaluateProposalCausality } from "../../mechanics/causality";
-import { defineAlgorithmManifest } from "../../runtime/execution";
+import { defineAlgorithmRef } from "../composition";
+import { algorithmManifest } from "../../runtime/execution";
 import type {
   InteractionDependency,
   BootstrapCandidate,
@@ -94,65 +95,14 @@ import {
   ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH,
   ACTION_COMPILATION_CANDIDATE_KEY_VERSION,
 } from "../../contracts/model-context";
-import type { ActionCompilationRetrievalRuntime } from "./candidate-retrieval/runtime";
+import {
+  ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
+  type ActionCompilationRetrievalRuntime,
+} from "./candidate-retrieval/runtime";
 
-const groundingComponent = { id: "interaction-grounding", version: "3", config: { repairAttempts: 2 } } as const;
-const compilationComponent = {
-  id: "action-compilation",
-  version: "3",
-  config: {
-    repairAttempts: 2,
-    candidateKeyVersion: ACTION_COMPILATION_CANDIDATE_KEY_VERSION,
-    candidateKeyPayloadLength: ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH,
-  },
-} as const;
-const truthComponent = {
-  id: "truth-interaction-component",
-  version: "3",
-  config: { fallback: "global", contextMode: "full", maxConcurrent: 16 },
-} as const;
-const mindComponent = {
-  id: "agent-mind",
-  version: "6",
-  config: { externalUpdates: false, repairExhaustion: "fail-step" },
-} as const;
-const symbolRepairComponent = {
-  id: "symbol-repair",
-  version: "2",
-  config: {
-    mode: "auto",
-    policyVersion: "symbol-repair-v2",
-    maxDistance: 3,
-    minDistanceMargin: 1,
-    minPayloadLength: 8,
-    allowAdjacentTransposition: true,
-    maxAuditCandidates: 8,
-  },
-} as const;
 export type EagerReferenceCandidateRetrievalConfig =
   | { mode: "off" }
   | { mode: "runtime"; runtimeVersion: string; encoderFingerprint: string; budgetRatio: 0.2 };
-
-function candidateRetrievalComponent(config: EagerReferenceCandidateRetrievalConfig): { id: string; version: string; config: JsonObject } {
-  if (config.mode === "off") return {
-    id: "action-compilation-candidate-retrieval",
-    version: "2",
-    config: { mode: "off" },
-  } as const;
-  return {
-    id: "action-compilation-candidate-retrieval",
-    version: "2",
-    config: {
-      mode: "runtime",
-      runtimeVersion: config.runtimeVersion,
-      encoderFingerprint: config.encoderFingerprint,
-      budgetRatio: config.budgetRatio,
-      graphFeatureSchemaVersion: 1,
-      encoderModel: "intfloat/multilingual-e5-small",
-      cacheSchemaVersion: 1,
-    },
-  } as const;
-}
 
 export interface EagerReferenceAlgorithmConfig {
   actionCompilationMaxSlots: number;
@@ -234,7 +184,9 @@ function parseCandidateRetrievalConfig(value: unknown): EagerReferenceCandidateR
     throw new Error(`runtime candidateRetrieval fields must be exactly: ${expected.join(", ")}`);
   }
   if (input.budgetRatio !== 0.2) throw new Error("candidateRetrieval budgetRatio must be exactly 0.2");
-  if (typeof input.runtimeVersion !== "string" || input.runtimeVersion.length === 0) throw new Error("candidateRetrieval runtimeVersion is required");
+  if (input.runtimeVersion !== ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION) {
+    throw new Error(`candidateRetrieval runtimeVersion must be ${ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION}`);
+  }
   if (typeof input.encoderFingerprint !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(input.encoderFingerprint)) {
     throw new Error("candidateRetrieval encoderFingerprint must be a SHA-256 identity");
   }
@@ -245,18 +197,149 @@ export function createEagerReferenceManifest(
   value: unknown = DEFAULT_EAGER_REFERENCE_CONFIG,
 ) {
   const config = parseEagerReferenceAlgorithmConfig(value);
-  return defineAlgorithmManifest({
-    id: "eager-reference",
-    version: "15",
+  return algorithmManifest(createEagerReferenceAlgorithmRef(config));
+}
+
+export function createEagerReferenceAlgorithmRef(
+  value: unknown = DEFAULT_EAGER_REFERENCE_CONFIG,
+) {
+  const config = parseEagerReferenceAlgorithmConfig(value);
+  const batching = (maxSlots: number) => defineAlgorithmRef({
+    role: "work-batching" as const,
+    id: "bounded-slot-batching",
+    version: "1",
+    contractVersion: 1,
+    config: { maxSlots },
+  });
+  const scheduling = (maxConcurrent: number) => defineAlgorithmRef({
+    role: "work-scheduling" as const,
+    id: "bounded-concurrency",
+    version: "1",
+    contractVersion: 1,
+    config: { maxConcurrent },
+  });
+  const recovery = () => defineAlgorithmRef({
+    role: "output-recovery" as const,
+    id: "localized-repair-bisect",
+    version: "1",
+    contractVersion: 1,
+    config: { maxRepairs: 2, exhaustion: "fail-step", split: "bisect" },
+  });
+  const candidateSelection = config.candidateRetrieval.mode === "off"
+    ? defineAlgorithmRef({
+        role: "candidate-selection",
+        id: "full-catalog",
+        version: "1",
+        contractVersion: 1,
+        config: {},
+      })
+    : defineAlgorithmRef({
+        role: "candidate-selection",
+        id: "graph-hybrid-e5",
+        version: "1",
+        contractVersion: 1,
+        config: {
+          budgetRatio: config.candidateRetrieval.budgetRatio,
+          maxPathDepth: 3,
+          encoderFingerprint: config.candidateRetrieval.encoderFingerprint,
+          encoderModel: "intfloat/multilingual-e5-small",
+          graphFeatureSchemaVersion: 1,
+          passageSchemaVersion: 1,
+          cacheSchemaVersion: 1,
+          rankerArtifactHash: null,
+        },
+      });
+  const symbolRepair = defineAlgorithmRef({
+    role: "symbol-repair",
+    id: "bounded-symbol-repair",
+    version: "1",
+    contractVersion: 1,
     config: {
-      actionCompilationMaxSlots: config.actionCompilationMaxSlots,
-      agentMindMaxSlots: config.agentMindMaxSlots,
-      reactionMaxSlots: config.reactionMaxSlots,
-      groundingMaxSlots: config.groundingMaxSlots,
-      truthBatchMaxSlots: config.truthBatchMaxSlots,
-      candidateRetrieval: config.candidateRetrieval,
+      mode: "auto",
+      policyVersion: "symbol-repair-v2",
+      maxDistance: 3,
+      minDistanceMargin: 1,
+      minPayloadLength: 8,
+      allowAdjacentTransposition: true,
+      maxAuditCandidates: 8,
     },
-    components: [compilationComponent, groundingComponent, truthComponent, mindComponent, symbolRepairComponent, candidateRetrievalComponent(config.candidateRetrieval)],
+  });
+  const actionCompilation = defineAlgorithmRef({
+    role: "action-compilation",
+    id: "model-action-compilation",
+    version: "1",
+    contractVersion: 1,
+    config: {
+      repairAttempts: 2,
+      candidateKeyVersion: ACTION_COMPILATION_CANDIDATE_KEY_VERSION,
+      candidateKeyPayloadLength: ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH,
+    },
+    children: { candidateSelection, symbolRepair, batching: batching(config.actionCompilationMaxSlots), recovery: recovery() },
+  });
+  const agentCognition = defineAlgorithmRef({
+    role: "agent-cognition",
+    id: "model-agent-cognition",
+    version: "1",
+    contractVersion: 1,
+    config: { externalUpdates: false },
+    children: { batching: batching(config.agentMindMaxSlots), recovery: recovery() },
+  });
+  const interactionGrounding = defineAlgorithmRef({
+    role: "interaction-grounding",
+    id: "model-interaction-grounding",
+    version: "1",
+    contractVersion: 1,
+    config: { repairAttempts: 2 },
+    children: { scheduling: scheduling(config.groundingMaxSlots), recovery: recovery() },
+  });
+  const reactionResolution = defineAlgorithmRef({
+    role: "reaction-resolution",
+    id: "onset-reaction",
+    version: "1",
+    contractVersion: 1,
+    config: {},
+    children: {
+      onsetPerception: defineAlgorithmRef({
+        role: "onset-perception",
+        id: "model-onset-perception",
+        version: "1",
+        contractVersion: 1,
+        config: { fallback: "global", contextMode: "full" },
+      }),
+      reactionDecision: defineAlgorithmRef({
+        role: "reaction-decision",
+        id: "model-reaction-decision",
+        version: "1",
+        contractVersion: 1,
+        config: {},
+      }),
+      scheduling: scheduling(config.reactionMaxSlots),
+      recovery: recovery(),
+    },
+  });
+  const truthResolution = defineAlgorithmRef({
+    role: "truth-resolution",
+    id: "model-truth-resolution",
+    version: "1",
+    contractVersion: 1,
+    config: {},
+    children: { batching: batching(config.truthBatchMaxSlots), recovery: recovery() },
+  });
+  const observationRendering = defineAlgorithmRef({
+    role: "observation-rendering",
+    id: "model-observation-rendering",
+    version: "1",
+    contractVersion: 1,
+    config: {},
+    children: { batching: batching(config.truthBatchMaxSlots), recovery: recovery() },
+  });
+  return defineAlgorithmRef({
+    role: "world-execution",
+    id: "eager-reference",
+    version: "16",
+    contractVersion: 6,
+    config: {},
+    children: { agentCognition, actionCompilation, interactionGrounding, reactionResolution, truthResolution, observationRendering },
   });
 }
 
@@ -830,6 +913,7 @@ function mergeResolutions(
 }
 
 export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
+  readonly algorithmIdentity;
   readonly manifest;
   readonly config: Readonly<NormalizedEagerReferenceAlgorithmConfig>;
   private readonly truthEngine: TruthEngine;
@@ -847,6 +931,12 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   ) {
     this.config = Object.freeze(parseEagerReferenceAlgorithmConfig(config));
     this.manifest = createEagerReferenceManifest(this.config);
+    this.algorithmIdentity = Object.freeze({
+      role: this.manifest.role,
+      id: this.manifest.id,
+      version: this.manifest.version,
+      contractVersion: this.manifest.contractVersion,
+    });
     this.provider = new TruthBatchCoordinator(provider, this.config.truthBatchMaxSlots);
     this.rulePackages = rulePackages ?? createCoreRulePackageRegistry();
     if (this.config.candidateRetrieval.mode === "runtime") {
@@ -1321,7 +1411,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
-      compilationComponent.config.repairAttempts,
+      2,
     );
     await context.stages?.after(actionCompilationStage);
     if (knownActions.length > 0) {
@@ -1678,7 +1768,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
-      compilationComponent.config.repairAttempts,
+      2,
     );
     if (replacementDecisions.length > 0) {
       this.emitSlotBatchMetrics(
@@ -1873,7 +1963,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         context.modelScope,
         input.definition.modelProfiles.grounding,
         0,
-        groundingComponent.config.repairAttempts,
+        2,
       );
     }), "action grounding", this.config.groundingMaxSlots);
     const actionDependencies = [

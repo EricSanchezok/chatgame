@@ -31,6 +31,7 @@ import {
 import { AgentMind } from "../agent-mind";
 import { normalizeOutcomeAlternativeEvidence } from "../../../mechanics/truth-engine";
 import { loadWorldScript } from "../../../../script/world-loader";
+import { ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION } from "../candidate-retrieval/runtime";
 
 type AssignedModelAction = {
   actionRef: string;
@@ -47,7 +48,7 @@ it("fails closed when a retrieval-enabled algorithm has no pinned runtime", () =
     ...DEFAULT_EAGER_REFERENCE_CONFIG,
     candidateRetrieval: {
       mode: "runtime",
-      runtimeVersion: "missing-runtime",
+      runtimeVersion: ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
       encoderFingerprint: `sha256:${"1".repeat(64)}`,
       budgetRatio: 0.2,
     },

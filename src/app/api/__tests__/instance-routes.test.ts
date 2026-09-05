@@ -118,13 +118,17 @@ describe("World Instance Route Handlers", () => {
     expect(headless).not.toHaveProperty("experimentEnrollment");
     expect(headless).not.toHaveProperty("experimentExclusion");
     expect(headless).not.toHaveProperty("executionAlgorithm");
-    expect(database.readInstance(headless.summary.id).document.executionAlgorithm.config).toEqual({
-      actionCompilationMaxSlots: 3,
-      agentMindMaxSlots: 2,
-      reactionMaxSlots: 8,
-      groundingMaxSlots: 16,
-      truthBatchMaxSlots: 12,
-      candidateRetrieval: { mode: "off" },
+    expect(database.readInstance(headless.summary.id).document.executionAlgorithm).toMatchObject({
+      config: {},
+      children: {
+        agentCognition: { children: { batching: { config: { maxSlots: 2 } } } },
+        actionCompilation: {
+          children: {
+            batching: { config: { maxSlots: 3 } },
+            candidateSelection: { id: "full-catalog", role: "candidate-selection" },
+          },
+        },
+      },
     });
 
     const advancedResponse = await advanceInstance(jsonRequest(

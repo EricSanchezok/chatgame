@@ -27,10 +27,10 @@ describe("experiment report command", () => {
       const encoderFingerprint = `sha256:${"3".repeat(64)}`;
       const treatment = eagerReferenceAlgorithmRef({
         ...DEFAULT_EAGER_REFERENCE_CONFIG,
-        candidateRetrieval: { mode: "runtime", runtimeVersion: "report-fixture-runtime", encoderFingerprint, budgetRatio: 0.2 },
+        candidateRetrieval: { mode: "runtime", runtimeVersion: "action-compilation-retrieval-runtime-v4", encoderFingerprint, budgetRatio: 0.2 },
       });
       const retrievalRuntime = {
-        version: "report-fixture-runtime",
+        version: "action-compilation-retrieval-runtime-v4",
         role: "action-compilation" as const,
         async retrieveBatch(input: { fullContext: Readonly<Record<string, unknown>>; slotIndices: readonly number[] }) {
           const catalog = input.fullContext.referenceCatalog as { candidates: Array<{ candidateKey: string; scope?: { kind?: string; slot?: number } }> };

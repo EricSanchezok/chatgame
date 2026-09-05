@@ -737,10 +737,7 @@ export class WorldHost {
   }
 
   private requiresActionCompilationRetrieval(ref: AlgorithmRef): boolean {
-    const config = ref.config as Record<string, unknown>;
-    const retrieval = config.candidateRetrieval;
-    return Boolean(retrieval && typeof retrieval === "object" && !Array.isArray(retrieval) &&
-      (retrieval as Record<string, unknown>).mode === "runtime");
+    return ref.children.actionCompilation?.children.candidateSelection?.id === "graph-hybrid-e5";
   }
 
   private assertExecutionAlgorithmAvailable(document: WorldInstanceDocument): void {

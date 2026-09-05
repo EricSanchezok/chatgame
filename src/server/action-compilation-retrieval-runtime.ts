@@ -10,6 +10,7 @@ import {
   type LocalEncoderRuntime,
 } from "../engine/algorithms/eager-reference/candidate-retrieval/local-encoder";
 import {
+  ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
   createActionCompilationRetrievalRuntime,
   type ActionCompilationRetrievalRuntime,
 } from "../engine/algorithms/eager-reference/candidate-retrieval/runtime";
@@ -31,23 +32,23 @@ function loadEncoderOnce(modelDirectory: string): Promise<LocalEncoderRuntime> {
 }
 
 function retrievalConfig(ref: AlgorithmRef): {
-  mode: "runtime";
   runtimeVersion: string;
   encoderFingerprint: string;
   budgetRatio: 0.2;
+  maxPathDepth: 3;
 } | undefined {
-  const value = (ref.config as Record<string, unknown>).candidateRetrieval;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const config = value as Record<string, unknown>;
-  if (config.mode !== "runtime") return undefined;
-  if (typeof config.runtimeVersion !== "string" || typeof config.encoderFingerprint !== "string" || config.budgetRatio !== 0.2) {
-    throw new Error(`candidate retrieval config is invalid for ${ref.id}@${ref.version}`);
+  const selection = ref.children.actionCompilation?.children.candidateSelection;
+  if (!selection || selection.id === "full-catalog") return undefined;
+  if (selection.role !== "candidate-selection" || selection.id !== "graph-hybrid-e5" ||
+    typeof selection.config.encoderFingerprint !== "string" || selection.config.budgetRatio !== 0.2 ||
+    selection.config.maxPathDepth !== 3) {
+    throw new Error(`candidate selection config is invalid for ${selection.role}/${selection.id}@${selection.version}`);
   }
   return {
-    mode: "runtime",
-    runtimeVersion: config.runtimeVersion,
-    encoderFingerprint: config.encoderFingerprint,
+    runtimeVersion: ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
+    encoderFingerprint: selection.config.encoderFingerprint,
     budgetRatio: 0.2,
+    maxPathDepth: 3,
   };
 }
 
@@ -87,7 +88,7 @@ function lazyVariantRuntime(input: {
             strategy: "graph-hybrid",
             encoder,
             passageEncoder,
-            maxPathDepth: 3,
+            maxPathDepth: input.config.maxPathDepth,
           }),
         }),
       };

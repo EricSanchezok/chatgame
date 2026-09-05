@@ -7,7 +7,7 @@ import {
 } from "./execution";
 
 export interface AlgorithmExperimentManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
   version: string;
   layer: "world-execution";
@@ -57,7 +57,7 @@ export function experimentAssignmentBucket(input: {
   assignmentVersion: string;
 }): number {
   const separated = [
-    "living-world-experiment-assignment-v1",
+    "living-world-experiment-assignment-v2",
     input.experimentManifestHash,
     input.salt,
     input.instanceId,
@@ -77,7 +77,7 @@ function body(manifest: Omit<AlgorithmExperimentManifest, "hash">): Omit<Algorit
 export function defineAlgorithmExperimentManifest(
   input: Omit<AlgorithmExperimentManifest, "schemaVersion" | "layer" | "unit" | "hash">,
 ): AlgorithmExperimentManifest {
-  const value = body({ schemaVersion: 1, layer: "world-execution", unit: "instance", ...input });
+  const value = body({ schemaVersion: 2, layer: "world-execution", unit: "instance", ...input });
   const manifest = { ...value, hash: contentHash(value) };
   validateAlgorithmExperimentManifest(manifest);
   return Object.freeze(structuredClone(manifest));
@@ -85,7 +85,7 @@ export function defineAlgorithmExperimentManifest(
 
 export function validateAlgorithmExperimentManifest(manifest: AlgorithmExperimentManifest): void {
   if (!manifest || typeof manifest !== "object") throw new Error("algorithm experiment manifest is required");
-  if (manifest.schemaVersion !== 1 || manifest.layer !== "world-execution" || manifest.unit !== "instance") {
+  if (manifest.schemaVersion !== 2 || manifest.layer !== "world-execution" || manifest.unit !== "instance") {
     throw new Error("unsupported algorithm experiment manifest contract");
   }
   requiredText(manifest.id, "experiment id");

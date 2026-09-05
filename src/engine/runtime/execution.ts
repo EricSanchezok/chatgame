@@ -43,19 +43,31 @@ import type { SharedResourceAdmission } from "../mechanics/shared-resource-alloc
 import type { ExecutionStageHooks } from "./stages";
 import type { ActionCompilationRetrievalRuntime } from "../algorithms/eager-reference/candidate-retrieval/runtime";
 import {
+  AlgorithmRegistry,
+  defineAlgorithmRef as defineCompositionRef,
+  validateAlgorithmRef as validateCompositionRef,
+  type AlgorithmDefinition,
+  type AlgorithmImplementation,
+  type AlgorithmRef,
+  type AlgorithmRole,
+  type ResolvedAlgorithm,
+} from "../algorithms/composition";
+import { z } from "zod";
+import {
   assertJsonValue,
   frozenClone,
   type JsonObject,
 } from "./json";
 
 export type { JsonObject, JsonPrimitive, JsonValue } from "./json";
+export type { AlgorithmRef } from "../algorithms/composition";
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
-export const WORLD_EXECUTION_CONTRACT_VERSION = 5 as const;
+export const WORLD_EXECUTION_CONTRACT_VERSION = 6 as const;
 export const ENGINE_OPERATION_CONTRACT_VERSION = 1 as const;
 export const WORLD_STEP_CANDIDATE_SCHEMA_VERSION = 5 as const;
-export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 4 as const;
+export const WORLD_STEP_PREPARATION_SCHEMA_VERSION = 5 as const;
 
 export class StepPreparationInvalidatedError extends Error {
   constructor(message = "step preparation no longer matches its execution inputs") {
@@ -64,26 +76,14 @@ export class StepPreparationInvalidatedError extends Error {
   }
 }
 
-interface AlgorithmComponentDefinition {
-  id: string;
-  version: string;
-  config: JsonObject;
-}
-
-export interface AlgorithmComponentManifest {
-  id: string;
-  version: string;
-  config: JsonObject;
-  hash: string;
-}
-
 export interface AlgorithmManifest {
   kind: "algorithm";
   contractVersion: typeof WORLD_EXECUTION_CONTRACT_VERSION;
+  role: "world-execution";
   id: string;
   version: string;
   config: JsonObject;
-  components: readonly AlgorithmComponentManifest[];
+  children: Readonly<Record<string, AlgorithmRef>>;
   hash: string;
 }
 
@@ -98,14 +98,6 @@ export interface EngineOperationManifest {
 
 export type ExecutionProducerManifest = AlgorithmManifest | EngineOperationManifest;
 
-export interface AlgorithmRef {
-  id: string;
-  version: string;
-  contractVersion: typeof WORLD_EXECUTION_CONTRACT_VERSION;
-  config: JsonObject;
-  manifestHash: string;
-}
-
 function requireManifestText(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required`);
 }
@@ -114,32 +106,23 @@ export function defineAlgorithmManifest(input: {
   id: string;
   version: string;
   config: JsonObject;
-  components: readonly AlgorithmComponentDefinition[];
+  children?: Readonly<Record<string, AlgorithmRef>>;
 }): AlgorithmManifest {
-  requireManifestText(input.id, "execution algorithm id");
-  requireManifestText(input.version, "execution algorithm version");
-  assertJsonValue(input.config, "execution algorithm config");
-  const componentIds = new Set<string>();
-  const components = input.components.map((component) => {
-    requireManifestText(component.id, "execution algorithm component id");
-    requireManifestText(component.version, `execution algorithm component ${component.id} version`);
-    if (componentIds.has(component.id)) {
-      throw new Error(`execution algorithm contains duplicate component id: ${component.id}`);
-    }
-    componentIds.add(component.id);
-    assertJsonValue(component.config, `execution algorithm component ${component.id} config`);
-    const body = frozenClone(component);
-    return frozenClone({ ...body, hash: contentHash(body) });
-  });
-  const body = frozenClone({
-    kind: "algorithm" as const,
+  const ref = defineCompositionRef({
+    role: "world-execution",
     contractVersion: WORLD_EXECUTION_CONTRACT_VERSION,
-    id: input.id,
-    version: input.version,
-    config: input.config,
-    components,
+    ...input,
   });
-  return frozenClone({ ...body, hash: contentHash(body) });
+  return frozenClone({
+    kind: "algorithm" as const,
+    role: ref.role,
+    contractVersion: WORLD_EXECUTION_CONTRACT_VERSION,
+    id: ref.id,
+    version: ref.version,
+    config: ref.config,
+    children: ref.children,
+    hash: ref.manifestHash,
+  });
 }
 
 export function defineEngineOperationManifest(input: {
@@ -171,20 +154,8 @@ export function validateExecutionProducerManifest(manifest: ExecutionProducerMan
     if (contractVersion !== WORLD_EXECUTION_CONTRACT_VERSION) {
       throw new Error(`unsupported execution algorithm contract version: ${contractVersion}`);
     }
-    const componentIds = new Set<string>();
-    for (const component of manifest.components) {
-      requireManifestText(component.id, "execution algorithm component id");
-      requireManifestText(component.version, `execution algorithm component ${component.id} version`);
-      if (componentIds.has(component.id)) {
-        throw new Error(`execution algorithm contains duplicate component id: ${component.id}`);
-      }
-      componentIds.add(component.id);
-      assertJsonValue(component.config, `execution algorithm component ${component.id} config`);
-      const { hash: componentHash, ...componentBody } = component;
-      if (contentHash(componentBody) !== componentHash) {
-        throw new Error(`execution algorithm component hash mismatch: ${component.id}`);
-      }
-    }
+    validateCompositionRef(algorithmRef(manifest));
+    return;
   } else if (manifest.kind === "engine-operation") {
     const contractVersion = Number(manifest.contractVersion);
     if (contractVersion !== ENGINE_OPERATION_CONTRACT_VERSION) {
@@ -199,25 +170,38 @@ export function validateExecutionProducerManifest(manifest: ExecutionProducerMan
   }
 }
 
-export function algorithmRef(manifest: AlgorithmManifest): AlgorithmRef {
-  validateExecutionProducerManifest(manifest);
-  return frozenClone({
+export function algorithmRef(manifest: AlgorithmManifest): AlgorithmRef<"world-execution"> {
+  const ref = frozenClone({
+    role: manifest.role,
     id: manifest.id,
     version: manifest.version,
     contractVersion: manifest.contractVersion,
     config: manifest.config,
+    children: manifest.children,
     manifestHash: manifest.hash,
+  });
+  validateCompositionRef(ref);
+  return ref;
+}
+
+export function algorithmManifest(ref: AlgorithmRef<"world-execution">): AlgorithmManifest {
+  validateAlgorithmRef(ref);
+  return frozenClone({
+    kind: "algorithm",
+    role: ref.role,
+    contractVersion: WORLD_EXECUTION_CONTRACT_VERSION,
+    id: ref.id,
+    version: ref.version,
+    config: ref.config,
+    children: ref.children,
+    hash: ref.manifestHash,
   });
 }
 
 export function validateAlgorithmRef(ref: AlgorithmRef): void {
-  if (!ref || typeof ref !== "object") throw new Error("execution algorithm reference is required");
-  requireManifestText(ref.id, "execution algorithm reference id");
-  requireManifestText(ref.version, "execution algorithm reference version");
-  requireManifestText(ref.manifestHash, "execution algorithm reference manifest hash");
-  assertJsonValue(ref.config, "execution algorithm reference config");
-  if (ref.contractVersion !== WORLD_EXECUTION_CONTRACT_VERSION) {
-    throw new Error(`unsupported execution algorithm contract version: ${ref.contractVersion}`);
+  validateCompositionRef(ref);
+  if (ref.role !== "world-execution" || ref.contractVersion !== WORLD_EXECUTION_CONTRACT_VERSION) {
+    throw new Error(`unsupported world-execution algorithm contract: ${ref.role}#${ref.contractVersion}`);
   }
 }
 
@@ -488,79 +472,72 @@ export type WorldExecutionAlgorithmFactory = (
   services: Readonly<WorldExecutionAlgorithmServices>,
 ) => WorldExecutionAlgorithm;
 
-export interface WorldExecutionAlgorithmDefinition {
-  id: string;
-  version: string;
-  manifest(config: JsonObject): AlgorithmManifest;
+export type WorldExecutionAlgorithmDefinition = Omit<
+  AlgorithmDefinition<"world-execution", WorldExecutionAlgorithmServices>,
+  "create"
+> & {
   create(
-    config: JsonObject,
-    services: Readonly<WorldExecutionAlgorithmServices>,
+    context: Parameters<AlgorithmDefinition<"world-execution", WorldExecutionAlgorithmServices>["create"]>[0],
   ): WorldExecutionAlgorithm;
-}
+};
 
 export class WorldExecutionAlgorithmRegistry {
-  private readonly definitions = new Map<string, WorldExecutionAlgorithmDefinition>();
+  private readonly algorithms = new AlgorithmRegistry<WorldExecutionAlgorithmServices>();
   private readonly instances = new WeakSet<WorldExecutionAlgorithm>();
 
   register(manifest: AlgorithmManifest, factory: WorldExecutionAlgorithmFactory): void {
     validateExecutionProducerManifest(manifest);
     this.registerDefinition({
+      role: "world-execution",
       id: manifest.id,
       version: manifest.version,
-      manifest: (config) => {
-        if (contentHash(config) !== contentHash(manifest.config)) {
-          throw new Error(`execution algorithm config is not registered: ${manifest.id}@${manifest.version}`);
-        }
-        return manifest;
-      },
-      create: (_config, services) => factory(services),
+      contractVersion: manifest.contractVersion,
+      maturity: "diagnostic",
+      configSchema: z.custom<JsonObject>((config) => contentHash(config) === contentHash(manifest.config)),
+      children: Object.entries(manifest.children).map(([name, child]) => ({ name, role: child.role })),
+      create: ({ services }) => factory(services),
     });
   }
 
   registerDefinition(definition: WorldExecutionAlgorithmDefinition): void {
-    requireManifestText(definition.id, "execution algorithm definition id");
-    requireManifestText(definition.version, "execution algorithm definition version");
-    if (typeof definition.manifest !== "function" || typeof definition.create !== "function") {
-      throw new Error("execution algorithm definition requires manifest and create functions");
+    this.algorithms.register({
+      ...definition,
+      create: (context) => ({
+        algorithmIdentity: {
+          role: definition.role,
+          id: definition.id,
+          version: definition.version,
+          contractVersion: definition.contractVersion,
+        },
+        algorithm: definition.create(context),
+      }),
+    });
+  }
+
+  registerAlgorithmDefinition<R extends AlgorithmRole>(
+    definition: AlgorithmDefinition<R, WorldExecutionAlgorithmServices>,
+  ): void {
+    if (definition.role === "world-execution") {
+      throw new Error("register world-execution definitions with registerDefinition");
     }
-    const key = `${definition.id}@${definition.version}`;
-    if (this.definitions.has(key)) throw new Error(`execution algorithm is already registered: ${key}`);
-    this.definitions.set(key, definition);
+    this.algorithms.register(definition);
+  }
+
+  catalog() {
+    return this.algorithms.list();
   }
 
   has(ref: AlgorithmRef): boolean {
-    validateAlgorithmRef(ref);
-    const definition = this.definitions.get(`${ref.id}@${ref.version}`);
-    if (!definition) return false;
-    try {
-      const manifest = definition.manifest(ref.config);
-      validateExecutionProducerManifest(manifest);
-      return manifest.id === ref.id && manifest.version === ref.version &&
-        manifest.contractVersion === ref.contractVersion && manifest.hash === ref.manifestHash &&
-        contentHash(manifest.config) === contentHash(ref.config);
-    } catch {
-      return false;
-    }
+    return ref.role === "world-execution" && this.algorithms.has(ref);
   }
 
   create(ref: AlgorithmRef, services: Readonly<WorldExecutionAlgorithmServices>): WorldExecutionAlgorithm {
     validateAlgorithmRef(ref);
-    const key = `${ref.id}@${ref.version}`;
-    const definition = this.definitions.get(key);
-    if (!definition) throw new Error(`execution algorithm is not registered: ${key}`);
-    let manifest: AlgorithmManifest;
-    try {
-      manifest = definition.manifest(ref.config);
-      validateExecutionProducerManifest(manifest);
-    } catch (error) {
-      throw new Error(`execution algorithm config is not registered: ${key}`, { cause: error });
-    }
-    if (manifest.id !== ref.id || manifest.version !== ref.version ||
-      manifest.contractVersion !== ref.contractVersion || manifest.hash !== ref.manifestHash ||
-      contentHash(manifest.config) !== contentHash(ref.config)) {
-      throw new Error(`execution algorithm manifest is not registered: ${key}#${ref.manifestHash}`);
-    }
-    const algorithm = definition.create(ref.config, services);
+    if (ref.role !== "world-execution") throw new Error(`world-execution algorithm role is required, got ${ref.role}`);
+    const resolved = this.algorithms.resolve(ref, services) as ResolvedAlgorithm<"world-execution">;
+    const root = resolved.implementation as AlgorithmImplementation<"world-execution"> & { algorithm?: WorldExecutionAlgorithm };
+    const algorithm = root.algorithm;
+    const key = `${ref.role}/${ref.id}@${ref.version}`;
     if (!algorithm || typeof algorithm !== "object") {
       throw new Error(`execution algorithm factory did not return an algorithm instance: ${key}`);
     }
@@ -568,10 +545,7 @@ export class WorldExecutionAlgorithmRegistry {
       typeof algorithm.completeStep !== "function") {
       throw new Error(`execution algorithm factory returned an incomplete algorithm contract: ${key}`);
     }
-    if (algorithm.manifest.id !== ref.id || algorithm.manifest.version !== ref.version ||
-      algorithm.manifest.contractVersion !== ref.contractVersion ||
-      algorithm.manifest.hash !== manifest.hash ||
-      algorithm.manifest.hash !== ref.manifestHash) {
+    if (algorithm.manifest.hash !== ref.manifestHash) {
       throw new Error(`execution algorithm factory returned the wrong manifest: ${key}`);
     }
     validateExecutionProducerManifest(algorithm.manifest);

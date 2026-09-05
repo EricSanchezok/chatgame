@@ -1,5 +1,7 @@
 import { contentHash } from "../../../models/model-audit";
 
+export const ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION = "action-compilation-retrieval-runtime-v4";
+
 export interface RankedCandidate {
   candidateKey: string;
   score: number;

@@ -27,7 +27,7 @@ const manifest = defineAlgorithmManifest({
   id: "test-algorithm",
   version: "1",
   config: {},
-  components: [],
+  children: {},
 });
 
 function activationCounts(overrides: Partial<Record<string, number>> = {}) {
@@ -471,13 +471,20 @@ describe("Execution Ledger", () => {
       const original = ledger.executions({ kind: "benchmark" })
         .find((execution) => execution.manifest.id === "eager-reference");
       expect(original).toBeDefined();
-      expect(original?.manifest.config).toEqual({
-        actionCompilationMaxSlots: 3,
-        agentMindMaxSlots: 2,
-        reactionMaxSlots: 8,
-        groundingMaxSlots: 16,
-        truthBatchMaxSlots: 12,
-        candidateRetrieval: { mode: "off" },
+      expect(original?.manifest).toMatchObject({
+        config: {},
+        children: {
+          agentCognition: { children: { batching: { config: { maxSlots: 2 } } } },
+          actionCompilation: {
+            children: {
+              batching: { config: { maxSlots: 3 } },
+              candidateSelection: { id: "full-catalog", role: "candidate-selection" },
+            },
+          },
+          interactionGrounding: { children: { scheduling: { config: { maxConcurrent: 16 } } } },
+          reactionResolution: { children: { scheduling: { config: { maxConcurrent: 8 } } } },
+          truthResolution: { children: { batching: { config: { maxSlots: 12 } } } },
+        },
       });
       expect(candidatePartitions(ledger.executionEvents(original!.id))).toMatchObject({
         resolution: {

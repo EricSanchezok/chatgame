@@ -498,9 +498,15 @@ describe("World Instance host", () => {
       expect(stored.experimentEnrollment).toBeNull();
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
-        version: "15",
-        contractVersion: 5,
-        config: { actionCompilationMaxSlots: 12, agentMindMaxSlots: 8, truthBatchMaxSlots: 12, candidateRetrieval: { mode: "off" } },
+        version: "16",
+        contractVersion: 6,
+        config: {},
+        children: {
+          actionCompilation: {
+            role: "action-compilation",
+            children: { candidateSelection: { role: "candidate-selection", id: "full-catalog" } },
+          },
+        },
       });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
@@ -1230,7 +1236,7 @@ describe("World Instance host", () => {
       ...DEFAULT_EAGER_REFERENCE_CONFIG,
       candidateRetrieval: {
         mode: "runtime",
-        runtimeVersion: "missing-runtime-fixture",
+        runtimeVersion: "action-compilation-retrieval-runtime-v4",
         encoderFingerprint: `sha256:${"3".repeat(64)}`,
         budgetRatio: 0.2,
       },
@@ -1282,7 +1288,7 @@ describe("World Instance host", () => {
       id: "wrapped-eager",
       version: "1",
       config: {},
-      components: [],
+      children: {},
     });
     class WrappedEager implements WorldExecutionAlgorithm {
       readonly manifest = customManifest;
